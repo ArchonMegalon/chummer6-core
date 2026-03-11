@@ -1,0 +1,21 @@
+{
+  "runtimeFingerprint": "sha256:golden-runtime",
+  "rulesetId": "sr5",
+  "title": "Official SR5 Runtime",
+  "catalogKind": "published",
+  "engineApiVersion": "engine-v2",
+  "contentBundles": [
+    "core",
+    "street-wyrd"
+  ],
+  "rulePacks": [
+    "combat-pack",
+    "quality-pack"
+  ],
+  "providerBindings": {
+    "derive.stat": "combat-pack/derive.initiative",
+    "session.quick-actions": "combat-pack/session.quickaction"
+  },
+  "visibility": "public",
+  "description": "Canonical runtime fixture"
+}

@@ -1,0 +1,249 @@
+project_id: core
+milestone_coverage_complete: true
+design_coverage_complete: true
+uncovered_scope: []
+milestones:
+  - id: A0.1
+    title: Presentation contract family quarantine
+    status: done
+    mapped_worklist:
+      - WL-064
+    notes:
+      - Chummer.CoreEngine.sln excludes Chummer.Presentation.Contracts from the active engine boundary.
+      - Presentation-owned shell, browse, build-kit, journal, and workbench contract families remain outside canonical engine contract ownership.
+  - id: A0.2
+    title: Hosted-service contract family quarantine
+    status: done
+    mapped_worklist:
+      - WL-065
+    notes:
+      - Chummer.CoreEngine.sln excludes Chummer.RunServices.Contracts from the active engine boundary.
+      - Hosted-service AI and Hub DTO ownership remains mapped to run-services until package cutover deletes the temporary source project.
+  - id: A0.3
+    title: Browser infrastructure quarantine
+    status: done
+    mapped_worklist:
+      - WL-066
+    notes:
+      - Chummer.Infrastructure.Browser is explicitly quarantined out of the active engine solution.
+      - Browser-only IndexedDB and storage adapters remain presentation-owned follow-up scope.
+  - id: A0.4
+    title: Legacy helper retirement
+    status: done
+    mapped_worklist:
+      - WL-067
+    notes:
+      - ChummerDataViewer, CrashHandler, TextblockConverter, and Translator were retired from the repo and must stay out of the active engine verification boundary.
+  - id: A0.5
+    title: Cross-repo contract reset follow-through
+    status: open
+    mapped_worklist:
+      - WL-072
+      - WL-085
+      - WL-086
+      - WL-087
+      - WL-088
+      - WL-089
+      - WL-090
+      - WL-091
+      - WL-092
+    work_items:
+      - id: A0.5.1
+        worklist: WL-086
+        title: Keep non-engine authority surfaces represented as explicit runnable backlog
+        status: queued
+        evidence:
+          - Auditor publication candidate `44367` reports queue exhaustion while non-engine authority surfaces remain in core repo scope.
+          - Runnable backlog tracking must remain explicit for presentation contracts, run-service contracts, browser infrastructure, and legacy helper tools until package-only cutover closure.
+      - id: A0.5.2
+        worklist: WL-087
+        title: Keep temporary contract source-project deletion executable through package-only cutover acceptance
+        status: queued
+        evidence:
+          - Keep deletion work for temporary source projects `Chummer.Presentation.Contracts` and `Chummer.RunServices.Contracts` executable until package-only consumer cutover acceptance confirms safe closure.
+          - Keep solution/project reference validation and `scripts/ai/verify.sh` as explicit acceptance checks before closing the deletion slice.
+      - id: A0.5.3
+        worklist: WL-088
+        title: Relocate hosted-only AI/media/approval/search DTO families out of engine-owned contract source
+        status: queued
+        evidence:
+          - Auditor publication candidate `50581` reports hosted AI/media/approval/search contract families still leak into core ownership.
+          - A0.5 closure requires package-only consumer cutover onto `Chummer.Run.Contracts` so engine-owned contract source no longer carries hosted DTO families.
+      - id: A0.5.4
+        worklist: WL-089
+        title: Keep presentation-contract authority closure runnable through package-only cutover acceptance
+        status: queued
+        evidence:
+          - `WL-086` follow-through is decomposed into surface-specific runnable slices so presentation-owned browse/workbench/journal/shell contract families stay milestone-mapped until safe closure.
+          - A0.5 cannot close while presentation-owned contract families can still drift back into core-owned source without explicit closure checks.
+      - id: A0.5.5
+        worklist: WL-090
+        title: Keep run-service contract authority closure runnable through hosted package cutover acceptance
+        status: queued
+        evidence:
+          - `WL-086` follow-through is decomposed into surface-specific runnable slices so hosted run-service contract families remain explicitly tracked through package-only cutover.
+          - A0.5 requires runnable migration and reference checks to keep hosted AI/Hub contract ownership package-mapped instead of source-leaked.
+      - id: A0.5.6
+        worklist: WL-091
+        title: Keep browser infrastructure authority closure runnable through presentation ownership anchoring
+        status: queued
+        evidence:
+          - `WL-086` follow-through is decomposed into surface-specific runnable slices so browser-only storage/runtime adapters stay quarantined from core ownership.
+          - A0.5 closure requires explicit verification that browser infrastructure remains outside active core verification paths.
+      - id: A0.5.7
+        worklist: WL-092
+        title: Confirm retired helper tooling stays absent from engine-owned scope
+        status: done
+        evidence:
+          - ChummerDataViewer, CrashHandler, TextblockConverter, and Translator were removed from the repo during the 2026-03-11 purification pass.
+          - `Chummer.CoreEngine.Tests/Program.cs` now blocks those helper roots from being restored while the broader contract-reset follow-through remains open.
+    notes:
+      - `WL-072` remains open and executable so package-only consumer cutover acceptance can gate safe deletion closure for temporary source projects.
+      - A0.5 stays open while deletion follow-through (`WL-072` / `WL-087`) and remaining follow-through work (`WL-086`, `WL-088`, `WL-089`, `WL-090`, `WL-091`, `WL-092`) remain active.
+      - Queue refresh maintenance on 2026-03-10 (`WL-085`) keeps A0.5 represented as explicit core milestone coverage so contract-reset follow-through stays visible until cutover closure.
+      - Queue refresh on 2026-03-10 appended runnable follow-through slices `WL-086` and `WL-087` from auditor candidate IDs `44367` and `44368` so uncovered non-engine scope and temporary leak deletion stay milestone-mapped instead of queue-overlay-only.
+      - Auditor publication candidate `50581` on 2026-03-10 adds hosted-contract leakage follow-through (`WL-088`) so AI/media/approval/search DTO ownership migration to `Chummer.Run.Contracts` remains executable until safe closure.
+      - `WL-086` follow-through decomposition on 2026-03-10 appends explicit surface slices (`WL-089` through `WL-092`) so presentation contracts, run-service contracts, browser infrastructure, and legacy helper tooling each stay runnable and milestone-mapped until safe closure.
+  - id: A6
+    title: Contract hardening
+    status: done
+    mapped_worklist:
+      - WL-068
+      - WL-073
+      - WL-074
+      - WL-075
+      - WL-085
+    work_items:
+      - id: A6.1
+        worklist: WL-073
+        title: Canonicalize runtime install and BuildKit DTO ownership
+        status: done
+        evidence:
+          - A6.1 locked canonical ownership line for runtime install DTOs in `Chummer.Contracts/Content/RuntimeLockInstallContracts.cs` and `Chummer.Contracts/Content/RuntimeLockRegistryContracts.cs`.
+          - A6.1 locked canonical ownership line for BuildKit DTO families in `Chummer.Contracts/Content/ArtifactContracts.cs`, `Chummer.Contracts/Content/BuildKitApplicationContracts.cs`, and `Chummer.Contracts/Content/BuildKitRegistryContracts.cs`.
+          - A6.1 locked canonical ownership line for compatibility DTO families by keeping hub compatibility/install-preview projections in `Chummer.Contracts/Hub` (`HubProjectCompatibilityContracts.cs`, `HubProjectInstallPreviewContracts.cs`) while asserting those projection DTOs do not leak into engine-owned content contracts.
+          - Boundary regression guard `RepoBoundaryGuardsHostedContractsAndSharedContractOwnership` now asserts canonical contract ownership under `Chummer.Contracts` and verifies the deleted temporary project roots are absent.
+      - id: A6.2
+        worklist: WL-074
+        title: Add normalization fixtures for runtime install, BuildKit, and runtime compatibility DTOs
+        status: done
+        evidence:
+          - Added `RuntimeCompatibilityContractNormalizer` to canonicalize runtime-lock install preview/candidate payloads and BuildKit manifests under engine-owned contract families.
+          - Added normalization fixture coverage and golden fixtures in `Chummer.CoreEngine.Tests/Fixtures/Contracts` for runtime-lock install preview, BuildKit manifest, and runtime-lock install candidate payloads.
+      - id: A6.3
+        worklist: WL-075
+        title: Harden session and runtime compatibility projection seams
+        status: done
+        evidence:
+          - Added deterministic compatibility projection regression coverage for runtime-lock and BuildKit hub compatibility matrices under ordering variance.
+          - Hardened session overlay replay ordering in `DefaultSessionOverlayProjectionService` to deterministic sequence/timestamp/event-id ordering for stable session compatibility projection outputs.
+    notes:
+      - A6.1 is complete: runtime install, BuildKit, and compatibility DTO ownership is now explicitly locked to canonical contract families, with boundary regression assertions.
+      - A6.2 and A6.3 are complete with canonical normalization fixtures and deterministic compatibility projection regression coverage.
+      - Presentation and run-services now have fixture-backed canonical compatibility payloads for runtime install, BuildKit manifests, runtime compatibility diagnostics, and session envelope replay ordering behavior.
+      - Auditor queue-exhaustion findings from 2026-03-10 candidate IDs 3 and 4 are incorporated by milestone-mapped A0.5 and A6-A9 coverage plus explicit A6.1 evidence.
+      - Queue overlay refresh maintenance on 2026-03-10 (`WL-085`) confirms A6-A9 slice mapping remains runnable and explicit in both the worklist and milestone registry.
+      - Queue refresh follow-through from auditor candidate IDs `44367` and `44368` keeps remaining hardening/integration scope represented via explicit milestone/worklist mapping instead of coarse queue-only tracking.
+  - id: A7
+    title: Structured Explain API hardening
+    status: done
+    mapped_worklist:
+      - WL-069
+      - WL-076
+      - WL-077
+      - WL-078
+    work_items:
+      - id: A7.1
+        worklist: WL-076
+        title: Expose keyed disabled-reason payloads across explainable selection and filter surfaces
+        status: done
+        evidence:
+          - Added `DisabledReasonPayload` plus localization helpers under `Chummer.Contracts/Rulesets/DisabledReasonContracts.cs` and switched typed filter/session capability outputs to keyed payload envelopes.
+          - Extended session/hub/AI action contracts with `DisabledReasonKey` and `DisabledReasonParameters` payloads to keep selection/filter disabled outcomes localization-safe.
+          - Added regression coverage in `SelectionAndFilterDisabledReasonsStayKeyed` to assert key/parameter preservation across filter, quick-action, hub, and AI projection surfaces.
+      - id: A7.2
+        worklist: WL-077
+        title: Lock explain provenance and evidence envelopes
+        status: done
+        evidence:
+          - Added explicit explain provenance and evidence envelope DTO families in `Chummer.Contracts` and `Chummer.Contracts.AI` with stable schema markers.
+          - Hardened `DefaultAiExplainService` to emit deterministic evidence ordering and structured provenance/evidence envelopes alongside trace payloads.
+          - Extended explain regression assertions and the `explain-trace.golden.json` fixture to lock envelope shape, schema IDs, and pointer parity.
+      - id: A7.3
+        worklist: WL-078
+        title: Add before and after runtime diff explain fixtures
+        status: done
+        evidence:
+          - Added `runtime-lock-diff.golden.json` fixture to lock runtime diff before/after projections, keyed reason metadata, and provider-binding lineage.
+          - Added fixture coverage via `CreateRuntimeLockDiffFixture` and `ContractGoldenJsonFixturesStayStable` so runtime diff explain-facing payloads remain deterministic.
+    notes:
+      - A7.1 through A7.3 are complete with keyed disabled-reason payloads, explain provenance/evidence envelopes, and runtime before/after diff fixture coverage.
+      - Explain-facing projections now enforce schema-marked envelope shape and deterministic pointer ordering through fixture-backed regression tests.
+  - id: A8
+    title: Runtime and RulePack determinism hardening
+    status: done
+    mapped_worklist:
+      - WL-070
+      - WL-079
+      - WL-080
+      - WL-081
+      - WL-085
+    work_items:
+      - id: A8.1
+        worklist: WL-079
+        title: Harden runtime fingerprint byte-stability across ordering variance
+        status: done
+        evidence:
+          - Expanded `DefaultRuntimeFingerprintService` to include sorted capability descriptors, dependency references, and conflict sets in fingerprint source material.
+          - Added `Runtime_fingerprint_service_is_stable_for_dependency_order_noise_but_changes_for_dependency_content_changes` regression coverage in `Chummer.Tests/RuntimeFingerprintServiceTests.cs`.
+      - id: A8.2
+        worklist: WL-080
+        title: Add compile-order and provider-binding determinism tests
+        status: done
+        evidence:
+          - Hardened `DefaultRuleProfileRegistryService` provider-binding map generation with deterministic capability-key ordering before dictionary materialization.
+          - Added `Default_registry_service_provider_bindings_are_deterministic_across_discovery_order_for_shared_capabilities` regression coverage in `Chummer.Tests/RuleProfileRegistryServiceTests.cs`.
+      - id: A8.3
+        worklist: WL-081
+        title: Harden RulePack dependency resolution ordering
+        status: done
+        evidence:
+          - Runtime fingerprint checksum composition now treats dependency graph references as first-class deterministic inputs while tolerating equivalent ordering noise.
+          - Rule profile/runtime lock regression coverage now asserts equivalent manifest/provider sets remain byte-stable across discovery-order variance.
+    notes:
+      - A8.1 through A8.3 are complete with deterministic fingerprint input composition, compile/provider-binding ordering guards, and dependency-order regression coverage.
+      - Equivalent manifest/dependency sets now produce byte-stable runtime lock fingerprints while meaningful dependency-version/content changes remain fingerprint-visible.
+  - id: A9
+    title: Journal, validation, and explain-hook integration primitives
+    status: done
+    mapped_worklist:
+      - WL-071
+      - WL-082
+      - WL-083
+      - WL-084
+      - WL-085
+    work_items:
+      - id: A9.1
+        worklist: WL-082
+        title: Add journal and ledger timeline projection primitives
+        status: done
+        evidence:
+          - `Chummer.Contracts/Journal/JournalContracts.cs` defines engine-owned deterministic note, ledger, and timeline projection DTO families.
+          - `Chummer.Application/Journal/DefaultJournalProjectionService.cs` provides stable scope filtering, ordering, and keyed diagnostic validation for journal projections.
+      - id: A9.2
+        worklist: WL-083
+        title: Add validation summary and failure-envelope primitives
+        status: done
+        evidence:
+          - Added `Chummer.Contracts/Validation/ValidationSummaryContracts.cs` with localization-safe `ValidationSummary` and `ValidationFailureEnvelope` DTOs.
+          - Added `Chummer.Application/Validation/DefaultValidationSummaryService.cs` to emit deterministic severity-ranked failure envelopes with runtime fingerprint and provenance context.
+      - id: A9.3
+        worklist: WL-084
+        title: Add explain-hook composition seam for backend integrations
+        status: done
+        evidence:
+          - Added `Chummer.Contracts/ExplainHookContracts.cs` with engine-owned explain hook reference and composition contracts for downstream attachment seams.
+          - Added `Chummer.Application/Explain/DefaultExplainHookComposer.cs` to create normalized explain hooks and deterministic deduplicated attachment compositions.
+    notes:
+      - A9.1 through A9.3 are complete with deterministic journal/timeline projection, validation summary/failure-envelope contracts, and explain-hook composition seams.
+      - Regression coverage `ValidationSummaryAndExplainHookCompositionStayDeterministic` in `Chummer.CoreEngine.Tests/Program.cs` locks deterministic ordering, localization-safe keys, runtime context propagation, and explain-hook attachment behavior.

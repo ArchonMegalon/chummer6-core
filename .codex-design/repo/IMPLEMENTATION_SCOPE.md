@@ -1,0 +1,61 @@
+# Core implementation scope
+
+## Mission
+
+`chummer-core-engine` owns deterministic mechanics, reducer-safe session mutation, runtime bundles, explain traces, and the canonical engine contract plane.
+
+## Owns
+
+* rules math
+* runtime fingerprints
+* runtime bundles
+* deterministic reducers
+* explain provenance
+* engine contract canon
+* ruleset/plugin/script ABI
+
+## Must not own
+
+* UI rendering or shell chrome
+* hosted-service workflows
+* relay or campaign orchestration
+* media rendering
+* registry persistence
+* provider routing
+* play/mobile client implementation
+
+## Current purification focus
+
+* remove `Chummer.Presentation.Contracts` and `Chummer.RunServices.Contracts` source leaks
+* quarantine legacy tooling out of the active engine solution
+* keep `Chummer.Engine.Contracts` as the only canonical engine/shared DTO source
+* fix README drift so the repo no longer narrates play/workbench/service heads as engine ownership
+
+## Milestone spine
+
+* E0 purification
+* E1 runtime DTO canon
+* E2 explain canon
+* E3 session reducer canon
+* E4 ruleset ABI stabilization
+* E5 explain backend completion
+* E6 Build Lab backend
+* E7 legacy migration certification
+* E8 hardening
+* E9 finished engine
+
+## Worker rule
+
+If a feature can be answered by deterministic mechanics or explain provenance, it belongs here.
+If it depends on HTTP, browser UX, player shell behavior, registry workflow, or render execution, it does not.
+
+
+## External integration note
+
+`chummer-core-engine` remains external-tool-agnostic.
+
+It may emit deterministic payloads or consume approved deterministic inputs for other repos to use, but it must not:
+
+* depend on provider SDKs
+* depend on third-party orchestration APIs
+* embed vendor-specific receipts as canonical engine truth
