@@ -1,0 +1,182 @@
+{
+  "beforeFingerprint": "sha256:before",
+  "afterFingerprint": "sha256:after",
+  "changes": [
+    {
+      "kind": "engine-api-changed",
+      "subjectId": "engine-api",
+      "beforeValue": "engine-v1",
+      "afterValue": "engine-v2",
+      "reasonKey": "runtime.diff.engine-api.changed",
+      "reasonParameters": [
+        {
+          "name": "beforeEngineApiVersion",
+          "value": {
+            "kind": "string",
+            "stringValue": "engine-v1"
+          }
+        },
+        {
+          "name": "afterEngineApiVersion",
+          "value": {
+            "kind": "string",
+            "stringValue": "engine-v2"
+          }
+        }
+      ]
+    },
+    {
+      "kind": "content-bundle-added",
+      "subjectId": "campaign.seattle@2026.03",
+      "afterValue": "campaign.seattle@2026.03",
+      "reasonKey": "runtime.diff.content-bundle.added",
+      "reasonParameters": [
+        {
+          "name": "bundleId",
+          "value": {
+            "kind": "string",
+            "stringValue": "campaign.seattle"
+          }
+        },
+        {
+          "name": "version",
+          "value": {
+            "kind": "string",
+            "stringValue": "2026.03"
+          }
+        },
+        {
+          "name": "rulesetId",
+          "value": {
+            "kind": "string",
+            "stringValue": "sr5"
+          }
+        }
+      ]
+    },
+    {
+      "kind": "rulepack-added",
+      "subjectId": "combat-pack@1.1.0",
+      "afterValue": "combat-pack@1.1.0",
+      "reasonKey": "runtime.diff.rulepack.added",
+      "reasonParameters": [
+        {
+          "name": "packId",
+          "value": {
+            "kind": "string",
+            "stringValue": "combat-pack"
+          }
+        },
+        {
+          "name": "version",
+          "value": {
+            "kind": "string",
+            "stringValue": "1.1.0"
+          }
+        }
+      ]
+    },
+    {
+      "kind": "rulepack-added",
+      "subjectId": "quality-pack@2.0.0",
+      "afterValue": "quality-pack@2.0.0",
+      "reasonKey": "runtime.diff.rulepack.added",
+      "reasonParameters": [
+        {
+          "name": "packId",
+          "value": {
+            "kind": "string",
+            "stringValue": "quality-pack"
+          }
+        },
+        {
+          "name": "version",
+          "value": {
+            "kind": "string",
+            "stringValue": "2.0.0"
+          }
+        }
+      ]
+    },
+    {
+      "kind": "rulepack-removed",
+      "subjectId": "combat-pack@1.0.0",
+      "beforeValue": "combat-pack@1.0.0",
+      "reasonKey": "runtime.diff.rulepack.removed",
+      "reasonParameters": [
+        {
+          "name": "packId",
+          "value": {
+            "kind": "string",
+            "stringValue": "combat-pack"
+          }
+        },
+        {
+          "name": "version",
+          "value": {
+            "kind": "string",
+            "stringValue": "1.0.0"
+          }
+        }
+      ]
+    },
+    {
+      "kind": "provider-binding-changed",
+      "subjectId": "derive.stat",
+      "beforeValue": "combat-pack/derive.initiative",
+      "afterValue": "combat-pack/derive.initiative.v2",
+      "reasonKey": "runtime.diff.provider-binding.changed",
+      "reasonParameters": [
+        {
+          "name": "capabilityId",
+          "value": {
+            "kind": "string",
+            "stringValue": "derive.stat"
+          }
+        },
+        {
+          "name": "beforeProviderId",
+          "value": {
+            "kind": "string",
+            "stringValue": "combat-pack/derive.initiative"
+          }
+        },
+        {
+          "name": "afterProviderId",
+          "value": {
+            "kind": "string",
+            "stringValue": "combat-pack/derive.initiative.v2"
+          }
+        }
+      ]
+    },
+    {
+      "kind": "provider-binding-changed",
+      "subjectId": "session.quick-actions",
+      "afterValue": "quality-pack/session.quickaction",
+      "reasonKey": "runtime.diff.provider-binding.changed",
+      "reasonParameters": [
+        {
+          "name": "capabilityId",
+          "value": {
+            "kind": "string",
+            "stringValue": "session.quick-actions"
+          }
+        },
+        {
+          "name": "beforeProviderId",
+          "value": {
+            "kind": "null"
+          }
+        },
+        {
+          "name": "afterProviderId",
+          "value": {
+            "kind": "string",
+            "stringValue": "quality-pack/session.quickaction"
+          }
+        }
+      ]
+    }
+  ]
+}

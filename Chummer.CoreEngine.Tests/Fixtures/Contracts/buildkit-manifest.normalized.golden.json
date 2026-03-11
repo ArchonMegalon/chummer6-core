@@ -1,0 +1,78 @@
+{
+  "buildKitId": "starter-kit",
+  "version": "1.0.0",
+  "title": "Starter Kit",
+  "description": "BuildKit normalization fixture.",
+  "targets": [
+    "sr5"
+  ],
+  "runtimeRequirements": [
+    {
+      "rulesetId": "sr5",
+      "requiredRuntimeFingerprints": [
+        "sha256:a",
+        "sha256:b"
+      ],
+      "requiredRulePacks": [
+        {
+          "id": "combat-pack",
+          "version": "2.0.0"
+        },
+        {
+          "id": "house-rules",
+          "version": "1.0.0"
+        }
+      ]
+    }
+  ],
+  "prompts": [
+    {
+      "promptId": "path",
+      "kind": "choice",
+      "label": "Path",
+      "options": [
+        {
+          "optionId": "mage",
+          "label": "Mage"
+        },
+        {
+          "optionId": "street",
+          "label": "Street"
+        }
+      ],
+      "required": true
+    },
+    {
+      "promptId": "priority",
+      "kind": "choice",
+      "label": "Priority",
+      "options": [
+        {
+          "optionId": "A",
+          "label": "A"
+        },
+        {
+          "optionId": "B",
+          "label": "B"
+        }
+      ],
+      "required": false
+    }
+  ],
+  "actions": [
+    {
+      "actionId": "apply-path",
+      "kind": "apply-choice",
+      "targetId": "career-path",
+      "promptId": "path"
+    },
+    {
+      "actionId": "set-note",
+      "kind": "set-metadata",
+      "targetId": "workspace",
+      "notes": "starter"
+    }
+  ],
+  "visibility": "local-only",
+  "trustTier": "local-only"
+}

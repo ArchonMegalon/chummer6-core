@@ -1,0 +1,43 @@
+{
+  "overlayId": "overlay-1",
+  "baseCharacterVersion": {
+    "characterId": "char-1",
+    "versionId": "ver-1",
+    "rulesetId": "sr5",
+    "runtimeFingerprint": "sha256:golden-runtime"
+  },
+  "events": [
+    {
+      "eventId": "evt-1",
+      "overlayId": "overlay-1",
+      "baseCharacterVersion": {
+        "characterId": "char-1",
+        "versionId": "ver-1",
+        "rulesetId": "sr5",
+        "runtimeFingerprint": "sha256:golden-runtime"
+      },
+      "deviceId": "device-1",
+      "actorId": "actor-1",
+      "sequence": 1,
+      "eventType": "tracker.increment",
+      "payload": {
+        "amount": {
+          "kind": "integer",
+          "integerValue": 2
+        },
+        "trackerId": {
+          "kind": "string",
+          "stringValue": "stun"
+        }
+      },
+      "createdAtUtc": "2026-03-09T00:00:00+00:00",
+      "appliedAtUtc": "2026-03-09T00:00:03+00:00",
+      "syncCursor": "cursor-1",
+      "providerId": "combat-pack/session.quickaction",
+      "packId": "combat-pack",
+      "schema": "session_events_vnext"
+    }
+  ],
+  "baselineSnapshotId": "snapshot-1",
+  "nextSequence": 2
+}

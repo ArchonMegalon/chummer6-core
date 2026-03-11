@@ -1,0 +1,97 @@
+{
+  "targetKind": "session-ledger",
+  "targetId": "session-a",
+  "entry": {
+    "lockId": "runtime-lock-a",
+    "owner": {
+      "value": "local-single-user",
+      "normalizedValue": "local-single-user",
+      "isLocalSingleUser": true
+    },
+    "title": "runtime-lock-a title",
+    "visibility": "local-only",
+    "catalogKind": "saved",
+    "runtimeLock": {
+      "rulesetId": "sr5",
+      "contentBundles": [
+        {
+          "bundleId": "content-bundle-a",
+          "rulesetId": "sr5",
+          "version": "1.0.0",
+          "title": "Content A",
+          "description": "A bundle",
+          "assetPaths": [
+            "a.xml",
+            "b.xml"
+          ]
+        },
+        {
+          "bundleId": "content-bundle-z",
+          "rulesetId": "sr5",
+          "version": "1.0.0",
+          "title": "Content Z",
+          "description": "Z bundle",
+          "assetPaths": [
+            "a.xml",
+            "z.xml"
+          ]
+        }
+      ],
+      "rulePacks": [
+        {
+          "id": "combat-pack",
+          "version": "2.0.0"
+        },
+        {
+          "id": "house-rules",
+          "version": "1.0.0"
+        }
+      ],
+      "providerBindings": {
+        "derive.stat": "house-rules/derive.stat",
+        "session.quick-actions": "combat-pack/session.quick-actions"
+      },
+      "engineApiVersion": "rulepack-v1",
+      "runtimeFingerprint": "sha256:compat-runtime"
+    },
+    "updatedAtUtc": "1970-01-01T02:00:00+00:00",
+    "install": {
+      "state": "available",
+      "runtimeFingerprint": "sha256:compat-runtime"
+    }
+  },
+  "diagnostics": [
+    {
+      "state": "missing-pack",
+      "message": "runtime.lock.compatibility.missing-pack",
+      "requiredRulesetId": "sr5",
+      "requiredRuntimeFingerprint": "sha256:compat-runtime",
+      "messageKey": "runtime.lock.compatibility.missing-pack",
+      "messageParameters": [
+        {
+          "name": "packId",
+          "value": {
+            "kind": "string",
+            "stringValue": "missing-pack"
+          }
+        },
+        {
+          "name": "version",
+          "value": {
+            "kind": "string",
+            "stringValue": "1.0.0"
+          }
+        }
+      ]
+    },
+    {
+      "state": "rebind-required",
+      "message": "runtime.lock.compatibility.rebind-required",
+      "requiredRulesetId": "sr5",
+      "requiredRuntimeFingerprint": "sha256:compat-runtime",
+      "messageKey": "runtime.lock.compatibility.rebind-required",
+      "messageParameters": []
+    }
+  ],
+  "canInstall": false
+}

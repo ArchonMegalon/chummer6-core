@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Chummer.Application\Chummer.Application.csproj" />
+    <ProjectReference Include="..\Chummer.Contracts\Chummer.Contracts.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Remove="ServiceCollectionRulesetHostingExtensions.cs" />
+  </ItemGroup>
+</Project>

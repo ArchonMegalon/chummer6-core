@@ -1,0 +1,126 @@
+{
+  "lockId": "runtime-lock-a",
+  "target": {
+    "targetKind": "session-ledger",
+    "targetId": "session-a",
+    "pinMode": "required"
+  },
+  "runtimeLock": {
+    "rulesetId": "sr5",
+    "contentBundles": [
+      {
+        "bundleId": "content-bundle-a",
+        "rulesetId": "sr5",
+        "version": "1.0.0",
+        "title": "Content A",
+        "description": "A bundle",
+        "assetPaths": [
+          "a.xml",
+          "b.xml"
+        ]
+      },
+      {
+        "bundleId": "content-bundle-z",
+        "rulesetId": "sr5",
+        "version": "1.0.0",
+        "title": "Content Z",
+        "description": "Z bundle",
+        "assetPaths": [
+          "a.xml",
+          "z.xml"
+        ]
+      }
+    ],
+    "rulePacks": [
+      {
+        "id": "combat-pack",
+        "version": "2.0.0"
+      },
+      {
+        "id": "house-rules",
+        "version": "1.0.0"
+      }
+    ],
+    "providerBindings": {
+      "derive.stat": "house-rules/derive.stat",
+      "session.quick-actions": "combat-pack/session.quick-actions"
+    },
+    "engineApiVersion": "rulepack-v1",
+    "runtimeFingerprint": "sha256:compat-runtime"
+  },
+  "changes": [
+    {
+      "kind": "runtime-lock-pinned",
+      "summary": "runtime.lock.install.preview.runtime-lock-pinned",
+      "subjectId": "runtime-lock-a",
+      "requiresConfirmation": false,
+      "summaryKey": "runtime.lock.install.preview.runtime-lock-pinned",
+      "summaryParameters": [
+        {
+          "name": "lockId",
+          "value": {
+            "kind": "string",
+            "stringValue": "runtime-lock-a"
+          }
+        },
+        {
+          "name": "runtimeFingerprint",
+          "value": {
+            "kind": "string",
+            "stringValue": "sha256:compat-runtime"
+          }
+        }
+      ]
+    },
+    {
+      "kind": "session-replay-required",
+      "summary": "runtime.lock.install.preview.session-replay-required",
+      "subjectId": "session-a",
+      "requiresConfirmation": true,
+      "summaryKey": "runtime.lock.install.preview.session-replay-required",
+      "summaryParameters": [
+        {
+          "name": "targetId",
+          "value": {
+            "kind": "string",
+            "stringValue": "session-a"
+          }
+        },
+        {
+          "name": "targetKind",
+          "value": {
+            "kind": "string",
+            "stringValue": "session-ledger"
+          }
+        }
+      ]
+    }
+  ],
+  "warnings": [
+    {
+      "kind": "provider-binding",
+      "severity": "warning",
+      "message": "runtime.lock.install.warning.runtime-review",
+      "subjectId": "runtime-lock-a",
+      "messageKey": "runtime.lock.install.warning.runtime-review",
+      "messageParameters": [
+        {
+          "name": "rulePackCount",
+          "value": {
+            "kind": "integer",
+            "integerValue": 2
+          }
+        }
+      ]
+    },
+    {
+      "kind": "trust",
+      "severity": "info",
+      "message": "runtime.lock.install.warning.local-only",
+      "subjectId": "runtime-lock-a",
+      "messageKey": "runtime.lock.install.warning.local-only",
+      "messageParameters": []
+    }
+  ],
+  "requiresConfirmation": true
+}
