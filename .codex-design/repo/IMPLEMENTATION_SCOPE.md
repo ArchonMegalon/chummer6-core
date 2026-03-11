@@ -2,7 +2,7 @@
 
 ## Mission
 
-`chummer-core-engine` owns deterministic mechanics, reducer-safe session mutation, runtime bundles, explain traces, and the canonical engine contract plane.
+`chummer6-core` owns deterministic mechanics, reducer-safe session mutation, runtime bundles, explain traces, and the canonical engine contract plane.
 
 ## Owns
 
@@ -52,7 +52,7 @@ If it depends on HTTP, browser UX, player shell behavior, registry workflow, or 
 
 ## External integration note
 
-`chummer-core-engine` remains external-tool-agnostic.
+`chummer6-core` remains external-tool-agnostic.
 
 It may emit deterministic payloads or consume approved deterministic inputs for other repos to use, but it must not:
 
