@@ -216,11 +216,364 @@ public class RuntimeFingerprintServiceTests
         Assert.AreNotEqual(fingerprintA, fingerprintChanged);
     }
 
+    [TestMethod]
+    public void Runtime_fingerprint_service_is_stable_for_nested_manifest_order_noise()
+    {
+        DefaultRuntimeFingerprintService service = new();
+        ContentBundleDescriptor[] bundles =
+        [
+            new(
+                BundleId: "official.sr5.base",
+                RulesetId: RulesetDefaults.Sr5,
+                Version: "schema-5",
+                Title: "SR5 Base",
+                Description: "Built-in base content.",
+                AssetPaths: ["data/", "lang/"])
+        ];
+
+        RulePackRegistryEntry manifestOrderA = CreateRulePack(
+            "house-rules",
+            "1.0.0",
+            "sha256:abc",
+            capabilities:
+            [
+                new RulePackCapabilityDescriptor(
+                    CapabilityId: RulePackCapabilityIds.ValidateChoice,
+                    AssetKind: RulePackAssetKinds.Xml,
+                    AssetMode: RulePackAssetModes.MergeCatalog),
+                new RulePackCapabilityDescriptor(
+                    CapabilityId: RulePackCapabilityIds.ValidateCharacter,
+                    AssetKind: RulePackAssetKinds.Xml,
+                    AssetMode: RulePackAssetModes.MergeCatalog),
+                new RulePackCapabilityDescriptor(
+                    CapabilityId: RulePackCapabilityIds.Localization,
+                    AssetKind: RulePackAssetKinds.Localization,
+                    AssetMode: RulePackAssetModes.ReplaceFile,
+                    Explainable: true,
+                    SessionSafe: true)
+            ],
+            dependencies:
+            [
+                new ArtifactVersionReference("beta-pack", "1.0.0"),
+                new ArtifactVersionReference("alpha-pack", "2.0.0"),
+                new ArtifactVersionReference("charter-pack", "1.0.0")
+            ],
+            conflicts:
+            [
+                new ArtifactVersionReference("x-conflict", "0.1.0"),
+                new ArtifactVersionReference("z-conflict", "0.2.0")
+            ],
+            assets:
+            [
+                new RulePackAssetDescriptor(
+                    Kind: RulePackAssetKinds.Lua,
+                    Mode: RulePackAssetModes.SetConstant,
+                    RelativePath: "scripts/set-constant.lua",
+                    Checksum: "sha256:asset-a"),
+                new RulePackAssetDescriptor(
+                    Kind: RulePackAssetKinds.Xml,
+                    Mode: RulePackAssetModes.MergeCatalog,
+                    RelativePath: "data/house-rules.xml",
+                    Checksum: "sha256:asset-b"),
+                new RulePackAssetDescriptor(
+                    Kind: RulePackAssetKinds.Tests,
+                    Mode: RulePackAssetModes.AppendCatalog,
+                    RelativePath: "tests/rules.xml",
+                    Checksum: "sha256:asset-c")
+            ],
+            targets: [RulesetDefaults.Dummy, RulesetDefaults.Sr5],
+            executionPolicies:
+            [
+                new RulePackExecutionPolicyHint(
+                    Environment: RulePackExecutionEnvironments.HostedServer,
+                    PolicyMode: RulePackExecutionPolicyModes.Deny,
+                    MinimumTrustTier: ArtifactTrustTiers.Private,
+                    AllowedAssetModes:
+                    [
+                        RulePackAssetModes.PatchNode,
+                        RulePackAssetModes.RemoveNode
+                    ]),
+                new RulePackExecutionPolicyHint(
+                    Environment: RulePackExecutionEnvironments.DesktopLocal,
+                    PolicyMode: RulePackExecutionPolicyModes.Allow,
+                    MinimumTrustTier: ArtifactTrustTiers.Curated,
+                    AllowedAssetModes:
+                    [
+                        RulePackAssetModes.AppendCatalog,
+                        RulePackAssetModes.SetConstant
+                    ])
+            ]);
+
+        RulePackRegistryEntry manifestOrderB = CreateRulePack(
+            "house-rules",
+            "1.0.0",
+            "sha256:abc",
+            capabilities:
+            [
+                new RulePackCapabilityDescriptor(
+                    CapabilityId: RulePackCapabilityIds.Localization,
+                    AssetKind: RulePackAssetKinds.Localization,
+                    AssetMode: RulePackAssetModes.ReplaceFile,
+                    Explainable: true,
+                    SessionSafe: true),
+                new RulePackCapabilityDescriptor(
+                    CapabilityId: RulePackCapabilityIds.ValidateCharacter,
+                    AssetKind: RulePackAssetKinds.Xml,
+                    AssetMode: RulePackAssetModes.MergeCatalog),
+                new RulePackCapabilityDescriptor(
+                    CapabilityId: RulePackCapabilityIds.ValidateChoice,
+                    AssetKind: RulePackAssetKinds.Xml,
+                    AssetMode: RulePackAssetModes.MergeCatalog)
+            ],
+            dependencies:
+            [
+                new ArtifactVersionReference("charter-pack", "1.0.0"),
+                new ArtifactVersionReference("alpha-pack", "2.0.0"),
+                new ArtifactVersionReference("beta-pack", "1.0.0")
+            ],
+            conflicts:
+            [
+                new ArtifactVersionReference("z-conflict", "0.2.0"),
+                new ArtifactVersionReference("x-conflict", "0.1.0")
+            ],
+            assets:
+            [
+                new RulePackAssetDescriptor(
+                    Kind: RulePackAssetKinds.Tests,
+                    Mode: RulePackAssetModes.AppendCatalog,
+                    RelativePath: "tests/rules.xml",
+                    Checksum: "sha256:asset-c"),
+                new RulePackAssetDescriptor(
+                    Kind: RulePackAssetKinds.Lua,
+                    Mode: RulePackAssetModes.SetConstant,
+                    RelativePath: "scripts/set-constant.lua",
+                    Checksum: "sha256:asset-a"),
+                new RulePackAssetDescriptor(
+                    Kind: RulePackAssetKinds.Xml,
+                    Mode: RulePackAssetModes.MergeCatalog,
+                    RelativePath: "data/house-rules.xml",
+                    Checksum: "sha256:asset-b")
+            ],
+            targets: [RulesetDefaults.Sr5, RulesetDefaults.Dummy],
+            executionPolicies:
+            [
+                new RulePackExecutionPolicyHint(
+                    Environment: RulePackExecutionEnvironments.HostedServer,
+                    PolicyMode: RulePackExecutionPolicyModes.Deny,
+                    MinimumTrustTier: ArtifactTrustTiers.Private,
+                    AllowedAssetModes:
+                    [
+                        RulePackAssetModes.RemoveNode,
+                        RulePackAssetModes.PatchNode
+                    ]),
+                new RulePackExecutionPolicyHint(
+                    Environment: RulePackExecutionEnvironments.DesktopLocal,
+                    PolicyMode: RulePackExecutionPolicyModes.Allow,
+                    MinimumTrustTier: ArtifactTrustTiers.Curated,
+                    AllowedAssetModes:
+                    [
+                        RulePackAssetModes.SetConstant,
+                        RulePackAssetModes.AppendCatalog
+                    ]),
+            ]);
+
+        Dictionary<string, string> providerBindingsA = new(StringComparer.Ordinal)
+        {
+            [RulePackCapabilityIds.ContentCatalog] = "house-rules/content.catalog",
+            [RulePackCapabilityIds.BuildLabRecommendation] = "house-rules/buildlab.recommendation"
+        };
+        Dictionary<string, string> providerBindingsB = new(StringComparer.Ordinal)
+        {
+            [RulePackCapabilityIds.BuildLabRecommendation] = "house-rules/buildlab.recommendation",
+            [RulePackCapabilityIds.ContentCatalog] = "house-rules/content.catalog"
+        };
+
+        string fingerprintA = service.ComputeResolvedRuntimeFingerprint(
+            RulesetDefaults.Sr5,
+            bundles,
+            [manifestOrderA],
+            providerBindingsA,
+            "rulepack-v1");
+        string fingerprintB = service.ComputeResolvedRuntimeFingerprint(
+            RulesetDefaults.Sr5,
+            bundles,
+            [manifestOrderB],
+            providerBindingsB,
+            "rulepack-v1");
+        RulePackRegistryEntry changedTargets = CreateRulePack(
+            "house-rules",
+            "1.0.0",
+            "sha256:abc",
+            capabilities:
+            [
+                new RulePackCapabilityDescriptor(
+                    CapabilityId: RulePackCapabilityIds.ValidateChoice,
+                    AssetKind: RulePackAssetKinds.Xml,
+                    AssetMode: RulePackAssetModes.MergeCatalog),
+                new RulePackCapabilityDescriptor(
+                    CapabilityId: RulePackCapabilityIds.ValidateCharacter,
+                    AssetKind: RulePackAssetKinds.Xml,
+                    AssetMode: RulePackAssetModes.MergeCatalog),
+                new RulePackCapabilityDescriptor(
+                    CapabilityId: RulePackCapabilityIds.Localization,
+                    AssetKind: RulePackAssetKinds.Localization,
+                    AssetMode: RulePackAssetModes.ReplaceFile,
+                    Explainable: true,
+                    SessionSafe: true)
+            ],
+            dependencies:
+            [
+                new ArtifactVersionReference("beta-pack", "1.0.0"),
+                new ArtifactVersionReference("alpha-pack", "2.0.0"),
+                new ArtifactVersionReference("charter-pack", "1.0.0")
+            ],
+            conflicts:
+            [
+                new ArtifactVersionReference("x-conflict", "0.1.0"),
+                new ArtifactVersionReference("z-conflict", "0.2.0")
+            ],
+            assets:
+            [
+                new RulePackAssetDescriptor(
+                    Kind: RulePackAssetKinds.Lua,
+                    Mode: RulePackAssetModes.SetConstant,
+                    RelativePath: "scripts/set-constant.lua",
+                    Checksum: "sha256:asset-a"),
+                new RulePackAssetDescriptor(
+                    Kind: RulePackAssetKinds.Xml,
+                    Mode: RulePackAssetModes.MergeCatalog,
+                    RelativePath: "data/house-rules.xml",
+                    Checksum: "sha256:asset-b"),
+                new RulePackAssetDescriptor(
+                    Kind: RulePackAssetKinds.Tests,
+                    Mode: RulePackAssetModes.AppendCatalog,
+                    RelativePath: "tests/rules.xml",
+                    Checksum: "sha256:asset-c")
+            ],
+            targets: [RulesetDefaults.Sr5],
+            executionPolicies:
+            [
+                new RulePackExecutionPolicyHint(
+                    Environment: RulePackExecutionEnvironments.HostedServer,
+                    PolicyMode: RulePackExecutionPolicyModes.Deny,
+                    MinimumTrustTier: ArtifactTrustTiers.Private,
+                    AllowedAssetModes:
+                    [
+                        RulePackAssetModes.PatchNode,
+                        RulePackAssetModes.RemoveNode
+                    ]),
+                new RulePackExecutionPolicyHint(
+                    Environment: RulePackExecutionEnvironments.DesktopLocal,
+                    PolicyMode: RulePackExecutionPolicyModes.Allow,
+                    MinimumTrustTier: ArtifactTrustTiers.Curated,
+                    AllowedAssetModes:
+                    [
+                        RulePackAssetModes.AppendCatalog,
+                        RulePackAssetModes.SetConstant
+                    ])
+            ]);
+        RulePackRegistryEntry changedExecutionPolicies = CreateRulePack(
+            "house-rules",
+            "1.0.0",
+            "sha256:abc",
+            capabilities:
+            [
+                new RulePackCapabilityDescriptor(
+                    CapabilityId: RulePackCapabilityIds.ValidateChoice,
+                    AssetKind: RulePackAssetKinds.Xml,
+                    AssetMode: RulePackAssetModes.MergeCatalog),
+                new RulePackCapabilityDescriptor(
+                    CapabilityId: RulePackCapabilityIds.ValidateCharacter,
+                    AssetKind: RulePackAssetKinds.Xml,
+                    AssetMode: RulePackAssetModes.MergeCatalog),
+                new RulePackCapabilityDescriptor(
+                    CapabilityId: RulePackCapabilityIds.Localization,
+                    AssetKind: RulePackAssetKinds.Localization,
+                    AssetMode: RulePackAssetModes.ReplaceFile,
+                    Explainable: true,
+                    SessionSafe: true)
+            ],
+            dependencies:
+            [
+                new ArtifactVersionReference("beta-pack", "1.0.0"),
+                new ArtifactVersionReference("alpha-pack", "2.0.0"),
+                new ArtifactVersionReference("charter-pack", "1.0.0")
+            ],
+            conflicts:
+            [
+                new ArtifactVersionReference("x-conflict", "0.1.0"),
+                new ArtifactVersionReference("z-conflict", "0.2.0")
+            ],
+            assets:
+            [
+                new RulePackAssetDescriptor(
+                    Kind: RulePackAssetKinds.Lua,
+                    Mode: RulePackAssetModes.SetConstant,
+                    RelativePath: "scripts/set-constant.lua",
+                    Checksum: "sha256:asset-a"),
+                new RulePackAssetDescriptor(
+                    Kind: RulePackAssetKinds.Xml,
+                    Mode: RulePackAssetModes.MergeCatalog,
+                    RelativePath: "data/house-rules.xml",
+                    Checksum: "sha256:asset-b"),
+                new RulePackAssetDescriptor(
+                    Kind: RulePackAssetKinds.Tests,
+                    Mode: RulePackAssetModes.AppendCatalog,
+                    RelativePath: "tests/rules.xml",
+                    Checksum: "sha256:asset-c")
+            ],
+            targets: [RulesetDefaults.Dummy, RulesetDefaults.Sr5],
+            executionPolicies:
+            [
+                new RulePackExecutionPolicyHint(
+                    Environment: RulePackExecutionEnvironments.HostedServer,
+                    PolicyMode: RulePackExecutionPolicyModes.Allow,
+                    MinimumTrustTier: ArtifactTrustTiers.Private,
+                    AllowedAssetModes:
+                    [
+                        RulePackAssetModes.PatchNode,
+                        RulePackAssetModes.RemoveNode
+                    ]),
+                new RulePackExecutionPolicyHint(
+                    Environment: RulePackExecutionEnvironments.DesktopLocal,
+                    PolicyMode: RulePackExecutionPolicyModes.Allow,
+                    MinimumTrustTier: ArtifactTrustTiers.Curated,
+                    AllowedAssetModes:
+                    [
+                        RulePackAssetModes.AppendCatalog,
+                        RulePackAssetModes.SetConstant
+                    ])
+            ]);
+
+        Assert.AreEqual(fingerprintA, fingerprintB);
+        Assert.AreNotEqual(
+            fingerprintA,
+            service.ComputeResolvedRuntimeFingerprint(
+                RulesetDefaults.Sr5,
+                bundles,
+                [changedTargets],
+                providerBindingsA,
+                "rulepack-v1"));
+        Assert.AreNotEqual(
+            fingerprintA,
+            service.ComputeResolvedRuntimeFingerprint(
+                RulesetDefaults.Sr5,
+                bundles,
+                [changedExecutionPolicies],
+                providerBindingsA,
+                "rulepack-v1"));
+    }
+
     private static RulePackRegistryEntry CreateRulePack(
         string packId,
         string version,
         string checksum,
-        IReadOnlyList<ArtifactVersionReference>? dependencies = null)
+        IReadOnlyList<RulePackCapabilityDescriptor>? capabilities = null,
+        IReadOnlyList<ArtifactVersionReference>? dependencies = null,
+        IReadOnlyList<ArtifactVersionReference>? conflicts = null,
+        IReadOnlyList<RulePackAssetDescriptor>? assets = null,
+        IReadOnlyList<string>? targets = null,
+        IReadOnlyList<RulePackExecutionPolicyHint>? executionPolicies = null)
     {
         return new RulePackRegistryEntry(
             new RulePackManifest(
@@ -229,13 +582,12 @@ public class RuntimeFingerprintServiceTests
                 Title: $"{packId} title",
                 Author: "GM",
                 Description: "Runtime pack.",
-                Targets: [RulesetDefaults.Sr5],
                 EngineApiVersion: "rulepack-v1",
                 DependsOn: dependencies ?? [],
-                ConflictsWith: [],
+                ConflictsWith: conflicts ?? [],
                 Visibility: ArtifactVisibilityModes.LocalOnly,
                 TrustTier: ArtifactTrustTiers.LocalOnly,
-                Assets:
+                Assets: assets ??
                 [
                     new RulePackAssetDescriptor(
                         Kind: RulePackAssetKinds.Xml,
@@ -243,14 +595,15 @@ public class RuntimeFingerprintServiceTests
                         RelativePath: $"data/{packId}.xml",
                         Checksum: checksum)
                 ],
-                Capabilities:
+                Capabilities: capabilities ??
                 [
                     new RulePackCapabilityDescriptor(
                         CapabilityId: RulePackCapabilityIds.ContentCatalog,
                         AssetKind: RulePackAssetKinds.Xml,
                         AssetMode: RulePackAssetModes.MergeCatalog)
                 ],
-                ExecutionPolicies: []),
+                Targets: targets ?? [RulesetDefaults.Sr5],
+                ExecutionPolicies: executionPolicies ?? []),
             new RulePackPublicationMetadata(
                 OwnerId: "local-single-user",
                 Visibility: ArtifactVisibilityModes.LocalOnly,
