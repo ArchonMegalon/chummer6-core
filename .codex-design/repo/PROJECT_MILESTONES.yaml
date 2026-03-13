@@ -58,11 +58,11 @@ milestones:
       - id: A0.5.2
         worklist: WL-087
         title: Keep temporary contract source-project deletion executable through package-only cutover acceptance
-        status: in_progress
+        status: done
         evidence:
-          - Keep deletion work for temporary source projects `Chummer.Presentation.Contracts` and `Chummer.RunServices.Contracts` executable until package-only consumer cutover acceptance confirms safe closure.
-          - Keep solution/project reference validation and `scripts/ai/verify.sh` as explicit acceptance checks before closing the deletion slice.
-          - Queue publication refresh on 2026-03-13 keeps `A0.5`/`WL-072` and `A0.5.2`/`WL-087` explicit in `.codex-studio/published/QUEUE.generated.yaml` so temporary source-project deletion remains runnable rather than coarse audit text.
+          - Completed safe-delete closure checklist on 2026-03-13: solution/project sweep found no `.sln` or `.csproj` references to temporary source projects `Chummer.Presentation.Contracts` and `Chummer.RunServices.Contracts`.
+          - Package-only cutover evidence remains locked by boundary/compliance guards (`RepoBoundaryGuardsHostedContractsAndSharedContractOwnership`, `Canonical_engine_contract_project_owns_shared_shell_contract_sources`) that block source-path dependency regressions and temporary-project-root reintroduction.
+          - `bash scripts/ai/verify.sh` passed on 2026-03-13, then queue publication removed active `A0.5.2` / `WL-087` follow-through item.
       - id: A0.5.3
         worklist: WL-088
         title: Relocate hosted-only AI/media/approval/search DTO families out of engine-owned contract source
@@ -100,7 +100,7 @@ milestones:
           - `Chummer.CoreEngine.Tests/Program.cs` now blocks those helper roots from being restored while the broader contract-reset follow-through remains open.
     notes:
       - `WL-072` remains open and executable so package-only consumer cutover acceptance can gate safe deletion closure for temporary source projects.
-      - A0.5 stays open while deletion follow-through (`WL-072` / `WL-087`) and remaining follow-through work (`WL-086`, `WL-088`, `WL-089`, `WL-090`, `WL-091`, `WL-092`) remain active.
+      - A0.5 stays open while remaining follow-through work (`WL-072`, `WL-086`, `WL-088`, `WL-089`, `WL-090`, `WL-091`) remains active.
       - Queue refresh maintenance on 2026-03-10 (`WL-085`) keeps A0.5 represented as explicit core milestone coverage so contract-reset follow-through stays visible until cutover closure.
       - Queue refresh on 2026-03-10 appended runnable follow-through slices `WL-086` and `WL-087` from auditor candidate IDs `44367` and `44368` so uncovered non-engine scope and temporary leak deletion stay milestone-mapped instead of queue-overlay-only.
       - Auditor publication candidate `50581` on 2026-03-10 adds hosted-contract leakage follow-through (`WL-088`) so AI/media/approval/search DTO ownership migration to `Chummer.Run.Contracts` remains executable until safe closure.
