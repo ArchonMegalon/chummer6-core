@@ -257,10 +257,7 @@ public sealed class DefaultRuleProfileRegistryService : IRuleProfileRegistryServ
         IReadOnlyList<RulePackRegistryEntry> rulePacks)
     {
         string rulesetId = plugin.Id.NormalizedValue;
-        RulePackRegistryEntry[] orderedRulePacks = rulePacks
-            .OrderBy(static rulePack => rulePack.Manifest.PackId, StringComparer.Ordinal)
-            .ThenBy(static rulePack => rulePack.Manifest.Version, StringComparer.Ordinal)
-            .ToArray();
+        RulePackRegistryEntry[] orderedRulePacks = ResolveRulePackCompileOrder(rulePacks);
         ContentBundleDescriptor bundle = new(
             BundleId: $"official.{rulesetId}.base",
             RulesetId: rulesetId,
@@ -271,19 +268,7 @@ public sealed class DefaultRuleProfileRegistryService : IRuleProfileRegistryServ
         ArtifactVersionReference[] runtimeRulePacks = orderedRulePacks
             .Select(static rulePack => new ArtifactVersionReference(rulePack.Manifest.PackId, rulePack.Manifest.Version))
             .ToArray();
-        Dictionary<string, string> providerBindings = orderedRulePacks
-            .SelectMany(
-                static rulePack => rulePack.Manifest.Capabilities.Select(capability => new
-                {
-                    capability.CapabilityId,
-                    ProviderId = $"{rulePack.Manifest.PackId}/{capability.CapabilityId}"
-                }))
-            .GroupBy(binding => binding.CapabilityId, StringComparer.Ordinal)
-            .OrderBy(group => group.Key, StringComparer.Ordinal)
-            .ToDictionary(
-                group => group.Key,
-                group => group.Last().ProviderId,
-                StringComparer.Ordinal);
+        Dictionary<string, string> providerBindings = CreateProviderBindings(orderedRulePacks);
         Dictionary<string, string> capabilityAbiVersions = RulesetTypedCapabilityCatalog.Descriptors
             .ToDictionary(
                 static descriptor => descriptor.CapabilityId,
@@ -304,6 +289,90 @@ public sealed class DefaultRuleProfileRegistryService : IRuleProfileRegistryServ
             ProviderBindings: providerBindings,
             EngineApiVersion: EngineApiVersion,
             RuntimeFingerprint: runtimeFingerprint);
+    }
+
+    private static Dictionary<string, string> CreateProviderBindings(IReadOnlyList<RulePackRegistryEntry> rulePacks)
+    {
+        Dictionary<string, string> providerBindings = [];
+        foreach (RulePackRegistryEntry rulePack in rulePacks)
+        {
+            foreach (RulePackCapabilityDescriptor capability in rulePack.Manifest.Capabilities
+                         .OrderBy(static candidate => candidate.CapabilityId, StringComparer.Ordinal))
+            {
+                providerBindings[capability.CapabilityId] = $"{rulePack.Manifest.PackId}/{capability.CapabilityId}";
+            }
+        }
+
+        return providerBindings;
+    }
+
+    private static RulePackRegistryEntry[] ResolveRulePackCompileOrder(IReadOnlyList<RulePackRegistryEntry> rulePacks)
+    {
+        static string GetPackKey(string packId, string version)
+        {
+            return $"{packId}@{version}";
+        }
+
+        RulePackRegistryEntry[] orderedInputs = rulePacks
+            .OrderBy(static rulePack => rulePack.Manifest.PackId, StringComparer.Ordinal)
+            .ThenBy(static rulePack => rulePack.Manifest.Version, StringComparer.Ordinal)
+            .ToArray();
+
+        Dictionary<string, RulePackRegistryEntry> rulePacksById = orderedInputs
+            .ToDictionary(
+                rulePack => GetPackKey(rulePack.Manifest.PackId, rulePack.Manifest.Version),
+                static rulePack => rulePack,
+                StringComparer.Ordinal);
+        Dictionary<string, int> visitState = [];
+        Dictionary<string, int> activePathIndex = [];
+        List<string> activePath = [];
+        List<RulePackRegistryEntry> ordered = [];
+
+        void Visit(RulePackRegistryEntry rulePack)
+        {
+            string key = GetPackKey(rulePack.Manifest.PackId, rulePack.Manifest.Version);
+            if (visitState.GetValueOrDefault(key) == 2)
+            {
+                return;
+            }
+
+            if (visitState.GetValueOrDefault(key) == 1)
+            {
+                int cycleStartIndex = activePathIndex.GetValueOrDefault(key, 0);
+                string cyclePath = string.Join(
+                    " -> ",
+                    activePath.Skip(cycleStartIndex).Append(key));
+                throw new InvalidOperationException($"RulePack dependency cycle detected: {cyclePath}");
+            }
+
+            visitState[key] = 1;
+            activePathIndex[key] = activePath.Count;
+            activePath.Add(key);
+
+            foreach (ArtifactVersionReference dependency in rulePack.Manifest.DependsOn
+                         .DistinctBy(candidate => GetPackKey(candidate.Id, candidate.Version), StringComparer.Ordinal)
+                         .OrderBy(candidate => candidate.Id, StringComparer.Ordinal)
+                         .ThenBy(candidate => candidate.Version, StringComparer.Ordinal))
+            {
+                string dependencyKey = GetPackKey(dependency.Id, dependency.Version);
+                if (rulePacksById.TryGetValue(dependencyKey, out RulePackRegistryEntry? dependencyPack))
+                {
+                    Visit(dependencyPack);
+                }
+            }
+
+            visitState[key] = 2;
+            activePath.RemoveAt(activePath.Count - 1);
+            activePathIndex.Remove(key);
+            ordered.Add(rulePack);
+        }
+
+        foreach (RulePackRegistryEntry rulePack in orderedInputs)
+        {
+            Visit(rulePack);
+        }
+
+        return ordered.ToArray();
     }
 
     private static string CreatePublicationKey(string profileId, string rulesetId)

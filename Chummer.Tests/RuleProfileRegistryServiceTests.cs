@@ -171,6 +171,77 @@ public class RuleProfileRegistryServiceTests
     }
 
     [TestMethod]
+    public void Default_registry_service_runtime_lock_order_is_deterministic_when_only_dependency_order_noise_changes()
+    {
+        DefaultRuleProfileRegistryService serviceA = CreateServiceWithRulePacks(
+        [
+            CreateRulePack(
+                "beta-pack",
+                "1.0.0",
+                [RulePackCapabilityIds.Validation],
+                [
+                    new ArtifactVersionReference("leaf-pack", "1.0.0"),
+                    new ArtifactVersionReference("root-pack", "2.0.0")
+                ]),
+            CreateRulePack("leaf-pack", "1.0.0", [RulePackCapabilityIds.ContentCatalog]),
+            CreateRulePack("root-pack", "2.0.0", [RulePackCapabilityIds.ValidateCharacter])
+        ]);
+        DefaultRuleProfileRegistryService serviceB = CreateServiceWithRulePacks(
+        [
+            CreateRulePack(
+                "beta-pack",
+                "1.0.0",
+                [RulePackCapabilityIds.Validation],
+                [
+                    new ArtifactVersionReference("root-pack", "2.0.0"),
+                    new ArtifactVersionReference("leaf-pack", "1.0.0")
+                ]),
+            CreateRulePack("root-pack", "2.0.0", [RulePackCapabilityIds.ValidateCharacter]),
+            CreateRulePack("leaf-pack", "1.0.0", [RulePackCapabilityIds.ContentCatalog])
+        ]);
+
+        RuleProfileRegistryEntry overlayA = serviceA.Get(OwnerScope.LocalSingleUser, "local.sr5.current-overlays", RulesetDefaults.Sr5)!;
+        RuleProfileRegistryEntry overlayB = serviceB.Get(OwnerScope.LocalSingleUser, "local.sr5.current-overlays", RulesetDefaults.Sr5)!;
+
+        Assert.AreEqual(
+            "leaf-pack@1.0.0,root-pack@2.0.0,beta-pack@1.0.0",
+            string.Join(',', overlayA.Manifest.RuntimeLock.RulePacks.Select(static pack => $"{pack.Id}@{pack.Version}")),
+            "Compile-order should be dependency-first regardless of DependsOn declaration noise.");
+        Assert.AreEqual(
+            "leaf-pack@1.0.0,root-pack@2.0.0,beta-pack@1.0.0",
+            string.Join(',', overlayB.Manifest.RuntimeLock.RulePacks.Select(static pack => $"{pack.Id}@{pack.Version}")),
+            "Compile-order should stay deterministic despite shuffled dependency declarations.");
+        Assert.AreEqual(
+            overlayA.Manifest.RuntimeLock.RuntimeFingerprint,
+            overlayB.Manifest.RuntimeLock.RuntimeFingerprint,
+            "Equivalent dependency graph semantics should produce stable fingerprints.");
+    }
+
+    [TestMethod]
+    public void Default_registry_service_rejects_cyclic_rulepack_dependency_graphs()
+    {
+        DefaultRuleProfileRegistryService service = CreateServiceWithRulePacks(
+        [
+            CreateRulePack(
+                "alpha-pack",
+                "1.0.0",
+                [RulePackCapabilityIds.ContentCatalog],
+                [new ArtifactVersionReference("beta-pack", "1.0.0")]),
+            CreateRulePack(
+                "beta-pack",
+                "1.0.0",
+                [RulePackCapabilityIds.ValidateCharacter],
+                [new ArtifactVersionReference("alpha-pack", "1.0.0")])
+        ]);
+
+        InvalidOperationException exception = Assert.ThrowsException<InvalidOperationException>(
+            () => service.Get(OwnerScope.LocalSingleUser, "local.sr5.current-overlays", RulesetDefaults.Sr5));
+
+        StringAssert.Contains(exception.Message, "RulePack dependency cycle detected");
+        StringAssert.Contains(exception.Message, "alpha-pack@1.0.0 -> beta-pack@1.0.0 -> alpha-pack@1.0.0");
+    }
+
+    [TestMethod]
     public void Default_registry_service_prefers_owner_backed_profile_publication_metadata_when_present()
     {
         DefaultRuleProfileRegistryService service = new(
@@ -422,6 +493,49 @@ public class RuleProfileRegistryServiceTests
                 Targets: [RulesetDefaults.Sr5],
                 EngineApiVersion: "rulepack-v1",
                 DependsOn: [],
+                ConflictsWith: [],
+                Visibility: ArtifactVisibilityModes.LocalOnly,
+                TrustTier: ArtifactTrustTiers.LocalOnly,
+                Assets:
+                [
+                    new RulePackAssetDescriptor(
+                        Kind: RulePackAssetKinds.Xml,
+                        Mode: RulePackAssetModes.MergeCatalog,
+                        RelativePath: $"data/{packId}.xml",
+                        Checksum: $"sha256:{packId}")
+                ],
+                Capabilities: capabilityIds
+                    .Select(static capabilityId => new RulePackCapabilityDescriptor(
+                        CapabilityId: capabilityId,
+                        AssetKind: RulePackAssetKinds.Xml,
+                        AssetMode: RulePackAssetModes.MergeCatalog))
+                    .ToArray(),
+                ExecutionPolicies: []),
+            new RulePackPublicationMetadata(
+                OwnerId: "system",
+                Visibility: ArtifactVisibilityModes.LocalOnly,
+                PublicationStatus: RulePackPublicationStatuses.Published,
+                Review: new RulePackReviewDecision(RulePackReviewStates.NotRequired),
+                Shares: []),
+            new ArtifactInstallState(ArtifactInstallStates.Installed));
+    }
+
+    private static RulePackRegistryEntry CreateRulePack(
+        string packId,
+        string version,
+        string[] capabilityIds,
+        ArtifactVersionReference[] dependsOn)
+    {
+        return new RulePackRegistryEntry(
+            new RulePackManifest(
+                PackId: packId,
+                Version: version,
+                Title: $"{packId} title",
+                Author: "GM",
+                Description: "Campaign overlay.",
+                Targets: [RulesetDefaults.Sr5],
+                EngineApiVersion: "rulepack-v1",
+                DependsOn: dependsOn,
                 ConflictsWith: [],
                 Visibility: ArtifactVisibilityModes.LocalOnly,
                 TrustTier: ArtifactTrustTiers.LocalOnly,
