@@ -58,10 +58,11 @@ milestones:
       - id: A0.5.2
         worklist: WL-087
         title: Keep temporary contract source-project deletion executable through package-only cutover acceptance
-        status: queued
+        status: in_progress
         evidence:
           - Keep deletion work for temporary source projects `Chummer.Presentation.Contracts` and `Chummer.RunServices.Contracts` executable until package-only consumer cutover acceptance confirms safe closure.
           - Keep solution/project reference validation and `scripts/ai/verify.sh` as explicit acceptance checks before closing the deletion slice.
+          - Queue publication refresh on 2026-03-13 keeps `A0.5`/`WL-072` and `A0.5.2`/`WL-087` explicit in `.codex-studio/published/QUEUE.generated.yaml` so temporary source-project deletion remains runnable rather than coarse audit text.
       - id: A0.5.3
         worklist: WL-088
         title: Relocate hosted-only AI/media/approval/search DTO families out of engine-owned contract source
@@ -104,6 +105,7 @@ milestones:
       - Queue refresh on 2026-03-10 appended runnable follow-through slices `WL-086` and `WL-087` from auditor candidate IDs `44367` and `44368` so uncovered non-engine scope and temporary leak deletion stay milestone-mapped instead of queue-overlay-only.
       - Auditor publication candidate `50581` on 2026-03-10 adds hosted-contract leakage follow-through (`WL-088`) so AI/media/approval/search DTO ownership migration to `Chummer.Run.Contracts` remains executable until safe closure.
       - `WL-086` follow-through decomposition on 2026-03-10 appends explicit surface slices (`WL-089` through `WL-092`) so presentation contracts, run-service contracts, browser infrastructure, and legacy helper tooling each stay runnable and milestone-mapped until safe closure.
+      - Queue publication refresh on 2026-03-13 removes stale coarse uncovered-scope phrasing and republishes explicit runnable milestone slices for A0.5 and A6-A9.
   - id: A6
     title: Contract hardening
     status: done
