@@ -3912,7 +3912,7 @@ public class MigrationComplianceTests
     [TestMethod]
     public void Ruleset_shell_catalog_resolver_service_is_registered_and_consumed_without_raw_plugin_injection()
     {
-        string rulesetServicesPath = FindPath("Chummer.Contracts", "Rulesets", "RulesetShellServices.cs");
+        string rulesetServicesPath = FindPath("Chummer.Run.Contracts", "Rulesets", "RulesetPresentationContracts.cs");
         string rulesetServicesText = File.ReadAllText(rulesetServicesPath);
         string rulesetHostingServicesPath = FindPath("Chummer.Rulesets.Hosting", "RulesetShellServices.cs");
         string rulesetHostingServicesText = File.ReadAllText(rulesetHostingServicesPath);
@@ -3926,6 +3926,12 @@ public class MigrationComplianceTests
         string sr5ShellCatalogsText = File.ReadAllText(sr5ShellCatalogsPath);
         string sr4RulesetProjectPath = FindPath("Chummer.Rulesets.Sr4", "Chummer.Rulesets.Sr4.csproj");
         string sr4RulesetProjectText = File.ReadAllText(sr4RulesetProjectPath);
+        string sr5RulesetProjectPath = FindPath("Chummer.Rulesets.Sr5", "Chummer.Rulesets.Sr5.csproj");
+        string sr5RulesetProjectText = File.ReadAllText(sr5RulesetProjectPath);
+        string sr6RulesetProjectPath = FindPath("Chummer.Rulesets.Sr6", "Chummer.Rulesets.Sr6.csproj");
+        string sr6RulesetProjectText = File.ReadAllText(sr6RulesetProjectPath);
+        string rulesetHostingProjectPath = FindPath("Chummer.Rulesets.Hosting", "Chummer.Rulesets.Hosting.csproj");
+        string rulesetHostingProjectText = File.ReadAllText(rulesetHostingProjectPath);
         string sr4RulesetPluginPath = FindPath("Chummer.Rulesets.Sr4", "Sr4RulesetPlugin.cs");
         string sr4RulesetPluginText = File.ReadAllText(sr4RulesetPluginPath);
         string sr4ShellCatalogsPath = FindPath("Chummer.Rulesets.Sr4", "Sr4ShellCatalogs.cs");
@@ -3996,6 +4002,10 @@ public class MigrationComplianceTests
         StringAssert.Contains(sr5ShellCatalogsText, "internal static class Sr5WorkspaceSurfaceActionCatalog");
         Assert.IsFalse(sr5ShellCatalogsText.Contains("Sr5DesktopUiControlCatalog", StringComparison.Ordinal));
         StringAssert.Contains(sr4RulesetProjectText, "<Project Sdk=\"Microsoft.NET.Sdk\">");
+        StringAssert.Contains(sr4RulesetProjectText, @"..\Chummer.Run.Contracts\Chummer.Run.Contracts.csproj");
+        StringAssert.Contains(sr5RulesetProjectText, @"..\Chummer.Run.Contracts\Chummer.Run.Contracts.csproj");
+        StringAssert.Contains(sr6RulesetProjectText, @"..\Chummer.Run.Contracts\Chummer.Run.Contracts.csproj");
+        StringAssert.Contains(rulesetHostingProjectText, @"..\Chummer.Run.Contracts\Chummer.Run.Contracts.csproj");
         StringAssert.Contains(sr4RulesetDiText, "AddSr4Ruleset(this IServiceCollection services)");
         StringAssert.Contains(sr4RulesetDiText, "Chummer.Rulesets.Sr4.Sr4RulesetPlugin");
         StringAssert.Contains(sr4RulesetPluginText, "public class Sr4RulesetPlugin");
@@ -4113,13 +4123,20 @@ public class MigrationComplianceTests
         string actionDefinitionPath = FindCorePresentationContractsPath("WorkspaceSurfaceActionDefinition.cs");
         string actionDefinitionText = File.ReadAllText(actionDefinitionPath);
 
-        Assert.IsTrue(PathExistsInCandidateRoots("Chummer.Contracts", "Presentation", "AppCommandDefinition.cs"));
-        Assert.IsTrue(PathExistsInCandidateRoots("Chummer.Contracts", "Presentation", "NavigationTabDefinition.cs"));
-        Assert.IsTrue(PathExistsInCandidateRoots("Chummer.Contracts", "Presentation", "WorkspaceSurfaceActionDefinition.cs"));
-        Assert.IsTrue(PathExistsInCandidateRoots("Chummer.Contracts", "Presentation", "WorkflowSurfaceContracts.cs"));
-        Assert.IsTrue(PathExistsInCandidateRoots("Chummer.Contracts", "Presentation", "AppCommandCatalogResponse.cs"));
-        Assert.IsTrue(PathExistsInCandidateRoots("Chummer.Contracts", "Presentation", "AppCommandIds.cs"));
-        Assert.IsTrue(PathExistsInCandidateRoots("Chummer.Contracts", "Presentation", "NavigationTabCatalogResponse.cs"));
+        Assert.IsTrue(PathExistsInCandidateRoots("Chummer.Run.Contracts", "Presentation", "AppCommandDefinition.cs"));
+        Assert.IsTrue(PathExistsInCandidateRoots("Chummer.Run.Contracts", "Presentation", "NavigationTabDefinition.cs"));
+        Assert.IsTrue(PathExistsInCandidateRoots("Chummer.Run.Contracts", "Presentation", "WorkspaceSurfaceActionDefinition.cs"));
+        Assert.IsTrue(PathExistsInCandidateRoots("Chummer.Run.Contracts", "Presentation", "WorkflowSurfaceContracts.cs"));
+        Assert.IsTrue(PathExistsInCandidateRoots("Chummer.Run.Contracts", "Presentation", "AppCommandCatalogResponse.cs"));
+        Assert.IsTrue(PathExistsInCandidateRoots("Chummer.Run.Contracts", "Presentation", "AppCommandIds.cs"));
+        Assert.IsTrue(PathExistsInCandidateRoots("Chummer.Run.Contracts", "Presentation", "NavigationTabCatalogResponse.cs"));
+        Assert.IsFalse(PathExistsInCandidateRoots("Chummer.Contracts", "Presentation", "AppCommandDefinition.cs"));
+        Assert.IsFalse(PathExistsInCandidateRoots("Chummer.Contracts", "Presentation", "NavigationTabDefinition.cs"));
+        Assert.IsFalse(PathExistsInCandidateRoots("Chummer.Contracts", "Presentation", "WorkspaceSurfaceActionDefinition.cs"));
+        Assert.IsFalse(PathExistsInCandidateRoots("Chummer.Contracts", "Presentation", "WorkflowSurfaceContracts.cs"));
+        Assert.IsFalse(PathExistsInCandidateRoots("Chummer.Contracts", "Presentation", "AppCommandCatalogResponse.cs"));
+        Assert.IsFalse(PathExistsInCandidateRoots("Chummer.Contracts", "Presentation", "AppCommandIds.cs"));
+        Assert.IsFalse(PathExistsInCandidateRoots("Chummer.Contracts", "Presentation", "NavigationTabCatalogResponse.cs"));
         Assert.IsFalse(PathExistsInCandidateRoots("Chummer.Presentation.Contracts", "Presentation", "AppCommandDefinition.cs"));
         Assert.IsFalse(PathExistsInCandidateRoots("Chummer.Presentation.Contracts", "Presentation", "NavigationTabDefinition.cs"));
         Assert.IsFalse(PathExistsInCandidateRoots("Chummer.Presentation.Contracts", "Presentation", "WorkspaceSurfaceActionDefinition.cs"));
@@ -4155,12 +4172,7 @@ public class MigrationComplianceTests
         Assert.IsFalse(rulesetContractsText.Contains("public static string Normalize(", StringComparison.Ordinal));
         Assert.IsFalse(rulesetContractsText.Contains("NormalizeOrDefault", StringComparison.Ordinal));
         StringAssert.Contains(rulesetContractsText, "public sealed record WorkspacePayloadEnvelope");
-        StringAssert.Contains(rulesetContractsText, "public interface IRulesetPlugin");
         StringAssert.Contains(rulesetContractsText, "public interface IRulesetSerializer");
-        StringAssert.Contains(rulesetContractsText, "public interface IRulesetShellDefinitionProvider");
-        StringAssert.Contains(rulesetContractsText, "public interface IRulesetCatalogProvider");
-        StringAssert.Contains(rulesetContractsText, "IRulesetCapabilityDescriptorProvider CapabilityDescriptors");
-        StringAssert.Contains(rulesetContractsText, "IRulesetCapabilityHost Capabilities");
         StringAssert.Contains(rulesetContractsText, "public interface IRulesetRuleHost");
         StringAssert.Contains(rulesetContractsText, "public interface IRulesetScriptHost");
         StringAssert.Contains(capabilityContractsText, "public static class RulesetCapabilityInvocationKinds");
@@ -4176,14 +4188,19 @@ public class MigrationComplianceTests
         StringAssert.Contains(capabilityContractsText, "public sealed class RulesetScriptHostCapabilityAdapter");
         StringAssert.Contains(capabilityContractsText, "public static class RulesetCapabilityBridge");
 
-        string rulesetServicesPath = FindPath("Chummer.Contracts", "Rulesets", "RulesetShellServices.cs");
-        string rulesetServicesText = File.ReadAllText(rulesetServicesPath);
+        string rulesetPresentationContractsPath = FindPath("Chummer.Run.Contracts", "Rulesets", "RulesetPresentationContracts.cs");
+        string rulesetPresentationContractsText = File.ReadAllText(rulesetPresentationContractsPath);
+        StringAssert.Contains(rulesetPresentationContractsText, "public interface IRulesetPlugin");
+        StringAssert.Contains(rulesetPresentationContractsText, "public interface IRulesetShellDefinitionProvider");
+        StringAssert.Contains(rulesetPresentationContractsText, "public interface IRulesetCatalogProvider");
+        StringAssert.Contains(rulesetPresentationContractsText, "IRulesetCapabilityDescriptorProvider CapabilityDescriptors");
+        StringAssert.Contains(rulesetPresentationContractsText, "IRulesetCapabilityHost Capabilities");
         string rulesetHostingServicesPath = FindPath("Chummer.Rulesets.Hosting", "RulesetShellServices.cs");
         string rulesetHostingServicesText = File.ReadAllText(rulesetHostingServicesPath);
-        StringAssert.Contains(rulesetServicesText, "public interface IRulesetPluginRegistry");
-        StringAssert.Contains(rulesetServicesText, "public interface IRulesetShellCatalogResolver");
-        Assert.IsFalse(rulesetServicesText.Contains("public sealed class RulesetPluginRegistry", StringComparison.Ordinal));
-        Assert.IsFalse(rulesetServicesText.Contains("public sealed class RulesetShellCatalogResolverService", StringComparison.Ordinal));
+        StringAssert.Contains(rulesetPresentationContractsText, "public interface IRulesetPluginRegistry");
+        StringAssert.Contains(rulesetPresentationContractsText, "public interface IRulesetShellCatalogResolver");
+        Assert.IsFalse(rulesetPresentationContractsText.Contains("public sealed class RulesetPluginRegistry", StringComparison.Ordinal));
+        Assert.IsFalse(rulesetPresentationContractsText.Contains("public sealed class RulesetShellCatalogResolverService", StringComparison.Ordinal));
         StringAssert.Contains(rulesetHostingServicesText, "public sealed class RulesetPluginRegistry");
         StringAssert.Contains(rulesetHostingServicesText, "public sealed class RulesetShellCatalogResolverService");
         StringAssert.Contains(rulesetHostingServicesText, "IRulesetSelectionPolicy");
@@ -6093,12 +6110,15 @@ public class MigrationComplianceTests
 
     private static string FindPresentationContractsPath(string fileName)
     {
-        return FindPath("Chummer.Contracts", "Presentation", fileName);
+        return FindPath("Chummer.Run.Contracts", "Presentation", fileName);
     }
 
     private static string FindCorePresentationContractsPath(string fileName)
     {
-        string canonicalPath = FindPath("Chummer.Contracts", "Presentation", fileName);
+        string canonicalPath = FindPath("Chummer.Run.Contracts", "Presentation", fileName);
+        Assert.IsFalse(
+            PathExistsInCandidateRoots("Chummer.Contracts", "Presentation", fileName),
+            $"Presentation contract '{fileName}' should no longer remain under Chummer.Contracts.");
         Assert.IsFalse(
             PathExistsInCandidateRoots("Chummer.Presentation.Contracts", "Presentation", fileName),
             $"Core-owned contract '{fileName}' should not remain under Chummer.Presentation.Contracts.");

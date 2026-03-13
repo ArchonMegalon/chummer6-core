@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
-repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 cache_root="${CHUMMER_AI_CACHE_ROOT:-$repo_root/.tmp/ai}"
 default_solution_path="${CHUMMER_AI_DEFAULT_SOLUTION:-$repo_root/Chummer.CoreEngine.sln}"
+cd "$repo_root"
 export DOTNET_SKIP_FIRST_TIME_EXPERIENCE=1
 export DOTNET_NOLOGO=1
 export DOTNET_CLI_TELEMETRY_OPTOUT=1

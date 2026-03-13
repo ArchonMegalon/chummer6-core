@@ -55,6 +55,15 @@ public sealed class DefaultRuntimeFingerprintService : IRuntimeFingerprintServic
                 .Append(manifest.Visibility)
                 .Append('\n');
 
+            foreach (string target in manifest.Targets
+                         .Distinct(StringComparer.Ordinal)
+                         .OrderBy(target => target, StringComparer.Ordinal))
+            {
+                fingerprintSource.Append("target=")
+                    .Append(target)
+                    .Append('\n');
+            }
+
             foreach (RulePackCapabilityDescriptor capability in manifest.Capabilities
                          .OrderBy(candidate => candidate.CapabilityId, StringComparer.Ordinal)
                          .ThenBy(candidate => candidate.AssetKind, StringComparer.Ordinal)
@@ -109,6 +118,31 @@ public sealed class DefaultRuntimeFingerprintService : IRuntimeFingerprintServic
                     .Append(asset.RelativePath)
                     .Append('|')
                     .Append(asset.Checksum)
+                    .Append('\n');
+            }
+
+            foreach (var executionPolicy in manifest.ExecutionPolicies
+                         .Select(
+                             policy => new
+                             {
+                                 Policy = policy,
+                                 AllowedModes = string.Join(
+                                     ",",
+                                     policy.AllowedAssetModes.Distinct(StringComparer.Ordinal).OrderBy(mode => mode, StringComparer.Ordinal))
+                             })
+                         .OrderBy(policy => policy.Policy.Environment, StringComparer.Ordinal)
+                         .ThenBy(policy => policy.Policy.PolicyMode, StringComparer.Ordinal)
+                         .ThenBy(policy => policy.Policy.MinimumTrustTier, StringComparer.Ordinal)
+                         .ThenBy(policy => policy.AllowedModes, StringComparer.Ordinal))
+            {
+                fingerprintSource.Append("execution-policy=")
+                    .Append(executionPolicy.Policy.Environment)
+                    .Append('|')
+                    .Append(executionPolicy.Policy.PolicyMode)
+                    .Append('|')
+                    .Append(executionPolicy.Policy.MinimumTrustTier)
+                    .Append('|')
+                    .Append(executionPolicy.AllowedModes)
                     .Append('\n');
             }
         }

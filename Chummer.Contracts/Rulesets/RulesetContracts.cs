@@ -1,5 +1,3 @@
-using Chummer.Contracts.Presentation;
-
 namespace Chummer.Contracts.Rulesets;
 
 public static class RulesetDefaults
@@ -43,27 +41,6 @@ public sealed record WorkspacePayloadEnvelope(
     string PayloadKind,
     string Payload);
 
-public interface IRulesetPlugin
-{
-    RulesetId Id { get; }
-
-    string DisplayName { get; }
-
-    IRulesetSerializer Serializer { get; }
-
-    IRulesetShellDefinitionProvider ShellDefinitions { get; }
-
-    IRulesetCatalogProvider Catalogs { get; }
-
-    IRulesetCapabilityDescriptorProvider CapabilityDescriptors { get; }
-
-    IRulesetCapabilityHost Capabilities { get; }
-
-    IRulesetRuleHost Rules { get; }
-
-    IRulesetScriptHost Scripts { get; }
-}
-
 public interface IRulesetSerializer
 {
     RulesetId RulesetId { get; }
@@ -71,22 +48,6 @@ public interface IRulesetSerializer
     int SchemaVersion { get; }
 
     WorkspacePayloadEnvelope Wrap(string payloadKind, string payload);
-}
-
-public interface IRulesetShellDefinitionProvider
-{
-    IReadOnlyList<AppCommandDefinition> GetCommands();
-
-    IReadOnlyList<NavigationTabDefinition> GetNavigationTabs();
-}
-
-public interface IRulesetCatalogProvider
-{
-    IReadOnlyList<WorkflowDefinition> GetWorkflowDefinitions() => System.Array.Empty<WorkflowDefinition>();
-
-    IReadOnlyList<WorkflowSurfaceDefinition> GetWorkflowSurfaces() => System.Array.Empty<WorkflowSurfaceDefinition>();
-
-    IReadOnlyList<WorkspaceSurfaceActionDefinition> GetWorkspaceActions();
 }
 
 public sealed record RulesetRuleEvaluationRequest(
