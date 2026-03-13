@@ -286,14 +286,14 @@ executable_queue:
   notes: Completed on 2026-03-11T23:31:00Z with review-context mirrors republished into core, ui, hub, mobile, ui-kit, hub-registry, and media-factory.
 - id: WL-D008
   milestone: F3
-  status: blocked
+  status: done
   backlog: products/chummer/sync/LOCAL_MIRROR_PUBLISH_BACKLOG.md
-  notes: Initial publish completed on 2026-03-12T01:10:38Z, but WL-D009 freshness recheck at 2026-03-12T01:16:25Z found unresolved `PROGRAM_MILESTONES.yaml` drift in all seven mirrors; queue remains blocked until parity republish + checksum re-verification.
+  notes: Completed on 2026-03-13T10:19:08Z after republishing WL-D008-01..07 mirror subsets across all seven code repos and re-verifying `PROGRAM_MILESTONES.yaml` checksum parity in `products/chummer/sync/LOCAL_MIRROR_PUBLISH_EVIDENCE.md`.
 - id: WL-D009
   milestone: F3
-  status: in_progress
+  status: done
   backlog: products/chummer/sync/TRUTH_MAINTENANCE_BACKLOG.md
-  notes: Recurring split-wave truth-maintenance cycle with dated change/no-change evidence in maintenance log.
+  notes: Completed on 2026-03-13T17:08:00Z after the latest split-wave truth-maintenance cycle reconfirmed ownership, contract, blocker, and milestone canon with dated no-change evidence in the maintenance log.
 - id: WL-D010
   milestone: F3
   status: done
@@ -304,3 +304,13 @@ executable_queue:
   status: done
   backlog: products/chummer/sync/REVIEW_TEMPLATE_ACCESS_UNBLOCK_BACKLOG.md
   notes: Completed on 2026-03-11T23:31:00Z with sibling-repo review-context mirror republish and parity verification.
+- id: WL-D012
+  milestone: F3
+  status: done
+  backlog: products/chummer/sync/REVIEW_TEMPLATE_MIRROR_BACKLOG.md
+  notes: Completed on 2026-03-13T17:21:40Z with drift rows `WL-D007-DRIFT-2026-03-13-57`, `58`, `59`, `60`, and `62` republished to checksum parity; evidence appended in `products/chummer/sync/REVIEW_TEMPLATE_MIRROR_PUBLISH_EVIDENCE.md`; BLK-007 cleared in `products/chummer/GROUP_BLOCKERS.md`.
+- id: WL-D013
+  milestone: F3
+  status: queued
+  backlog: products/chummer/sync/TRUTH_MAINTENANCE_BACKLOG.md
+  notes: Queued on 2026-03-13 for recurring split-wave truth-maintenance cycles; latest cycle completed on 2026-03-13T17:59:00Z with explicit no-change evidence for ownership matrix, contract canon, blockers, and milestone registry in products/chummer/maintenance/TRUTH_MAINTENANCE_LOG.md.

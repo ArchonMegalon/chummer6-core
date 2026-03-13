@@ -23,6 +23,7 @@ using Chummer.Rulesets.Sr5;
 using Chummer.Rulesets.Sr6;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
 
 return CoreEngineTests.Run();
 
@@ -39,9 +40,12 @@ internal static class CoreEngineTests
             SessionEventCompatibilityContractsRoundTripToCanonicalEnvelope();
             RuntimeInspectorProjectsCapabilityAndCompatibilityKeys();
             RuntimeInspectorProjectionIsDeterministicAcrossPackAndBindingOrder();
+            RuleProfileRegistryRuntimeLockCompileOrderAndProviderBindingsAreDeterministic();
             RuntimeLockDiffIsDeterministicAndParameterized();
+            RuntimeFingerprintComputationIsStableAcrossOrderingVariance();
             AiExplainProjectionEmitsStructuredProvenance();
             AiExplainProjectionPrefersTraceContextOverMismatchedSessionContext();
+            RuleProfileRegistryRuntimeLockCompileOrderIsDeterministicForSharedTransitiveDependencies();
             ContractGoldenJsonFixturesStayStable();
             ContractNormalizationFixturesStayStable();
             RepoBoundaryGuardsHostedContractsAndSharedContractOwnership();
@@ -446,6 +450,206 @@ internal static class CoreEngineTests
             "Runtime-lock diffs should emit changes in a deterministic kind order.");
     }
 
+    private static void RuntimeFingerprintComputationIsStableAcrossOrderingVariance()
+    {
+        DefaultRuntimeFingerprintService service = new();
+        IReadOnlyList<ContentBundleDescriptor> contentBundlesA =
+        [
+            new ContentBundleDescriptor(
+                BundleId: "official.sr5.base",
+                RulesetId: RulesetDefaults.Sr5,
+                Version: "schema-1",
+                Title: "SR5 Base",
+                Description: "Canonical base bundle.",
+                AssetPaths: ["assets/media.json", "assets/metadata.json"]),
+            new ContentBundleDescriptor(
+                BundleId: "official.sr6.base",
+                RulesetId: RulesetDefaults.Sr6,
+                Version: "schema-2",
+                Title: "SR6 Base",
+                Description: "Campaign variant.",
+                AssetPaths: ["assets/metadata.json", "assets/media.json"])
+        ];
+        IReadOnlyList<ContentBundleDescriptor> contentBundlesB =
+        [
+            new ContentBundleDescriptor(
+                BundleId: "official.sr6.base",
+                RulesetId: RulesetDefaults.Sr6,
+                Version: "schema-2",
+                Title: "SR6 Base",
+                Description: "Campaign variant.",
+                AssetPaths: ["assets/media.json", "assets/metadata.json"]),
+            new ContentBundleDescriptor(
+                BundleId: "official.sr5.base",
+                RulesetId: RulesetDefaults.Sr5,
+                Version: "schema-1",
+                Title: "SR5 Base",
+                Description: "Canonical base bundle.",
+                AssetPaths: ["assets/media.json", "assets/metadata.json"])
+        ];
+        IReadOnlyList<RulePackRegistryEntry> rulePacksA =
+        [
+            new RulePackRegistryEntry(
+                new RulePackManifest(
+                    PackId: "house-alpha",
+                    Version: "1.0.0",
+                    Title: "House Alpha",
+                    Author: "GM",
+                    Description: "Test pack A.",
+                    Targets: [RulesetDefaults.Sr6, RulesetDefaults.Sr5],
+                    EngineApiVersion: "rulepack-v1",
+                    DependsOn:
+                    [
+                        new ArtifactVersionReference("dependency-beta", "2.0.0"),
+                        new ArtifactVersionReference("dependency-alpha", "1.0.0")
+                    ],
+                    ConflictsWith: [new ArtifactVersionReference("conflict-zeta", "3.0.0")],
+                    Visibility: ArtifactVisibilityModes.LocalOnly,
+                    TrustTier: ArtifactTrustTiers.LocalOnly,
+                    Assets:
+                    [
+                        new RulePackAssetDescriptor("luacode", "add-provider", "assets/lua/alpha.lua", "sha256:alpha"),
+                        new RulePackAssetDescriptor("config", "merge-catalog", "assets/catalog.xml", "sha256:catalog"),
+                        new RulePackAssetDescriptor("luacode", "add-provider", "assets/lua/alpha-core.lua", "sha256:alpha-core")
+                    ],
+                    Capabilities:
+                    [
+                        new RulePackCapabilityDescriptor(RulePackCapabilityIds.DeriveAttributeLimit, "luacode", "add-provider", Explainable: true, SessionSafe: true),
+                        new RulePackCapabilityDescriptor(RulePackCapabilityIds.ValidateCharacter, "luacode", "add-provider", Explainable: true),
+                        new RulePackCapabilityDescriptor(RulePackCapabilityIds.ContentCatalog, "json", "merge-catalog", SessionSafe: true)
+                    ],
+                    ExecutionPolicies:
+                    [
+                        new RulePackExecutionPolicyHint(
+                            Environment: RulePackExecutionEnvironments.DesktopLocal,
+                            PolicyMode: RulePackExecutionPolicyModes.Allow,
+                            MinimumTrustTier: ArtifactTrustTiers.LocalOnly,
+                            AllowedAssetModes: ["merge-catalog", "add-provider"])
+                    ]),
+                new RulePackPublicationMetadata(
+                    OwnerId: "local-single-user",
+                    Visibility: ArtifactVisibilityModes.LocalOnly,
+                    PublicationStatus: RulePackPublicationStatuses.Published,
+                    Review: new RulePackReviewDecision(RulePackReviewStates.NotRequired),
+                    Shares: []),
+                new ArtifactInstallState(ArtifactInstallStates.Available)),
+            new RulePackRegistryEntry(
+                new RulePackManifest(
+                    PackId: "house-zeta",
+                    Version: "1.0.0",
+                    Title: "House Zeta",
+                    Author: "GM",
+                    Description: "Test pack B.",
+                    Targets: [RulesetDefaults.Sr5],
+                    EngineApiVersion: "rulepack-v1",
+                    DependsOn:
+                    [
+                        new ArtifactVersionReference("dependency-alpha", "1.0.0"),
+                        new ArtifactVersionReference("dependency-gamma", "1.1.0")
+                    ],
+                    ConflictsWith: [new ArtifactVersionReference("conflict-beta", "2.0.0")],
+                    Visibility: ArtifactVisibilityModes.LocalOnly,
+                    TrustTier: ArtifactTrustTiers.LocalOnly,
+                    Assets:
+                    [
+                        new RulePackAssetDescriptor("json", "merge-catalog", "assets/catalog-zeta.json", "sha256:zeta"),
+                        new RulePackAssetDescriptor("luacode", "add-provider", "assets/lua/zeta.lua", "sha256:zeta")
+                    ],
+                    Capabilities:
+                    [
+                        new RulePackCapabilityDescriptor(RulePackCapabilityIds.SessionQuickActions, "luacode", "add-provider"),
+                        new RulePackCapabilityDescriptor(RulePackCapabilityIds.BuildLabRecommendation, "json", "append-provider")
+                    ],
+                    ExecutionPolicies:
+                    [
+                        new RulePackExecutionPolicyHint(
+                            Environment: RulePackExecutionEnvironments.HostedServer,
+                            PolicyMode: RulePackExecutionPolicyModes.ReviewRequired,
+                            MinimumTrustTier: ArtifactTrustTiers.LocalOnly,
+                            AllowedAssetModes: ["add-provider", "append-provider"])
+                    ]),
+                new RulePackPublicationMetadata(
+                    OwnerId: "local-single-user",
+                    Visibility: ArtifactVisibilityModes.LocalOnly,
+                    PublicationStatus: RulePackPublicationStatuses.Published,
+                    Review: new RulePackReviewDecision(RulePackReviewStates.NotRequired),
+                    Shares: []),
+                new ArtifactInstallState(ArtifactInstallStates.Installed))
+        ];
+        IReadOnlyList<RulePackRegistryEntry> rulePacksB =
+        [
+            new RulePackRegistryEntry(
+                rulePacksA[1].Manifest,
+                new RulePackPublicationMetadata(
+                    OwnerId: "local-single-user",
+                    Visibility: ArtifactVisibilityModes.LocalOnly,
+                    PublicationStatus: RulePackPublicationStatuses.Published,
+                    Review: new RulePackReviewDecision(RulePackReviewStates.NotRequired),
+                    Shares: []),
+                new ArtifactInstallState(ArtifactInstallStates.Installed)),
+            new RulePackRegistryEntry(
+                rulePacksA[0].Manifest,
+                new RulePackPublicationMetadata(
+                    OwnerId: "local-single-user",
+                    Visibility: ArtifactVisibilityModes.LocalOnly,
+                    PublicationStatus: RulePackPublicationStatuses.Published,
+                    Review: new RulePackReviewDecision(RulePackReviewStates.NotRequired),
+                    Shares: []),
+                new ArtifactInstallState(ArtifactInstallStates.Available))
+        ];
+        IReadOnlyDictionary<string, string> providerBindingsA = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            [RulePackCapabilityIds.DeriveAttributeLimit] = "house-alpha/derive.attribute-limit",
+            [RulePackCapabilityIds.ValidateCharacter] = "house-zeta/validate.character",
+            [RulePackCapabilityIds.ContentCatalog] = "house-zeta/content.catalog",
+            [RulePackCapabilityIds.BuildLabRecommendation] = "house-alpha/buildlab.recommendation"
+        };
+        IReadOnlyDictionary<string, string> providerBindingsB = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            [RulePackCapabilityIds.ContentCatalog] = "house-zeta/content.catalog",
+            [RulePackCapabilityIds.BuildLabRecommendation] = "house-alpha/buildlab.recommendation",
+            [RulePackCapabilityIds.ValidateCharacter] = "house-zeta/validate.character",
+            [RulePackCapabilityIds.DeriveAttributeLimit] = "house-alpha/derive.attribute-limit"
+        };
+        IReadOnlyDictionary<string, string> abiVersionsA = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            [RulePackCapabilityIds.SessionQuickActions] = "derive-v3|out-v1",
+            [RulePackCapabilityIds.ContentCatalog] = "cfg-v1|cfg-out-v1",
+            [RulePackCapabilityIds.DeriveAttributeLimit] = "lim-v2|lim-out-v2"
+        };
+        IReadOnlyDictionary<string, string> abiVersionsB = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            [RulePackCapabilityIds.DeriveAttributeLimit] = "lim-v2|lim-out-v2",
+            [RulePackCapabilityIds.SessionQuickActions] = "derive-v3|out-v1",
+            [RulePackCapabilityIds.ContentCatalog] = "cfg-v1|cfg-out-v1"
+        };
+
+        string fingerprintA = service.ComputeResolvedRuntimeFingerprint(
+            RulesetDefaults.Sr5,
+            contentBundlesA,
+            rulePacksA,
+            providerBindingsA,
+            "rulepack-v1",
+            abiVersionsA);
+        string fingerprintB = service.ComputeResolvedRuntimeFingerprint(
+            RulesetDefaults.Sr5,
+            contentBundlesB,
+            rulePacksB,
+            providerBindingsB,
+            "rulepack-v1",
+            abiVersionsB);
+        string fingerprintC = service.ComputeResolvedRuntimeFingerprint(
+            RulesetDefaults.Sr5,
+            contentBundlesA,
+            rulePacksA,
+            providerBindingsA,
+            "rulepack-v1",
+            abiVersionsB);
+
+        AssertEx.Equal(fingerprintA, fingerprintB, "Runtime fingerprint should be stable when equivalent inputs are reordered.");
+        AssertEx.Equal(fingerprintA, fingerprintC, "Runtime fingerprint should be stable when ABI map ordering changes.");
+    }
+
     private static void RuntimeInspectorProjectionIsDeterministicAcrossPackAndBindingOrder()
     {
         DefaultRuntimeInspectorService service = new(
@@ -525,6 +729,160 @@ internal static class CoreEngineTests
             projectionA.MigrationPreview.Select(static item => item.SubjectId),
             ["house", "house-rules", "missing-alpha", "missing-zeta"],
             "Runtime inspector migration preview should follow deterministic RulePack ordering.");
+    }
+
+    private static void RuleProfileRegistryRuntimeLockCompileOrderAndProviderBindingsAreDeterministic()
+    {
+        RulePackRegistryEntry packBeta = CreateRulePackEntry(
+            "zzz-pack",
+            [
+                new RulePackCapabilityDescriptor(
+                    CapabilityId: RulePackCapabilityIds.ContentCatalog,
+                    AssetKind: RulePackAssetKinds.Xml,
+                    AssetMode: RulePackAssetModes.MergeCatalog)
+            ],
+            version: "1.1.0");
+        RulePackRegistryEntry packAlpha = CreateRulePackEntry(
+            "alpha-pack",
+            [
+                new RulePackCapabilityDescriptor(
+                    CapabilityId: RulePackCapabilityIds.ContentCatalog,
+                    AssetKind: RulePackAssetKinds.Xml,
+                    AssetMode: RulePackAssetModes.MergeCatalog)
+            ],
+            dependencies: [new ArtifactVersionReference("zzz-pack", "1.1.0")],
+            version: "2.0.0");
+
+        DefaultRuleProfileRegistryService orderedA = CreateRuleProfileRegistryService([packAlpha, packBeta]);
+        DefaultRuleProfileRegistryService orderedB = CreateRuleProfileRegistryService([packBeta, packAlpha]);
+
+        RuleProfileRegistryEntry overlayA = orderedA
+            .List(OwnerScope.LocalSingleUser, RulesetDefaults.Sr5)
+            .First(entry => string.Equals(entry.Manifest.ProfileId, "local.sr5.current-overlays", StringComparison.Ordinal));
+        RuleProfileRegistryEntry overlayB = orderedB
+            .List(OwnerScope.LocalSingleUser, RulesetDefaults.Sr5)
+            .First(entry => string.Equals(entry.Manifest.ProfileId, "local.sr5.current-overlays", StringComparison.Ordinal));
+        ResolvedRuntimeLock lockA = overlayA.Manifest.RuntimeLock;
+        ResolvedRuntimeLock lockB = overlayB.Manifest.RuntimeLock;
+
+        AssertEx.SequenceEqual(
+            lockA.RulePacks.Select(static candidate => $"{candidate.Id}@{candidate.Version}"),
+            ["zzz-pack@1.1.0", "alpha-pack@2.0.0"],
+            "Rule profile runtime lock should apply deterministic compile-order starting from explicit dependencies.");
+        AssertEx.SequenceEqual(
+            lockB.RulePacks.Select(static candidate => $"{candidate.Id}@{candidate.Version}"),
+            ["zzz-pack@1.1.0", "alpha-pack@2.0.0"],
+            "RulePack compile-order should be deterministic regardless of registry input order.");
+        AssertEx.Equal(
+            lockA.RuntimeFingerprint,
+            lockB.RuntimeFingerprint,
+            "RuntimeLock fingerprints should be deterministic for equivalent compile inputs.");
+        AssertEx.Equal(
+            "alpha-pack/content.catalog",
+            lockA.ProviderBindings[RulePackCapabilityIds.ContentCatalog],
+            "Dependency-ordered provider bindings should be deterministic.");
+        AssertEx.Equal(
+            lockA.ProviderBindings[RulePackCapabilityIds.ContentCatalog],
+            lockB.ProviderBindings[RulePackCapabilityIds.ContentCatalog],
+            "Provider binding maps should remain stable across input order changes.");
+    }
+
+    private static void RuleProfileRegistryRuntimeLockCompileOrderIsDeterministicForSharedTransitiveDependencies()
+    {
+        RulePackRegistryEntry sharedLeaf = CreateRulePackEntry(
+            "shared-leaf",
+            [
+                new RulePackCapabilityDescriptor(
+                    CapabilityId: RulePackCapabilityIds.ContentCatalog,
+                    AssetKind: RulePackAssetKinds.Xml,
+                    AssetMode: RulePackAssetModes.MergeCatalog)
+            ]);
+        RulePackRegistryEntry midA = CreateRulePackEntry(
+            "middle-alpha",
+            [
+                new RulePackCapabilityDescriptor(
+                    CapabilityId: RulePackCapabilityIds.ValidateCharacter,
+                    AssetKind: RulePackAssetKinds.Xml,
+                    AssetMode: RulePackAssetModes.MergeCatalog)
+            ],
+            dependencies: [new ArtifactVersionReference("shared-leaf", "1.0.0")]);
+        RulePackRegistryEntry midB = CreateRulePackEntry(
+            "middle-beta",
+            [
+                new RulePackCapabilityDescriptor(
+                    CapabilityId: RulePackCapabilityIds.DeriveInitiative,
+                    AssetKind: RulePackAssetKinds.Xml,
+                    AssetMode: RulePackAssetModes.MergeCatalog)
+            ],
+            dependencies: [new ArtifactVersionReference("shared-leaf", "1.0.0")]);
+        RulePackRegistryEntry topA = CreateRulePackEntry(
+            "top-alpha",
+            [
+                new RulePackCapabilityDescriptor(
+                    CapabilityId: RulePackCapabilityIds.BuildLabRecommendation,
+                    AssetKind: RulePackAssetKinds.Xml,
+                    AssetMode: RulePackAssetModes.MergeCatalog)
+            ],
+            dependencies:
+            [
+                new ArtifactVersionReference("middle-beta", "1.0.0"),
+                new ArtifactVersionReference("shared-leaf", "1.0.0"),
+                new ArtifactVersionReference("middle-alpha", "1.0.0")
+            ]);
+        RulePackRegistryEntry topB = CreateRulePackEntry(
+            "top-beta",
+            [
+                new RulePackCapabilityDescriptor(
+                    CapabilityId: RulePackCapabilityIds.SessionQuickActions,
+                    AssetKind: RulePackAssetKinds.Xml,
+                    AssetMode: RulePackAssetModes.MergeCatalog)
+            ],
+            dependencies:
+            [
+                new ArtifactVersionReference("middle-alpha", "1.0.0"),
+                new ArtifactVersionReference("middle-beta", "1.0.0"),
+                new ArtifactVersionReference("shared-leaf", "1.0.0")
+            ]);
+
+        DefaultRuleProfileRegistryService noisyA = CreateRuleProfileRegistryService(
+        [
+            topA,
+            sharedLeaf,
+            topB,
+            midB,
+            midA
+        ]);
+        DefaultRuleProfileRegistryService noisyB = CreateRuleProfileRegistryService(
+        [
+            topB,
+            midA,
+            sharedLeaf,
+            midB,
+            topA
+        ]);
+
+        RuleProfileRegistryEntry overlayA = noisyA
+            .List(OwnerScope.LocalSingleUser, RulesetDefaults.Sr5)
+            .First(entry => string.Equals(entry.Manifest.ProfileId, "local.sr5.current-overlays", StringComparison.Ordinal));
+        RuleProfileRegistryEntry overlayB = noisyB
+            .List(OwnerScope.LocalSingleUser, RulesetDefaults.Sr5)
+            .First(entry => string.Equals(entry.Manifest.ProfileId, "local.sr5.current-overlays", StringComparison.Ordinal));
+        ResolvedRuntimeLock lockA = overlayA.Manifest.RuntimeLock;
+        ResolvedRuntimeLock lockB = overlayB.Manifest.RuntimeLock;
+
+        AssertEx.SequenceEqual(
+            lockA.RulePacks.Select(static candidate => $"{candidate.Id}@{candidate.Version}"),
+            lockB.RulePacks.Select(static candidate => $"{candidate.Id}@{candidate.Version}"),
+            "Shared transitive dependency compile-order should be stable regardless of root and dependency-order noise.");
+        AssertEx.Equal(
+            "shared-leaf/content.catalog",
+            lockA.ProviderBindings[RulePackCapabilityIds.ContentCatalog],
+            "Shared transitive dependency providers should resolve deterministically.");
+        AssertEx.Equal(
+            "shared-leaf/content.catalog",
+            lockB.ProviderBindings[RulePackCapabilityIds.ContentCatalog],
+            "Shared transitive dependency providers should resolve deterministically across input permutations.");
+        AssertEx.Equal(lockA.RuntimeFingerprint, lockB.RuntimeFingerprint, "Runtime fingerprints should match across equivalent compile-order noise.");
     }
 
     private static void AiExplainProjectionEmitsStructuredProvenance()
@@ -1579,18 +1937,20 @@ internal static class CoreEngineTests
 
     private static RulePackRegistryEntry CreateRulePackEntry(
         string packId,
-        IReadOnlyList<RulePackCapabilityDescriptor> capabilities)
+        IReadOnlyList<RulePackCapabilityDescriptor> capabilities,
+        IReadOnlyList<ArtifactVersionReference>? dependencies = null,
+        string version = "1.0.0")
     {
         return new RulePackRegistryEntry(
             new RulePackManifest(
                 PackId: packId,
-                Version: "1.0.0",
+                Version: version,
                 Title: $"{packId} Title",
                 Author: "GM",
                 Description: $"{packId} description.",
                 Targets: [RulesetDefaults.Sr5],
                 EngineApiVersion: "rulepack-v1",
-                DependsOn: [],
+                DependsOn: dependencies ?? [],
                 ConflictsWith: [],
                 Visibility: ArtifactVisibilityModes.LocalOnly,
                 TrustTier: ArtifactTrustTiers.LocalOnly,
@@ -1604,6 +1964,17 @@ internal static class CoreEngineTests
                 Review: new RulePackReviewDecision(RulePackReviewStates.NotRequired),
                 Shares: []),
             new ArtifactInstallState(ArtifactInstallStates.Available));
+    }
+
+    private static DefaultRuleProfileRegistryService CreateRuleProfileRegistryService(IReadOnlyList<RulePackRegistryEntry> rulePacks)
+    {
+        return new(
+            new RulesetPluginRegistry([new Sr5RulesetPlugin()]),
+            new RulePackRegistryServiceStub(rulePacks),
+            new RuleProfileManifestStoreStub([]),
+            new RuleProfilePublicationStoreStub([]),
+            new RuleProfileInstallStateStoreStub(),
+            new DefaultRuntimeFingerprintService());
     }
 
     private static RuntimeLockInstallPreviewReceipt CreateRuntimeLockInstallPreviewFixtureA()
@@ -2142,6 +2513,62 @@ internal static class CoreEngineTests
         public RuleProfileInstallRecord? Get(OwnerScope owner, string profileId, string rulesetId) => null;
 
         public RuleProfileInstallRecord Upsert(OwnerScope owner, RuleProfileInstallRecord record) => record;
+    }
+
+    private sealed class RuleProfileManifestStoreStub : IRuleProfileManifestStore
+    {
+        private readonly IReadOnlyDictionary<string, RuleProfileManifestRecord> _entries;
+
+        public RuleProfileManifestStoreStub(IReadOnlyList<RuleProfileManifestRecord> entries)
+        {
+            _entries = entries.ToDictionary(
+                static entry => $"{entry.Manifest.ProfileId}|{entry.Manifest.RulesetId}",
+                static entry => entry,
+                StringComparer.Ordinal);
+        }
+
+        public IReadOnlyList<RuleProfileManifestRecord> List(OwnerScope owner, string? rulesetId = null)
+            => rulesetId is null
+                ? _entries.Values.ToArray()
+                : _entries.Values
+                    .Where(record => string.Equals(record.Manifest.RulesetId, rulesetId, StringComparison.Ordinal))
+                    .ToArray();
+
+        public RuleProfileManifestRecord? Get(OwnerScope owner, string profileId, string rulesetId)
+            => _entries.GetValueOrDefault($"{profileId}|{rulesetId}");
+
+        public RuleProfileManifestRecord Upsert(OwnerScope owner, RuleProfileManifestRecord record)
+        {
+            return record;
+        }
+    }
+
+    private sealed class RuleProfilePublicationStoreStub : IRuleProfilePublicationStore
+    {
+        private readonly IReadOnlyDictionary<string, RuleProfilePublicationRecord> _entries;
+
+        public RuleProfilePublicationStoreStub(IReadOnlyList<RuleProfilePublicationRecord> entries)
+        {
+            _entries = entries.ToDictionary(
+                static entry => $"{entry.ProfileId}|{entry.RulesetId}",
+                static entry => entry,
+                StringComparer.Ordinal);
+        }
+
+        public IReadOnlyList<RuleProfilePublicationRecord> List(OwnerScope owner, string? rulesetId = null)
+            => rulesetId is null
+                ? _entries.Values.ToArray()
+                : _entries.Values
+                    .Where(record => string.Equals(record.RulesetId, rulesetId, StringComparison.Ordinal))
+                    .ToArray();
+
+        public RuleProfilePublicationRecord? Get(OwnerScope owner, string profileId, string rulesetId)
+            => _entries.GetValueOrDefault($"{profileId}|{rulesetId}");
+
+        public RuleProfilePublicationRecord Upsert(OwnerScope owner, RuleProfilePublicationRecord record)
+        {
+            return record;
+        }
     }
 
     private sealed class RuleProfileInstallHistoryStoreStub : IRuleProfileInstallHistoryStore
@@ -2700,12 +3127,15 @@ internal static class CoreEngineTests
         string repositoryRoot = GetRepositoryRoot();
         string coreContractsRoot = Path.Combine(repositoryRoot, "Chummer.Contracts");
         string runContractsRoot = Path.Combine(repositoryRoot, "Chummer.Run.Contracts");
+        string coreEngineSolutionText = File.ReadAllText(Path.Combine(repositoryRoot, "Chummer.CoreEngine.sln"));
+        string normalizedCoreEngineSolutionText = coreEngineSolutionText.Replace('\\', '/');
         string presentationContractsRoot = Path.Combine(repositoryRoot, "Chummer.Presentation.Contracts");
         string runServicesContractsRoot = Path.Combine(repositoryRoot, "Chummer.RunServices.Contracts");
         AssertEx.True(!Directory.Exists(presentationContractsRoot), "Temporary project root 'Chummer.Presentation.Contracts' should be deleted.");
         AssertEx.True(!Directory.Exists(runServicesContractsRoot), "Temporary project root 'Chummer.RunServices.Contracts' should be deleted.");
 
         string corePresentationContractsDirectory = Path.Combine(coreContractsRoot, "Presentation");
+        string runPresentationContractsDirectory = Path.Combine(runContractsRoot, "Presentation");
         string[] canonicalPresentationContracts =
         [
             "AppCommandCatalogResponse.cs",
@@ -2727,9 +3157,13 @@ internal static class CoreEngineTests
         foreach (string fileName in canonicalPresentationContracts)
         {
             AssertEx.True(
-                File.Exists(Path.Combine(corePresentationContractsDirectory, fileName)),
-                $"Canonical presentation contract '{fileName}' should live under Chummer.Contracts/Presentation.");
+                File.Exists(Path.Combine(runPresentationContractsDirectory, fileName)),
+                $"Canonical presentation contract '{fileName}' should live under Chummer.Run.Contracts/Presentation.");
         }
+        AssertEx.True(
+            !Directory.Exists(corePresentationContractsDirectory)
+            || !Directory.EnumerateFiles(corePresentationContractsDirectory, "*.cs", SearchOption.TopDirectoryOnly).Any(),
+            "Engine-owned contracts must not keep presentation DTO source under Chummer.Contracts/Presentation.");
 
         string coreAiContractsDirectory = Path.Combine(runContractsRoot, "AI");
         string[] canonicalAiContracts =
@@ -2823,10 +3257,10 @@ internal static class CoreEngineTests
             && buildKitManifestContractsText.Contains("BuildKitRuntimeRequirement", StringComparison.Ordinal),
             "BuildKit manifest and runtime requirement DTOs should remain engine-owned contracts.");
 
-        string buildKitWorkbenchContractsPath = Path.Combine(corePresentationContractsDirectory, "BuildKitWorkbenchContracts.cs");
+        string buildKitWorkbenchContractsPath = Path.Combine(runPresentationContractsDirectory, "BuildKitWorkbenchContracts.cs");
         AssertEx.True(
             File.Exists(buildKitWorkbenchContractsPath),
-            "BuildKit workbench projection contracts should remain canonical under Chummer.Contracts/Presentation.");
+            "BuildKit workbench projection contracts should remain canonical under Chummer.Run.Contracts/Presentation.");
 
         string hubCompatibilityContractsPath = Path.Combine(coreHubContractsDirectory, "HubProjectCompatibilityContracts.cs");
         AssertEx.True(
@@ -2846,6 +3280,24 @@ internal static class CoreEngineTests
             && !coreContentContractsText.Contains("HubProjectCompatibilityMatrix", StringComparison.Ordinal)
             && !coreContentContractsText.Contains("HubProjectInstallPreviewReceipt", StringComparison.Ordinal),
             "Presentation and run-services compatibility projection DTOs must not leak into engine-owned content contracts.");
+
+        string coreContractsAiDirectory = Path.Combine(coreContractsRoot, "AI");
+        string coreContractsHubDirectory = Path.Combine(coreContractsRoot, "Hub");
+        AssertEx.True(
+            !Directory.Exists(coreContractsAiDirectory) && !Directory.Exists(coreContractsHubDirectory),
+            "Engine-owned contracts must not reintroduce hosted AI/Hub source directories under Chummer.Contracts.");
+
+        string[] coreContractsSourceFiles = Directory
+            .EnumerateFiles(coreContractsRoot, "*.cs", SearchOption.AllDirectories)
+            .Where(path => !IsGeneratedOrBuildArtifact(path))
+            .ToArray();
+        string coreContractsSourceText = string.Join("\n", coreContractsSourceFiles.Select(File.ReadAllText));
+        Regex hostedNamespaceRegex = new(
+            @"\bnamespace\s+Chummer\.Contracts\.(AI|Hub|Media|Approval|Search)(?:\.|\s*(?:;|\{))",
+            RegexOptions.CultureInvariant);
+        AssertEx.True(
+            !hostedNamespaceRegex.IsMatch(coreContractsSourceText),
+            "Engine-owned contracts must not reintroduce hosted AI/Hub/media/approval/search namespaces under Chummer.Contracts.");
 
         string[] hostedContractSources = Directory
             .EnumerateFiles(runContractsRoot, "*.cs", SearchOption.AllDirectories)
@@ -2876,6 +3328,8 @@ internal static class CoreEngineTests
         foreach (string projectPath in projectPaths)
         {
             string projectText = File.ReadAllText(projectPath);
+            string projectPathRelative = Path.GetRelativePath(repositoryRoot, projectPath).Replace('\\', '/');
+            bool projectIsInActiveCoreSolution = normalizedCoreEngineSolutionText.Contains(projectPathRelative, StringComparison.Ordinal);
             AssertEx.True(
                 !projectText.Contains(@"..\Chummer.RunServices.Contracts\AI\", StringComparison.Ordinal)
                 && !projectText.Contains(@"../Chummer.RunServices.Contracts/AI/", StringComparison.Ordinal)
@@ -2888,6 +3342,13 @@ internal static class CoreEngineTests
                 && !projectText.Contains(@"..\Chummer.Run.Contracts\Hub\", StringComparison.Ordinal)
                 && !projectText.Contains(@"../Chummer.Run.Contracts/Hub/", StringComparison.Ordinal),
                 $"Project '{Path.GetRelativePath(repositoryRoot, projectPath)}' should consume canonical contracts via assembly reference, not by compiling individual AI/Hub source files directly.");
+            if (projectIsInActiveCoreSolution)
+            {
+                AssertEx.True(
+                    !projectText.Contains(@"..\Chummer.Infrastructure.Browser\", StringComparison.Ordinal)
+                    && !projectText.Contains(@"../Chummer.Infrastructure.Browser/", StringComparison.Ordinal),
+                    $"Project '{Path.GetRelativePath(repositoryRoot, projectPath)}' must not directly reference browser infrastructure source paths while it remains in the active core engine solution boundary.");
+            }
         }
     }
 
@@ -2934,7 +3395,20 @@ internal static class CoreEngineTests
             && worklistText.Contains("WL-084", StringComparison.Ordinal)
             && worklistText.Contains("A9.3 add explain-hook composition seam for backend integrations", StringComparison.Ordinal)
             && worklistText.Contains("WL-072", StringComparison.Ordinal)
-            && worklistText.Contains("delete temporary contract source projects after package cutover", StringComparison.Ordinal),
+            && worklistText.Contains("delete temporary contract source projects after package cutover", StringComparison.Ordinal)
+            && worklistText.Contains("temporary source-project roots stay deleted", StringComparison.Ordinal)
+            && worklistText.Contains("WL-089", StringComparison.Ordinal)
+            && worklistText.Contains("A0.5.4 follow-through", StringComparison.Ordinal)
+            && worklistText.Contains("| WL-089 | done |", StringComparison.Ordinal)
+            && worklistText.Contains("presentation-contract authority closure runnable", StringComparison.Ordinal)
+            && worklistText.Contains("WL-090", StringComparison.Ordinal)
+            && worklistText.Contains("A0.5.5 follow-through", StringComparison.Ordinal)
+            && worklistText.Contains("| WL-090 | done |", StringComparison.Ordinal)
+            && worklistText.Contains("run-service contract authority closure runnable", StringComparison.Ordinal)
+            && worklistText.Contains("WL-091", StringComparison.Ordinal)
+            && worklistText.Contains("A0.5.6 follow-through", StringComparison.Ordinal)
+            && worklistText.Contains("| WL-091 | done |", StringComparison.Ordinal)
+            && worklistText.Contains("browser infrastructure authority closure runnable", StringComparison.Ordinal),
             "Worklist backlog should keep remaining hardening and integration scope decomposed into executable milestones.");
         AssertEx.True(
             designText.Contains("### Milestone A6", StringComparison.Ordinal)
@@ -2945,30 +3419,62 @@ internal static class CoreEngineTests
         if (!string.IsNullOrEmpty(queueText))
         {
             AssertEx.True(
-                queueText.Contains("Milestones A6-A9", StringComparison.Ordinal)
-                && queueText.Contains("A6.1-A6.3", StringComparison.Ordinal)
-                && queueText.Contains("A7.1-A7.3", StringComparison.Ordinal)
-                && queueText.Contains("A8.1-A8.3", StringComparison.Ordinal)
-                && queueText.Contains("A9.1-A9.3", StringComparison.Ordinal),
-                "Published queue overlay should point at the concrete A6-A9 milestone decomposition.");
-            AssertEx.True(
                 !queueText.Contains("Remaining hardening and integration work is still tracked as coarse queue slices rather than milestone-mapped task coverage", StringComparison.Ordinal),
                 "Published queue overlay should not regress back to the coarse hardening/integration queue slice.");
             AssertEx.True(
                 !queueText.Contains("Cross-repo contract reset work is not yet represented as explicit core milestones", StringComparison.Ordinal),
                 "Published queue overlay should keep cross-repo contract reset follow-through mapped to explicit executable milestones.");
             AssertEx.True(
-                queueText.Contains("Milestone `A0.5`", StringComparison.Ordinal)
-                && queueText.Contains("`WL-072`", StringComparison.Ordinal)
-                && queueText.Contains("Chummer.Presentation.Contracts", StringComparison.Ordinal)
-                && queueText.Contains("Chummer.RunServices.Contracts", StringComparison.Ordinal)
-                && !queueText.Contains("Temporary source-project leaks such as `Chummer.Presentation.Contracts` and `Chummer.RunServices.Contracts` still need deletion after the contract plane cutover.", StringComparison.Ordinal),
-                "Published queue overlay should map temporary contract source-project deletion to the executable A0.5/WL-072 follow-through item.");
+                !queueText.Contains("Milestones A6-A9", StringComparison.Ordinal)
+                && !queueText.Contains("A6.1-A6.3", StringComparison.Ordinal)
+                && !queueText.Contains("A7.1-A7.3", StringComparison.Ordinal)
+                && !queueText.Contains("A8.1-A8.3", StringComparison.Ordinal)
+                && !queueText.Contains("A9.1-A9.3", StringComparison.Ordinal)
+                && !queueText.Contains("Milestone `A0.5`", StringComparison.Ordinal)
+                && !queueText.Contains("Milestone `A0.5.4`", StringComparison.Ordinal)
+                && !queueText.Contains("Milestone `A0.5.5`", StringComparison.Ordinal)
+                && !queueText.Contains("Milestone `A0.5.6`", StringComparison.Ordinal)
+                && !queueText.Contains("`WL-095`", StringComparison.Ordinal),
+                "Published queue overlay should stay clear of already-completed milestone slices once closure is verifier-guarded.");
         }
+        AssertEx.True(
+            projectMilestonesText.Contains(
+                "id: A0.5.4\n        worklist: WL-089\n        title: Keep presentation-contract authority closure runnable through package-only cutover acceptance\n        status: done",
+                StringComparison.Ordinal),
+            "Project milestone registry should keep A0.5.4/WL-089 marked done once presentation-contract authority closure is verifier-guarded.");
+        AssertEx.True(
+            projectMilestonesText.Contains(
+                "id: A0.5.5\n        worklist: WL-090\n        title: Keep run-service contract authority closure runnable through hosted package cutover acceptance\n        status: done",
+                StringComparison.Ordinal),
+            "Project milestone registry should keep A0.5.5/WL-090 marked done once run-service contract authority closure is verifier-guarded.");
+        AssertEx.True(
+            projectMilestonesText.Contains(
+                "id: A0.5.6\n        worklist: WL-091\n        title: Keep browser infrastructure authority closure runnable through presentation ownership anchoring\n        status: done",
+                StringComparison.Ordinal),
+            "Project milestone registry should keep A0.5.6/WL-091 marked done once browser infrastructure quarantine is verifier-guarded.");
+        AssertEx.True(
+            projectMilestonesText.Contains(
+                "id: A0.5.9\n        worklist: WL-095\n        title: Execute presentation-contract extraction out of engine-owned canonical package\n        status: done",
+                StringComparison.Ordinal),
+            "Project milestone registry should keep A0.5.9/WL-095 marked done after presentation-contract extraction leaves Chummer.Contracts.");
         AssertEx.True(
             projectMilestonesText.Contains("milestone_coverage_complete: true", StringComparison.Ordinal)
             && projectMilestonesText.Contains("A0.5", StringComparison.Ordinal)
             && projectMilestonesText.Contains("WL-072", StringComparison.Ordinal)
+            && projectMilestonesText.Contains("id: A0.5.4", StringComparison.Ordinal)
+            && projectMilestonesText.Contains("worklist: WL-089", StringComparison.Ordinal)
+            && projectMilestonesText.Contains("presentation-contract authority closure runnable", StringComparison.Ordinal)
+            && projectMilestonesText.Contains("id: A0.5.5", StringComparison.Ordinal)
+            && projectMilestonesText.Contains("worklist: WL-090", StringComparison.Ordinal)
+            && projectMilestonesText.Contains("run-service contract authority closure runnable", StringComparison.Ordinal)
+            && projectMilestonesText.Contains("id: A0.5.6", StringComparison.Ordinal)
+            && projectMilestonesText.Contains("worklist: WL-091", StringComparison.Ordinal)
+            && projectMilestonesText.Contains("browser infrastructure authority closure runnable", StringComparison.Ordinal)
+            && projectMilestonesText.Contains("id: A0.5.9", StringComparison.Ordinal)
+            && projectMilestonesText.Contains("worklist: WL-095", StringComparison.Ordinal)
+            && projectMilestonesText.Contains("presentation-contract extraction", StringComparison.Ordinal)
+            && projectMilestonesText.Contains("Future drift on temporary project deletion, presentation contract ownership, hosted contract ownership, and browser infrastructure quarantine is now guarded", StringComparison.Ordinal)
+            && projectMilestonesText.Contains("candidate `4` queue exhaustion with uncovered scope and candidate `4317` uncovered non-engine authority surfaces", StringComparison.Ordinal)
             && projectMilestonesText.Contains("A6", StringComparison.Ordinal)
             && projectMilestonesText.Contains("work_items:", StringComparison.Ordinal)
             && projectMilestonesText.Contains("id: A6.1", StringComparison.Ordinal)

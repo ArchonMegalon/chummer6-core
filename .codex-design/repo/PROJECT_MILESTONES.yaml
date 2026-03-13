@@ -36,7 +36,7 @@ milestones:
       - ChummerDataViewer, CrashHandler, TextblockConverter, and Translator were retired from the repo and must stay out of the active engine verification boundary.
   - id: A0.5
     title: Cross-repo contract reset follow-through
-    status: open
+    status: done
     mapped_worklist:
       - WL-072
       - WL-085
@@ -47,14 +47,16 @@ milestones:
       - WL-090
       - WL-091
       - WL-092
+      - WL-094
+      - WL-095
     work_items:
       - id: A0.5.1
         worklist: WL-086
         title: Keep non-engine authority surfaces represented as explicit runnable backlog
-        status: queued
+        status: done
         evidence:
-          - Auditor publication candidate `44367` reports queue exhaustion while non-engine authority surfaces remain in core repo scope.
-          - Runnable backlog tracking must remain explicit for presentation contracts, run-service contracts, browser infrastructure, and legacy helper tools until package-only cutover closure.
+          - Completed on 2026-03-13 by publishing explicit runnable follow-through slices for each non-engine authority surface: `WL-089` (presentation contracts), `WL-090` (run-service contracts), and `WL-091` (browser infrastructure), with retired helper closure carried by `WL-092`.
+          - Queue publication now tracks non-engine authority follow-through via surface-specific runnable slices instead of a single coarse uncovered-scope line, keeping A0.5 closure work executable until ownership cutover sign-off.
       - id: A0.5.2
         worklist: WL-087
         title: Keep temporary contract source-project deletion executable through package-only cutover acceptance
@@ -66,31 +68,32 @@ milestones:
       - id: A0.5.3
         worklist: WL-088
         title: Relocate hosted-only AI/media/approval/search DTO families out of engine-owned contract source
-        status: queued
+        status: done
         evidence:
-          - Auditor publication candidate `50581` reports hosted AI/media/approval/search contract families still leak into core ownership.
-          - A0.5 closure requires package-only consumer cutover onto `Chummer.Run.Contracts` so engine-owned contract source no longer carries hosted DTO families.
+          - Completed on 2026-03-13: revalidated canonical hosted DTO ownership under `Chummer.Run.Contracts/AI` and `Chummer.Run.Contracts/Hub`, with no hosted DTO families remaining under `Chummer.Contracts`.
+          - Regression guards in `Chummer.CoreEngine.Tests/Program.cs` block `Chummer.Contracts/AI`, `Chummer.Contracts/Hub`, and hosted namespaces from reappearing in engine-owned contract source.
+          - `bash scripts/ai/verify.sh` passed on 2026-03-13, and queue publication removed active `A0.5.3` / `WL-088` follow-through item.
       - id: A0.5.4
         worklist: WL-089
         title: Keep presentation-contract authority closure runnable through package-only cutover acceptance
-        status: queued
+        status: done
         evidence:
-          - `WL-086` follow-through is decomposed into surface-specific runnable slices so presentation-owned browse/workbench/journal/shell contract families stay milestone-mapped until safe closure.
-          - A0.5 cannot close while presentation-owned contract families can still drift back into core-owned source without explicit closure checks.
+          - Completed on 2026-03-13: presentation-owned browse/workbench/journal/shell contract families remain canonical under `Chummer.Run.Contracts/Presentation`, leaving `Chummer.Contracts` free of presentation DTO source.
+          - Boundary regression guards in `Chummer.CoreEngine.Tests/Program.cs` now lock the closure directly instead of requiring a synthetic active queue item.
       - id: A0.5.5
         worklist: WL-090
         title: Keep run-service contract authority closure runnable through hosted package cutover acceptance
-        status: queued
+        status: done
         evidence:
-          - `WL-086` follow-through is decomposed into surface-specific runnable slices so hosted run-service contract families remain explicitly tracked through package-only cutover.
-          - A0.5 requires runnable migration and reference checks to keep hosted AI/Hub contract ownership package-mapped instead of source-leaked.
+          - Completed on 2026-03-13: hosted AI/Hub and run-service contract ownership remains canonical under `Chummer.Run.Contracts`, with compatibility coverage preserving legacy request/response shapes where needed.
+          - Boundary and compatibility verification now hold this seam shut without a persistent core queue row.
       - id: A0.5.6
         worklist: WL-091
         title: Keep browser infrastructure authority closure runnable through presentation ownership anchoring
-        status: queued
+        status: done
         evidence:
-          - `WL-086` follow-through is decomposed into surface-specific runnable slices so browser-only storage/runtime adapters stay quarantined from core ownership.
-          - A0.5 closure requires explicit verification that browser infrastructure remains outside active core verification paths.
+          - Completed on 2026-03-13: browser-only storage/runtime adapters remain quarantined out of the active core solution.
+          - Core boundary regression guards fail if any `.csproj` directly references `Chummer.Infrastructure.Browser` source paths, so future drift is caught in verification instead of carried as a standing queue item.
       - id: A0.5.7
         worklist: WL-092
         title: Confirm retired helper tooling stays absent from engine-owned scope
@@ -98,14 +101,31 @@ milestones:
         evidence:
           - ChummerDataViewer, CrashHandler, TextblockConverter, and Translator were removed from the repo during the 2026-03-11 purification pass.
           - `Chummer.CoreEngine.Tests/Program.cs` now blocks those helper roots from being restored while the broader contract-reset follow-through remains open.
+      - id: A0.5.8
+        worklist: WL-094
+        title: Replace coarse queue overlays with explicit non-engine milestone slices
+        status: done
+        evidence:
+          - Completed on 2026-03-13 from auditor candidates `3` and `5`: removed coarse uncovered-scope queue wording and republished explicit `A0.5` follow-through slices for `WL-089`, `WL-090`, `WL-091`, `WL-092`, and `WL-072`.
+          - Queue publication now keeps non-engine authority follow-through executable at the milestone/worklist layer instead of relying on coarse queue overlay prompts.
+      - id: A0.5.9
+        worklist: WL-095
+        title: Execute presentation-contract extraction out of engine-owned canonical package
+        status: done
+        evidence:
+          - Completed on 2026-03-13 from auditor candidates `4` (`project.queue_exhausted_with_uncovered_scope`) and `4317` (`project.uncovered_scope`): moved `Chummer.Contracts/Presentation/*.cs` into `Chummer.Run.Contracts/Presentation`, leaving `Chummer.Contracts` free of presentation DTO source.
+          - Moved presentation-coupled ruleset shell interfaces out of `Chummer.Contracts` into `Chummer.Run.Contracts/Rulesets/RulesetPresentationContracts.cs` and removed `Chummer.Contracts/Rulesets/RulesetShellServices.cs` so engine-owned contracts no longer compile presentation-specific ruleset seams.
+          - Added/validated `Chummer.Run.Contracts` project references for SR4/SR5/SR6 and rulesets hosting consumers, then updated boundary/compliance guards so regression coverage fails if presentation DTO source returns under `Chummer.Contracts`.
     notes:
-      - `WL-072` remains open and executable so package-only consumer cutover acceptance can gate safe deletion closure for temporary source projects.
-      - A0.5 stays open while remaining follow-through work (`WL-072`, `WL-086`, `WL-088`, `WL-089`, `WL-090`, `WL-091`) remains active.
+      - Completed on 2026-03-13: `WL-072`, `WL-089`, `WL-090`, and `WL-091` now close through regression/compatibility verification instead of remaining as synthetic active queue rows.
+      - Future drift on temporary project deletion, presentation contract ownership, hosted contract ownership, and browser infrastructure quarantine is now guarded by boundary/compliance tests plus `bash scripts/ai/verify.sh`.
       - Queue refresh maintenance on 2026-03-10 (`WL-085`) keeps A0.5 represented as explicit core milestone coverage so contract-reset follow-through stays visible until cutover closure.
       - Queue refresh on 2026-03-10 appended runnable follow-through slices `WL-086` and `WL-087` from auditor candidate IDs `44367` and `44368` so uncovered non-engine scope and temporary leak deletion stay milestone-mapped instead of queue-overlay-only.
-      - Auditor publication candidate `50581` on 2026-03-10 adds hosted-contract leakage follow-through (`WL-088`) so AI/media/approval/search DTO ownership migration to `Chummer.Run.Contracts` remains executable until safe closure.
+      - Hosted-contract leakage follow-through (`WL-088`) was added from auditor candidate `50581` on 2026-03-10 and marked complete on 2026-03-13 after hosted DTO ownership revalidation and regression guard coverage updates.
       - `WL-086` follow-through decomposition on 2026-03-10 appends explicit surface slices (`WL-089` through `WL-092`) so presentation contracts, run-service contracts, browser infrastructure, and legacy helper tooling each stay runnable and milestone-mapped until safe closure.
-      - Queue publication refresh on 2026-03-13 removes stale coarse uncovered-scope phrasing and republishes explicit runnable milestone slices for A0.5 and A6-A9.
+      - Queue publication refresh on 2026-03-13 removed stale coarse uncovered-scope phrasing and temporarily republished explicit runnable milestone slices for A0.5 and A6-A9 before closure was folded back into verifier-guarded truth.
+      - Queue refresh follow-through (`WL-094`) on 2026-03-13 incorporated auditor findings `project.queue_exhausted_with_uncovered_scope` and `project.milestone_coverage_incomplete` by publishing explicit non-engine surface lines before those closure lanes were finished.
+      - Auditor publication pass `2026-03-13-171708` (candidate `4` queue exhaustion with uncovered scope and candidate `4317` uncovered non-engine authority surfaces) is closed by `A0.5.9` / `WL-095` completion evidence that presentation contract families were extracted out of engine-owned source.
   - id: A6
     title: Contract hardening
     status: done
@@ -115,6 +135,7 @@ milestones:
       - WL-074
       - WL-075
       - WL-085
+      - WL-093
     work_items:
       - id: A6.1
         worklist: WL-073
@@ -146,6 +167,7 @@ milestones:
       - Auditor queue-exhaustion findings from 2026-03-10 candidate IDs 3 and 4 are incorporated by milestone-mapped A0.5 and A6-A9 coverage plus explicit A6.1 evidence.
       - Queue overlay refresh maintenance on 2026-03-10 (`WL-085`) confirms A6-A9 slice mapping remains runnable and explicit in both the worklist and milestone registry.
       - Queue refresh follow-through from auditor candidate IDs `44367` and `44368` keeps remaining hardening/integration scope represented via explicit milestone/worklist mapping instead of coarse queue-only tracking.
+      - Queue publication refresh on 2026-03-13 (`WL-093`) republishes executable A6.1-A9.3 slice lines (`WL-073` through `WL-084`) in `.codex-studio/published/QUEUE.generated.yaml` to satisfy uncovered-scope findings from auditor candidates `1` and `3`.
   - id: A7
     title: Structured Explain API hardening
     status: done
