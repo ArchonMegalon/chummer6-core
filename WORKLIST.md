@@ -11,6 +11,8 @@ Purpose: keep the live repo-native queue readable. Historical queue churn and du
 ## Queue
 | ID | Status | Priority | Task | Owner | Notes |
 |---|---|---|---|---|---|
+| WL-098 | queued | P1 | Revalidate temporary contract source-project leak deletion guardrails and refresh closure evidence. | agent | Runnable scope: sweep `.sln`/`.csproj` references for `Chummer.Presentation.Contracts` and `Chummer.RunServices.Contracts`, run `bash scripts/ai/verify.sh`, then update queue/worklist evidence without reopening already-closed implementation slices. |
+| WL-099 | queued | P1 | Materialize remaining uncovered cross-repo contract reset scope into milestone-mapped runnable lanes. | agent | Replace coarse queue prompts with explicit milestone-linked rows (`A0.5`, `A1`, `D1`) and keep runnable decomposition synchronized between `WORKLIST.md` and `.codex-studio/published/QUEUE.generated.yaml`. |
 | WL-086 | done | P1 | Keep non-engine authority cleanup explicit until safe package-only cutover exists. | agent | Closed 2026-03-13: the remaining presentation, run-service, browser-infrastructure, and helper-tool spillover slices were decomposed and then closed with regression guardrails instead of staying as one vague “trust me” row. |
 | WL-089 | done | P1 | Remove presentation-owned contract authority from `Chummer.Contracts`. | agent | Closed 2026-03-13: presentation DTOs moved out of the engine-facing contract root and regression guards now block them from reappearing. |
 | WL-090 | done | P1 | Keep hosted contract authority out of engine-owned source. | agent | Closed 2026-03-13: `Chummer.Run.Contracts` remains the hosted contract plane and the core verification harness now treats hosted DTO regrowth as a defect. |
@@ -41,13 +43,15 @@ These rows stay explicit so the repo can prove milestone decomposition without d
 | WL-083 | done | A9.2 add validation summary and failure-envelope primitives | Closure remains verifier-guarded and downstream-safe. |
 | WL-084 | done | A9.3 add explain-hook composition seam for backend integrations | Closure remains verifier-guarded and downstream-safe. |
 | WL-072 | done | delete temporary contract source projects after package cutover | Closure remains explicit: temporary source-project roots stay deleted and package-only cutover evidence is locked in verification. |
+| WL-098 | queued | A0.5.11 follow-through | Runnable verification/publication lane stays open until queue overlay no longer emits coarse temporary-leak prompts. |
+| WL-099 | queued | A0.5/A1/D1 follow-through | Queue publication must remain explicit and milestone-mapped while uncovered contract-canon scope remains open in design truth. |
 | WL-089 | done | A0.5.4 follow-through | The presentation-contract authority closure runnable lane is closed but still named here so verifier parity does not drift. |
 | WL-090 | done | A0.5.5 follow-through | The run-service contract authority closure runnable lane is closed but still named here so verifier parity does not drift. |
 | WL-091 | done | A0.5.6 follow-through | The browser infrastructure authority closure runnable lane is closed but still named here so verifier parity does not drift. |
 
 ## Current repo truth
 
-- Repo-local live queue: empty
+- Repo-local live queue: `WL-098`, `WL-099`
 - Remaining program blockers still live in canonical design truth: `A1`, `D1`, and the broader `vnext-foundation` release track in `.codex-design/product/PROGRAM_MILESTONES.yaml`
 - Boundary warning: root-level legacy app/plugin and browser cargo still make the repo body broader than the README mission; that is tracked as design canon, not hidden as fake local feature work
 
