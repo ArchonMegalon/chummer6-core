@@ -30,6 +30,12 @@ The job here is purification by deletion and package canon:
 - strip away old cross-boundary ownership
 - make the repo read unmistakably like engine truth
 
+Current honesty clause:
+
+- the engine boundary is directionally right
+- the repo body is still heavier than it should be
+- finishing `A1` means making that physical cleanup visible, not just winning arguments about architecture
+
 ## Go deeper
 
 - `docs/ENGINE_BOUNDARY.md`

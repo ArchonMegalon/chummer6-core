@@ -49,6 +49,7 @@ milestones:
       - WL-092
       - WL-094
       - WL-095
+      - WL-096
     work_items:
       - id: A0.5.1
         worklist: WL-086
@@ -116,6 +117,13 @@ milestones:
           - Completed on 2026-03-13 from auditor candidates `4` (`project.queue_exhausted_with_uncovered_scope`) and `4317` (`project.uncovered_scope`): moved `Chummer.Contracts/Presentation/*.cs` into `Chummer.Run.Contracts/Presentation`, leaving `Chummer.Contracts` free of presentation DTO source.
           - Moved presentation-coupled ruleset shell interfaces out of `Chummer.Contracts` into `Chummer.Run.Contracts/Rulesets/RulesetPresentationContracts.cs` and removed `Chummer.Contracts/Rulesets/RulesetShellServices.cs` so engine-owned contracts no longer compile presentation-specific ruleset seams.
           - Added/validated `Chummer.Run.Contracts` project references for SR4/SR5/SR6 and rulesets hosting consumers, then updated boundary/compliance guards so regression coverage fails if presentation DTO source returns under `Chummer.Contracts`.
+      - id: A0.5.10
+        worklist: WL-096
+        title: Replace stale temporary-leak queue prompts with explicit runnable closure verification
+        status: done
+        evidence:
+          - Completed on 2026-03-13 from auditor candidate `8648`: queue publication replaced coarse temporary-leak prompt duplicates with one explicit runnable closure-verification slice.
+          - Published runnable closure command set is `rg -n "Chummer\\.(Presentation|RunServices)\\.Contracts" --glob "*.sln" --glob "*.csproj"` plus `bash scripts/ai/verify.sh`, with completion evidence captured in worklist and milestone notes.
     notes:
       - Completed on 2026-03-13: `WL-072`, `WL-089`, `WL-090`, and `WL-091` now close through regression/compatibility verification instead of remaining as synthetic active queue rows.
       - Future drift on temporary project deletion, presentation contract ownership, hosted contract ownership, and browser infrastructure quarantine is now guarded by boundary/compliance tests plus `bash scripts/ai/verify.sh`.
@@ -126,6 +134,7 @@ milestones:
       - Queue publication refresh on 2026-03-13 removed stale coarse uncovered-scope phrasing and temporarily republished explicit runnable milestone slices for A0.5 and A6-A9 before closure was folded back into verifier-guarded truth.
       - Queue refresh follow-through (`WL-094`) on 2026-03-13 incorporated auditor findings `project.queue_exhausted_with_uncovered_scope` and `project.milestone_coverage_incomplete` by publishing explicit non-engine surface lines before those closure lanes were finished.
       - Auditor publication pass `2026-03-13-171708` (candidate `4` queue exhaustion with uncovered scope and candidate `4317` uncovered non-engine authority surfaces) is closed by `A0.5.9` / `WL-095` completion evidence that presentation contract families were extracted out of engine-owned source.
+      - Auditor publication `2026-03-13-171708` candidate `8648` (temporary source-project leak uncovered scope) is closed by `A0.5.10` / `WL-096`, which keeps this lane executable through a concrete closure-verification queue item instead of coarse prompt text.
   - id: A6
     title: Contract hardening
     status: done

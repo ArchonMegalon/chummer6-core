@@ -3,7 +3,7 @@
 Last reviewed: 2026-03-13
 
 Review-template mirror drift status:
-- `BLK-007` remains cleared after WL-D012 drift follow-up completion.
+- `BLK-007` remains cleared after WL-D012 drift follow-up completion and the `chummer6-ui` presentation-template parity revalidation recorded on `2026-03-13T18:15:19Z`.
 - Completed WL-D007 drift rows now include `57`, `58`, `59`, `60`, `61`, `62`, and `63` with publish/revalidation evidence in `products/chummer/sync/REVIEW_TEMPLATE_MIRROR_PUBLISH_EVIDENCE.md`.
 
 ## RED blockers
