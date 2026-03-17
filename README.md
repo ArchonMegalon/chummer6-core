@@ -38,8 +38,8 @@ Current honesty clause:
 
 ## Go deeper
 
+- `.codex-design/product/ARCHITECTURE.md`
 - `docs/ENGINE_BOUNDARY.md`
-- `.codex-design/repo/IMPLEMENTATION_SCOPE.md`
 - `.codex-design/review/REVIEW_CONTEXT.md`
 
 ## Verification
