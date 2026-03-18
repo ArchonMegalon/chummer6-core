@@ -7,7 +7,9 @@
   <ItemGroup>
     <ProjectReference Include="..\Chummer.Application\Chummer.Application.csproj" />
     <ProjectReference Include="..\Chummer.Contracts\Chummer.Contracts.csproj" />
-    <ProjectReference Include="..\Chummer.Run.Contracts\Chummer.Run.Contracts.csproj" />
+    <Reference Include="Chummer.Run.Contracts">
+      <HintPath>..\..\chummer.run-services\Chummer.Run.Contracts\bin\$(Configuration)\net10.0\Chummer.Run.Contracts.dll</HintPath>
+    </Reference>
   </ItemGroup>
   <ItemGroup>
     <Compile Remove="ServiceCollectionRulesetHostingExtensions.cs" />
