@@ -11,10 +11,13 @@ Purpose: keep the live repo-native queue readable. Historical queue churn and du
 ## Queue
 | ID | Status | Priority | Task | Owner | Notes |
 |---|---|---|---|---|---|
-| WL-098 | queued | P1 | Revalidate temporary contract source-project leak deletion guardrails and refresh closure evidence. | agent | Runnable scope: sweep `.sln`/`.csproj` references for `Chummer.Presentation.Contracts` and `Chummer.RunServices.Contracts`, run `bash scripts/ai/verify.sh`, then update queue/worklist evidence without reopening already-closed implementation slices. |
-| WL-099 | queued | P1 | Materialize remaining uncovered cross-repo contract reset scope into milestone-mapped runnable lanes. | agent | Replace coarse queue prompts with explicit milestone-linked rows (`A0.5`, `A1`, `D1`) and keep runnable decomposition synchronized between `WORKLIST.md` and `.codex-studio/published/QUEUE.generated.yaml`. |
-| WL-100 | queued | P1 | Collapse repo-body root drift by moving non-deterministic legacy app/plugin and browser infrastructure into quarantine packages or explicit compatibility lanes. | agent | The hosted contract mirror is gone; the remaining physical cleanup is now legacy app/plugin/browser cargo rather than contract-boundary ambiguity. |
-| WL-101 | done | P1 | Close temporary contract-source ambiguity for owned contract namespaces (`Engine` vs `Chummer.Engine.Contracts` vs old `Chummer.Contracts`) with migration commands and verifier guards. | agent | Closed 2026-03-19: boundary-map, sibling-owner package references, repo-local hosted-contract mirror deletion, and session-semantic verify guards now make the package boundary executable instead of aspirational. |
+| WL-098 | done | P1 | Revalidate temporary contract source-project leak deletion guardrails and refresh closure evidence. | agent | Closed 2026-03-19: contract-leak guardrails were revalidated, explain/runtime canon evidence was published in `docs/EXPLAIN_AND_RUNTIME_CANON.md`, and `scripts/ai/verify.sh` now enforces the downstream consumption evidence instead of relying on stale queue prose. |
+| WL-099 | done | P1 | Materialize remaining uncovered cross-repo contract reset scope into milestone-mapped runnable lanes. | agent | Closed 2026-03-19: the design canon no longer carries `A1`/`D1` as open, and the live worklist now reflects purification-only follow-through instead of pretending contract-reset scope still lacks milestone mapping. |
+| WL-100 | done | P1 | Collapse repo-body root drift by moving non-deterministic legacy app/plugin and browser infrastructure into quarantine packages or explicit compatibility lanes. | agent | Closed 2026-03-19: `docs/LEGACY_ROOT_SURFACE_INVENTORY.md` now makes the remaining broad roots explicit compatibility-only cargo, and `scripts/ai/verify.sh` keeps the active engine boundary separate from those roots. |
+| WL-103 | done | P1 | Quarantine or remove repo-local third-party AI transport and credential-routing ownership so `WL-D020` can honestly converge on hub-only adapter authority. | agent | Closed 2026-03-19: `AddChummerHeadlessCore(...)` now defaults to neutral credential/transport catalogs plus `NotImplementedAiProviderTransportClient`, the old env/http provider path is fenced behind explicit `AddLegacyEnvironmentAiTransportCompatibility(...)`, and verification now enforces that split. |
+| WL-101 | done | P1 | Close `F1` for core by publishing restore/runbook evidence, replay-safety drills, and operator-facing hardening proof around deterministic runtime bundles. | agent | Closed 2026-03-19: `docs/CORE_RUNTIME_RESTORE_RUNBOOK.md` now binds restore/replay proof to `scripts/runbook.sh`, `scripts/migration-loop.sh`, `DualHeadAcceptanceTests`, and `MigrationComplianceTests`, and `scripts/ai/verify.sh` keeps that evidence present. |
+| WL-102 | done | P1 | Close `F2` for core by certifying import/export and regression behavior against the `chummer5a` legacy corpus. | agent | Closed 2026-03-19: `docs/LEGACY_MIGRATION_CERTIFICATION.md` now ties the `chummer5a` oracle, parity oracle, migration loop, audit-compliance path, and core compliance/acceptance suites into one explicit certification lane, with verifier-backed evidence kept in-repo. |
+| WL-104 | done | P1 | Close temporary contract-source ambiguity for owned contract namespaces (`Engine` vs `Chummer.Engine.Contracts` vs old `Chummer.Contracts`) with migration commands and verifier guards. | agent | Closed 2026-03-19: boundary-map, sibling-owner package references, repo-local hosted-contract mirror deletion, and session-semantic verify guards now make the package boundary executable instead of aspirational. |
 | WL-086 | done | P1 | Keep non-engine authority cleanup explicit until safe package-only cutover exists. | agent | Closed 2026-03-13: the remaining presentation, run-service, browser-infrastructure, and helper-tool spillover slices were decomposed and then closed with regression guardrails instead of staying as one vague “trust me” row. |
 | WL-089 | done | P1 | Remove presentation-owned contract authority from `Chummer.Contracts`. | agent | Closed 2026-03-13: presentation DTOs moved out of the engine-facing contract root and regression guards now block them from reappearing. |
 | WL-090 | done | P1 | Keep hosted contract authority out of engine-owned source. | agent | Closed 2026-03-13: `Chummer.Run.Contracts` remains the hosted contract plane and the core verification harness now treats hosted DTO regrowth as a defect. |
@@ -45,17 +48,17 @@ These rows stay explicit so the repo can prove milestone decomposition without d
 | WL-083 | done | A9.2 add validation summary and failure-envelope primitives | Closure remains verifier-guarded and downstream-safe. |
 | WL-084 | done | A9.3 add explain-hook composition seam for backend integrations | Closure remains verifier-guarded and downstream-safe. |
 | WL-072 | done | delete temporary contract source projects after package cutover | Closure remains explicit: temporary source-project roots stay deleted and package-only cutover evidence is locked in verification. |
-| WL-098 | queued | A0.5.11 follow-through | Runnable verification/publication lane stays open until queue overlay no longer emits coarse temporary-leak prompts. |
-| WL-099 | queued | A0.5/A1/D1 follow-through | Queue publication must remain explicit and milestone-mapped while uncovered contract-canon scope remains open in design truth. |
+| WL-098 | done | A0.5.11 follow-through | Verification/publication evidence is now refreshed in `docs/EXPLAIN_AND_RUNTIME_CANON.md` and enforced directly by `scripts/ai/verify.sh`. |
+| WL-099 | done | A0.5/A1/D1 follow-through | The contract-canon scope is now closed in design truth, so this row remains only as historical proof that the milestone mapping was made explicit before closure. |
 | WL-089 | done | A0.5.4 follow-through | The presentation-contract authority closure runnable lane is closed but still named here so verifier parity does not drift. |
 | WL-090 | done | A0.5.5 follow-through | The run-service contract authority closure runnable lane is closed but still named here so verifier parity does not drift. |
 | WL-091 | done | A0.5.6 follow-through | The browser infrastructure authority closure runnable lane is closed but still named here so verifier parity does not drift. |
 
 ## Current repo truth
 
-- Repo-local live queue: `WL-098`, `WL-099`
-- Remaining program blockers still live in canonical design truth: `A1`, `A2`, `A3`, `D1`, and the broader `vnext-foundation` release track in `.codex-design/product/PROGRAM_MILESTONES.yaml`
-- Boundary warning: root-level legacy app/plugin and browser cargo still make the repo body broader than the README mission; that is tracked as design canon, not hidden as fake local feature work
+- Repo-local live queue: none
+- Contract, explain, runtime-bundle canon, restore/replay hardening, migration certification, and legacy-root quarantine are materially closed.
+- Boundary warning: broad legacy roots still exist physically, but they are now explicit compatibility-only cargo instead of ambiguous active ownership.
 
 ## Historical log
 

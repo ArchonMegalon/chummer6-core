@@ -29,7 +29,17 @@
 * remove `Chummer.Presentation.Contracts` and `Chummer.RunServices.Contracts` source leaks
 * quarantine legacy tooling out of the active engine solution
 * keep `Chummer.Engine.Contracts` as the only canonical engine/shared DTO source
-* fix README drift so the repo no longer narrates play/workbench/service heads as engine ownership
+* keep README and scope docs aligned so engine ownership stays explicit as the repo continues to shrink
+
+## Current reality
+
+Contract canon is materially closed:
+
+* `Chummer.Engine.Contracts` is the sole engine/shared package boundary
+* hosted contract mirrors are gone from this repo
+* session semantic ownership is verifier-backed
+
+The remaining work is engine purification, not continued contract ambiguity or missing hardening/certification proof.
 
 ## Milestone spine
 

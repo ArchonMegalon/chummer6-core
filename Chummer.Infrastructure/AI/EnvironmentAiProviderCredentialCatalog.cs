@@ -4,6 +4,10 @@ using Chummer.Contracts.AI;
 
 namespace Chummer.Infrastructure.AI;
 
+/// <summary>
+/// Compatibility-only environment catalog for legacy direct provider execution.
+/// Do not wire this into the active headless-core boundary by default.
+/// </summary>
 public sealed class EnvironmentAiProviderCredentialCatalog : IAiProviderCredentialCatalog
 {
     public const string AiMagicxPrimaryApiKeyEnvironmentVariable = "CHUMMER_AI_AIMAGICX_PRIMARY_API_KEY";

@@ -68,20 +68,17 @@ Legacy/oracle repo. Used for migration, regression fixtures, and compatibility r
 
 These inform the program but are not part of the main release train:
 
-* `fleet` — worker orchestration/control plane
+* `fleet` — worker orchestration/control plane, mirrored from this repo for execution policy and review context
 * `executive-assistant` — skill/runtime reference pattern for governed assistant orchestration
 * `Chummer6` — downstream public guide and Horizons explainer repo; useful for public storytelling, but not canonical design truth
 
 ## Current program priorities
 
-1. Make `chummer6-design` trustworthy as the lead-designer repo.
-2. Finalize package/contract canon.
-3. Complete the play split with package-only dependency discipline in `chummer6-mobile`.
-4. Expand `chummer6-ui-kit` into the real shared UI boundary.
-5. Complete registry and media service extractions.
-6. Shrink `chummer6-hub` into orchestration-only ownership where appropriate.
-7. Purify `chummer6-core` into a true deterministic engine repo.
-8. Finish product surfaces and release hardening.
+1. Keep recurring truth, review-template, and local-mirror cycles explicit whenever canon changes.
+2. Maintain Fleet’s cheap-first execution plane and premium-burst policy through mirrored design truth rather than repo-local invention.
+3. Treat future repo work as additive product evolution, not split-wave cleanup or contract-canon repair.
+
+The foundational closure wave is materially finished. Future design work is maintenance or net-new product evolution rather than unresolved split, contract, or release-governance debt.
 
 ## Non-goal
 

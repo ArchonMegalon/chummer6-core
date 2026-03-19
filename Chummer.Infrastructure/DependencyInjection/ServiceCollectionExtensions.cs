@@ -43,14 +43,10 @@ public static class ServiceCollectionExtensions
         }
 
         services.AddSingleton<ICharacterFileService, CharacterFileService>();
-        services.AddSingleton<IAiProviderCredentialCatalog, EnvironmentAiProviderCredentialCatalog>();
-        services.AddSingleton<IAiProviderTransportOptionsCatalog, EnvironmentAiProviderTransportOptionsCatalog>();
-        services.AddSingleton<IAiProviderTransportClient>(provider =>
-            new HttpAiProviderTransportClient(provider.GetRequiredService<IAiProviderCredentialCatalog>()));
-        services.AddSingleton<IAiProviderCatalog>(provider =>
-            new DefaultAiProviderCatalog(CreateConfiguredAiProviders(
-                provider.GetRequiredService<IAiProviderTransportOptionsCatalog>(),
-                provider.GetRequiredService<IAiProviderTransportClient>())));
+        services.AddSingleton<IAiProviderCredentialCatalog, EmptyAiProviderCredentialCatalog>();
+        services.AddSingleton<IAiProviderTransportOptionsCatalog, EmptyAiProviderTransportOptionsCatalog>();
+        services.AddSingleton<IAiProviderTransportClient>(_ => new NotImplementedAiProviderTransportClient());
+        services.AddSingleton<IAiProviderCatalog>(_ => new DefaultAiProviderCatalog());
         services.AddSingleton<IAiProviderCredentialSelector, RoundRobinAiProviderCredentialSelector>();
         services.AddSingleton<IAiProviderRouter, DefaultAiProviderRouter>();
         services.AddSingleton<IAiRouteBudgetPolicyCatalog, EnvironmentAiRouteBudgetPolicyCatalog>();
@@ -158,6 +154,23 @@ public static class ServiceCollectionExtensions
         });
         services.AddSingleton<IWorkspaceImportRulesetDetector, WorkspaceImportRulesetDetector>();
         services.AddSingleton<IWorkspaceService, WorkspaceService>();
+
+        return services;
+    }
+
+    public static IServiceCollection AddLegacyEnvironmentAiTransportCompatibility(
+        this IServiceCollection services)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+
+        services.AddSingleton<IAiProviderCredentialCatalog, EnvironmentAiProviderCredentialCatalog>();
+        services.AddSingleton<IAiProviderTransportOptionsCatalog, EnvironmentAiProviderTransportOptionsCatalog>();
+        services.AddSingleton<IAiProviderTransportClient>(provider =>
+            new HttpAiProviderTransportClient(provider.GetRequiredService<IAiProviderCredentialCatalog>()));
+        services.AddSingleton<IAiProviderCatalog>(provider =>
+            new DefaultAiProviderCatalog(CreateConfiguredAiProviders(
+                provider.GetRequiredService<IAiProviderTransportOptionsCatalog>(),
+                provider.GetRequiredService<IAiProviderTransportClient>())));
 
         return services;
     }
