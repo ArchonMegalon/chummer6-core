@@ -13,8 +13,8 @@ Purpose: keep the live repo-native queue readable. Historical queue churn and du
 |---|---|---|---|---|---|
 | WL-098 | queued | P1 | Revalidate temporary contract source-project leak deletion guardrails and refresh closure evidence. | agent | Runnable scope: sweep `.sln`/`.csproj` references for `Chummer.Presentation.Contracts` and `Chummer.RunServices.Contracts`, run `bash scripts/ai/verify.sh`, then update queue/worklist evidence without reopening already-closed implementation slices. |
 | WL-099 | queued | P1 | Materialize remaining uncovered cross-repo contract reset scope into milestone-mapped runnable lanes. | agent | Replace coarse queue prompts with explicit milestone-linked rows (`A0.5`, `A1`, `D1`) and keep runnable decomposition synchronized between `WORKLIST.md` and `.codex-studio/published/QUEUE.generated.yaml`. |
-| WL-100 | queued | P1 | Collapse repo-body root drift by moving non-deterministic legacy app/plugin and browser infrastructure into quarantine packages or explicit compatibility lanes. | agent | This should make the tree itself match `Chummer.Engine.Contracts` ownership and make legacy roots a clear exception-only set with explicit ownership evidence. |
-| WL-101 | queued | P1 | Close temporary contract-source ambiguity for owned contract namespaces (`Engine` vs `Chummer.Engine.Contracts` vs old `Chummer.Contracts`) with migration commands and verifier guards. | agent | Publish a concrete boundary map and CI checks that reject active references to legacy engine-contract roots not in package-only acceptance. |
+| WL-100 | queued | P1 | Collapse repo-body root drift by moving non-deterministic legacy app/plugin and browser infrastructure into quarantine packages or explicit compatibility lanes. | agent | The hosted contract mirror is gone; the remaining physical cleanup is now legacy app/plugin/browser cargo rather than contract-boundary ambiguity. |
+| WL-101 | done | P1 | Close temporary contract-source ambiguity for owned contract namespaces (`Engine` vs `Chummer.Engine.Contracts` vs old `Chummer.Contracts`) with migration commands and verifier guards. | agent | Closed 2026-03-19: boundary-map, sibling-owner package references, repo-local hosted-contract mirror deletion, and session-semantic verify guards now make the package boundary executable instead of aspirational. |
 | WL-086 | done | P1 | Keep non-engine authority cleanup explicit until safe package-only cutover exists. | agent | Closed 2026-03-13: the remaining presentation, run-service, browser-infrastructure, and helper-tool spillover slices were decomposed and then closed with regression guardrails instead of staying as one vague “trust me” row. |
 | WL-089 | done | P1 | Remove presentation-owned contract authority from `Chummer.Contracts`. | agent | Closed 2026-03-13: presentation DTOs moved out of the engine-facing contract root and regression guards now block them from reappearing. |
 | WL-090 | done | P1 | Keep hosted contract authority out of engine-owned source. | agent | Closed 2026-03-13: `Chummer.Run.Contracts` remains the hosted contract plane and the core verification harness now treats hosted DTO regrowth as a defect. |
@@ -54,7 +54,7 @@ These rows stay explicit so the repo can prove milestone decomposition without d
 ## Current repo truth
 
 - Repo-local live queue: `WL-098`, `WL-099`
-- Remaining program blockers still live in canonical design truth: `A1`, `D1`, and the broader `vnext-foundation` release track in `.codex-design/product/PROGRAM_MILESTONES.yaml`
+- Remaining program blockers still live in canonical design truth: `A1`, `A2`, `A3`, `D1`, and the broader `vnext-foundation` release track in `.codex-design/product/PROGRAM_MILESTONES.yaml`
 - Boundary warning: root-level legacy app/plugin and browser cargo still make the repo body broader than the README mission; that is tracked as design canon, not hidden as fake local feature work
 
 ## Historical log

@@ -3126,16 +3126,19 @@ internal static class CoreEngineTests
     {
         string repositoryRoot = GetRepositoryRoot();
         string coreContractsRoot = Path.Combine(repositoryRoot, "Chummer.Contracts");
-        string runContractsRoot = Path.Combine(repositoryRoot, "Chummer.Run.Contracts");
+        string localRunContractsRoot = Path.Combine(repositoryRoot, "Chummer.Run.Contracts");
+        string runContractsRoot = Path.Combine(GetSiblingRepoRoot("chummer.run-services"), "Chummer.Run.Contracts");
+        string hubRegistryContractsRoot = Path.Combine(GetSiblingRepoRoot("chummer-hub-registry"), "Chummer.Hub.Registry.Contracts", "Compatibility");
         string coreEngineSolutionText = File.ReadAllText(Path.Combine(repositoryRoot, "Chummer.CoreEngine.sln"));
         string normalizedCoreEngineSolutionText = coreEngineSolutionText.Replace('\\', '/');
         string presentationContractsRoot = Path.Combine(repositoryRoot, "Chummer.Presentation.Contracts");
         string runServicesContractsRoot = Path.Combine(repositoryRoot, "Chummer.RunServices.Contracts");
         AssertEx.True(!Directory.Exists(presentationContractsRoot), "Temporary project root 'Chummer.Presentation.Contracts' should be deleted.");
         AssertEx.True(!Directory.Exists(runServicesContractsRoot), "Temporary project root 'Chummer.RunServices.Contracts' should be deleted.");
+        AssertEx.True(!Directory.Exists(localRunContractsRoot), "Core repo must not keep a repo-local Chummer.Run.Contracts source mirror after owner-repo cutover.");
 
         string corePresentationContractsDirectory = Path.Combine(coreContractsRoot, "Presentation");
-        string runPresentationContractsDirectory = Path.Combine(runContractsRoot, "Presentation");
+        string runPresentationContractsDirectory = Path.Combine(runContractsRoot, "CompatCore", "Presentation");
         string[] canonicalPresentationContracts =
         [
             "AppCommandCatalogResponse.cs",
@@ -3158,14 +3161,14 @@ internal static class CoreEngineTests
         {
             AssertEx.True(
                 File.Exists(Path.Combine(runPresentationContractsDirectory, fileName)),
-                $"Canonical presentation contract '{fileName}' should live under Chummer.Run.Contracts/Presentation.");
+                $"Canonical presentation contract '{fileName}' should live in the owner repo under chummer6-hub/Chummer.Run.Contracts/CompatCore/Presentation.");
         }
         AssertEx.True(
             !Directory.Exists(corePresentationContractsDirectory)
             || !Directory.EnumerateFiles(corePresentationContractsDirectory, "*.cs", SearchOption.TopDirectoryOnly).Any(),
             "Engine-owned contracts must not keep presentation DTO source under Chummer.Contracts/Presentation.");
 
-        string coreAiContractsDirectory = Path.Combine(runContractsRoot, "AI");
+        string coreAiContractsDirectory = Path.Combine(runContractsRoot, "CompatCore", "AI");
         string[] canonicalAiContracts =
         [
             "AiActionPreviewContracts.cs",
@@ -3193,17 +3196,16 @@ internal static class CoreEngineTests
         {
             AssertEx.True(
                 File.Exists(Path.Combine(coreAiContractsDirectory, fileName)),
-                $"Canonical AI contract '{fileName}' should live under Chummer.Run.Contracts/AI.");
+                $"Canonical AI contract '{fileName}' should live in the owner repo under chummer6-hub/Chummer.Run.Contracts/CompatCore/AI.");
         }
 
-        string coreHubContractsDirectory = Path.Combine(runContractsRoot, "Hub");
+        string coreHubContractsDirectory = Path.Combine(runContractsRoot, "CompatCore", "Hub");
         string[] canonicalHubContracts =
         [
             "HubCatalogContracts.cs",
             "HubProjectCompatibilityContracts.cs",
             "HubProjectDetailContracts.cs",
             "HubProjectInstallPreviewContracts.cs",
-            "HubPublicationContracts.cs",
             "HubPublisherContracts.cs",
             "HubReviewContracts.cs"
         ];
@@ -3212,8 +3214,11 @@ internal static class CoreEngineTests
         {
             AssertEx.True(
                 File.Exists(Path.Combine(coreHubContractsDirectory, fileName)),
-                $"Canonical hub contract '{fileName}' should live under Chummer.Run.Contracts/Hub.");
+                $"Canonical hub contract '{fileName}' should live in the owner repo under chummer6-hub/Chummer.Run.Contracts/CompatCore/Hub.");
         }
+        AssertEx.True(
+            File.Exists(Path.Combine(hubRegistryContractsRoot, "HubPublicationContracts.cs")),
+            "Publication and moderation compatibility contracts must live in the owner repo under chummer6-hub-registry/Chummer.Hub.Registry.Contracts/Compatibility.");
 
         string coreContentContractsDirectory = Path.Combine(coreContractsRoot, "Content");
         string[] coreOwnedRuntimeInstallAndBuildKitContracts =
@@ -3260,17 +3265,17 @@ internal static class CoreEngineTests
         string buildKitWorkbenchContractsPath = Path.Combine(runPresentationContractsDirectory, "BuildKitWorkbenchContracts.cs");
         AssertEx.True(
             File.Exists(buildKitWorkbenchContractsPath),
-            "BuildKit workbench projection contracts should remain canonical under Chummer.Run.Contracts/Presentation.");
+            "BuildKit workbench projection contracts should remain canonical under the owner-repo Chummer.Run.Contracts compatibility surface.");
 
         string hubCompatibilityContractsPath = Path.Combine(coreHubContractsDirectory, "HubProjectCompatibilityContracts.cs");
         AssertEx.True(
             File.Exists(hubCompatibilityContractsPath),
-            "Hub compatibility matrix projections should remain canonical under Chummer.Run.Contracts/Hub.");
+            "Hub compatibility matrix projections should remain canonical under the owner-repo Chummer.Run.Contracts compatibility surface.");
 
         string hubInstallPreviewContractsPath = Path.Combine(coreHubContractsDirectory, "HubProjectInstallPreviewContracts.cs");
         AssertEx.True(
             File.Exists(hubInstallPreviewContractsPath),
-            "Hub install preview projections should remain canonical under Chummer.Run.Contracts/Hub.");
+            "Hub install preview projections should remain canonical under the owner-repo Chummer.Run.Contracts compatibility surface.");
 
         string coreContentContractsText = string.Join(
             "\n",
@@ -3318,7 +3323,7 @@ internal static class CoreEngineTests
 
             AssertEx.True(
                 duplicates.Length == 0,
-                $"Canonical contract '{fileName}' was duplicated outside Chummer.Contracts/Chummer.Run.Contracts ownership: {string.Join(", ", duplicates.Select(path => Path.GetRelativePath(repositoryRoot, path)))}.");
+                $"Canonical contract '{fileName}' was duplicated inside the core repo after owner-repo cutover: {string.Join(", ", duplicates.Select(path => Path.GetRelativePath(repositoryRoot, path)))}.");
         }
 
         string[] projectPaths = Directory.EnumerateFiles(repositoryRoot, "*.csproj", SearchOption.AllDirectories)
@@ -3602,6 +3607,27 @@ internal static class CoreEngineTests
         }
 
         throw new InvalidOperationException("Unable to locate repository root for fixture loading.");
+    }
+
+    private static string GetSiblingRepoRoot(string repoName)
+    {
+        string repoEnvToken = repoName
+            .Replace('-', '_')
+            .Replace('.', '_')
+            .ToUpperInvariant();
+        string explicitRoot = Environment.GetEnvironmentVariable($"CHUMMER_{repoEnvToken}_ROOT") ?? string.Empty;
+        if (!string.IsNullOrWhiteSpace(explicitRoot) && Directory.Exists(explicitRoot))
+        {
+            return explicitRoot;
+        }
+
+        string siblingRoot = Path.GetFullPath(Path.Combine(GetRepositoryRoot(), "..", repoName));
+        if (Directory.Exists(siblingRoot))
+        {
+            return siblingRoot;
+        }
+
+        throw new InvalidOperationException($"Unable to locate sibling repo root '{repoName}'.");
     }
 
     private static JsonSerializerOptions GoldenJsonOptions { get; } = new(JsonSerializerDefaults.Web)
