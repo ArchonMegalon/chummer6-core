@@ -35,14 +35,19 @@ Current honesty clause:
 
 - the engine boundary is directionally right
 - the repo body is still heavier than it should be
-- finishing `A1` means making that physical cleanup visible, not just winning arguments about architecture
 - package canon is already `Chummer.Engine.Contracts`, while source namespaces remain compatibility-first under `Chummer.Contracts.*`
 - hosted package seams such as `Chummer.Run.Contracts` and `Chummer.Hub.Registry.Contracts` are no longer source-owned here
+- legacy env-driven direct AI provider transport is now compatibility-only rather than part of the active headless-core boundary
+- explain canon, runtime-bundle canon, restore/replay hardening, migration certification, and legacy-root quarantine are materially closed
 
 ## Go deeper
 
 - `.codex-design/product/ARCHITECTURE.md`
 - `docs/CONTRACT_BOUNDARY_MAP.md`
+- `docs/EXPLAIN_AND_RUNTIME_CANON.md`
+- `docs/CORE_RUNTIME_RESTORE_RUNBOOK.md`
+- `docs/LEGACY_MIGRATION_CERTIFICATION.md`
+- `docs/LEGACY_ROOT_SURFACE_INVENTORY.md`
 - `docs/ENGINE_BOUNDARY.md`
 - `.codex-design/review/REVIEW_CONTEXT.md`
 

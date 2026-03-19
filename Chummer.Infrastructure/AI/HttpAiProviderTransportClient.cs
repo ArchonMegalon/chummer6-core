@@ -7,6 +7,10 @@ using Chummer.Contracts.Owners;
 
 namespace Chummer.Infrastructure.AI;
 
+/// <summary>
+/// Compatibility-only remote transport client for legacy direct provider execution.
+/// Active orchestration-side provider ownership belongs in chummer6-hub.
+/// </summary>
 public sealed class HttpAiProviderTransportClient : IAiProviderTransportClient, IDisposable
 {
     private readonly IAiProviderCredentialCatalog _credentialCatalog;

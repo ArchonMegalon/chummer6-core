@@ -3,6 +3,10 @@ using Chummer.Contracts.AI;
 
 namespace Chummer.Infrastructure.AI;
 
+/// <summary>
+/// Compatibility-only environment transport catalog for legacy direct provider execution.
+/// Do not wire this into the active headless-core boundary by default.
+/// </summary>
 public sealed class EnvironmentAiProviderTransportOptionsCatalog : IAiProviderTransportOptionsCatalog
 {
     public const string EnableRemoteExecutionEnvironmentVariable = "CHUMMER_AI_ENABLE_REMOTE_EXECUTION";
