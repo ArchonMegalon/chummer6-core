@@ -5989,6 +5989,12 @@ public class MigrationComplianceTests
 
     private static string FindPath(params string[] parts)
     {
+        string? ownerRepoPath = TryResolveCanonicalOwnerPath(parts);
+        if (!string.IsNullOrWhiteSpace(ownerRepoPath))
+        {
+            return ownerRepoPath;
+        }
+
         foreach (string? root in CandidateRoots())
         {
             if (string.IsNullOrWhiteSpace(root))
@@ -6056,6 +6062,11 @@ public class MigrationComplianceTests
 
     private static bool PathExistsInCandidateRoots(params string[] parts)
     {
+        if (!string.IsNullOrWhiteSpace(TryResolveCanonicalOwnerPath(parts)))
+        {
+            return true;
+        }
+
         foreach (string? root in CandidateRoots())
         {
             if (string.IsNullOrWhiteSpace(root))
@@ -6086,6 +6097,12 @@ public class MigrationComplianceTests
 
     private static string FindDirectory(params string[] parts)
     {
+        string? ownerRepoDirectory = TryResolveCanonicalOwnerDirectory(parts);
+        if (!string.IsNullOrWhiteSpace(ownerRepoDirectory))
+        {
+            return ownerRepoDirectory;
+        }
+
         foreach (string? root in CandidateRoots())
         {
             if (string.IsNullOrWhiteSpace(root))
@@ -6132,4 +6149,141 @@ public class MigrationComplianceTests
         yield return AppContext.BaseDirectory;
         yield return "/src";
     }
+
+    private static string? TryResolveCanonicalOwnerPath(params string[] parts)
+    {
+        string[]? aliasParts = ResolveCanonicalOwnerAlias(parts);
+        if (aliasParts is null)
+        {
+            return null;
+        }
+
+        foreach (string? root in CandidateRoots())
+        {
+            if (string.IsNullOrWhiteSpace(root))
+            {
+                continue;
+            }
+
+            DirectoryInfo current = new(root);
+            while (true)
+            {
+                string candidate = Path.GetFullPath(Path.Combine(new[] { current.FullName }.Concat(aliasParts).ToArray()));
+                if (File.Exists(candidate))
+                {
+                    return candidate;
+                }
+
+                if (current.Parent is null)
+                {
+                    break;
+                }
+
+                current = current.Parent;
+            }
+        }
+
+        return null;
+    }
+
+    private static string? TryResolveCanonicalOwnerDirectory(params string[] parts)
+    {
+        string[]? aliasParts = ResolveCanonicalOwnerAlias(parts);
+        if (aliasParts is null)
+        {
+            return null;
+        }
+
+        foreach (string? root in CandidateRoots())
+        {
+            if (string.IsNullOrWhiteSpace(root))
+            {
+                continue;
+            }
+
+            DirectoryInfo current = new(root);
+            while (true)
+            {
+                string candidate = Path.GetFullPath(Path.Combine(new[] { current.FullName }.Concat(aliasParts).ToArray()));
+                if (Directory.Exists(candidate))
+                {
+                    return candidate;
+                }
+
+                if (current.Parent is null)
+                {
+                    break;
+                }
+
+                current = current.Parent;
+            }
+        }
+
+        return null;
+    }
+
+    private static string[]? ResolveCanonicalOwnerAlias(params string[] parts)
+    {
+        if (parts.Length == 0)
+        {
+            return null;
+        }
+
+        if (string.Equals(parts[0], "Chummer.Run.Contracts", StringComparison.Ordinal))
+        {
+            if (parts.Length >= 3
+                && string.Equals(parts[1], "Hub", StringComparison.Ordinal)
+                && string.Equals(parts[2], "HubPublicationContracts.cs", StringComparison.Ordinal))
+            {
+                return
+                [
+                    "..",
+                    "chummer-hub-registry",
+                    "Chummer.Hub.Registry.Contracts",
+                    "Compatibility",
+                    "HubPublicationContracts.cs"
+                ];
+            }
+
+            if (parts.Length >= 2 && IsCompatCoreSubdirectory(parts[1]))
+            {
+                return
+                [
+                    "..",
+                    "chummer.run-services",
+                    "Chummer.Run.Contracts",
+                    "CompatCore"
+                ]
+                .Concat(parts.Skip(1))
+                .ToArray();
+            }
+
+            return
+            [
+                "..",
+                "chummer.run-services"
+            ]
+            .Concat(parts)
+            .ToArray();
+        }
+
+        if (string.Equals(parts[0], "Chummer.Hub.Registry.Contracts", StringComparison.Ordinal))
+        {
+            return
+            [
+                "..",
+                "chummer-hub-registry"
+            ]
+            .Concat(parts)
+            .ToArray();
+        }
+
+        return null;
+    }
+
+    private static bool IsCompatCoreSubdirectory(string value)
+        => string.Equals(value, "AI", StringComparison.Ordinal)
+            || string.Equals(value, "Hub", StringComparison.Ordinal)
+            || string.Equals(value, "Presentation", StringComparison.Ordinal)
+            || string.Equals(value, "Rulesets", StringComparison.Ordinal);
 }

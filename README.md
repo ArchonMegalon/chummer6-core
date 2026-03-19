@@ -29,16 +29,20 @@ The job here is purification by deletion and package canon:
 - keep one canonical engine contract family
 - strip away old cross-boundary ownership
 - make the repo read unmistakably like engine truth
+- consume hosted contract planes only from their owner repos
 
 Current honesty clause:
 
 - the engine boundary is directionally right
 - the repo body is still heavier than it should be
 - finishing `A1` means making that physical cleanup visible, not just winning arguments about architecture
+- package canon is already `Chummer.Engine.Contracts`, while source namespaces remain compatibility-first under `Chummer.Contracts.*`
+- hosted package seams such as `Chummer.Run.Contracts` and `Chummer.Hub.Registry.Contracts` are no longer source-owned here
 
 ## Go deeper
 
 - `.codex-design/product/ARCHITECTURE.md`
+- `docs/CONTRACT_BOUNDARY_MAP.md`
 - `docs/ENGINE_BOUNDARY.md`
 - `.codex-design/review/REVIEW_CONTEXT.md`
 
