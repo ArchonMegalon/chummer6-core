@@ -41,6 +41,17 @@ Contract canon is materially closed:
 
 The remaining work is engine purification, not continued contract ambiguity or missing hardening/certification proof.
 
+## Package bootstrap rule
+
+`Chummer.Engine.Contracts` must be boring to restore.
+
+Canonical bootstrap paths:
+
+* canonical local/CI package feed
+* explicit generated compatibility tree for legacy consumers
+
+Ambient monorepo-relative project references are not the assumed default bootstrap posture.
+
 ## Milestone spine
 
 * E0 purification
