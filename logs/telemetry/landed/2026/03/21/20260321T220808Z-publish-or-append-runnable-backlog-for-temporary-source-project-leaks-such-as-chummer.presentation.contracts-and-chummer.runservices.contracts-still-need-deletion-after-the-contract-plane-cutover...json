@@ -1,0 +1,59 @@
+{
+  "accepted_on_round": "1",
+  "allow_credit_burn": false,
+  "allow_paid_fast_lane": false,
+  "blocking_issue_counts": [
+    1
+  ],
+  "core_rescue_reason": null,
+  "diff_added": 122,
+  "diff_removed": 42,
+  "files_touched": 6,
+  "groundwork_workers_used": [],
+  "implementation_workers_used": [
+    "acct-core-a",
+    "acct-chatgpt-core",
+    "acct-chatgpt-archon"
+  ],
+  "issue_fingerprints": [
+    "review-env-bwrap-userns-blocked",
+    "wl098-queue-reopen-drift"
+  ],
+  "jury_verdicts": [
+    "manual_hold",
+    "rework",
+    "accept"
+  ],
+  "landed_at": "2026-03-21T22:08:08Z",
+  "landed_sha": "",
+  "landing_commit_ref": "self",
+  "landing_lane": "core",
+  "lane_sequence": [
+    "core"
+  ],
+  "needs_core_rescue": false,
+  "project_id": "core",
+  "repeat_issue_count": 0,
+  "review_rounds_used": 1,
+  "schema_version": 1,
+  "shadow_phase": [],
+  "shadow_worker_used": false,
+  "slice_id": "publish-or-append-runnable-backlog-for-temporary-source-project-leaks-such-as-chummer.presentation.contracts-and-chummer.runservices.contracts-still-need-deletion-after-the-contract-plane-cutover..",
+  "timing_ms": {
+    "core_total": 0,
+    "groundwork_total": 0,
+    "jury_total": 202000,
+    "lead_time_total": 735184237,
+    "queue_wait_total": 734982237,
+    "shadow_groundwork_total": 0
+  },
+  "title": "Publish or append runnable backlog for Temporary source-project leaks such as `Chummer.Presentation.Contracts` and `Chummer.RunServices.Contracts` still need deletion after the contract plane cutover..",
+  "usage_estimates": {
+    "core_runs": 7,
+    "groundwork_runs": 0,
+    "jury_reviews": 0
+  },
+  "verify_passed": true,
+  "worker_topology": {},
+  "workflow_kind": "default"
+}

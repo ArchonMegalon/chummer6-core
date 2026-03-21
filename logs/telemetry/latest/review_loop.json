@@ -1,0 +1,21 @@
+{
+  "accepted_on_round_counts": {
+    "1": 1
+  },
+  "cheap_loop_only_share": 1.0,
+  "conditional_r2_accept_rate": 0.0,
+  "conditional_r3_accept_rate": 0.0,
+  "core_rescue_rate": 0.0,
+  "first_pass_accept_rate": 1.0,
+  "generated_at": "2026-03-21T22:08:08Z",
+  "landed_slices_per_day": {
+    "2026-03-21": 1
+  },
+  "paid_lane_activation_count": 0,
+  "review_bottleneck": "review",
+  "review_wait_fraction": 1.0,
+  "schema_version": 1,
+  "shadow_assist_rate": 0.0,
+  "total_landed_slices": 1,
+  "zero_credit_slices_landed": 1
+}
