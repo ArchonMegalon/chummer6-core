@@ -11,7 +11,7 @@ Purpose: keep the live repo-native queue readable. Historical queue churn and du
 ## Queue
 | ID | Status | Priority | Task | Owner | Notes |
 |---|---|---|---|---|---|
-| WL-112 | queued | P2 | Execute next residual core purification + hardening evidence cycle: keep `Plugins/SamplePlugin` compatibility-only (`WL-108.2`), keep repo helper/git-env utilities operational-only (`WL-108.4`/`WL-108.5`), and revalidate that observability/DR + migration-certification closure evidence remains verifier-backed without reopening hosted contract ownership. | agent | Published 2026-03-22 from auditor residual-scope re-entry (`4317`/`44367`) to keep remaining non-hosted core scope executable instead of leaving queue publication empty. |
+| WL-112 | done | P2 | Execute next residual core purification + hardening evidence cycle: keep `Plugins/SamplePlugin` compatibility-only (`WL-108.2`), keep repo helper/git-env utilities operational-only (`WL-108.4`/`WL-108.5`), and revalidate that observability/DR + migration-certification closure evidence remains verifier-backed without reopening hosted contract ownership. | agent | Closed 2026-03-22: added `docs/LEGACY_PLUGIN_AND_HELPER_OPERATIONAL_EVIDENCE_WL112.md`, extended verifier guardrails for `WL-108.2`/`WL-108.4`/`WL-108.5`, and kept `F1`/`F2` closure evidence verifier-backed without reopening hosted contract authority. |
 | WL-109 | done | P1 | Implement structured observability hardening for the active API + head flows (`MIG-091`) with correlation-id propagation and verification coverage. | agent | Closed 2026-03-22: `SessionApiResult`/`SessionNotImplementedReceipt` now carry structured observability envelopes (`operation`, `correlationId`, `traceId`, metrics seam + tags), `OwnerScopedSessionService` and `NotImplementedSessionService` emit those envelopes across active session API flows, and `Chummer.CoreEngine.Tests` regression coverage locks the contract seams. |
 | WL-110 | done | P2 | Define and enforce workspace/session retention + cleanup operational policy (`MIG-093`) with runbook and automation hooks. | agent | Closed 2026-03-22: published `docs/WORKSPACE_RETENTION_POLICY.md`, added `RUNBOOK_MODE=retention-cleanup` + `RUNBOOK_MODE=retention-cleanup-smoke` to `scripts/runbook.sh`, and extended `scripts/ai/verify.sh` to enforce retention policy/runbook evidence. |
 | WL-111 | done | P2 | Execute next legacy cargo purification increment from published compatibility backlog (`WL-108.1` and `WL-108.3`). | agent | Closed 2026-03-22: executed compatibility-freeze + retirement-gate increment with verifier guardrails that keep active core solutions decoupled from `Plugins/ChummerHub.Client` and `Chummer/Plugins`, with evidence in `docs/LEGACY_PLUGIN_PURIFICATION_INCREMENT_WL111.md`. |
@@ -60,15 +60,16 @@ These rows stay explicit so the repo can prove milestone decomposition without d
 | WL-099 | done | A0.5/A1/D1 follow-through | The contract-canon scope is now closed in design truth, so this row remains only as historical proof that the milestone mapping was made explicit before closure. |
 | WL-105 | done | F1/F2/F3 follow-through | Residual-scope publication is now explicitly mapped to already closed hardening (`WL-101`), migration certification (`WL-102`), and purification lanes (`WL-100`, `WL-091`) so queue overlays do not re-open hosted-contract ownership work. |
 | WL-111 | done | F3 follow-through | Legacy plugin/helper purification increment now has verifier-backed compatibility freeze and retirement-gate evidence for `WL-108.1` and `WL-108.3` without reopening hosted-contract ownership. |
+| WL-112 | done | F follow-through | Residual helper/plugin and utility follow-through for `WL-108.2`/`WL-108.4`/`WL-108.5` is now verifier-backed via `docs/LEGACY_PLUGIN_AND_HELPER_OPERATIONAL_EVIDENCE_WL112.md` and `scripts/ai/verify.sh`, while `F1`/`F2` closure evidence remains intact. |
 | WL-089 | done | A0.5.4 follow-through | The presentation-contract authority closure runnable lane is closed but still named here so verifier parity does not drift. |
 | WL-090 | done | A0.5.5 follow-through | The run-service contract authority closure runnable lane is closed but still named here so verifier parity does not drift. |
 | WL-091 | done | A0.5.6 follow-through | The browser infrastructure authority closure runnable lane is closed but still named here so verifier parity does not drift. |
 
 ## Current repo truth
 
-- Repo-local live queue: `WL-112` (next residual purification + evidence cycle for non-hosted core scope from `WL-108.2`/`WL-108.4`/`WL-108.5` plus F-lane revalidation).
+- Repo-local live queue: none (last residual non-hosted purification/evidence cycle `WL-112` closed on 2026-03-22).
 - Contract, explain, runtime-bundle canon, and migration-certification closure evidence remain materially closed (`WL-101`, `WL-102`, `WL-105`).
-- Boundary warning: broad legacy roots still exist physically; purification remains an explicit queued follow-through lane instead of implicit ownership drift.
+- Boundary warning: broad legacy roots still exist physically; purification remains an explicit compatibility-governance lane instead of implicit ownership drift.
 - Hosted contract ownership remains closed and is intentionally excluded from the active queue.
 
 ## Historical log

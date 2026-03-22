@@ -28,6 +28,13 @@ These surfaces are not active deterministic-engine ownership. They remain only f
 
 ## Increment log
 
+### 2026-03-22 (`WL-112`)
+
+- Executed `WL-108.2`: `Plugins/SamplePlugin` remains compatibility-only cargo and is verifier-guarded from active core-solution and active-project coupling.
+- Executed `WL-108.4`: repo helper utilities remain operational-only surfaces and are verifier-guarded from active runtime-semantic code paths.
+- Executed `WL-108.5`: git/env utility helpers remain operational-only devops utilities and are verifier-guarded from active runtime-semantic code paths.
+- Evidence is published in `docs/LEGACY_PLUGIN_AND_HELPER_OPERATIONAL_EVIDENCE_WL112.md`.
+
 ### 2026-03-22 (`WL-111`)
 
 - Executed `WL-108.1` as a compatibility-freeze increment: `Plugins/ChummerHub.Client` remains legacy cargo and is now verifier-guarded from active core-solution coupling.
