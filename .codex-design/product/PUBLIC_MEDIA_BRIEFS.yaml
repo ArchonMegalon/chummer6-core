@@ -12,40 +12,131 @@ rules:
   - Every placeholder card must still explain what is coming and why it matters.
   - Text in rendered images must be post-composited or otherwise verified instead of trusting raw model lettering.
   - A premium still hero is preferred over a mediocre teaser loop.
+  - First-contact assets must feel information-rich, layered, and unmistakably product-specific rather than like quiet generic cyberpunk mood art.
+  - Hero, index, and flagship horizon art must carry visible semantic anchors for what the product does; style alone is not enough.
+  - Central signboards, empty roadway ambience, and low-density “one person plus one vague prop wall” compositions are failures on public guide/landing surfaces.
+visual_contract:
+  first_contact_hero:
+    density_target: high
+    overlay_density: medium
+    negative_space_cap: low
+    flash_level: bold
+    humor_allowed: false
+    pseudo_text_allowed: false
+    must_show_semantic_anchors:
+      - runner or table-prep trust pressure
+      - layered physical proof props across foreground, midground, and background
+      - visible reasoning cues or diegetic overlay traces
+    must_not_show:
+      - generic brooding profile at a vague wall
+      - lone crate or tabletop glamour
+      - empty alley mood still
+      - central readable signboard
+  page_index:
+    density_target: high
+    overlay_density: medium
+    negative_space_cap: low
+    flash_level: bold
+    humor_allowed: false
+    pseudo_text_allowed: false
+    must_show_semantic_anchors:
+      - branching plurality
+      - differentiated future or work lanes
+      - multiple grounded clues instead of one central marker
+    must_not_show:
+      - menu-board composition
+      - empty road ambience
+      - billboard centerpiece
+      - sparse corridor with one symbol
+  flagship_horizon:
+    density_target: high
+    overlay_density: high
+    negative_space_cap: low
+    flash_level: bold
+    humor_allowed: false
+    pseudo_text_allowed: false
+    must_show_semantic_anchors:
+      - governed change under pressure
+      - approval or provenance logic
+      - rollback or consequence cues
+    must_not_show:
+      - generic card tinkering
+      - literal blacksmith cliché
+      - quiet desk still life
+      - semantically empty glow props
 sections:
   - id: hero
     brief_family: boulevard_of_futures
     scene_families: boulevard_of_futures, facility_exterior, solo_operator
     motion_policy: premium_still_or_short_muted_loop
+    density_target: high
+    overlay_density: medium
+    negative_space_cap: low
+    flash_level: bold
+    must_show_semantic_anchors: runner-prep truth, inspectable pressure, layered proof props
+    must_not_show: brooding profile, vague clue wall, crate desk, empty neon ambience
   - id: what_you_can_do_today
     brief_family: archive_stair
     scene_families: archive_stair, dossier_desk, facility_exterior
     motion_policy: stills_only
+    density_target: medium
+    overlay_density: low
+    negative_space_cap: medium
+    flash_level: moderate
   - id: why_this_feels_different
     brief_family: simulation_bench
     scene_families: simulation_bench, prop_cluster, dossier_desk
     motion_policy: stills_only
+    density_target: medium
+    overlay_density: medium
+    negative_space_cap: medium
+    flash_level: moderate
   - id: choose_your_lane
     brief_family: solo_operator
     scene_families: solo_operator, archive_stair, prop_cluster
     motion_policy: stills_only
+    density_target: medium
+    overlay_density: medium
+    negative_space_cap: medium
+    flash_level: moderate
   - id: whats_real_now
     brief_family: dossier_desk
     scene_families: dossier_desk, simulation_bench, facility_exterior
     motion_policy: stills_only
+    density_target: medium
+    overlay_density: low
+    negative_space_cap: medium
+    flash_level: restrained
   - id: coming_next
     brief_family: boulevard_of_futures
     scene_families: boulevard_of_futures, streetfront, facility_exterior
     motion_policy: stills_only
+    density_target: high
+    overlay_density: medium
+    negative_space_cap: low
+    flash_level: bold
+    must_not_show: menu board, empty road, single signage slab
   - id: featured_artifacts
     brief_family: prop_cluster
     scene_families: prop_cluster, dossier_desk, archive_stair
     motion_policy: stills_only
+    density_target: medium
+    overlay_density: low
+    negative_space_cap: medium
+    flash_level: restrained
   - id: participate
     brief_family: solo_operator
     scene_families: solo_operator, boulevard_of_futures, dossier_desk
     motion_policy: stills_only
+    density_target: medium
+    overlay_density: low
+    negative_space_cap: medium
+    flash_level: moderate
   - id: release_shelf
     brief_family: facility_exterior
     scene_families: facility_exterior, archive_stair
     motion_policy: stills_only
+    density_target: medium
+    overlay_density: low
+    negative_space_cap: medium
+    flash_level: restrained
