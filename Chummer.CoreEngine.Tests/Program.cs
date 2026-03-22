@@ -39,6 +39,7 @@ internal static class CoreEngineTests
             SessionReplayDiagnosticsStayKeyed();
             SelectionAndFilterDisabledReasonsStayKeyed();
             SessionEventCompatibilityContractsRoundTripToCanonicalEnvelope();
+            SessionApiObservabilityEnvelopeCarriesCorrelationAndTraceSeams();
             RuntimeInspectorProjectsCapabilityAndCompatibilityKeys();
             RuntimeInspectorProjectionIsDeterministicAcrossPackAndBindingOrder();
             RuleProfileRegistryRuntimeLockCompileOrderAndProviderBindingsAreDeterministic();
@@ -288,6 +289,43 @@ internal static class CoreEngineTests
             "{\"trackerId\":\"stun\",\"amount\":2}",
             roundTrippedLegacy.PayloadJson,
             "Compatibility wrappers should round-trip canonical envelopes back to the legacy JSON payload shape.");
+    }
+
+    private static void SessionApiObservabilityEnvelopeCarriesCorrelationAndTraceSeams()
+    {
+        OwnerScope owner = new("owner-observability");
+        const string operation = SessionApiOperations.ListCharacters;
+        SessionOperationObservability observability = SessionApiObservability.Create(
+            operation: operation,
+            ownerId: owner.NormalizedValue,
+            characterId: "char-obs",
+            correlationId: "corr-123",
+            traceId: "trace-123",
+            tags: new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["result"] = "implemented"
+            });
+        SessionApiResult<SessionCharacterCatalog> implemented = SessionApiResult<SessionCharacterCatalog>.Implemented(
+            new SessionCharacterCatalog(Array.Empty<SessionCharacterListItem>()),
+            observability);
+
+        AssertEx.NotNull(implemented.Observability, "Implemented session responses should carry an observability envelope.");
+        AssertEx.Equal("corr-123", implemented.Observability!.CorrelationId, "Session observability should preserve correlation ids.");
+        AssertEx.Equal("trace-123", implemented.Observability.TraceId, "Session observability should preserve trace ids.");
+        AssertEx.Equal(SessionObservabilityMetrics.OperationDurationMilliseconds, implemented.Observability.MetricName, "Session observability should expose a stable metrics seam name.");
+        AssertEx.Equal(operation, implemented.Observability.Operation, "Session observability should preserve operation ids.");
+        AssertEx.Equal(owner.NormalizedValue, implemented.Observability.OwnerId, "Session observability should preserve owner scope.");
+
+        SessionNotImplementedReceipt receipt = new(
+            Error: "session_not_implemented",
+            Operation: operation,
+            Message: "The dedicated session/mobile surface is not implemented yet.",
+            OwnerId: owner.NormalizedValue,
+            Observability: observability);
+        SessionApiResult<SessionCharacterCatalog> notImplemented = SessionApiResult<SessionCharacterCatalog>.FromNotImplemented(receipt);
+
+        AssertEx.NotNull(notImplemented.Observability, "Not-implemented session responses should still carry observability.");
+        AssertEx.Equal("corr-123", notImplemented.Observability!.CorrelationId, "Not-implemented session responses should propagate correlation ids.");
     }
 
     private static void RuntimeInspectorProjectsCapabilityAndCompatibilityKeys()
