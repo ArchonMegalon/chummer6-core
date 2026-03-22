@@ -11,7 +11,7 @@ Purpose: keep the live repo-native queue readable. Historical queue churn and du
 ## Queue
 | ID | Status | Priority | Task | Owner | Notes |
 |---|---|---|---|---|---|
-| WL-106 | queued | P1 | Publish `Chummer.Application` boundary inventory and split candidates into deterministic-engine vs compatibility-only seams. | agent | Runnable closure for auditor candidate `4317`: produce a concrete per-folder map under `docs/` plus owner lane for each non-engine-facing seam so future extraction work is executable instead of implied. |
+| WL-106 | done | P1 | Publish `Chummer.Application` boundary inventory and split candidates into deterministic-engine vs compatibility-only seams. | agent | Closed 2026-03-22: published `docs/CHUMMER_APPLICATION_BOUNDARY_INVENTORY.md` with per-folder boundary class, owner lane, and explicit `WL-106.x` split candidates separating deterministic-engine seams from compatibility-only seams. |
 | WL-107 | done | P1 | Add verifier guardrails that block browser infrastructure coupling from active engine projects and `Chummer.Application` ownership drift. | agent | Closed 2026-03-22: `Chummer.CoreEngine.Tests` now fails when active-solution projects add browser-infrastructure source/project coupling, compile `Chummer.Application` source directly, or introduce unsanctioned `Chummer.Application` project-reference ownership drift. |
 | WL-108 | done | P2 | Publish helper-tooling residual backlog for remaining repo-surface utilities and plugin-era helper flows. | agent | Closed 2026-03-22: `docs/HELPER_TOOLING_RESIDUAL_BACKLOG.md` now inventories residual helper/plugin surfaces, assigns `keep/remove/migrate` disposition, and maps follow-through to milestone-backed lanes (`A0.5.7`, `F3`, `WL-092`, `WL-100`, `WL-D038`). |
 | WL-098 | done | P1 | Revalidate temporary contract source-project leak deletion guardrails and refresh closure evidence. | agent | Revalidated 2026-03-21: `.sln`/`.csproj` sweep again found no `Chummer.Presentation.Contracts` or `Chummer.RunServices.Contracts` references, `bash scripts/ai/verify.sh` passed, and queue publication was refreshed to avoid reopening closed implementation slices. |
@@ -61,7 +61,7 @@ These rows stay explicit so the repo can prove milestone decomposition without d
 
 ## Current repo truth
 
-- Repo-local live queue: `WL-106`
+- Repo-local live queue: none (empty after `WL-106` closure)
 - Contract, explain, runtime-bundle canon, restore/replay hardening, migration certification, and legacy-root quarantine are materially closed.
 - Boundary warning: broad legacy roots still exist physically, but they are now explicit compatibility-only cargo instead of ambiguous active ownership.
 - Residual-scope auditor statement is resolved by existing closed lanes (`WL-100`, `WL-101`, `WL-102`, `WL-091`), not by reopening hosted-contract ownership tasks.
