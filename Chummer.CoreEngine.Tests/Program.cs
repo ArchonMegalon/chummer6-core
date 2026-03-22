@@ -56,6 +56,7 @@ internal static class CoreEngineTests
             GuardrailPathMatchingResolvesDirectoryBuildItemIndirection();
             GuardrailPathMatchingResolvesReferenceHintPathCoupling();
             ActiveCoreEngineSolutionStaysPurified();
+            LegacyPluginCargoStaysOutsideActiveCoreBoundary();
             HardeningBacklogStaysMilestoneMapped();
             LocalizationFallbackHelpersNormalizeLegacyContracts();
             SessionAndRuntimeCompatibilityProjectionsStayDeterministic();
@@ -4380,6 +4381,62 @@ internal static class CoreEngineTests
             AssertEx.True(
                 projectMilestonesText.Contains(surface, StringComparison.Ordinal),
                 $"Project milestone registry should explicitly record retired helper surface '{surface}'.");
+        }
+    }
+
+    private static void LegacyPluginCargoStaysOutsideActiveCoreBoundary()
+    {
+        string repoRoot = GetRepositoryRoot();
+        string coreEngineSolutionText = File.ReadAllText(Path.Combine(repoRoot, "Chummer.CoreEngine.sln"));
+        string rootSolutionPath = Path.Combine(repoRoot, "Chummer.sln");
+        string rootSolutionText = File.Exists(rootSolutionPath)
+            ? File.ReadAllText(rootSolutionPath)
+            : string.Empty;
+        string helperBacklogText = File.ReadAllText(Path.Combine(repoRoot, "docs", "HELPER_TOOLING_RESIDUAL_BACKLOG.md"));
+        string wl111EvidenceText = File.ReadAllText(Path.Combine(repoRoot, "docs", "LEGACY_PLUGIN_PURIFICATION_INCREMENT_WL111.md"));
+
+        AssertEx.True(
+            helperBacklogText.Contains("WL-108.1", StringComparison.Ordinal)
+            && helperBacklogText.Contains("WL-108.3", StringComparison.Ordinal),
+            "Helper tooling backlog must keep WL-108.1 and WL-108.3 explicit.");
+        AssertEx.True(
+            wl111EvidenceText.Contains("WL-108.1", StringComparison.Ordinal)
+            && wl111EvidenceText.Contains("WL-108.3", StringComparison.Ordinal)
+            && wl111EvidenceText.Contains("WL-111", StringComparison.Ordinal),
+            "WL-111 evidence doc must explicitly map the executed WL-108.1 and WL-108.3 increment.");
+        AssertEx.True(
+            !coreEngineSolutionText.Contains(@"Plugins\ChummerHub.Client\ChummerHub.Client.csproj", StringComparison.Ordinal)
+            && !coreEngineSolutionText.Contains(@"Plugins\SamplePlugin\SamplePlugin.csproj", StringComparison.Ordinal),
+            "Active core engine solution must not include legacy plugin projects.");
+        AssertEx.True(
+            !rootSolutionText.Contains(@"Plugins\ChummerHub.Client\ChummerHub.Client.csproj", StringComparison.Ordinal)
+            && !rootSolutionText.Contains(@"Plugins\SamplePlugin\SamplePlugin.csproj", StringComparison.Ordinal),
+            "Repo root solution must keep legacy plugin projects outside active solution coverage.");
+
+        string normalizedCoreEngineSolutionText = coreEngineSolutionText.Replace('\\', '/');
+        string legacyHubPluginRoot = Path.Combine(repoRoot, "Plugins", "ChummerHub.Client");
+        string legacyPluginLoaderRoot = Path.Combine(repoRoot, "Chummer", "Plugins");
+        string[] projectPaths = Directory.EnumerateFiles(repoRoot, "*.csproj", SearchOption.AllDirectories)
+            .Where(path => !IsGeneratedOrBuildArtifact(path))
+            .ToArray();
+
+        foreach (string projectPath in projectPaths)
+        {
+            string projectPathRelative = Path.GetRelativePath(repoRoot, projectPath).Replace('\\', '/');
+            bool projectIsInActiveCoreSolution = normalizedCoreEngineSolutionText.Contains(projectPathRelative, StringComparison.Ordinal);
+            if (!projectIsInActiveCoreSolution)
+            {
+                continue;
+            }
+
+            ProjectItemInclude[] includeItems = ReadProjectItemIncludes(projectPath).ToArray();
+            bool couplesToLegacyPluginCargo = includeItems.Any(include =>
+                IncludeTargetsPath(include, legacyHubPluginRoot, "/plugins/chummerhub.client/")
+                || IncludeTargetsPath(include, legacyPluginLoaderRoot, "/chummer/plugins/"));
+
+            AssertEx.True(
+                !couplesToLegacyPluginCargo,
+                $"Project '{Path.GetRelativePath(repoRoot, projectPath)}' must not couple active core boundary builds to legacy plugin cargo roots.");
         }
     }
 
