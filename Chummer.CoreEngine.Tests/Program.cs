@@ -51,6 +51,7 @@ internal static class CoreEngineTests
             ContractNormalizationFixturesStayStable();
             RepoBoundaryGuardsHostedContractsAndSharedContractOwnership();
             GuardrailPathMatchingResolvesPropertyIndirection();
+            GuardrailPathMatchingResolvesItemAndImportedIndirection();
             ActiveCoreEngineSolutionStaysPurified();
             HardeningBacklogStaysMilestoneMapped();
             LocalizationFallbackHelpersNormalizeLegacyContracts();
@@ -3397,6 +3398,7 @@ internal static class CoreEngineTests
         string projectDirectory = Path.GetDirectoryName(projectPath)
             ?? throw new InvalidOperationException($"Unable to resolve project directory for '{projectPath}'.");
         Dictionary<string, string> propertyValues = ReadMsBuildPropertyValues(projectPath, projectDocument, projectDirectory);
+        Dictionary<string, List<string>> itemValues = ReadMsBuildItemValues(projectDocument, propertyValues);
 
         foreach (XElement element in projectDocument.Descendants())
         {
@@ -3414,17 +3416,57 @@ internal static class CoreEngineTests
                     continue;
                 }
 
-                foreach (string includeValue in SplitMsBuildItemValue(attribute.Value))
+                foreach (string includeValue in ExpandMsBuildItemValue(attribute.Value, propertyValues, itemValues))
                 {
-                    string expandedValue = ExpandMsBuildProperties(includeValue, propertyValues);
-                    string normalizedValue = NormalizePathValue(expandedValue);
-                    string? resolvedPath = TryResolveMsBuildPath(expandedValue, projectDirectory, propertyValues, out string fullPath)
+                    string normalizedValue = NormalizePathValue(includeValue);
+                    string? resolvedPath = TryResolveMsBuildPath(includeValue, projectDirectory, propertyValues, out string fullPath)
                         ? fullPath
                         : null;
                     yield return new ProjectItemInclude(itemType, attributeName, includeValue, normalizedValue, resolvedPath);
                 }
             }
         }
+    }
+
+    private static Dictionary<string, List<string>> ReadMsBuildItemValues(
+        XDocument projectDocument,
+        IDictionary<string, string> propertyValues)
+    {
+        Dictionary<string, List<string>> itemValues = new(StringComparer.OrdinalIgnoreCase);
+
+        foreach (XElement itemElement in projectDocument.Descendants()
+                     .Where(element => element.Parent?.Name.LocalName.Equals("ItemGroup", StringComparison.Ordinal) == true))
+        {
+            string itemType = itemElement.Name.LocalName;
+            if (string.IsNullOrWhiteSpace(itemType))
+            {
+                continue;
+            }
+
+            XAttribute? includeAttribute = itemElement.Attribute("Include");
+            if (includeAttribute is null)
+            {
+                continue;
+            }
+
+            foreach (string expandedValue in ExpandMsBuildItemValue(includeAttribute.Value, propertyValues, itemValues))
+            {
+                if (string.IsNullOrWhiteSpace(expandedValue))
+                {
+                    continue;
+                }
+
+                if (!itemValues.TryGetValue(itemType, out List<string>? values))
+                {
+                    values = [];
+                    itemValues[itemType] = values;
+                }
+
+                values.Add(expandedValue);
+            }
+        }
+
+        return itemValues;
     }
 
     private static Dictionary<string, string> ReadMsBuildPropertyValues(string projectPath, XDocument projectDocument, string projectDirectory)
@@ -3466,6 +3508,34 @@ internal static class CoreEngineTests
                 yield return token;
             }
         }
+    }
+
+    private static IEnumerable<string> ExpandMsBuildItemValue(
+        string value,
+        IDictionary<string, string> propertyValues,
+        IDictionary<string, List<string>> itemValues)
+    {
+        string expanded = ExpandMsBuildProperties(value, propertyValues);
+        for (int i = 0; i < 16; i++)
+        {
+            string replaced = Regex.Replace(
+                expanded,
+                @"@\(([A-Za-z0-9_.\-]+)\)",
+                match => itemValues.TryGetValue(match.Groups[1].Value, out List<string>? values)
+                    ? string.Join(';', values)
+                    : match.Value,
+                RegexOptions.CultureInvariant);
+            if (string.Equals(replaced, expanded, StringComparison.Ordinal))
+            {
+                break;
+            }
+
+            expanded = replaced;
+        }
+
+        return SplitMsBuildItemValue(expanded)
+            .Select(NormalizePathValue)
+            .Where(token => !string.IsNullOrWhiteSpace(token));
     }
 
     private static string NormalizePathValue(string value)
@@ -3721,6 +3791,73 @@ internal static class CoreEngineTests
             AssertEx.True(couplesToApplicationSources, "Property-indirected compile includes should still match Chummer.Application source guardrails.");
             AssertEx.True(referencesApplicationProject, "Property-indirected project references should still match Chummer.Application project guardrails.");
             AssertEx.True(couplesToBrowserInfrastructure, "Property-indirected project references should still match browser infrastructure guardrails.");
+        }
+        finally
+        {
+            if (Directory.Exists(temporaryRoot))
+            {
+                Directory.Delete(temporaryRoot, recursive: true);
+            }
+        }
+    }
+
+    private static void GuardrailPathMatchingResolvesItemAndImportedIndirection()
+    {
+        string temporaryRoot = Path.Combine(Path.GetTempPath(), $"chummer-wl107-item-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(temporaryRoot);
+        try
+        {
+            string appRoot = Path.Combine(temporaryRoot, "Chummer.Application");
+            string appProjectPath = Path.Combine(appRoot, "Chummer.Application.csproj");
+            string browserRoot = Path.Combine(temporaryRoot, "Chummer.Infrastructure.Browser");
+            string browserProjectPath = Path.Combine(browserRoot, "Chummer.Infrastructure.Browser.csproj");
+            Directory.CreateDirectory(appRoot);
+            Directory.CreateDirectory(browserRoot);
+            File.WriteAllText(appProjectPath, "<Project Sdk=\"Microsoft.NET.Sdk\" />");
+            File.WriteAllText(browserProjectPath, "<Project Sdk=\"Microsoft.NET.Sdk\" />");
+
+            string importedPropsPath = Path.Combine(temporaryRoot, "guardrail.props");
+            File.WriteAllText(
+                importedPropsPath,
+                """
+                <Project>
+                  <PropertyGroup>
+                    <ImportedBrowserProj>$(MSBuildProjectDirectory)/Chummer.Infrastructure.Browser/Chummer.Infrastructure.Browser.csproj</ImportedBrowserProj>
+                  </PropertyGroup>
+                </Project>
+                """);
+
+            string projectPath = Path.Combine(temporaryRoot, "GuardrailItemProbe.csproj");
+            File.WriteAllText(
+                projectPath,
+                """
+                <Project Sdk="Microsoft.NET.Sdk">
+                  <Import Project="guardrail.props" />
+                  <ItemGroup>
+                    <CoreAppSources Include="$(MSBuildProjectDirectory)/Chummer.Application/**/*.cs" />
+                  </ItemGroup>
+                  <ItemGroup>
+                    <Compile Include="@(CoreAppSources)" />
+                    <ProjectReference Include="$(MSBuildProjectDirectory)/Chummer.Application/Chummer.Application.csproj" />
+                    <ProjectReference Include="$(ImportedBrowserProj)" />
+                  </ItemGroup>
+                </Project>
+                """);
+
+            ProjectItemInclude[] includeItems = ReadProjectItemIncludes(projectPath).ToArray();
+            bool couplesToApplicationSources = includeItems.Any(include =>
+                !include.ItemType.Equals("ProjectReference", StringComparison.Ordinal)
+                && IncludeTargetsPath(include, appRoot, "/chummer.application/"));
+            bool referencesApplicationProject = includeItems.Any(include =>
+                include.ItemType.Equals("ProjectReference", StringComparison.Ordinal)
+                && IncludeTargetsPath(include, appProjectPath, "/chummer.application/chummer.application.csproj"));
+            bool couplesToBrowserInfrastructure = includeItems.Any(include =>
+                include.ItemType.Equals("ProjectReference", StringComparison.Ordinal)
+                && IncludeTargetsPath(include, browserProjectPath, "/chummer.infrastructure.browser/chummer.infrastructure.browser.csproj"));
+
+            AssertEx.True(couplesToApplicationSources, "Item-list-indirected compile includes should still match Chummer.Application source guardrails.");
+            AssertEx.True(referencesApplicationProject, "Direct Chummer.Application project references should continue matching guardrails.");
+            AssertEx.True(couplesToBrowserInfrastructure, "Imported-property browser project references should still match browser infrastructure guardrails.");
         }
         finally
         {
