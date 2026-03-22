@@ -305,13 +305,13 @@ cards:
     bucket: participate
     title: I have a ChatGPT subscription
     summary: Open the bounded booster lane if you want to lend temporary premium capacity.
-    href: /login?next=/participate/codex
+    href: /participate#booster
     badge: Registered
     audience: public
     image_family: solo_operator
-    cta_kind: login
-    guest_href: /login?next=/participate/codex
-    registered_href: /participate/codex
+    cta_kind: explainer
+    guest_href: /participate#booster
+    registered_href: /participate#booster
   - id: participate_beta
     bucket: participate
     title: Join the beta waitlist
