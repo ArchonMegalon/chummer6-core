@@ -52,6 +52,7 @@ internal static class CoreEngineTests
             RepoBoundaryGuardsHostedContractsAndSharedContractOwnership();
             GuardrailPathMatchingResolvesPropertyIndirection();
             GuardrailPathMatchingResolvesItemAndImportedIndirection();
+            GuardrailPathMatchingResolvesReferenceHintPathCoupling();
             ActiveCoreEngineSolutionStaysPurified();
             HardeningBacklogStaysMilestoneMapped();
             LocalizationFallbackHelpersNormalizeLegacyContracts();
@@ -3355,6 +3356,7 @@ internal static class CoreEngineTests
             string projectPathRelative = Path.GetRelativePath(repositoryRoot, projectPath).Replace('\\', '/');
             bool projectIsInActiveCoreSolution = normalizedCoreEngineSolutionText.Contains(projectPathRelative, StringComparison.Ordinal);
             string projectName = Path.GetFileNameWithoutExtension(projectPath);
+            bool projectIsApplicationProject = projectName.Equals("Chummer.Application", StringComparison.Ordinal);
             ProjectItemInclude[] includeItems = ReadProjectItemIncludes(projectPath).ToArray();
             bool referencesApplicationProject = includeItems.Any(include =>
                 include.ItemType.Equals("ProjectReference", StringComparison.Ordinal)
@@ -3383,7 +3385,7 @@ internal static class CoreEngineTests
                     !couplesToBrowserInfrastructure,
                     $"Project '{Path.GetRelativePath(repositoryRoot, projectPath)}' must not directly reference browser infrastructure source paths while it remains in the active core engine solution boundary.");
                 AssertEx.True(
-                    !directlyCompilesApplicationSources || referencesApplicationProject,
+                    !directlyCompilesApplicationSources || referencesApplicationProject || projectIsApplicationProject,
                     $"Project '{Path.GetRelativePath(repositoryRoot, projectPath)}' must consume Chummer.Application via project reference, not direct source includes.");
                 AssertEx.True(
                     !referencesApplicationProject || activeCoreProjectsAllowedToReferenceApplication.Contains(projectName),
@@ -3398,75 +3400,162 @@ internal static class CoreEngineTests
         string projectDirectory = Path.GetDirectoryName(projectPath)
             ?? throw new InvalidOperationException($"Unable to resolve project directory for '{projectPath}'.");
         Dictionary<string, string> propertyValues = ReadMsBuildPropertyValues(projectPath, projectDocument, projectDirectory);
-        Dictionary<string, List<string>> itemValues = ReadMsBuildItemValues(projectDocument, propertyValues);
+        MsBuildDocumentContext[] documentContexts = ReadMsBuildDocuments(projectDocument, projectPath, propertyValues).ToArray();
+        Dictionary<string, List<string>> itemValues = ReadMsBuildItemValues(documentContexts, propertyValues);
 
-        foreach (XElement element in projectDocument.Descendants())
+        foreach (MsBuildDocumentContext context in documentContexts)
         {
-            string itemType = element.Name.LocalName;
-            if (!IsProjectItemPathCarrier(itemType))
+            foreach (XElement element in context.Document.Descendants()
+                         .Where(candidate => candidate.Parent?.Name.LocalName.Equals("ItemGroup", StringComparison.Ordinal) == true))
             {
-                continue;
-            }
-
-            foreach (string attributeName in new[] { "Include", "Update", "Remove" })
-            {
-                XAttribute? attribute = element.Attribute(attributeName);
-                if (attribute is null)
+                string itemType = element.Name.LocalName;
+                if (!IsProjectItemPathCarrier(itemType))
                 {
                     continue;
                 }
 
-                foreach (string includeValue in ExpandMsBuildItemValue(attribute.Value, propertyValues, itemValues))
+                foreach (string attributeName in new[] { "Include", "Update", "Remove" })
                 {
-                    string normalizedValue = NormalizePathValue(includeValue);
-                    string? resolvedPath = TryResolveMsBuildPath(includeValue, projectDirectory, propertyValues, out string fullPath)
-                        ? fullPath
-                        : null;
-                    yield return new ProjectItemInclude(itemType, attributeName, includeValue, normalizedValue, resolvedPath);
+                    XAttribute? attribute = element.Attribute(attributeName);
+                    if (attribute is null)
+                    {
+                        continue;
+                    }
+
+                    foreach (string includeValue in ExpandMsBuildItemValue(attribute.Value, propertyValues, itemValues))
+                    {
+                        string normalizedValue = NormalizePathValue(includeValue);
+                        string? resolvedPath = TryResolveMsBuildPath(includeValue, context.DocumentDirectory, propertyValues, out string fullPath)
+                            ? fullPath
+                            : null;
+                        yield return new ProjectItemInclude(itemType, attributeName, includeValue, normalizedValue, resolvedPath);
+                    }
+                }
+
+                if (!itemType.Equals("Reference", StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                foreach (XElement metadataElement in element.Elements()
+                             .Where(metadata => metadata.Name.LocalName.Equals("HintPath", StringComparison.Ordinal)))
+                {
+                    foreach (string includeValue in ExpandMsBuildItemValue(metadataElement.Value, propertyValues, itemValues))
+                    {
+                        string normalizedValue = NormalizePathValue(includeValue);
+                        string? resolvedPath = TryResolveMsBuildPath(includeValue, context.DocumentDirectory, propertyValues, out string fullPath)
+                            ? fullPath
+                            : null;
+                        yield return new ProjectItemInclude(itemType, "HintPath", includeValue, normalizedValue, resolvedPath);
+                    }
                 }
             }
         }
     }
 
     private static Dictionary<string, List<string>> ReadMsBuildItemValues(
-        XDocument projectDocument,
+        IEnumerable<MsBuildDocumentContext> documentContexts,
         IDictionary<string, string> propertyValues)
     {
         Dictionary<string, List<string>> itemValues = new(StringComparer.OrdinalIgnoreCase);
 
-        foreach (XElement itemElement in projectDocument.Descendants()
-                     .Where(element => element.Parent?.Name.LocalName.Equals("ItemGroup", StringComparison.Ordinal) == true))
+        foreach (MsBuildDocumentContext context in documentContexts)
         {
-            string itemType = itemElement.Name.LocalName;
-            if (string.IsNullOrWhiteSpace(itemType))
+            foreach (XElement itemElement in context.Document.Descendants()
+                         .Where(element => element.Parent?.Name.LocalName.Equals("ItemGroup", StringComparison.Ordinal) == true))
             {
-                continue;
-            }
-
-            XAttribute? includeAttribute = itemElement.Attribute("Include");
-            if (includeAttribute is null)
-            {
-                continue;
-            }
-
-            foreach (string expandedValue in ExpandMsBuildItemValue(includeAttribute.Value, propertyValues, itemValues))
-            {
-                if (string.IsNullOrWhiteSpace(expandedValue))
+                string itemType = itemElement.Name.LocalName;
+                if (string.IsNullOrWhiteSpace(itemType))
                 {
                     continue;
                 }
 
-                if (!itemValues.TryGetValue(itemType, out List<string>? values))
+                XAttribute? includeAttribute = itemElement.Attribute("Include");
+                if (includeAttribute is null)
                 {
-                    values = [];
-                    itemValues[itemType] = values;
+                    continue;
                 }
 
-                values.Add(expandedValue);
+                foreach (string expandedValue in ExpandMsBuildItemValue(includeAttribute.Value, propertyValues, itemValues))
+                {
+                    if (string.IsNullOrWhiteSpace(expandedValue))
+                    {
+                        continue;
+                    }
+
+                    if (!itemValues.TryGetValue(itemType, out List<string>? values))
+                    {
+                        values = [];
+                        itemValues[itemType] = values;
+                    }
+
+                    values.Add(expandedValue);
+                }
             }
         }
 
         return itemValues;
+    }
+
+    private static IEnumerable<MsBuildDocumentContext> ReadMsBuildDocuments(
+        XDocument rootDocument,
+        string rootDocumentPath,
+        IDictionary<string, string> propertyValues)
+    {
+        HashSet<string> visitedDocuments = new(StringComparer.OrdinalIgnoreCase);
+        foreach (MsBuildDocumentContext context in EnumerateMsBuildDocuments(rootDocument, rootDocumentPath, propertyValues, visitedDocuments))
+        {
+            yield return context;
+        }
+    }
+
+    private static IEnumerable<MsBuildDocumentContext> EnumerateMsBuildDocuments(
+        XDocument document,
+        string documentPath,
+        IDictionary<string, string> propertyValues,
+        ISet<string> visitedDocuments)
+    {
+        string normalizedPath = Path.GetFullPath(documentPath);
+        if (!visitedDocuments.Add(normalizedPath))
+        {
+            yield break;
+        }
+
+        string documentDirectory = Path.GetDirectoryName(normalizedPath)
+            ?? throw new InvalidOperationException($"Unable to resolve MSBuild document directory for '{normalizedPath}'.");
+        yield return new MsBuildDocumentContext(document, normalizedPath, documentDirectory);
+
+        foreach (XElement child in document.Root?.Elements() ?? [])
+        {
+            if (!child.Name.LocalName.Equals("Import", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            XAttribute? projectAttribute = child.Attribute("Project");
+            if (projectAttribute is null)
+            {
+                continue;
+            }
+
+            string importedPathToken = ExpandMsBuildProperties(projectAttribute.Value, propertyValues);
+            if (importedPathToken.Contains("$(", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            string importedPath = ResolveMsBuildPath(importedPathToken, documentDirectory);
+            if (!File.Exists(importedPath))
+            {
+                continue;
+            }
+
+            XDocument importedDocument = XDocument.Load(importedPath);
+            foreach (MsBuildDocumentContext importedContext in EnumerateMsBuildDocuments(importedDocument, importedPath, propertyValues, visitedDocuments))
+            {
+                yield return importedContext;
+            }
+        }
     }
 
     private static Dictionary<string, string> ReadMsBuildPropertyValues(string projectPath, XDocument projectDocument, string projectDirectory)
@@ -3490,6 +3579,7 @@ internal static class CoreEngineTests
     private static bool IsProjectItemPathCarrier(string itemType)
     {
         return itemType.Equals("ProjectReference", StringComparison.Ordinal)
+            || itemType.Equals("Reference", StringComparison.Ordinal)
             || itemType.Equals("Compile", StringComparison.Ordinal)
             || itemType.Equals("None", StringComparison.Ordinal)
             || itemType.Equals("Content", StringComparison.Ordinal)
@@ -3824,6 +3914,9 @@ internal static class CoreEngineTests
                   <PropertyGroup>
                     <ImportedBrowserProj>$(MSBuildProjectDirectory)/Chummer.Infrastructure.Browser/Chummer.Infrastructure.Browser.csproj</ImportedBrowserProj>
                   </PropertyGroup>
+                  <ItemGroup>
+                    <ImportedAppSources Include="$(MSBuildProjectDirectory)/Chummer.Application/**/*.cs" />
+                  </ItemGroup>
                 </Project>
                 """);
 
@@ -3834,10 +3927,7 @@ internal static class CoreEngineTests
                 <Project Sdk="Microsoft.NET.Sdk">
                   <Import Project="guardrail.props" />
                   <ItemGroup>
-                    <CoreAppSources Include="$(MSBuildProjectDirectory)/Chummer.Application/**/*.cs" />
-                  </ItemGroup>
-                  <ItemGroup>
-                    <Compile Include="@(CoreAppSources)" />
+                    <Compile Include="@(ImportedAppSources)" />
                     <ProjectReference Include="$(MSBuildProjectDirectory)/Chummer.Application/Chummer.Application.csproj" />
                     <ProjectReference Include="$(ImportedBrowserProj)" />
                   </ItemGroup>
@@ -3858,6 +3948,60 @@ internal static class CoreEngineTests
             AssertEx.True(couplesToApplicationSources, "Item-list-indirected compile includes should still match Chummer.Application source guardrails.");
             AssertEx.True(referencesApplicationProject, "Direct Chummer.Application project references should continue matching guardrails.");
             AssertEx.True(couplesToBrowserInfrastructure, "Imported-property browser project references should still match browser infrastructure guardrails.");
+        }
+        finally
+        {
+            if (Directory.Exists(temporaryRoot))
+            {
+                Directory.Delete(temporaryRoot, recursive: true);
+            }
+        }
+    }
+
+    private static void GuardrailPathMatchingResolvesReferenceHintPathCoupling()
+    {
+        string temporaryRoot = Path.Combine(Path.GetTempPath(), $"chummer-wl107-reference-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(temporaryRoot);
+        try
+        {
+            string appBinaryPath = Path.Combine(temporaryRoot, "Chummer.Application", "bin", "Debug", "net8.0", "Chummer.Application.dll");
+            string browserBinaryPath = Path.Combine(temporaryRoot, "Chummer.Infrastructure.Browser", "bin", "Debug", "net8.0", "Chummer.Infrastructure.Browser.dll");
+            Directory.CreateDirectory(Path.GetDirectoryName(appBinaryPath)!);
+            Directory.CreateDirectory(Path.GetDirectoryName(browserBinaryPath)!);
+            File.WriteAllText(appBinaryPath, "stub");
+            File.WriteAllText(browserBinaryPath, "stub");
+
+            string projectPath = Path.Combine(temporaryRoot, "GuardrailReferenceProbe.csproj");
+            File.WriteAllText(
+                projectPath,
+                """
+                <Project Sdk="Microsoft.NET.Sdk">
+                  <PropertyGroup>
+                    <AppBinRoot>$(MSBuildProjectDirectory)/Chummer.Application/bin/Debug/net8.0</AppBinRoot>
+                  </PropertyGroup>
+                  <ItemGroup>
+                    <Reference Include="Chummer.Application">
+                      <HintPath>$(AppBinRoot)/Chummer.Application.dll</HintPath>
+                    </Reference>
+                    <Reference Include="Chummer.Infrastructure.Browser">
+                      <HintPath>$(MSBuildProjectDirectory)/Chummer.Infrastructure.Browser/bin/Debug/net8.0/Chummer.Infrastructure.Browser.dll</HintPath>
+                    </Reference>
+                  </ItemGroup>
+                </Project>
+                """);
+
+            ProjectItemInclude[] includeItems = ReadProjectItemIncludes(projectPath).ToArray();
+            bool couplesToApplicationBinary = includeItems.Any(include =>
+                include.ItemType.Equals("Reference", StringComparison.Ordinal)
+                && include.AttributeName.Equals("HintPath", StringComparison.Ordinal)
+                && IncludeTargetsPath(include, appBinaryPath, "/chummer.application/"));
+            bool couplesToBrowserBinary = includeItems.Any(include =>
+                include.ItemType.Equals("Reference", StringComparison.Ordinal)
+                && include.AttributeName.Equals("HintPath", StringComparison.Ordinal)
+                && IncludeTargetsPath(include, browserBinaryPath, "/chummer.infrastructure.browser/"));
+
+            AssertEx.True(couplesToApplicationBinary, "Reference HintPath indirection should match Chummer.Application coupling guardrails.");
+            AssertEx.True(couplesToBrowserBinary, "Reference HintPath indirection should match browser infrastructure coupling guardrails.");
         }
         finally
         {
@@ -4153,6 +4297,11 @@ internal static class CoreEngineTests
         string RawValue,
         string NormalizedValue,
         string? ResolvedPath);
+
+    private readonly record struct MsBuildDocumentContext(
+        XDocument Document,
+        string DocumentPath,
+        string DocumentDirectory);
 }
 
 internal static class AssertEx
