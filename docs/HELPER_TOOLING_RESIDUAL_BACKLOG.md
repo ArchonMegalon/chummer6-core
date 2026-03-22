@@ -26,6 +26,14 @@ These surfaces are not active deterministic-engine ownership. They remain only f
 | `WL-108.4` | Maintain repo helper scripts as operator tooling only. | Scripts remain decoupled from deterministic-engine semantic ownership and stay out of active runtime paths. | release maintenance (`F3`) |
 | `WL-108.5` | Keep git/env utility scripts bounded to devops workflows. | Utilities remain optional helper surfaces and do not become canonical runtime behavior. | release maintenance (`F3`) |
 
+## Increment log
+
+### 2026-03-22 (`WL-111`)
+
+- Executed `WL-108.1` as a compatibility-freeze increment: `Plugins/ChummerHub.Client` remains legacy cargo and is now verifier-guarded from active core-solution coupling.
+- Executed `WL-108.3` as a retirement-gate increment: `Chummer/Plugins` remains explicit legacy loader cargo with parity-first removal gates and active-boundary coupling guards.
+- Evidence is published in `docs/LEGACY_PLUGIN_PURIFICATION_INCREMENT_WL111.md`.
+
 ## Closure statement
 
 `WL-108` is satisfied by making helper/plugin residual scope explicit, dispositioned (`keep/remove/migrate`), and tied to milestone-backed follow-through lanes (`A0.5.7`, `F3`, `WL-092`, `WL-100`, `WL-D038`) instead of leaving helper-tooling scope as implied queue prose.
