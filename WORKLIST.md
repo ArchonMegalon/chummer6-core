@@ -11,6 +11,9 @@ Purpose: keep the live repo-native queue readable. Historical queue churn and du
 ## Queue
 | ID | Status | Priority | Task | Owner | Notes |
 |---|---|---|---|---|---|
+| WL-106 | queued | P1 | Publish `Chummer.Application` boundary inventory and split candidates into deterministic-engine vs compatibility-only seams. | agent | Runnable closure for auditor candidate `4317`: produce a concrete per-folder map under `docs/` plus owner lane for each non-engine-facing seam so future extraction work is executable instead of implied. |
+| WL-107 | queued | P1 | Add verifier guardrails that block browser infrastructure coupling from active engine projects and `Chummer.Application` ownership drift. | agent | Runnable closure for queue item on `Chummer.Application` + legacy browser infrastructure: extend boundary tests to fail if active solution projects add source-path references to browser-only roots or non-engine plugin UI cargo. |
+| WL-108 | queued | P2 | Publish helper-tooling residual backlog for remaining repo-surface utilities and plugin-era helper flows. | agent | Runnable closure for helper-tooling uncovered scope: enumerate retained helper surfaces that still exist for compatibility, assign keep/remove/migrate disposition, and tie each to milestone-backed follow-through IDs. |
 | WL-098 | done | P1 | Revalidate temporary contract source-project leak deletion guardrails and refresh closure evidence. | agent | Revalidated 2026-03-21: `.sln`/`.csproj` sweep again found no `Chummer.Presentation.Contracts` or `Chummer.RunServices.Contracts` references, `bash scripts/ai/verify.sh` passed, and queue publication was refreshed to avoid reopening closed implementation slices. |
 | WL-099 | done | P1 | Materialize remaining uncovered cross-repo contract reset scope into milestone-mapped runnable lanes. | agent | Closed 2026-03-19: the design canon no longer carries `A1`/`D1` as open, and the live worklist now reflects purification-only follow-through instead of pretending contract-reset scope still lacks milestone mapping. |
 | WL-100 | done | P1 | Collapse repo-body root drift by moving non-deterministic legacy app/plugin and browser infrastructure into quarantine packages or explicit compatibility lanes. | agent | Closed 2026-03-19: `docs/LEGACY_ROOT_SURFACE_INVENTORY.md` now makes the remaining broad roots explicit compatibility-only cargo, and `scripts/ai/verify.sh` keeps the active engine boundary separate from those roots. |
@@ -58,7 +61,7 @@ These rows stay explicit so the repo can prove milestone decomposition without d
 
 ## Current repo truth
 
-- Repo-local live queue: none
+- Repo-local live queue: `WL-106`, `WL-107`, `WL-108`
 - Contract, explain, runtime-bundle canon, restore/replay hardening, migration certification, and legacy-root quarantine are materially closed.
 - Boundary warning: broad legacy roots still exist physically, but they are now explicit compatibility-only cargo instead of ambiguous active ownership.
 - Residual-scope auditor statement is resolved by existing closed lanes (`WL-100`, `WL-101`, `WL-102`, `WL-091`), not by reopening hosted-contract ownership tasks.
