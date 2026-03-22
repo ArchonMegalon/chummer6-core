@@ -24,6 +24,7 @@ using Chummer.Rulesets.Sr6;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
+using System.Xml.Linq;
 
 return CoreEngineTests.Run();
 
@@ -3329,6 +3330,13 @@ internal static class CoreEngineTests
         string[] projectPaths = Directory.EnumerateFiles(repositoryRoot, "*.csproj", SearchOption.AllDirectories)
             .Where(path => !IsGeneratedOrBuildArtifact(path))
             .ToArray();
+        string applicationRoot = Path.Combine(repositoryRoot, "Chummer.Application");
+        string applicationProjectPath = Path.Combine(applicationRoot, "Chummer.Application.csproj");
+        string browserInfrastructureRoot = Path.Combine(repositoryRoot, "Chummer.Infrastructure.Browser");
+        string deletedRunServicesAiRoot = Path.Combine(repositoryRoot, "Chummer.RunServices.Contracts", "AI");
+        string deletedRunServicesHubRoot = Path.Combine(repositoryRoot, "Chummer.RunServices.Contracts", "Hub");
+        string runContractsAiSourceRoot = Path.Combine(repositoryRoot, "Chummer.Run.Contracts", "AI");
+        string runContractsHubSourceRoot = Path.Combine(repositoryRoot, "Chummer.Run.Contracts", "Hub");
         HashSet<string> activeCoreProjectsAllowedToReferenceApplication =
         [
             "Chummer.Application",
@@ -3342,35 +3350,35 @@ internal static class CoreEngineTests
 
         foreach (string projectPath in projectPaths)
         {
-            string projectText = File.ReadAllText(projectPath);
             string projectPathRelative = Path.GetRelativePath(repositoryRoot, projectPath).Replace('\\', '/');
             bool projectIsInActiveCoreSolution = normalizedCoreEngineSolutionText.Contains(projectPathRelative, StringComparison.Ordinal);
             string projectName = Path.GetFileNameWithoutExtension(projectPath);
-            bool referencesApplicationProject =
-                projectText.Contains(@"..\Chummer.Application\Chummer.Application.csproj", StringComparison.Ordinal)
-                || projectText.Contains(@"../Chummer.Application/Chummer.Application.csproj", StringComparison.Ordinal);
-            bool directlyCompilesApplicationSources =
-                projectText.Contains(@"..\Chummer.Application\", StringComparison.Ordinal)
-                || projectText.Contains(@"../Chummer.Application/", StringComparison.Ordinal);
+            ProjectItemInclude[] includeItems = ReadProjectItemIncludes(projectPath).ToArray();
+            bool referencesApplicationProject = includeItems.Any(include =>
+                include.ItemType.Equals("ProjectReference", StringComparison.Ordinal)
+                && IncludeTargetsPath(include, applicationProjectPath, "/chummer.application/chummer.application.csproj"));
+            bool directlyCompilesApplicationSources = includeItems.Any(include =>
+                !include.ItemType.Equals("ProjectReference", StringComparison.Ordinal)
+                && IncludeTargetsPath(include, applicationRoot, "/chummer.application/"));
+            bool referencesDeletedRunServicesContractsSource = includeItems.Any(include =>
+                IncludeTargetsPath(include, deletedRunServicesAiRoot, "/chummer.runservices.contracts/ai/")
+                || IncludeTargetsPath(include, deletedRunServicesHubRoot, "/chummer.runservices.contracts/hub/"));
+            bool directlyCompilesRunContractsSource = includeItems.Any(include =>
+                !include.ItemType.Equals("ProjectReference", StringComparison.Ordinal)
+                && (IncludeTargetsPath(include, runContractsAiSourceRoot, "/chummer.run.contracts/ai/")
+                    || IncludeTargetsPath(include, runContractsHubSourceRoot, "/chummer.run.contracts/hub/")));
+            bool couplesToBrowserInfrastructure = includeItems.Any(include =>
+                IncludeTargetsPath(include, browserInfrastructureRoot, "/chummer.infrastructure.browser/"));
             AssertEx.True(
-                !projectText.Contains(@"..\Chummer.RunServices.Contracts\AI\", StringComparison.Ordinal)
-                && !projectText.Contains(@"../Chummer.RunServices.Contracts/AI/", StringComparison.Ordinal)
-                && !projectText.Contains(@"..\Chummer.RunServices.Contracts\Hub\", StringComparison.Ordinal)
-                && !projectText.Contains(@"../Chummer.RunServices.Contracts/Hub/", StringComparison.Ordinal),
+                !referencesDeletedRunServicesContractsSource,
                 $"Project '{Path.GetRelativePath(repositoryRoot, projectPath)}' must not depend on deleted temporary contract project paths.");
             AssertEx.True(
-                !projectText.Contains(@"..\Chummer.Run.Contracts\AI\", StringComparison.Ordinal)
-                && !projectText.Contains(@"../Chummer.Run.Contracts/AI/", StringComparison.Ordinal)
-                && !projectText.Contains(@"..\Chummer.Run.Contracts\Hub\", StringComparison.Ordinal)
-                && !projectText.Contains(@"../Chummer.Run.Contracts/Hub/", StringComparison.Ordinal),
+                !directlyCompilesRunContractsSource,
                 $"Project '{Path.GetRelativePath(repositoryRoot, projectPath)}' should consume canonical contracts via assembly reference, not by compiling individual AI/Hub source files directly.");
             if (projectIsInActiveCoreSolution)
             {
                 AssertEx.True(
-                    !projectText.Contains(@"..\Chummer.Infrastructure.Browser\", StringComparison.Ordinal)
-                    && !projectText.Contains(@"../Chummer.Infrastructure.Browser/", StringComparison.Ordinal)
-                    && !projectText.Contains(@"..\Chummer.Infrastructure.Browser\Chummer.Infrastructure.Browser.csproj", StringComparison.Ordinal)
-                    && !projectText.Contains(@"../Chummer.Infrastructure.Browser/Chummer.Infrastructure.Browser.csproj", StringComparison.Ordinal),
+                    !couplesToBrowserInfrastructure,
                     $"Project '{Path.GetRelativePath(repositoryRoot, projectPath)}' must not directly reference browser infrastructure source paths while it remains in the active core engine solution boundary.");
                 AssertEx.True(
                     !directlyCompilesApplicationSources || referencesApplicationProject,
@@ -3380,6 +3388,109 @@ internal static class CoreEngineTests
                     $"Project '{Path.GetRelativePath(repositoryRoot, projectPath)}' introduced unexpected Chummer.Application ownership coupling in the active core engine solution.");
             }
         }
+    }
+
+    private static IEnumerable<ProjectItemInclude> ReadProjectItemIncludes(string projectPath)
+    {
+        XDocument projectDocument = XDocument.Load(projectPath);
+        string projectDirectory = Path.GetDirectoryName(projectPath)
+            ?? throw new InvalidOperationException($"Unable to resolve project directory for '{projectPath}'.");
+
+        foreach (XElement element in projectDocument.Descendants())
+        {
+            string itemType = element.Name.LocalName;
+            if (!IsProjectItemPathCarrier(itemType))
+            {
+                continue;
+            }
+
+            foreach (string attributeName in new[] { "Include", "Update", "Remove" })
+            {
+                XAttribute? attribute = element.Attribute(attributeName);
+                if (attribute is null)
+                {
+                    continue;
+                }
+
+                foreach (string includeValue in SplitMsBuildItemValue(attribute.Value))
+                {
+                    string normalizedValue = NormalizePathValue(includeValue);
+                    string? resolvedPath = TryResolveMsBuildPath(includeValue, projectDirectory, out string fullPath)
+                        ? fullPath
+                        : null;
+                    yield return new ProjectItemInclude(itemType, attributeName, includeValue, normalizedValue, resolvedPath);
+                }
+            }
+        }
+    }
+
+    private static bool IsProjectItemPathCarrier(string itemType)
+    {
+        return itemType.Equals("ProjectReference", StringComparison.Ordinal)
+            || itemType.Equals("Compile", StringComparison.Ordinal)
+            || itemType.Equals("None", StringComparison.Ordinal)
+            || itemType.Equals("Content", StringComparison.Ordinal)
+            || itemType.Equals("EmbeddedResource", StringComparison.Ordinal)
+            || itemType.Equals("AdditionalFiles", StringComparison.Ordinal)
+            || itemType.Equals("Page", StringComparison.Ordinal)
+            || itemType.Equals("Resource", StringComparison.Ordinal);
+    }
+
+    private static IEnumerable<string> SplitMsBuildItemValue(string value)
+    {
+        foreach (string token in value.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            if (!string.IsNullOrWhiteSpace(token))
+            {
+                yield return token;
+            }
+        }
+    }
+
+    private static string NormalizePathValue(string value)
+    {
+        return value.Trim().Replace('\\', '/');
+    }
+
+    private static bool TryResolveMsBuildPath(string rawValue, string projectDirectory, out string fullPath)
+    {
+        string normalized = NormalizePathValue(rawValue);
+        string projectDirectoryNormalized = NormalizePathValue(projectDirectory).TrimEnd('/') + "/";
+        normalized = normalized.Replace("$(MSBuildThisFileDirectory)", projectDirectoryNormalized, StringComparison.OrdinalIgnoreCase);
+        normalized = normalized.Replace("$(MSBuildProjectDirectory)", projectDirectoryNormalized.TrimEnd('/'), StringComparison.OrdinalIgnoreCase);
+
+        if (normalized.Contains("$(", StringComparison.Ordinal))
+        {
+            fullPath = string.Empty;
+            return false;
+        }
+
+        string candidate = normalized.Replace('/', Path.DirectorySeparatorChar);
+        string resolved = Path.IsPathRooted(candidate)
+            ? Path.GetFullPath(candidate)
+            : Path.GetFullPath(Path.Combine(projectDirectory, candidate));
+        fullPath = resolved;
+        return true;
+    }
+
+    private static bool IncludeTargetsPath(ProjectItemInclude include, string expectedPath, string normalizedToken)
+    {
+        if (!string.IsNullOrWhiteSpace(include.ResolvedPath) && PathMatchesOrIsChildOf(include.ResolvedPath!, expectedPath))
+        {
+            return true;
+        }
+
+        string normalizedInclude = include.NormalizedValue.ToLowerInvariant();
+        string token = normalizedToken.ToLowerInvariant();
+        return normalizedInclude.Contains(token, StringComparison.Ordinal);
+    }
+
+    private static bool PathMatchesOrIsChildOf(string candidatePath, string parentPath)
+    {
+        string normalizedCandidate = Path.GetFullPath(candidatePath).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        string normalizedParent = Path.GetFullPath(parentPath).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        return string.Equals(normalizedCandidate, normalizedParent, StringComparison.OrdinalIgnoreCase)
+            || normalizedCandidate.StartsWith(normalizedParent + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
     }
 
     private static void HardeningBacklogStaysMilestoneMapped()
@@ -3660,6 +3771,13 @@ internal static class CoreEngineTests
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
         WriteIndented = true
     };
+
+    private readonly record struct ProjectItemInclude(
+        string ItemType,
+        string AttributeName,
+        string RawValue,
+        string NormalizedValue,
+        string? ResolvedPath);
 }
 
 internal static class AssertEx
