@@ -3,6 +3,7 @@
 Purpose: keep the core share of `F1` explicit and runnable.
 
 This runbook is the operator-facing proof path for deterministic runtime bundles, replay-safe restore, and explain/runtime continuity after the contract-canon closure.
+It also carries the operational retention/cleanup enforcement path for workspace/session runbook state (`MIG-093`).
 
 ## Scope
 
@@ -22,6 +23,7 @@ It does not claim ownership of:
 ## Canonical evidence anchors
 
 - `docs/EXPLAIN_AND_RUNTIME_CANON.md`
+- `docs/WORKSPACE_RETENTION_POLICY.md`
 - `docs/SELF_HOSTED_DOWNLOADS_RUNBOOK.md`
 - `scripts/runbook.sh`
 - `scripts/migration-loop.sh`
@@ -35,6 +37,8 @@ Run from the repo root:
 ```bash
 bash scripts/ai/verify.sh
 RUNBOOK_MODE=local-tests TEST_NUGET_SOFT_FAIL=0 TEST_DISABLE_BUILD_SERVERS=1 TEST_MAX_CPU=1 bash scripts/runbook.sh
+RUNBOOK_MODE=retention-cleanup RETENTION_CLEANUP_DRY_RUN=1 bash scripts/runbook.sh
+RUNBOOK_MODE=retention-cleanup-smoke bash scripts/runbook.sh
 bash scripts/migration-loop.sh 1
 ```
 
@@ -51,6 +55,8 @@ The core `F1` lane is healthy when:
 - runtime-bundle semantics remain aligned with `docs/EXPLAIN_AND_RUNTIME_CANON.md`
 - `DualHeadAcceptanceTests` continue to prove replay-safe behavior across the active heads
 - `MigrationComplianceTests` continue to prove restore, import/export, and parity safety under the current runtime
+- `RUNBOOK_MODE=retention-cleanup` prints deterministic policy windows and stale-candidate evidence
+- `RUNBOOK_MODE=retention-cleanup-smoke` proves stale fixture deletion while preserving recent fixtures
 - `scripts/migration-loop.sh 1` completes without reintroducing drift between API, Blazor, Avalonia, and portal paths
 
 If any of these fail, core-side observability/DR/replay safety is not closed.

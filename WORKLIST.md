@@ -12,7 +12,7 @@ Purpose: keep the live repo-native queue readable. Historical queue churn and du
 | ID | Status | Priority | Task | Owner | Notes |
 |---|---|---|---|---|---|
 | WL-109 | done | P1 | Implement structured observability hardening for the active API + head flows (`MIG-091`) with correlation-id propagation and verification coverage. | agent | Closed 2026-03-22: `SessionApiResult`/`SessionNotImplementedReceipt` now carry structured observability envelopes (`operation`, `correlationId`, `traceId`, metrics seam + tags), `OwnerScopedSessionService` and `NotImplementedSessionService` emit those envelopes across active session API flows, and `Chummer.CoreEngine.Tests` regression coverage locks the contract seams. |
-| WL-110 | queued | P2 | Define and enforce workspace/session retention + cleanup operational policy (`MIG-093`) with runbook and automation hooks. | agent | Runnable residual-scope DR lane tied to operations hardening; extends existing restore/migration runbook evidence rather than reopening contract-canon work. |
+| WL-110 | done | P2 | Define and enforce workspace/session retention + cleanup operational policy (`MIG-093`) with runbook and automation hooks. | agent | Closed 2026-03-22: published `docs/WORKSPACE_RETENTION_POLICY.md`, added `RUNBOOK_MODE=retention-cleanup` + `RUNBOOK_MODE=retention-cleanup-smoke` to `scripts/runbook.sh`, and extended `scripts/ai/verify.sh` to enforce retention policy/runbook evidence. |
 | WL-111 | queued | P2 | Execute next legacy cargo purification increment from published compatibility backlog (`WL-108.1` and `WL-108.3`). | agent | Runnable residual-scope purification lane for plugin-era cargo; preserve active engine boundary guardrails while migrating/removing legacy roots. |
 | WL-106 | done | P1 | Publish `Chummer.Application` boundary inventory and split candidates into deterministic-engine vs compatibility-only seams. | agent | Closed 2026-03-22: published `docs/CHUMMER_APPLICATION_BOUNDARY_INVENTORY.md` with per-folder boundary class, owner lane, and explicit `WL-106.x` split candidates separating deterministic-engine seams from compatibility-only seams. |
 | WL-107 | done | P1 | Add verifier guardrails that block browser infrastructure coupling from active engine projects and `Chummer.Application` ownership drift. | agent | Closed 2026-03-22: `Chummer.CoreEngine.Tests` now fails when active-solution projects add browser-infrastructure source/project coupling, compile `Chummer.Application` source directly, or introduce unsanctioned `Chummer.Application` project-reference ownership drift. |
@@ -64,7 +64,7 @@ These rows stay explicit so the repo can prove milestone decomposition without d
 
 ## Current repo truth
 
-- Repo-local live queue: `WL-110` and `WL-111` (residual DR hardening plus legacy cargo purification).
+- Repo-local live queue: `WL-111` (legacy cargo purification follow-through).
 - Contract, explain, runtime-bundle canon, and migration-certification closure evidence remain materially closed (`WL-101`, `WL-102`, `WL-105`).
 - Boundary warning: broad legacy roots still exist physically; purification remains an explicit queued follow-through lane instead of implicit ownership drift.
 - Hosted contract ownership remains closed and is intentionally excluded from the active queue.
