@@ -62,7 +62,7 @@ public sealed class OwnerScopedSessionService : ISessionService
             .Select(workspace => CreateCharacterListItem(owner, workspace, bindingsByCharacter, runtimeFingerprintByRuleset))
             .ToArray();
 
-        return SessionApiResult<SessionCharacterCatalog>.Implemented(new SessionCharacterCatalog(characters));
+        return Implemented(owner, SessionApiOperations.ListCharacters, new SessionCharacterCatalog(characters));
     }
 
     public SessionApiResult<SessionDashboardProjection> GetCharacterProjection(OwnerScope owner, string characterId)
@@ -85,7 +85,9 @@ public sealed class OwnerScopedSessionService : ISessionService
             .OrderBy(profile => profile.Title, StringComparer.Ordinal)
             .ToArray();
 
-        return SessionApiResult<SessionProfileCatalog>.Implemented(
+        return Implemented(
+            owner,
+            SessionApiOperations.ListProfiles,
             new SessionProfileCatalog(
                 Profiles: profiles,
                 ActiveProfileId: activeBinding?.ProfileId ?? defaultProfileId));
@@ -99,18 +101,23 @@ public sealed class OwnerScopedSessionService : ISessionService
         SessionProfileBinding? binding = _profileSelectionStore.Get(owner, normalizedCharacterId);
         if (binding is null)
         {
-            return SessionApiResult<SessionRuntimeStatusProjection>.Implemented(
+            return Implemented(
+                owner,
+                SessionApiOperations.GetRuntimeState,
                 new SessionRuntimeStatusProjection(
                     CharacterId: normalizedCharacterId,
                     SelectionState: SessionRuntimeSelectionStates.Unselected,
                     RequiresBundleRefresh: true,
-                    DeferredReason: "No session profile has been selected for this character yet."));
+                    DeferredReason: "No session profile has been selected for this character yet."),
+                normalizedCharacterId);
         }
 
         RuleProfileRegistryEntry? profile = _ruleProfileRegistryService.Get(owner, binding.ProfileId, binding.RulesetId);
         if (profile is null)
         {
-            return SessionApiResult<SessionRuntimeStatusProjection>.Implemented(
+            return Implemented(
+                owner,
+                SessionApiOperations.GetRuntimeState,
                 new SessionRuntimeStatusProjection(
                     CharacterId: normalizedCharacterId,
                     SelectionState: SessionRuntimeSelectionStates.Blocked,
@@ -118,7 +125,8 @@ public sealed class OwnerScopedSessionService : ISessionService
                     RulesetId: binding.RulesetId,
                     RuntimeFingerprint: binding.RuntimeFingerprint,
                     RequiresBundleRefresh: true,
-                    DeferredReason: $"Session profile '{binding.ProfileId}' is no longer available."));
+                    DeferredReason: $"Session profile '{binding.ProfileId}' is no longer available."),
+                normalizedCharacterId);
         }
 
         bool sessionReady = IsSessionReady(owner, profile);
@@ -127,7 +135,9 @@ public sealed class OwnerScopedSessionService : ISessionService
         SessionRuntimeBundleIssueReceipt? bundleReceipt = bundleRecord?.Receipt;
         bool requiresBundleRefresh = !string.Equals(bundleFreshness, SessionRuntimeBundleFreshnessStates.Current, StringComparison.Ordinal);
 
-        return SessionApiResult<SessionRuntimeStatusProjection>.Implemented(
+        return Implemented(
+            owner,
+            SessionApiOperations.GetRuntimeState,
             new SessionRuntimeStatusProjection(
                 CharacterId: normalizedCharacterId,
                 SelectionState: sessionReady ? SessionRuntimeSelectionStates.Selected : SessionRuntimeSelectionStates.Blocked,
@@ -145,7 +155,8 @@ public sealed class OwnerScopedSessionService : ISessionService
                 RequiresBundleRefresh: requiresBundleRefresh,
                 DeferredReason: sessionReady
                     ? null
-                    : $"Session profile '{profile.Manifest.ProfileId}' is not session-ready."));
+                    : $"Session profile '{profile.Manifest.ProfileId}' is not session-ready."),
+            normalizedCharacterId);
     }
 
     public SessionApiResult<SessionRuntimeBundleIssueReceipt> GetRuntimeBundle(OwnerScope owner, string characterId)
@@ -156,13 +167,16 @@ public sealed class OwnerScopedSessionService : ISessionService
         RuleProfileRegistryEntry? profile = ResolveSelectedProfile(owner, normalizedCharacterId, out string? blockedReason);
         if (profile is null)
         {
-            return SessionApiResult<SessionRuntimeBundleIssueReceipt>.Implemented(
-                CreateBlockedBundleReceipt(normalizedCharacterId, blockedReason!));
+            return Implemented(
+                owner,
+                SessionApiOperations.GetRuntimeBundle,
+                CreateBlockedBundleReceipt(normalizedCharacterId, blockedReason!),
+                normalizedCharacterId);
         }
 
         SessionRuntimeBundleRecord? existingRecord = _runtimeBundleStore.Get(owner, normalizedCharacterId);
         SessionRuntimeBundleIssueReceipt receipt = IssueRuntimeBundle(owner, normalizedCharacterId, profile, existingRecord, allowCached: true);
-        return SessionApiResult<SessionRuntimeBundleIssueReceipt>.Implemented(receipt);
+        return Implemented(owner, SessionApiOperations.GetRuntimeBundle, receipt, normalizedCharacterId);
     }
 
     public SessionApiResult<SessionRuntimeBundleRefreshReceipt> RefreshRuntimeBundle(OwnerScope owner, string characterId)
@@ -174,26 +188,34 @@ public sealed class OwnerScopedSessionService : ISessionService
         RuleProfileRegistryEntry? profile = ResolveSelectedProfile(owner, normalizedCharacterId, out string? blockedReason);
         if (profile is null)
         {
-            return SessionApiResult<SessionRuntimeBundleRefreshReceipt>.Implemented(
-                CreateBlockedBundleRefreshReceipt(normalizedCharacterId, existingRecord, profile, blockedReason!));
+            return Implemented(
+                owner,
+                SessionApiOperations.RefreshRuntimeBundle,
+                CreateBlockedBundleRefreshReceipt(normalizedCharacterId, existingRecord, profile, blockedReason!),
+                normalizedCharacterId);
         }
 
         string bundleFreshness = ResolveBundleFreshness(existingRecord, profile);
         if (existingRecord is not null
             && string.Equals(bundleFreshness, SessionRuntimeBundleFreshnessStates.Current, StringComparison.Ordinal))
         {
-            return SessionApiResult<SessionRuntimeBundleRefreshReceipt>.Implemented(
+            return Implemented(
+                owner,
+                SessionApiOperations.RefreshRuntimeBundle,
                 new SessionRuntimeBundleRefreshReceipt(
                     PreviousBundleId: existingRecord.Receipt.Bundle.BundleId,
                     CurrentBundleId: existingRecord.Receipt.Bundle.BundleId,
                     Outcome: SessionRuntimeBundleRefreshOutcomes.Unchanged,
                     BaseCharacterVersion: existingRecord.Receipt.Bundle.BaseCharacterVersion,
                     RuntimeFingerprint: profile.Manifest.RuntimeLock.RuntimeFingerprint,
-                    RefreshedAtUtc: DateTimeOffset.UtcNow));
+                    RefreshedAtUtc: DateTimeOffset.UtcNow),
+                normalizedCharacterId);
         }
 
         SessionRuntimeBundleIssueReceipt refreshedReceipt = IssueRuntimeBundle(owner, normalizedCharacterId, profile, existingRecord, allowCached: false);
-        return SessionApiResult<SessionRuntimeBundleRefreshReceipt>.Implemented(
+        return Implemented(
+            owner,
+            SessionApiOperations.RefreshRuntimeBundle,
             new SessionRuntimeBundleRefreshReceipt(
                 PreviousBundleId: existingRecord?.Receipt.Bundle.BundleId ?? string.Empty,
                 CurrentBundleId: refreshedReceipt.Bundle.BundleId,
@@ -204,7 +226,8 @@ public sealed class OwnerScopedSessionService : ISessionService
                 RuntimeFingerprint: refreshedReceipt.Bundle.BaseCharacterVersion.RuntimeFingerprint,
                 RefreshedAtUtc: refreshedReceipt.SignatureEnvelope.SignedAtUtc,
                 SignatureChanged: existingRecord is null
-                    || !string.Equals(existingRecord.Receipt.SignatureEnvelope.Signature, refreshedReceipt.SignatureEnvelope.Signature, StringComparison.Ordinal)));
+                    || !string.Equals(existingRecord.Receipt.SignatureEnvelope.Signature, refreshedReceipt.SignatureEnvelope.Signature, StringComparison.Ordinal)),
+            normalizedCharacterId);
     }
 
     public SessionApiResult<SessionProfileSelectionReceipt> SelectProfile(OwnerScope owner, string characterId, SessionProfileSelectionRequest? request)
@@ -214,36 +237,45 @@ public sealed class OwnerScopedSessionService : ISessionService
         string? requestedProfileId = NormalizeOptional(request?.ProfileId);
         if (requestedProfileId is null)
         {
-            return SessionApiResult<SessionProfileSelectionReceipt>.Implemented(
+            return Implemented(
+                owner,
+                SessionApiOperations.SelectProfile,
                 new SessionProfileSelectionReceipt(
                     CharacterId: characterId.Trim(),
                     ProfileId: string.Empty,
                     RuntimeFingerprint: string.Empty,
                     Outcome: SessionProfileSelectionOutcomes.Blocked,
-                    DeferredReason: "A session profile id is required."));
+                    DeferredReason: "A session profile id is required."),
+                characterId);
         }
 
         RuleProfileRegistryEntry? profile = _ruleProfileRegistryService.Get(owner, requestedProfileId);
         if (profile is null)
         {
-            return SessionApiResult<SessionProfileSelectionReceipt>.Implemented(
+            return Implemented(
+                owner,
+                SessionApiOperations.SelectProfile,
                 new SessionProfileSelectionReceipt(
                     CharacterId: characterId.Trim(),
                     ProfileId: requestedProfileId,
                     RuntimeFingerprint: string.Empty,
                     Outcome: SessionProfileSelectionOutcomes.Blocked,
-                    DeferredReason: $"Session profile '{requestedProfileId}' was not found."));
+                    DeferredReason: $"Session profile '{requestedProfileId}' was not found."),
+                characterId);
         }
 
         if (!IsSessionReady(owner, profile))
         {
-            return SessionApiResult<SessionProfileSelectionReceipt>.Implemented(
+            return Implemented(
+                owner,
+                SessionApiOperations.SelectProfile,
                 new SessionProfileSelectionReceipt(
                     CharacterId: characterId.Trim(),
                     ProfileId: profile.Manifest.ProfileId,
                     RuntimeFingerprint: profile.Manifest.RuntimeLock.RuntimeFingerprint,
                     Outcome: SessionProfileSelectionOutcomes.Blocked,
-                    DeferredReason: $"Session profile '{profile.Manifest.ProfileId}' is not session-ready."));
+                    DeferredReason: $"Session profile '{profile.Manifest.ProfileId}' is not session-ready."),
+                characterId);
         }
 
         RuleProfileApplyReceipt? applyReceipt = _ruleProfileApplicationService.Apply(
@@ -255,13 +287,16 @@ public sealed class OwnerScopedSessionService : ISessionService
             profile.Manifest.RulesetId);
         if (applyReceipt is null || string.Equals(applyReceipt.Outcome, RuleProfileApplyOutcomes.Blocked, StringComparison.Ordinal))
         {
-            return SessionApiResult<SessionProfileSelectionReceipt>.Implemented(
+            return Implemented(
+                owner,
+                SessionApiOperations.SelectProfile,
                 new SessionProfileSelectionReceipt(
                     CharacterId: characterId.Trim(),
                     ProfileId: profile.Manifest.ProfileId,
                     RuntimeFingerprint: profile.Manifest.RuntimeLock.RuntimeFingerprint,
                     Outcome: SessionProfileSelectionOutcomes.Blocked,
-                    DeferredReason: $"Session profile '{profile.Manifest.ProfileId}' could not be applied."));
+                    DeferredReason: $"Session profile '{profile.Manifest.ProfileId}' could not be applied."),
+                characterId);
         }
 
         SessionProfileBinding? existingBinding = _profileSelectionStore.Get(owner, characterId);
@@ -277,13 +312,16 @@ public sealed class OwnerScopedSessionService : ISessionService
         bool requiresBundleRefresh = existingBinding is not null
             && !string.Equals(existingBinding.RuntimeFingerprint, profile.Manifest.RuntimeLock.RuntimeFingerprint, StringComparison.Ordinal);
 
-        return SessionApiResult<SessionProfileSelectionReceipt>.Implemented(
+        return Implemented(
+            owner,
+            SessionApiOperations.SelectProfile,
             new SessionProfileSelectionReceipt(
                 CharacterId: characterId.Trim(),
                 ProfileId: profile.Manifest.ProfileId,
                 RuntimeFingerprint: profile.Manifest.RuntimeLock.RuntimeFingerprint,
                 Outcome: SessionProfileSelectionOutcomes.Selected,
-                RequiresBundleRefresh: requiresBundleRefresh));
+                RequiresBundleRefresh: requiresBundleRefresh),
+            characterId);
     }
 
     public SessionApiResult<RulePackCatalog> ListRulePacks(OwnerScope owner)
@@ -293,7 +331,7 @@ public sealed class OwnerScopedSessionService : ISessionService
             .Select(entry => entry.Manifest)
             .OrderBy(manifest => manifest.Title, StringComparer.Ordinal)
             .ToArray();
-        return SessionApiResult<RulePackCatalog>.Implemented(new RulePackCatalog(sessionReadyPacks));
+        return Implemented(owner, SessionApiOperations.ListRulePacks, new RulePackCatalog(sessionReadyPacks));
     }
 
     public SessionApiResult<SessionOverlaySnapshot> UpdatePins(OwnerScope owner, SessionPinUpdateRequest? request)
@@ -652,6 +690,11 @@ public sealed class OwnerScopedSessionService : ISessionService
             ? null
             : value.Trim();
 
+    private static SessionApiResult<T> Implemented<T>(OwnerScope owner, string operation, T payload, string? characterId = null)
+        => SessionApiResult<T>.Implemented(
+            payload,
+            CreateObservability(owner, operation, characterId, result: "implemented"));
+
     private static SessionApiResult<T> NotImplemented<T>(OwnerScope owner, string operation, string? characterId = null)
         => SessionApiResult<T>.FromNotImplemented(
             new SessionNotImplementedReceipt(
@@ -659,5 +702,16 @@ public sealed class OwnerScopedSessionService : ISessionService
                 Operation: operation,
                 Message: "The dedicated session/mobile surface is not implemented yet.",
                 CharacterId: string.IsNullOrWhiteSpace(characterId) ? null : characterId,
-                OwnerId: owner.NormalizedValue));
+                OwnerId: owner.NormalizedValue,
+                Observability: CreateObservability(owner, operation, characterId, result: "not-implemented")));
+
+    private static SessionOperationObservability CreateObservability(OwnerScope owner, string operation, string? characterId, string result)
+        => SessionApiObservability.Create(
+            operation: operation,
+            ownerId: owner.NormalizedValue,
+            characterId: characterId,
+            tags: new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["result"] = result
+            });
 }

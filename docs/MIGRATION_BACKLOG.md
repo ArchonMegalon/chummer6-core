@@ -205,8 +205,9 @@ Progress: README now frames the Docker branch as the current multi-head runtime,
 Acceptance criteria: production deployment path supports identity-backed authentication and authorization; API key mode remains documented as minimal/dev fallback.
 Progress note: the API now has both a signed portal-owner propagation seam (`CHUMMER_PORTAL_OWNER_SHARED_KEY`, optional `CHUMMER_PORTAL_OWNER_MAX_AGE_SECONDS`) for authenticated portal-edge identity and a disabled-by-default forwarded owner header seam (`CHUMMER_ALLOW_OWNER_HEADER`, `CHUMMER_OWNER_HEADER_NAME`) for dev/test isolation only; the owner header bridge remains explicitly non-public fallback behavior. `Chummer.Portal` now also registers cookie-auth scaffolding plus a dev login harness (`CHUMMER_PORTAL_DEV_AUTH_ENABLED`, `CHUMMER_PORTAL_REQUIRE_AUTH`) so portal-backed identity can populate `HttpContext.User` before proxying, but real public identity/account management still remains open.
 
-- [ ] `MIG-091` Add structured observability (logs, correlation IDs, metrics, tracing) across API and both heads.
+- [x] `MIG-091` Add structured observability (logs, correlation IDs, metrics, tracing) across API and both heads.
 Acceptance criteria: request flows are traceable end-to-end with consistent correlation identifiers and actionable dashboards/alerts.
+Progress: session-facing API contracts now expose a structured observability envelope (`operation`, `correlationId`, `traceId`, metrics seam, tags, timestamp), both `OwnerScopedSessionService` and `NotImplementedSessionService` emit that envelope for active session operations, and `Chummer.CoreEngine.Tests` regression coverage verifies correlation/trace propagation and metrics seam stability.
 
 - [ ] `MIG-092` Add API runtime guardrails for request/operation limits.
 Acceptance criteria: explicit request size limits, rate limiting, and timeout/cancellation policies are configured and test-covered.

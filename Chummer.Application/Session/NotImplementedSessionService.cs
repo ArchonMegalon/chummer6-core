@@ -40,11 +40,22 @@ public sealed class NotImplementedSessionService : ISessionService
         => NotImplemented<SessionOverlaySnapshot>(owner, SessionApiOperations.UpdatePins, request?.BaseCharacterVersion.CharacterId);
 
     private static SessionApiResult<T> NotImplemented<T>(OwnerScope owner, string operation, string? characterId = null)
-        => SessionApiResult<T>.FromNotImplemented(
+    {
+        SessionOperationObservability observability = SessionApiObservability.Create(
+            operation: operation,
+            ownerId: owner.NormalizedValue,
+            characterId: characterId,
+            tags: new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["result"] = "not-implemented"
+            });
+        return SessionApiResult<T>.FromNotImplemented(
             new SessionNotImplementedReceipt(
                 Error: "session_not_implemented",
                 Operation: operation,
                 Message: "The dedicated session/mobile surface is not implemented yet.",
                 CharacterId: string.IsNullOrWhiteSpace(characterId) ? null : characterId,
-                OwnerId: owner.NormalizedValue));
+                OwnerId: owner.NormalizedValue,
+                Observability: observability));
+    }
 }

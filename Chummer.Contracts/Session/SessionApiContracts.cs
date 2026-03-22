@@ -1,4 +1,5 @@
 using Chummer.Contracts.Characters;
+using System.Diagnostics;
 
 namespace Chummer.Contracts.Session;
 
@@ -72,17 +73,103 @@ public sealed record SessionNotImplementedReceipt(
     string Operation,
     string Message,
     string? CharacterId = null,
-    string? OwnerId = null);
+    string? OwnerId = null,
+    SessionOperationObservability? Observability = null);
+
+public sealed record SessionOperationObservability(
+    string Operation,
+    string CorrelationId,
+    string TraceId,
+    string MetricName,
+    DateTimeOffset ObservedAtUtc,
+    string? OwnerId = null,
+    string? CharacterId = null,
+    IReadOnlyDictionary<string, string>? Tags = null);
+
+public static class SessionObservabilityMetrics
+{
+    public const string OperationDurationMilliseconds = "chummer.session.operation.duration.ms";
+}
+
+public static class SessionApiObservability
+{
+    public static SessionOperationObservability Create(
+        string operation,
+        string? ownerId = null,
+        string? characterId = null,
+        string? correlationId = null,
+        string? traceId = null,
+        IReadOnlyDictionary<string, string>? tags = null,
+        DateTimeOffset? observedAtUtc = null)
+    {
+        string normalizedOperation = NormalizeRequired(operation, nameof(operation));
+        string resolvedTraceId = NormalizeTraceId(traceId);
+        string resolvedCorrelationId = NormalizeCorrelationId(correlationId, resolvedTraceId);
+
+        return new SessionOperationObservability(
+            Operation: normalizedOperation,
+            CorrelationId: resolvedCorrelationId,
+            TraceId: resolvedTraceId,
+            MetricName: SessionObservabilityMetrics.OperationDurationMilliseconds,
+            ObservedAtUtc: observedAtUtc ?? DateTimeOffset.UtcNow,
+            OwnerId: NormalizeOptional(ownerId),
+            CharacterId: NormalizeOptional(characterId),
+            Tags: tags);
+    }
+
+    private static string NormalizeCorrelationId(string? correlationId, string traceId)
+    {
+        string? normalized = NormalizeOptional(correlationId);
+        if (normalized is not null)
+        {
+            return normalized;
+        }
+
+        return traceId;
+    }
+
+    private static string NormalizeTraceId(string? traceId)
+    {
+        string? normalized = NormalizeOptional(traceId);
+        if (normalized is not null)
+        {
+            return normalized;
+        }
+
+        ActivityTraceId? activityTraceId = Activity.Current?.TraceId;
+        if (activityTraceId.HasValue)
+        {
+            return activityTraceId.Value.ToString();
+        }
+
+        return ActivityTraceId.CreateRandom().ToString();
+    }
+
+    private static string NormalizeRequired(string value, string argumentName)
+    {
+        string? normalized = NormalizeOptional(value);
+        if (normalized is null)
+        {
+            throw new ArgumentException("Value cannot be null or whitespace.", argumentName);
+        }
+
+        return normalized;
+    }
+
+    private static string? NormalizeOptional(string? value)
+        => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+}
 
 public sealed record SessionApiResult<T>(
     T? Payload = default,
-    SessionNotImplementedReceipt? NotImplemented = null)
+    SessionNotImplementedReceipt? NotImplemented = null,
+    SessionOperationObservability? Observability = null)
 {
     public bool IsImplemented => NotImplemented is null;
 
-    public static SessionApiResult<T> Implemented(T payload)
-        => new(payload, null);
+    public static SessionApiResult<T> Implemented(T payload, SessionOperationObservability? observability = null)
+        => new(payload, null, observability);
 
     public static SessionApiResult<T> FromNotImplemented(SessionNotImplementedReceipt receipt)
-        => new(default, receipt);
+        => new(default, receipt, receipt.Observability);
 }
