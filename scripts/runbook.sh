@@ -87,6 +87,88 @@ resolve_runbook_dir() {
   echo "$REPO_ROOT/.tmp/${base_name}"
 }
 
+coerce_days() {
+  local value="$1"
+  local fallback="$2"
+  if [[ "$value" =~ ^[0-9]+$ ]]; then
+    echo "$value"
+  else
+    echo "$fallback"
+  fi
+}
+
+emit_retention_cleanup() {
+  local mode="$1"
+  local dry_run="$2"
+  local workspace_days="$3"
+  local log_days="$4"
+  shift 4
+  local roots=("$@")
+  local cleanup_log_file
+  cleanup_log_file="${RETENTION_CLEANUP_LOG_FILE:-$(resolve_runbook_log_file chummer-retention-cleanup)}"
+  local total_candidates=0
+  local total_deleted=0
+  local total_errors=0
+
+  {
+    echo "== retention cleanup policy =="
+    echo "mode: $mode"
+    echo "dry_run: $dry_run"
+    echo "workspace_retention_days: $workspace_days"
+    echo "log_retention_days: $log_days"
+    echo "roots:"
+    for root in "${roots[@]}"; do
+      echo "  - $root"
+    done
+    echo
+  } | tee "$cleanup_log_file"
+
+  for root in "${roots[@]}"; do
+    if [[ ! -d "$root" ]]; then
+      echo "skip missing root: $root" | tee -a "$cleanup_log_file"
+      continue
+    fi
+
+    local days="$workspace_days"
+    if [[ -n "${RUNBOOK_LOG_DIR:-}" && "$root" == "${RUNBOOK_LOG_DIR}" ]]; then
+      days="$log_days"
+    elif [[ -n "${XDG_RUNTIME_DIR:-}" && "$root" == "${XDG_RUNTIME_DIR}" ]]; then
+      days="$log_days"
+    fi
+
+    mapfile -t candidates < <(find "$root" -mindepth 1 -mtime +"$days" -print 2>/dev/null || true)
+    local count="${#candidates[@]}"
+    total_candidates=$((total_candidates + count))
+    echo "root=$root retention_days=$days candidates=$count" | tee -a "$cleanup_log_file"
+
+    if [[ "$count" -eq 0 ]]; then
+      continue
+    fi
+
+    if [[ "$dry_run" == "1" || "$dry_run" == "true" || "$dry_run" == "TRUE" ]]; then
+      printf '%s\n' "${candidates[@]}" | sed 's/^/dry-run candidate: /' | tee -a "$cleanup_log_file"
+      continue
+    fi
+
+    for candidate in "${candidates[@]}"; do
+      if rm -rf -- "$candidate"; then
+        total_deleted=$((total_deleted + 1))
+        echo "deleted: $candidate" | tee -a "$cleanup_log_file"
+      else
+        total_errors=$((total_errors + 1))
+        echo "delete failed: $candidate" | tee -a "$cleanup_log_file"
+      fi
+    done
+  done
+
+  echo "summary candidates=$total_candidates deleted=$total_deleted errors=$total_errors" | tee -a "$cleanup_log_file"
+
+  if [[ "$total_errors" -ne 0 ]]; then
+    return 1
+  fi
+  return 0
+}
+
 if [[ "$RUNBOOK_MODE" == "migration" ]]; then
   LOOPS="${MIGRATION_LOOPS:-1}"
   LOG_FILE="${RUNBOOK_LOG_FILE:-$(resolve_runbook_log_file migration-loop-runbook)}"
@@ -204,6 +286,63 @@ PY
   echo "== local test failure extract =="
   rg -n "^\\s*Failed\\s|\\[xUnit.net\\]|Total tests:|Passed!|Failed!|Stack Trace|Error Message" "$TEST_LOG_FILE" | tail -n 200 || true
   exit "$status"
+fi
+
+if [[ "$RUNBOOK_MODE" == "retention-cleanup" ]]; then
+  RETENTION_CLEANUP_DRY_RUN="${RETENTION_CLEANUP_DRY_RUN:-1}"
+  RETENTION_WORKSPACE_DAYS="$(coerce_days "${RETENTION_WORKSPACE_DAYS:-14}" 14)"
+  RETENTION_LOG_DAYS="$(coerce_days "${RETENTION_LOG_DAYS:-30}" 30)"
+  RETENTION_EXTRA_ROOTS="${RETENTION_EXTRA_ROOTS:-}"
+  roots=(
+    "$REPO_ROOT/.tmp/dotnet-cli-home"
+    "$REPO_ROOT/.tmp/downloads-smoke"
+    "$REPO_ROOT/.tmp/retention-cleanup-smoke"
+  )
+  if [[ -n "${RUNBOOK_LOG_DIR:-}" ]]; then
+    roots+=("${RUNBOOK_LOG_DIR}")
+  fi
+  if [[ -n "${XDG_RUNTIME_DIR:-}" ]]; then
+    roots+=("${XDG_RUNTIME_DIR}")
+  fi
+  if [[ -n "$RETENTION_EXTRA_ROOTS" ]]; then
+    IFS=':' read -r -a extra_roots <<< "$RETENTION_EXTRA_ROOTS"
+    for root in "${extra_roots[@]}"; do
+      if [[ -n "$root" ]]; then
+        roots+=("$root")
+      fi
+    done
+  fi
+
+  emit_retention_cleanup "$RUNBOOK_MODE" "$RETENTION_CLEANUP_DRY_RUN" "$RETENTION_WORKSPACE_DAYS" "$RETENTION_LOG_DAYS" "${roots[@]}"
+  exit $?
+fi
+
+if [[ "$RUNBOOK_MODE" == "retention-cleanup-smoke" ]]; then
+  SMOKE_ROOT="${RETENTION_SMOKE_ROOT:-$REPO_ROOT/.tmp/retention-cleanup-smoke}"
+  STALE_DIR="$SMOKE_ROOT/stale-workspace"
+  RECENT_DIR="$SMOKE_ROOT/recent-workspace"
+  mkdir -p "$STALE_DIR" "$RECENT_DIR"
+  touch "$STALE_DIR/stale.txt" "$RECENT_DIR/recent.txt"
+  touch -d "35 days ago" "$STALE_DIR" "$STALE_DIR/stale.txt"
+  touch -d "1 day ago" "$RECENT_DIR" "$RECENT_DIR/recent.txt"
+
+  RETENTION_CLEANUP_DRY_RUN=0 \
+  RETENTION_WORKSPACE_DAYS="${RETENTION_WORKSPACE_DAYS:-14}" \
+  RETENTION_LOG_DAYS="${RETENTION_LOG_DAYS:-30}" \
+  RETENTION_EXTRA_ROOTS="$SMOKE_ROOT" \
+  RUNBOOK_MODE=retention-cleanup \
+  bash "$SCRIPT_DIR/runbook.sh"
+
+  if [[ -e "$STALE_DIR" ]]; then
+    echo "retention-cleanup-smoke failed: stale fixture was not deleted" >&2
+    exit 1
+  fi
+  if [[ ! -e "$RECENT_DIR" ]]; then
+    echo "retention-cleanup-smoke failed: recent fixture should remain" >&2
+    exit 1
+  fi
+  echo "retention-cleanup-smoke passed"
+  exit 0
 fi
 
 if [[ "$RUNBOOK_MODE" == "refresh-local-api" ]]; then

@@ -212,8 +212,9 @@ Progress: session-facing API contracts now expose a structured observability env
 - [ ] `MIG-092` Add API runtime guardrails for request/operation limits.
 Acceptance criteria: explicit request size limits, rate limiting, and timeout/cancellation policies are configured and test-covered.
 
-- [ ] `MIG-093` Define workspace retention/cleanup and operational runbook.
+- [x] `MIG-093` Define workspace retention/cleanup and operational runbook.
 Acceptance criteria: workspace lifecycle policy (retention, cleanup, recovery) is documented and enforced by automated jobs or service policies.
+Progress: published `docs/WORKSPACE_RETENTION_POLICY.md`; added `RUNBOOK_MODE=retention-cleanup` (policy enforcement + dry-run evidence) and `RUNBOOK_MODE=retention-cleanup-smoke` (stale-delete/recent-preserve proof) in `scripts/runbook.sh`; verifier guardrails now enforce policy/runbook presence.
 
 - [ ] `MIG-094` Publish first-class release artifacts for API, Blazor, and Avalonia.
 Acceptance criteria: CI produces versioned, reproducible deliverables for all active heads and documents deployment procedures.
