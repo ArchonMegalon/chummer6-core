@@ -11,6 +11,9 @@ Purpose: keep the live repo-native queue readable. Historical queue churn and du
 ## Queue
 | ID | Status | Priority | Task | Owner | Notes |
 |---|---|---|---|---|---|
+| WL-109 | queued | P1 | Implement structured observability hardening for the active API + head flows (`MIG-091`) with correlation-id propagation and verification coverage. | agent | Runnable residual-scope lane for observability/DR hardening; keep hosted-contract ownership out of scope and land evidence via migration/compliance paths. |
+| WL-110 | queued | P2 | Define and enforce workspace/session retention + cleanup operational policy (`MIG-093`) with runbook and automation hooks. | agent | Runnable residual-scope DR lane tied to operations hardening; extends existing restore/migration runbook evidence rather than reopening contract-canon work. |
+| WL-111 | queued | P2 | Execute next legacy cargo purification increment from published compatibility backlog (`WL-108.1` and `WL-108.3`). | agent | Runnable residual-scope purification lane for plugin-era cargo; preserve active engine boundary guardrails while migrating/removing legacy roots. |
 | WL-106 | done | P1 | Publish `Chummer.Application` boundary inventory and split candidates into deterministic-engine vs compatibility-only seams. | agent | Closed 2026-03-22: published `docs/CHUMMER_APPLICATION_BOUNDARY_INVENTORY.md` with per-folder boundary class, owner lane, and explicit `WL-106.x` split candidates separating deterministic-engine seams from compatibility-only seams. |
 | WL-107 | done | P1 | Add verifier guardrails that block browser infrastructure coupling from active engine projects and `Chummer.Application` ownership drift. | agent | Closed 2026-03-22: `Chummer.CoreEngine.Tests` now fails when active-solution projects add browser-infrastructure source/project coupling, compile `Chummer.Application` source directly, or introduce unsanctioned `Chummer.Application` project-reference ownership drift. |
 | WL-108 | done | P2 | Publish helper-tooling residual backlog for remaining repo-surface utilities and plugin-era helper flows. | agent | Closed 2026-03-22: `docs/HELPER_TOOLING_RESIDUAL_BACKLOG.md` now inventories residual helper/plugin surfaces, assigns `keep/remove/migrate` disposition, and maps follow-through to milestone-backed lanes (`A0.5.7`, `F3`, `WL-092`, `WL-100`, `WL-D038`). |
@@ -61,10 +64,10 @@ These rows stay explicit so the repo can prove milestone decomposition without d
 
 ## Current repo truth
 
-- Repo-local live queue: none (empty after `WL-106` closure)
-- Contract, explain, runtime-bundle canon, restore/replay hardening, migration certification, and legacy-root quarantine are materially closed.
-- Boundary warning: broad legacy roots still exist physically, but they are now explicit compatibility-only cargo instead of ambiguous active ownership.
-- Residual-scope auditor statement is resolved by existing closed lanes (`WL-100`, `WL-101`, `WL-102`, `WL-091`), not by reopening hosted-contract ownership tasks.
+- Repo-local live queue: `WL-109`, `WL-110`, and `WL-111` (residual observability/DR hardening plus legacy cargo purification).
+- Contract, explain, runtime-bundle canon, and migration-certification closure evidence remain materially closed (`WL-101`, `WL-102`, `WL-105`).
+- Boundary warning: broad legacy roots still exist physically; purification remains an explicit queued follow-through lane instead of implicit ownership drift.
+- Hosted contract ownership remains closed and is intentionally excluded from the active queue.
 
 ## Historical log
 
