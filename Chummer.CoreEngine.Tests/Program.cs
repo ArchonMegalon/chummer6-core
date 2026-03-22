@@ -50,6 +50,7 @@ internal static class CoreEngineTests
             ContractGoldenJsonFixturesStayStable();
             ContractNormalizationFixturesStayStable();
             RepoBoundaryGuardsHostedContractsAndSharedContractOwnership();
+            GuardrailPathMatchingResolvesPropertyIndirection();
             ActiveCoreEngineSolutionStaysPurified();
             HardeningBacklogStaysMilestoneMapped();
             LocalizationFallbackHelpersNormalizeLegacyContracts();
@@ -3395,6 +3396,7 @@ internal static class CoreEngineTests
         XDocument projectDocument = XDocument.Load(projectPath);
         string projectDirectory = Path.GetDirectoryName(projectPath)
             ?? throw new InvalidOperationException($"Unable to resolve project directory for '{projectPath}'.");
+        Dictionary<string, string> propertyValues = ReadMsBuildPropertyValues(projectPath, projectDocument, projectDirectory);
 
         foreach (XElement element in projectDocument.Descendants())
         {
@@ -3414,14 +3416,33 @@ internal static class CoreEngineTests
 
                 foreach (string includeValue in SplitMsBuildItemValue(attribute.Value))
                 {
-                    string normalizedValue = NormalizePathValue(includeValue);
-                    string? resolvedPath = TryResolveMsBuildPath(includeValue, projectDirectory, out string fullPath)
+                    string expandedValue = ExpandMsBuildProperties(includeValue, propertyValues);
+                    string normalizedValue = NormalizePathValue(expandedValue);
+                    string? resolvedPath = TryResolveMsBuildPath(expandedValue, projectDirectory, propertyValues, out string fullPath)
                         ? fullPath
                         : null;
                     yield return new ProjectItemInclude(itemType, attributeName, includeValue, normalizedValue, resolvedPath);
                 }
             }
         }
+    }
+
+    private static Dictionary<string, string> ReadMsBuildPropertyValues(string projectPath, XDocument projectDocument, string projectDirectory)
+    {
+        Dictionary<string, string> propertyValues = new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["MSBuildProjectDirectory"] = NormalizePathValue(projectDirectory),
+            ["MSBuildThisFileDirectory"] = NormalizePathValue(projectDirectory).TrimEnd('/') + "/"
+        };
+        HashSet<string> visitedPropertyFiles = new(StringComparer.OrdinalIgnoreCase);
+
+        foreach (string directoryBuildPropsPath in EnumerateDirectoryBuildPropsPaths(projectDirectory))
+        {
+            MergeMsBuildPropertyFile(directoryBuildPropsPath, propertyValues, visitedPropertyFiles);
+        }
+
+        MergeDocumentProperties(projectDocument, projectPath, propertyValues, visitedPropertyFiles);
+        return propertyValues;
     }
 
     private static bool IsProjectItemPathCarrier(string itemType)
@@ -3452,12 +3473,13 @@ internal static class CoreEngineTests
         return value.Trim().Replace('\\', '/');
     }
 
-    private static bool TryResolveMsBuildPath(string rawValue, string projectDirectory, out string fullPath)
+    private static bool TryResolveMsBuildPath(
+        string rawValue,
+        string projectDirectory,
+        IDictionary<string, string> propertyValues,
+        out string fullPath)
     {
-        string normalized = NormalizePathValue(rawValue);
-        string projectDirectoryNormalized = NormalizePathValue(projectDirectory).TrimEnd('/') + "/";
-        normalized = normalized.Replace("$(MSBuildThisFileDirectory)", projectDirectoryNormalized, StringComparison.OrdinalIgnoreCase);
-        normalized = normalized.Replace("$(MSBuildProjectDirectory)", projectDirectoryNormalized.TrimEnd('/'), StringComparison.OrdinalIgnoreCase);
+        string normalized = ExpandMsBuildProperties(NormalizePathValue(rawValue), propertyValues);
 
         if (normalized.Contains("$(", StringComparison.Ordinal))
         {
@@ -3465,12 +3487,172 @@ internal static class CoreEngineTests
             return false;
         }
 
-        string candidate = normalized.Replace('/', Path.DirectorySeparatorChar);
-        string resolved = Path.IsPathRooted(candidate)
+        try
+        {
+            string candidate = normalized.Replace('/', Path.DirectorySeparatorChar);
+            string resolved = Path.IsPathRooted(candidate)
+                ? Path.GetFullPath(candidate)
+                : Path.GetFullPath(Path.Combine(projectDirectory, candidate));
+            fullPath = resolved;
+            return true;
+        }
+        catch (Exception)
+        {
+            fullPath = string.Empty;
+            return false;
+        }
+    }
+
+    private static IEnumerable<string> EnumerateDirectoryBuildPropsPaths(string projectDirectory)
+    {
+        Stack<string> paths = new();
+        DirectoryInfo? cursor = new(projectDirectory);
+        while (cursor is not null)
+        {
+            string candidate = Path.Combine(cursor.FullName, "Directory.Build.props");
+            if (File.Exists(candidate))
+            {
+                paths.Push(candidate);
+            }
+
+            cursor = cursor.Parent;
+        }
+
+        while (paths.Count > 0)
+        {
+            yield return paths.Pop();
+        }
+    }
+
+    private static void MergeMsBuildPropertyFile(
+        string propertyFilePath,
+        IDictionary<string, string> propertyValues,
+        ISet<string> visitedPropertyFiles)
+    {
+        string normalizedPath = Path.GetFullPath(propertyFilePath);
+        if (!visitedPropertyFiles.Add(normalizedPath))
+        {
+            return;
+        }
+
+        if (!File.Exists(normalizedPath))
+        {
+            return;
+        }
+
+        XDocument document = XDocument.Load(normalizedPath);
+        MergeDocumentProperties(document, normalizedPath, propertyValues, visitedPropertyFiles);
+    }
+
+    private static void MergeDocumentProperties(
+        XDocument document,
+        string documentPath,
+        IDictionary<string, string> propertyValues,
+        ISet<string> visitedPropertyFiles)
+    {
+        string documentDirectory = Path.GetDirectoryName(documentPath)
+            ?? throw new InvalidOperationException($"Unable to resolve MSBuild document directory for '{documentPath}'.");
+        bool hadProjectDirectory = propertyValues.TryGetValue("MSBuildProjectDirectory", out string? previousProjectDirectory);
+        bool hadThisFileDirectory = propertyValues.TryGetValue("MSBuildThisFileDirectory", out string? previousThisFileDirectory);
+        propertyValues["MSBuildProjectDirectory"] = NormalizePathValue(documentDirectory);
+        propertyValues["MSBuildThisFileDirectory"] = NormalizePathValue(documentDirectory).TrimEnd('/') + "/";
+
+        try
+        {
+            IEnumerable<XElement> childElements = document.Root?.Elements() ?? [];
+            foreach (XElement child in childElements)
+            {
+                if (child.Name.LocalName.Equals("Import", StringComparison.Ordinal))
+                {
+                    XAttribute? projectAttribute = child.Attribute("Project");
+                    if (projectAttribute is null)
+                    {
+                        continue;
+                    }
+
+                    string importedPathToken = ExpandMsBuildProperties(projectAttribute.Value, propertyValues);
+                    if (importedPathToken.Contains("$(", StringComparison.Ordinal))
+                    {
+                        continue;
+                    }
+
+                    string importedPath = ResolveMsBuildPath(importedPathToken, documentDirectory);
+                    MergeMsBuildPropertyFile(importedPath, propertyValues, visitedPropertyFiles);
+                    continue;
+                }
+
+                if (!child.Name.LocalName.Equals("PropertyGroup", StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                foreach (XElement property in child.Elements())
+                {
+                    if (property.HasElements)
+                    {
+                        continue;
+                    }
+
+                    string propertyName = property.Name.LocalName;
+                    if (string.IsNullOrWhiteSpace(propertyName))
+                    {
+                        continue;
+                    }
+
+                    string expandedValue = ExpandMsBuildProperties(property.Value, propertyValues);
+                    propertyValues[propertyName] = expandedValue;
+                }
+            }
+        }
+        finally
+        {
+            if (hadProjectDirectory && previousProjectDirectory is not null)
+            {
+                propertyValues["MSBuildProjectDirectory"] = previousProjectDirectory;
+            }
+            else
+            {
+                propertyValues.Remove("MSBuildProjectDirectory");
+            }
+
+            if (hadThisFileDirectory && previousThisFileDirectory is not null)
+            {
+                propertyValues["MSBuildThisFileDirectory"] = previousThisFileDirectory;
+            }
+            else
+            {
+                propertyValues.Remove("MSBuildThisFileDirectory");
+            }
+        }
+    }
+
+    private static string ResolveMsBuildPath(string token, string relativeToDirectory)
+    {
+        string candidate = NormalizePathValue(token).Replace('/', Path.DirectorySeparatorChar);
+        return Path.IsPathRooted(candidate)
             ? Path.GetFullPath(candidate)
-            : Path.GetFullPath(Path.Combine(projectDirectory, candidate));
-        fullPath = resolved;
-        return true;
+            : Path.GetFullPath(Path.Combine(relativeToDirectory, candidate));
+    }
+
+    private static string ExpandMsBuildProperties(string text, IDictionary<string, string> propertyValues)
+    {
+        string expanded = NormalizePathValue(text);
+        for (int i = 0; i < 16; i++)
+        {
+            string replaced = Regex.Replace(
+                expanded,
+                @"\$\(([A-Za-z0-9_.\-]+)\)",
+                match => propertyValues.TryGetValue(match.Groups[1].Value, out string? value) ? value : match.Value,
+                RegexOptions.CultureInvariant);
+            if (string.Equals(replaced, expanded, StringComparison.Ordinal))
+            {
+                break;
+            }
+
+            expanded = replaced;
+        }
+
+        return expanded;
     }
 
     private static bool IncludeTargetsPath(ProjectItemInclude include, string expectedPath, string normalizedToken)
@@ -3491,6 +3673,62 @@ internal static class CoreEngineTests
         string normalizedParent = Path.GetFullPath(parentPath).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
         return string.Equals(normalizedCandidate, normalizedParent, StringComparison.OrdinalIgnoreCase)
             || normalizedCandidate.StartsWith(normalizedParent + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static void GuardrailPathMatchingResolvesPropertyIndirection()
+    {
+        string temporaryRoot = Path.Combine(Path.GetTempPath(), $"chummer-wl107-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(temporaryRoot);
+        try
+        {
+            string appRoot = Path.Combine(temporaryRoot, "Chummer.Application");
+            string appProjectPath = Path.Combine(appRoot, "Chummer.Application.csproj");
+            string browserRoot = Path.Combine(temporaryRoot, "Chummer.Infrastructure.Browser");
+            string browserProjectPath = Path.Combine(browserRoot, "Chummer.Infrastructure.Browser.csproj");
+            Directory.CreateDirectory(appRoot);
+            Directory.CreateDirectory(browserRoot);
+            File.WriteAllText(appProjectPath, "<Project Sdk=\"Microsoft.NET.Sdk\" />");
+            File.WriteAllText(browserProjectPath, "<Project Sdk=\"Microsoft.NET.Sdk\" />");
+
+            string projectPath = Path.Combine(temporaryRoot, "GuardrailProbe.csproj");
+            File.WriteAllText(
+                projectPath,
+                """
+                <Project Sdk="Microsoft.NET.Sdk">
+                  <PropertyGroup>
+                    <CoreAppRoot>$(MSBuildProjectDirectory)/Chummer.Application</CoreAppRoot>
+                    <BrowserInfraProj>$(MSBuildProjectDirectory)/Chummer.Infrastructure.Browser/Chummer.Infrastructure.Browser.csproj</BrowserInfraProj>
+                  </PropertyGroup>
+                  <ItemGroup>
+                    <Compile Include="$(CoreAppRoot)/**/*.cs" />
+                    <ProjectReference Include="$(CoreAppRoot)/Chummer.Application.csproj" />
+                    <ProjectReference Include="$(BrowserInfraProj)" />
+                  </ItemGroup>
+                </Project>
+                """);
+
+            ProjectItemInclude[] includeItems = ReadProjectItemIncludes(projectPath).ToArray();
+            bool couplesToApplicationSources = includeItems.Any(include =>
+                !include.ItemType.Equals("ProjectReference", StringComparison.Ordinal)
+                && IncludeTargetsPath(include, appRoot, "/chummer.application/"));
+            bool referencesApplicationProject = includeItems.Any(include =>
+                include.ItemType.Equals("ProjectReference", StringComparison.Ordinal)
+                && IncludeTargetsPath(include, appProjectPath, "/chummer.application/chummer.application.csproj"));
+            bool couplesToBrowserInfrastructure = includeItems.Any(include =>
+                include.ItemType.Equals("ProjectReference", StringComparison.Ordinal)
+                && IncludeTargetsPath(include, browserProjectPath, "/chummer.infrastructure.browser/chummer.infrastructure.browser.csproj"));
+
+            AssertEx.True(couplesToApplicationSources, "Property-indirected compile includes should still match Chummer.Application source guardrails.");
+            AssertEx.True(referencesApplicationProject, "Property-indirected project references should still match Chummer.Application project guardrails.");
+            AssertEx.True(couplesToBrowserInfrastructure, "Property-indirected project references should still match browser infrastructure guardrails.");
+        }
+        finally
+        {
+            if (Directory.Exists(temporaryRoot))
+            {
+                Directory.Delete(temporaryRoot, recursive: true);
+            }
+        }
     }
 
     private static void HardeningBacklogStaysMilestoneMapped()
