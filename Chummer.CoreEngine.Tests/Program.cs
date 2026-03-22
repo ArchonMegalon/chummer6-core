@@ -52,6 +52,7 @@ internal static class CoreEngineTests
             RepoBoundaryGuardsHostedContractsAndSharedContractOwnership();
             GuardrailPathMatchingResolvesPropertyIndirection();
             GuardrailPathMatchingResolvesItemAndImportedIndirection();
+            GuardrailPathMatchingResolvesDirectoryBuildItemIndirection();
             GuardrailPathMatchingResolvesReferenceHintPathCoupling();
             ActiveCoreEngineSolutionStaysPurified();
             HardeningBacklogStaysMilestoneMapped();
@@ -3400,7 +3401,26 @@ internal static class CoreEngineTests
         string projectDirectory = Path.GetDirectoryName(projectPath)
             ?? throw new InvalidOperationException($"Unable to resolve project directory for '{projectPath}'.");
         Dictionary<string, string> propertyValues = ReadMsBuildPropertyValues(projectPath, projectDocument, projectDirectory);
-        MsBuildDocumentContext[] documentContexts = ReadMsBuildDocuments(projectDocument, projectPath, propertyValues).ToArray();
+        MsBuildDocumentContext[] importedContexts = ReadMsBuildDocuments(projectDocument, projectPath, propertyValues).ToArray();
+        List<MsBuildDocumentContext> documentContexts = [.. importedContexts];
+        HashSet<string> knownDocumentPaths = importedContexts
+            .Select(context => Path.GetFullPath(context.DocumentPath))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (string directoryBuildPath in EnumerateDirectoryBuildItemFilePaths(projectDirectory))
+        {
+            string normalizedPath = Path.GetFullPath(directoryBuildPath);
+            if (knownDocumentPaths.Contains(normalizedPath))
+            {
+                continue;
+            }
+
+            XDocument directoryBuildDocument = XDocument.Load(normalizedPath);
+            string directoryBuildDirectory = Path.GetDirectoryName(normalizedPath)
+                ?? throw new InvalidOperationException($"Unable to resolve MSBuild document directory for '{normalizedPath}'.");
+            documentContexts.Add(new MsBuildDocumentContext(directoryBuildDocument, normalizedPath, directoryBuildDirectory));
+            knownDocumentPaths.Add(normalizedPath);
+        }
+
         Dictionary<string, List<string>> itemValues = ReadMsBuildItemValues(documentContexts, propertyValues);
 
         foreach (MsBuildDocumentContext context in documentContexts)
@@ -3665,11 +3685,29 @@ internal static class CoreEngineTests
 
     private static IEnumerable<string> EnumerateDirectoryBuildPropsPaths(string projectDirectory)
     {
+        return EnumerateDirectoryBuildFilePaths(projectDirectory, "Directory.Build.props");
+    }
+
+    private static IEnumerable<string> EnumerateDirectoryBuildItemFilePaths(string projectDirectory)
+    {
+        foreach (string propsPath in EnumerateDirectoryBuildFilePaths(projectDirectory, "Directory.Build.props"))
+        {
+            yield return propsPath;
+        }
+
+        foreach (string targetsPath in EnumerateDirectoryBuildFilePaths(projectDirectory, "Directory.Build.targets"))
+        {
+            yield return targetsPath;
+        }
+    }
+
+    private static IEnumerable<string> EnumerateDirectoryBuildFilePaths(string projectDirectory, string fileName)
+    {
         Stack<string> paths = new();
         DirectoryInfo? cursor = new(projectDirectory);
         while (cursor is not null)
         {
-            string candidate = Path.Combine(cursor.FullName, "Directory.Build.props");
+            string candidate = Path.Combine(cursor.FullName, fileName);
             if (File.Exists(candidate))
             {
                 paths.Push(candidate);
@@ -4002,6 +4040,80 @@ internal static class CoreEngineTests
 
             AssertEx.True(couplesToApplicationBinary, "Reference HintPath indirection should match Chummer.Application coupling guardrails.");
             AssertEx.True(couplesToBrowserBinary, "Reference HintPath indirection should match browser infrastructure coupling guardrails.");
+        }
+        finally
+        {
+            if (Directory.Exists(temporaryRoot))
+            {
+                Directory.Delete(temporaryRoot, recursive: true);
+            }
+        }
+    }
+
+    private static void GuardrailPathMatchingResolvesDirectoryBuildItemIndirection()
+    {
+        string temporaryRoot = Path.Combine(Path.GetTempPath(), $"chummer-wl107-directory-build-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(temporaryRoot);
+        try
+        {
+            string appRoot = Path.Combine(temporaryRoot, "Chummer.Application");
+            string appProjectPath = Path.Combine(appRoot, "Chummer.Application.csproj");
+            string browserRoot = Path.Combine(temporaryRoot, "Chummer.Infrastructure.Browser");
+            string browserProjectPath = Path.Combine(browserRoot, "Chummer.Infrastructure.Browser.csproj");
+            Directory.CreateDirectory(appRoot);
+            Directory.CreateDirectory(browserRoot);
+            File.WriteAllText(appProjectPath, "<Project Sdk=\"Microsoft.NET.Sdk\" />");
+            File.WriteAllText(browserProjectPath, "<Project Sdk=\"Microsoft.NET.Sdk\" />");
+
+            string directoryBuildPropsPath = Path.Combine(temporaryRoot, "Directory.Build.props");
+            File.WriteAllText(
+                directoryBuildPropsPath,
+                """
+                <Project>
+                  <ItemGroup>
+                    <InjectedAppSources Include="$(MSBuildProjectDirectory)/Chummer.Application/**/*.cs" />
+                  </ItemGroup>
+                </Project>
+                """);
+
+            string directoryBuildTargetsPath = Path.Combine(temporaryRoot, "Directory.Build.targets");
+            File.WriteAllText(
+                directoryBuildTargetsPath,
+                """
+                <Project>
+                  <ItemGroup>
+                    <InjectedBrowserProjects Include="$(MSBuildProjectDirectory)/Chummer.Infrastructure.Browser/Chummer.Infrastructure.Browser.csproj" />
+                  </ItemGroup>
+                </Project>
+                """);
+
+            string projectPath = Path.Combine(temporaryRoot, "GuardrailDirectoryBuildProbe.csproj");
+            File.WriteAllText(
+                projectPath,
+                """
+                <Project Sdk="Microsoft.NET.Sdk">
+                  <ItemGroup>
+                    <Compile Include="@(InjectedAppSources)" />
+                    <ProjectReference Include="$(MSBuildProjectDirectory)/Chummer.Application/Chummer.Application.csproj" />
+                    <ProjectReference Include="@(InjectedBrowserProjects)" />
+                  </ItemGroup>
+                </Project>
+                """);
+
+            ProjectItemInclude[] includeItems = ReadProjectItemIncludes(projectPath).ToArray();
+            bool couplesToApplicationSources = includeItems.Any(include =>
+                !include.ItemType.Equals("ProjectReference", StringComparison.Ordinal)
+                && IncludeTargetsPath(include, appRoot, "/chummer.application/"));
+            bool referencesApplicationProject = includeItems.Any(include =>
+                include.ItemType.Equals("ProjectReference", StringComparison.Ordinal)
+                && IncludeTargetsPath(include, appProjectPath, "/chummer.application/chummer.application.csproj"));
+            bool couplesToBrowserInfrastructure = includeItems.Any(include =>
+                include.ItemType.Equals("ProjectReference", StringComparison.Ordinal)
+                && IncludeTargetsPath(include, browserProjectPath, "/chummer.infrastructure.browser/chummer.infrastructure.browser.csproj"));
+
+            AssertEx.True(couplesToApplicationSources, "Directory.Build item indirection should match Chummer.Application source guardrails.");
+            AssertEx.True(referencesApplicationProject, "Direct Chummer.Application project references should continue matching guardrails.");
+            AssertEx.True(couplesToBrowserInfrastructure, "Directory.Build item indirection should match browser infrastructure guardrails.");
         }
         finally
         {
