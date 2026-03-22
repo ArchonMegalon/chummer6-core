@@ -289,3 +289,18 @@ milestones:
     notes:
       - A9.1 through A9.3 are complete with deterministic journal/timeline projection, validation summary/failure-envelope contracts, and explain-hook composition seams.
       - Regression coverage `ValidationSummaryAndExplainHookCompositionStayDeterministic` in `Chummer.CoreEngine.Tests/Program.cs` locks deterministic ordering, localization-safe keys, runtime context propagation, and explain-hook attachment behavior.
+  - id: F
+    title: Hardening, migration certification, and residual purification follow-through
+    status: in_progress
+    mapped_worklist:
+      - WL-101
+      - WL-102
+      - WL-105
+      - WL-109
+      - WL-110
+      - WL-111
+      - WL-112
+    notes:
+      - `F1` (replay/observability/DR hardening) and `F2` (legacy migration certification) are materially closed in core and remain verifier-guarded via `WL-101`, `WL-102`, and `WL-109`.
+      - Residual scope now stays executable as non-hosted follow-through: `WL-111` closed the previous purification increment and `WL-112` carries the next runnable cycle for `WL-108.2`/`WL-108.4`/`WL-108.5` plus closure-evidence revalidation.
+      - Hosted contract ownership remains intentionally excluded from this lane; any queue publication that reopens hosted contract authority is out of scope for core.

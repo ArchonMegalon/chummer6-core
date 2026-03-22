@@ -11,6 +11,7 @@ Purpose: keep the live repo-native queue readable. Historical queue churn and du
 ## Queue
 | ID | Status | Priority | Task | Owner | Notes |
 |---|---|---|---|---|---|
+| WL-112 | queued | P2 | Execute next residual core purification + hardening evidence cycle: keep `Plugins/SamplePlugin` compatibility-only (`WL-108.2`), keep repo helper/git-env utilities operational-only (`WL-108.4`/`WL-108.5`), and revalidate that observability/DR + migration-certification closure evidence remains verifier-backed without reopening hosted contract ownership. | agent | Published 2026-03-22 from auditor residual-scope re-entry (`4317`/`44367`) to keep remaining non-hosted core scope executable instead of leaving queue publication empty. |
 | WL-109 | done | P1 | Implement structured observability hardening for the active API + head flows (`MIG-091`) with correlation-id propagation and verification coverage. | agent | Closed 2026-03-22: `SessionApiResult`/`SessionNotImplementedReceipt` now carry structured observability envelopes (`operation`, `correlationId`, `traceId`, metrics seam + tags), `OwnerScopedSessionService` and `NotImplementedSessionService` emit those envelopes across active session API flows, and `Chummer.CoreEngine.Tests` regression coverage locks the contract seams. |
 | WL-110 | done | P2 | Define and enforce workspace/session retention + cleanup operational policy (`MIG-093`) with runbook and automation hooks. | agent | Closed 2026-03-22: published `docs/WORKSPACE_RETENTION_POLICY.md`, added `RUNBOOK_MODE=retention-cleanup` + `RUNBOOK_MODE=retention-cleanup-smoke` to `scripts/runbook.sh`, and extended `scripts/ai/verify.sh` to enforce retention policy/runbook evidence. |
 | WL-111 | done | P2 | Execute next legacy cargo purification increment from published compatibility backlog (`WL-108.1` and `WL-108.3`). | agent | Closed 2026-03-22: executed compatibility-freeze + retirement-gate increment with verifier guardrails that keep active core solutions decoupled from `Plugins/ChummerHub.Client` and `Chummer/Plugins`, with evidence in `docs/LEGACY_PLUGIN_PURIFICATION_INCREMENT_WL111.md`. |
@@ -65,7 +66,7 @@ These rows stay explicit so the repo can prove milestone decomposition without d
 
 ## Current repo truth
 
-- Repo-local live queue: none (latest published residual plugin purification increment closed via `WL-111`; `.codex-studio/published/QUEUE.generated.yaml` currently contains `items: []`).
+- Repo-local live queue: `WL-112` (next residual purification + evidence cycle for non-hosted core scope from `WL-108.2`/`WL-108.4`/`WL-108.5` plus F-lane revalidation).
 - Contract, explain, runtime-bundle canon, and migration-certification closure evidence remain materially closed (`WL-101`, `WL-102`, `WL-105`).
 - Boundary warning: broad legacy roots still exist physically; purification remains an explicit queued follow-through lane instead of implicit ownership drift.
 - Hosted contract ownership remains closed and is intentionally excluded from the active queue.
