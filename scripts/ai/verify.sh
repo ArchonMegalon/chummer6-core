@@ -12,6 +12,7 @@ test -f docs/WORKSPACE_RETENTION_POLICY.md
 test -f docs/LEGACY_MIGRATION_CERTIFICATION.md
 test -f docs/LEGACY_ROOT_SURFACE_INVENTORY.md
 test -f docs/LEGACY_PLUGIN_PURIFICATION_INCREMENT_WL111.md
+test -f docs/LEGACY_PLUGIN_AND_HELPER_OPERATIONAL_EVIDENCE_WL112.md
 rg -n 'HttpAiProviderTransportClient|EnvironmentAiProviderCredentialCatalog|EnvironmentAiProviderTransportOptionsCatalog|RemoteHttpAiProvider|AddLegacyEnvironmentAiTransportCompatibility|EmptyAiProviderCredentialCatalog|EmptyAiProviderTransportOptionsCatalog|WL-D020' docs/AI_PROVIDER_TRANSPORT_BOUNDARY.md >/dev/null
 rg -n 'EXPLAIN_AND_RUNTIME_CANON\.md|scripts/runbook\.sh|scripts/migration-loop\.sh|DualHeadAcceptanceTests|MigrationComplianceTests|RUNBOOK_MODE=local-tests' docs/CORE_RUNTIME_RESTORE_RUNBOOK.md >/dev/null
 rg -n 'retention-cleanup|retention-cleanup-smoke|MIG-093|retention|cleanup|runbook' docs/WORKSPACE_RETENTION_POLICY.md >/dev/null
@@ -19,11 +20,18 @@ rg -n 'RUNBOOK_MODE" == "retention-cleanup"|RUNBOOK_MODE" == "retention-cleanup-
 rg -n 'chummer5a|PARITY_ORACLE\.json|scripts/migration-loop\.sh 1|scripts/audit-compliance\.sh|MigrationComplianceTests|DualHeadAcceptanceTests|ArchitectureGuardrailTests' docs/LEGACY_MIGRATION_CERTIFICATION.md >/dev/null
 rg -n 'Chummer/|Plugins/|Chummer\.Infrastructure\.Browser/|compatibility-only|Chummer\.Contracts|Chummer\.Application|Chummer\.Core|Chummer\.Infrastructure|Chummer\.Rulesets' docs/LEGACY_ROOT_SURFACE_INVENTORY.md >/dev/null
 rg -n 'WL-111|WL-108\.1|WL-108\.3|Plugins/ChummerHub\.Client|Chummer/Plugins|compatibility-only|retirement gate' docs/LEGACY_PLUGIN_PURIFICATION_INCREMENT_WL111.md >/dev/null
-rg -n 'WL-108\.1|WL-108\.3|WL-111' WORKLIST.md docs/HELPER_TOOLING_RESIDUAL_BACKLOG.md >/dev/null
+rg -n 'WL-112|WL-108\.2|WL-108\.4|WL-108\.5|Plugins/SamplePlugin|repo_tool\.sh|repo_inspect\.sh|read_file\.sh|find_text\.sh|replace_text_literal\.sh|git_commit_repo_work\.sh|git_status\.sh|upsert_env_var\.sh|operational-only|hosted contract ownership' docs/LEGACY_PLUGIN_AND_HELPER_OPERATIONAL_EVIDENCE_WL112.md >/dev/null
+rg -n 'WL-108\.1|WL-108\.2|WL-108\.3|WL-108\.4|WL-108\.5|WL-111|WL-112' WORKLIST.md docs/HELPER_TOOLING_RESIDUAL_BACKLOG.md >/dev/null
 rg -n 'AddSingleton<IAiProviderCredentialCatalog, EmptyAiProviderCredentialCatalog>\(\)|AddSingleton<IAiProviderTransportOptionsCatalog, EmptyAiProviderTransportOptionsCatalog>\(\)|AddSingleton<IAiProviderTransportClient>\(_ => new NotImplementedAiProviderTransportClient\(\)\)|AddLegacyEnvironmentAiTransportCompatibility|AddSingleton<IAiProviderCredentialCatalog, EnvironmentAiProviderCredentialCatalog>\(\)|AddSingleton<IAiProviderTransportOptionsCatalog, EnvironmentAiProviderTransportOptionsCatalog>\(\)|new HttpAiProviderTransportClient\(provider.GetRequiredService<IAiProviderCredentialCatalog>\(\)\)' Chummer.Infrastructure/DependencyInjection/ServiceCollectionExtensions.cs >/dev/null
 
 if rg -n 'Plugins\\(ChummerHub\.Client|SamplePlugin)\\.*\.csproj' Chummer.CoreEngine.sln Chummer.sln >/dev/null 2>&1; then
   echo "active solutions must not include legacy plugin projects" >&2
+  exit 1
+fi
+
+if rg -n 'repo_tool\.sh|repo_inspect\.sh|read_file\.sh|find_text\.sh|replace_text_literal\.sh|git_commit_repo_work\.sh|git_status\.sh|upsert_env_var\.sh' \
+  Chummer.Api Chummer.Application Chummer.Core Chummer.CoreEngine.Tests Chummer.Infrastructure Chummer.Rulesets --glob '*.cs' --glob '*.csproj' --glob '*.props' --glob '*.targets' >/dev/null 2>&1; then
+  echo "repo helper and git/env utility scripts must stay operational-only and outside active runtime semantics" >&2
   exit 1
 fi
 

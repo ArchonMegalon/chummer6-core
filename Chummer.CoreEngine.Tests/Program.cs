@@ -4415,6 +4415,7 @@ internal static class CoreEngineTests
 
         string normalizedCoreEngineSolutionText = coreEngineSolutionText.Replace('\\', '/');
         string legacyHubPluginRoot = Path.Combine(repoRoot, "Plugins", "ChummerHub.Client");
+        string legacySamplePluginRoot = Path.Combine(repoRoot, "Plugins", "SamplePlugin");
         string legacyPluginLoaderRoot = Path.Combine(repoRoot, "Chummer", "Plugins");
         string[] projectPaths = Directory.EnumerateFiles(repoRoot, "*.csproj", SearchOption.AllDirectories)
             .Where(path => !IsGeneratedOrBuildArtifact(path))
@@ -4432,6 +4433,7 @@ internal static class CoreEngineTests
             ProjectItemInclude[] includeItems = ReadProjectItemIncludes(projectPath).ToArray();
             bool couplesToLegacyPluginCargo = includeItems.Any(include =>
                 IncludeTargetsPath(include, legacyHubPluginRoot, "/plugins/chummerhub.client/")
+                || IncludeTargetsPath(include, legacySamplePluginRoot, "/plugins/sampleplugin/")
                 || IncludeTargetsPath(include, legacyPluginLoaderRoot, "/chummer/plugins/"));
 
             AssertEx.True(
