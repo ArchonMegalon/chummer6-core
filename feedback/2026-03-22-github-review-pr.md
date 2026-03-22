@@ -1,8 +1,11 @@
 # GitHub Codex Review
 
-PR: https://github.com/ArchonMegalon/chummer6-core/pull/5
+PR: https://github.com/ArchonMegalon/chummer6-core/pull/6
 
 Findings:
-- [high] Chummer.CoreEngine.Tests/Program.cs [correctness] wl107-directory-build-item-indirection-bypass
-Guardrail scanning builds item contexts only from `ReadMsBuildDocuments(...)` (explicit `<Import Project=...>` traversal) and does not add `Directory.Build.props`/`Directory.Build.targets` documents to `documentContexts` for item evaluation.; `ReadMsBuildPropertyValues(...)` merges Directory.Build.props via `MergeMsBuildPropertyFile(...)`, but only into property values; item groups from those files are never added to `ReadMsBuildItemValues(...)` input.; As a result, item indirection like `<Compile Include="@(InjectedAppSources)" />` can bypass detection when `InjectedAppSources` is defined in auto-imported Directory.Build.props/targets rather than an explicit project import.; New regression tests cover explicit imported props (`GuardrailPathMatchingResolvesItemAndImportedIndirection`) and `Reference/HintPath`, but not auto-imported Directory.Build.* item-group sources.
-Expected fix: Include auto-imported Directory.Build.props/targets in item-document evaluation (not just property expansion), and add a regression test proving Chummer.Application/browser coupling is caught when item lists are defined there.
+- [high] WORKLIST.md [review] wl108-increment-not-executed
+`WORKLIST.md` still shows `WL-111` as `queued` for executing `WL-108.1` and `WL-108.3`.; `.codex-studio/published/QUEUE.generated.yaml` still publishes the task: execute legacy cargo purification increment (`WL-108.1`, `WL-108.3`).; No files under `Plugins/` or `Chummer/Plugins/` are changed in `git diff main...HEAD`.; Legacy targets remain present on disk (`Plugins/ChummerHub.Client/*`, `Chummer/Plugins/PluginControl.cs`).
+Expected fix: Implement the WL-108.1/WL-108.3 increment (migrate/freeze `Plugins/ChummerHub.Client` and retire/quarantine `Chummer/Plugins` per backlog exit criteria) and update queue state from queued to done with concrete evidence.
+- [high] scripts/ai/verify.sh [tests] wl108-guardrail-gap
+Current verifier checks only that documentation references `Plugins/` (`rg` against `docs/LEGACY_ROOT_SURFACE_INVENTORY.md`) rather than enforcing WL-108.1/WL-108.3 execution outcomes.; No new compliance assertions were added to prove `Chummer/Plugins` loader retirement/quarantine or to validate `Plugins/ChummerHub.Client` migration/freeze criteria in this increment.
+Expected fix: Add regression/compliance guardrails that assert the implemented WL-108.1/WL-108.3 state (not just documented intent), including active-solution/runtime decoupling and loader retirement/quarantine invariants.
