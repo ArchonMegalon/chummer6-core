@@ -3329,12 +3329,29 @@ internal static class CoreEngineTests
         string[] projectPaths = Directory.EnumerateFiles(repositoryRoot, "*.csproj", SearchOption.AllDirectories)
             .Where(path => !IsGeneratedOrBuildArtifact(path))
             .ToArray();
+        HashSet<string> activeCoreProjectsAllowedToReferenceApplication =
+        [
+            "Chummer.Application",
+            "Chummer.Infrastructure",
+            "Chummer.Rulesets.Hosting",
+            "Chummer.Rulesets.Sr4",
+            "Chummer.Rulesets.Sr5",
+            "Chummer.Rulesets.Sr6",
+            "Chummer.CoreEngine.Tests"
+        ];
 
         foreach (string projectPath in projectPaths)
         {
             string projectText = File.ReadAllText(projectPath);
             string projectPathRelative = Path.GetRelativePath(repositoryRoot, projectPath).Replace('\\', '/');
             bool projectIsInActiveCoreSolution = normalizedCoreEngineSolutionText.Contains(projectPathRelative, StringComparison.Ordinal);
+            string projectName = Path.GetFileNameWithoutExtension(projectPath);
+            bool referencesApplicationProject =
+                projectText.Contains(@"..\Chummer.Application\Chummer.Application.csproj", StringComparison.Ordinal)
+                || projectText.Contains(@"../Chummer.Application/Chummer.Application.csproj", StringComparison.Ordinal);
+            bool directlyCompilesApplicationSources =
+                projectText.Contains(@"..\Chummer.Application\", StringComparison.Ordinal)
+                || projectText.Contains(@"../Chummer.Application/", StringComparison.Ordinal);
             AssertEx.True(
                 !projectText.Contains(@"..\Chummer.RunServices.Contracts\AI\", StringComparison.Ordinal)
                 && !projectText.Contains(@"../Chummer.RunServices.Contracts/AI/", StringComparison.Ordinal)
@@ -3351,8 +3368,16 @@ internal static class CoreEngineTests
             {
                 AssertEx.True(
                     !projectText.Contains(@"..\Chummer.Infrastructure.Browser\", StringComparison.Ordinal)
-                    && !projectText.Contains(@"../Chummer.Infrastructure.Browser/", StringComparison.Ordinal),
+                    && !projectText.Contains(@"../Chummer.Infrastructure.Browser/", StringComparison.Ordinal)
+                    && !projectText.Contains(@"..\Chummer.Infrastructure.Browser\Chummer.Infrastructure.Browser.csproj", StringComparison.Ordinal)
+                    && !projectText.Contains(@"../Chummer.Infrastructure.Browser/Chummer.Infrastructure.Browser.csproj", StringComparison.Ordinal),
                     $"Project '{Path.GetRelativePath(repositoryRoot, projectPath)}' must not directly reference browser infrastructure source paths while it remains in the active core engine solution boundary.");
+                AssertEx.True(
+                    !directlyCompilesApplicationSources || referencesApplicationProject,
+                    $"Project '{Path.GetRelativePath(repositoryRoot, projectPath)}' must consume Chummer.Application via project reference, not direct source includes.");
+                AssertEx.True(
+                    !referencesApplicationProject || activeCoreProjectsAllowedToReferenceApplication.Contains(projectName),
+                    $"Project '{Path.GetRelativePath(repositoryRoot, projectPath)}' introduced unexpected Chummer.Application ownership coupling in the active core engine solution.");
             }
         }
     }
