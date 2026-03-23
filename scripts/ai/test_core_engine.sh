@@ -4,6 +4,7 @@ source "$(dirname "$0")/_env.sh"
 project_path="Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj"
 skip_build=0
 build_args=()
+contracts_package_version="${CHUMMER_ENGINE_CONTRACTS_PACKAGE_VERSION:-0.0.0-local}"
 
 for arg in "$@"; do
   if [[ "$arg" == "--no-build" ]]; then
@@ -24,7 +25,8 @@ if [[ -z "$target_framework" ]]; then
 fi
 
 if [[ "$skip_build" -eq 0 ]]; then
-  dotnet build "$project_path" --nologo -m:1 "${build_args[@]}"
+  "$(dirname "$0")/bootstrap-contracts-feed.sh"
+  dotnet build "$project_path" --nologo -m:1 -p:ChummerEngineContractsPackageVersion="$contracts_package_version" "${build_args[@]}"
 fi
 
 dotnet "Chummer.CoreEngine.Tests/bin/Debug/$target_framework/Chummer.CoreEngine.Tests.dll"
