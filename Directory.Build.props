@@ -2,5 +2,8 @@
   <PropertyGroup>
     <MaxCpuCount>1</MaxCpuCount>
     <RestoreUseStaticGraphEvaluation>false</RestoreUseStaticGraphEvaluation>
+    <ChummerEngineContractsPackageVersion>0.0.0-local</ChummerEngineContractsPackageVersion>
+    <ChummerEngineContractsLocalFeed>$(MSBuildThisFileDirectory).tmp/ai/local-nuget</ChummerEngineContractsLocalFeed>
+    <RestoreAdditionalProjectSources Condition="'$(UseChummerEngineContractsLocalFeed)' != 'false'">$(RestoreAdditionalProjectSources);$(ChummerEngineContractsLocalFeed)</RestoreAdditionalProjectSources>
   </PropertyGroup>
 </Project>
