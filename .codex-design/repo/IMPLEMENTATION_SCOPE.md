@@ -9,6 +9,8 @@
 * rules math
 * runtime fingerprints
 * runtime bundles
+* runtime-bundle fingerprints
+* runtime-bundle build-axis truth
 * deterministic reducers
 * explain provenance
 * engine contract canon
@@ -21,6 +23,7 @@
 * relay or campaign orchestration
 * media rendering
 * registry persistence
+* installer packaging or updater feed policy
 * provider routing
 * play/mobile client implementation
 

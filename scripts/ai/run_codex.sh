@@ -7,7 +7,8 @@ BOOT_FILE=".codex.boot.prompt.txt"
 {
   printf 'SYSTEM INITIALIZATION\n'
   printf 'Read these files first and obey them strictly:\n'
-  printf -- '- %s\n' "chummer-core-engine.design.v2.md"
+  printf -- '- .codex-design/repo/IMPLEMENTATION_SCOPE.md\n'
+  printf -- '- .codex-design/repo/PROJECT_MILESTONES.yaml\n'
   printf -- '- .agent-memory.md\n\n'
   cat ".agent-memory.md"
   printf '\n\n'
