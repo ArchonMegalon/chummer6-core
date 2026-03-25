@@ -3188,6 +3188,8 @@ internal static class CoreEngineTests
             "AppCommandCatalogResponse.cs",
             "AppCommandDefinition.cs",
             "AppCommandIds.cs",
+            "BuildLabWorkspaceContracts.cs",
+            "GeneratedAssetContracts.cs",
             "NavigationTabCatalogResponse.cs",
             "NavigationTabDefinition.cs",
             "WorkflowSurfaceContracts.cs",
@@ -4169,7 +4171,6 @@ internal static class CoreEngineTests
         string worklistText = File.ReadAllText(Path.Combine(repoRoot, "WORKLIST.md"));
         string queuePath = Path.Combine(repoRoot, ".codex-studio", "published", "QUEUE.generated.yaml");
         string queueText = File.Exists(queuePath) ? File.ReadAllText(queuePath) : string.Empty;
-        string designText = File.ReadAllText(Path.Combine(repoRoot, "chummer-core-engine.design.v2.md"));
         string projectMilestonesText = File.ReadAllText(Path.Combine(repoRoot, ".codex-design", "repo", "PROJECT_MILESTONES.yaml"));
 
         AssertEx.True(
@@ -4222,11 +4223,11 @@ internal static class CoreEngineTests
             && worklistText.Contains("browser infrastructure authority closure runnable", StringComparison.Ordinal),
             "Worklist backlog should keep remaining hardening and integration scope decomposed into executable milestones.");
         AssertEx.True(
-            designText.Contains("### Milestone A6", StringComparison.Ordinal)
-            && designText.Contains("### Milestone A7", StringComparison.Ordinal)
-            && designText.Contains("### Milestone A8", StringComparison.Ordinal)
-            && designText.Contains("### Milestone A9", StringComparison.Ordinal),
-            "Design milestones should explicitly cover the remaining hardening and integration scope.");
+            projectMilestonesText.Contains("id: A6", StringComparison.Ordinal)
+            && projectMilestonesText.Contains("id: A7", StringComparison.Ordinal)
+            && projectMilestonesText.Contains("id: A8", StringComparison.Ordinal)
+            && projectMilestonesText.Contains("id: A9", StringComparison.Ordinal),
+            "Project milestone registry should explicitly cover the remaining hardening and integration scope.");
         if (!string.IsNullOrEmpty(queueText))
         {
             AssertEx.True(

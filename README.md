@@ -42,6 +42,8 @@ Current honesty clause:
 
 ## Go deeper
 
+Legacy root `chummer-core-engine.design*.md` files remain only as compatibility aliases. Use `.codex-design/*` as the live canon.
+
 - `.codex-design/product/ARCHITECTURE.md`
 - `docs/CONTRACT_BOUNDARY_MAP.md`
 - `docs/EXPLAIN_AND_RUNTIME_CANON.md`
