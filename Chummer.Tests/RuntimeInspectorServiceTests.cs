@@ -104,6 +104,68 @@ public class RuntimeInspectorServiceTests
         Assert.IsNull(projection);
     }
 
+    [TestMethod]
+    public void Runtime_inspector_service_surfaces_installed_runtime_drift_as_rebind_receipt()
+    {
+        DefaultRuntimeInspectorService service = new(
+            CreatePluginRegistry(),
+            new RuleProfileRegistryServiceStub(CreateProfile(installedRuntimeFingerprint: "runtime-lock-sha256-old")),
+            new RulePackRegistryServiceStub(
+            [
+                new RulePackRegistryEntry(
+                    new RulePackManifest(
+                        PackId: "house-rules",
+                        Version: "1.0.0",
+                        Title: "House Rules",
+                        Author: "GM",
+                        Description: "Campaign overlay.",
+                        Targets: [RulesetDefaults.Sr5],
+                        EngineApiVersion: "rulepack-v1",
+                        DependsOn: [],
+                        ConflictsWith: [],
+                        Visibility: ArtifactVisibilityModes.LocalOnly,
+                        TrustTier: ArtifactTrustTiers.LocalOnly,
+                        Assets:
+                        [
+                            new RulePackAssetDescriptor(
+                                Kind: RulePackAssetKinds.Xml,
+                                Mode: RulePackAssetModes.MergeCatalog,
+                                RelativePath: "data/qualities.xml",
+                                Checksum: "sha256:abc")
+                        ],
+                        Capabilities:
+                        [
+                            new RulePackCapabilityDescriptor(
+                                CapabilityId: RulePackCapabilityIds.ContentCatalog,
+                                AssetKind: RulePackAssetKinds.Xml,
+                                AssetMode: RulePackAssetModes.MergeCatalog)
+                        ],
+                        ExecutionPolicies: []),
+                    new RulePackPublicationMetadata(
+                        OwnerId: "local-single-user",
+                        Visibility: ArtifactVisibilityModes.LocalOnly,
+                        PublicationStatus: RulePackPublicationStatuses.Published,
+                        Review: new RulePackReviewDecision(RulePackReviewStates.NotRequired),
+                        Shares: []),
+                    new ArtifactInstallState(ArtifactInstallStates.Installed))
+            ]));
+
+        RuntimeInspectorProjection? projection = service.GetProfileProjection(OwnerScope.LocalSingleUser, "official.sr5.core", RulesetDefaults.Sr5);
+
+        Assert.IsNotNull(projection);
+        Assert.IsTrue(projection.CompatibilityDiagnostics.Any(diagnostic =>
+            string.Equals(diagnostic.State, RuntimeLockCompatibilityStates.RebindRequired, StringComparison.Ordinal)
+            && string.Equals(diagnostic.MessageKey, "runtime.lock.compatibility.install-runtime-drift", StringComparison.Ordinal)));
+        Assert.IsTrue(projection.Warnings.Any(warning =>
+            string.Equals(warning.Kind, RuntimeInspectorWarningKinds.Migration, StringComparison.Ordinal)
+            && string.Equals(warning.MessageKey, "runtime.inspector.warning.migration.rebind-required", StringComparison.Ordinal)));
+        Assert.IsTrue(projection.MigrationPreview.Any(item =>
+            string.Equals(item.Kind, RuntimeMigrationPreviewChangeKinds.ContentBundleUpdated, StringComparison.Ordinal)
+            && string.Equals(item.BeforeValue, "runtime-lock-sha256-old", StringComparison.Ordinal)
+            && string.Equals(item.AfterValue, "runtime-lock-sha256", StringComparison.Ordinal)
+            && item.RequiresRebind));
+    }
+
     private static RulesetPluginRegistry CreatePluginRegistry() =>
         new(
         [
@@ -111,7 +173,7 @@ public class RuntimeInspectorServiceTests
             new Sr6RulesetPlugin()
         ]);
 
-    private static RuleProfileRegistryEntry CreateProfile()
+    private static RuleProfileRegistryEntry CreateProfile(string? installedRuntimeFingerprint = null)
     {
         return new RuleProfileRegistryEntry(
             new RuleProfileManifest(
@@ -155,7 +217,7 @@ public class RuntimeInspectorServiceTests
                 PublicationStatus: RuleProfilePublicationStatuses.Published,
                 Review: new RulePackReviewDecision(RulePackReviewStates.NotRequired),
                 Shares: []),
-            new ArtifactInstallState(ArtifactInstallStates.Available),
+            new ArtifactInstallState(ArtifactInstallStates.Available, RuntimeFingerprint: installedRuntimeFingerprint),
             RegistryEntrySourceKinds.BuiltInCoreProfile);
     }
 

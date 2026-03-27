@@ -59,7 +59,7 @@ public sealed class DefaultRuntimeInspectorService : IRuntimeInspectorService
             knownPackIds);
         RuntimeLockCompatibilityDiagnostic[] compatibilityDiagnostics = BuildCompatibilityDiagnostics(profile, registryEntries);
         RuntimeInspectorWarning[] warnings = BuildWarnings(profile, resolvedRulePacks, compatibilityDiagnostics);
-        RuntimeMigrationPreviewItem[] migrationPreview = BuildMigrationPreview(profile, resolvedRulePacks);
+        RuntimeMigrationPreviewItem[] migrationPreview = BuildMigrationPreview(profile, resolvedRulePacks, compatibilityDiagnostics);
 
         return new RuntimeInspectorProjection(
             TargetKind: RuntimeInspectorTargetKinds.RuntimeLock,
@@ -152,8 +152,24 @@ public sealed class DefaultRuntimeInspectorService : IRuntimeInspectorService
                         Param("version", selection.RulePack.Version),
                         Param("rulesetId", profile.Manifest.RulesetId),
                         Param("runtimeFingerprint", profile.Manifest.RuntimeLock.RuntimeFingerprint)
-                    ]));
+                ]));
             }
+        }
+
+        if (HasInstalledRuntimeFingerprintDrift(profile))
+        {
+            diagnostics.Add(new RuntimeLockCompatibilityDiagnostic(
+                State: RuntimeLockCompatibilityStates.RebindRequired,
+                Message: "runtime.lock.compatibility.install-runtime-drift",
+                RequiredRulesetId: profile.Manifest.RulesetId,
+                RequiredRuntimeFingerprint: profile.Manifest.RuntimeLock.RuntimeFingerprint,
+                MessageKey: "runtime.lock.compatibility.install-runtime-drift",
+                MessageParameters:
+                [
+                    Param("profileId", profile.Manifest.ProfileId),
+                    Param("installedRuntimeFingerprint", profile.Install.RuntimeFingerprint),
+                    Param("requiredRuntimeFingerprint", profile.Manifest.RuntimeLock.RuntimeFingerprint)
+                ]));
         }
 
         if (diagnostics.Count == 0)
@@ -203,6 +219,21 @@ public sealed class DefaultRuntimeInspectorService : IRuntimeInspectorService
                 MessageParameters: [Param("profileId", profile.Manifest.ProfileId)]));
         }
 
+        if (compatibilityDiagnostics.Any(diagnostic => string.Equals(diagnostic.State, RuntimeLockCompatibilityStates.RebindRequired, StringComparison.Ordinal)))
+        {
+            warnings.Add(new RuntimeInspectorWarning(
+                Kind: RuntimeInspectorWarningKinds.Migration,
+                Severity: RuntimeInspectorWarningSeverityLevels.Warning,
+                Message: "runtime.inspector.warning.migration.rebind-required",
+                SubjectId: profile.Manifest.ProfileId,
+                MessageKey: "runtime.inspector.warning.migration.rebind-required",
+                MessageParameters:
+                [
+                    Param("profileId", profile.Manifest.ProfileId),
+                    Param("requiredRuntimeFingerprint", profile.Manifest.RuntimeLock.RuntimeFingerprint)
+                ]));
+        }
+
         if (resolvedRulePacks.Count == 0)
         {
             warnings.Add(new RuntimeInspectorWarning(
@@ -219,7 +250,8 @@ public sealed class DefaultRuntimeInspectorService : IRuntimeInspectorService
 
     private static RuntimeMigrationPreviewItem[] BuildMigrationPreview(
         RuleProfileRegistryEntry profile,
-        IReadOnlyList<RuntimeInspectorRulePackEntry> resolvedRulePacks)
+        IReadOnlyList<RuntimeInspectorRulePackEntry> resolvedRulePacks,
+        IReadOnlyList<RuntimeLockCompatibilityDiagnostic> compatibilityDiagnostics)
     {
         List<RuntimeMigrationPreviewItem> preview = resolvedRulePacks
             .Select(rulePack => new RuntimeMigrationPreviewItem(
@@ -235,6 +267,26 @@ public sealed class DefaultRuntimeInspectorService : IRuntimeInspectorService
                     Param("version", rulePack.RulePack.Version)
                 ]))
             .ToList();
+
+        if (compatibilityDiagnostics.Any(diagnostic => string.Equals(diagnostic.State, RuntimeLockCompatibilityStates.RebindRequired, StringComparison.Ordinal))
+            && !string.IsNullOrWhiteSpace(profile.Install.RuntimeFingerprint)
+            && !string.Equals(profile.Install.RuntimeFingerprint, profile.Manifest.RuntimeLock.RuntimeFingerprint, StringComparison.Ordinal))
+        {
+            preview.Add(new RuntimeMigrationPreviewItem(
+                Kind: RuntimeMigrationPreviewChangeKinds.ContentBundleUpdated,
+                Summary: "runtime.inspector.preview.runtime-fingerprint-changed",
+                SubjectId: profile.Manifest.ProfileId,
+                BeforeValue: profile.Install.RuntimeFingerprint,
+                AfterValue: profile.Manifest.RuntimeLock.RuntimeFingerprint,
+                RequiresRebind: true,
+                SummaryKey: "runtime.inspector.preview.runtime-fingerprint-changed",
+                SummaryParameters:
+                [
+                    Param("profileId", profile.Manifest.ProfileId),
+                    Param("beforeRuntimeFingerprint", profile.Install.RuntimeFingerprint),
+                    Param("afterRuntimeFingerprint", profile.Manifest.RuntimeLock.RuntimeFingerprint)
+                ]));
+        }
 
         if (preview.Count == 0)
         {
@@ -253,6 +305,12 @@ public sealed class DefaultRuntimeInspectorService : IRuntimeInspectorService
         }
 
         return preview.ToArray();
+    }
+
+    private static bool HasInstalledRuntimeFingerprintDrift(RuleProfileRegistryEntry profile)
+    {
+        return !string.IsNullOrWhiteSpace(profile.Install.RuntimeFingerprint)
+            && !string.Equals(profile.Install.RuntimeFingerprint, profile.Manifest.RuntimeLock.RuntimeFingerprint, StringComparison.Ordinal);
     }
 
     private static string? TryResolvePackId(string providerId, IEnumerable<string> packIds)
