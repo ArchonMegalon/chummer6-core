@@ -1,0 +1,14 @@
+mode: prepend
+items:
+- Cluster the remaining `core` product-completion items into one executable backlog slice instead of publishing one queue task per bullet.
+- Sync the approved Chummer design bundle into `core` under `.codex-design/` and refresh repo-local review context.
+- Move presentation, hosted-service, browser, and legacy helper surfaces out of core so the repo can converge on deterministic engine ownership only.
+- Finish milestone coverage modeling for core so ETA and completion truth are no longer partial.
+- Delete or quarantine the remaining legacy roots in `core` so compatibility clutter stops sharing space with the current owner surface.
+- Publish or append runnable backlog for The remaining core work is observability/DR hardening, migration certification, and legacy cargo purification, not hosted contract ownership..
+- Add milestone mapping or executable queue work for The remaining core work is observability/DR hardening, migration certification, and legacy cargo purification, not hosted contract ownership..
+- Publish or append runnable backlog for Temporary source-project leaks such as `Chummer.Presentation.Contracts` and `Chummer.RunServices.Contracts` still need deletion after the contract plane cutover..
+- Add milestone mapping or executable queue work for Explain/reducer/session-event families still need one canonical owner and runtime contract..
+- Relocate AI/media/approval/search hosted contract families into `Chummer.Run.Contracts` and leave only engine-owned DTOs in core.
+- Move presentation-specific contract families out of core-owned source and leave only engine-authored shared DTOs in the canonical package.
+source_queue_fingerprint: 97d170e1550eee4afc0af065b78cda302a97674c

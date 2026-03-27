@@ -1,7 +1,7 @@
 {
   "contract_name": "chummer.weekly_product_pulse",
   "contract_version": 1,
-  "generated_at": "2026-03-27T22:10:16Z",
+  "generated_at": "2026-03-27T22:42:26Z",
   "as_of": "2026-03-27",
   "scorecard_source": "products/chummer/PRODUCT_HEALTH_SCORECARD.yaml",
   "progress_report_source": "products/chummer/PROGRESS_REPORT.generated.json",
@@ -13,10 +13,10 @@
       "front_door_wave_closed": true
     },
     "journey_gate_health": {
-      "state": "blocked",
-      "reason": "Resolve the blocking golden-journey gaps before widening publish claims.",
-      "blocked_count": 1,
-      "warning_count": 5
+      "state": "warning",
+      "reason": "Close the target-stage and history-depth warnings before claiming the campaign OS is boringly proven.",
+      "blocked_count": 0,
+      "warning_count": 6
     },
     "top_support_or_feedback_clusters": [
       {
