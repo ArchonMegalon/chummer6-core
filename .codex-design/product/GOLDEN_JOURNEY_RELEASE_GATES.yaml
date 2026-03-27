@@ -83,10 +83,10 @@ journey_gates:
       target_history_snapshots: 4
       repo_source_proof:
         - repo: chummer6-hub
-          path: Chummer.Run.Api/Views/PublicLanding/Home.cshtml
+          path: Chummer.Run.Api/Views/Accounts/Account.cshtml
           must_contain:
-            - Next safe action:
-            - Closure:
+            - "Next safe action:"
+            - "Closure:"
         - repo: chummer6-ui
           path: Chummer.Blazor/Components/Shell/SectionPane.razor
           must_contain:
