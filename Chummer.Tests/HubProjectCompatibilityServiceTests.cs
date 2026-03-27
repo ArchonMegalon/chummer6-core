@@ -68,6 +68,7 @@ public class HubProjectCompatibilityServiceTests
             ]),
             new RuleProfileRegistryServiceStub([]),
             new BuildKitRegistryServiceStub([]),
+            new RuntimeInspectorServiceStub(null),
             new RuntimeLockRegistryServiceStub(null));
 
         HubProjectCompatibilityMatrix? matrix = service.GetMatrix(OwnerScope.LocalSingleUser, HubCatalogItemKinds.RulePack, "house-rules", RulesetDefaults.Sr5);
@@ -118,6 +119,7 @@ public class HubProjectCompatibilityServiceTests
                     PublicationStatus: BuildKitPublicationStatuses.Published,
                     UpdatedAtUtc: System.DateTimeOffset.UtcNow)
             ]),
+            new RuntimeInspectorServiceStub(null),
             new RuntimeLockRegistryServiceStub(null));
 
         HubProjectCompatibilityMatrix? matrix = service.GetMatrix(OwnerScope.LocalSingleUser, HubCatalogItemKinds.BuildKit, "street-sam-starter", RulesetDefaults.Sr5);
@@ -140,6 +142,7 @@ public class HubProjectCompatibilityServiceTests
             new RulePackRegistryServiceStub([]),
             new RuleProfileRegistryServiceStub([]),
             new BuildKitRegistryServiceStub([]),
+            new RuntimeInspectorServiceStub(null),
             new RuntimeLockRegistryServiceStub(
                 new RuntimeLockRegistryEntry(
                     LockId: "sha256:core",
@@ -179,6 +182,43 @@ public class HubProjectCompatibilityServiceTests
         Assert.IsTrue(matrix.Capabilities.Any(capability =>
             capability.CapabilityId == RulePackCapabilityIds.DeriveStat
             && capability.InvocationKind == RulesetCapabilityInvocationKinds.Rule));
+    }
+
+    [TestMethod]
+    public void Hub_project_compatibility_service_marks_rule_profiles_for_review_when_runtime_rebind_is_required()
+    {
+        RuleProfileRegistryEntry profile = CreateRuleProfile("campaign-profile", ArtifactInstallStates.Installed, "sha256:required");
+        RuntimeInspectorProjection projection = CreateRuntimeInspectorProjection(
+            profile,
+            diagnostics:
+            [
+                new RuntimeLockCompatibilityDiagnostic(
+                    State: RuntimeLockCompatibilityStates.RebindRequired,
+                    Message: "runtime.lock.compatibility.install-runtime-drift")
+            ],
+            warnings:
+            [
+                new RuntimeInspectorWarning(
+                    Kind: RuntimeInspectorWarningKinds.Migration,
+                    Severity: RuntimeInspectorWarningSeverityLevels.Warning,
+                    Message: "runtime.inspector.warning.migration.rebind-required")
+            ]);
+
+        DefaultHubProjectCompatibilityService service = new(
+            CreatePluginRegistry(),
+            new RulePackRegistryServiceStub([]),
+            new RuleProfileRegistryServiceStub([profile]),
+            new BuildKitRegistryServiceStub([]),
+            new RuntimeInspectorServiceStub(projection),
+            new RuntimeLockRegistryServiceStub(null));
+
+        HubProjectCompatibilityMatrix? matrix = service.GetMatrix(OwnerScope.LocalSingleUser, HubCatalogItemKinds.RuleProfile, "campaign-profile", RulesetDefaults.Sr5);
+
+        Assert.IsNotNull(matrix);
+        Assert.IsTrue(matrix.Rows.Any(row =>
+            row.Kind == HubProjectCompatibilityRowKinds.SessionRuntime
+            && row.State == HubProjectCompatibilityStates.ReviewRequired
+            && row.Notes?.Contains("must be rebound", StringComparison.Ordinal) == true));
     }
 
     private static RulesetPluginRegistry CreatePluginRegistry() =>
@@ -233,6 +273,18 @@ public class HubProjectCompatibilityServiceTests
             _entries.FirstOrDefault(entry => entry.Manifest.BuildKitId == buildKitId);
     }
 
+    private sealed class RuntimeInspectorServiceStub : IRuntimeInspectorService
+    {
+        private readonly RuntimeInspectorProjection? _projection;
+
+        public RuntimeInspectorServiceStub(RuntimeInspectorProjection? projection)
+        {
+            _projection = projection;
+        }
+
+        public RuntimeInspectorProjection? GetProfileProjection(OwnerScope owner, string profileId, string? rulesetId = null) => _projection;
+    }
+
     private sealed class RuntimeLockRegistryServiceStub : IRuntimeLockRegistryService
     {
         private readonly RuntimeLockRegistryEntry? _entry;
@@ -248,6 +300,55 @@ public class HubProjectCompatibilityServiceTests
         public RuntimeLockRegistryEntry? Get(OwnerScope owner, string lockId, string? rulesetId = null) => _entry;
 
         public RuntimeLockRegistryEntry Upsert(OwnerScope owner, string lockId, RuntimeLockSaveRequest request) => throw new NotSupportedException();
+    }
+
+    private static RuleProfileRegistryEntry CreateRuleProfile(string profileId, string installState, string runtimeFingerprint)
+    {
+        return new RuleProfileRegistryEntry(
+            Manifest: new RuleProfileManifest(
+                ProfileId: profileId,
+                Version: "1.0.0",
+                Title: "Campaign Runtime",
+                Description: "Campaign profile",
+                RulesetId: RulesetDefaults.Sr5,
+                RuntimeLock: new ResolvedRuntimeLock(
+                    RulesetId: RulesetDefaults.Sr5,
+                    ContentBundles: [],
+                    RulePacks: [],
+                    ProviderBindings: new Dictionary<string, string>(),
+                    EngineApiVersion: "rulepack-v1",
+                    RuntimeFingerprint: runtimeFingerprint),
+                RulePacks: []),
+            Publication: new RuleProfilePublicationMetadata(
+                OwnerId: "local-single-user",
+                Visibility: ArtifactVisibilityModes.Private,
+                PublicationStatus: RuleProfilePublicationStatuses.Published,
+                Review: new RulePackReviewDecision(RulePackReviewStates.NotRequired),
+                Shares: []),
+            Install: new ArtifactInstallState(
+                State: installState,
+                InstalledTargetKind: RuleProfileApplyTargetKinds.GlobalDefaults,
+                InstalledTargetId: "desktop",
+                RuntimeFingerprint: "sha256:installed"),
+            SourceKind: RegistryEntrySourceKinds.PersistedManifest);
+    }
+
+    private static RuntimeInspectorProjection CreateRuntimeInspectorProjection(
+        RuleProfileRegistryEntry profile,
+        IReadOnlyList<RuntimeLockCompatibilityDiagnostic> diagnostics,
+        IReadOnlyList<RuntimeInspectorWarning> warnings)
+    {
+        return new RuntimeInspectorProjection(
+            TargetKind: RuntimeInspectorTargetKinds.RuntimeLock,
+            TargetId: profile.Manifest.ProfileId,
+            RuntimeLock: profile.Manifest.RuntimeLock,
+            Install: profile.Install,
+            ResolvedRulePacks: [],
+            ProviderBindings: [],
+            CompatibilityDiagnostics: diagnostics,
+            Warnings: warnings,
+            MigrationPreview: [],
+            GeneratedAtUtc: DateTimeOffset.UtcNow);
     }
 
     private sealed class HubRulesetPluginStub : IRulesetPlugin

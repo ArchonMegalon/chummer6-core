@@ -12,6 +12,7 @@ public sealed class DefaultHubProjectCompatibilityService : IHubProjectCompatibi
     private readonly IRulePackRegistryService _rulePackRegistryService;
     private readonly IRuleProfileRegistryService _ruleProfileRegistryService;
     private readonly IBuildKitRegistryService _buildKitRegistryService;
+    private readonly IRuntimeInspectorService _runtimeInspectorService;
     private readonly IRuntimeLockRegistryService _runtimeLockRegistryService;
 
     public DefaultHubProjectCompatibilityService(
@@ -19,12 +20,14 @@ public sealed class DefaultHubProjectCompatibilityService : IHubProjectCompatibi
         IRulePackRegistryService rulePackRegistryService,
         IRuleProfileRegistryService ruleProfileRegistryService,
         IBuildKitRegistryService buildKitRegistryService,
+        IRuntimeInspectorService runtimeInspectorService,
         IRuntimeLockRegistryService runtimeLockRegistryService)
     {
         _rulesetPluginRegistry = rulesetPluginRegistry;
         _rulePackRegistryService = rulePackRegistryService;
         _ruleProfileRegistryService = ruleProfileRegistryService;
         _buildKitRegistryService = buildKitRegistryService;
+        _runtimeInspectorService = runtimeInspectorService;
         _runtimeLockRegistryService = runtimeLockRegistryService;
     }
 
@@ -105,10 +108,16 @@ public sealed class DefaultHubProjectCompatibilityService : IHubProjectCompatibi
             .OfType<RulePackRegistryEntry>()
             .ToArray();
         bool sessionReady = resolvedRulePacks.Length == 0 || resolvedRulePacks.All(IsSessionReadyRulePack);
+        RuntimeInspectorProjection? runtimeProjection = _runtimeInspectorService.GetProfileProjection(owner, itemId, entry.Manifest.RulesetId);
         HubProjectCapabilityDescriptorProjection[] capabilities = BuildRuntimeCapabilities(
             entry.Manifest.RulesetId,
             entry.Manifest.RuntimeLock.ProviderBindings,
             entry.Manifest.RuntimeLock.RulePacks.Select(reference => reference.Id));
+        string sessionRuntimeState = ResolveRuleProfileSessionRuntimeState(sessionReady, runtimeProjection);
+        string sessionRuntimeValue = string.Equals(sessionRuntimeState, HubProjectCompatibilityStates.Compatible, StringComparison.Ordinal)
+            ? "session-ready"
+            : "session-review-required";
+        string? sessionRuntimeNotes = ResolveRuleProfileSessionRuntimeNotes(runtimeProjection, entry.Manifest.RulePacks.Count);
 
         return new HubProjectCompatibilityMatrix(
             Kind: HubCatalogItemKinds.RuleProfile,
@@ -122,11 +131,11 @@ public sealed class DefaultHubProjectCompatibilityService : IHubProjectCompatibi
                 CreateCapabilitiesRow(capabilities),
                 CreateInformationalRow(HubProjectCompatibilityRowKinds.RuntimeFingerprint, entry.Manifest.RuntimeLock.RuntimeFingerprint),
                 CreateSessionRuntimeSummaryRow(
-                    sessionReady ? HubProjectCompatibilityStates.Compatible : HubProjectCompatibilityStates.ReviewRequired,
-                    sessionReady ? "session-ready" : "session-review-required",
-                    "hub.project.compatibility.notes.session-runtime.selected-rulepacks",
-                    [Param("rulePackCount", entry.Manifest.RulePacks.Count)],
-                    entry.Manifest.RulePacks.Count.ToString())
+                    sessionRuntimeState,
+                    sessionRuntimeValue,
+                    string.IsNullOrWhiteSpace(sessionRuntimeNotes) ? "hub.project.compatibility.notes.session-runtime.selected-rulepacks" : null,
+                    string.IsNullOrWhiteSpace(sessionRuntimeNotes) ? [Param("rulePackCount", entry.Manifest.RulePacks.Count)] : [],
+                    string.IsNullOrWhiteSpace(sessionRuntimeNotes) ? entry.Manifest.RulePacks.Count.ToString() : sessionRuntimeNotes)
             ],
             GeneratedAtUtc: DateTimeOffset.UtcNow,
             Capabilities: capabilities);
@@ -288,7 +297,7 @@ public sealed class DefaultHubProjectCompatibilityService : IHubProjectCompatibi
     private static HubProjectCompatibilityRow CreateSessionRuntimeSummaryRow(
         string state,
         string currentValue,
-        string notesKey,
+        string? notesKey,
         IReadOnlyList<RulesetExplainParameter> notesParameters,
         string? notes)
         => new(
@@ -303,6 +312,65 @@ public sealed class DefaultHubProjectCompatibilityService : IHubProjectCompatibi
             RequiredValueKey: GetValueKey(HubProjectCompatibilityRowKinds.SessionRuntime, RulePackExecutionEnvironments.SessionRuntimeBundle),
             NotesKey: notesKey,
             NotesParameters: notesParameters);
+
+    private static string ResolveRuleProfileSessionRuntimeState(
+        bool sessionReady,
+        RuntimeInspectorProjection? runtimeProjection)
+    {
+        if (runtimeProjection?.CompatibilityDiagnostics.Any(static diagnostic =>
+                string.Equals(diagnostic.State, RuntimeLockCompatibilityStates.MissingPack, StringComparison.Ordinal)) == true)
+        {
+            return HubProjectCompatibilityStates.Blocked;
+        }
+
+        if (!sessionReady)
+        {
+            return HubProjectCompatibilityStates.ReviewRequired;
+        }
+
+        if (runtimeProjection?.CompatibilityDiagnostics.Any(static diagnostic =>
+                string.Equals(diagnostic.State, RuntimeLockCompatibilityStates.RebindRequired, StringComparison.Ordinal)) == true)
+        {
+            return HubProjectCompatibilityStates.ReviewRequired;
+        }
+
+        if ((runtimeProjection?.Warnings.Count ?? 0) > 0)
+        {
+            return HubProjectCompatibilityStates.ReviewRequired;
+        }
+
+        return HubProjectCompatibilityStates.Compatible;
+    }
+
+    private static string? ResolveRuleProfileSessionRuntimeNotes(
+        RuntimeInspectorProjection? runtimeProjection,
+        int selectedRulePackCount)
+    {
+        if (runtimeProjection is null)
+        {
+            return null;
+        }
+
+        int missingPackCount = runtimeProjection.CompatibilityDiagnostics.Count(static diagnostic =>
+            string.Equals(diagnostic.State, RuntimeLockCompatibilityStates.MissingPack, StringComparison.Ordinal));
+        if (missingPackCount > 0)
+        {
+            return $"{missingPackCount} required rule pack(s) are missing from the grounded runtime.";
+        }
+
+        if (runtimeProjection.CompatibilityDiagnostics.Any(static diagnostic =>
+                string.Equals(diagnostic.State, RuntimeLockCompatibilityStates.RebindRequired, StringComparison.Ordinal)))
+        {
+            return "Installed runtime fingerprint differs from the selected runtime profile and must be rebound before the next campaign-safe handoff.";
+        }
+
+        if (runtimeProjection.Warnings.Count > 0)
+        {
+            return $"{runtimeProjection.Warnings.Count} runtime inspector warning(s) still need review across {selectedRulePackCount} selected rule pack(s).";
+        }
+
+        return null;
+    }
 
     private static string GetDefaultLabel(string kind) => kind switch
     {
