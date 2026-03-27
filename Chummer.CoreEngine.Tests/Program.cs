@@ -1179,6 +1179,7 @@ internal static class CoreEngineTests
                 CreateBuildKitRegistryEntry("buildkit-a", CreateBuildKitManifestFixtureA()),
                 CreateBuildKitRegistryEntry("buildkit-b", CreateBuildKitManifestFixtureB())
             ]),
+            new RuntimeInspectorServiceStub(null),
             new RuntimeLockRegistryServiceStub(
             [
                 CreateRuntimeLockRegistryEntry(
@@ -2479,6 +2480,18 @@ internal static class CoreEngineTests
                 string.Equals(entry.Manifest.BuildKitId, buildKitId, StringComparison.Ordinal)
                 && (normalizedRulesetId is null || entry.Manifest.Targets.Any(target => string.Equals(target, normalizedRulesetId, StringComparison.Ordinal))));
         }
+    }
+
+    private sealed class RuntimeInspectorServiceStub : IRuntimeInspectorService
+    {
+        private readonly RuntimeInspectorProjection? _projection;
+
+        public RuntimeInspectorServiceStub(RuntimeInspectorProjection? projection)
+        {
+            _projection = projection;
+        }
+
+        public RuntimeInspectorProjection? GetProfileProjection(OwnerScope owner, string profileId, string? rulesetId = null) => _projection;
     }
 
     private sealed class RuntimeLockRegistryServiceStub : IRuntimeLockRegistryService
