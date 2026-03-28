@@ -59,6 +59,47 @@ internal static class BuildKitHandoffNarrator
         return $"Apply this build path in the workbench first, then hand the emitted build receipt into a compatible runtime that matches: {runtimeSummary}. {stagingSummary}";
     }
 
+    public static string DescribeCampaignReturn(BuildKitManifest manifest, RuleProfileApplyTarget target)
+    {
+        ArgumentNullException.ThrowIfNull(manifest);
+        ArgumentNullException.ThrowIfNull(target);
+
+        string targetKind = string.IsNullOrWhiteSpace(target.TargetKind)
+            ? "workspace"
+            : target.TargetKind;
+
+        if (manifest.RuntimeRequirements.Count == 0)
+        {
+            return $"The emitted build receipt can return through the selected {targetKind} once the grounded campaign/profile runtime is attached.";
+        }
+
+        string runtimeSummary = string.Join(
+            " | ",
+            manifest.RuntimeRequirements
+                .OrderBy(static requirement => requirement.RulesetId, StringComparer.Ordinal)
+                .Select(SummarizeRuntimeRequirement));
+
+        return $"The emitted build receipt can return through the selected {targetKind} after the target matches: {runtimeSummary}.";
+    }
+
+    public static string DescribeSupportClosure(BuildKitManifest manifest)
+    {
+        ArgumentNullException.ThrowIfNull(manifest);
+
+        if (manifest.RuntimeRequirements.Count == 0)
+        {
+            return "Support closure can cite the same grounded runtime once this build receipt lands.";
+        }
+
+        string runtimeSummary = string.Join(
+            " | ",
+            manifest.RuntimeRequirements
+                .OrderBy(static requirement => requirement.RulesetId, StringComparer.Ordinal)
+                .Select(SummarizeRuntimeRequirement));
+
+        return $"Support closure can reuse the same runtime and rule-pack contract after handoff: {runtimeSummary}.";
+    }
+
     public static string DescribeReceiptStaging(BuildKitManifest manifest)
     {
         ArgumentNullException.ThrowIfNull(manifest);
