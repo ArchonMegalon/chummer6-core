@@ -1943,12 +1943,15 @@ public class MigrationComplianceTests
         StringAssert.Contains(buildKitApplicationContractsText, "public sealed record BuildKitAppliedAction");
         StringAssert.Contains(buildKitApplicationContractsText, "public sealed record BuildKitValidationReceipt");
         StringAssert.Contains(buildKitApplicationContractsText, "public sealed record BuildKitApplicationReceipt");
+        StringAssert.Contains(buildKitApplicationContractsText, "public sealed record BuildKitRuntimeRequirementReceipt");
+        StringAssert.Contains(buildKitApplicationContractsText, "public sealed record BuildKitCompatibilityReceipt");
         StringAssert.Contains(buildKitApplicationContractsText, "string? MessageKey = null");
         StringAssert.Contains(buildKitApplicationContractsText, "IReadOnlyList<RulesetExplainParameter>? MessageParameters = null");
         StringAssert.Contains(buildKitApplicationContractsText, "RuntimeFingerprintMismatch");
         StringAssert.Contains(buildKitApplicationContractsText, "PromptRequired");
         StringAssert.Contains(buildKitApplicationContractsText, "PartiallyApplied");
         StringAssert.Contains(buildKitApplicationContractsText, "CharacterVersionReference? ResultingCharacterVersion = null");
+        StringAssert.Contains(buildKitApplicationContractsText, "string NextSafeActionSummary");
     }
 
     [TestMethod]
@@ -4282,9 +4285,17 @@ public class MigrationComplianceTests
     {
         string coreContractsProjectPath = FindPath("Chummer.Contracts", "Chummer.Contracts.csproj");
         string coreContractsProjectText = File.ReadAllText(coreContractsProjectPath);
+        string bootstrapContractsFeedPath = FindPath("scripts", "ai", "bootstrap-contracts-feed.sh");
+        string bootstrapContractsFeedText = File.ReadAllText(bootstrapContractsFeedPath);
+        string contractsMigrationDocPath = FindPath("docs", "CHUMMER_CONTRACTS_MIGRATION_AND_VERIFY_WL113_3.md");
+        string contractsMigrationDocText = File.ReadAllText(contractsMigrationDocPath);
 
         StringAssert.Contains(coreContractsProjectText, "<AssemblyName>Chummer.Engine.Contracts</AssemblyName>");
         StringAssert.Contains(coreContractsProjectText, "<PackageId>Chummer.Engine.Contracts</PackageId>");
+        StringAssert.Contains(bootstrapContractsFeedText, "contracts_cache_root", StringComparison.Ordinal);
+        StringAssert.Contains(bootstrapContractsFeedText, "contracts_cache_path", StringComparison.Ordinal);
+        StringAssert.Contains(bootstrapContractsFeedText, "rm -rf \"$contracts_cache_path\"", StringComparison.Ordinal);
+        StringAssert.Contains(contractsMigrationDocText, "invalidates the cached `chummer.engine.contracts/0.0.0-local` package directory", StringComparison.Ordinal);
         Assert.IsFalse(coreContractsProjectText.Contains(@"..\Chummer.Presentation.Contracts\Presentation\", StringComparison.Ordinal));
         Assert.IsFalse(coreContractsProjectText.Contains(@"../Chummer.Presentation.Contracts/Presentation/", StringComparison.Ordinal));
     }

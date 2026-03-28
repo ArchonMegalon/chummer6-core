@@ -62,6 +62,26 @@ public sealed record BuildKitApplicationReceipt(
     IReadOnlyList<BuildKitValidationIssue> Issues,
     CharacterVersionReference? ResultingCharacterVersion = null);
 
+public sealed record BuildKitRuntimeRequirementReceipt(
+    string RulesetId,
+    IReadOnlyList<string> RequiredRuntimeFingerprints,
+    IReadOnlyList<ArtifactVersionReference> RequiredRulePacks,
+    string Summary);
+
+public sealed record BuildKitCompatibilityReceipt(
+    string BuildKitId,
+    bool RequiresRuntimeReview,
+    bool RequiresPromptResolution,
+    bool StagesGroundedActions,
+    int PromptCount,
+    int ActionCount,
+    IReadOnlyList<BuildKitRuntimeRequirementReceipt> RuntimeRequirements,
+    string RuntimeCompatibilitySummary,
+    string SessionRuntimeSummary,
+    string CampaignReturnSummary,
+    string SupportClosureSummary,
+    string NextSafeActionSummary);
+
 public static class BuildKitContractLocalization
 {
     public static string ResolveIssueMessageKey(BuildKitValidationIssue issue)
