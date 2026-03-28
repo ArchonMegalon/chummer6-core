@@ -1,0 +1,21 @@
+{
+  "warmupIterations": 1,
+  "measurementIterations": 3,
+  "workloads": [
+    {
+      "name": "workspace.import.bastion",
+      "maxMeanMilliseconds": 250.0,
+      "maxAllocatedBytes": 32000000
+    },
+    {
+      "name": "workspace.section.skills.bastion",
+      "maxMeanMilliseconds": 180.0,
+      "maxAllocatedBytes": 32000000
+    },
+    {
+      "name": "workspace.save.bastion",
+      "maxMeanMilliseconds": 80.0,
+      "maxAllocatedBytes": 16000000
+    }
+  ]
+}
