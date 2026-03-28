@@ -159,6 +159,8 @@ public sealed class DefaultHubProjectCompatibilityService : IHubProjectCompatibi
                 continue;
             }
 
+            BuildKitCompatibilityReceipt compatibilityReceipt = BuildKitCompatibilityReceiptBuilder.Create(entry.Manifest);
+
             return new HubProjectCompatibilityMatrix(
                 Kind: HubCatalogItemKinds.BuildKit,
                 ItemId: itemId,
@@ -170,25 +172,25 @@ public sealed class DefaultHubProjectCompatibilityService : IHubProjectCompatibi
                     new HubProjectCompatibilityRow(
                         Kind: HubProjectCompatibilityRowKinds.RuntimeRequirements,
                         Label: GetDefaultLabel(HubProjectCompatibilityRowKinds.RuntimeRequirements),
-                        State: entry.Manifest.RuntimeRequirements.Count == 0 ? HubProjectCompatibilityStates.Compatible : HubProjectCompatibilityStates.ReviewRequired,
-                        CurrentValue: entry.Manifest.RuntimeRequirements.Count.ToString(),
-                        Notes: BuildKitHandoffNarrator.DescribeRuntimeRequirements(entry.Manifest),
+                        State: compatibilityReceipt.RequiresRuntimeReview ? HubProjectCompatibilityStates.ReviewRequired : HubProjectCompatibilityStates.Compatible,
+                        CurrentValue: compatibilityReceipt.RuntimeRequirements.Count.ToString(),
+                        Notes: compatibilityReceipt.RuntimeCompatibilitySummary,
                         LabelKey: GetDefaultLabelKey(HubProjectCompatibilityRowKinds.RuntimeRequirements),
                         NotesParameters: []),
                     CreateSessionRuntimeSummaryRow(
                         HubProjectCompatibilityStates.Blocked,
-                        "workbench-only",
+                        "workbench-first",
                         null,
                         [],
-                        BuildKitHandoffNarrator.DescribeSessionRuntimeHandoff(entry.Manifest)),
+                        compatibilityReceipt.SessionRuntimeSummary),
                     CreateNarrativeRow(
                         HubProjectCompatibilityRowKinds.CampaignReturn,
-                        entry.Manifest.RuntimeRequirements.Count == 0 ? HubProjectCompatibilityStates.Compatible : HubProjectCompatibilityStates.ReviewRequired,
-                        BuildKitHandoffNarrator.DescribeCampaignReturnContract(entry.Manifest)),
+                        compatibilityReceipt.RequiresRuntimeReview ? HubProjectCompatibilityStates.ReviewRequired : HubProjectCompatibilityStates.Compatible,
+                        compatibilityReceipt.CampaignReturnSummary),
                     CreateNarrativeRow(
                         HubProjectCompatibilityRowKinds.SupportClosure,
-                        entry.Manifest.RuntimeRequirements.Count == 0 ? HubProjectCompatibilityStates.Compatible : HubProjectCompatibilityStates.ReviewRequired,
-                        BuildKitHandoffNarrator.DescribeSupportClosure(entry.Manifest))
+                        compatibilityReceipt.RequiresRuntimeReview ? HubProjectCompatibilityStates.ReviewRequired : HubProjectCompatibilityStates.Compatible,
+                        compatibilityReceipt.SupportClosureSummary)
                 ],
                 GeneratedAtUtc: DateTimeOffset.UtcNow,
                 Capabilities: []);

@@ -129,6 +129,7 @@ public class HubProjectCompatibilityServiceTests
         Assert.IsTrue(matrix.Rows.Any(row =>
             row.Kind == HubProjectCompatibilityRowKinds.SessionRuntime
             && row.State == HubProjectCompatibilityStates.Blocked
+            && row.CurrentValue == "workbench-first"
             && row.Notes is not null
             && row.Notes.Contains("emitted build receipt", StringComparison.Ordinal)
             && row.Notes.Contains("grounded campaign/profile runtime", StringComparison.Ordinal)));
@@ -220,6 +221,7 @@ public class HubProjectCompatibilityServiceTests
         Assert.IsTrue(matrix.Rows.Any(row =>
             row.Kind == HubProjectCompatibilityRowKinds.SessionRuntime
             && row.State == HubProjectCompatibilityStates.Blocked
+            && row.CurrentValue == "workbench-first"
             && row.Notes is not null
             && row.Notes.Contains("compatible runtime and rule environment that match", StringComparison.Ordinal)
             && row.Notes.Contains("sha256:campaign-a", StringComparison.Ordinal)

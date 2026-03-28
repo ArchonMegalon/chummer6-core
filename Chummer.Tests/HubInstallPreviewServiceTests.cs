@@ -214,11 +214,82 @@ public class HubInstallPreviewServiceTests
         Assert.AreEqual(HubProjectInstallPreviewStates.Ready, preview.State);
         Assert.IsNull(preview.RuntimeFingerprint);
         Assert.AreEqual(HubProjectInstallPreviewChangeKinds.InstallStateChanged, preview.Changes[0].Kind);
+        Assert.IsTrue(preview.Changes[0].Summary.Contains("Apply this build path in the workbench", StringComparison.Ordinal));
+        Assert.IsTrue(preview.Changes[0].Summary.Contains("selected workspace", StringComparison.Ordinal));
         Assert.IsFalse(preview.RequiresConfirmation);
         Assert.IsTrue(preview.Diagnostics.Any(diagnostic => diagnostic.Kind == HubProjectInstallPreviewDiagnosticKinds.Installability));
         Assert.IsTrue(preview.RuntimeCompatibilitySummary?.Contains("grounded campaign/profile runtime", StringComparison.Ordinal) == true);
         Assert.IsTrue(preview.CampaignReturnSummary?.Contains("selected workspace", StringComparison.Ordinal) == true);
         Assert.IsTrue(preview.SupportClosureSummary?.Contains("grounded runtime", StringComparison.Ordinal) == true);
+    }
+
+    [TestMethod]
+    public void Hub_install_preview_service_uses_shared_buildkit_compatibility_receipts_for_runtime_review()
+    {
+        DefaultHubInstallPreviewService service = new(
+            CreatePluginRegistry(),
+            new RulePackInstallServiceStub(null),
+            new RuleProfileRegistryServiceStub(null),
+            new RuleProfileApplicationServiceStub(null),
+            new RuntimeLockInstallServiceStub(null),
+            new RuntimeLockRegistryServiceStub(null),
+            new RulePackRegistryServiceStub([]),
+            new BuildKitRegistryServiceStub(
+            [
+                new BuildKitRegistryEntry(
+                    new BuildKitManifest(
+                        BuildKitId: "matrix-operator",
+                        Version: "1.1.0",
+                        Title: "Matrix Operator",
+                        Description: "Decker planning lane.",
+                        Targets: [RulesetDefaults.Sr5],
+                        RuntimeRequirements:
+                        [
+                            new BuildKitRuntimeRequirement(
+                                RulesetId: RulesetDefaults.Sr5,
+                                RequiredRuntimeFingerprints: ["sha256:campaign-a"],
+                                RequiredRulePacks: [new ArtifactVersionReference("official-errata", "1.2.0")])
+                        ],
+                        Prompts:
+                        [
+                            new BuildKitPromptDescriptor(
+                                PromptId: "matrix-lane",
+                                Kind: BuildKitPromptKinds.Choice,
+                                Label: "Matrix lane",
+                                Options: [new BuildKitPromptOption("stealth", "Stealth")],
+                                Required: true)
+                        ],
+                        Actions:
+                        [
+                            new BuildKitActionDescriptor(
+                                ActionId: "queue-specialty",
+                                Kind: BuildKitActionKinds.QueueCareerUpdate,
+                                TargetId: "career.matrix-operator")
+                        ],
+                        Visibility: ArtifactVisibilityModes.Public,
+                        TrustTier: ArtifactTrustTiers.Curated),
+                    Owner: new OwnerScope("system"),
+                    Visibility: ArtifactVisibilityModes.Public,
+                    PublicationStatus: BuildKitPublicationStatuses.Published,
+                    UpdatedAtUtc: DateTimeOffset.UtcNow)
+            ]));
+
+        HubProjectInstallPreviewReceipt? preview = service.Preview(
+            OwnerScope.LocalSingleUser,
+            HubCatalogItemKinds.BuildKit,
+            "matrix-operator",
+            new RuleProfileApplyTarget(RuleProfileApplyTargetKinds.Workspace, "workspace-1"),
+            RulesetDefaults.Sr5);
+
+        Assert.IsNotNull(preview);
+        Assert.AreEqual(HubProjectInstallPreviewStates.Ready, preview.State);
+        Assert.AreEqual("sha256:campaign-a", preview.RuntimeFingerprint);
+        Assert.IsTrue(preview.RequiresConfirmation);
+        Assert.IsTrue(preview.Changes[0].Summary.Contains("runtime and rule environment match", StringComparison.Ordinal));
+        Assert.IsTrue(preview.Changes[0].Summary.Contains("selected workspace", StringComparison.Ordinal));
+        Assert.IsTrue(preview.RuntimeCompatibilitySummary?.Contains("official-errata@1.2.0", StringComparison.Ordinal) == true);
+        Assert.IsTrue(preview.CampaignReturnSummary?.Contains("selected workspace", StringComparison.Ordinal) == true);
+        Assert.IsTrue(preview.SupportClosureSummary?.Contains("migration-oracle contract", StringComparison.Ordinal) == true);
     }
 
     [TestMethod]

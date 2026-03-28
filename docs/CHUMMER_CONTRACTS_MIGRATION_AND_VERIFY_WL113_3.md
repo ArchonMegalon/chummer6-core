@@ -28,6 +28,7 @@ Active-core migration completed for the 10 `WL-113.2` migrate-now candidates:
 - Local feed property: `$(ChummerEngineContractsLocalFeed)` (default `<repo>/.tmp/ai/local-nuget`) in `Directory.Build.props`.
 - `RestoreAdditionalProjectSources` includes that local feed (unless `UseChummerEngineContractsLocalFeed=false`).
 - `scripts/ai/bootstrap-contracts-feed.sh` packs `Chummer.Contracts/Chummer.Contracts.csproj` as `Chummer.Engine.Contracts` into the local feed.
+- The bootstrap script invalidates the cached `chummer.engine.contracts/0.0.0-local` package directory so restore consumes the freshly packed payload instead of stale global-cache contents.
 - `scripts/ai/build.sh`, `scripts/ai/restore.sh`, and `scripts/ai/test_core_engine.sh` now call the bootstrap script and pass `ChummerEngineContractsPackageVersion` so restore/build stays aligned.
 
 ## Compatibility exceptions kept explicit

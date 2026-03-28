@@ -184,18 +184,22 @@ public sealed class DefaultHubInstallPreviewService : IHubInstallPreviewService
                     BuildBuildKitRulesetMismatchMessage(entry.Manifest, normalizedRulesetId));
             }
 
+            BuildKitCompatibilityReceipt compatibilityReceipt = BuildKitCompatibilityReceiptBuilder.Create(entry.Manifest, target);
             BuildKitRuntimeRequirement? runtimeRequirement = ResolveRuntimeRequirement(entry.Manifest, candidateRulesetId);
             List<HubProjectInstallPreviewChange> changes = [];
             List<HubProjectInstallPreviewDiagnostic> diagnostics = [];
-            bool requiresConfirmation = entry.Manifest.Prompts.Count > 0 || runtimeRequirement is not null;
+            bool requiresConfirmation = compatibilityReceipt.RequiresPromptResolution || runtimeRequirement is not null;
 
             if (runtimeRequirement is not null)
             {
-                string runtimeSummary = BuildKitHandoffNarrator.SummarizeRuntimeRequirement(runtimeRequirement);
+                string runtimeSummary = compatibilityReceipt.RuntimeRequirements
+                    .FirstOrDefault(requirement => string.Equals(requirement.RulesetId, candidateRulesetId, StringComparison.Ordinal))
+                    ?.Summary
+                    ?? BuildKitHandoffNarrator.SummarizeRuntimeRequirement(runtimeRequirement);
                 changes.Add(
                     new HubProjectInstallPreviewChange(
                         Kind: HubProjectInstallPreviewChangeKinds.InstallStateChanged,
-                        Summary: $"Validate a compatible runtime before you apply this BuildKit: {runtimeSummary}.",
+                        Summary: compatibilityReceipt.NextSafeActionSummary,
                         SubjectId: itemId,
                         RequiresConfirmation: true));
                 diagnostics.Add(
@@ -210,7 +214,7 @@ public sealed class DefaultHubInstallPreviewService : IHubInstallPreviewService
                 changes.Add(
                     new HubProjectInstallPreviewChange(
                         Kind: HubProjectInstallPreviewChangeKinds.InstallStateChanged,
-                        Summary: $"Apply {entry.Manifest.Title} in the workbench first, then hand the receipt into the selected {target.TargetKind}.",
+                        Summary: compatibilityReceipt.NextSafeActionSummary,
                         SubjectId: itemId,
                         RequiresConfirmation: entry.Manifest.Prompts.Count > 0));
             }
@@ -253,9 +257,9 @@ public sealed class DefaultHubInstallPreviewService : IHubInstallPreviewService
                 Diagnostics: diagnostics,
                 RuntimeFingerprint: runtimeRequirement?.RequiredRuntimeFingerprints.FirstOrDefault(),
                 RequiresConfirmation: requiresConfirmation,
-                RuntimeCompatibilitySummary: BuildKitHandoffNarrator.DescribeRuntimeRequirements(entry.Manifest),
-                CampaignReturnSummary: BuildKitHandoffNarrator.DescribeCampaignReturn(entry.Manifest, target),
-                SupportClosureSummary: BuildKitHandoffNarrator.DescribeSupportClosure(entry.Manifest));
+                RuntimeCompatibilitySummary: compatibilityReceipt.RuntimeCompatibilitySummary,
+                CampaignReturnSummary: compatibilityReceipt.CampaignReturnSummary,
+                SupportClosureSummary: compatibilityReceipt.SupportClosureSummary);
         }
 
         if (normalizedRulesetId is not null)
