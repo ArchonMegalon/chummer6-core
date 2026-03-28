@@ -137,6 +137,17 @@ public class HubProjectCompatibilityServiceTests
             && row.Notes is not null
             && row.Notes.Contains("No extra runtime fingerprint or rule pack is pinned yet", StringComparison.Ordinal)
             && row.Notes.Contains("No extra prompt resolution or grounded action staging is required", StringComparison.Ordinal)));
+        Assert.IsTrue(matrix.Rows.Any(row =>
+            row.Kind == HubProjectCompatibilityRowKinds.CampaignReturn
+            && row.State == HubProjectCompatibilityStates.Compatible
+            && row.Notes is not null
+            && row.Notes.Contains("selected workspace or campaign lane", StringComparison.Ordinal)
+            && row.Notes.Contains("grounded campaign/profile runtime", StringComparison.Ordinal)));
+        Assert.IsTrue(matrix.Rows.Any(row =>
+            row.Kind == HubProjectCompatibilityRowKinds.SupportClosure
+            && row.State == HubProjectCompatibilityStates.Compatible
+            && row.Notes is not null
+            && row.Notes.Contains("Support closure can cite", StringComparison.Ordinal)));
         Assert.IsNotNull(matrix.Capabilities);
         Assert.IsEmpty(matrix.Capabilities);
     }
@@ -208,6 +219,18 @@ public class HubProjectCompatibilityServiceTests
             && row.Notes.Contains("compatible runtime that matches", StringComparison.Ordinal)
             && row.Notes.Contains("sha256:campaign-a", StringComparison.Ordinal)
             && row.Notes.Contains("emitted build receipt", StringComparison.Ordinal)));
+        Assert.IsTrue(matrix.Rows.Any(row =>
+            row.Kind == HubProjectCompatibilityRowKinds.CampaignReturn
+            && row.State == HubProjectCompatibilityStates.ReviewRequired
+            && row.Notes is not null
+            && row.Notes.Contains("selected workspace or campaign lane", StringComparison.Ordinal)
+            && row.Notes.Contains("sha256:campaign-a", StringComparison.Ordinal)));
+        Assert.IsTrue(matrix.Rows.Any(row =>
+            row.Kind == HubProjectCompatibilityRowKinds.SupportClosure
+            && row.State == HubProjectCompatibilityStates.ReviewRequired
+            && row.Notes is not null
+            && row.Notes.Contains("Support closure can reuse", StringComparison.Ordinal)
+            && row.Notes.Contains("official-errata@1.2.0", StringComparison.Ordinal)));
     }
 
     [TestMethod]
@@ -254,6 +277,14 @@ public class HubProjectCompatibilityServiceTests
             row.Kind == HubProjectCompatibilityRowKinds.SessionRuntime
             && row.NotesKey == "hub.project.compatibility.notes.session-runtime.resolved-rulepacks"
             && row.NotesParameters is { Count: 1 }));
+        Assert.IsTrue(matrix.Rows.Any(row =>
+            row.Kind == HubProjectCompatibilityRowKinds.CampaignReturn
+            && row.State == HubProjectCompatibilityStates.Compatible
+            && row.Notes?.Contains("workspace-1", StringComparison.Ordinal) == true));
+        Assert.IsTrue(matrix.Rows.Any(row =>
+            row.Kind == HubProjectCompatibilityRowKinds.SupportClosure
+            && row.State == HubProjectCompatibilityStates.Compatible
+            && row.Notes?.Contains("runtime fingerprint sha256:core", StringComparison.Ordinal) == true));
         Assert.IsNotNull(matrix.Capabilities);
         Assert.IsTrue(matrix.Capabilities.Any(capability =>
             capability.CapabilityId == RulePackCapabilityIds.DeriveStat
@@ -295,6 +326,14 @@ public class HubProjectCompatibilityServiceTests
             row.Kind == HubProjectCompatibilityRowKinds.SessionRuntime
             && row.State == HubProjectCompatibilityStates.ReviewRequired
             && row.Notes?.Contains("must be rebound", StringComparison.Ordinal) == true));
+        Assert.IsTrue(matrix.Rows.Any(row =>
+            row.Kind == HubProjectCompatibilityRowKinds.CampaignReturn
+            && row.State == HubProjectCompatibilityStates.ReviewRequired
+            && row.Notes?.Contains("runtime review", StringComparison.Ordinal) == true));
+        Assert.IsTrue(matrix.Rows.Any(row =>
+            row.Kind == HubProjectCompatibilityRowKinds.SupportClosure
+            && row.State == HubProjectCompatibilityStates.ReviewRequired
+            && row.Notes?.Contains("rebind", StringComparison.Ordinal) == true));
     }
 
     private static RulesetPluginRegistry CreatePluginRegistry() =>

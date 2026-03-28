@@ -2096,6 +2096,8 @@ public class MigrationComplianceTests
         StringAssert.Contains(hubCompatibilityContractsText, "InstallState");
         StringAssert.Contains(hubCompatibilityContractsText, "SessionRuntime");
         StringAssert.Contains(hubCompatibilityContractsText, "HostedPublic");
+        StringAssert.Contains(hubCompatibilityContractsText, "CampaignReturn");
+        StringAssert.Contains(hubCompatibilityContractsText, "SupportClosure");
     }
 
     [TestMethod]

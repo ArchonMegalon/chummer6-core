@@ -82,6 +82,24 @@ internal static class BuildKitHandoffNarrator
         return $"The emitted build receipt can return through the selected {targetKind} after the target matches: {runtimeSummary}.";
     }
 
+    public static string DescribeCampaignReturnContract(BuildKitManifest manifest)
+    {
+        ArgumentNullException.ThrowIfNull(manifest);
+
+        if (manifest.RuntimeRequirements.Count == 0)
+        {
+            return "The emitted build receipt can return through the selected workspace or campaign lane once the grounded campaign/profile runtime is attached.";
+        }
+
+        string runtimeSummary = string.Join(
+            " | ",
+            manifest.RuntimeRequirements
+                .OrderBy(static requirement => requirement.RulesetId, StringComparer.Ordinal)
+                .Select(SummarizeRuntimeRequirement));
+
+        return $"The emitted build receipt can return through the selected workspace or campaign lane after the target matches: {runtimeSummary}.";
+    }
+
     public static string DescribeSupportClosure(BuildKitManifest manifest)
     {
         ArgumentNullException.ThrowIfNull(manifest);
