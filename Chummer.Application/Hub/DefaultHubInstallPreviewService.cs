@@ -162,12 +162,26 @@ public sealed class DefaultHubInstallPreviewService : IHubInstallPreviewService
 
     private HubProjectInstallPreviewReceipt? PreviewBuildKit(OwnerScope owner, string itemId, RuleProfileApplyTarget target, string? rulesetId)
     {
+        string? normalizedRulesetId = RulesetDefaults.NormalizeOptional(rulesetId);
+
         foreach (string candidateRulesetId in EnumerateRulesetIds(rulesetId))
         {
             BuildKitRegistryEntry? entry = _buildKitRegistryService.Get(owner, itemId, candidateRulesetId);
             if (entry is null)
             {
                 continue;
+            }
+
+            if (normalizedRulesetId is not null
+                && entry.Manifest.Targets.Count > 0
+                && !entry.Manifest.Targets.Any(targetRulesetId => string.Equals(targetRulesetId, normalizedRulesetId, StringComparison.Ordinal)))
+            {
+                return CreateDeferredReceipt(
+                    HubCatalogItemKinds.BuildKit,
+                    itemId,
+                    target,
+                    BuildKitValidationIssueKinds.RulesetMismatch,
+                    BuildBuildKitRulesetMismatchMessage(entry.Manifest, normalizedRulesetId));
             }
 
             BuildKitRuntimeRequirement? runtimeRequirement = ResolveRuntimeRequirement(entry.Manifest, candidateRulesetId);
@@ -244,6 +258,24 @@ public sealed class DefaultHubInstallPreviewService : IHubInstallPreviewService
                 SupportClosureSummary: BuildKitHandoffNarrator.DescribeSupportClosure(entry.Manifest));
         }
 
+        if (normalizedRulesetId is not null)
+        {
+            BuildKitRegistryEntry? incompatibleEntry = _buildKitRegistryService.List(owner, rulesetId: null)
+                .FirstOrDefault(entry =>
+                    string.Equals(entry.Manifest.BuildKitId, itemId, StringComparison.Ordinal)
+                    && entry.Manifest.Targets.Count > 0
+                    && !entry.Manifest.Targets.Any(targetRulesetId => string.Equals(targetRulesetId, normalizedRulesetId, StringComparison.Ordinal)));
+            if (incompatibleEntry is not null)
+            {
+                return CreateDeferredReceipt(
+                    HubCatalogItemKinds.BuildKit,
+                    itemId,
+                    target,
+                    BuildKitValidationIssueKinds.RulesetMismatch,
+                    BuildBuildKitRulesetMismatchMessage(incompatibleEntry.Manifest, normalizedRulesetId));
+            }
+        }
+
         return null;
     }
 
@@ -311,5 +343,17 @@ public sealed class DefaultHubInstallPreviewService : IHubInstallPreviewService
             Severity: HubProjectInstallPreviewDiagnosticSeverityLevels.Info,
             Message: message,
             SubjectId: itemId);
+    }
+
+    private static string BuildBuildKitRulesetMismatchMessage(BuildKitManifest manifest, string requestedRulesetId)
+    {
+        ArgumentNullException.ThrowIfNull(manifest);
+        ArgumentException.ThrowIfNullOrWhiteSpace(requestedRulesetId);
+
+        string declaredTargets = manifest.Targets.Count == 0
+            ? "an unspecified ruleset target"
+            : string.Join(", ", manifest.Targets.OrderBy(static item => item, StringComparer.Ordinal));
+
+        return $"Build path '{manifest.Title}' targets {declaredTargets}, not {requestedRulesetId}. Choose a compatible runtime lane before handoff.";
     }
 }
