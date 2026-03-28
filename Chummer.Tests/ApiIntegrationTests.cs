@@ -231,6 +231,26 @@ public class ApiIntegrationTests
     }
 
     [TestMethod]
+    public async Task Hub_project_install_preview_endpoint_returns_registered_buildkit_preview()
+    {
+        using var client = CreateClient();
+        RuleProfileApplyTarget target = new(RuleProfileApplyTargetKinds.Workspace, "workspace-1");
+
+        using HttpResponseMessage response = await client.PostAsJsonAsync("/api/hub/projects/buildkit/street-sam-starter/install-preview?ruleset=sr5", target);
+        response.EnsureSuccessStatusCode();
+        JsonNode parsed = JsonNode.Parse(await response.Content.ReadAsStringAsync());
+        Assert.IsInstanceOfType<JsonObject>(parsed);
+        JsonObject payload = (JsonObject)parsed!;
+
+        Assert.AreEqual(HubCatalogItemKinds.BuildKit, payload["kind"]?.GetValue<string>());
+        Assert.AreEqual("street-sam-starter", payload["itemId"]?.GetValue<string>());
+        Assert.AreEqual("ready", payload["state"]?.GetValue<string>());
+        Assert.AreEqual("sha256:core", payload["runtimeFingerprint"]?.GetValue<string>());
+        Assert.IsInstanceOfType<JsonArray>(payload["changes"]);
+        Assert.IsInstanceOfType<JsonArray>(payload["diagnostics"]);
+    }
+
+    [TestMethod]
     public async Task Hub_project_install_preview_endpoint_returns_not_found_for_unknown_project()
     {
         using var client = CreateClient();
@@ -693,6 +713,9 @@ public class ApiIntegrationTests
         JsonObject buildkits = await GetRequiredJsonObject(client, "/api/buildkits?ruleset=sr5");
         Assert.IsNotNull(buildkits["count"]);
         Assert.IsInstanceOfType<JsonArray>(buildkits["entries"]);
+        Assert.IsTrue(
+            buildkits["entries"]!.AsArray().OfType<JsonObject>()
+                .Any(item => string.Equals(item["manifest"]?["buildKitId"]?.GetValue<string>(), "street-sam-starter", StringComparison.Ordinal)));
     }
 
     [TestMethod]

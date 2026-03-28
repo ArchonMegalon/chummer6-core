@@ -173,7 +173,7 @@ public class HubInstallPreviewServiceTests
     }
 
     [TestMethod]
-    public void Hub_install_preview_service_returns_deferred_receipts_for_buildkits_until_apply_preview_exists()
+    public void Hub_install_preview_service_returns_ready_receipts_for_buildkits_with_runtime_receipts()
     {
         DefaultHubInstallPreviewService service = new(
             CreatePluginRegistry(),
@@ -211,9 +211,12 @@ public class HubInstallPreviewServiceTests
             RulesetDefaults.Sr5);
 
         Assert.IsNotNull(preview);
-        Assert.AreEqual(HubProjectInstallPreviewStates.Deferred, preview.State);
-        Assert.AreEqual("hub_buildkit_apply_preview_not_implemented", preview.DeferredReason);
-        Assert.AreEqual(HubProjectInstallPreviewChangeKinds.InstallDeferred, preview.Changes[0].Kind);
+        Assert.AreEqual(HubProjectInstallPreviewStates.Ready, preview.State);
+        Assert.AreEqual("sha256:core", preview.RuntimeFingerprint);
+        Assert.AreEqual(HubProjectInstallPreviewChangeKinds.InstallStateChanged, preview.Changes[0].Kind);
+        Assert.IsTrue(preview.RequiresConfirmation);
+        Assert.IsTrue(preview.Diagnostics.Any(diagnostic => diagnostic.Kind == HubProjectInstallPreviewDiagnosticKinds.Installability));
+        Assert.IsTrue(preview.Changes.Any(change => change.Summary.Contains("prompt", StringComparison.OrdinalIgnoreCase)));
     }
 
     [TestMethod]
