@@ -139,7 +139,99 @@ public sealed class DefaultBuildKitRegistryService : IBuildKitRegistryService
             Owner: new OwnerScope("system"),
             Visibility: ArtifactVisibilityModes.Public,
             PublicationStatus: BuildKitPublicationStatuses.Published,
-            UpdatedAtUtc: DateTimeOffset.Parse("2026-03-28T12:10:00+00:00"))
+            UpdatedAtUtc: DateTimeOffset.Parse("2026-03-28T12:10:00+00:00")),
+        new(
+            Manifest: new BuildKitManifest(
+                BuildKitId: "shadow-face-starter",
+                Version: "1.0.0",
+                Title: "Shadow Face Starter",
+                Description: "Talk-first SR6 preview path with explicit social-entry receipts before the first campaign handoff.",
+                Targets: [RulesetDefaults.Sr6],
+                RuntimeRequirements:
+                [
+                    new BuildKitRuntimeRequirement(
+                        RulesetId: RulesetDefaults.Sr6,
+                        RequiredRuntimeFingerprints: ["sr6.preview.v1"],
+                        RequiredRulePacks: [])
+                ],
+                Prompts:
+                [
+                    new BuildKitPromptDescriptor(
+                        PromptId: "social-lane",
+                        Kind: BuildKitPromptKinds.Choice,
+                        Label: "Social lane",
+                        Options:
+                        [
+                            new BuildKitPromptOption("silver-tongue", "Silver tongue", "Lean into pure negotiation and social pressure."),
+                            new BuildKitPromptOption("fixer-circle", "Fixer circle", "Keep the first handoff grounded in contacts and network reach.")
+                        ],
+                        Required: true)
+                ],
+                Actions:
+                [
+                    new BuildKitActionDescriptor(
+                        ActionId: "face-bundle",
+                        Kind: BuildKitActionKinds.AddBundle,
+                        TargetId: "shadow-face.bundle"),
+                    new BuildKitActionDescriptor(
+                        ActionId: "social-role",
+                        Kind: BuildKitActionKinds.SetMetadata,
+                        TargetId: "role.shadow-face",
+                        PromptId: "social-lane",
+                        Notes: "Stamp the chosen social lane into the build receipt for later campaign follow-through.")
+                ],
+                Visibility: ArtifactVisibilityModes.Public,
+                TrustTier: ArtifactTrustTiers.Curated),
+            Owner: new OwnerScope("system"),
+            Visibility: ArtifactVisibilityModes.Public,
+            PublicationStatus: BuildKitPublicationStatuses.Published,
+            UpdatedAtUtc: DateTimeOffset.Parse("2026-03-28T12:15:00+00:00")),
+        new(
+            Manifest: new BuildKitManifest(
+                BuildKitId: "arcane-scout-starter",
+                Version: "1.0.0",
+                Title: "Arcane Scout Starter",
+                Description: "Magic-first SR6 preview path that keeps recon, utility, and return-safe receipts visible.",
+                Targets: [RulesetDefaults.Sr6],
+                RuntimeRequirements:
+                [
+                    new BuildKitRuntimeRequirement(
+                        RulesetId: RulesetDefaults.Sr6,
+                        RequiredRuntimeFingerprints: ["sr6.preview.v1"],
+                        RequiredRulePacks: [])
+                ],
+                Prompts:
+                [
+                    new BuildKitPromptDescriptor(
+                        PromptId: "awakened-lane",
+                        Kind: BuildKitPromptKinds.Choice,
+                        Label: "Awakened lane",
+                        Options:
+                        [
+                            new BuildKitPromptOption("full-mage", "Full mage", "Keep the starter path broad and utility-heavy."),
+                            new BuildKitPromptOption("aspected-scout", "Aspected scout", "Stay lighter and push reconnaissance first.")
+                        ],
+                        Required: true)
+                ],
+                Actions:
+                [
+                    new BuildKitActionDescriptor(
+                        ActionId: "arcane-bundle",
+                        Kind: BuildKitActionKinds.AddBundle,
+                        TargetId: "arcane-scout.bundle"),
+                    new BuildKitActionDescriptor(
+                        ActionId: "career-scout",
+                        Kind: BuildKitActionKinds.QueueCareerUpdate,
+                        TargetId: "career.arcane-scout",
+                        PromptId: "awakened-lane",
+                        Notes: "Queue the chosen awakened lane into the next grounded progression receipt.")
+                ],
+                Visibility: ArtifactVisibilityModes.Public,
+                TrustTier: ArtifactTrustTiers.Curated),
+            Owner: new OwnerScope("system"),
+            Visibility: ArtifactVisibilityModes.Public,
+            PublicationStatus: BuildKitPublicationStatuses.Published,
+            UpdatedAtUtc: DateTimeOffset.Parse("2026-03-28T12:20:00+00:00"))
     ];
 
     public IReadOnlyList<BuildKitRegistryEntry> List(OwnerScope owner, string? rulesetId = null)

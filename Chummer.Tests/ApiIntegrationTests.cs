@@ -719,6 +719,26 @@ public class ApiIntegrationTests
     }
 
     [TestMethod]
+    public async Task Buildkits_endpoint_reports_multiple_preview_starters_for_sr6()
+    {
+        using var client = CreateClient();
+
+        JsonObject buildkits = await GetRequiredJsonObject(client, "/api/buildkits?ruleset=sr6");
+        Assert.IsNotNull(buildkits["count"]);
+        Assert.IsInstanceOfType<JsonArray>(buildkits["entries"]);
+        JsonArray entries = buildkits["entries"]!.AsArray();
+        Assert.IsTrue(
+            entries.OfType<JsonObject>()
+                .Any(item => string.Equals(item["manifest"]?["buildKitId"]?.GetValue<string>(), "edge-runner-starter", StringComparison.Ordinal)));
+        Assert.IsTrue(
+            entries.OfType<JsonObject>()
+                .Any(item => string.Equals(item["manifest"]?["buildKitId"]?.GetValue<string>(), "shadow-face-starter", StringComparison.Ordinal)));
+        Assert.IsTrue(
+            entries.OfType<JsonObject>()
+                .Any(item => string.Equals(item["manifest"]?["buildKitId"]?.GetValue<string>(), "arcane-scout-starter", StringComparison.Ordinal)));
+    }
+
+    [TestMethod]
     public async Task Buildkit_detail_endpoint_returns_not_found_for_unknown_buildkit()
     {
         using var client = CreateClient();

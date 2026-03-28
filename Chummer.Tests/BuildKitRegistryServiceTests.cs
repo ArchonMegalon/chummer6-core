@@ -23,6 +23,20 @@ public class BuildKitRegistryServiceTests
     }
 
     [TestMethod]
+    public void Default_buildkit_registry_service_returns_multiple_preview_paths_for_sr6()
+    {
+        DefaultBuildKitRegistryService service = new();
+
+        var entries = service.List(OwnerScope.LocalSingleUser, RulesetDefaults.Sr6);
+
+        Assert.IsTrue(entries.Count >= 3);
+        Assert.IsTrue(entries.Any(entry => entry.Manifest.BuildKitId == "edge-runner-starter"));
+        Assert.IsTrue(entries.Any(entry => entry.Manifest.BuildKitId == "shadow-face-starter"));
+        Assert.IsTrue(entries.Any(entry => entry.Manifest.BuildKitId == "arcane-scout-starter"));
+        Assert.IsTrue(entries.All(entry => entry.Manifest.Targets.Contains(RulesetDefaults.Sr6)));
+    }
+
+    [TestMethod]
     public void Default_buildkit_registry_service_returns_known_buildkit_for_requested_ruleset()
     {
         DefaultBuildKitRegistryService service = new();
