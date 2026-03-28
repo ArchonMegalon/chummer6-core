@@ -9,9 +9,16 @@ contracts_cache_path="$contracts_cache_root/chummer.engine.contracts/$contracts_
 
 mkdir -p "$contracts_feed_root"
 
+dotnet build "$repo_root/Chummer.Contracts/Chummer.Contracts.csproj" \
+  --configuration Debug \
+  --nologo \
+  -m:1 \
+  -p:PackageVersion="$contracts_package_version"
+
 dotnet pack "$repo_root/Chummer.Contracts/Chummer.Contracts.csproj" \
   --configuration Debug \
   --nologo \
+  --no-build \
   -m:1 \
   -p:PackageVersion="$contracts_package_version" \
   -o "$contracts_feed_root"
