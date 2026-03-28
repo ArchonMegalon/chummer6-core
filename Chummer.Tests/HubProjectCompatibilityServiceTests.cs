@@ -136,18 +136,22 @@ public class HubProjectCompatibilityServiceTests
             row.Kind == HubProjectCompatibilityRowKinds.RuntimeRequirements
             && row.Notes is not null
             && row.Notes.Contains("No extra runtime fingerprint or rule pack is pinned yet", StringComparison.Ordinal)
+            && row.Notes.Contains("rule environment", StringComparison.Ordinal)
+            && row.Notes.Contains("migration oracle", StringComparison.Ordinal)
             && row.Notes.Contains("No extra prompt resolution or grounded action staging is required", StringComparison.Ordinal)));
         Assert.IsTrue(matrix.Rows.Any(row =>
             row.Kind == HubProjectCompatibilityRowKinds.CampaignReturn
             && row.State == HubProjectCompatibilityStates.Compatible
             && row.Notes is not null
             && row.Notes.Contains("selected workspace or campaign lane", StringComparison.Ordinal)
-            && row.Notes.Contains("grounded campaign/profile runtime", StringComparison.Ordinal)));
+            && row.Notes.Contains("grounded campaign/profile runtime", StringComparison.Ordinal)
+            && row.Notes.Contains("rule environment", StringComparison.Ordinal)));
         Assert.IsTrue(matrix.Rows.Any(row =>
             row.Kind == HubProjectCompatibilityRowKinds.SupportClosure
             && row.State == HubProjectCompatibilityStates.Compatible
             && row.Notes is not null
-            && row.Notes.Contains("Support closure can cite", StringComparison.Ordinal)));
+            && row.Notes.Contains("Support closure can cite", StringComparison.Ordinal)
+            && row.Notes.Contains("rule environment", StringComparison.Ordinal)));
         Assert.IsNotNull(matrix.Capabilities);
         Assert.IsEmpty(matrix.Capabilities);
     }
@@ -208,15 +212,16 @@ public class HubProjectCompatibilityServiceTests
             row.Kind == HubProjectCompatibilityRowKinds.RuntimeRequirements
             && row.State == HubProjectCompatibilityStates.ReviewRequired
             && row.Notes is not null
-            && row.Notes.Contains("Requires a compatible campaign/profile runtime before handoff", StringComparison.Ordinal)
+            && row.Notes.Contains("Requires a compatible campaign/profile runtime and rule environment before handoff", StringComparison.Ordinal)
             && row.Notes.Contains("sha256:campaign-a", StringComparison.Ordinal)
             && row.Notes.Contains("official-errata@1.2.0", StringComparison.Ordinal)
+            && row.Notes.Contains("migration oracle", StringComparison.Ordinal)
             && row.Notes.Contains("1 prompt(s) must be resolved and 1 grounded action(s) will be staged", StringComparison.Ordinal)));
         Assert.IsTrue(matrix.Rows.Any(row =>
             row.Kind == HubProjectCompatibilityRowKinds.SessionRuntime
             && row.State == HubProjectCompatibilityStates.Blocked
             && row.Notes is not null
-            && row.Notes.Contains("compatible runtime that matches", StringComparison.Ordinal)
+            && row.Notes.Contains("compatible runtime and rule environment that match", StringComparison.Ordinal)
             && row.Notes.Contains("sha256:campaign-a", StringComparison.Ordinal)
             && row.Notes.Contains("emitted build receipt", StringComparison.Ordinal)));
         Assert.IsTrue(matrix.Rows.Any(row =>
@@ -224,12 +229,14 @@ public class HubProjectCompatibilityServiceTests
             && row.State == HubProjectCompatibilityStates.ReviewRequired
             && row.Notes is not null
             && row.Notes.Contains("selected workspace or campaign lane", StringComparison.Ordinal)
-            && row.Notes.Contains("sha256:campaign-a", StringComparison.Ordinal)));
+            && row.Notes.Contains("sha256:campaign-a", StringComparison.Ordinal)
+            && row.Notes.Contains("migration oracle", StringComparison.Ordinal)));
         Assert.IsTrue(matrix.Rows.Any(row =>
             row.Kind == HubProjectCompatibilityRowKinds.SupportClosure
             && row.State == HubProjectCompatibilityStates.ReviewRequired
             && row.Notes is not null
             && row.Notes.Contains("Support closure can reuse", StringComparison.Ordinal)
+            && row.Notes.Contains("migration-oracle contract", StringComparison.Ordinal)
             && row.Notes.Contains("official-errata@1.2.0", StringComparison.Ordinal)));
     }
 

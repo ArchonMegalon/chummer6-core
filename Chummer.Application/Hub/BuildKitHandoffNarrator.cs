@@ -28,7 +28,7 @@ internal static class BuildKitHandoffNarrator
         string stagingSummary = DescribeReceiptStaging(manifest);
         if (manifest.RuntimeRequirements.Count == 0)
         {
-            return $"No extra runtime fingerprint or rule pack is pinned yet; hand the emitted build receipt into the grounded campaign/profile runtime already approved for the workspace. {stagingSummary}";
+            return $"No extra runtime fingerprint or rule pack is pinned yet; hand the emitted build receipt into the grounded campaign/profile runtime and rule environment already approved for the workspace. The migration oracle stays shallow because no extra compatibility bridge is required. {stagingSummary}";
         }
 
         string runtimeSummary = string.Join(
@@ -37,7 +37,7 @@ internal static class BuildKitHandoffNarrator
                 .OrderBy(static requirement => requirement.RulesetId, StringComparer.Ordinal)
                 .Select(SummarizeRuntimeRequirement));
 
-        return $"Requires a compatible campaign/profile runtime before handoff: {runtimeSummary}. {stagingSummary}";
+        return $"Requires a compatible campaign/profile runtime and rule environment before handoff: {runtimeSummary}. The migration oracle and campaign receipts should reuse the same contract during restore and support closure. {stagingSummary}";
     }
 
     public static string DescribeSessionRuntimeHandoff(BuildKitManifest manifest)
@@ -47,7 +47,7 @@ internal static class BuildKitHandoffNarrator
         string stagingSummary = DescribeReceiptStaging(manifest);
         if (manifest.RuntimeRequirements.Count == 0)
         {
-            return $"Apply this build path in the workbench first, then hand the emitted build receipt into the grounded campaign/profile runtime. {stagingSummary}";
+            return $"Apply this build path in the workbench first, then hand the emitted build receipt into the grounded campaign/profile runtime and rule environment. {stagingSummary}";
         }
 
         string runtimeSummary = string.Join(
@@ -56,7 +56,7 @@ internal static class BuildKitHandoffNarrator
                 .OrderBy(static requirement => requirement.RulesetId, StringComparer.Ordinal)
                 .Select(SummarizeRuntimeRequirement));
 
-        return $"Apply this build path in the workbench first, then hand the emitted build receipt into a compatible runtime that matches: {runtimeSummary}. {stagingSummary}";
+        return $"Apply this build path in the workbench first, then hand the emitted build receipt into a compatible runtime and rule environment that match: {runtimeSummary}. {stagingSummary}";
     }
 
     public static string DescribeCampaignReturn(BuildKitManifest manifest, RuleProfileApplyTarget target)
@@ -70,7 +70,7 @@ internal static class BuildKitHandoffNarrator
 
         if (manifest.RuntimeRequirements.Count == 0)
         {
-            return $"The emitted build receipt can return through the selected {targetKind} once the grounded campaign/profile runtime is attached.";
+            return $"The emitted build receipt can return through the selected {targetKind} once the grounded campaign/profile runtime and rule environment are attached.";
         }
 
         string runtimeSummary = string.Join(
@@ -79,7 +79,7 @@ internal static class BuildKitHandoffNarrator
                 .OrderBy(static requirement => requirement.RulesetId, StringComparer.Ordinal)
                 .Select(SummarizeRuntimeRequirement));
 
-        return $"The emitted build receipt can return through the selected {targetKind} after the target matches: {runtimeSummary}.";
+        return $"The emitted build receipt can return through the selected {targetKind} after the target matches: {runtimeSummary}. Keep the migration oracle aligned with the same rule-environment contract before reopening play.";
     }
 
     public static string DescribeCampaignReturnContract(BuildKitManifest manifest)
@@ -88,7 +88,7 @@ internal static class BuildKitHandoffNarrator
 
         if (manifest.RuntimeRequirements.Count == 0)
         {
-            return "The emitted build receipt can return through the selected workspace or campaign lane once the grounded campaign/profile runtime is attached.";
+            return "The emitted build receipt can return through the selected workspace or campaign lane once the grounded campaign/profile runtime and rule environment are attached.";
         }
 
         string runtimeSummary = string.Join(
@@ -97,7 +97,7 @@ internal static class BuildKitHandoffNarrator
                 .OrderBy(static requirement => requirement.RulesetId, StringComparer.Ordinal)
                 .Select(SummarizeRuntimeRequirement));
 
-        return $"The emitted build receipt can return through the selected workspace or campaign lane after the target matches: {runtimeSummary}.";
+        return $"The emitted build receipt can return through the selected workspace or campaign lane after the target matches: {runtimeSummary}. Keep the migration oracle aligned with the same rule-environment contract before reopening play.";
     }
 
     public static string DescribeSupportClosure(BuildKitManifest manifest)
@@ -106,7 +106,7 @@ internal static class BuildKitHandoffNarrator
 
         if (manifest.RuntimeRequirements.Count == 0)
         {
-            return "Support closure can cite the same grounded runtime once this build receipt lands.";
+            return "Support closure can cite the same grounded runtime and rule environment once this build receipt lands.";
         }
 
         string runtimeSummary = string.Join(
@@ -115,7 +115,7 @@ internal static class BuildKitHandoffNarrator
                 .OrderBy(static requirement => requirement.RulesetId, StringComparer.Ordinal)
                 .Select(SummarizeRuntimeRequirement));
 
-        return $"Support closure can reuse the same runtime and rule-pack contract after handoff: {runtimeSummary}.";
+        return $"Support closure can reuse the same runtime, rule-pack, and migration-oracle contract after handoff: {runtimeSummary}.";
     }
 
     public static string DescribeReceiptStaging(BuildKitManifest manifest)
