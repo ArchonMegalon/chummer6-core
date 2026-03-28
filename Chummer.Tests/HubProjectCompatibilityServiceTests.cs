@@ -129,10 +129,14 @@ public class HubProjectCompatibilityServiceTests
         Assert.IsTrue(matrix.Rows.Any(row =>
             row.Kind == HubProjectCompatibilityRowKinds.SessionRuntime
             && row.State == HubProjectCompatibilityStates.Blocked
-            && row.NotesKey == "hub.project.compatibility.notes.session-runtime.buildkit-blocked"));
+            && row.Notes is not null
+            && row.Notes.Contains("emitted build receipt", StringComparison.Ordinal)
+            && row.Notes.Contains("grounded campaign/profile runtime", StringComparison.Ordinal)));
         Assert.IsTrue(matrix.Rows.Any(row =>
             row.Kind == HubProjectCompatibilityRowKinds.RuntimeRequirements
-            && row.Notes == "BuildKits may require a campaign or profile runtime."));
+            && row.Notes is not null
+            && row.Notes.Contains("No extra runtime fingerprint or rule pack is pinned yet", StringComparison.Ordinal)
+            && row.Notes.Contains("No extra prompt resolution or grounded action staging is required", StringComparison.Ordinal)));
         Assert.IsNotNull(matrix.Capabilities);
         Assert.IsEmpty(matrix.Capabilities);
     }
@@ -160,8 +164,22 @@ public class HubProjectCompatibilityServiceTests
                                 RequiredRuntimeFingerprints: ["sha256:campaign-a"],
                                 RequiredRulePacks: [new ArtifactVersionReference("official-errata", "1.2.0")])
                         ],
-                        Prompts: [],
-                        Actions: [],
+                        Prompts:
+                        [
+                            new BuildKitPromptDescriptor(
+                                PromptId: "matrix-lane",
+                                Kind: BuildKitPromptKinds.Choice,
+                                Label: "Matrix lane",
+                                Options: [new BuildKitPromptOption("stealth", "Stealth")],
+                                Required: true)
+                        ],
+                        Actions:
+                        [
+                            new BuildKitActionDescriptor(
+                                ActionId: "queue-specialty",
+                                Kind: BuildKitActionKinds.QueueCareerUpdate,
+                                TargetId: "career.matrix-operator")
+                        ],
                         Visibility: ArtifactVisibilityModes.Public,
                         TrustTier: ArtifactTrustTiers.Curated),
                     Owner: new OwnerScope("system"),
@@ -179,14 +197,17 @@ public class HubProjectCompatibilityServiceTests
             row.Kind == HubProjectCompatibilityRowKinds.RuntimeRequirements
             && row.State == HubProjectCompatibilityStates.ReviewRequired
             && row.Notes is not null
+            && row.Notes.Contains("Requires a compatible campaign/profile runtime before handoff", StringComparison.Ordinal)
             && row.Notes.Contains("sha256:campaign-a", StringComparison.Ordinal)
-            && row.Notes.Contains("official-errata@1.2.0", StringComparison.Ordinal)));
+            && row.Notes.Contains("official-errata@1.2.0", StringComparison.Ordinal)
+            && row.Notes.Contains("1 prompt(s) must be resolved and 1 grounded action(s) will be staged", StringComparison.Ordinal)));
         Assert.IsTrue(matrix.Rows.Any(row =>
             row.Kind == HubProjectCompatibilityRowKinds.SessionRuntime
             && row.State == HubProjectCompatibilityStates.Blocked
             && row.Notes is not null
-            && row.Notes.Contains("compatible runtime", StringComparison.Ordinal)
-            && row.Notes.Contains("sha256:campaign-a", StringComparison.Ordinal)));
+            && row.Notes.Contains("compatible runtime that matches", StringComparison.Ordinal)
+            && row.Notes.Contains("sha256:campaign-a", StringComparison.Ordinal)
+            && row.Notes.Contains("emitted build receipt", StringComparison.Ordinal)));
     }
 
     [TestMethod]

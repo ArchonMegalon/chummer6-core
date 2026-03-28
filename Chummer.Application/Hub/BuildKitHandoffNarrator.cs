@@ -1,0 +1,74 @@
+using Chummer.Contracts.Content;
+
+namespace Chummer.Application.Hub;
+
+internal static class BuildKitHandoffNarrator
+{
+    public static string SummarizeRuntimeRequirement(BuildKitRuntimeRequirement requirement)
+    {
+        ArgumentNullException.ThrowIfNull(requirement);
+
+        string runtimeText = requirement.RequiredRuntimeFingerprints.Count == 0
+            ? "any grounded runtime fingerprint"
+            : string.Join(", ", requirement.RequiredRuntimeFingerprints.OrderBy(static item => item, StringComparer.Ordinal));
+        string packText = requirement.RequiredRulePacks.Count == 0
+            ? "no extra rule packs"
+            : string.Join(", ", requirement.RequiredRulePacks
+                .OrderBy(static item => item.Id, StringComparer.Ordinal)
+                .ThenBy(static item => item.Version, StringComparer.Ordinal)
+                .Select(static item => $"{item.Id}@{item.Version}"));
+
+        return $"{requirement.RulesetId}: {runtimeText}; {packText}";
+    }
+
+    public static string DescribeRuntimeRequirements(BuildKitManifest manifest)
+    {
+        ArgumentNullException.ThrowIfNull(manifest);
+
+        string stagingSummary = DescribeReceiptStaging(manifest);
+        if (manifest.RuntimeRequirements.Count == 0)
+        {
+            return $"No extra runtime fingerprint or rule pack is pinned yet; hand the emitted build receipt into the grounded campaign/profile runtime already approved for the workspace. {stagingSummary}";
+        }
+
+        string runtimeSummary = string.Join(
+            " | ",
+            manifest.RuntimeRequirements
+                .OrderBy(static requirement => requirement.RulesetId, StringComparer.Ordinal)
+                .Select(SummarizeRuntimeRequirement));
+
+        return $"Requires a compatible campaign/profile runtime before handoff: {runtimeSummary}. {stagingSummary}";
+    }
+
+    public static string DescribeSessionRuntimeHandoff(BuildKitManifest manifest)
+    {
+        ArgumentNullException.ThrowIfNull(manifest);
+
+        string stagingSummary = DescribeReceiptStaging(manifest);
+        if (manifest.RuntimeRequirements.Count == 0)
+        {
+            return $"Apply this build path in the workbench first, then hand the emitted build receipt into the grounded campaign/profile runtime. {stagingSummary}";
+        }
+
+        string runtimeSummary = string.Join(
+            " | ",
+            manifest.RuntimeRequirements
+                .OrderBy(static requirement => requirement.RulesetId, StringComparer.Ordinal)
+                .Select(SummarizeRuntimeRequirement));
+
+        return $"Apply this build path in the workbench first, then hand the emitted build receipt into a compatible runtime that matches: {runtimeSummary}. {stagingSummary}";
+    }
+
+    public static string DescribeReceiptStaging(BuildKitManifest manifest)
+    {
+        ArgumentNullException.ThrowIfNull(manifest);
+
+        return (manifest.Prompts.Count, manifest.Actions.Count) switch
+        {
+            (0, 0) => "No extra prompt resolution or grounded action staging is required.",
+            (0, > 0) => $"{manifest.Actions.Count} grounded action(s) will be staged into the emitted build receipt.",
+            (> 0, 0) => $"{manifest.Prompts.Count} prompt(s) must be resolved before the build receipt can be emitted.",
+            _ => $"{manifest.Prompts.Count} prompt(s) must be resolved and {manifest.Actions.Count} grounded action(s) will be staged into the emitted build receipt."
+        };
+    }
+}

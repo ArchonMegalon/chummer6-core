@@ -164,16 +164,15 @@ public sealed class DefaultHubProjectCompatibilityService : IHubProjectCompatibi
                         Label: GetDefaultLabel(HubProjectCompatibilityRowKinds.RuntimeRequirements),
                         State: entry.Manifest.RuntimeRequirements.Count == 0 ? HubProjectCompatibilityStates.Compatible : HubProjectCompatibilityStates.ReviewRequired,
                         CurrentValue: entry.Manifest.RuntimeRequirements.Count.ToString(),
-                        Notes: SummarizeBuildKitRuntimeRequirements(entry.Manifest.RuntimeRequirements),
+                        Notes: BuildKitHandoffNarrator.DescribeRuntimeRequirements(entry.Manifest),
                         LabelKey: GetDefaultLabelKey(HubProjectCompatibilityRowKinds.RuntimeRequirements),
-                        NotesKey: entry.Manifest.RuntimeRequirements.Count == 0 ? "hub.project.compatibility.notes.runtime-requirements.buildkit" : null,
                         NotesParameters: []),
                     CreateSessionRuntimeSummaryRow(
                         HubProjectCompatibilityStates.Blocked,
                         "workbench-only",
-                        entry.Manifest.RuntimeRequirements.Count == 0 ? "hub.project.compatibility.notes.session-runtime.buildkit-blocked" : null,
+                        null,
                         [],
-                        BuildBuildKitSessionRuntimeNotes(entry.Manifest.RuntimeRequirements))
+                        BuildKitHandoffNarrator.DescribeSessionRuntimeHandoff(entry.Manifest))
                 ],
                 GeneratedAtUtc: DateTimeOffset.UtcNow,
                 Capabilities: []);
@@ -370,43 +369,6 @@ public sealed class DefaultHubProjectCompatibilityService : IHubProjectCompatibi
         }
 
         return null;
-    }
-
-    private static string SummarizeBuildKitRuntimeRequirements(IReadOnlyList<BuildKitRuntimeRequirement> requirements)
-    {
-        if (requirements.Count == 0)
-        {
-            return "BuildKits may require a campaign or profile runtime.";
-        }
-
-        string[] summaries = requirements
-            .OrderBy(static requirement => requirement.RulesetId, StringComparer.Ordinal)
-            .Select(static requirement =>
-            {
-                string runtimeFingerprints = requirement.RequiredRuntimeFingerprints.Count == 0
-                    ? "any grounded runtime fingerprint"
-                    : string.Join(", ", requirement.RequiredRuntimeFingerprints.OrderBy(static item => item, StringComparer.Ordinal));
-                string rulePacks = requirement.RequiredRulePacks.Count == 0
-                    ? "no extra rule packs"
-                    : string.Join(", ", requirement.RequiredRulePacks
-                        .OrderBy(static item => item.Id, StringComparer.Ordinal)
-                        .ThenBy(static item => item.Version, StringComparer.Ordinal)
-                        .Select(static item => $"{item.Id}@{item.Version}"));
-                return $"{requirement.RulesetId}: {runtimeFingerprints}; {rulePacks}";
-            })
-            .ToArray();
-
-        return $"Requires a compatible campaign/profile runtime before handoff: {string.Join(" | ", summaries)}.";
-    }
-
-    private static string BuildBuildKitSessionRuntimeNotes(IReadOnlyList<BuildKitRuntimeRequirement> requirements)
-    {
-        if (requirements.Count == 0)
-        {
-            return "Apply this build path in the workbench first, then hand it off into the grounded campaign/profile runtime.";
-        }
-
-        return $"Apply this build path in the workbench first, then hand it off into a compatible runtime that matches: {SummarizeBuildKitRuntimeRequirements(requirements)}";
     }
 
     private static string GetDefaultLabel(string kind) => kind switch
