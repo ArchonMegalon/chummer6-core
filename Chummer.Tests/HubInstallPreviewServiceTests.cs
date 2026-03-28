@@ -222,6 +222,55 @@ public class HubInstallPreviewServiceTests
     }
 
     [TestMethod]
+    public void Hub_install_preview_service_defers_buildkits_when_requested_ruleset_mismatches_target()
+    {
+        DefaultHubInstallPreviewService service = new(
+            CreatePluginRegistry(),
+            new RulePackInstallServiceStub(null),
+            new RuleProfileRegistryServiceStub(null),
+            new RuleProfileApplicationServiceStub(null),
+            new RuntimeLockInstallServiceStub(null),
+            new RuntimeLockRegistryServiceStub(null),
+            new RulePackRegistryServiceStub([]),
+            new BuildKitRegistryServiceStub(
+            [
+                new BuildKitRegistryEntry(
+                    new BuildKitManifest(
+                        BuildKitId: "sr6-mage-starter",
+                        Version: "1.0.0",
+                        Title: "SR6 Mage Starter",
+                        Description: "Starter template.",
+                        Targets: ["sr6"],
+                        RuntimeRequirements: [],
+                        Prompts: [],
+                        Actions: [],
+                        Visibility: ArtifactVisibilityModes.Public,
+                        TrustTier: ArtifactTrustTiers.Curated),
+                    Owner: new OwnerScope("system"),
+                    Visibility: ArtifactVisibilityModes.Public,
+                    PublicationStatus: BuildKitPublicationStatuses.Published,
+                    UpdatedAtUtc: DateTimeOffset.UtcNow)
+            ]));
+
+        HubProjectInstallPreviewReceipt? preview = service.Preview(
+            OwnerScope.LocalSingleUser,
+            HubCatalogItemKinds.BuildKit,
+            "sr6-mage-starter",
+            new RuleProfileApplyTarget(RuleProfileApplyTargetKinds.Workspace, "workspace-1"),
+            RulesetDefaults.Sr5);
+
+        Assert.IsNotNull(preview);
+        Assert.AreEqual(HubProjectInstallPreviewStates.Deferred, preview.State);
+        Assert.AreEqual(BuildKitValidationIssueKinds.RulesetMismatch, preview.DeferredReason);
+        Assert.AreEqual(HubProjectInstallPreviewChangeKinds.InstallDeferred, preview.Changes[0].Kind);
+        Assert.IsTrue(preview.Changes[0].Summary.Contains("targets sr6, not sr5", StringComparison.Ordinal));
+        Assert.IsTrue(preview.Diagnostics[0].Message.Contains("Choose a compatible runtime lane before handoff", StringComparison.Ordinal));
+        Assert.IsNull(preview.RuntimeCompatibilitySummary);
+        Assert.IsNull(preview.CampaignReturnSummary);
+        Assert.IsNull(preview.SupportClosureSummary);
+    }
+
+    [TestMethod]
     public void Hub_install_preview_service_maps_rulepack_preview_receipts_and_install_state()
     {
         DefaultHubInstallPreviewService service = new(
