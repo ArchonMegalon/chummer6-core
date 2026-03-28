@@ -177,7 +177,7 @@ public sealed class DefaultHubInstallPreviewService : IHubInstallPreviewService
 
             if (runtimeRequirement is not null)
             {
-                string runtimeSummary = SummarizeRuntimeRequirement(runtimeRequirement);
+                string runtimeSummary = BuildKitHandoffNarrator.SummarizeRuntimeRequirement(runtimeRequirement);
                 changes.Add(
                     new HubProjectInstallPreviewChange(
                         Kind: HubProjectInstallPreviewChangeKinds.InstallStateChanged,
@@ -238,7 +238,10 @@ public sealed class DefaultHubInstallPreviewService : IHubInstallPreviewService
                 Changes: changes.ToArray(),
                 Diagnostics: diagnostics,
                 RuntimeFingerprint: runtimeRequirement?.RequiredRuntimeFingerprints.FirstOrDefault(),
-                RequiresConfirmation: requiresConfirmation);
+                RequiresConfirmation: requiresConfirmation,
+                RuntimeCompatibilitySummary: BuildKitHandoffNarrator.DescribeRuntimeRequirements(entry.Manifest),
+                CampaignReturnSummary: BuildKitHandoffNarrator.DescribeCampaignReturn(entry.Manifest, target),
+                SupportClosureSummary: BuildKitHandoffNarrator.DescribeSupportClosure(entry.Manifest));
         }
 
         return null;
@@ -248,17 +251,6 @@ public sealed class DefaultHubInstallPreviewService : IHubInstallPreviewService
         => manifest.RuntimeRequirements.FirstOrDefault(requirement =>
                string.Equals(requirement.RulesetId, rulesetId, StringComparison.Ordinal))
            ?? manifest.RuntimeRequirements.FirstOrDefault();
-
-    private static string SummarizeRuntimeRequirement(BuildKitRuntimeRequirement requirement)
-    {
-        string runtimeText = requirement.RequiredRuntimeFingerprints.Count == 0
-            ? "the current approved runtime"
-            : string.Join(", ", requirement.RequiredRuntimeFingerprints);
-        string packText = requirement.RequiredRulePacks.Count == 0
-            ? "no extra rule packs"
-            : string.Join(", ", requirement.RequiredRulePacks.Select(static reference => $"{reference.Id}@{reference.Version}"));
-        return $"runtime {runtimeText} with {packText}";
-    }
 
     private IEnumerable<string> EnumerateRulesetIds(string? rulesetId)
     {

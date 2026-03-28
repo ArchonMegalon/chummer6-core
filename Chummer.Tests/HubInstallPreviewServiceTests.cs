@@ -212,11 +212,13 @@ public class HubInstallPreviewServiceTests
 
         Assert.IsNotNull(preview);
         Assert.AreEqual(HubProjectInstallPreviewStates.Ready, preview.State);
-        Assert.AreEqual("sha256:core", preview.RuntimeFingerprint);
+        Assert.IsNull(preview.RuntimeFingerprint);
         Assert.AreEqual(HubProjectInstallPreviewChangeKinds.InstallStateChanged, preview.Changes[0].Kind);
-        Assert.IsTrue(preview.RequiresConfirmation);
+        Assert.IsFalse(preview.RequiresConfirmation);
         Assert.IsTrue(preview.Diagnostics.Any(diagnostic => diagnostic.Kind == HubProjectInstallPreviewDiagnosticKinds.Installability));
-        Assert.IsTrue(preview.Changes.Any(change => change.Summary.Contains("prompt", StringComparison.OrdinalIgnoreCase)));
+        Assert.IsTrue(preview.RuntimeCompatibilitySummary?.Contains("grounded campaign/profile runtime", StringComparison.Ordinal) == true);
+        Assert.IsTrue(preview.CampaignReturnSummary?.Contains("selected workspace", StringComparison.Ordinal) == true);
+        Assert.IsTrue(preview.SupportClosureSummary?.Contains("grounded runtime", StringComparison.Ordinal) == true);
     }
 
     [TestMethod]
