@@ -219,8 +219,9 @@ Progress: published `docs/WORKSPACE_RETENTION_POLICY.md`; added `RUNBOOK_MODE=re
 - [ ] `MIG-094` Publish first-class release artifacts for API, Blazor, and Avalonia.
 Acceptance criteria: CI produces versioned, reproducible deliverables for all active heads and documents deployment procedures.
 
-- [ ] `MIG-095` Add benchmark guardrails for import/section/save paths.
+- [x] `MIG-095` Add benchmark guardrails for import/section/save paths.
 Acceptance criteria: `Chummer.Benchmarks` includes migration-critical workloads with performance budgets checked in CI.
+Progress: `Chummer.Benchmarks` now measures the `workspace.import.bastion`, `workspace.section.skills.bastion`, and `workspace.save.bastion` migration workloads against a real `.chum5` fixture, `workspace-benchmark-budgets.json` carries explicit latency/allocation ceilings, and workflow `benchmark-guardrails.yml` enforces those budgets on `main`/`Docker` pushes and PRs while publishing the measured results artifact.
 
 ### Phase 10: Public portal and tunnel gateway
 

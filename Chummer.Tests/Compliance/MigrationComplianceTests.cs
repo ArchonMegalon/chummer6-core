@@ -164,6 +164,39 @@ public class MigrationComplianceTests
     }
 
     [TestMethod]
+    public void Migration_workspace_benchmarks_are_budgeted_in_ci()
+    {
+        string workflowPath = FindPath(".github", "workflows", "benchmark-guardrails.yml");
+        string workflowText = File.ReadAllText(workflowPath);
+        string benchmarkProjectPath = FindPath("Chummer.Benchmarks", "Chummer.Benchmarks.csproj");
+        string benchmarkProjectText = File.ReadAllText(benchmarkProjectPath);
+        string benchmarkProgramPath = FindPath("Chummer.Benchmarks", "Program.cs");
+        string benchmarkProgramText = File.ReadAllText(benchmarkProgramPath);
+        string benchmarkWorkloadPath = FindPath("Chummer.Benchmarks", "MigrationWorkspaceBenchmarks.cs");
+        string benchmarkWorkloadText = File.ReadAllText(benchmarkWorkloadPath);
+        string budgetPath = FindPath("Chummer.Benchmarks", "workspace-benchmark-budgets.json");
+        string budgetText = File.ReadAllText(budgetPath);
+        string backlogPath = FindPath("docs", "MIGRATION_BACKLOG.md");
+        string backlogText = File.ReadAllText(backlogPath);
+
+        StringAssert.Contains(workflowText, "dotnet run --project Chummer.Benchmarks/Chummer.Benchmarks.csproj -c Release --");
+        StringAssert.Contains(workflowText, "--budget-check");
+        StringAssert.Contains(workflowText, "Chummer.Benchmarks/workspace-benchmark-budgets.json");
+        StringAssert.Contains(workflowText, "migration-workspace-benchmark-results.json");
+        StringAssert.Contains(benchmarkProjectText, "<TargetFramework>net10.0</TargetFramework>");
+        StringAssert.Contains(benchmarkProjectText, @"..\Chummer.Application\Chummer.Application.csproj");
+        StringAssert.Contains(benchmarkProjectText, @"..\Chummer.Infrastructure\Chummer.Infrastructure.csproj");
+        StringAssert.Contains(benchmarkProgramText, "BenchmarkBudgetRunner.MeasureAndOptionallyCheck");
+        StringAssert.Contains(benchmarkWorkloadText, "workspace.import.bastion");
+        StringAssert.Contains(benchmarkWorkloadText, "workspace.section.skills.bastion");
+        StringAssert.Contains(benchmarkWorkloadText, "workspace.save.bastion");
+        StringAssert.Contains(budgetText, "workspace.import.bastion");
+        StringAssert.Contains(budgetText, "workspace.section.skills.bastion");
+        StringAssert.Contains(budgetText, "workspace.save.bastion");
+        StringAssert.Contains(backlogText, "MIG-095");
+    }
+
+    [TestMethod]
     public void Session_routes_define_explicit_mobile_boundary_with_owner_backed_profile_and_bundle_seams()
     {
         string apiProgramPath = FindPath("Chummer.Api", "Program.cs");
