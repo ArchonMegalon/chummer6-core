@@ -130,8 +130,63 @@ public class HubProjectCompatibilityServiceTests
             row.Kind == HubProjectCompatibilityRowKinds.SessionRuntime
             && row.State == HubProjectCompatibilityStates.Blocked
             && row.NotesKey == "hub.project.compatibility.notes.session-runtime.buildkit-blocked"));
+        Assert.IsTrue(matrix.Rows.Any(row =>
+            row.Kind == HubProjectCompatibilityRowKinds.RuntimeRequirements
+            && row.Notes == "BuildKits may require a campaign or profile runtime."));
         Assert.IsNotNull(matrix.Capabilities);
         Assert.IsEmpty(matrix.Capabilities);
+    }
+
+    [TestMethod]
+    public void Hub_project_compatibility_service_summarizes_buildkit_runtime_requirements_for_campaign_handoff()
+    {
+        DefaultHubProjectCompatibilityService service = new(
+            CreatePluginRegistry(),
+            new RulePackRegistryServiceStub([]),
+            new RuleProfileRegistryServiceStub([]),
+            new BuildKitRegistryServiceStub(
+            [
+                new BuildKitRegistryEntry(
+                    new BuildKitManifest(
+                        BuildKitId: "matrix-operator",
+                        Version: "1.1.0",
+                        Title: "Matrix Operator",
+                        Description: "Decker planning lane.",
+                        Targets: [RulesetDefaults.Sr5],
+                        RuntimeRequirements:
+                        [
+                            new BuildKitRuntimeRequirement(
+                                RulesetId: RulesetDefaults.Sr5,
+                                RequiredRuntimeFingerprints: ["sha256:campaign-a"],
+                                RequiredRulePacks: [new ArtifactVersionReference("official-errata", "1.2.0")])
+                        ],
+                        Prompts: [],
+                        Actions: [],
+                        Visibility: ArtifactVisibilityModes.Public,
+                        TrustTier: ArtifactTrustTiers.Curated),
+                    Owner: new OwnerScope("system"),
+                    Visibility: ArtifactVisibilityModes.Public,
+                    PublicationStatus: BuildKitPublicationStatuses.Published,
+                    UpdatedAtUtc: System.DateTimeOffset.UtcNow)
+            ]),
+            new RuntimeInspectorServiceStub(null),
+            new RuntimeLockRegistryServiceStub(null));
+
+        HubProjectCompatibilityMatrix? matrix = service.GetMatrix(OwnerScope.LocalSingleUser, HubCatalogItemKinds.BuildKit, "matrix-operator", RulesetDefaults.Sr5);
+
+        Assert.IsNotNull(matrix);
+        Assert.IsTrue(matrix.Rows.Any(row =>
+            row.Kind == HubProjectCompatibilityRowKinds.RuntimeRequirements
+            && row.State == HubProjectCompatibilityStates.ReviewRequired
+            && row.Notes is not null
+            && row.Notes.Contains("sha256:campaign-a", StringComparison.Ordinal)
+            && row.Notes.Contains("official-errata@1.2.0", StringComparison.Ordinal)));
+        Assert.IsTrue(matrix.Rows.Any(row =>
+            row.Kind == HubProjectCompatibilityRowKinds.SessionRuntime
+            && row.State == HubProjectCompatibilityStates.Blocked
+            && row.Notes is not null
+            && row.Notes.Contains("compatible runtime", StringComparison.Ordinal)
+            && row.Notes.Contains("sha256:campaign-a", StringComparison.Ordinal)));
     }
 
     [TestMethod]
