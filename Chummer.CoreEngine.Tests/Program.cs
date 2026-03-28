@@ -5,6 +5,7 @@ using Chummer.Application.Explain;
 using Chummer.Application.Hub;
 using Chummer.Application.Journal;
 using Chummer.Application.Session;
+using Chummer.Application.Simulation;
 using Chummer.Application.Validation;
 using Chummer.Contracts;
 using Chummer.Contracts.AI;
@@ -16,6 +17,7 @@ using Chummer.Contracts.Journal;
 using Chummer.Contracts.Owners;
 using Chummer.Contracts.Rulesets;
 using Chummer.Contracts.Session;
+using Chummer.Contracts.Simulation;
 using Chummer.Contracts.Validation;
 using Chummer.Rulesets.Hosting;
 using Chummer.Rulesets.Sr4;
@@ -64,6 +66,7 @@ internal static class CoreEngineTests
             ValidationSummaryAndExplainHookCompositionStayDeterministic();
             BuildLabOutputsAreDeterministicAndLocalized();
             ContentInstallPreviewsEmitLocalizationKeys();
+            RelationshipHeatSimulationStaysDeterministic();
             Console.WriteLine("core-engine-tests: ok");
             return 0;
         }
@@ -1855,6 +1858,44 @@ internal static class CoreEngineTests
                 string.Equals(change.Summary, change.SummaryKey, StringComparison.Ordinal)
                 && change.SummaryParameters is { Count: > 0 }),
             "RuleProfile previews should keep summary payloads localization-ready.");
+    }
+
+    private static void RelationshipHeatSimulationStaysDeterministic()
+    {
+        DefaultRelationshipHeatService service = new();
+
+        HeatComputationResult heat = service.ComputeHeat(new HeatComputationInput(
+            MatrixHeat: 12m,
+            LawEnforcementHeat: 9m,
+            CorpAttention: 8m,
+            MagicalAttention: 6m,
+            DistrictAlertness: 5m));
+        PublicAwarenessComputationResult awareness = service.ComputePublicAwareness(new PublicAwarenessComputationInput(
+            Notoriety: 6m,
+            StreetCred: 2m,
+            ExistingPublicAwareness: 10m));
+        FavorDebtComputationResult debt = service.ComputeFavorDebt(new FavorDebtComputationInput(
+            ExistingDebt: 4m,
+            FavorValue: 3m,
+            IsRepayment: false));
+        FavorDebtComputationResult repayment = service.ComputeFavorDebt(new FavorDebtComputationInput(
+            ExistingDebt: debt.UpdatedDebt,
+            FavorValue: 2m,
+            IsRepayment: true));
+        FactionResponseSeed faction = service.ComputeFactionResponseSeed(
+            factionId: "redmond-watch",
+            hostility: 24m,
+            exposure: 32m);
+
+        AssertEx.Equal(40m, heat.CompositeHeat, "Relationship heat should sum the governed attention channels.");
+        AssertEx.Equal("heat.high", heat.ThresholdKey, "Relationship heat should resolve the deterministic threshold band.");
+        AssertEx.Equal(12.5m, awareness.PublicAwareness, "Public awareness should compose notoriety, street cred, and existing awareness deterministically.");
+        AssertEx.Equal(2.5m, awareness.Delta, "Public awareness should emit the deterministic delta from the existing baseline.");
+        AssertEx.Equal(7m, debt.UpdatedDebt, "Favor debt should increase by the normalized request value.");
+        AssertEx.Equal(5m, repayment.UpdatedDebt, "Favor debt repayment should lower the governed debt without dropping below zero.");
+        AssertEx.Equal("redmond-watch", faction.FactionId, "Faction response seeds should preserve faction ids.");
+        AssertEx.Equal(48m, faction.ResponseScore, "Faction response seeds should combine hostility and exposure deterministically.");
+        AssertEx.SequenceEqual(faction.ResponseTags, ["faction.response.high"], "Faction response seeds should emit the deterministic response tag.");
     }
 
     private static RuleProfileRegistryEntry CreateProfile()
