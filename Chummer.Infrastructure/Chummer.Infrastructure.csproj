@@ -6,7 +6,7 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\Chummer.Application\Chummer.Application.csproj" />
-    <PackageReference Include="Chummer.Engine.Contracts" Version="$(ChummerEngineContractsPackageVersion)" />
+    <ProjectReference Include="..\Chummer.Contracts\Chummer.Contracts.csproj" />
     <ProjectReference Include="..\Chummer.Rulesets.Hosting\Chummer.Rulesets.Hosting.csproj" />
     <ProjectReference Include="..\Chummer.Rulesets.Sr5\Chummer.Rulesets.Sr5.csproj" />
     <ProjectReference Include="..\Chummer.Rulesets.Sr6\Chummer.Rulesets.Sr6.csproj" />

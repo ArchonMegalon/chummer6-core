@@ -5,7 +5,7 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="Chummer.Engine.Contracts" Version="$(ChummerEngineContractsPackageVersion)" />
+    <ProjectReference Include="..\Chummer.Contracts\Chummer.Contracts.csproj" />
     <Reference Include="Chummer.Hub.Registry.Contracts">
       <HintPath>..\..\chummer-hub-registry\Chummer.Hub.Registry.Contracts\bin\$(Configuration)\net10.0\Chummer.Hub.Registry.Contracts.dll</HintPath>
     </Reference>

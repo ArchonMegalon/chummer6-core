@@ -6,7 +6,7 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\Chummer.Application\Chummer.Application.csproj" />
-    <PackageReference Include="Chummer.Engine.Contracts" Version="$(ChummerEngineContractsPackageVersion)" />
+    <ProjectReference Include="..\Chummer.Contracts\Chummer.Contracts.csproj" />
     <Reference Include="Chummer.Run.Contracts">
       <HintPath>..\..\chummer.run-services\Chummer.Run.Contracts\bin\$(Configuration)\net10.0\Chummer.Run.Contracts.dll</HintPath>
     </Reference>
