@@ -135,7 +135,15 @@ public sealed class DefaultHubProjectCompatibilityService : IHubProjectCompatibi
                     sessionRuntimeValue,
                     string.IsNullOrWhiteSpace(sessionRuntimeNotes) ? "hub.project.compatibility.notes.session-runtime.selected-rulepacks" : null,
                     string.IsNullOrWhiteSpace(sessionRuntimeNotes) ? [Param("rulePackCount", entry.Manifest.RulePacks.Count)] : [],
-                    string.IsNullOrWhiteSpace(sessionRuntimeNotes) ? entry.Manifest.RulePacks.Count.ToString() : sessionRuntimeNotes)
+                    string.IsNullOrWhiteSpace(sessionRuntimeNotes) ? entry.Manifest.RulePacks.Count.ToString() : sessionRuntimeNotes),
+                CreateNarrativeRow(
+                    HubProjectCompatibilityRowKinds.CampaignReturn,
+                    sessionRuntimeState,
+                    DescribeRuleProfileCampaignReturn(entry.Manifest.RuntimeLock.RuntimeFingerprint, sessionRuntimeState, runtimeProjection)),
+                CreateNarrativeRow(
+                    HubProjectCompatibilityRowKinds.SupportClosure,
+                    sessionRuntimeState,
+                    DescribeRuleProfileSupportClosure(entry.Manifest.RuntimeLock.RuntimeFingerprint, runtimeProjection, entry.Manifest.RulePacks.Count))
             ],
             GeneratedAtUtc: DateTimeOffset.UtcNow,
             Capabilities: capabilities);
@@ -172,7 +180,15 @@ public sealed class DefaultHubProjectCompatibilityService : IHubProjectCompatibi
                         "workbench-only",
                         null,
                         [],
-                        BuildKitHandoffNarrator.DescribeSessionRuntimeHandoff(entry.Manifest))
+                        BuildKitHandoffNarrator.DescribeSessionRuntimeHandoff(entry.Manifest)),
+                    CreateNarrativeRow(
+                        HubProjectCompatibilityRowKinds.CampaignReturn,
+                        entry.Manifest.RuntimeRequirements.Count == 0 ? HubProjectCompatibilityStates.Compatible : HubProjectCompatibilityStates.ReviewRequired,
+                        BuildKitHandoffNarrator.DescribeCampaignReturnContract(entry.Manifest)),
+                    CreateNarrativeRow(
+                        HubProjectCompatibilityRowKinds.SupportClosure,
+                        entry.Manifest.RuntimeRequirements.Count == 0 ? HubProjectCompatibilityStates.Compatible : HubProjectCompatibilityStates.ReviewRequired,
+                        BuildKitHandoffNarrator.DescribeSupportClosure(entry.Manifest))
                 ],
                 GeneratedAtUtc: DateTimeOffset.UtcNow,
                 Capabilities: []);
@@ -218,7 +234,15 @@ public sealed class DefaultHubProjectCompatibilityService : IHubProjectCompatibi
                     "bundle-ready",
                     "hub.project.compatibility.notes.session-runtime.resolved-rulepacks",
                     [Param("rulePackCount", entry.RuntimeLock.RulePacks.Count)],
-                    entry.RuntimeLock.RulePacks.Count.ToString())
+                    entry.RuntimeLock.RulePacks.Count.ToString()),
+                CreateNarrativeRow(
+                    HubProjectCompatibilityRowKinds.CampaignReturn,
+                    HubProjectCompatibilityStates.Compatible,
+                    DescribeRuntimeLockCampaignReturn(entry)),
+                CreateNarrativeRow(
+                    HubProjectCompatibilityRowKinds.SupportClosure,
+                    HubProjectCompatibilityStates.Compatible,
+                    DescribeRuntimeLockSupportClosure(entry))
             ],
             GeneratedAtUtc: DateTimeOffset.UtcNow,
             Capabilities: capabilities);
@@ -274,6 +298,19 @@ public sealed class DefaultHubProjectCompatibilityService : IHubProjectCompatibi
             State: HubProjectCompatibilityStates.Informational,
             CurrentValue: currentValue,
             LabelKey: GetDefaultLabelKey(kind));
+
+    private static HubProjectCompatibilityRow CreateNarrativeRow(
+        string kind,
+        string state,
+        string notes)
+        => new(
+            Kind: kind,
+            Label: GetDefaultLabel(kind),
+            State: state,
+            CurrentValue: state,
+            Notes: notes,
+            LabelKey: GetDefaultLabelKey(kind),
+            CurrentValueKey: GetValueKey(kind, state));
 
     private static HubProjectCompatibilityRow CreateExecutionRow(
         string kind,
@@ -371,6 +408,59 @@ public sealed class DefaultHubProjectCompatibilityService : IHubProjectCompatibi
         return null;
     }
 
+    private static string DescribeRuleProfileCampaignReturn(
+        string runtimeFingerprint,
+        string sessionRuntimeState,
+        RuntimeInspectorProjection? runtimeProjection)
+    {
+        if (runtimeProjection?.CompatibilityDiagnostics.Any(static diagnostic =>
+                string.Equals(diagnostic.State, RuntimeLockCompatibilityStates.MissingPack, StringComparison.Ordinal)) == true)
+        {
+            return "Campaign return stays blocked until the missing rule packs land on the grounded runtime again.";
+        }
+
+        if (string.Equals(sessionRuntimeState, HubProjectCompatibilityStates.ReviewRequired, StringComparison.Ordinal))
+        {
+            return $"Campaign return still needs runtime review because fingerprint {runtimeFingerprint} has drift or warning posture that must be cleared before the next safe handoff.";
+        }
+
+        return $"Campaign return can reuse grounded runtime fingerprint {runtimeFingerprint} without reopening migration or runtime drift review.";
+    }
+
+    private static string DescribeRuleProfileSupportClosure(
+        string runtimeFingerprint,
+        RuntimeInspectorProjection? runtimeProjection,
+        int selectedRulePackCount)
+    {
+        int warningCount = runtimeProjection?.Warnings.Count ?? 0;
+        if (warningCount > 0)
+        {
+            return $"Support closure should stay review-aware because {warningCount} runtime inspector warning(s) are still open across {selectedRulePackCount} selected rule pack(s).";
+        }
+
+        if (runtimeProjection?.CompatibilityDiagnostics.Any(static diagnostic =>
+                string.Equals(diagnostic.State, RuntimeLockCompatibilityStates.RebindRequired, StringComparison.Ordinal)) == true)
+        {
+            return $"Support closure can cite runtime fingerprint {runtimeFingerprint}, but the install must rebind before the next closure claim is safe.";
+        }
+
+        return $"Support closure can cite grounded runtime fingerprint {runtimeFingerprint} and {selectedRulePackCount} selected rule pack(s) without adding a new compatibility gap.";
+    }
+
+    private static string DescribeRuntimeLockCampaignReturn(RuntimeLockRegistryEntry entry)
+    {
+        string installedTarget = string.IsNullOrWhiteSpace(entry.Install.InstalledTargetId)
+            ? "the selected workspace"
+            : entry.Install.InstalledTargetId!;
+        return $"Campaign return can reuse runtime fingerprint {entry.RuntimeLock.RuntimeFingerprint} through {installedTarget} without reopening the runtime contract.";
+    }
+
+    private static string DescribeRuntimeLockSupportClosure(RuntimeLockRegistryEntry entry)
+    {
+        int resolvedRulePackCount = entry.RuntimeLock.RulePacks.Count;
+        return $"Support closure can cite runtime fingerprint {entry.RuntimeLock.RuntimeFingerprint} and {resolvedRulePackCount} resolved rule pack(s) as the install-local compatibility oracle.";
+    }
+
     private static string GetDefaultLabel(string kind) => kind switch
     {
         HubProjectCompatibilityRowKinds.Ruleset => "Ruleset",
@@ -383,6 +473,8 @@ public sealed class DefaultHubProjectCompatibilityService : IHubProjectCompatibi
         HubProjectCompatibilityRowKinds.HostedPublic => "Hosted/Public Runtime",
         HubProjectCompatibilityRowKinds.RuntimeFingerprint => "Runtime Fingerprint",
         HubProjectCompatibilityRowKinds.RuntimeRequirements => "Runtime Requirements",
+        HubProjectCompatibilityRowKinds.CampaignReturn => "Campaign Return",
+        HubProjectCompatibilityRowKinds.SupportClosure => "Support Closure",
         _ => kind
     };
 

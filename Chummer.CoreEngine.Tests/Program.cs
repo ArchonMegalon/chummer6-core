@@ -1229,6 +1229,12 @@ internal static class CoreEngineTests
             buildKitMatrixA!.Rows.Select(FormatCompatibilityRow),
             buildKitMatrixB!.Rows.Select(FormatCompatibilityRow),
             "BuildKit compatibility projections should remain deterministic across runtime-requirement ordering variance.");
+        AssertEx.True(
+            buildKitMatrixA.Rows.Any(row => string.Equals(row.Kind, HubProjectCompatibilityRowKinds.CampaignReturn, StringComparison.Ordinal)),
+            "BuildKit compatibility matrices should publish campaign return truth.");
+        AssertEx.True(
+            buildKitMatrixA.Rows.Any(row => string.Equals(row.Kind, HubProjectCompatibilityRowKinds.SupportClosure, StringComparison.Ordinal)),
+            "BuildKit compatibility matrices should publish support closure truth.");
     }
 
     private static void LocalizationFallbackHelpersNormalizeLegacyContracts()
