@@ -15,6 +15,7 @@ using Chummer.Contracts.Content;
 using Chummer.Contracts.Hub;
 using Chummer.Contracts.Journal;
 using Chummer.Contracts.Owners;
+using Chummer.Contracts.Presentation;
 using Chummer.Contracts.Rulesets;
 using Chummer.Contracts.Session;
 using Chummer.Contracts.Simulation;
@@ -66,6 +67,8 @@ internal static class CoreEngineTests
             ValidationSummaryAndExplainHookCompositionStayDeterministic();
             BuildLabOutputsAreDeterministicAndLocalized();
             ContentInstallPreviewsEmitLocalizationKeys();
+            NpcVaultRegistryEmitsCuratedPackets();
+            HubCatalogSurfacesNpcVaultPackets();
             RelationshipHeatSimulationStaysDeterministic();
             Console.WriteLine("core-engine-tests: ok");
             return 0;
@@ -1860,6 +1863,86 @@ internal static class CoreEngineTests
             "RuleProfile previews should keep summary payloads localization-ready.");
     }
 
+    private static void NpcVaultRegistryEmitsCuratedPackets()
+    {
+        DefaultNpcVaultRegistryService service = new();
+
+        IReadOnlyList<NpcEntryRegistryEntry> sr5Entries = service.ListEntries(OwnerScope.LocalSingleUser, RulesetDefaults.Sr5);
+        IReadOnlyList<NpcPackRegistryEntry> sr5Packs = service.ListPacks(OwnerScope.LocalSingleUser, RulesetDefaults.Sr5);
+        IReadOnlyList<EncounterPackRegistryEntry> sr5Encounters = service.ListEncounterPacks(OwnerScope.LocalSingleUser, RulesetDefaults.Sr5);
+        IReadOnlyList<NpcEntryRegistryEntry> sr6Entries = service.ListEntries(OwnerScope.LocalSingleUser, RulesetDefaults.Sr6);
+        EncounterPackRegistryEntry? sr5Checkpoint = service.GetEncounterPack(OwnerScope.LocalSingleUser, "renraku-checkpoint", RulesetDefaults.Sr5);
+
+        AssertEx.True(
+            sr5Entries.Count >= 2
+            && sr5Entries.Any(entry => string.Equals(entry.Manifest.EntryId, "red-samurai", StringComparison.Ordinal))
+            && sr5Entries.Any(entry => string.Equals(entry.Manifest.EntryId, "renraku-spider", StringComparison.Ordinal)),
+            "Default NPC vault should expose curated SR5 entry packets.");
+        AssertEx.True(
+            sr5Packs.Any(pack => string.Equals(pack.Manifest.PackId, "renraku-security", StringComparison.Ordinal)),
+            "Default NPC vault should expose a curated SR5 GM pack.");
+        AssertEx.True(
+            sr5Encounters.Any(pack => string.Equals(pack.Manifest.EncounterPackId, "renraku-checkpoint", StringComparison.Ordinal)),
+            "Default NPC vault should expose a curated SR5 encounter packet.");
+        AssertEx.True(
+            sr6Entries.Count >= 2
+            && sr6Entries.Any(entry => string.Equals(entry.Manifest.EntryId, "neon-razor-biker", StringComparison.Ordinal))
+            && sr6Entries.Any(entry => string.Equals(entry.Manifest.EntryId, "hex-lantern-mage", StringComparison.Ordinal)),
+            "Default NPC vault should expose curated SR6 preview packets.");
+        AssertEx.NotNull(sr5Checkpoint, "Curated SR5 encounter packet should resolve by id.");
+        AssertEx.True(
+            sr5Checkpoint!.Manifest.Participants.Any(reference =>
+                string.Equals(reference.EntryId, "renraku-spider", StringComparison.Ordinal)
+                && string.Equals(reference.Role, "matrix-support", StringComparison.Ordinal)),
+            "Curated SR5 encounter packets should preserve role-bound GM prep participants.");
+    }
+
+    private static void HubCatalogSurfacesNpcVaultPackets()
+    {
+        DefaultHubCatalogService service = new(
+            new RulesetPluginRegistry([new Sr5RulesetPlugin(), new Sr6RulesetPlugin()]),
+            new RulePackInstallHistoryStoreStub(),
+            new RulePackRegistryServiceStub([]),
+            new RuleProfileInstallHistoryStoreStub(),
+            new RuleProfileRegistryServiceStub([]),
+            new BuildKitRegistryServiceStub([]),
+            new EmptyHubReviewService(),
+            new EmptyHubPublisherStore(),
+            new DefaultNpcVaultRegistryService(),
+            new RuntimeLockInstallHistoryStoreStub(),
+            new RuntimeLockRegistryServiceStub([]));
+
+        HubCatalogResultPage page = service.Search(
+            OwnerScope.LocalSingleUser,
+            new BrowseQuery(
+                QueryText: "Renraku",
+                FacetSelections: new Dictionary<string, IReadOnlyList<string>>(),
+                SortId: HubCatalogSortIds.Title));
+        HubProjectDetailProjection? encounterPack = service.GetProjectDetail(
+            OwnerScope.LocalSingleUser,
+            HubCatalogItemKinds.EncounterPack,
+            "renraku-checkpoint",
+            RulesetDefaults.Sr5);
+
+        AssertEx.True(
+            page.Items.Any(item => item.Kind == HubCatalogItemKinds.NpcEntry && string.Equals(item.ItemId, "red-samurai", StringComparison.Ordinal)),
+            "Hub catalog search should surface built-in NPC entry packets.");
+        AssertEx.True(
+            page.Items.Any(item => item.Kind == HubCatalogItemKinds.NpcPack && string.Equals(item.ItemId, "renraku-security", StringComparison.Ordinal)),
+            "Hub catalog search should surface built-in NPC packs.");
+        AssertEx.NotNull(encounterPack, "Hub catalog detail should resolve built-in encounter packets.");
+        AssertEx.True(
+            encounterPack!.Dependencies.Any(dependency =>
+                string.Equals(dependency.ItemId, "renraku-spider", StringComparison.Ordinal)
+                && string.Equals(dependency.Notes, "matrix-support", StringComparison.Ordinal)),
+            "Hub catalog detail should preserve built-in encounter participant roles.");
+        AssertEx.True(
+            encounterPack.Facts.Any(fact =>
+                string.Equals(fact.FactId, "gm-board-ready", StringComparison.Ordinal)
+                && string.Equals(fact.Value, "true", StringComparison.Ordinal)),
+            "Hub catalog detail should surface GM-board readiness for built-in encounter packets.");
+    }
+
     private static void RelationshipHeatSimulationStaysDeterministic()
     {
         DefaultRelationshipHeatService service = new();
@@ -2689,6 +2772,36 @@ internal static class CoreEngineTests
         public RuntimeLockInstallPreviewReceipt? Preview(OwnerScope owner, string lockId, RuleProfileApplyTarget target, string? rulesetId = null) => null;
 
         public RuntimeLockInstallReceipt? Apply(OwnerScope owner, string lockId, RuleProfileApplyTarget target, string? rulesetId = null) => null;
+    }
+
+    private sealed class EmptyHubReviewService : IHubReviewService
+    {
+        public HubPublicationResult<HubReviewCatalog> ListReviews(OwnerScope owner, string? kind = null, string? itemId = null, string? rulesetId = null)
+            => HubPublicationResult<HubReviewCatalog>.Implemented(new HubReviewCatalog([]));
+
+        public HubPublicationResult<HubReviewAggregateSummary> GetAggregateSummary(string kind, string itemId, string? rulesetId = null)
+            => HubPublicationResult<HubReviewAggregateSummary>.Implemented(
+                new HubReviewAggregateSummary(
+                    TotalReviews: 0,
+                    RecommendedCount: 0,
+                    NeutralCount: 0,
+                    NotRecommendedCount: 0,
+                    UsedAtTableCount: 0,
+                    RatedReviewCount: 0,
+                    AverageStars: null,
+                    LatestReviewAtUtc: null));
+
+        public HubPublicationResult<HubReviewReceipt> UpsertReview(OwnerScope owner, string kind, string itemId, HubUpsertReviewRequest? request)
+            => throw new NotSupportedException();
+    }
+
+    private sealed class EmptyHubPublisherStore : IHubPublisherStore
+    {
+        public IReadOnlyList<HubPublisherRecord> List(OwnerScope owner) => [];
+
+        public HubPublisherRecord? Get(OwnerScope owner, string publisherId) => null;
+
+        public HubPublisherRecord Upsert(OwnerScope owner, HubPublisherRecord record) => throw new NotSupportedException();
     }
 
     private sealed class AiDigestServiceStub : IAiDigestService
