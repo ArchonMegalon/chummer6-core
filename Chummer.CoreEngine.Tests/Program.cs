@@ -1185,6 +1185,7 @@ internal static class CoreEngineTests
                 CreateBuildKitRegistryEntry("buildkit-a", CreateBuildKitManifestFixtureA()),
                 CreateBuildKitRegistryEntry("buildkit-b", CreateBuildKitManifestFixtureB())
             ]),
+            new DefaultNpcVaultRegistryService(),
             new RuntimeInspectorServiceStub(null),
             new RuntimeLockRegistryServiceStub(
             [
@@ -1246,6 +1247,48 @@ internal static class CoreEngineTests
                 string.Equals(row.Kind, HubProjectCompatibilityRowKinds.SessionRuntime, StringComparison.Ordinal)
                 && row.Notes?.Contains("Next safe action:", StringComparison.Ordinal) == true),
             "BuildKit compatibility matrices should surface the next safe action in the session-runtime handoff notes.");
+
+        HubProjectCompatibilityMatrix? npcEntryMatrix = compatibilityService.GetMatrix(
+            OwnerScope.LocalSingleUser,
+            HubCatalogItemKinds.NpcEntry,
+            "red-samurai",
+            RulesetDefaults.Sr5);
+        HubProjectCompatibilityMatrix? npcPackMatrix = compatibilityService.GetMatrix(
+            OwnerScope.LocalSingleUser,
+            HubCatalogItemKinds.NpcPack,
+            "renraku-security",
+            RulesetDefaults.Sr5);
+        HubProjectCompatibilityMatrix? encounterPackMatrix = compatibilityService.GetMatrix(
+            OwnerScope.LocalSingleUser,
+            HubCatalogItemKinds.EncounterPack,
+            "renraku-checkpoint",
+            RulesetDefaults.Sr5);
+        AssertEx.NotNull(npcEntryMatrix, "NPC entry compatibility matrix should resolve for red-samurai.");
+        AssertEx.NotNull(npcPackMatrix, "NPC pack compatibility matrix should resolve for renraku-security.");
+        AssertEx.NotNull(encounterPackMatrix, "Encounter pack compatibility matrix should resolve for renraku-checkpoint.");
+        AssertEx.True(
+            npcEntryMatrix!.Rows.Any(row =>
+                string.Equals(row.Kind, HubProjectCompatibilityRowKinds.RuntimeFingerprint, StringComparison.Ordinal)
+                && string.Equals(row.CurrentValue, "sha256:core", StringComparison.Ordinal)),
+            "NPC entry compatibility matrices should surface grounded runtime fingerprint posture when it exists.");
+        AssertEx.True(
+            npcEntryMatrix.Rows.Any(row =>
+                string.Equals(row.Kind, HubProjectCompatibilityRowKinds.CampaignReturn, StringComparison.Ordinal)
+                && string.Equals(row.State, HubProjectCompatibilityStates.Compatible, StringComparison.Ordinal)
+                && row.Notes?.Contains("Red Samurai", StringComparison.Ordinal) == true),
+            "NPC entry compatibility matrices should publish campaign-return guidance.");
+        AssertEx.True(
+            npcPackMatrix!.Rows.Any(row =>
+                string.Equals(row.Kind, HubProjectCompatibilityRowKinds.SessionRuntime, StringComparison.Ordinal)
+                && string.Equals(row.CurrentValue, "campaign-bindable", StringComparison.Ordinal)
+                && row.Notes?.Contains("3 opposition seat(s)", StringComparison.Ordinal) == true),
+            "NPC pack compatibility matrices should summarize prepared opposition seat counts.");
+        AssertEx.True(
+            encounterPackMatrix!.Rows.Any(row =>
+                string.Equals(row.Kind, HubProjectCompatibilityRowKinds.SupportClosure, StringComparison.Ordinal)
+                && string.Equals(row.State, HubProjectCompatibilityStates.Compatible, StringComparison.Ordinal)
+                && row.Notes?.Contains("2 explicit role lane(s)", StringComparison.Ordinal) == true),
+            "Encounter pack compatibility matrices should publish reusable GM prep support-closure guidance.");
     }
 
     private static void LocalizationFallbackHelpersNormalizeLegacyContracts()

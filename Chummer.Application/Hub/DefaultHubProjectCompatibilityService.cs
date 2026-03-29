@@ -12,6 +12,7 @@ public sealed class DefaultHubProjectCompatibilityService : IHubProjectCompatibi
     private readonly IRulePackRegistryService _rulePackRegistryService;
     private readonly IRuleProfileRegistryService _ruleProfileRegistryService;
     private readonly IBuildKitRegistryService _buildKitRegistryService;
+    private readonly INpcVaultRegistryService _npcVaultRegistryService;
     private readonly IRuntimeInspectorService _runtimeInspectorService;
     private readonly IRuntimeLockRegistryService _runtimeLockRegistryService;
 
@@ -20,6 +21,7 @@ public sealed class DefaultHubProjectCompatibilityService : IHubProjectCompatibi
         IRulePackRegistryService rulePackRegistryService,
         IRuleProfileRegistryService ruleProfileRegistryService,
         IBuildKitRegistryService buildKitRegistryService,
+        INpcVaultRegistryService npcVaultRegistryService,
         IRuntimeInspectorService runtimeInspectorService,
         IRuntimeLockRegistryService runtimeLockRegistryService)
     {
@@ -27,6 +29,7 @@ public sealed class DefaultHubProjectCompatibilityService : IHubProjectCompatibi
         _rulePackRegistryService = rulePackRegistryService;
         _ruleProfileRegistryService = ruleProfileRegistryService;
         _buildKitRegistryService = buildKitRegistryService;
+        _npcVaultRegistryService = npcVaultRegistryService;
         _runtimeInspectorService = runtimeInspectorService;
         _runtimeLockRegistryService = runtimeLockRegistryService;
     }
@@ -43,6 +46,9 @@ public sealed class DefaultHubProjectCompatibilityService : IHubProjectCompatibi
             HubCatalogItemKinds.RulePack => GetRulePackMatrix(owner, itemId, rulesetId),
             HubCatalogItemKinds.RuleProfile => GetRuleProfileMatrix(owner, itemId, rulesetId),
             HubCatalogItemKinds.BuildKit => GetBuildKitMatrix(owner, itemId, rulesetId),
+            HubCatalogItemKinds.NpcEntry => GetNpcEntryMatrix(owner, itemId, rulesetId),
+            HubCatalogItemKinds.NpcPack => GetNpcPackMatrix(owner, itemId, rulesetId),
+            HubCatalogItemKinds.EncounterPack => GetEncounterPackMatrix(owner, itemId, rulesetId),
             HubCatalogItemKinds.RuntimeLock => GetRuntimeLockMatrix(owner, itemId, rulesetId),
             _ => null
         };
@@ -191,6 +197,136 @@ public sealed class DefaultHubProjectCompatibilityService : IHubProjectCompatibi
                         HubProjectCompatibilityRowKinds.SupportClosure,
                         compatibilityReceipt.RequiresRuntimeReview ? HubProjectCompatibilityStates.ReviewRequired : HubProjectCompatibilityStates.Compatible,
                         compatibilityReceipt.SupportClosureSummary)
+                ],
+                GeneratedAtUtc: DateTimeOffset.UtcNow,
+                Capabilities: []);
+        }
+
+        return null;
+    }
+
+    private HubProjectCompatibilityMatrix? GetNpcEntryMatrix(OwnerScope owner, string itemId, string? rulesetId)
+    {
+        foreach (string candidateRulesetId in EnumerateRulesetIds(rulesetId))
+        {
+            NpcEntryRegistryEntry? entry = _npcVaultRegistryService.GetEntry(owner, itemId, candidateRulesetId);
+            if (entry is null)
+            {
+                continue;
+            }
+
+            string sessionRuntimeState = ResolveNpcSessionRuntimeState(entry.Manifest.SessionReady, entry.Manifest.GmBoardReady);
+            List<HubProjectCompatibilityRow> rows =
+            [
+                CreateRulesetRow(candidateRulesetId),
+                CreateInformationalRow(HubProjectCompatibilityRowKinds.Visibility, entry.Manifest.Visibility),
+                CreateInformationalRow(HubProjectCompatibilityRowKinds.Trust, entry.Manifest.TrustTier),
+                CreateSessionRuntimeSummaryRow(
+                    sessionRuntimeState,
+                    ResolveNpcSessionRuntimeValue(sessionRuntimeState),
+                    null,
+                    [],
+                    DescribeNpcEntrySessionRuntime(entry)),
+                CreateNarrativeRow(
+                    HubProjectCompatibilityRowKinds.CampaignReturn,
+                    sessionRuntimeState,
+                    DescribeNpcEntryCampaignReturn(entry, sessionRuntimeState)),
+                CreateNarrativeRow(
+                    HubProjectCompatibilityRowKinds.SupportClosure,
+                    sessionRuntimeState,
+                    DescribeNpcEntrySupportClosure(entry, sessionRuntimeState))
+            ];
+
+            if (!string.IsNullOrWhiteSpace(entry.Manifest.RuntimeFingerprint))
+            {
+                rows.Insert(3, CreateInformationalRow(HubProjectCompatibilityRowKinds.RuntimeFingerprint, entry.Manifest.RuntimeFingerprint!));
+            }
+
+            return new HubProjectCompatibilityMatrix(
+                Kind: HubCatalogItemKinds.NpcEntry,
+                ItemId: itemId,
+                Rows: rows.ToArray(),
+                GeneratedAtUtc: DateTimeOffset.UtcNow,
+                Capabilities: []);
+        }
+
+        return null;
+    }
+
+    private HubProjectCompatibilityMatrix? GetNpcPackMatrix(OwnerScope owner, string itemId, string? rulesetId)
+    {
+        foreach (string candidateRulesetId in EnumerateRulesetIds(rulesetId))
+        {
+            NpcPackRegistryEntry? entry = _npcVaultRegistryService.GetPack(owner, itemId, candidateRulesetId);
+            if (entry is null)
+            {
+                continue;
+            }
+
+            string sessionRuntimeState = ResolveNpcSessionRuntimeState(entry.Manifest.SessionReady, entry.Manifest.GmBoardReady);
+            return new HubProjectCompatibilityMatrix(
+                Kind: HubCatalogItemKinds.NpcPack,
+                ItemId: itemId,
+                Rows:
+                [
+                    CreateRulesetRow(candidateRulesetId),
+                    CreateInformationalRow(HubProjectCompatibilityRowKinds.Visibility, entry.Manifest.Visibility),
+                    CreateInformationalRow(HubProjectCompatibilityRowKinds.Trust, entry.Manifest.TrustTier),
+                    CreateSessionRuntimeSummaryRow(
+                        sessionRuntimeState,
+                        ResolveNpcSessionRuntimeValue(sessionRuntimeState),
+                        null,
+                        [],
+                        DescribeNpcPackSessionRuntime(entry)),
+                    CreateNarrativeRow(
+                        HubProjectCompatibilityRowKinds.CampaignReturn,
+                        sessionRuntimeState,
+                        DescribeNpcPackCampaignReturn(entry, sessionRuntimeState)),
+                    CreateNarrativeRow(
+                        HubProjectCompatibilityRowKinds.SupportClosure,
+                        sessionRuntimeState,
+                        DescribeNpcPackSupportClosure(entry, sessionRuntimeState))
+                ],
+                GeneratedAtUtc: DateTimeOffset.UtcNow,
+                Capabilities: []);
+        }
+
+        return null;
+    }
+
+    private HubProjectCompatibilityMatrix? GetEncounterPackMatrix(OwnerScope owner, string itemId, string? rulesetId)
+    {
+        foreach (string candidateRulesetId in EnumerateRulesetIds(rulesetId))
+        {
+            EncounterPackRegistryEntry? entry = _npcVaultRegistryService.GetEncounterPack(owner, itemId, candidateRulesetId);
+            if (entry is null)
+            {
+                continue;
+            }
+
+            string sessionRuntimeState = ResolveNpcSessionRuntimeState(entry.Manifest.SessionReady, entry.Manifest.GmBoardReady);
+            return new HubProjectCompatibilityMatrix(
+                Kind: HubCatalogItemKinds.EncounterPack,
+                ItemId: itemId,
+                Rows:
+                [
+                    CreateRulesetRow(candidateRulesetId),
+                    CreateInformationalRow(HubProjectCompatibilityRowKinds.Visibility, entry.Manifest.Visibility),
+                    CreateInformationalRow(HubProjectCompatibilityRowKinds.Trust, entry.Manifest.TrustTier),
+                    CreateSessionRuntimeSummaryRow(
+                        sessionRuntimeState,
+                        ResolveNpcSessionRuntimeValue(sessionRuntimeState),
+                        null,
+                        [],
+                        DescribeEncounterPackSessionRuntime(entry)),
+                    CreateNarrativeRow(
+                        HubProjectCompatibilityRowKinds.CampaignReturn,
+                        sessionRuntimeState,
+                        DescribeEncounterPackCampaignReturn(entry, sessionRuntimeState)),
+                    CreateNarrativeRow(
+                        HubProjectCompatibilityRowKinds.SupportClosure,
+                        sessionRuntimeState,
+                        DescribeEncounterPackSupportClosure(entry, sessionRuntimeState))
                 ],
                 GeneratedAtUtc: DateTimeOffset.UtcNow,
                 Capabilities: []);
@@ -473,6 +609,123 @@ public sealed class DefaultHubProjectCompatibilityService : IHubProjectCompatibi
         }
 
         return $"{compatibilityReceipt.SessionRuntimeSummary} Next safe action: {compatibilityReceipt.NextSafeActionSummary}";
+    }
+
+    private static string ResolveNpcSessionRuntimeState(bool sessionReady, bool gmBoardReady)
+    {
+        if (sessionReady && gmBoardReady)
+        {
+            return HubProjectCompatibilityStates.Compatible;
+        }
+
+        if (sessionReady || gmBoardReady)
+        {
+            return HubProjectCompatibilityStates.ReviewRequired;
+        }
+
+        return HubProjectCompatibilityStates.Blocked;
+    }
+
+    private static string ResolveNpcSessionRuntimeValue(string sessionRuntimeState) =>
+        sessionRuntimeState switch
+        {
+            HubProjectCompatibilityStates.Compatible => "campaign-bindable",
+            HubProjectCompatibilityStates.ReviewRequired => "prep-review-required",
+            _ => "prep-not-ready"
+        };
+
+    private static string DescribeNpcEntrySessionRuntime(NpcEntryRegistryEntry entry)
+    {
+        string faction = string.IsNullOrWhiteSpace(entry.Manifest.Faction) ? "independent" : entry.Manifest.Faction!;
+        string runtime = string.IsNullOrWhiteSpace(entry.Manifest.RuntimeFingerprint)
+            ? "without an explicit runtime fingerprint yet"
+            : $"on runtime {entry.Manifest.RuntimeFingerprint}";
+        return $"{entry.Manifest.Title} is tagged as threat tier {entry.Manifest.ThreatTier} for faction {faction} {runtime}; session-ready={entry.Manifest.SessionReady} and gm-board-ready={entry.Manifest.GmBoardReady}.";
+    }
+
+    private static string DescribeNpcEntryCampaignReturn(NpcEntryRegistryEntry entry, string sessionRuntimeState)
+    {
+        if (string.Equals(sessionRuntimeState, HubProjectCompatibilityStates.Compatible, StringComparison.Ordinal))
+        {
+            return $"Campaign return can bind {entry.Manifest.Title} back into a governed prep lane because both the session packet and GM board evidence are already grounded.";
+        }
+
+        return $"Campaign return should wait until {entry.Manifest.Title} is both session-ready and GM-board-ready before it is rebound into the next governed run.";
+    }
+
+    private static string DescribeNpcEntrySupportClosure(NpcEntryRegistryEntry entry, string sessionRuntimeState)
+    {
+        if (string.Equals(sessionRuntimeState, HubProjectCompatibilityStates.Compatible, StringComparison.Ordinal))
+        {
+            return $"Support closure can cite threat tier {entry.Manifest.ThreatTier}, faction {entry.Manifest.Faction ?? "independent"}, and the current prep packet as the governed opposition receipt.";
+        }
+
+        return $"Support closure should stay open until {entry.Manifest.Title} carries both session-ready and GM-board-ready posture.";
+    }
+
+    private static string DescribeNpcPackSessionRuntime(NpcPackRegistryEntry entry)
+    {
+        int entryTypeCount = entry.Manifest.Entries.Count;
+        int totalSeatCount = entry.Manifest.Entries.Sum(static member => Math.Max(1, member.Quantity));
+        return $"{entry.Manifest.Title} stages {totalSeatCount} opposition seat(s) across {entryTypeCount} entry type(s); session-ready={entry.Manifest.SessionReady} and gm-board-ready={entry.Manifest.GmBoardReady}.";
+    }
+
+    private static string DescribeNpcPackCampaignReturn(NpcPackRegistryEntry entry, string sessionRuntimeState)
+    {
+        if (string.Equals(sessionRuntimeState, HubProjectCompatibilityStates.Compatible, StringComparison.Ordinal))
+        {
+            return $"Campaign return can reopen with {entry.Manifest.Title} because the packet already preserves its governed opposition roster for the next prep lane.";
+        }
+
+        return $"Campaign return should wait until {entry.Manifest.Title} is reviewed for both session handoff and GM board reuse.";
+    }
+
+    private static string DescribeNpcPackSupportClosure(NpcPackRegistryEntry entry, string sessionRuntimeState)
+    {
+        int totalSeatCount = entry.Manifest.Entries.Sum(static member => Math.Max(1, member.Quantity));
+        if (string.Equals(sessionRuntimeState, HubProjectCompatibilityStates.Compatible, StringComparison.Ordinal))
+        {
+            return $"Support closure can cite {entry.Manifest.Title} and its {totalSeatCount} prepared opposition seat(s) as the reusable prep receipt.";
+        }
+
+        return $"Support closure should stay review-aware until {entry.Manifest.Title} is both session-ready and GM-board-ready.";
+    }
+
+    private static string DescribeEncounterPackSessionRuntime(EncounterPackRegistryEntry entry)
+    {
+        int participantTypeCount = entry.Manifest.Participants.Count;
+        int totalParticipantCount = entry.Manifest.Participants.Sum(static participant => Math.Max(1, participant.Quantity));
+        int roleCount = entry.Manifest.Participants
+            .Select(static participant => participant.Role)
+            .Where(static role => !string.IsNullOrWhiteSpace(role))
+            .Distinct(StringComparer.Ordinal)
+            .Count();
+        return $"{entry.Manifest.Title} stages {totalParticipantCount} opposition seat(s) across {participantTypeCount} participant type(s) and {roleCount} explicit role lane(s); session-ready={entry.Manifest.SessionReady} and gm-board-ready={entry.Manifest.GmBoardReady}.";
+    }
+
+    private static string DescribeEncounterPackCampaignReturn(EncounterPackRegistryEntry entry, string sessionRuntimeState)
+    {
+        if (string.Equals(sessionRuntimeState, HubProjectCompatibilityStates.Compatible, StringComparison.Ordinal))
+        {
+            return $"Campaign return can rebind {entry.Manifest.Title} because the encounter packet already carries governed role and quantity truth for the next session lane.";
+        }
+
+        return $"Campaign return should wait until {entry.Manifest.Title} clears both session and GM board prep posture before it is rebound.";
+    }
+
+    private static string DescribeEncounterPackSupportClosure(EncounterPackRegistryEntry entry, string sessionRuntimeState)
+    {
+        int roleCount = entry.Manifest.Participants
+            .Select(static participant => participant.Role)
+            .Where(static role => !string.IsNullOrWhiteSpace(role))
+            .Distinct(StringComparer.Ordinal)
+            .Count();
+        if (string.Equals(sessionRuntimeState, HubProjectCompatibilityStates.Compatible, StringComparison.Ordinal))
+        {
+            return $"Support closure can cite {entry.Manifest.Title}, its {roleCount} explicit role lane(s), and the governed encounter packet as the reusable GM prep receipt.";
+        }
+
+        return $"Support closure should remain open until {entry.Manifest.Title} is fully grounded for both session and GM board use.";
     }
 
     private static string GetDefaultLabel(string kind) => kind switch
