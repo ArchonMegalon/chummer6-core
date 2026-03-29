@@ -54,7 +54,9 @@ public sealed record BuildTeamCoverageProjection(
     IReadOnlyList<string> MissingRoleTags,
     IReadOnlyList<BuildRoleOverlap> RoleOverlaps,
     IReadOnlyList<RulesetCapabilityDiagnostic>? Diagnostics = null,
-    string? ExplainEntryId = null);
+    string? ExplainEntryId = null,
+    IReadOnlyList<string>? CoveredRoleTags = null,
+    IReadOnlyList<string>? DuplicateRoleTags = null);
 
 public sealed record BuildTrapChoice(
     string ChoiceId,

@@ -211,6 +211,17 @@ public sealed class DefaultBuildLabService : IBuildLabService
             .Except(presentTags, StringComparer.Ordinal)
             .OrderBy(static tag => tag, StringComparer.Ordinal)
             .ToArray();
+        string[] coveredRoleTags = requiredTags
+            .Intersect(presentTags, StringComparer.Ordinal)
+            .OrderBy(static tag => tag, StringComparer.Ordinal)
+            .ToArray();
+        string[] duplicateRoleTags = orderedVariantIds
+            .Select(ExtractTag)
+            .GroupBy(static tag => tag, StringComparer.Ordinal)
+            .Where(static group => group.Count() > 1)
+            .Select(static group => group.Key)
+            .OrderBy(static tag => tag, StringComparer.Ordinal)
+            .ToArray();
         decimal coverageScore = requiredTags.Length == 0
             ? 100m
             : Math.Round(((requiredTags.Length - missingRoleTags.Length) * 100m) / requiredTags.Length, 2, MidpointRounding.AwayFromZero);
@@ -238,6 +249,15 @@ public sealed class DefaultBuildLabService : IBuildLabService
                 ("variantCount", orderedVariantIds.Length)));
         }
 
+        if (duplicateRoleTags.Length > 0)
+        {
+            diagnostics.Add(Diagnostic(
+                "buildlab.team.duplicate-role-tags",
+                RulesetCapabilityDiagnosticSeverities.Warning,
+                ("duplicateRoleCount", duplicateRoleTags.Length),
+                ("duplicateRoles", string.Join(",", duplicateRoleTags))));
+        }
+
         if (overlaps.Any(static overlap => overlap.OverlapScore >= 0.85m))
         {
             diagnostics.Add(Diagnostic(
@@ -253,7 +273,9 @@ public sealed class DefaultBuildLabService : IBuildLabService
             [
                 Param("variantCount", orderedVariantIds.Length),
                 Param("requiredRoleCount", requiredTags.Length),
+                Param("coveredRoleCount", coveredRoleTags.Length),
                 Param("missingRoleCount", missingRoleTags.Length),
+                Param("duplicateRoleCount", duplicateRoleTags.Length),
                 Param("coverageScore", coverageScore),
                 Param("rolePressureScore", rolePressureScore)
             ],
@@ -262,7 +284,9 @@ public sealed class DefaultBuildLabService : IBuildLabService
             MissingRoleTags: missingRoleTags,
             RoleOverlaps: overlaps,
             Diagnostics: diagnostics,
-            ExplainEntryId: $"{Normalize(characterId)}:team-coverage");
+            ExplainEntryId: $"{Normalize(characterId)}:team-coverage",
+            CoveredRoleTags: coveredRoleTags,
+            DuplicateRoleTags: duplicateRoleTags);
     }
 
     public IReadOnlyList<BuildCorePackageSuggestion> SuggestCorePackages(string characterId, string variantId)

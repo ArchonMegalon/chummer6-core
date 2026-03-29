@@ -1615,13 +1615,25 @@ internal static class CoreEngineTests
             teamCoverage.MissingRoleTags,
             ["matrix-specialist", "street-samurai"],
             "Build Lab team coverage should surface deterministic missing-role output.");
+        AssertEx.SequenceEqual(
+            teamCoverage.CoveredRoleTags ?? Array.Empty<string>(),
+            ["face"],
+            "Build Lab team coverage should surface deterministic covered-role output.");
+        AssertEx.SequenceEqual(
+            teamCoverage.DuplicateRoleTags ?? Array.Empty<string>(),
+            ["face"],
+            "Build Lab team coverage should surface deterministic duplicate-role output.");
         AssertEx.True(
             teamCoverage.RoleOverlaps.Count == overlaps.Count && teamCoverage.CoverageScore == 33.33m,
             "Build Lab team coverage should reuse role-overlap evidence and deterministic coverage scoring.");
-        AssertEx.Equal(
-            "buildlab.team.missing-role-tags",
-            teamCoverage.Diagnostics![0].MessageKey,
-            "Build Lab team coverage should emit keyed missing-role diagnostics.");
+        AssertEx.SequenceEqual(
+            teamCoverage.Diagnostics!.Select(static diagnostic => diagnostic.MessageKey),
+            ["buildlab.team.missing-role-tags", "buildlab.team.duplicate-role-tags", "buildlab.team.role-pressure-high"],
+            "Build Lab team coverage should emit deterministic missing-role, duplicate-role, and pressure diagnostics.");
+        AssertEx.True(
+            teamCoverage.SummaryParameters.Any(static parameter => string.Equals(parameter.Name, "coveredRoleCount", StringComparison.Ordinal))
+            && teamCoverage.SummaryParameters.Any(static parameter => string.Equals(parameter.Name, "duplicateRoleCount", StringComparison.Ordinal)),
+            "Build Lab team coverage should expose covered-role and duplicate-role counts in the summary parameters.");
         AssertEx.True(
             teamCoverage.RolePressureScore > 0m && !string.IsNullOrWhiteSpace(teamCoverage.ExplainEntryId),
             "Build Lab team coverage should surface deterministic role pressure and explain hooks.");
