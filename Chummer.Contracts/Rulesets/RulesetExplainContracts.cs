@@ -33,6 +33,14 @@ public sealed record RulesetExplainParameter(
     string Name,
     RulesetCapabilityValue Value);
 
+public sealed record RulesetEnvironmentDiffProjection(
+    string DiffId,
+    string Label,
+    string BeforeSummary,
+    string AfterSummary,
+    string ReasonSummary,
+    string? ExplainEntryId = null);
+
 public sealed record RulesetEvidencePointer(
     string Kind,
     string Pointer,
