@@ -44,7 +44,12 @@ public sealed record KarmaSpendProjection(
     IReadOnlyList<RulesetExplainParameter> SummaryParameters,
     IReadOnlyList<KarmaSpendStep> Steps,
     IReadOnlyList<RulesetCapabilityDiagnostic>? Diagnostics = null,
-    string? ExplainEntryId = null);
+    string? ExplainEntryId = null,
+    string? TradeoffSummaryKey = null,
+    IReadOnlyList<RulesetExplainParameter>? TradeoffSummaryParameters = null,
+    IReadOnlyList<string>? MatchedConstraintTags = null,
+    IReadOnlyList<string>? MissingConstraintTags = null,
+    decimal? ConstraintCoverageScore = null);
 
 public sealed record BuildTeamCoverageProjection(
     string SummaryKey,
