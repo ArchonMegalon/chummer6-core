@@ -1241,6 +1241,11 @@ internal static class CoreEngineTests
         AssertEx.True(
             buildKitMatrixA.Rows.Any(row => string.Equals(row.Kind, HubProjectCompatibilityRowKinds.SupportClosure, StringComparison.Ordinal)),
             "BuildKit compatibility matrices should publish support closure truth.");
+        AssertEx.True(
+            buildKitMatrixA.Rows.Any(row =>
+                string.Equals(row.Kind, HubProjectCompatibilityRowKinds.SessionRuntime, StringComparison.Ordinal)
+                && row.Notes?.Contains("Next safe action:", StringComparison.Ordinal) == true),
+            "BuildKit compatibility matrices should surface the next safe action in the session-runtime handoff notes.");
     }
 
     private static void LocalizationFallbackHelpersNormalizeLegacyContracts()

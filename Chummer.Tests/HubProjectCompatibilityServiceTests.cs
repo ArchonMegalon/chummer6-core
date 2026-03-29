@@ -132,7 +132,9 @@ public class HubProjectCompatibilityServiceTests
             && row.CurrentValue == "workbench-first"
             && row.Notes is not null
             && row.Notes.Contains("emitted build receipt", StringComparison.Ordinal)
-            && row.Notes.Contains("grounded campaign/profile runtime", StringComparison.Ordinal)));
+            && row.Notes.Contains("grounded campaign/profile runtime", StringComparison.Ordinal)
+            && row.Notes.Contains("Next safe action:", StringComparison.Ordinal)
+            && row.Notes.Contains("hand it into the selected workspace or campaign lane", StringComparison.Ordinal)));
         Assert.IsTrue(matrix.Rows.Any(row =>
             row.Kind == HubProjectCompatibilityRowKinds.RuntimeRequirements
             && row.Notes is not null
@@ -225,7 +227,9 @@ public class HubProjectCompatibilityServiceTests
             && row.Notes is not null
             && row.Notes.Contains("compatible runtime and rule environment that match", StringComparison.Ordinal)
             && row.Notes.Contains("sha256:campaign-a", StringComparison.Ordinal)
-            && row.Notes.Contains("emitted build receipt", StringComparison.Ordinal)));
+            && row.Notes.Contains("emitted build receipt", StringComparison.Ordinal)
+            && row.Notes.Contains("Next safe action:", StringComparison.Ordinal)
+            && row.Notes.Contains("Resolve the build path in the workbench", StringComparison.Ordinal)));
         Assert.IsTrue(matrix.Rows.Any(row =>
             row.Kind == HubProjectCompatibilityRowKinds.CampaignReturn
             && row.State == HubProjectCompatibilityStates.ReviewRequired
