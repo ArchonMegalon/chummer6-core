@@ -2,6 +2,7 @@
   <PropertyGroup>
     <MaxCpuCount>1</MaxCpuCount>
     <RestoreUseStaticGraphEvaluation>false</RestoreUseStaticGraphEvaluation>
+    <DefaultItemExcludes>$(DefaultItemExcludes);**/obj_tmp/**</DefaultItemExcludes>
     <ChummerEngineContractsPackageVersion>0.0.0-local</ChummerEngineContractsPackageVersion>
     <ChummerEngineContractsLocalFeed>$(MSBuildThisFileDirectory).tmp/ai/local-nuget</ChummerEngineContractsLocalFeed>
     <RestoreAdditionalProjectSources Condition="'$(UseChummerEngineContractsLocalFeed)' != 'false'">$(RestoreAdditionalProjectSources);$(ChummerEngineContractsLocalFeed)</RestoreAdditionalProjectSources>
