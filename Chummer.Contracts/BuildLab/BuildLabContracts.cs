@@ -46,6 +46,16 @@ public sealed record KarmaSpendProjection(
     IReadOnlyList<RulesetCapabilityDiagnostic>? Diagnostics = null,
     string? ExplainEntryId = null);
 
+public sealed record BuildTeamCoverageProjection(
+    string SummaryKey,
+    IReadOnlyList<RulesetExplainParameter> SummaryParameters,
+    decimal CoverageScore,
+    decimal RolePressureScore,
+    IReadOnlyList<string> MissingRoleTags,
+    IReadOnlyList<BuildRoleOverlap> RoleOverlaps,
+    IReadOnlyList<RulesetCapabilityDiagnostic>? Diagnostics = null,
+    string? ExplainEntryId = null);
+
 public sealed record BuildTrapChoice(
     string ChoiceId,
     string ReasonKey,
