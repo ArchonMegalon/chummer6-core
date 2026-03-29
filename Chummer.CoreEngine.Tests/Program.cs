@@ -1623,6 +1623,28 @@ internal static class CoreEngineTests
         AssertEx.True(
             progressionPaths.All(static path => path.SummaryParameters.Any(parameter => string.Equals(parameter.Name, "constraintCount", StringComparison.Ordinal))),
             "Build Lab progression planner should surface campaign-constraint context on each path.");
+        AssertEx.SequenceEqual(
+            progressionPaths[0].MatchedConstraintTags ?? Array.Empty<string>(),
+            ["face"],
+            "Build Lab progression planner should surface deterministic matched campaign constraints for each path.");
+        AssertEx.SequenceEqual(
+            progressionPaths[0].MissingConstraintTags ?? Array.Empty<string>(),
+            ["matrix-specialist"],
+            "Build Lab progression planner should surface deterministic missing campaign constraints for each path.");
+        AssertEx.Equal(
+            50m,
+            progressionPaths[0].ConstraintCoverageScore ?? -1m,
+            "Build Lab progression planner should expose deterministic constraint coverage scoring.");
+        AssertEx.Equal(
+            "buildlab.progression.tradeoff.constraint-gap",
+            progressionPaths[0].TradeoffSummaryKey,
+            "Build Lab progression planner should emit a keyed tradeoff summary when campaign coverage is incomplete.");
+        IReadOnlyList<RulesetExplainParameter> tradeoffSummaryParameters = progressionPaths[0].TradeoffSummaryParameters ?? Array.Empty<RulesetExplainParameter>();
+        AssertEx.True(
+            tradeoffSummaryParameters.Count > 0
+            && tradeoffSummaryParameters.Any(parameter => string.Equals(parameter.Name, "initialConsistency", StringComparison.Ordinal))
+            && tradeoffSummaryParameters.Any(parameter => string.Equals(parameter.Name, "finalCeiling", StringComparison.Ordinal)),
+            "Build Lab progression planner should expose structured tradeoff parameters for early consistency and late ceiling.");
         AssertEx.Equal(
             "buildlab.progression.campaign-constraint-gap",
             progressionPaths[0].Diagnostics!.Last().MessageKey,

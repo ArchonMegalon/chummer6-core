@@ -103,17 +103,59 @@ public sealed class DefaultBuildLabService : IBuildLabService
                 KarmaSpendProjection projection = ProjectKarmaSpend(characterId, variant.VariantId, milestones);
                 List<RulesetCapabilityDiagnostic> diagnostics = projection.Diagnostics?.ToList() ?? [];
                 diagnostics.AddRange(BuildCampaignConstraintDiagnostics(variant, constraintTags));
+                string[] matchedConstraintTags = constraintTags
+                    .Intersect(variant.RoleTags, StringComparer.Ordinal)
+                    .OrderBy(static tag => tag, StringComparer.Ordinal)
+                    .ToArray();
+                string[] missingConstraintTags = constraintTags
+                    .Except(matchedConstraintTags, StringComparer.Ordinal)
+                    .OrderBy(static tag => tag, StringComparer.Ordinal)
+                    .ToArray();
+                decimal constraintCoverageScore = constraintTags.Length == 0
+                    ? 100m
+                    : Math.Round((matchedConstraintTags.Length * 100m) / constraintTags.Length, 2, MidpointRounding.AwayFromZero);
+                string tradeoffSummaryKey = constraintTags.Length == 0
+                    ? "buildlab.progression.tradeoff.unconstrained"
+                    : missingConstraintTags.Length == 0
+                        ? "buildlab.progression.tradeoff.constraint-aligned"
+                        : "buildlab.progression.tradeoff.constraint-gap";
+                BuildVariantScore? earlyConsistency = projection.Steps
+                    .FirstOrDefault()?
+                    .Scores
+                    .FirstOrDefault(static score => string.Equals(score.MetricId, "consistency", StringComparison.Ordinal));
+                BuildVariantScore? lateCeiling = projection.Steps
+                    .LastOrDefault()?
+                    .Scores
+                    .FirstOrDefault(static score => string.Equals(score.MetricId, "ceiling", StringComparison.Ordinal));
+                RulesetExplainParameter[] tradeoffSummaryParameters =
+                [
+                    Param("variantId", projection.VariantId),
+                    Param("tag", ExtractTag(projection.VariantId)),
+                    Param("matchedConstraintCount", matchedConstraintTags.Length),
+                    Param("missingConstraintCount", missingConstraintTags.Length),
+                    Param("constraintCoverageScore", constraintCoverageScore),
+                    Param("initialConsistency", earlyConsistency?.Value),
+                    Param("finalCeiling", lateCeiling?.Value)
+                ];
 
                 return projection with
                 {
                     SummaryParameters = projection.SummaryParameters
                         .Concat(
                         [
-                            Param("constraintCount", constraintTags.Length)
+                            Param("constraintCount", constraintTags.Length),
+                            Param("matchedConstraintCount", matchedConstraintTags.Length),
+                            Param("missingConstraintCount", missingConstraintTags.Length),
+                            Param("constraintCoverageScore", constraintCoverageScore)
                         ])
                         .ToArray(),
                     Diagnostics = diagnostics,
-                    ExplainEntryId = $"{projection.ExplainEntryId}:planner"
+                    ExplainEntryId = $"{projection.ExplainEntryId}:planner",
+                    TradeoffSummaryKey = tradeoffSummaryKey,
+                    TradeoffSummaryParameters = tradeoffSummaryParameters,
+                    MatchedConstraintTags = matchedConstraintTags,
+                    MissingConstraintTags = missingConstraintTags,
+                    ConstraintCoverageScore = constraintCoverageScore
                 };
             })
             .OrderByDescending(static projection => projection.Steps.FirstOrDefault()?.Rank ?? 0m)
