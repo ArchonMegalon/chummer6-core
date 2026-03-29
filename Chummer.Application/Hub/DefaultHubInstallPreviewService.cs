@@ -16,6 +16,7 @@ public sealed class DefaultHubInstallPreviewService : IHubInstallPreviewService
     private readonly IRuntimeLockRegistryService _runtimeLockRegistryService;
     private readonly IRulePackRegistryService _rulePackRegistryService;
     private readonly IBuildKitRegistryService _buildKitRegistryService;
+    private readonly INpcVaultRegistryService _npcVaultRegistryService;
 
     public DefaultHubInstallPreviewService(
         IRulesetPluginRegistry rulesetPluginRegistry,
@@ -25,7 +26,8 @@ public sealed class DefaultHubInstallPreviewService : IHubInstallPreviewService
         IRuntimeLockInstallService runtimeLockInstallService,
         IRuntimeLockRegistryService runtimeLockRegistryService,
         IRulePackRegistryService rulePackRegistryService,
-        IBuildKitRegistryService buildKitRegistryService)
+        IBuildKitRegistryService buildKitRegistryService,
+        INpcVaultRegistryService npcVaultRegistryService)
     {
         _rulesetPluginRegistry = rulesetPluginRegistry;
         _rulePackInstallService = rulePackInstallService;
@@ -35,6 +37,7 @@ public sealed class DefaultHubInstallPreviewService : IHubInstallPreviewService
         _runtimeLockRegistryService = runtimeLockRegistryService;
         _rulePackRegistryService = rulePackRegistryService;
         _buildKitRegistryService = buildKitRegistryService;
+        _npcVaultRegistryService = npcVaultRegistryService;
     }
 
     public HubProjectInstallPreviewReceipt? Preview(OwnerScope owner, string kind, string itemId, RuleProfileApplyTarget target, string? rulesetId = null)
@@ -52,6 +55,9 @@ public sealed class DefaultHubInstallPreviewService : IHubInstallPreviewService
             HubCatalogItemKinds.RuntimeLock => PreviewRuntimeLock(owner, itemId, target, rulesetId),
             HubCatalogItemKinds.RulePack => PreviewRulePack(owner, itemId, target, rulesetId),
             HubCatalogItemKinds.BuildKit => PreviewBuildKit(owner, itemId, target, rulesetId),
+            HubCatalogItemKinds.NpcEntry => PreviewNpcEntry(owner, itemId, target, rulesetId),
+            HubCatalogItemKinds.NpcPack => PreviewNpcPack(owner, itemId, target, rulesetId),
+            HubCatalogItemKinds.EncounterPack => PreviewEncounterPack(owner, itemId, target, rulesetId),
             _ => null
         };
     }
@@ -283,10 +289,198 @@ public sealed class DefaultHubInstallPreviewService : IHubInstallPreviewService
         return null;
     }
 
+    private HubProjectInstallPreviewReceipt? PreviewNpcEntry(OwnerScope owner, string itemId, RuleProfileApplyTarget target, string? rulesetId)
+    {
+        foreach (string candidateRulesetId in EnumerateRulesetIds(rulesetId))
+        {
+            NpcEntryRegistryEntry? entry = _npcVaultRegistryService.GetEntry(owner, itemId, candidateRulesetId);
+            if (entry is null)
+            {
+                continue;
+            }
+
+            if (!entry.Manifest.SessionReady || !entry.Manifest.GmBoardReady)
+            {
+                return CreateDeferredReceipt(
+                    HubCatalogItemKinds.NpcEntry,
+                    itemId,
+                    target,
+                    "npc-prep-review-required",
+                    $"Finish session-ready and GM-board-ready prep for {entry.Manifest.Title} before binding it into the {DescribeTargetLane(target)}.");
+            }
+
+            string targetLane = DescribeTargetLane(target);
+            return new HubProjectInstallPreviewReceipt(
+                Kind: HubCatalogItemKinds.NpcEntry,
+                ItemId: itemId,
+                Target: target,
+                State: HubProjectInstallPreviewStates.Ready,
+                Changes:
+                [
+                    new HubProjectInstallPreviewChange(
+                        Kind: HubProjectInstallPreviewChangeKinds.InstallStateChanged,
+                        Summary: $"Bind {entry.Manifest.Title} into the {targetLane} with grounded threat, runtime, and GM prep evidence.",
+                        SubjectId: itemId)
+                ],
+                Diagnostics:
+                [
+                    new HubProjectInstallPreviewDiagnostic(
+                        Kind: HubProjectInstallPreviewDiagnosticKinds.Installability,
+                        Severity: HubProjectInstallPreviewDiagnosticSeverityLevels.Info,
+                        Message: $"{entry.Manifest.Title} is ready for governed opposition binding at threat tier {entry.Manifest.ThreatTier}.",
+                        SubjectId: itemId)
+                ],
+                RuntimeFingerprint: entry.Manifest.RuntimeFingerprint,
+                RuntimeCompatibilitySummary: DescribeNpcEntryRuntimeSummary(entry),
+                CampaignReturnSummary: $"Campaign return can reopen through the {targetLane} once {entry.Manifest.Title} is staged with the same governed prep packet.",
+                SupportClosureSummary: $"Support closure can cite {entry.Manifest.Title}, threat tier {entry.Manifest.ThreatTier}, and the same prep packet as the governed opposition receipt.");
+        }
+
+        return null;
+    }
+
+    private HubProjectInstallPreviewReceipt? PreviewNpcPack(OwnerScope owner, string itemId, RuleProfileApplyTarget target, string? rulesetId)
+    {
+        foreach (string candidateRulesetId in EnumerateRulesetIds(rulesetId))
+        {
+            NpcPackRegistryEntry? entry = _npcVaultRegistryService.GetPack(owner, itemId, candidateRulesetId);
+            if (entry is null)
+            {
+                continue;
+            }
+
+            if (!entry.Manifest.SessionReady || !entry.Manifest.GmBoardReady)
+            {
+                return CreateDeferredReceipt(
+                    HubCatalogItemKinds.NpcPack,
+                    itemId,
+                    target,
+                    "npc-prep-review-required",
+                    $"Finish session-ready and GM-board-ready prep for {entry.Manifest.Title} before binding it into the {DescribeTargetLane(target)}.");
+            }
+
+            int totalSeatCount = entry.Manifest.Entries.Sum(static member => Math.Max(1, member.Quantity));
+            string targetLane = DescribeTargetLane(target);
+            return new HubProjectInstallPreviewReceipt(
+                Kind: HubCatalogItemKinds.NpcPack,
+                ItemId: itemId,
+                Target: target,
+                State: HubProjectInstallPreviewStates.Ready,
+                Changes:
+                [
+                    new HubProjectInstallPreviewChange(
+                        Kind: HubProjectInstallPreviewChangeKinds.InstallStateChanged,
+                        Summary: $"Bind {entry.Manifest.Title} into the {targetLane} with {totalSeatCount} prepared opposition seat(s).",
+                        SubjectId: itemId)
+                ],
+                Diagnostics:
+                [
+                    new HubProjectInstallPreviewDiagnostic(
+                        Kind: HubProjectInstallPreviewDiagnosticKinds.Installability,
+                        Severity: HubProjectInstallPreviewDiagnosticSeverityLevels.Info,
+                        Message: $"{entry.Manifest.Title} already preserves its governed roster for direct GM prep reuse.",
+                        SubjectId: itemId)
+                ],
+                RuntimeCompatibilitySummary: DescribeNpcPackRuntimeSummary(entry),
+                CampaignReturnSummary: $"Campaign return can reopen through the {targetLane} with {entry.Manifest.Title} because its governed opposition roster is already preserved.",
+                SupportClosureSummary: $"Support closure can cite {entry.Manifest.Title} and its {totalSeatCount} prepared opposition seat(s) as the reusable prep receipt.");
+        }
+
+        return null;
+    }
+
+    private HubProjectInstallPreviewReceipt? PreviewEncounterPack(OwnerScope owner, string itemId, RuleProfileApplyTarget target, string? rulesetId)
+    {
+        foreach (string candidateRulesetId in EnumerateRulesetIds(rulesetId))
+        {
+            EncounterPackRegistryEntry? entry = _npcVaultRegistryService.GetEncounterPack(owner, itemId, candidateRulesetId);
+            if (entry is null)
+            {
+                continue;
+            }
+
+            if (!entry.Manifest.SessionReady || !entry.Manifest.GmBoardReady)
+            {
+                return CreateDeferredReceipt(
+                    HubCatalogItemKinds.EncounterPack,
+                    itemId,
+                    target,
+                    "npc-prep-review-required",
+                    $"Finish session-ready and GM-board-ready prep for {entry.Manifest.Title} before binding it into the {DescribeTargetLane(target)}.");
+            }
+
+            int totalParticipantCount = entry.Manifest.Participants.Sum(static participant => Math.Max(1, participant.Quantity));
+            int roleCount = entry.Manifest.Participants
+                .Select(static participant => participant.Role)
+                .Where(static role => !string.IsNullOrWhiteSpace(role))
+                .Distinct(StringComparer.Ordinal)
+                .Count();
+            string targetLane = DescribeTargetLane(target);
+            return new HubProjectInstallPreviewReceipt(
+                Kind: HubCatalogItemKinds.EncounterPack,
+                ItemId: itemId,
+                Target: target,
+                State: HubProjectInstallPreviewStates.Ready,
+                Changes:
+                [
+                    new HubProjectInstallPreviewChange(
+                        Kind: HubProjectInstallPreviewChangeKinds.InstallStateChanged,
+                        Summary: $"Bind {entry.Manifest.Title} into the {targetLane} with {totalParticipantCount} prepared opposition seat(s) across {roleCount} explicit role lane(s).",
+                        SubjectId: itemId)
+                ],
+                Diagnostics:
+                [
+                    new HubProjectInstallPreviewDiagnostic(
+                        Kind: HubProjectInstallPreviewDiagnosticKinds.Installability,
+                        Severity: HubProjectInstallPreviewDiagnosticSeverityLevels.Info,
+                        Message: $"{entry.Manifest.Title} already carries governed role and quantity truth for direct encounter reuse.",
+                        SubjectId: itemId)
+                ],
+                RuntimeCompatibilitySummary: DescribeEncounterPackRuntimeSummary(entry),
+                CampaignReturnSummary: $"Campaign return can reopen through the {targetLane} with {entry.Manifest.Title} because its governed encounter packet is already staged.",
+                SupportClosureSummary: $"Support closure can cite {entry.Manifest.Title}, its {roleCount} explicit role lane(s), and the same encounter packet as the reusable GM prep receipt.");
+        }
+
+        return null;
+    }
+
     private static BuildKitRuntimeRequirement? ResolveRuntimeRequirement(BuildKitManifest manifest, string rulesetId)
         => manifest.RuntimeRequirements.FirstOrDefault(requirement =>
                string.Equals(requirement.RulesetId, rulesetId, StringComparison.Ordinal))
            ?? manifest.RuntimeRequirements.FirstOrDefault();
+
+    private static string DescribeTargetLane(RuleProfileApplyTarget target) =>
+        target.TargetKind switch
+        {
+            RuleProfileApplyTargetKinds.Workspace => "selected workspace",
+            RuleProfileApplyTargetKinds.Campaign => "selected campaign",
+            RuleProfileApplyTargetKinds.SessionLedger => "selected session ledger",
+            RuleProfileApplyTargetKinds.Character => "selected character",
+            RuleProfileApplyTargetKinds.GlobalDefaults => "global defaults lane",
+            _ => $"{target.TargetKind} '{target.TargetId}'"
+        };
+
+    private static string DescribeNpcEntryRuntimeSummary(NpcEntryRegistryEntry entry)
+    {
+        if (string.IsNullOrWhiteSpace(entry.Manifest.RuntimeFingerprint))
+        {
+            return $"{entry.Manifest.Title} is already session-ready and GM-board-ready without an extra runtime fingerprint requirement.";
+        }
+
+        return $"{entry.Manifest.Title} is already session-ready and GM-board-ready on runtime {entry.Manifest.RuntimeFingerprint}.";
+    }
+
+    private static string DescribeNpcPackRuntimeSummary(NpcPackRegistryEntry entry)
+    {
+        int totalSeatCount = entry.Manifest.Entries.Sum(static member => Math.Max(1, member.Quantity));
+        return $"{entry.Manifest.Title} is already session-ready and GM-board-ready with {totalSeatCount} prepared opposition seat(s).";
+    }
+
+    private static string DescribeEncounterPackRuntimeSummary(EncounterPackRegistryEntry entry)
+    {
+        int totalParticipantCount = entry.Manifest.Participants.Sum(static participant => Math.Max(1, participant.Quantity));
+        return $"{entry.Manifest.Title} is already session-ready and GM-board-ready with {totalParticipantCount} prepared opposition seat(s) preserved for encounter replay.";
+    }
 
     private IEnumerable<string> EnumerateRulesetIds(string? rulesetId)
     {
