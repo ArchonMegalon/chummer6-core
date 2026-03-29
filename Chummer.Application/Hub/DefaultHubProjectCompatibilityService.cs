@@ -182,7 +182,7 @@ public sealed class DefaultHubProjectCompatibilityService : IHubProjectCompatibi
                         "workbench-first",
                         null,
                         [],
-                        compatibilityReceipt.SessionRuntimeSummary),
+                        BuildBuildKitSessionRuntimeNotes(compatibilityReceipt)),
                     CreateNarrativeRow(
                         HubProjectCompatibilityRowKinds.CampaignReturn,
                         compatibilityReceipt.RequiresRuntimeReview ? HubProjectCompatibilityStates.ReviewRequired : HubProjectCompatibilityStates.Compatible,
@@ -461,6 +461,18 @@ public sealed class DefaultHubProjectCompatibilityService : IHubProjectCompatibi
     {
         int resolvedRulePackCount = entry.RuntimeLock.RulePacks.Count;
         return $"Support closure can cite runtime fingerprint {entry.RuntimeLock.RuntimeFingerprint} and {resolvedRulePackCount} resolved rule pack(s) as the install-local compatibility oracle.";
+    }
+
+    private static string BuildBuildKitSessionRuntimeNotes(BuildKitCompatibilityReceipt compatibilityReceipt)
+    {
+        ArgumentNullException.ThrowIfNull(compatibilityReceipt);
+
+        if (string.IsNullOrWhiteSpace(compatibilityReceipt.NextSafeActionSummary))
+        {
+            return compatibilityReceipt.SessionRuntimeSummary;
+        }
+
+        return $"{compatibilityReceipt.SessionRuntimeSummary} Next safe action: {compatibilityReceipt.NextSafeActionSummary}";
     }
 
     private static string GetDefaultLabel(string kind) => kind switch
