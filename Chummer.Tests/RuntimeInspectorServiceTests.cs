@@ -85,6 +85,10 @@ public class RuntimeInspectorServiceTests
             && string.Equals(descriptor.TitleKey, "ruleset.capability.session.quick-actions.title", StringComparison.Ordinal)
             && descriptor.SessionSafe
             && string.IsNullOrWhiteSpace(descriptor.ProviderId)));
+        Assert.IsNotNull(projection.Promotion);
+        Assert.AreEqual(RuleProfilePublicationStatuses.Published, projection.Promotion!.PublicationStatus);
+        StringAssert.Contains(projection.Promotion.PromotionSummary, "Stable rule environment");
+        StringAssert.Contains(projection.Promotion.RollbackSummary, "No install target is pinned yet");
         Assert.IsTrue(projection.Warnings.Any(warning => string.Equals(warning.Kind, RuntimeInspectorWarningKinds.Trust, StringComparison.Ordinal)));
         Assert.IsTrue(projection.CompatibilityDiagnostics.Any(diagnostic =>
             string.Equals(diagnostic.State, RuntimeLockCompatibilityStates.Compatible, StringComparison.Ordinal)
@@ -164,6 +168,8 @@ public class RuntimeInspectorServiceTests
             && string.Equals(item.BeforeValue, "runtime-lock-sha256-old", StringComparison.Ordinal)
             && string.Equals(item.AfterValue, "runtime-lock-sha256", StringComparison.Ordinal)
             && item.RequiresRebind));
+        Assert.IsNotNull(projection.Promotion);
+        StringAssert.Contains(projection.Promotion!.RollbackSummary, "Rollback can re-pin runtime-lock-sha256");
     }
 
     private static RulesetPluginRegistry CreatePluginRegistry() =>

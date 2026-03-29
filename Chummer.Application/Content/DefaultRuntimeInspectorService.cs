@@ -60,12 +60,14 @@ public sealed class DefaultRuntimeInspectorService : IRuntimeInspectorService
         RuntimeLockCompatibilityDiagnostic[] compatibilityDiagnostics = BuildCompatibilityDiagnostics(profile, registryEntries);
         RuntimeInspectorWarning[] warnings = BuildWarnings(profile, resolvedRulePacks, compatibilityDiagnostics);
         RuntimeMigrationPreviewItem[] migrationPreview = BuildMigrationPreview(profile, resolvedRulePacks, compatibilityDiagnostics);
+        ArtifactInstallState install = NormalizeInstall(profile.Install, profile.Manifest.RuntimeLock.RuntimeFingerprint);
+        RuntimeInspectorPromotionProjection promotion = BuildPromotion(profile, install);
 
         return new RuntimeInspectorProjection(
             TargetKind: RuntimeInspectorTargetKinds.RuntimeLock,
             TargetId: profile.Manifest.ProfileId,
             RuntimeLock: profile.Manifest.RuntimeLock,
-            Install: NormalizeInstall(profile.Install, profile.Manifest.RuntimeLock.RuntimeFingerprint),
+            Install: install,
             ResolvedRulePacks: resolvedRulePacks,
             ProviderBindings: providerBindings,
             CompatibilityDiagnostics: compatibilityDiagnostics,
@@ -73,7 +75,8 @@ public sealed class DefaultRuntimeInspectorService : IRuntimeInspectorService
             MigrationPreview: migrationPreview,
             GeneratedAtUtc: DateTimeOffset.UtcNow,
             ProfileSourceKind: profile.SourceKind,
-            CapabilityDescriptors: capabilityDescriptors);
+            CapabilityDescriptors: capabilityDescriptors,
+            Promotion: promotion);
     }
 
     private RuntimeInspectorCapabilityDescriptorProjection[] BuildCapabilityDescriptors(
@@ -313,6 +316,34 @@ public sealed class DefaultRuntimeInspectorService : IRuntimeInspectorService
             && !string.Equals(profile.Install.RuntimeFingerprint, profile.Manifest.RuntimeLock.RuntimeFingerprint, StringComparison.Ordinal);
     }
 
+    private static RuntimeInspectorPromotionProjection BuildPromotion(RuleProfileRegistryEntry profile, ArtifactInstallState install)
+    {
+        string promotionSummary = profile.Manifest.UpdateChannel switch
+        {
+            RuleProfileUpdateChannels.Stable => $"Stable rule environment is {profile.Publication.PublicationStatus} with {profile.Publication.Visibility} visibility and ready for governed reuse.",
+            RuleProfileUpdateChannels.Preview => $"Preview rule environment is {profile.Publication.PublicationStatus} with {profile.Publication.Visibility} visibility and stays on the sandbox rail until promotion is explicit.",
+            RuleProfileUpdateChannels.CampaignPinned => $"Campaign-pinned rule environment is {profile.Publication.PublicationStatus} with {profile.Publication.Visibility} visibility and stays on the campaign-approved rail until broader promotion is chosen.",
+            _ => $"Rule environment is {profile.Publication.PublicationStatus} on update channel {profile.Manifest.UpdateChannel}."
+        };
+
+        string rollbackSummary = string.IsNullOrWhiteSpace(install.InstalledTargetKind)
+            ? "No install target is pinned yet; rollback still needs the first governed pin before promotion."
+            : $"Rollback can re-pin {install.RuntimeFingerprint} on {FormatInstallTarget(install)} while the next promotion is reviewed.";
+
+        string lineageSummary = string.Equals(profile.SourceKind, RegistryEntrySourceKinds.BuiltInCoreProfile, StringComparison.Ordinal)
+            ? "Built-in core profile remains the baseline lineage anchor for this runtime."
+            : $"{profile.SourceKind} profile compiles on top of the governed runtime lock instead of forking a local shadow rule environment.";
+
+        return new RuntimeInspectorPromotionProjection(
+            PublicationStatus: profile.Publication.PublicationStatus,
+            Visibility: profile.Publication.Visibility,
+            UpdateChannel: profile.Manifest.UpdateChannel,
+            PromotionSummary: promotionSummary,
+            RollbackSummary: rollbackSummary,
+            LineageSummary: lineageSummary,
+            PublishedAtUtc: profile.Publication.PublishedAtUtc);
+    }
+
     private static string? TryResolvePackId(string providerId, IEnumerable<string> packIds)
     {
         foreach (string packId in packIds)
@@ -331,6 +362,18 @@ public sealed class DefaultRuntimeInspectorService : IRuntimeInspectorService
         return string.IsNullOrWhiteSpace(install.RuntimeFingerprint)
             ? install with { RuntimeFingerprint = runtimeFingerprint }
             : install;
+    }
+
+    private static string FormatInstallTarget(ArtifactInstallState install)
+    {
+        if (string.IsNullOrWhiteSpace(install.InstalledTargetKind))
+        {
+            return "(none)";
+        }
+
+        return string.IsNullOrWhiteSpace(install.InstalledTargetId)
+            ? install.InstalledTargetKind
+            : $"{install.InstalledTargetKind}:{install.InstalledTargetId}";
     }
 
     private static RulesetExplainParameter Param(string name, object? value)
