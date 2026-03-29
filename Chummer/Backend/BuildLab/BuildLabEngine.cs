@@ -215,6 +215,17 @@ namespace Chummer.Backend.BuildLab
                 .Except(presentTags, StringComparer.Ordinal)
                 .OrderBy(tag => tag, StringComparer.Ordinal)
                 .ToArray();
+            string[] coveredRoleTags = requiredTags
+                .Intersect(presentTags, StringComparer.Ordinal)
+                .OrderBy(tag => tag, StringComparer.Ordinal)
+                .ToArray();
+            string[] duplicateRoleTags = orderedVariantIds
+                .Select(ExtractTag)
+                .GroupBy(tag => tag, StringComparer.Ordinal)
+                .Where(group => group.Count() > 1)
+                .Select(group => group.Key)
+                .OrderBy(tag => tag, StringComparer.Ordinal)
+                .ToArray();
             decimal coverageScore = requiredTags.Length == 0
                 ? 100m
                 : Math.Round(((requiredTags.Length - missingRoleTags.Length) * 100m) / requiredTags.Length, 2, MidpointRounding.AwayFromZero);
@@ -243,6 +254,15 @@ namespace Chummer.Backend.BuildLab
                     Tuple.Create("variantCount", (object)orderedVariantIds.Length)));
             }
 
+            if (duplicateRoleTags.Length > 0)
+            {
+                diagnostics.Add(Diagnostic(
+                    "buildlab.team.duplicate-role-tags",
+                    RulesetCapabilityDiagnosticSeverities.Warning,
+                    Tuple.Create("duplicateRoleCount", (object)duplicateRoleTags.Length),
+                    Tuple.Create("duplicateRoles", (object)string.Join(",", duplicateRoleTags))));
+            }
+
             if (overlaps.Any(overlap => overlap.OverlapScore >= 0.85m))
             {
                 diagnostics.Add(Diagnostic(
@@ -258,7 +278,9 @@ namespace Chummer.Backend.BuildLab
                 {
                     Param("variantCount", orderedVariantIds.Length),
                     Param("requiredRoleCount", requiredTags.Length),
+                    Param("coveredRoleCount", coveredRoleTags.Length),
                     Param("missingRoleCount", missingRoleTags.Length),
+                    Param("duplicateRoleCount", duplicateRoleTags.Length),
                     Param("coverageScore", coverageScore),
                     Param("rolePressureScore", rolePressureScore)
                 },
@@ -267,7 +289,9 @@ namespace Chummer.Backend.BuildLab
                 MissingRoleTags: missingRoleTags,
                 RoleOverlaps: overlaps,
                 Diagnostics: diagnostics,
-                ExplainEntryId: Normalize(characterId) + ":team-coverage");
+                ExplainEntryId: Normalize(characterId) + ":team-coverage",
+                CoveredRoleTags: coveredRoleTags,
+                DuplicateRoleTags: duplicateRoleTags);
         }
 
         public IReadOnlyList<BuildCorePackageSuggestion> SuggestCorePackages(string characterId, string variantId)
