@@ -81,7 +81,8 @@ public class HubInstallPreviewServiceTests
             new RuntimeLockInstallServiceStub(null),
             new RuntimeLockRegistryServiceStub(null),
             new RulePackRegistryServiceStub([]),
-            new BuildKitRegistryServiceStub([]));
+            new BuildKitRegistryServiceStub([]),
+            new DefaultNpcVaultRegistryService());
 
         HubProjectInstallPreviewReceipt? preview = service.Preview(
             OwnerScope.LocalSingleUser,
@@ -154,7 +155,8 @@ public class HubInstallPreviewServiceTests
                         InstalledTargetId: "workspace-1",
                         RuntimeFingerprint: "sha256:core"))),
             new RulePackRegistryServiceStub([]),
-            new BuildKitRegistryServiceStub([]));
+            new BuildKitRegistryServiceStub([]),
+            new DefaultNpcVaultRegistryService());
 
         HubProjectInstallPreviewReceipt? preview = service.Preview(
             OwnerScope.LocalSingleUser,
@@ -201,7 +203,8 @@ public class HubInstallPreviewServiceTests
                     Visibility: ArtifactVisibilityModes.Public,
                     PublicationStatus: BuildKitPublicationStatuses.Published,
                     UpdatedAtUtc: System.DateTimeOffset.UtcNow)
-            ]));
+            ]),
+            new DefaultNpcVaultRegistryService());
 
         HubProjectInstallPreviewReceipt? preview = service.Preview(
             OwnerScope.LocalSingleUser,
@@ -272,7 +275,8 @@ public class HubInstallPreviewServiceTests
                     Visibility: ArtifactVisibilityModes.Public,
                     PublicationStatus: BuildKitPublicationStatuses.Published,
                     UpdatedAtUtc: DateTimeOffset.UtcNow)
-            ]));
+            ]),
+            new DefaultNpcVaultRegistryService());
 
         HubProjectInstallPreviewReceipt? preview = service.Preview(
             OwnerScope.LocalSingleUser,
@@ -321,7 +325,8 @@ public class HubInstallPreviewServiceTests
                     Visibility: ArtifactVisibilityModes.Public,
                     PublicationStatus: BuildKitPublicationStatuses.Published,
                     UpdatedAtUtc: DateTimeOffset.UtcNow)
-            ]));
+            ]),
+            new DefaultNpcVaultRegistryService());
 
         HubProjectInstallPreviewReceipt? preview = service.Preview(
             OwnerScope.LocalSingleUser,
@@ -339,6 +344,59 @@ public class HubInstallPreviewServiceTests
         Assert.IsNull(preview.RuntimeCompatibilitySummary);
         Assert.IsNull(preview.CampaignReturnSummary);
         Assert.IsNull(preview.SupportClosureSummary);
+    }
+
+    [TestMethod]
+    public void Hub_install_preview_service_returns_ready_receipts_for_seeded_npc_packets()
+    {
+        DefaultHubInstallPreviewService service = new(
+            CreatePluginRegistry(),
+            new RulePackInstallServiceStub(null),
+            new RuleProfileRegistryServiceStub(null),
+            new RuleProfileApplicationServiceStub(null),
+            new RuntimeLockInstallServiceStub(null),
+            new RuntimeLockRegistryServiceStub(null),
+            new RulePackRegistryServiceStub([]),
+            new BuildKitRegistryServiceStub([]),
+            new DefaultNpcVaultRegistryService());
+
+        RuleProfileApplyTarget target = new(RuleProfileApplyTargetKinds.Workspace, "workspace-1");
+
+        HubProjectInstallPreviewReceipt? npcEntry = service.Preview(
+            OwnerScope.LocalSingleUser,
+            HubCatalogItemKinds.NpcEntry,
+            "red-samurai",
+            target,
+            RulesetDefaults.Sr5);
+        HubProjectInstallPreviewReceipt? npcPack = service.Preview(
+            OwnerScope.LocalSingleUser,
+            HubCatalogItemKinds.NpcPack,
+            "renraku-security",
+            target,
+            RulesetDefaults.Sr5);
+        HubProjectInstallPreviewReceipt? encounterPack = service.Preview(
+            OwnerScope.LocalSingleUser,
+            HubCatalogItemKinds.EncounterPack,
+            "renraku-checkpoint",
+            target,
+            RulesetDefaults.Sr5);
+
+        Assert.IsNotNull(npcEntry);
+        Assert.IsNotNull(npcPack);
+        Assert.IsNotNull(encounterPack);
+        Assert.AreEqual(HubProjectInstallPreviewStates.Ready, npcEntry.State);
+        Assert.AreEqual("sha256:core", npcEntry.RuntimeFingerprint);
+        Assert.IsTrue(npcEntry.Changes[0].Summary.Contains("Bind Red Samurai into the selected workspace", StringComparison.Ordinal));
+        Assert.IsTrue(npcEntry.RuntimeCompatibilitySummary?.Contains("session-ready and GM-board-ready on runtime sha256:core", StringComparison.Ordinal) == true);
+        Assert.IsTrue(npcEntry.CampaignReturnSummary?.Contains("selected workspace", StringComparison.Ordinal) == true);
+        Assert.AreEqual(HubProjectInstallPreviewStates.Ready, npcPack.State);
+        Assert.IsTrue(npcPack.Changes[0].Summary.Contains("3 prepared opposition seat(s)", StringComparison.Ordinal));
+        Assert.IsTrue(npcPack.SupportClosureSummary?.Contains("3 prepared opposition seat(s)", StringComparison.Ordinal) == true);
+        Assert.AreEqual(HubProjectInstallPreviewStates.Ready, encounterPack.State);
+        Assert.IsTrue(encounterPack.Changes[0].Summary.Contains("2 explicit role lane(s)", StringComparison.Ordinal));
+        Assert.IsTrue(encounterPack.Diagnostics.Any(diagnostic =>
+            diagnostic.Kind == HubProjectInstallPreviewDiagnosticKinds.Installability
+            && diagnostic.Message.Contains("governed role and quantity truth", StringComparison.Ordinal)));
     }
 
     [TestMethod]
@@ -405,7 +463,8 @@ public class HubInstallPreviewServiceTests
                         InstalledTargetKind: RuleProfileApplyTargetKinds.Workspace,
                         InstalledTargetId: "workspace-1"))
             ]),
-            new BuildKitRegistryServiceStub([]));
+            new BuildKitRegistryServiceStub([]),
+            new DefaultNpcVaultRegistryService());
 
         HubProjectInstallPreviewReceipt? preview = service.Preview(
             new OwnerScope("alice"),

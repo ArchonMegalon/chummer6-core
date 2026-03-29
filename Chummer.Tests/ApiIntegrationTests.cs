@@ -139,6 +139,10 @@ public class ApiIntegrationTests
         Assert.IsInstanceOfType<JsonArray>(payload["items"]);
         Assert.IsInstanceOfType<JsonArray>(payload["facets"]);
         Assert.IsInstanceOfType<JsonArray>(payload["sorts"]);
+        JsonArray items = payload["items"]!.AsArray();
+        Assert.IsTrue(items.OfType<JsonObject>().Any(item => string.Equals(item["kind"]?.GetValue<string>(), HubCatalogItemKinds.BuildKit, StringComparison.Ordinal)));
+        Assert.IsTrue(items.OfType<JsonObject>().Any(item => string.Equals(item["kind"]?.GetValue<string>(), HubCatalogItemKinds.NpcEntry, StringComparison.Ordinal)));
+        Assert.IsTrue(items.OfType<JsonObject>().Any(item => string.Equals(item["kind"]?.GetValue<string>(), HubCatalogItemKinds.EncounterPack, StringComparison.Ordinal)));
     }
 
     [TestMethod]
@@ -153,6 +157,20 @@ public class ApiIntegrationTests
         Assert.IsNotNull(payload["runtimeFingerprint"]);
         Assert.IsInstanceOfType<JsonArray>(payload["facts"]);
         Assert.IsInstanceOfType<JsonArray>(payload["actions"]);
+    }
+
+    [TestMethod]
+    public async Task Hub_project_detail_endpoint_returns_registered_npc_entry_projection()
+    {
+        using var client = CreateClient();
+
+        JsonObject payload = await GetRequiredJsonObject(client, $"/api/hub/projects/{HubCatalogItemKinds.NpcEntry}/red-samurai?ruleset=sr5");
+
+        Assert.AreEqual(HubCatalogItemKinds.NpcEntry, payload["summary"]?["kind"]?.GetValue<string>());
+        Assert.AreEqual("red-samurai", payload["summary"]?["itemId"]?.GetValue<string>());
+        Assert.IsInstanceOfType<JsonArray>(payload["facts"]);
+        Assert.IsInstanceOfType<JsonArray>(payload["actions"]);
+        Assert.IsTrue(payload["facts"]!.AsArray().OfType<JsonObject>().Any(fact => string.Equals(fact["factId"]?.GetValue<string>(), "threat-tier", StringComparison.Ordinal)));
     }
 
     [TestMethod]
@@ -251,6 +269,27 @@ public class ApiIntegrationTests
     }
 
     [TestMethod]
+    public async Task Hub_project_install_preview_endpoint_returns_registered_npc_entry_preview()
+    {
+        using var client = CreateClient();
+        RuleProfileApplyTarget target = new(RuleProfileApplyTargetKinds.Workspace, "workspace-1");
+
+        using HttpResponseMessage response = await client.PostAsJsonAsync($"/api/hub/projects/{HubCatalogItemKinds.NpcEntry}/red-samurai/install-preview?ruleset=sr5", target);
+        response.EnsureSuccessStatusCode();
+        JsonNode parsed = JsonNode.Parse(await response.Content.ReadAsStringAsync());
+        Assert.IsInstanceOfType<JsonObject>(parsed);
+        JsonObject payload = (JsonObject)parsed!;
+
+        Assert.AreEqual(HubCatalogItemKinds.NpcEntry, payload["kind"]?.GetValue<string>());
+        Assert.AreEqual("red-samurai", payload["itemId"]?.GetValue<string>());
+        Assert.AreEqual("ready", payload["state"]?.GetValue<string>());
+        Assert.AreEqual("sha256:core", payload["runtimeFingerprint"]?.GetValue<string>());
+        Assert.IsTrue(payload["campaignReturnSummary"]?.GetValue<string>()?.Contains("selected workspace", StringComparison.Ordinal) == true);
+        Assert.IsInstanceOfType<JsonArray>(payload["changes"]);
+        Assert.IsInstanceOfType<JsonArray>(payload["diagnostics"]);
+    }
+
+    [TestMethod]
     public async Task Hub_project_install_preview_endpoint_returns_not_found_for_unknown_project()
     {
         using var client = CreateClient();
@@ -293,6 +332,21 @@ public class ApiIntegrationTests
         Assert.AreEqual(HubCatalogItemKinds.RuleProfile, payload["kind"]?.GetValue<string>());
         Assert.AreEqual("official.sr5.core", payload["itemId"]?.GetValue<string>());
         Assert.IsInstanceOfType<JsonArray>(payload["rows"]);
+    }
+
+    [TestMethod]
+    public async Task Hub_project_compatibility_endpoint_returns_registered_npc_entry_matrix()
+    {
+        using var client = CreateClient();
+
+        JsonObject payload = await GetRequiredJsonObject(client, $"/api/hub/projects/{HubCatalogItemKinds.NpcEntry}/red-samurai/compatibility?ruleset=sr5");
+
+        Assert.AreEqual(HubCatalogItemKinds.NpcEntry, payload["kind"]?.GetValue<string>());
+        Assert.AreEqual("red-samurai", payload["itemId"]?.GetValue<string>());
+        Assert.IsInstanceOfType<JsonArray>(payload["rows"]);
+        Assert.IsTrue(payload["rows"]!.AsArray().OfType<JsonObject>().Any(row =>
+            string.Equals(row["kind"]?.GetValue<string>(), HubProjectCompatibilityRowKinds.CampaignReturn, StringComparison.Ordinal)
+            && string.Equals(row["state"]?.GetValue<string>(), HubProjectCompatibilityStates.Compatible, StringComparison.Ordinal)));
     }
 
     [TestMethod]
