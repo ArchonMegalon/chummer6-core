@@ -89,6 +89,38 @@ public sealed class DefaultBuildLabService : IBuildLabService
             ExplainEntryId: $"{normalizedVariantId}:progression");
     }
 
+    public IReadOnlyList<KarmaSpendProjection> PlanProgressionPaths(
+        string characterId,
+        IReadOnlyList<string> roleTags,
+        IReadOnlyList<int> milestones,
+        IReadOnlyList<string> campaignConstraintTags)
+    {
+        string[] constraintTags = NormalizeTags(campaignConstraintTags, defaultWhenEmpty: false);
+
+        return GenerateBuildVariants(characterId, roleTags)
+            .Select(variant =>
+            {
+                KarmaSpendProjection projection = ProjectKarmaSpend(characterId, variant.VariantId, milestones);
+                List<RulesetCapabilityDiagnostic> diagnostics = projection.Diagnostics?.ToList() ?? [];
+                diagnostics.AddRange(BuildCampaignConstraintDiagnostics(variant, constraintTags));
+
+                return projection with
+                {
+                    SummaryParameters = projection.SummaryParameters
+                        .Concat(
+                        [
+                            Param("constraintCount", constraintTags.Length)
+                        ])
+                        .ToArray(),
+                    Diagnostics = diagnostics,
+                    ExplainEntryId = $"{projection.ExplainEntryId}:planner"
+                };
+            })
+            .OrderByDescending(static projection => projection.Steps.FirstOrDefault()?.Rank ?? 0m)
+            .ThenBy(static projection => projection.VariantId, StringComparer.Ordinal)
+            .ToArray();
+    }
+
     public IReadOnlyList<BuildTrapChoice> DetectTrapChoices(string characterId, string variantId)
     {
         string normalizedVariantId = NormalizeVariantId(characterId, variantId);
@@ -152,6 +184,85 @@ public sealed class DefaultBuildLabService : IBuildLabService
             .ThenBy(static overlap => overlap.LeftVariantId, StringComparer.Ordinal)
             .ThenBy(static overlap => overlap.RightVariantId, StringComparer.Ordinal)
             .ToArray();
+    }
+
+    public BuildTeamCoverageProjection EvaluateTeamCoverage(string characterId, IReadOnlyList<string> variantIds, IReadOnlyList<string> requiredRoleTags)
+    {
+        string[] orderedVariantIds = variantIds
+            .Where(static id => !string.IsNullOrWhiteSpace(id))
+            .Select(static id => id.Trim())
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(static id => id, StringComparer.Ordinal)
+            .ToArray();
+        IReadOnlyList<BuildRoleOverlap> overlaps = DetectRoleOverlap(characterId, orderedVariantIds);
+        string[] presentTags = orderedVariantIds
+            .Select(ExtractTag)
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(static tag => tag, StringComparer.Ordinal)
+            .ToArray();
+        string[] requiredTags = NormalizeTags(requiredRoleTags, defaultWhenEmpty: presentTags.Length == 0);
+
+        if (requiredTags.Length == 0)
+        {
+            requiredTags = presentTags;
+        }
+
+        string[] missingRoleTags = requiredTags
+            .Except(presentTags, StringComparer.Ordinal)
+            .OrderBy(static tag => tag, StringComparer.Ordinal)
+            .ToArray();
+        decimal coverageScore = requiredTags.Length == 0
+            ? 100m
+            : Math.Round(((requiredTags.Length - missingRoleTags.Length) * 100m) / requiredTags.Length, 2, MidpointRounding.AwayFromZero);
+        decimal overlapPressure = overlaps.Count == 0
+            ? 0m
+            : overlaps.Max(static overlap => overlap.OverlapScore) * 25m;
+        decimal duplicationPressure = Math.Max(0, orderedVariantIds.Length - presentTags.Length) * 10m;
+        decimal missingPressure = missingRoleTags.Length * 30m;
+        decimal rolePressureScore = Math.Min(100m, Math.Round(missingPressure + overlapPressure + duplicationPressure, 2, MidpointRounding.AwayFromZero));
+
+        List<RulesetCapabilityDiagnostic> diagnostics = [];
+        if (missingRoleTags.Length > 0)
+        {
+            diagnostics.Add(Diagnostic(
+                "buildlab.team.missing-role-tags",
+                RulesetCapabilityDiagnosticSeverities.Warning,
+                ("missingRoleCount", missingRoleTags.Length),
+                ("missingRoles", string.Join(",", missingRoleTags))));
+        }
+        else
+        {
+            diagnostics.Add(Diagnostic(
+                "buildlab.team.coverage-aligned",
+                ("requiredRoleCount", requiredTags.Length),
+                ("variantCount", orderedVariantIds.Length)));
+        }
+
+        if (overlaps.Any(static overlap => overlap.OverlapScore >= 0.85m))
+        {
+            diagnostics.Add(Diagnostic(
+                "buildlab.team.role-pressure-high",
+                RulesetCapabilityDiagnosticSeverities.Warning,
+                ("highestOverlap", overlaps.Max(static overlap => overlap.OverlapScore)),
+                ("variantCount", orderedVariantIds.Length)));
+        }
+
+        return new BuildTeamCoverageProjection(
+            SummaryKey: "buildlab.team.summary",
+            SummaryParameters:
+            [
+                Param("variantCount", orderedVariantIds.Length),
+                Param("requiredRoleCount", requiredTags.Length),
+                Param("missingRoleCount", missingRoleTags.Length),
+                Param("coverageScore", coverageScore),
+                Param("rolePressureScore", rolePressureScore)
+            ],
+            CoverageScore: coverageScore,
+            RolePressureScore: rolePressureScore,
+            MissingRoleTags: missingRoleTags,
+            RoleOverlaps: overlaps,
+            Diagnostics: diagnostics,
+            ExplainEntryId: $"{Normalize(characterId)}:team-coverage");
     }
 
     public IReadOnlyList<BuildCorePackageSuggestion> SuggestCorePackages(string characterId, string variantId)
@@ -240,14 +351,54 @@ public sealed class DefaultBuildLabService : IBuildLabService
             ExplainEntryId: $"{variantId}:package:{slot}");
     }
 
+    private static IReadOnlyList<RulesetCapabilityDiagnostic> BuildCampaignConstraintDiagnostics(
+        BuildVariantProjection variant,
+        IReadOnlyList<string> constraintTags)
+    {
+        if (constraintTags.Count == 0)
+        {
+            return [];
+        }
+
+        string[] missingTags = constraintTags
+            .Except(variant.RoleTags, StringComparer.Ordinal)
+            .OrderBy(static tag => tag, StringComparer.Ordinal)
+            .ToArray();
+        if (missingTags.Length == 0)
+        {
+            return
+            [
+                Diagnostic(
+                    "buildlab.progression.campaign-constraint-aligned",
+                    ("variantId", variant.VariantId),
+                    ("constraintCount", constraintTags.Count))
+            ];
+        }
+
+        return
+        [
+            Diagnostic(
+                "buildlab.progression.campaign-constraint-gap",
+                RulesetCapabilityDiagnosticSeverities.Warning,
+                ("variantId", variant.VariantId),
+                ("missingConstraints", string.Join(",", missingTags)))
+        ];
+    }
+
     private static RulesetCapabilityDiagnostic Diagnostic(
         string code,
+        params (string Name, object? Value)[] parameters)
+        => Diagnostic(code, RulesetCapabilityDiagnosticSeverities.Info, parameters);
+
+    private static RulesetCapabilityDiagnostic Diagnostic(
+        string code,
+        string severity,
         params (string Name, object? Value)[] parameters)
     {
         return new RulesetCapabilityDiagnostic(
             Code: code,
             Message: code,
-            Severity: RulesetCapabilityDiagnosticSeverities.Info,
+            Severity: severity,
             MessageKey: code,
             MessageParameters: parameters.Select(static parameter => Param(parameter.Name, parameter.Value)).ToArray());
     }
@@ -267,6 +418,23 @@ public sealed class DefaultBuildLabService : IBuildLabService
 
     private static string NormalizeVariantId(string characterId, string variantId)
         => string.IsNullOrWhiteSpace(variantId) ? $"{Normalize(characterId)}-generalist-1" : variantId.Trim();
+
+    private static string[] NormalizeTags(IReadOnlyList<string> tags, bool defaultWhenEmpty)
+    {
+        string[] normalized = tags
+            .Where(static tag => !string.IsNullOrWhiteSpace(tag))
+            .Select(static tag => tag.Trim())
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(static tag => tag, StringComparer.Ordinal)
+            .ToArray();
+
+        if (normalized.Length == 0 && defaultWhenEmpty)
+        {
+            return ["generalist"];
+        }
+
+        return normalized;
+    }
 
     private static string ExtractTag(string variantId)
     {

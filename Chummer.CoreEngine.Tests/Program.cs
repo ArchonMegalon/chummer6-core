@@ -1517,10 +1517,19 @@ internal static class CoreEngineTests
             ["face", "street-samurai"]);
         IReadOnlyList<BuildVariantProjection> fallbackVariants = service.GenerateBuildVariants("Alice Runner", []);
         KarmaSpendProjection progression = service.ProjectKarmaSpend("Alice Runner", string.Empty, []);
+        IReadOnlyList<KarmaSpendProjection> progressionPaths = service.PlanProgressionPaths(
+            "Alice Runner",
+            ["street-samurai", "face"],
+            [20, 40],
+            ["face", "matrix-specialist"]);
         IReadOnlyList<BuildTrapChoice> traps = service.DetectTrapChoices("Alice Runner", "alice-runner-face-1");
         IReadOnlyList<BuildRoleOverlap> overlaps = service.DetectRoleOverlap(
             "Alice Runner",
             ["alice-runner-face-2", "alice-runner-generalist-1", "alice-runner-face-1"]);
+        BuildTeamCoverageProjection teamCoverage = service.EvaluateTeamCoverage(
+            "Alice Runner",
+            ["alice-runner-face-2", "alice-runner-generalist-1", "alice-runner-face-1"],
+            ["face", "matrix-specialist", "street-samurai"]);
         IReadOnlyList<BuildCorePackageSuggestion> packages = service.SuggestCorePackages("Alice Runner", "alice-runner-face-1");
         BuildVariantProjection? scoredVariant = service.ScoreBuildVariant("Alice Runner", "alice-runner-face-1");
 
@@ -1559,6 +1568,17 @@ internal static class CoreEngineTests
                 && step.SummaryParameters.Count > 0
                 && !string.IsNullOrWhiteSpace(step.ExplainEntryId)),
             "Build Lab progression steps should expose localization-ready summaries.");
+        AssertEx.SequenceEqual(
+            progressionPaths.Select(static path => path.VariantId),
+            ["alice-runner-face-1", "alice-runner-street-samurai-2"],
+            "Build Lab progression planner should produce deterministic variant paths.");
+        AssertEx.True(
+            progressionPaths.All(static path => path.SummaryParameters.Any(parameter => string.Equals(parameter.Name, "constraintCount", StringComparison.Ordinal))),
+            "Build Lab progression planner should surface campaign-constraint context on each path.");
+        AssertEx.Equal(
+            "buildlab.progression.campaign-constraint-gap",
+            progressionPaths[0].Diagnostics!.Last().MessageKey,
+            "Build Lab progression planner should emit keyed diagnostics when campaign constraints are missing.");
 
         AssertEx.Equal(
             "buildlab.trap.resource-overcommit",
@@ -1582,6 +1602,24 @@ internal static class CoreEngineTests
                 && overlap.ReasonParameters.Count == 4
                 && !string.IsNullOrWhiteSpace(overlap.ExplainEntryId)),
             "Build Lab role-overlap projections should expose keyed reasons and explain hooks.");
+        AssertEx.Equal(
+            "buildlab.team.summary",
+            teamCoverage.SummaryKey,
+            "Build Lab team coverage should expose a keyed summary surface.");
+        AssertEx.SequenceEqual(
+            teamCoverage.MissingRoleTags,
+            ["matrix-specialist", "street-samurai"],
+            "Build Lab team coverage should surface deterministic missing-role output.");
+        AssertEx.True(
+            teamCoverage.RoleOverlaps.Count == overlaps.Count && teamCoverage.CoverageScore == 33.33m,
+            "Build Lab team coverage should reuse role-overlap evidence and deterministic coverage scoring.");
+        AssertEx.Equal(
+            "buildlab.team.missing-role-tags",
+            teamCoverage.Diagnostics![0].MessageKey,
+            "Build Lab team coverage should emit keyed missing-role diagnostics.");
+        AssertEx.True(
+            teamCoverage.RolePressureScore > 0m && !string.IsNullOrWhiteSpace(teamCoverage.ExplainEntryId),
+            "Build Lab team coverage should surface deterministic role pressure and explain hooks.");
 
         AssertEx.SequenceEqual(
             packages.Select(static package => package.PackageId),
