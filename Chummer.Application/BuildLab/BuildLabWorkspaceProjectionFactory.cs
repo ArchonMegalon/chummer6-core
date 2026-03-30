@@ -10,6 +10,16 @@ public static class BuildLabWorkspaceProjectionFactory
 {
     private const string PendingWorkspaceId = "pending-workspace";
     private const string DefaultWorkflowId = "workflow.build-lab";
+    private static readonly string[] KnownRoleTags =
+    [
+        "matrix-specialist",
+        "street-samurai",
+        "infiltrator",
+        "generalist",
+        "astral",
+        "rigger",
+        "face"
+    ];
 
     public static BuildLabConceptIntakeProjection Create(
         CharacterProfileSection profile,
@@ -547,11 +557,6 @@ public static class BuildLabWorkspaceProjectionFactory
     {
         List<string> watchouts = [];
 
-        foreach (BuildLabVariantWarning warning in variants.SelectMany(static variant => variant.Warnings))
-        {
-            watchouts.Add($"{warning.Label}: {warning.Detail}");
-        }
-
         if (teamCoverage.MissingRoleTags.Count > 0)
         {
             watchouts.Add($"Crew still needs {FormatRoleTags(teamCoverage.MissingRoleTags)} before the handoff is fully role-safe.");
@@ -569,6 +574,11 @@ public static class BuildLabWorkspaceProjectionFactory
             {
                 watchouts.Add($"{topTimeline.Title}: {riskyStep.KarmaTarget} Karma checkpoint still carries {riskyStep.RiskBadges.Count} explicit risk badge(s).");
             }
+        }
+
+        foreach (BuildLabVariantWarning warning in variants.SelectMany(static variant => variant.Warnings))
+        {
+            watchouts.Add($"{warning.Label}: {warning.Detail}");
         }
 
         return watchouts
@@ -875,14 +885,16 @@ public static class BuildLabWorkspaceProjectionFactory
             return "generalist";
         }
 
-        int previousDash = variantId.LastIndexOf('-', lastDash - 1);
-        if (previousDash < 0 || previousDash >= lastDash)
+        string stem = variantId[..lastDash];
+        string? matchedTag = KnownRoleTags
+            .FirstOrDefault(tag => stem.EndsWith($"-{tag}", StringComparison.Ordinal));
+
+        if (string.IsNullOrWhiteSpace(matchedTag))
         {
             return "generalist";
         }
 
-        string tag = variantId[(previousDash + 1)..lastDash];
-        return string.IsNullOrWhiteSpace(tag) ? "generalist" : tag;
+        return matchedTag;
     }
 
     private static string FormatRulesetLabel(string rulesetId)

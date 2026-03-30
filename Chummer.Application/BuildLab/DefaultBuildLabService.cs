@@ -5,6 +5,17 @@ namespace Chummer.Application.BuildLab;
 
 public sealed class DefaultBuildLabService : IBuildLabService
 {
+    private static readonly string[] KnownRoleTags =
+    [
+        "matrix-specialist",
+        "street-samurai",
+        "infiltrator",
+        "generalist",
+        "astral",
+        "rigger",
+        "face"
+    ];
+
     public IReadOnlyList<BuildVariantProjection> GenerateBuildVariants(string characterId, IReadOnlyList<string> roleTags)
     {
         string seed = Normalize(characterId);
@@ -509,7 +520,21 @@ public sealed class DefaultBuildLabService : IBuildLabService
             return "generalist";
         }
 
-        string[] parts = variantId.Split('-', StringSplitOptions.RemoveEmptyEntries);
-        return parts.Length >= 2 ? parts[^2] : "generalist";
+        int lastDash = variantId.LastIndexOf('-');
+        if (lastDash <= 0)
+        {
+            return "generalist";
+        }
+
+        string stem = variantId[..lastDash];
+        string? matchedTag = KnownRoleTags
+            .FirstOrDefault(tag => stem.EndsWith($"-{tag}", StringComparison.Ordinal));
+
+        if (string.IsNullOrWhiteSpace(matchedTag))
+        {
+            return "generalist";
+        }
+
+        return matchedTag;
     }
 }

@@ -70,6 +70,8 @@ internal static class CoreEngineTests
             JournalProjectionIsDeterministicAndValidated();
             ValidationSummaryAndExplainHookCompositionStayDeterministic();
             BuildLabOutputsAreDeterministicAndLocalized();
+            BuildRouteProviderScaffoldUsesDeterministicBuildLabOutputs();
+            BuildRouteGatewayUsesDeterministicBuildLabOutputs();
             BuildLabWorkspaceProjectionFactoryProjectsIntakeState();
             WorkspaceServiceRebindsBuildLabWorkspaceIds();
             BuildLabCreateSurfaceIsExposedAcrossRulesets();
@@ -1727,6 +1729,134 @@ internal static class CoreEngineTests
         AssertEx.NotNull(scoredVariant, "Build Lab should resolve exact variant ids when scoring a generated variant.");
     }
 
+    private static void BuildRouteProviderScaffoldUsesDeterministicBuildLabOutputs()
+    {
+        NotImplementedAiProvider provider = new(AiProviderIds.AiMagicx);
+        AiProviderRouteDecision routeDecision = new(
+            RouteType: AiRouteTypes.Build,
+            ProviderId: AiProviderIds.AiMagicx,
+            Reason: "typed build stub provider",
+            BudgetUnit: AiBudgetUnits.ChummerAiUnits,
+            ToolingEnabled: true);
+        AiGroundingBundle grounding = new(
+            RouteType: AiRouteTypes.Build,
+            RuntimeFingerprint: "sha256:build-provider",
+            CharacterId: "char-build-provider",
+            ConversationId: "conv-build-provider",
+            RuntimeFacts: new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["runtimeFingerprint"] = "sha256:build-provider"
+            },
+            CharacterFacts: new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["characterId"] = "char-build-provider",
+                ["displayName"] = "Switch",
+                ["buildMethod"] = "Priority",
+                ["workspaceId"] = "ws-build-provider"
+            },
+            Constraints: ["No mutation."],
+            RetrievedItems:
+            [
+                new AiRetrievedItem(
+                    CorpusId: AiRetrievalCorpusIds.Community,
+                    ItemId: "build-idea-1",
+                    Title: "Crew Fit Note",
+                    Summary: "Face support remains thin when the lane stays combat-first.")
+            ],
+            AllowedTools:
+            [
+                AiGatewayDefaults.ResolveToolDescriptor(AiToolIds.SimulateKarmaSpend),
+                AiGatewayDefaults.ResolveToolDescriptor(AiToolIds.SearchBuildIdeas),
+                AiGatewayDefaults.ResolveToolDescriptor(AiToolIds.CreateApplyPreview)
+            ]);
+        AiBudgetSnapshot budget = new(
+            BudgetUnit: AiBudgetUnits.ChummerAiUnits,
+            MonthlyAllowance: 120,
+            MonthlyConsumed: 0,
+            BurstLimitPerMinute: 6);
+        AiProviderTurnPlan plan = new(
+            ProviderId: AiProviderIds.AiMagicx,
+            RouteType: AiRouteTypes.Build,
+            ConversationId: "conv-build-provider",
+            UserMessage: "Build a street samurai for this crew and call out missing roles.",
+            SystemPrompt: "Structured Chummer data first.",
+            Stream: true,
+            AttachmentIds: [],
+            RetrievalCorpusIds: [AiRetrievalCorpusIds.Runtime, AiRetrievalCorpusIds.Community],
+            AllowedTools:
+            [
+                AiGatewayDefaults.ResolveToolDescriptor(AiToolIds.SimulateKarmaSpend),
+                AiGatewayDefaults.ResolveToolDescriptor(AiToolIds.SearchBuildIdeas),
+                AiGatewayDefaults.ResolveToolDescriptor(AiToolIds.CreateApplyPreview)
+            ],
+            GroundingSections:
+            [
+                new AiGroundingSection(AiGroundingSectionIds.Runtime, "Runtime", ["runtimeFingerprint: sha256:build-provider"]),
+                new AiGroundingSection(AiGroundingSectionIds.Character, "Character", ["displayName: Switch", "buildMethod: Priority"]),
+                new AiGroundingSection(AiGroundingSectionIds.AllowedTools, "Allowed Tools", [AiToolIds.SimulateKarmaSpend, AiToolIds.SearchBuildIdeas, AiToolIds.CreateApplyPreview], Structured: false)
+            ],
+            RouteDecision: routeDecision,
+            Grounding: grounding,
+            Budget: budget);
+
+        AiConversationTurnResponse response = provider.CompleteTurn(OwnerScope.LocalSingleUser, plan);
+
+        AssertEx.Equal(AiRouteTypes.Build, response.RouteType, "Build route provider scaffold should preserve the build route type.");
+        AssertEx.Equal(AiProviderIds.AiMagicx, response.ProviderId, "Build route provider scaffold should preserve the provider id.");
+        AssertEx.Equal("Line's clean. I'm grounding this against your current Chummer runtime.", response.FlavorLine, "Build route provider scaffold should keep the grounded build flavor line.");
+        AssertEx.NotNull(response.StructuredAnswer, "Build route provider scaffold should emit a structured answer.");
+        AiStructuredAnswer structuredAnswer = response.StructuredAnswer!;
+        AssertEx.Equal(AiConfidenceLevels.Grounded, structuredAnswer.Confidence, "Build route provider scaffold should upgrade to grounded confidence when deterministic Build Lab output is available.");
+        AssertEx.True(structuredAnswer.Summary.Contains("Deterministic Build Lab planner ranked", StringComparison.Ordinal), "Build route provider scaffold should summarize deterministic planner output.");
+        AssertEx.True(structuredAnswer.Recommendations.Count > 0, "Build route provider scaffold should emit deterministic planner recommendations.");
+        AssertEx.True(structuredAnswer.Evidence.Any(static entry => string.Equals(entry.Title, "Crew-fit coverage", StringComparison.Ordinal)), "Build route provider scaffold should surface crew-fit evidence.");
+        AssertEx.True(structuredAnswer.Risks.Any(static risk => string.Equals(risk.Title, "Missing campaign role coverage", StringComparison.Ordinal)), "Build route provider scaffold should surface missing-role pressure as an explicit risk.");
+        AssertEx.True(structuredAnswer.ActionDrafts.Any(static draft => string.Equals(draft.ActionId, AiSuggestedActionIds.PreviewKarmaSpend, StringComparison.Ordinal)), "Build route provider scaffold should queue a karma preview action draft.");
+        AssertEx.True(structuredAnswer.ActionDrafts.Any(static draft => string.Equals(draft.ActionId, AiSuggestedActionIds.PreviewApplyPlan, StringComparison.Ordinal)), "Build route provider scaffold should queue an apply-preview draft.");
+        AssertEx.True(structuredAnswer.ActionDrafts.Any(static draft => string.Equals(draft.ActionId, AiSuggestedActionIds.BrowseBuildIdeas, StringComparison.Ordinal)), "Build route provider scaffold should queue a build-ideas draft.");
+        AssertEx.True(response.SuggestedActions.Any(static action => string.Equals(action.ActionId, AiSuggestedActionIds.BrowseBuildIdeas, StringComparison.Ordinal)), "Build route provider scaffold should expose the build-ideas follow-up action.");
+        AssertEx.True(response.ToolInvocations.Any(static invocation => string.Equals(invocation.ToolId, AiToolIds.SearchBuildIdeas, StringComparison.Ordinal)), "Build route provider scaffold should expose the build-ideas tool seam.");
+        AssertEx.True(response.ToolInvocations.Any(static invocation => string.Equals(invocation.ToolId, AiToolIds.CreateApplyPreview, StringComparison.Ordinal)), "Build route provider scaffold should expose the apply-preview tool seam.");
+    }
+
+    private static void BuildRouteGatewayUsesDeterministicBuildLabOutputs()
+    {
+        NotImplementedAiGatewayService service = new();
+
+        AiApiResult<AiConversationTurnResponse> result = service.SendBuildTurn(
+            OwnerScope.LocalSingleUser,
+            new AiConversationTurnRequest(
+                Message: "Build a matrix face for this crew and keep role pressure visible.",
+                ConversationId: "conv-build-1",
+                RuntimeFingerprint: "sha256:build-runtime",
+                CharacterId: "char-build-1",
+                WorkspaceId: "ws-build-1"));
+
+        AssertEx.True(result.IsImplemented, "Build route gateway should stay implemented through the deterministic scaffold.");
+        AssertEx.NotNull(result.Payload, "Build route gateway should return a payload.");
+        AiConversationTurnResponse response = result.Payload!;
+        AssertEx.Equal("conv-build-1", response.ConversationId, "Build route gateway should preserve the conversation id.");
+        AssertEx.Equal(AiRouteTypes.Build, response.RouteType, "Build route gateway should preserve the build route type.");
+        AssertEx.Equal(AiProviderIds.AiMagicx, response.ProviderId, "Build route gateway should use the build route primary provider.");
+        AssertEx.Equal("Line's clean. I'm grounding this against your current Chummer runtime.", response.FlavorLine, "Build route gateway should keep the grounded build flavor line.");
+        AssertEx.NotNull(response.StructuredAnswer, "Build route gateway should emit a structured answer.");
+        AiStructuredAnswer structuredAnswer = response.StructuredAnswer!;
+        AssertEx.Equal(AiConfidenceLevels.Grounded, structuredAnswer.Confidence, "Build route gateway should upgrade to grounded confidence when deterministic Build Lab output is available.");
+        AssertEx.True(structuredAnswer.Summary.Contains("Deterministic Build Lab planner ranked", StringComparison.Ordinal), "Build route gateway should summarize deterministic planner output.");
+        AssertEx.True(structuredAnswer.Evidence.Any(static entry => string.Equals(entry.Title, "Crew-fit coverage", StringComparison.Ordinal)), "Build route gateway should surface crew-fit evidence.");
+        AssertEx.True(structuredAnswer.ActionDrafts.Any(static draft => string.Equals(draft.ActionId, AiSuggestedActionIds.PreviewKarmaSpend, StringComparison.Ordinal)), "Build route gateway should queue a karma preview action draft.");
+        AssertEx.True(structuredAnswer.ActionDrafts.Any(static draft => string.Equals(draft.ActionId, AiSuggestedActionIds.PreviewApplyPlan, StringComparison.Ordinal)), "Build route gateway should queue an apply-preview draft.");
+        AssertEx.True(structuredAnswer.ActionDrafts.Any(static draft => string.Equals(draft.ActionId, AiSuggestedActionIds.BrowseBuildIdeas, StringComparison.Ordinal)), "Build route gateway should queue a build-ideas draft.");
+        AssertEx.True(response.SuggestedActions.Any(static action => string.Equals(action.ActionId, AiSuggestedActionIds.PreviewKarmaSpend, StringComparison.Ordinal)), "Build route gateway should expose the karma preview action.");
+        AssertEx.True(response.SuggestedActions.Any(static action => string.Equals(action.ActionId, AiSuggestedActionIds.PreviewApplyPlan, StringComparison.Ordinal)), "Build route gateway should expose the apply-preview action.");
+        AssertEx.True(response.SuggestedActions.Any(static action => string.Equals(action.ActionId, AiSuggestedActionIds.BrowseBuildIdeas, StringComparison.Ordinal)), "Build route gateway should expose the build-ideas action.");
+        AssertEx.True(response.ToolInvocations.Any(static invocation => string.Equals(invocation.ToolId, AiToolIds.SimulateKarmaSpend, StringComparison.Ordinal)), "Build route gateway should expose the karma simulation tool seam.");
+        AssertEx.True(response.ToolInvocations.Any(static invocation => string.Equals(invocation.ToolId, AiToolIds.SearchBuildIdeas, StringComparison.Ordinal)), "Build route gateway should expose the build-ideas tool seam.");
+        AssertEx.True(response.ToolInvocations.Any(static invocation => string.Equals(invocation.ToolId, AiToolIds.CreateApplyPreview, StringComparison.Ordinal)), "Build route gateway should expose the apply-preview tool seam.");
+        AssertEx.NotNull(response.Grounding.Coverage, "Build route gateway should preserve grounding coverage.");
+        AssertEx.Equal(100, response.Grounding.Coverage!.ScorePercent, "Build route gateway should keep full grounding coverage in the deterministic scaffold.");
+    }
+
     private static void BuildLabWorkspaceProjectionFactoryProjectsIntakeState()
     {
         BuildLabConceptIntakeProjection projection = BuildLabWorkspaceProjectionFactory.Create(
@@ -1772,6 +1902,28 @@ internal static class CoreEngineTests
         AssertEx.True(projection.Variants.Count > 0, "Build Lab projection factory should surface deterministic variant cards.");
         AssertEx.True(projection.ProgressionTimelines.Count > 0, "Build Lab projection factory should surface progression timelines.");
         AssertEx.NotNull(projection.TeamCoverage, "Build Lab projection factory should surface team coverage.");
+        AssertEx.Equal(
+            "Coverage score is 33.33% with Street Samurai already covered and Face | Matrix Specialist still missing.",
+            projection.CampaignFitSummary,
+            "Build Lab projection factory should surface explicit crew-fit coverage in the campaign-fit summary.");
+        AssertEx.Equal(
+            "Coverage score is 33.33% with Street Samurai already covered and Face | Matrix Specialist still missing.",
+            projection.TeamCoverage!.CoverageSummary,
+            "Build Lab projection factory should surface deterministic covered and missing role summaries.");
+        AssertEx.Equal(
+            "Role pressure is 60%; duplicate lanes stay visible as none.",
+            projection.TeamCoverage.RolePressureSummary,
+            "Build Lab projection factory should surface deterministic role-pressure wording.");
+        AssertEx.Equal(
+            "Street Samurai Progression reaches a governed 100 Karma handoff checkpoint with explicit receipts instead of a hidden plan.",
+            projection.SupportClosureSummary,
+            "Build Lab projection factory should surface the deterministic support-closure handoff checkpoint.");
+        AssertEx.True(
+            projection.Watchouts?.Any(static watchout => watchout.Contains("Crew still needs Face | Matrix Specialist", StringComparison.Ordinal)) == true,
+            "Build Lab projection factory should keep missing-role watchouts explicit.");
+        AssertEx.True(
+            projection.Watchouts?.Any(static watchout => watchout.Contains("100 Karma checkpoint still carries", StringComparison.Ordinal)) == true,
+            "Build Lab projection factory should keep late-checkpoint risk watchouts explicit.");
         AssertEx.True(
             projection.Actions?.Any(static action => string.Equals(action.ActionId, "next-variants", StringComparison.Ordinal)) == true,
             "Build Lab projection factory should expose the governed handoff action.");
