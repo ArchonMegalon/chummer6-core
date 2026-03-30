@@ -4,6 +4,13 @@ namespace Chummer.Application.Hub;
 
 internal static class BuildKitHandoffNarrator
 {
+    public static bool IsStarterLane(BuildKitManifest manifest)
+    {
+        ArgumentNullException.ThrowIfNull(manifest);
+
+        return manifest.BuildKitId.Contains("starter", StringComparison.OrdinalIgnoreCase);
+    }
+
     public static string SummarizeRuntimeRequirement(BuildKitRuntimeRequirement requirement)
     {
         ArgumentNullException.ThrowIfNull(requirement);
@@ -98,6 +105,48 @@ internal static class BuildKitHandoffNarrator
                 .Select(SummarizeRuntimeRequirement));
 
         return $"The emitted build receipt can return through the selected workspace or campaign lane after the target matches: {runtimeSummary}. Keep the migration oracle aligned with the same rule-environment contract before reopening play.";
+    }
+
+    public static string DescribeStarterLane(BuildKitManifest manifest)
+    {
+        ArgumentNullException.ThrowIfNull(manifest);
+
+        string stagingSummary = DescribeReceiptStaging(manifest);
+        if (manifest.RuntimeRequirements.Count == 0)
+        {
+            return $"This starter lane stays aimed at a legal first playable session without inventing a parallel tutorial flow. {stagingSummary}";
+        }
+
+        string runtimeSummary = string.Join(
+            " | ",
+            manifest.RuntimeRequirements
+                .OrderBy(static requirement => requirement.RulesetId, StringComparer.Ordinal)
+                .Select(SummarizeRuntimeRequirement));
+
+        return $"This starter lane stays aimed at a legal first playable session while reusing the same runtime and rule-environment contract: {runtimeSummary}. {stagingSummary}";
+    }
+
+    public static string DescribeFirstPlayableSession(BuildKitManifest manifest, RuleProfileApplyTarget? target = null)
+    {
+        ArgumentNullException.ThrowIfNull(manifest);
+
+        string targetKind = string.IsNullOrWhiteSpace(target?.TargetKind)
+            ? "workspace or campaign lane"
+            : target!.TargetKind;
+        string stagingSummary = DescribeReceiptStaging(manifest);
+
+        if (manifest.RuntimeRequirements.Count == 0)
+        {
+            return $"First playable session: resolve the starter path in the workbench, then reopen the selected {targetKind} once the grounded campaign/profile runtime and rule environment are attached. {stagingSummary}";
+        }
+
+        string runtimeSummary = string.Join(
+            " | ",
+            manifest.RuntimeRequirements
+                .OrderBy(static requirement => requirement.RulesetId, StringComparer.Ordinal)
+                .Select(SummarizeRuntimeRequirement));
+
+        return $"First playable session: resolve the starter path in the workbench, then reopen the selected {targetKind} once it matches: {runtimeSummary}. {stagingSummary}";
     }
 
     public static string DescribeSupportClosure(BuildKitManifest manifest)

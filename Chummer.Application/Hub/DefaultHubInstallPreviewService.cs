@@ -235,6 +235,16 @@ public sealed class DefaultHubInstallPreviewService : IHubInstallPreviewService
                         RequiresConfirmation: true));
             }
 
+            if (BuildKitHandoffNarrator.IsStarterLane(entry.Manifest))
+            {
+                changes.Add(
+                    new HubProjectInstallPreviewChange(
+                        Kind: HubProjectInstallPreviewChangeKinds.InstallStateChanged,
+                        Summary: BuildKitHandoffNarrator.DescribeFirstPlayableSession(entry.Manifest, target),
+                        SubjectId: itemId,
+                        RequiresConfirmation: requiresConfirmation));
+            }
+
             if (entry.Manifest.Actions.Count > 0)
             {
                 changes.Add(

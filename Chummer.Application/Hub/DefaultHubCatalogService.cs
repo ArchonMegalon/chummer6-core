@@ -316,7 +316,8 @@ public sealed class DefaultHubCatalogService : IHubCatalogService
                 [
                     new HubProjectDetailFact("prompt-count", "Prompts", entry.Manifest.Prompts.Count.ToString()),
                     new HubProjectDetailFact("action-count", "Actions", entry.Manifest.Actions.Count.ToString()),
-                    new HubProjectDetailFact("runtime-requirement-count", "Runtime Requirements", entry.Manifest.RuntimeRequirements.Count.ToString())
+                    new HubProjectDetailFact("runtime-requirement-count", "Runtime Requirements", entry.Manifest.RuntimeRequirements.Count.ToString()),
+                    .. BuildStarterLaneFacts(entry.Manifest)
                 ],
                 Dependencies:
                 [
@@ -344,6 +345,22 @@ public sealed class DefaultHubCatalogService : IHubCatalogService
         }
 
         return null;
+    }
+
+    private static IReadOnlyList<HubProjectDetailFact> BuildStarterLaneFacts(BuildKitManifest manifest)
+    {
+        ArgumentNullException.ThrowIfNull(manifest);
+
+        if (!BuildKitHandoffNarrator.IsStarterLane(manifest))
+        {
+            return [];
+        }
+
+        return
+        [
+            new HubProjectDetailFact("starter-lane", "Starter lane", BuildKitHandoffNarrator.DescribeStarterLane(manifest)),
+            new HubProjectDetailFact("first-playable-session", "First playable session", BuildKitHandoffNarrator.DescribeFirstPlayableSession(manifest))
+        ];
     }
 
     private HubProjectDetailProjection? GetRuntimeLockDetail(OwnerScope owner, string itemId, string? rulesetId)

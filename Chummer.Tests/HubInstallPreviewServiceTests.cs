@@ -224,6 +224,8 @@ public class HubInstallPreviewServiceTests
         Assert.IsTrue(preview.RuntimeCompatibilitySummary?.Contains("grounded campaign/profile runtime", StringComparison.Ordinal) == true);
         Assert.IsTrue(preview.CampaignReturnSummary?.Contains("selected workspace", StringComparison.Ordinal) == true);
         Assert.IsTrue(preview.SupportClosureSummary?.Contains("grounded runtime", StringComparison.Ordinal) == true);
+        Assert.IsTrue(preview.Changes.Any(change => change.Summary.Contains("First playable session:", StringComparison.Ordinal)));
+        Assert.IsTrue(preview.Changes.Any(change => change.Summary.Contains("selected workspace", StringComparison.Ordinal)));
     }
 
     [TestMethod]
@@ -294,6 +296,7 @@ public class HubInstallPreviewServiceTests
         Assert.IsTrue(preview.RuntimeCompatibilitySummary?.Contains("official-errata@1.2.0", StringComparison.Ordinal) == true);
         Assert.IsTrue(preview.CampaignReturnSummary?.Contains("selected workspace", StringComparison.Ordinal) == true);
         Assert.IsTrue(preview.SupportClosureSummary?.Contains("migration-oracle contract", StringComparison.Ordinal) == true);
+        Assert.IsFalse(preview.Changes.Any(change => change.Summary.Contains("First playable session:", StringComparison.Ordinal)));
     }
 
     [TestMethod]
