@@ -7,17 +7,17 @@
     <IsPackable>false</IsPackable>
   </PropertyGroup>
   <ItemGroup>
-    <ProjectReference Include="..\Chummer.Application\Chummer.Application.csproj" />
+    <ProjectReference Include="../Chummer.Application/Chummer.Application.csproj" />
+    <ProjectReference Include="../Chummer.Rulesets.Hosting/Chummer.Rulesets.Hosting.csproj" />
+    <ProjectReference Include="../Chummer.Rulesets.Sr4/Chummer.Rulesets.Sr4.csproj" />
+    <ProjectReference Include="../Chummer.Rulesets.Sr5/Chummer.Rulesets.Sr5.csproj" />
+    <ProjectReference Include="../Chummer.Rulesets.Sr6/Chummer.Rulesets.Sr6.csproj" />
     <PackageReference Include="Chummer.Engine.Contracts" Version="$(ChummerEngineContractsPackageVersion)" />
-    <ProjectReference Include="..\Chummer.Rulesets.Hosting\Chummer.Rulesets.Hosting.csproj" />
-    <ProjectReference Include="..\Chummer.Rulesets.Sr4\Chummer.Rulesets.Sr4.csproj" />
-    <ProjectReference Include="..\Chummer.Rulesets.Sr5\Chummer.Rulesets.Sr5.csproj" />
-    <ProjectReference Include="..\Chummer.Rulesets.Sr6\Chummer.Rulesets.Sr6.csproj" />
     <Reference Include="Chummer.Hub.Registry.Contracts">
-      <HintPath>..\..\chummer-hub-registry\Chummer.Hub.Registry.Contracts\bin\$(Configuration)\net10.0\Chummer.Hub.Registry.Contracts.dll</HintPath>
+      <HintPath>../../chummer-hub-registry/Chummer.Hub.Registry.Contracts/bin/$(Configuration)/net10.0/Chummer.Hub.Registry.Contracts.dll</HintPath>
     </Reference>
     <Reference Include="Chummer.Run.Contracts">
-      <HintPath>..\..\chummer.run-services\Chummer.Run.Contracts\bin\$(Configuration)\net10.0\Chummer.Run.Contracts.dll</HintPath>
+      <HintPath>../../chummer.run-services/Chummer.Run.Contracts/bin/$(Configuration)/net10.0/Chummer.Run.Contracts.dll</HintPath>
     </Reference>
   </ItemGroup>
 </Project>
