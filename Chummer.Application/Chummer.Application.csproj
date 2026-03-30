@@ -7,10 +7,10 @@
   <ItemGroup>
     <PackageReference Include="Chummer.Engine.Contracts" Version="$(ChummerEngineContractsPackageVersion)" />
     <Reference Include="Chummer.Hub.Registry.Contracts">
-      <HintPath>..\..\chummer-hub-registry\Chummer.Hub.Registry.Contracts\bin\$(Configuration)\net10.0\Chummer.Hub.Registry.Contracts.dll</HintPath>
+      <HintPath>../../chummer-hub-registry/Chummer.Hub.Registry.Contracts/bin/$(Configuration)/net10.0/Chummer.Hub.Registry.Contracts.dll</HintPath>
     </Reference>
     <Reference Include="Chummer.Run.Contracts">
-      <HintPath>..\..\chummer.run-services\Chummer.Run.Contracts\bin\$(Configuration)\net10.0\Chummer.Run.Contracts.dll</HintPath>
+      <HintPath>../../chummer.run-services/Chummer.Run.Contracts/bin/$(Configuration)/net10.0/Chummer.Run.Contracts.dll</HintPath>
     </Reference>
   </ItemGroup>
 </Project>
