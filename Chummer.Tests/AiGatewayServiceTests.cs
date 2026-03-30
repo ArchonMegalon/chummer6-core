@@ -371,6 +371,44 @@ public sealed class AiGatewayServiceTests
     }
 
     [TestMethod]
+    public void Not_implemented_ai_gateway_routes_build_turns_through_deterministic_build_lab_outputs()
+    {
+        NotImplementedAiGatewayService service = new();
+
+        AiApiResult<AiConversationTurnResponse> result = service.SendBuildTurn(
+            OwnerScope.LocalSingleUser,
+            new AiConversationTurnRequest(
+                Message: "Build a matrix face for this crew and keep role pressure visible.",
+                ConversationId: "conv-build-1",
+                RuntimeFingerprint: "sha256:build-runtime",
+                CharacterId: "char-build-1",
+                WorkspaceId: "ws-build-1"));
+
+        Assert.IsTrue(result.IsImplemented);
+        Assert.IsNotNull(result.Payload);
+        Assert.AreEqual("conv-build-1", result.Payload.ConversationId);
+        Assert.AreEqual(AiRouteTypes.Build, result.Payload.RouteType);
+        Assert.AreEqual(AiProviderIds.AiMagicx, result.Payload.ProviderId);
+        Assert.AreEqual("Line's clean. I'm grounding this against your current Chummer runtime.", result.Payload.FlavorLine);
+        Assert.IsNotNull(result.Payload.StructuredAnswer);
+        AiStructuredAnswer structuredAnswer = result.Payload.StructuredAnswer!;
+        Assert.AreEqual(AiConfidenceLevels.Grounded, structuredAnswer.Confidence);
+        StringAssert.Contains(structuredAnswer.Summary, "Deterministic Build Lab planner ranked");
+        Assert.IsTrue(structuredAnswer.Evidence.Any(entry => entry.Title == "Crew-fit coverage"));
+        Assert.IsTrue(structuredAnswer.ActionDrafts.Any(draft => draft.ActionId == AiSuggestedActionIds.PreviewKarmaSpend));
+        Assert.IsTrue(structuredAnswer.ActionDrafts.Any(draft => draft.ActionId == AiSuggestedActionIds.PreviewApplyPlan));
+        Assert.IsTrue(structuredAnswer.ActionDrafts.Any(draft => draft.ActionId == AiSuggestedActionIds.BrowseBuildIdeas));
+        Assert.IsTrue(result.Payload.SuggestedActions.Any(action => action.ActionId == AiSuggestedActionIds.PreviewKarmaSpend));
+        Assert.IsTrue(result.Payload.SuggestedActions.Any(action => action.ActionId == AiSuggestedActionIds.PreviewApplyPlan));
+        Assert.IsTrue(result.Payload.SuggestedActions.Any(action => action.ActionId == AiSuggestedActionIds.BrowseBuildIdeas));
+        Assert.IsTrue(result.Payload.ToolInvocations.Any(invocation => invocation.ToolId == AiToolIds.SimulateKarmaSpend));
+        Assert.IsTrue(result.Payload.ToolInvocations.Any(invocation => invocation.ToolId == AiToolIds.SearchBuildIdeas));
+        Assert.IsTrue(result.Payload.ToolInvocations.Any(invocation => invocation.ToolId == AiToolIds.CreateApplyPreview));
+        Assert.IsNotNull(result.Payload.Grounding.Coverage);
+        Assert.AreEqual(100, result.Payload.Grounding.Coverage.ScorePercent);
+    }
+
+    [TestMethod]
     public void Not_implemented_ai_gateway_rejects_turns_when_monthly_route_budget_is_exhausted()
     {
         InMemoryAiUsageLedgerStore usageLedgerStore = new();

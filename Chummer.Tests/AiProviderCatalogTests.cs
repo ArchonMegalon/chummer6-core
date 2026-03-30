@@ -120,4 +120,94 @@ public sealed class AiProviderCatalogTests
         Assert.IsNotNull(response.StructuredAnswer);
         Assert.AreEqual(AiConfidenceLevels.Scaffolded, response.StructuredAnswer!.Confidence);
     }
+
+    [TestMethod]
+    public void Not_implemented_ai_provider_build_route_uses_deterministic_build_lab_outputs()
+    {
+        NotImplementedAiProvider provider = new(AiProviderIds.AiMagicx);
+        AiProviderRouteDecision routeDecision = new(
+            RouteType: AiRouteTypes.Build,
+            ProviderId: AiProviderIds.AiMagicx,
+            Reason: "typed build stub provider",
+            BudgetUnit: AiBudgetUnits.ChummerAiUnits,
+            ToolingEnabled: true);
+        AiGroundingBundle grounding = new(
+            RouteType: AiRouteTypes.Build,
+            RuntimeFingerprint: "sha256:build-provider",
+            CharacterId: "char-build-provider",
+            ConversationId: "conv-build-provider",
+            RuntimeFacts: new System.Collections.Generic.Dictionary<string, string>
+            {
+                ["runtimeFingerprint"] = "sha256:build-provider"
+            },
+            CharacterFacts: new System.Collections.Generic.Dictionary<string, string>
+            {
+                ["characterId"] = "char-build-provider",
+                ["displayName"] = "Switch",
+                ["buildMethod"] = "Priority",
+                ["workspaceId"] = "ws-build-provider"
+            },
+            Constraints: ["No mutation."],
+            RetrievedItems:
+            [
+                new AiRetrievedItem(
+                    CorpusId: AiRetrievalCorpusIds.Community,
+                    ItemId: "build-idea-1",
+                    Title: "Crew Fit Note",
+                    Summary: "Face support remains thin when the lane stays combat-first.")
+            ],
+            AllowedTools:
+            [
+                AiGatewayDefaults.ResolveToolDescriptor(AiToolIds.SimulateKarmaSpend),
+                AiGatewayDefaults.ResolveToolDescriptor(AiToolIds.SearchBuildIdeas),
+                AiGatewayDefaults.ResolveToolDescriptor(AiToolIds.CreateApplyPreview)
+            ]);
+        AiBudgetSnapshot budget = new(
+            BudgetUnit: AiBudgetUnits.ChummerAiUnits,
+            MonthlyAllowance: 120,
+            MonthlyConsumed: 0,
+            BurstLimitPerMinute: 6);
+        AiProviderTurnPlan plan = new(
+            ProviderId: AiProviderIds.AiMagicx,
+            RouteType: AiRouteTypes.Build,
+            ConversationId: "conv-build-provider",
+            UserMessage: "Build a street samurai for this crew and call out missing roles.",
+            SystemPrompt: "Structured Chummer data first.",
+            Stream: true,
+            AttachmentIds: [],
+            RetrievalCorpusIds: [AiRetrievalCorpusIds.Runtime, AiRetrievalCorpusIds.Community],
+            AllowedTools:
+            [
+                AiGatewayDefaults.ResolveToolDescriptor(AiToolIds.SimulateKarmaSpend),
+                AiGatewayDefaults.ResolveToolDescriptor(AiToolIds.SearchBuildIdeas),
+                AiGatewayDefaults.ResolveToolDescriptor(AiToolIds.CreateApplyPreview)
+            ],
+            GroundingSections:
+            [
+                new AiGroundingSection(AiGroundingSectionIds.Runtime, "Runtime", ["runtimeFingerprint: sha256:build-provider"]),
+                new AiGroundingSection(AiGroundingSectionIds.Character, "Character", ["displayName: Switch", "buildMethod: Priority"]),
+                new AiGroundingSection(AiGroundingSectionIds.AllowedTools, "Allowed Tools", [AiToolIds.SimulateKarmaSpend, AiToolIds.SearchBuildIdeas, AiToolIds.CreateApplyPreview], Structured: false)
+            ],
+            RouteDecision: routeDecision,
+            Grounding: grounding,
+            Budget: budget);
+
+        AiConversationTurnResponse response = provider.CompleteTurn(OwnerScope.LocalSingleUser, plan);
+
+        Assert.AreEqual(AiRouteTypes.Build, response.RouteType);
+        Assert.AreEqual(AiProviderIds.AiMagicx, response.ProviderId);
+        Assert.AreEqual("Line's clean. I'm grounding this against your current Chummer runtime.", response.FlavorLine);
+        Assert.IsNotNull(response.StructuredAnswer);
+        Assert.AreEqual(AiConfidenceLevels.Grounded, response.StructuredAnswer!.Confidence);
+        StringAssert.Contains(response.StructuredAnswer.Summary, "Deterministic Build Lab planner ranked");
+        Assert.IsTrue(response.StructuredAnswer.Evidence.Any(entry => entry.Title == "Crew-fit coverage"));
+        Assert.IsTrue(response.StructuredAnswer.Risks.Any(risk => risk.Title == "Missing campaign role coverage"));
+        Assert.IsTrue(response.StructuredAnswer.ActionDrafts.Any(draft => draft.ActionId == AiSuggestedActionIds.PreviewKarmaSpend));
+        Assert.IsTrue(response.StructuredAnswer.ActionDrafts.Any(draft => draft.ActionId == AiSuggestedActionIds.PreviewApplyPlan));
+        Assert.IsTrue(response.StructuredAnswer.ActionDrafts.Any(draft => draft.ActionId == AiSuggestedActionIds.BrowseBuildIdeas));
+        Assert.IsTrue(response.Recommendations.Any());
+        Assert.IsTrue(response.SuggestedActions.Any(action => action.ActionId == AiSuggestedActionIds.BrowseBuildIdeas));
+        Assert.IsTrue(response.ToolInvocations.Any(invocation => invocation.ToolId == AiToolIds.SearchBuildIdeas));
+        Assert.IsTrue(response.ToolInvocations.Any(invocation => invocation.ToolId == AiToolIds.CreateApplyPreview));
+    }
 }
