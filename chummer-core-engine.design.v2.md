@@ -2,32 +2,15 @@
 
 Status: compatibility alias
 
-Authoritative canon moved to:
+This legacy root file remains only as a compatibility alias.
+Authoritative repo truth lives in:
 
 - `.codex-design/repo/IMPLEMENTATION_SCOPE.md`
 - `.codex-design/repo/PROJECT_MILESTONES.yaml`
-- `.codex-design/review/REVIEW_CONTEXT.md`
 
-This legacy root path remains only so older tools, logs, and links still resolve.
+Read those mirrored files first for the live engine boundary and milestone plan.
 
-## Mission redirect
+Compatibility markers:
 
-`chummer6-core` owns deterministic mechanics, reducer-safe session mutation, runtime bundles, explain traces, and the canonical engine contract plane.
-
-## Milestone redirect
-
-### Milestone A6
-
-Use `.codex-design/repo/PROJECT_MILESTONES.yaml` for the executable hardening backlog.
-
-### Milestone A7
-
-Use `.codex-design/repo/PROJECT_MILESTONES.yaml` for the executable explain canon backlog.
-
-### Milestone A8
-
-Use `.codex-design/repo/PROJECT_MILESTONES.yaml` for the executable determinism backlog.
-
-### Milestone A9
-
-Use `.codex-design/repo/PROJECT_MILESTONES.yaml` for the executable backend-integration backlog.
+- `### Milestone A6`
+- `### Milestone A9`

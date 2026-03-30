@@ -1,5 +1,6 @@
 using System.Text;
 using System.Xml.Linq;
+using Chummer.Application.BuildLab;
 using Chummer.Application.Workspaces;
 using Chummer.Contracts.Api;
 using Chummer.Contracts.Characters;
@@ -119,6 +120,51 @@ public sealed class Sr4WorkspaceCodec : IRulesetWorkspaceCodec
                 MaxKarma: 0,
                 ContactMultiplier: 0,
                 BannedWareGrades: Array.Empty<string>()),
+            "build-lab" => BuildLabWorkspaceProjectionFactory.Create(
+                profile: (CharacterProfileSection)ParseSection("profile", envelope),
+                progress: (CharacterProgressSection)ParseSection("progress", envelope),
+                rules: (CharacterRulesSection)ParseSection("rules", envelope),
+                build: new CharacterBuildSection(
+                    BuildMethod: summary.BuildMethod,
+                    PriorityMetatype: string.Empty,
+                    PriorityAttributes: string.Empty,
+                    PrioritySpecial: string.Empty,
+                    PrioritySkills: string.Empty,
+                    PriorityResources: string.Empty,
+                    PriorityTalent: string.Empty,
+                    SumToTen: 0,
+                    Special: 0,
+                    TotalSpecial: 0,
+                    TotalAttributes: 0,
+                    ContactPoints: 0,
+                    ContactPointsUsed: 0),
+                skills: (CharacterSkillsSection)ParseSection("skills", envelope),
+                awakening: new CharacterAwakeningSection(
+                    MagEnabled: false,
+                    ResEnabled: false,
+                    DepEnabled: false,
+                    Adept: false,
+                    Magician: false,
+                    Technomancer: false,
+                    AI: false,
+                    InitiateGrade: 0,
+                    SubmersionGrade: 0,
+                    Tradition: string.Empty,
+                    TraditionName: string.Empty,
+                    TraditionDrain: string.Empty,
+                    SpiritCombat: string.Empty,
+                    SpiritDetection: string.Empty,
+                    SpiritHealth: string.Empty,
+                    SpiritIllusion: string.Empty,
+                    SpiritManipulation: string.Empty,
+                    Stream: string.Empty,
+                    StreamDrain: string.Empty,
+                    CurrentCounterspellingDice: 0,
+                    SpellLimit: 0,
+                    CfpLimit: 0,
+                    AiNormalProgramLimit: 0,
+                    AiAdvancedProgramLimit: 0),
+                rulesetId: RulesetDefaults.Sr4),
             _ => new Dictionary<string, object?>(StringComparer.Ordinal)
             {
                 ["sectionId"] = sectionId,

@@ -1,4 +1,5 @@
 using Chummer.Application.Characters;
+using Chummer.Application.BuildLab;
 using Chummer.Contracts.Characters;
 
 namespace Chummer.Infrastructure.Xml;
@@ -10,14 +11,18 @@ public sealed class XmlCharacterSectionQueries : ICharacterSectionQueries
     private readonly ICharacterInventoryQueries _inventoryQueries;
     private readonly ICharacterMagicResonanceQueries _magicResonanceQueries;
     private readonly ICharacterSocialNarrativeQueries _socialNarrativeQueries;
+    private readonly IBuildLabService _buildLabService;
 
-    public XmlCharacterSectionQueries(ICharacterSectionService characterSectionService)
+    public XmlCharacterSectionQueries(
+        ICharacterSectionService characterSectionService,
+        IBuildLabService? buildLabService = null)
         : this(
             new XmlCharacterOverviewQueries(characterSectionService),
             new XmlCharacterStatsQueries(characterSectionService),
             new XmlCharacterInventoryQueries(characterSectionService),
             new XmlCharacterMagicResonanceQueries(characterSectionService),
-            new XmlCharacterSocialNarrativeQueries(characterSectionService))
+            new XmlCharacterSocialNarrativeQueries(characterSectionService),
+            buildLabService)
     {
     }
 
@@ -26,13 +31,15 @@ public sealed class XmlCharacterSectionQueries : ICharacterSectionQueries
         ICharacterStatsQueries statsQueries,
         ICharacterInventoryQueries inventoryQueries,
         ICharacterMagicResonanceQueries magicResonanceQueries,
-        ICharacterSocialNarrativeQueries socialNarrativeQueries)
+        ICharacterSocialNarrativeQueries socialNarrativeQueries,
+        IBuildLabService? buildLabService = null)
     {
         _overviewQueries = overviewQueries;
         _statsQueries = statsQueries;
         _inventoryQueries = inventoryQueries;
         _magicResonanceQueries = magicResonanceQueries;
         _socialNarrativeQueries = socialNarrativeQueries;
+        _buildLabService = buildLabService ?? new DefaultBuildLabService();
     }
 
     public object ParseSection(string sectionId, CharacterDocument document)
@@ -46,6 +53,14 @@ public sealed class XmlCharacterSectionQueries : ICharacterSectionQueries
             "build" => _overviewQueries.ParseBuild(document),
             "movement" => _overviewQueries.ParseMovement(document),
             "awakening" => _overviewQueries.ParseAwakening(document),
+            "build-lab" => BuildLabWorkspaceProjectionFactory.Create(
+                profile: _overviewQueries.ParseProfile(document),
+                progress: _overviewQueries.ParseProgress(document),
+                rules: _overviewQueries.ParseRules(document),
+                build: _overviewQueries.ParseBuild(document),
+                skills: _overviewQueries.ParseSkills(document),
+                awakening: _overviewQueries.ParseAwakening(document),
+                buildLabService: _buildLabService),
             "skills" => _overviewQueries.ParseSkills(document),
 
             "attributes" => _statsQueries.ParseAttributes(document),

@@ -2523,6 +2523,37 @@ public class RulesetSeamContractsTests
     }
 
     [TestMethod]
+    public void Build_lab_create_tab_and_action_are_exposed_across_ruleset_catalogs()
+    {
+        IReadOnlyList<NavigationTabDefinition> hostingTabs = NavigationTabCatalog.ForRuleset(RulesetDefaults.Sr5);
+        IReadOnlyList<WorkspaceSurfaceActionDefinition> hostingActions = WorkspaceSurfaceActionCatalog.ForRuleset(RulesetDefaults.Sr5);
+        IReadOnlyList<NavigationTabDefinition> sr5Tabs = new Sr5RulesetShellDefinitionProvider().GetNavigationTabs();
+        IReadOnlyList<NavigationTabDefinition> sr4Tabs = new Sr4RulesetShellDefinitionProvider().GetNavigationTabs();
+        IReadOnlyList<NavigationTabDefinition> sr6Tabs = new Sr6RulesetShellDefinitionProvider().GetNavigationTabs();
+        IReadOnlyList<WorkspaceSurfaceActionDefinition> sr5Actions = new Sr5RulesetCatalogProvider().GetWorkspaceActions();
+        IReadOnlyList<WorkspaceSurfaceActionDefinition> sr4Actions = new Sr4RulesetCatalogProvider().GetWorkspaceActions();
+        IReadOnlyList<WorkspaceSurfaceActionDefinition> sr6Actions = new Sr6RulesetCatalogProvider().GetWorkspaceActions();
+        IReadOnlyList<WorkflowSurfaceDefinition> sr5Surfaces = new Sr5RulesetCatalogProvider().GetWorkflowSurfaces();
+        IReadOnlyList<WorkflowSurfaceDefinition> sr4Surfaces = new Sr4RulesetCatalogProvider().GetWorkflowSurfaces();
+        IReadOnlyList<WorkflowSurfaceDefinition> sr6Surfaces = new Sr6RulesetCatalogProvider().GetWorkflowSurfaces();
+
+        Assert.IsTrue(hostingTabs.Any(tab => string.Equals(tab.Id, "tab-create", StringComparison.Ordinal) && string.Equals(tab.SectionId, "build-lab", StringComparison.Ordinal)));
+        Assert.IsTrue(hostingActions.Any(action => string.Equals(action.Id, "tab-create.intake", StringComparison.Ordinal) && string.Equals(action.TargetId, "build-lab", StringComparison.Ordinal)));
+
+        Assert.IsTrue(sr5Tabs.Any(tab => string.Equals(tab.Id, "tab-create", StringComparison.Ordinal) && string.Equals(tab.SectionId, "build-lab", StringComparison.Ordinal)));
+        Assert.IsTrue(sr4Tabs.Any(tab => string.Equals(tab.Id, "tab-create", StringComparison.Ordinal) && string.Equals(tab.SectionId, "build-lab", StringComparison.Ordinal)));
+        Assert.IsTrue(sr6Tabs.Any(tab => string.Equals(tab.Id, "tab-create", StringComparison.Ordinal) && string.Equals(tab.SectionId, "build-lab", StringComparison.Ordinal)));
+
+        Assert.IsTrue(sr5Actions.Any(action => string.Equals(action.Id, "tab-create.intake", StringComparison.Ordinal) && string.Equals(action.TargetId, "build-lab", StringComparison.Ordinal)));
+        Assert.IsTrue(sr4Actions.Any(action => string.Equals(action.Id, "tab-create.intake", StringComparison.Ordinal) && string.Equals(action.TargetId, "build-lab", StringComparison.Ordinal)));
+        Assert.IsTrue(sr6Actions.Any(action => string.Equals(action.Id, "tab-create.intake", StringComparison.Ordinal) && string.Equals(action.TargetId, "build-lab", StringComparison.Ordinal)));
+
+        Assert.IsTrue(sr5Surfaces.Any(surface => string.Equals(surface.Id, "sr5.career.section", StringComparison.Ordinal) && surface.ActionIds.Contains("tab-create.intake")));
+        Assert.IsTrue(sr4Surfaces.Any(surface => string.Equals(surface.Id, "sr4.career.section", StringComparison.Ordinal) && surface.ActionIds.Contains("tab-create.intake")));
+        Assert.IsTrue(sr6Surfaces.Any(surface => string.Equals(surface.Id, "sr6.career.section", StringComparison.Ordinal) && surface.ActionIds.Contains("tab-create.intake")));
+    }
+
+    [TestMethod]
     public void Ruleset_plugin_contracts_are_declared_for_serializer_shell_catalog_capability_rule_and_script_hosts()
     {
         Assert.IsTrue(typeof(IRulesetPlugin).IsInterface);

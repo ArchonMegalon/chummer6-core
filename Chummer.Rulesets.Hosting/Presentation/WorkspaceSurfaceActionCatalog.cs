@@ -43,6 +43,7 @@ public static class WorkspaceSurfaceActionCatalog
     {
         return
         [
+            Sr5("tab-create.intake", "Build Lab", "tab-create", WorkspaceSurfaceActionKind.Section, "build-lab", true, true),
             Sr5("tab-info.summary", "Summary", "tab-info", WorkspaceSurfaceActionKind.Summary, "summary", true, true),
             Sr5("tab-info.validate", "Validate", "tab-info", WorkspaceSurfaceActionKind.Validate, "validate", true, true),
             Sr5("tab-info.metadata", "Apply Metadata", "tab-info", WorkspaceSurfaceActionKind.Metadata, "metadata", true, true),

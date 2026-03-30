@@ -35,6 +35,7 @@ internal static class Sr6NavigationTabCatalog
 {
     public static readonly IReadOnlyList<NavigationTabDefinition> All =
     [
+        Sr6("tab-create", "Create", "build-lab", "character", true, true),
         Sr6("tab-info", "Info", "profile", "character", true, true),
         Sr6("tab-attributes", "Attributes", "attributes", "character", true, true),
         Sr6("tab-skills", "Skills", "skills", "character", true, true),
@@ -56,6 +57,7 @@ internal static class Sr6WorkspaceSurfaceActionCatalog
 {
     public static readonly IReadOnlyList<WorkspaceSurfaceActionDefinition> All =
     [
+        Sr6("tab-create.intake", "Build Lab", "tab-create", WorkspaceSurfaceActionKind.Section, "build-lab", true, true),
         Sr6("tab-info.summary", "Summary", "tab-info", WorkspaceSurfaceActionKind.Summary, "summary", true, true),
         Sr6("tab-info.validate", "Validate", "tab-info", WorkspaceSurfaceActionKind.Validate, "validate", true, true),
         Sr6("tab-info.metadata", "Apply Metadata", "tab-info", WorkspaceSurfaceActionKind.Metadata, "metadata", true, true),

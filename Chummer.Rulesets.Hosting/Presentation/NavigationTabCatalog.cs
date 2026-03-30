@@ -24,6 +24,7 @@ public static class NavigationTabCatalog
     {
         return
         [
+            Sr5("tab-create", "Create", "build-lab", "character", true, true),
             Sr5("tab-info", "Info", "profile", "character", true, true),
             Sr5("tab-attributes", "Attributes", "attributes", "character", true, true),
             Sr5("tab-skills", "Skills", "skills", "character", true, true),
