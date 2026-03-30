@@ -176,7 +176,7 @@ milestones:
       - chummer6-ui
       - chummer6-mobile
       - chummer6-hub
-    status: in_progress
+    status: complete
     exit_criteria:
       - Numbers, imports, migration decisions, update eligibility, and support resolutions expose grounded receipts.
       - Receipt posture is consistent across UI, mobile, hub, and support-facing product surfaces.
