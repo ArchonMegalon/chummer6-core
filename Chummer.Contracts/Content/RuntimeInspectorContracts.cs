@@ -96,6 +96,13 @@ public sealed record ActiveRuntimeStatusProjection(
     int ProviderBindingCount = 0,
     int WarningCount = 0);
 
+public static class RuntimeInspectorPromotionStages
+{
+    public const string Sandbox = "sandbox";
+    public const string CampaignApproved = "campaign_approved";
+    public const string Published = "published";
+}
+
 public sealed record RuntimeInspectorPromotionProjection(
     string PublicationStatus,
     string Visibility,
@@ -103,7 +110,9 @@ public sealed record RuntimeInspectorPromotionProjection(
     string PromotionSummary,
     string RollbackSummary,
     string LineageSummary,
-    DateTimeOffset? PublishedAtUtc = null);
+    DateTimeOffset? PublishedAtUtc = null,
+    string? CurrentStage = null,
+    string? PromotionTargetStage = null);
 
 public sealed record RuntimeInspectorProjection(
     string TargetKind,

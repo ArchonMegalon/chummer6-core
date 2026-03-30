@@ -318,6 +318,8 @@ public sealed class DefaultRuntimeInspectorService : IRuntimeInspectorService
 
     private static RuntimeInspectorPromotionProjection BuildPromotion(RuleProfileRegistryEntry profile, ArtifactInstallState install)
     {
+        (string currentStage, string promotionTargetStage) = ResolvePromotionStages(profile);
+
         string promotionSummary = profile.Manifest.UpdateChannel switch
         {
             RuleProfileUpdateChannels.Stable => $"Stable rule environment is {profile.Publication.PublicationStatus} with {profile.Publication.Visibility} visibility and ready for governed reuse.",
@@ -341,7 +343,22 @@ public sealed class DefaultRuntimeInspectorService : IRuntimeInspectorService
             PromotionSummary: promotionSummary,
             RollbackSummary: rollbackSummary,
             LineageSummary: lineageSummary,
-            PublishedAtUtc: profile.Publication.PublishedAtUtc);
+            PublishedAtUtc: profile.Publication.PublishedAtUtc,
+            CurrentStage: currentStage,
+            PromotionTargetStage: promotionTargetStage);
+    }
+
+    private static (string CurrentStage, string PromotionTargetStage) ResolvePromotionStages(RuleProfileRegistryEntry profile)
+    {
+        return profile.Manifest.UpdateChannel switch
+        {
+            RuleProfileUpdateChannels.Preview => (RuntimeInspectorPromotionStages.Sandbox, RuntimeInspectorPromotionStages.CampaignApproved),
+            RuleProfileUpdateChannels.CampaignPinned => (RuntimeInspectorPromotionStages.CampaignApproved, RuntimeInspectorPromotionStages.Published),
+            RuleProfileUpdateChannels.Stable => (RuntimeInspectorPromotionStages.Published, RuntimeInspectorPromotionStages.Published),
+            _ => string.Equals(profile.Publication.PublicationStatus, RuleProfilePublicationStatuses.Published, StringComparison.OrdinalIgnoreCase)
+                ? (RuntimeInspectorPromotionStages.Published, RuntimeInspectorPromotionStages.Published)
+                : (RuntimeInspectorPromotionStages.Sandbox, RuntimeInspectorPromotionStages.CampaignApproved)
+        };
     }
 
     private static string? TryResolvePackId(string providerId, IEnumerable<string> packIds)
