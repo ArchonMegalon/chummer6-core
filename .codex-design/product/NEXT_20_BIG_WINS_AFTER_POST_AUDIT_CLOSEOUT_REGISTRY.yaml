@@ -147,7 +147,7 @@ milestones:
       - chummer6-ui
       - chummer6-hub
       - chummer6-design
-    status: in_progress
+    status: complete
     exit_criteria:
       - Rules answers show how a custom environment differs from baseline and why.
       - Explain flows reuse the same governed rule-environment truth across product, support, and public-safe surfaces.
