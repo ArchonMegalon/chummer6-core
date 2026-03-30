@@ -77,6 +77,10 @@ public class WorkspaceServiceTests
         Assert.IsFalse(string.IsNullOrWhiteSpace(imported.Id.Value));
         Assert.AreEqual("Neo", imported.Summary.Name);
         Assert.AreEqual("sr5", imported.RulesetId);
+        Assert.IsFalse(string.IsNullOrWhiteSpace(imported.ImportReceiptId));
+        Assert.AreEqual(WorkspacePortabilityCompatibilityStates.Compatible, imported.Portability?.CompatibilityState);
+        StringAssert.Contains(imported.Portability?.ReceiptSummary ?? string.Empty, "Portable import completed");
+        StringAssert.Contains(imported.Portability?.ProvenanceSummary ?? string.Empty, imported.Id.Value);
         IReadOnlyList<WorkspaceListItem> listed = workspaceService.List();
         Assert.IsTrue(listed.Any(item => string.Equals(item.Id.Value, imported.Id.Value, StringComparison.Ordinal)));
         Assert.AreEqual("sr5", listed.First(item => string.Equals(item.Id.Value, imported.Id.Value, StringComparison.Ordinal)).RulesetId);
@@ -307,6 +311,11 @@ public class WorkspaceServiceTests
         Assert.AreEqual("sr6/custom-payload", codec.LastExportEnvelope.PayloadKind);
         Assert.AreEqual("Codec Runner-export.json", result.Value.FileName);
         Assert.AreEqual(WorkspaceDocumentFormat.Json, result.Value.Format);
+        Assert.IsFalse(string.IsNullOrWhiteSpace(result.Value.PackageId));
+        Assert.AreEqual(WorkspacePortabilityFormatIds.PortableDossierV1, result.Value.Portability?.FormatId);
+        Assert.AreEqual(WorkspacePortabilityCompatibilityStates.Compatible, result.Value.Portability?.CompatibilityState);
+        StringAssert.Contains(result.Value.Portability?.ReceiptSummary ?? string.Empty, "Portable export is ready");
+        StringAssert.Contains(result.Value.Portability?.ProvenanceSummary ?? string.Empty, id.Value);
         string payload = Encoding.UTF8.GetString(Convert.FromBase64String(result.Value.ContentBase64));
         StringAssert.Contains(payload, "\"Name\": \"Codec Runner\"");
         StringAssert.Contains(payload, "\"Reaction\"");

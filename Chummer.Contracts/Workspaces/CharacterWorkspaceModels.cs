@@ -123,7 +123,10 @@ public sealed record WorkspaceExportReceipt(
     string ContentBase64,
     string FileName,
     int DocumentLength,
-    string RulesetId);
+    string RulesetId,
+    string PackageId = "",
+    DateTimeOffset ExportedAtUtc = default,
+    WorkspacePortabilityReceipt? Portability = null);
 
 public sealed record WorkspacePrintReceipt(
     CharacterWorkspaceId Id,
