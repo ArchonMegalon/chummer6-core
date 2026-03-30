@@ -5,8 +5,10 @@ using System.Text.Json;
 using Chummer.Contracts.Api;
 using Chummer.Contracts.Characters;
 using Chummer.Contracts.Owners;
+using Chummer.Contracts.Presentation;
 using Chummer.Contracts.Rulesets;
 using Chummer.Contracts.Workspaces;
+using Chummer.Application.BuildLab;
 
 namespace Chummer.Application.Workspaces;
 
@@ -125,7 +127,10 @@ public sealed class WorkspaceService : IWorkspaceService
         }
 
         IRulesetWorkspaceCodec codec = _workspaceCodecResolver.Resolve(envelope.RulesetId);
-        return codec.ParseSection(sectionId, envelope);
+        object? section = codec.ParseSection(sectionId, envelope);
+        return section is BuildLabConceptIntakeProjection projection
+            ? BuildLabWorkspaceProjectionFactory.BindWorkspaceId(projection, id.Value)
+            : section;
     }
 
     public CharacterFileSummary? GetSummary(CharacterWorkspaceId id)

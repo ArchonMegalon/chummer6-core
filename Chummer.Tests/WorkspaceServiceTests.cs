@@ -9,6 +9,7 @@ using Chummer.Application.Characters;
 using Chummer.Application.Workspaces;
 using Chummer.Contracts.Characters;
 using Chummer.Contracts.Owners;
+using Chummer.Contracts.Presentation;
 using Chummer.Contracts.Rulesets;
 using Chummer.Contracts.Workspaces;
 using Chummer.Infrastructure.Xml;
@@ -121,6 +122,30 @@ public class WorkspaceServiceTests
         bool closed = workspaceService.Close(imported.Id);
         Assert.IsTrue(closed);
         Assert.IsFalse(workspaceService.List().Any(item => string.Equals(item.Id.Value, imported.Id.Value, StringComparison.Ordinal)));
+    }
+
+    [TestMethod]
+    public void Import_get_build_lab_projection_from_sr5_workspace()
+    {
+        const string xml = "<character><name>Neo</name><alias>The One</alias><metatype>Human</metatype><concept>Street Samurai</concept><buildmethod>Priority</buildmethod><createdversion>1.0</createdversion><appversion>1.0</appversion><karma>15</karma><nuyen>2500</nuyen><created>True</created><gameedition>SR5</gameedition><settings>default.xml</settings><gameplayoption>Standard</gameplayoption><gameplayoptionqualitylimit>25</gameplayoptionqualitylimit><maxnuyen>10</maxnuyen><maxkarma>25</maxkarma><contactmultiplier>3</contactmultiplier><walk>2/1/0</walk><run>4/0/0</run><sprint>2/1/0</sprint><walkalt>2/1/0</walkalt><runalt>4/0/0</runalt><sprintalt>2/1/0</sprintalt><magenabled>False</magenabled><resenabled>False</resenabled><depenabled>False</depenabled><newskills><skills><skill><guid>s1</guid><suid>suid1</suid><skillcategory>Combat</skillcategory><isknowledge>False</isknowledge><base>6</base><karma>0</karma></skill></skills></newskills></character>";
+
+        IWorkspaceStore store = new InMemoryWorkspaceStore();
+        ICharacterFileQueries fileQueries = new XmlCharacterFileQueries(new CharacterFileService());
+        ICharacterSectionQueries sectionQueries = new XmlCharacterSectionQueries(new CharacterSectionService());
+        ICharacterMetadataCommands metadataCommands = new XmlCharacterMetadataCommands(new CharacterFileService());
+        WorkspaceService workspaceService = CreateWorkspaceService(store, fileQueries, sectionQueries, metadataCommands);
+
+        WorkspaceImportResult imported = workspaceService.Import(new WorkspaceImportDocument(xml, RulesetDefaults.Sr5, WorkspaceDocumentFormat.NativeXml));
+        BuildLabConceptIntakeProjection? projection = workspaceService.GetSection(imported.Id, "build-lab") as BuildLabConceptIntakeProjection;
+
+        Assert.IsNotNull(projection);
+        Assert.AreEqual(imported.Id.Value, projection.WorkspaceId);
+        Assert.AreEqual("workflow.build-lab", projection.WorkflowId);
+        Assert.AreEqual("sr5", projection.RulesetId);
+        Assert.AreEqual("Priority", projection.BuildMethod);
+        Assert.IsTrue(projection.Variants.Count > 0);
+        Assert.IsTrue(projection.ProgressionTimelines.Count > 0);
+        Assert.IsTrue(projection.Actions.Any(action => string.Equals(action.ActionId, "next-variants", StringComparison.Ordinal)));
     }
 
     [TestMethod]
@@ -288,6 +313,46 @@ public class WorkspaceServiceTests
         StringAssert.Contains(payload, "\"Fixer\"");
     }
 
+    [TestMethod]
+    public void GetSection_rebinds_workspace_id_for_build_lab_projection_from_codec()
+    {
+        InMemoryWorkspaceStore store = new();
+        CharacterWorkspaceId id = store.Create(new WorkspaceDocument(
+            PayloadEnvelope: new WorkspacePayloadEnvelope(
+                RulesetId: "sr6",
+                SchemaVersion: 0,
+                PayloadKind: string.Empty,
+                Payload: "<codec-build-lab/>"),
+            Format: WorkspaceDocumentFormat.NativeXml));
+        RecordingWorkspaceCodec codec = new();
+        WorkspaceService workspaceService = new(store, new RulesetWorkspaceCodecResolver([codec]), new WorkspaceImportRulesetDetector());
+
+        BuildLabConceptIntakeProjection? projection = workspaceService.GetSection(id, "build-lab") as BuildLabConceptIntakeProjection;
+
+        Assert.IsNotNull(projection);
+        Assert.AreEqual(id.Value, projection.WorkspaceId);
+        Assert.AreEqual("workflow.build-lab", projection.WorkflowId);
+        Assert.AreEqual("Codec Runner Build Lab Intake", projection.Title);
+    }
+
+    [TestMethod]
+    public void Sr4_and_sr6_codecs_expose_build_lab_sections()
+    {
+        const string xml = "<character><name>Codec Runner</name><alias>Runner</alias><metatype>Human</metatype><buildmethod>Priority</buildmethod><createdversion>1.0</createdversion><appversion>1.0</appversion><karma>0</karma><nuyen>0</nuyen><created>True</created></character>";
+        WorkspacePayloadEnvelope sr4Envelope = new(RulesetDefaults.Sr4, 1, Sr4WorkspaceCodec.Sr4PayloadKind, xml);
+        WorkspacePayloadEnvelope sr6Envelope = new(RulesetDefaults.Sr6, 1, Sr6WorkspaceCodec.Sr6PayloadKind, xml);
+
+        BuildLabConceptIntakeProjection? sr4Projection = new Sr4WorkspaceCodec().ParseSection("build-lab", sr4Envelope) as BuildLabConceptIntakeProjection;
+        BuildLabConceptIntakeProjection? sr6Projection = new Sr6WorkspaceCodec().ParseSection("build-lab", sr6Envelope) as BuildLabConceptIntakeProjection;
+
+        Assert.IsNotNull(sr4Projection);
+        Assert.IsNotNull(sr6Projection);
+        Assert.AreEqual("sr4", sr4Projection.RulesetId);
+        Assert.AreEqual("sr6", sr6Projection.RulesetId);
+        Assert.IsTrue(sr4Projection.Variants.Count > 0);
+        Assert.IsTrue(sr6Projection.Variants.Count > 0);
+    }
+
     private sealed class TrackingWorkspaceStore : IWorkspaceStore
     {
         public int CreateCallCount { get; private set; }
@@ -439,6 +504,26 @@ public class WorkspaceServiceTests
         {
             return sectionId switch
             {
+                "build-lab" => new BuildLabConceptIntakeProjection(
+                    WorkspaceId: "pending-workspace",
+                    WorkflowId: "workflow.build-lab",
+                    Title: "Codec Runner Build Lab Intake",
+                    Summary: "Codec-provided Build Lab payload.",
+                    RulesetId: "sr6",
+                    BuildMethod: "Priority",
+                    IntakeFields:
+                    [
+                        new BuildLabIntakeField("concept", "Concept", BuildLabFieldKinds.Text, "Codec Runner")
+                    ],
+                    RoleBadges:
+                    [
+                        new BuildLabBadge("street-samurai", "Street Samurai", BuildLabBadgeKinds.Role, true)
+                    ],
+                    ConstraintBadges: [],
+                    ProvenanceBadges: [],
+                    Variants: [],
+                    ProgressionTimelines: [],
+                    Actions: []),
                 "profile" => new CharacterProfileSection(
                     Name: "Codec Runner",
                     Alias: "SR6",

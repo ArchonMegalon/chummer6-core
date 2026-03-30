@@ -1,5 +1,6 @@
 using Chummer.Application.Characters;
 using Chummer.Application.AI;
+using Chummer.Application.BuildLab;
 using Chummer.Application.Content;
 using Chummer.Application.Hub;
 using Chummer.Application.Owners;
@@ -43,6 +44,7 @@ public static class ServiceCollectionExtensions
         }
 
         services.AddSingleton<ICharacterFileService, CharacterFileService>();
+        services.AddSingleton<IBuildLabService, DefaultBuildLabService>();
         services.AddSingleton<IAiProviderCredentialCatalog, EmptyAiProviderCredentialCatalog>();
         services.AddSingleton<IAiProviderTransportOptionsCatalog, EmptyAiProviderTransportOptionsCatalog>();
         services.AddSingleton<IAiProviderTransportClient>(_ => new NotImplementedAiProviderTransportClient());
@@ -89,7 +91,8 @@ public static class ServiceCollectionExtensions
                 provider.GetRequiredService<ICharacterStatsQueries>(),
                 provider.GetRequiredService<ICharacterInventoryQueries>(),
                 provider.GetRequiredService<ICharacterMagicResonanceQueries>(),
-                provider.GetRequiredService<ICharacterSocialNarrativeQueries>()));
+                provider.GetRequiredService<ICharacterSocialNarrativeQueries>(),
+                provider.GetRequiredService<IBuildLabService>()));
         services.AddSingleton<IContentOverlayCatalogService>(overlays);
         services.AddSingleton<IBuildKitRegistryService, DefaultBuildKitRegistryService>();
         services.AddSingleton<INpcVaultRegistryService, DefaultNpcVaultRegistryService>();
