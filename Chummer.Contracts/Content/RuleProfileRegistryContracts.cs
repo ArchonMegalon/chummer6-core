@@ -23,6 +23,13 @@ public static class RuleProfilePublicationStatuses
     public const string Archived = "archived";
 }
 
+public static class RuleProfileLifecycleStages
+{
+    public const string Sandbox = "sandbox";
+    public const string CampaignApproved = "campaign-approved";
+    public const string Published = "published";
+}
+
 public static class RuleProfileUpdateChannels
 {
     public const string Stable = "stable";
