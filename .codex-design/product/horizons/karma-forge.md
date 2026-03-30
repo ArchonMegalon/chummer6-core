@@ -1,12 +1,12 @@
 # KARMA FORGE
 
-## Table pain
+## The problem
 
 Groups want house rules and alternate rule environments without forking themselves into incompatible chaos.
 
-## Bounded product move
+## What it would do
 
-Chummer would offer governed ruleset variation and compatibility handling without allowing ad hoc script piles to become silent canon.
+Chummer would let groups publish, review, and reuse house-rule sets with visible impact and compatibility checks, without turning them into private forks.
 
 ## Likely owners
 
@@ -18,13 +18,13 @@ Chummer would offer governed ruleset variation and compatibility handling withou
 
 External tools may assist authoring or review, but rule authority stays inside engine packages, registry compatibility metadata, and explicit approval paths.
 
-## Foundations
+## What has to be true first
 
 * ruleset ABI discipline
-* package ownership canon
+* clear package ownership
 * registry compatibility metadata
 * approval and publication flows
 
-## Why still a horizon
+## Why it is not ready yet
 
-Rule variation is powerful enough to create permanent drift if the contract and compatibility layers are not already stable.
+Rule changes can fracture tables quickly if compatibility and rollback are not already dependable.

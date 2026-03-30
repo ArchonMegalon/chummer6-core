@@ -1,15 +1,13 @@
 # RUNBOOK PRESS
 
-## Table pain
+## The problem
 
-GMs, creators, and publishers need consistent long-form artifacts such as primers, campaign books, district guides, and convention modules, but current workflows are slow and hard to standardize.
+GMs, creators, and publishers need consistent long-form books such as primers, campaign books, district guides, and convention modules, but current workflows are slow and hard to standardize.
 
-## Bounded product move
+## What it would do
 
-Chummer would support governed long-form authoring and publication prep for player-facing and GM-facing books without letting vendor dashboards become the source of truth.
-RUNBOOK PRESS is the long-form publishing lane:
-primers, handbooks, district guides, campaign books, and convention modules belong here.
-It complements JACKPOINT rather than duplicating it.
+Chummer would help teams turn approved source material into primers, handbooks, district guides, campaign books, and convention modules without making third-party dashboards the source of truth.
+It complements JACKPOINT instead of duplicating it.
 
 ## Likely owners
 
@@ -26,13 +24,13 @@ It complements JACKPOINT rather than duplicating it.
 * `Soundmadeseen` - optional narrated companion assets
 * `Unmixr AI` - candidate voice lane until proven
 
-## Foundations
+## What has to be true first
 
-* approved canonical source packs
+* approved source packs
 * publication manifests
-* format/render adapters
+* format and render adapters
 * editorial approval flows
 
-## Why still a horizon
+## Why it is not ready yet
 
-Long-form output is only useful when the source pack, approval chain, and publication artifacts stay governed end to end.
+Long-form output only matters if the approved source, edit trail, and publication package stay intact from draft to release.
