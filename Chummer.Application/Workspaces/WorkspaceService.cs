@@ -1,5 +1,6 @@
 using System.IO;
 using System.Net;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Chummer.Contracts.Api;
@@ -47,7 +48,21 @@ public sealed class WorkspaceService : IWorkspaceService
         CharacterWorkspaceId id = _workspaceStore.Create(owner, new WorkspaceDocument(
             PayloadEnvelope: envelope,
             Format: document.Format));
-        return new WorkspaceImportResult(id, summary, envelope.RulesetId);
+        DateTimeOffset importedAtUtc = DateTimeOffset.UtcNow;
+        string payloadSha256 = ComputeSha256(Encoding.UTF8.GetBytes(document.Content));
+        return new WorkspaceImportResult(
+            Id: id,
+            Summary: summary,
+            RulesetId: envelope.RulesetId,
+            ImportReceiptId: BuildReceiptId("import", id.Value, payloadSha256),
+            ImportedAtUtc: importedAtUtc,
+            Portability: BuildImportPortabilityReceipt(
+                id,
+                document,
+                envelope.RulesetId,
+                summary,
+                importedAtUtc,
+                payloadSha256));
     }
 
     public IReadOnlyList<WorkspaceListItem> List(int? maxCount = null)
@@ -389,8 +404,10 @@ public sealed class WorkspaceService : IWorkspaceService
             WriteIndented = true
         });
         byte[] bytes = Encoding.UTF8.GetBytes(json);
+        string payloadSha256 = ComputeSha256(bytes);
         string baseFileName = string.IsNullOrWhiteSpace(bundle.Summary.Name) ? id.Value : bundle.Summary.Name;
         string fileName = $"{SanitizeFileName(baseFileName)}-export.json";
+        DateTimeOffset exportedAtUtc = DateTimeOffset.UtcNow;
 
         return new WorkspaceExportReceipt(
             Id: id,
@@ -398,7 +415,15 @@ public sealed class WorkspaceService : IWorkspaceService
             ContentBase64: Convert.ToBase64String(bytes),
             FileName: fileName,
             DocumentLength: bytes.Length,
-            RulesetId: RulesetDefaults.NormalizeOptional(rulesetId) ?? string.Empty);
+            RulesetId: RulesetDefaults.NormalizeOptional(rulesetId) ?? string.Empty,
+            PackageId: BuildReceiptId("portable", id.Value, payloadSha256),
+            ExportedAtUtc: exportedAtUtc,
+            Portability: BuildExportPortabilityReceipt(
+                id,
+                rulesetId,
+                bundle,
+                exportedAtUtc,
+                payloadSha256));
     }
 
     private static WorkspacePrintReceipt BuildPrintReceipt(
@@ -500,6 +525,175 @@ public sealed class WorkspaceService : IWorkspaceService
 
         string sanitized = builder.ToString().Trim();
         return string.IsNullOrWhiteSpace(sanitized) ? "workspace" : sanitized;
+    }
+
+    private static WorkspacePortabilityReceipt BuildImportPortabilityReceipt(
+        CharacterWorkspaceId id,
+        WorkspaceImportDocument document,
+        string rulesetId,
+        CharacterFileSummary summary,
+        DateTimeOffset importedAtUtc,
+        string payloadSha256)
+    {
+        string displayName = string.IsNullOrWhiteSpace(summary.Name) ? id.Value : summary.Name;
+        bool needsReview = document.Format != WorkspaceDocumentFormat.NativeXml;
+        WorkspacePortabilityNote formatNote = new(
+            Code: "format-identity",
+            Severity: needsReview
+                ? WorkspacePortabilityNoteSeverities.Warning
+                : WorkspacePortabilityNoteSeverities.Info,
+            Summary: needsReview
+                ? $"Imported {document.Format} content on the governed dossier rail. Inspect the workspace before you use it for governed replace on another surface."
+                : $"Imported native workspace XML on the governed dossier rail for {rulesetId}.");
+        WorkspacePortabilityNote rulesetNote = new(
+            Code: "ruleset-context",
+            Severity: WorkspacePortabilityNoteSeverities.Info,
+            Summary: $"{displayName} now resolves under the governed {rulesetId} ruleset context instead of an install-local backup slot.");
+        WorkspacePortabilityNote provenanceNote = new(
+            Code: "provenance-payload",
+            Severity: WorkspacePortabilityNoteSeverities.Info,
+            Summary: $"Import receipt {BuildReceiptId("import", id.Value, payloadSha256)} captured payload hash {payloadSha256[..12]} at {importedAtUtc:O}.");
+
+        return new WorkspacePortabilityReceipt(
+            FormatId: document.Format == WorkspaceDocumentFormat.Json
+                ? WorkspacePortabilityFormatIds.PortableDossierV1
+                : WorkspacePortabilityFormatIds.NativeWorkspaceXmlV1,
+            CompatibilityState: needsReview
+                ? WorkspacePortabilityCompatibilityStates.CompatibleWithWarnings
+                : WorkspacePortabilityCompatibilityStates.Compatible,
+            ContextSummary: $"{displayName} was imported into governed dossier truth on {rulesetId}.",
+            ReceiptSummary: needsReview
+                ? "Portable import completed with compatibility notes; inspect the workspace before you hand it off across surfaces."
+                : "Portable import completed as governed dossier truth and is ready for normal use or portable export.",
+            ProvenanceSummary: $"Imported workspace {id.Value} from {document.Format} with payload hash {payloadSha256[..12]} on {rulesetId}.",
+            PayloadSha256: payloadSha256,
+            NextSafeAction: needsReview
+                ? "Open the Rules and Profile tabs, then export a fresh portable package before you authorize merge or replace elsewhere."
+                : "Use the workspace normally or export a portable package when you need a governed cross-surface handoff.",
+            SupportedExchangeModes:
+            [
+                WorkspacePortabilityExchangeModes.InspectOnly,
+                WorkspacePortabilityExchangeModes.Merge,
+                WorkspacePortabilityExchangeModes.Replace
+            ],
+            Notes:
+            [
+                formatNote,
+                rulesetNote,
+                provenanceNote
+            ]);
+    }
+
+    private static WorkspacePortabilityReceipt BuildExportPortabilityReceipt(
+        CharacterWorkspaceId id,
+        string rulesetId,
+        DataExportBundle bundle,
+        DateTimeOffset exportedAtUtc,
+        string payloadSha256)
+    {
+        string normalizedRulesetId = RulesetDefaults.NormalizeOptional(rulesetId) ?? string.Empty;
+        string displayName = string.IsNullOrWhiteSpace(bundle.Summary.Name) ? id.Value : bundle.Summary.Name;
+        string[] missingSections = GetMissingPortableSections(bundle);
+        bool hasWarnings = missingSections.Length > 0;
+        string sectionCoverageSummary = hasWarnings
+            ? $"Portable package is missing {string.Join(", ", missingSections)}; receiving surfaces should inspect before governed replace."
+            : "Portable package keeps profile, progress, attributes, skills, inventory, qualities, and contacts on the same governed receipt.";
+
+        return new WorkspacePortabilityReceipt(
+            FormatId: WorkspacePortabilityFormatIds.PortableDossierV1,
+            CompatibilityState: hasWarnings
+                ? WorkspacePortabilityCompatibilityStates.CompatibleWithWarnings
+                : WorkspacePortabilityCompatibilityStates.Compatible,
+            ContextSummary: $"{displayName} is packaged as a portable dossier on {normalizedRulesetId}.",
+            ReceiptSummary: hasWarnings
+                ? "Portable export is ready, but inspect the package before merge or governed replace on a receiving surface."
+                : "Portable export is ready for inspect-only, merge, or governed replace on a receiving surface.",
+            ProvenanceSummary: $"Portable package {BuildReceiptId("portable", id.Value, payloadSha256)} captured payload hash {payloadSha256[..12]} from workspace {id.Value} at {exportedAtUtc:O}.",
+            PayloadSha256: payloadSha256,
+            NextSafeAction: hasWarnings
+                ? "Open inspect-only first on the receiving surface and verify the missing sections before merge or replace."
+                : "Share the package or open inspect-only first before merge or replace on the receiving surface.",
+            SupportedExchangeModes:
+            [
+                WorkspacePortabilityExchangeModes.InspectOnly,
+                WorkspacePortabilityExchangeModes.Merge,
+                WorkspacePortabilityExchangeModes.Replace
+            ],
+            Notes:
+            [
+                new WorkspacePortabilityNote(
+                    Code: "format-identity",
+                    Severity: WorkspacePortabilityNoteSeverities.Info,
+                    Summary: $"Package format {WorkspacePortabilityFormatIds.PortableDossierV1} stays attached to {normalizedRulesetId} dossier truth."),
+                new WorkspacePortabilityNote(
+                    Code: "section-coverage",
+                    Severity: hasWarnings
+                        ? WorkspacePortabilityNoteSeverities.Warning
+                        : WorkspacePortabilityNoteSeverities.Info,
+                    Summary: sectionCoverageSummary),
+                new WorkspacePortabilityNote(
+                    Code: "provenance-payload",
+                    Severity: WorkspacePortabilityNoteSeverities.Info,
+                    Summary: $"Workspace {id.Value} export captured payload hash {payloadSha256[..12]} at {exportedAtUtc:O}.")
+            ]);
+    }
+
+    private static string[] GetMissingPortableSections(DataExportBundle bundle)
+    {
+        List<string> missing = [];
+
+        if (bundle.Profile is null)
+        {
+            missing.Add("profile");
+        }
+
+        if (bundle.Progress is null)
+        {
+            missing.Add("progress");
+        }
+
+        if (bundle.Attributes is null)
+        {
+            missing.Add("attributes");
+        }
+
+        if (bundle.Skills is null)
+        {
+            missing.Add("skills");
+        }
+
+        if (bundle.Inventory is null)
+        {
+            missing.Add("inventory");
+        }
+
+        if (bundle.Qualities is null)
+        {
+            missing.Add("qualities");
+        }
+
+        if (bundle.Contacts is null)
+        {
+            missing.Add("contacts");
+        }
+
+        return missing.ToArray();
+    }
+
+    private static string BuildReceiptId(string prefix, string entityId, string payloadSha256)
+    {
+        string normalizedPrefix = string.IsNullOrWhiteSpace(prefix) ? "receipt" : prefix.Trim().ToLowerInvariant();
+        string normalizedEntityId = string.IsNullOrWhiteSpace(entityId) ? "workspace" : entityId.Trim().ToLowerInvariant();
+        string truncatedHash = payloadSha256.Length <= 12
+            ? payloadSha256
+            : payloadSha256[..12];
+        return $"{normalizedPrefix}-{normalizedEntityId}-{truncatedHash}";
+    }
+
+    private static string ComputeSha256(byte[] bytes)
+    {
+        byte[] hashBytes = SHA256.HashData(bytes);
+        return Convert.ToHexString(hashBytes).ToLowerInvariant();
     }
 
     private bool TryResolveEnvelope(OwnerScope owner, CharacterWorkspaceId id, out WorkspacePayloadEnvelope envelope)
