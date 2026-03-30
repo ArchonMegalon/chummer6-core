@@ -1,12 +1,13 @@
 # NEXUS-PAN
 
-## Table pain
+## The problem
 
-Tables lose confidence when devices, PAN state, and cross-actor continuity drift during live play.
+When phones, tablets, or laptops drift apart during play, the whole table stops trusting what is on screen.
 
-## Bounded product move
+## What it would do
 
-Chummer would expose grounded device and shared-state continuity support without inventing new rules truth outside the engine and play contracts.
+Chummer would keep reconnects and shared session state steady enough that players can jump back in without the GM rebuilding context by hand.
+It would extend the core rules and session record instead of inventing a second source of truth.
 
 ## Likely owners
 
@@ -19,14 +20,14 @@ Chummer would expose grounded device and shared-state continuity support without
 No external tool is required for the canonical core of this horizon.
 If projections or operator aids appear later, they remain downstream helpers only.
 
-## Foundations
+## What has to be true first
 
-* session semantic canon
-* runtime bundle canon
-* explain provenance
-* play-shell reliability
+* durable session state
+* reliable sync bundles
+* visible reconnect explanations
+* in-session reliability
 
-## Why still a horizon
+## Why it is not ready yet
 
-The active release path is still finishing canonical session and runtime seams.
-Until those seams are fully trustworthy, a richer PAN layer would widen unstable boundaries.
+The live release still needs boringly reliable session continuity.
+Until reconnects and shared-state handoffs stay solid under stress, a richer PAN layer would add confusion instead of removing it.

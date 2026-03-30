@@ -1,13 +1,13 @@
 # TABLE PULSE
 
-## Table pain
+## The problem
 
 The GM knows something went off after a session, but cannot clearly reconstruct where pacing dragged, who lost the room, or which scene actually landed.
 
-## Bounded product move
+## What it would do
 
-TABLE PULSE is the bounded GM coaching and table-dynamics horizon.
-It turns recorded or uploaded session media into opt-in, post-session spotlight, pacing, engagement, and interruption diagnostics with optional narrated after-action guidance, without pretending to be live session truth.
+TABLE PULSE would turn recorded or uploaded session media into opt-in post-session notes about pacing, spotlight balance, engagement, and interruptions, with optional narrated summaries.
+It is for reflection after play, not live surveillance, player scoring, or moderation.
 
 ## Likely owners
 
@@ -22,12 +22,12 @@ It turns recorded or uploaded session media into opt-in, post-session spotlight,
 * `MarkupGo` - coaching packet render support
 * `PeekShot` - preview/share-safe summary card support
 
-## Foundations
+## What has to be true first
 
 * explicit consent and upload policy
 * post-session-only analysis rules
 * privacy and retention rules for coaching media
-* bounded coaching artifact manifests
+* share-safe coaching summaries
 * replay and receipt references where available
 
 ## Hard boundary
@@ -38,7 +38,7 @@ It turns recorded or uploaded session media into opt-in, post-session spotlight,
 * not discipline automation
 * not canonical session truth
 
-## Why still a horizon
+## Why it is not ready yet
 
-Coaching is only a win if it stays opt-in, post-session, private, and clearly separate from session truth or moderation.
-Until Chummer can prove those consent, privacy, and artifact boundaries end to end, TABLE PULSE remains a horizon rather than live product behavior.
+This only works if it stays consensual, private, and clearly separate from moderation or rules truth.
+Until Chummer can prove those guardrails end to end, TABLE PULSE remains a future idea rather than live product behavior.

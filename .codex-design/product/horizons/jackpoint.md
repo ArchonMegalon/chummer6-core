@@ -1,15 +1,13 @@
 # JACKPOINT
 
-## Table pain
+## The problem
 
-Players and GMs want dossiers, recaps, primers, and narrated briefings, but most content tools invent details and sever the link back to grounded evidence.
+Players and GMs want dossiers, recaps, primers, and narrated briefings, but most content tools either invent details or strip away where the facts came from.
 
-## Bounded product move
+## What it would do
 
-JACKPOINT is the artifact-studio horizon.
-It covers dossier packets, recap artifacts, narrated briefings, evidence rooms, share cards, and creator packs as bounded outputs tied to Chummer-owned manifests and receipts.
-JACKPOINT is intentionally the short-to-medium-form studio lane.
-It does not replace RUNBOOK PRESS long-form publishing.
+JACKPOINT would turn approved session material into dossiers, recaps, narrated briefings, evidence rooms, share cards, and creator packs.
+It is the short-to-medium-form publishing studio, not a replacement for full books.
 
 ## Likely owners
 
@@ -28,15 +26,15 @@ It does not replace RUNBOOK PRESS long-form publishing.
 * `Mootion` - bounded video support
 * `First Book ai` - bounded overflow support when the artifact lane needs long-form carryover
 
-## Foundations
+## What has to be true first
 
-* grounded evidence receipts
+* a fact trail that survives formatting
 * approval states
-* registry/media seam clarity
+* registry and media working together cleanly
 * source classification
-* bounded publication workflows
+* reliable publication workflows
 
-## Why still a horizon
+## Why it is not ready yet
 
-The artifacts are valuable only if provenance survives formatting, narration, preview generation, and publication.
-Until that chain is reliable, Chummer should not pretend the studio is ready.
+These outputs only matter if the source trail survives writing, narration, preview generation, and publication.
+Until that chain is reliable, Chummer should not sell the studio as ready.
