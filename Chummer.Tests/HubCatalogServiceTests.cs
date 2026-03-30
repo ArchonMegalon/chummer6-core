@@ -89,6 +89,8 @@ public class HubCatalogServiceTests
         Assert.AreEqual(HubCatalogItemKinds.BuildKit, buildKit.Summary.Kind);
         Assert.AreEqual(BuildKitPublicationStatuses.Published, buildKit.PublicationStatus);
         Assert.IsTrue(buildKit.Dependencies.Any(dependency => dependency.Kind == HubProjectDependencyKinds.RequiresRulePack));
+        Assert.IsTrue(buildKit.Facts.Any(fact => fact.FactId == "starter-lane" && fact.Value.Contains("first playable session", StringComparison.OrdinalIgnoreCase)));
+        Assert.IsTrue(buildKit.Facts.Any(fact => fact.FactId == "first-playable-session" && fact.Value.Contains("selected workspace or campaign lane", StringComparison.Ordinal)));
 
         Assert.IsNotNull(npcEntry);
         Assert.AreEqual(HubCatalogItemKinds.NpcEntry, npcEntry.Summary.Kind);
