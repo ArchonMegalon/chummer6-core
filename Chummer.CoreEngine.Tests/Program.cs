@@ -7,8 +7,10 @@ using Chummer.Application.Journal;
 using Chummer.Application.Session;
 using Chummer.Application.Simulation;
 using Chummer.Application.Validation;
+using Chummer.Application.Workspaces;
 using Chummer.Contracts;
 using Chummer.Contracts.AI;
+using Chummer.Contracts.Api;
 using Chummer.Contracts.BuildLab;
 using Chummer.Contracts.Characters;
 using Chummer.Contracts.Content;
@@ -20,7 +22,9 @@ using Chummer.Contracts.Rulesets;
 using Chummer.Contracts.Session;
 using Chummer.Contracts.Simulation;
 using Chummer.Contracts.Validation;
+using Chummer.Contracts.Workspaces;
 using Chummer.Rulesets.Hosting;
+using Chummer.Rulesets.Hosting.Presentation;
 using Chummer.Rulesets.Sr4;
 using Chummer.Rulesets.Sr5;
 using Chummer.Rulesets.Sr6;
@@ -66,6 +70,10 @@ internal static class CoreEngineTests
             JournalProjectionIsDeterministicAndValidated();
             ValidationSummaryAndExplainHookCompositionStayDeterministic();
             BuildLabOutputsAreDeterministicAndLocalized();
+            BuildLabWorkspaceProjectionFactoryProjectsIntakeState();
+            WorkspaceServiceRebindsBuildLabWorkspaceIds();
+            BuildLabCreateSurfaceIsExposedAcrossRulesets();
+            Sr4AndSr6CodecsExposeBuildLabSections();
             ContentInstallPreviewsEmitLocalizationKeys();
             NpcVaultRegistryEmitsCuratedPackets();
             HubCatalogSurfacesNpcVaultPackets();
@@ -1717,6 +1725,127 @@ internal static class CoreEngineTests
             "Build Lab package suggestions should expose localization-ready labels, summaries, and explain hooks.");
 
         AssertEx.NotNull(scoredVariant, "Build Lab should resolve exact variant ids when scoring a generated variant.");
+    }
+
+    private static void BuildLabWorkspaceProjectionFactoryProjectsIntakeState()
+    {
+        BuildLabConceptIntakeProjection projection = BuildLabWorkspaceProjectionFactory.Create(
+            profile: new CharacterProfileSection(
+                Name: "Neo",
+                Alias: "The One",
+                PlayerName: string.Empty,
+                Metatype: "Human",
+                Metavariant: string.Empty,
+                Sex: string.Empty,
+                Age: string.Empty,
+                Height: string.Empty,
+                Weight: string.Empty,
+                Hair: string.Empty,
+                Eyes: string.Empty,
+                Skin: string.Empty,
+                Concept: "Street Samurai",
+                Description: "Combat specialist",
+                Background: "Seattle runner",
+                CreatedVersion: "1.0",
+                AppVersion: "1.0",
+                BuildMethod: "Priority",
+                GameplayOption: "Standard",
+                Created: true,
+                Adept: false,
+                Magician: false,
+                Technomancer: false,
+                AI: false,
+                MainMugshotIndex: -1,
+                MugshotCount: 0),
+            progress: new CharacterProgressSection(15m, 2500m, 0m, 0, 0, 0, 0, 0, 0, 0, 0, 0, 6m, 0, 0, false, false, false),
+            rules: new CharacterRulesSection("SR5", "default.xml", "Standard", 25, 10, 25, 3, []),
+            build: new CharacterBuildSection("Priority", "A", "B", "C", "D", "E", string.Empty, 0, 0, 0, 0, 0, 0),
+            skills: new CharacterSkillsSection(1, 0, [new CharacterSkillSummary("s1", "suid1", "Combat", false, 6, 0, [])]),
+            awakening: new CharacterAwakeningSection(false, false, false, false, false, false, false, 0, 0, string.Empty, string.Empty, string.Empty, string.Empty, string.Empty, string.Empty, string.Empty, string.Empty, string.Empty, string.Empty, 0, 0, 0, 0, 0),
+            rulesetId: RulesetDefaults.Sr5);
+
+        AssertEx.Equal("pending-workspace", projection.WorkspaceId, "Build Lab projection factory should emit a placeholder workspace id before binding.");
+        AssertEx.Equal("workflow.build-lab", projection.WorkflowId, "Build Lab projection factory should emit the canonical workflow id.");
+        AssertEx.Equal("sr5", projection.RulesetId, "Build Lab projection factory should preserve the ruleset id.");
+        AssertEx.Equal("Priority", projection.BuildMethod, "Build Lab projection factory should preserve the active build method.");
+        AssertEx.True(projection.RoleBadges.Count > 0, "Build Lab projection factory should surface inferred role badges.");
+        AssertEx.True(projection.Variants.Count > 0, "Build Lab projection factory should surface deterministic variant cards.");
+        AssertEx.True(projection.ProgressionTimelines.Count > 0, "Build Lab projection factory should surface progression timelines.");
+        AssertEx.NotNull(projection.TeamCoverage, "Build Lab projection factory should surface team coverage.");
+        AssertEx.True(
+            projection.Actions?.Any(static action => string.Equals(action.ActionId, "next-variants", StringComparison.Ordinal)) == true,
+            "Build Lab projection factory should expose the governed handoff action.");
+    }
+
+    private static void WorkspaceServiceRebindsBuildLabWorkspaceIds()
+    {
+        RecordingBuildLabWorkspaceStore store = new();
+        CharacterWorkspaceId id = store.Create(new WorkspaceDocument(
+            PayloadEnvelope: new WorkspacePayloadEnvelope(
+                RulesetId: RulesetDefaults.Sr5,
+                SchemaVersion: 1,
+                PayloadKind: "test/build-lab",
+                Payload: "{}"),
+            Format: WorkspaceDocumentFormat.Json));
+        WorkspaceService service = new(
+            store,
+            new RulesetWorkspaceCodecResolver([new RecordingBuildLabWorkspaceCodec()]),
+            new WorkspaceImportRulesetDetector());
+
+        BuildLabConceptIntakeProjection? projection = service.GetSection(id, "build-lab") as BuildLabConceptIntakeProjection;
+
+        AssertEx.NotNull(projection, "WorkspaceService should return the Build Lab projection.");
+        AssertEx.Equal(id.Value, projection!.WorkspaceId, "WorkspaceService should rebind the Build Lab projection to the live workspace id.");
+        AssertEx.Equal("workflow.build-lab", projection.WorkflowId, "WorkspaceService should preserve the workflow id while rebinding the workspace id.");
+    }
+
+    private static void BuildLabCreateSurfaceIsExposedAcrossRulesets()
+    {
+        IReadOnlyList<NavigationTabDefinition> hostingTabs = NavigationTabCatalog.ForRuleset(RulesetDefaults.Sr5);
+        IReadOnlyList<WorkspaceSurfaceActionDefinition> hostingActions = WorkspaceSurfaceActionCatalog.ForRuleset(RulesetDefaults.Sr5);
+        IReadOnlyList<NavigationTabDefinition> sr4Tabs = new Sr4RulesetShellDefinitionProvider().GetNavigationTabs();
+        IReadOnlyList<NavigationTabDefinition> sr5Tabs = new Sr5RulesetShellDefinitionProvider().GetNavigationTabs();
+        IReadOnlyList<NavigationTabDefinition> sr6Tabs = new Sr6RulesetShellDefinitionProvider().GetNavigationTabs();
+        IReadOnlyList<WorkspaceSurfaceActionDefinition> sr4Actions = new Sr4RulesetCatalogProvider().GetWorkspaceActions();
+        IReadOnlyList<WorkspaceSurfaceActionDefinition> sr5Actions = new Sr5RulesetCatalogProvider().GetWorkspaceActions();
+        IReadOnlyList<WorkspaceSurfaceActionDefinition> sr6Actions = new Sr6RulesetCatalogProvider().GetWorkspaceActions();
+        IReadOnlyList<WorkflowSurfaceDefinition> sr4Surfaces = new Sr4RulesetCatalogProvider().GetWorkflowSurfaces();
+        IReadOnlyList<WorkflowSurfaceDefinition> sr5Surfaces = new Sr5RulesetCatalogProvider().GetWorkflowSurfaces();
+        IReadOnlyList<WorkflowSurfaceDefinition> sr6Surfaces = new Sr6RulesetCatalogProvider().GetWorkflowSurfaces();
+
+        AssertEx.True(
+            hostingTabs.Any(static tab => string.Equals(tab.Id, "tab-create", StringComparison.Ordinal) && string.Equals(tab.SectionId, "build-lab", StringComparison.Ordinal)),
+            "Hosted shell catalogs should expose the Build Lab create tab.");
+        AssertEx.True(
+            hostingActions.Any(static action => string.Equals(action.Id, "tab-create.intake", StringComparison.Ordinal) && string.Equals(action.TargetId, "build-lab", StringComparison.Ordinal)),
+            "Hosted shell catalogs should expose the Build Lab intake action.");
+        AssertEx.True(sr4Tabs.Any(static tab => string.Equals(tab.Id, "tab-create", StringComparison.Ordinal)), "SR4 ruleset tabs should expose the Build Lab create tab.");
+        AssertEx.True(sr5Tabs.Any(static tab => string.Equals(tab.Id, "tab-create", StringComparison.Ordinal)), "SR5 ruleset tabs should expose the Build Lab create tab.");
+        AssertEx.True(sr6Tabs.Any(static tab => string.Equals(tab.Id, "tab-create", StringComparison.Ordinal)), "SR6 ruleset tabs should expose the Build Lab create tab.");
+        AssertEx.True(sr4Actions.Any(static action => string.Equals(action.Id, "tab-create.intake", StringComparison.Ordinal)), "SR4 ruleset actions should expose the Build Lab intake action.");
+        AssertEx.True(sr5Actions.Any(static action => string.Equals(action.Id, "tab-create.intake", StringComparison.Ordinal)), "SR5 ruleset actions should expose the Build Lab intake action.");
+        AssertEx.True(sr6Actions.Any(static action => string.Equals(action.Id, "tab-create.intake", StringComparison.Ordinal)), "SR6 ruleset actions should expose the Build Lab intake action.");
+        AssertEx.True(sr4Surfaces.Any(static surface => string.Equals(surface.SurfaceId, "sr4.career.section", StringComparison.Ordinal) && surface.ActionIds.Contains("tab-create.intake")), "SR4 workflow surfaces should route the Build Lab intake action through the career workbench.");
+        AssertEx.True(sr5Surfaces.Any(static surface => string.Equals(surface.SurfaceId, "sr5.career.section", StringComparison.Ordinal) && surface.ActionIds.Contains("tab-create.intake")), "SR5 workflow surfaces should route the Build Lab intake action through the career workbench.");
+        AssertEx.True(sr6Surfaces.Any(static surface => string.Equals(surface.SurfaceId, "sr6.career.section", StringComparison.Ordinal) && surface.ActionIds.Contains("tab-create.intake")), "SR6 workflow surfaces should route the Build Lab intake action through the career workbench.");
+    }
+
+    private static void Sr4AndSr6CodecsExposeBuildLabSections()
+    {
+        const string xml = "<character><name>Codec Runner</name><alias>Runner</alias><metatype>Human</metatype><buildmethod>Priority</buildmethod><createdversion>1.0</createdversion><appversion>1.0</appversion><karma>0</karma><nuyen>0</nuyen><created>True</created></character>";
+        BuildLabConceptIntakeProjection? sr4Projection = new Sr4WorkspaceCodec().ParseSection(
+            "build-lab",
+            new WorkspacePayloadEnvelope(RulesetDefaults.Sr4, 1, Sr4WorkspaceCodec.Sr4PayloadKind, xml)) as BuildLabConceptIntakeProjection;
+        BuildLabConceptIntakeProjection? sr6Projection = new Sr6WorkspaceCodec().ParseSection(
+            "build-lab",
+            new WorkspacePayloadEnvelope(RulesetDefaults.Sr6, 1, Sr6WorkspaceCodec.Sr6PayloadKind, xml)) as BuildLabConceptIntakeProjection;
+
+        AssertEx.NotNull(sr4Projection, "SR4 codecs should expose a Build Lab projection.");
+        AssertEx.NotNull(sr6Projection, "SR6 codecs should expose a Build Lab projection.");
+        AssertEx.Equal("sr4", sr4Projection!.RulesetId, "SR4 Build Lab projection should keep the SR4 ruleset id.");
+        AssertEx.Equal("sr6", sr6Projection!.RulesetId, "SR6 Build Lab projection should keep the SR6 ruleset id.");
+        AssertEx.True(sr4Projection.Variants.Count > 0, "SR4 Build Lab projection should surface at least one variant.");
+        AssertEx.True(sr6Projection.Variants.Count > 0, "SR6 Build Lab projection should surface at least one variant.");
     }
 
     private static void ValidationSummaryAndExplainHookCompositionStayDeterministic()
@@ -4805,6 +4934,134 @@ internal static class CoreEngineTests
         XDocument Document,
         string DocumentPath,
         string DocumentDirectory);
+}
+
+internal sealed class RecordingBuildLabWorkspaceStore : IWorkspaceStore
+{
+    private readonly Dictionary<string, WorkspaceDocument> _documents = new(StringComparer.Ordinal);
+
+    public CharacterWorkspaceId Create(WorkspaceDocument document)
+    {
+        return Create(OwnerScope.LocalSingleUser, document);
+    }
+
+    public CharacterWorkspaceId Create(OwnerScope owner, WorkspaceDocument document)
+    {
+        string id = Guid.NewGuid().ToString("N");
+        _documents[id] = document;
+        return new CharacterWorkspaceId(id);
+    }
+
+    public bool TryGet(CharacterWorkspaceId id, out WorkspaceDocument document)
+    {
+        return TryGet(OwnerScope.LocalSingleUser, id, out document);
+    }
+
+    public bool TryGet(OwnerScope owner, CharacterWorkspaceId id, out WorkspaceDocument document)
+    {
+        return _documents.TryGetValue(id.Value, out document!);
+    }
+
+    public IReadOnlyList<WorkspaceStoreEntry> List()
+    {
+        return List(OwnerScope.LocalSingleUser);
+    }
+
+    public IReadOnlyList<WorkspaceStoreEntry> List(OwnerScope owner)
+    {
+        return _documents.Keys
+            .OrderBy(static key => key, StringComparer.Ordinal)
+            .Select(static key => new WorkspaceStoreEntry(new CharacterWorkspaceId(key), DateTimeOffset.UnixEpoch))
+            .ToArray();
+    }
+
+    public void Save(CharacterWorkspaceId id, WorkspaceDocument document)
+    {
+        Save(OwnerScope.LocalSingleUser, id, document);
+    }
+
+    public void Save(OwnerScope owner, CharacterWorkspaceId id, WorkspaceDocument document)
+    {
+        _documents[id.Value] = document;
+    }
+
+    public bool Delete(CharacterWorkspaceId id)
+    {
+        return Delete(OwnerScope.LocalSingleUser, id);
+    }
+
+    public bool Delete(OwnerScope owner, CharacterWorkspaceId id)
+    {
+        return _documents.Remove(id.Value);
+    }
+}
+
+internal sealed class RecordingBuildLabWorkspaceCodec : IRulesetWorkspaceCodec
+{
+    public string RulesetId => RulesetDefaults.Sr5;
+
+    public int SchemaVersion => 1;
+
+    public string PayloadKind => "test/build-lab";
+
+    public WorkspacePayloadEnvelope WrapImport(string rulesetId, WorkspaceImportDocument document)
+    {
+        throw new NotSupportedException();
+    }
+
+    public CharacterFileSummary ParseSummary(WorkspacePayloadEnvelope envelope)
+    {
+        return new CharacterFileSummary("Codec Runner", "Runner", "Human", "Priority", "1.0", "1.0", 0m, 0m, true);
+    }
+
+    public object ParseSection(string sectionId, WorkspacePayloadEnvelope envelope)
+    {
+        if (!string.Equals(sectionId, "build-lab", StringComparison.Ordinal))
+        {
+            throw new NotSupportedException();
+        }
+
+        return new BuildLabConceptIntakeProjection(
+            WorkspaceId: "pending-workspace",
+            WorkflowId: "workflow.build-lab",
+            Title: "Codec Runner Build Lab Intake",
+            Summary: "Codec-provided Build Lab payload.",
+            RulesetId: RulesetDefaults.Sr5,
+            BuildMethod: "Priority",
+            IntakeFields:
+            [
+                new BuildLabIntakeField("concept", "Concept", BuildLabFieldKinds.Text, "Codec Runner")
+            ],
+            RoleBadges:
+            [
+                new BuildLabBadge("street-samurai", "Street Samurai", BuildLabBadgeKinds.Role, true)
+            ],
+            ConstraintBadges: [],
+            ProvenanceBadges: [],
+            Variants: [],
+            ProgressionTimelines: [],
+            Actions: []);
+    }
+
+    public CharacterValidationResult Validate(WorkspacePayloadEnvelope envelope)
+    {
+        throw new NotSupportedException();
+    }
+
+    public WorkspacePayloadEnvelope UpdateMetadata(WorkspacePayloadEnvelope envelope, UpdateWorkspaceMetadata command)
+    {
+        throw new NotSupportedException();
+    }
+
+    public WorkspaceDownloadReceipt BuildDownload(CharacterWorkspaceId id, WorkspacePayloadEnvelope envelope, WorkspaceDocumentFormat format)
+    {
+        throw new NotSupportedException();
+    }
+
+    public DataExportBundle BuildExportBundle(WorkspacePayloadEnvelope envelope)
+    {
+        throw new NotSupportedException();
+    }
 }
 
 internal static class AssertEx
