@@ -1,9 +1,9 @@
-source_queue_fingerprint: 3a8bc3133a2c4f3bc5d4438569126c9b84b7a817
+source_queue_fingerprint: 884d3354bf9dfa6d07fe9d0d6e70e92a0361e74b
 work_packages:
-- package_id: core-package-compile-3a8bc3133a
+- package_id: core-package-compile-884d3354bf9d
   package_kind: package_compile
   horizon_family: package-compile
-  title: Compile booster-ready work packages from queue truth
+  title: Compile one executable core ruleset-completion backlog slice from queue truth
   allowed_lanes:
   - core_authority
   allow_credit_burn: true
