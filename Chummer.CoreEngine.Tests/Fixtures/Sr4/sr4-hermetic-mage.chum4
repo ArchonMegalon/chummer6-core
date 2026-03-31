@@ -1,0 +1,78 @@
+<character>
+  <name>Arc Light</name>
+  <alias>Arc</alias>
+  <metatype>Human</metatype>
+  <buildmethod>BP</buildmethod>
+  <createdversion>4.0.0</createdversion>
+  <appversion>4.0.0</appversion>
+  <karma>18</karma>
+  <nuyen>2100</nuyen>
+  <created>True</created>
+  <gameedition>SR4</gameedition>
+  <settings>sr4-default.xml</settings>
+  <gameplayoption>Standard</gameplayoption>
+  <contactmultiplier>2</contactmultiplier>
+  <walk>10</walk>
+  <run>25</run>
+  <sprint>35</sprint>
+  <walkalt>10</walkalt>
+  <runalt>25</runalt>
+  <sprintalt>35</sprintalt>
+  <adept>False</adept>
+  <magician>True</magician>
+  <technomancer>False</technomancer>
+  <magenabled>True</magenabled>
+  <resenabled>False</resenabled>
+  <depenabled>False</depenabled>
+  <initiategrade>1</initiategrade>
+  <submersiongrade>0</submersiongrade>
+  <totaless>6.00</totaless>
+  <physicalcmfilled>0</physicalcmfilled>
+  <stuncmfilled>1</stuncmfilled>
+  <tradition>Hermetic</tradition>
+  <traditionname>Hermetic</traditionname>
+  <traditiondrain>LOG + WIL</traditiondrain>
+  <attributes>
+    <attribute><name>Body</name><metatypemin>1</metatypemin><metatypemax>6</metatypemax><metatypeaugmax>9</metatypeaugmax><value>2</value><augmodifier>0</augmodifier><totalvalue>2</totalvalue></attribute>
+    <attribute><name>Agility</name><metatypemin>1</metatypemin><metatypemax>6</metatypemax><metatypeaugmax>9</metatypeaugmax><value>2</value><augmodifier>0</augmodifier><totalvalue>2</totalvalue></attribute>
+    <attribute><name>Reaction</name><metatypemin>1</metatypemin><metatypemax>6</metatypemax><metatypeaugmax>9</metatypeaugmax><value>3</value><augmodifier>0</augmodifier><totalvalue>3</totalvalue></attribute>
+    <attribute><name>Strength</name><metatypemin>1</metatypemin><metatypemax>6</metatypemax><metatypeaugmax>9</metatypeaugmax><value>1</value><augmodifier>0</augmodifier><totalvalue>1</totalvalue></attribute>
+    <attribute><name>Charisma</name><metatypemin>1</metatypemin><metatypemax>6</metatypemax><metatypeaugmax>9</metatypeaugmax><value>3</value><augmodifier>0</augmodifier><totalvalue>3</totalvalue></attribute>
+    <attribute><name>Intuition</name><metatypemin>1</metatypemin><metatypemax>6</metatypemax><metatypeaugmax>9</metatypeaugmax><value>4</value><augmodifier>0</augmodifier><totalvalue>4</totalvalue></attribute>
+    <attribute><name>Logic</name><metatypemin>1</metatypemin><metatypemax>6</metatypemax><metatypeaugmax>9</metatypeaugmax><value>5</value><augmodifier>0</augmodifier><totalvalue>5</totalvalue></attribute>
+    <attribute><name>Willpower</name><metatypemin>1</metatypemin><metatypemax>6</metatypemax><metatypeaugmax>9</metatypeaugmax><value>5</value><augmodifier>0</augmodifier><totalvalue>5</totalvalue></attribute>
+  </attributes>
+  <skills>
+    <skill><name>Spellcasting</name><skillgroup>Sorcery</skillgroup><skillcategory>Magic</skillcategory><grouped>False</grouped><default>False</default><rating>5</rating><ratingmax>6</ratingmax><knowledge>False</knowledge><exotic>False</exotic><spec>Combat</spec><allowdelete>True</allowdelete><attribute>Magic</attribute><source>SR4</source><page>123</page><totalvalue>5</totalvalue></skill>
+    <skill><name>Counterspelling</name><skillgroup>Sorcery</skillgroup><skillcategory>Magic</skillcategory><grouped>False</grouped><default>False</default><rating>4</rating><ratingmax>6</ratingmax><knowledge>False</knowledge><exotic>False</exotic><spec>Combat</spec><allowdelete>True</allowdelete><attribute>Magic</attribute><source>SR4</source><page>118</page><totalvalue>4</totalvalue></skill>
+    <skill><name>Arcana</name><skillgroup></skillgroup><skillcategory>Knowledge</skillcategory><grouped>False</grouped><default>True</default><rating>4</rating><ratingmax>6</ratingmax><knowledge>True</knowledge><exotic>False</exotic><spec>Hermetic Theory</spec><allowdelete>True</allowdelete><attribute>Logic</attribute><source>SR4</source><page>117</page><totalvalue>4</totalvalue></skill>
+  </skills>
+  <contacts>
+    <contact><name>Professor Hale</name><connection>3</connection><loyalty>2</loyalty><membership>0</membership><areaofinfluence>0</areaofinfluence><magicalresources>3</magicalresources><matrixresources>0</matrixresources><type>Talismonger</type><file></file><notes>Arcane supplier</notes><groupname>Downtown</groupname><colour>#222266</colour><free>False</free></contact>
+  </contacts>
+  <gears>
+    <gear><guid>g-mage-01</guid><name>Reagents</name><category>Magic</category><rating>4</rating><qty>10</qty><cost>200</cost><equipped>False</equipped><location>Satchel</location></gear>
+  </gears>
+  <weapons>
+    <weapon><guid>w-mage-01</guid><name>Light Pistol</name><category>Firearm</category><type>Ranged</type><reach>0</reach><damage>4P</damage><ap>0</ap><mode>SA</mode><rc>0</rc><ammo>15(c)</ammo><ammocategory>Light Pistol</ammocategory><requireammo>True</requireammo><ammoremaining>15</ammoremaining><ammoremaining2>0</ammoremaining2><ammoremaining3>0</ammoremaining3><ammoremaining4>0</ammoremaining4><ammoloaded>Regular Ammo</ammoloaded><ammoloaded2></ammoloaded2><ammoloaded3></ammoloaded3><ammoloaded4></ammoloaded4><conceal>5</conceal><avail>2</avail><cost>250</cost><range>0-5/20/40/60</range><rangemultiply>1</rangemultiply><fullburst>0</fullburst><suppressive>0</suppressive><source>SR4</source><page>312</page><weaponname>Light Pistol</weaponname><included>False</included><installed>False</installed><notes></notes><discountedcost>0</discountedcost></weapon>
+  </weapons>
+  <armors>
+    <armor><guid>a-mage-01</guid><name>Lined Coat</name><category>Clothing</category><b>6</b><i>4</i><armorcapacity>0</armorcapacity><avail>4</avail><cost>700</cost><source>SR4</source><page>326</page><armorname>Lined Coat</armorname><equipped>True</equipped><extra></extra><bdamage>0</bdamage><idamage>0</idamage><armormods></armormods><location>Body</location><notes></notes><discountedcost>0</discountedcost></armor>
+  </armors>
+  <spells>
+    <spell><guid>s-mage-01</guid><name>Manabolt</name><descriptors></descriptors><category>Combat</category><type>M</type><range>LOS</range><damage>P</damage><duration>Instant</duration><dv>F/2 + 1</dv><limited>False</limited><source>SR4</source><page>204</page><extra></extra><notes></notes></spell>
+    <spell><guid>s-mage-02</guid><name>Increase Reflexes</name><descriptors></descriptors><category>Health</category><type>P</type><range>Touch</range><damage></damage><duration>Sustained</duration><dv>F/2 + 2</dv><limited>False</limited><source>SR4</source><page>208</page><extra></extra><notes></notes></spell>
+  </spells>
+  <spirits>
+    <spirit><guid>sp-mage-01</guid><name>Air Spirit</name><force>4</force><services>3</services><bound>False</bound></spirit>
+  </spirits>
+  <foci>
+    <focus><guid>f-mage-01</guid><gearid>g-mage-focus</gearid></focus>
+  </foci>
+  <mentorspirits>
+    <mentorspirit><name>Wise Owl</name><mentortype>Mentor Spirit</mentortype><source>SR4</source><advantage>+2 Detection Spells</advantage><disadvantage>Compulsive Observation</disadvantage></mentorspirit>
+  </mentorspirits>
+  <metamagics>
+    <metamagic><name>Centering</name><source>SR4</source><grade>1</grade><paidwithkarma>True</paidwithkarma></metamagic>
+  </metamagics>
+</character>

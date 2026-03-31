@@ -1,0 +1,18 @@
+{
+  "RulesetId": "sr6",
+  "AttributeDeltas": {
+    "BOD": 1,
+    "WIL": 0
+  },
+  "SkillDeltas": {
+    "Gunnery": 0,
+    "Ritual Spellcasting": 2
+  },
+  "MinAttributes": 2,
+  "MinSkills": 2,
+  "MinQualities": 0,
+  "MinContacts": 1,
+  "MinGear": 0,
+  "MinWeapons": 1,
+  "MinArmor": 1
+}

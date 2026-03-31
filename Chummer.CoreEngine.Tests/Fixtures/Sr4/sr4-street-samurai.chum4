@@ -1,0 +1,81 @@
+<character>
+  <name>Razorback</name>
+  <alias>Razor</alias>
+  <metatype>Human</metatype>
+  <buildmethod>BP</buildmethod>
+  <createdversion>4.0.0</createdversion>
+  <appversion>4.0.0</appversion>
+  <karma>6</karma>
+  <nuyen>3200</nuyen>
+  <created>True</created>
+  <gameedition>SR4</gameedition>
+  <settings>sr4-default.xml</settings>
+  <gameplayoption>Standard</gameplayoption>
+  <maxnuyen>50</maxnuyen>
+  <maxkarma>35</maxkarma>
+  <contactmultiplier>2</contactmultiplier>
+  <walk>10</walk>
+  <run>25</run>
+  <sprint>35</sprint>
+  <walkalt>10</walkalt>
+  <runalt>25</runalt>
+  <sprintalt>35</sprintalt>
+  <adept>False</adept>
+  <magician>False</magician>
+  <technomancer>False</technomancer>
+  <magenabled>False</magenabled>
+  <resenabled>False</resenabled>
+  <depenabled>False</depenabled>
+  <initiategrade>0</initiategrade>
+  <submersiongrade>0</submersiongrade>
+  <totaless>4.20</totaless>
+  <physicalcmfilled>0</physicalcmfilled>
+  <stuncmfilled>0</stuncmfilled>
+  <tradition></tradition>
+  <stream></stream>
+  <attributes>
+    <attribute><name>Body</name><metatypemin>1</metatypemin><metatypemax>6</metatypemax><metatypeaugmax>9</metatypeaugmax><value>4</value><augmodifier>0</augmodifier><totalvalue>4</totalvalue></attribute>
+    <attribute><name>Agility</name><metatypemin>1</metatypemin><metatypemax>6</metatypemax><metatypeaugmax>9</metatypeaugmax><value>5</value><augmodifier>0</augmodifier><totalvalue>7</totalvalue></attribute>
+    <attribute><name>Reaction</name><metatypemin>1</metatypemin><metatypemax>6</metatypemax><metatypeaugmax>9</metatypeaugmax><value>4</value><augmodifier>0</augmodifier><totalvalue>5</totalvalue></attribute>
+    <attribute><name>Strength</name><metatypemin>1</metatypemin><metatypemax>6</metatypemax><metatypeaugmax>9</metatypeaugmax><value>3</value><augmodifier>0</augmodifier><totalvalue>3</totalvalue></attribute>
+    <attribute><name>Charisma</name><metatypemin>1</metatypemin><metatypemax>6</metatypemax><metatypeaugmax>9</metatypeaugmax><value>2</value><augmodifier>0</augmodifier><totalvalue>2</totalvalue></attribute>
+    <attribute><name>Intuition</name><metatypemin>1</metatypemin><metatypemax>6</metatypemax><metatypeaugmax>9</metatypeaugmax><value>4</value><augmodifier>0</augmodifier><totalvalue>4</totalvalue></attribute>
+    <attribute><name>Logic</name><metatypemin>1</metatypemin><metatypemax>6</metatypemax><metatypeaugmax>9</metatypeaugmax><value>3</value><augmodifier>0</augmodifier><totalvalue>3</totalvalue></attribute>
+    <attribute><name>Willpower</name><metatypemin>1</metatypemin><metatypemax>6</metatypemax><metatypeaugmax>9</metatypeaugmax><value>3</value><augmodifier>0</augmodifier><totalvalue>3</totalvalue></attribute>
+  </attributes>
+  <skills>
+    <skill><name>Pistols</name><skillgroup>Firearms</skillgroup><skillcategory>Combat</skillcategory><grouped>False</grouped><default>True</default><rating>5</rating><ratingmax>6</ratingmax><knowledge>False</knowledge><exotic>False</exotic><spec>Semi-Automatics</spec><allowdelete>True</allowdelete><attribute>Agility</attribute><source>SR4</source><page>121</page><totalvalue>5</totalvalue></skill>
+    <skill><name>Blades</name><skillgroup>Close Combat</skillgroup><skillcategory>Combat</skillcategory><grouped>False</grouped><default>True</default><rating>4</rating><ratingmax>6</ratingmax><knowledge>False</knowledge><exotic>False</exotic><spec>Swords</spec><allowdelete>True</allowdelete><attribute>Agility</attribute><source>SR4</source><page>118</page><totalvalue>4</totalvalue></skill>
+    <skill><name>Automatics</name><skillgroup>Firearms</skillgroup><skillcategory>Combat</skillcategory><grouped>False</grouped><default>True</default><rating>4</rating><ratingmax>6</ratingmax><knowledge>False</knowledge><exotic>False</exotic><spec>Submachine Guns</spec><allowdelete>True</allowdelete><attribute>Agility</attribute><source>SR4</source><page>118</page><totalvalue>4</totalvalue></skill>
+    <skill><name>Perception</name><skillgroup></skillgroup><skillcategory>Physical</skillcategory><grouped>False</grouped><default>True</default><rating>3</rating><ratingmax>6</ratingmax><knowledge>False</knowledge><exotic>False</exotic><spec>Visual</spec><allowdelete>True</allowdelete><attribute>Intuition</attribute><source>SR4</source><page>121</page><totalvalue>3</totalvalue></skill>
+  </skills>
+  <contacts>
+    <contact><name>Switchboard</name><connection>4</connection><loyalty>2</loyalty><membership>0</membership><areaofinfluence>0</areaofinfluence><magicalresources>0</magicalresources><matrixresources>2</matrixresources><type>Fixer</type><file></file><notes>Main fixer</notes><groupname>Seattle</groupname><colour>#336699</colour><free>False</free></contact>
+    <contact><name>Patch</name><connection>3</connection><loyalty>3</loyalty><membership>0</membership><areaofinfluence>0</areaofinfluence><magicalresources>0</magicalresources><matrixresources>0</matrixresources><type>Street Doc</type><file></file><notes>Back alley clinic</notes><groupname>Tacoma</groupname><colour>#663333</colour><free>False</free></contact>
+  </contacts>
+  <qualities>
+    <quality><guid>q-sam-01</guid><name>Ambidextrous</name><extra></extra><bp>5</bp><contributetolimit>False</contributetolimit><print>True</print><qualitytype>Positive</qualitytype><qualitysource>Core</qualitysource><free>False</free><source>SR4</source><page>95</page><bonus /><notes></notes></quality>
+  </qualities>
+  <gears>
+    <gear><guid>g-sam-01</guid><name>Medkit</name><category>Medical</category><rating>6</rating><qty>1</qty><cost>600</cost><equipped>False</equipped><location>Pack</location></gear>
+    <gear><guid>g-sam-02</guid><name>Fake SIN</name><category>Identification</category><rating>4</rating><qty>1</qty><cost>4000</cost><equipped>False</equipped><location>Jacket</location></gear>
+  </gears>
+  <weapons>
+    <weapon><guid>w-sam-01</guid><name>Ares Predator IV</name><category>Firearm</category><type>Ranged</type><reach>0</reach><damage>5P</damage><ap>-1</ap><mode>SA</mode><rc>0</rc><ammo>15(c)</ammo><ammocategory>Light Pistol</ammocategory><requireammo>True</requireammo><ammoremaining>15</ammoremaining><ammoremaining2>0</ammoremaining2><ammoremaining3>0</ammoremaining3><ammoremaining4>0</ammoremaining4><ammoloaded>Regular Ammo</ammoloaded><ammoloaded2></ammoloaded2><ammoloaded3></ammoloaded3><ammoloaded4></ammoloaded4><conceal>4</conceal><avail>5R</avail><cost>550</cost><range>0-5/20/40/60</range><rangemultiply>1</rangemultiply><fullburst>0</fullburst><suppressive>0</suppressive><source>SR4</source><page>312</page><weaponname>Ares Predator IV</weaponname><included>False</included><installed>False</installed><accessories><accessory><guid>wa-sam-01</guid><name>Smartgun System</name><mount>Top</mount><rc>0</rc><conceal>0</conceal><avail>2</avail><cost>400</cost><included>False</included><installed>True</installed><source>SR4</source><page>322</page><location>Slide</location><notes></notes><discountedcost>0</discountedcost></accessory></accessories><notes></notes><discountedcost>0</discountedcost></weapon>
+    <weapon><guid>w-sam-02</guid><name>Katana</name><category>Melee</category><type>Melee</type><reach>1</reach><damage>(STR/2)+3P</damage><ap>-1</ap><mode>Melee</mode><rc>0</rc><ammo></ammo><ammocategory></ammocategory><requireammo>False</requireammo><ammoremaining>0</ammoremaining><ammoremaining2>0</ammoremaining2><ammoremaining3>0</ammoremaining3><ammoremaining4>0</ammoremaining4><ammoloaded></ammoloaded><ammoloaded2></ammoloaded2><ammoloaded3></ammoloaded3><ammoloaded4></ammoloaded4><conceal>2</conceal><avail>4</avail><cost>1000</cost><range></range><rangemultiply>1</rangemultiply><fullburst>0</fullburst><suppressive>0</suppressive><source>SR4</source><page>320</page><weaponname>Katana</weaponname><included>False</included><installed>False</installed><notes></notes><discountedcost>0</discountedcost></weapon>
+  </weapons>
+  <armors>
+    <armor><guid>a-sam-01</guid><name>Armor Jacket</name><category>Clothing</category><b>8</b><i>6</i><armorcapacity>0</armorcapacity><avail>6</avail><cost>900</cost><source>SR4</source><page>326</page><armorname>Armor Jacket</armorname><equipped>True</equipped><extra></extra><bdamage>0</bdamage><idamage>0</idamage><armormods><armormod><guid>am-sam-01</guid><name>Nonconductivity</name><category>Armor Mod</category><b>0</b><i>0</i><armorcapacity>1</armorcapacity><maxrating>6</maxrating><rating>3</rating><avail>6</avail><cost>1500</cost><bonus /><source>SR4</source><page>327</page><equipped>True</equipped><extra></extra><notes></notes><discountedcost>0</discountedcost></armormod></armormods><location>Body</location><notes></notes><discountedcost>0</discountedcost></armor>
+  </armors>
+  <cyberwares>
+    <cyberware><guid>c-sam-01</guid><name>Wired Reflexes</name><category>Cyberware</category><limbslot></limbslot><ess>2.00</ess><capacity>[0]</capacity><avail>8R</avail><cost>11000</cost><source>SR4</source><page>335</page><rating>1</rating><minrating>1</minrating><maxrating>3</maxrating><subsystems></subsystems><grade>Standard</grade><location>Body</location><suite></suite><essdiscount>0</essdiscount><forcegrade></forcegrade><bonus /><improvementsource>Cyberware</improvementsource><children /><notes></notes></cyberware>
+  </cyberwares>
+  <lifestyles>
+    <lifestyle><guid>life-sam-01</guid><name>Warehouse Loft</name><lifestylename>Low</lifestylename><cost>2000</cost><months>1</months><source>SR4</source></lifestyle>
+  </lifestyles>
+  <sources><source>SR4</source></sources>
+  <expenses><expense><guid>exp-sam-01</guid><date>2072-03-01</date><amount>500</amount><reason>Ammunition</reason><type>Nuyen</type><refund>False</refund></expense></expenses>
+  <calendar><week><guid>cal-sam-01</guid><year>2072</year><week>9</week><notes>Stuffer Shack retaliation run</notes></week></calendar>
+  <improvements><improvement><improvedname>Reaction</improvedname><improvementttype>Attribute</improvementttype><improvementsource>Cyberware</improvementsource><rating>1</rating><enabled>True</enabled></improvement></improvements>
+  <customdatadirectorynames><directoryname>sr4-core</directoryname></customdatadirectorynames>
+</character>

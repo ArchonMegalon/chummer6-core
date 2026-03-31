@@ -1,0 +1,17 @@
+{
+  "RulesetId": "sr4",
+  "AttributeDeltas": {
+    "WIL": 0
+  },
+  "SkillDeltas": {
+    "Pistols": 1,
+    "Hacking": 0
+  },
+  "MinAttributes": 4,
+  "MinSkills": 2,
+  "MinQualities": 1,
+  "MinContacts": 1,
+  "MinGear": 1,
+  "MinWeapons": 1,
+  "MinArmor": 1
+}
