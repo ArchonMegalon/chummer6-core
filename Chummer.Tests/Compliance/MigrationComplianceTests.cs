@@ -4035,6 +4035,10 @@ public class MigrationComplianceTests
         Assert.IsFalse(sr5RulesetPluginText.Contains("public class NoOpRulesetScriptHost", StringComparison.Ordinal));
         StringAssert.Contains(sr5RulesetPluginText, "GetWorkflowDefinitions()");
         StringAssert.Contains(sr5RulesetPluginText, "GetWorkflowSurfaces()");
+        StringAssert.Contains(sr5RulesetPluginText, "public class Sr5DeterministicRulesetCapabilityHost");
+        StringAssert.Contains(sr5RulesetPluginText, "sr5.capability.unsupported");
+        Assert.IsFalse(sr5RulesetPluginText.Contains("no-op evaluation applied", StringComparison.Ordinal));
+        Assert.IsFalse(sr5RulesetPluginText.Contains("Success: true", StringComparison.Ordinal));
         StringAssert.Contains(sr5ShellCatalogsText, "internal static class Sr5AppCommandCatalog");
         StringAssert.Contains(sr5ShellCatalogsText, "internal static class Sr5NavigationTabCatalog");
         StringAssert.Contains(sr5ShellCatalogsText, "internal static class Sr5WorkspaceSurfaceActionCatalog");
@@ -4894,7 +4898,7 @@ public class MigrationComplianceTests
         StringAssert.Contains(projectorText, "ChromeState: new MainWindowChromeState(");
         StringAssert.Contains(projectorText, "WorkspaceStrip: new WorkspaceStripState(");
         StringAssert.Contains(projectorText, "SummaryHeader: new SummaryHeaderState(");
-        StringAssert.Contains(projectorText, "RuntimeSummary: ShellStatusTextFormatter.BuildActiveRuntimeSummary(shellSurface.ActiveRuntime)");
+        StringAssert.Contains(projectorText, "RuntimeSummary: ShellStatusTextFormatter.BuildActiveRuntimeSummary(shellSurface.ActiveRuntime, shellSurface.ActiveRulesetId)");
         StringAssert.Contains(projectorText, "StatusStrip: new StatusStripState(");
         StringAssert.Contains(projectorText, "ShellStatusTextFormatter.BuildComplianceState");
         StringAssert.Contains(projectorText, "SectionHostState: new SectionHostState(");

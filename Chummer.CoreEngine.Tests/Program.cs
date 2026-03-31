@@ -43,6 +43,7 @@ internal static class CoreEngineTests
         {
             CapabilityDescriptorsEmitLocalizationKeys();
             ExperimentalRulesetsEmitDiagnosticMessageKeys();
+            Sr5RulesetExecutesDeterministicCapabilities();
             SessionReplayDiagnosticsStayKeyed();
             SelectionAndFilterDisabledReasonsStayKeyed();
             SessionEventCompatibilityContractsRoundTripToCanonicalEnvelope();
@@ -150,6 +151,71 @@ internal static class CoreEngineTests
 
         AssertEx.Equal("sr4.rule.experimental", sr4Result.Diagnostics[0].MessageKey, "SR4 rule diagnostics should expose localization keys.");
         AssertEx.Equal("sr6.script.experimental", sr6Result.Diagnostics[0].MessageKey, "SR6 script diagnostics should expose localization keys.");
+    }
+
+    private static void Sr5RulesetExecutesDeterministicCapabilities()
+    {
+        Sr5RulesetPlugin sr5 = new();
+
+        RulesetCapabilityInvocationResult ruleCapabilityResult = sr5.Capabilities
+            .InvokeAsync(
+                new RulesetCapabilityInvocationRequest(
+                    CapabilityId: RulePackCapabilityIds.DeriveStat,
+                    InvocationKind: RulesetCapabilityInvocationKinds.Rule,
+                    Arguments:
+                    [
+                        new RulesetCapabilityArgument("karma", RulesetCapabilityBridge.FromObject(12))
+                    ]),
+                CancellationToken.None)
+            .GetAwaiter()
+            .GetResult();
+        RulesetCapabilityInvocationResult scriptCapabilityResult = sr5.Capabilities
+            .InvokeAsync(
+                new RulesetCapabilityInvocationRequest(
+                    CapabilityId: RulePackCapabilityIds.SessionQuickActions,
+                    InvocationKind: RulesetCapabilityInvocationKinds.Script,
+                    Arguments:
+                    [
+                        new RulesetCapabilityArgument("nuyen", RulesetCapabilityBridge.FromObject(5_000))
+                    ]),
+                CancellationToken.None)
+            .GetAwaiter()
+            .GetResult();
+        RulesetRuleEvaluationResult adaptedRuleResult = sr5.Rules
+            .EvaluateAsync(
+                new RulesetRuleEvaluationRequest(
+                    RuleId: RulePackCapabilityIds.DeriveStat,
+                    Inputs: new Dictionary<string, object?> { ["karma"] = 12 }),
+                CancellationToken.None)
+            .GetAwaiter()
+            .GetResult();
+        RulesetScriptExecutionResult adaptedScriptResult = sr5.Scripts
+            .ExecuteAsync(
+                new RulesetScriptExecutionRequest(
+                    ScriptId: RulePackCapabilityIds.SessionQuickActions,
+                    ScriptSource: "-- noop",
+                    Inputs: new Dictionary<string, object?> { ["nuyen"] = 5_000 }),
+                CancellationToken.None)
+            .GetAwaiter()
+            .GetResult();
+
+        AssertEx.True(ruleCapabilityResult.Success, "SR5 rule capability calls should execute through the deterministic host.");
+        AssertEx.True(ruleCapabilityResult.Output is not null, "SR5 rule capability calls should return structured output.");
+        AssertEx.Equal("sr5.rule.executed", ruleCapabilityResult.Diagnostics[0].MessageKey, "SR5 rule execution should expose a keyed deterministic-host diagnostic.");
+
+        AssertEx.True(scriptCapabilityResult.Success, "SR5 script capability calls should execute through the deterministic host.");
+        AssertEx.True(scriptCapabilityResult.Output is not null, "SR5 script capability calls should return structured output.");
+        AssertEx.Equal("sr5.script.executed", scriptCapabilityResult.Diagnostics[0].MessageKey, "SR5 script execution should expose a keyed deterministic-host diagnostic.");
+
+        AssertEx.True(adaptedRuleResult.Success, "SR5 rule adapter calls should execute through the deterministic capability host.");
+        AssertEx.True(adaptedRuleResult.Outputs.Count > 0, "SR5 rule adapter calls should emit deterministic outputs.");
+        AssertEx.True(
+            adaptedRuleResult.Messages.Contains("SR5 deterministic derive-stat capability executed.", StringComparer.Ordinal),
+            "SR5 rule adapter calls should surface deterministic-host diagnostics.");
+
+        AssertEx.True(adaptedScriptResult.Success, "SR5 script adapter calls should execute through the deterministic capability host.");
+        AssertEx.True(adaptedScriptResult.Outputs.Count > 0, "SR5 script adapter calls should emit deterministic outputs.");
+        AssertEx.True(string.IsNullOrWhiteSpace(adaptedScriptResult.Error), "SR5 script adapter calls should not emit deterministic-host errors.");
     }
 
     private static void SessionReplayDiagnosticsStayKeyed()

@@ -8,7 +8,7 @@ public class Sr5RulesetPlugin : IRulesetPlugin
 {
     public Sr5RulesetPlugin()
     {
-        Capabilities = new Sr5NoOpRulesetCapabilityHost();
+        Capabilities = new Sr5DeterministicRulesetCapabilityHost();
         Rules = new RulesetRuleHostCapabilityAdapter(Capabilities);
         Scripts = new RulesetScriptHostCapabilityAdapter(Capabilities);
     }
@@ -145,45 +145,154 @@ public class Sr5RulesetCapabilityDescriptorProvider : IRulesetCapabilityDescript
     public IReadOnlyList<RulesetCapabilityDescriptor> GetCapabilityDescriptors() => Descriptors;
 }
 
-public class Sr5NoOpRulesetCapabilityHost : IRulesetCapabilityHost
+public class Sr5DeterministicRulesetCapabilityHost : IRulesetCapabilityHost
 {
-    private static readonly IReadOnlyList<RulesetCapabilityDiagnostic> RuleDiagnostics =
-    [
-        new(
-            "sr5.noop.rule",
-            "Rule host not configured; no-op evaluation applied.",
-            MessageKey: "sr5.noop.rule")
-    ];
-
     public ValueTask<RulesetCapabilityInvocationResult> InvokeAsync(RulesetCapabilityInvocationRequest request, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
 
-        IReadOnlyDictionary<string, RulesetCapabilityValue> outputProperties = string.Equals(request.InvocationKind, RulesetCapabilityInvocationKinds.Script, StringComparison.Ordinal)
-            ? new Dictionary<string, RulesetCapabilityValue>(StringComparer.Ordinal)
-            {
-                ["scriptId"] = RulesetCapabilityBridge.FromObject(request.CapabilityId),
-                ["mode"] = RulesetCapabilityBridge.FromObject("noop"),
-                ["inputCount"] = RulesetCapabilityBridge.FromObject(request.Arguments.Count)
-            }
-            : request.Arguments.ToDictionary(
-                static argument => argument.Name,
-                static argument => argument.Value,
-                StringComparer.Ordinal);
+        if (string.Equals(request.InvocationKind, RulesetCapabilityInvocationKinds.Rule, StringComparison.Ordinal)
+            && string.Equals(request.CapabilityId, RulePackCapabilityIds.DeriveStat, StringComparison.Ordinal))
+        {
+            return ValueTask.FromResult(EvaluateDeriveStat(request));
+        }
 
-        IReadOnlyList<RulesetCapabilityDiagnostic> diagnostics = string.Equals(request.InvocationKind, RulesetCapabilityInvocationKinds.Script, StringComparison.Ordinal)
-            ?
-            [
-                new(
-                    "sr5.noop.script",
-                    "Script host not configured; no-op execution applied.",
-                    MessageKey: "sr5.noop.script")
-            ]
-            : RuleDiagnostics;
+        if (string.Equals(request.InvocationKind, RulesetCapabilityInvocationKinds.Script, StringComparison.Ordinal)
+            && string.Equals(request.CapabilityId, RulePackCapabilityIds.SessionQuickActions, StringComparison.Ordinal))
+        {
+            return ValueTask.FromResult(EvaluateSessionQuickActions(request));
+        }
 
         return ValueTask.FromResult(new RulesetCapabilityInvocationResult(
+            Success: false,
+            Output: null,
+            Diagnostics:
+            [
+                new(
+                    "sr5.capability.unsupported",
+                    $"SR5 capability '{request.CapabilityId}' is not mapped by the deterministic host.",
+                    RulesetCapabilityDiagnosticSeverities.Error,
+                    MessageKey: "sr5.capability.unsupported",
+                    MessageParameters:
+                    [
+                        new RulesetExplainParameter("capabilityId", RulesetCapabilityBridge.FromObject(request.CapabilityId))
+                    ])
+            ]));
+    }
+
+    private static RulesetCapabilityInvocationResult EvaluateDeriveStat(RulesetCapabilityInvocationRequest request)
+    {
+        long baseValue = GetIntegerArgument(request.Arguments, "baseValue")
+                         ?? GetIntegerArgument(request.Arguments, "base")
+                         ?? 0;
+        long modifier = GetIntegerArgument(request.Arguments, "modifier") ?? 0;
+        long value = baseValue + modifier;
+
+        RulesetCapabilityValue output = new(
+            RulesetCapabilityValueKinds.Object,
+            Properties: new Dictionary<string, RulesetCapabilityValue>(StringComparer.Ordinal)
+            {
+                ["capability"] = RulesetCapabilityBridge.FromObject(request.CapabilityId),
+                ["value"] = RulesetCapabilityBridge.FromObject(value),
+                ["baseValue"] = RulesetCapabilityBridge.FromObject(baseValue),
+                ["modifier"] = RulesetCapabilityBridge.FromObject(modifier)
+            });
+
+        return new RulesetCapabilityInvocationResult(
             Success: true,
-            Output: new RulesetCapabilityValue(RulesetCapabilityValueKinds.Object, Properties: outputProperties),
-            Diagnostics: diagnostics));
+            Output: output,
+            Diagnostics:
+            [
+                new(
+                    "sr5.rule.executed",
+                    "SR5 deterministic derive-stat capability executed.",
+                    RulesetCapabilityDiagnosticSeverities.Info,
+                    MessageKey: "sr5.rule.executed")
+            ],
+            Explain: CreateExplainTrace(request.CapabilityId, output, "sr5.host/derive.stat"));
+    }
+
+    private static RulesetCapabilityInvocationResult EvaluateSessionQuickActions(RulesetCapabilityInvocationRequest request)
+    {
+        string[] quickActions = ["delay-action", "interrupt-action", "full-defense"];
+        RulesetCapabilityValue output = new(
+            RulesetCapabilityValueKinds.Object,
+            Properties: new Dictionary<string, RulesetCapabilityValue>(StringComparer.Ordinal)
+            {
+                ["capability"] = RulesetCapabilityBridge.FromObject(request.CapabilityId),
+                ["actions"] = RulesetCapabilityBridge.FromObject(quickActions)
+            });
+
+        return new RulesetCapabilityInvocationResult(
+            Success: true,
+            Output: output,
+            Diagnostics:
+            [
+                new(
+                    "sr5.script.executed",
+                    "SR5 deterministic session quick-actions capability executed.",
+                    RulesetCapabilityDiagnosticSeverities.Info,
+                    MessageKey: "sr5.script.executed")
+            ],
+            Explain: CreateExplainTrace(request.CapabilityId, output, "sr5.host/session.quick-actions"));
+    }
+
+    private static RulesetExplainTrace CreateExplainTrace(string capabilityId, RulesetCapabilityValue output, string providerId)
+    {
+        RulesetGasUsage gas = new(
+            ProviderInstructionsConsumed: 1,
+            RequestInstructionsConsumed: 1,
+            PeakMemoryBytes: 256);
+
+        return new RulesetExplainTrace(
+            TargetKey: capabilityId,
+            FinalValue: output,
+            SummaryKey: "ruleset.explain.summary.sr5.host.execution",
+            SummaryParameters:
+            [
+                new RulesetExplainParameter("capabilityId", RulesetCapabilityBridge.FromObject(capabilityId))
+            ],
+            Providers:
+            [
+                new RulesetProviderTrace(
+                    ProviderId: providerId,
+                    CapabilityId: capabilityId,
+                    PackId: "official.sr5.core",
+                    Success: true,
+                    Steps:
+                    [
+                        new RulesetTraceStep(
+                            ProviderId: providerId,
+                            CapabilityId: capabilityId,
+                            PackId: "official.sr5.core",
+                            ExplanationKey: "ruleset.explain.step.sr5.host.execution",
+                            ExplanationParameters:
+                            [
+                                new RulesetExplainParameter("capabilityId", RulesetCapabilityBridge.FromObject(capabilityId))
+                            ],
+                            Category: "deterministic-host")
+                    ],
+                    GasUsage: gas)
+            ],
+            AggregateGasUsage: gas,
+            ProfileId: "official.sr5.core");
+    }
+
+    private static long? GetIntegerArgument(IReadOnlyList<RulesetCapabilityArgument> arguments, string name)
+    {
+        RulesetCapabilityArgument? argument = arguments.FirstOrDefault(candidate => string.Equals(candidate.Name, name, StringComparison.Ordinal));
+        if (argument is null)
+        {
+            return null;
+        }
+
+        return argument.Value.Kind switch
+        {
+            RulesetCapabilityValueKinds.Integer => argument.Value.IntegerValue,
+            RulesetCapabilityValueKinds.Number => argument.Value.NumberValue.HasValue ? Convert.ToInt64(argument.Value.NumberValue.Value) : null,
+            RulesetCapabilityValueKinds.Decimal => argument.Value.DecimalValue.HasValue ? Convert.ToInt64(argument.Value.DecimalValue.Value) : null,
+            RulesetCapabilityValueKinds.String when long.TryParse(argument.Value.StringValue, out long parsed) => parsed,
+            _ => null
+        };
     }
 }

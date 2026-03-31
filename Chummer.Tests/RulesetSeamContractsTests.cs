@@ -2805,6 +2805,9 @@ public class RulesetSeamContractsTests
         Assert.IsNull(typeof(RulesetDefaults).GetMethod("NormalizeOrDefault", [typeof(string), typeof(string)]));
         Assert.IsNull(RulesetDefaults.NormalizeOptional(" "));
         Assert.AreEqual(RulesetDefaults.Sr4, RulesetDefaults.NormalizeRequired(" SR4 "));
+        Assert.AreEqual(RulesetDefaults.Sr4, RulesetDefaults.NormalizeOptional("Shadowrun 4"));
+        Assert.AreEqual(RulesetDefaults.Sr5, RulesetDefaults.NormalizeOptional("Shadowrun Fifth Edition"));
+        Assert.AreEqual(RulesetDefaults.Sr6, RulesetDefaults.NormalizeOptional("sr 6"));
         Assert.AreEqual(
             RulesetDefaults.Sr6,
             RulesetDefaults.NormalizeOptional(null) ?? RulesetDefaults.NormalizeRequired(RulesetDefaults.Sr6));
@@ -2846,7 +2849,7 @@ public class RulesetSeamContractsTests
     }
 
     [TestMethod]
-    public async Task Sr5_plugin_adapters_expose_existing_shell_catalogs_without_behavior_change()
+    public async Task Sr5_plugin_adapters_expose_existing_shell_catalogs_and_execute_deterministic_rule_execution()
     {
         Sr5RulesetPlugin plugin = new();
 
@@ -2879,24 +2882,32 @@ public class RulesetSeamContractsTests
                 ]),
             CancellationToken.None);
         Assert.IsTrue(capabilityResult.Success);
-        Assert.AreEqual(12L, capabilityResult.Output?.Properties?["karma"].IntegerValue);
+        Assert.IsNotNull(capabilityResult.Output);
+        Assert.AreEqual("sr5.rule.executed", capabilityResult.Diagnostics[0].MessageKey);
 
         RulesetRuleEvaluationResult ruleResult = await plugin.Rules.EvaluateAsync(
             new RulesetRuleEvaluationRequest(
-                RuleId: "sr5.noop",
+                RuleId: RulePackCapabilityIds.DeriveStat,
                 Inputs: new Dictionary<string, object?> { ["karma"] = 12 }),
             CancellationToken.None);
         Assert.IsTrue(ruleResult.Success);
-        Assert.IsTrue(ruleResult.Outputs.ContainsKey("karma"));
+        Assert.IsTrue(ruleResult.Outputs.Count > 0);
+        CollectionAssert.Contains(ruleResult.Messages.ToArray(), "SR5 deterministic derive-stat capability executed.");
 
         RulesetScriptExecutionResult scriptResult = await plugin.Scripts.ExecuteAsync(
             new RulesetScriptExecutionRequest(
-                ScriptId: "sr5.noop",
+                ScriptId: RulePackCapabilityIds.SessionQuickActions,
                 ScriptSource: "-- noop",
                 Inputs: new Dictionary<string, object?> { ["nuyen"] = 5000 }),
             CancellationToken.None);
         Assert.IsTrue(scriptResult.Success);
-        Assert.AreEqual("noop", scriptResult.Outputs["mode"]);
+        Assert.IsTrue(scriptResult.Outputs.Count > 0);
+        Assert.IsTrue(string.IsNullOrWhiteSpace(scriptResult.Error));
+        Assert.AreEqual(
+            "ruleset.capability.session.quick-actions.title",
+            plugin.CapabilityDescriptors.GetCapabilityDescriptors()
+                .Single(descriptor => string.Equals(descriptor.CapabilityId, RulePackCapabilityIds.SessionQuickActions, StringComparison.Ordinal))
+                .TitleKey);
     }
 
     [TestMethod]
