@@ -46,7 +46,7 @@ public class ServiceCollectionDesktopRuntimeExtensionsTests
                     Assert.AreEqual(OwnerScope.LocalSingleUser.NormalizedValue, ownerContextAccessor.Current.NormalizedValue);
                     Assert.IsFalse(plugins.Any(plugin => string.Equals(plugin.Id.NormalizedValue, RulesetDefaults.Sr4, StringComparison.Ordinal)));
                     Assert.IsTrue(plugins.Any(plugin => string.Equals(plugin.Id.NormalizedValue, RulesetDefaults.Sr5, StringComparison.Ordinal)));
-                    Assert.IsTrue(plugins.Any(plugin => string.Equals(plugin.Id.NormalizedValue, RulesetDefaults.Sr6, StringComparison.Ordinal)));
+                    Assert.IsFalse(plugins.Any(plugin => string.Equals(plugin.Id.NormalizedValue, RulesetDefaults.Sr6, StringComparison.Ordinal)));
                 });
             }
             finally
@@ -115,7 +115,7 @@ public class ServiceCollectionDesktopRuntimeExtensionsTests
                     Assert.IsTrue(httpClient.DefaultRequestHeaders.Contains("X-Api-Key"));
                     Assert.IsFalse(plugins.Any(plugin => string.Equals(plugin.Id.NormalizedValue, RulesetDefaults.Sr4, StringComparison.Ordinal)));
                     Assert.IsTrue(plugins.Any(plugin => string.Equals(plugin.Id.NormalizedValue, RulesetDefaults.Sr5, StringComparison.Ordinal)));
-                    Assert.IsTrue(plugins.Any(plugin => string.Equals(plugin.Id.NormalizedValue, RulesetDefaults.Sr6, StringComparison.Ordinal)));
+                    Assert.IsFalse(plugins.Any(plugin => string.Equals(plugin.Id.NormalizedValue, RulesetDefaults.Sr6, StringComparison.Ordinal)));
                     string[] expectedApiKeyValues = ["test-key"];
                     CollectionAssert.AreEqual(
                         expectedApiKeyValues,
@@ -154,7 +154,7 @@ public class ServiceCollectionDesktopRuntimeExtensionsTests
                     Assert.AreEqual("https://legacy.example.invalid/", httpClient.BaseAddress!.ToString());
                     Assert.IsFalse(plugins.Any(plugin => string.Equals(plugin.Id.NormalizedValue, RulesetDefaults.Sr4, StringComparison.Ordinal)));
                     Assert.IsTrue(plugins.Any(plugin => string.Equals(plugin.Id.NormalizedValue, RulesetDefaults.Sr5, StringComparison.Ordinal)));
-                    Assert.IsTrue(plugins.Any(plugin => string.Equals(plugin.Id.NormalizedValue, RulesetDefaults.Sr6, StringComparison.Ordinal)));
+                    Assert.IsFalse(plugins.Any(plugin => string.Equals(plugin.Id.NormalizedValue, RulesetDefaults.Sr6, StringComparison.Ordinal)));
                 });
             }
             finally
@@ -181,16 +181,16 @@ public class ServiceCollectionDesktopRuntimeExtensionsTests
                     IRulesetSelectionPolicy selectionPolicy = provider.GetRequiredService<IRulesetSelectionPolicy>();
                     IRulesetShellCatalogResolver shellCatalogResolver = provider.GetRequiredService<IRulesetShellCatalogResolver>();
 
-                    Assert.AreEqual(RulesetDefaults.Sr6, selectionPolicy.GetDefaultRulesetId());
+                    Assert.AreEqual(RulesetDefaults.Sr5, selectionPolicy.GetDefaultRulesetId());
 
                     IReadOnlyList<AppCommandDefinition> commands = shellCatalogResolver.ResolveCommands(null);
                     IReadOnlyList<NavigationTabDefinition> tabs = shellCatalogResolver.ResolveNavigationTabs(null);
 
-                    Assert.IsNotEmpty(commands, "Expected SR6 to expose shell commands.");
-                    Assert.IsNotEmpty(tabs, "Expected SR6 to expose navigation tabs.");
-                    Assert.IsTrue(commands.All(command => string.Equals(command.RulesetId, RulesetDefaults.Sr6, StringComparison.Ordinal)));
-                    Assert.IsTrue(tabs.All(tab => string.Equals(tab.RulesetId, RulesetDefaults.Sr6, StringComparison.Ordinal)));
-                }, defaultRulesetId: RulesetDefaults.Sr6);
+                    Assert.IsNotEmpty(commands, "Expected SR5 to expose shell commands.");
+                    Assert.IsNotEmpty(tabs, "Expected SR5 to expose navigation tabs.");
+                    Assert.IsTrue(commands.All(command => string.Equals(command.RulesetId, RulesetDefaults.Sr5, StringComparison.Ordinal)));
+                    Assert.IsTrue(tabs.All(tab => string.Equals(tab.RulesetId, RulesetDefaults.Sr5, StringComparison.Ordinal)));
+                }, defaultRulesetId: RulesetDefaults.Sr5);
             }
             finally
             {

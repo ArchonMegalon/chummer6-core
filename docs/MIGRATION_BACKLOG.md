@@ -8,7 +8,10 @@ Principle: **one shell contract, one behavior path, two renderers**.
 ## Objective
 
 Finish migration execution without re-architecting again. Keep existing seams (`Api`, `Application`, `Contracts`, `Infrastructure`, `Presentation`) and drive parity through shared presenter behavior used by both `Chummer.Blazor` and `Chummer.Avalonia`.
-Current runtime registration remains explicit: default headless/desktop/web paths register SR5 and SR6, while `Chummer.Rulesets.Sr4` remains scaffolded/experimental and is not yet part of the default runtime path.
+Current runtime registration remains explicit: default headless/desktop/web paths register SR5 only, while `Chummer.Rulesets.Sr4` and `Chummer.Rulesets.Sr6` remain scaffolded/experimental and are not part of the default runtime path.
+The SR4 oracle-to-engine execution order is now published in `docs/SR4_ORACLE_EXTRACTION_MATRIX.md`.
+The SR5 provider-host and parity execution order is now published in `docs/SR5_EXECUTION_MATRIX.md`.
+The SR6 runtime-reconciliation and parity execution order is now published in `docs/SR6_EXECUTION_MATRIX.md`.
 
 ## Guardrails (Non-Negotiable)
 
