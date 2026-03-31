@@ -1,0 +1,27 @@
+{
+  "artifacts": [
+    "QUEUE.generated.yaml",
+    "WORKPACKAGES.generated.yaml"
+  ],
+  "dispatchable_truth_contract": {
+    "capacity_compile_required_separately": true,
+    "design_compile_required_separately": true,
+    "execution_compile_required": true,
+    "package_compile_required_separately": true,
+    "policy_compile_required_separately": true,
+    "scope": "execution_truth_only"
+  },
+  "dispatchable_truth_ready": true,
+  "lifecycle": "live",
+  "published_at": "2026-03-31T14:32:07Z",
+  "schema_version": "2026-03-10.v1",
+  "stages": {
+    "capacity_compile": true,
+    "design_compile": true,
+    "execution_compile": true,
+    "package_compile": true,
+    "policy_compile": true
+  },
+  "target_id": "core",
+  "target_type": "project"
+}

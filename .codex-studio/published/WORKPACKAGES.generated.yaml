@@ -1,20 +1,2 @@
-source_queue_fingerprint: 884d3354bf9dfa6d07fe9d0d6e70e92a0361e74b
-work_packages:
-- package_id: core-package-compile-884d3354bf9d
-  package_kind: package_compile
-  horizon_family: package-compile
-  title: Compile one executable core ruleset-completion backlog slice from queue truth
-  allowed_lanes:
-  - core_authority
-  allow_credit_burn: true
-  premium_required: true
-  required_reviewer_lane: core_authority
-  final_reviewer_lane: core_authority
-  landing_lane: core_authority
-  allowed_paths:
-  - .codex-studio/published/WORKPACKAGES.generated.yaml
-  denied_paths: []
-  owned_surfaces:
-  - package_compile:core
-  dependencies: []
-  max_touched_files: 1
+source_queue_fingerprint: 97d170e1550eee4afc0af065b78cda302a97674c
+work_packages: []
