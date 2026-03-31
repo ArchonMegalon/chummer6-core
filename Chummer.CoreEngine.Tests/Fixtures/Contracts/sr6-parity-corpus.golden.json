@@ -1,0 +1,75 @@
+{
+  "rulesetId": "sr6",
+  "runtimeProfileId": "official.sr6.core",
+  "capabilityCases": [
+    {
+      "invocationKind": "rule",
+      "capabilityId": "derive.stat",
+      "success": true,
+      "diagnosticKeys": [
+        "sr6.rule.executed"
+      ],
+      "output": {
+        "kind": "object",
+        "properties": {
+          "capability": {
+            "kind": "string",
+            "stringValue": "derive.stat"
+          },
+          "value": {
+            "kind": "integer",
+            "integerValue": 12
+          },
+          "baseValue": {
+            "kind": "integer",
+            "integerValue": 8
+          },
+          "modifier": {
+            "kind": "integer",
+            "integerValue": 4
+          }
+        }
+      },
+      "explainSummaryKey": "ruleset.explain.summary.sr6.host.execution",
+      "explainProviderId": "sr6.host/derive.stat",
+      "explainPackId": "official.sr6.core"
+    },
+    {
+      "invocationKind": "script",
+      "capabilityId": "session.quick-actions",
+      "success": true,
+      "diagnosticKeys": [
+        "sr6.script.executed"
+      ],
+      "output": {
+        "kind": "object",
+        "properties": {
+          "capability": {
+            "kind": "string",
+            "stringValue": "session.quick-actions"
+          },
+          "actions": {
+            "kind": "list",
+            "items": [
+              {
+                "kind": "string",
+                "stringValue": "anticipate"
+              },
+              {
+                "kind": "string",
+                "stringValue": "dodge"
+              },
+              {
+                "kind": "string",
+                "stringValue": "full-defense"
+              }
+            ]
+          }
+        }
+      },
+      "explainSummaryKey": "ruleset.explain.summary.sr6.host.execution",
+      "explainProviderId": "sr6.host/session.quick-actions",
+      "explainPackId": "official.sr6.core"
+    }
+  ]
+}
