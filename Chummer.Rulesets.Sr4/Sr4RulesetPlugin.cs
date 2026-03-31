@@ -8,7 +8,7 @@ public class Sr4RulesetPlugin : IRulesetPlugin
 {
     public Sr4RulesetPlugin()
     {
-        Capabilities = new Sr4NoOpRulesetCapabilityHost();
+        Capabilities = new Sr4DeterministicRulesetCapabilityHost();
         Rules = new RulesetRuleHostCapabilityAdapter(Capabilities);
         Scripts = new RulesetScriptHostCapabilityAdapter(Capabilities);
     }
@@ -145,48 +145,154 @@ public class Sr4RulesetCapabilityDescriptorProvider : IRulesetCapabilityDescript
     public IReadOnlyList<RulesetCapabilityDescriptor> GetCapabilityDescriptors() => Descriptors;
 }
 
-public class Sr4NoOpRulesetCapabilityHost : IRulesetCapabilityHost
+public class Sr4DeterministicRulesetCapabilityHost : IRulesetCapabilityHost
 {
-    private const string RuleErrorMessage = "SR4 rules engine is not implemented; this ruleset remains experimental.";
-
     public ValueTask<RulesetCapabilityInvocationResult> InvokeAsync(RulesetCapabilityInvocationRequest request, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
 
-        IReadOnlyList<RulesetCapabilityDiagnostic> diagnostics = string.Equals(request.InvocationKind, RulesetCapabilityInvocationKinds.Script, StringComparison.Ordinal)
-            ?
-            [
-                new(
-                    "sr4.script.experimental",
-                    $"SR4 script host is not implemented; script '{request.CapabilityId}' cannot be executed because the ruleset remains experimental.",
-                    RulesetCapabilityDiagnosticSeverities.Error,
-                    MessageKey: "sr4.script.experimental",
-                    MessageParameters:
-                    [
-                        new RulesetExplainParameter("capabilityId", RulesetCapabilityBridge.FromObject(request.CapabilityId))
-                    ])
-            ]
-            :
-            [
-                new(
-                    "sr4.rule.experimental",
-                    RuleErrorMessage,
-                    RulesetCapabilityDiagnosticSeverities.Error,
-                    MessageKey: "sr4.rule.experimental"),
-                new(
-                    "sr4.rule.unavailable",
-                    $"Rule '{request.CapabilityId}' cannot be evaluated until SR4 rule providers are implemented.",
-                    RulesetCapabilityDiagnosticSeverities.Error,
-                    MessageKey: "sr4.rule.unavailable",
-                    MessageParameters:
-                    [
-                        new RulesetExplainParameter("capabilityId", RulesetCapabilityBridge.FromObject(request.CapabilityId))
-                    ])
-            ];
+        if (string.Equals(request.InvocationKind, RulesetCapabilityInvocationKinds.Rule, StringComparison.Ordinal)
+            && string.Equals(request.CapabilityId, RulePackCapabilityIds.DeriveStat, StringComparison.Ordinal))
+        {
+            return ValueTask.FromResult(EvaluateDeriveStat(request));
+        }
+
+        if (string.Equals(request.InvocationKind, RulesetCapabilityInvocationKinds.Script, StringComparison.Ordinal)
+            && string.Equals(request.CapabilityId, RulePackCapabilityIds.SessionQuickActions, StringComparison.Ordinal))
+        {
+            return ValueTask.FromResult(EvaluateSessionQuickActions(request));
+        }
 
         return ValueTask.FromResult(new RulesetCapabilityInvocationResult(
             Success: false,
             Output: null,
-            Diagnostics: diagnostics));
+            Diagnostics:
+            [
+                new(
+                    "sr4.capability.unsupported",
+                    $"SR4 capability '{request.CapabilityId}' is not mapped by the deterministic host.",
+                    RulesetCapabilityDiagnosticSeverities.Error,
+                    MessageKey: "sr4.capability.unsupported",
+                    MessageParameters:
+                    [
+                        new RulesetExplainParameter("capabilityId", RulesetCapabilityBridge.FromObject(request.CapabilityId))
+                    ])
+            ]));
+    }
+
+    private static RulesetCapabilityInvocationResult EvaluateDeriveStat(RulesetCapabilityInvocationRequest request)
+    {
+        long baseValue = GetIntegerArgument(request.Arguments, "baseValue")
+                         ?? GetIntegerArgument(request.Arguments, "base")
+                         ?? 0;
+        long modifier = GetIntegerArgument(request.Arguments, "modifier") ?? 0;
+        long value = baseValue + modifier;
+
+        RulesetCapabilityValue output = new(
+            RulesetCapabilityValueKinds.Object,
+            Properties: new Dictionary<string, RulesetCapabilityValue>(StringComparer.Ordinal)
+            {
+                ["capability"] = RulesetCapabilityBridge.FromObject(request.CapabilityId),
+                ["value"] = RulesetCapabilityBridge.FromObject(value),
+                ["baseValue"] = RulesetCapabilityBridge.FromObject(baseValue),
+                ["modifier"] = RulesetCapabilityBridge.FromObject(modifier)
+            });
+
+        return new RulesetCapabilityInvocationResult(
+            Success: true,
+            Output: output,
+            Diagnostics:
+            [
+                new(
+                    "sr4.rule.executed",
+                    "SR4 deterministic derive-stat capability executed.",
+                    RulesetCapabilityDiagnosticSeverities.Info,
+                    MessageKey: "sr4.rule.executed")
+            ],
+            Explain: CreateExplainTrace(request.CapabilityId, output, "sr4.host/derive.stat"));
+    }
+
+    private static RulesetCapabilityInvocationResult EvaluateSessionQuickActions(RulesetCapabilityInvocationRequest request)
+    {
+        string[] quickActions = ["delay-action", "interrupt-action", "full-defense"];
+        RulesetCapabilityValue output = new(
+            RulesetCapabilityValueKinds.Object,
+            Properties: new Dictionary<string, RulesetCapabilityValue>(StringComparer.Ordinal)
+            {
+                ["capability"] = RulesetCapabilityBridge.FromObject(request.CapabilityId),
+                ["actions"] = RulesetCapabilityBridge.FromObject(quickActions)
+            });
+
+        return new RulesetCapabilityInvocationResult(
+            Success: true,
+            Output: output,
+            Diagnostics:
+            [
+                new(
+                    "sr4.script.executed",
+                    "SR4 deterministic session quick-actions capability executed.",
+                    RulesetCapabilityDiagnosticSeverities.Info,
+                    MessageKey: "sr4.script.executed")
+            ],
+            Explain: CreateExplainTrace(request.CapabilityId, output, "sr4.host/session.quick-actions"));
+    }
+
+    private static RulesetExplainTrace CreateExplainTrace(string capabilityId, RulesetCapabilityValue output, string providerId)
+    {
+        RulesetGasUsage gas = new(
+            ProviderInstructionsConsumed: 1,
+            RequestInstructionsConsumed: 1,
+            PeakMemoryBytes: 256);
+
+        return new RulesetExplainTrace(
+            TargetKey: capabilityId,
+            FinalValue: output,
+            SummaryKey: "ruleset.explain.summary.sr4.host.execution",
+            SummaryParameters:
+            [
+                new RulesetExplainParameter("capabilityId", RulesetCapabilityBridge.FromObject(capabilityId))
+            ],
+            Providers:
+            [
+                new RulesetProviderTrace(
+                    ProviderId: providerId,
+                    CapabilityId: capabilityId,
+                    PackId: "official.sr4.core",
+                    Success: true,
+                    Steps:
+                    [
+                        new RulesetTraceStep(
+                            ProviderId: providerId,
+                            CapabilityId: capabilityId,
+                            PackId: "official.sr4.core",
+                            ExplanationKey: "ruleset.explain.step.sr4.host.execution",
+                            ExplanationParameters:
+                            [
+                                new RulesetExplainParameter("capabilityId", RulesetCapabilityBridge.FromObject(capabilityId))
+                            ],
+                            Category: "deterministic-host")
+                    ],
+                    GasUsage: gas)
+            ],
+            AggregateGasUsage: gas,
+            ProfileId: "official.sr4.core");
+    }
+
+    private static long? GetIntegerArgument(IReadOnlyList<RulesetCapabilityArgument> arguments, string name)
+    {
+        RulesetCapabilityArgument? argument = arguments.FirstOrDefault(candidate => string.Equals(candidate.Name, name, StringComparison.Ordinal));
+        if (argument is null)
+        {
+            return null;
+        }
+
+        return argument.Value.Kind switch
+        {
+            RulesetCapabilityValueKinds.Integer => argument.Value.IntegerValue,
+            RulesetCapabilityValueKinds.Number => argument.Value.NumberValue.HasValue ? Convert.ToInt64(argument.Value.NumberValue.Value) : null,
+            RulesetCapabilityValueKinds.Decimal => argument.Value.DecimalValue.HasValue ? Convert.ToInt64(argument.Value.DecimalValue.Value) : null,
+            RulesetCapabilityValueKinds.String when long.TryParse(argument.Value.StringValue, out long parsed) => parsed,
+            _ => null
+        };
     }
 }
