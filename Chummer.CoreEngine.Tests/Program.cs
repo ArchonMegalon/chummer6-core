@@ -1,5 +1,6 @@
 using Chummer.Application.AI;
 using Chummer.Application.BuildLab;
+using Chummer.Application.Characters;
 using Chummer.Application.Content;
 using Chummer.Application.Explain;
 using Chummer.Application.Hub;
@@ -23,6 +24,8 @@ using Chummer.Contracts.Session;
 using Chummer.Contracts.Simulation;
 using Chummer.Contracts.Validation;
 using Chummer.Contracts.Workspaces;
+using Chummer.Infrastructure.Workspaces;
+using Chummer.Infrastructure.Xml;
 using Chummer.Rulesets.Hosting;
 using Chummer.Rulesets.Hosting.Presentation;
 using Chummer.Rulesets.Sr4;
@@ -76,6 +79,10 @@ internal static class CoreEngineTests
             BuildRouteGatewayUsesDeterministicBuildLabOutputs();
             BuildLabWorkspaceProjectionFactoryProjectsIntakeState();
             WorkspaceServiceRebindsBuildLabWorkspaceIds();
+            LegacyChummer4FixtureCorpusImportsRoundTripThroughWorkspaceService();
+            LegacyChummer5FixtureCorpusImportsRoundTripThroughWorkspaceService();
+            LegacyRulesParityAudit.AssertLegacyRulesParity(GetLegacyFixtureDirectory(), GetSr4FixtureDirectory());
+            HeroLabRulesParityAudit.AssertHeroLabImportsAndParity(GetHeroLabFixtureDirectory());
             BuildLabCreateSurfaceIsExposedAcrossRulesets();
             Sr4AndSr6CodecsExposeBuildLabSections();
             ContentInstallPreviewsEmitLocalizationKeys();
@@ -2117,6 +2124,340 @@ internal static class CoreEngineTests
         AssertEx.NotNull(projection, "WorkspaceService should return the Build Lab projection.");
         AssertEx.Equal(id.Value, projection!.WorkspaceId, "WorkspaceService should rebind the Build Lab projection to the live workspace id.");
         AssertEx.Equal("workflow.build-lab", projection.WorkflowId, "WorkspaceService should preserve the workflow id while rebinding the workspace id.");
+    }
+
+    private static void LegacyChummer5FixtureCorpusImportsRoundTripThroughWorkspaceService()
+    {
+        string[] expectedFixtureNames =
+        [
+            "Apex Predator.chum5",
+            "BLUE.chum5",
+            "Barrett.chum5",
+            "Bastion.chum5",
+            "Blindfire.chum5",
+            "Davis Jones.chum5",
+            "Draught.chum5",
+            "Fuzzy-chargen.chum5",
+            "Gangerbean.chum5",
+            "Gentle Earthquake.chum5",
+            "Ghile Mear.chum5",
+            "Glessner.chum5",
+            "Harmony.chum5",
+            "Miko.chum5",
+            "Mittens Chargen.chum5",
+            "Monomax (approved) 3.chum5",
+            "Munin.chum5",
+            "Munin_Career.chum5",
+            "Ocelot2.0.chum5",
+            "Pañcama.chum5",
+            "Popstar.chum5",
+            "Rez0luti0n2.0.chum5",
+            "SCSi.chum5",
+            "Serpent.chum5",
+            "Skink.chum5",
+            "Soma (Career).chum5",
+            "Soma.chum5",
+            "Spirit_Warden.chum5",
+            "Tenshi.chum5",
+            "Ushi Resub.chum5",
+            "Wesson.chum5",
+            "Yeti-#ffffff2.chum5",
+            "prime.chum5",
+            "resub.chum5"
+        ];
+        string[] actualFixtureNames = Directory.EnumerateFiles(GetLegacyFixtureDirectory(), "*.chum5", SearchOption.TopDirectoryOnly)
+            .Select(Path.GetFileName)
+            .Where(static fileName => !string.IsNullOrWhiteSpace(fileName))
+            .Cast<string>()
+            .OrderBy(static fileName => fileName, StringComparer.Ordinal)
+            .ToArray();
+
+        AssertEx.SequenceEqual(
+            expectedFixtureNames,
+            actualFixtureNames,
+            "The checked-in Chummer5 fixture corpus should stay in lockstep with the mirrored legacy save set.");
+
+        string[] sectionIds =
+        [
+            "profile",
+            "progress",
+            "rules",
+            "build",
+            "movement",
+            "awakening",
+            "skills",
+            "attributes",
+            "inventory",
+            "gear",
+            "weapons",
+            "weaponaccessories",
+            "armors",
+            "armormods",
+            "cyberwares",
+            "vehicles",
+            "vehiclemods",
+            "spells",
+            "powers",
+            "complexforms",
+            "spirits",
+            "foci",
+            "aiprograms",
+            "martialarts",
+            "metamagics",
+            "arts",
+            "initiationgrades",
+            "critterpowers",
+            "mentorspirits",
+            "qualities",
+            "contacts",
+            "lifestyles",
+            "sources",
+            "expenses",
+            "calendar",
+            "improvements",
+            "customdatadirectorynames",
+            "build-lab"
+        ];
+
+        foreach (string fileName in expectedFixtureNames)
+        {
+            string xml = File.ReadAllText(Path.Combine(GetLegacyFixtureDirectory(), fileName));
+            ICharacterFileQueries fileQueries = new XmlCharacterFileQueries(new CharacterFileService());
+            ICharacterSectionQueries sectionQueries = new XmlCharacterSectionQueries(new CharacterSectionService());
+            ICharacterMetadataCommands metadataCommands = new XmlCharacterMetadataCommands(new CharacterFileService());
+            WorkspaceService workspaceService = new(
+                new InMemoryWorkspaceStore(),
+                new RulesetWorkspaceCodecResolver(
+                [
+                    new Sr5WorkspaceCodec(fileQueries, sectionQueries, metadataCommands),
+                    new Sr4WorkspaceCodec(),
+                    new Sr6WorkspaceCodec()
+                ]),
+                new WorkspaceImportRulesetDetector());
+
+            CharacterValidationResult validation = fileQueries.Validate(new CharacterDocument(xml));
+            AssertEx.True(validation.IsValid, $"{fileName} should remain a valid legacy Chummer5 import fixture.");
+
+            WorkspaceImportResult imported = workspaceService.Import(new WorkspaceImportDocument(
+                xml,
+                string.Empty,
+                WorkspaceDocumentFormat.NativeXml));
+
+            AssertEx.Equal(RulesetDefaults.Sr5, imported.RulesetId, $"{fileName} should import onto the SR5 ruleset lane.");
+            AssertEx.True(!string.IsNullOrWhiteSpace(imported.Summary.Name), $"{fileName} should retain a summary name after import.");
+            AssertEx.Equal(
+                WorkspacePortabilityCompatibilityStates.Compatible,
+                imported.Portability?.CompatibilityState,
+                $"{fileName} should import as native governed XML without compatibility downgrade.");
+
+            foreach (string sectionId in sectionIds)
+            {
+                object? section = workspaceService.GetSection(imported.Id, sectionId);
+                AssertEx.True(section is not null, $"{fileName} should parse section '{sectionId}'.");
+            }
+
+            AssertEx.True(workspaceService.Save(imported.Id).Success, $"{fileName} should save after import.");
+
+            CommandResult<WorkspaceDownloadReceipt> download = workspaceService.Download(imported.Id);
+            AssertEx.True(download.Success, $"{fileName} should download after import.");
+            AssertEx.Equal(WorkspaceDocumentFormat.NativeXml, download.Value?.Format, $"{fileName} should stay on the native XML lane.");
+            AssertEx.True((download.Value?.DocumentLength ?? 0) > 0, $"{fileName} download should contain payload bytes.");
+
+            CommandResult<WorkspaceExportReceipt> export = workspaceService.Export(imported.Id);
+            AssertEx.True(export.Success, $"{fileName} should export after import.");
+            AssertEx.True(!string.IsNullOrWhiteSpace(export.Value?.PackageId), $"{fileName} export should produce a portable package id.");
+            AssertEx.True(export.Value?.Portability is not null, $"{fileName} export should include portability guidance.");
+
+            AssertEx.True(workspaceService.Close(imported.Id), $"{fileName} should close cleanly after round-trip verification.");
+        }
+    }
+
+    private static void LegacyChummer4FixtureCorpusImportsRoundTripThroughWorkspaceService()
+    {
+        string[] expectedFixtureNames =
+        [
+            "sr4-combat-adept.chum4",
+            "sr4-hermetic-mage.chum4",
+            "sr4-rigger-wheelman.chum4",
+            "sr4-street-samurai.chum4",
+            "sr4-technomancer-hacker.chum4"
+        ];
+        string[] actualFixtureNames = Directory.EnumerateFiles(GetSr4FixtureDirectory(), "*.chum4", SearchOption.TopDirectoryOnly)
+            .Select(Path.GetFileName)
+            .Where(static fileName => !string.IsNullOrWhiteSpace(fileName))
+            .Cast<string>()
+            .OrderBy(static fileName => fileName, StringComparer.Ordinal)
+            .ToArray();
+
+        AssertEx.SequenceEqual(
+            expectedFixtureNames,
+            actualFixtureNames,
+            "The checked-in Chummer4 fixture corpus should stay in lockstep with the governed SR4 save set.");
+
+        string[] sectionIds =
+        [
+            "profile",
+            "progress",
+            "rules",
+            "build",
+            "movement",
+            "awakening",
+            "skills",
+            "attributes",
+            "inventory",
+            "gear",
+            "weapons",
+            "weaponaccessories",
+            "armors",
+            "armormods",
+            "cyberwares",
+            "vehicles",
+            "vehiclemods",
+            "spells",
+            "powers",
+            "complexforms",
+            "spirits",
+            "foci",
+            "aiprograms",
+            "martialarts",
+            "metamagics",
+            "arts",
+            "initiationgrades",
+            "critterpowers",
+            "mentorspirits",
+            "qualities",
+            "contacts",
+            "lifestyles",
+            "sources",
+            "expenses",
+            "calendar",
+            "improvements",
+            "customdatadirectorynames",
+            "build-lab"
+        ];
+
+        Dictionary<string, (int Attributes, int Skills, int Contacts, int Gear, int Weapons, int Armors, int Cyberwares, int Vehicles, int Spells, int Powers, int ComplexForms, int CalendarEntries)> expectations =
+            new(StringComparer.Ordinal)
+            {
+                ["sr4-combat-adept.chum4"] = (8, 3, 1, 1, 1, 1, 0, 0, 0, 2, 0, 0),
+                ["sr4-hermetic-mage.chum4"] = (8, 3, 1, 1, 1, 1, 0, 0, 2, 0, 0, 0),
+                ["sr4-rigger-wheelman.chum4"] = (8, 3, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0),
+                ["sr4-street-samurai.chum4"] = (8, 4, 2, 2, 2, 1, 1, 0, 0, 0, 0, 1),
+                ["sr4-technomancer-hacker.chum4"] = (8, 4, 1, 1, 1, 1, 0, 0, 0, 0, 2, 0)
+            };
+
+        foreach (string fileName in expectedFixtureNames)
+        {
+            string xml = File.ReadAllText(Path.Combine(GetSr4FixtureDirectory(), fileName));
+            ICharacterFileQueries fileQueries = new XmlCharacterFileQueries(new CharacterFileService());
+            ICharacterSectionQueries sectionQueries = new XmlCharacterSectionQueries(new CharacterSectionService());
+            ICharacterMetadataCommands metadataCommands = new XmlCharacterMetadataCommands(new CharacterFileService());
+            WorkspaceService workspaceService = new(
+                new InMemoryWorkspaceStore(),
+                new RulesetWorkspaceCodecResolver(
+                [
+                    new Sr4WorkspaceCodec(fileQueries, sectionQueries, metadataCommands),
+                    new Sr5WorkspaceCodec(fileQueries, sectionQueries, metadataCommands),
+                    new Sr6WorkspaceCodec()
+                ]),
+                new WorkspaceImportRulesetDetector());
+
+            CharacterValidationResult validation = fileQueries.Validate(new CharacterDocument(xml));
+            AssertEx.True(validation.IsValid, $"{fileName} should remain a valid governed SR4 import fixture.");
+
+            WorkspaceImportResult imported = workspaceService.Import(new WorkspaceImportDocument(
+                xml,
+                string.Empty,
+                WorkspaceDocumentFormat.NativeXml));
+
+            AssertEx.Equal(RulesetDefaults.Sr4, imported.RulesetId, $"{fileName} should import onto the SR4 ruleset lane.");
+            AssertEx.True(!string.IsNullOrWhiteSpace(imported.Summary.Name), $"{fileName} should retain a summary name after import.");
+            AssertEx.Equal(
+                WorkspacePortabilityCompatibilityStates.Compatible,
+                imported.Portability?.CompatibilityState,
+                $"{fileName} should import as native governed XML without compatibility downgrade.");
+
+            foreach (string sectionId in sectionIds)
+            {
+                object? section = workspaceService.GetSection(imported.Id, sectionId);
+                AssertEx.True(section is not null, $"{fileName} should parse section '{sectionId}'.");
+            }
+
+            CharacterRulesSection? rules = workspaceService.GetRules(imported.Id);
+            CharacterBuildSection? build = workspaceService.GetBuild(imported.Id);
+            CharacterAttributesSection? attributes = workspaceService.GetSection(imported.Id, "attributes") as CharacterAttributesSection;
+            CharacterSkillsSection? skills = workspaceService.GetSkills(imported.Id);
+            CharacterContactsSection? contacts = workspaceService.GetSection(imported.Id, "contacts") as CharacterContactsSection;
+            CharacterInventorySection? inventory = workspaceService.GetSection(imported.Id, "inventory") as CharacterInventorySection;
+            CharacterArmorsSection? armors = workspaceService.GetSection(imported.Id, "armors") as CharacterArmorsSection;
+            CharacterSpellsSection? spells = workspaceService.GetSection(imported.Id, "spells") as CharacterSpellsSection;
+            CharacterPowersSection? powers = workspaceService.GetSection(imported.Id, "powers") as CharacterPowersSection;
+            CharacterComplexFormsSection? complexForms = workspaceService.GetSection(imported.Id, "complexforms") as CharacterComplexFormsSection;
+            CharacterLifestylesSection? lifestyles = workspaceService.GetSection(imported.Id, "lifestyles") as CharacterLifestylesSection;
+            CharacterCalendarSection? calendar = workspaceService.GetSection(imported.Id, "calendar") as CharacterCalendarSection;
+            BuildLabConceptIntakeProjection? buildLab = workspaceService.GetSection(imported.Id, "build-lab") as BuildLabConceptIntakeProjection;
+
+            AssertEx.NotNull(rules, $"{fileName} should expose governed SR4 rules data.");
+            AssertEx.NotNull(build, $"{fileName} should expose governed SR4 build data.");
+            AssertEx.NotNull(attributes, $"{fileName} should expose governed SR4 attribute data.");
+            AssertEx.NotNull(skills, $"{fileName} should expose governed SR4 skill data.");
+            AssertEx.NotNull(contacts, $"{fileName} should expose governed SR4 contact data.");
+            AssertEx.NotNull(inventory, $"{fileName} should expose governed SR4 inventory data.");
+            AssertEx.NotNull(armors, $"{fileName} should expose governed SR4 armor data.");
+            AssertEx.NotNull(spells, $"{fileName} should expose governed SR4 spell data.");
+            AssertEx.NotNull(powers, $"{fileName} should expose governed SR4 power data.");
+            AssertEx.NotNull(complexForms, $"{fileName} should expose governed SR4 complex-form data.");
+            AssertEx.NotNull(lifestyles, $"{fileName} should expose governed SR4 lifestyle data.");
+            AssertEx.NotNull(calendar, $"{fileName} should expose governed SR4 calendar data.");
+            AssertEx.NotNull(buildLab, $"{fileName} should expose governed SR4 Build Lab data.");
+
+            AssertEx.Equal("SR4", rules!.GameEdition, $"{fileName} should preserve the SR4 game-edition marker.");
+            AssertEx.True(!string.IsNullOrWhiteSpace(build!.BuildMethod), $"{fileName} should preserve a build method.");
+            AssertEx.Equal(RulesetDefaults.Sr4, buildLab!.RulesetId, $"{fileName} should project Build Lab intake on the SR4 lane.");
+            AssertEx.True(buildLab.Variants.Count > 0, $"{fileName} should surface at least one Build Lab variant.");
+
+            (int minAttributes, int minSkills, int minContacts, int minGear, int minWeapons, int minArmors, int minCyberwares, int minVehicles, int minSpells, int minPowers, int minComplexForms, int minCalendarEntries) = expectations[fileName];
+            AssertEx.True(attributes!.Count >= minAttributes, $"{fileName} should keep populated SR4 attributes.");
+            AssertEx.True(skills!.Count >= minSkills, $"{fileName} should keep populated SR4 skills.");
+            AssertEx.True(contacts!.Count >= minContacts, $"{fileName} should keep populated SR4 contacts.");
+            AssertEx.True(inventory!.GearCount >= minGear, $"{fileName} should keep populated SR4 gear.");
+            AssertEx.True(inventory.WeaponCount >= minWeapons, $"{fileName} should keep populated SR4 weapons.");
+            AssertEx.True(inventory.ArmorCount >= minArmors, $"{fileName} should keep populated SR4 armor.");
+            AssertEx.True(inventory.CyberwareCount >= minCyberwares, $"{fileName} should keep populated SR4 cyberware.");
+            AssertEx.True(inventory.VehicleCount >= minVehicles, $"{fileName} should keep populated SR4 vehicles.");
+            AssertEx.True(spells!.Count >= minSpells, $"{fileName} should keep populated SR4 spells.");
+            AssertEx.True(powers!.Count >= minPowers, $"{fileName} should keep populated SR4 adept powers.");
+            AssertEx.True(complexForms!.Count >= minComplexForms, $"{fileName} should keep populated SR4 complex forms.");
+            AssertEx.True(calendar!.Count >= minCalendarEntries, $"{fileName} should keep populated SR4 calendar packets.");
+            if (string.Equals(fileName, "sr4-combat-adept.chum4", StringComparison.Ordinal))
+            {
+                AssertEx.True(
+                    powers.Powers.Any(static power => power.PointsPerLevel > 0m),
+                    $"{fileName} should preserve SR4 adept power point costs from legacy saves.");
+            }
+
+            if (minArmors > 0)
+            {
+                AssertEx.True(
+                    armors!.Armors.Any(static armor => !string.IsNullOrWhiteSpace(armor.ArmorValue)),
+                    $"{fileName} should expose SR4 ballistic/impact armor values.");
+            }
+
+            AssertEx.True(workspaceService.Save(imported.Id).Success, $"{fileName} should save after import.");
+
+            CommandResult<WorkspaceDownloadReceipt> download = workspaceService.Download(imported.Id);
+            AssertEx.True(download.Success, $"{fileName} should download after import.");
+            AssertEx.Equal(WorkspaceDocumentFormat.NativeXml, download.Value?.Format, $"{fileName} should stay on the native XML lane.");
+            AssertEx.True(download.Value?.FileName?.EndsWith(".chum4", StringComparison.Ordinal) == true, $"{fileName} should preserve the .chum4 native extension.");
+            AssertEx.True((download.Value?.DocumentLength ?? 0) > 0, $"{fileName} download should contain payload bytes.");
+
+            CommandResult<WorkspaceExportReceipt> export = workspaceService.Export(imported.Id);
+            AssertEx.True(export.Success, $"{fileName} should export after import.");
+            AssertEx.True(!string.IsNullOrWhiteSpace(export.Value?.PackageId), $"{fileName} export should produce a portable package id.");
+            AssertEx.True(export.Value?.Portability is not null, $"{fileName} export should include portability guidance.");
+
+            AssertEx.True(workspaceService.Close(imported.Id), $"{fileName} should close cleanly after round-trip verification.");
+        }
     }
 
     private static void BuildLabCreateSurfaceIsExposedAcrossRulesets()
@@ -5354,6 +5695,15 @@ internal static class CoreEngineTests
             || normalizedPath.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}", StringComparison.Ordinal)
             || normalizedPath.Contains($"{Path.DirectorySeparatorChar}.git{Path.DirectorySeparatorChar}", StringComparison.Ordinal);
     }
+
+    private static string GetLegacyFixtureDirectory()
+        => Path.Combine(GetRepositoryRoot(), "Chummer.Tests", "TestFiles");
+
+    private static string GetSr4FixtureDirectory()
+        => Path.Combine(GetRepositoryRoot(), "Chummer.CoreEngine.Tests", "Fixtures", "Sr4");
+
+    private static string GetHeroLabFixtureDirectory()
+        => Path.Combine(GetRepositoryRoot(), "Chummer.CoreEngine.Tests", "Fixtures", "HeroLab");
 
     private static string GetRepositoryRoot()
     {

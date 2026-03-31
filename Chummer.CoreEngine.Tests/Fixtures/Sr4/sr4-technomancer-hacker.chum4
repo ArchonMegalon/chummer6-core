@@ -1,0 +1,66 @@
+<character>
+  <name>Glitch Echo</name>
+  <alias>Echo</alias>
+  <metatype>Human</metatype>
+  <buildmethod>BP</buildmethod>
+  <createdversion>4.0.0</createdversion>
+  <appversion>4.0.0</appversion>
+  <karma>10</karma>
+  <nuyen>1500</nuyen>
+  <created>True</created>
+  <gameedition>SR4</gameedition>
+  <settings>sr4-default.xml</settings>
+  <contactmultiplier>2</contactmultiplier>
+  <walk>10</walk>
+  <run>25</run>
+  <sprint>35</sprint>
+  <walkalt>10</walkalt>
+  <runalt>25</runalt>
+  <sprintalt>35</sprintalt>
+  <adept>False</adept>
+  <magician>False</magician>
+  <technomancer>True</technomancer>
+  <magenabled>False</magenabled>
+  <resenabled>True</resenabled>
+  <depenabled>False</depenabled>
+  <initiategrade>0</initiategrade>
+  <submersiongrade>1</submersiongrade>
+  <totaless>6.00</totaless>
+  <physicalcmfilled>0</physicalcmfilled>
+  <stuncmfilled>0</stuncmfilled>
+  <tradition></tradition>
+  <stream>Mesh Whisper</stream>
+  <streamdrain>LOG + INT</streamdrain>
+  <attributes>
+    <attribute><name>Body</name><metatypemin>1</metatypemin><metatypemax>6</metatypemax><metatypeaugmax>9</metatypeaugmax><value>2</value><augmodifier>0</augmodifier><totalvalue>2</totalvalue></attribute>
+    <attribute><name>Agility</name><metatypemin>1</metatypemin><metatypemax>6</metatypemax><metatypeaugmax>9</metatypeaugmax><value>3</value><augmodifier>0</augmodifier><totalvalue>3</totalvalue></attribute>
+    <attribute><name>Reaction</name><metatypemin>1</metatypemin><metatypemax>6</metatypemax><metatypeaugmax>9</metatypeaugmax><value>3</value><augmodifier>0</augmodifier><totalvalue>3</totalvalue></attribute>
+    <attribute><name>Strength</name><metatypemin>1</metatypemin><metatypemax>6</metatypemax><metatypeaugmax>9</metatypeaugmax><value>1</value><augmodifier>0</augmodifier><totalvalue>1</totalvalue></attribute>
+    <attribute><name>Charisma</name><metatypemin>1</metatypemin><metatypemax>6</metatypemax><metatypeaugmax>9</metatypeaugmax><value>4</value><augmodifier>0</augmodifier><totalvalue>4</totalvalue></attribute>
+    <attribute><name>Intuition</name><metatypemin>1</metatypemin><metatypemax>6</metatypemax><metatypeaugmax>9</metatypeaugmax><value>5</value><augmodifier>0</augmodifier><totalvalue>5</totalvalue></attribute>
+    <attribute><name>Logic</name><metatypemin>1</metatypemin><metatypemax>6</metatypemax><metatypeaugmax>9</metatypeaugmax><value>5</value><augmodifier>0</augmodifier><totalvalue>5</totalvalue></attribute>
+    <attribute><name>Willpower</name><metatypemin>1</metatypemin><metatypemax>6</metatypemax><metatypeaugmax>9</metatypeaugmax><value>4</value><augmodifier>0</augmodifier><totalvalue>4</totalvalue></attribute>
+  </attributes>
+  <skills>
+    <skill><name>Hacking</name><skillgroup>Cracking</skillgroup><skillcategory>Matrix</skillcategory><grouped>False</grouped><default>False</default><rating>5</rating><ratingmax>6</ratingmax><knowledge>False</knowledge><exotic>False</exotic><spec>Exploit</spec><allowdelete>True</allowdelete><attribute>Logic</attribute><source>SR4</source><page>119</page><totalvalue>5</totalvalue></skill>
+    <skill><name>Compiling</name><skillgroup>Tasking</skillgroup><skillcategory>Resonance</skillcategory><grouped>False</grouped><default>False</default><rating>4</rating><ratingmax>6</ratingmax><knowledge>False</knowledge><exotic>False</exotic><spec>Machine Sprites</spec><allowdelete>True</allowdelete><attribute>Resonance</attribute><source>SR4</source><page>118</page><totalvalue>4</totalvalue></skill>
+    <skill><name>Electronic Warfare</name><skillgroup>Electronics</skillgroup><skillcategory>Matrix</skillcategory><grouped>False</grouped><default>True</default><rating>4</rating><ratingmax>6</ratingmax><knowledge>False</knowledge><exotic>False</exotic><spec>Signal Scan</spec><allowdelete>True</allowdelete><attribute>Logic</attribute><source>SR4</source><page>118</page><totalvalue>4</totalvalue></skill>
+    <skill><name>Data Search</name><skillgroup>Electronics</skillgroup><skillcategory>Matrix</skillcategory><grouped>False</grouped><default>True</default><rating>3</rating><ratingmax>6</ratingmax><knowledge>False</knowledge><exotic>False</exotic><spec>People Search</spec><allowdelete>True</allowdelete><attribute>Logic</attribute><source>SR4</source><page>118</page><totalvalue>3</totalvalue></skill>
+  </skills>
+  <contacts>
+    <contact><name>Packet Ghost</name><connection>4</connection><loyalty>2</loyalty><membership>0</membership><areaofinfluence>0</areaofinfluence><magicalresources>0</magicalresources><matrixresources>4</matrixresources><type>Matrix Broker</type><file></file><notes>Backdoor supplier</notes><groupname>Redmond</groupname><colour>#224455</colour><free>False</free></contact>
+  </contacts>
+  <gears>
+    <gear><guid>g-tech-01</guid><name>Trodes</name><category>Electronics</category><rating>1</rating><qty>1</qty><cost>70</cost><equipped>True</equipped><location>Head</location></gear>
+  </gears>
+  <weapons>
+    <weapon><guid>w-tech-01</guid><name>Hold-Out Pistol</name><category>Firearm</category><type>Ranged</type><reach>0</reach><damage>4P</damage><ap>0</ap><mode>SA</mode><rc>0</rc><ammo>5(c)</ammo><ammocategory>Hold-Out</ammocategory><requireammo>True</requireammo><ammoremaining>5</ammoremaining><ammoremaining2>0</ammoremaining2><ammoremaining3>0</ammoremaining3><ammoremaining4>0</ammoremaining4><ammoloaded>Regular Ammo</ammoloaded><ammoloaded2></ammoloaded2><ammoloaded3></ammoloaded3><ammoloaded4></ammoloaded4><conceal>6</conceal><avail>2</avail><cost>200</cost><range>0-5/15/30/50</range><rangemultiply>1</rangemultiply><fullburst>0</fullburst><suppressive>0</suppressive><source>SR4</source><page>312</page><weaponname>Hold-Out Pistol</weaponname><included>False</included><installed>False</installed><notes></notes><discountedcost>0</discountedcost></weapon>
+  </weapons>
+  <armors>
+    <armor><guid>a-tech-01</guid><name>Actioneer Business Clothes</name><category>Clothing</category><b>5</b><i>3</i><armorcapacity>0</armorcapacity><avail>6</avail><cost>1500</cost><source>SR4</source><page>326</page><armorname>Actioneer Business Clothes</armorname><equipped>True</equipped><extra></extra><bdamage>0</bdamage><idamage>0</idamage><armormods></armormods><location>Body</location><notes></notes><discountedcost>0</discountedcost></armor>
+  </armors>
+  <complexforms>
+    <complexform><name>Stealth</name><target>Self</target><duration>Sustained</duration><fv>3</fv><source>SR4</source></complexform>
+    <complexform><name>Exploit</name><target>System</target><duration>Sustained</duration><fv>4</fv><source>SR4</source></complexform>
+  </complexforms>
+</character>

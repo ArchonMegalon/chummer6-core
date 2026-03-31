@@ -1,0 +1,85 @@
+{
+  "actors": {
+    "actor.1": {
+      "name": "SR6 Starter",
+      "player": "Unit",
+      "items": {
+        "as-body": {
+          "name": "Body",
+          "compset": "attribute-body",
+          "base": 3,
+          "modified": 4,
+          "minimum": 1,
+          "naturalMaximum": 10,
+          "augmentedMaximum": 12,
+          "category": "Physical"
+        },
+        "as-willpower": {
+          "name": "Willpower",
+          "compset": "attribute-mental",
+          "base": 4,
+          "total": 4,
+          "minimum": 1,
+          "naturalMaximum": 8,
+          "augmentedMaximum": 10,
+          "category": "Mental"
+        },
+        "sk-gunnery": {
+          "name": "Gunnery",
+          "compset": "skill-combat",
+          "base": 2,
+          "total": 2,
+          "dicePool": 2,
+          "fromGroup": false,
+          "group": "Combat"
+        },
+        "sk-arcana": {
+          "name": "Ritual Spellcasting",
+          "compset": "skill-tradition",
+          "base": 3,
+          "total": 5,
+          "dicePool": 2,
+          "group": "Magic"
+        },
+        "qu-edge": {
+          "name": "Edge",
+          "compset": "quality-advantage",
+          "rank": 1
+        },
+        "con-mentor": {
+          "name": "Mentor",
+          "role": "Contact",
+          "connection": 2,
+          "loyalty": 1,
+          "compset": "contact"
+        },
+        "wp-submachine": {
+          "name": "Ares Viper",
+          "compset": "weapon-small-arms",
+          "category": "Weapon",
+          "quantity": 1,
+          "rating": 5,
+          "natural": false,
+          "useradded": false,
+          "wireless": false
+        },
+        "ar-tactical": {
+          "name": "Kevlar Vest",
+          "compset": "armor-light",
+          "category": "Armor",
+          "quantity": 1,
+          "rating": 2,
+          "natural": false,
+          "useradded": false,
+          "wireless": true
+        }
+      }
+    }
+  },
+  "metadata": {
+    "gameCode": "SR6",
+    "gameName": "Shadowrun 6",
+    "hloVersion": "1.0",
+    "exportVersion": "1"
+  }
+}

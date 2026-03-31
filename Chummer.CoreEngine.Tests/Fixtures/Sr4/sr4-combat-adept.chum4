@@ -1,0 +1,65 @@
+<character>
+  <name>Whisper Step</name>
+  <alias>Whisper</alias>
+  <metatype>Elf</metatype>
+  <buildmethod>BP</buildmethod>
+  <createdversion>4.0.0</createdversion>
+  <appversion>4.0.0</appversion>
+  <karma>12</karma>
+  <nuyen>1800</nuyen>
+  <created>True</created>
+  <gameedition>SR4</gameedition>
+  <settings>sr4-default.xml</settings>
+  <gameplayoption>Street Level</gameplayoption>
+  <contactmultiplier>2</contactmultiplier>
+  <walk>10</walk>
+  <run>25</run>
+  <sprint>35</sprint>
+  <walkalt>10</walkalt>
+  <runalt>25</runalt>
+  <sprintalt>35</sprintalt>
+  <adept>True</adept>
+  <magician>False</magician>
+  <technomancer>False</technomancer>
+  <magenabled>True</magenabled>
+  <resenabled>False</resenabled>
+  <depenabled>False</depenabled>
+  <initiategrade>0</initiategrade>
+  <submersiongrade>0</submersiongrade>
+  <totaless>6.00</totaless>
+  <physicalcmfilled>0</physicalcmfilled>
+  <stuncmfilled>0</stuncmfilled>
+  <tradition>Adept</tradition>
+  <stream></stream>
+  <attributes>
+    <attribute><name>Body</name><metatypemin>1</metatypemin><metatypemax>6</metatypemax><metatypeaugmax>9</metatypeaugmax><value>3</value><augmodifier>0</augmodifier><totalvalue>3</totalvalue></attribute>
+    <attribute><name>Agility</name><metatypemin>2</metatypemin><metatypemax>7</metatypemax><metatypeaugmax>10</metatypeaugmax><value>5</value><augmodifier>0</augmodifier><totalvalue>5</totalvalue></attribute>
+    <attribute><name>Reaction</name><metatypemin>1</metatypemin><metatypemax>6</metatypemax><metatypeaugmax>9</metatypeaugmax><value>4</value><augmodifier>0</augmodifier><totalvalue>4</totalvalue></attribute>
+    <attribute><name>Strength</name><metatypemin>1</metatypemin><metatypemax>6</metatypemax><metatypeaugmax>9</metatypeaugmax><value>3</value><augmodifier>0</augmodifier><totalvalue>3</totalvalue></attribute>
+    <attribute><name>Charisma</name><metatypemin>3</metatypemin><metatypemax>8</metatypemax><metatypeaugmax>11</metatypeaugmax><value>4</value><augmodifier>0</augmodifier><totalvalue>4</totalvalue></attribute>
+    <attribute><name>Intuition</name><metatypemin>1</metatypemin><metatypemax>6</metatypemax><metatypeaugmax>9</metatypeaugmax><value>4</value><augmodifier>0</augmodifier><totalvalue>4</totalvalue></attribute>
+    <attribute><name>Logic</name><metatypemin>1</metatypemin><metatypemax>6</metatypemax><metatypeaugmax>9</metatypeaugmax><value>2</value><augmodifier>0</augmodifier><totalvalue>2</totalvalue></attribute>
+    <attribute><name>Willpower</name><metatypemin>1</metatypemin><metatypemax>6</metatypemax><metatypeaugmax>9</metatypeaugmax><value>4</value><augmodifier>0</augmodifier><totalvalue>4</totalvalue></attribute>
+  </attributes>
+  <skills>
+    <skill><name>Unarmed Combat</name><skillgroup>Close Combat</skillgroup><skillcategory>Combat</skillcategory><grouped>False</grouped><default>True</default><rating>5</rating><ratingmax>6</ratingmax><knowledge>False</knowledge><exotic>False</exotic><spec>Subdual</spec><allowdelete>True</allowdelete><attribute>Agility</attribute><source>SR4</source><page>123</page><totalvalue>5</totalvalue></skill>
+    <skill><name>Gymnastics</name><skillgroup>Athletics</skillgroup><skillcategory>Physical</skillcategory><grouped>False</grouped><default>True</default><rating>4</rating><ratingmax>6</ratingmax><knowledge>False</knowledge><exotic>False</exotic><spec>Dodge</spec><allowdelete>True</allowdelete><attribute>Agility</attribute><source>SR4</source><page>119</page><totalvalue>4</totalvalue></skill>
+    <skill><name>Infiltration</name><skillgroup>Stealth</skillgroup><skillcategory>Physical</skillcategory><grouped>False</grouped><default>True</default><rating>4</rating><ratingmax>6</ratingmax><knowledge>False</knowledge><exotic>False</exotic><spec>Urban</spec><allowdelete>True</allowdelete><attribute>Agility</attribute><source>SR4</source><page>119</page><totalvalue>4</totalvalue></skill>
+  </skills>
+  <contacts>
+    <contact><name>Monk Grey</name><connection>3</connection><loyalty>4</loyalty><membership>0</membership><areaofinfluence>0</areaofinfluence><magicalresources>1</magicalresources><matrixresources>0</matrixresources><type>Sensei</type><file></file><notes>Temple trainer</notes><groupname>Puyallup</groupname><colour>#333366</colour><free>False</free></contact>
+  </contacts>
+  <gears>
+    <gear><guid>g-adept-01</guid><name>Credstick</name><category>Financial</category><rating>1</rating><qty>1</qty><cost>5</cost><equipped>False</equipped><location>Pocket</location></gear>
+  </gears>
+  <weapons>
+    <weapon><guid>w-adept-01</guid><name>Shock Gloves</name><category>Melee</category><type>Melee</type><reach>0</reach><damage>6S(e)</damage><ap>-half</ap><mode>Melee</mode><rc>0</rc><ammo></ammo><ammocategory></ammocategory><requireammo>False</requireammo><ammoremaining>0</ammoremaining><ammoremaining2>0</ammoremaining2><ammoremaining3>0</ammoremaining3><ammoremaining4>0</ammoremaining4><ammoloaded></ammoloaded><ammoloaded2></ammoloaded2><ammoloaded3></ammoloaded3><ammoloaded4></ammoloaded4><conceal>6</conceal><avail>6R</avail><cost>100</cost><range></range><rangemultiply>1</rangemultiply><fullburst>0</fullburst><suppressive>0</suppressive><source>SR4</source><page>325</page><weaponname>Shock Gloves</weaponname><included>False</included><installed>False</installed><notes></notes><discountedcost>0</discountedcost></weapon>
+  </weapons>
+  <armors>
+    <armor><guid>a-adept-01</guid><name>Form-Fitting Body Armor</name><category>Clothing</category><b>4</b><i>1</i><armorcapacity>0</armorcapacity><avail>6</avail><cost>400</cost><source>SR4</source><page>327</page><armorname>Form-Fitting Body Armor</armorname><equipped>True</equipped><extra></extra><bdamage>0</bdamage><idamage>0</idamage><armormods></armormods><location>Body</location><notes></notes><discountedcost>0</discountedcost></armor>
+  </armors>
+  <powers>
+    <power><name>Improved Reflexes</name><rating>2</rating><source>SR4</source><points>1.50</points></power>
+    <power><name>Improved Ability (Unarmed Combat)</name><rating>2</rating><source>SR4</source><points>0.25</points></power>
+  </powers>
+</character>
