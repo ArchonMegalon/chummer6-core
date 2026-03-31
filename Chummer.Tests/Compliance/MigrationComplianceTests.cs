@@ -4107,7 +4107,7 @@ public class MigrationComplianceTests
         StringAssert.Contains(infrastructureDiText, "services.AddRulesetInfrastructure();");
         Assert.IsFalse(infrastructureDiText.Contains("services.AddSr4Ruleset();", StringComparison.Ordinal));
         StringAssert.Contains(infrastructureDiText, "services.AddSr5Ruleset();");
-        StringAssert.Contains(infrastructureDiText, "services.AddSr6Ruleset();");
+        Assert.IsFalse(infrastructureDiText.Contains("services.AddSr6Ruleset();", StringComparison.Ordinal));
         StringAssert.Contains(desktopRuntimeDiText, "services.AddRulesetInfrastructure();");
         Assert.IsFalse(desktopRuntimeDiText.Contains("services.AddSr4Ruleset();", StringComparison.Ordinal));
         StringAssert.Contains(desktopRuntimeDiText, "services.AddSr5Ruleset();");
@@ -4120,8 +4120,8 @@ public class MigrationComplianceTests
         StringAssert.Contains(readmeText, "Default runtime registration currently enables SR5 and SR6 only.");
         StringAssert.Contains(readmeText, "CHUMMER_DEFAULT_RULESET");
         StringAssert.Contains(readmeText, "`Chummer.Rulesets.Sr4` remains a scaffolded/experimental module");
-        StringAssert.Contains(backlogText, "default headless/desktop/web paths register SR5 and SR6");
-        StringAssert.Contains(backlogText, "`Chummer.Rulesets.Sr4` remains scaffolded/experimental");
+        StringAssert.Contains(backlogText, "default headless/desktop/web paths register SR5 only");
+        StringAssert.Contains(backlogText, "`Chummer.Rulesets.Sr4` and `Chummer.Rulesets.Sr6` remain scaffolded/experimental");
         string desktopRuntimeTestsPath = FindPath("Chummer.Tests", "ServiceCollectionDesktopRuntimeExtensionsTests.cs");
         string desktopRuntimeTestsText = File.ReadAllText(desktopRuntimeTestsPath);
         StringAssert.Contains(desktopRuntimeTestsText, "Default_ruleset_environment_variable_controls_shell_catalog_resolution");

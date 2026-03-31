@@ -15,7 +15,6 @@ using Chummer.Infrastructure.Workspaces;
 using Chummer.Infrastructure.Xml;
 using Chummer.Rulesets.Hosting;
 using Chummer.Rulesets.Sr5;
-using Chummer.Rulesets.Sr6;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Chummer.Infrastructure.DependencyInjection;
@@ -76,7 +75,6 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IAiRecapDraftService, NotImplementedAiRecapDraftService>();
         services.AddRulesetInfrastructure();
         services.AddSr5Ruleset();
-        services.AddSr6Ruleset();
         services.AddSingleton<ICharacterSectionService, CharacterSectionService>();
         services.AddSingleton<ICharacterFileQueries, XmlCharacterFileQueries>();
         services.AddSingleton<ICharacterMetadataCommands, XmlCharacterMetadataCommands>();
