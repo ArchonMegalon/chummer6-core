@@ -1146,6 +1146,7 @@ internal static class CoreEngineTests
         AssertGoldenJsonFixture("explain-trace.golden.json", CreateExplainTraceFixture());
         AssertGoldenJsonFixture("runtime-lock-diff.golden.json", CreateRuntimeLockDiffFixture());
         AssertGoldenJsonFixture("session-ledger.golden.json", CreateSessionLedgerFixture());
+        AssertGoldenJsonFixture("sr5-parity-corpus.golden.json", CreateSr5ParityCorpusFixture());
     }
 
     private static void ContractNormalizationFixturesStayStable()
@@ -3798,6 +3799,60 @@ internal static class CoreEngineTests
             NextSequence: 2);
     }
 
+    private static Sr5ParityCorpusFixture CreateSr5ParityCorpusFixture()
+    {
+        Sr5RulesetPlugin sr5 = new();
+
+        RulesetCapabilityInvocationResult deriveResult = sr5.Capabilities
+            .InvokeAsync(
+                new RulesetCapabilityInvocationRequest(
+                    CapabilityId: RulePackCapabilityIds.DeriveStat,
+                    InvocationKind: RulesetCapabilityInvocationKinds.Rule,
+                    Arguments:
+                    [
+                        new RulesetCapabilityArgument("baseValue", RulesetCapabilityBridge.FromObject(3)),
+                        new RulesetCapabilityArgument("modifier", RulesetCapabilityBridge.FromObject(2))
+                    ]),
+                CancellationToken.None)
+            .GetAwaiter()
+            .GetResult();
+        RulesetCapabilityInvocationResult quickActionsResult = sr5.Capabilities
+            .InvokeAsync(
+                new RulesetCapabilityInvocationRequest(
+                    CapabilityId: RulePackCapabilityIds.SessionQuickActions,
+                    InvocationKind: RulesetCapabilityInvocationKinds.Script,
+                    Arguments: []),
+                CancellationToken.None)
+            .GetAwaiter()
+            .GetResult();
+
+        return new Sr5ParityCorpusFixture(
+            RulesetId: RulesetDefaults.Sr5,
+            RuntimeProfileId: "official.sr5.core",
+            CapabilityCases:
+            [
+                ToSr5ParityCorpusCase(deriveResult, RulesetCapabilityInvocationKinds.Rule, RulePackCapabilityIds.DeriveStat),
+                ToSr5ParityCorpusCase(quickActionsResult, RulesetCapabilityInvocationKinds.Script, RulePackCapabilityIds.SessionQuickActions)
+            ]);
+    }
+
+    private static Sr5ParityCorpusCapabilityCase ToSr5ParityCorpusCase(
+        RulesetCapabilityInvocationResult result,
+        string invocationKind,
+        string capabilityId)
+    {
+        RulesetProviderTrace? provider = result.Explain?.Providers.FirstOrDefault();
+        return new Sr5ParityCorpusCapabilityCase(
+            InvocationKind: invocationKind,
+            CapabilityId: capabilityId,
+            Success: result.Success,
+            DiagnosticKeys: result.Diagnostics.Select(static diagnostic => diagnostic.MessageKey ?? diagnostic.Code).ToArray(),
+            Output: result.Output,
+            ExplainSummaryKey: result.Explain?.SummaryKey,
+            ExplainProviderId: provider?.ProviderId,
+            ExplainPackId: provider?.PackId);
+    }
+
     private static void AssertGoldenJsonFixture(string fixtureName, object value)
     {
         string fixturePath = Path.Combine(GetRepositoryRoot(), "Chummer.CoreEngine.Tests", "Fixtures", "Contracts", fixtureName);
@@ -5140,6 +5195,21 @@ internal static class CoreEngineTests
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
         WriteIndented = true
     };
+
+    private sealed record Sr5ParityCorpusFixture(
+        string RulesetId,
+        string RuntimeProfileId,
+        IReadOnlyList<Sr5ParityCorpusCapabilityCase> CapabilityCases);
+
+    private sealed record Sr5ParityCorpusCapabilityCase(
+        string InvocationKind,
+        string CapabilityId,
+        bool Success,
+        IReadOnlyList<string> DiagnosticKeys,
+        RulesetCapabilityValue? Output,
+        string? ExplainSummaryKey,
+        string? ExplainProviderId,
+        string? ExplainPackId);
 
     private readonly record struct ProjectItemInclude(
         string ItemType,

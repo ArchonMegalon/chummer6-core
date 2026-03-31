@@ -1,0 +1,75 @@
+{
+  "rulesetId": "sr5",
+  "runtimeProfileId": "official.sr5.core",
+  "capabilityCases": [
+    {
+      "invocationKind": "rule",
+      "capabilityId": "derive.stat",
+      "success": true,
+      "diagnosticKeys": [
+        "sr5.rule.executed"
+      ],
+      "output": {
+        "kind": "object",
+        "properties": {
+          "capability": {
+            "kind": "string",
+            "stringValue": "derive.stat"
+          },
+          "value": {
+            "kind": "integer",
+            "integerValue": 5
+          },
+          "baseValue": {
+            "kind": "integer",
+            "integerValue": 3
+          },
+          "modifier": {
+            "kind": "integer",
+            "integerValue": 2
+          }
+        }
+      },
+      "explainSummaryKey": "ruleset.explain.summary.sr5.host.execution",
+      "explainProviderId": "sr5.host/derive.stat",
+      "explainPackId": "official.sr5.core"
+    },
+    {
+      "invocationKind": "script",
+      "capabilityId": "session.quick-actions",
+      "success": true,
+      "diagnosticKeys": [
+        "sr5.script.executed"
+      ],
+      "output": {
+        "kind": "object",
+        "properties": {
+          "capability": {
+            "kind": "string",
+            "stringValue": "session.quick-actions"
+          },
+          "actions": {
+            "kind": "list",
+            "items": [
+              {
+                "kind": "string",
+                "stringValue": "delay-action"
+              },
+              {
+                "kind": "string",
+                "stringValue": "interrupt-action"
+              },
+              {
+                "kind": "string",
+                "stringValue": "full-defense"
+              }
+            ]
+          }
+        }
+      },
+      "explainSummaryKey": "ruleset.explain.summary.sr5.host.execution",
+      "explainProviderId": "sr5.host/session.quick-actions",
+      "explainPackId": "official.sr5.core"
+    }
+  ]
+}
