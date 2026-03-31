@@ -42,8 +42,9 @@ internal static class CoreEngineTests
         try
         {
             CapabilityDescriptorsEmitLocalizationKeys();
-            ExperimentalRulesetsEmitDiagnosticMessageKeys();
+            Sr4ExperimentalRulesetEmitsDiagnosticMessageKeys();
             Sr5RulesetExecutesDeterministicCapabilities();
+            Sr6RulesetExecutesDeterministicCapabilities();
             SessionReplayDiagnosticsStayKeyed();
             SelectionAndFilterDisabledReasonsStayKeyed();
             SessionEventCompatibilityContractsRoundTripToCanonicalEnvelope();
@@ -125,10 +126,9 @@ internal static class CoreEngineTests
             "Descriptors should expose deterministic title parameter collections.");
     }
 
-    private static void ExperimentalRulesetsEmitDiagnosticMessageKeys()
+    private static void Sr4ExperimentalRulesetEmitsDiagnosticMessageKeys()
     {
         Sr4RulesetPlugin sr4 = new();
-        Sr6RulesetPlugin sr6 = new();
 
         RulesetCapabilityInvocationResult sr4Result = sr4.Capabilities
             .InvokeAsync(
@@ -139,18 +139,8 @@ internal static class CoreEngineTests
                 CancellationToken.None)
             .GetAwaiter()
             .GetResult();
-        RulesetCapabilityInvocationResult sr6Result = sr6.Capabilities
-            .InvokeAsync(
-                new RulesetCapabilityInvocationRequest(
-                    CapabilityId: RulePackCapabilityIds.SessionQuickActions,
-                    InvocationKind: RulesetCapabilityInvocationKinds.Script,
-                    Arguments: []),
-                CancellationToken.None)
-            .GetAwaiter()
-            .GetResult();
 
         AssertEx.Equal("sr4.rule.experimental", sr4Result.Diagnostics[0].MessageKey, "SR4 rule diagnostics should expose localization keys.");
-        AssertEx.Equal("sr6.script.experimental", sr6Result.Diagnostics[0].MessageKey, "SR6 script diagnostics should expose localization keys.");
     }
 
     private static void Sr5RulesetExecutesDeterministicCapabilities()
@@ -216,6 +206,69 @@ internal static class CoreEngineTests
         AssertEx.True(adaptedScriptResult.Success, "SR5 script adapter calls should execute through the deterministic capability host.");
         AssertEx.True(adaptedScriptResult.Outputs.Count > 0, "SR5 script adapter calls should emit deterministic outputs.");
         AssertEx.True(string.IsNullOrWhiteSpace(adaptedScriptResult.Error), "SR5 script adapter calls should not emit deterministic-host errors.");
+    }
+
+    private static void Sr6RulesetExecutesDeterministicCapabilities()
+    {
+        Sr6RulesetPlugin sr6 = new();
+
+        RulesetCapabilityInvocationResult ruleCapabilityResult = sr6.Capabilities
+            .InvokeAsync(
+                new RulesetCapabilityInvocationRequest(
+                    CapabilityId: RulePackCapabilityIds.DeriveStat,
+                    InvocationKind: RulesetCapabilityInvocationKinds.Rule,
+                    Arguments:
+                    [
+                        new RulesetCapabilityArgument("baseValue", RulesetCapabilityBridge.FromObject(11)),
+                        new RulesetCapabilityArgument("modifier", RulesetCapabilityBridge.FromObject(2))
+                    ]),
+                CancellationToken.None)
+            .GetAwaiter()
+            .GetResult();
+        RulesetCapabilityInvocationResult scriptCapabilityResult = sr6.Capabilities
+            .InvokeAsync(
+                new RulesetCapabilityInvocationRequest(
+                    CapabilityId: RulePackCapabilityIds.SessionQuickActions,
+                    InvocationKind: RulesetCapabilityInvocationKinds.Script,
+                    Arguments: []),
+                CancellationToken.None)
+            .GetAwaiter()
+            .GetResult();
+        RulesetRuleEvaluationResult adaptedRuleResult = sr6.Rules
+            .EvaluateAsync(
+                new RulesetRuleEvaluationRequest(
+                    RuleId: RulePackCapabilityIds.DeriveStat,
+                    Inputs: new Dictionary<string, object?> { ["baseValue"] = 11, ["modifier"] = 2 }),
+                CancellationToken.None)
+            .GetAwaiter()
+            .GetResult();
+        RulesetScriptExecutionResult adaptedScriptResult = sr6.Scripts
+            .ExecuteAsync(
+                new RulesetScriptExecutionRequest(
+                    ScriptId: RulePackCapabilityIds.SessionQuickActions,
+                    ScriptSource: "-- noop",
+                    Inputs: new Dictionary<string, object?>()),
+                CancellationToken.None)
+            .GetAwaiter()
+            .GetResult();
+
+        AssertEx.True(ruleCapabilityResult.Success, "SR6 rule capability calls should execute through the deterministic host.");
+        AssertEx.True(ruleCapabilityResult.Output is not null, "SR6 rule capability calls should return structured output.");
+        AssertEx.Equal("sr6.rule.executed", ruleCapabilityResult.Diagnostics[0].MessageKey, "SR6 rule execution should expose a keyed deterministic-host diagnostic.");
+
+        AssertEx.True(scriptCapabilityResult.Success, "SR6 script capability calls should execute through the deterministic host.");
+        AssertEx.True(scriptCapabilityResult.Output is not null, "SR6 script capability calls should return structured output.");
+        AssertEx.Equal("sr6.script.executed", scriptCapabilityResult.Diagnostics[0].MessageKey, "SR6 script execution should expose a keyed deterministic-host diagnostic.");
+
+        AssertEx.True(adaptedRuleResult.Success, "SR6 rule adapter calls should execute through the deterministic capability host.");
+        AssertEx.True(adaptedRuleResult.Outputs.Count > 0, "SR6 rule adapter calls should emit deterministic outputs.");
+        AssertEx.True(
+            adaptedRuleResult.Messages.Contains("SR6 deterministic derive-stat capability executed.", StringComparer.Ordinal),
+            "SR6 rule adapter calls should surface deterministic-host diagnostics.");
+
+        AssertEx.True(adaptedScriptResult.Success, "SR6 script adapter calls should execute through the deterministic capability host.");
+        AssertEx.True(adaptedScriptResult.Outputs.Count > 0, "SR6 script adapter calls should emit deterministic outputs.");
+        AssertEx.True(string.IsNullOrWhiteSpace(adaptedScriptResult.Error), "SR6 script adapter calls should not emit deterministic-host errors.");
     }
 
     private static void SessionReplayDiagnosticsStayKeyed()
@@ -1147,6 +1200,7 @@ internal static class CoreEngineTests
         AssertGoldenJsonFixture("runtime-lock-diff.golden.json", CreateRuntimeLockDiffFixture());
         AssertGoldenJsonFixture("session-ledger.golden.json", CreateSessionLedgerFixture());
         AssertGoldenJsonFixture("sr5-parity-corpus.golden.json", CreateSr5ParityCorpusFixture());
+        AssertGoldenJsonFixture("sr6-parity-corpus.golden.json", CreateSr6ParityCorpusFixture());
     }
 
     private static void ContractNormalizationFixturesStayStable()
@@ -3836,6 +3890,60 @@ internal static class CoreEngineTests
             ]);
     }
 
+    private static Sr6ParityCorpusFixture CreateSr6ParityCorpusFixture()
+    {
+        Sr6RulesetPlugin sr6 = new();
+
+        RulesetCapabilityInvocationResult deriveResult = sr6.Capabilities
+            .InvokeAsync(
+                new RulesetCapabilityInvocationRequest(
+                    CapabilityId: RulePackCapabilityIds.DeriveStat,
+                    InvocationKind: RulesetCapabilityInvocationKinds.Rule,
+                    Arguments:
+                    [
+                        new RulesetCapabilityArgument("baseValue", RulesetCapabilityBridge.FromObject(8)),
+                        new RulesetCapabilityArgument("modifier", RulesetCapabilityBridge.FromObject(4))
+                    ]),
+                CancellationToken.None)
+            .GetAwaiter()
+            .GetResult();
+        RulesetCapabilityInvocationResult quickActionsResult = sr6.Capabilities
+            .InvokeAsync(
+                new RulesetCapabilityInvocationRequest(
+                    CapabilityId: RulePackCapabilityIds.SessionQuickActions,
+                    InvocationKind: RulesetCapabilityInvocationKinds.Script,
+                    Arguments: []),
+                CancellationToken.None)
+            .GetAwaiter()
+            .GetResult();
+
+        return new Sr6ParityCorpusFixture(
+            RulesetId: RulesetDefaults.Sr6,
+            RuntimeProfileId: "official.sr6.core",
+            CapabilityCases:
+            [
+                ToSr6ParityCorpusCase(deriveResult, RulesetCapabilityInvocationKinds.Rule, RulePackCapabilityIds.DeriveStat),
+                ToSr6ParityCorpusCase(quickActionsResult, RulesetCapabilityInvocationKinds.Script, RulePackCapabilityIds.SessionQuickActions)
+            ]);
+    }
+
+    private static Sr6ParityCorpusCapabilityCase ToSr6ParityCorpusCase(
+        RulesetCapabilityInvocationResult result,
+        string invocationKind,
+        string capabilityId)
+    {
+        RulesetProviderTrace? provider = result.Explain?.Providers.FirstOrDefault();
+        return new Sr6ParityCorpusCapabilityCase(
+            InvocationKind: invocationKind,
+            CapabilityId: capabilityId,
+            Success: result.Success,
+            DiagnosticKeys: result.Diagnostics.Select(static diagnostic => diagnostic.MessageKey ?? diagnostic.Code).ToArray(),
+            Output: result.Output,
+            ExplainSummaryKey: result.Explain?.SummaryKey,
+            ExplainProviderId: provider?.ProviderId,
+            ExplainPackId: provider?.PackId);
+    }
+
     private static Sr5ParityCorpusCapabilityCase ToSr5ParityCorpusCase(
         RulesetCapabilityInvocationResult result,
         string invocationKind,
@@ -5202,6 +5310,21 @@ internal static class CoreEngineTests
         IReadOnlyList<Sr5ParityCorpusCapabilityCase> CapabilityCases);
 
     private sealed record Sr5ParityCorpusCapabilityCase(
+        string InvocationKind,
+        string CapabilityId,
+        bool Success,
+        IReadOnlyList<string> DiagnosticKeys,
+        RulesetCapabilityValue? Output,
+        string? ExplainSummaryKey,
+        string? ExplainProviderId,
+        string? ExplainPackId);
+
+    private sealed record Sr6ParityCorpusFixture(
+        string RulesetId,
+        string RuntimeProfileId,
+        IReadOnlyList<Sr6ParityCorpusCapabilityCase> CapabilityCases);
+
+    private sealed record Sr6ParityCorpusCapabilityCase(
         string InvocationKind,
         string CapabilityId,
         bool Success,

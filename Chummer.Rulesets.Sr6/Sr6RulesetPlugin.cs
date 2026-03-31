@@ -8,7 +8,7 @@ public class Sr6RulesetPlugin : IRulesetPlugin
 {
     public Sr6RulesetPlugin()
     {
-        Capabilities = new Sr6NoOpRulesetCapabilityHost();
+        Capabilities = new Sr6DeterministicRulesetCapabilityHost();
         Rules = new RulesetRuleHostCapabilityAdapter(Capabilities);
         Scripts = new RulesetScriptHostCapabilityAdapter(Capabilities);
     }
@@ -145,48 +145,148 @@ public class Sr6RulesetCapabilityDescriptorProvider : IRulesetCapabilityDescript
     public IReadOnlyList<RulesetCapabilityDescriptor> GetCapabilityDescriptors() => Descriptors;
 }
 
-public class Sr6NoOpRulesetCapabilityHost : IRulesetCapabilityHost
+public class Sr6DeterministicRulesetCapabilityHost : IRulesetCapabilityHost
 {
-    private const string RuleErrorMessage = "SR6 rules engine is not implemented; this ruleset remains experimental.";
-
     public ValueTask<RulesetCapabilityInvocationResult> InvokeAsync(RulesetCapabilityInvocationRequest request, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
 
-        IReadOnlyList<RulesetCapabilityDiagnostic> diagnostics = string.Equals(request.InvocationKind, RulesetCapabilityInvocationKinds.Script, StringComparison.Ordinal)
-            ?
-            [
-                new(
-                    "sr6.script.experimental",
-                    $"SR6 script host is not implemented; script '{request.CapabilityId}' cannot be executed because the ruleset remains experimental.",
-                    RulesetCapabilityDiagnosticSeverities.Error,
-                    MessageKey: "sr6.script.experimental",
-                    MessageParameters:
-                    [
-                        new RulesetExplainParameter("capabilityId", RulesetCapabilityBridge.FromObject(request.CapabilityId))
-                    ])
-            ]
-            :
-            [
-                new(
-                    "sr6.rule.experimental",
-                    RuleErrorMessage,
-                    RulesetCapabilityDiagnosticSeverities.Error,
-                    MessageKey: "sr6.rule.experimental"),
-                new(
-                    "sr6.rule.unavailable",
-                    $"Rule '{request.CapabilityId}' cannot be evaluated until SR6 rule providers are implemented.",
-                    RulesetCapabilityDiagnosticSeverities.Error,
-                    MessageKey: "sr6.rule.unavailable",
-                    MessageParameters:
-                    [
-                        new RulesetExplainParameter("capabilityId", RulesetCapabilityBridge.FromObject(request.CapabilityId))
-                    ])
-            ];
+        if (string.Equals(request.InvocationKind, RulesetCapabilityInvocationKinds.Rule, StringComparison.Ordinal)
+            && string.Equals(request.CapabilityId, RulePackCapabilityIds.DeriveStat, StringComparison.Ordinal))
+        {
+            return ValueTask.FromResult(EvaluateDeriveStat(request));
+        }
+
+        if (string.Equals(request.InvocationKind, RulesetCapabilityInvocationKinds.Script, StringComparison.Ordinal)
+            && string.Equals(request.CapabilityId, RulePackCapabilityIds.SessionQuickActions, StringComparison.Ordinal))
+        {
+            return ValueTask.FromResult(EvaluateSessionQuickActions(request));
+        }
 
         return ValueTask.FromResult(new RulesetCapabilityInvocationResult(
             Success: false,
             Output: null,
-            Diagnostics: diagnostics));
+            Diagnostics:
+            [
+                new(
+                    "sr6.capability.unsupported",
+                    $"SR6 capability '{request.CapabilityId}' is not mapped by the deterministic host.",
+                    RulesetCapabilityDiagnosticSeverities.Error,
+                    MessageKey: "sr6.capability.unsupported",
+                    MessageParameters:
+                    [
+                        new RulesetExplainParameter("capabilityId", RulesetCapabilityBridge.FromObject(request.CapabilityId))
+                    ])
+            ]));
+    }
+
+    private static RulesetCapabilityInvocationResult EvaluateDeriveStat(RulesetCapabilityInvocationRequest request)
+    {
+        long baseValue = GetIntegerArgument(request.Arguments, "baseValue")
+                         ?? GetIntegerArgument(request.Arguments, "base")
+                         ?? 0;
+        long modifier = GetIntegerArgument(request.Arguments, "modifier") ?? 0;
+        long value = baseValue + modifier;
+
+        RulesetCapabilityValue output = new(
+            RulesetCapabilityValueKinds.Object,
+            Properties: new Dictionary<string, RulesetCapabilityValue>(StringComparer.Ordinal)
+            {
+                ["capability"] = RulesetCapabilityBridge.FromObject(request.CapabilityId),
+                ["value"] = RulesetCapabilityBridge.FromObject(value),
+                ["baseValue"] = RulesetCapabilityBridge.FromObject(baseValue),
+                ["modifier"] = RulesetCapabilityBridge.FromObject(modifier)
+            });
+
+        return new RulesetCapabilityInvocationResult(
+            Success: true,
+            Output: output,
+            Diagnostics:
+            [
+                new(
+                    "sr6.rule.executed",
+                    "SR6 deterministic derive-stat capability executed.",
+                    RulesetCapabilityDiagnosticSeverities.Info,
+                    MessageKey: "sr6.rule.executed")
+            ],
+            Explain: CreateExplainTrace(request.CapabilityId, output, "sr6.host/derive.stat"));
+    }
+
+    private static RulesetCapabilityInvocationResult EvaluateSessionQuickActions(RulesetCapabilityInvocationRequest request)
+    {
+        string[] quickActions = ["anticipate", "dodge", "full-defense"];
+        RulesetCapabilityValue output = new(
+            RulesetCapabilityValueKinds.Object,
+            Properties: new Dictionary<string, RulesetCapabilityValue>(StringComparer.Ordinal)
+            {
+                ["capability"] = RulesetCapabilityBridge.FromObject(request.CapabilityId),
+                ["actions"] = RulesetCapabilityBridge.FromObject(quickActions)
+            });
+
+        return new RulesetCapabilityInvocationResult(
+            Success: true,
+            Output: output,
+            Diagnostics:
+            [
+                new(
+                    "sr6.script.executed",
+                    "SR6 deterministic session quick-actions capability executed.",
+                    RulesetCapabilityDiagnosticSeverities.Info,
+                    MessageKey: "sr6.script.executed")
+            ],
+            Explain: CreateExplainTrace(request.CapabilityId, output, "sr6.host/session.quick-actions"));
+    }
+
+    private static RulesetExplainTrace CreateExplainTrace(string capabilityId, RulesetCapabilityValue output, string providerId)
+    {
+        RulesetGasUsage gas = new(
+            ProviderInstructionsConsumed: 1,
+            RequestInstructionsConsumed: 1,
+            PeakMemoryBytes: 256);
+
+        return new RulesetExplainTrace(
+            TargetKey: capabilityId,
+            FinalValue: output,
+            SummaryKey: "ruleset.explain.summary.sr6.host.execution",
+            SummaryParameters:
+            [
+                new RulesetExplainParameter("capabilityId", RulesetCapabilityBridge.FromObject(capabilityId))
+            ],
+            Providers:
+            [
+                new RulesetProviderTrace(
+                    ProviderId: providerId,
+                    CapabilityId: capabilityId,
+                    PackId: "official.sr6.core",
+                    Success: true,
+                    Steps:
+                    [
+                        new RulesetTraceStep(
+                            ProviderId: providerId,
+                            CapabilityId: capabilityId,
+                            PackId: "official.sr6.core",
+                            ExplanationKey: "ruleset.explain.step.sr6.host.execution",
+                            ExplanationParameters:
+                            [
+                                new RulesetExplainParameter("capabilityId", RulesetCapabilityBridge.FromObject(capabilityId))
+                            ],
+                            Category: "deterministic-host")
+                    ],
+                    GasUsage: gas)
+            ],
+            AggregateGasUsage: gas,
+            ProfileId: "official.sr6.core");
+    }
+
+    private static long? GetIntegerArgument(IReadOnlyList<RulesetCapabilityArgument> arguments, string name)
+    {
+        RulesetCapabilityArgument? argument = arguments.FirstOrDefault(candidate =>
+            string.Equals(candidate.Name, name, StringComparison.Ordinal));
+        if (argument is null)
+        {
+            return null;
+        }
+
+        return argument.Value.IntegerValue;
     }
 }
