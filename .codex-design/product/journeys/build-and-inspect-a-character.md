@@ -16,18 +16,21 @@ Create or modify a character in a workbench surface, inspect the result, and tru
 1. The user opens a build or inspector surface in the workbench head.
 2. The UI consumes canonical engine contracts and the current runtime bundle instead of local copied rules truth.
 3. Every mechanics-affecting change recalculates deterministically.
-4. Inspectors and comparison views expose explain or receipt-bearing evidence for the result.
-5. The user can save, compare, or continue refining the build without leaving workbench ownership.
+4. Conditional states such as drugs, foci, sustained effects, training timers, or reputation spends are applied through receipt-backed controls instead of hidden modifiers.
+5. Inspectors and comparison views expose explain or receipt-bearing evidence for the result, including source-linked context when acquisition, legality, or temporary effects matter.
+6. The user can save, compare, or continue refining the build without leaving workbench ownership.
 
 ## Failure modes
 
 * If math or legality cannot be explained, the surface must show missing evidence and stop pretending the answer is settled.
+* If a multistep edit, bundle import, or PACK-style flow is cancelled, the character must return to a clean pre-edit state.
 * If a comparison flow would invent mechanics or legality, it must be blocked or clearly marked as non-canonical.
 * If live-session or mobile-specific behavior leaks into the flow, the fix is a boundary correction, not more UI glue.
 
 ## Success evidence
 
 * Explain pointers exist for promoted mechanics-affecting outputs.
+* Conditional-effect and active-state changes are visible enough to audit.
 * Workbench behavior stays out of the dedicated mobile play shell.
 * Shared primitives come from `Chummer.Ui.Kit` rather than repo-local forks.
 

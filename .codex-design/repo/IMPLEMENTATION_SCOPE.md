@@ -11,6 +11,7 @@
 * runtime bundles
 * runtime-bundle fingerprints
 * runtime-bundle build-axis truth
+* deterministic pharmacology profiles (SR5 baseline with SR4/SR6 profile modules)
 * deterministic reducers
 * explain provenance
 * engine contract canon
@@ -72,6 +73,22 @@ Ambient monorepo-relative project references are not the assumed default bootstr
 
 If a feature can be answered by deterministic mechanics or explain provenance, it belongs here.
 If it depends on HTTP, browser UX, player shell behavior, registry workflow, or render execution, it does not.
+
+## Flagship-grade bar
+
+`chummer6-core` is not flagship grade until:
+
+* SR4, SR5, and SR6 rules modules can explain edition-specific outcomes without pushing edition ambiguity up into the UI
+* legacy Chummer4, Chummer5a, and approved Hero Lab imports act as oracle fixtures, with divergences turned into triaged hardening work rather than ignored compatibility noise
+* custom drugs, stacked active effects, timing windows, and modifier expiry resolve through deterministic engine state rather than UI-side folklore
+* explain receipts surface enough canonical provenance that the product can answer "why?" without reverse-engineering engine internals
+
+## Drug and pharmacology rule focus
+
+* SR5 is the active profile baseline for deterministic drug semantics.
+* SR4/SR6 support must be profile modules, not branching UI logic.
+* drug import artifacts must resolve to canonical formulas before any explain receipt is generated.
+* custom-drug construction and application must resolve to inspectable effect stacks, durations, and crash/comedown outcomes before the UI presents them as valid.
 
 
 ## External integration note
