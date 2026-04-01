@@ -12,6 +12,9 @@
 * runtime-bundle fingerprints
 * runtime-bundle build-axis truth
 * deterministic pharmacology profiles (SR5 baseline with SR4/SR6 profile modules)
+* deterministic rule-environment compilation
+* amend graph normalization and package fingerprints
+* legacy amend/custom-data import and loss classification
 * deterministic reducers
 * explain provenance
 * engine contract canon
@@ -79,6 +82,8 @@ If it depends on HTTP, browser UX, player shell behavior, registry workflow, or 
 `chummer6-core` is not flagship grade until:
 
 * SR4, SR5, and SR6 rules modules can explain edition-specific outcomes without pushing edition ambiguity up into the UI
+* source packs, presets, and amend packages compile into one canonical rule-environment graph with stable fingerprints and activation receipts
+* Chummer5a-style amend packs either compile into the canonical operation set or emit explicit lossy/blocking receipts instead of silent fallback behavior
 * legacy Chummer4, Chummer5a, and approved Hero Lab imports act as oracle fixtures, with divergences turned into triaged hardening work rather than ignored compatibility noise
 * custom drugs, stacked active effects, timing windows, and modifier expiry resolve through deterministic engine state rather than UI-side folklore
 * explain receipts surface enough canonical provenance that the product can answer "why?" without reverse-engineering engine internals
