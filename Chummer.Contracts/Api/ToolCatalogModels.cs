@@ -31,7 +31,10 @@ public sealed record MasterIndexSourcebookEntry(
     bool Permanent,
     string ReferencePosture,
     int RuleSnippetCount,
-    IReadOnlyList<MasterIndexRuleSnippetEntry> RuleSnippets);
+    IReadOnlyList<MasterIndexRuleSnippetEntry> RuleSnippets,
+    string ReferenceSourcePosture = "missing",
+    string LocalPdfPath = "",
+    string ReferenceUrl = "");
 
 public sealed record MasterIndexRuleSnippetEntry(
     string Language,
