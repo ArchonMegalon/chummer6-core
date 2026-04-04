@@ -2109,6 +2109,9 @@ internal static class CoreEngineTests
             projection.Actions?.Any(static action => string.Equals(action.ActionId, "open-foundry-export", StringComparison.Ordinal)) == true,
             "Build Lab projection factory should expose governed Foundry-class exchange handoff.");
         AssertEx.True(
+            projection.Actions?.Any(static action => string.Equals(action.ActionId, "open-sheet-viewer", StringComparison.Ordinal)) == true,
+            "Build Lab projection factory should expose explicit sheet-viewer handoff.");
+        AssertEx.True(
             projection.ExportTargets?.Any(static target => string.Equals(target.TargetId, "target.character-template", StringComparison.Ordinal)
                 && string.Equals(target.TargetKind, BuildLabExportTargetKinds.CharacterTemplate, StringComparison.Ordinal)) == true,
             "Build Lab projection factory should expose character-template export target wiring.");
@@ -2117,6 +2120,11 @@ internal static class CoreEngineTests
                 && string.Equals(target.TargetKind, BuildLabExportTargetKinds.Workflow, StringComparison.Ordinal)
                 && string.Equals(target.WorkflowId, "workflow.exchange.foundry", StringComparison.Ordinal)) == true,
             "Build Lab projection factory should expose Foundry-class exchange workflow wiring.");
+        AssertEx.True(
+            projection.ExportTargets?.Any(static target => string.Equals(target.TargetId, "target.sheet-viewer", StringComparison.Ordinal)
+                && string.Equals(target.TargetKind, BuildLabExportTargetKinds.Workflow, StringComparison.Ordinal)
+                && string.Equals(target.WorkflowId, "workflow.viewer.sheet", StringComparison.Ordinal)) == true,
+            "Build Lab projection factory should expose sheet-viewer workflow wiring.");
         AssertEx.True(
             projection.ExportPayloads?.SelectMany(static payload => payload.Fields)
                 .Any(static field => string.Equals(field.FieldId, "rule-environment", StringComparison.Ordinal)
