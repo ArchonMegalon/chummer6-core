@@ -115,6 +115,61 @@ internal static class HeroLabRulesParityAudit
         CharacterAttributeSummary body = snapshot.Attributes.Attributes.FirstOrDefault(static entry => string.Equals(entry.Name, "BOD", StringComparison.Ordinal))
             ?? throw new InvalidOperationException("Hero Lab online alias payload should project a Body attribute.");
         AssertEx.Equal(4, body.TotalValue, "Hero Lab online import should preserve total attribute values from alias payloads.");
+
+        const string arrayShapeJson = """
+{
+  "metadata": {
+    "gameCode": "SR6",
+    "gameName": "Shadowrun Sixth World"
+  },
+  "actors": [
+    {
+      "isLead": true,
+      "name": "Array Runner",
+      "player": "Bob",
+      "gameValues": {
+        "alias": "Array Ghost",
+        "buildMethod": "Karma",
+        "karma": 9,
+        "nuyen": 1200,
+        "essence": 5.3
+      },
+      "items": [
+        {
+          "id": "as_body",
+          "name": "Body",
+          "compset": "ability",
+          "baseValue": 3,
+          "totalValue": 5
+        },
+        {
+          "id": "wp_katana",
+          "name": "Katana",
+          "compset": "weapon",
+          "items": [
+            {
+              "id": "ar_linedcoat",
+              "name": "Lined Coat",
+              "compset": "armor"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+""";
+
+        HeroLabImportSnapshot arrayShapeSnapshot = HeroLabShadowrunImporter.ImportOnlineJson(arrayShapeJson, "array-shape.json");
+        AssertEx.Equal(RulesetDefaults.Sr6, arrayShapeSnapshot.RulesetId, "Hero Lab online import should accept actors arrays.");
+        AssertEx.Equal("Array Runner", arrayShapeSnapshot.Profile.Name, "Hero Lab online import should preserve lead actor from arrays.");
+        AssertEx.Equal("Array Ghost", arrayShapeSnapshot.Profile.Alias, "Hero Lab online import should preserve profile aliases in array payloads.");
+        AssertEx.Equal(9m, arrayShapeSnapshot.Progress.Karma, "Hero Lab online import should preserve progress values in array payloads.");
+        AssertEx.Equal(1, arrayShapeSnapshot.Weapons.Count, "Hero Lab online import should parse weapon items from arrays.");
+        AssertEx.Equal(1, arrayShapeSnapshot.Armors.Count, "Hero Lab online import should parse nested armor items from arrays.");
+        CharacterAttributeSummary arrayBody = arrayShapeSnapshot.Attributes.Attributes.FirstOrDefault(static entry => string.Equals(entry.Name, "BOD", StringComparison.Ordinal))
+            ?? throw new InvalidOperationException("Hero Lab online array payload should project a Body attribute.");
+        AssertEx.Equal(5, arrayBody.TotalValue, "Hero Lab online import should preserve total attribute values from array payloads.");
     }
 
     private static void AssertOnlineFixtures(string directory, string[] expectedFixtureNames)
