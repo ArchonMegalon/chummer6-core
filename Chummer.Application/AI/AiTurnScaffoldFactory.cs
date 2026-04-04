@@ -392,7 +392,12 @@ internal static class AiTurnScaffoldFactory
                 Title: "Role pressure",
                 Summary: $"{FormatDecimal(model.TeamCoverage.RolePressureScore)}% role pressure across {model.Variants.Count} deterministic variant lane(s).",
                 ReferenceId: model.TeamCoverage.ExplainEntryId ?? $"{model.CharacterId}:role-pressure",
-                Source: "build-lab")
+                Source: "build-lab"),
+            new(
+                Title: "Rule-environment diff",
+                Summary: model.RuleEnvironmentDiffSummary,
+                ReferenceId: $"{model.CharacterId}:rule-environment-diff:{model.RuleEnvironmentBeforeFingerprint}->{model.RuleEnvironmentAfterFingerprint}",
+                Source: "runtime")
         ];
 
         KarmaSpendProjection leadPath = model.OrderedPaths[0];
@@ -469,6 +474,13 @@ internal static class AiTurnScaffoldFactory
                 Severity: AiRiskSeverities.Warning,
                 Title: "No pinned runtime fingerprint",
                 Summary: "The deterministic planner still runs, but runtime-specific compatibility proof is limited until a concrete runtime fingerprint is attached."));
+        }
+        else if (string.Equals(model.RuleEnvironmentDiffStatus, "requires_review", StringComparison.Ordinal))
+        {
+            risks.Add(new AiRiskEntry(
+                Severity: AiRiskSeverities.Warning,
+                Title: "Rule-environment diff requires review",
+                Summary: model.RuleEnvironmentDiffSummary));
         }
 
         return risks.ToArray();
@@ -647,6 +659,18 @@ internal static class AiTurnScaffoldFactory
             ?? ResolveFact(characterFacts, "runtimeFingerprint")
             ?? ResolveFact(runtimeFacts, "runtimeFingerprint")
             ?? string.Empty;
+        string ruleEnvironmentBeforeFingerprint = ResolveFact(runtimeFacts, "ruleEnvironmentBeforeFingerprint")
+            ?? runtimeFingerprint;
+        string ruleEnvironmentAfterFingerprint = ResolveFact(runtimeFacts, "ruleEnvironmentAfterFingerprint")
+            ?? runtimeFingerprint;
+        string ruleEnvironmentDiffStatus = ResolveRuleEnvironmentDiffStatus(
+            runtimeFingerprint,
+            ruleEnvironmentBeforeFingerprint,
+            ruleEnvironmentAfterFingerprint);
+        string ruleEnvironmentDiffSummary = CreateRuleEnvironmentDiffSummary(
+            ruleEnvironmentDiffStatus,
+            ruleEnvironmentBeforeFingerprint,
+            ruleEnvironmentAfterFingerprint);
         string workspaceId = ResolveFact(characterFacts, "workspaceId") ?? plan.Grounding.WorkspaceId ?? string.Empty;
         string[] roleTags = InferBuildRoleTags(plan, characterFacts);
         string[] requiredRoleTags = InferRequiredRoleTags(plan, roleTags);
@@ -684,6 +708,10 @@ internal static class AiTurnScaffoldFactory
             OrderedPaths: orderedPaths,
             TeamCoverage: teamCoverage,
             LeadVariant: leadVariant,
+            RuleEnvironmentDiffStatus: ruleEnvironmentDiffStatus,
+            RuleEnvironmentDiffSummary: ruleEnvironmentDiffSummary,
+            RuleEnvironmentBeforeFingerprint: ruleEnvironmentBeforeFingerprint,
+            RuleEnvironmentAfterFingerprint: ruleEnvironmentAfterFingerprint,
             RoleTags: roleTags,
             RequiredRoleTags: requiredRoleTags);
     }
@@ -857,6 +885,34 @@ internal static class AiTurnScaffoldFactory
     private static string DescribeRuntime(string runtimeFingerprint)
         => string.IsNullOrWhiteSpace(runtimeFingerprint) ? "no pinned runtime fingerprint" : $"runtime {runtimeFingerprint}";
 
+    private static string ResolveRuleEnvironmentDiffStatus(
+        string runtimeFingerprint,
+        string beforeFingerprint,
+        string afterFingerprint)
+    {
+        if (string.IsNullOrWhiteSpace(runtimeFingerprint))
+        {
+            return "pending";
+        }
+
+        return string.Equals(beforeFingerprint, afterFingerprint, StringComparison.OrdinalIgnoreCase)
+            ? "clear"
+            : "requires_review";
+    }
+
+    private static string CreateRuleEnvironmentDiffSummary(
+        string status,
+        string beforeFingerprint,
+        string afterFingerprint)
+    {
+        return status switch
+        {
+            "pending" => $"Rule-environment diff is pending because runtime fingerprint is not pinned; current lane defaults to {beforeFingerprint}.",
+            "requires_review" => $"Rule-environment diff requires review: {beforeFingerprint} -> {afterFingerprint}.",
+            _ => $"Rule-environment diff is clear: {beforeFingerprint} -> {afterFingerprint}."
+        };
+    }
+
     private static string FormatDecimal(decimal value)
         => value.ToString("0.##", CultureInfo.InvariantCulture);
 
@@ -882,6 +938,10 @@ internal static class AiTurnScaffoldFactory
         IReadOnlyList<KarmaSpendProjection> OrderedPaths,
         BuildTeamCoverageProjection TeamCoverage,
         BuildVariantProjection LeadVariant,
+        string RuleEnvironmentDiffStatus,
+        string RuleEnvironmentDiffSummary,
+        string RuleEnvironmentBeforeFingerprint,
+        string RuleEnvironmentAfterFingerprint,
         IReadOnlyList<string> RoleTags,
         IReadOnlyList<string> RequiredRoleTags);
 

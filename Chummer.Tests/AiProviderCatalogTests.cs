@@ -201,6 +201,7 @@ public sealed class AiProviderCatalogTests
         Assert.AreEqual(AiConfidenceLevels.Grounded, response.StructuredAnswer!.Confidence);
         StringAssert.Contains(response.StructuredAnswer.Summary, "Deterministic Build Lab planner ranked");
         Assert.IsTrue(response.StructuredAnswer.Evidence.Any(entry => entry.Title == "Crew-fit coverage"));
+        Assert.IsTrue(response.StructuredAnswer.Evidence.Any(entry => entry.Title == "Rule-environment diff"));
         Assert.IsTrue(response.StructuredAnswer.Risks.Any(risk => risk.Title == "Missing campaign role coverage"));
         Assert.IsTrue(response.StructuredAnswer.ActionDrafts.Any(draft => draft.ActionId == AiSuggestedActionIds.PreviewKarmaSpend));
         Assert.IsTrue(response.StructuredAnswer.ActionDrafts.Any(draft => draft.ActionId == AiSuggestedActionIds.PreviewApplyPlan));
