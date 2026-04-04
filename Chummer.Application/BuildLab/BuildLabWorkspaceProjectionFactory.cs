@@ -130,7 +130,13 @@ public static class BuildLabWorkspaceProjectionFactory
                 Label: "Export Foundry JSON",
                 SurfaceId: BuildLabSurfaceIds.ExportRail,
                 Enabled: true,
-                TargetId: "target.foundry-export")
+                TargetId: "target.foundry-export"),
+            new BuildLabActionDescriptor(
+                ActionId: "open-sheet-viewer",
+                Label: "Open Sheet Viewer",
+                SurfaceId: BuildLabSurfaceIds.ExportRail,
+                Enabled: true,
+                TargetId: "target.sheet-viewer")
         ];
 
         return new BuildLabConceptIntakeProjection(
@@ -579,6 +585,23 @@ public static class BuildLabWorkspaceProjectionFactory
                         Label: "Exchange-governed",
                         Kind: BuildLabBadgeKinds.Export,
                         Emphasized: true)
+                ]),
+            new BuildLabExportTarget(
+                TargetId: "target.sheet-viewer",
+                Label: "Sheet Viewer",
+                TargetKind: BuildLabExportTargetKinds.Workflow,
+                WorkflowId: "workflow.viewer.sheet",
+                Enabled: true,
+                Description: "Open the current Build Lab handoff in the governed sheet viewer before print/export decisions.",
+                PayloadId: "payload.build-lab-handoff",
+                ActionId: "open-sheet-viewer",
+                Badges:
+                [
+                    new BuildLabBadge(
+                        BadgeId: "viewer-safe",
+                        Label: "Viewer-safe",
+                        Kind: BuildLabBadgeKinds.Export,
+                        Emphasized: false)
                 ])
         ];
     }
