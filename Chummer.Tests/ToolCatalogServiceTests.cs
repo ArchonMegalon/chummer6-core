@@ -56,6 +56,11 @@ public class ToolCatalogServiceTests
             Assert.AreEqual(5, response.Sr6DesignerFamiliesExpected);
             Assert.AreEqual("missing", response.HouseRuleLanePosture);
             Assert.AreEqual(0, response.HouseRuleOverlayCount);
+            Assert.AreEqual("missing", response.OnlineStorageLanePosture);
+            Assert.AreEqual("missing", response.OnlineStorageReceiptPosture);
+            Assert.AreEqual(0, response.OnlineStorageReceiptsCovered);
+            Assert.AreEqual(2, response.OnlineStorageReceiptsExpected);
+            Assert.AreEqual(0, response.OnlineStorageCoveragePercent);
             Assert.AreEqual("missing", response.ImportOracleLanePosture);
             Assert.AreEqual("missing", response.ImportOracleReceiptPosture);
             Assert.AreEqual(0, response.LegacyChummer4FixtureCount);
@@ -238,6 +243,11 @@ public class ToolCatalogServiceTests
             Assert.AreEqual(5, response.Sr6DesignerFamiliesExpected);
             Assert.AreEqual("missing", response.HouseRuleLanePosture);
             Assert.AreEqual(0, response.HouseRuleOverlayCount);
+            Assert.AreEqual("missing", response.OnlineStorageLanePosture);
+            Assert.AreEqual("missing", response.OnlineStorageReceiptPosture);
+            Assert.AreEqual(0, response.OnlineStorageReceiptsCovered);
+            Assert.AreEqual(2, response.OnlineStorageReceiptsExpected);
+            Assert.AreEqual(0, response.OnlineStorageCoveragePercent);
             Assert.AreEqual("missing", response.ImportOracleLanePosture);
             Assert.AreEqual("missing", response.ImportOracleReceiptPosture);
             Assert.AreEqual(0, response.LegacyChummer4FixtureCount);
@@ -828,6 +838,107 @@ public class ToolCatalogServiceTests
 
             Assert.AreEqual("governed", response.HouseRuleLanePosture);
             Assert.AreEqual(1, response.HouseRuleOverlayCount);
+        }
+        finally
+        {
+            DeleteTempDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public void Master_index_reports_governed_online_storage_lane_when_hub_and_mobile_release_receipts_cover_restore_journey()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            string dataDir = Path.Combine(root, "data");
+            Directory.CreateDirectory(dataDir);
+            File.WriteAllText(Path.Combine(dataDir, "books.xml"), "<chummer><books /></chummer>");
+
+            string hubPublishedDir = Path.Combine(root, "chummer.run-services", ".codex-studio", "published");
+            Directory.CreateDirectory(hubPublishedDir);
+            File.WriteAllText(
+                Path.Combine(hubPublishedDir, "HUB_LOCAL_RELEASE_PROOF.generated.json"),
+                """
+                {
+                  "status": "passed",
+                  "journeys_passed": [
+                    "install_claim_restore_continue",
+                    "campaign_session_recover_recap"
+                  ]
+                }
+                """);
+
+            string mobilePublishedDir = Path.Combine(root, "chummer-play", ".codex-studio", "published");
+            Directory.CreateDirectory(mobilePublishedDir);
+            File.WriteAllText(
+                Path.Combine(mobilePublishedDir, "MOBILE_LOCAL_RELEASE_PROOF.generated.json"),
+                """
+                {
+                  "status": "passed",
+                  "journeys_passed": [
+                    "install_claim_restore_continue"
+                  ]
+                }
+                """);
+
+            var service = new XmlToolCatalogService(root);
+            MasterIndexResponse response = service.GetMasterIndex();
+
+            Assert.AreEqual("governed", response.OnlineStorageLanePosture);
+            Assert.AreEqual("governed", response.OnlineStorageReceiptPosture);
+            Assert.AreEqual(2, response.OnlineStorageReceiptsCovered);
+            Assert.AreEqual(2, response.OnlineStorageReceiptsExpected);
+            Assert.AreEqual(100, response.OnlineStorageCoveragePercent);
+        }
+        finally
+        {
+            DeleteTempDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public void Master_index_reports_stale_online_storage_lane_when_only_one_receipt_covers_restore_journey()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            string dataDir = Path.Combine(root, "data");
+            Directory.CreateDirectory(dataDir);
+            File.WriteAllText(Path.Combine(dataDir, "books.xml"), "<chummer><books /></chummer>");
+
+            string hubPublishedDir = Path.Combine(root, "chummer.run-services", ".codex-studio", "published");
+            Directory.CreateDirectory(hubPublishedDir);
+            File.WriteAllText(
+                Path.Combine(hubPublishedDir, "HUB_LOCAL_RELEASE_PROOF.generated.json"),
+                """
+                {
+                  "status": "passed",
+                  "journeys_passed": [
+                    "install_claim_restore_continue"
+                  ]
+                }
+                """);
+
+            string mobilePublishedDir = Path.Combine(root, "chummer-play", ".codex-studio", "published");
+            Directory.CreateDirectory(mobilePublishedDir);
+            File.WriteAllText(
+                Path.Combine(mobilePublishedDir, "MOBILE_LOCAL_RELEASE_PROOF.generated.json"),
+                """
+                {
+                  "status": "failed",
+                  "journeys_passed": []
+                }
+                """);
+
+            var service = new XmlToolCatalogService(root);
+            MasterIndexResponse response = service.GetMasterIndex();
+
+            Assert.AreEqual("stale", response.OnlineStorageLanePosture);
+            Assert.AreEqual("stale", response.OnlineStorageReceiptPosture);
+            Assert.AreEqual(1, response.OnlineStorageReceiptsCovered);
+            Assert.AreEqual(2, response.OnlineStorageReceiptsExpected);
+            Assert.AreEqual(50, response.OnlineStorageCoveragePercent);
         }
         finally
         {
