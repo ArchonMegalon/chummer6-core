@@ -49,6 +49,7 @@ public sealed record MasterIndexResponse(
     int HouseRuleOverlayCount = 0,
     string OnlineStorageLanePosture = "missing",
     string OnlineStorageReceiptPosture = "missing",
+    string OnlineStorageLaneReceipt = "",
     int OnlineStorageReceiptsCovered = 0,
     int OnlineStorageReceiptsExpected = 2,
     int OnlineStorageCoveragePercent = 0,

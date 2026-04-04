@@ -2271,6 +2271,7 @@ public class ApiIntegrationTests
         Assert.IsNotNull(response["houseRuleOverlayCount"]);
         Assert.IsNotNull(response["onlineStorageLanePosture"]);
         Assert.IsNotNull(response["onlineStorageReceiptPosture"]);
+        Assert.IsNotNull(response["onlineStorageLaneReceipt"]);
         Assert.IsNotNull(response["onlineStorageReceiptsCovered"]);
         Assert.IsNotNull(response["onlineStorageReceiptsExpected"]);
         Assert.IsNotNull(response["onlineStorageCoveragePercent"]);
