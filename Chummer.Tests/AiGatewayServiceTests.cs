@@ -395,6 +395,7 @@ public sealed class AiGatewayServiceTests
         Assert.AreEqual(AiConfidenceLevels.Grounded, structuredAnswer.Confidence);
         StringAssert.Contains(structuredAnswer.Summary, "Deterministic Build Lab planner ranked");
         Assert.IsTrue(structuredAnswer.Evidence.Any(entry => entry.Title == "Crew-fit coverage"));
+        Assert.IsTrue(structuredAnswer.Evidence.Any(entry => entry.Title == "Rule-environment diff"));
         Assert.IsTrue(structuredAnswer.ActionDrafts.Any(draft => draft.ActionId == AiSuggestedActionIds.PreviewKarmaSpend));
         Assert.IsTrue(structuredAnswer.ActionDrafts.Any(draft => draft.ActionId == AiSuggestedActionIds.PreviewApplyPlan));
         Assert.IsTrue(structuredAnswer.ActionDrafts.Any(draft => draft.ActionId == AiSuggestedActionIds.BrowseBuildIdeas));

@@ -1987,6 +1987,7 @@ internal static class CoreEngineTests
         AssertEx.True(structuredAnswer.Summary.Contains("Deterministic Build Lab planner ranked", StringComparison.Ordinal), "Build route provider scaffold should summarize deterministic planner output.");
         AssertEx.True(structuredAnswer.Recommendations.Count > 0, "Build route provider scaffold should emit deterministic planner recommendations.");
         AssertEx.True(structuredAnswer.Evidence.Any(static entry => string.Equals(entry.Title, "Crew-fit coverage", StringComparison.Ordinal)), "Build route provider scaffold should surface crew-fit evidence.");
+        AssertEx.True(structuredAnswer.Evidence.Any(static entry => string.Equals(entry.Title, "Rule-environment diff", StringComparison.Ordinal)), "Build route provider scaffold should surface rule-environment diff evidence.");
         AssertEx.True(structuredAnswer.Risks.Any(static risk => string.Equals(risk.Title, "Missing campaign role coverage", StringComparison.Ordinal)), "Build route provider scaffold should surface missing-role pressure as an explicit risk.");
         AssertEx.True(structuredAnswer.ActionDrafts.Any(static draft => string.Equals(draft.ActionId, AiSuggestedActionIds.PreviewKarmaSpend, StringComparison.Ordinal)), "Build route provider scaffold should queue a karma preview action draft.");
         AssertEx.True(structuredAnswer.ActionDrafts.Any(static draft => string.Equals(draft.ActionId, AiSuggestedActionIds.PreviewApplyPlan, StringComparison.Ordinal)), "Build route provider scaffold should queue an apply-preview draft.");
@@ -2021,6 +2022,7 @@ internal static class CoreEngineTests
         AssertEx.Equal(AiConfidenceLevels.Grounded, structuredAnswer.Confidence, "Build route gateway should upgrade to grounded confidence when deterministic Build Lab output is available.");
         AssertEx.True(structuredAnswer.Summary.Contains("Deterministic Build Lab planner ranked", StringComparison.Ordinal), "Build route gateway should summarize deterministic planner output.");
         AssertEx.True(structuredAnswer.Evidence.Any(static entry => string.Equals(entry.Title, "Crew-fit coverage", StringComparison.Ordinal)), "Build route gateway should surface crew-fit evidence.");
+        AssertEx.True(structuredAnswer.Evidence.Any(static entry => string.Equals(entry.Title, "Rule-environment diff", StringComparison.Ordinal)), "Build route gateway should surface rule-environment diff evidence.");
         AssertEx.True(structuredAnswer.ActionDrafts.Any(static draft => string.Equals(draft.ActionId, AiSuggestedActionIds.PreviewKarmaSpend, StringComparison.Ordinal)), "Build route gateway should queue a karma preview action draft.");
         AssertEx.True(structuredAnswer.ActionDrafts.Any(static draft => string.Equals(draft.ActionId, AiSuggestedActionIds.PreviewApplyPlan, StringComparison.Ordinal)), "Build route gateway should queue an apply-preview draft.");
         AssertEx.True(structuredAnswer.ActionDrafts.Any(static draft => string.Equals(draft.ActionId, AiSuggestedActionIds.BrowseBuildIdeas, StringComparison.Ordinal)), "Build route gateway should queue a build-ideas draft.");
