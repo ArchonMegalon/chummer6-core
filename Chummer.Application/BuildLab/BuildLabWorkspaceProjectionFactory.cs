@@ -108,6 +108,7 @@ public static class BuildLabWorkspaceProjectionFactory
             topVariant,
             topTimeline,
             teamCoverageProjection,
+            runtimeSummary,
             sourceDocumentId);
         BuildLabExportTarget[] exportTargets = BuildExportTargets();
         BuildLabActionDescriptor[] actions =
@@ -117,7 +118,19 @@ public static class BuildLabWorkspaceProjectionFactory
                 Label: "Hand Off",
                 SurfaceId: BuildLabSurfaceIds.ExportRail,
                 Enabled: true,
-                TargetId: exportTargets[0].TargetId)
+                TargetId: "target.build-idea-card"),
+            new BuildLabActionDescriptor(
+                ActionId: "save-template",
+                Label: "Save Template",
+                SurfaceId: BuildLabSurfaceIds.ExportRail,
+                Enabled: true,
+                TargetId: "target.character-template"),
+            new BuildLabActionDescriptor(
+                ActionId: "open-foundry-export",
+                Label: "Export Foundry JSON",
+                SurfaceId: BuildLabSurfaceIds.ExportRail,
+                Enabled: true,
+                TargetId: "target.foundry-export")
         ];
 
         return new BuildLabConceptIntakeProjection(
@@ -471,6 +484,7 @@ public static class BuildLabWorkspaceProjectionFactory
         BuildLabVariantProjection topVariant,
         BuildLabProgressionTimeline? topTimeline,
         BuildLabTeamCoverageProjection teamCoverage,
+        string runtimeSummary,
         string? sourceDocumentId)
     {
         return
@@ -498,7 +512,15 @@ public static class BuildLabWorkspaceProjectionFactory
                     new BuildLabExportField(
                         FieldId: "campaign-fit",
                         Label: "Campaign fit",
-                        Value: teamCoverage.CoverageSummary)
+                        Value: teamCoverage.CoverageSummary),
+                    new BuildLabExportField(
+                        FieldId: "rule-environment",
+                        Label: "Rule environment",
+                        Value: runtimeSummary),
+                    new BuildLabExportField(
+                        FieldId: "explain-receipt",
+                        Label: "Explain receipt",
+                        Value: FirstNonEmpty(topVariant.ExplainEntryId, topTimeline?.Steps.LastOrDefault()?.ExplainEntryId, "buildlab.intake.ungrounded"))
                 ])
         ];
     }
@@ -521,6 +543,40 @@ public static class BuildLabWorkspaceProjectionFactory
                     new BuildLabBadge(
                         BadgeId: "explicit-handoff",
                         Label: "Governed handoff",
+                        Kind: BuildLabBadgeKinds.Export,
+                        Emphasized: true)
+                ]),
+            new BuildLabExportTarget(
+                TargetId: "target.character-template",
+                Label: "Character Template",
+                TargetKind: BuildLabExportTargetKinds.CharacterTemplate,
+                WorkflowId: "workflow.templates.character",
+                Enabled: true,
+                Description: "Save this deterministic lane as a local reusable template without re-entering Build Lab intake.",
+                PayloadId: "payload.build-lab-handoff",
+                ActionId: "save-template",
+                Badges:
+                [
+                    new BuildLabBadge(
+                        BadgeId: "template-ready",
+                        Label: "Template-ready",
+                        Kind: BuildLabBadgeKinds.Export,
+                        Emphasized: false)
+                ]),
+            new BuildLabExportTarget(
+                TargetId: "target.foundry-export",
+                Label: "Foundry JSON Export",
+                TargetKind: BuildLabExportTargetKinds.Workflow,
+                WorkflowId: "workflow.exchange.foundry",
+                Enabled: true,
+                Description: "Prepare a governed Foundry-class exchange payload from this Build Lab handoff without forking dossier truth.",
+                PayloadId: "payload.build-lab-handoff",
+                ActionId: "open-foundry-export",
+                Badges:
+                [
+                    new BuildLabBadge(
+                        BadgeId: "exchange-governed",
+                        Label: "Exchange-governed",
                         Kind: BuildLabBadgeKinds.Export,
                         Emphasized: true)
                 ])

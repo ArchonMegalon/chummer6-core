@@ -2102,6 +2102,31 @@ internal static class CoreEngineTests
         AssertEx.True(
             projection.Actions?.Any(static action => string.Equals(action.ActionId, "next-variants", StringComparison.Ordinal)) == true,
             "Build Lab projection factory should expose the governed handoff action.");
+        AssertEx.True(
+            projection.Actions?.Any(static action => string.Equals(action.ActionId, "save-template", StringComparison.Ordinal)) == true,
+            "Build Lab projection factory should expose deterministic template export handoff.");
+        AssertEx.True(
+            projection.Actions?.Any(static action => string.Equals(action.ActionId, "open-foundry-export", StringComparison.Ordinal)) == true,
+            "Build Lab projection factory should expose governed Foundry-class exchange handoff.");
+        AssertEx.True(
+            projection.ExportTargets?.Any(static target => string.Equals(target.TargetId, "target.character-template", StringComparison.Ordinal)
+                && string.Equals(target.TargetKind, BuildLabExportTargetKinds.CharacterTemplate, StringComparison.Ordinal)) == true,
+            "Build Lab projection factory should expose character-template export target wiring.");
+        AssertEx.True(
+            projection.ExportTargets?.Any(static target => string.Equals(target.TargetId, "target.foundry-export", StringComparison.Ordinal)
+                && string.Equals(target.TargetKind, BuildLabExportTargetKinds.Workflow, StringComparison.Ordinal)
+                && string.Equals(target.WorkflowId, "workflow.exchange.foundry", StringComparison.Ordinal)) == true,
+            "Build Lab projection factory should expose Foundry-class exchange workflow wiring.");
+        AssertEx.True(
+            projection.ExportPayloads?.SelectMany(static payload => payload.Fields)
+                .Any(static field => string.Equals(field.FieldId, "rule-environment", StringComparison.Ordinal)
+                    && field.Value.Contains("Grounded in", StringComparison.Ordinal)) == true,
+            "Build Lab projection factory should stamp rule-environment summary onto governed export payloads.");
+        AssertEx.True(
+            projection.ExportPayloads?.SelectMany(static payload => payload.Fields)
+                .Any(static field => string.Equals(field.FieldId, "explain-receipt", StringComparison.Ordinal)
+                    && field.Value.Contains("buildlab", StringComparison.Ordinal)) == true,
+            "Build Lab projection factory should stamp explain receipt ids onto governed export payloads.");
     }
 
     private static void WorkspaceServiceRebindsBuildLabWorkspaceIds()
