@@ -2257,6 +2257,11 @@ public class ApiIntegrationTests
         Assert.IsNotNull(response["sr6DesignerFamiliesExpected"]);
         Assert.IsNotNull(response["houseRuleLanePosture"]);
         Assert.IsNotNull(response["houseRuleOverlayCount"]);
+        Assert.IsNotNull(response["onlineStorageLanePosture"]);
+        Assert.IsNotNull(response["onlineStorageReceiptPosture"]);
+        Assert.IsNotNull(response["onlineStorageReceiptsCovered"]);
+        Assert.IsNotNull(response["onlineStorageReceiptsExpected"]);
+        Assert.IsNotNull(response["onlineStorageCoveragePercent"]);
         Assert.IsNotNull(response["importOracleLanePosture"]);
         Assert.IsNotNull(response["importOracleReceiptPosture"]);
         Assert.IsNotNull(response["legacyChummer4FixtureCount"]);

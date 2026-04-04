@@ -38,6 +38,12 @@ public sealed class XmlToolCatalogService : IToolCatalogService
         int SourcesCovered,
         int SourcesExpected,
         int CoveragePercent);
+    private readonly record struct OnlineStorageSummary(
+        string LanePosture,
+        string ReceiptPosture,
+        int ReceiptsCovered,
+        int ReceiptsExpected,
+        int CoveragePercent);
 
     public XmlToolCatalogService(IContentOverlayCatalogService overlays)
     {
@@ -58,6 +64,7 @@ public sealed class XmlToolCatalogService : IToolCatalogService
             catalog.BaseDataPath,
             pack => pack.DataPath);
         ImportOracleSummary importOracleSummary = BuildImportOracleSummary(catalog.BaseDataPath);
+        OnlineStorageSummary onlineStorageSummary = BuildOnlineStorageSummary(catalog.BaseDataPath);
         if (filesByName.Count == 0)
             return new MasterIndexResponse(
                 Count: 0,
@@ -90,6 +97,11 @@ public sealed class XmlToolCatalogService : IToolCatalogService
                 Sr6DesignerFamiliesExpected: Sr6DesignerFamiliesExpected,
                 HouseRuleLanePosture: ResolveHouseRuleLanePosture(catalog),
                 HouseRuleOverlayCount: CountHouseRuleOverlays(catalog),
+                OnlineStorageLanePosture: onlineStorageSummary.LanePosture,
+                OnlineStorageReceiptPosture: onlineStorageSummary.ReceiptPosture,
+                OnlineStorageReceiptsCovered: onlineStorageSummary.ReceiptsCovered,
+                OnlineStorageReceiptsExpected: onlineStorageSummary.ReceiptsExpected,
+                OnlineStorageCoveragePercent: onlineStorageSummary.CoveragePercent,
                 ImportOracleLanePosture: importOracleSummary.LanePosture,
                 ImportOracleReceiptPosture: importOracleSummary.ReceiptPosture,
                 LegacyChummer4FixtureCount: importOracleSummary.LegacyChummer4FixtureCount,
@@ -170,6 +182,11 @@ public sealed class XmlToolCatalogService : IToolCatalogService
             Sr6DesignerFamiliesExpected: Sr6DesignerFamiliesExpected,
             HouseRuleLanePosture: ResolveHouseRuleLanePosture(catalog),
             HouseRuleOverlayCount: CountHouseRuleOverlays(catalog),
+            OnlineStorageLanePosture: onlineStorageSummary.LanePosture,
+            OnlineStorageReceiptPosture: onlineStorageSummary.ReceiptPosture,
+            OnlineStorageReceiptsCovered: onlineStorageSummary.ReceiptsCovered,
+            OnlineStorageReceiptsExpected: onlineStorageSummary.ReceiptsExpected,
+            OnlineStorageCoveragePercent: onlineStorageSummary.CoveragePercent,
             ImportOracleLanePosture: importOracleSummary.LanePosture,
             ImportOracleReceiptPosture: importOracleSummary.ReceiptPosture,
             LegacyChummer4FixtureCount: importOracleSummary.LegacyChummer4FixtureCount,
@@ -437,6 +454,108 @@ public sealed class XmlToolCatalogService : IToolCatalogService
         return CountOverlayXmlFiles(catalog, pack => pack.DataPath) > 0
             ? "governed"
             : "stale";
+    }
+
+    private static OnlineStorageSummary BuildOnlineStorageSummary(string baseDataPath)
+    {
+        const int receiptsExpected = 2;
+        string? evidenceRoot = TryResolveOnlineStorageEvidenceRoot(baseDataPath);
+        if (string.IsNullOrWhiteSpace(evidenceRoot))
+        {
+            return new OnlineStorageSummary(
+                LanePosture: "missing",
+                ReceiptPosture: "missing",
+                ReceiptsCovered: 0,
+                ReceiptsExpected: receiptsExpected,
+                CoveragePercent: 0);
+        }
+
+        string hubReceiptPath = Path.Combine(
+            evidenceRoot,
+            "chummer.run-services",
+            ".codex-studio",
+            "published",
+            "HUB_LOCAL_RELEASE_PROOF.generated.json");
+        string mobileReceiptPath = Path.Combine(
+            evidenceRoot,
+            "chummer-play",
+            ".codex-studio",
+            "published",
+            "MOBILE_LOCAL_RELEASE_PROOF.generated.json");
+        bool hubReceiptCovered = IsOnlineStorageContinuityReceiptCovered(hubReceiptPath);
+        bool mobileReceiptCovered = IsOnlineStorageContinuityReceiptCovered(mobileReceiptPath);
+        int receiptsCovered = (hubReceiptCovered ? 1 : 0) + (mobileReceiptCovered ? 1 : 0);
+        int receiptsFound = (File.Exists(hubReceiptPath) ? 1 : 0) + (File.Exists(mobileReceiptPath) ? 1 : 0);
+        int coveragePercent = (int)Math.Round(receiptsCovered * 100d / receiptsExpected, MidpointRounding.AwayFromZero);
+
+        string receiptPosture = receiptsFound <= 0
+            ? "missing"
+            : receiptsCovered >= receiptsExpected
+                ? "governed"
+                : "stale";
+        string lanePosture = receiptsCovered <= 0
+            ? "missing"
+            : receiptsCovered >= receiptsExpected
+                ? "governed"
+                : "stale";
+        return new OnlineStorageSummary(
+            LanePosture: lanePosture,
+            ReceiptPosture: receiptPosture,
+            ReceiptsCovered: receiptsCovered,
+            ReceiptsExpected: receiptsExpected,
+            CoveragePercent: coveragePercent);
+    }
+
+    private static bool IsOnlineStorageContinuityReceiptCovered(string receiptPath)
+    {
+        if (!File.Exists(receiptPath))
+        {
+            return false;
+        }
+
+        try
+        {
+            JsonNode? payload = JsonNode.Parse(File.ReadAllText(receiptPath));
+            string status = payload?["status"]?.GetValue<string>()?.Trim() ?? string.Empty;
+            if (!string.Equals(status, "passed", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            JsonArray? journeysPassed = payload?["journeys_passed"] as JsonArray;
+            return journeysPassed?.OfType<JsonNode>().Any(journeyNode =>
+                string.Equals(
+                    journeyNode?.GetValue<string>()?.Trim(),
+                    "install_claim_restore_continue",
+                    StringComparison.Ordinal)) ?? false;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static string? TryResolveOnlineStorageEvidenceRoot(string baseDataPath)
+    {
+        if (string.IsNullOrWhiteSpace(baseDataPath))
+        {
+            return null;
+        }
+
+        DirectoryInfo? current = new(Path.GetFullPath(baseDataPath));
+        while (current is not null)
+        {
+            bool hasHubProofPath = Directory.Exists(Path.Combine(current.FullName, "chummer.run-services", ".codex-studio", "published"));
+            bool hasMobileProofPath = Directory.Exists(Path.Combine(current.FullName, "chummer-play", ".codex-studio", "published"));
+            if (hasHubProofPath || hasMobileProofPath)
+            {
+                return current.FullName;
+            }
+
+            current = current.Parent;
+        }
+
+        return null;
     }
 
     private static ImportOracleSummary BuildImportOracleSummary(string baseDataPath)
