@@ -2253,6 +2253,7 @@ public class ApiIntegrationTests
         Assert.IsNotNull(response["sourcebooksWithGovernedReferenceSources"]);
         Assert.IsNotNull(response["sourcebooksWithStaleReferenceSources"]);
         Assert.IsNotNull(response["sourcebooksMissingReferenceSources"]);
+        Assert.IsNotNull(response["referenceSourceLaneReceipt"]);
         Assert.IsNotNull(response["settingsLaneReceipt"]);
         Assert.IsNotNull(response["sourceToggleLaneReceipt"]);
         Assert.IsNotNull(response["customDataLaneReceipt"]);
