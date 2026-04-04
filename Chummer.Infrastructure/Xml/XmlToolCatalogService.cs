@@ -69,6 +69,10 @@ public sealed class XmlToolCatalogService : IToolCatalogService
                 SourcebooksWithSnippets: 0,
                 SourcebooksMissingSnippets: 0,
                 ReferenceCoveragePercent: 0,
+                ReferenceSourceLanePosture: "missing",
+                SourcebooksWithGovernedReferenceSources: 0,
+                SourcebooksWithStaleReferenceSources: 0,
+                SourcebooksMissingReferenceSources: 0,
                 SettingsLanePosture: "missing",
                 SettingsProfileCount: 0,
                 SettingsProfilesWithSourceToggles: 0,
@@ -100,6 +104,16 @@ public sealed class XmlToolCatalogService : IToolCatalogService
         int sourcebooksWithSnippets = CountSourcebooksWithSnippets(sourcebooks);
         int sourcebooksMissingSnippets = sourcebooks.Count - sourcebooksWithSnippets;
         int referenceCoveragePercent = CalculateReferenceCoveragePercent(sourcebooks.Count, sourcebooksWithSnippets);
+        int sourcebooksWithGovernedReferenceSources = sourcebooks.Count(sourcebook =>
+            string.Equals(sourcebook.ReferenceSourcePosture, "governed", StringComparison.Ordinal));
+        int sourcebooksWithStaleReferenceSources = sourcebooks.Count(sourcebook =>
+            string.Equals(sourcebook.ReferenceSourcePosture, "stale", StringComparison.Ordinal));
+        int sourcebooksMissingReferenceSources =
+            Math.Max(0, sourcebooks.Count - sourcebooksWithGovernedReferenceSources - sourcebooksWithStaleReferenceSources);
+        string referenceSourceLanePosture = ResolveReferenceSourceLanePosture(
+            sourcebooks.Count,
+            sourcebooksWithStaleReferenceSources,
+            sourcebooksMissingReferenceSources);
         var settingsSummary = BuildSettingsCatalogSummary(filesByName, sourcebooks);
         int enabledDataOverlayCount = CountEnabledDataOverlays(catalog);
         string customDataLanePosture = ResolveCustomDataLanePosture(
@@ -135,6 +149,10 @@ public sealed class XmlToolCatalogService : IToolCatalogService
             SourcebooksWithSnippets: sourcebooksWithSnippets,
             SourcebooksMissingSnippets: sourcebooksMissingSnippets,
             ReferenceCoveragePercent: referenceCoveragePercent,
+            ReferenceSourceLanePosture: referenceSourceLanePosture,
+            SourcebooksWithGovernedReferenceSources: sourcebooksWithGovernedReferenceSources,
+            SourcebooksWithStaleReferenceSources: sourcebooksWithStaleReferenceSources,
+            SourcebooksMissingReferenceSources: sourcebooksMissingReferenceSources,
             SettingsLanePosture: settingsSummary.SettingsLanePosture,
             SettingsProfileCount: settingsSummary.ProfileCount,
             SettingsProfilesWithSourceToggles: settingsSummary.ProfilesWithSourceToggles,
@@ -238,6 +256,21 @@ public sealed class XmlToolCatalogService : IToolCatalogService
         }
 
         return (int)Math.Round(sourcebooksWithSnippets * 100d / sourcebookCount, MidpointRounding.AwayFromZero);
+    }
+
+    private static string ResolveReferenceSourceLanePosture(
+        int sourcebookCount,
+        int sourcebooksWithStaleReferenceSources,
+        int sourcebooksMissingReferenceSources)
+    {
+        if (sourcebookCount <= 0)
+        {
+            return "missing";
+        }
+
+        return sourcebooksWithStaleReferenceSources > 0 || sourcebooksMissingReferenceSources > 0
+            ? "stale"
+            : "governed";
     }
 
     private static SettingsCatalogSummary BuildSettingsCatalogSummary(

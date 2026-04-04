@@ -2247,6 +2247,10 @@ public class ApiIntegrationTests
         JsonObject response = await GetRequiredJsonObject(client, "/api/tools/master-index");
         Assert.IsGreaterThan(0, response["count"]?.GetValue<int>() ?? 0);
         Assert.IsTrue(response["files"] is JsonArray);
+        Assert.IsNotNull(response["referenceSourceLanePosture"]);
+        Assert.IsNotNull(response["sourcebooksWithGovernedReferenceSources"]);
+        Assert.IsNotNull(response["sourcebooksWithStaleReferenceSources"]);
+        Assert.IsNotNull(response["sourcebooksMissingReferenceSources"]);
         Assert.IsNotNull(response["sr6SupplementLanePosture"]);
         Assert.IsNotNull(response["sr6DesignerToolsPosture"]);
         Assert.IsNotNull(response["sr6DesignerFamiliesAvailable"]);
