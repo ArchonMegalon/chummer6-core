@@ -40,7 +40,8 @@ public sealed class XmlToolCatalogService : IToolCatalogService
         int AdjacentSr6OracleSourcesExpected,
         int SourcesCovered,
         int SourcesExpected,
-        int CoveragePercent);
+        int CoveragePercent,
+        IReadOnlyList<string> MissingSources);
     private readonly record struct OnlineStorageSummary(
         string LanePosture,
         string ReceiptPosture,
@@ -135,6 +136,7 @@ public sealed class XmlToolCatalogService : IToolCatalogService
                 ImportOracleSourcesCovered: importOracleSummary.SourcesCovered,
                 ImportOracleSourcesExpected: importOracleSummary.SourcesExpected,
                 ImportOracleCoveragePercent: importOracleSummary.CoveragePercent,
+                ImportOracleMissingSources: importOracleSummary.MissingSources,
                 ImportOracleLaneReceipt: BuildImportOracleLaneReceipt(importOracleSummary),
                 Sr6SuccessorLaneReceipt: BuildSr6SuccessorLaneReceipt(
                     ResolveSr6SupplementLanePosture(Array.Empty<MasterIndexSourcebookEntry>()),
@@ -250,6 +252,7 @@ public sealed class XmlToolCatalogService : IToolCatalogService
             ImportOracleSourcesCovered: importOracleSummary.SourcesCovered,
             ImportOracleSourcesExpected: importOracleSummary.SourcesExpected,
             ImportOracleCoveragePercent: importOracleSummary.CoveragePercent,
+            ImportOracleMissingSources: importOracleSummary.MissingSources,
             ImportOracleLaneReceipt: BuildImportOracleLaneReceipt(importOracleSummary),
             Sr6SuccessorLaneReceipt: BuildSr6SuccessorLaneReceipt(
                 sr6SupplementLanePosture,
@@ -557,12 +560,15 @@ public sealed class XmlToolCatalogService : IToolCatalogService
 
     private static string BuildImportOracleLaneReceipt(ImportOracleSummary summary)
     {
+        string missingSourcesSuffix = summary.MissingSources.Count > 0
+            ? $" Missing sources: {string.Join(", ", summary.MissingSources)}."
+            : string.Empty;
         if (string.Equals(summary.LanePosture, "missing", StringComparison.Ordinal))
         {
-            return "No import oracle fixtures or certification receipt were discovered.";
+            return $"No import oracle fixtures or certification receipt were discovered.{missingSourcesSuffix}";
         }
 
-        return $"Import oracle coverage is {summary.SourcesCovered}/{summary.SourcesExpected} with certification receipt posture {summary.ReceiptPosture} and adjacent SR6 oracle posture {summary.AdjacentSr6OracleReceiptPosture}.";
+        return $"Import oracle coverage is {summary.SourcesCovered}/{summary.SourcesExpected} with certification receipt posture {summary.ReceiptPosture} and adjacent SR6 oracle posture {summary.AdjacentSr6OracleReceiptPosture}.{missingSourcesSuffix}";
     }
 
     private static string BuildSr6SuccessorLaneReceipt(
@@ -770,7 +776,8 @@ public sealed class XmlToolCatalogService : IToolCatalogService
                 AdjacentSr6OracleSourcesExpected: adjacentSourcesExpected,
                 SourcesCovered: 0,
                 SourcesExpected: sourcesExpected,
-                CoveragePercent: 0);
+                CoveragePercent: 0,
+                MissingSources: ["chummer4", "chummer5a", "hero-lab-classic", "genesis-commlink6"]);
         }
 
         int chummer4FixtureCount = CountFiles(
@@ -817,6 +824,26 @@ public sealed class XmlToolCatalogService : IToolCatalogService
             : sourcesCovered >= sourcesExpected && string.Equals(receiptPosture, "governed", StringComparison.Ordinal)
                 ? "governed"
                 : "stale";
+        List<string> missingSources = new(4);
+        if (chummer4FixtureCount <= 0)
+        {
+            missingSources.Add("chummer4");
+        }
+
+        if (chummer5FixtureCount <= 0)
+        {
+            missingSources.Add("chummer5a");
+        }
+
+        if (heroLabFixtureCount <= 0)
+        {
+            missingSources.Add("hero-lab-classic");
+        }
+
+        if (!string.Equals(adjacentReceiptPosture, "governed", StringComparison.Ordinal))
+        {
+            missingSources.Add("genesis-commlink6");
+        }
 
         return new ImportOracleSummary(
             LanePosture: lanePosture,
@@ -829,7 +856,8 @@ public sealed class XmlToolCatalogService : IToolCatalogService
             AdjacentSr6OracleSourcesExpected: adjacentSourcesExpected,
             SourcesCovered: sourcesCovered,
             SourcesExpected: sourcesExpected,
-            CoveragePercent: coveragePercent);
+            CoveragePercent: coveragePercent,
+            MissingSources: missingSources);
     }
 
     private static string ResolveImportOracleReceiptPosture(string receiptPath)

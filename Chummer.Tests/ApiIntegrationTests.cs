@@ -2283,6 +2283,7 @@ public class ApiIntegrationTests
         Assert.IsNotNull(response["importOracleSourcesCovered"]);
         Assert.IsNotNull(response["importOracleSourcesExpected"]);
         Assert.IsNotNull(response["importOracleCoveragePercent"]);
+        Assert.IsNotNull(response["importOracleMissingSources"]);
         Assert.IsNotNull(response["importOracleLaneReceipt"]);
         Assert.IsNotNull(response["sr6SuccessorLaneReceipt"]);
         JsonObject? firstSourcebook = response["sourcebooks"]?.AsArray().OfType<JsonObject>().FirstOrDefault();

@@ -81,7 +81,12 @@ public class ToolCatalogServiceTests
             Assert.AreEqual(0, response.ImportOracleSourcesCovered);
             Assert.AreEqual(4, response.ImportOracleSourcesExpected);
             Assert.AreEqual(0, response.ImportOracleCoveragePercent);
-            Assert.AreEqual("No import oracle fixtures or certification receipt were discovered.", response.ImportOracleLaneReceipt);
+            CollectionAssert.AreEquivalent(
+                new[] { "chummer4", "chummer5a", "hero-lab-classic", "genesis-commlink6" },
+                response.ImportOracleMissingSources?.ToArray() ?? Array.Empty<string>());
+            Assert.AreEqual(
+                "No import oracle fixtures or certification receipt were discovered. Missing sources: chummer4, chummer5a, hero-lab-classic, genesis-commlink6.",
+                response.ImportOracleLaneReceipt);
             StringAssert.Contains(response.Sr6SuccessorLaneReceipt, "Supplement posture is missing");
         }
         finally
@@ -286,7 +291,12 @@ public class ToolCatalogServiceTests
             Assert.AreEqual(0, response.ImportOracleSourcesCovered);
             Assert.AreEqual(4, response.ImportOracleSourcesExpected);
             Assert.AreEqual(0, response.ImportOracleCoveragePercent);
-            Assert.AreEqual("No import oracle fixtures or certification receipt were discovered.", response.ImportOracleLaneReceipt);
+            CollectionAssert.AreEquivalent(
+                new[] { "chummer4", "chummer5a", "hero-lab-classic", "genesis-commlink6" },
+                response.ImportOracleMissingSources?.ToArray() ?? Array.Empty<string>());
+            Assert.AreEqual(
+                "No import oracle fixtures or certification receipt were discovered. Missing sources: chummer4, chummer5a, hero-lab-classic, genesis-commlink6.",
+                response.ImportOracleLaneReceipt);
             StringAssert.Contains(response.Sr6SuccessorLaneReceipt, "Supplement posture is stale");
         }
         finally
@@ -1171,6 +1181,8 @@ public class ToolCatalogServiceTests
             Assert.AreEqual(4, response.ImportOracleSourcesCovered);
             Assert.AreEqual(4, response.ImportOracleSourcesExpected);
             Assert.AreEqual(100, response.ImportOracleCoveragePercent);
+            Assert.IsNotNull(response.ImportOracleMissingSources);
+            Assert.AreEqual(0, response.ImportOracleMissingSources.Count);
             Assert.AreEqual("Import oracle coverage is 4/4 with certification receipt posture governed and adjacent SR6 oracle posture governed.", response.ImportOracleLaneReceipt);
         }
         finally
@@ -1215,6 +1227,12 @@ public class ToolCatalogServiceTests
             Assert.AreEqual(3, response.ImportOracleSourcesCovered);
             Assert.AreEqual(4, response.ImportOracleSourcesExpected);
             Assert.AreEqual(75, response.ImportOracleCoveragePercent);
+            CollectionAssert.AreEquivalent(
+                new[] { "genesis-commlink6" },
+                response.ImportOracleMissingSources?.ToArray() ?? Array.Empty<string>());
+            Assert.AreEqual(
+                "Import oracle coverage is 3/4 with certification receipt posture missing and adjacent SR6 oracle posture missing. Missing sources: genesis-commlink6.",
+                response.ImportOracleLaneReceipt);
         }
         finally
         {
@@ -1269,6 +1287,12 @@ public class ToolCatalogServiceTests
             Assert.AreEqual(3, response.ImportOracleSourcesCovered);
             Assert.AreEqual(4, response.ImportOracleSourcesExpected);
             Assert.AreEqual(75, response.ImportOracleCoveragePercent);
+            CollectionAssert.AreEquivalent(
+                new[] { "genesis-commlink6" },
+                response.ImportOracleMissingSources?.ToArray() ?? Array.Empty<string>());
+            Assert.AreEqual(
+                "Import oracle coverage is 3/4 with certification receipt posture governed and adjacent SR6 oracle posture stale. Missing sources: genesis-commlink6.",
+                response.ImportOracleLaneReceipt);
         }
         finally
         {
