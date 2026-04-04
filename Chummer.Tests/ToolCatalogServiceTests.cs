@@ -40,6 +40,9 @@ public class ToolCatalogServiceTests
             Assert.AreEqual(0, response.SourcebooksWithGovernedReferenceSources);
             Assert.AreEqual(0, response.SourcebooksWithStaleReferenceSources);
             Assert.AreEqual(0, response.SourcebooksMissingReferenceSources);
+            Assert.AreEqual(
+                "No sourcebook reference sources were discovered (PDF, URL, or site snapshot).",
+                response.ReferenceSourceLaneReceipt);
             Assert.AreEqual("missing", response.SettingsLanePosture);
             Assert.AreEqual(0, response.SettingsProfileCount);
             Assert.AreEqual(0, response.SettingsProfilesWithSourceToggles);
@@ -222,6 +225,9 @@ public class ToolCatalogServiceTests
             Assert.AreEqual(1, response.SourcebooksWithGovernedReferenceSources);
             Assert.AreEqual(0, response.SourcebooksWithStaleReferenceSources);
             Assert.AreEqual(1, response.SourcebooksMissingReferenceSources);
+            Assert.AreEqual(
+                "1 governed, 0 stale, and 1 missing sourcebook reference sources (PDF, URL, or site snapshot).",
+                response.ReferenceSourceLaneReceipt);
 
             MasterIndexSourcebookEntry rf = response.Sourcebooks.Single(sourcebook => sourcebook.Code == "RF");
             Assert.AreEqual("book-rf", rf.Id);

@@ -20,6 +20,7 @@ public sealed record MasterIndexResponse(
     int SourcebooksWithGovernedReferenceSources = 0,
     int SourcebooksWithStaleReferenceSources = 0,
     int SourcebooksMissingReferenceSources = 0,
+    string ReferenceSourceLaneReceipt = "",
     string SettingsLanePosture = "missing",
     int SettingsProfileCount = 0,
     int SettingsProfilesWithSourceToggles = 0,

@@ -95,6 +95,7 @@ public sealed class XmlToolCatalogService : IToolCatalogService
                 SourcebooksWithGovernedReferenceSources: 0,
                 SourcebooksWithStaleReferenceSources: 0,
                 SourcebooksMissingReferenceSources: 0,
+                ReferenceSourceLaneReceipt: BuildReferenceSourceLaneReceipt(0, 0, 0),
                 SettingsLanePosture: "missing",
                 SettingsProfileCount: 0,
                 SettingsProfilesWithSourceToggles: 0,
@@ -208,6 +209,10 @@ public sealed class XmlToolCatalogService : IToolCatalogService
             SourcebooksWithGovernedReferenceSources: sourcebooksWithGovernedReferenceSources,
             SourcebooksWithStaleReferenceSources: sourcebooksWithStaleReferenceSources,
             SourcebooksMissingReferenceSources: sourcebooksMissingReferenceSources,
+            ReferenceSourceLaneReceipt: BuildReferenceSourceLaneReceipt(
+                sourcebooks.Count,
+                sourcebooksWithGovernedReferenceSources,
+                sourcebooksWithStaleReferenceSources),
             SettingsLanePosture: settingsSummary.SettingsLanePosture,
             SettingsProfileCount: settingsSummary.ProfileCount,
             SettingsProfilesWithSourceToggles: settingsSummary.ProfilesWithSourceToggles,
@@ -494,6 +499,28 @@ public sealed class XmlToolCatalogService : IToolCatalogService
 
         int sourcebooksMissingSnippets = sourcebookCount - sourcebooksWithSnippets;
         return $"{sourcebooksMissingSnippets} of {sourcebookCount} sourcebooks are missing rule snippets.";
+    }
+
+    private static string BuildReferenceSourceLaneReceipt(
+        int sourcebookCount,
+        int sourcebooksWithGovernedReferenceSources,
+        int sourcebooksWithStaleReferenceSources)
+    {
+        if (sourcebookCount <= 0)
+        {
+            return "No sourcebook reference sources were discovered (PDF, URL, or site snapshot).";
+        }
+
+        int sourcebooksMissingReferenceSources = Math.Max(
+            0,
+            sourcebookCount - sourcebooksWithGovernedReferenceSources - sourcebooksWithStaleReferenceSources);
+        if (sourcebooksWithGovernedReferenceSources >= sourcebookCount)
+        {
+            return $"All {sourcebookCount} sourcebooks have governed PDF, URL, or site-snapshot references.";
+        }
+
+        return
+            $"{sourcebooksWithGovernedReferenceSources} governed, {sourcebooksWithStaleReferenceSources} stale, and {sourcebooksMissingReferenceSources} missing sourcebook reference sources (PDF, URL, or site snapshot).";
     }
 
     private static string BuildSettingsLaneReceipt(SettingsCatalogSummary summary)
