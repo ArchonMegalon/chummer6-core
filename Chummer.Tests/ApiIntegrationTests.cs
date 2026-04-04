@@ -2253,6 +2253,14 @@ public class ApiIntegrationTests
         Assert.IsNotNull(response["sr6DesignerFamiliesExpected"]);
         Assert.IsNotNull(response["houseRuleLanePosture"]);
         Assert.IsNotNull(response["houseRuleOverlayCount"]);
+        Assert.IsNotNull(response["importOracleLanePosture"]);
+        Assert.IsNotNull(response["importOracleReceiptPosture"]);
+        Assert.IsNotNull(response["legacyChummer4FixtureCount"]);
+        Assert.IsNotNull(response["legacyChummer5FixtureCount"]);
+        Assert.IsNotNull(response["heroLabFixtureCount"]);
+        Assert.IsNotNull(response["importOracleSourcesCovered"]);
+        Assert.IsNotNull(response["importOracleSourcesExpected"]);
+        Assert.IsNotNull(response["importOracleCoveragePercent"]);
     }
 
     [TestMethod]
