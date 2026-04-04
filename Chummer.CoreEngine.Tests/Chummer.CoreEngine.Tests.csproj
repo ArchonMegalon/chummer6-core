@@ -8,11 +8,12 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../Chummer.Application/Chummer.Application.csproj" />
+    <PackageReference Include="Chummer.Engine.Contracts" Version="$(ChummerEngineContractsPackageVersion)" />
+    <ProjectReference Include="../Chummer.Infrastructure/Chummer.Infrastructure.csproj" />
     <ProjectReference Include="../Chummer.Rulesets.Hosting/Chummer.Rulesets.Hosting.csproj" />
     <ProjectReference Include="../Chummer.Rulesets.Sr4/Chummer.Rulesets.Sr4.csproj" />
     <ProjectReference Include="../Chummer.Rulesets.Sr5/Chummer.Rulesets.Sr5.csproj" />
     <ProjectReference Include="../Chummer.Rulesets.Sr6/Chummer.Rulesets.Sr6.csproj" />
-    <PackageReference Include="Chummer.Engine.Contracts" Version="$(ChummerEngineContractsPackageVersion)" />
     <Reference Include="Chummer.Hub.Registry.Contracts">
       <HintPath>../../chummer-hub-registry/Chummer.Hub.Registry.Contracts/bin/$(Configuration)/net10.0/Chummer.Hub.Registry.Contracts.dll</HintPath>
     </Reference>

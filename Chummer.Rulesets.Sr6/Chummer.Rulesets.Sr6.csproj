@@ -5,13 +5,13 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
   <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.0" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="../Chummer.Application/Chummer.Application.csproj" />
     <PackageReference Include="Chummer.Engine.Contracts" Version="$(ChummerEngineContractsPackageVersion)" />
     <Reference Include="Chummer.Run.Contracts">
       <HintPath>../../chummer.run-services/Chummer.Run.Contracts/bin/$(Configuration)/net10.0/Chummer.Run.Contracts.dll</HintPath>
     </Reference>
-  </ItemGroup>
-  <ItemGroup>
-    <Compile Remove="ServiceCollectionRulesetExtensions.cs" />
   </ItemGroup>
 </Project>

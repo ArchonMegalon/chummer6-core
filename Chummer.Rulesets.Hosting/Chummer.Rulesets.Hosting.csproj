@@ -12,6 +12,6 @@
     </Reference>
   </ItemGroup>
   <ItemGroup>
-    <Compile Remove="ServiceCollectionRulesetHostingExtensions.cs" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.0" />
   </ItemGroup>
 </Project>
