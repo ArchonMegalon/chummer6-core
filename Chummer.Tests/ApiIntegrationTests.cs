@@ -2249,10 +2249,15 @@ public class ApiIntegrationTests
         Assert.IsTrue(response["files"] is JsonArray);
         Assert.IsTrue(response["sourcebooks"] is JsonArray);
         Assert.IsNotNull(response["referenceSourceLanePosture"]);
+        Assert.IsNotNull(response["referenceLaneReceipt"]);
         Assert.IsNotNull(response["sourcebooksWithGovernedReferenceSources"]);
         Assert.IsNotNull(response["sourcebooksWithStaleReferenceSources"]);
         Assert.IsNotNull(response["sourcebooksMissingReferenceSources"]);
+        Assert.IsNotNull(response["settingsLaneReceipt"]);
+        Assert.IsNotNull(response["sourceToggleLaneReceipt"]);
+        Assert.IsNotNull(response["customDataLaneReceipt"]);
         Assert.IsNotNull(response["translatorLanePosture"]);
+        Assert.IsNotNull(response["translatorLaneReceipt"]);
         Assert.IsNotNull(response["translatorBridgePosture"]);
         Assert.IsNotNull(response["translatorLanguageCount"]);
         Assert.IsNotNull(response["enabledLanguageOverlayCount"]);
@@ -2278,6 +2283,8 @@ public class ApiIntegrationTests
         Assert.IsNotNull(response["importOracleSourcesCovered"]);
         Assert.IsNotNull(response["importOracleSourcesExpected"]);
         Assert.IsNotNull(response["importOracleCoveragePercent"]);
+        Assert.IsNotNull(response["importOracleLaneReceipt"]);
+        Assert.IsNotNull(response["sr6SuccessorLaneReceipt"]);
         JsonObject? firstSourcebook = response["sourcebooks"]?.AsArray().OfType<JsonObject>().FirstOrDefault();
         if (firstSourcebook is not null)
         {
