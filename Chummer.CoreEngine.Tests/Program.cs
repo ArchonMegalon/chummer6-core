@@ -32,6 +32,7 @@ using Chummer.Rulesets.Sr4;
 using Chummer.Rulesets.Sr5;
 using Chummer.Rulesets.Sr6;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using System.Xml.Linq;
@@ -83,6 +84,7 @@ internal static class CoreEngineTests
             LegacyChummer5FixtureCorpusImportsRoundTripThroughWorkspaceService();
             LegacyRulesParityAudit.AssertLegacyRulesParity(GetLegacyFixtureDirectory(), GetSr4FixtureDirectory());
             HeroLabRulesParityAudit.AssertHeroLabImportsAndParity(GetHeroLabFixtureDirectory());
+            ImportParityCertificationReceiptCoversLegacyAndAdjacentOracles();
             BuildLabCreateSurfaceIsExposedAcrossRulesets();
             Sr4AndSr6CodecsExposeBuildLabSections();
             ContentInstallPreviewsEmitLocalizationKeys();
@@ -2506,6 +2508,78 @@ internal static class CoreEngineTests
             AssertEx.True(export.Value?.Portability is not null, $"{fileName} export should include portability guidance.");
 
             AssertEx.True(workspaceService.Close(imported.Id), $"{fileName} should close cleanly after round-trip verification.");
+        }
+    }
+
+    private static void ImportParityCertificationReceiptCoversLegacyAndAdjacentOracles()
+    {
+        string receiptPath = Path.Combine(
+            GetRepositoryRoot(),
+            ".codex-studio",
+            "published",
+            "IMPORT_PARITY_CERTIFICATION.generated.json");
+        AssertEx.True(
+            File.Exists(receiptPath),
+            "Import parity certification receipt must exist so milestone-17 evidence is machine-readable.");
+
+        JsonNode? payload = JsonNode.Parse(File.ReadAllText(receiptPath));
+        string status = payload?["status"]?.GetValue<string>()?.Trim().ToLowerInvariant() ?? string.Empty;
+        AssertEx.Equal(
+            "passed",
+            status,
+            "Import parity certification receipt should stay in passed status for milestone-17 parity proof.");
+
+        JsonArray? importOracles = payload?["import_oracles"] as JsonArray;
+        AssertEx.True(importOracles is not null && importOracles.Count > 0, "Import parity receipt should enumerate covered legacy import oracles.");
+        HashSet<string> importOracleTokens = importOracles!
+            .SelectMany(static node =>
+            {
+                string token = ExtractOracleToken(node);
+                return string.IsNullOrWhiteSpace(token)
+                    ? Array.Empty<string>()
+                    : [token.Trim().ToLowerInvariant()];
+            })
+            .ToHashSet(StringComparer.Ordinal);
+
+        AssertEx.True(
+            importOracleTokens.Any(static token => token.Contains("chummer4", StringComparison.Ordinal)),
+            "Import parity receipt should include the Chummer4 oracle.");
+        AssertEx.True(
+            importOracleTokens.Any(static token => token.Contains("chummer5", StringComparison.Ordinal)),
+            "Import parity receipt should include the Chummer5a oracle.");
+        AssertEx.True(
+            importOracleTokens.Any(static token => token.Contains("hero lab", StringComparison.Ordinal) || token.Contains("herolab", StringComparison.Ordinal)),
+            "Import parity receipt should include the Hero Lab oracle.");
+
+        JsonArray? adjacentOracles = payload?["adjacent_oracles"] as JsonArray;
+        AssertEx.True(adjacentOracles is not null && adjacentOracles.Count > 0, "Import parity receipt should enumerate adjacent SR6 oracles.");
+        HashSet<string> adjacentOracleTokens = adjacentOracles!
+            .SelectMany(static node =>
+            {
+                string token = ExtractOracleToken(node);
+                return string.IsNullOrWhiteSpace(token)
+                    ? Array.Empty<string>()
+                    : [token.Trim().ToLowerInvariant()];
+            })
+            .ToHashSet(StringComparer.Ordinal);
+
+        AssertEx.True(
+            adjacentOracleTokens.Any(static token => token.Contains("genesis", StringComparison.Ordinal)),
+            "Import parity receipt should include the Genesis adjacent SR6 oracle.");
+        AssertEx.True(
+            adjacentOracleTokens.Any(static token => token.Contains("commlink", StringComparison.Ordinal)),
+            "Import parity receipt should include the CommLink adjacent SR6 oracle.");
+
+        static string ExtractOracleToken(JsonNode? node)
+        {
+            if (node is JsonObject oracleObject)
+            {
+                return oracleObject["name"]?.GetValue<string>()
+                       ?? oracleObject["id"]?.GetValue<string>()
+                       ?? string.Empty;
+            }
+
+            return node?.GetValue<string>() ?? string.Empty;
         }
     }
 

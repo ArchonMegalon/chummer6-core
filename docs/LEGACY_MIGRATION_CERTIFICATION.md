@@ -9,6 +9,10 @@ Purpose: keep the core share of `F2` explicit and executable.
 - `chummer5a` regression corpus and compatibility fixtures
 - `docs/PARITY_ORACLE.json`
 - `docs/MIGRATION_BACKLOG.md`
+- `docs/SR4_ORACLE_EXTRACTION_MATRIX.md`
+- `docs/SR5_EXECUTION_MATRIX.md`
+- `docs/SR6_EXECUTION_MATRIX.md`
+- `.codex-studio/published/IMPORT_PARITY_CERTIFICATION.generated.json`
 - `scripts/migration-loop.sh`
 - `scripts/audit-compliance.sh`
 - `Chummer.Tests/Compliance/MigrationComplianceTests.cs`
@@ -33,6 +37,7 @@ Migration certification is only healthy when:
 
 - import/export behavior remains compatible with the checked-in legacy oracle expectations
 - parity and acceptance coverage continue to exercise the current active heads instead of retired legacy UI paths
+- import parity certification receipts explicitly name Chummer4, Chummer5a, and Hero Lab legacy oracle coverage plus adjacent SR6 oracle coverage for Genesis and CommLink
 - migration/compliance coverage stays runnable from the repo-standard command paths above
 - no release claim skips the `chummer5a` corpus-backed proof path
 
