@@ -212,6 +212,8 @@ public class ToolCatalogServiceTests
             Assert.AreEqual("missing", rf.ReferenceSourcePosture);
             Assert.AreEqual(string.Empty, rf.LocalPdfPath);
             Assert.AreEqual(string.Empty, rf.ReferenceUrl);
+            Assert.AreEqual(string.Empty, rf.ReferenceSnapshot);
+            Assert.AreEqual("missing", rf.ReferenceSnapshotPosture);
 
             MasterIndexSourcebookEntry sr5 = response.Sourcebooks.Single(sourcebook => sourcebook.Code == "SR5");
             Assert.AreEqual("book-sr5", sr5.Id);
@@ -226,6 +228,8 @@ public class ToolCatalogServiceTests
             Assert.AreEqual("governed", sr5.ReferenceSourcePosture);
             Assert.AreEqual("Shadowrun5-Core.pdf", sr5.LocalPdfPath);
             Assert.AreEqual("https://example.test/sourcebooks/shadowrun5", sr5.ReferenceUrl);
+            Assert.AreEqual(string.Empty, sr5.ReferenceSnapshot);
+            Assert.AreEqual("missing", sr5.ReferenceSnapshotPosture);
             Assert.AreEqual("missing", response.SettingsLanePosture);
             Assert.AreEqual(0, response.SettingsProfileCount);
             Assert.AreEqual(0, response.SettingsProfilesWithSourceToggles);
@@ -489,12 +493,92 @@ public class ToolCatalogServiceTests
             Assert.AreEqual("stale", sourcebook.ReferenceSourcePosture);
             Assert.AreEqual("BrokenReference.txt", sourcebook.LocalPdfPath);
             Assert.AreEqual("ftp://example.test/broken-reference", sourcebook.ReferenceUrl);
+            Assert.AreEqual(string.Empty, sourcebook.ReferenceSnapshot);
+            Assert.AreEqual("missing", sourcebook.ReferenceSnapshotPosture);
             Assert.AreEqual("matched-snippets", sourcebook.ReferencePosture);
             Assert.AreEqual(1, sourcebook.RuleSnippetCount);
             Assert.AreEqual("stale", response.ReferenceSourceLanePosture);
             Assert.AreEqual(0, response.SourcebooksWithGovernedReferenceSources);
             Assert.AreEqual(1, response.SourcebooksWithStaleReferenceSources);
             Assert.AreEqual(0, response.SourcebooksMissingReferenceSources);
+        }
+        finally
+        {
+            DeleteTempDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public void Master_index_treats_site_snapshot_reference_as_governed_reference_source()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            string dataDir = Path.Combine(root, "data");
+            Directory.CreateDirectory(dataDir);
+            File.WriteAllText(
+                Path.Combine(dataDir, "books.xml"),
+                """
+                <chummer>
+                  <books>
+                    <book>
+                      <id>book-snapshot</id>
+                      <name>Snapshot Sourcebook</name>
+                      <code>SSB</code>
+                      <snapshot>https://example.test/reference/snapshot/sourcebook-ssb</snapshot>
+                    </book>
+                  </books>
+                </chummer>
+                """);
+
+            var service = new XmlToolCatalogService(root);
+            MasterIndexResponse response = service.GetMasterIndex();
+
+            Assert.AreEqual("governed", response.ReferenceSourceLanePosture);
+            Assert.AreEqual(1, response.SourcebooksWithGovernedReferenceSources);
+            MasterIndexSourcebookEntry sourcebook = response.Sourcebooks.Single();
+            Assert.AreEqual("governed", sourcebook.ReferenceSourcePosture);
+            Assert.AreEqual("https://example.test/reference/snapshot/sourcebook-ssb", sourcebook.ReferenceSnapshot);
+            Assert.AreEqual("governed", sourcebook.ReferenceSnapshotPosture);
+        }
+        finally
+        {
+            DeleteTempDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public void Master_index_marks_reference_source_stale_when_snapshot_target_has_invalid_scheme()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            string dataDir = Path.Combine(root, "data");
+            Directory.CreateDirectory(dataDir);
+            File.WriteAllText(
+                Path.Combine(dataDir, "books.xml"),
+                """
+                <chummer>
+                  <books>
+                    <book>
+                      <id>book-snapshot-invalid</id>
+                      <name>Invalid Snapshot Sourcebook</name>
+                      <code>ISS</code>
+                      <snapshot>ftp://example.test/reference/snapshot/sourcebook-iss</snapshot>
+                    </book>
+                  </books>
+                </chummer>
+                """);
+
+            var service = new XmlToolCatalogService(root);
+            MasterIndexResponse response = service.GetMasterIndex();
+
+            Assert.AreEqual("stale", response.ReferenceSourceLanePosture);
+            Assert.AreEqual(1, response.SourcebooksWithStaleReferenceSources);
+            MasterIndexSourcebookEntry sourcebook = response.Sourcebooks.Single();
+            Assert.AreEqual("stale", sourcebook.ReferenceSourcePosture);
+            Assert.AreEqual("ftp://example.test/reference/snapshot/sourcebook-iss", sourcebook.ReferenceSnapshot);
+            Assert.AreEqual("stale", sourcebook.ReferenceSnapshotPosture);
         }
         finally
         {

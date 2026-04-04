@@ -809,6 +809,7 @@ public sealed class XmlToolCatalogService : IToolCatalogService
             bool permanent = ParseBool(ReadChildValue(bookNode, "permanent")) || bookNode.Element("permanent") is not null;
             string localPdfPath = ReadChildValue(bookNode, "pdf");
             string referenceUrl = ReadChildValue(bookNode, "url");
+            string referenceSnapshot = ResolveReferenceSnapshot(bookNode);
             List<MasterIndexRuleSnippetEntry> snippets = bookNode
                 .Element("matches")?
                 .Elements("match")
@@ -829,9 +830,11 @@ public sealed class XmlToolCatalogService : IToolCatalogService
                 ReferencePosture: snippets.Count > 0 ? "matched-snippets" : "no-snippets",
                 RuleSnippetCount: snippets.Count,
                 RuleSnippets: snippets,
-                ReferenceSourcePosture: ResolveReferenceSourcePosture(localPdfPath, referenceUrl),
+                ReferenceSourcePosture: ResolveReferenceSourcePosture(localPdfPath, referenceUrl, referenceSnapshot),
                 LocalPdfPath: localPdfPath,
-                ReferenceUrl: referenceUrl));
+                ReferenceUrl: referenceUrl,
+                ReferenceSnapshot: referenceSnapshot,
+                ReferenceSnapshotPosture: ResolveReferenceSnapshotPosture(referenceSnapshot)));
         }
 
         return sourcebooks
@@ -965,11 +968,12 @@ public sealed class XmlToolCatalogService : IToolCatalogService
             : 0;
     }
 
-    private static string ResolveReferenceSourcePosture(string localPdfPath, string referenceUrl)
+    private static string ResolveReferenceSourcePosture(string localPdfPath, string referenceUrl, string referenceSnapshot)
     {
         bool hasPdf = !string.IsNullOrWhiteSpace(localPdfPath);
         bool hasUrl = !string.IsNullOrWhiteSpace(referenceUrl);
-        if (!hasPdf && !hasUrl)
+        bool hasSnapshot = !string.IsNullOrWhiteSpace(referenceSnapshot);
+        if (!hasPdf && !hasUrl && !hasSnapshot)
         {
             return "missing";
         }
@@ -978,7 +982,54 @@ public sealed class XmlToolCatalogService : IToolCatalogService
         bool validUrl = !hasUrl || Uri.TryCreate(referenceUrl, UriKind.Absolute, out Uri? parsedUri)
             && (string.Equals(parsedUri.Scheme, Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase)
                 || string.Equals(parsedUri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase));
-        return validPdf && validUrl
+        bool validSnapshot = !hasSnapshot
+                             || string.Equals(
+                                 ResolveReferenceSnapshotPosture(referenceSnapshot),
+                                 "governed",
+                                 StringComparison.Ordinal);
+        return validPdf && validUrl && validSnapshot
+            ? "governed"
+            : "stale";
+    }
+
+    private static string ResolveReferenceSnapshot(XElement bookNode)
+    {
+        string snapshot = ReadChildValue(bookNode, "snapshot");
+        if (!string.IsNullOrWhiteSpace(snapshot))
+        {
+            return snapshot;
+        }
+
+        snapshot = ReadChildValue(bookNode, "snapshoturl");
+        if (!string.IsNullOrWhiteSpace(snapshot))
+        {
+            return snapshot;
+        }
+
+        return ReadChildValue(bookNode, "referenceSnapshot");
+    }
+
+    private static string ResolveReferenceSnapshotPosture(string referenceSnapshot)
+    {
+        if (string.IsNullOrWhiteSpace(referenceSnapshot))
+        {
+            return "missing";
+        }
+
+        if (Uri.TryCreate(referenceSnapshot, UriKind.Absolute, out Uri? snapshotUri))
+        {
+            return string.Equals(snapshotUri.Scheme, Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(snapshotUri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)
+                ? "governed"
+                : "stale";
+        }
+
+        return referenceSnapshot.EndsWith(".json", StringComparison.OrdinalIgnoreCase)
+               || referenceSnapshot.EndsWith(".html", StringComparison.OrdinalIgnoreCase)
+               || referenceSnapshot.EndsWith(".htm", StringComparison.OrdinalIgnoreCase)
+               || referenceSnapshot.EndsWith(".md", StringComparison.OrdinalIgnoreCase)
+               || referenceSnapshot.EndsWith(".mhtml", StringComparison.OrdinalIgnoreCase)
+               || referenceSnapshot.EndsWith(".txt", StringComparison.OrdinalIgnoreCase)
             ? "governed"
             : "stale";
     }
