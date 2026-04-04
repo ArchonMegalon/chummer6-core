@@ -354,6 +354,8 @@ public sealed class XmlToolCatalogService : IToolCatalogService
             string code = ReadChildValue(bookNode, "code");
             string name = ReadChildValue(bookNode, "name");
             bool permanent = ParseBool(ReadChildValue(bookNode, "permanent")) || bookNode.Element("permanent") is not null;
+            string localPdfPath = ReadChildValue(bookNode, "pdf");
+            string referenceUrl = ReadChildValue(bookNode, "url");
             List<MasterIndexRuleSnippetEntry> snippets = bookNode
                 .Element("matches")?
                 .Elements("match")
@@ -373,7 +375,10 @@ public sealed class XmlToolCatalogService : IToolCatalogService
                 Permanent: permanent,
                 ReferencePosture: snippets.Count > 0 ? "matched-snippets" : "no-snippets",
                 RuleSnippetCount: snippets.Count,
-                RuleSnippets: snippets));
+                RuleSnippets: snippets,
+                ReferenceSourcePosture: ResolveReferenceSourcePosture(localPdfPath, referenceUrl),
+                LocalPdfPath: localPdfPath,
+                ReferenceUrl: referenceUrl));
         }
 
         return sourcebooks
@@ -505,6 +510,24 @@ public sealed class XmlToolCatalogService : IToolCatalogService
         return int.TryParse(value, out int parsed)
             ? parsed
             : 0;
+    }
+
+    private static string ResolveReferenceSourcePosture(string localPdfPath, string referenceUrl)
+    {
+        bool hasPdf = !string.IsNullOrWhiteSpace(localPdfPath);
+        bool hasUrl = !string.IsNullOrWhiteSpace(referenceUrl);
+        if (!hasPdf && !hasUrl)
+        {
+            return "missing";
+        }
+
+        bool validPdf = !hasPdf || localPdfPath.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase);
+        bool validUrl = !hasUrl || Uri.TryCreate(referenceUrl, UriKind.Absolute, out Uri? parsedUri)
+            && (string.Equals(parsedUri.Scheme, Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(parsedUri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase));
+        return validPdf && validUrl
+            ? "governed"
+            : "stale";
     }
 
     private static bool ParseBool(string value)
