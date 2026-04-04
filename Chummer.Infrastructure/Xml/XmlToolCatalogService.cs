@@ -35,7 +35,9 @@ public sealed class XmlToolCatalogService : IToolCatalogService
                 Files: Array.Empty<MasterIndexFileEntry>(),
                 ReferenceLanePosture: "missing",
                 SourcebookCount: 0,
-                Sourcebooks: Array.Empty<MasterIndexSourcebookEntry>());
+                Sourcebooks: Array.Empty<MasterIndexSourcebookEntry>(),
+                XmlBridgePosture: ResolveXmlBridgePosture(catalog),
+                EnabledDataOverlayCount: CountEnabledDataOverlays(catalog));
 
         IReadOnlyList<MasterIndexSourcebookEntry> sourcebooks = BuildSourcebookEntries(filesByName);
         string referenceLanePosture = sourcebooks.Count > 0 ? "governed" : "missing";
@@ -64,7 +66,9 @@ public sealed class XmlToolCatalogService : IToolCatalogService
             Files: files,
             ReferenceLanePosture: referenceLanePosture,
             SourcebookCount: sourcebooks.Count,
-            Sourcebooks: sourcebooks);
+            Sourcebooks: sourcebooks,
+            XmlBridgePosture: ResolveXmlBridgePosture(catalog),
+            EnabledDataOverlayCount: CountEnabledDataOverlays(catalog));
     }
 
     public TranslatorLanguagesResponse GetTranslatorLanguages()
@@ -75,7 +79,11 @@ public sealed class XmlToolCatalogService : IToolCatalogService
             catalog.BaseLanguagePath,
             pack => pack.LanguagePath);
         if (filesByName.Count == 0)
-            return new TranslatorLanguagesResponse(0, Array.Empty<TranslatorLanguageEntry>());
+            return new TranslatorLanguagesResponse(
+                0,
+                Array.Empty<TranslatorLanguageEntry>(),
+                TranslatorBridgePosture: ResolveTranslatorBridgePosture(catalog),
+                EnabledLanguageOverlayCount: CountEnabledLanguageOverlays(catalog));
 
         List<TranslatorLanguageEntry> languages = new();
         Dictionary<string, XDocument?> filesByCode = CollapseLanguageFilesByCode(filesByName);
@@ -94,7 +102,35 @@ public sealed class XmlToolCatalogService : IToolCatalogService
 
         return new TranslatorLanguagesResponse(
             Count: languages.Count,
-            Languages: languages);
+            Languages: languages,
+            TranslatorBridgePosture: ResolveTranslatorBridgePosture(catalog),
+            EnabledLanguageOverlayCount: CountEnabledLanguageOverlays(catalog));
+    }
+
+    private static string ResolveXmlBridgePosture(ContentOverlayCatalog catalog)
+    {
+        return CountEnabledDataOverlays(catalog) > 0 ? "governed" : "missing";
+    }
+
+    private static int CountEnabledDataOverlays(ContentOverlayCatalog catalog)
+    {
+        return catalog.Overlays.Count(pack =>
+            pack.Enabled
+            && !string.IsNullOrWhiteSpace(pack.DataPath)
+            && Directory.Exists(pack.DataPath));
+    }
+
+    private static string ResolveTranslatorBridgePosture(ContentOverlayCatalog catalog)
+    {
+        return CountEnabledLanguageOverlays(catalog) > 0 ? "governed" : "missing";
+    }
+
+    private static int CountEnabledLanguageOverlays(ContentOverlayCatalog catalog)
+    {
+        return catalog.Overlays.Count(pack =>
+            pack.Enabled
+            && !string.IsNullOrWhiteSpace(pack.LanguagePath)
+            && Directory.Exists(pack.LanguagePath));
     }
 
     private static Dictionary<string, XDocument?> CollapseLanguageFilesByCode(IReadOnlyDictionary<string, XDocument?> filesByName)

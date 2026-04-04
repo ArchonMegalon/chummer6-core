@@ -32,6 +32,8 @@ public class ToolCatalogServiceTests
             Assert.AreEqual("missing", response.ReferenceLanePosture);
             Assert.AreEqual(0, response.SourcebookCount);
             Assert.HasCount(0, response.Sourcebooks);
+            Assert.AreEqual("missing", response.XmlBridgePosture);
+            Assert.AreEqual(0, response.EnabledDataOverlayCount);
         }
         finally
         {
@@ -174,6 +176,8 @@ public class ToolCatalogServiceTests
             Assert.AreEqual(8, sr5.RuleSnippets[0].Page);
             Assert.AreEqual("Welcome to Shadowrun, Fifth Edition.", sr5.RuleSnippets[0].Snippet);
             Assert.AreEqual("books.xml", sr5.RuleSnippets[0].Provenance);
+            Assert.AreEqual("missing", response.XmlBridgePosture);
+            Assert.AreEqual(0, response.EnabledDataOverlayCount);
         }
         finally
         {
@@ -199,6 +203,8 @@ public class ToolCatalogServiceTests
             Assert.HasCount(2, response.Languages);
             Assert.IsTrue(response.Languages.Any(language => language.Code == "en-us" && language.Name == "English"));
             Assert.IsTrue(response.Languages.Any(language => language.Code == "fr-fr" && language.Name == "fr-fr"));
+            Assert.AreEqual("missing", response.TranslatorBridgePosture);
+            Assert.AreEqual(0, response.EnabledLanguageOverlayCount);
         }
         finally
         {
@@ -230,6 +236,8 @@ public class ToolCatalogServiceTests
             Assert.HasCount(1, response.Languages);
             Assert.AreEqual("en-us", response.Languages[0].Code);
             Assert.AreEqual("English Overlay", response.Languages[0].Name);
+            Assert.AreEqual("governed", response.TranslatorBridgePosture);
+            Assert.AreEqual(1, response.EnabledLanguageOverlayCount);
         }
         finally
         {
@@ -262,6 +270,38 @@ public class ToolCatalogServiceTests
             Assert.HasCount(1, response.Languages);
             Assert.AreEqual("en-us", response.Languages[0].Code);
             Assert.AreEqual("English", response.Languages[0].Name);
+            Assert.AreEqual("governed", response.TranslatorBridgePosture);
+            Assert.AreEqual(1, response.EnabledLanguageOverlayCount);
+        }
+        finally
+        {
+            DeleteTempDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public void Master_index_reports_governed_xml_bridge_when_enabled_data_overlay_exists()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            string dataDir = Path.Combine(root, "data");
+            Directory.CreateDirectory(dataDir);
+            File.WriteAllText(Path.Combine(dataDir, "skills.xml"), "<chummer><skills /></chummer>");
+
+            string amendsRoot = Path.Combine(root, "Amends");
+            string overlayData = Path.Combine(amendsRoot, "data");
+            Directory.CreateDirectory(overlayData);
+            File.WriteAllText(Path.Combine(overlayData, "skills.xml"), "<chummer><skills><skill /></skills></chummer>");
+            File.WriteAllText(Path.Combine(amendsRoot, "manifest.json"),
+                "{\n  \"id\": \"local-data-bridge\",\n  \"priority\": 100,\n  \"enabled\": true\n}");
+
+            var overlays = new FileSystemContentOverlayCatalogService(root, root, amendsRoot);
+            var service = new XmlToolCatalogService(overlays);
+            MasterIndexResponse response = service.GetMasterIndex();
+
+            Assert.AreEqual("governed", response.XmlBridgePosture);
+            Assert.AreEqual(1, response.EnabledDataOverlayCount);
         }
         finally
         {
