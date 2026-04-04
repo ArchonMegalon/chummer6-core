@@ -35,6 +35,10 @@ public class ToolCatalogServiceTests
             Assert.AreEqual(0, response.SourcebooksWithSnippets);
             Assert.AreEqual(0, response.SourcebooksMissingSnippets);
             Assert.AreEqual(0, response.ReferenceCoveragePercent);
+            Assert.AreEqual("missing", response.ReferenceSourceLanePosture);
+            Assert.AreEqual(0, response.SourcebooksWithGovernedReferenceSources);
+            Assert.AreEqual(0, response.SourcebooksWithStaleReferenceSources);
+            Assert.AreEqual(0, response.SourcebooksMissingReferenceSources);
             Assert.AreEqual("missing", response.SettingsLanePosture);
             Assert.AreEqual(0, response.SettingsProfileCount);
             Assert.AreEqual(0, response.SettingsProfilesWithSourceToggles);
@@ -189,6 +193,10 @@ public class ToolCatalogServiceTests
             Assert.AreEqual(1, response.SourcebooksWithSnippets);
             Assert.AreEqual(1, response.SourcebooksMissingSnippets);
             Assert.AreEqual(50, response.ReferenceCoveragePercent);
+            Assert.AreEqual("stale", response.ReferenceSourceLanePosture);
+            Assert.AreEqual(1, response.SourcebooksWithGovernedReferenceSources);
+            Assert.AreEqual(0, response.SourcebooksWithStaleReferenceSources);
+            Assert.AreEqual(1, response.SourcebooksMissingReferenceSources);
 
             MasterIndexSourcebookEntry rf = response.Sourcebooks.Single(sourcebook => sourcebook.Code == "RF");
             Assert.AreEqual("book-rf", rf.Id);
@@ -473,6 +481,53 @@ public class ToolCatalogServiceTests
             Assert.AreEqual("ftp://example.test/broken-reference", sourcebook.ReferenceUrl);
             Assert.AreEqual("matched-snippets", sourcebook.ReferencePosture);
             Assert.AreEqual(1, sourcebook.RuleSnippetCount);
+            Assert.AreEqual("stale", response.ReferenceSourceLanePosture);
+            Assert.AreEqual(0, response.SourcebooksWithGovernedReferenceSources);
+            Assert.AreEqual(1, response.SourcebooksWithStaleReferenceSources);
+            Assert.AreEqual(0, response.SourcebooksMissingReferenceSources);
+        }
+        finally
+        {
+            DeleteTempDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public void Master_index_reports_governed_reference_source_lane_when_all_sourcebooks_have_valid_pdf_or_url_targets()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            string dataDir = Path.Combine(root, "data");
+            Directory.CreateDirectory(dataDir);
+            File.WriteAllText(
+                Path.Combine(dataDir, "books.xml"),
+                """
+                <chummer>
+                  <books>
+                    <book>
+                      <id>book-sr5</id>
+                      <name>Shadowrun 5th Edition</name>
+                      <code>SR5</code>
+                      <pdf>Shadowrun5-Core.pdf</pdf>
+                    </book>
+                    <book>
+                      <id>book-rf</id>
+                      <name>Run Faster</name>
+                      <code>RF</code>
+                      <url>https://example.test/sourcebooks/run-faster</url>
+                    </book>
+                  </books>
+                </chummer>
+                """);
+
+            var service = new XmlToolCatalogService(root);
+            MasterIndexResponse response = service.GetMasterIndex();
+
+            Assert.AreEqual("governed", response.ReferenceSourceLanePosture);
+            Assert.AreEqual(2, response.SourcebooksWithGovernedReferenceSources);
+            Assert.AreEqual(0, response.SourcebooksWithStaleReferenceSources);
+            Assert.AreEqual(0, response.SourcebooksMissingReferenceSources);
         }
         finally
         {
