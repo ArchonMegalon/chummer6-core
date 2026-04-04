@@ -92,6 +92,9 @@ public class ToolCatalogServiceTests
             Assert.AreEqual(
                 "No import oracle fixtures or certification receipt were discovered. Missing sources: chummer4, chummer5a, hero-lab-classic, genesis-commlink6.",
                 response.ImportOracleLaneReceipt);
+            Assert.AreEqual(
+                "No adjacent SR6 oracle certification receipt coverage was discovered for Genesis/CommLink6.",
+                response.AdjacentSr6OracleLaneReceipt);
             StringAssert.Contains(response.Sr6SuccessorLaneReceipt, "Supplement posture is missing");
         }
         finally
@@ -1229,6 +1232,9 @@ public class ToolCatalogServiceTests
             Assert.IsNotNull(response.ImportOracleMissingSources);
             Assert.AreEqual(0, response.ImportOracleMissingSources.Count);
             Assert.AreEqual("Import oracle coverage is 4/4 with certification receipt posture governed and adjacent SR6 oracle posture governed.", response.ImportOracleLaneReceipt);
+            Assert.AreEqual(
+                "Adjacent SR6 oracle coverage is 2/2 with receipt posture governed (Genesis/CommLink6).",
+                response.AdjacentSr6OracleLaneReceipt);
         }
         finally
         {
@@ -1278,6 +1284,9 @@ public class ToolCatalogServiceTests
             Assert.AreEqual(
                 "Import oracle coverage is 3/4 with certification receipt posture missing and adjacent SR6 oracle posture missing. Missing sources: genesis-commlink6.",
                 response.ImportOracleLaneReceipt);
+            Assert.AreEqual(
+                "No adjacent SR6 oracle certification receipt coverage was discovered for Genesis/CommLink6.",
+                response.AdjacentSr6OracleLaneReceipt);
         }
         finally
         {
@@ -1338,6 +1347,9 @@ public class ToolCatalogServiceTests
             Assert.AreEqual(
                 "Import oracle coverage is 3/4 with certification receipt posture governed and adjacent SR6 oracle posture stale. Missing sources: genesis-commlink6.",
                 response.ImportOracleLaneReceipt);
+            Assert.AreEqual(
+                "Adjacent SR6 oracle coverage is 1/2 with receipt posture stale (Genesis/CommLink6).",
+                response.AdjacentSr6OracleLaneReceipt);
         }
         finally
         {
