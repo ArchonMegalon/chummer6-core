@@ -61,6 +61,7 @@ public sealed record MasterIndexResponse(
     int ImportOracleSourcesCovered = 0,
     int ImportOracleSourcesExpected = 4,
     int ImportOracleCoveragePercent = 0,
+    IReadOnlyList<string>? ImportOracleMissingSources = null,
     string ImportOracleLaneReceipt = "",
     string Sr6SuccessorLaneReceipt = "");
 

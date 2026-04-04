@@ -98,6 +98,7 @@ public static class BuildLabWorkspaceProjectionFactory
 
         string displayName = FirstNonEmpty(profile.Name, profile.Alias, "Runner");
         string runtimeSummary = CreateRuntimeCompatibilitySummary(rules, effectiveRulesetId);
+        (string RuleEnvironmentDiffStatus, string RuleEnvironmentBeforeFingerprint, string RuleEnvironmentAfterFingerprint, string RuleEnvironmentDiffSummary) ruleEnvironmentDiff = CreateRuleEnvironmentDiffReceipt(rules, effectiveRulesetId);
         string campaignFitSummary = CreateCampaignFitSummary(teamCoverageProjection);
         string supportClosureSummary = CreateSupportClosureSummary(topTimeline, topVariant);
         string[] watchouts = BuildWatchouts(variantCards, teamCoverageProjection, topTimeline);
@@ -109,6 +110,7 @@ public static class BuildLabWorkspaceProjectionFactory
             topTimeline,
             teamCoverageProjection,
             runtimeSummary,
+            ruleEnvironmentDiff,
             sourceDocumentId);
         BuildLabExportTarget[] exportTargets = BuildExportTargets();
         BuildLabActionDescriptor[] actions =
@@ -521,6 +523,7 @@ public static class BuildLabWorkspaceProjectionFactory
         BuildLabProgressionTimeline? topTimeline,
         BuildLabTeamCoverageProjection teamCoverage,
         string runtimeSummary,
+        (string RuleEnvironmentDiffStatus, string RuleEnvironmentBeforeFingerprint, string RuleEnvironmentAfterFingerprint, string RuleEnvironmentDiffSummary) ruleEnvironmentDiff,
         string? sourceDocumentId)
     {
         return
@@ -553,6 +556,14 @@ public static class BuildLabWorkspaceProjectionFactory
                         FieldId: "rule-environment",
                         Label: "Rule environment",
                         Value: runtimeSummary),
+                    new BuildLabExportField(
+                        FieldId: "rule-environment-diff",
+                        Label: "Rule environment diff",
+                        Value: $"{ruleEnvironmentDiff.RuleEnvironmentBeforeFingerprint} -> {ruleEnvironmentDiff.RuleEnvironmentAfterFingerprint} ({ruleEnvironmentDiff.RuleEnvironmentDiffStatus})"),
+                    new BuildLabExportField(
+                        FieldId: "rule-environment-diff-summary",
+                        Label: "Rule environment diff summary",
+                        Value: ruleEnvironmentDiff.RuleEnvironmentDiffSummary),
                     new BuildLabExportField(
                         FieldId: "explain-receipt",
                         Label: "Explain receipt",
@@ -803,6 +814,33 @@ public static class BuildLabWorkspaceProjectionFactory
         string rulesetLabel = FormatRulesetLabel(rulesetId);
         string rulesEnvironment = FirstNonEmpty(rules?.Settings, rules?.GameplayOption, rules?.GameEdition, rulesetLabel);
         return $"Grounded in {rulesEnvironment} under the {rulesetLabel} runtime surface.";
+    }
+
+    private static (string RuleEnvironmentDiffStatus, string RuleEnvironmentBeforeFingerprint, string RuleEnvironmentAfterFingerprint, string RuleEnvironmentDiffSummary) CreateRuleEnvironmentDiffReceipt(CharacterRulesSection? rules, string rulesetId)
+    {
+        string fingerprint = CreateRuleEnvironmentFingerprint(rules, rulesetId);
+        if (rules is null)
+        {
+            return (
+                RuleEnvironmentDiffStatus: "pending",
+                RuleEnvironmentBeforeFingerprint: fingerprint,
+                RuleEnvironmentAfterFingerprint: fingerprint,
+                RuleEnvironmentDiffSummary: $"Rule-environment diff is pending until a governed rule profile is selected; current intake defaults to {fingerprint}.");
+        }
+
+        return (
+            RuleEnvironmentDiffStatus: "clear",
+            RuleEnvironmentBeforeFingerprint: fingerprint,
+            RuleEnvironmentAfterFingerprint: fingerprint,
+            RuleEnvironmentDiffSummary: $"Rule-environment diff is clear: Build Lab intake and governed export targets both pin {fingerprint}.");
+    }
+
+    private static string CreateRuleEnvironmentFingerprint(CharacterRulesSection? rules, string rulesetId)
+    {
+        string ruleset = RulesetDefaults.NormalizeOptional(rulesetId) ?? RulesetDefaults.Sr5;
+        string settings = FirstNonEmpty(rules?.Settings, "default");
+        string gameplay = FirstNonEmpty(rules?.GameplayOption, rules?.GameEdition, "standard");
+        return $"{ruleset}:{settings}:{gameplay}".ToLowerInvariant();
     }
 
     private static string CreateCampaignFitSummary(BuildLabTeamCoverageProjection teamCoverage)
