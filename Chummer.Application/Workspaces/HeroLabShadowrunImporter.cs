@@ -217,19 +217,15 @@ public static class HeroLabShadowrunImporter
         }
 
         JsonElement actor = ResolveOnlineLeadActor(root, sourceLabel);
-        JsonElement items = actor.TryGetProperty("items", out JsonElement actorItems) && actorItems.ValueKind == JsonValueKind.Object
+        JsonElement items = TryReadJsonProperty(actor, "items", out JsonElement actorItems)
             ? actorItems
             : default;
-        string playerName = actor.TryGetProperty("player", out JsonElement playerElement) && playerElement.ValueKind == JsonValueKind.String
-            ? playerElement.GetString()?.Trim() ?? string.Empty
-            : string.Empty;
-        string name = actor.TryGetProperty("name", out JsonElement nameElement) && nameElement.ValueKind == JsonValueKind.String
-            ? nameElement.GetString()?.Trim() ?? string.Empty
-            : string.Empty;
+        string playerName = ReadJsonString(actor, "player");
+        string name = ReadJsonString(actor, "name");
         string gameName = ReadJsonString(root, "metadata", "gameName");
         string appVersion = ReadJsonString(root, "metadata", "hloVersion");
         string exportVersion = ReadJsonString(root, "metadata", "exportVersion");
-        JsonElement gameValues = actor.TryGetProperty("gameValues", out JsonElement valuesElement) && valuesElement.ValueKind == JsonValueKind.Object
+        JsonElement gameValues = TryReadJsonProperty(actor, "gameValues", out JsonElement valuesElement) && valuesElement.ValueKind == JsonValueKind.Object
             ? valuesElement
             : default;
 
@@ -252,13 +248,12 @@ public static class HeroLabShadowrunImporter
         List<CharacterComplexFormSummary> complexForms = [];
         List<CharacterGearSummary> gear = [];
 
-        if (items.ValueKind == JsonValueKind.Object)
+        if (items.ValueKind is JsonValueKind.Object or JsonValueKind.Array)
         {
-            foreach (JsonProperty property in items.EnumerateObject())
+            foreach ((string itemId, JsonElement item) in EnumerateOnlineItems(items))
             {
-                JsonElement item = property.Value;
                 ParseOnlineItem(
-                    property.Name,
+                    itemId,
                     item,
                     oracleAttributes,
                     attributeSummaries,
@@ -1124,7 +1119,7 @@ public static class HeroLabShadowrunImporter
         {
             case "attribute":
             {
-                int baseValue = ReadJsonInt(item, "baseValue", "base", "scoreBase", "valueBase");
+                int baseValue = ReadJsonInt(item, "baseValue", "base", "scoreBase", "valueBase", "value");
                 int totalValue = ReadJsonInt(item, "totalValue", "total", "value", "net", "scoreNet", "valueNet", "modified");
                 if (totalValue == 0)
                 {
@@ -1160,8 +1155,8 @@ public static class HeroLabShadowrunImporter
 
             case "skill":
             {
-                int baseValue = ReadJsonInt(item, "baseValue", "base", "ratingBase");
-                int totalValue = ReadJsonInt(item, "totalValue", "total", "value", "net", "ratingNet", "modified");
+                int baseValue = ReadJsonInt(item, "baseValue", "base", "ratingBase", "valueBase", "value");
+                int totalValue = ReadJsonInt(item, "totalValue", "total", "value", "net", "ratingNet", "valueNet", "modified");
                 if (totalValue == 0)
                 {
                     totalValue = baseValue;
@@ -1288,13 +1283,14 @@ public static class HeroLabShadowrunImporter
             }
         }
 
-        if (item.TryGetProperty("items", out JsonElement nestedItems) && nestedItems.ValueKind == JsonValueKind.Object)
+        if (TryReadJsonProperty(item, "items", out JsonElement nestedItems)
+            && nestedItems.ValueKind is JsonValueKind.Object or JsonValueKind.Array)
         {
-            foreach (JsonProperty nested in nestedItems.EnumerateObject())
+            foreach ((string nestedId, JsonElement nestedItem) in EnumerateOnlineItems(nestedItems))
             {
                 ParseOnlineItem(
-                    nested.Name,
-                    nested.Value,
+                    nestedId,
+                    nestedItem,
                     oracleAttributes,
                     attributeSummaries,
                     attributeDetails,
@@ -1319,23 +1315,92 @@ public static class HeroLabShadowrunImporter
 
     private static JsonElement ResolveOnlineLeadActor(JsonElement root, string sourceLabel)
     {
-        if (!root.TryGetProperty("actors", out JsonElement actors) || actors.ValueKind != JsonValueKind.Object)
+        if (!TryReadJsonProperty(root, "actors", out JsonElement actors))
         {
-            throw new InvalidOperationException($"{sourceLabel} must keep a Hero Lab Online actors object.");
+            throw new InvalidOperationException($"{sourceLabel} must keep a Hero Lab Online actors collection.");
         }
 
-        if (actors.TryGetProperty("actor.1", out JsonElement lead))
+        if (actors.ValueKind == JsonValueKind.Object)
         {
-            return lead;
+            if (TryReadJsonProperty(actors, "actor.1", out JsonElement lead) && lead.ValueKind == JsonValueKind.Object)
+            {
+                return lead;
+            }
+
+            JsonProperty first = actors.EnumerateObject().FirstOrDefault();
+            if (first.Value.ValueKind == JsonValueKind.Object)
+            {
+                return first.Value;
+            }
+
+            throw new InvalidOperationException($"{sourceLabel} does not contain a usable Hero Lab Online lead actor.");
         }
 
-        JsonProperty first = actors.EnumerateObject().FirstOrDefault();
-        if (first.Value.ValueKind == JsonValueKind.Object)
+        if (actors.ValueKind == JsonValueKind.Array)
         {
-            return first.Value;
+            foreach (JsonElement actor in actors.EnumerateArray())
+            {
+                if (actor.ValueKind != JsonValueKind.Object)
+                {
+                    continue;
+                }
+
+                if (ReadJsonBool(actor, "isLead", "lead", "isActive", "active"))
+                {
+                    return actor;
+                }
+            }
+
+            JsonElement firstActor = actors.EnumerateArray().FirstOrDefault(static candidate => candidate.ValueKind == JsonValueKind.Object);
+            if (firstActor.ValueKind == JsonValueKind.Object)
+            {
+                return firstActor;
+            }
         }
 
         throw new InvalidOperationException($"{sourceLabel} does not contain a usable Hero Lab Online lead actor.");
+    }
+
+    private static IEnumerable<(string ItemId, JsonElement Item)> EnumerateOnlineItems(JsonElement items)
+    {
+        if (items.ValueKind == JsonValueKind.Object)
+        {
+            foreach (JsonProperty property in items.EnumerateObject())
+            {
+                yield return (property.Name, property.Value);
+            }
+
+            yield break;
+        }
+
+        if (items.ValueKind != JsonValueKind.Array)
+        {
+            yield break;
+        }
+
+        int index = 0;
+        foreach (JsonElement item in items.EnumerateArray())
+        {
+            if (item.ValueKind != JsonValueKind.Object)
+            {
+                index++;
+                continue;
+            }
+
+            string itemId = ReadJsonString(item, "id");
+            if (string.IsNullOrWhiteSpace(itemId))
+            {
+                itemId = ReadJsonString(item, "itemId");
+            }
+
+            if (string.IsNullOrWhiteSpace(itemId))
+            {
+                itemId = $"item_{index + 1}";
+            }
+
+            yield return (itemId, item);
+            index++;
+        }
     }
 
     private static string DetermineOnlineBucket(string itemId, string compset)
@@ -1477,7 +1542,7 @@ public static class HeroLabShadowrunImporter
         JsonElement current = element;
         foreach (string segment in path)
         {
-            if (current.ValueKind != JsonValueKind.Object || !current.TryGetProperty(segment, out current))
+            if (!TryReadJsonProperty(current, segment, out current))
             {
                 return string.Empty;
             }
@@ -1579,7 +1644,39 @@ public static class HeroLabShadowrunImporter
             }
         }
 
+        string normalizedCandidateName = NormalizeJsonPropertyName(candidateName);
+        foreach (JsonProperty property in element.EnumerateObject())
+        {
+            if (string.Equals(NormalizeJsonPropertyName(property.Name), normalizedCandidateName, StringComparison.Ordinal))
+            {
+                value = property.Value;
+                return true;
+            }
+        }
+
         return false;
+    }
+
+    private static string NormalizeJsonPropertyName(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return string.Empty;
+        }
+
+        Span<char> buffer = stackalloc char[value.Length];
+        int count = 0;
+        foreach (char character in value)
+        {
+            if (character is '_' or '-' or ' ' or '.')
+            {
+                continue;
+            }
+
+            buffer[count++] = char.ToLowerInvariant(character);
+        }
+
+        return new string(buffer[..count]);
     }
 
     private static int ParseInt(string? value, int fallback = 0)
