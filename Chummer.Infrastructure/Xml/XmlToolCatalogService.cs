@@ -19,6 +19,13 @@ public sealed class XmlToolCatalogService : IToolCatalogService
 
     private const int Sr6DesignerFamiliesExpected = 5;
     private readonly IContentOverlayCatalogService _overlays;
+    private readonly record struct SettingsCatalogSummary(
+        int ProfileCount,
+        int ProfilesWithSourceToggles,
+        int DistinctSourcebookToggles,
+        string SettingsLanePosture,
+        string SourceToggleLanePosture,
+        int SourcebookToggleCoveragePercent);
 
     public XmlToolCatalogService(IContentOverlayCatalogService overlays)
     {
@@ -49,6 +56,12 @@ public sealed class XmlToolCatalogService : IToolCatalogService
                 SourcebooksWithSnippets: 0,
                 SourcebooksMissingSnippets: 0,
                 ReferenceCoveragePercent: 0,
+                SettingsLanePosture: "missing",
+                SettingsProfileCount: 0,
+                SettingsProfilesWithSourceToggles: 0,
+                DistinctSourcebookToggles: 0,
+                SourceToggleLanePosture: "missing",
+                SourcebookToggleCoveragePercent: 0,
                 XmlBridgePosture: ResolveXmlBridgePosture(catalog),
                 EnabledDataOverlayCount: CountEnabledDataOverlays(catalog),
                 Sr6SupplementLanePosture: ResolveSr6SupplementLanePosture(Array.Empty<MasterIndexSourcebookEntry>()),
@@ -63,6 +76,7 @@ public sealed class XmlToolCatalogService : IToolCatalogService
         int sourcebooksWithSnippets = CountSourcebooksWithSnippets(sourcebooks);
         int sourcebooksMissingSnippets = sourcebooks.Count - sourcebooksWithSnippets;
         int referenceCoveragePercent = CalculateReferenceCoveragePercent(sourcebooks.Count, sourcebooksWithSnippets);
+        var settingsSummary = BuildSettingsCatalogSummary(filesByName, sourcebooks);
         int sr6DesignerFamiliesAvailable = CountSr6DesignerFamiliesAvailable(filesByName);
 
         List<MasterIndexFileEntry> files = new();
@@ -93,6 +107,12 @@ public sealed class XmlToolCatalogService : IToolCatalogService
             SourcebooksWithSnippets: sourcebooksWithSnippets,
             SourcebooksMissingSnippets: sourcebooksMissingSnippets,
             ReferenceCoveragePercent: referenceCoveragePercent,
+            SettingsLanePosture: settingsSummary.SettingsLanePosture,
+            SettingsProfileCount: settingsSummary.ProfileCount,
+            SettingsProfilesWithSourceToggles: settingsSummary.ProfilesWithSourceToggles,
+            DistinctSourcebookToggles: settingsSummary.DistinctSourcebookToggles,
+            SourceToggleLanePosture: settingsSummary.SourceToggleLanePosture,
+            SourcebookToggleCoveragePercent: settingsSummary.SourcebookToggleCoveragePercent,
             XmlBridgePosture: ResolveXmlBridgePosture(catalog),
             EnabledDataOverlayCount: CountEnabledDataOverlays(catalog),
             Sr6SupplementLanePosture: ResolveSr6SupplementLanePosture(sourcebooks),
@@ -179,6 +199,88 @@ public sealed class XmlToolCatalogService : IToolCatalogService
         }
 
         return (int)Math.Round(sourcebooksWithSnippets * 100d / sourcebookCount, MidpointRounding.AwayFromZero);
+    }
+
+    private static SettingsCatalogSummary BuildSettingsCatalogSummary(
+        IReadOnlyDictionary<string, XDocument?> filesByName,
+        IReadOnlyList<MasterIndexSourcebookEntry> sourcebooks)
+    {
+        if (!filesByName.TryGetValue("settings.xml", out XDocument? settingsDocument) || settingsDocument?.Root is null)
+        {
+            return new SettingsCatalogSummary(
+                ProfileCount: 0,
+                ProfilesWithSourceToggles: 0,
+                DistinctSourcebookToggles: 0,
+                SettingsLanePosture: "missing",
+                SourceToggleLanePosture: "missing",
+                SourcebookToggleCoveragePercent: 0);
+        }
+
+        IEnumerable<XElement> profileNodes = settingsDocument.Root
+            .Element("settings")?
+            .Elements("setting")
+            ?? Enumerable.Empty<XElement>();
+
+        int profileCount = 0;
+        int profilesWithSourceToggles = 0;
+        HashSet<string> distinctToggles = new(StringComparer.OrdinalIgnoreCase);
+        foreach (XElement profileNode in profileNodes)
+        {
+            profileCount++;
+            HashSet<string> profileBooks = profileNode
+                .Element("books")?
+                .Elements("book")
+                .Select(book => book.Value?.Trim() ?? string.Empty)
+                .Where(static code => !string.IsNullOrWhiteSpace(code))
+                .ToHashSet(StringComparer.OrdinalIgnoreCase)
+                ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            if (profileBooks.Count == 0)
+            {
+                continue;
+            }
+
+            profilesWithSourceToggles++;
+            distinctToggles.UnionWith(profileBooks);
+        }
+
+        string settingsLanePosture = profileCount <= 0
+            ? "missing"
+            : profilesWithSourceToggles > 0
+                ? "governed"
+                : "stale";
+        if (distinctToggles.Count == 0)
+        {
+            return new SettingsCatalogSummary(
+                ProfileCount: profileCount,
+                ProfilesWithSourceToggles: profilesWithSourceToggles,
+                DistinctSourcebookToggles: 0,
+                SettingsLanePosture: settingsLanePosture,
+                SourceToggleLanePosture: "missing",
+                SourcebookToggleCoveragePercent: 0);
+        }
+
+        HashSet<string> knownSourcebooks = sourcebooks
+            .Select(sourcebook => sourcebook.Code?.Trim() ?? string.Empty)
+            .Where(static code => !string.IsNullOrWhiteSpace(code))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        int knownToggleCount = distinctToggles.Count(code => knownSourcebooks.Contains(code));
+        bool hasUnknownToggle = distinctToggles.Any(code => !knownSourcebooks.Contains(code));
+        string sourceToggleLanePosture =
+            knownSourcebooks.Count == 0 || hasUnknownToggle
+                ? "stale"
+                : "governed";
+        int sourcebookToggleCoveragePercent = knownSourcebooks.Count <= 0
+            ? 0
+            : (int)Math.Round(knownToggleCount * 100d / knownSourcebooks.Count, MidpointRounding.AwayFromZero);
+
+        return new SettingsCatalogSummary(
+            ProfileCount: profileCount,
+            ProfilesWithSourceToggles: profilesWithSourceToggles,
+            DistinctSourcebookToggles: distinctToggles.Count,
+            SettingsLanePosture: settingsLanePosture,
+            SourceToggleLanePosture: sourceToggleLanePosture,
+            SourcebookToggleCoveragePercent: sourcebookToggleCoveragePercent);
     }
 
     private static int CountEnabledDataOverlays(ContentOverlayCatalog catalog)
