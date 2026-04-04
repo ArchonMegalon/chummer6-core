@@ -418,6 +418,29 @@ public class ToolCatalogServiceTests
     }
 
     [TestMethod]
+    public void Master_index_reports_stale_sr6_designer_tool_posture_when_catalog_coverage_is_partial()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            string dataDir = Path.Combine(root, "data");
+            Directory.CreateDirectory(dataDir);
+            File.WriteAllText(Path.Combine(dataDir, "spells.xml"), "<chummer><spells /></chummer>");
+
+            var service = new XmlToolCatalogService(root);
+            MasterIndexResponse response = service.GetMasterIndex();
+
+            Assert.AreEqual("stale", response.Sr6DesignerToolsPosture);
+            Assert.AreEqual(1, response.Sr6DesignerFamiliesAvailable);
+            Assert.AreEqual(5, response.Sr6DesignerFamiliesExpected);
+        }
+        finally
+        {
+            DeleteTempDirectory(root);
+        }
+    }
+
+    [TestMethod]
     public void Master_index_reports_governed_house_rule_lane_when_house_rule_overlay_exists()
     {
         string root = CreateTempDirectory();
