@@ -35,6 +35,12 @@ public class ToolCatalogServiceTests
             Assert.AreEqual(0, response.SourcebooksWithSnippets);
             Assert.AreEqual(0, response.SourcebooksMissingSnippets);
             Assert.AreEqual(0, response.ReferenceCoveragePercent);
+            Assert.AreEqual("missing", response.SettingsLanePosture);
+            Assert.AreEqual(0, response.SettingsProfileCount);
+            Assert.AreEqual(0, response.SettingsProfilesWithSourceToggles);
+            Assert.AreEqual(0, response.DistinctSourcebookToggles);
+            Assert.AreEqual("missing", response.SourceToggleLanePosture);
+            Assert.AreEqual(0, response.SourcebookToggleCoveragePercent);
             Assert.AreEqual("missing", response.XmlBridgePosture);
             Assert.AreEqual(0, response.EnabledDataOverlayCount);
             Assert.AreEqual("missing", response.Sr6SupplementLanePosture);
@@ -196,6 +202,12 @@ public class ToolCatalogServiceTests
             Assert.AreEqual("governed", sr5.ReferenceSourcePosture);
             Assert.AreEqual("Shadowrun5-Core.pdf", sr5.LocalPdfPath);
             Assert.AreEqual("https://example.test/sourcebooks/shadowrun5", sr5.ReferenceUrl);
+            Assert.AreEqual("missing", response.SettingsLanePosture);
+            Assert.AreEqual(0, response.SettingsProfileCount);
+            Assert.AreEqual(0, response.SettingsProfilesWithSourceToggles);
+            Assert.AreEqual(0, response.DistinctSourcebookToggles);
+            Assert.AreEqual("missing", response.SourceToggleLanePosture);
+            Assert.AreEqual(0, response.SourcebookToggleCoveragePercent);
             Assert.AreEqual("missing", response.XmlBridgePosture);
             Assert.AreEqual(0, response.EnabledDataOverlayCount);
             Assert.AreEqual("stale", response.Sr6SupplementLanePosture);
@@ -439,6 +451,123 @@ public class ToolCatalogServiceTests
             Assert.AreEqual("ftp://example.test/broken-reference", sourcebook.ReferenceUrl);
             Assert.AreEqual("matched-snippets", sourcebook.ReferencePosture);
             Assert.AreEqual(1, sourcebook.RuleSnippetCount);
+        }
+        finally
+        {
+            DeleteTempDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public void Master_index_projects_settings_profile_and_source_toggle_posture_from_settings_catalog()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            string dataDir = Path.Combine(root, "data");
+            Directory.CreateDirectory(dataDir);
+            File.WriteAllText(
+                Path.Combine(dataDir, "books.xml"),
+                """
+                <chummer>
+                  <books>
+                    <book>
+                      <id>book-sr5</id>
+                      <name>Shadowrun 5th Edition</name>
+                      <code>SR5</code>
+                    </book>
+                    <book>
+                      <id>book-rf</id>
+                      <name>Run Faster</name>
+                      <code>RF</code>
+                    </book>
+                  </books>
+                </chummer>
+                """);
+            File.WriteAllText(
+                Path.Combine(dataDir, "settings.xml"),
+                """
+                <chummer>
+                  <settings>
+                    <setting>
+                      <name>Standard</name>
+                      <books>
+                        <book>SR5</book>
+                      </books>
+                    </setting>
+                    <setting>
+                      <name>Expanded</name>
+                      <books>
+                        <book>SR5</book>
+                        <book>RF</book>
+                      </books>
+                    </setting>
+                  </settings>
+                </chummer>
+                """);
+
+            var service = new XmlToolCatalogService(root);
+            MasterIndexResponse response = service.GetMasterIndex();
+
+            Assert.AreEqual("governed", response.SettingsLanePosture);
+            Assert.AreEqual(2, response.SettingsProfileCount);
+            Assert.AreEqual(2, response.SettingsProfilesWithSourceToggles);
+            Assert.AreEqual(2, response.DistinctSourcebookToggles);
+            Assert.AreEqual("governed", response.SourceToggleLanePosture);
+            Assert.AreEqual(100, response.SourcebookToggleCoveragePercent);
+        }
+        finally
+        {
+            DeleteTempDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public void Master_index_reports_stale_source_toggle_posture_when_settings_reference_unknown_sourcebook_codes()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            string dataDir = Path.Combine(root, "data");
+            Directory.CreateDirectory(dataDir);
+            File.WriteAllText(
+                Path.Combine(dataDir, "books.xml"),
+                """
+                <chummer>
+                  <books>
+                    <book>
+                      <id>book-sr5</id>
+                      <name>Shadowrun 5th Edition</name>
+                      <code>SR5</code>
+                    </book>
+                  </books>
+                </chummer>
+                """);
+            File.WriteAllText(
+                Path.Combine(dataDir, "settings.xml"),
+                """
+                <chummer>
+                  <settings>
+                    <setting>
+                      <name>Custom</name>
+                      <books>
+                        <book>SR5</book>
+                        <book>UNKNOWN</book>
+                      </books>
+                    </setting>
+                  </settings>
+                </chummer>
+                """);
+
+            var service = new XmlToolCatalogService(root);
+            MasterIndexResponse response = service.GetMasterIndex();
+
+            Assert.AreEqual("governed", response.SettingsLanePosture);
+            Assert.AreEqual(1, response.SettingsProfileCount);
+            Assert.AreEqual(1, response.SettingsProfilesWithSourceToggles);
+            Assert.AreEqual(2, response.DistinctSourcebookToggles);
+            Assert.AreEqual("stale", response.SourceToggleLanePosture);
+            Assert.AreEqual(100, response.SourcebookToggleCoveragePercent);
         }
         finally
         {
