@@ -60,7 +60,9 @@ public sealed record MasterIndexSourcebookEntry(
     IReadOnlyList<MasterIndexRuleSnippetEntry> RuleSnippets,
     string ReferenceSourcePosture = "missing",
     string LocalPdfPath = "",
-    string ReferenceUrl = "");
+    string ReferenceUrl = "",
+    string ReferenceSnapshot = "",
+    string ReferenceSnapshotPosture = "missing");
 
 public sealed record MasterIndexRuleSnippetEntry(
     string Language,

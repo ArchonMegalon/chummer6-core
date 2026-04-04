@@ -2247,6 +2247,7 @@ public class ApiIntegrationTests
         JsonObject response = await GetRequiredJsonObject(client, "/api/tools/master-index");
         Assert.IsGreaterThan(0, response["count"]?.GetValue<int>() ?? 0);
         Assert.IsTrue(response["files"] is JsonArray);
+        Assert.IsTrue(response["sourcebooks"] is JsonArray);
         Assert.IsNotNull(response["referenceSourceLanePosture"]);
         Assert.IsNotNull(response["sourcebooksWithGovernedReferenceSources"]);
         Assert.IsNotNull(response["sourcebooksWithStaleReferenceSources"]);
@@ -2270,6 +2271,12 @@ public class ApiIntegrationTests
         Assert.IsNotNull(response["importOracleSourcesCovered"]);
         Assert.IsNotNull(response["importOracleSourcesExpected"]);
         Assert.IsNotNull(response["importOracleCoveragePercent"]);
+        JsonObject? firstSourcebook = response["sourcebooks"]?.AsArray().OfType<JsonObject>().FirstOrDefault();
+        if (firstSourcebook is not null)
+        {
+            Assert.IsNotNull(firstSourcebook["referenceSnapshot"]);
+            Assert.IsNotNull(firstSourcebook["referenceSnapshotPosture"]);
+        }
     }
 
     [TestMethod]
