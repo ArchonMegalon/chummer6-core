@@ -2177,6 +2177,17 @@ internal static class CoreEngineTests
                 .Any(static field => string.Equals(field.FieldId, "explain-receipt", StringComparison.Ordinal)
                     && field.Value.Contains("buildlab", StringComparison.Ordinal)) == true,
             "Build Lab projection factory should stamp explain receipt ids onto governed export payloads.");
+        AssertEx.True(
+            projection.ExportPayloads?.SelectMany(static payload => payload.Fields)
+                .Any(static field => string.Equals(field.FieldId, "rule-environment-diff", StringComparison.Ordinal)
+                    && field.Value.Contains("->", StringComparison.Ordinal)
+                    && field.Value.Contains("(clear)", StringComparison.Ordinal)) == true,
+            "Build Lab projection factory should stamp rule-environment before/after diff posture onto governed export payloads.");
+        AssertEx.True(
+            projection.ExportPayloads?.SelectMany(static payload => payload.Fields)
+                .Any(static field => string.Equals(field.FieldId, "rule-environment-diff-summary", StringComparison.Ordinal)
+                    && field.Value.Contains("diff is clear", StringComparison.Ordinal)) == true,
+            "Build Lab projection factory should stamp rule-environment diff summary receipts onto governed export payloads.");
     }
 
     private static void WorkspaceServiceRebindsBuildLabWorkspaceIds()
