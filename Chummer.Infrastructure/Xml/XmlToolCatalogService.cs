@@ -1,4 +1,5 @@
 using System.Xml.Linq;
+using System.Text.Json.Nodes;
 using Chummer.Application.Content;
 using Chummer.Application.Tools;
 using Chummer.Contracts.Api;
@@ -28,6 +29,15 @@ public sealed class XmlToolCatalogService : IToolCatalogService
         int SourcebookToggleCoveragePercent,
         int ProfilesWithCustomDataDirectories,
         int DistinctCustomDataDirectoryCount);
+    private readonly record struct ImportOracleSummary(
+        string LanePosture,
+        string ReceiptPosture,
+        int LegacyChummer4FixtureCount,
+        int LegacyChummer5FixtureCount,
+        int HeroLabFixtureCount,
+        int SourcesCovered,
+        int SourcesExpected,
+        int CoveragePercent);
 
     public XmlToolCatalogService(IContentOverlayCatalogService overlays)
     {
@@ -47,6 +57,7 @@ public sealed class XmlToolCatalogService : IToolCatalogService
             catalog,
             catalog.BaseDataPath,
             pack => pack.DataPath);
+        ImportOracleSummary importOracleSummary = BuildImportOracleSummary(catalog.BaseDataPath);
         if (filesByName.Count == 0)
             return new MasterIndexResponse(
                 Count: 0,
@@ -74,7 +85,15 @@ public sealed class XmlToolCatalogService : IToolCatalogService
                 Sr6DesignerFamiliesAvailable: 0,
                 Sr6DesignerFamiliesExpected: Sr6DesignerFamiliesExpected,
                 HouseRuleLanePosture: ResolveHouseRuleLanePosture(catalog),
-                HouseRuleOverlayCount: CountHouseRuleOverlays(catalog));
+                HouseRuleOverlayCount: CountHouseRuleOverlays(catalog),
+                ImportOracleLanePosture: importOracleSummary.LanePosture,
+                ImportOracleReceiptPosture: importOracleSummary.ReceiptPosture,
+                LegacyChummer4FixtureCount: importOracleSummary.LegacyChummer4FixtureCount,
+                LegacyChummer5FixtureCount: importOracleSummary.LegacyChummer5FixtureCount,
+                HeroLabFixtureCount: importOracleSummary.HeroLabFixtureCount,
+                ImportOracleSourcesCovered: importOracleSummary.SourcesCovered,
+                ImportOracleSourcesExpected: importOracleSummary.SourcesExpected,
+                ImportOracleCoveragePercent: importOracleSummary.CoveragePercent);
 
         IReadOnlyList<MasterIndexSourcebookEntry> sourcebooks = BuildSourcebookEntries(filesByName);
         string referenceLanePosture = ResolveReferenceLanePosture(sourcebooks);
@@ -132,7 +151,15 @@ public sealed class XmlToolCatalogService : IToolCatalogService
             Sr6DesignerFamiliesAvailable: sr6DesignerFamiliesAvailable,
             Sr6DesignerFamiliesExpected: Sr6DesignerFamiliesExpected,
             HouseRuleLanePosture: ResolveHouseRuleLanePosture(catalog),
-            HouseRuleOverlayCount: CountHouseRuleOverlays(catalog));
+            HouseRuleOverlayCount: CountHouseRuleOverlays(catalog),
+            ImportOracleLanePosture: importOracleSummary.LanePosture,
+            ImportOracleReceiptPosture: importOracleSummary.ReceiptPosture,
+            LegacyChummer4FixtureCount: importOracleSummary.LegacyChummer4FixtureCount,
+            LegacyChummer5FixtureCount: importOracleSummary.LegacyChummer5FixtureCount,
+            HeroLabFixtureCount: importOracleSummary.HeroLabFixtureCount,
+            ImportOracleSourcesCovered: importOracleSummary.SourcesCovered,
+            ImportOracleSourcesExpected: importOracleSummary.SourcesExpected,
+            ImportOracleCoveragePercent: importOracleSummary.CoveragePercent);
     }
 
     public TranslatorLanguagesResponse GetTranslatorLanguages()
@@ -377,6 +404,132 @@ public sealed class XmlToolCatalogService : IToolCatalogService
         return CountOverlayXmlFiles(catalog, pack => pack.DataPath) > 0
             ? "governed"
             : "stale";
+    }
+
+    private static ImportOracleSummary BuildImportOracleSummary(string baseDataPath)
+    {
+        const int sourcesExpected = 4;
+        string? oracleRoot = TryResolveImportOracleRoot(baseDataPath);
+        if (string.IsNullOrWhiteSpace(oracleRoot))
+        {
+            return new ImportOracleSummary(
+                LanePosture: "missing",
+                ReceiptPosture: "missing",
+                LegacyChummer4FixtureCount: 0,
+                LegacyChummer5FixtureCount: 0,
+                HeroLabFixtureCount: 0,
+                SourcesCovered: 0,
+                SourcesExpected: sourcesExpected,
+                CoveragePercent: 0);
+        }
+
+        int chummer4FixtureCount = CountFiles(
+            Path.Combine(oracleRoot, "Chummer.CoreEngine.Tests", "Fixtures", "Sr4"),
+            "*.chum4",
+            SearchOption.TopDirectoryOnly);
+        int chummer5FixtureCount = CountFiles(
+            Path.Combine(oracleRoot, "Chummer.Tests", "TestFiles"),
+            "*.chum5",
+            SearchOption.TopDirectoryOnly);
+        int heroLabFixtureCount =
+            CountFiles(Path.Combine(oracleRoot, "Chummer.CoreEngine.Tests", "Fixtures", "HeroLab"), "*.por", SearchOption.AllDirectories)
+            + CountFiles(Path.Combine(oracleRoot, "Chummer.CoreEngine.Tests", "Fixtures", "HeroLab"), "*.hlo", SearchOption.AllDirectories);
+
+        string receiptPath = Path.Combine(oracleRoot, ".codex-studio", "published", "IMPORT_PARITY_CERTIFICATION.generated.json");
+        string receiptPosture = ResolveImportOracleReceiptPosture(receiptPath);
+
+        int sourcesCovered = 0;
+        if (chummer4FixtureCount > 0)
+        {
+            sourcesCovered++;
+        }
+
+        if (chummer5FixtureCount > 0)
+        {
+            sourcesCovered++;
+        }
+
+        if (heroLabFixtureCount > 0)
+        {
+            sourcesCovered++;
+        }
+
+        if (string.Equals(receiptPosture, "governed", StringComparison.Ordinal))
+        {
+            // The parity harness receipt currently carries SR4/SR5/SR6 import coverage in one governed record.
+            sourcesCovered++;
+        }
+
+        int coveragePercent = (int)Math.Round(sourcesCovered * 100d / sourcesExpected, MidpointRounding.AwayFromZero);
+        string lanePosture = sourcesCovered <= 0
+            ? "missing"
+            : sourcesCovered >= sourcesExpected && string.Equals(receiptPosture, "governed", StringComparison.Ordinal)
+                ? "governed"
+                : "stale";
+
+        return new ImportOracleSummary(
+            LanePosture: lanePosture,
+            ReceiptPosture: receiptPosture,
+            LegacyChummer4FixtureCount: chummer4FixtureCount,
+            LegacyChummer5FixtureCount: chummer5FixtureCount,
+            HeroLabFixtureCount: heroLabFixtureCount,
+            SourcesCovered: sourcesCovered,
+            SourcesExpected: sourcesExpected,
+            CoveragePercent: coveragePercent);
+    }
+
+    private static string ResolveImportOracleReceiptPosture(string receiptPath)
+    {
+        if (!File.Exists(receiptPath))
+        {
+            return "missing";
+        }
+
+        try
+        {
+            JsonNode? payload = JsonNode.Parse(File.ReadAllText(receiptPath));
+            string status = payload?["status"]?.GetValue<string>()?.Trim() ?? string.Empty;
+            return string.Equals(status, "passed", StringComparison.OrdinalIgnoreCase)
+                ? "governed"
+                : "stale";
+        }
+        catch
+        {
+            return "stale";
+        }
+    }
+
+    private static string? TryResolveImportOracleRoot(string baseDataPath)
+    {
+        if (string.IsNullOrWhiteSpace(baseDataPath))
+        {
+            return null;
+        }
+
+        DirectoryInfo? current = new(Path.GetFullPath(baseDataPath));
+        while (current is not null)
+        {
+            bool hasChummer5Fixtures = Directory.Exists(Path.Combine(current.FullName, "Chummer.Tests", "TestFiles"));
+            bool hasChummer4Fixtures = Directory.Exists(Path.Combine(current.FullName, "Chummer.CoreEngine.Tests", "Fixtures", "Sr4"));
+            if (hasChummer5Fixtures || hasChummer4Fixtures)
+            {
+                return current.FullName;
+            }
+
+            current = current.Parent;
+        }
+
+        return null;
+    }
+
+    private static int CountFiles(string directory, string pattern, SearchOption searchOption)
+    {
+        if (!Directory.Exists(directory))
+        {
+            return 0;
+        }
+
+        return Directory.EnumerateFiles(directory, pattern, searchOption).Count();
     }
 
     private static int CountHouseRuleOverlays(ContentOverlayCatalog catalog)

@@ -31,7 +31,15 @@ public sealed record MasterIndexResponse(
     int Sr6DesignerFamiliesAvailable = 0,
     int Sr6DesignerFamiliesExpected = 0,
     string HouseRuleLanePosture = "missing",
-    int HouseRuleOverlayCount = 0);
+    int HouseRuleOverlayCount = 0,
+    string ImportOracleLanePosture = "missing",
+    string ImportOracleReceiptPosture = "missing",
+    int LegacyChummer4FixtureCount = 0,
+    int LegacyChummer5FixtureCount = 0,
+    int HeroLabFixtureCount = 0,
+    int ImportOracleSourcesCovered = 0,
+    int ImportOracleSourcesExpected = 4,
+    int ImportOracleCoveragePercent = 0);
 
 public sealed record MasterIndexSourcebookEntry(
     string Id,
