@@ -2,6 +2,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Text;
 using Chummer.Contracts.Api;
@@ -150,6 +151,12 @@ public class WorkspaceServiceTests
         Assert.IsTrue(projection.Variants.Count > 0);
         Assert.IsTrue(projection.ProgressionTimelines.Count > 0);
         Assert.IsTrue(projection.Actions.Any(action => string.Equals(action.ActionId, "next-variants", StringComparison.Ordinal)));
+        Assert.IsTrue(projection.Actions.Any(action => string.Equals(action.ActionId, "open-json-exchange", StringComparison.Ordinal)));
+        Assert.IsTrue(projection.Actions.Any(action => string.Equals(action.ActionId, "open-print-pdf-export", StringComparison.Ordinal)));
+        Assert.IsTrue(projection.ExportTargets?.Any(target => string.Equals(target.TargetId, "target.json-exchange", StringComparison.Ordinal)
+            && string.Equals(target.WorkflowId, "workflow.exchange.json", StringComparison.Ordinal)) == true);
+        Assert.IsTrue(projection.ExportTargets?.Any(target => string.Equals(target.TargetId, "target.print-pdf-export", StringComparison.Ordinal)
+            && string.Equals(target.WorkflowId, "workflow.export.pdf", StringComparison.Ordinal)) == true);
     }
 
     [TestMethod]
@@ -167,6 +174,222 @@ public class WorkspaceServiceTests
         Assert.IsFalse(string.IsNullOrWhiteSpace(imported.Id.Value));
         Assert.AreEqual("BOM Runner", imported.Summary.Name);
         Assert.AreEqual("BOM", imported.Summary.Alias);
+    }
+
+    [TestMethod]
+    public void Import_save_download_export_and_section_parse_support_every_checked_in_chummer5_fixture()
+    {
+        ICharacterFileQueries fileQueries = new XmlCharacterFileQueries(new CharacterFileService());
+        ICharacterSectionQueries sectionQueries = new XmlCharacterSectionQueries(new CharacterSectionService());
+        ICharacterMetadataCommands metadataCommands = new XmlCharacterMetadataCommands(new CharacterFileService());
+        string[] sectionIds =
+        [
+            "profile",
+            "progress",
+            "rules",
+            "build",
+            "movement",
+            "awakening",
+            "skills",
+            "attributes",
+            "inventory",
+            "gear",
+            "weapons",
+            "weaponaccessories",
+            "armors",
+            "armormods",
+            "cyberwares",
+            "vehicles",
+            "vehiclemods",
+            "spells",
+            "powers",
+            "complexforms",
+            "spirits",
+            "foci",
+            "aiprograms",
+            "martialarts",
+            "metamagics",
+            "arts",
+            "initiationgrades",
+            "critterpowers",
+            "mentorspirits",
+            "qualities",
+            "contacts",
+            "lifestyles",
+            "sources",
+            "expenses",
+            "calendar",
+            "improvements",
+            "customdatadirectorynames",
+            "build-lab"
+        ];
+
+        foreach (string fileName in LegacyChummer5FixtureCorpus.FileNames)
+        {
+            string xml = File.ReadAllText(LegacyChummer5FixtureCorpus.ResolvePath(fileName));
+            InMemoryWorkspaceStore store = new();
+            WorkspaceService workspaceService = CreateWorkspaceService(
+                store,
+                fileQueries,
+                sectionQueries,
+                metadataCommands,
+                new Sr4WorkspaceCodec());
+
+            CharacterValidationResult validation = fileQueries.Validate(new CharacterDocument(xml));
+            Assert.IsTrue(validation.IsValid, $"{fileName} should remain a valid import fixture.");
+
+            WorkspaceImportResult imported = workspaceService.Import(new WorkspaceImportDocument(
+                xml,
+                string.Empty,
+                WorkspaceDocumentFormat.NativeXml));
+
+            Assert.AreEqual(RulesetDefaults.Sr5, imported.RulesetId, $"{fileName} should import onto the SR5 lane.");
+            Assert.IsFalse(string.IsNullOrWhiteSpace(imported.Id.Value), $"{fileName} should create a workspace id.");
+            Assert.IsFalse(string.IsNullOrWhiteSpace(imported.Summary.Name), $"{fileName} should retain a character name.");
+            Assert.AreEqual(WorkspacePortabilityCompatibilityStates.Compatible, imported.Portability?.CompatibilityState, $"{fileName} should import as native governed XML.");
+
+            foreach (string sectionId in sectionIds)
+            {
+                object? section = workspaceService.GetSection(imported.Id, sectionId);
+                Assert.IsNotNull(section, $"{fileName} should parse section '{sectionId}'.");
+            }
+
+            Assert.IsNotNull(workspaceService.GetProfile(imported.Id), $"{fileName} should expose profile data.");
+            Assert.IsNotNull(workspaceService.GetProgress(imported.Id), $"{fileName} should expose progress data.");
+            Assert.IsNotNull(workspaceService.GetRules(imported.Id), $"{fileName} should expose rules data.");
+            Assert.IsNotNull(workspaceService.GetBuild(imported.Id), $"{fileName} should expose build data.");
+            Assert.IsNotNull(workspaceService.GetMovement(imported.Id), $"{fileName} should expose movement data.");
+            Assert.IsNotNull(workspaceService.GetAwakening(imported.Id), $"{fileName} should expose awakening data.");
+            Assert.IsNotNull(workspaceService.GetSkills(imported.Id), $"{fileName} should expose skills data.");
+
+            CommandResult<WorkspaceSaveReceipt> save = workspaceService.Save(imported.Id);
+            Assert.IsTrue(save.Success, $"{fileName} should save after import.");
+            Assert.IsFalse(string.IsNullOrWhiteSpace(save.Value?.ReceiptId), $"{fileName} save should produce a receipt.");
+
+            CommandResult<WorkspaceDownloadReceipt> download = workspaceService.Download(imported.Id);
+            Assert.IsTrue(download.Success, $"{fileName} should download after import.");
+            Assert.AreEqual(WorkspaceDocumentFormat.NativeXml, download.Value?.Format, $"{fileName} should remain a .chum5-native document.");
+            Assert.IsTrue((download.Value?.DocumentLength ?? 0) > 0, $"{fileName} download should contain payload bytes.");
+
+            CommandResult<WorkspaceExportReceipt> export = workspaceService.Export(imported.Id);
+            Assert.IsTrue(export.Success, $"{fileName} should export after import.");
+            Assert.IsFalse(string.IsNullOrWhiteSpace(export.Value?.PackageId), $"{fileName} export should produce a portable package id.");
+            Assert.IsNotNull(export.Value?.Portability, $"{fileName} export should include portability guidance.");
+
+            Assert.IsTrue(workspaceService.Close(imported.Id), $"{fileName} should close cleanly after roundtrip verification.");
+        }
+    }
+
+    [TestMethod]
+    public void Import_save_download_export_and_section_parse_support_every_checked_in_chummer4_fixture()
+    {
+        ICharacterFileQueries fileQueries = new XmlCharacterFileQueries(new CharacterFileService());
+        ICharacterSectionQueries sectionQueries = new XmlCharacterSectionQueries(new CharacterSectionService());
+        ICharacterMetadataCommands metadataCommands = new XmlCharacterMetadataCommands(new CharacterFileService());
+        string[] sectionIds =
+        [
+            "profile",
+            "progress",
+            "rules",
+            "build",
+            "movement",
+            "awakening",
+            "skills",
+            "attributes",
+            "inventory",
+            "gear",
+            "weapons",
+            "weaponaccessories",
+            "armors",
+            "armormods",
+            "cyberwares",
+            "vehicles",
+            "vehiclemods",
+            "spells",
+            "powers",
+            "complexforms",
+            "spirits",
+            "foci",
+            "aiprograms",
+            "martialarts",
+            "metamagics",
+            "arts",
+            "initiationgrades",
+            "critterpowers",
+            "mentorspirits",
+            "qualities",
+            "contacts",
+            "lifestyles",
+            "sources",
+            "expenses",
+            "calendar",
+            "improvements",
+            "customdatadirectorynames",
+            "build-lab"
+        ];
+
+        foreach (string fileName in LegacyChummer4FixtureCorpus.FileNames)
+        {
+            string xml = File.ReadAllText(LegacyChummer4FixtureCorpus.ResolvePath(fileName));
+            InMemoryWorkspaceStore store = new();
+            WorkspaceService workspaceService = CreateWorkspaceService(
+                store,
+                fileQueries,
+                sectionQueries,
+                metadataCommands,
+                new Sr4WorkspaceCodec(fileQueries, sectionQueries, metadataCommands));
+
+            CharacterValidationResult validation = fileQueries.Validate(new CharacterDocument(xml));
+            Assert.IsTrue(validation.IsValid, $"{fileName} should remain a valid SR4 import fixture.");
+
+            WorkspaceImportResult imported = workspaceService.Import(new WorkspaceImportDocument(
+                xml,
+                string.Empty,
+                WorkspaceDocumentFormat.NativeXml));
+
+            Assert.AreEqual(RulesetDefaults.Sr4, imported.RulesetId, $"{fileName} should import onto the SR4 lane.");
+            Assert.IsFalse(string.IsNullOrWhiteSpace(imported.Id.Value), $"{fileName} should create a workspace id.");
+            Assert.IsFalse(string.IsNullOrWhiteSpace(imported.Summary.Name), $"{fileName} should retain a character name.");
+            Assert.AreEqual(WorkspacePortabilityCompatibilityStates.Compatible, imported.Portability?.CompatibilityState, $"{fileName} should import as native governed XML.");
+
+            foreach (string sectionId in sectionIds)
+            {
+                object? section = workspaceService.GetSection(imported.Id, sectionId);
+                Assert.IsNotNull(section, $"{fileName} should parse section '{sectionId}'.");
+            }
+
+            CharacterRulesSection? rules = workspaceService.GetRules(imported.Id);
+            CharacterBuildSection? build = workspaceService.GetBuild(imported.Id);
+            CharacterAttributesSection? attributes = workspaceService.GetSection(imported.Id, "attributes") as CharacterAttributesSection;
+            CharacterSkillsSection? skills = workspaceService.GetSkills(imported.Id);
+            CharacterInventorySection? inventory = workspaceService.GetSection(imported.Id, "inventory") as CharacterInventorySection;
+            BuildLabConceptIntakeProjection? buildLab = workspaceService.GetSection(imported.Id, "build-lab") as BuildLabConceptIntakeProjection;
+
+            Assert.IsNotNull(rules, $"{fileName} should expose SR4 rules data.");
+            Assert.AreEqual("SR4", rules!.GameEdition, $"{fileName} should preserve the SR4 game-edition marker.");
+            Assert.IsNotNull(build, $"{fileName} should expose SR4 build data.");
+            Assert.IsFalse(string.IsNullOrWhiteSpace(build!.BuildMethod), $"{fileName} should preserve a build method.");
+            Assert.IsNotNull(attributes, $"{fileName} should expose SR4 attribute data.");
+            Assert.IsTrue(attributes!.Count > 0, $"{fileName} should keep populated SR4 attributes.");
+            Assert.IsNotNull(skills, $"{fileName} should expose SR4 skill data.");
+            Assert.IsTrue(skills!.Count > 0, $"{fileName} should keep populated SR4 skills.");
+            Assert.IsNotNull(inventory, $"{fileName} should expose SR4 inventory data.");
+            Assert.IsTrue(inventory!.WeaponCount + inventory.GearCount + inventory.ArmorCount + inventory.CyberwareCount + inventory.VehicleCount > 0, $"{fileName} should keep populated SR4 inventory.");
+            Assert.IsNotNull(buildLab, $"{fileName} should expose SR4 Build Lab data.");
+            Assert.AreEqual(RulesetDefaults.Sr4, buildLab!.RulesetId, $"{fileName} should keep the SR4 Build Lab projection.");
+
+            CommandResult<WorkspaceSaveReceipt> save = workspaceService.Save(imported.Id);
+            Assert.IsTrue(save.Success, $"{fileName} should save after import.");
+            CommandResult<WorkspaceDownloadReceipt> download = workspaceService.Download(imported.Id);
+            Assert.IsTrue(download.Success, $"{fileName} should download after import.");
+            Assert.AreEqual(WorkspaceDocumentFormat.NativeXml, download.Value?.Format, $"{fileName} should remain a .chum4-native document.");
+            StringAssert.EndsWith(download.Value?.FileName ?? string.Empty, ".chum4");
+            CommandResult<WorkspaceExportReceipt> export = workspaceService.Export(imported.Id);
+            Assert.IsTrue(export.Success, $"{fileName} should export after import.");
+            Assert.IsFalse(string.IsNullOrWhiteSpace(export.Value?.PackageId), $"{fileName} export should produce a portable package id.");
+
+            Assert.IsTrue(workspaceService.Close(imported.Id), $"{fileName} should close cleanly after roundtrip verification.");
+        }
     }
 
     [TestMethod]

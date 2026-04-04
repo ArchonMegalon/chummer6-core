@@ -132,11 +132,23 @@ public static class BuildLabWorkspaceProjectionFactory
                 Enabled: true,
                 TargetId: "target.foundry-export"),
             new BuildLabActionDescriptor(
+                ActionId: "open-json-exchange",
+                Label: "Export JSON Exchange",
+                SurfaceId: BuildLabSurfaceIds.ExportRail,
+                Enabled: true,
+                TargetId: "target.json-exchange"),
+            new BuildLabActionDescriptor(
                 ActionId: "open-sheet-viewer",
                 Label: "Open Sheet Viewer",
                 SurfaceId: BuildLabSurfaceIds.ExportRail,
                 Enabled: true,
-                TargetId: "target.sheet-viewer")
+                TargetId: "target.sheet-viewer"),
+            new BuildLabActionDescriptor(
+                ActionId: "open-print-pdf-export",
+                Label: "Export Print PDF",
+                SurfaceId: BuildLabSurfaceIds.ExportRail,
+                Enabled: true,
+                TargetId: "target.print-pdf-export")
         ];
 
         return new BuildLabConceptIntakeProjection(
@@ -604,6 +616,23 @@ public static class BuildLabWorkspaceProjectionFactory
                         Emphasized: true)
                 ]),
             new BuildLabExportTarget(
+                TargetId: "target.json-exchange",
+                Label: "JSON Exchange Export",
+                TargetKind: BuildLabExportTargetKinds.Workflow,
+                WorkflowId: "workflow.exchange.json",
+                Enabled: true,
+                Description: "Prepare a governed JSON exchange payload from this Build Lab handoff before import, compare, or publication follow-through.",
+                PayloadId: "payload.build-lab-handoff",
+                ActionId: "open-json-exchange",
+                Badges:
+                [
+                    new BuildLabBadge(
+                        BadgeId: "json-exchange-governed",
+                        Label: "JSON-governed",
+                        Kind: BuildLabBadgeKinds.Export,
+                        Emphasized: true)
+                ]),
+            new BuildLabExportTarget(
                 TargetId: "target.sheet-viewer",
                 Label: "Sheet Viewer",
                 TargetKind: BuildLabExportTargetKinds.Workflow,
@@ -617,6 +646,23 @@ public static class BuildLabWorkspaceProjectionFactory
                     new BuildLabBadge(
                         BadgeId: "viewer-safe",
                         Label: "Viewer-safe",
+                        Kind: BuildLabBadgeKinds.Export,
+                        Emphasized: false)
+                ]),
+            new BuildLabExportTarget(
+                TargetId: "target.print-pdf-export",
+                Label: "Print PDF Export",
+                TargetKind: BuildLabExportTargetKinds.Workflow,
+                WorkflowId: "workflow.export.pdf",
+                Enabled: true,
+                Description: "Prepare a governed print-ready PDF export from this Build Lab handoff on the same rules and explain lane.",
+                PayloadId: "payload.build-lab-handoff",
+                ActionId: "open-print-pdf-export",
+                Badges:
+                [
+                    new BuildLabBadge(
+                        BadgeId: "print-ready",
+                        Label: "Print-ready",
                         Kind: BuildLabBadgeKinds.Export,
                         Emphasized: false)
                 ])
