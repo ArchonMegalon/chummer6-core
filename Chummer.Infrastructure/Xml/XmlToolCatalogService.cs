@@ -25,7 +25,9 @@ public sealed class XmlToolCatalogService : IToolCatalogService
         int DistinctSourcebookToggles,
         string SettingsLanePosture,
         string SourceToggleLanePosture,
-        int SourcebookToggleCoveragePercent);
+        int SourcebookToggleCoveragePercent,
+        int ProfilesWithCustomDataDirectories,
+        int DistinctCustomDataDirectoryCount);
 
     public XmlToolCatalogService(IContentOverlayCatalogService overlays)
     {
@@ -62,6 +64,9 @@ public sealed class XmlToolCatalogService : IToolCatalogService
                 DistinctSourcebookToggles: 0,
                 SourceToggleLanePosture: "missing",
                 SourcebookToggleCoveragePercent: 0,
+                CustomDataLanePosture: "missing",
+                SettingsProfilesWithCustomDataDirectories: 0,
+                DistinctCustomDataDirectoryCount: 0,
                 XmlBridgePosture: ResolveXmlBridgePosture(catalog),
                 EnabledDataOverlayCount: CountEnabledDataOverlays(catalog),
                 Sr6SupplementLanePosture: ResolveSr6SupplementLanePosture(Array.Empty<MasterIndexSourcebookEntry>()),
@@ -77,6 +82,10 @@ public sealed class XmlToolCatalogService : IToolCatalogService
         int sourcebooksMissingSnippets = sourcebooks.Count - sourcebooksWithSnippets;
         int referenceCoveragePercent = CalculateReferenceCoveragePercent(sourcebooks.Count, sourcebooksWithSnippets);
         var settingsSummary = BuildSettingsCatalogSummary(filesByName, sourcebooks);
+        int enabledDataOverlayCount = CountEnabledDataOverlays(catalog);
+        string customDataLanePosture = ResolveCustomDataLanePosture(
+            settingsSummary.DistinctCustomDataDirectoryCount,
+            enabledDataOverlayCount);
         int sr6DesignerFamiliesAvailable = CountSr6DesignerFamiliesAvailable(filesByName);
 
         List<MasterIndexFileEntry> files = new();
@@ -113,8 +122,11 @@ public sealed class XmlToolCatalogService : IToolCatalogService
             DistinctSourcebookToggles: settingsSummary.DistinctSourcebookToggles,
             SourceToggleLanePosture: settingsSummary.SourceToggleLanePosture,
             SourcebookToggleCoveragePercent: settingsSummary.SourcebookToggleCoveragePercent,
+            CustomDataLanePosture: customDataLanePosture,
+            SettingsProfilesWithCustomDataDirectories: settingsSummary.ProfilesWithCustomDataDirectories,
+            DistinctCustomDataDirectoryCount: settingsSummary.DistinctCustomDataDirectoryCount,
             XmlBridgePosture: ResolveXmlBridgePosture(catalog),
-            EnabledDataOverlayCount: CountEnabledDataOverlays(catalog),
+            EnabledDataOverlayCount: enabledDataOverlayCount,
             Sr6SupplementLanePosture: ResolveSr6SupplementLanePosture(sourcebooks),
             Sr6DesignerToolsPosture: ResolveSr6DesignerToolsPosture(sr6DesignerFamiliesAvailable, Sr6DesignerFamiliesExpected),
             Sr6DesignerFamiliesAvailable: sr6DesignerFamiliesAvailable,
@@ -213,7 +225,9 @@ public sealed class XmlToolCatalogService : IToolCatalogService
                 DistinctSourcebookToggles: 0,
                 SettingsLanePosture: "missing",
                 SourceToggleLanePosture: "missing",
-                SourcebookToggleCoveragePercent: 0);
+                SourcebookToggleCoveragePercent: 0,
+                ProfilesWithCustomDataDirectories: 0,
+                DistinctCustomDataDirectoryCount: 0);
         }
 
         IEnumerable<XElement> profileNodes = settingsDocument.Root
@@ -224,6 +238,8 @@ public sealed class XmlToolCatalogService : IToolCatalogService
         int profileCount = 0;
         int profilesWithSourceToggles = 0;
         HashSet<string> distinctToggles = new(StringComparer.OrdinalIgnoreCase);
+        int profilesWithCustomDataDirectories = 0;
+        HashSet<string> distinctCustomDataDirectories = new(StringComparer.OrdinalIgnoreCase);
         foreach (XElement profileNode in profileNodes)
         {
             profileCount++;
@@ -234,6 +250,20 @@ public sealed class XmlToolCatalogService : IToolCatalogService
                 .Where(static code => !string.IsNullOrWhiteSpace(code))
                 .ToHashSet(StringComparer.OrdinalIgnoreCase)
                 ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            HashSet<string> profileCustomDataDirectories = profileNode
+                .Element("customdatadirectorynames")?
+                .Elements("customdatadirectoryname")
+                .Where(entry => ParseBool(ReadChildValue(entry, "enabled")) || entry.Element("enabled") is null)
+                .Select(entry => ReadChildValue(entry, "directoryname"))
+                .Where(static directoryName => !string.IsNullOrWhiteSpace(directoryName))
+                .ToHashSet(StringComparer.OrdinalIgnoreCase)
+                ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (profileCustomDataDirectories.Count > 0)
+            {
+                profilesWithCustomDataDirectories++;
+                distinctCustomDataDirectories.UnionWith(profileCustomDataDirectories);
+            }
 
             if (profileBooks.Count == 0)
             {
@@ -257,7 +287,9 @@ public sealed class XmlToolCatalogService : IToolCatalogService
                 DistinctSourcebookToggles: 0,
                 SettingsLanePosture: settingsLanePosture,
                 SourceToggleLanePosture: "missing",
-                SourcebookToggleCoveragePercent: 0);
+                SourcebookToggleCoveragePercent: 0,
+                ProfilesWithCustomDataDirectories: profilesWithCustomDataDirectories,
+                DistinctCustomDataDirectoryCount: distinctCustomDataDirectories.Count);
         }
 
         HashSet<string> knownSourcebooks = sourcebooks
@@ -280,7 +312,21 @@ public sealed class XmlToolCatalogService : IToolCatalogService
             DistinctSourcebookToggles: distinctToggles.Count,
             SettingsLanePosture: settingsLanePosture,
             SourceToggleLanePosture: sourceToggleLanePosture,
-            SourcebookToggleCoveragePercent: sourcebookToggleCoveragePercent);
+            SourcebookToggleCoveragePercent: sourcebookToggleCoveragePercent,
+            ProfilesWithCustomDataDirectories: profilesWithCustomDataDirectories,
+            DistinctCustomDataDirectoryCount: distinctCustomDataDirectories.Count);
+    }
+
+    private static string ResolveCustomDataLanePosture(int distinctCustomDataDirectoryCount, int enabledDataOverlayCount)
+    {
+        if (distinctCustomDataDirectoryCount <= 0)
+        {
+            return "missing";
+        }
+
+        return enabledDataOverlayCount > 0
+            ? "governed"
+            : "stale";
     }
 
     private static int CountEnabledDataOverlays(ContentOverlayCatalog catalog)

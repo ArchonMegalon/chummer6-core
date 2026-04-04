@@ -41,6 +41,9 @@ public class ToolCatalogServiceTests
             Assert.AreEqual(0, response.DistinctSourcebookToggles);
             Assert.AreEqual("missing", response.SourceToggleLanePosture);
             Assert.AreEqual(0, response.SourcebookToggleCoveragePercent);
+            Assert.AreEqual("missing", response.CustomDataLanePosture);
+            Assert.AreEqual(0, response.SettingsProfilesWithCustomDataDirectories);
+            Assert.AreEqual(0, response.DistinctCustomDataDirectoryCount);
             Assert.AreEqual("missing", response.XmlBridgePosture);
             Assert.AreEqual(0, response.EnabledDataOverlayCount);
             Assert.AreEqual("missing", response.Sr6SupplementLanePosture);
@@ -208,6 +211,9 @@ public class ToolCatalogServiceTests
             Assert.AreEqual(0, response.DistinctSourcebookToggles);
             Assert.AreEqual("missing", response.SourceToggleLanePosture);
             Assert.AreEqual(0, response.SourcebookToggleCoveragePercent);
+            Assert.AreEqual("missing", response.CustomDataLanePosture);
+            Assert.AreEqual(0, response.SettingsProfilesWithCustomDataDirectories);
+            Assert.AreEqual(0, response.DistinctCustomDataDirectoryCount);
             Assert.AreEqual("missing", response.XmlBridgePosture);
             Assert.AreEqual(0, response.EnabledDataOverlayCount);
             Assert.AreEqual("stale", response.Sr6SupplementLanePosture);
@@ -515,6 +521,9 @@ public class ToolCatalogServiceTests
             Assert.AreEqual(2, response.DistinctSourcebookToggles);
             Assert.AreEqual("governed", response.SourceToggleLanePosture);
             Assert.AreEqual(100, response.SourcebookToggleCoveragePercent);
+            Assert.AreEqual("missing", response.CustomDataLanePosture);
+            Assert.AreEqual(0, response.SettingsProfilesWithCustomDataDirectories);
+            Assert.AreEqual(0, response.DistinctCustomDataDirectoryCount);
         }
         finally
         {
@@ -568,6 +577,105 @@ public class ToolCatalogServiceTests
             Assert.AreEqual(2, response.DistinctSourcebookToggles);
             Assert.AreEqual("stale", response.SourceToggleLanePosture);
             Assert.AreEqual(100, response.SourcebookToggleCoveragePercent);
+            Assert.AreEqual("missing", response.CustomDataLanePosture);
+            Assert.AreEqual(0, response.SettingsProfilesWithCustomDataDirectories);
+            Assert.AreEqual(0, response.DistinctCustomDataDirectoryCount);
+        }
+        finally
+        {
+            DeleteTempDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public void Master_index_reports_stale_custom_data_lane_when_settings_reference_custom_data_without_enabled_overlay()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            string dataDir = Path.Combine(root, "data");
+            Directory.CreateDirectory(dataDir);
+            File.WriteAllText(
+                Path.Combine(dataDir, "settings.xml"),
+                """
+                <chummer>
+                  <settings>
+                    <setting>
+                      <name>Custom Data Test</name>
+                      <customdatadirectorynames>
+                        <customdatadirectoryname>
+                          <directoryname>German Data Changes</directoryname>
+                          <enabled>True</enabled>
+                        </customdatadirectoryname>
+                      </customdatadirectorynames>
+                    </setting>
+                  </settings>
+                </chummer>
+                """);
+
+            var service = new XmlToolCatalogService(root);
+            MasterIndexResponse response = service.GetMasterIndex();
+
+            Assert.AreEqual(1, response.SettingsProfileCount);
+            Assert.AreEqual(1, response.SettingsProfilesWithCustomDataDirectories);
+            Assert.AreEqual(1, response.DistinctCustomDataDirectoryCount);
+            Assert.AreEqual("stale", response.CustomDataLanePosture);
+            Assert.AreEqual(0, response.EnabledDataOverlayCount);
+            Assert.AreEqual("missing", response.XmlBridgePosture);
+        }
+        finally
+        {
+            DeleteTempDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public void Master_index_reports_governed_custom_data_lane_when_settings_reference_custom_data_with_enabled_overlay()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            string dataDir = Path.Combine(root, "data");
+            Directory.CreateDirectory(dataDir);
+            File.WriteAllText(
+                Path.Combine(dataDir, "settings.xml"),
+                """
+                <chummer>
+                  <settings>
+                    <setting>
+                      <name>Custom Data Test</name>
+                      <customdatadirectorynames>
+                        <customdatadirectoryname>
+                          <directoryname>German Data Changes</directoryname>
+                          <enabled>True</enabled>
+                        </customdatadirectoryname>
+                        <customdatadirectoryname>
+                          <directoryname>Sum-to-Ten Improved</directoryname>
+                          <enabled>True</enabled>
+                        </customdatadirectoryname>
+                      </customdatadirectorynames>
+                    </setting>
+                  </settings>
+                </chummer>
+                """);
+            string amendsRoot = Path.Combine(root, "Amends");
+            string overlayData = Path.Combine(amendsRoot, "data");
+            Directory.CreateDirectory(overlayData);
+            File.WriteAllText(Path.Combine(overlayData, "skills.xml"), "<chummer><skills><skill /></skills></chummer>");
+            File.WriteAllText(
+                Path.Combine(amendsRoot, "manifest.json"),
+                "{\n  \"id\": \"custom-data-overlay\",\n  \"priority\": 100,\n  \"enabled\": true\n}");
+
+            var overlays = new FileSystemContentOverlayCatalogService(root, root, amendsRoot);
+            var service = new XmlToolCatalogService(overlays);
+            MasterIndexResponse response = service.GetMasterIndex();
+
+            Assert.AreEqual(1, response.SettingsProfileCount);
+            Assert.AreEqual(1, response.SettingsProfilesWithCustomDataDirectories);
+            Assert.AreEqual(2, response.DistinctCustomDataDirectoryCount);
+            Assert.AreEqual("governed", response.CustomDataLanePosture);
+            Assert.AreEqual(1, response.EnabledDataOverlayCount);
+            Assert.AreEqual("governed", response.XmlBridgePosture);
         }
         finally
         {
