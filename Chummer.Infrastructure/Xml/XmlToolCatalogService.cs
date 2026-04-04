@@ -29,7 +29,13 @@ public sealed class XmlToolCatalogService : IToolCatalogService
             catalog.BaseDataPath,
             pack => pack.DataPath);
         if (filesByName.Count == 0)
-            return new MasterIndexResponse(0, DateTimeOffset.UtcNow, Array.Empty<MasterIndexFileEntry>());
+            return new MasterIndexResponse(
+                Count: 0,
+                GeneratedUtc: DateTimeOffset.UtcNow,
+                Files: Array.Empty<MasterIndexFileEntry>(),
+                ReferenceLanePosture: "missing",
+                SourcebookCount: 0,
+                Sourcebooks: Array.Empty<MasterIndexSourcebookEntry>());
 
         List<MasterIndexFileEntry> files = new();
         foreach ((string fileName, XDocument? document) in filesByName.OrderBy(pair => pair.Key, StringComparer.Ordinal))
@@ -52,7 +58,10 @@ public sealed class XmlToolCatalogService : IToolCatalogService
         return new MasterIndexResponse(
             Count: files.Count,
             GeneratedUtc: DateTimeOffset.UtcNow,
-            Files: files);
+            Files: files,
+            ReferenceLanePosture: "missing",
+            SourcebookCount: 0,
+            Sourcebooks: Array.Empty<MasterIndexSourcebookEntry>());
     }
 
     public TranslatorLanguagesResponse GetTranslatorLanguages()

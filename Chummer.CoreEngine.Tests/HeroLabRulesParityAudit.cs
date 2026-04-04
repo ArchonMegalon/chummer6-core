@@ -190,6 +190,58 @@ internal static class HeroLabRulesParityAudit
         CharacterAttributeSummary arrayBody = arrayShapeSnapshot.Attributes.Attributes.FirstOrDefault(static entry => string.Equals(entry.Name, "BOD", StringComparison.Ordinal))
             ?? throw new InvalidOperationException("Hero Lab online array payload should project a Body attribute.");
         AssertEx.Equal(5, arrayBody.TotalValue, "Hero Lab online import should preserve total attribute values from array payloads.");
+
+        const string rootLevelImportMetadataJson = """
+{
+  "gameCode": "SR6",
+  "gameName": "Shadowrun Sixth World",
+  "hloVersion": "6.3.1",
+  "exportVersion": "2026.05",
+  "actors": {
+    "actor_1": {
+      "name": "Root Metadata Runner",
+      "player": "Delta",
+      "gameValues": {
+        "alias": "Root Ghost",
+        "buildMethod": "Priority"
+      },
+      "items": {}
+    }
+  }
+}
+""";
+
+        HeroLabImportSnapshot rootLevelMetadataSnapshot = HeroLabShadowrunImporter.ImportOnlineJson(rootLevelImportMetadataJson, "root-level-metadata.json");
+        AssertEx.Equal("Shadowrun Sixth World", rootLevelMetadataSnapshot.Rules.GameplayOption, "Hero Lab online import should project root-level game metadata into gameplay option.");
+        AssertEx.Equal("6.3.1", rootLevelMetadataSnapshot.Profile.AppVersion, "Hero Lab online import should project root-level HLO version into app version.");
+        AssertEx.Equal("2026.05", rootLevelMetadataSnapshot.Profile.CreatedVersion, "Hero Lab online import should project root-level export version into created-version provenance.");
+
+        const string nestedImportMetadataJson = """
+{
+  "game": {
+    "code": "SR6",
+    "name": "Shadowrun Sixth World",
+    "hloVersion": "6.4.0",
+    "exportVersion": "2026.06"
+  },
+  "actors": {
+    "actor_1": {
+      "name": "Nested Metadata Runner",
+      "player": "Echo",
+      "gameValues": {
+        "alias": "Nested Ghost",
+        "buildMethod": "Karma"
+      },
+      "items": {}
+    }
+  }
+}
+""";
+
+        HeroLabImportSnapshot nestedMetadataSnapshot = HeroLabShadowrunImporter.ImportOnlineJson(nestedImportMetadataJson, "nested-metadata.json");
+        AssertEx.Equal("Shadowrun Sixth World", nestedMetadataSnapshot.Rules.GameplayOption, "Hero Lab online import should project nested game metadata into gameplay option.");
+        AssertEx.Equal("6.4.0", nestedMetadataSnapshot.Profile.AppVersion, "Hero Lab online import should project nested HLO version into app version.");
+        AssertEx.Equal("2026.06", nestedMetadataSnapshot.Profile.CreatedVersion, "Hero Lab online import should project nested export version into created-version provenance.");
     }
 
     private static void AssertOnlineFixtures(string directory, string[] expectedFixtureNames)
