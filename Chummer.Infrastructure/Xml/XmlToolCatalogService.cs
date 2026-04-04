@@ -109,6 +109,9 @@ public sealed class XmlToolCatalogService : IToolCatalogService
                 SettingsProfilesWithCustomDataDirectories: 0,
                 DistinctCustomDataDirectoryCount: 0,
                 XmlBridgePosture: ResolveXmlBridgePosture(catalog),
+                XmlBridgeLaneReceipt: BuildXmlBridgeLaneReceipt(
+                    ResolveXmlBridgePosture(catalog),
+                    CountEnabledDataOverlays(catalog)),
                 EnabledDataOverlayCount: CountEnabledDataOverlays(catalog),
                 TranslatorLanePosture: translatorSummary.LanePosture,
                 TranslatorLaneReceipt: BuildTranslatorLaneReceipt(translatorSummary),
@@ -229,6 +232,9 @@ public sealed class XmlToolCatalogService : IToolCatalogService
             SettingsProfilesWithCustomDataDirectories: settingsSummary.ProfilesWithCustomDataDirectories,
             DistinctCustomDataDirectoryCount: settingsSummary.DistinctCustomDataDirectoryCount,
             XmlBridgePosture: ResolveXmlBridgePosture(catalog),
+            XmlBridgeLaneReceipt: BuildXmlBridgeLaneReceipt(
+                ResolveXmlBridgePosture(catalog),
+                enabledDataOverlayCount),
             EnabledDataOverlayCount: enabledDataOverlayCount,
             TranslatorLanePosture: translatorSummary.LanePosture,
             TranslatorLaneReceipt: BuildTranslatorLaneReceipt(translatorSummary),
@@ -563,6 +569,21 @@ public sealed class XmlToolCatalogService : IToolCatalogService
         }
 
         return $"{distinctCustomDataDirectoryCount} custom data directories are backed by {enabledDataOverlayCount} enabled data overlay bridge(s).";
+    }
+
+    private static string BuildXmlBridgeLaneReceipt(string xmlBridgePosture, int enabledDataOverlayCount)
+    {
+        if (string.Equals(xmlBridgePosture, "missing", StringComparison.Ordinal))
+        {
+            return "No enabled data overlay bridge was detected for XML bridge continuity.";
+        }
+
+        if (string.Equals(xmlBridgePosture, "stale", StringComparison.Ordinal))
+        {
+            return $"{enabledDataOverlayCount} enabled data overlay bridge(s) were detected, but no overlay XML payloads were discovered.";
+        }
+
+        return $"{enabledDataOverlayCount} enabled data overlay bridge(s) with XML payload coverage were detected.";
     }
 
     private static string BuildTranslatorLaneReceipt(TranslatorCatalogSummary summary)
