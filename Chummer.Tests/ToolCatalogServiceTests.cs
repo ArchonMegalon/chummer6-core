@@ -56,6 +56,7 @@ public class ToolCatalogServiceTests
             Assert.AreEqual(0, response.SettingsProfilesWithCustomDataDirectories);
             Assert.AreEqual(0, response.DistinctCustomDataDirectoryCount);
             Assert.AreEqual("missing", response.XmlBridgePosture);
+            Assert.AreEqual("No enabled data overlay bridge was detected for XML bridge continuity.", response.XmlBridgeLaneReceipt);
             Assert.AreEqual(0, response.EnabledDataOverlayCount);
             Assert.AreEqual("missing", response.TranslatorLanePosture);
             Assert.AreEqual("No translator language corpus or language overlay bridge was detected.", response.TranslatorLaneReceipt);
@@ -269,6 +270,7 @@ public class ToolCatalogServiceTests
             Assert.AreEqual(0, response.SettingsProfilesWithCustomDataDirectories);
             Assert.AreEqual(0, response.DistinctCustomDataDirectoryCount);
             Assert.AreEqual("missing", response.XmlBridgePosture);
+            Assert.AreEqual("No enabled data overlay bridge was detected for XML bridge continuity.", response.XmlBridgeLaneReceipt);
             Assert.AreEqual(0, response.EnabledDataOverlayCount);
             Assert.AreEqual("missing", response.TranslatorLanePosture);
             Assert.AreEqual("No translator language corpus or language overlay bridge was detected.", response.TranslatorLaneReceipt);
@@ -427,9 +429,40 @@ public class ToolCatalogServiceTests
             MasterIndexResponse response = service.GetMasterIndex();
 
             Assert.AreEqual("governed", response.XmlBridgePosture);
+            Assert.AreEqual("1 enabled data overlay bridge(s) with XML payload coverage were detected.", response.XmlBridgeLaneReceipt);
             Assert.AreEqual(1, response.EnabledDataOverlayCount);
             Assert.AreEqual("missing", response.HouseRuleLanePosture);
             Assert.AreEqual(0, response.HouseRuleOverlayCount);
+        }
+        finally
+        {
+            DeleteTempDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public void Master_index_reports_stale_xml_bridge_when_enabled_data_overlay_has_no_xml_payloads()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            string dataDir = Path.Combine(root, "data");
+            Directory.CreateDirectory(dataDir);
+            File.WriteAllText(Path.Combine(dataDir, "skills.xml"), "<chummer><skills /></chummer>");
+
+            string amendsRoot = Path.Combine(root, "Amends");
+            string overlayData = Path.Combine(amendsRoot, "data");
+            Directory.CreateDirectory(overlayData);
+            File.WriteAllText(Path.Combine(amendsRoot, "manifest.json"),
+                "{\n  \"id\": \"local-data-bridge\",\n  \"priority\": 100,\n  \"enabled\": true\n}");
+
+            var overlays = new FileSystemContentOverlayCatalogService(root, root, amendsRoot);
+            var service = new XmlToolCatalogService(overlays);
+            MasterIndexResponse response = service.GetMasterIndex();
+
+            Assert.AreEqual("stale", response.XmlBridgePosture);
+            Assert.AreEqual("1 enabled data overlay bridge(s) were detected, but no overlay XML payloads were discovered.", response.XmlBridgeLaneReceipt);
+            Assert.AreEqual(1, response.EnabledDataOverlayCount);
         }
         finally
         {
@@ -893,6 +926,7 @@ public class ToolCatalogServiceTests
             Assert.AreEqual("stale", response.CustomDataLanePosture);
             Assert.AreEqual(0, response.EnabledDataOverlayCount);
             Assert.AreEqual("missing", response.XmlBridgePosture);
+            Assert.AreEqual("No enabled data overlay bridge was detected for XML bridge continuity.", response.XmlBridgeLaneReceipt);
         }
         finally
         {
@@ -947,6 +981,7 @@ public class ToolCatalogServiceTests
             Assert.AreEqual("governed", response.CustomDataLanePosture);
             Assert.AreEqual(1, response.EnabledDataOverlayCount);
             Assert.AreEqual("governed", response.XmlBridgePosture);
+            Assert.AreEqual("1 enabled data overlay bridge(s) with XML payload coverage were detected.", response.XmlBridgeLaneReceipt);
         }
         finally
         {

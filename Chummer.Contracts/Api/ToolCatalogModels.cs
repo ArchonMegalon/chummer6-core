@@ -34,6 +34,7 @@ public sealed record MasterIndexResponse(
     int SettingsProfilesWithCustomDataDirectories = 0,
     int DistinctCustomDataDirectoryCount = 0,
     string XmlBridgePosture = "missing",
+    string XmlBridgeLaneReceipt = "",
     int EnabledDataOverlayCount = 0,
     string TranslatorLanePosture = "missing",
     string TranslatorLaneReceipt = "",

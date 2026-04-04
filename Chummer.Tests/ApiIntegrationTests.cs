@@ -2257,6 +2257,7 @@ public class ApiIntegrationTests
         Assert.IsNotNull(response["settingsLaneReceipt"]);
         Assert.IsNotNull(response["sourceToggleLaneReceipt"]);
         Assert.IsNotNull(response["customDataLaneReceipt"]);
+        Assert.IsNotNull(response["xmlBridgeLaneReceipt"]);
         Assert.IsNotNull(response["translatorLanePosture"]);
         Assert.IsNotNull(response["translatorLaneReceipt"]);
         Assert.IsNotNull(response["translatorBridgePosture"]);
