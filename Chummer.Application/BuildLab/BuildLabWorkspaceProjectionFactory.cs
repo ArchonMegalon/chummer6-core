@@ -526,9 +526,26 @@ public static class BuildLabWorkspaceProjectionFactory
                     new BuildLabExportField(
                         FieldId: "explain-receipt",
                         Label: "Explain receipt",
-                        Value: FirstNonEmpty(topVariant.ExplainEntryId, topTimeline?.Steps.LastOrDefault()?.ExplainEntryId, "buildlab.intake.ungrounded"))
+                        Value: CreateExplainReceiptFieldValue(topVariant, topTimeline))
                 ])
         ];
+    }
+
+    private static string CreateExplainReceiptFieldValue(
+        BuildLabVariantProjection topVariant,
+        BuildLabProgressionTimeline? topTimeline)
+    {
+        string candidate = FirstNonEmpty(
+            topVariant.ExplainEntryId,
+            topTimeline?.Steps.LastOrDefault()?.ExplainEntryId,
+            "buildlab.intake.ungrounded");
+
+        if (candidate.Contains("buildlab", StringComparison.OrdinalIgnoreCase))
+        {
+            return candidate;
+        }
+
+        return $"buildlab.receipt.{candidate}";
     }
 
     private static BuildLabExportTarget[] BuildExportTargets()
