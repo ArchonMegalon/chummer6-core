@@ -50,6 +50,10 @@ public class ToolCatalogServiceTests
             Assert.AreEqual(0, response.DistinctCustomDataDirectoryCount);
             Assert.AreEqual("missing", response.XmlBridgePosture);
             Assert.AreEqual(0, response.EnabledDataOverlayCount);
+            Assert.AreEqual("missing", response.TranslatorLanePosture);
+            Assert.AreEqual("missing", response.TranslatorBridgePosture);
+            Assert.AreEqual(0, response.TranslatorLanguageCount);
+            Assert.AreEqual(0, response.EnabledLanguageOverlayCount);
             Assert.AreEqual("missing", response.Sr6SupplementLanePosture);
             Assert.AreEqual("missing", response.Sr6DesignerToolsPosture);
             Assert.AreEqual(0, response.Sr6DesignerFamiliesAvailable);
@@ -244,6 +248,10 @@ public class ToolCatalogServiceTests
             Assert.AreEqual(0, response.DistinctCustomDataDirectoryCount);
             Assert.AreEqual("missing", response.XmlBridgePosture);
             Assert.AreEqual(0, response.EnabledDataOverlayCount);
+            Assert.AreEqual("missing", response.TranslatorLanePosture);
+            Assert.AreEqual("missing", response.TranslatorBridgePosture);
+            Assert.AreEqual(0, response.TranslatorLanguageCount);
+            Assert.AreEqual(0, response.EnabledLanguageOverlayCount);
             Assert.AreEqual("stale", response.Sr6SupplementLanePosture);
             Assert.AreEqual("missing", response.Sr6DesignerToolsPosture);
             Assert.AreEqual(0, response.Sr6DesignerFamiliesAvailable);
@@ -392,6 +400,68 @@ public class ToolCatalogServiceTests
             Assert.AreEqual(1, response.EnabledDataOverlayCount);
             Assert.AreEqual("missing", response.HouseRuleLanePosture);
             Assert.AreEqual(0, response.HouseRuleOverlayCount);
+        }
+        finally
+        {
+            DeleteTempDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public void Master_index_reports_stale_translator_lane_when_corpus_exists_without_language_overlay_bridge()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            string dataDir = Path.Combine(root, "data");
+            Directory.CreateDirectory(dataDir);
+            File.WriteAllText(Path.Combine(dataDir, "skills.xml"), "<chummer><skills /></chummer>");
+            string languageDir = Path.Combine(root, "lang");
+            Directory.CreateDirectory(languageDir);
+            File.WriteAllText(Path.Combine(languageDir, "en-us.xml"), "<chummer><name>English</name></chummer>");
+
+            var service = new XmlToolCatalogService(root);
+            MasterIndexResponse response = service.GetMasterIndex();
+
+            Assert.AreEqual("stale", response.TranslatorLanePosture);
+            Assert.AreEqual("missing", response.TranslatorBridgePosture);
+            Assert.AreEqual(1, response.TranslatorLanguageCount);
+            Assert.AreEqual(0, response.EnabledLanguageOverlayCount);
+        }
+        finally
+        {
+            DeleteTempDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public void Master_index_reports_governed_translator_lane_when_corpus_and_language_overlay_bridge_exist()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            string dataDir = Path.Combine(root, "data");
+            Directory.CreateDirectory(dataDir);
+            File.WriteAllText(Path.Combine(dataDir, "skills.xml"), "<chummer><skills /></chummer>");
+            string languageDir = Path.Combine(root, "lang");
+            Directory.CreateDirectory(languageDir);
+            File.WriteAllText(Path.Combine(languageDir, "en-us.xml"), "<chummer><name>English</name></chummer>");
+
+            string amendsRoot = Path.Combine(root, "Amends");
+            string overlayLanguageDir = Path.Combine(amendsRoot, "lang");
+            Directory.CreateDirectory(overlayLanguageDir);
+            File.WriteAllText(Path.Combine(amendsRoot, "manifest.json"),
+                "{\n  \"id\": \"translator-lane\",\n  \"priority\": 100,\n  \"enabled\": true,\n  \"mode\": \"merge-catalog\"\n}");
+            File.WriteAllText(Path.Combine(overlayLanguageDir, "en-us.test-amend.xml"), "<chummer><strings /></chummer>");
+
+            var overlays = new FileSystemContentOverlayCatalogService(root, root, amendsRoot);
+            var service = new XmlToolCatalogService(overlays);
+            MasterIndexResponse response = service.GetMasterIndex();
+
+            Assert.AreEqual("governed", response.TranslatorLanePosture);
+            Assert.AreEqual("governed", response.TranslatorBridgePosture);
+            Assert.AreEqual(1, response.TranslatorLanguageCount);
+            Assert.AreEqual(1, response.EnabledLanguageOverlayCount);
         }
         finally
         {
