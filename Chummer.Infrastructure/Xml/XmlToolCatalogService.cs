@@ -47,6 +47,11 @@ public sealed class XmlToolCatalogService : IToolCatalogService
         int ReceiptsCovered,
         int ReceiptsExpected,
         int CoveragePercent);
+    private readonly record struct TranslatorCatalogSummary(
+        string LanePosture,
+        string BridgePosture,
+        int LanguageCount,
+        int EnabledOverlayCount);
 
     public XmlToolCatalogService(IContentOverlayCatalogService overlays)
     {
@@ -66,8 +71,13 @@ public sealed class XmlToolCatalogService : IToolCatalogService
             catalog,
             catalog.BaseDataPath,
             pack => pack.DataPath);
+        IReadOnlyDictionary<string, XDocument?> languageFilesByName = BuildEffectiveDocuments(
+            catalog,
+            catalog.BaseLanguagePath,
+            pack => pack.LanguagePath);
         ImportOracleSummary importOracleSummary = BuildImportOracleSummary(catalog.BaseDataPath);
         OnlineStorageSummary onlineStorageSummary = BuildOnlineStorageSummary(catalog.BaseDataPath);
+        TranslatorCatalogSummary translatorSummary = BuildTranslatorCatalogSummary(catalog, languageFilesByName);
         if (filesByName.Count == 0)
             return new MasterIndexResponse(
                 Count: 0,
@@ -94,6 +104,10 @@ public sealed class XmlToolCatalogService : IToolCatalogService
                 DistinctCustomDataDirectoryCount: 0,
                 XmlBridgePosture: ResolveXmlBridgePosture(catalog),
                 EnabledDataOverlayCount: CountEnabledDataOverlays(catalog),
+                TranslatorLanePosture: translatorSummary.LanePosture,
+                TranslatorBridgePosture: translatorSummary.BridgePosture,
+                TranslatorLanguageCount: translatorSummary.LanguageCount,
+                EnabledLanguageOverlayCount: translatorSummary.EnabledOverlayCount,
                 Sr6SupplementLanePosture: ResolveSr6SupplementLanePosture(Array.Empty<MasterIndexSourcebookEntry>()),
                 Sr6DesignerToolsPosture: ResolveSr6DesignerToolsPosture(0, Sr6DesignerFamiliesExpected),
                 Sr6DesignerFamiliesAvailable: 0,
@@ -182,6 +196,10 @@ public sealed class XmlToolCatalogService : IToolCatalogService
             DistinctCustomDataDirectoryCount: settingsSummary.DistinctCustomDataDirectoryCount,
             XmlBridgePosture: ResolveXmlBridgePosture(catalog),
             EnabledDataOverlayCount: enabledDataOverlayCount,
+            TranslatorLanePosture: translatorSummary.LanePosture,
+            TranslatorBridgePosture: translatorSummary.BridgePosture,
+            TranslatorLanguageCount: translatorSummary.LanguageCount,
+            EnabledLanguageOverlayCount: translatorSummary.EnabledOverlayCount,
             Sr6SupplementLanePosture: ResolveSr6SupplementLanePosture(sourcebooks),
             Sr6DesignerToolsPosture: ResolveSr6DesignerToolsPosture(sr6DesignerFamiliesAvailable, Sr6DesignerFamiliesExpected),
             Sr6DesignerFamiliesAvailable: sr6DesignerFamiliesAvailable,
@@ -413,6 +431,27 @@ public sealed class XmlToolCatalogService : IToolCatalogService
         return enabledDataOverlayCount > 0
             ? "governed"
             : "stale";
+    }
+
+    private static TranslatorCatalogSummary BuildTranslatorCatalogSummary(
+        ContentOverlayCatalog catalog,
+        IReadOnlyDictionary<string, XDocument?> languageFilesByName)
+    {
+        int enabledLanguageOverlayCount = CountEnabledLanguageOverlays(catalog);
+        string translatorBridgePosture = ResolveTranslatorBridgePosture(catalog);
+        int translatorLanguageCount = CollapseLanguageFilesByCode(languageFilesByName).Count;
+        string lanePosture =
+            translatorLanguageCount <= 0
+                ? enabledLanguageOverlayCount > 0 ? "stale" : "missing"
+                : string.Equals(translatorBridgePosture, "governed", StringComparison.Ordinal)
+                    ? "governed"
+                    : "stale";
+
+        return new TranslatorCatalogSummary(
+            LanePosture: lanePosture,
+            BridgePosture: translatorBridgePosture,
+            LanguageCount: translatorLanguageCount,
+            EnabledOverlayCount: enabledLanguageOverlayCount);
     }
 
     private static int CountEnabledDataOverlays(ContentOverlayCatalog catalog)

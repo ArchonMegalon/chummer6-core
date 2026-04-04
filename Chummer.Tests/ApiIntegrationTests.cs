@@ -2252,6 +2252,10 @@ public class ApiIntegrationTests
         Assert.IsNotNull(response["sourcebooksWithGovernedReferenceSources"]);
         Assert.IsNotNull(response["sourcebooksWithStaleReferenceSources"]);
         Assert.IsNotNull(response["sourcebooksMissingReferenceSources"]);
+        Assert.IsNotNull(response["translatorLanePosture"]);
+        Assert.IsNotNull(response["translatorBridgePosture"]);
+        Assert.IsNotNull(response["translatorLanguageCount"]);
+        Assert.IsNotNull(response["enabledLanguageOverlayCount"]);
         Assert.IsNotNull(response["sr6SupplementLanePosture"]);
         Assert.IsNotNull(response["sr6DesignerToolsPosture"]);
         Assert.IsNotNull(response["sr6DesignerFamiliesAvailable"]);
