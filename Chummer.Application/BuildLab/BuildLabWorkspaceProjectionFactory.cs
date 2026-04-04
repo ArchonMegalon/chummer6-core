@@ -148,7 +148,25 @@ public static class BuildLabWorkspaceProjectionFactory
                 Label: "Export Print PDF",
                 SurfaceId: BuildLabSurfaceIds.ExportRail,
                 Enabled: true,
-                TargetId: "target.print-pdf-export")
+                TargetId: "target.print-pdf-export"),
+            new BuildLabActionDescriptor(
+                ActionId: "open-replay-timeline",
+                Label: "Open Replay Timeline",
+                SurfaceId: BuildLabSurfaceIds.ExportRail,
+                Enabled: true,
+                TargetId: "target.replay-timeline"),
+            new BuildLabActionDescriptor(
+                ActionId: "open-session-recap",
+                Label: "Open Session Recap",
+                SurfaceId: BuildLabSurfaceIds.ExportRail,
+                Enabled: true,
+                TargetId: "target.session-recap"),
+            new BuildLabActionDescriptor(
+                ActionId: "open-run-module",
+                Label: "Open Run Module",
+                SurfaceId: BuildLabSurfaceIds.ExportRail,
+                Enabled: true,
+                TargetId: "target.run-module")
         ];
 
         return new BuildLabConceptIntakeProjection(
@@ -665,6 +683,57 @@ public static class BuildLabWorkspaceProjectionFactory
                         Label: "Print-ready",
                         Kind: BuildLabBadgeKinds.Export,
                         Emphasized: false)
+                ]),
+            new BuildLabExportTarget(
+                TargetId: "target.replay-timeline",
+                Label: "Replay Timeline",
+                TargetKind: BuildLabExportTargetKinds.Workflow,
+                WorkflowId: "workflow.replay.timeline",
+                Enabled: true,
+                Description: "Project a governed replay timeline from this Build Lab handoff so chronology and contested turns stay auditable.",
+                PayloadId: "payload.build-lab-handoff",
+                ActionId: "open-replay-timeline",
+                Badges:
+                [
+                    new BuildLabBadge(
+                        BadgeId: "replay-governed",
+                        Label: "Replay-governed",
+                        Kind: BuildLabBadgeKinds.Export,
+                        Emphasized: true)
+                ]),
+            new BuildLabExportTarget(
+                TargetId: "target.session-recap",
+                Label: "Session Recap",
+                TargetKind: BuildLabExportTargetKinds.Workflow,
+                WorkflowId: "workflow.recap.session",
+                Enabled: true,
+                Description: "Project a governed recap artifact from this Build Lab handoff for player and operator continuity loops.",
+                PayloadId: "payload.build-lab-handoff",
+                ActionId: "open-session-recap",
+                Badges:
+                [
+                    new BuildLabBadge(
+                        BadgeId: "recap-governed",
+                        Label: "Recap-governed",
+                        Kind: BuildLabBadgeKinds.Export,
+                        Emphasized: true)
+                ]),
+            new BuildLabExportTarget(
+                TargetId: "target.run-module",
+                Label: "Run Module",
+                TargetKind: BuildLabExportTargetKinds.Workflow,
+                WorkflowId: "workflow.module.run",
+                Enabled: true,
+                Description: "Project a governed run-module artifact from this Build Lab handoff so exchange and publication keep one portability lane.",
+                PayloadId: "payload.build-lab-handoff",
+                ActionId: "open-run-module",
+                Badges:
+                [
+                    new BuildLabBadge(
+                        BadgeId: "module-governed",
+                        Label: "Module-governed",
+                        Kind: BuildLabBadgeKinds.Export,
+                        Emphasized: true)
                 ])
         ];
     }

@@ -153,10 +153,19 @@ public class WorkspaceServiceTests
         Assert.IsTrue(projection.Actions.Any(action => string.Equals(action.ActionId, "next-variants", StringComparison.Ordinal)));
         Assert.IsTrue(projection.Actions.Any(action => string.Equals(action.ActionId, "open-json-exchange", StringComparison.Ordinal)));
         Assert.IsTrue(projection.Actions.Any(action => string.Equals(action.ActionId, "open-print-pdf-export", StringComparison.Ordinal)));
+        Assert.IsTrue(projection.Actions.Any(action => string.Equals(action.ActionId, "open-replay-timeline", StringComparison.Ordinal)));
+        Assert.IsTrue(projection.Actions.Any(action => string.Equals(action.ActionId, "open-session-recap", StringComparison.Ordinal)));
+        Assert.IsTrue(projection.Actions.Any(action => string.Equals(action.ActionId, "open-run-module", StringComparison.Ordinal)));
         Assert.IsTrue(projection.ExportTargets?.Any(target => string.Equals(target.TargetId, "target.json-exchange", StringComparison.Ordinal)
             && string.Equals(target.WorkflowId, "workflow.exchange.json", StringComparison.Ordinal)) == true);
         Assert.IsTrue(projection.ExportTargets?.Any(target => string.Equals(target.TargetId, "target.print-pdf-export", StringComparison.Ordinal)
             && string.Equals(target.WorkflowId, "workflow.export.pdf", StringComparison.Ordinal)) == true);
+        Assert.IsTrue(projection.ExportTargets?.Any(target => string.Equals(target.TargetId, "target.replay-timeline", StringComparison.Ordinal)
+            && string.Equals(target.WorkflowId, "workflow.replay.timeline", StringComparison.Ordinal)) == true);
+        Assert.IsTrue(projection.ExportTargets?.Any(target => string.Equals(target.TargetId, "target.session-recap", StringComparison.Ordinal)
+            && string.Equals(target.WorkflowId, "workflow.recap.session", StringComparison.Ordinal)) == true);
+        Assert.IsTrue(projection.ExportTargets?.Any(target => string.Equals(target.TargetId, "target.run-module", StringComparison.Ordinal)
+            && string.Equals(target.WorkflowId, "workflow.module.run", StringComparison.Ordinal)) == true);
     }
 
     [TestMethod]
