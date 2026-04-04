@@ -2109,8 +2109,14 @@ internal static class CoreEngineTests
             projection.Actions?.Any(static action => string.Equals(action.ActionId, "open-foundry-export", StringComparison.Ordinal)) == true,
             "Build Lab projection factory should expose governed Foundry-class exchange handoff.");
         AssertEx.True(
+            projection.Actions?.Any(static action => string.Equals(action.ActionId, "open-json-exchange", StringComparison.Ordinal)) == true,
+            "Build Lab projection factory should expose governed JSON exchange handoff.");
+        AssertEx.True(
             projection.Actions?.Any(static action => string.Equals(action.ActionId, "open-sheet-viewer", StringComparison.Ordinal)) == true,
             "Build Lab projection factory should expose explicit sheet-viewer handoff.");
+        AssertEx.True(
+            projection.Actions?.Any(static action => string.Equals(action.ActionId, "open-print-pdf-export", StringComparison.Ordinal)) == true,
+            "Build Lab projection factory should expose explicit print-PDF export handoff.");
         AssertEx.True(
             projection.ExportTargets?.Any(static target => string.Equals(target.TargetId, "target.character-template", StringComparison.Ordinal)
                 && string.Equals(target.TargetKind, BuildLabExportTargetKinds.CharacterTemplate, StringComparison.Ordinal)) == true,
@@ -2121,10 +2127,20 @@ internal static class CoreEngineTests
                 && string.Equals(target.WorkflowId, "workflow.exchange.foundry", StringComparison.Ordinal)) == true,
             "Build Lab projection factory should expose Foundry-class exchange workflow wiring.");
         AssertEx.True(
+            projection.ExportTargets?.Any(static target => string.Equals(target.TargetId, "target.json-exchange", StringComparison.Ordinal)
+                && string.Equals(target.TargetKind, BuildLabExportTargetKinds.Workflow, StringComparison.Ordinal)
+                && string.Equals(target.WorkflowId, "workflow.exchange.json", StringComparison.Ordinal)) == true,
+            "Build Lab projection factory should expose JSON exchange workflow wiring.");
+        AssertEx.True(
             projection.ExportTargets?.Any(static target => string.Equals(target.TargetId, "target.sheet-viewer", StringComparison.Ordinal)
                 && string.Equals(target.TargetKind, BuildLabExportTargetKinds.Workflow, StringComparison.Ordinal)
                 && string.Equals(target.WorkflowId, "workflow.viewer.sheet", StringComparison.Ordinal)) == true,
             "Build Lab projection factory should expose sheet-viewer workflow wiring.");
+        AssertEx.True(
+            projection.ExportTargets?.Any(static target => string.Equals(target.TargetId, "target.print-pdf-export", StringComparison.Ordinal)
+                && string.Equals(target.TargetKind, BuildLabExportTargetKinds.Workflow, StringComparison.Ordinal)
+                && string.Equals(target.WorkflowId, "workflow.export.pdf", StringComparison.Ordinal)) == true,
+            "Build Lab projection factory should expose print-PDF workflow wiring.");
         AssertEx.True(
             projection.ExportPayloads?.SelectMany(static payload => payload.Fields)
                 .Any(static field => string.Equals(field.FieldId, "rule-environment", StringComparison.Ordinal)
