@@ -32,6 +32,9 @@ public class ToolCatalogServiceTests
             Assert.AreEqual("missing", response.ReferenceLanePosture);
             Assert.AreEqual(0, response.SourcebookCount);
             Assert.HasCount(0, response.Sourcebooks);
+            Assert.AreEqual(0, response.SourcebooksWithSnippets);
+            Assert.AreEqual(0, response.SourcebooksMissingSnippets);
+            Assert.AreEqual(0, response.ReferenceCoveragePercent);
             Assert.AreEqual("missing", response.XmlBridgePosture);
             Assert.AreEqual(0, response.EnabledDataOverlayCount);
         }
@@ -158,6 +161,9 @@ public class ToolCatalogServiceTests
             Assert.AreEqual("stale", response.ReferenceLanePosture);
             Assert.AreEqual(2, response.SourcebookCount);
             Assert.HasCount(2, response.Sourcebooks);
+            Assert.AreEqual(1, response.SourcebooksWithSnippets);
+            Assert.AreEqual(1, response.SourcebooksMissingSnippets);
+            Assert.AreEqual(50, response.ReferenceCoveragePercent);
 
             MasterIndexSourcebookEntry rf = response.Sourcebooks.Single(sourcebook => sourcebook.Code == "RF");
             Assert.AreEqual("book-rf", rf.Id);
@@ -356,6 +362,9 @@ public class ToolCatalogServiceTests
             Assert.AreEqual("governed", response.ReferenceLanePosture);
             Assert.AreEqual(2, response.SourcebookCount);
             Assert.IsTrue(response.Sourcebooks.All(sourcebook => sourcebook.RuleSnippetCount > 0));
+            Assert.AreEqual(2, response.SourcebooksWithSnippets);
+            Assert.AreEqual(0, response.SourcebooksMissingSnippets);
+            Assert.AreEqual(100, response.ReferenceCoveragePercent);
         }
         finally
         {

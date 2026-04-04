@@ -36,11 +36,17 @@ public sealed class XmlToolCatalogService : IToolCatalogService
                 ReferenceLanePosture: "missing",
                 SourcebookCount: 0,
                 Sourcebooks: Array.Empty<MasterIndexSourcebookEntry>(),
+                SourcebooksWithSnippets: 0,
+                SourcebooksMissingSnippets: 0,
+                ReferenceCoveragePercent: 0,
                 XmlBridgePosture: ResolveXmlBridgePosture(catalog),
                 EnabledDataOverlayCount: CountEnabledDataOverlays(catalog));
 
         IReadOnlyList<MasterIndexSourcebookEntry> sourcebooks = BuildSourcebookEntries(filesByName);
         string referenceLanePosture = ResolveReferenceLanePosture(sourcebooks);
+        int sourcebooksWithSnippets = CountSourcebooksWithSnippets(sourcebooks);
+        int sourcebooksMissingSnippets = sourcebooks.Count - sourcebooksWithSnippets;
+        int referenceCoveragePercent = CalculateReferenceCoveragePercent(sourcebooks.Count, sourcebooksWithSnippets);
 
         List<MasterIndexFileEntry> files = new();
         foreach ((string fileName, XDocument? document) in filesByName.OrderBy(pair => pair.Key, StringComparer.Ordinal))
@@ -67,6 +73,9 @@ public sealed class XmlToolCatalogService : IToolCatalogService
             ReferenceLanePosture: referenceLanePosture,
             SourcebookCount: sourcebooks.Count,
             Sourcebooks: sourcebooks,
+            SourcebooksWithSnippets: sourcebooksWithSnippets,
+            SourcebooksMissingSnippets: sourcebooksMissingSnippets,
+            ReferenceCoveragePercent: referenceCoveragePercent,
             XmlBridgePosture: ResolveXmlBridgePosture(catalog),
             EnabledDataOverlayCount: CountEnabledDataOverlays(catalog));
     }
@@ -122,6 +131,23 @@ public sealed class XmlToolCatalogService : IToolCatalogService
         bool hasSnippetGaps = sourcebooks.Any(sourcebook =>
             string.Equals(sourcebook.ReferencePosture, "no-snippets", StringComparison.Ordinal));
         return hasSnippetGaps ? "stale" : "governed";
+    }
+
+    private static int CountSourcebooksWithSnippets(IReadOnlyList<MasterIndexSourcebookEntry> sourcebooks)
+    {
+        return sourcebooks.Count(sourcebook =>
+            string.Equals(sourcebook.ReferencePosture, "matched-snippets", StringComparison.Ordinal)
+            && sourcebook.RuleSnippetCount > 0);
+    }
+
+    private static int CalculateReferenceCoveragePercent(int sourcebookCount, int sourcebooksWithSnippets)
+    {
+        if (sourcebookCount <= 0)
+        {
+            return 0;
+        }
+
+        return (int)Math.Round(sourcebooksWithSnippets * 100d / sourcebookCount, MidpointRounding.AwayFromZero);
     }
 
     private static int CountEnabledDataOverlays(ContentOverlayCatalog catalog)
