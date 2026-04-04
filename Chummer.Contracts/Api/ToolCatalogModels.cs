@@ -16,7 +16,13 @@ public sealed record MasterIndexResponse(
     int SourcebooksMissingSnippets = 0,
     int ReferenceCoveragePercent = 0,
     string XmlBridgePosture = "missing",
-    int EnabledDataOverlayCount = 0);
+    int EnabledDataOverlayCount = 0,
+    string Sr6SupplementLanePosture = "missing",
+    string Sr6DesignerToolsPosture = "missing",
+    int Sr6DesignerFamiliesAvailable = 0,
+    int Sr6DesignerFamiliesExpected = 0,
+    string HouseRuleLanePosture = "missing",
+    int HouseRuleOverlayCount = 0);
 
 public sealed record MasterIndexSourcebookEntry(
     string Id,
