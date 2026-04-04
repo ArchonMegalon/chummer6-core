@@ -126,6 +126,7 @@ public sealed class XmlToolCatalogService : IToolCatalogService
                 HouseRuleOverlayCount: CountHouseRuleOverlays(catalog),
                 OnlineStorageLanePosture: onlineStorageSummary.LanePosture,
                 OnlineStorageReceiptPosture: onlineStorageSummary.ReceiptPosture,
+                OnlineStorageLaneReceipt: BuildOnlineStorageLaneReceipt(onlineStorageSummary),
                 OnlineStorageReceiptsCovered: onlineStorageSummary.ReceiptsCovered,
                 OnlineStorageReceiptsExpected: onlineStorageSummary.ReceiptsExpected,
                 OnlineStorageCoveragePercent: onlineStorageSummary.CoveragePercent,
@@ -249,6 +250,7 @@ public sealed class XmlToolCatalogService : IToolCatalogService
             HouseRuleOverlayCount: houseRuleOverlayCount,
             OnlineStorageLanePosture: onlineStorageSummary.LanePosture,
             OnlineStorageReceiptPosture: onlineStorageSummary.ReceiptPosture,
+            OnlineStorageLaneReceipt: BuildOnlineStorageLaneReceipt(onlineStorageSummary),
             OnlineStorageReceiptsCovered: onlineStorageSummary.ReceiptsCovered,
             OnlineStorageReceiptsExpected: onlineStorageSummary.ReceiptsExpected,
             OnlineStorageCoveragePercent: onlineStorageSummary.CoveragePercent,
@@ -617,6 +619,16 @@ public sealed class XmlToolCatalogService : IToolCatalogService
         }
 
         return $"Import oracle coverage is {summary.SourcesCovered}/{summary.SourcesExpected} with certification receipt posture {summary.ReceiptPosture} and adjacent SR6 oracle posture {summary.AdjacentSr6OracleReceiptPosture}.{missingSourcesSuffix}";
+    }
+
+    private static string BuildOnlineStorageLaneReceipt(OnlineStorageSummary summary)
+    {
+        if (string.Equals(summary.LanePosture, "missing", StringComparison.Ordinal))
+        {
+            return "No online-storage continuity receipts were discovered for Hub/mobile install-restore lanes.";
+        }
+
+        return $"Online-storage continuity receipts cover {summary.ReceiptsCovered}/{summary.ReceiptsExpected} lanes with receipt posture {summary.ReceiptPosture}.";
     }
 
     private static string BuildSr6SuccessorLaneReceipt(

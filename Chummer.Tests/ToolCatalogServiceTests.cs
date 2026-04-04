@@ -71,6 +71,7 @@ public class ToolCatalogServiceTests
             Assert.AreEqual(0, response.HouseRuleOverlayCount);
             Assert.AreEqual("missing", response.OnlineStorageLanePosture);
             Assert.AreEqual("missing", response.OnlineStorageReceiptPosture);
+            Assert.AreEqual("No online-storage continuity receipts were discovered for Hub/mobile install-restore lanes.", response.OnlineStorageLaneReceipt);
             Assert.AreEqual(0, response.OnlineStorageReceiptsCovered);
             Assert.AreEqual(2, response.OnlineStorageReceiptsExpected);
             Assert.AreEqual(0, response.OnlineStorageCoveragePercent);
@@ -285,6 +286,7 @@ public class ToolCatalogServiceTests
             Assert.AreEqual(0, response.HouseRuleOverlayCount);
             Assert.AreEqual("missing", response.OnlineStorageLanePosture);
             Assert.AreEqual("missing", response.OnlineStorageReceiptPosture);
+            Assert.AreEqual("No online-storage continuity receipts were discovered for Hub/mobile install-restore lanes.", response.OnlineStorageLaneReceipt);
             Assert.AreEqual(0, response.OnlineStorageReceiptsCovered);
             Assert.AreEqual(2, response.OnlineStorageReceiptsExpected);
             Assert.AreEqual(0, response.OnlineStorageCoveragePercent);
@@ -1112,6 +1114,7 @@ public class ToolCatalogServiceTests
 
             Assert.AreEqual("governed", response.OnlineStorageLanePosture);
             Assert.AreEqual("governed", response.OnlineStorageReceiptPosture);
+            Assert.AreEqual("Online-storage continuity receipts cover 2/2 lanes with receipt posture governed.", response.OnlineStorageLaneReceipt);
             Assert.AreEqual(2, response.OnlineStorageReceiptsCovered);
             Assert.AreEqual(2, response.OnlineStorageReceiptsExpected);
             Assert.AreEqual(100, response.OnlineStorageCoveragePercent);
@@ -1161,6 +1164,7 @@ public class ToolCatalogServiceTests
 
             Assert.AreEqual("stale", response.OnlineStorageLanePosture);
             Assert.AreEqual("stale", response.OnlineStorageReceiptPosture);
+            Assert.AreEqual("Online-storage continuity receipts cover 1/2 lanes with receipt posture stale.", response.OnlineStorageLaneReceipt);
             Assert.AreEqual(1, response.OnlineStorageReceiptsCovered);
             Assert.AreEqual(2, response.OnlineStorageReceiptsExpected);
             Assert.AreEqual(50, response.OnlineStorageCoveragePercent);
