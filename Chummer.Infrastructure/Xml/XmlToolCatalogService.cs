@@ -143,6 +143,7 @@ public sealed class XmlToolCatalogService : IToolCatalogService
                 ImportOracleCoveragePercent: importOracleSummary.CoveragePercent,
                 ImportOracleMissingSources: importOracleSummary.MissingSources,
                 ImportOracleLaneReceipt: BuildImportOracleLaneReceipt(importOracleSummary),
+                AdjacentSr6OracleLaneReceipt: BuildAdjacentSr6OracleLaneReceipt(importOracleSummary),
                 Sr6SuccessorLaneReceipt: BuildSr6SuccessorLaneReceipt(
                     ResolveSr6SupplementLanePosture(Array.Empty<MasterIndexSourcebookEntry>()),
                     ResolveSr6DesignerToolsPosture(0, Sr6DesignerFamiliesExpected),
@@ -267,6 +268,7 @@ public sealed class XmlToolCatalogService : IToolCatalogService
             ImportOracleCoveragePercent: importOracleSummary.CoveragePercent,
             ImportOracleMissingSources: importOracleSummary.MissingSources,
             ImportOracleLaneReceipt: BuildImportOracleLaneReceipt(importOracleSummary),
+            AdjacentSr6OracleLaneReceipt: BuildAdjacentSr6OracleLaneReceipt(importOracleSummary),
             Sr6SuccessorLaneReceipt: BuildSr6SuccessorLaneReceipt(
                 sr6SupplementLanePosture,
                 sr6DesignerToolsPosture,
@@ -619,6 +621,16 @@ public sealed class XmlToolCatalogService : IToolCatalogService
         }
 
         return $"Import oracle coverage is {summary.SourcesCovered}/{summary.SourcesExpected} with certification receipt posture {summary.ReceiptPosture} and adjacent SR6 oracle posture {summary.AdjacentSr6OracleReceiptPosture}.{missingSourcesSuffix}";
+    }
+
+    private static string BuildAdjacentSr6OracleLaneReceipt(ImportOracleSummary summary)
+    {
+        if (string.Equals(summary.AdjacentSr6OracleReceiptPosture, "missing", StringComparison.Ordinal))
+        {
+            return "No adjacent SR6 oracle certification receipt coverage was discovered for Genesis/CommLink6.";
+        }
+
+        return $"Adjacent SR6 oracle coverage is {summary.AdjacentSr6OracleSourcesCovered}/{summary.AdjacentSr6OracleSourcesExpected} with receipt posture {summary.AdjacentSr6OracleReceiptPosture} (Genesis/CommLink6).";
     }
 
     private static string BuildOnlineStorageLaneReceipt(OnlineStorageSummary summary)
