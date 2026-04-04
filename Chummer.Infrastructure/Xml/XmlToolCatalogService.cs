@@ -102,10 +102,21 @@ public sealed class XmlToolCatalogService : IToolCatalogService
                 DistinctSourcebookToggles: 0,
                 SourceToggleLanePosture: "missing",
                 SourceToggleLaneReceipt: "No sourcebook toggle codes were discovered in settings.xml profiles.",
+                SourceSelectionLaneReceipt: BuildSourceSelectionLaneReceipt(
+                    sourcebookCount: 0,
+                    profileCount: 0,
+                    profilesWithSourceToggles: 0,
+                    distinctSourcebookToggles: 0,
+                    sourcebookToggleCoveragePercent: 0,
+                    sourceToggleLanePosture: "missing"),
                 SettingsLaneReceipt: "No settings profiles were discovered in settings.xml.",
                 SourcebookToggleCoveragePercent: 0,
                 CustomDataLanePosture: "missing",
                 CustomDataLaneReceipt: "No enabled custom data directory entries were discovered in settings.xml.",
+                CustomDataAuthoringLaneReceipt: BuildCustomDataAuthoringLaneReceipt(
+                    customDataLanePosture: "missing",
+                    distinctCustomDataDirectoryCount: 0,
+                    enabledDataOverlayCount: CountEnabledDataOverlays(catalog)),
                 SettingsProfilesWithCustomDataDirectories: 0,
                 DistinctCustomDataDirectoryCount: 0,
                 XmlBridgePosture: ResolveXmlBridgePosture(catalog),
@@ -224,10 +235,21 @@ public sealed class XmlToolCatalogService : IToolCatalogService
             DistinctSourcebookToggles: settingsSummary.DistinctSourcebookToggles,
             SourceToggleLanePosture: settingsSummary.SourceToggleLanePosture,
             SourceToggleLaneReceipt: BuildSourceToggleLaneReceipt(settingsSummary),
+            SourceSelectionLaneReceipt: BuildSourceSelectionLaneReceipt(
+                sourcebooks.Count,
+                settingsSummary.ProfileCount,
+                settingsSummary.ProfilesWithSourceToggles,
+                settingsSummary.DistinctSourcebookToggles,
+                settingsSummary.SourcebookToggleCoveragePercent,
+                settingsSummary.SourceToggleLanePosture),
             SettingsLaneReceipt: BuildSettingsLaneReceipt(settingsSummary),
             SourcebookToggleCoveragePercent: settingsSummary.SourcebookToggleCoveragePercent,
             CustomDataLanePosture: customDataLanePosture,
             CustomDataLaneReceipt: BuildCustomDataLaneReceipt(
+                customDataLanePosture,
+                settingsSummary.DistinctCustomDataDirectoryCount,
+                enabledDataOverlayCount),
+            CustomDataAuthoringLaneReceipt: BuildCustomDataAuthoringLaneReceipt(
                 customDataLanePosture,
                 settingsSummary.DistinctCustomDataDirectoryCount,
                 enabledDataOverlayCount),
@@ -560,6 +582,34 @@ public sealed class XmlToolCatalogService : IToolCatalogService
             : $"{summary.DistinctSourcebookToggles} toggle codes were discovered, but one or more codes do not map to known sourcebooks.";
     }
 
+    private static string BuildSourceSelectionLaneReceipt(
+        int sourcebookCount,
+        int profileCount,
+        int profilesWithSourceToggles,
+        int distinctSourcebookToggles,
+        int sourcebookToggleCoveragePercent,
+        string sourceToggleLanePosture)
+    {
+        if (sourcebookCount <= 0)
+        {
+            return "No sourcebook catalog was discovered to project source selection posture.";
+        }
+
+        if (profileCount <= 0)
+        {
+            return "No settings profiles were discovered to project source selection posture.";
+        }
+
+        if (distinctSourcebookToggles <= 0)
+        {
+            return $"{profileCount} settings profiles were discovered, but none define source selection toggles.";
+        }
+
+        return string.Equals(sourceToggleLanePosture, "governed", StringComparison.Ordinal)
+            ? $"{profilesWithSourceToggles} of {profileCount} settings profiles project source selection with {distinctSourcebookToggles} sourcebook toggles ({sourcebookToggleCoveragePercent}% catalog coverage)."
+            : $"{profilesWithSourceToggles} of {profileCount} settings profiles project source selection, but one or more sourcebook toggles do not map to the catalog.";
+    }
+
     private static string BuildCustomDataLaneReceipt(string customDataLanePosture, int distinctCustomDataDirectoryCount, int enabledDataOverlayCount)
     {
         if (string.Equals(customDataLanePosture, "missing", StringComparison.Ordinal))
@@ -573,6 +623,24 @@ public sealed class XmlToolCatalogService : IToolCatalogService
         }
 
         return $"{distinctCustomDataDirectoryCount} custom data directories are backed by {enabledDataOverlayCount} enabled data overlay bridge(s).";
+    }
+
+    private static string BuildCustomDataAuthoringLaneReceipt(
+        string customDataLanePosture,
+        int distinctCustomDataDirectoryCount,
+        int enabledDataOverlayCount)
+    {
+        if (string.Equals(customDataLanePosture, "missing", StringComparison.Ordinal))
+        {
+            return "No custom-data authoring directories were discovered in settings.xml.";
+        }
+
+        if (string.Equals(customDataLanePosture, "stale", StringComparison.Ordinal))
+        {
+            return $"{distinctCustomDataDirectoryCount} custom-data authoring directories are referenced, but no enabled data overlay bridge was detected.";
+        }
+
+        return $"{distinctCustomDataDirectoryCount} custom-data authoring directories are backed by {enabledDataOverlayCount} enabled data overlay bridge(s).";
     }
 
     private static string BuildXmlBridgeLaneReceipt(string xmlBridgePosture, int enabledDataOverlayCount)

@@ -49,10 +49,16 @@ public class ToolCatalogServiceTests
             Assert.AreEqual(0, response.DistinctSourcebookToggles);
             Assert.AreEqual("missing", response.SourceToggleLanePosture);
             Assert.AreEqual("No sourcebook toggle codes were discovered in settings.xml profiles.", response.SourceToggleLaneReceipt);
+            Assert.AreEqual(
+                "No sourcebook catalog was discovered to project source selection posture.",
+                response.SourceSelectionLaneReceipt);
             Assert.AreEqual("No settings profiles were discovered in settings.xml.", response.SettingsLaneReceipt);
             Assert.AreEqual(0, response.SourcebookToggleCoveragePercent);
             Assert.AreEqual("missing", response.CustomDataLanePosture);
             Assert.AreEqual("No enabled custom data directory entries were discovered in settings.xml.", response.CustomDataLaneReceipt);
+            Assert.AreEqual(
+                "No custom-data authoring directories were discovered in settings.xml.",
+                response.CustomDataAuthoringLaneReceipt);
             Assert.AreEqual(0, response.SettingsProfilesWithCustomDataDirectories);
             Assert.AreEqual(0, response.DistinctCustomDataDirectoryCount);
             Assert.AreEqual("missing", response.XmlBridgePosture);
@@ -267,10 +273,16 @@ public class ToolCatalogServiceTests
             Assert.AreEqual(0, response.DistinctSourcebookToggles);
             Assert.AreEqual("missing", response.SourceToggleLanePosture);
             Assert.AreEqual("No sourcebook toggle codes were discovered in settings.xml profiles.", response.SourceToggleLaneReceipt);
+            Assert.AreEqual(
+                "No settings profiles were discovered to project source selection posture.",
+                response.SourceSelectionLaneReceipt);
             Assert.AreEqual("No settings profiles were discovered in settings.xml.", response.SettingsLaneReceipt);
             Assert.AreEqual(0, response.SourcebookToggleCoveragePercent);
             Assert.AreEqual("missing", response.CustomDataLanePosture);
             Assert.AreEqual("No enabled custom data directory entries were discovered in settings.xml.", response.CustomDataLaneReceipt);
+            Assert.AreEqual(
+                "No custom-data authoring directories were discovered in settings.xml.",
+                response.CustomDataAuthoringLaneReceipt);
             Assert.AreEqual(0, response.SettingsProfilesWithCustomDataDirectories);
             Assert.AreEqual(0, response.DistinctCustomDataDirectoryCount);
             Assert.AreEqual("missing", response.XmlBridgePosture);
