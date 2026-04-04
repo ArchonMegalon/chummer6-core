@@ -84,6 +84,7 @@ public sealed class XmlToolCatalogService : IToolCatalogService
                 GeneratedUtc: DateTimeOffset.UtcNow,
                 Files: Array.Empty<MasterIndexFileEntry>(),
                 ReferenceLanePosture: "missing",
+                ReferenceLaneReceipt: "No sourcebooks were discovered in books.xml.",
                 SourcebookCount: 0,
                 Sourcebooks: Array.Empty<MasterIndexSourcebookEntry>(),
                 SourcebooksWithSnippets: 0,
@@ -98,13 +99,17 @@ public sealed class XmlToolCatalogService : IToolCatalogService
                 SettingsProfilesWithSourceToggles: 0,
                 DistinctSourcebookToggles: 0,
                 SourceToggleLanePosture: "missing",
+                SourceToggleLaneReceipt: "No sourcebook toggle codes were discovered in settings.xml profiles.",
+                SettingsLaneReceipt: "No settings profiles were discovered in settings.xml.",
                 SourcebookToggleCoveragePercent: 0,
                 CustomDataLanePosture: "missing",
+                CustomDataLaneReceipt: "No enabled custom data directory entries were discovered in settings.xml.",
                 SettingsProfilesWithCustomDataDirectories: 0,
                 DistinctCustomDataDirectoryCount: 0,
                 XmlBridgePosture: ResolveXmlBridgePosture(catalog),
                 EnabledDataOverlayCount: CountEnabledDataOverlays(catalog),
                 TranslatorLanePosture: translatorSummary.LanePosture,
+                TranslatorLaneReceipt: BuildTranslatorLaneReceipt(translatorSummary),
                 TranslatorBridgePosture: translatorSummary.BridgePosture,
                 TranslatorLanguageCount: translatorSummary.LanguageCount,
                 EnabledLanguageOverlayCount: translatorSummary.EnabledOverlayCount,
@@ -129,7 +134,18 @@ public sealed class XmlToolCatalogService : IToolCatalogService
                 AdjacentSr6OracleSourcesExpected: importOracleSummary.AdjacentSr6OracleSourcesExpected,
                 ImportOracleSourcesCovered: importOracleSummary.SourcesCovered,
                 ImportOracleSourcesExpected: importOracleSummary.SourcesExpected,
-                ImportOracleCoveragePercent: importOracleSummary.CoveragePercent);
+                ImportOracleCoveragePercent: importOracleSummary.CoveragePercent,
+                ImportOracleLaneReceipt: BuildImportOracleLaneReceipt(importOracleSummary),
+                Sr6SuccessorLaneReceipt: BuildSr6SuccessorLaneReceipt(
+                    ResolveSr6SupplementLanePosture(Array.Empty<MasterIndexSourcebookEntry>()),
+                    ResolveSr6DesignerToolsPosture(0, Sr6DesignerFamiliesExpected),
+                    0,
+                    Sr6DesignerFamiliesExpected,
+                    ResolveHouseRuleLanePosture(catalog),
+                    CountHouseRuleOverlays(catalog),
+                    onlineStorageSummary.LanePosture,
+                    onlineStorageSummary.ReceiptsCovered,
+                    onlineStorageSummary.ReceiptsExpected));
 
         IReadOnlyList<MasterIndexSourcebookEntry> sourcebooks = BuildSourcebookEntries(filesByName);
         string referenceLanePosture = ResolveReferenceLanePosture(sourcebooks);
@@ -152,6 +168,10 @@ public sealed class XmlToolCatalogService : IToolCatalogService
             settingsSummary.DistinctCustomDataDirectoryCount,
             enabledDataOverlayCount);
         int sr6DesignerFamiliesAvailable = CountSr6DesignerFamiliesAvailable(filesByName);
+        string sr6SupplementLanePosture = ResolveSr6SupplementLanePosture(sourcebooks);
+        string sr6DesignerToolsPosture = ResolveSr6DesignerToolsPosture(sr6DesignerFamiliesAvailable, Sr6DesignerFamiliesExpected);
+        int houseRuleOverlayCount = CountHouseRuleOverlays(catalog);
+        string houseRuleLanePosture = ResolveHouseRuleLanePosture(catalog);
 
         List<MasterIndexFileEntry> files = new();
         foreach ((string fileName, XDocument? document) in filesByName.OrderBy(pair => pair.Key, StringComparer.Ordinal))
@@ -176,6 +196,7 @@ public sealed class XmlToolCatalogService : IToolCatalogService
             GeneratedUtc: DateTimeOffset.UtcNow,
             Files: files,
             ReferenceLanePosture: referenceLanePosture,
+            ReferenceLaneReceipt: BuildReferenceLaneReceipt(sourcebooks.Count, sourcebooksWithSnippets),
             SourcebookCount: sourcebooks.Count,
             Sourcebooks: sourcebooks,
             SourcebooksWithSnippets: sourcebooksWithSnippets,
@@ -190,22 +211,29 @@ public sealed class XmlToolCatalogService : IToolCatalogService
             SettingsProfilesWithSourceToggles: settingsSummary.ProfilesWithSourceToggles,
             DistinctSourcebookToggles: settingsSummary.DistinctSourcebookToggles,
             SourceToggleLanePosture: settingsSummary.SourceToggleLanePosture,
+            SourceToggleLaneReceipt: BuildSourceToggleLaneReceipt(settingsSummary),
+            SettingsLaneReceipt: BuildSettingsLaneReceipt(settingsSummary),
             SourcebookToggleCoveragePercent: settingsSummary.SourcebookToggleCoveragePercent,
             CustomDataLanePosture: customDataLanePosture,
+            CustomDataLaneReceipt: BuildCustomDataLaneReceipt(
+                customDataLanePosture,
+                settingsSummary.DistinctCustomDataDirectoryCount,
+                enabledDataOverlayCount),
             SettingsProfilesWithCustomDataDirectories: settingsSummary.ProfilesWithCustomDataDirectories,
             DistinctCustomDataDirectoryCount: settingsSummary.DistinctCustomDataDirectoryCount,
             XmlBridgePosture: ResolveXmlBridgePosture(catalog),
             EnabledDataOverlayCount: enabledDataOverlayCount,
             TranslatorLanePosture: translatorSummary.LanePosture,
+            TranslatorLaneReceipt: BuildTranslatorLaneReceipt(translatorSummary),
             TranslatorBridgePosture: translatorSummary.BridgePosture,
             TranslatorLanguageCount: translatorSummary.LanguageCount,
             EnabledLanguageOverlayCount: translatorSummary.EnabledOverlayCount,
-            Sr6SupplementLanePosture: ResolveSr6SupplementLanePosture(sourcebooks),
-            Sr6DesignerToolsPosture: ResolveSr6DesignerToolsPosture(sr6DesignerFamiliesAvailable, Sr6DesignerFamiliesExpected),
+            Sr6SupplementLanePosture: sr6SupplementLanePosture,
+            Sr6DesignerToolsPosture: sr6DesignerToolsPosture,
             Sr6DesignerFamiliesAvailable: sr6DesignerFamiliesAvailable,
             Sr6DesignerFamiliesExpected: Sr6DesignerFamiliesExpected,
-            HouseRuleLanePosture: ResolveHouseRuleLanePosture(catalog),
-            HouseRuleOverlayCount: CountHouseRuleOverlays(catalog),
+            HouseRuleLanePosture: houseRuleLanePosture,
+            HouseRuleOverlayCount: houseRuleOverlayCount,
             OnlineStorageLanePosture: onlineStorageSummary.LanePosture,
             OnlineStorageReceiptPosture: onlineStorageSummary.ReceiptPosture,
             OnlineStorageReceiptsCovered: onlineStorageSummary.ReceiptsCovered,
@@ -221,7 +249,18 @@ public sealed class XmlToolCatalogService : IToolCatalogService
             AdjacentSr6OracleSourcesExpected: importOracleSummary.AdjacentSr6OracleSourcesExpected,
             ImportOracleSourcesCovered: importOracleSummary.SourcesCovered,
             ImportOracleSourcesExpected: importOracleSummary.SourcesExpected,
-            ImportOracleCoveragePercent: importOracleSummary.CoveragePercent);
+            ImportOracleCoveragePercent: importOracleSummary.CoveragePercent,
+            ImportOracleLaneReceipt: BuildImportOracleLaneReceipt(importOracleSummary),
+            Sr6SuccessorLaneReceipt: BuildSr6SuccessorLaneReceipt(
+                sr6SupplementLanePosture,
+                sr6DesignerToolsPosture,
+                sr6DesignerFamiliesAvailable,
+                Sr6DesignerFamiliesExpected,
+                houseRuleLanePosture,
+                houseRuleOverlayCount,
+                onlineStorageSummary.LanePosture,
+                onlineStorageSummary.ReceiptsCovered,
+                onlineStorageSummary.ReceiptsExpected));
     }
 
     public TranslatorLanguagesResponse GetTranslatorLanguages()
@@ -431,6 +470,113 @@ public sealed class XmlToolCatalogService : IToolCatalogService
         return enabledDataOverlayCount > 0
             ? "governed"
             : "stale";
+    }
+
+    private static string BuildReferenceLaneReceipt(int sourcebookCount, int sourcebooksWithSnippets)
+    {
+        if (sourcebookCount <= 0)
+        {
+            return "No sourcebooks were discovered in books.xml.";
+        }
+
+        if (sourcebooksWithSnippets <= 0)
+        {
+            return $"All {sourcebookCount} sourcebooks are missing rule snippets.";
+        }
+
+        if (sourcebooksWithSnippets >= sourcebookCount)
+        {
+            return $"All {sourcebookCount} sourcebooks include rule snippets.";
+        }
+
+        int sourcebooksMissingSnippets = sourcebookCount - sourcebooksWithSnippets;
+        return $"{sourcebooksMissingSnippets} of {sourcebookCount} sourcebooks are missing rule snippets.";
+    }
+
+    private static string BuildSettingsLaneReceipt(SettingsCatalogSummary summary)
+    {
+        if (summary.ProfileCount <= 0)
+        {
+            return "No settings profiles were discovered in settings.xml.";
+        }
+
+        if (summary.ProfilesWithSourceToggles <= 0)
+        {
+            return $"{summary.ProfileCount} settings profiles were discovered, but none define sourcebook toggles.";
+        }
+
+        return $"{summary.ProfilesWithSourceToggles} of {summary.ProfileCount} settings profiles define sourcebook toggles.";
+    }
+
+    private static string BuildSourceToggleLaneReceipt(SettingsCatalogSummary summary)
+    {
+        if (summary.DistinctSourcebookToggles <= 0)
+        {
+            return "No sourcebook toggle codes were discovered in settings.xml profiles.";
+        }
+
+        return string.Equals(summary.SourceToggleLanePosture, "governed", StringComparison.Ordinal)
+            ? $"{summary.DistinctSourcebookToggles} toggle codes map to known sourcebooks ({summary.SourcebookToggleCoveragePercent}% catalog coverage)."
+            : $"{summary.DistinctSourcebookToggles} toggle codes were discovered, but one or more codes do not map to known sourcebooks.";
+    }
+
+    private static string BuildCustomDataLaneReceipt(string customDataLanePosture, int distinctCustomDataDirectoryCount, int enabledDataOverlayCount)
+    {
+        if (string.Equals(customDataLanePosture, "missing", StringComparison.Ordinal))
+        {
+            return "No enabled custom data directory entries were discovered in settings.xml.";
+        }
+
+        if (string.Equals(customDataLanePosture, "stale", StringComparison.Ordinal))
+        {
+            return $"{distinctCustomDataDirectoryCount} custom data directories are referenced, but no enabled data overlay bridge was detected.";
+        }
+
+        return $"{distinctCustomDataDirectoryCount} custom data directories are backed by {enabledDataOverlayCount} enabled data overlay bridge(s).";
+    }
+
+    private static string BuildTranslatorLaneReceipt(TranslatorCatalogSummary summary)
+    {
+        if (string.Equals(summary.LanePosture, "missing", StringComparison.Ordinal))
+        {
+            return "No translator language corpus or language overlay bridge was detected.";
+        }
+
+        if (string.Equals(summary.LanePosture, "stale", StringComparison.Ordinal))
+        {
+            if (summary.LanguageCount <= 0)
+            {
+                return "Language overlays are enabled, but no translator language corpus files were discovered.";
+            }
+
+            return $"{summary.LanguageCount} translator language files were discovered, but language overlay bridge posture is {summary.BridgePosture}.";
+        }
+
+        return $"{summary.LanguageCount} translator language files and {summary.EnabledOverlayCount} enabled language overlay bridge(s) were detected.";
+    }
+
+    private static string BuildImportOracleLaneReceipt(ImportOracleSummary summary)
+    {
+        if (string.Equals(summary.LanePosture, "missing", StringComparison.Ordinal))
+        {
+            return "No import oracle fixtures or certification receipt were discovered.";
+        }
+
+        return $"Import oracle coverage is {summary.SourcesCovered}/{summary.SourcesExpected} with certification receipt posture {summary.ReceiptPosture} and adjacent SR6 oracle posture {summary.AdjacentSr6OracleReceiptPosture}.";
+    }
+
+    private static string BuildSr6SuccessorLaneReceipt(
+        string sr6SupplementLanePosture,
+        string sr6DesignerToolsPosture,
+        int sr6DesignerFamiliesAvailable,
+        int sr6DesignerFamiliesExpected,
+        string houseRuleLanePosture,
+        int houseRuleOverlayCount,
+        string onlineStorageLanePosture,
+        int onlineStorageReceiptsCovered,
+        int onlineStorageReceiptsExpected)
+    {
+        return $"Supplement posture is {sr6SupplementLanePosture}; designer families are {sr6DesignerFamiliesAvailable}/{sr6DesignerFamiliesExpected} ({sr6DesignerToolsPosture}); house-rule overlays are {houseRuleOverlayCount} ({houseRuleLanePosture}); online-storage receipts are {onlineStorageReceiptsCovered}/{onlineStorageReceiptsExpected} ({onlineStorageLanePosture}).";
     }
 
     private static TranslatorCatalogSummary BuildTranslatorCatalogSummary(

@@ -30,6 +30,7 @@ public class ToolCatalogServiceTests
             Assert.IsTrue(response.Files.Any(file => file.File == "valid.xml" && file.Root == "chummer" && file.ElementCount >= 3));
             Assert.IsTrue(response.Files.Any(file => file.File == "broken.xml" && file.Root == string.Empty && file.ElementCount == 0));
             Assert.AreEqual("missing", response.ReferenceLanePosture);
+            Assert.AreEqual("No sourcebooks were discovered in books.xml.", response.ReferenceLaneReceipt);
             Assert.AreEqual(0, response.SourcebookCount);
             Assert.HasCount(0, response.Sourcebooks);
             Assert.AreEqual(0, response.SourcebooksWithSnippets);
@@ -44,13 +45,17 @@ public class ToolCatalogServiceTests
             Assert.AreEqual(0, response.SettingsProfilesWithSourceToggles);
             Assert.AreEqual(0, response.DistinctSourcebookToggles);
             Assert.AreEqual("missing", response.SourceToggleLanePosture);
+            Assert.AreEqual("No sourcebook toggle codes were discovered in settings.xml profiles.", response.SourceToggleLaneReceipt);
+            Assert.AreEqual("No settings profiles were discovered in settings.xml.", response.SettingsLaneReceipt);
             Assert.AreEqual(0, response.SourcebookToggleCoveragePercent);
             Assert.AreEqual("missing", response.CustomDataLanePosture);
+            Assert.AreEqual("No enabled custom data directory entries were discovered in settings.xml.", response.CustomDataLaneReceipt);
             Assert.AreEqual(0, response.SettingsProfilesWithCustomDataDirectories);
             Assert.AreEqual(0, response.DistinctCustomDataDirectoryCount);
             Assert.AreEqual("missing", response.XmlBridgePosture);
             Assert.AreEqual(0, response.EnabledDataOverlayCount);
             Assert.AreEqual("missing", response.TranslatorLanePosture);
+            Assert.AreEqual("No translator language corpus or language overlay bridge was detected.", response.TranslatorLaneReceipt);
             Assert.AreEqual("missing", response.TranslatorBridgePosture);
             Assert.AreEqual(0, response.TranslatorLanguageCount);
             Assert.AreEqual(0, response.EnabledLanguageOverlayCount);
@@ -76,6 +81,8 @@ public class ToolCatalogServiceTests
             Assert.AreEqual(0, response.ImportOracleSourcesCovered);
             Assert.AreEqual(4, response.ImportOracleSourcesExpected);
             Assert.AreEqual(0, response.ImportOracleCoveragePercent);
+            Assert.AreEqual("No import oracle fixtures or certification receipt were discovered.", response.ImportOracleLaneReceipt);
+            StringAssert.Contains(response.Sr6SuccessorLaneReceipt, "Supplement posture is missing");
         }
         finally
         {
@@ -200,6 +207,7 @@ public class ToolCatalogServiceTests
             MasterIndexResponse response = service.GetMasterIndex();
 
             Assert.AreEqual("stale", response.ReferenceLanePosture);
+            Assert.AreEqual("1 of 2 sourcebooks are missing rule snippets.", response.ReferenceLaneReceipt);
             Assert.AreEqual(2, response.SourcebookCount);
             Assert.HasCount(2, response.Sourcebooks);
             Assert.AreEqual(1, response.SourcebooksWithSnippets);
@@ -242,13 +250,17 @@ public class ToolCatalogServiceTests
             Assert.AreEqual(0, response.SettingsProfilesWithSourceToggles);
             Assert.AreEqual(0, response.DistinctSourcebookToggles);
             Assert.AreEqual("missing", response.SourceToggleLanePosture);
+            Assert.AreEqual("No sourcebook toggle codes were discovered in settings.xml profiles.", response.SourceToggleLaneReceipt);
+            Assert.AreEqual("No settings profiles were discovered in settings.xml.", response.SettingsLaneReceipt);
             Assert.AreEqual(0, response.SourcebookToggleCoveragePercent);
             Assert.AreEqual("missing", response.CustomDataLanePosture);
+            Assert.AreEqual("No enabled custom data directory entries were discovered in settings.xml.", response.CustomDataLaneReceipt);
             Assert.AreEqual(0, response.SettingsProfilesWithCustomDataDirectories);
             Assert.AreEqual(0, response.DistinctCustomDataDirectoryCount);
             Assert.AreEqual("missing", response.XmlBridgePosture);
             Assert.AreEqual(0, response.EnabledDataOverlayCount);
             Assert.AreEqual("missing", response.TranslatorLanePosture);
+            Assert.AreEqual("No translator language corpus or language overlay bridge was detected.", response.TranslatorLaneReceipt);
             Assert.AreEqual("missing", response.TranslatorBridgePosture);
             Assert.AreEqual(0, response.TranslatorLanguageCount);
             Assert.AreEqual(0, response.EnabledLanguageOverlayCount);
@@ -274,6 +286,8 @@ public class ToolCatalogServiceTests
             Assert.AreEqual(0, response.ImportOracleSourcesCovered);
             Assert.AreEqual(4, response.ImportOracleSourcesExpected);
             Assert.AreEqual(0, response.ImportOracleCoveragePercent);
+            Assert.AreEqual("No import oracle fixtures or certification receipt were discovered.", response.ImportOracleLaneReceipt);
+            StringAssert.Contains(response.Sr6SuccessorLaneReceipt, "Supplement posture is stale");
         }
         finally
         {
@@ -1157,6 +1171,7 @@ public class ToolCatalogServiceTests
             Assert.AreEqual(4, response.ImportOracleSourcesCovered);
             Assert.AreEqual(4, response.ImportOracleSourcesExpected);
             Assert.AreEqual(100, response.ImportOracleCoveragePercent);
+            Assert.AreEqual("Import oracle coverage is 4/4 with certification receipt posture governed and adjacent SR6 oracle posture governed.", response.ImportOracleLaneReceipt);
         }
         finally
         {

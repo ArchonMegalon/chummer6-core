@@ -12,6 +12,7 @@ public sealed record MasterIndexResponse(
     string ReferenceLanePosture,
     int SourcebookCount,
     IReadOnlyList<MasterIndexSourcebookEntry> Sourcebooks,
+    string ReferenceLaneReceipt = "",
     int SourcebooksWithSnippets = 0,
     int SourcebooksMissingSnippets = 0,
     int ReferenceCoveragePercent = 0,
@@ -24,13 +25,17 @@ public sealed record MasterIndexResponse(
     int SettingsProfilesWithSourceToggles = 0,
     int DistinctSourcebookToggles = 0,
     string SourceToggleLanePosture = "missing",
+    string SourceToggleLaneReceipt = "",
+    string SettingsLaneReceipt = "",
     int SourcebookToggleCoveragePercent = 0,
     string CustomDataLanePosture = "missing",
+    string CustomDataLaneReceipt = "",
     int SettingsProfilesWithCustomDataDirectories = 0,
     int DistinctCustomDataDirectoryCount = 0,
     string XmlBridgePosture = "missing",
     int EnabledDataOverlayCount = 0,
     string TranslatorLanePosture = "missing",
+    string TranslatorLaneReceipt = "",
     string TranslatorBridgePosture = "missing",
     int TranslatorLanguageCount = 0,
     int EnabledLanguageOverlayCount = 0,
@@ -55,7 +60,9 @@ public sealed record MasterIndexResponse(
     int AdjacentSr6OracleSourcesExpected = 2,
     int ImportOracleSourcesCovered = 0,
     int ImportOracleSourcesExpected = 4,
-    int ImportOracleCoveragePercent = 0);
+    int ImportOracleCoveragePercent = 0,
+    string ImportOracleLaneReceipt = "",
+    string Sr6SuccessorLaneReceipt = "");
 
 public sealed record MasterIndexSourcebookEntry(
     string Id,
