@@ -228,9 +228,9 @@ public static class HeroLabShadowrunImporter
             : default;
         string playerName = ReadJsonString(actor, "player");
         string name = ReadJsonString(actor, "name");
-        string gameName = ReadJsonString(root, "metadata", "gameName");
-        string appVersion = ReadJsonString(root, "metadata", "hloVersion");
-        string exportVersion = ReadJsonString(root, "metadata", "exportVersion");
+        string gameName = ResolveOnlineGameName(root);
+        string appVersion = ResolveOnlineAppVersion(root);
+        string exportVersion = ResolveOnlineExportVersion(root);
         JsonElement gameValues = TryReadJsonProperty(actor, "gameValues", out JsonElement valuesElement) && valuesElement.ValueKind == JsonValueKind.Object
             ? valuesElement
             : default;
@@ -1570,6 +1570,30 @@ public static class HeroLabShadowrunImporter
         }
 
         return string.Empty;
+    }
+
+    private static string ResolveOnlineGameName(JsonElement root)
+    {
+        return FirstNonEmpty(
+            ReadJsonString(root, "metadata", "gameName"),
+            ReadJsonString(root, "gameName"),
+            ReadJsonString(root, "game", "name"));
+    }
+
+    private static string ResolveOnlineAppVersion(JsonElement root)
+    {
+        return FirstNonEmpty(
+            ReadJsonString(root, "metadata", "hloVersion"),
+            ReadJsonString(root, "hloVersion"),
+            ReadJsonString(root, "game", "hloVersion"));
+    }
+
+    private static string ResolveOnlineExportVersion(JsonElement root)
+    {
+        return FirstNonEmpty(
+            ReadJsonString(root, "metadata", "exportVersion"),
+            ReadJsonString(root, "exportVersion"),
+            ReadJsonString(root, "game", "exportVersion"));
     }
 
     private static bool ReadJsonBool(JsonElement element, params string[] candidateNames)
