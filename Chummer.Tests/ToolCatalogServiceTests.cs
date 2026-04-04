@@ -37,6 +37,12 @@ public class ToolCatalogServiceTests
             Assert.AreEqual(0, response.ReferenceCoveragePercent);
             Assert.AreEqual("missing", response.XmlBridgePosture);
             Assert.AreEqual(0, response.EnabledDataOverlayCount);
+            Assert.AreEqual("missing", response.Sr6SupplementLanePosture);
+            Assert.AreEqual("missing", response.Sr6DesignerToolsPosture);
+            Assert.AreEqual(0, response.Sr6DesignerFamiliesAvailable);
+            Assert.AreEqual(5, response.Sr6DesignerFamiliesExpected);
+            Assert.AreEqual("missing", response.HouseRuleLanePosture);
+            Assert.AreEqual(0, response.HouseRuleOverlayCount);
         }
         finally
         {
@@ -184,6 +190,12 @@ public class ToolCatalogServiceTests
             Assert.AreEqual("books.xml", sr5.RuleSnippets[0].Provenance);
             Assert.AreEqual("missing", response.XmlBridgePosture);
             Assert.AreEqual(0, response.EnabledDataOverlayCount);
+            Assert.AreEqual("stale", response.Sr6SupplementLanePosture);
+            Assert.AreEqual("missing", response.Sr6DesignerToolsPosture);
+            Assert.AreEqual(0, response.Sr6DesignerFamiliesAvailable);
+            Assert.AreEqual(5, response.Sr6DesignerFamiliesExpected);
+            Assert.AreEqual("missing", response.HouseRuleLanePosture);
+            Assert.AreEqual(0, response.HouseRuleOverlayCount);
         }
         finally
         {
@@ -308,6 +320,8 @@ public class ToolCatalogServiceTests
 
             Assert.AreEqual("governed", response.XmlBridgePosture);
             Assert.AreEqual(1, response.EnabledDataOverlayCount);
+            Assert.AreEqual("missing", response.HouseRuleLanePosture);
+            Assert.AreEqual(0, response.HouseRuleOverlayCount);
         }
         finally
         {
@@ -365,6 +379,68 @@ public class ToolCatalogServiceTests
             Assert.AreEqual(2, response.SourcebooksWithSnippets);
             Assert.AreEqual(0, response.SourcebooksMissingSnippets);
             Assert.AreEqual(100, response.ReferenceCoveragePercent);
+            Assert.AreEqual("governed", response.Sr6SupplementLanePosture);
+            Assert.AreEqual("missing", response.Sr6DesignerToolsPosture);
+            Assert.AreEqual(0, response.Sr6DesignerFamiliesAvailable);
+            Assert.AreEqual(5, response.Sr6DesignerFamiliesExpected);
+        }
+        finally
+        {
+            DeleteTempDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public void Master_index_reports_sr6_designer_tool_posture_from_catalog_coverage()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            string dataDir = Path.Combine(root, "data");
+            Directory.CreateDirectory(dataDir);
+            File.WriteAllText(Path.Combine(dataDir, "spells.xml"), "<chummer><spells /></chummer>");
+            File.WriteAllText(Path.Combine(dataDir, "vehicles.xml"), "<chummer><vehicles /></chummer>");
+            File.WriteAllText(Path.Combine(dataDir, "programs.xml"), "<chummer><programs /></chummer>");
+            File.WriteAllText(Path.Combine(dataDir, "drugcomponents.xml"), "<chummer><drugcomponents /></chummer>");
+            File.WriteAllText(Path.Combine(dataDir, "qualities.xml"), "<chummer><qualities /></chummer>");
+
+            var service = new XmlToolCatalogService(root);
+            MasterIndexResponse response = service.GetMasterIndex();
+
+            Assert.AreEqual("governed", response.Sr6DesignerToolsPosture);
+            Assert.AreEqual(5, response.Sr6DesignerFamiliesAvailable);
+            Assert.AreEqual(5, response.Sr6DesignerFamiliesExpected);
+        }
+        finally
+        {
+            DeleteTempDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public void Master_index_reports_governed_house_rule_lane_when_house_rule_overlay_exists()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            string dataDir = Path.Combine(root, "data");
+            Directory.CreateDirectory(dataDir);
+            File.WriteAllText(Path.Combine(dataDir, "skills.xml"), "<chummer><skills /></chummer>");
+
+            string amendsRoot = Path.Combine(root, "Amends");
+            string overlayData = Path.Combine(amendsRoot, "data");
+            Directory.CreateDirectory(overlayData);
+            File.WriteAllText(Path.Combine(overlayData, "qualities.xml"), "<chummer><qualities><quality /></qualities></chummer>");
+            File.WriteAllText(
+                Path.Combine(amendsRoot, "manifest.json"),
+                "{\n  \"id\": \"house-rules\",\n  \"name\": \"House Rules\",\n  \"priority\": 120,\n  \"enabled\": true,\n  \"mode\": \"merge-catalog\"\n}");
+
+            var overlays = new FileSystemContentOverlayCatalogService(root, root, amendsRoot);
+            var service = new XmlToolCatalogService(overlays);
+            MasterIndexResponse response = service.GetMasterIndex();
+
+            Assert.AreEqual("governed", response.HouseRuleLanePosture);
+            Assert.AreEqual(1, response.HouseRuleOverlayCount);
         }
         finally
         {

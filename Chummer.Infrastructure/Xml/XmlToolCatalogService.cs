@@ -8,6 +8,16 @@ namespace Chummer.Infrastructure.Xml;
 
 public sealed class XmlToolCatalogService : IToolCatalogService
 {
+    private static readonly string[] Sr6DesignerCatalogFiles =
+    [
+        "spells.xml",
+        "vehicles.xml",
+        "programs.xml",
+        "drugcomponents.xml",
+        "qualities.xml"
+    ];
+
+    private const int Sr6DesignerFamiliesExpected = 5;
     private readonly IContentOverlayCatalogService _overlays;
 
     public XmlToolCatalogService(IContentOverlayCatalogService overlays)
@@ -40,13 +50,20 @@ public sealed class XmlToolCatalogService : IToolCatalogService
                 SourcebooksMissingSnippets: 0,
                 ReferenceCoveragePercent: 0,
                 XmlBridgePosture: ResolveXmlBridgePosture(catalog),
-                EnabledDataOverlayCount: CountEnabledDataOverlays(catalog));
+                EnabledDataOverlayCount: CountEnabledDataOverlays(catalog),
+                Sr6SupplementLanePosture: ResolveSr6SupplementLanePosture(Array.Empty<MasterIndexSourcebookEntry>()),
+                Sr6DesignerToolsPosture: ResolveSr6DesignerToolsPosture(0, Sr6DesignerFamiliesExpected),
+                Sr6DesignerFamiliesAvailable: 0,
+                Sr6DesignerFamiliesExpected: Sr6DesignerFamiliesExpected,
+                HouseRuleLanePosture: ResolveHouseRuleLanePosture(catalog),
+                HouseRuleOverlayCount: CountHouseRuleOverlays(catalog));
 
         IReadOnlyList<MasterIndexSourcebookEntry> sourcebooks = BuildSourcebookEntries(filesByName);
         string referenceLanePosture = ResolveReferenceLanePosture(sourcebooks);
         int sourcebooksWithSnippets = CountSourcebooksWithSnippets(sourcebooks);
         int sourcebooksMissingSnippets = sourcebooks.Count - sourcebooksWithSnippets;
         int referenceCoveragePercent = CalculateReferenceCoveragePercent(sourcebooks.Count, sourcebooksWithSnippets);
+        int sr6DesignerFamiliesAvailable = CountSr6DesignerFamiliesAvailable(filesByName);
 
         List<MasterIndexFileEntry> files = new();
         foreach ((string fileName, XDocument? document) in filesByName.OrderBy(pair => pair.Key, StringComparer.Ordinal))
@@ -77,7 +94,13 @@ public sealed class XmlToolCatalogService : IToolCatalogService
             SourcebooksMissingSnippets: sourcebooksMissingSnippets,
             ReferenceCoveragePercent: referenceCoveragePercent,
             XmlBridgePosture: ResolveXmlBridgePosture(catalog),
-            EnabledDataOverlayCount: CountEnabledDataOverlays(catalog));
+            EnabledDataOverlayCount: CountEnabledDataOverlays(catalog),
+            Sr6SupplementLanePosture: ResolveSr6SupplementLanePosture(sourcebooks),
+            Sr6DesignerToolsPosture: ResolveSr6DesignerToolsPosture(sr6DesignerFamiliesAvailable, Sr6DesignerFamiliesExpected),
+            Sr6DesignerFamiliesAvailable: sr6DesignerFamiliesAvailable,
+            Sr6DesignerFamiliesExpected: Sr6DesignerFamiliesExpected,
+            HouseRuleLanePosture: ResolveHouseRuleLanePosture(catalog),
+            HouseRuleOverlayCount: CountHouseRuleOverlays(catalog));
     }
 
     public TranslatorLanguagesResponse GetTranslatorLanguages()
@@ -118,7 +141,15 @@ public sealed class XmlToolCatalogService : IToolCatalogService
 
     private static string ResolveXmlBridgePosture(ContentOverlayCatalog catalog)
     {
-        return CountEnabledDataOverlays(catalog) > 0 ? "governed" : "missing";
+        int enabledOverlayCount = CountEnabledDataOverlays(catalog);
+        if (enabledOverlayCount == 0)
+        {
+            return "missing";
+        }
+
+        return CountOverlayXmlFiles(catalog, pack => pack.DataPath) > 0
+            ? "governed"
+            : "stale";
     }
 
     private static string ResolveReferenceLanePosture(IReadOnlyList<MasterIndexSourcebookEntry> sourcebooks)
@@ -158,9 +189,77 @@ public sealed class XmlToolCatalogService : IToolCatalogService
             && Directory.Exists(pack.DataPath));
     }
 
+    private static string ResolveSr6SupplementLanePosture(IReadOnlyList<MasterIndexSourcebookEntry> sourcebooks)
+    {
+        if (sourcebooks.Count == 0)
+        {
+            return "missing";
+        }
+
+        return sourcebooks.Any(sourcebook => string.Equals(sourcebook.ReferencePosture, "no-snippets", StringComparison.Ordinal))
+            ? "stale"
+            : "governed";
+    }
+
+    private static int CountSr6DesignerFamiliesAvailable(IReadOnlyDictionary<string, XDocument?> filesByName)
+    {
+        return Sr6DesignerCatalogFiles.Count(fileName => filesByName.ContainsKey(fileName));
+    }
+
+    private static string ResolveSr6DesignerToolsPosture(int familiesAvailable, int familiesExpected)
+    {
+        if (familiesAvailable <= 0 || familiesExpected <= 0)
+        {
+            return "missing";
+        }
+
+        return familiesAvailable >= familiesExpected
+            ? "governed"
+            : "stale";
+    }
+
+    private static string ResolveHouseRuleLanePosture(ContentOverlayCatalog catalog)
+    {
+        int houseRuleOverlayCount = CountHouseRuleOverlays(catalog);
+        if (houseRuleOverlayCount == 0)
+        {
+            return "missing";
+        }
+
+        return CountOverlayXmlFiles(catalog, pack => pack.DataPath) > 0
+            ? "governed"
+            : "stale";
+    }
+
+    private static int CountHouseRuleOverlays(ContentOverlayCatalog catalog)
+    {
+        return catalog.Overlays.Count(pack =>
+            pack.Enabled
+            && !string.IsNullOrWhiteSpace(pack.DataPath)
+            && Directory.Exists(pack.DataPath)
+            && IsHouseRuleOverlay(pack));
+    }
+
+    private static bool IsHouseRuleOverlay(ContentOverlayPack pack)
+    {
+        return pack.Mode == ContentOverlayModes.MergeCatalog
+               || pack.Id.Contains("house", StringComparison.OrdinalIgnoreCase)
+               || pack.Name.Contains("house", StringComparison.OrdinalIgnoreCase)
+               || pack.Id.Contains("rule", StringComparison.OrdinalIgnoreCase)
+               || pack.Name.Contains("rule", StringComparison.OrdinalIgnoreCase);
+    }
+
     private static string ResolveTranslatorBridgePosture(ContentOverlayCatalog catalog)
     {
-        return CountEnabledLanguageOverlays(catalog) > 0 ? "governed" : "missing";
+        int enabledOverlayCount = CountEnabledLanguageOverlays(catalog);
+        if (enabledOverlayCount == 0)
+        {
+            return "missing";
+        }
+
+        return CountOverlayXmlFiles(catalog, pack => pack.LanguagePath) > 0
+            ? "governed"
+            : "stale";
     }
 
     private static int CountEnabledLanguageOverlays(ContentOverlayCatalog catalog)
@@ -169,6 +268,23 @@ public sealed class XmlToolCatalogService : IToolCatalogService
             pack.Enabled
             && !string.IsNullOrWhiteSpace(pack.LanguagePath)
             && Directory.Exists(pack.LanguagePath));
+    }
+
+    private static int CountOverlayXmlFiles(ContentOverlayCatalog catalog, Func<ContentOverlayPack, string> selector)
+    {
+        int total = 0;
+        foreach (ContentOverlayPack pack in catalog.Overlays.Where(static pack => pack.Enabled))
+        {
+            string directory = selector(pack);
+            if (string.IsNullOrWhiteSpace(directory) || !Directory.Exists(directory))
+            {
+                continue;
+            }
+
+            total += Directory.EnumerateFiles(directory, "*.xml", SearchOption.AllDirectories).Count();
+        }
+
+        return total;
     }
 
     private static Dictionary<string, XDocument?> CollapseLanguageFilesByCode(IReadOnlyDictionary<string, XDocument?> filesByName)
