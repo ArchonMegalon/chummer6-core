@@ -66,6 +66,9 @@ public class ToolCatalogServiceTests
             Assert.AreEqual(0, response.LegacyChummer4FixtureCount);
             Assert.AreEqual(0, response.LegacyChummer5FixtureCount);
             Assert.AreEqual(0, response.HeroLabFixtureCount);
+            Assert.AreEqual("missing", response.AdjacentSr6OracleReceiptPosture);
+            Assert.AreEqual(0, response.AdjacentSr6OracleSourcesCovered);
+            Assert.AreEqual(2, response.AdjacentSr6OracleSourcesExpected);
             Assert.AreEqual(0, response.ImportOracleSourcesCovered);
             Assert.AreEqual(4, response.ImportOracleSourcesExpected);
             Assert.AreEqual(0, response.ImportOracleCoveragePercent);
@@ -257,6 +260,9 @@ public class ToolCatalogServiceTests
             Assert.AreEqual(0, response.LegacyChummer4FixtureCount);
             Assert.AreEqual(0, response.LegacyChummer5FixtureCount);
             Assert.AreEqual(0, response.HeroLabFixtureCount);
+            Assert.AreEqual("missing", response.AdjacentSr6OracleReceiptPosture);
+            Assert.AreEqual(0, response.AdjacentSr6OracleSourcesCovered);
+            Assert.AreEqual(2, response.AdjacentSr6OracleSourcesExpected);
             Assert.AreEqual(0, response.ImportOracleSourcesCovered);
             Assert.AreEqual(4, response.ImportOracleSourcesExpected);
             Assert.AreEqual(0, response.ImportOracleCoveragePercent);
@@ -1059,6 +1065,10 @@ public class ToolCatalogServiceTests
                 """
                 {
                   "status": "passed",
+                  "adjacent_oracles": [
+                    "Genesis",
+                    "CommLink6"
+                  ],
                   "notes": "SR4/SR5/SR6 import parity is proven."
                 }
                 """);
@@ -1071,6 +1081,9 @@ public class ToolCatalogServiceTests
             Assert.AreEqual(1, response.LegacyChummer4FixtureCount);
             Assert.AreEqual(1, response.LegacyChummer5FixtureCount);
             Assert.AreEqual(1, response.HeroLabFixtureCount);
+            Assert.AreEqual("governed", response.AdjacentSr6OracleReceiptPosture);
+            Assert.AreEqual(2, response.AdjacentSr6OracleSourcesCovered);
+            Assert.AreEqual(2, response.AdjacentSr6OracleSourcesExpected);
             Assert.AreEqual(4, response.ImportOracleSourcesCovered);
             Assert.AreEqual(4, response.ImportOracleSourcesExpected);
             Assert.AreEqual(100, response.ImportOracleCoveragePercent);
@@ -1111,6 +1124,63 @@ public class ToolCatalogServiceTests
             Assert.AreEqual(1, response.LegacyChummer4FixtureCount);
             Assert.AreEqual(1, response.LegacyChummer5FixtureCount);
             Assert.AreEqual(1, response.HeroLabFixtureCount);
+            Assert.AreEqual("missing", response.AdjacentSr6OracleReceiptPosture);
+            Assert.AreEqual(0, response.AdjacentSr6OracleSourcesCovered);
+            Assert.AreEqual(2, response.AdjacentSr6OracleSourcesExpected);
+            Assert.AreEqual(3, response.ImportOracleSourcesCovered);
+            Assert.AreEqual(4, response.ImportOracleSourcesExpected);
+            Assert.AreEqual(75, response.ImportOracleCoveragePercent);
+        }
+        finally
+        {
+            DeleteTempDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public void Master_index_reports_stale_import_oracle_lane_when_adjacent_oracle_coverage_is_partial()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            string dataDir = Path.Combine(root, "data");
+            Directory.CreateDirectory(dataDir);
+            File.WriteAllText(Path.Combine(dataDir, "books.xml"), "<chummer><books /></chummer>");
+
+            string sr4Dir = Path.Combine(root, "Chummer.CoreEngine.Tests", "Fixtures", "Sr4");
+            Directory.CreateDirectory(sr4Dir);
+            File.WriteAllText(Path.Combine(sr4Dir, "sample.chum4"), "<character><name>SR4 Sample</name></character>");
+
+            string sr5Dir = Path.Combine(root, "Chummer.Tests", "TestFiles");
+            Directory.CreateDirectory(sr5Dir);
+            File.WriteAllText(Path.Combine(sr5Dir, "sample.chum5"), "<character><name>SR5 Sample</name></character>");
+
+            string heroLabDir = Path.Combine(root, "Chummer.CoreEngine.Tests", "Fixtures", "HeroLab", "Sr5");
+            Directory.CreateDirectory(heroLabDir);
+            File.WriteAllText(Path.Combine(heroLabDir, "sample.por"), "<portfolio />");
+
+            string certificationDir = Path.Combine(root, ".codex-studio", "published");
+            Directory.CreateDirectory(certificationDir);
+            File.WriteAllText(
+                Path.Combine(certificationDir, "IMPORT_PARITY_CERTIFICATION.generated.json"),
+                """
+                {
+                  "status": "passed",
+                  "adjacent_oracles": [
+                    "Genesis"
+                  ],
+                  "notes": "Legacy import parity passes but adjacent oracle coverage is partial."
+                }
+                """);
+
+            var service = new XmlToolCatalogService(root);
+            MasterIndexResponse response = service.GetMasterIndex();
+
+            Assert.AreEqual("stale", response.ImportOracleLanePosture);
+            Assert.AreEqual("governed", response.ImportOracleReceiptPosture);
+            Assert.AreEqual("stale", response.AdjacentSr6OracleReceiptPosture);
+            Assert.AreEqual(1, response.AdjacentSr6OracleSourcesCovered);
+            Assert.AreEqual(2, response.AdjacentSr6OracleSourcesExpected);
             Assert.AreEqual(3, response.ImportOracleSourcesCovered);
             Assert.AreEqual(4, response.ImportOracleSourcesExpected);
             Assert.AreEqual(75, response.ImportOracleCoveragePercent);
