@@ -63,6 +63,26 @@ internal static class HeroLabRulesParityAudit
         string? detectedRulesetId = HeroLabShadowrunImporter.DetectRulesetFromOnlineJson(metadataAliasJson);
         AssertEx.Equal(RulesetDefaults.Sr6, detectedRulesetId, "Hero Lab online ruleset detection should accept snake_case metadata aliases.");
 
+        const string rootLevelMetadataJson = """
+{
+  "gameCode": "SR5",
+  "gameName": "Shadowrun Fifth Edition"
+}
+""";
+        string? rootLevelDetectedRuleset = HeroLabShadowrunImporter.DetectRulesetFromOnlineJson(rootLevelMetadataJson);
+        AssertEx.Equal(RulesetDefaults.Sr5, rootLevelDetectedRuleset, "Hero Lab online ruleset detection should accept root-level game metadata.");
+
+        const string nestedGameMetadataJson = """
+{
+  "game": {
+    "code": "SR4",
+    "name": "Shadowrun 4th Edition"
+  }
+}
+""";
+        string? nestedGameDetectedRuleset = HeroLabShadowrunImporter.DetectRulesetFromOnlineJson(nestedGameMetadataJson);
+        AssertEx.Equal(RulesetDefaults.Sr4, nestedGameDetectedRuleset, "Hero Lab online ruleset detection should accept nested game metadata aliases.");
+
         const string aliasDriftJson = """
 {
   "Metadata": {
