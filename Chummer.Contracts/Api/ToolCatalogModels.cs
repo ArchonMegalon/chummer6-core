@@ -46,6 +46,9 @@ public sealed record MasterIndexResponse(
     int LegacyChummer4FixtureCount = 0,
     int LegacyChummer5FixtureCount = 0,
     int HeroLabFixtureCount = 0,
+    string AdjacentSr6OracleReceiptPosture = "missing",
+    int AdjacentSr6OracleSourcesCovered = 0,
+    int AdjacentSr6OracleSourcesExpected = 2,
     int ImportOracleSourcesCovered = 0,
     int ImportOracleSourcesExpected = 4,
     int ImportOracleCoveragePercent = 0);

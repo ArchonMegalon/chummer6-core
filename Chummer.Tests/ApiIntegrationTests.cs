@@ -2268,6 +2268,9 @@ public class ApiIntegrationTests
         Assert.IsNotNull(response["legacyChummer4FixtureCount"]);
         Assert.IsNotNull(response["legacyChummer5FixtureCount"]);
         Assert.IsNotNull(response["heroLabFixtureCount"]);
+        Assert.IsNotNull(response["adjacentSr6OracleReceiptPosture"]);
+        Assert.IsNotNull(response["adjacentSr6OracleSourcesCovered"]);
+        Assert.IsNotNull(response["adjacentSr6OracleSourcesExpected"]);
         Assert.IsNotNull(response["importOracleSourcesCovered"]);
         Assert.IsNotNull(response["importOracleSourcesExpected"]);
         Assert.IsNotNull(response["importOracleCoveragePercent"]);

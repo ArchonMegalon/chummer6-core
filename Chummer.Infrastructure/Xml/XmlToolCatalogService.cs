@@ -35,6 +35,9 @@ public sealed class XmlToolCatalogService : IToolCatalogService
         int LegacyChummer4FixtureCount,
         int LegacyChummer5FixtureCount,
         int HeroLabFixtureCount,
+        string AdjacentSr6OracleReceiptPosture,
+        int AdjacentSr6OracleSourcesCovered,
+        int AdjacentSr6OracleSourcesExpected,
         int SourcesCovered,
         int SourcesExpected,
         int CoveragePercent);
@@ -107,6 +110,9 @@ public sealed class XmlToolCatalogService : IToolCatalogService
                 LegacyChummer4FixtureCount: importOracleSummary.LegacyChummer4FixtureCount,
                 LegacyChummer5FixtureCount: importOracleSummary.LegacyChummer5FixtureCount,
                 HeroLabFixtureCount: importOracleSummary.HeroLabFixtureCount,
+                AdjacentSr6OracleReceiptPosture: importOracleSummary.AdjacentSr6OracleReceiptPosture,
+                AdjacentSr6OracleSourcesCovered: importOracleSummary.AdjacentSr6OracleSourcesCovered,
+                AdjacentSr6OracleSourcesExpected: importOracleSummary.AdjacentSr6OracleSourcesExpected,
                 ImportOracleSourcesCovered: importOracleSummary.SourcesCovered,
                 ImportOracleSourcesExpected: importOracleSummary.SourcesExpected,
                 ImportOracleCoveragePercent: importOracleSummary.CoveragePercent);
@@ -192,6 +198,9 @@ public sealed class XmlToolCatalogService : IToolCatalogService
             LegacyChummer4FixtureCount: importOracleSummary.LegacyChummer4FixtureCount,
             LegacyChummer5FixtureCount: importOracleSummary.LegacyChummer5FixtureCount,
             HeroLabFixtureCount: importOracleSummary.HeroLabFixtureCount,
+            AdjacentSr6OracleReceiptPosture: importOracleSummary.AdjacentSr6OracleReceiptPosture,
+            AdjacentSr6OracleSourcesCovered: importOracleSummary.AdjacentSr6OracleSourcesCovered,
+            AdjacentSr6OracleSourcesExpected: importOracleSummary.AdjacentSr6OracleSourcesExpected,
             ImportOracleSourcesCovered: importOracleSummary.SourcesCovered,
             ImportOracleSourcesExpected: importOracleSummary.SourcesExpected,
             ImportOracleCoveragePercent: importOracleSummary.CoveragePercent);
@@ -561,6 +570,7 @@ public sealed class XmlToolCatalogService : IToolCatalogService
     private static ImportOracleSummary BuildImportOracleSummary(string baseDataPath)
     {
         const int sourcesExpected = 4;
+        const int adjacentSourcesExpected = 2;
         string? oracleRoot = TryResolveImportOracleRoot(baseDataPath);
         if (string.IsNullOrWhiteSpace(oracleRoot))
         {
@@ -570,6 +580,9 @@ public sealed class XmlToolCatalogService : IToolCatalogService
                 LegacyChummer4FixtureCount: 0,
                 LegacyChummer5FixtureCount: 0,
                 HeroLabFixtureCount: 0,
+                AdjacentSr6OracleReceiptPosture: "missing",
+                AdjacentSr6OracleSourcesCovered: 0,
+                AdjacentSr6OracleSourcesExpected: adjacentSourcesExpected,
                 SourcesCovered: 0,
                 SourcesExpected: sourcesExpected,
                 CoveragePercent: 0);
@@ -589,6 +602,7 @@ public sealed class XmlToolCatalogService : IToolCatalogService
 
         string receiptPath = Path.Combine(oracleRoot, ".codex-studio", "published", "IMPORT_PARITY_CERTIFICATION.generated.json");
         string receiptPosture = ResolveImportOracleReceiptPosture(receiptPath);
+        (string adjacentReceiptPosture, int adjacentSourcesCovered) = ResolveAdjacentSr6OracleCoverage(receiptPath);
 
         int sourcesCovered = 0;
         if (chummer4FixtureCount > 0)
@@ -606,9 +620,9 @@ public sealed class XmlToolCatalogService : IToolCatalogService
             sourcesCovered++;
         }
 
-        if (string.Equals(receiptPosture, "governed", StringComparison.Ordinal))
+        if (string.Equals(adjacentReceiptPosture, "governed", StringComparison.Ordinal))
         {
-            // The parity harness receipt currently carries SR4/SR5/SR6 import coverage in one governed record.
+            // Adjacent SR6 oracles (Genesis + CommLink6 class posture) are proven through the parity receipt.
             sourcesCovered++;
         }
 
@@ -625,6 +639,9 @@ public sealed class XmlToolCatalogService : IToolCatalogService
             LegacyChummer4FixtureCount: chummer4FixtureCount,
             LegacyChummer5FixtureCount: chummer5FixtureCount,
             HeroLabFixtureCount: heroLabFixtureCount,
+            AdjacentSr6OracleReceiptPosture: adjacentReceiptPosture,
+            AdjacentSr6OracleSourcesCovered: adjacentSourcesCovered,
+            AdjacentSr6OracleSourcesExpected: adjacentSourcesExpected,
             SourcesCovered: sourcesCovered,
             SourcesExpected: sourcesExpected,
             CoveragePercent: coveragePercent);
@@ -648,6 +665,62 @@ public sealed class XmlToolCatalogService : IToolCatalogService
         catch
         {
             return "stale";
+        }
+    }
+
+    private static (string ReceiptPosture, int SourcesCovered) ResolveAdjacentSr6OracleCoverage(string receiptPath)
+    {
+        if (!File.Exists(receiptPath))
+        {
+            return ("missing", 0);
+        }
+
+        try
+        {
+            JsonNode? payload = JsonNode.Parse(File.ReadAllText(receiptPath));
+            string status = payload?["status"]?.GetValue<string>()?.Trim() ?? string.Empty;
+            if (!string.Equals(status, "passed", StringComparison.OrdinalIgnoreCase))
+            {
+                return ("stale", 0);
+            }
+
+            JsonArray? adjacentOracles = payload?["adjacent_oracles"] as JsonArray;
+            if (adjacentOracles is null || adjacentOracles.Count == 0)
+            {
+                return ("stale", 0);
+            }
+
+            bool hasGenesis = false;
+            bool hasCommLink = false;
+            foreach (JsonNode? adjacentOracleNode in adjacentOracles)
+            {
+                string token = adjacentOracleNode?["name"]?.GetValue<string>()
+                               ?? adjacentOracleNode?.GetValue<string>()
+                               ?? string.Empty;
+                if (string.IsNullOrWhiteSpace(token))
+                {
+                    continue;
+                }
+
+                if (token.Contains("genesis", StringComparison.OrdinalIgnoreCase))
+                {
+                    hasGenesis = true;
+                }
+
+                if (token.Contains("commlink", StringComparison.OrdinalIgnoreCase))
+                {
+                    hasCommLink = true;
+                }
+            }
+
+            int sourcesCovered = (hasGenesis ? 1 : 0) + (hasCommLink ? 1 : 0);
+            return sourcesCovered >= 2
+                ? ("governed", sourcesCovered)
+                : ("stale", sourcesCovered);
+        }
+        catch
+        {
+            return ("stale", 0);
         }
     }
 
