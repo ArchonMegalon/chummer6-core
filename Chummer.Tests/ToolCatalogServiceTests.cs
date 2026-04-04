@@ -155,7 +155,7 @@ public class ToolCatalogServiceTests
             var service = new XmlToolCatalogService(root);
             MasterIndexResponse response = service.GetMasterIndex();
 
-            Assert.AreEqual("governed", response.ReferenceLanePosture);
+            Assert.AreEqual("stale", response.ReferenceLanePosture);
             Assert.AreEqual(2, response.SourcebookCount);
             Assert.HasCount(2, response.Sourcebooks);
 
@@ -302,6 +302,60 @@ public class ToolCatalogServiceTests
 
             Assert.AreEqual("governed", response.XmlBridgePosture);
             Assert.AreEqual(1, response.EnabledDataOverlayCount);
+        }
+        finally
+        {
+            DeleteTempDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public void Master_index_reports_governed_reference_lane_when_all_sourcebooks_have_snippets()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            string dataDir = Path.Combine(root, "data");
+            Directory.CreateDirectory(dataDir);
+            File.WriteAllText(
+                Path.Combine(dataDir, "books.xml"),
+                """
+                <chummer>
+                  <books>
+                    <book>
+                      <id>book-sr5</id>
+                      <name>Shadowrun 5th Edition</name>
+                      <code>SR5</code>
+                      <matches>
+                        <match>
+                          <language>en-us</language>
+                          <text>Core rule excerpt.</text>
+                          <page>10</page>
+                        </match>
+                      </matches>
+                    </book>
+                    <book>
+                      <id>book-rf</id>
+                      <name>Run Faster</name>
+                      <code>RF</code>
+                      <matches>
+                        <match>
+                          <language>en-us</language>
+                          <text>Expanded character options.</text>
+                          <page>20</page>
+                        </match>
+                      </matches>
+                    </book>
+                  </books>
+                </chummer>
+                """);
+
+            var service = new XmlToolCatalogService(root);
+            MasterIndexResponse response = service.GetMasterIndex();
+
+            Assert.AreEqual("governed", response.ReferenceLanePosture);
+            Assert.AreEqual(2, response.SourcebookCount);
+            Assert.IsTrue(response.Sourcebooks.All(sourcebook => sourcebook.RuleSnippetCount > 0));
         }
         finally
         {

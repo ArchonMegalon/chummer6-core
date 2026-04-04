@@ -40,7 +40,7 @@ public sealed class XmlToolCatalogService : IToolCatalogService
                 EnabledDataOverlayCount: CountEnabledDataOverlays(catalog));
 
         IReadOnlyList<MasterIndexSourcebookEntry> sourcebooks = BuildSourcebookEntries(filesByName);
-        string referenceLanePosture = sourcebooks.Count > 0 ? "governed" : "missing";
+        string referenceLanePosture = ResolveReferenceLanePosture(sourcebooks);
 
         List<MasterIndexFileEntry> files = new();
         foreach ((string fileName, XDocument? document) in filesByName.OrderBy(pair => pair.Key, StringComparer.Ordinal))
@@ -110,6 +110,18 @@ public sealed class XmlToolCatalogService : IToolCatalogService
     private static string ResolveXmlBridgePosture(ContentOverlayCatalog catalog)
     {
         return CountEnabledDataOverlays(catalog) > 0 ? "governed" : "missing";
+    }
+
+    private static string ResolveReferenceLanePosture(IReadOnlyList<MasterIndexSourcebookEntry> sourcebooks)
+    {
+        if (sourcebooks.Count == 0)
+        {
+            return "missing";
+        }
+
+        bool hasSnippetGaps = sourcebooks.Any(sourcebook =>
+            string.Equals(sourcebook.ReferencePosture, "no-snippets", StringComparison.Ordinal));
+        return hasSnippetGaps ? "stale" : "governed";
     }
 
     private static int CountEnabledDataOverlays(ContentOverlayCatalog catalog)
