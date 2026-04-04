@@ -37,6 +37,9 @@ public sealed class XmlToolCatalogService : IToolCatalogService
                 SourcebookCount: 0,
                 Sourcebooks: Array.Empty<MasterIndexSourcebookEntry>());
 
+        IReadOnlyList<MasterIndexSourcebookEntry> sourcebooks = BuildSourcebookEntries(filesByName);
+        string referenceLanePosture = sourcebooks.Count > 0 ? "governed" : "missing";
+
         List<MasterIndexFileEntry> files = new();
         foreach ((string fileName, XDocument? document) in filesByName.OrderBy(pair => pair.Key, StringComparer.Ordinal))
         {
@@ -59,9 +62,9 @@ public sealed class XmlToolCatalogService : IToolCatalogService
             Count: files.Count,
             GeneratedUtc: DateTimeOffset.UtcNow,
             Files: files,
-            ReferenceLanePosture: "missing",
-            SourcebookCount: 0,
-            Sourcebooks: Array.Empty<MasterIndexSourcebookEntry>());
+            ReferenceLanePosture: referenceLanePosture,
+            SourcebookCount: sourcebooks.Count,
+            Sourcebooks: sourcebooks);
     }
 
     public TranslatorLanguagesResponse GetTranslatorLanguages()
@@ -140,6 +143,53 @@ public sealed class XmlToolCatalogService : IToolCatalogService
         }
 
         return code.Contains('-', StringComparison.Ordinal);
+    }
+
+    private static IReadOnlyList<MasterIndexSourcebookEntry> BuildSourcebookEntries(IReadOnlyDictionary<string, XDocument?> filesByName)
+    {
+        if (!filesByName.TryGetValue("books.xml", out XDocument? booksDocument) || booksDocument?.Root is null)
+        {
+            return Array.Empty<MasterIndexSourcebookEntry>();
+        }
+
+        IEnumerable<XElement> bookNodes = booksDocument.Root
+            .Element("books")?
+            .Elements("book")
+            ?? Enumerable.Empty<XElement>();
+
+        List<MasterIndexSourcebookEntry> sourcebooks = new();
+        foreach (XElement bookNode in bookNodes)
+        {
+            string id = ReadChildValue(bookNode, "id");
+            string code = ReadChildValue(bookNode, "code");
+            string name = ReadChildValue(bookNode, "name");
+            bool permanent = ParseBool(ReadChildValue(bookNode, "permanent")) || bookNode.Element("permanent") is not null;
+            List<MasterIndexRuleSnippetEntry> snippets = bookNode
+                .Element("matches")?
+                .Elements("match")
+                .Select(match => new MasterIndexRuleSnippetEntry(
+                    Language: ReadChildValue(match, "language"),
+                    Page: ParseInt(ReadChildValue(match, "page")),
+                    Snippet: ReadChildValue(match, "text"),
+                    Provenance: "books.xml"))
+                .Where(snippet => !string.IsNullOrWhiteSpace(snippet.Snippet))
+                .ToList()
+                ?? [];
+
+            sourcebooks.Add(new MasterIndexSourcebookEntry(
+                Id: id,
+                Code: code,
+                Name: name,
+                Permanent: permanent,
+                ReferencePosture: snippets.Count > 0 ? "matched-snippets" : "no-snippets",
+                RuleSnippetCount: snippets.Count,
+                RuleSnippets: snippets));
+        }
+
+        return sourcebooks
+            .OrderBy(sourcebook => sourcebook.Code, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(sourcebook => sourcebook.Name, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
     }
 
     private static IReadOnlyDictionary<string, XDocument?> BuildEffectiveDocuments(
@@ -248,6 +298,30 @@ public sealed class XmlToolCatalogService : IToolCatalogService
         {
             return null;
         }
+    }
+
+    private static string ReadChildValue(XElement parent, string name)
+    {
+        return parent
+            .Elements()
+            .FirstOrDefault(element => string.Equals(element.Name.LocalName, name, StringComparison.OrdinalIgnoreCase))
+            ?.Value
+            ?.Trim()
+            ?? string.Empty;
+    }
+
+    private static int ParseInt(string value)
+    {
+        return int.TryParse(value, out int parsed)
+            ? parsed
+            : 0;
+    }
+
+    private static bool ParseBool(string value)
+    {
+        return string.Equals(value, "true", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(value, "yes", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(value, "1", StringComparison.Ordinal);
     }
 
     private static XDocument MergeCatalogDocument(XDocument baseDocument, XDocument fragmentDocument)

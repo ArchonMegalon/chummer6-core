@@ -29,6 +29,9 @@ public class ToolCatalogServiceTests
             Assert.HasCount(2, response.Files);
             Assert.IsTrue(response.Files.Any(file => file.File == "valid.xml" && file.Root == "chummer" && file.ElementCount >= 3));
             Assert.IsTrue(response.Files.Any(file => file.File == "broken.xml" && file.Root == string.Empty && file.ElementCount == 0));
+            Assert.AreEqual("missing", response.ReferenceLanePosture);
+            Assert.AreEqual(0, response.SourcebookCount);
+            Assert.HasCount(0, response.Sourcebooks);
         }
         finally
         {
@@ -105,6 +108,72 @@ public class ToolCatalogServiceTests
             Assert.HasCount(1, response.Files);
             Assert.AreEqual("chummer", qualities.Root);
             Assert.AreEqual(8, qualities.ElementCount, "Merge-catalog should replace the matching id entry instead of appending duplicates.");
+        }
+        finally
+        {
+            DeleteTempDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public void Master_index_projects_sourcebook_metadata_and_rule_snippets_from_books_catalog()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            string dataDir = Path.Combine(root, "data");
+            Directory.CreateDirectory(dataDir);
+            File.WriteAllText(
+                Path.Combine(dataDir, "books.xml"),
+                """
+                <chummer>
+                  <books>
+                    <book>
+                      <id>book-sr5</id>
+                      <name>Shadowrun 5th Edition</name>
+                      <code>SR5</code>
+                      <permanent />
+                      <matches>
+                        <match>
+                          <language>en-us</language>
+                          <text>Welcome to Shadowrun, Fifth Edition.</text>
+                          <page>8</page>
+                        </match>
+                      </matches>
+                    </book>
+                    <book>
+                      <id>book-rf</id>
+                      <name>Run Faster</name>
+                      <code>RF</code>
+                    </book>
+                  </books>
+                </chummer>
+                """);
+
+            var service = new XmlToolCatalogService(root);
+            MasterIndexResponse response = service.GetMasterIndex();
+
+            Assert.AreEqual("governed", response.ReferenceLanePosture);
+            Assert.AreEqual(2, response.SourcebookCount);
+            Assert.HasCount(2, response.Sourcebooks);
+
+            MasterIndexSourcebookEntry rf = response.Sourcebooks.Single(sourcebook => sourcebook.Code == "RF");
+            Assert.AreEqual("book-rf", rf.Id);
+            Assert.AreEqual("Run Faster", rf.Name);
+            Assert.IsFalse(rf.Permanent);
+            Assert.AreEqual("no-snippets", rf.ReferencePosture);
+            Assert.AreEqual(0, rf.RuleSnippetCount);
+
+            MasterIndexSourcebookEntry sr5 = response.Sourcebooks.Single(sourcebook => sourcebook.Code == "SR5");
+            Assert.AreEqual("book-sr5", sr5.Id);
+            Assert.AreEqual("Shadowrun 5th Edition", sr5.Name);
+            Assert.IsTrue(sr5.Permanent);
+            Assert.AreEqual("matched-snippets", sr5.ReferencePosture);
+            Assert.AreEqual(1, sr5.RuleSnippetCount);
+            Assert.AreEqual("en-us", sr5.RuleSnippets[0].Language);
+            Assert.AreEqual(8, sr5.RuleSnippets[0].Page);
+            Assert.AreEqual("Welcome to Shadowrun, Fifth Edition.", sr5.RuleSnippets[0].Snippet);
+            Assert.AreEqual("books.xml", sr5.RuleSnippets[0].Provenance);
         }
         finally
         {
