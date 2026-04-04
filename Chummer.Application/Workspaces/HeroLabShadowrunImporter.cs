@@ -123,8 +123,14 @@ public static class HeroLabShadowrunImporter
 
         using JsonDocument document = JsonDocument.Parse(json);
         JsonElement root = document.RootElement;
-        string gameCode = ReadJsonString(root, "metadata", "gameCode");
-        string gameName = ReadJsonString(root, "metadata", "gameName");
+        string gameCode = FirstNonEmpty(
+            ReadJsonString(root, "metadata", "gameCode"),
+            ReadJsonString(root, "gameCode"),
+            ReadJsonString(root, "game", "code"));
+        string gameName = FirstNonEmpty(
+            ReadJsonString(root, "metadata", "gameName"),
+            ReadJsonString(root, "gameName"),
+            ReadJsonString(root, "game", "name"));
         string combined = $"{gameCode} {gameName}";
         if (combined.Contains("shadowrun 6", StringComparison.OrdinalIgnoreCase)
             || combined.Contains("shadowrun sixth", StringComparison.OrdinalIgnoreCase)
@@ -1551,6 +1557,19 @@ public static class HeroLabShadowrunImporter
         return current.ValueKind == JsonValueKind.String
             ? current.GetString()?.Trim() ?? string.Empty
             : current.ToString().Trim();
+    }
+
+    private static string FirstNonEmpty(params string[] values)
+    {
+        foreach (string value in values)
+        {
+            if (!string.IsNullOrWhiteSpace(value))
+            {
+                return value.Trim();
+            }
+        }
+
+        return string.Empty;
     }
 
     private static bool ReadJsonBool(JsonElement element, params string[] candidateNames)
