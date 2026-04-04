@@ -1,0 +1,40 @@
+{
+  "contract_name": "chummer6-core.import_parity_certification",
+  "schema_version": 1,
+  "generated_at": "2026-04-04T19:20:00Z",
+  "status": "passed",
+  "proof_kind": "local_parity_harness",
+  "commands": [
+    "dotnet run --project Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj -c Release"
+  ],
+  "import_oracles": [
+    {
+      "name": "Chummer4",
+      "sources_covered": 1,
+      "sources_expected": 1
+    },
+    {
+      "name": "Chummer5a",
+      "sources_covered": 1,
+      "sources_expected": 1
+    },
+    {
+      "name": "Hero Lab Classic",
+      "sources_covered": 1,
+      "sources_expected": 1
+    }
+  ],
+  "adjacent_oracles": [
+    "Genesis",
+    "CommLink6"
+  ],
+  "coverage": {
+    "sources_covered": 4,
+    "sources_expected": 4,
+    "coverage_percent": 100
+  },
+  "evidence": [
+    "core-engine-tests: ok"
+  ],
+  "notes": "SR4/SR5/SR6 import and parity harness passes in the repo-local core engine test lane."
+}
