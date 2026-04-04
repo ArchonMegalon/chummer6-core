@@ -2120,6 +2120,15 @@ internal static class CoreEngineTests
             projection.Actions?.Any(static action => string.Equals(action.ActionId, "open-print-pdf-export", StringComparison.Ordinal)) == true,
             "Build Lab projection factory should expose explicit print-PDF export handoff.");
         AssertEx.True(
+            projection.Actions?.Any(static action => string.Equals(action.ActionId, "open-replay-timeline", StringComparison.Ordinal)) == true,
+            "Build Lab projection factory should expose explicit replay-timeline handoff.");
+        AssertEx.True(
+            projection.Actions?.Any(static action => string.Equals(action.ActionId, "open-session-recap", StringComparison.Ordinal)) == true,
+            "Build Lab projection factory should expose explicit session-recap handoff.");
+        AssertEx.True(
+            projection.Actions?.Any(static action => string.Equals(action.ActionId, "open-run-module", StringComparison.Ordinal)) == true,
+            "Build Lab projection factory should expose explicit run-module handoff.");
+        AssertEx.True(
             projection.ExportTargets?.Any(static target => string.Equals(target.TargetId, "target.character-template", StringComparison.Ordinal)
                 && string.Equals(target.TargetKind, BuildLabExportTargetKinds.CharacterTemplate, StringComparison.Ordinal)) == true,
             "Build Lab projection factory should expose character-template export target wiring.");
@@ -2143,6 +2152,21 @@ internal static class CoreEngineTests
                 && string.Equals(target.TargetKind, BuildLabExportTargetKinds.Workflow, StringComparison.Ordinal)
                 && string.Equals(target.WorkflowId, "workflow.export.pdf", StringComparison.Ordinal)) == true,
             "Build Lab projection factory should expose print-PDF workflow wiring.");
+        AssertEx.True(
+            projection.ExportTargets?.Any(static target => string.Equals(target.TargetId, "target.replay-timeline", StringComparison.Ordinal)
+                && string.Equals(target.TargetKind, BuildLabExportTargetKinds.Workflow, StringComparison.Ordinal)
+                && string.Equals(target.WorkflowId, "workflow.replay.timeline", StringComparison.Ordinal)) == true,
+            "Build Lab projection factory should expose replay-timeline workflow wiring.");
+        AssertEx.True(
+            projection.ExportTargets?.Any(static target => string.Equals(target.TargetId, "target.session-recap", StringComparison.Ordinal)
+                && string.Equals(target.TargetKind, BuildLabExportTargetKinds.Workflow, StringComparison.Ordinal)
+                && string.Equals(target.WorkflowId, "workflow.recap.session", StringComparison.Ordinal)) == true,
+            "Build Lab projection factory should expose session-recap workflow wiring.");
+        AssertEx.True(
+            projection.ExportTargets?.Any(static target => string.Equals(target.TargetId, "target.run-module", StringComparison.Ordinal)
+                && string.Equals(target.TargetKind, BuildLabExportTargetKinds.Workflow, StringComparison.Ordinal)
+                && string.Equals(target.WorkflowId, "workflow.module.run", StringComparison.Ordinal)) == true,
+            "Build Lab projection factory should expose run-module workflow wiring.");
         AssertEx.True(
             projection.ExportPayloads?.SelectMany(static payload => payload.Fields)
                 .Any(static field => string.Equals(field.FieldId, "rule-environment", StringComparison.Ordinal)
