@@ -9,6 +9,8 @@ internal static class HeroLabRulesParityAudit
 
     public static void AssertHeroLabImportsAndParity(string heroLabFixtureRoot)
     {
+        AssertOnlineAliasAndMetadataDriftHandling();
+
         AssertClassicFixtures(
             Path.Combine(heroLabFixtureRoot, "Sr5"),
             expectedFixtureNames:
@@ -45,6 +47,74 @@ internal static class HeroLabRulesParityAudit
             AssertAttributeParity(snapshot, parity, fileName);
             AssertSkillParity(snapshot, parity, fileName);
         }
+    }
+
+    private static void AssertOnlineAliasAndMetadataDriftHandling()
+    {
+        const string metadataAliasJson = """
+{
+  "metadata": {
+    "game_code": "SR6",
+    "game_name": "Shadowrun Sixth World"
+  }
+}
+""";
+
+        string? detectedRulesetId = HeroLabShadowrunImporter.DetectRulesetFromOnlineJson(metadataAliasJson);
+        AssertEx.Equal(RulesetDefaults.Sr6, detectedRulesetId, "Hero Lab online ruleset detection should accept snake_case metadata aliases.");
+
+        const string aliasDriftJson = """
+{
+  "Metadata": {
+    "game_code": "SR6",
+    "game_name": "Shadowrun Sixth World",
+    "hlo_version": "6.2.0",
+    "export_version": "2026.04"
+  },
+  "Actors": {
+    "actor_1": {
+      "Name": "Case Runner",
+      "Player": "Alice",
+      "Game_Values": {
+        "Alias": "Ghost",
+        "Metatype": "Human",
+        "build_method": "Priority",
+        "karma": "11",
+        "nuyen": "2500",
+        "essence": "5.7",
+        "walk": "10",
+        "run": "15",
+        "sprint": "20",
+        "adept": true,
+        "magician": false
+      },
+      "Items": {
+        "as_body": {
+          "name": "Body",
+          "compset": "ability",
+          "base_value": 2,
+          "total_value": 4
+        }
+      }
+    }
+  }
+}
+""";
+
+        HeroLabImportSnapshot snapshot = HeroLabShadowrunImporter.ImportOnlineJson(aliasDriftJson, "alias-drift.json");
+
+        AssertEx.Equal(RulesetDefaults.Sr6, snapshot.RulesetId, "Hero Lab online import should map alias drift payloads onto SR6.");
+        AssertEx.Equal("Case Runner", snapshot.Profile.Name, "Hero Lab online import should preserve actor name aliases.");
+        AssertEx.Equal("Ghost", snapshot.Profile.Alias, "Hero Lab online import should preserve nested alias payloads.");
+        AssertEx.Equal("Priority", snapshot.Profile.BuildMethod, "Hero Lab online import should preserve build-method aliases.");
+        AssertEx.Equal(11m, snapshot.Progress.Karma, "Hero Lab online import should preserve karma values from alias payloads.");
+        AssertEx.Equal(2500m, snapshot.Progress.Nuyen, "Hero Lab online import should preserve nuyen values from alias payloads.");
+        AssertEx.Equal(5.7m, snapshot.Progress.TotalEssence, "Hero Lab online import should preserve essence values from alias payloads.");
+        AssertEx.Equal("Shadowrun Sixth World", snapshot.Rules.GameplayOption, "Hero Lab online import should preserve metadata game-name aliases.");
+        AssertEx.True(snapshot.Attributes.Attributes.Count > 0, "Hero Lab online import should keep attribute projections in alias payloads.");
+        CharacterAttributeSummary body = snapshot.Attributes.Attributes.FirstOrDefault(static entry => string.Equals(entry.Name, "BOD", StringComparison.Ordinal))
+            ?? throw new InvalidOperationException("Hero Lab online alias payload should project a Body attribute.");
+        AssertEx.Equal(4, body.TotalValue, "Hero Lab online import should preserve total attribute values from alias payloads.");
     }
 
     private static void AssertOnlineFixtures(string directory, string[] expectedFixtureNames)
