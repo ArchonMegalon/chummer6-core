@@ -1,12 +1,12 @@
 {
   "contract_name": "chummer.weekly_product_pulse",
   "contract_version": 3,
-  "generated_at": "2026-04-11T06:22:44Z",
+  "generated_at": "2026-04-11T09:32:01Z",
   "as_of": "2026-04-11",
   "scorecard_source": "products/chummer/PRODUCT_HEALTH_SCORECARD.yaml",
   "progress_report_source": "products/chummer/PROGRESS_REPORT.generated.json",
   "progress_history_source": "products/chummer/PROGRESS_HISTORY.generated.json",
-  "summary": "Next 12 Biggest Wins remains the active wave; journey proof is blocked only by external Windows host proof on 2 tuple(s); overall progress is 99% in 'Public-fit polish'; the longest pole is now external Windows host proof; support closure still needs follow-through.",
+  "summary": "Next 12 Biggest Wins remains the active wave; journey proof is blocked; overall progress is 99% in 'Public-fit polish'; the longest pole remains Core Engine; support closure still needs follow-through.",
   "active_wave": "Next 12 Biggest Wins",
   "active_wave_status": "active",
   "release_health": {
@@ -28,11 +28,11 @@
   },
   "journey_gate_health": {
     "state": "blocked",
-    "reason": "Only external host-proof gaps remain: run the missing windows proof lane for 2 desktop tuple(s), ingest receipts, and then republish release truth.",
-    "blocked_count": 2,
+    "reason": "Resolve the blocking golden-journey gaps before widening publish claims.",
+    "blocked_count": 3,
     "warning_count": 0,
     "blocked_external_only_count": 2,
-    "blocked_with_local_count": 0,
+    "blocked_with_local_count": 1,
     "blocked_external_only_hosts": [
       "windows"
     ],
@@ -60,7 +60,7 @@
     },
     {
       "cluster_id": "long_pole_visibility",
-      "summary": "The current longest pole is external Windows host proof, so release, support, and publication decisions should assume that this lane still sets the pacing risk for the broader public product.",
+      "summary": "The current longest pole is Core Engine, so release, support, and publication decisions should assume that this lane still sets the pacing risk for the broader public product.",
       "source_paths": [
         "products/chummer/PROGRESS_REPORT.generated.json",
         "products/chummer/RELEASE_EVIDENCE_PACK.md"
@@ -74,23 +74,23 @@
     {
       "decision_id": "2026-04-11-focus-next-12-biggest-wins",
       "action": "focus_shift",
-      "reason": "Keep delivery focus on Next 12 Biggest Wins. The pulse shows 99% overall progress in 'Public-fit polish', history depth has reached 12 snapshots, and the pacing risk remains concentrated in external Windows host proof while trust/publication/utility closure still needs measured completion on the active registry.",
+      "reason": "Keep delivery focus on Next 12 Biggest Wins. The pulse shows 99% overall progress in 'Public-fit polish', history depth has reached 12 snapshots, and the pacing risk remains concentrated in Core Engine while trust/publication/utility closure still needs measured completion on the active registry.",
       "cited_signals": [
         "overall_progress_percent=99",
         "history_snapshot_count=12",
         "oldest_blocker_days=1",
         "phase_label=Public-fit polish",
-        "longest_pole=external Windows host proof",
+        "longest_pole=Core Engine",
         "active_wave_status=active"
       ]
     },
     {
       "decision_id": "2026-04-11-launch-governance",
       "action": "freeze_launch",
-      "reason": "Freeze launch expansion while 2 golden journey(s) remain blocked and journey health is blocked.",
+      "reason": "Freeze launch expansion while 3 golden journey(s) remain blocked and journey health is blocked.",
       "cited_signals": [
         "journey_gate_state=blocked",
-        "journey_gate_blocked_count=2",
+        "journey_gate_blocked_count=3",
         "local_release_proof_status=unknown",
         "provider_canary_status=Canary green on all active lanes",
         "closure_health_state=watch"
@@ -118,11 +118,11 @@
     },
     "journey_gate_health": {
       "state": "blocked",
-      "reason": "Only external host-proof gaps remain: run the missing windows proof lane for 2 desktop tuple(s), ingest receipts, and then republish release truth.",
-      "blocked_count": 2,
+      "reason": "Resolve the blocking golden-journey gaps before widening publish claims.",
+      "blocked_count": 3,
       "warning_count": 0,
       "blocked_external_only_count": 2,
-      "blocked_with_local_count": 0,
+      "blocked_with_local_count": 1,
       "blocked_external_only_hosts": [
         "windows"
       ],
@@ -150,7 +150,7 @@
       },
       {
         "cluster_id": "long_pole_visibility",
-        "summary": "The current longest pole is external Windows host proof, so release, support, and publication decisions should assume that this lane still sets the pacing risk for the broader public product.",
+        "summary": "The current longest pole is Core Engine, so release, support, and publication decisions should assume that this lane still sets the pacing risk for the broader public product.",
         "source_paths": [
           "products/chummer/PROGRESS_REPORT.generated.json",
           "products/chummer/RELEASE_EVIDENCE_PACK.md"
@@ -164,23 +164,23 @@
       {
         "decision_id": "2026-04-11-focus-next-12-biggest-wins",
         "action": "focus_shift",
-        "reason": "Keep delivery focus on Next 12 Biggest Wins. The pulse shows 99% overall progress in 'Public-fit polish', history depth has reached 12 snapshots, and the pacing risk remains concentrated in external Windows host proof while trust/publication/utility closure still needs measured completion on the active registry.",
+        "reason": "Keep delivery focus on Next 12 Biggest Wins. The pulse shows 99% overall progress in 'Public-fit polish', history depth has reached 12 snapshots, and the pacing risk remains concentrated in Core Engine while trust/publication/utility closure still needs measured completion on the active registry.",
         "cited_signals": [
           "overall_progress_percent=99",
           "history_snapshot_count=12",
           "oldest_blocker_days=1",
           "phase_label=Public-fit polish",
-          "longest_pole=external Windows host proof",
+          "longest_pole=Core Engine",
           "active_wave_status=active"
         ]
       },
       {
         "decision_id": "2026-04-11-launch-governance",
         "action": "freeze_launch",
-        "reason": "Freeze launch expansion while 2 golden journey(s) remain blocked and journey health is blocked.",
+        "reason": "Freeze launch expansion while 3 golden journey(s) remain blocked and journey health is blocked.",
         "cited_signals": [
           "journey_gate_state=blocked",
-          "journey_gate_blocked_count=2",
+          "journey_gate_blocked_count=3",
           "local_release_proof_status=unknown",
           "provider_canary_status=Canary green on all active lanes",
           "closure_health_state=watch"
@@ -194,8 +194,8 @@
     "overall_progress_percent": 99,
     "phase_label": "Public-fit polish",
     "history_snapshot_count": 12,
-    "longest_pole": "external Windows host proof",
-    "launch_readiness": "Hold launch expansion pending route-canary validation. 2 golden journey(s) remain blocked.",
+    "longest_pole": "Core Engine",
+    "launch_readiness": "Hold launch expansion pending route-canary validation. 3 golden journey(s) remain blocked.",
     "provider_route_stewardship": {
       "default_status": "Pilot defaults are governed",
       "canary_status": "Canary green on all active lanes",
