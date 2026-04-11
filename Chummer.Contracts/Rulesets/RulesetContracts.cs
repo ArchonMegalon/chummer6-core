@@ -8,9 +8,34 @@ public static class RulesetDefaults
 
     public static string? NormalizeOptional(string? value)
     {
-        return string.IsNullOrWhiteSpace(value)
-            ? null
-            : value.Trim().ToLowerInvariant();
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        string normalized = value.Trim().ToLowerInvariant();
+        if (HasCanonicalVariantPrefix(normalized, Sr4))
+        {
+            return Sr4;
+        }
+
+        if (HasCanonicalVariantPrefix(normalized, Sr5))
+        {
+            return Sr5;
+        }
+
+        if (HasCanonicalVariantPrefix(normalized, Sr6))
+        {
+            return Sr6;
+        }
+
+        return normalized switch
+        {
+            "sr4" or "sr 4" or "shadowrun 4" or "shadowrun4" or "shadowrun fourth edition" => Sr4,
+            "sr5" or "sr 5" or "shadowrun 5" or "shadowrun5" or "shadowrun fifth edition" => Sr5,
+            "sr6" or "sr 6" or "shadowrun 6" or "shadowrun6" or "shadowrun sixth edition" => Sr6,
+            _ => normalized
+        };
     }
 
     public static string NormalizeRequired(string value)
@@ -24,6 +49,12 @@ public static class RulesetDefaults
         return normalized;
     }
 
+    private static bool HasCanonicalVariantPrefix(string value, string canonical)
+        => value.StartsWith(canonical + ".", StringComparison.Ordinal)
+            || value.StartsWith(canonical + "-", StringComparison.Ordinal)
+            || value.StartsWith(canonical + "_", StringComparison.Ordinal)
+            || value.StartsWith(canonical + ":", StringComparison.Ordinal)
+            || value.StartsWith(canonical + "/", StringComparison.Ordinal);
 }
 
 public readonly record struct RulesetId(string Value)

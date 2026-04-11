@@ -6,7 +6,10 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
-  <ItemGroup>
+  <ItemGroup Condition="'$(ChummerLocalContractsProject)' != '' and Exists('$(ChummerLocalContractsProject)')">
+    <ProjectReference Include="$(ChummerLocalContractsProject)" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(ChummerLocalContractsProject)' == '' or !Exists('$(ChummerLocalContractsProject)')">
     <PackageReference Include="Chummer.Engine.Contracts" Version="$(ChummerEngineContractsPackageVersion)" />
   </ItemGroup>
 

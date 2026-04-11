@@ -882,6 +882,56 @@ public class DualHeadAcceptanceTests
     }
 
     [TestMethod]
+    public async Task Avalonia_and_Blazor_cyberware_workspace_preserves_modular_legacy_fixture_details()
+    {
+        string xml = File.ReadAllText(FindTestFilePath("SCSi.chum5"));
+        byte[] documentBytes = Encoding.UTF8.GetBytes(xml);
+        WorkspaceSurfaceActionDefinition action = WorkspaceSurfaceActionCatalog.All
+            .First(item => string.Equals(item.Id, "tab-cyberware.cyberwares", StringComparison.Ordinal));
+
+        CharacterOverviewState avaloniaState;
+        using (HttpClient http = CreateClient())
+        {
+            var presenter = new CharacterOverviewPresenter(new HttpChummerClient(http));
+            using var adapter = new CharacterOverviewViewModelAdapter(presenter);
+            await adapter.InitializeAsync(CancellationToken.None);
+            await adapter.ImportAsync(documentBytes, CancellationToken.None);
+            await adapter.ExecuteWorkspaceActionAsync(action, CancellationToken.None);
+            avaloniaState = adapter.State;
+        }
+
+        CharacterOverviewState blazorState;
+        using (HttpClient http = CreateClient())
+        {
+            var presenter = new CharacterOverviewPresenter(new HttpChummerClient(http));
+            CharacterOverviewState callbackState = CharacterOverviewState.Empty;
+            using var bridge = new CharacterOverviewStateBridge(presenter, state => callbackState = state);
+            await bridge.InitializeAsync(CancellationToken.None);
+            await bridge.ImportAsync(documentBytes, CancellationToken.None);
+            await bridge.ExecuteWorkspaceActionAsync(action, CancellationToken.None);
+            blazorState = ResolveBridgeState(callbackState, bridge);
+        }
+
+        Assert.AreEqual("cyberwares", avaloniaState.ActiveSectionId);
+        Assert.AreEqual("cyberwares", blazorState.ActiveSectionId);
+        Assert.AreEqual(avaloniaState.ActiveSectionJson, blazorState.ActiveSectionJson);
+
+        string avaloniaJson = avaloniaState.ActiveSectionJson ?? string.Empty;
+        StringAssert.Contains(avaloniaJson, "Modular Connector, Shoulder");
+        StringAssert.Contains(avaloniaJson, "Obvious Full Arm, Modular");
+        StringAssert.Contains(avaloniaJson, "Custom Submachine Gun");
+        StringAssert.Contains(avaloniaJson, "\"ParentName\": \"Modular Connector, Shoulder\"");
+        StringAssert.Contains(avaloniaJson, "\"MountSlot\": \"shoulder\"");
+
+        Assert.IsTrue(avaloniaState.ActiveSectionRows.Any(row => row.Value.Contains("Modular Connector, Shoulder", StringComparison.Ordinal)));
+        Assert.IsTrue(avaloniaState.ActiveSectionRows.Any(row => row.Value.Contains("Obvious Full Arm, Modular", StringComparison.Ordinal)));
+        Assert.IsTrue(avaloniaState.ActiveSectionRows.Any(row => row.Value.Contains("Custom Submachine Gun", StringComparison.Ordinal)));
+        Assert.IsTrue(blazorState.ActiveSectionRows.Any(row => row.Value.Contains("Modular Connector, Shoulder", StringComparison.Ordinal)));
+        Assert.IsTrue(blazorState.ActiveSectionRows.Any(row => row.Value.Contains("Obvious Full Arm, Modular", StringComparison.Ordinal)));
+        Assert.IsTrue(blazorState.ActiveSectionRows.Any(row => row.Value.Contains("Custom Submachine Gun", StringComparison.Ordinal)));
+    }
+
+    [TestMethod]
     public async Task Avalonia_and_Blazor_all_workspace_section_actions_render_matching_sections()
     {
         string xml = File.ReadAllText(FindTestFilePath("Apex Predator.chum5"));

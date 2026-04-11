@@ -197,7 +197,14 @@ public sealed record CharacterCyberwareSummary(
     string Rating,
     string Cost,
     string Grade,
-    string Location);
+    string Location,
+    string ParentGuid = "",
+    string ParentName = "",
+    string MountSlot = "",
+    string HierarchyPath = "",
+    int Depth = 0,
+    int ChildCount = 0,
+    bool IsModular = false);
 
 public sealed record CharacterCyberwaresSection(
     int Count,
@@ -461,7 +468,16 @@ public sealed record CharacterExpensesSection(
 
 public sealed record CharacterSourcesSection(
     int Count,
-    IReadOnlyList<string> Sources);
+    IReadOnlyList<string> Sources,
+    int ReferencedSourceCount = 0,
+    IReadOnlyList<CharacterSourcebookSummary>? Sourcebooks = null);
+
+public sealed record CharacterSourcebookSummary(
+    string Code,
+    int ItemReferenceCount,
+    bool SelectedForCharacter,
+    bool MissingFromSelectedList,
+    bool SelectionOnly);
 
 public sealed record CharacterLocationSummary(
     string Guid,

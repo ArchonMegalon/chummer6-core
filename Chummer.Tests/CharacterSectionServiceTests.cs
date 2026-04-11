@@ -212,6 +212,40 @@ public class CharacterSectionServiceTests
     }
 
     [TestMethod]
+    public void ParseCyberwares_preserves_modular_hierarchy_from_legacy_fixture()
+    {
+        string xml = File.ReadAllText(FindTestFilePath("SCSi.chum5"));
+        var service = new CharacterSectionService();
+
+        CharacterCyberwaresSection section = service.ParseCyberwares(xml);
+
+        CharacterCyberwareSummary connector = section.Cyberwares.Single(item =>
+            string.Equals(item.Name, "Modular Connector, Shoulder", StringComparison.Ordinal));
+        CharacterCyberwareSummary arm = section.Cyberwares.Single(item =>
+            string.Equals(item.Name, "Obvious Full Arm, Modular", StringComparison.Ordinal));
+        CharacterCyberwareSummary weapon = section.Cyberwares.Single(item =>
+            string.Equals(item.Name, "Custom Submachine Gun", StringComparison.Ordinal));
+
+        Assert.AreEqual(string.Empty, connector.ParentGuid);
+        Assert.AreEqual(string.Empty, connector.ParentName);
+        Assert.AreEqual(0, connector.Depth);
+        Assert.AreEqual("Right", connector.Location);
+        Assert.IsTrue(connector.IsModular);
+        Assert.IsGreaterThan(connector.ChildCount, 0);
+
+        Assert.AreEqual("Modular Connector, Shoulder", arm.ParentName);
+        Assert.AreEqual(1, arm.Depth);
+        Assert.AreEqual("shoulder", arm.MountSlot);
+        StringAssert.Contains(arm.HierarchyPath, "Modular Connector, Shoulder");
+        Assert.IsTrue(arm.IsModular);
+        Assert.IsGreaterThan(arm.ChildCount, 0);
+
+        Assert.AreEqual("Obvious Full Arm, Modular", weapon.ParentName);
+        Assert.AreEqual(2, weapon.Depth);
+        StringAssert.Contains(weapon.HierarchyPath, "Obvious Full Arm, Modular");
+    }
+
+    [TestMethod]
     public void ParseVehicles_extracts_vehicle_entries()
     {
         string xml = File.ReadAllText(FindTestFilePath("BLUE.chum5"));
@@ -466,6 +500,53 @@ public class CharacterSectionServiceTests
 
         Assert.IsGreaterThan(0, section.Count);
         Assert.IsTrue(section.Sources.Any(source => !string.IsNullOrWhiteSpace(source)));
+        Assert.IsGreaterThanOrEqualTo(0, section.ReferencedSourceCount);
+        Assert.IsNotNull(section.Sourcebooks);
+        Assert.IsTrue(section.Sourcebooks!.All(sourcebook => !string.IsNullOrWhiteSpace(sourcebook.Code)));
+    }
+
+    [TestMethod]
+    public void ParseSources_projects_sourcebook_selection_and_reference_mismatch_flags()
+    {
+        const string xml = """
+                           <character>
+                             <sources>
+                               <source>sr5</source>
+                               <source> rf </source>
+                             </sources>
+                             <weapons>
+                               <weapon><source>SR5</source></weapon>
+                               <weapon><source>sg</source></weapon>
+                               <weapon><source>SG</source></weapon>
+                             </weapons>
+                           </character>
+                           """;
+        var service = new CharacterSectionService();
+
+        CharacterSourcesSection section = service.ParseSources(xml);
+
+        Assert.AreEqual(2, section.Count);
+        Assert.AreEqual(2, section.ReferencedSourceCount);
+        Assert.HasCount(3, section.Sourcebooks!);
+
+        CharacterSourcebookSummary sr5 = section.Sourcebooks!.Single(source => source.Code == "SR5");
+        CharacterSourcebookSummary rf = section.Sourcebooks!.Single(source => source.Code == "RF");
+        CharacterSourcebookSummary sg = section.Sourcebooks!.Single(source => source.Code == "SG");
+
+        Assert.AreEqual(1, sr5.ItemReferenceCount);
+        Assert.IsTrue(sr5.SelectedForCharacter);
+        Assert.IsFalse(sr5.MissingFromSelectedList);
+        Assert.IsFalse(sr5.SelectionOnly);
+
+        Assert.AreEqual(0, rf.ItemReferenceCount);
+        Assert.IsTrue(rf.SelectedForCharacter);
+        Assert.IsFalse(rf.MissingFromSelectedList);
+        Assert.IsTrue(rf.SelectionOnly);
+
+        Assert.AreEqual(2, sg.ItemReferenceCount);
+        Assert.IsFalse(sg.SelectedForCharacter);
+        Assert.IsTrue(sg.MissingFromSelectedList);
+        Assert.IsFalse(sg.SelectionOnly);
     }
 
     [TestMethod]

@@ -36,6 +36,11 @@ public static class WorkspaceRulesetDetection
             return jsonRulesetId;
         }
 
+        if (TryDetectHeroLabOnlineRulesetId(payload, out string? heroLabRulesetId))
+        {
+            return heroLabRulesetId;
+        }
+
         if (ContainsAny(payload, ">SR4<", ">SR4A<", ">Shadowrun 4<", ">Shadowrun 4A<", ">Shadowrun 4th Edition<", ">Shadowrun Fourth Edition<"))
         {
             return RulesetDefaults.Sr4;
@@ -78,6 +83,26 @@ public static class WorkspaceRulesetDetection
         {
             using JsonDocument document = JsonDocument.Parse(payload);
             return TryFindRulesetId(document.RootElement, out rulesetId);
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
+    private static bool TryDetectHeroLabOnlineRulesetId(string payload, out string? rulesetId)
+    {
+        rulesetId = null;
+        ReadOnlySpan<char> trimmed = payload.AsSpan().TrimStart();
+        if (trimmed.IsEmpty || (trimmed[0] != '{' && trimmed[0] != '['))
+        {
+            return false;
+        }
+
+        try
+        {
+            rulesetId = HeroLabShadowrunImporter.DetectRulesetFromOnlineJson(payload);
+            return rulesetId is not null;
         }
         catch (JsonException)
         {

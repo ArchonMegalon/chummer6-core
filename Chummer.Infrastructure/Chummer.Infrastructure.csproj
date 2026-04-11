@@ -3,16 +3,26 @@
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <RuntimeIdentifiers Condition="'$(RuntimeIdentifiers)' == ''">$(ChummerDesktopRuntimeIdentifiers)</RuntimeIdentifiers>
   </PropertyGroup>
-  <ItemGroup>
+  <ItemGroup Condition="'$(ChummerLocalContractsProject)' != '' and Exists('$(ChummerLocalContractsProject)')">
+    <ProjectReference Include="$(ChummerLocalContractsProject)"
+                      AdditionalProperties="RuntimeIdentifier=$(RuntimeIdentifier);RuntimeIdentifiers=$(RuntimeIdentifiers)" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.0" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(ChummerLocalContractsProject)' == '' or !Exists('$(ChummerLocalContractsProject)')">
+    <PackageReference Include="Chummer.Engine.Contracts" Version="$(ChummerEngineContractsPackageVersion)" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.0" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="../Chummer.Application/Chummer.Application.csproj" />
-    <PackageReference Include="Chummer.Engine.Contracts" Version="$(ChummerEngineContractsPackageVersion)" />
-    <ProjectReference Include="../Chummer.Rulesets.Hosting/Chummer.Rulesets.Hosting.csproj" />
-    <ProjectReference Include="../Chummer.Rulesets.Sr5/Chummer.Rulesets.Sr5.csproj" />
-    <ProjectReference Include="../Chummer.Rulesets.Sr6/Chummer.Rulesets.Sr6.csproj" />
+    <ProjectReference Include="../Chummer.Application/Chummer.Application.csproj"
+                      AdditionalProperties="RuntimeIdentifier=$(RuntimeIdentifier);RuntimeIdentifiers=$(RuntimeIdentifiers)" />
+    <ProjectReference Include="../Chummer.Rulesets.Hosting/Chummer.Rulesets.Hosting.csproj"
+                      AdditionalProperties="RuntimeIdentifier=$(RuntimeIdentifier);RuntimeIdentifiers=$(RuntimeIdentifiers)" />
+    <ProjectReference Include="../Chummer.Rulesets.Sr5/Chummer.Rulesets.Sr5.csproj"
+                      AdditionalProperties="RuntimeIdentifier=$(RuntimeIdentifier);RuntimeIdentifiers=$(RuntimeIdentifiers)" />
+    <ProjectReference Include="../Chummer.Rulesets.Sr6/Chummer.Rulesets.Sr6.csproj"
+                      AdditionalProperties="RuntimeIdentifier=$(RuntimeIdentifier);RuntimeIdentifiers=$(RuntimeIdentifiers)" />
     <Reference Include="Chummer.Hub.Registry.Contracts">
       <HintPath>../../chummer-hub-registry/Chummer.Hub.Registry.Contracts/bin/$(Configuration)/net10.0/Chummer.Hub.Registry.Contracts.dll</HintPath>
     </Reference>

@@ -3,15 +3,22 @@
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <RuntimeIdentifiers Condition="'$(RuntimeIdentifiers)' == ''">$(ChummerDesktopRuntimeIdentifiers)</RuntimeIdentifiers>
   </PropertyGroup>
   <ItemGroup>
-    <ProjectReference Include="../Chummer.Application/Chummer.Application.csproj" />
-    <PackageReference Include="Chummer.Engine.Contracts" Version="$(ChummerEngineContractsPackageVersion)" />
+    <ProjectReference Include="../Chummer.Application/Chummer.Application.csproj"
+                      AdditionalProperties="RuntimeIdentifier=$(RuntimeIdentifier);RuntimeIdentifiers=$(RuntimeIdentifiers)" />
     <Reference Include="Chummer.Run.Contracts">
       <HintPath>../../chummer.run-services/Chummer.Run.Contracts/bin/$(Configuration)/net10.0/Chummer.Run.Contracts.dll</HintPath>
     </Reference>
   </ItemGroup>
-  <ItemGroup>
+  <ItemGroup Condition="'$(ChummerLocalContractsProject)' != '' and Exists('$(ChummerLocalContractsProject)')">
+    <ProjectReference Include="$(ChummerLocalContractsProject)"
+                      AdditionalProperties="RuntimeIdentifier=$(RuntimeIdentifier);RuntimeIdentifiers=$(RuntimeIdentifiers)" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.0" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(ChummerLocalContractsProject)' == '' or !Exists('$(ChummerLocalContractsProject)')">
+    <PackageReference Include="Chummer.Engine.Contracts" Version="$(ChummerEngineContractsPackageVersion)" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.0" />
   </ItemGroup>
 </Project>

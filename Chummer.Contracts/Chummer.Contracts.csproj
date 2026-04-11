@@ -9,6 +9,9 @@
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <Version>0.0.0-local</Version>
+    <AssemblyVersion>1.0.0.0</AssemblyVersion>
+    <FileVersion>1.0.0.0</FileVersion>
     <AssemblyName>Chummer.Engine.Contracts</AssemblyName>
     <PackageId>Chummer.Engine.Contracts</PackageId>
   </PropertyGroup>

@@ -72,10 +72,12 @@ public sealed class CharacterSectionService : ICharacterSectionService
     {
         XElement character = LoadCharacterRoot(xml);
         int mugshotCount = character.Element("mugshots")?.Elements("mugshot").Count() ?? 0;
+        string alias = ReadValue(character, "alias");
+        string name = ReadValue(character, "name");
 
         return new CharacterProfileSection(
-            Name: ReadValue(character, "name"),
-            Alias: ReadValue(character, "alias"),
+            Name: string.IsNullOrWhiteSpace(name) ? alias : name,
+            Alias: alias,
             PlayerName: ReadValue(character, "playername"),
             Metatype: ReadValue(character, "metatype"),
             Metavariant: ReadValue(character, "metavariant"),
@@ -353,22 +355,17 @@ public sealed class CharacterSectionService : ICharacterSectionService
     public CharacterCyberwaresSection ParseCyberwares(string xml)
     {
         XElement character = LoadCharacterRoot(xml);
-        IReadOnlyList<CharacterCyberwareSummary> cyberwares = character
-            .Element("cyberwares")?
-            .Elements("cyberware")
-            .Select(item => new CharacterCyberwareSummary(
-                Guid: ReadValue(item, "guid"),
-                Name: ReadValue(item, "name"),
-                Category: ReadValue(item, "category"),
-                Essence: ReadValue(item, "ess"),
-                Capacity: ReadValue(item, "capacity"),
-                Rating: ReadValue(item, "rating"),
-                Cost: ReadValue(item, "cost"),
-                Grade: ReadValue(item, "grade"),
-                Location: ReadValue(item, "location")))
-            .Where(item => !string.IsNullOrWhiteSpace(item.Name))
-            .ToArray()
-            ?? Array.Empty<CharacterCyberwareSummary>();
+        List<CharacterCyberwareSummary> cyberwares = [];
+        foreach (XElement item in character.Element("cyberwares")?.Elements("cyberware") ?? [])
+        {
+            FlattenCyberwareSummary(
+                item,
+                cyberwares,
+                parentGuid: string.Empty,
+                parentName: string.Empty,
+                hierarchyPath: string.Empty,
+                depth: 0);
+        }
 
         return new CharacterCyberwaresSection(
             Count: cyberwares.Count,
@@ -816,18 +813,46 @@ public sealed class CharacterSectionService : ICharacterSectionService
     public CharacterSourcesSection ParseSources(string xml)
     {
         XElement character = LoadCharacterRoot(xml);
-        IReadOnlyList<string> sources = character
+        IReadOnlyList<string> selectedSources = character
             .Element("sources")?
             .Elements("source")
-            .Select(source => source.Value.Trim())
+            .Select(source => CanonicalizeSourceCode(source.Value))
             .Where(source => !string.IsNullOrWhiteSpace(source))
-            .Distinct(StringComparer.Ordinal)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray()
             ?? Array.Empty<string>();
 
+        IReadOnlyDictionary<string, int> referenceCounts = character
+            .Descendants("source")
+            .Where(sourceNode => !string.Equals(sourceNode.Parent?.Name.LocalName, "sources", StringComparison.OrdinalIgnoreCase))
+            .Select(sourceNode => CanonicalizeSourceCode(sourceNode.Value))
+            .Where(source => !string.IsNullOrWhiteSpace(source))
+            .GroupBy(source => source, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.Count(), StringComparer.OrdinalIgnoreCase);
+
+        IReadOnlyList<CharacterSourcebookSummary> sourcebooks = selectedSources
+            .Concat(referenceCounts.Keys)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(source => source, StringComparer.OrdinalIgnoreCase)
+            .Select(source =>
+            {
+                bool selected = selectedSources.Contains(source, StringComparer.OrdinalIgnoreCase);
+                int itemReferenceCount = referenceCounts.TryGetValue(source, out int count) ? count : 0;
+
+                return new CharacterSourcebookSummary(
+                    Code: source,
+                    ItemReferenceCount: itemReferenceCount,
+                    SelectedForCharacter: selected,
+                    MissingFromSelectedList: itemReferenceCount > 0 && !selected,
+                    SelectionOnly: selected && itemReferenceCount == 0);
+            })
+            .ToArray();
+
         return new CharacterSourcesSection(
-            Count: sources.Count,
-            Sources: sources);
+            Count: selectedSources.Count,
+            Sources: selectedSources,
+            ReferencedSourceCount: referenceCounts.Count,
+            Sourcebooks: sourcebooks);
     }
 
     public CharacterLocationsSection ParseGearLocations(string xml) => ParseLocationsSection(xml, "gearlocations");
@@ -925,6 +950,85 @@ public sealed class CharacterSectionService : ICharacterSectionService
             .Where(name => !string.IsNullOrWhiteSpace(name))
             .ToArray()
             ?? Array.Empty<string>();
+    }
+
+    private static void FlattenCyberwareSummary(
+        XElement item,
+        ICollection<CharacterCyberwareSummary> cyberwares,
+        string parentGuid,
+        string parentName,
+        string hierarchyPath,
+        int depth)
+    {
+        string name = ReadValue(item, "name");
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            return;
+        }
+
+        string guid = ReadValue(item, "guid");
+        List<XElement> children = EnumerateCyberwareChildren(item).ToList();
+        string mountSlot = ReadFirstNonEmptyValue(item, "plugsintomodularmount", "plugintomodularmount", "modularmount");
+        string nextHierarchyPath = string.IsNullOrWhiteSpace(hierarchyPath)
+            ? name
+            : $"{hierarchyPath} > {name}";
+
+        cyberwares.Add(new CharacterCyberwareSummary(
+            Guid: guid,
+            Name: name,
+            Category: ReadValue(item, "category"),
+            Essence: ReadValue(item, "ess"),
+            Capacity: ReadValue(item, "capacity"),
+            Rating: ReadValue(item, "rating"),
+            Cost: ReadValue(item, "cost"),
+            Grade: ReadValue(item, "grade"),
+            Location: ReadValue(item, "location"),
+            ParentGuid: parentGuid,
+            ParentName: parentName,
+            MountSlot: mountSlot,
+            HierarchyPath: nextHierarchyPath,
+            Depth: depth,
+            ChildCount: children.Count,
+            IsModular: !string.IsNullOrWhiteSpace(mountSlot)
+                || ParseBool(ReadValue(item, "hasmodularmount"))
+                || name.Contains("Modular", StringComparison.OrdinalIgnoreCase)));
+
+        foreach (XElement child in children)
+        {
+            FlattenCyberwareSummary(
+                child,
+                cyberwares,
+                parentGuid: guid,
+                parentName: name,
+                hierarchyPath: nextHierarchyPath,
+                depth: depth + 1);
+        }
+    }
+
+    private static IEnumerable<XElement> EnumerateCyberwareChildren(XElement item)
+    {
+        return item.Elements("cyberware")
+            .Concat(item.Element("children")?.Elements("cyberware") ?? Array.Empty<XElement>())
+            .Concat(item.Element("cyberwares")?.Elements("cyberware") ?? Array.Empty<XElement>());
+    }
+
+    private static string ReadFirstNonEmptyValue(XElement parent, params string[] nodeNames)
+    {
+        foreach (string nodeName in nodeNames)
+        {
+            string value = ReadValue(parent, nodeName);
+            if (!string.IsNullOrWhiteSpace(value))
+            {
+                return value;
+            }
+        }
+
+        return string.Empty;
+    }
+
+    private static string CanonicalizeSourceCode(string value)
+    {
+        return (value ?? string.Empty).Trim().ToUpperInvariant();
     }
 
     private static XElement LoadCharacterRoot(string xml)

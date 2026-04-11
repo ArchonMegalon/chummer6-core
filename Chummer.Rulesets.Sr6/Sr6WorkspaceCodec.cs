@@ -279,6 +279,11 @@ public sealed class Sr6WorkspaceCodec : IRulesetWorkspaceCodec
 
     private static string ToXmlContent(string content, WorkspaceDocumentFormat format)
     {
+        if (format == WorkspaceDocumentFormat.Json)
+        {
+            return HeroLabShadowrunImporter.ConvertOnlineJsonToNativeXml(content, "workspace-import.json");
+        }
+
         if (format != WorkspaceDocumentFormat.NativeXml)
         {
             throw new InvalidOperationException($"Workspace format '{format}' is not supported.");

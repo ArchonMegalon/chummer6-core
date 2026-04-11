@@ -128,6 +128,13 @@ if [ -d ../chummer.run-services ]; then
   test -f ../chummer.run-services/tests/RunServicesVerification/RuntimeBundleVerification.cs
   test -f ../chummer.run-services/tests/RunServicesVerification/StateStoreBackupVerification.cs
   rg -n 'IssueRuntimeBundle' ../chummer.run-services/tests/RunServicesVerification/RuntimeBundleVerification.cs >/dev/null
+  if rg -n 'HintPath>.*chummer-core-engine.*Chummer\.Contracts.*bin.*Chummer\.Engine\.Contracts\.dll' \
+    ../chummer.run-services/Chummer.Campaign.Contracts/Chummer.Campaign.Contracts.csproj \
+    ../chummer.run-services/Chummer.Run.Contracts/Chummer.Run.Contracts.csproj \
+    ../chummer.run-services/Chummer.Run.Api/Chummer.Run.Api.csproj >/dev/null 2>&1; then
+    echo "run-services bridge projects must project-reference Chummer.Contracts instead of hint-pathing the engine contracts dll" >&2
+    exit 1
+  fi
 fi
 
 if [ -d ../chummer-play ]; then
