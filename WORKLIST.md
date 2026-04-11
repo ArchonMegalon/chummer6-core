@@ -8,6 +8,14 @@ Purpose: keep the live repo-native queue readable. Historical queue churn and du
 - `blocked`
 - `done`
 
+## Fleet execution sequence (cross-shard)
+
+- P0 foundation: complete `core/WL-200` first, then run `DR-120` and launch trust/recovery surface parity slices in parallel (`ui/WL-240`, `hub/WL-240`, `mobile/WL-027`, `hub-registry/WL-260`, `media/MF-014`).
+- P1 hardening: after `WL-200` is stable and `design/DR-120` is in review, execute `core/WL-201`, then `design/DR-124`, then the follow-on clarity/visibility slices (`ui/WL-241`, `hub/WL-241`, `hub-registry/WL-261`, `hub-registry/WL-262`, `mobile/WL-028`, `media/MF-015`).
+- P2 quality finish: gate on `design/DR-121`, `design/DR-122`, `design/DR-124`, `design/DR-125`, `design/DR-126`, `design/DR-127`, `design/DR-128`, and `design/DR-129` before closure on `design/DR-123` and cross-shard ui-kit flagship reliability finishers.
+
+## Queue
+
 ## Queue
 | ID | Status | Priority | Task | Owner | Notes |
 |---|---|---|---|---|---|
@@ -69,6 +77,12 @@ These rows stay explicit so the repo can prove milestone decomposition without d
 | WL-089 | done | A0.5.4 follow-through | The presentation-contract authority closure runnable lane is closed but still named here so verifier parity does not drift. |
 | WL-090 | done | A0.5.5 follow-through | The run-service contract authority closure runnable lane is closed but still named here so verifier parity does not drift. |
 | WL-091 | done | A0.5.6 follow-through | The browser infrastructure authority closure runnable lane is closed but still named here so verifier parity does not drift. |
+
+| WL-200 | queued | P0 | Improve campaign logic failure UX by adding deterministic, user-actionable recovery surfaces for SR rule execution failures and fallback transitions across engine host lanes. | agent | Foundation slice. Depends on no earlier `WL-*` queue dependency in this cycle. Must complete before any P1 trust/recovery follow-on (`WL-201`, `DR-121`, `DR-122`, `DR-123`) can be started safely. Acceptance checks: (1) `METRICS_AND_SLOS.yaml` trust/recovery gates are explicit for campaign failure and fallback behavior; (2) `GOLDEN_JOURNEY_RELEASE_GATES.yaml` failure-mode scripts include actionable recovery copy for `build_explain_publish`/`run` journeys; (3) `design/DR-124` evidence is linked to this surface before `WL-201` starts. |
+| WL-201 | queued | P1 | Add campaign-engine responsiveness and throughput guardrails for high-volume SR6/legacy batch operations before final release freeze. | agent | Depends on `core/WL-200`; this guardrail slice must be stable before user-visible transparency follow-ups (`ui/WL-241`, `hub/WL-241`, `hub-registry/WL-261`, `hub-registry/WL-262`, `mobile/WL-028`, `media/MF-015`) are executed and must satisfy `design/DR-125` (responsiveness budgets). Acceptance checks: (1) throughput and latency thresholds are documented in `design/DR-125` and mapped to release proof; (2) `scripts/ai/verify.sh` blocks regressions with high-latency batch scenarios; (3) no blocking findings in `FLAGSHIP_RELEASE_ACCEPTANCE.yaml` for flagship responsiveness on build/explain hot paths. |
+| WL-202 | queued | P2 | Publish deterministic engine error-class and retry-class contracts so UI surfaces can show why an operation failed and the safest safe action (retry, fallback, or continue). | agent | Depends on `core/WL-201`, `design/DR-128`; this enables onboarding and empty-state fixes to stop using generic copy. Acceptance checks: (1) error classes include retriable/non-retriable flags and safe action suggestions in engine contract outputs; (2) verify proof binds `design/DR-128` failure-script expectations; (3) support handoff copy can cite a specific recovery class for each class of failure. |
+| WL-203 | queued | P2 | Standardize long-running operation cancellation and resumability semantics for async/snapshot flows to prevent ambiguous mid-run states. | agent | Depends on `core/WL-202` and `design/DR-129`; this slice feeds trust and rollback copy on UI/host surfaces. Acceptance checks: (1) async operations expose explicit `recoverable`, `cancelled`, `retryable`, and `rollback` states; (2) tests cover one cancellation and one resumability path; (3) `FLAGSHIP_RELEASE_ACCEPTANCE.yaml` includes an explicit no-loss expectation for interrupted runs. |
+
 
 ## Current repo truth
 

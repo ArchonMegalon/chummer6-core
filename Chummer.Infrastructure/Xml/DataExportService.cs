@@ -68,6 +68,7 @@ public sealed class DataExportService : IDataExportService
             XElement? root = doc.Root;
             string name = root?.Element("name")?.Value ?? string.Empty;
             string alias = root?.Element("alias")?.Value ?? string.Empty;
+            string displayName = string.IsNullOrWhiteSpace(name) ? alias : name;
             string metatype = root?.Element("metatype")?.Value ?? string.Empty;
             string buildMethod = root?.Element("buildmethod")?.Value ?? string.Empty;
             decimal karma = decimal.TryParse(root?.Element("karma")?.Value, out decimal parsedKarma) ? parsedKarma : 0m;
@@ -75,7 +76,7 @@ public sealed class DataExportService : IDataExportService
             bool created = bool.TryParse(root?.Element("created")?.Value, out bool parsedCreated) && parsedCreated;
 
             return new CharacterFileSummary(
-                Name: name,
+                Name: displayName,
                 Alias: alias,
                 Metatype: metatype,
                 BuildMethod: buildMethod,

@@ -128,7 +128,21 @@ public sealed class BlazorShellComponentTests
         IReadOnlyList<AngleSharp.Dom.IElement> docs = cut.FindAll(".mdi-doc");
         Assert.HasCount(2, docs);
         StringAssert.Contains(docs[0].TextContent, "*");
+        StringAssert.Contains(docs[0].GetAttribute("title"), "Shadowrun 5");
+        StringAssert.Contains(docs[0].GetAttribute("title"), "primary/workbench");
         Assert.IsLessThan(0, docs[1].TextContent.IndexOf('*'));
+    }
+
+    [TestMethod]
+    public void MdiStrip_uses_ruleset_specific_empty_state_when_no_workspace_is_open()
+    {
+        using var context = new BunitContext();
+        IRenderedComponent<MdiStrip> cut = context.Render<MdiStrip>(parameters => parameters
+            .Add(component => component.OpenWorkspaces, Array.Empty<OpenWorkspaceState>())
+            .Add(component => component.RulesetId, RulesetDefaults.Sr6)
+            .Add(component => component.IsBusy, false));
+
+        StringAssert.Contains(cut.Markup, "No open SR6 starter lane");
     }
 
     [TestMethod]
@@ -142,7 +156,7 @@ public sealed class BlazorShellComponentTests
             OpenWorkspaces = [openWorkspace],
             WorkspaceId = workspaceId,
             ActiveTabId = "tab-info",
-            ActiveActionId = "summary",
+            ActiveActionId = "tab-info.validate",
             IsBusy = false
         };
 
@@ -153,11 +167,11 @@ public sealed class BlazorShellComponentTests
         string? executedWorkflowSurfaceActionId = null;
 
         WorkspaceSurfaceActionDefinition summaryAction = new(
-            Id: "summary",
-            Label: "Refresh Summary",
+            Id: "tab-info.validate",
+            Label: "Validate",
             TabId: "tab-info",
-            Kind: WorkspaceSurfaceActionKind.Summary,
-            TargetId: "summary",
+            Kind: WorkspaceSurfaceActionKind.Validate,
+            TargetId: "validate",
             RequiresOpenCharacter: true,
             EnabledByDefault: true,
             RulesetId: RulesetDefaults.Sr5);
@@ -172,6 +186,7 @@ public sealed class BlazorShellComponentTests
         IReadOnlyList<OpenWorkspaceState> openWorkspaces = [openWorkspace];
         IReadOnlyList<NavigationTabDefinition> navigationTabs =
         [
+            new NavigationTabDefinition("tab-create", "Create", "build-lab", "character", true, true, RulesetDefaults.Sr5),
             new NavigationTabDefinition("tab-info", "Info", "profile", "character", true, true, RulesetDefaults.Sr5),
             new NavigationTabDefinition("tab-skills", "Skills", "skills", "character", true, true, RulesetDefaults.Sr5)
         ];
@@ -197,10 +212,20 @@ public sealed class BlazorShellComponentTests
             .Add(component => component.ExecuteWorkflowSurfaceRequested, (Action<string>)(actionId => executedWorkflowSurfaceActionId = actionId)));
 
         AngleSharp.Dom.IElement enabledTab = cut.Find(".tabs #tab-info");
+        AngleSharp.Dom.IElement createTab = cut.Find(".tabs #tab-create");
         AngleSharp.Dom.IElement disabledTab = cut.Find(".tabs #tab-skills");
         Assert.IsFalse(enabledTab.HasAttribute("disabled"));
         Assert.IsTrue(disabledTab.HasAttribute("disabled"));
         StringAssert.Contains(enabledTab.ClassName, "active");
+        StringAssert.Contains(cut.Markup, "SR5 Workbench Dossiers");
+        StringAssert.Contains(cut.Markup, "SR5 Workbench Tabs");
+        StringAssert.Contains(cut.Markup, "SR5 Workbench Actions");
+        StringAssert.Contains(cut.Markup, "SR5 Workbench Flows");
+        StringAssert.Contains(cut.Markup, "Ares Runner (AR) · Shadowrun 5 · primary/workbench");
+        StringAssert.Contains(cut.Markup, "Workbench Summary Flow");
+        Assert.AreEqual("Runner", enabledTab.TextContent.Trim());
+        Assert.AreEqual("Workbench", createTab.TextContent.Trim());
+        Assert.AreEqual("Validate & Rebind", cut.Find(".section-actions .action-button").TextContent.Trim());
 
         cut.Find(".navigator .command-button").Click();
         cut.Find(".navigator .mini-btn").Click();
@@ -211,8 +236,89 @@ public sealed class BlazorShellComponentTests
         Assert.AreEqual("ws-1", openedWorkspaceId);
         Assert.AreEqual("ws-1", closedWorkspaceId);
         Assert.AreEqual("tab-info", selectedTabId);
-        Assert.AreEqual("summary", executedAction?.Id);
+        Assert.AreEqual("tab-info.validate", executedAction?.Id);
         Assert.AreEqual("summary", executedWorkflowSurfaceActionId);
+    }
+
+    [TestMethod]
+    public void ImportPanel_renders_ruleset_specific_copy_and_accepts_all_native_formats()
+    {
+        using var context = new BunitContext();
+        IRenderedComponent<ImportPanel> cut = context.Render<ImportPanel>(parameters => parameters
+            .Add(component => component.RulesetId, RulesetDefaults.Sr4)
+            .Add(component => component.IsBusy, false)
+            .Add(component => component.RawImportXml, string.Empty));
+
+        StringAssert.Contains(cut.Markup, "Import SR4 Oracle File");
+        StringAssert.Contains(cut.Markup, "Primary lane: .chum4 oracle preview");
+        StringAssert.Contains(cut.Markup, "(no SR4 preview file selected)");
+        StringAssert.Contains(cut.Markup, "SR4 Oracle Debug Import");
+        Assert.AreEqual(".chum4,.chum5,.chum6,.xml,text/xml,application/xml", cut.Find("input[type='file']").GetAttribute("accept"));
+        Assert.AreEqual("Import SR4 Raw XML", cut.Find("details button").TextContent.Trim());
+    }
+
+    [TestMethod]
+    public void CommandPanel_and_ResultPanel_render_ruleset_specific_headings_and_fallback_copy()
+    {
+        CharacterOverviewState state = CharacterOverviewState.Empty;
+
+        using var context = new BunitContext();
+        IRenderedComponent<CommandPanel> commandCut = context.Render<CommandPanel>(parameters => parameters
+            .Add(component => component.RulesetId, RulesetDefaults.Sr6)
+            .Add(component => component.State, state)
+            .Add(component => component.Commands, Array.Empty<AppCommandDefinition>()));
+        IRenderedComponent<ResultPanel> resultCut = context.Render<ResultPanel>(parameters => parameters
+            .Add(component => component.RulesetId, RulesetDefaults.Sr5)
+            .Add(component => component.State, state));
+
+        StringAssert.Contains(commandCut.Markup, "SR6 Starter Commands");
+        StringAssert.Contains(commandCut.Markup, "No SR6 starter commands are currently available.");
+        StringAssert.Contains(resultCut.Markup, "SR5 Workbench Result");
+        StringAssert.Contains(resultCut.Markup, "Shadowrun 5 stays on the primary/workbench lane");
+        StringAssert.Contains(resultCut.Markup, "SR5 workbench lane is ready");
+    }
+
+    [TestMethod]
+    public void ResultPanel_renders_last_portability_activity_details()
+    {
+        CharacterOverviewState state = CharacterOverviewState.Empty with
+        {
+            Notice = "Portable export prepared.",
+            LatestPortabilityActivity = new WorkspacePortabilityActivity(
+                "Last portable export",
+                new WorkspacePortabilityReceipt(
+                    FormatId: WorkspacePortabilityFormatIds.PortableDossierV1,
+                    CompatibilityState: WorkspacePortabilityCompatibilityStates.CompatibleWithWarnings,
+                    ContextSummary: "Runner Blue is packaged as a portable dossier on sr5.",
+                    ReceiptSummary: "Portable export is ready, but inspect the package before merge or governed replace on a receiving surface.",
+                    ProvenanceSummary: "Portable package portable-ws-1 captured payload hash abcdef123456 from workspace ws-1 at 2026-03-30T00:00:00.0000000+00:00.",
+                    PayloadSha256: "abcdef1234567890",
+                    NextSafeAction: "Open inspect-only first on the receiving surface and verify the missing sections before merge or replace.",
+                    SupportedExchangeModes:
+                    [
+                        WorkspacePortabilityExchangeModes.InspectOnly,
+                        WorkspacePortabilityExchangeModes.Merge,
+                        WorkspacePortabilityExchangeModes.Replace
+                    ],
+                    Notes:
+                    [
+                        new WorkspacePortabilityNote(
+                            Code: "section-coverage",
+                            Severity: WorkspacePortabilityNoteSeverities.Warning,
+                            Summary: "Portable package is missing contacts; receiving surfaces should inspect before governed replace.")
+                    ]))
+        };
+
+        using var context = new BunitContext();
+        IRenderedComponent<ResultPanel> cut = context.Render<ResultPanel>(parameters => parameters
+            .Add(component => component.RulesetId, RulesetDefaults.Sr5)
+            .Add(component => component.State, state));
+
+        StringAssert.Contains(cut.Markup, "Last portable export");
+        StringAssert.Contains(cut.Markup, "Runner Blue is packaged as a portable dossier on sr5.");
+        StringAssert.Contains(cut.Markup, "Open inspect-only first on the receiving surface");
+        StringAssert.Contains(cut.Markup, "inspect-only, merge, replace");
+        StringAssert.Contains(cut.Markup, "Portable package is missing contacts");
     }
 
     [TestMethod]

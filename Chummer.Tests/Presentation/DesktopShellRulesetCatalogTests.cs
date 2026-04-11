@@ -111,10 +111,14 @@ public sealed class DesktopShellRulesetCatalogTests
             StringAssert.Contains(actionButtons[0].TextContent, "SR6 Matrix Action");
             Assert.AreEqual("workflow.surface.sr6", workflowButtons[0].GetAttribute("data-workflow-surface"));
             StringAssert.Contains(workflowButtons[0].TextContent, "SR6 Matrix Action");
-            StringAssert.Contains(cut.Find("#complianceState").TextContent, "Runtime: SR6 Core [sr6-runtime-fp-001]");
-            Assert.AreEqual("SR6 Core [sr6-runtime-fp-001] (available)", cut.Find("#summaryRuntime").GetAttribute("value"));
-            StringAssert.Contains(cut.Find("#complianceState").TextContent, "Ruleset: sr6");
+            StringAssert.Contains(cut.Find("#complianceState").TextContent, "Runtime: Shadowrun 6 · beta/edge-first · SR6 Core [sr6-runtime-fp-001]");
+            Assert.AreEqual("Shadowrun 6 · beta/edge-first · SR6 Core [sr6-runtime-fp-001] (available)", cut.Find("#summaryRuntime").GetAttribute("value"));
+            StringAssert.Contains(cut.Find("#complianceState").TextContent, "Ruleset: sr6 (beta/edge-first");
+            StringAssert.Contains(cut.Find("#complianceState").TextContent, ".chum6");
             StringAssert.Contains(cut.Find("#complianceState").TextContent, "Workflows: 1 defs / 1 surfaces");
+            StringAssert.Contains(cut.Markup, "Desktop Summary · SR6 Starter");
+            StringAssert.Contains(cut.Markup, "SR6 Starter Dossiers");
+            StringAssert.Contains(cut.Markup, "SR6 Starter Tabs");
         });
     }
 

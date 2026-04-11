@@ -1,11 +1,13 @@
 using System.Text;
 using System.Xml.Linq;
 using Chummer.Application.BuildLab;
+using Chummer.Application.Characters;
 using Chummer.Application.Workspaces;
 using Chummer.Contracts.Api;
 using Chummer.Contracts.Characters;
 using Chummer.Contracts.Rulesets;
 using Chummer.Contracts.Workspaces;
+using Chummer.Infrastructure.Xml;
 
 namespace Chummer.Rulesets.Sr4;
 
@@ -13,6 +15,27 @@ public sealed class Sr4WorkspaceCodec : IRulesetWorkspaceCodec
 {
     public const int SchemaVersion = 1;
     public const string Sr4PayloadKind = "sr4/chum4-xml";
+    private readonly ICharacterFileQueries _characterFileQueries;
+    private readonly ICharacterSectionQueries _sectionQueries;
+    private readonly ICharacterMetadataCommands _metadataCommands;
+
+    public Sr4WorkspaceCodec()
+        : this(
+            new XmlCharacterFileQueries(new CharacterFileService()),
+            new XmlCharacterSectionQueries(new CharacterSectionService()),
+            new XmlCharacterMetadataCommands(new CharacterFileService()))
+    {
+    }
+
+    public Sr4WorkspaceCodec(
+        ICharacterFileQueries characterFileQueries,
+        ICharacterSectionQueries sectionQueries,
+        ICharacterMetadataCommands metadataCommands)
+    {
+        _characterFileQueries = characterFileQueries;
+        _sectionQueries = sectionQueries;
+        _metadataCommands = metadataCommands;
+    }
 
     public string RulesetId => RulesetDefaults.Sr4;
 
@@ -33,173 +56,59 @@ public sealed class Sr4WorkspaceCodec : IRulesetWorkspaceCodec
 
     public CharacterFileSummary ParseSummary(WorkspacePayloadEnvelope envelope)
     {
-        XElement root = ParseRoot(envelope.Payload);
-        return new CharacterFileSummary(
-            Name: ElementValue(root, "name"),
-            Alias: ElementValue(root, "alias"),
-            Metatype: ElementValue(root, "metatype"),
-            BuildMethod: ElementValue(root, "buildmethod"),
-            CreatedVersion: ElementValue(root, "createdversion"),
-            AppVersion: ElementValue(root, "appversion"),
-            Karma: DecimalValue(root, "karma"),
-            Nuyen: DecimalValue(root, "nuyen"),
-            Created: BoolValue(root, "created"));
+        return _characterFileQueries.ParseSummary(new CharacterDocument(ToXmlContent(envelope.Payload, WorkspaceDocumentFormat.NativeXml)));
     }
 
     public object ParseSection(string sectionId, WorkspacePayloadEnvelope envelope)
     {
-        CharacterFileSummary summary = ParseSummary(envelope);
-        return sectionId switch
+        string xml = ToXmlContent(envelope.Payload, WorkspaceDocumentFormat.NativeXml);
+        CharacterDocument document = new(xml);
+        XElement root = ParseRoot(xml);
+        string normalizedSectionId = NormalizeSectionId(sectionId);
+
+        return normalizedSectionId switch
         {
-            "profile" => new CharacterProfileSection(
-                Name: summary.Name,
-                Alias: summary.Alias,
-                PlayerName: string.Empty,
-                Metatype: summary.Metatype,
-                Metavariant: string.Empty,
-                Sex: string.Empty,
-                Age: string.Empty,
-                Height: string.Empty,
-                Weight: string.Empty,
-                Hair: string.Empty,
-                Eyes: string.Empty,
-                Skin: string.Empty,
-                Concept: string.Empty,
-                Description: string.Empty,
-                Background: string.Empty,
-                CreatedVersion: summary.CreatedVersion,
-                AppVersion: summary.AppVersion,
-                BuildMethod: summary.BuildMethod,
-                GameplayOption: string.Empty,
-                Created: summary.Created,
-                Adept: false,
-                Magician: false,
-                Technomancer: false,
-                AI: false,
-                MainMugshotIndex: -1,
-                MugshotCount: 0),
-            "progress" => new CharacterProgressSection(
-                Karma: summary.Karma,
-                Nuyen: summary.Nuyen,
-                StartingNuyen: 0m,
-                StreetCred: 0,
-                Notoriety: 0,
-                PublicAwareness: 0,
-                BurntStreetCred: 0,
-                BuildKarma: 0,
-                TotalAttributes: 0,
-                TotalSpecial: 0,
-                PhysicalCmFilled: 0,
-                StunCmFilled: 0,
-                TotalEssence: 0m,
-                InitiateGrade: 0,
-                SubmersionGrade: 0,
-                MagEnabled: false,
-                ResEnabled: false,
-                DepEnabled: false),
-            "attributes" => new CharacterAttributesSection(0, Array.Empty<CharacterAttributeSummary>()),
-            "skills" => new CharacterSkillsSection(0, 0, Array.Empty<CharacterSkillSummary>()),
-            "inventory" => new CharacterInventorySection(
-                GearCount: 0,
-                WeaponCount: 0,
-                ArmorCount: 0,
-                CyberwareCount: 0,
-                VehicleCount: 0,
-                GearNames: Array.Empty<string>(),
-                WeaponNames: Array.Empty<string>(),
-                ArmorNames: Array.Empty<string>(),
-                CyberwareNames: Array.Empty<string>(),
-                VehicleNames: Array.Empty<string>()),
-            "contacts" => new CharacterContactsSection(0, Array.Empty<CharacterContactSummary>()),
-            "rules" => new CharacterRulesSection(
-                GameEdition: "SR4",
-                Settings: string.Empty,
-                GameplayOption: string.Empty,
-                GameplayOptionQualityLimit: 0,
-                MaxNuyen: 0,
-                MaxKarma: 0,
-                ContactMultiplier: 0,
-                BannedWareGrades: Array.Empty<string>()),
+            "attributes" => ParseSr4Attributes(root),
+            "attributedetails" => ParseSr4AttributeDetails(root),
+            "skills" => ParseSr4Skills(root),
+            "contacts" => ParseSr4Contacts(root),
+            "rules" => ParseSr4Rules(root),
+            "build" => ParseSr4Build(root),
+            "armors" => ParseSr4Armors(root),
+            "calendar" => ParseSr4Calendar(root),
+            "powers" => ParseSr4Powers(root),
+            "lifestyles" => ParseSr4Lifestyles(root),
             "build-lab" => BuildLabWorkspaceProjectionFactory.Create(
                 profile: (CharacterProfileSection)ParseSection("profile", envelope),
                 progress: (CharacterProgressSection)ParseSection("progress", envelope),
                 rules: (CharacterRulesSection)ParseSection("rules", envelope),
-                build: new CharacterBuildSection(
-                    BuildMethod: summary.BuildMethod,
-                    PriorityMetatype: string.Empty,
-                    PriorityAttributes: string.Empty,
-                    PrioritySpecial: string.Empty,
-                    PrioritySkills: string.Empty,
-                    PriorityResources: string.Empty,
-                    PriorityTalent: string.Empty,
-                    SumToTen: 0,
-                    Special: 0,
-                    TotalSpecial: 0,
-                    TotalAttributes: 0,
-                    ContactPoints: 0,
-                    ContactPointsUsed: 0),
+                build: (CharacterBuildSection)ParseSection("build", envelope),
                 skills: (CharacterSkillsSection)ParseSection("skills", envelope),
-                awakening: new CharacterAwakeningSection(
-                    MagEnabled: false,
-                    ResEnabled: false,
-                    DepEnabled: false,
-                    Adept: false,
-                    Magician: false,
-                    Technomancer: false,
-                    AI: false,
-                    InitiateGrade: 0,
-                    SubmersionGrade: 0,
-                    Tradition: string.Empty,
-                    TraditionName: string.Empty,
-                    TraditionDrain: string.Empty,
-                    SpiritCombat: string.Empty,
-                    SpiritDetection: string.Empty,
-                    SpiritHealth: string.Empty,
-                    SpiritIllusion: string.Empty,
-                    SpiritManipulation: string.Empty,
-                    Stream: string.Empty,
-                    StreamDrain: string.Empty,
-                    CurrentCounterspellingDice: 0,
-                    SpellLimit: 0,
-                    CfpLimit: 0,
-                    AiNormalProgramLimit: 0,
-                    AiAdvancedProgramLimit: 0),
+                awakening: (CharacterAwakeningSection)ParseSection("awakening", envelope),
                 rulesetId: RulesetDefaults.Sr4),
-            _ => new Dictionary<string, object?>(StringComparer.Ordinal)
-            {
-                ["sectionId"] = sectionId,
-                ["rulesetId"] = RulesetDefaults.Sr4
-            }
+            _ => TryParseSharedSection(normalizedSectionId, document)
         };
     }
 
     public CharacterValidationResult Validate(WorkspacePayloadEnvelope envelope)
     {
-        try
-        {
-            ParseRoot(envelope.Payload);
-            return new CharacterValidationResult(true, Array.Empty<CharacterValidationIssue>());
-        }
-        catch (Exception ex)
-        {
-            return new CharacterValidationResult(
-                false,
-                [new CharacterValidationIssue("error", "sr4.invalid_xml", ex.Message, "/character")]);
-        }
+        return _characterFileQueries.Validate(new CharacterDocument(ToXmlContent(envelope.Payload, WorkspaceDocumentFormat.NativeXml)));
     }
 
     public WorkspacePayloadEnvelope UpdateMetadata(WorkspacePayloadEnvelope envelope, UpdateWorkspaceMetadata command)
     {
-        XElement root = ParseRoot(envelope.Payload);
-        SetElementValue(root, "name", command.Name);
-        SetElementValue(root, "alias", command.Alias);
-        SetElementValue(root, "notes", command.Notes);
+        UpdateCharacterMetadataResult result = _metadataCommands.UpdateMetadata(new UpdateCharacterMetadataCommand(
+            Document: new CharacterDocument(ToXmlContent(envelope.Payload, WorkspaceDocumentFormat.NativeXml)),
+            Update: new CharacterMetadataUpdate(
+                Name: command.Name,
+                Alias: command.Alias,
+                Notes: command.Notes)));
 
         return envelope with
         {
             SchemaVersion = envelope.SchemaVersion > 0 ? envelope.SchemaVersion : SchemaVersion,
             PayloadKind = string.IsNullOrWhiteSpace(envelope.PayloadKind) ? PayloadKind : envelope.PayloadKind,
-            Payload = root.ToString(SaveOptions.DisableFormatting)
+            Payload = result.UpdatedDocument.Content
         };
     }
 
@@ -230,13 +139,266 @@ public sealed class Sr4WorkspaceCodec : IRulesetWorkspaceCodec
     {
         return new DataExportBundle(
             Summary: ParseSummary(envelope),
-            Profile: ParseSection("profile", envelope) as CharacterProfileSection,
-            Progress: ParseSection("progress", envelope) as CharacterProgressSection,
-            Attributes: ParseSection("attributes", envelope) as CharacterAttributesSection,
-            Skills: ParseSection("skills", envelope) as CharacterSkillsSection,
-            Inventory: ParseSection("inventory", envelope) as CharacterInventorySection,
-            Qualities: null,
-            Contacts: ParseSection("contacts", envelope) as CharacterContactsSection);
+            Profile: TryParseExportSection<CharacterProfileSection>("profile", envelope),
+            Progress: TryParseExportSection<CharacterProgressSection>("progress", envelope),
+            Attributes: TryParseExportSection<CharacterAttributesSection>("attributes", envelope),
+            Skills: TryParseExportSection<CharacterSkillsSection>("skills", envelope),
+            Inventory: TryParseExportSection<CharacterInventorySection>("inventory", envelope),
+            Qualities: TryParseExportSection<CharacterQualitiesSection>("qualities", envelope),
+            Contacts: TryParseExportSection<CharacterContactsSection>("contacts", envelope));
+    }
+
+    private TSection? TryParseExportSection<TSection>(string sectionId, WorkspacePayloadEnvelope envelope)
+        where TSection : class
+    {
+        try
+        {
+            return ParseSection(sectionId, envelope) as TSection;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static CharacterAttributesSection ParseSr4Attributes(XElement root)
+    {
+        IReadOnlyList<CharacterAttributeSummary> attributes = root
+            .Element("attributes")?
+            .Elements("attribute")
+            .Select(attribute => new CharacterAttributeSummary(
+                Name: ReadValue(attribute, "name"),
+                BaseValue: ParseInt(ReadValue(attribute, "value", "base")),
+                TotalValue: ParseInt(ReadValue(attribute, "totalvalue", "value", "base"))))
+            .Where(attribute => !string.IsNullOrWhiteSpace(attribute.Name))
+            .ToArray()
+            ?? Array.Empty<CharacterAttributeSummary>();
+
+        return new CharacterAttributesSection(
+            Count: attributes.Count,
+            Attributes: attributes);
+    }
+
+    private static CharacterAttributeDetailsSection ParseSr4AttributeDetails(XElement root)
+    {
+        IReadOnlyList<CharacterAttributeDetailSummary> attributes = root
+            .Element("attributes")?
+            .Elements("attribute")
+            .Select(attribute => new CharacterAttributeDetailSummary(
+                Name: ReadValue(attribute, "name"),
+                MetatypeMin: ParseInt(ReadValue(attribute, "metatypemin")),
+                MetatypeMax: ParseInt(ReadValue(attribute, "metatypemax")),
+                MetatypeAugMax: ParseInt(ReadValue(attribute, "metatypeaugmax")),
+                BaseValue: ParseInt(ReadValue(attribute, "value", "base")),
+                KarmaValue: ParseInt(ReadValue(attribute, "karma")),
+                TotalValue: ParseInt(ReadValue(attribute, "totalvalue", "value", "base")),
+                MetatypeCategory: ReadValue(attribute, "metatypecategory", "name")))
+            .Where(attribute => !string.IsNullOrWhiteSpace(attribute.Name))
+            .ToArray()
+            ?? Array.Empty<CharacterAttributeDetailSummary>();
+
+        return new CharacterAttributeDetailsSection(
+            Count: attributes.Count,
+            Attributes: attributes);
+    }
+
+    private static CharacterSkillsSection ParseSr4Skills(XElement root)
+    {
+        IEnumerable<XElement> skillElements = root.Element("skills")?.Elements("skill")
+            ?? root.Element("newskills")?.Element("skills")?.Elements("skill")
+            ?? Array.Empty<XElement>();
+
+        IReadOnlyList<CharacterSkillSummary> skills = skillElements
+            .Select(skill => new CharacterSkillSummary(
+                Guid: ReadValue(skill, "guid"),
+                Suid: ReadValue(skill, "suid", "name"),
+                Category: ReadValue(skill, "skillcategory"),
+                IsKnowledge: ParseBool(ReadValue(skill, "knowledge", "isknowledge")),
+                BaseValue: ParseInt(ReadValue(skill, "rating", "base")),
+                KarmaValue: ParseInt(ReadValue(skill, "karma")),
+                Specializations: ReadSkillSpecializations(skill)))
+            .Where(skill => !string.IsNullOrWhiteSpace(skill.Suid) || !string.IsNullOrWhiteSpace(skill.Guid))
+            .ToArray();
+
+        return new CharacterSkillsSection(
+            Count: skills.Count,
+            KnowledgeCount: skills.Count(skill => skill.IsKnowledge),
+            Skills: skills);
+    }
+
+    private static CharacterContactsSection ParseSr4Contacts(XElement root)
+    {
+        IReadOnlyList<CharacterContactSummary> contacts = root
+            .Element("contacts")?
+            .Elements("contact")
+            .Select(contact => new CharacterContactSummary(
+                Name: ReadValue(contact, "name"),
+                Role: ReadValue(contact, "role", "type"),
+                Location: ReadValue(contact, "location", "groupname"),
+                Connection: ParseInt(ReadValue(contact, "connection")),
+                Loyalty: ParseInt(ReadValue(contact, "loyalty"))))
+            .Where(contact => !string.IsNullOrWhiteSpace(contact.Name))
+            .ToArray()
+            ?? Array.Empty<CharacterContactSummary>();
+
+        return new CharacterContactsSection(
+            Count: contacts.Count,
+            Contacts: contacts);
+    }
+
+    private static CharacterRulesSection ParseSr4Rules(XElement root)
+    {
+        IReadOnlyList<string> bannedWareGrades = root
+            .Element("bannedwaregrades")?
+            .Elements("grade")
+            .Select(static grade => grade.Value.Trim())
+            .Where(static value => !string.IsNullOrWhiteSpace(value))
+            .ToArray()
+            ?? Array.Empty<string>();
+
+        string gameEdition = ReadValue(root, "gameedition");
+        if (string.IsNullOrWhiteSpace(gameEdition))
+        {
+            gameEdition = "SR4";
+        }
+
+        return new CharacterRulesSection(
+            GameEdition: gameEdition,
+            Settings: ReadValue(root, "settings"),
+            GameplayOption: ReadValue(root, "gameplayoption"),
+            GameplayOptionQualityLimit: ParseInt(ReadValue(root, "gameplayoptionqualitylimit")),
+            MaxNuyen: ParseInt(ReadValue(root, "maxnuyen", "nuyenmaxbp")),
+            MaxKarma: ParseInt(ReadValue(root, "maxkarma")),
+            ContactMultiplier: ParseInt(ReadValue(root, "contactmultiplier")),
+            BannedWareGrades: bannedWareGrades);
+    }
+
+    private static CharacterBuildSection ParseSr4Build(XElement root)
+    {
+        return new CharacterBuildSection(
+            BuildMethod: ReadValue(root, "buildmethod"),
+            PriorityMetatype: ReadValue(root, "prioritymetatype"),
+            PriorityAttributes: ReadValue(root, "priorityattributes"),
+            PrioritySpecial: ReadValue(root, "priorityspecial"),
+            PrioritySkills: ReadValue(root, "priorityskills"),
+            PriorityResources: ReadValue(root, "priorityresources"),
+            PriorityTalent: ReadValue(root, "prioritytalent"),
+            SumToTen: ParseInt(ReadValue(root, "sumtoten")),
+            Special: ParseInt(ReadValue(root, "special")),
+            TotalSpecial: ParseInt(ReadValue(root, "totalspecial")),
+            TotalAttributes: ParseInt(ReadValue(root, "totalattributes")),
+            ContactPoints: ParseInt(ReadValue(root, "contactpoints")),
+            ContactPointsUsed: ParseInt(ReadValue(root, "contactpointsused")));
+    }
+
+    private static CharacterArmorsSection ParseSr4Armors(XElement root)
+    {
+        IReadOnlyList<CharacterArmorSummary> armors = root
+            .Element("armors")?
+            .Elements("armor")
+            .Select(armor => new CharacterArmorSummary(
+                Guid: ReadValue(armor, "guid"),
+                Name: ReadValue(armor, "name"),
+                Category: ReadValue(armor, "category"),
+                ArmorValue: FormatArmorValue(armor),
+                Rating: ReadValue(armor, "rating", "armorcapacity"),
+                Cost: ReadValue(armor, "cost"),
+                Equipped: ParseBool(ReadValue(armor, "equipped"))))
+            .Where(armor => !string.IsNullOrWhiteSpace(armor.Name))
+            .ToArray()
+            ?? Array.Empty<CharacterArmorSummary>();
+
+        return new CharacterArmorsSection(
+            Count: armors.Count,
+            Armors: armors);
+    }
+
+    private static CharacterCalendarSection ParseSr4Calendar(XElement root)
+    {
+        XElement? calendar = root.Element("calendar");
+        if (calendar is null)
+        {
+            return new CharacterCalendarSection(0, Array.Empty<CharacterCalendarEntrySummary>());
+        }
+
+        IReadOnlyList<CharacterCalendarEntrySummary> entries = calendar
+            .Elements("week")
+            .Select(week => new CharacterCalendarEntrySummary(
+                Date: FormatWeekDate(week),
+                Name: ReadValue(week, "name") switch
+                {
+                    { Length: > 0 } explicitName => explicitName,
+                    _ => $"Week {ReadValue(week, "week")}"
+                },
+                Notes: ReadValue(week, "notes")))
+            .Where(entry => !string.IsNullOrWhiteSpace(entry.Date) || !string.IsNullOrWhiteSpace(entry.Notes))
+            .ToArray();
+
+        if (entries.Count > 0)
+        {
+            return new CharacterCalendarSection(
+                Count: entries.Count,
+                Entries: entries);
+        }
+
+        return new CharacterCalendarSection(
+            Count: 0,
+            Entries: Array.Empty<CharacterCalendarEntrySummary>());
+    }
+
+    private static CharacterPowersSection ParseSr4Powers(XElement root)
+    {
+        IReadOnlyList<CharacterPowerSummary> powers = root
+            .Element("powers")?
+            .Elements("power")
+            .Select(power => new CharacterPowerSummary(
+                Name: ReadValue(power, "name"),
+                Rating: ParseInt(ReadValue(power, "rating")),
+                Source: ReadValue(power, "source"),
+                PointsPerLevel: ParseDecimal(ReadValue(power, "pointsperlevel", "points"))))
+            .Where(power => !string.IsNullOrWhiteSpace(power.Name))
+            .ToArray()
+            ?? Array.Empty<CharacterPowerSummary>();
+
+        return new CharacterPowersSection(
+            Count: powers.Count,
+            Powers: powers);
+    }
+
+    private static CharacterLifestylesSection ParseSr4Lifestyles(XElement root)
+    {
+        IReadOnlyList<CharacterLifestyleSummary> lifestyles = root
+            .Element("lifestyles")?
+            .Elements("lifestyle")
+            .Select(lifestyle => new CharacterLifestyleSummary(
+                Name: ReadValue(lifestyle, "name"),
+                BaseLifestyle: ReadValue(lifestyle, "baselifestyle", "lifestylename"),
+                Source: ReadValue(lifestyle, "source"),
+                Cost: ParseDecimal(ReadValue(lifestyle, "cost")),
+                Months: ParseInt(ReadValue(lifestyle, "months"))))
+            .Where(lifestyle => !string.IsNullOrWhiteSpace(lifestyle.Name))
+            .ToArray()
+            ?? Array.Empty<CharacterLifestyleSummary>();
+
+        return new CharacterLifestylesSection(
+            Count: lifestyles.Count,
+            Lifestyles: lifestyles);
+    }
+
+    private object TryParseSharedSection(string sectionId, CharacterDocument document)
+    {
+        try
+        {
+            return _sectionQueries.ParseSection(sectionId, document);
+        }
+        catch (InvalidOperationException)
+        {
+            return new Dictionary<string, object?>(StringComparer.Ordinal)
+            {
+                ["sectionId"] = sectionId,
+                ["rulesetId"] = RulesetDefaults.Sr4
+            };
+        }
     }
 
     private static XElement ParseRoot(string payload)
@@ -247,33 +409,102 @@ public sealed class Sr4WorkspaceCodec : IRulesetWorkspaceCodec
         return XElement.Parse(xml, LoadOptions.PreserveWhitespace);
     }
 
-    private static string ElementValue(XElement root, string name)
+    private static string NormalizeSectionId(string sectionId)
+        => (sectionId ?? string.Empty).Trim().ToLowerInvariant();
+
+    private static string ReadValue(XElement root, params string[] names)
     {
-        return root.Element(name)?.Value?.Trim() ?? string.Empty;
+        foreach (string name in names)
+        {
+            string value = root.Element(name)?.Value?.Trim() ?? string.Empty;
+            if (!string.IsNullOrWhiteSpace(value))
+            {
+                return value;
+            }
+        }
+
+        return string.Empty;
     }
 
-    private static decimal DecimalValue(XElement root, string name)
+    private static IReadOnlyList<string> ReadSkillSpecializations(XElement skill)
     {
-        return decimal.TryParse(ElementValue(root, name), out decimal value)
-            ? value
+        List<string> specializations = skill.Element("specs")?
+            .Elements("spec")
+            .Select(spec => ReadValue(spec, "name"))
+            .Where(static name => !string.IsNullOrWhiteSpace(name))
+            .ToList()
+            ?? [];
+
+        string legacySpec = ReadValue(skill, "spec");
+        if (!string.IsNullOrWhiteSpace(legacySpec))
+        {
+            specializations.Add(legacySpec);
+        }
+
+        return specializations.Count == 0
+            ? Array.Empty<string>()
+            : specializations
+                .Distinct(StringComparer.Ordinal)
+                .ToArray();
+    }
+
+    private static string FormatArmorValue(XElement armor)
+    {
+        string directArmorValue = ReadValue(armor, "armor");
+        if (!string.IsNullOrWhiteSpace(directArmorValue))
+        {
+            return directArmorValue;
+        }
+
+        string ballistic = ReadValue(armor, "b");
+        string impact = ReadValue(armor, "i");
+        if (string.IsNullOrWhiteSpace(ballistic) && string.IsNullOrWhiteSpace(impact))
+        {
+            return string.Empty;
+        }
+
+        return $"{ballistic}/{impact}".Trim('/');
+    }
+
+    private static string FormatWeekDate(XElement week)
+    {
+        string year = ReadValue(week, "year");
+        string weekNumber = ReadValue(week, "week");
+        if (string.IsNullOrWhiteSpace(year) && string.IsNullOrWhiteSpace(weekNumber))
+        {
+            return string.Empty;
+        }
+
+        if (string.IsNullOrWhiteSpace(year))
+        {
+            return $"W{weekNumber}";
+        }
+
+        if (string.IsNullOrWhiteSpace(weekNumber))
+        {
+            return year;
+        }
+
+        return $"{year}-W{weekNumber}";
+    }
+
+    private static int ParseInt(string value)
+    {
+        return int.TryParse(value, out int parsed)
+            ? parsed
+            : 0;
+    }
+
+    private static decimal ParseDecimal(string value)
+    {
+        return decimal.TryParse(value, out decimal parsed)
+            ? parsed
             : 0m;
     }
 
-    private static bool BoolValue(XElement root, string name)
+    private static bool ParseBool(string value)
     {
-        return bool.TryParse(ElementValue(root, name), out bool value) && value;
-    }
-
-    private static void SetElementValue(XElement root, string name, string? value)
-    {
-        XElement? element = root.Element(name);
-        if (element is null)
-        {
-            element = new XElement(name);
-            root.Add(element);
-        }
-
-        element.Value = value?.Trim() ?? string.Empty;
+        return bool.TryParse(value, out bool parsed) && parsed;
     }
 
     private static string ToXmlContent(string content, WorkspaceDocumentFormat format)

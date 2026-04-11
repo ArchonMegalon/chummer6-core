@@ -2808,6 +2808,9 @@ public class RulesetSeamContractsTests
         Assert.AreEqual(RulesetDefaults.Sr4, RulesetDefaults.NormalizeOptional("Shadowrun 4"));
         Assert.AreEqual(RulesetDefaults.Sr5, RulesetDefaults.NormalizeOptional("Shadowrun Fifth Edition"));
         Assert.AreEqual(RulesetDefaults.Sr6, RulesetDefaults.NormalizeOptional("sr 6"));
+        Assert.AreEqual(RulesetDefaults.Sr6, RulesetDefaults.NormalizeOptional("sr6.preview.v1"));
+        Assert.AreEqual(RulesetDefaults.Sr5, RulesetDefaults.NormalizeOptional("sr5-preview"));
+        Assert.AreEqual("official.sr5.core", RulesetDefaults.NormalizeOptional("official.sr5.core"));
         Assert.AreEqual(
             RulesetDefaults.Sr6,
             RulesetDefaults.NormalizeOptional(null) ?? RulesetDefaults.NormalizeRequired(RulesetDefaults.Sr6));

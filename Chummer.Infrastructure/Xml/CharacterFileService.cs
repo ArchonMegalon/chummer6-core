@@ -10,10 +10,11 @@ public sealed class CharacterFileService : ICharacterFileService
     {
         XDocument document = LoadCharacterDocument(xml);
         XElement character = document.Root!;
+        string alias = ReadValue(character, "alias");
 
         return new CharacterFileSummary(
-            Name: ReadValue(character, "name"),
-            Alias: ReadValue(character, "alias"),
+            Name: ReadPrimaryDisplayName(character, alias),
+            Alias: alias,
             Metatype: ReadValue(character, "metatype"),
             BuildMethod: ReadValue(character, "buildmethod"),
             CreatedVersion: ReadValue(character, "createdversion"),
@@ -52,7 +53,7 @@ public sealed class CharacterFileService : ICharacterFileService
         }
 
         XElement character = document.Root;
-        ValidateRequiredNode(character, "name", issues);
+        ValidateRequiredNode(character, "name", issues, fallbackNodeName: "alias");
         ValidateRequiredNode(character, "metatype", issues);
         ValidateRequiredNode(character, "buildmethod", issues);
         ValidateRequiredNode(character, "createdversion", issues);
@@ -83,9 +84,15 @@ public sealed class CharacterFileService : ICharacterFileService
     private static void ValidateRequiredNode(
         XElement character,
         string nodeName,
-        ICollection<CharacterValidationIssue> issues)
+        ICollection<CharacterValidationIssue> issues,
+        string? fallbackNodeName = null)
     {
         string value = ReadValue(character, nodeName);
+        if (string.IsNullOrWhiteSpace(value) && !string.IsNullOrWhiteSpace(fallbackNodeName))
+        {
+            value = ReadValue(character, fallbackNodeName);
+        }
+
         if (string.IsNullOrWhiteSpace(value))
         {
             issues.Add(new CharacterValidationIssue(
@@ -154,6 +161,12 @@ public sealed class CharacterFileService : ICharacterFileService
     private static string ReadValue(XElement character, string nodeName)
     {
         return (character.Element(nodeName)?.Value ?? string.Empty).Trim();
+    }
+
+    private static string ReadPrimaryDisplayName(XElement character, string alias)
+    {
+        string name = ReadValue(character, "name");
+        return string.IsNullOrWhiteSpace(name) ? alias : name;
     }
 
     private static decimal ParseDecimal(string value, string nodeName)

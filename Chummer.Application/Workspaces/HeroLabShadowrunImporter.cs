@@ -420,6 +420,42 @@ public static class HeroLabShadowrunImporter
             OracleContacts: oracleContacts);
     }
 
+    public static string ConvertOnlineJsonToNativeXml(string json, string sourceLabel)
+    {
+        HeroLabImportSnapshot snapshot = ImportOnlineJson(json, sourceLabel);
+        XElement root = new("character",
+            new XElement("name", snapshot.Profile.Name),
+            new XElement("alias", snapshot.Profile.Alias),
+            new XElement("metatype", snapshot.Profile.Metatype),
+            new XElement("buildmethod", snapshot.Profile.BuildMethod),
+            new XElement("createdversion", snapshot.Profile.CreatedVersion),
+            new XElement("appversion", snapshot.Profile.AppVersion),
+            new XElement("karma", snapshot.Progress.Karma.ToString("0.##")),
+            new XElement("nuyen", snapshot.Progress.Nuyen.ToString("0.##")),
+            new XElement("created", snapshot.Profile.Created ? "True" : "False"),
+            new XElement("gameedition", "SR6"),
+            new XElement("settings", OnlineJsonFormatId),
+            new XElement("gameplayoption", snapshot.Rules.GameplayOption),
+            new XElement("walk", snapshot.Movement.Walk),
+            new XElement("run", snapshot.Movement.Run),
+            new XElement("sprint", snapshot.Movement.Sprint),
+            new XElement("magenabled", snapshot.Awakening.MagEnabled ? "True" : "False"),
+            new XElement("resenabled", snapshot.Awakening.ResEnabled ? "True" : "False"),
+            new XElement("depenabled", snapshot.Awakening.DepEnabled ? "True" : "False"),
+            new XElement("adept", snapshot.Awakening.Adept ? "True" : "False"),
+            new XElement("magician", snapshot.Awakening.Magician ? "True" : "False"),
+            new XElement("technomancer", snapshot.Awakening.Technomancer ? "True" : "False"),
+            new XElement("ai", snapshot.Awakening.AI ? "True" : "False"),
+            new XElement("initiategrade", snapshot.Awakening.InitiateGrade.ToString()),
+            new XElement("submersiongrade", snapshot.Awakening.SubmersionGrade.ToString()),
+            new XElement("tradition", snapshot.Awakening.Tradition),
+            new XElement("traditionname", snapshot.Awakening.TraditionName),
+            new XElement("traditiondrain", snapshot.Awakening.TraditionDrain),
+            new XElement("stream", snapshot.Awakening.Stream),
+            new XElement("streamdrain", snapshot.Awakening.StreamDrain));
+        return root.ToString(SaveOptions.DisableFormatting);
+    }
+
     private static HeroLabImportSnapshot BuildClassicSnapshot(
         string rulesetId,
         string sourceLabel,
