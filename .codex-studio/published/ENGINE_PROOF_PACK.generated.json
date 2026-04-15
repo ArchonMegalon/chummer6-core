@@ -1,7 +1,7 @@
 {
   "contract_name": "chummer6-core.engine_proof_pack",
   "schema_version": 1,
-  "generated_at": "2026-04-15T11:18:40Z",
+  "generated_at": "2026-04-15T11:25:29Z",
   "status": "passed",
   "proof_kind": "release_bound_engine_proof",
   "milestone_id": 104,
@@ -52,6 +52,7 @@
         "owner: chummer6-core",
         "status: complete",
         "successor_wave_authority=passed",
+        "/docker/chummercomplete/chummer-core-engine commit 8dd516ef makes failed engine proof pack generation exit nonzero while still writing diagnostic receipts.",
         "dotnet run --project Chummer.Benchmarks/Chummer.Benchmarks.csproj -c Release -- --budget-check --budget-file Chummer.Benchmarks/workspace-benchmark-budgets.json exits 0"
       ]
     },
@@ -66,6 +67,7 @@
       "/docker/chummercomplete/chummer-core-engine/scripts/generate-engine-proof-pack.py",
       "/docker/chummercomplete/chummer-core-engine/tests/test_engine_proof_pack_generator.py",
       "/docker/chummercomplete/chummer-core-engine/docs/ENGINE_PROOF_PACK.md",
+      "/docker/chummercomplete/chummer-core-engine commit 8dd516ef makes failed engine proof pack generation exit nonzero while still writing diagnostic receipts.",
       "allowed_paths:",
       "- src",
       "- tests",
