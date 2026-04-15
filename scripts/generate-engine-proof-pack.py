@@ -201,6 +201,7 @@ REQUIRED_LOCAL_COMMIT_PROOFS = (
     ("6b3a662c", "current M104 proof pack guard required by registry and queue closeout"),
     ("3b63478f", "current M104 proof pack guard floor required by registry and queue closeout"),
     ("31c75c02", "current M104 closed-package guard floor required by local closeout"),
+    ("ef46554c", "current M104 proof pack guard floor required by local closeout"),
 )
 
 
