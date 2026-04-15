@@ -53,6 +53,8 @@ RELEASE_COMMANDS = (
 )
 
 RELEASE_CHANNEL_PATH = Path("/docker/chummercomplete/chummer-hub-registry/.codex-studio/published/RELEASE_CHANNEL.generated.json")
+CANONICAL_CHUMMER_ROOT = Path("/docker/chummercomplete")
+CANONICAL_PACKAGE_ROOT = CANONICAL_CHUMMER_ROOT / "chummer-core-engine"
 
 SUCCESSOR_WAVE_PACKAGE = {
     "program_wave": "next_90_day_product_advance",
@@ -323,6 +325,19 @@ def _list_drift(actual: list[str], expected: tuple[str, ...]) -> tuple[list[str]
     return missing, unexpected
 
 
+def _is_canonical_anchor_outside_package(anchor_path: Path) -> bool:
+    try:
+        resolved = anchor_path.resolve()
+        resolved.relative_to(CANONICAL_CHUMMER_ROOT)
+    except ValueError:
+        return False
+    try:
+        resolved.relative_to(CANONICAL_PACKAGE_ROOT)
+    except ValueError:
+        return True
+    return False
+
+
 def _validate_queue_authority(queue_path: Path, generated_output_path: Path | None = None) -> dict[str, Any]:
     queue_text = _read_text(queue_path)
     queue_scope = _extract_list_item_block(queue_text, "package_id: next90-m104-core-proof-pack")
@@ -334,6 +349,11 @@ def _validate_queue_authority(queue_path: Path, generated_output_path: Path | No
         planned_generated_anchor = generated_output_path is not None and anchor_path.resolve() == generated_output_path.resolve()
         if not anchor_path.exists() and not planned_generated_anchor:
             missing_queue_proof_anchors.append(anchor)
+    off_package_queue_proof_anchors = [
+        anchor
+        for anchor in SUCCESSOR_QUEUE_PROOF_ANCHORS
+        if anchor in queue_scope and _is_canonical_anchor_outside_package(Path(anchor))
+    ]
     queue_allowed_paths = _extract_yaml_list_values(queue_scope, "allowed_paths") if queue_scope else []
     missing_queue_allowed_paths, unexpected_queue_allowed_paths = _list_drift(queue_allowed_paths, EXPECTED_QUEUE_ALLOWED_PATHS)
     queue_owned_surfaces = _extract_yaml_list_values(queue_scope, "owned_surfaces") if queue_scope else []
@@ -349,9 +369,10 @@ def _validate_queue_authority(queue_path: Path, generated_output_path: Path | No
 
     return {
         "path": str(queue_path),
-        "status": "passed" if not missing_queue_tokens and not missing_queue_proof_anchors else "failed",
+        "status": "passed" if not missing_queue_tokens and not missing_queue_proof_anchors and not off_package_queue_proof_anchors else "failed",
         "missing_tokens": missing_queue_tokens,
         "missing_proof_anchors": missing_queue_proof_anchors,
+        "off_package_proof_anchors": off_package_queue_proof_anchors,
         "allowed_paths": queue_allowed_paths,
         "expected_allowed_paths": list(EXPECTED_QUEUE_ALLOWED_PATHS),
         "unexpected_allowed_paths": unexpected_queue_allowed_paths,
@@ -409,6 +430,7 @@ def _validate_successor_wave_authority(generated_output_path: Path | None = None
             "missing_registry_task_tokens": missing_registry_task_tokens,
             "missing_queue_tokens": fleet_queue_authority["missing_tokens"],
             "missing_queue_proof_anchors": fleet_queue_authority["missing_proof_anchors"],
+            "off_package_queue_proof_anchors": fleet_queue_authority["off_package_proof_anchors"],
             "queue_allowed_paths": fleet_queue_authority["allowed_paths"],
             "expected_queue_allowed_paths": list(EXPECTED_QUEUE_ALLOWED_PATHS),
             "unexpected_queue_allowed_paths": fleet_queue_authority["unexpected_allowed_paths"],
@@ -417,6 +439,7 @@ def _validate_successor_wave_authority(generated_output_path: Path | None = None
             "unexpected_queue_owned_surfaces": fleet_queue_authority["unexpected_owned_surfaces"],
             "design_queue_missing_tokens": design_queue_authority["missing_tokens"],
             "design_queue_missing_proof_anchors": design_queue_authority["missing_proof_anchors"],
+            "design_queue_off_package_proof_anchors": design_queue_authority["off_package_proof_anchors"],
             "design_queue_allowed_paths": design_queue_authority["allowed_paths"],
             "expected_design_queue_allowed_paths": list(EXPECTED_QUEUE_ALLOWED_PATHS),
             "unexpected_design_queue_allowed_paths": design_queue_authority["unexpected_allowed_paths"],
