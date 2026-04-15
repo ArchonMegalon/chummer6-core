@@ -106,6 +106,10 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
             "b488d109",
             [row["commit"] for row in payload["local_commit_proofs"]["required_commits"]],
         )
+        self.assertIn(
+            "b6fddf74",
+            [row["commit"] for row in payload["local_commit_proofs"]["required_commits"]],
+        )
         self.assertEqual("complete", payload["successor_wave_authority"]["closure_requirements"]["status"])
         self.assertEqual(3227666051, payload["successor_wave_authority"]["closure_requirements"]["frontier_id"])
         self.assertEqual("00800059", payload["successor_wave_authority"]["closure_requirements"]["landed_commit"])
@@ -812,6 +816,25 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
         }
         self.assertEqual("failed", missing["b488d109"])
 
+    def test_build_payload_fails_closed_when_latest_m104_proof_pack_authority_guard_does_not_resolve(self) -> None:
+        (self.root / ".git").mkdir()
+
+        def fake_cat_file(command: list[str], **_: Any) -> Any:
+            commit_ref = command[-1]
+            return mock.Mock(returncode=1 if commit_ref.startswith("b6fddf74") else 0)
+
+        with mock.patch.object(self.generator.subprocess, "run", side_effect=fake_cat_file):
+            payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertEqual("failed", payload["local_commit_proofs"]["status"])
+        self.assertIn("b6fddf74", payload["unresolved"]["local_commit_proofs"])
+        missing = {
+            row["commit"]: row["status"]
+            for row in payload["local_commit_proofs"]["required_commits"]
+        }
+        self.assertEqual("failed", missing["b6fddf74"])
+
     def test_list_item_block_for_nested_queue_key_stops_before_later_package(self) -> None:
         text = "\n".join(
             [
@@ -973,6 +996,7 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
                     "          - /docker/chummercomplete/chummer-core-engine commit a2173476 requires the current d4b3b0ba guard in the generated proof pack, unit tests, and proof-pack documentation.",
                     "          - /docker/chummercomplete/chummer-core-engine commit 4b124997 binds M104 proof pack generation, tests, documentation, and checked-in receipt to active-run hygiene guard 4a56911d.",
                     "          - /docker/chummercomplete/chummer-core-engine commit b488d109 pins the latest M104 proof pack authority so future shards verify the closed package instead of repeating it.",
+                    "          - /docker/chummercomplete/chummer-core-engine commit b6fddf74 tightens the current M104 proof pack authority guard so future shards verify the latest closed package.",
                     "          - dotnet run --project Chummer.Benchmarks/Chummer.Benchmarks.csproj -c Release -- --budget-check --budget-file Chummer.Benchmarks/workspace-benchmark-budgets.json exits 0",
                 ]
             )
@@ -1001,6 +1025,7 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
                     "      - /docker/chummercomplete/chummer-core-engine commit a2173476 requires the current d4b3b0ba guard in the generated proof pack, unit tests, and proof-pack documentation.",
                     "      - /docker/chummercomplete/chummer-core-engine commit 4b124997 binds M104 proof pack generation, tests, documentation, and checked-in receipt to active-run hygiene guard 4a56911d.",
                     "      - /docker/chummercomplete/chummer-core-engine commit b488d109 pins the latest M104 proof pack authority so future shards verify the closed package instead of repeating it.",
+                    "      - /docker/chummercomplete/chummer-core-engine commit b6fddf74 tightens the current M104 proof pack authority guard so future shards verify the latest closed package.",
                     "    allowed_paths:",
                     "      - src",
                     "      - tests",
