@@ -149,6 +149,7 @@ REQUIRED_LOCAL_COMMIT_PROOFS = (
     ("53d5678c", "design queue scope guard binding"),
     ("26f2921f", "engine proof commit guard"),
     ("7b42b69f", "package-local proof anchor scope guard"),
+    ("220dd257", "current proof pack guard binding"),
 )
 
 

@@ -20,7 +20,7 @@ The proof pack must fail closed unless it includes:
 - queue closeout proof that the successor queue row is marked `status: complete`, pins frontier `3227666051`, cites landed commit `00800059`, and lists the proof anchors for this generated pack, generator, tests, and documentation
 - queue and registry closeout proof for commit `8dd516ef`, which makes failed generator runs exit nonzero while still writing diagnostic receipts
 - queue and registry closeout proof for commit `c88178fa`, which proves design-owned queue scope drift fails closed
-- local git commit proof that the cited M104 guard commits, including latest guard `7b42b69f`, resolve in this repository before the release-bound proof pack can pass
+- local git commit proof that the cited M104 guard commits, including latest guard `220dd257`, resolve in this repository before the release-bound proof pack can pass
 - design-owned queue closeout proof from `/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_QUEUE_STAGING.generated.yaml`, in addition to the Fleet staging mirror, so Fleet-local staging cannot be the only authority that keeps the package closed
 - design-owned queue scope proof that fails closed if the canonical queue row adds unassigned allowed paths or owned surfaces even when the Fleet staging mirror stays clean
 - filesystem resolution for the queue proof anchors so stale or moved closeout evidence cannot keep the package marked passed
