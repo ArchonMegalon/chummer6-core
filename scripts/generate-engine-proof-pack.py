@@ -113,6 +113,7 @@ SUCCESSOR_REGISTRY_TASK_TOKENS = {
         "/docker/chummercomplete/chummer-core-engine commit 8574f63f pins the M104 proof pack receipt guard.",
         "/docker/chummercomplete/chummer-core-engine commit 6b3a662c requires the current 8574f63f guard in the generated proof pack, unit tests, and proof-pack documentation.",
         "/docker/chummercomplete/chummer-core-engine commit 3b63478f pins the current 6b3a662c guard in the generated proof pack, unit tests, and proof-pack documentation.",
+        "/docker/chummercomplete/chummer-core-engine commit cd30503f pins the current d2ee91a9 engine proof floor in the generated proof pack, unit tests, and proof-pack documentation.",
         "dotnet run --project Chummer.Benchmarks/Chummer.Benchmarks.csproj -c Release -- --budget-check --budget-file Chummer.Benchmarks/workspace-benchmark-budgets.json exits 0",
     ),
 }
@@ -142,6 +143,7 @@ SUCCESSOR_QUEUE_TOKENS = (
     "/docker/chummercomplete/chummer-core-engine commit 8574f63f pins the M104 proof pack receipt guard.",
     "/docker/chummercomplete/chummer-core-engine commit 6b3a662c requires the current 8574f63f guard in the generated proof pack, unit tests, and proof-pack documentation.",
     "/docker/chummercomplete/chummer-core-engine commit 3b63478f pins the current 6b3a662c guard in the generated proof pack, unit tests, and proof-pack documentation.",
+    "/docker/chummercomplete/chummer-core-engine commit cd30503f pins the current d2ee91a9 engine proof floor in the generated proof pack, unit tests, and proof-pack documentation.",
     "allowed_paths:",
     "- src",
     "- tests",
@@ -205,6 +207,7 @@ REQUIRED_LOCAL_COMMIT_PROOFS = (
     ("0771b7ea", "current M104 proof pack guard floor required by local closeout"),
     ("fdb6a273", "current M104 engine proof guard floor required by local closeout"),
     ("d2ee91a9", "current M104 engine proof floor required by local closeout"),
+    ("cd30503f", "current M104 engine proof floor queue citation required by local closeout"),
 )
 
 
