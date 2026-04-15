@@ -160,6 +160,47 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
         self.assertIn("source_queue", payload["unresolved"]["successor_wave_authority"])
         self.assertIn(proof_anchor, payload["successor_wave_authority"]["missing_queue_tokens"])
 
+    def test_build_payload_fails_closed_when_successor_queue_proof_anchor_only_exists_on_later_item(self) -> None:
+        queue_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_queue_path"])
+        queue_text = queue_path.read_text(encoding="utf-8")
+        proof_anchor = "/docker/chummercomplete/chummer-core-engine/docs/ENGINE_PROOF_PACK.md"
+        queue_text = queue_text.replace(f"      - {proof_anchor}\n", "")
+        queue_text += (
+            "\n"
+            "  - title: Later unrelated package\n"
+            "    package_id: different-package\n"
+            "    proof:\n"
+            f"      - {proof_anchor}\n"
+        )
+        queue_path.write_text(queue_text, encoding="utf-8")
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertEqual("failed", payload["successor_wave_authority"]["status"])
+        self.assertIn("source_queue", payload["unresolved"]["successor_wave_authority"])
+        self.assertIn(proof_anchor, payload["successor_wave_authority"]["missing_queue_tokens"])
+
+    def test_list_item_block_for_nested_queue_key_stops_before_later_package(self) -> None:
+        text = "\n".join(
+            [
+                "items:",
+                "  - title: Target",
+                "    package_id: next90-m104-core-proof-pack",
+                "    status: in_progress",
+                "  - title: Later",
+                "    package_id: different-package",
+                "    status: complete",
+            ]
+        )
+
+        block = self.generator._extract_list_item_block(text, "package_id: next90-m104-core-proof-pack")
+
+        self.assertIn("title: Target", block)
+        self.assertIn("status: in_progress", block)
+        self.assertNotIn("title: Later", block)
+        self.assertNotIn("status: complete", block)
+
     def test_planned_generated_output_does_not_create_first_run_self_failure(self) -> None:
         self.assertFalse(self.output_path.exists())
 

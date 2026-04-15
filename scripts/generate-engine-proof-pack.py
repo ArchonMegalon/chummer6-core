@@ -201,23 +201,34 @@ def _validate_text_tokens(path: Path, required_tokens: tuple[str, ...]) -> tuple
 
 def _extract_list_item_block(text: str, item_header: str) -> str:
     lines = text.splitlines()
-    start_index = -1
-    header_indent = ""
-    header_prefix = ""
+    match_index = -1
     for index, line in enumerate(lines):
         stripped = line.lstrip()
         if stripped == item_header or stripped == f"- {item_header}":
-            start_index = index
-            header_indent = line[: len(line) - len(stripped)]
-            header_prefix = f"{header_indent}- "
+            match_index = index
             break
 
-    if start_index < 0:
+    if match_index < 0:
         return ""
+
+    match_indent = len(lines[match_index]) - len(lines[match_index].lstrip())
+    start_index = match_index
+    item_indent = match_indent
+    if not lines[match_index].lstrip().startswith("- "):
+        for parent_index in range(match_index - 1, -1, -1):
+            parent = lines[parent_index]
+            parent_stripped = parent.lstrip()
+            parent_indent = len(parent) - len(parent_stripped)
+            if parent_indent < match_indent and parent_stripped.startswith("- "):
+                start_index = parent_index
+                item_indent = parent_indent
+                break
 
     block_lines = [lines[start_index]]
     for line in lines[start_index + 1 :]:
-        if line.startswith(header_prefix):
+        stripped = line.lstrip()
+        indent = len(line) - len(stripped)
+        if indent == item_indent and stripped.startswith("- "):
             break
         block_lines.append(line)
     return "\n".join(block_lines) + "\n"
