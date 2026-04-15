@@ -171,6 +171,9 @@ DISALLOWED_ACTIVE_RUN_PROOF_TOKENS = (
     "active run helper",
     "active-run helper",
 )
+DISALLOWED_ACTIVE_RUN_PROOF_TOKEN_MATCHES = tuple(
+    (token, token.lower()) for token in DISALLOWED_ACTIVE_RUN_PROOF_TOKENS
+)
 
 REQUIRED_LOCAL_COMMIT_PROOFS = (
     ("00800059", "initial fail-closed successor authority and oracle/budget generator tests"),
@@ -338,6 +341,15 @@ def _validate_text_tokens(path: Path, required_tokens: tuple[str, ...]) -> tuple
     return ("passed" if not missing else "failed", missing)
 
 
+def _find_disallowed_active_run_tokens(text: str) -> list[str]:
+    lower_text = text.lower()
+    return [
+        token
+        for token, normalized in DISALLOWED_ACTIVE_RUN_PROOF_TOKEN_MATCHES
+        if normalized in lower_text
+    ]
+
+
 def _extract_list_item_block(text: str, item_header: str) -> str:
     lines = text.splitlines()
     match_index = -1
@@ -421,7 +433,7 @@ def _validate_queue_authority(queue_path: Path, generated_output_path: Path | No
     queue_scope = _extract_list_item_block(queue_text, "package_id: next90-m104-core-proof-pack")
     missing_queue_tokens = ["queue_item:next90-m104-core-proof-pack"] if not queue_scope else []
     missing_queue_tokens.extend(token for token in SUCCESSOR_QUEUE_TOKENS if token not in queue_scope)
-    disallowed_active_run_tokens = [token for token in DISALLOWED_ACTIVE_RUN_PROOF_TOKENS if token in queue_scope]
+    disallowed_active_run_tokens = _find_disallowed_active_run_tokens(queue_scope)
     missing_queue_proof_anchors = []
     for anchor in SUCCESSOR_QUEUE_PROOF_ANCHORS:
         anchor_path = Path(anchor)
@@ -485,7 +497,7 @@ def _validate_successor_wave_authority(generated_output_path: Path | None = None
         if missing:
             missing_registry_task_tokens[task_id] = missing
             missing_registry_tokens.extend(f"{task_id}:{token}" for token in missing)
-        disallowed = [token for token in DISALLOWED_ACTIVE_RUN_PROOF_TOKENS if token in task_scope]
+        disallowed = _find_disallowed_active_run_tokens(task_scope)
         if disallowed:
             disallowed_registry_active_run_tokens[task_id] = disallowed
             missing_registry_tokens.extend(f"{task_id}:disallowed_active_run_proof:{token}" for token in disallowed)
