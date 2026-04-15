@@ -142,6 +142,13 @@ SUCCESSOR_QUEUE_PROOF_ANCHORS = (
 
 EXPECTED_QUEUE_ALLOWED_PATHS = tuple(SUCCESSOR_WAVE_PACKAGE["allowed_paths"])
 EXPECTED_QUEUE_OWNED_SURFACES = tuple(SUCCESSOR_WAVE_PACKAGE["owned_surfaces"])
+DISALLOWED_ACTIVE_RUN_PROOF_TOKENS = (
+    "ACTIVE_RUN_HANDOFF",
+    "active-run telemetry",
+    "operator telemetry",
+    "active run helper",
+    "active-run helper",
+)
 
 REQUIRED_LOCAL_COMMIT_PROOFS = (
     ("00800059", "initial fail-closed successor authority and oracle/budget generator tests"),
@@ -161,6 +168,7 @@ REQUIRED_LOCAL_COMMIT_PROOFS = (
     ("769e7259", "completed queue proof bound to latest local guard"),
     ("d4b3b0ba", "current proof pack guard required by registry and queue closeout"),
     ("a2173476", "current proof pack guard required by registry and queue closeout"),
+    ("dafc1205", "latest proof pack guard required by local closeout"),
 )
 
 
@@ -357,6 +365,7 @@ def _validate_queue_authority(queue_path: Path, generated_output_path: Path | No
     queue_scope = _extract_list_item_block(queue_text, "package_id: next90-m104-core-proof-pack")
     missing_queue_tokens = ["queue_item:next90-m104-core-proof-pack"] if not queue_scope else []
     missing_queue_tokens.extend(token for token in SUCCESSOR_QUEUE_TOKENS if token not in queue_scope)
+    disallowed_active_run_tokens = [token for token in DISALLOWED_ACTIVE_RUN_PROOF_TOKENS if token in queue_scope]
     missing_queue_proof_anchors = []
     for anchor in SUCCESSOR_QUEUE_PROOF_ANCHORS:
         anchor_path = Path(anchor)
@@ -383,10 +392,16 @@ def _validate_queue_authority(queue_path: Path, generated_output_path: Path | No
 
     return {
         "path": str(queue_path),
-        "status": "passed" if not missing_queue_tokens and not missing_queue_proof_anchors and not off_package_queue_proof_anchors else "failed",
+        "status": "passed"
+        if not missing_queue_tokens
+        and not missing_queue_proof_anchors
+        and not off_package_queue_proof_anchors
+        and not disallowed_active_run_tokens
+        else "failed",
         "missing_tokens": missing_queue_tokens,
         "missing_proof_anchors": missing_queue_proof_anchors,
         "off_package_proof_anchors": off_package_queue_proof_anchors,
+        "disallowed_active_run_tokens": disallowed_active_run_tokens,
         "allowed_paths": queue_allowed_paths,
         "expected_allowed_paths": list(EXPECTED_QUEUE_ALLOWED_PATHS),
         "unexpected_allowed_paths": unexpected_queue_allowed_paths,
@@ -406,6 +421,7 @@ def _validate_successor_wave_authority(generated_output_path: Path | None = None
     registry_missing_scope_tokens = ["milestone_block:id:104"] if not registry_scope else []
     missing_registry_tokens = registry_missing_scope_tokens + [token for token in SUCCESSOR_REGISTRY_MILESTONE_TOKENS if token not in registry_scope]
     missing_registry_task_tokens: dict[str, list[str]] = {}
+    disallowed_registry_active_run_tokens: dict[str, list[str]] = {}
     for task_id, required_tokens in SUCCESSOR_REGISTRY_TASK_TOKENS.items():
         task_scope = _extract_list_item_block(registry_scope, f"id: {task_id}") if registry_scope else ""
         missing = [f"task_block:id:{task_id}"] if not task_scope else []
@@ -413,6 +429,10 @@ def _validate_successor_wave_authority(generated_output_path: Path | None = None
         if missing:
             missing_registry_task_tokens[task_id] = missing
             missing_registry_tokens.extend(f"{task_id}:{token}" for token in missing)
+        disallowed = [token for token in DISALLOWED_ACTIVE_RUN_PROOF_TOKENS if token in task_scope]
+        if disallowed:
+            disallowed_registry_active_run_tokens[task_id] = disallowed
+            missing_registry_tokens.extend(f"{task_id}:disallowed_active_run_proof:{token}" for token in disallowed)
 
     fleet_queue_authority = _validate_queue_authority(queue_path, generated_output_path)
     design_queue_authority = _validate_queue_authority(design_queue_path, generated_output_path)
@@ -442,9 +462,11 @@ def _validate_successor_wave_authority(generated_output_path: Path | None = None
             },
             "missing_registry_tokens": missing_registry_tokens,
             "missing_registry_task_tokens": missing_registry_task_tokens,
+            "disallowed_registry_active_run_tokens": disallowed_registry_active_run_tokens,
             "missing_queue_tokens": fleet_queue_authority["missing_tokens"],
             "missing_queue_proof_anchors": fleet_queue_authority["missing_proof_anchors"],
             "off_package_queue_proof_anchors": fleet_queue_authority["off_package_proof_anchors"],
+            "disallowed_queue_active_run_tokens": fleet_queue_authority["disallowed_active_run_tokens"],
             "queue_allowed_paths": fleet_queue_authority["allowed_paths"],
             "expected_queue_allowed_paths": list(EXPECTED_QUEUE_ALLOWED_PATHS),
             "unexpected_queue_allowed_paths": fleet_queue_authority["unexpected_allowed_paths"],
@@ -454,6 +476,7 @@ def _validate_successor_wave_authority(generated_output_path: Path | None = None
             "design_queue_missing_tokens": design_queue_authority["missing_tokens"],
             "design_queue_missing_proof_anchors": design_queue_authority["missing_proof_anchors"],
             "design_queue_off_package_proof_anchors": design_queue_authority["off_package_proof_anchors"],
+            "disallowed_design_queue_active_run_tokens": design_queue_authority["disallowed_active_run_tokens"],
             "design_queue_allowed_paths": design_queue_authority["allowed_paths"],
             "expected_design_queue_allowed_paths": list(EXPECTED_QUEUE_ALLOWED_PATHS),
             "unexpected_design_queue_allowed_paths": design_queue_authority["unexpected_allowed_paths"],

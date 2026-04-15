@@ -82,6 +82,10 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
             "a2173476",
             [row["commit"] for row in payload["local_commit_proofs"]["required_commits"]],
         )
+        self.assertIn(
+            "dafc1205",
+            [row["commit"] for row in payload["local_commit_proofs"]["required_commits"]],
+        )
         self.assertEqual("complete", payload["successor_wave_authority"]["closure_requirements"]["status"])
         self.assertEqual(3227666051, payload["successor_wave_authority"]["closure_requirements"]["frontier_id"])
         self.assertEqual("00800059", payload["successor_wave_authority"]["closure_requirements"]["landed_commit"])
@@ -105,6 +109,9 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
         self.assertEqual([], payload["successor_wave_authority"]["design_queue_missing_proof_anchors"])
         self.assertEqual([], payload["successor_wave_authority"]["off_package_queue_proof_anchors"])
         self.assertEqual([], payload["successor_wave_authority"]["design_queue_off_package_proof_anchors"])
+        self.assertEqual({}, payload["successor_wave_authority"]["disallowed_registry_active_run_tokens"])
+        self.assertEqual([], payload["successor_wave_authority"]["disallowed_queue_active_run_tokens"])
+        self.assertEqual([], payload["successor_wave_authority"]["disallowed_design_queue_active_run_tokens"])
         self.assertEqual(["src", "tests", "docs", "scripts"], payload["successor_wave_authority"]["design_queue_allowed_paths"])
         self.assertEqual(
             ["engine_proof_pack", "import_oracle_discipline"],
@@ -365,6 +372,32 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
             payload["successor_wave_authority"]["missing_registry_task_tokens"]["104.1"],
         )
 
+    def test_build_payload_fails_closed_when_successor_registry_task_cites_active_run_proof(self) -> None:
+        registry_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_registry_path"])
+        registry_text = registry_path.read_text(encoding="utf-8")
+        registry_path.write_text(
+            registry_text.replace(
+                "          - successor_wave_authority=passed\n",
+                "          - successor_wave_authority=passed\n"
+                "          - operator telemetry transcript\n",
+            ),
+            encoding="utf-8",
+        )
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertEqual("failed", payload["successor_wave_authority"]["status"])
+        self.assertIn("source_registry", payload["unresolved"]["successor_wave_authority"])
+        self.assertEqual(
+            {"104.2": ["operator telemetry"]},
+            payload["successor_wave_authority"]["disallowed_registry_active_run_tokens"],
+        )
+        self.assertIn(
+            "104.2:disallowed_active_run_proof:operator telemetry",
+            payload["successor_wave_authority"]["missing_registry_tokens"],
+        )
+
     def test_build_payload_fails_closed_when_successor_queue_loses_proof_anchor(self) -> None:
         queue_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_queue_path"])
         queue_text = queue_path.read_text(encoding="utf-8")
@@ -446,6 +479,25 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
         self.assertIn("source_queue", payload["unresolved"]["successor_wave_authority"])
         self.assertEqual([off_package_anchor], payload["successor_wave_authority"]["off_package_queue_proof_anchors"])
 
+    def test_build_payload_fails_closed_when_successor_queue_cites_active_run_proof(self) -> None:
+        queue_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_queue_path"])
+        queue_text = queue_path.read_text(encoding="utf-8")
+        queue_path.write_text(
+            queue_text.replace(
+                "      - /docker/chummercomplete/chummer-core-engine/docs/ENGINE_PROOF_PACK.md\n",
+                "      - /docker/chummercomplete/chummer-core-engine/docs/ENGINE_PROOF_PACK.md\n"
+                "      - /var/lib/codex-fleet/chummer_design_supervisor/shard-4/ACTIVE_RUN_HANDOFF.generated.md\n",
+            ),
+            encoding="utf-8",
+        )
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertEqual("failed", payload["successor_wave_authority"]["status"])
+        self.assertIn("source_queue", payload["unresolved"]["successor_wave_authority"])
+        self.assertEqual(["ACTIVE_RUN_HANDOFF"], payload["successor_wave_authority"]["disallowed_queue_active_run_tokens"])
+
     def test_build_payload_fails_closed_when_design_queue_loses_package_authority(self) -> None:
         design_queue_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_design_queue_path"])
         design_queue_path.write_text("package_id: different-package\n", encoding="utf-8")
@@ -484,6 +536,29 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
         self.assertEqual(
             [off_package_anchor],
             payload["successor_wave_authority"]["design_queue_off_package_proof_anchors"],
+        )
+        self.assertEqual([], payload["successor_wave_authority"]["missing_queue_tokens"])
+
+    def test_build_payload_fails_closed_when_design_queue_cites_active_run_proof(self) -> None:
+        design_queue_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_design_queue_path"])
+        queue_text = design_queue_path.read_text(encoding="utf-8")
+        design_queue_path.write_text(
+            queue_text.replace(
+                "      - /docker/chummercomplete/chummer-core-engine/docs/ENGINE_PROOF_PACK.md\n",
+                "      - /docker/chummercomplete/chummer-core-engine/docs/ENGINE_PROOF_PACK.md\n"
+                "      - active-run telemetry helper output\n",
+            ),
+            encoding="utf-8",
+        )
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertEqual("failed", payload["successor_wave_authority"]["status"])
+        self.assertIn("source_design_queue", payload["unresolved"]["successor_wave_authority"])
+        self.assertEqual(
+            ["active-run telemetry"],
+            payload["successor_wave_authority"]["disallowed_design_queue_active_run_tokens"],
         )
         self.assertEqual([], payload["successor_wave_authority"]["missing_queue_tokens"])
 
@@ -602,6 +677,25 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
             for row in payload["local_commit_proofs"]["required_commits"]
         }
         self.assertEqual("failed", missing["a2173476"])
+
+    def test_build_payload_fails_closed_when_active_run_proof_hygiene_guard_commit_does_not_resolve(self) -> None:
+        (self.root / ".git").mkdir()
+
+        def fake_cat_file(command: list[str], **_: Any) -> Any:
+            commit_ref = command[-1]
+            return mock.Mock(returncode=1 if commit_ref.startswith("dafc1205") else 0)
+
+        with mock.patch.object(self.generator.subprocess, "run", side_effect=fake_cat_file):
+            payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertEqual("failed", payload["local_commit_proofs"]["status"])
+        self.assertIn("dafc1205", payload["unresolved"]["local_commit_proofs"])
+        missing = {
+            row["commit"]: row["status"]
+            for row in payload["local_commit_proofs"]["required_commits"]
+        }
+        self.assertEqual("failed", missing["dafc1205"])
 
     def test_list_item_block_for_nested_queue_key_stops_before_later_package(self) -> None:
         text = "\n".join(

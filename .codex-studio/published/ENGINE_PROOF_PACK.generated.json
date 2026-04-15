@@ -1,7 +1,7 @@
 {
   "contract_name": "chummer6-core.engine_proof_pack",
   "schema_version": 1,
-  "generated_at": "2026-04-15T13:55:28Z",
+  "generated_at": "2026-04-15T14:02:39Z",
   "status": "passed",
   "proof_kind": "release_bound_engine_proof",
   "milestone_id": 104,
@@ -91,9 +91,11 @@
     },
     "missing_registry_tokens": [],
     "missing_registry_task_tokens": {},
+    "disallowed_registry_active_run_tokens": {},
     "missing_queue_tokens": [],
     "missing_queue_proof_anchors": [],
     "off_package_queue_proof_anchors": [],
+    "disallowed_queue_active_run_tokens": [],
     "queue_allowed_paths": [
       "src",
       "tests",
@@ -119,6 +121,7 @@
     "design_queue_missing_tokens": [],
     "design_queue_missing_proof_anchors": [],
     "design_queue_off_package_proof_anchors": [],
+    "disallowed_design_queue_active_run_tokens": [],
     "design_queue_allowed_paths": [
       "src",
       "tests",
@@ -241,6 +244,11 @@
       {
         "commit": "a2173476",
         "purpose": "current proof pack guard required by registry and queue closeout",
+        "status": "passed"
+      },
+      {
+        "commit": "dafc1205",
+        "purpose": "latest proof pack guard required by local closeout",
         "status": "passed"
       }
     ],
