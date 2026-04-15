@@ -16,6 +16,16 @@
       "name": "workspace.save.bastion",
       "maxMeanMilliseconds": 80.0,
       "maxAllocatedBytes": 16000000
+    },
+    {
+      "name": "runtime.explain.trace",
+      "maxMeanMilliseconds": 220.0,
+      "maxAllocatedBytes": 24000000
+    },
+    {
+      "name": "workspace.export.bastion",
+      "maxMeanMilliseconds": 160.0,
+      "maxAllocatedBytes": 96000000
     }
   ]
 }

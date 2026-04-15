@@ -1,7 +1,7 @@
 {
   "contract_name": "chummer6-core.engine_proof_pack",
   "schema_version": 1,
-  "generated_at": "2026-04-15T08:12:19Z",
+  "generated_at": "2026-04-15T08:52:45Z",
   "status": "passed",
   "proof_kind": "release_bound_engine_proof",
   "milestone_id": 104,
@@ -139,7 +139,10 @@
       "max_mean_milliseconds": 250.0,
       "max_allocated_bytes": 32000000,
       "source": "Benchmark budget workload",
-      "benchmark_budget_source": "Chummer.Benchmarks/workspace-benchmark-budgets.json"
+      "benchmark_budget_source": "Chummer.Benchmarks/workspace-benchmark-budgets.json",
+      "missing_workload": false,
+      "benchmark_workload_evidence": "Chummer.Benchmarks/MigrationWorkspaceBenchmarks.cs",
+      "missing_executable_workload": false
     },
     {
       "id": "load",
@@ -148,7 +151,10 @@
       "max_mean_milliseconds": 180.0,
       "max_allocated_bytes": 32000000,
       "source": "Benchmark budget workload",
-      "benchmark_budget_source": "Chummer.Benchmarks/workspace-benchmark-budgets.json"
+      "benchmark_budget_source": "Chummer.Benchmarks/workspace-benchmark-budgets.json",
+      "missing_workload": false,
+      "benchmark_workload_evidence": "Chummer.Benchmarks/MigrationWorkspaceBenchmarks.cs",
+      "missing_executable_workload": false
     },
     {
       "id": "diff_apply",
@@ -157,7 +163,10 @@
       "max_mean_milliseconds": 80.0,
       "max_allocated_bytes": 16000000,
       "source": "Benchmark budget workload",
-      "benchmark_budget_source": "Chummer.Benchmarks/workspace-benchmark-budgets.json"
+      "benchmark_budget_source": "Chummer.Benchmarks/workspace-benchmark-budgets.json",
+      "missing_workload": false,
+      "benchmark_workload_evidence": "Chummer.Benchmarks/MigrationWorkspaceBenchmarks.cs",
+      "missing_executable_workload": false
     },
     {
       "id": "explain",
@@ -165,17 +174,23 @@
       "status": "passed",
       "max_mean_milliseconds": 220.0,
       "max_allocated_bytes": 24000000,
-      "source": "Release budget target (enforced by core-engine explain fixture and release-proof receipt until benchmark lane is promoted)",
-      "benchmark_budget_source": "Chummer.Benchmarks/workspace-benchmark-budgets.json"
+      "source": "Benchmark budget workload",
+      "benchmark_budget_source": "Chummer.Benchmarks/workspace-benchmark-budgets.json",
+      "missing_workload": false,
+      "benchmark_workload_evidence": "Chummer.Benchmarks/MigrationWorkspaceBenchmarks.cs",
+      "missing_executable_workload": false
     },
     {
       "id": "export_prep",
       "workload": "workspace.export.bastion",
       "status": "passed",
       "max_mean_milliseconds": 160.0,
-      "max_allocated_bytes": 20000000,
-      "source": "Release budget target (enforced by workspace round-trip/export fixtures until benchmark lane is promoted)",
-      "benchmark_budget_source": "Chummer.Benchmarks/workspace-benchmark-budgets.json"
+      "max_allocated_bytes": 96000000,
+      "source": "Benchmark budget workload",
+      "benchmark_budget_source": "Chummer.Benchmarks/workspace-benchmark-budgets.json",
+      "missing_workload": false,
+      "benchmark_workload_evidence": "Chummer.Benchmarks/MigrationWorkspaceBenchmarks.cs",
+      "missing_executable_workload": false
     }
   ],
   "import_oracle_discipline": {

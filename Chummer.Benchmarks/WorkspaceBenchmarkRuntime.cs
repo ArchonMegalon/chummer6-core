@@ -74,6 +74,13 @@ internal sealed class WorkspaceBenchmarkRuntime : IDisposable
             ?? throw new InvalidOperationException("Imported workspace did not produce a save receipt.");
     }
 
+    public WorkspaceExportReceipt Export()
+    {
+        CharacterWorkspaceId id = _workspaceId ?? throw new InvalidOperationException("No imported workspace is available for the benchmark.");
+        return _workspaceService.Export(id).Value
+            ?? throw new InvalidOperationException("Imported workspace did not produce an export receipt.");
+    }
+
     public void Dispose()
     {
         try

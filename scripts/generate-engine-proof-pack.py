@@ -222,8 +222,10 @@ def _build_oracle_suites(root: Path) -> tuple[list[dict[str, Any]], list[str]]:
 
 def _build_budget_map(root: Path) -> tuple[list[dict[str, Any]], list[str]]:
     workload_budgets_path = root / "Chummer.Benchmarks" / "workspace-benchmark-budgets.json"
+    benchmark_workload_source_path = root / "Chummer.Benchmarks" / "MigrationWorkspaceBenchmarks.cs"
     workload_budgets = _load_json(workload_budgets_path)
     workloads = workload_budgets.get("workloads") if isinstance(workload_budgets.get("workloads"), list) else []
+    benchmark_workload_source = benchmark_workload_source_path.read_text(encoding="utf-8", errors="replace") if benchmark_workload_source_path.is_file() else ""
 
     by_name: dict[str, dict[str, Any]] = {}
     for row in workloads:
@@ -234,33 +236,22 @@ def _build_budget_map(root: Path) -> tuple[list[dict[str, Any]], list[str]]:
             continue
         by_name[name] = row
 
-    budget_specs: list[tuple[str, str, str, float, int]] = [
-        ("import", "workspace.import.bastion", "Benchmark budget workload", 250.0, 32000000),
-        ("load", "workspace.section.skills.bastion", "Benchmark budget workload", 180.0, 32000000),
-        ("diff_apply", "workspace.save.bastion", "Benchmark budget workload", 80.0, 16000000),
-        (
-            "explain",
-            "runtime.explain.trace",
-            "Release budget target (enforced by core-engine explain fixture and release-proof receipt until benchmark lane is promoted)",
-            220.0,
-            24000000,
-        ),
-        (
-            "export_prep",
-            "workspace.export.bastion",
-            "Release budget target (enforced by workspace round-trip/export fixtures until benchmark lane is promoted)",
-            160.0,
-            20000000,
-        ),
+    budget_specs: list[tuple[str, str, str]] = [
+        ("import", "workspace.import.bastion", "Benchmark budget workload"),
+        ("load", "workspace.section.skills.bastion", "Benchmark budget workload"),
+        ("diff_apply", "workspace.save.bastion", "Benchmark budget workload"),
+        ("explain", "runtime.explain.trace", "Benchmark budget workload"),
+        ("export_prep", "workspace.export.bastion", "Benchmark budget workload"),
     ]
 
     budgets: list[dict[str, Any]] = []
     unresolved: list[str] = []
-    for budget_id, workload_name, source, default_ms, default_alloc in budget_specs:
+    for budget_id, workload_name, source in budget_specs:
         workload_payload = by_name.get(workload_name, {})
-        ms = float(workload_payload.get("maxMeanMilliseconds") or default_ms)
-        alloc = int(workload_payload.get("maxAllocatedBytes") or default_alloc)
-        status = "passed" if ms > 0 and alloc > 0 else "failed"
+        executable_workload_present = workload_name in benchmark_workload_source
+        ms = float(workload_payload.get("maxMeanMilliseconds") or 0)
+        alloc = int(workload_payload.get("maxAllocatedBytes") or 0)
+        status = "passed" if workload_payload and executable_workload_present and ms > 0 and alloc > 0 else "failed"
         if status != "passed":
             unresolved.append(budget_id)
         budgets.append(
@@ -272,6 +263,9 @@ def _build_budget_map(root: Path) -> tuple[list[dict[str, Any]], list[str]]:
                 "max_allocated_bytes": alloc,
                 "source": source,
                 "benchmark_budget_source": _to_rel(workload_budgets_path, root),
+                "missing_workload": not bool(workload_payload),
+                "benchmark_workload_evidence": _to_rel(benchmark_workload_source_path, root),
+                "missing_executable_workload": not executable_workload_present,
             }
         )
 
