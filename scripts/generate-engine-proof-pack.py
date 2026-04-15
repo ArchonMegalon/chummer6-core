@@ -5,6 +5,7 @@ import argparse
 import datetime as dt
 import json
 from pathlib import Path
+import sys
 from typing import Any
 
 UTC = dt.timezone.utc
@@ -798,6 +799,18 @@ def main() -> int:
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
     print(str(out))
+    if payload.get("status") != "passed":
+        unresolved = payload.get("unresolved") if isinstance(payload.get("unresolved"), dict) else {}
+        unresolved_ids = {
+            key: value
+            for key, value in unresolved.items()
+            if isinstance(value, list) and value
+        }
+        print(
+            f"ENGINE_PROOF_PACK generation failed closed: {json.dumps(unresolved_ids, sort_keys=True)}",
+            file=sys.stderr,
+        )
+        return 1
     return 0
 
 

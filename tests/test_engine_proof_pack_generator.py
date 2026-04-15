@@ -5,6 +5,7 @@ import importlib.util
 import json
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 from typing import Any
 
@@ -445,6 +446,42 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
 
         self.assertEqual("passed", payload["status"])
         self.assertEqual([], payload["unresolved"]["release_commands"])
+
+    def test_main_returns_nonzero_when_generated_pack_is_failed(self) -> None:
+        (self.root / "Chummer.CoreEngine.Tests" / "Program.cs").write_text("wrong symbol\n", encoding="utf-8")
+        with mock.patch(
+            "sys.argv",
+            [
+                "generate-engine-proof-pack.py",
+                "--repo-root",
+                str(self.root),
+                "--out",
+                str(self.output_path),
+            ],
+        ):
+            exit_code = self.generator.main()
+
+        self.assertEqual(1, exit_code)
+        generated = json.loads(self.output_path.read_text(encoding="utf-8"))
+        self.assertEqual("failed", generated["status"])
+        self.assertIn("creation", generated["unresolved"]["oracle_suites"])
+
+    def test_main_returns_zero_when_generated_pack_passes(self) -> None:
+        with mock.patch(
+            "sys.argv",
+            [
+                "generate-engine-proof-pack.py",
+                "--repo-root",
+                str(self.root),
+                "--out",
+                str(self.output_path),
+            ],
+        ):
+            exit_code = self.generator.main()
+
+        self.assertEqual(0, exit_code)
+        generated = json.loads(self.output_path.read_text(encoding="utf-8"))
+        self.assertEqual("passed", generated["status"])
 
     def _seed_passing_repo(self) -> None:
         self._write("Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj", "<Project />\n")
