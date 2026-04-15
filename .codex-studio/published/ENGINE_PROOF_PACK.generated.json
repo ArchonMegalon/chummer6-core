@@ -1,7 +1,7 @@
 {
   "contract_name": "chummer6-core.engine_proof_pack",
   "schema_version": 1,
-  "generated_at": "2026-04-15T10:14:12Z",
+  "generated_at": "2026-04-15T10:22:19Z",
   "status": "passed",
   "proof_kind": "release_bound_engine_proof",
   "milestone_id": 104,
@@ -34,10 +34,25 @@
     "required_registry_tokens": [
       "id: 104",
       "title: Engine proof pack, explain budgets, and import-oracle discipline",
-      "owner: chummer6-core",
       "104.1",
       "104.2"
     ],
+    "required_registry_task_tokens": {
+      "104.1": [
+        "id: 104.1",
+        "owner: chummer6-core",
+        "status: complete",
+        "required oracle suites creation, advancement, augment, matrix, magic, vehicle, source_toggle, and amend_package",
+        "python3 tests/test_engine_proof_pack_generator.py exits 0"
+      ],
+      "104.2": [
+        "id: 104.2",
+        "owner: chummer6-core",
+        "status: complete",
+        "successor_wave_authority=passed",
+        "dotnet run --project Chummer.Benchmarks/Chummer.Benchmarks.csproj -c Release -- --budget-check --budget-file Chummer.Benchmarks/workspace-benchmark-budgets.json exits 0"
+      ]
+    },
     "required_queue_tokens": [
       "package_id: next90-m104-core-proof-pack",
       "milestone_id: 104",
@@ -61,6 +76,7 @@
       "queue": "items package_id: next90-m104-core-proof-pack"
     },
     "missing_registry_tokens": [],
+    "missing_registry_task_tokens": {},
     "missing_queue_tokens": [],
     "closure_requirements": {
       "status": "complete",

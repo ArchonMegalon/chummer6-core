@@ -66,13 +66,29 @@ SUCCESSOR_WAVE_PACKAGE = {
     "source_queue_path": "/docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml",
 }
 
-SUCCESSOR_REGISTRY_TOKENS = (
+SUCCESSOR_REGISTRY_MILESTONE_TOKENS = (
     "id: 104",
     "title: Engine proof pack, explain budgets, and import-oracle discipline",
-    "owner: chummer6-core",
     "104.1",
     "104.2",
 )
+
+SUCCESSOR_REGISTRY_TASK_TOKENS = {
+    "104.1": (
+        "id: 104.1",
+        "owner: chummer6-core",
+        "status: complete",
+        "required oracle suites creation, advancement, augment, matrix, magic, vehicle, source_toggle, and amend_package",
+        "python3 tests/test_engine_proof_pack_generator.py exits 0",
+    ),
+    "104.2": (
+        "id: 104.2",
+        "owner: chummer6-core",
+        "status: complete",
+        "successor_wave_authority=passed",
+        "dotnet run --project Chummer.Benchmarks/Chummer.Benchmarks.csproj -c Release -- --budget-check --budget-file Chummer.Benchmarks/workspace-benchmark-budgets.json exits 0",
+    ),
+}
 
 SUCCESSOR_QUEUE_TOKENS = (
     "package_id: next90-m104-core-proof-pack",
@@ -249,7 +265,15 @@ def _validate_successor_wave_authority() -> tuple[dict[str, Any], list[str]]:
     queue_scope = _extract_list_item_block(queue_text, "package_id: next90-m104-core-proof-pack")
     registry_missing_scope_tokens = ["milestone_block:id:104"] if not registry_scope else []
     queue_missing_scope_tokens = ["queue_item:next90-m104-core-proof-pack"] if not queue_scope else []
-    missing_registry_tokens = registry_missing_scope_tokens + [token for token in SUCCESSOR_REGISTRY_TOKENS if token not in registry_scope]
+    missing_registry_tokens = registry_missing_scope_tokens + [token for token in SUCCESSOR_REGISTRY_MILESTONE_TOKENS if token not in registry_scope]
+    missing_registry_task_tokens: dict[str, list[str]] = {}
+    for task_id, required_tokens in SUCCESSOR_REGISTRY_TASK_TOKENS.items():
+        task_scope = _extract_list_item_block(registry_scope, f"id: {task_id}") if registry_scope else ""
+        missing = [f"task_block:id:{task_id}"] if not task_scope else []
+        missing.extend(token for token in required_tokens if token not in task_scope)
+        if missing:
+            missing_registry_task_tokens[task_id] = missing
+            missing_registry_tokens.extend(f"{task_id}:{token}" for token in missing)
     missing_queue_tokens = queue_missing_scope_tokens + [token for token in SUCCESSOR_QUEUE_TOKENS if token not in queue_scope]
     registry_status = "passed" if not missing_registry_tokens else "failed"
     queue_status = "passed" if not missing_queue_tokens else "failed"
@@ -265,13 +289,15 @@ def _validate_successor_wave_authority() -> tuple[dict[str, Any], list[str]]:
             "status": "passed" if not unresolved else "failed",
             "registry_path": str(registry_path),
             "queue_path": str(queue_path),
-            "required_registry_tokens": list(SUCCESSOR_REGISTRY_TOKENS),
+            "required_registry_tokens": list(SUCCESSOR_REGISTRY_MILESTONE_TOKENS),
+            "required_registry_task_tokens": {task_id: list(tokens) for task_id, tokens in SUCCESSOR_REGISTRY_TASK_TOKENS.items()},
             "required_queue_tokens": list(SUCCESSOR_QUEUE_TOKENS),
             "validation_scope": {
                 "registry": "milestones item id: 104",
                 "queue": "items package_id: next90-m104-core-proof-pack",
             },
             "missing_registry_tokens": missing_registry_tokens,
+            "missing_registry_task_tokens": missing_registry_task_tokens,
             "missing_queue_tokens": missing_queue_tokens,
             "closure_requirements": {
                 "status": "complete",

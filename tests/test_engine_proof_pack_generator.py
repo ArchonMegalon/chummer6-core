@@ -157,7 +157,33 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
         self.assertEqual("failed", payload["status"])
         self.assertEqual("failed", payload["successor_wave_authority"]["status"])
         self.assertIn("source_registry", payload["unresolved"]["successor_wave_authority"])
-        self.assertIn("owner: chummer6-core", payload["successor_wave_authority"]["missing_registry_tokens"])
+        self.assertIn("104.1:owner: chummer6-core", payload["successor_wave_authority"]["missing_registry_tokens"])
+        self.assertIn("104.2:owner: chummer6-core", payload["successor_wave_authority"]["missing_registry_tokens"])
+
+    def test_build_payload_fails_closed_when_registry_task_completion_token_only_exists_on_later_task(self) -> None:
+        registry_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_registry_path"])
+        registry_text = registry_path.read_text(encoding="utf-8")
+        registry_text = registry_text.replace("        status: complete\n", "", 1)
+        registry_text += (
+            "      - id: 104.3\n"
+            "        owner: chummer6-core\n"
+            "        status: complete\n"
+            "        evidence:\n"
+            "          - required oracle suites creation, advancement, augment, matrix, magic, vehicle, source_toggle, and amend_package\n"
+            "          - python3 tests/test_engine_proof_pack_generator.py exits 0\n"
+        )
+        registry_path.write_text(registry_text, encoding="utf-8")
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertEqual("failed", payload["successor_wave_authority"]["status"])
+        self.assertIn("source_registry", payload["unresolved"]["successor_wave_authority"])
+        self.assertIn("104.1:status: complete", payload["successor_wave_authority"]["missing_registry_tokens"])
+        self.assertEqual(
+            ["status: complete"],
+            payload["successor_wave_authority"]["missing_registry_task_tokens"]["104.1"],
+        )
 
     def test_build_payload_fails_closed_when_successor_queue_loses_proof_anchor(self) -> None:
         queue_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_queue_path"])
@@ -301,8 +327,16 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
                     "    work_tasks:",
                     "      - id: 104.1",
                     "        owner: chummer6-core",
+                    "        status: complete",
+                    "        evidence:",
+                    "          - required oracle suites creation, advancement, augment, matrix, magic, vehicle, source_toggle, and amend_package",
+                    "          - python3 tests/test_engine_proof_pack_generator.py exits 0",
                     "      - id: 104.2",
                     "        owner: chummer6-core",
+                    "        status: complete",
+                    "        evidence:",
+                    "          - successor_wave_authority=passed",
+                    "          - dotnet run --project Chummer.Benchmarks/Chummer.Benchmarks.csproj -c Release -- --budget-check --budget-file Chummer.Benchmarks/workspace-benchmark-budgets.json exits 0",
                 ]
             )
             + "\n",
