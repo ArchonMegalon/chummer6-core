@@ -1,7 +1,7 @@
 {
   "contract_name": "chummer6-core.engine_proof_pack",
   "schema_version": 1,
-  "generated_at": "2026-04-15T11:45:02Z",
+  "generated_at": "2026-04-15T11:50:48Z",
   "status": "passed",
   "proof_kind": "release_bound_engine_proof",
   "milestone_id": 104,
@@ -195,6 +195,16 @@
       {
         "commit": "53d5678c",
         "purpose": "design queue scope guard binding",
+        "status": "passed"
+      },
+      {
+        "commit": "26f2921f",
+        "purpose": "engine proof commit guard",
+        "status": "passed"
+      },
+      {
+        "commit": "7b42b69f",
+        "purpose": "package-local proof anchor scope guard",
         "status": "passed"
       }
     ],

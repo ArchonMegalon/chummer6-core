@@ -66,6 +66,10 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
         self.assertEqual("passed", payload["successor_wave_authority"]["status"])
         self.assertEqual("skipped", payload["local_commit_proofs"]["status"])
         self.assertEqual([], payload["unresolved"]["local_commit_proofs"])
+        self.assertIn(
+            "7b42b69f",
+            [row["commit"] for row in payload["local_commit_proofs"]["required_commits"]],
+        )
         self.assertEqual("complete", payload["successor_wave_authority"]["closure_requirements"]["status"])
         self.assertEqual(3227666051, payload["successor_wave_authority"]["closure_requirements"]["frontier_id"])
         self.assertEqual("00800059", payload["successor_wave_authority"]["closure_requirements"]["landed_commit"])
@@ -516,19 +520,19 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
 
         def fake_cat_file(command: list[str], **_: Any) -> Any:
             commit_ref = command[-1]
-            return mock.Mock(returncode=1 if commit_ref.startswith("53d5678c") else 0)
+            return mock.Mock(returncode=1 if commit_ref.startswith("7b42b69f") else 0)
 
         with mock.patch.object(self.generator.subprocess, "run", side_effect=fake_cat_file):
             payload = self.generator.build_payload(self.root, self.output_path)
 
         self.assertEqual("failed", payload["status"])
         self.assertEqual("failed", payload["local_commit_proofs"]["status"])
-        self.assertIn("53d5678c", payload["unresolved"]["local_commit_proofs"])
+        self.assertIn("7b42b69f", payload["unresolved"]["local_commit_proofs"])
         missing = {
             row["commit"]: row["status"]
             for row in payload["local_commit_proofs"]["required_commits"]
         }
-        self.assertEqual("failed", missing["53d5678c"])
+        self.assertEqual("failed", missing["7b42b69f"])
 
     def test_list_item_block_for_nested_queue_key_stops_before_later_package(self) -> None:
         text = "\n".join(
