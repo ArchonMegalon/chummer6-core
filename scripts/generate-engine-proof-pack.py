@@ -147,6 +147,8 @@ REQUIRED_LOCAL_COMMIT_PROOFS = (
     ("8dd516ef", "failed generator runs exit nonzero while writing diagnostics"),
     ("c88178fa", "design-owned queue scope drift guard"),
     ("53d5678c", "design queue scope guard binding"),
+    ("26f2921f", "engine proof commit guard"),
+    ("7b42b69f", "package-local proof anchor scope guard"),
 )
 
 
