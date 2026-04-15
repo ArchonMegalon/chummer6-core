@@ -23,7 +23,8 @@ The proof pack must fail closed unless it includes:
 - queue and registry closeout proof for commit `769e7259`, which binds this completed package to the latest local guard chain
 - queue and registry closeout proof for commit `d4b3b0ba`, which requires the current `769e7259` guard in the generated proof pack, unit tests, and documentation
 - queue and registry closeout proof for commit `a2173476`, which requires the current `d4b3b0ba` guard in the generated proof pack, unit tests, and documentation
-- local git commit proof that the cited M104 guard commits, including guards `56048971`, `769e7259`, `d4b3b0ba`, `a2173476`, `dafc1205`, `65df3894`, and `4a56911d`, resolve in this repository before the release-bound proof pack can pass
+- queue and registry closeout proof for commit `4b124997`, which binds the proof-pack generator, tests, documentation, and checked-in receipt to active-run hygiene guard `4a56911d`
+- local git commit proof that the cited M104 guard commits, including guards `56048971`, `769e7259`, `d4b3b0ba`, `a2173476`, `dafc1205`, `65df3894`, `4a56911d`, and `4b124997`, resolve in this repository before the release-bound proof pack can pass
 - active-run proof hygiene, so registry or queue evidence for this closed package cannot cite active-run handoff files, operator telemetry, or active-run helper output as release proof
 - design-owned queue closeout proof from `/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_QUEUE_STAGING.generated.yaml`, in addition to the Fleet staging mirror, so Fleet-local staging cannot be the only authority that keeps the package closed
 - design-owned queue scope proof that fails closed if the canonical queue row adds unassigned allowed paths or owned surfaces even when the Fleet staging mirror stays clean
@@ -70,7 +71,7 @@ The generator still writes the diagnostic receipt when evidence is missing, but 
 
 ## Verification
 
-The generator unit tests prove fail-closed behavior for missing evidence symbols, missing executable benchmark workloads, missing adjacent import oracles, release-channel promoted tuple drift, release-channel artifact shelf drift, successor registry or queue tokens that only appear on another milestone/package row, missing successor frontier id, unassigned successor queue allowed paths or owned surfaces, non-resolving successor queue proof anchors, sibling package proof anchors under `/docker/chummercomplete/...`, active-run telemetry or handoff proof citations in registry and queue evidence, missing local closeout commits including the latest `4a56911d` active-run proof hygiene guard binding, design-owned queue authority and scope drift, core-task completion evidence that only appears on a later milestone-104 task, and checked-in receipt drift from generator output:
+The generator unit tests prove fail-closed behavior for missing evidence symbols, missing executable benchmark workloads, missing adjacent import oracles, release-channel promoted tuple drift, release-channel artifact shelf drift, successor registry or queue tokens that only appear on another milestone/package row, missing successor frontier id, unassigned successor queue allowed paths or owned surfaces, non-resolving successor queue proof anchors, sibling package proof anchors under `/docker/chummercomplete/...`, active-run telemetry or handoff proof citations in registry and queue evidence, missing local closeout commits including the latest `4b124997` proof-pack guard binding, design-owned queue authority and scope drift, core-task completion evidence that only appears on a later milestone-104 task, and checked-in receipt drift from generator output:
 
 ```bash
 python3 tests/test_engine_proof_pack_generator.py
