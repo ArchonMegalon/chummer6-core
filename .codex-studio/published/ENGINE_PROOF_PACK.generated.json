@@ -1,7 +1,7 @@
 {
   "contract_name": "chummer6-core.engine_proof_pack",
   "schema_version": 1,
-  "generated_at": "2026-04-15T11:32:51Z",
+  "generated_at": "2026-04-15T11:40:51Z",
   "status": "passed",
   "proof_kind": "release_bound_engine_proof",
   "milestone_id": 104,
@@ -144,6 +144,59 @@
         "/docker/chummercomplete/chummer-core-engine/docs/ENGINE_PROOF_PACK.md"
       ]
     }
+  },
+  "local_commit_proofs": {
+    "status": "passed",
+    "repository": "/docker/chummercomplete/chummer-core-engine",
+    "git_available": true,
+    "required_commits": [
+      {
+        "commit": "00800059",
+        "purpose": "initial fail-closed successor authority and oracle/budget generator tests",
+        "status": "passed"
+      },
+      {
+        "commit": "fd15fe87",
+        "purpose": "row-scoped successor queue allowed-path authority",
+        "status": "passed"
+      },
+      {
+        "commit": "44fdda0f",
+        "purpose": "non-resolving successor queue proof-anchor guard",
+        "status": "passed"
+      },
+      {
+        "commit": "cfc465a5",
+        "purpose": "checked-in receipt reproducibility guard",
+        "status": "passed"
+      },
+      {
+        "commit": "86040e30",
+        "purpose": "unassigned queue allowed-path and owned-surface guard",
+        "status": "passed"
+      },
+      {
+        "commit": "35cd27b4",
+        "purpose": "successor frontier repeat-prevention guard",
+        "status": "passed"
+      },
+      {
+        "commit": "8dd516ef",
+        "purpose": "failed generator runs exit nonzero while writing diagnostics",
+        "status": "passed"
+      },
+      {
+        "commit": "c88178fa",
+        "purpose": "design-owned queue scope drift guard",
+        "status": "passed"
+      },
+      {
+        "commit": "53d5678c",
+        "purpose": "design queue scope guard binding",
+        "status": "passed"
+      }
+    ],
+    "missing_commits": []
   },
   "release_channel_binding": {
     "status": "passed",
@@ -418,6 +471,7 @@
     "performance_budgets": [],
     "release_commands": [],
     "successor_wave_authority": [],
+    "local_commit_proofs": [],
     "release_channel_binding": [],
     "import_oracle_discipline": []
   },
