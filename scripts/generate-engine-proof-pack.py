@@ -84,6 +84,11 @@ SUCCESSOR_QUEUE_TOKENS = (
     "/docker/chummercomplete/chummer-core-engine/scripts/generate-engine-proof-pack.py",
     "/docker/chummercomplete/chummer-core-engine/tests/test_engine_proof_pack_generator.py",
     "/docker/chummercomplete/chummer-core-engine/docs/ENGINE_PROOF_PACK.md",
+    "allowed_paths:",
+    "- src",
+    "- tests",
+    "- docs",
+    "- scripts",
     "engine_proof_pack",
     "import_oracle_discipline",
 )

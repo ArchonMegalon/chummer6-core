@@ -133,6 +133,18 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
         self.assertIn("source_queue", payload["unresolved"]["successor_wave_authority"])
         self.assertIn("landed_commit: 00800059", payload["successor_wave_authority"]["missing_queue_tokens"])
 
+    def test_build_payload_fails_closed_when_successor_queue_loses_allowed_path_authority(self) -> None:
+        queue_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_queue_path"])
+        queue_text = queue_path.read_text(encoding="utf-8")
+        queue_path.write_text(queue_text.replace("      - scripts\n", ""), encoding="utf-8")
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertEqual("failed", payload["successor_wave_authority"]["status"])
+        self.assertIn("source_queue", payload["unresolved"]["successor_wave_authority"])
+        self.assertIn("- scripts", payload["successor_wave_authority"]["missing_queue_tokens"])
+
     def test_build_payload_fails_closed_when_successor_registry_token_only_exists_on_another_milestone(self) -> None:
         registry_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_registry_path"])
         registry_text = registry_path.read_text(encoding="utf-8")
@@ -310,6 +322,11 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
                     "      - /docker/chummercomplete/chummer-core-engine/scripts/generate-engine-proof-pack.py",
                     "      - /docker/chummercomplete/chummer-core-engine/tests/test_engine_proof_pack_generator.py",
                     "      - /docker/chummercomplete/chummer-core-engine/docs/ENGINE_PROOF_PACK.md",
+                    "    allowed_paths:",
+                    "      - src",
+                    "      - tests",
+                    "      - docs",
+                    "      - scripts",
                     "    owned_surfaces:",
                     "      - engine_proof_pack",
                     "      - import_oracle_discipline",

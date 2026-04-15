@@ -1,7 +1,7 @@
 {
   "contract_name": "chummer6-core.engine_proof_pack",
   "schema_version": 1,
-  "generated_at": "2026-04-15T10:05:51Z",
+  "generated_at": "2026-04-15T10:14:12Z",
   "status": "passed",
   "proof_kind": "release_bound_engine_proof",
   "milestone_id": 104,
@@ -48,6 +48,11 @@
       "/docker/chummercomplete/chummer-core-engine/scripts/generate-engine-proof-pack.py",
       "/docker/chummercomplete/chummer-core-engine/tests/test_engine_proof_pack_generator.py",
       "/docker/chummercomplete/chummer-core-engine/docs/ENGINE_PROOF_PACK.md",
+      "allowed_paths:",
+      "- src",
+      "- tests",
+      "- docs",
+      "- scripts",
       "engine_proof_pack",
       "import_oracle_discipline"
     ],
