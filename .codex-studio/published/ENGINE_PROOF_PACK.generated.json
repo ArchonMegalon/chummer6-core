@@ -1,7 +1,7 @@
 {
   "contract_name": "chummer6-core.engine_proof_pack",
   "schema_version": 1,
-  "generated_at": "2026-04-15T09:39:19Z",
+  "generated_at": "2026-04-15T09:54:04Z",
   "status": "passed",
   "proof_kind": "release_bound_engine_proof",
   "milestone_id": 104,
@@ -51,6 +51,10 @@
       "engine_proof_pack",
       "import_oracle_discipline"
     ],
+    "validation_scope": {
+      "registry": "milestones item id: 104",
+      "queue": "items package_id: next90-m104-core-proof-pack"
+    },
     "missing_registry_tokens": [],
     "missing_queue_tokens": [],
     "closure_requirements": {

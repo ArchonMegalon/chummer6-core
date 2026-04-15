@@ -182,23 +182,61 @@ def _validate_release_commands(root: Path, generated_output_path: Path | None = 
     return commands, unresolved
 
 
-def _validate_text_tokens(path: Path, required_tokens: tuple[str, ...]) -> tuple[str, list[str]]:
+def _read_text(path: Path) -> str:
     if not path.is_file():
-        return "failed", list(required_tokens)
+        return ""
     try:
-        text = path.read_text(encoding="utf-8", errors="replace")
+        return path.read_text(encoding="utf-8", errors="replace")
     except Exception:
+        return ""
+
+
+def _validate_text_tokens(path: Path, required_tokens: tuple[str, ...]) -> tuple[str, list[str]]:
+    text = _read_text(path)
+    if not text:
         return "failed", list(required_tokens)
     missing = [token for token in required_tokens if token not in text]
     return ("passed" if not missing else "failed", missing)
+
+
+def _extract_list_item_block(text: str, item_header: str) -> str:
+    lines = text.splitlines()
+    start_index = -1
+    header_indent = ""
+    header_prefix = ""
+    for index, line in enumerate(lines):
+        stripped = line.lstrip()
+        if stripped == item_header or stripped == f"- {item_header}":
+            start_index = index
+            header_indent = line[: len(line) - len(stripped)]
+            header_prefix = f"{header_indent}- "
+            break
+
+    if start_index < 0:
+        return ""
+
+    block_lines = [lines[start_index]]
+    for line in lines[start_index + 1 :]:
+        if line.startswith(header_prefix):
+            break
+        block_lines.append(line)
+    return "\n".join(block_lines) + "\n"
 
 
 def _validate_successor_wave_authority() -> tuple[dict[str, Any], list[str]]:
     registry_path = Path(SUCCESSOR_WAVE_PACKAGE["source_registry_path"])
     queue_path = Path(SUCCESSOR_WAVE_PACKAGE["source_queue_path"])
 
-    registry_status, missing_registry_tokens = _validate_text_tokens(registry_path, SUCCESSOR_REGISTRY_TOKENS)
-    queue_status, missing_queue_tokens = _validate_text_tokens(queue_path, SUCCESSOR_QUEUE_TOKENS)
+    registry_text = _read_text(registry_path)
+    queue_text = _read_text(queue_path)
+    registry_scope = _extract_list_item_block(registry_text, "id: 104")
+    queue_scope = _extract_list_item_block(queue_text, "package_id: next90-m104-core-proof-pack")
+    registry_missing_scope_tokens = ["milestone_block:id:104"] if not registry_scope else []
+    queue_missing_scope_tokens = ["queue_item:next90-m104-core-proof-pack"] if not queue_scope else []
+    missing_registry_tokens = registry_missing_scope_tokens + [token for token in SUCCESSOR_REGISTRY_TOKENS if token not in registry_scope]
+    missing_queue_tokens = queue_missing_scope_tokens + [token for token in SUCCESSOR_QUEUE_TOKENS if token not in queue_scope]
+    registry_status = "passed" if not missing_registry_tokens else "failed"
+    queue_status = "passed" if not missing_queue_tokens else "failed"
 
     unresolved: list[str] = []
     if registry_status != "passed":
@@ -213,6 +251,10 @@ def _validate_successor_wave_authority() -> tuple[dict[str, Any], list[str]]:
             "queue_path": str(queue_path),
             "required_registry_tokens": list(SUCCESSOR_REGISTRY_TOKENS),
             "required_queue_tokens": list(SUCCESSOR_QUEUE_TOKENS),
+            "validation_scope": {
+                "registry": "milestones item id: 104",
+                "queue": "items package_id: next90-m104-core-proof-pack",
+            },
             "missing_registry_tokens": missing_registry_tokens,
             "missing_queue_tokens": missing_queue_tokens,
             "closure_requirements": {
