@@ -42,6 +42,8 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
         self.assertEqual("next_90_day_product_advance", payload["successor_wave_package"]["program_wave"])
         self.assertEqual(["engine_proof_pack", "import_oracle_discipline"], payload["successor_wave_package"]["owned_surfaces"])
         self.assertEqual("passed", payload["successor_wave_authority"]["status"])
+        self.assertEqual("complete", payload["successor_wave_authority"]["closure_requirements"]["status"])
+        self.assertEqual("00800059", payload["successor_wave_authority"]["closure_requirements"]["landed_commit"])
         self.assertEqual([], payload["unresolved"]["oracle_suites"])
         self.assertEqual([], payload["unresolved"]["performance_budgets"])
         self.assertEqual([], payload["unresolved"]["release_commands"])
@@ -92,6 +94,43 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
             "package_id: next90-m104-core-proof-pack",
             payload["successor_wave_authority"]["missing_queue_tokens"],
         )
+
+    def test_build_payload_fails_closed_when_successor_queue_loses_completion_status(self) -> None:
+        queue_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_queue_path"])
+        queue_text = queue_path.read_text(encoding="utf-8")
+        queue_path.write_text(queue_text.replace("    status: complete\n", ""), encoding="utf-8")
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertEqual("failed", payload["successor_wave_authority"]["status"])
+        self.assertIn("source_queue", payload["unresolved"]["successor_wave_authority"])
+        self.assertIn("status: complete", payload["successor_wave_authority"]["missing_queue_tokens"])
+
+    def test_build_payload_fails_closed_when_successor_queue_loses_landed_commit(self) -> None:
+        queue_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_queue_path"])
+        queue_text = queue_path.read_text(encoding="utf-8")
+        queue_path.write_text(queue_text.replace("    landed_commit: 00800059\n", ""), encoding="utf-8")
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertEqual("failed", payload["successor_wave_authority"]["status"])
+        self.assertIn("source_queue", payload["unresolved"]["successor_wave_authority"])
+        self.assertIn("landed_commit: 00800059", payload["successor_wave_authority"]["missing_queue_tokens"])
+
+    def test_build_payload_fails_closed_when_successor_queue_loses_proof_anchor(self) -> None:
+        queue_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_queue_path"])
+        queue_text = queue_path.read_text(encoding="utf-8")
+        proof_anchor = "/docker/chummercomplete/chummer-core-engine/docs/ENGINE_PROOF_PACK.md"
+        queue_path.write_text(queue_text.replace(f"      - {proof_anchor}\n", ""), encoding="utf-8")
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertEqual("failed", payload["successor_wave_authority"]["status"])
+        self.assertIn("source_queue", payload["unresolved"]["successor_wave_authority"])
+        self.assertIn(proof_anchor, payload["successor_wave_authority"]["missing_queue_tokens"])
 
     def test_planned_generated_output_does_not_create_first_run_self_failure(self) -> None:
         self.assertFalse(self.output_path.exists())
@@ -195,6 +234,13 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
                     "  - package_id: next90-m104-core-proof-pack",
                     "    milestone_id: 104",
                     "    repo: chummer6-core",
+                    "    status: complete",
+                    "    landed_commit: 00800059",
+                    "    proof:",
+                    "      - /docker/chummercomplete/chummer-core-engine/.codex-studio/published/ENGINE_PROOF_PACK.generated.json",
+                    "      - /docker/chummercomplete/chummer-core-engine/scripts/generate-engine-proof-pack.py",
+                    "      - /docker/chummercomplete/chummer-core-engine/tests/test_engine_proof_pack_generator.py",
+                    "      - /docker/chummercomplete/chummer-core-engine/docs/ENGINE_PROOF_PACK.md",
                     "    owned_surfaces:",
                     "      - engine_proof_pack",
                     "      - import_oracle_discipline",

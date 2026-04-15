@@ -78,6 +78,12 @@ SUCCESSOR_QUEUE_TOKENS = (
     "package_id: next90-m104-core-proof-pack",
     "milestone_id: 104",
     "repo: chummer6-core",
+    "status: complete",
+    "landed_commit: 00800059",
+    "/docker/chummercomplete/chummer-core-engine/.codex-studio/published/ENGINE_PROOF_PACK.generated.json",
+    "/docker/chummercomplete/chummer-core-engine/scripts/generate-engine-proof-pack.py",
+    "/docker/chummercomplete/chummer-core-engine/tests/test_engine_proof_pack_generator.py",
+    "/docker/chummercomplete/chummer-core-engine/docs/ENGINE_PROOF_PACK.md",
     "engine_proof_pack",
     "import_oracle_discipline",
 )
@@ -209,6 +215,16 @@ def _validate_successor_wave_authority() -> tuple[dict[str, Any], list[str]]:
             "required_queue_tokens": list(SUCCESSOR_QUEUE_TOKENS),
             "missing_registry_tokens": missing_registry_tokens,
             "missing_queue_tokens": missing_queue_tokens,
+            "closure_requirements": {
+                "status": "complete",
+                "landed_commit": "00800059",
+                "proof_anchors": [
+                    "/docker/chummercomplete/chummer-core-engine/.codex-studio/published/ENGINE_PROOF_PACK.generated.json",
+                    "/docker/chummercomplete/chummer-core-engine/scripts/generate-engine-proof-pack.py",
+                    "/docker/chummercomplete/chummer-core-engine/tests/test_engine_proof_pack_generator.py",
+                    "/docker/chummercomplete/chummer-core-engine/docs/ENGINE_PROOF_PACK.md",
+                ],
+            },
         },
         unresolved,
     )
