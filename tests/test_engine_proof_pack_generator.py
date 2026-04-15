@@ -419,6 +419,46 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
         )
         self.assertEqual([], payload["successor_wave_authority"]["missing_queue_tokens"])
 
+    def test_build_payload_fails_closed_when_design_queue_adds_unassigned_allowed_path(self) -> None:
+        design_queue_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_design_queue_path"])
+        queue_text = design_queue_path.read_text(encoding="utf-8")
+        design_queue_path.write_text(
+            queue_text.replace("      - scripts\n", "      - scripts\n      - Chummer.Core\n"),
+            encoding="utf-8",
+        )
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertEqual("failed", payload["successor_wave_authority"]["status"])
+        self.assertIn("source_design_queue", payload["unresolved"]["successor_wave_authority"])
+        self.assertEqual(["Chummer.Core"], payload["successor_wave_authority"]["unexpected_design_queue_allowed_paths"])
+        self.assertIn(
+            "unexpected_allowed_path:Chummer.Core",
+            payload["successor_wave_authority"]["design_queue_missing_tokens"],
+        )
+        self.assertEqual([], payload["successor_wave_authority"]["missing_queue_tokens"])
+
+    def test_build_payload_fails_closed_when_design_queue_adds_unassigned_owned_surface(self) -> None:
+        design_queue_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_design_queue_path"])
+        queue_text = design_queue_path.read_text(encoding="utf-8")
+        design_queue_path.write_text(
+            queue_text.replace("      - import_oracle_discipline\n", "      - import_oracle_discipline\n      - desktop_ui_receipts\n"),
+            encoding="utf-8",
+        )
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertEqual("failed", payload["successor_wave_authority"]["status"])
+        self.assertIn("source_design_queue", payload["unresolved"]["successor_wave_authority"])
+        self.assertEqual(["desktop_ui_receipts"], payload["successor_wave_authority"]["unexpected_design_queue_owned_surfaces"])
+        self.assertIn(
+            "unexpected_owned_surface:desktop_ui_receipts",
+            payload["successor_wave_authority"]["design_queue_missing_tokens"],
+        )
+        self.assertEqual([], payload["successor_wave_authority"]["missing_queue_tokens"])
+
     def test_list_item_block_for_nested_queue_key_stops_before_later_package(self) -> None:
         text = "\n".join(
             [
