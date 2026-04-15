@@ -214,6 +214,7 @@ REQUIRED_LOCAL_COMMIT_PROOFS = (
     ("e7d4270e", "current M104 queue proof floor guard required by local closeout"),
     ("bbc877d7", "current M104 proof floor guard required by local closeout"),
     ("56ff7283", "current M104 proof floor guard required by local closeout"),
+    ("7ae79416", "current M104 proof floor guard required by local closeout"),
 )
 
 
