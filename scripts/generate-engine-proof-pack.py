@@ -96,6 +96,7 @@ SUCCESSOR_REGISTRY_TASK_TOKENS = {
         "owner: chummer6-core",
         "status: complete",
         "successor_wave_authority=passed",
+        "/docker/chummercomplete/chummer-core-engine commit 8dd516ef makes failed engine proof pack generation exit nonzero while still writing diagnostic receipts.",
         "dotnet run --project Chummer.Benchmarks/Chummer.Benchmarks.csproj -c Release -- --budget-check --budget-file Chummer.Benchmarks/workspace-benchmark-budgets.json exits 0",
     ),
 }
@@ -111,6 +112,7 @@ SUCCESSOR_QUEUE_TOKENS = (
     "/docker/chummercomplete/chummer-core-engine/scripts/generate-engine-proof-pack.py",
     "/docker/chummercomplete/chummer-core-engine/tests/test_engine_proof_pack_generator.py",
     "/docker/chummercomplete/chummer-core-engine/docs/ENGINE_PROOF_PACK.md",
+    "/docker/chummercomplete/chummer-core-engine commit 8dd516ef makes failed engine proof pack generation exit nonzero while still writing diagnostic receipts.",
     "allowed_paths:",
     "- src",
     "- tests",
