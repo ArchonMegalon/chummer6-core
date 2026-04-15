@@ -5,6 +5,7 @@ import argparse
 import datetime as dt
 import json
 from pathlib import Path
+import subprocess
 import sys
 from typing import Any
 
@@ -133,6 +134,18 @@ SUCCESSOR_QUEUE_PROOF_ANCHORS = (
 
 EXPECTED_QUEUE_ALLOWED_PATHS = tuple(SUCCESSOR_WAVE_PACKAGE["allowed_paths"])
 EXPECTED_QUEUE_OWNED_SURFACES = tuple(SUCCESSOR_WAVE_PACKAGE["owned_surfaces"])
+
+REQUIRED_LOCAL_COMMIT_PROOFS = (
+    ("00800059", "initial fail-closed successor authority and oracle/budget generator tests"),
+    ("fd15fe87", "row-scoped successor queue allowed-path authority"),
+    ("44fdda0f", "non-resolving successor queue proof-anchor guard"),
+    ("cfc465a5", "checked-in receipt reproducibility guard"),
+    ("86040e30", "unassigned queue allowed-path and owned-surface guard"),
+    ("35cd27b4", "successor frontier repeat-prevention guard"),
+    ("8dd516ef", "failed generator runs exit nonzero while writing diagnostics"),
+    ("c88178fa", "design-owned queue scope drift guard"),
+    ("53d5678c", "design queue scope guard binding"),
+)
 
 
 def _iso_now() -> str:
@@ -416,6 +429,45 @@ def _validate_successor_wave_authority(generated_output_path: Path | None = None
                 "landed_commit": "00800059",
                 "proof_anchors": list(SUCCESSOR_QUEUE_PROOF_ANCHORS),
             },
+        },
+        unresolved,
+    )
+
+
+def _validate_local_commit_proofs(root: Path) -> tuple[dict[str, Any], list[str]]:
+    unresolved: list[str] = []
+    commits: list[dict[str, Any]] = []
+    git_dir = root / ".git"
+    git_available = git_dir.exists()
+
+    for commit, purpose in REQUIRED_LOCAL_COMMIT_PROOFS:
+        resolved = False
+        if git_available:
+            result = subprocess.run(
+                ["git", "-C", str(root), "cat-file", "-e", f"{commit}^{{commit}}"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+            )
+            resolved = result.returncode == 0
+        if git_available and not resolved:
+            unresolved.append(commit)
+        commits.append(
+            {
+                "commit": commit,
+                "purpose": purpose,
+                "status": "passed" if resolved else ("failed" if git_available else "skipped"),
+            }
+        )
+
+    status = "passed" if git_available and not unresolved else ("failed" if unresolved else "skipped")
+    return (
+        {
+            "status": status,
+            "repository": str(root),
+            "git_available": git_available,
+            "required_commits": commits,
+            "missing_commits": unresolved,
         },
         unresolved,
     )
@@ -729,6 +781,7 @@ def build_payload(root: Path, generated_output_path: Path | None = None) -> dict
     performance_budgets, unresolved_budget_ids = _build_budget_map(root)
     command_receipts, unresolved_command_ids = _validate_release_commands(root, generated_output_path)
     successor_authority, unresolved_successor_authority_ids = _validate_successor_wave_authority(generated_output_path)
+    local_commit_proofs, unresolved_local_commit_ids = _validate_local_commit_proofs(root)
     release_channel_binding, unresolved_release_channel_ids = _build_release_channel_binding(RELEASE_CHANNEL_PATH)
     import_discipline, unresolved_import_ids = _build_import_discipline(root, import_cert_path, import_cert)
 
@@ -738,6 +791,7 @@ def build_payload(root: Path, generated_output_path: Path | None = None) -> dict
         and not unresolved_budget_ids
         and not unresolved_command_ids
         and not unresolved_successor_authority_ids
+        and not unresolved_local_commit_ids
         and not unresolved_release_channel_ids
         and not unresolved_import_ids
         else "failed"
@@ -753,6 +807,7 @@ def build_payload(root: Path, generated_output_path: Path | None = None) -> dict
         "package_id": "next90-m104-core-proof-pack",
         "successor_wave_package": SUCCESSOR_WAVE_PACKAGE,
         "successor_wave_authority": successor_authority,
+        "local_commit_proofs": local_commit_proofs,
         "release_channel_binding": release_channel_binding,
         "release_commands": command_receipts,
         "commands": list(RELEASE_COMMANDS),
@@ -766,6 +821,7 @@ def build_payload(root: Path, generated_output_path: Path | None = None) -> dict
             "performance_budgets": unresolved_budget_ids,
             "release_commands": unresolved_command_ids,
             "successor_wave_authority": unresolved_successor_authority_ids,
+            "local_commit_proofs": unresolved_local_commit_ids,
             "release_channel_binding": unresolved_release_channel_ids,
             "import_oracle_discipline": unresolved_import_ids,
         },
