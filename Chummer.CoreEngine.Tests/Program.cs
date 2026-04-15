@@ -85,6 +85,7 @@ internal static class CoreEngineTests
             LegacyRulesParityAudit.AssertLegacyRulesParity(GetLegacyFixtureDirectory(), GetSr4FixtureDirectory());
             HeroLabRulesParityAudit.AssertHeroLabImportsAndParity(GetHeroLabFixtureDirectory());
             ImportParityCertificationReceiptCoversLegacyAndAdjacentOracles();
+            EngineProofPackReceiptCoversRequiredOracleSuitesAndBudgets();
             BuildLabCreateSurfaceIsExposedAcrossRulesets();
             Sr4AndSr6CodecsExposeBuildLabSections();
             ContentInstallPreviewsEmitLocalizationKeys();
@@ -2618,6 +2619,126 @@ internal static class CoreEngineTests
 
             return node?.GetValue<string>() ?? string.Empty;
         }
+    }
+
+    private static void EngineProofPackReceiptCoversRequiredOracleSuitesAndBudgets()
+    {
+        string receiptPath = Path.Combine(
+            GetRepositoryRoot(),
+            ".codex-studio",
+            "published",
+            "ENGINE_PROOF_PACK.generated.json");
+        AssertEx.True(
+            File.Exists(receiptPath),
+            "Engine proof pack receipt must exist so milestone-104 proof is machine-readable.");
+
+        JsonNode? payload = JsonNode.Parse(File.ReadAllText(receiptPath));
+        string status = payload?["status"]?.GetValue<string>()?.Trim().ToLowerInvariant() ?? string.Empty;
+        AssertEx.Equal(
+            "passed",
+            status,
+            "Engine proof pack receipt should stay in passed status for milestone-104 proof.");
+
+        JsonArray? suites = payload?["oracle_suites"] as JsonArray;
+        AssertEx.True(suites is not null && suites.Count > 0, "Engine proof pack should enumerate oracle suites.");
+
+        HashSet<string> requiredSuiteIds =
+        [
+            "creation",
+            "advancement",
+            "augment",
+            "matrix",
+            "magic",
+            "vehicle",
+            "source_toggle",
+            "amend_package"
+        ];
+        HashSet<string> foundSuiteIds = suites!
+            .Select(static node => node?["id"]?.GetValue<string>()?.Trim().ToLowerInvariant() ?? string.Empty)
+            .Where(static token => !string.IsNullOrWhiteSpace(token))
+            .ToHashSet(StringComparer.Ordinal);
+
+        foreach (string requiredSuiteId in requiredSuiteIds)
+        {
+            AssertEx.True(
+                foundSuiteIds.Contains(requiredSuiteId),
+                $"Engine proof pack should include oracle suite '{requiredSuiteId}'.");
+            JsonObject? suiteObject = suites!
+                .OfType<JsonObject>()
+                .FirstOrDefault(candidate => string.Equals(
+                    candidate["id"]?.GetValue<string>()?.Trim(),
+                    requiredSuiteId,
+                    StringComparison.OrdinalIgnoreCase));
+            string suiteStatus = suiteObject?["status"]?.GetValue<string>()?.Trim().ToLowerInvariant() ?? string.Empty;
+            AssertEx.Equal(
+                "passed",
+                suiteStatus,
+                $"Engine proof pack suite '{requiredSuiteId}' should stay in passed status.");
+            JsonArray? suiteEvidence = suiteObject?["evidence"] as JsonArray;
+            AssertEx.True(
+                suiteEvidence is not null && suiteEvidence.Count > 0,
+                $"Engine proof pack suite '{requiredSuiteId}' should include evidence anchors.");
+        }
+
+        JsonArray? budgetRows = payload?["performance_budgets"] as JsonArray;
+        AssertEx.True(
+            budgetRows is not null && budgetRows.Count > 0,
+            "Engine proof pack should enumerate performance budget lanes.");
+
+        HashSet<string> requiredBudgetIds = ["load", "explain", "diff_apply", "import", "export_prep"];
+        HashSet<string> foundBudgetIds = budgetRows!
+            .Select(static node => node?["id"]?.GetValue<string>()?.Trim().ToLowerInvariant() ?? string.Empty)
+            .Where(static token => !string.IsNullOrWhiteSpace(token))
+            .ToHashSet(StringComparer.Ordinal);
+
+        foreach (string requiredBudgetId in requiredBudgetIds)
+        {
+            AssertEx.True(
+                foundBudgetIds.Contains(requiredBudgetId),
+                $"Engine proof pack should include budget lane '{requiredBudgetId}'.");
+
+            JsonObject? budgetObject = budgetRows!
+                .OfType<JsonObject>()
+                .FirstOrDefault(candidate => string.Equals(
+                    candidate["id"]?.GetValue<string>()?.Trim(),
+                    requiredBudgetId,
+                    StringComparison.OrdinalIgnoreCase));
+            string budgetStatus = budgetObject?["status"]?.GetValue<string>()?.Trim().ToLowerInvariant() ?? string.Empty;
+            AssertEx.Equal(
+                "passed",
+                budgetStatus,
+                $"Engine proof pack budget lane '{requiredBudgetId}' should stay in passed status.");
+            double maxMeanMs = budgetObject?["max_mean_milliseconds"]?.GetValue<double>() ?? 0d;
+            int maxAllocatedBytes = budgetObject?["max_allocated_bytes"]?.GetValue<int>() ?? 0;
+            AssertEx.True(maxMeanMs > 0d, $"Budget lane '{requiredBudgetId}' should publish a positive max mean millisecond target.");
+            AssertEx.True(maxAllocatedBytes > 0, $"Budget lane '{requiredBudgetId}' should publish a positive allocation target.");
+            AssertEx.Equal(
+                "Benchmark budget workload",
+                budgetObject?["source"]?.GetValue<string>() ?? string.Empty,
+                $"Budget lane '{requiredBudgetId}' should be backed by an executable benchmark workload, not a default proof-pack target.");
+            AssertEx.Equal(
+                false,
+                budgetObject?["missing_workload"]?.GetValue<bool>() ?? true,
+                $"Budget lane '{requiredBudgetId}' should resolve to a workload in the benchmark budget file.");
+            AssertEx.Equal(
+                "Chummer.Benchmarks/MigrationWorkspaceBenchmarks.cs",
+                budgetObject?["benchmark_workload_evidence"]?.GetValue<string>() ?? string.Empty,
+                $"Budget lane '{requiredBudgetId}' should cite the benchmark workload implementation.");
+            AssertEx.Equal(
+                false,
+                budgetObject?["missing_executable_workload"]?.GetValue<bool>() ?? true,
+                $"Budget lane '{requiredBudgetId}' should resolve to an executable benchmark workload.");
+        }
+
+        JsonObject? discipline = payload?["import_oracle_discipline"] as JsonObject;
+        AssertEx.NotNull(discipline, "Engine proof pack should include import-oracle discipline posture.");
+        string disciplineStatus = discipline?["status"]?.GetValue<string>()?.Trim().ToLowerInvariant() ?? string.Empty;
+        AssertEx.Equal("passed", disciplineStatus, "Engine proof pack import-oracle discipline should stay passed.");
+
+        JsonArray? importOracles = discipline?["import_oracles"] as JsonArray;
+        JsonArray? adjacentOracles = discipline?["adjacent_oracles"] as JsonArray;
+        AssertEx.True(importOracles is not null && importOracles.Count > 0, "Engine proof pack should include legacy import oracle coverage.");
+        AssertEx.True(adjacentOracles is not null && adjacentOracles.Count > 0, "Engine proof pack should include adjacent SR6 oracle coverage.");
     }
 
     private static void BuildLabCreateSurfaceIsExposedAcrossRulesets()
