@@ -111,6 +111,7 @@ SUCCESSOR_REGISTRY_TASK_TOKENS = {
         "/docker/chummercomplete/chummer-core-engine commit a3cbb548 refreshes the M104 engine proof receipt after latest local guard tightening.",
         "/docker/chummercomplete/chummer-core-engine commit df0527b2 tightens the M104 proof pack receipt guard so future shards verify the latest closed package.",
         "/docker/chummercomplete/chummer-core-engine commit 8574f63f pins the M104 proof pack receipt guard.",
+        "/docker/chummercomplete/chummer-core-engine commit 6b3a662c requires the current 8574f63f guard in the generated proof pack, unit tests, and proof-pack documentation.",
         "dotnet run --project Chummer.Benchmarks/Chummer.Benchmarks.csproj -c Release -- --budget-check --budget-file Chummer.Benchmarks/workspace-benchmark-budgets.json exits 0",
     ),
 }
@@ -138,6 +139,7 @@ SUCCESSOR_QUEUE_TOKENS = (
     "/docker/chummercomplete/chummer-core-engine commit a3cbb548 refreshes the M104 engine proof receipt after latest local guard tightening.",
     "/docker/chummercomplete/chummer-core-engine commit df0527b2 tightens the M104 proof pack receipt guard so future shards verify the latest closed package.",
     "/docker/chummercomplete/chummer-core-engine commit 8574f63f pins the M104 proof pack receipt guard.",
+    "/docker/chummercomplete/chummer-core-engine commit 6b3a662c requires the current 8574f63f guard in the generated proof pack, unit tests, and proof-pack documentation.",
     "allowed_paths:",
     "- src",
     "- tests",
@@ -194,6 +196,7 @@ REQUIRED_LOCAL_COMMIT_PROOFS = (
     ("a3cbb548", "latest M104 checked-in proof receipt refresh required by registry and queue closeout"),
     ("df0527b2", "latest M104 proof pack receipt guard required by registry and queue closeout"),
     ("8574f63f", "current M104 proof pack receipt guard required by registry and queue closeout"),
+    ("6b3a662c", "current M104 proof pack guard required by registry and queue closeout"),
 )
 
 
