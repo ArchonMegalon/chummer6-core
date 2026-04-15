@@ -95,6 +95,20 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
             payload["successor_wave_authority"]["missing_queue_tokens"],
         )
 
+    def test_build_payload_fails_closed_when_successor_queue_token_only_exists_on_another_item(self) -> None:
+        queue_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_queue_path"])
+        queue_text = queue_path.read_text(encoding="utf-8")
+        queue_text = queue_text.replace("    status: complete\n", "    status: in_progress\n")
+        queue_text += "\n  - package_id: different-package\n    status: complete\n"
+        queue_path.write_text(queue_text, encoding="utf-8")
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertEqual("failed", payload["successor_wave_authority"]["status"])
+        self.assertIn("source_queue", payload["unresolved"]["successor_wave_authority"])
+        self.assertIn("status: complete", payload["successor_wave_authority"]["missing_queue_tokens"])
+
     def test_build_payload_fails_closed_when_successor_queue_loses_completion_status(self) -> None:
         queue_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_queue_path"])
         queue_text = queue_path.read_text(encoding="utf-8")
@@ -118,6 +132,20 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
         self.assertEqual("failed", payload["successor_wave_authority"]["status"])
         self.assertIn("source_queue", payload["unresolved"]["successor_wave_authority"])
         self.assertIn("landed_commit: 00800059", payload["successor_wave_authority"]["missing_queue_tokens"])
+
+    def test_build_payload_fails_closed_when_successor_registry_token_only_exists_on_another_milestone(self) -> None:
+        registry_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_registry_path"])
+        registry_text = registry_path.read_text(encoding="utf-8")
+        registry_text = registry_text.replace("        owner: chummer6-core\n", "        owner: chummer6-ui\n")
+        registry_text += "\n  - id: 105\n    work_tasks:\n      - id: 105.1\n        owner: chummer6-core\n"
+        registry_path.write_text(registry_text, encoding="utf-8")
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertEqual("failed", payload["successor_wave_authority"]["status"])
+        self.assertIn("source_registry", payload["unresolved"]["successor_wave_authority"])
+        self.assertIn("owner: chummer6-core", payload["successor_wave_authority"]["missing_registry_tokens"])
 
     def test_build_payload_fails_closed_when_successor_queue_loses_proof_anchor(self) -> None:
         queue_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_queue_path"])

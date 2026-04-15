@@ -18,6 +18,7 @@ The proof pack must fail closed unless it includes:
 
 - successor-wave authority for milestone `104`, owned surfaces `engine_proof_pack` and `import_oracle_discipline`, and the canonical successor registry plus queue staging paths
 - queue closeout proof that the successor queue row is marked `status: complete`, cites landed commit `00800059`, and lists the proof anchors for this generated pack, generator, tests, and documentation
+- row-scoped registry and queue validation so tokens from another successor milestone or package cannot satisfy `next90-m104-core-proof-pack`
 - oracle suites: `creation`, `advancement`, `augment`, `matrix`, `magic`, `vehicle`, `source_toggle`, `amend_package`
 - performance budget lanes: `load`, `explain`, `diff_apply`, `import`, `export_prep`
 - import-oracle discipline status sourced from `IMPORT_PARITY_CERTIFICATION.generated.json`
@@ -42,7 +43,7 @@ The generator treats the generated proof pack path as a planned output so a clea
 
 ## Verification
 
-The generator unit tests prove fail-closed behavior for missing evidence symbols, missing executable benchmark workloads, and missing adjacent import oracles:
+The generator unit tests prove fail-closed behavior for missing evidence symbols, missing executable benchmark workloads, missing adjacent import oracles, and successor registry or queue tokens that only appear on another milestone/package row:
 
 ```bash
 python3 tests/test_engine_proof_pack_generator.py
