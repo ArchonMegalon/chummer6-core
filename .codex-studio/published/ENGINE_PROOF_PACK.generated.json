@@ -1,7 +1,7 @@
 {
   "contract_name": "chummer6-core.engine_proof_pack",
   "schema_version": 1,
-  "generated_at": "2026-04-15T10:26:59Z",
+  "generated_at": "2026-04-15T10:41:19Z",
   "status": "passed",
   "proof_kind": "release_bound_engine_proof",
   "milestone_id": 104,
@@ -90,10 +90,55 @@
       ]
     }
   },
+  "release_channel_binding": {
+    "status": "passed",
+    "source_receipt_path": "/docker/chummercomplete/chummer-hub-registry/.codex-studio/published/RELEASE_CHANNEL.generated.json",
+    "channel_id": "docker",
+    "version": "run-20260414-1836",
+    "release_channel_status": "published",
+    "rollout_state": "promoted_preview",
+    "release_proof_status": "passed",
+    "desktop_tuple_coverage_complete": true,
+    "required_promoted_desktop_tuples": [
+      "avalonia:linux:linux-x64",
+      "avalonia:windows:win-x64",
+      "avalonia:macos:osx-arm64"
+    ],
+    "promoted_primary_tuples": [
+      {
+        "tuple_id": "avalonia:linux:linux-x64",
+        "head": "avalonia",
+        "platform": "linux",
+        "rid": "linux-x64",
+        "artifact_id": "avalonia-linux-x64-installer",
+        "status": "passed",
+        "unresolved": []
+      },
+      {
+        "tuple_id": "avalonia:windows:win-x64",
+        "head": "avalonia",
+        "platform": "windows",
+        "rid": "win-x64",
+        "artifact_id": "avalonia-win-x64-installer",
+        "status": "passed",
+        "unresolved": []
+      },
+      {
+        "tuple_id": "avalonia:macos:osx-arm64",
+        "head": "avalonia",
+        "platform": "macos",
+        "rid": "osx-arm64",
+        "artifact_id": "avalonia-osx-arm64-installer",
+        "status": "passed",
+        "unresolved": []
+      }
+    ],
+    "unresolved": []
+  },
   "release_commands": [
     {
       "id": "core_engine_tests",
-      "command": "dotnet run --project Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj -c Release",
+      "command": "dotnet build Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj -c Release --nologo -m:1 && dotnet Chummer.CoreEngine.Tests/bin/Release/net10.0/Chummer.CoreEngine.Tests.dll",
       "status": "passed",
       "required_inputs": [
         "Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj",
@@ -113,7 +158,7 @@
     }
   ],
   "commands": [
-    "dotnet run --project Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj -c Release",
+    "dotnet build Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj -c Release --nologo -m:1 && dotnet Chummer.CoreEngine.Tests/bin/Release/net10.0/Chummer.CoreEngine.Tests.dll",
     "dotnet run --project Chummer.Benchmarks/Chummer.Benchmarks.csproj -c Release -- --budget-check --budget-file Chummer.Benchmarks/workspace-benchmark-budgets.json"
   ],
   "required_oracle_suite_ids": [
@@ -318,6 +363,7 @@
     "performance_budgets": [],
     "release_commands": [],
     "successor_wave_authority": [],
+    "release_channel_binding": [],
     "import_oracle_discipline": []
   },
   "notes": "Release-bound engine proof pack for milestone 104. This receipt keeps golden oracle suites, import-oracle discipline, and budget posture machine-readable for desktop release waves."

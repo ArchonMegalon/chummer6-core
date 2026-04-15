@@ -28,6 +28,12 @@ REQUIRED_BUDGET_IDS = (
     "export_prep",
 )
 
+REQUIRED_PROMOTED_DESKTOP_TUPLES = (
+    ("avalonia:linux:linux-x64", "avalonia", "linux", "linux-x64"),
+    ("avalonia:windows:win-x64", "avalonia", "windows", "win-x64"),
+    ("avalonia:macos:osx-arm64", "avalonia", "macos", "osx-arm64"),
+)
+
 REQUIRED_IMPORT_ORACLE_NAMES = (
     "Chummer4",
     "Chummer5a",
@@ -40,9 +46,11 @@ REQUIRED_ADJACENT_ORACLE_NAMES = (
 )
 
 RELEASE_COMMANDS = (
-    "dotnet run --project Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj -c Release",
+    "dotnet build Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj -c Release --nologo -m:1 && dotnet Chummer.CoreEngine.Tests/bin/Release/net10.0/Chummer.CoreEngine.Tests.dll",
     "dotnet run --project Chummer.Benchmarks/Chummer.Benchmarks.csproj -c Release -- --budget-check --budget-file Chummer.Benchmarks/workspace-benchmark-budgets.json",
 )
+
+RELEASE_CHANNEL_PATH = Path("/docker/chummercomplete/chummer-hub-registry/.codex-studio/published/RELEASE_CHANNEL.generated.json")
 
 SUCCESSOR_WAVE_PACKAGE = {
     "program_wave": "next_90_day_product_advance",
@@ -462,6 +470,111 @@ def _build_budget_map(root: Path) -> tuple[list[dict[str, Any]], list[str]]:
     return budgets, unresolved
 
 
+def _build_release_channel_binding(release_channel_path: Path) -> tuple[dict[str, Any], list[str]]:
+    payload = _load_json(release_channel_path)
+    unresolved: list[str] = []
+    if not release_channel_path.is_file():
+        unresolved.append("release_channel_missing")
+
+    status = str(payload.get("status") or "").strip().lower()
+    rollout_state = str(payload.get("rolloutState") or payload.get("rollout_state") or "").strip().lower()
+    channel_id = str(payload.get("channelId") or payload.get("channel_id") or "").strip()
+    version = str(payload.get("version") or payload.get("releaseVersion") or "").strip()
+    release_proof = payload.get("releaseProof") if isinstance(payload.get("releaseProof"), dict) else {}
+    release_proof_status = str(release_proof.get("status") or "").strip().lower()
+    desktop_coverage = payload.get("desktopTupleCoverage") if isinstance(payload.get("desktopTupleCoverage"), dict) else {}
+    desktop_complete = bool(desktop_coverage.get("complete"))
+    route_truth = desktop_coverage.get("desktopRouteTruth") if isinstance(desktop_coverage.get("desktopRouteTruth"), list) else []
+    artifacts = payload.get("artifacts") if isinstance(payload.get("artifacts"), list) else []
+    artifact_ids = {
+        str(row.get("artifactId") or row.get("id") or "").strip()
+        for row in artifacts
+        if isinstance(row, dict)
+    }
+
+    if status != "published":
+        unresolved.append("release_channel_status")
+    if rollout_state != "promoted_preview":
+        unresolved.append("rollout_state")
+    if release_proof_status != "passed":
+        unresolved.append("release_proof_status")
+    if not desktop_complete:
+        unresolved.append("desktop_tuple_coverage")
+
+    route_by_tuple = {
+        str(row.get("tupleId") or "").strip(): row
+        for row in route_truth
+        if isinstance(row, dict)
+    }
+
+    promoted_primary_tuples: list[dict[str, Any]] = []
+    missing_required_tuples: list[str] = []
+    for tuple_id, head, platform, rid in REQUIRED_PROMOTED_DESKTOP_TUPLES:
+        row = route_by_tuple.get(tuple_id)
+        if not isinstance(row, dict):
+            missing_required_tuples.append(tuple_id)
+            continue
+
+        artifact_id = str(row.get("artifactId") or "").strip()
+        row_status = "passed"
+        row_unresolved: list[str] = []
+        required_values = {
+            "head": head,
+            "platform": platform,
+            "rid": rid,
+            "routeRole": "primary",
+            "promotionState": "promoted",
+            "parityPosture": "flagship_primary",
+            "updateEligibility": "eligible",
+            "revokeState": "not_revoked",
+            "installPosture": "installer_first",
+        }
+        for key, expected in required_values.items():
+            actual = str(row.get(key) or "").strip()
+            if actual != expected:
+                row_unresolved.append(f"{key}:{actual or '<missing>'}")
+        if not artifact_id:
+            row_unresolved.append("artifactId:<missing>")
+        elif artifact_id not in artifact_ids:
+            row_unresolved.append(f"artifact_not_on_shelf:{artifact_id}")
+        if row_unresolved:
+            row_status = "failed"
+            missing_required_tuples.append(tuple_id)
+        promoted_primary_tuples.append(
+            {
+                "tuple_id": tuple_id,
+                "head": head,
+                "platform": platform,
+                "rid": rid,
+                "artifact_id": artifact_id,
+                "status": row_status,
+                "unresolved": row_unresolved,
+            }
+        )
+
+    if missing_required_tuples:
+        unresolved.extend(f"required_promoted_tuple:{tuple_id}" for tuple_id in missing_required_tuples)
+
+    return (
+        {
+            "status": "passed" if not unresolved else "failed",
+            "source_receipt_path": str(release_channel_path),
+            "channel_id": channel_id,
+            "version": version,
+            "release_channel_status": status,
+            "rollout_state": rollout_state,
+            "release_proof_status": release_proof_status,
+            "desktop_tuple_coverage_complete": desktop_complete,
+            "required_promoted_desktop_tuples": [
+                tuple_id for tuple_id, _, _, _ in REQUIRED_PROMOTED_DESKTOP_TUPLES
+            ],
+            "promoted_primary_tuples": promoted_primary_tuples,
+            "unresolved": unresolved,
+        },
+        unresolved,
+    )
+
+
 def _oracle_name(row: Any) -> str:
     if isinstance(row, dict):
         return str(row.get("name") or row.get("id") or "").strip()
@@ -526,6 +639,7 @@ def build_payload(root: Path, generated_output_path: Path | None = None) -> dict
     performance_budgets, unresolved_budget_ids = _build_budget_map(root)
     command_receipts, unresolved_command_ids = _validate_release_commands(root, generated_output_path)
     successor_authority, unresolved_successor_authority_ids = _validate_successor_wave_authority(generated_output_path)
+    release_channel_binding, unresolved_release_channel_ids = _build_release_channel_binding(RELEASE_CHANNEL_PATH)
     import_discipline, unresolved_import_ids = _build_import_discipline(root, import_cert_path, import_cert)
 
     pack_status = (
@@ -534,6 +648,7 @@ def build_payload(root: Path, generated_output_path: Path | None = None) -> dict
         and not unresolved_budget_ids
         and not unresolved_command_ids
         and not unresolved_successor_authority_ids
+        and not unresolved_release_channel_ids
         and not unresolved_import_ids
         else "failed"
     )
@@ -548,6 +663,7 @@ def build_payload(root: Path, generated_output_path: Path | None = None) -> dict
         "package_id": "next90-m104-core-proof-pack",
         "successor_wave_package": SUCCESSOR_WAVE_PACKAGE,
         "successor_wave_authority": successor_authority,
+        "release_channel_binding": release_channel_binding,
         "release_commands": command_receipts,
         "commands": list(RELEASE_COMMANDS),
         "required_oracle_suite_ids": list(REQUIRED_ORACLE_SUITE_IDS),
@@ -560,6 +676,7 @@ def build_payload(root: Path, generated_output_path: Path | None = None) -> dict
             "performance_budgets": unresolved_budget_ids,
             "release_commands": unresolved_command_ids,
             "successor_wave_authority": unresolved_successor_authority_ids,
+            "release_channel_binding": unresolved_release_channel_ids,
             "import_oracle_discipline": unresolved_import_ids,
         },
         "notes": (
