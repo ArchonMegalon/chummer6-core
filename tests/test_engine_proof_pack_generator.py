@@ -614,6 +614,7 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
                     "        evidence:",
                     "          - successor_wave_authority=passed",
                     "          - /docker/chummercomplete/chummer-core-engine commit 8dd516ef makes failed engine proof pack generation exit nonzero while still writing diagnostic receipts.",
+                    "          - /docker/chummercomplete/chummer-core-engine commit c88178fa tightens design-owned queue scope proof so canonical allowed-path or owned-surface drift cannot keep M104 passed.",
                     "          - dotnet run --project Chummer.Benchmarks/Chummer.Benchmarks.csproj -c Release -- --budget-check --budget-file Chummer.Benchmarks/workspace-benchmark-budgets.json exits 0",
                 ]
             )
@@ -636,6 +637,7 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
                     "      - /docker/chummercomplete/chummer-core-engine/tests/test_engine_proof_pack_generator.py",
                     "      - /docker/chummercomplete/chummer-core-engine/docs/ENGINE_PROOF_PACK.md",
                     "      - /docker/chummercomplete/chummer-core-engine commit 8dd516ef makes failed engine proof pack generation exit nonzero while still writing diagnostic receipts.",
+                    "      - /docker/chummercomplete/chummer-core-engine commit c88178fa tightens design-owned queue scope proof so canonical allowed-path or owned-surface drift cannot keep M104 passed.",
                     "    allowed_paths:",
                     "      - src",
                     "      - tests",
