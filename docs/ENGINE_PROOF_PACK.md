@@ -18,6 +18,7 @@ The proof pack must fail closed unless it includes:
 
 - successor-wave authority for milestone `104`, owned surfaces `engine_proof_pack` and `import_oracle_discipline`, and the canonical successor registry plus queue staging paths
 - queue closeout proof that the successor queue row is marked `status: complete`, cites landed commit `00800059`, and lists the proof anchors for this generated pack, generator, tests, and documentation
+- row-scoped queue authority for the assigned allowed paths: `src`, `tests`, `docs`, and `scripts`
 - row-scoped registry and queue validation so tokens from another successor milestone or package cannot satisfy `next90-m104-core-proof-pack`
 - oracle suites: `creation`, `advancement`, `augment`, `matrix`, `magic`, `vehicle`, `source_toggle`, `amend_package`
 - performance budget lanes: `load`, `explain`, `diff_apply`, `import`, `export_prep`
