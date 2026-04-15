@@ -1,7 +1,7 @@
 {
   "contract_name": "chummer6-core.engine_proof_pack",
   "schema_version": 1,
-  "generated_at": "2026-04-15T12:00:54Z",
+  "generated_at": "2026-04-15T12:04:34Z",
   "status": "passed",
   "proof_kind": "release_bound_engine_proof",
   "milestone_id": 104,
@@ -215,6 +215,11 @@
       {
         "commit": "b5571717",
         "purpose": "proof pack guard binding",
+        "status": "passed"
+      },
+      {
+        "commit": "56048971",
+        "purpose": "latest proof pack guard binding",
         "status": "passed"
       }
     ],
