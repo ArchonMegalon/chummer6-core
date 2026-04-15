@@ -49,6 +49,7 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
         self.assertEqual([], payload["unresolved"]["release_commands"])
         self.assertEqual([], payload["unresolved"]["successor_wave_authority"])
         self.assertEqual([], payload["unresolved"]["import_oracle_discipline"])
+        self.assertEqual([], payload["successor_wave_authority"]["missing_queue_proof_anchors"])
 
     def test_build_payload_fails_closed_when_a_suite_evidence_symbol_is_missing(self) -> None:
         (self.root / "Chummer.CoreEngine.Tests" / "Program.cs").write_text("wrong symbol\n", encoding="utf-8")
@@ -197,6 +198,31 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
         self.assertEqual("failed", payload["successor_wave_authority"]["status"])
         self.assertIn("source_queue", payload["unresolved"]["successor_wave_authority"])
         self.assertIn(proof_anchor, payload["successor_wave_authority"]["missing_queue_tokens"])
+
+    def test_build_payload_fails_closed_when_successor_queue_proof_anchor_does_not_resolve(self) -> None:
+        missing_anchor = str(self.root / "docs" / "missing-engine-proof-pack.md")
+        original_anchors = self.generator.SUCCESSOR_QUEUE_PROOF_ANCHORS
+        original_tokens = self.generator.SUCCESSOR_QUEUE_TOKENS
+        self.generator.SUCCESSOR_QUEUE_PROOF_ANCHORS = (missing_anchor,)
+        self.generator.SUCCESSOR_QUEUE_TOKENS = original_tokens + (missing_anchor,)
+        queue_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_queue_path"])
+        queue_text = queue_path.read_text(encoding="utf-8")
+        queue_text = queue_text.replace(
+            "      - /docker/chummercomplete/chummer-core-engine/docs/ENGINE_PROOF_PACK.md\n",
+            "      - /docker/chummercomplete/chummer-core-engine/docs/ENGINE_PROOF_PACK.md\n"
+            f"      - {missing_anchor}\n",
+        )
+        queue_path.write_text(queue_text, encoding="utf-8")
+        try:
+            payload = self.generator.build_payload(self.root, self.output_path)
+        finally:
+            self.generator.SUCCESSOR_QUEUE_PROOF_ANCHORS = original_anchors
+            self.generator.SUCCESSOR_QUEUE_TOKENS = original_tokens
+
+        self.assertEqual("failed", payload["status"])
+        self.assertEqual("failed", payload["successor_wave_authority"]["status"])
+        self.assertIn("source_queue", payload["unresolved"]["successor_wave_authority"])
+        self.assertEqual([missing_anchor], payload["successor_wave_authority"]["missing_queue_proof_anchors"])
 
     def test_build_payload_fails_closed_when_successor_queue_proof_anchor_only_exists_on_later_item(self) -> None:
         queue_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_queue_path"])

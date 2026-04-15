@@ -18,6 +18,7 @@ The proof pack must fail closed unless it includes:
 
 - successor-wave authority for milestone `104`, owned surfaces `engine_proof_pack` and `import_oracle_discipline`, and the canonical successor registry plus queue staging paths
 - queue closeout proof that the successor queue row is marked `status: complete`, cites landed commit `00800059`, and lists the proof anchors for this generated pack, generator, tests, and documentation
+- filesystem resolution for the queue proof anchors so stale or moved closeout evidence cannot keep the package marked passed
 - row-scoped queue authority for the assigned allowed paths: `src`, `tests`, `docs`, and `scripts`
 - row-scoped registry and queue validation so tokens from another successor milestone or package cannot satisfy `next90-m104-core-proof-pack`
 - task-scoped registry validation so completion and evidence for core tasks `104.1` and `104.2` cannot be satisfied by later milestone-104 tasks owned by another package
@@ -41,11 +42,11 @@ From repo root:
 python3 scripts/generate-engine-proof-pack.py
 ```
 
-The generator treats the generated proof pack path as a planned output so a clean first run cannot fail only because `ENGINE_PROOF_PACK.generated.json` does not already exist.
+The generator treats the generated proof pack path as a planned output so a clean first run cannot fail only because `ENGINE_PROOF_PACK.generated.json` does not already exist. Other successor queue proof anchors must resolve on disk.
 
 ## Verification
 
-The generator unit tests prove fail-closed behavior for missing evidence symbols, missing executable benchmark workloads, missing adjacent import oracles, successor registry or queue tokens that only appear on another milestone/package row, and core-task completion evidence that only appears on a later milestone-104 task:
+The generator unit tests prove fail-closed behavior for missing evidence symbols, missing executable benchmark workloads, missing adjacent import oracles, successor registry or queue tokens that only appear on another milestone/package row, non-resolving successor queue proof anchors, and core-task completion evidence that only appears on a later milestone-104 task:
 
 ```bash
 python3 tests/test_engine_proof_pack_generator.py

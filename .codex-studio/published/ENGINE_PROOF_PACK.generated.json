@@ -1,7 +1,7 @@
 {
   "contract_name": "chummer6-core.engine_proof_pack",
   "schema_version": 1,
-  "generated_at": "2026-04-15T10:22:19Z",
+  "generated_at": "2026-04-15T10:26:59Z",
   "status": "passed",
   "proof_kind": "release_bound_engine_proof",
   "milestone_id": 104,
@@ -78,6 +78,7 @@
     "missing_registry_tokens": [],
     "missing_registry_task_tokens": {},
     "missing_queue_tokens": [],
+    "missing_queue_proof_anchors": [],
     "closure_requirements": {
       "status": "complete",
       "landed_commit": "00800059",
