@@ -211,6 +211,7 @@ REQUIRED_LOCAL_COMMIT_PROOFS = (
     ("d2ee91a9", "current M104 engine proof floor required by local closeout"),
     ("cd30503f", "current M104 engine proof floor queue citation required by local closeout"),
     ("e10f2739", "current M104 queue proof floor required by local closeout"),
+    ("e7d4270e", "current M104 queue proof floor guard required by local closeout"),
 )
 
 
