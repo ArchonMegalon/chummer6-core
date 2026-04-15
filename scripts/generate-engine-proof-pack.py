@@ -234,6 +234,7 @@ REQUIRED_LOCAL_COMMIT_PROOFS = (
     ("77cb53cf", "current M104 helper hygiene proof floor required by local closeout"),
     ("f914ce6a", "current M104 helper hygiene proof floor pin required by local closeout"),
     ("3c242c2f", "current M104 helper hygiene proof floor queue citation required by local closeout"),
+    ("c2872b40", "current M104 queue proof floor guard required by local closeout"),
 )
 
 
