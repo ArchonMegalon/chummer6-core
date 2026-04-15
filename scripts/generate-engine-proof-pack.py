@@ -44,6 +44,44 @@ RELEASE_COMMANDS = (
     "dotnet run --project Chummer.Benchmarks/Chummer.Benchmarks.csproj -c Release -- --budget-check --budget-file Chummer.Benchmarks/workspace-benchmark-budgets.json",
 )
 
+SUCCESSOR_WAVE_PACKAGE = {
+    "program_wave": "next_90_day_product_advance",
+    "frontier_id": 3227666051,
+    "wave": "W7",
+    "milestone_id": 104,
+    "package_id": "next90-m104-core-proof-pack",
+    "repo": "chummer6-core",
+    "title": "Build golden oracle suites and release-bound engine proof packs",
+    "owned_surfaces": [
+        "engine_proof_pack",
+        "import_oracle_discipline",
+    ],
+    "allowed_paths": [
+        "src",
+        "tests",
+        "docs",
+        "scripts",
+    ],
+    "source_registry_path": "/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml",
+    "source_queue_path": "/docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml",
+}
+
+SUCCESSOR_REGISTRY_TOKENS = (
+    "id: 104",
+    "title: Engine proof pack, explain budgets, and import-oracle discipline",
+    "owner: chummer6-core",
+    "104.1",
+    "104.2",
+)
+
+SUCCESSOR_QUEUE_TOKENS = (
+    "package_id: next90-m104-core-proof-pack",
+    "milestone_id: 104",
+    "repo: chummer6-core",
+    "engine_proof_pack",
+    "import_oracle_discipline",
+)
+
 
 def _iso_now() -> str:
     return dt.datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
@@ -94,7 +132,7 @@ def _evidence_status(root: Path, evidence_items: list[str]) -> tuple[str, list[s
     return ("passed" if not missing else "failed", missing)
 
 
-def _validate_release_commands(root: Path) -> tuple[list[dict[str, Any]], list[str]]:
+def _validate_release_commands(root: Path, generated_output_path: Path | None = None) -> tuple[list[dict[str, Any]], list[str]]:
     command_specs: list[tuple[str, str, list[str]]] = [
         (
             "core_engine_tests",
@@ -117,7 +155,12 @@ def _validate_release_commands(root: Path) -> tuple[list[dict[str, Any]], list[s
     commands: list[dict[str, Any]] = []
     unresolved: list[str] = []
     for command_id, command, required_inputs in command_specs:
-        missing_inputs = [item for item in required_inputs if not (root / item).exists()]
+        missing_inputs = []
+        for item in required_inputs:
+            input_path = root / item
+            planned_generated_input = generated_output_path is not None and input_path.resolve() == generated_output_path.resolve()
+            if not input_path.exists() and not planned_generated_input:
+                missing_inputs.append(item)
         if missing_inputs:
             unresolved.append(command_id)
         commands.append(
@@ -131,6 +174,44 @@ def _validate_release_commands(root: Path) -> tuple[list[dict[str, Any]], list[s
         )
 
     return commands, unresolved
+
+
+def _validate_text_tokens(path: Path, required_tokens: tuple[str, ...]) -> tuple[str, list[str]]:
+    if not path.is_file():
+        return "failed", list(required_tokens)
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except Exception:
+        return "failed", list(required_tokens)
+    missing = [token for token in required_tokens if token not in text]
+    return ("passed" if not missing else "failed", missing)
+
+
+def _validate_successor_wave_authority() -> tuple[dict[str, Any], list[str]]:
+    registry_path = Path(SUCCESSOR_WAVE_PACKAGE["source_registry_path"])
+    queue_path = Path(SUCCESSOR_WAVE_PACKAGE["source_queue_path"])
+
+    registry_status, missing_registry_tokens = _validate_text_tokens(registry_path, SUCCESSOR_REGISTRY_TOKENS)
+    queue_status, missing_queue_tokens = _validate_text_tokens(queue_path, SUCCESSOR_QUEUE_TOKENS)
+
+    unresolved: list[str] = []
+    if registry_status != "passed":
+        unresolved.append("source_registry")
+    if queue_status != "passed":
+        unresolved.append("source_queue")
+
+    return (
+        {
+            "status": "passed" if not unresolved else "failed",
+            "registry_path": str(registry_path),
+            "queue_path": str(queue_path),
+            "required_registry_tokens": list(SUCCESSOR_REGISTRY_TOKENS),
+            "required_queue_tokens": list(SUCCESSOR_QUEUE_TOKENS),
+            "missing_registry_tokens": missing_registry_tokens,
+            "missing_queue_tokens": missing_queue_tokens,
+        },
+        unresolved,
+    )
 
 
 def _build_oracle_suites(root: Path) -> tuple[list[dict[str, Any]], list[str]]:
@@ -328,18 +409,23 @@ def _build_import_discipline(
     )
 
 
-def build_payload(root: Path) -> dict[str, Any]:
+def build_payload(root: Path, generated_output_path: Path | None = None) -> dict[str, Any]:
     import_cert_path = root / ".codex-studio" / "published" / "IMPORT_PARITY_CERTIFICATION.generated.json"
     import_cert = _load_json(import_cert_path)
 
     oracle_suites, unresolved_suite_ids = _build_oracle_suites(root)
     performance_budgets, unresolved_budget_ids = _build_budget_map(root)
-    command_receipts, unresolved_command_ids = _validate_release_commands(root)
+    command_receipts, unresolved_command_ids = _validate_release_commands(root, generated_output_path)
+    successor_authority, unresolved_successor_authority_ids = _validate_successor_wave_authority()
     import_discipline, unresolved_import_ids = _build_import_discipline(root, import_cert_path, import_cert)
 
     pack_status = (
         "passed"
-        if not unresolved_suite_ids and not unresolved_budget_ids and not unresolved_command_ids and not unresolved_import_ids
+        if not unresolved_suite_ids
+        and not unresolved_budget_ids
+        and not unresolved_command_ids
+        and not unresolved_successor_authority_ids
+        and not unresolved_import_ids
         else "failed"
     )
 
@@ -351,6 +437,8 @@ def build_payload(root: Path) -> dict[str, Any]:
         "proof_kind": "release_bound_engine_proof",
         "milestone_id": 104,
         "package_id": "next90-m104-core-proof-pack",
+        "successor_wave_package": SUCCESSOR_WAVE_PACKAGE,
+        "successor_wave_authority": successor_authority,
         "release_commands": command_receipts,
         "commands": list(RELEASE_COMMANDS),
         "required_oracle_suite_ids": list(REQUIRED_ORACLE_SUITE_IDS),
@@ -362,6 +450,7 @@ def build_payload(root: Path) -> dict[str, Any]:
             "oracle_suites": unresolved_suite_ids,
             "performance_budgets": unresolved_budget_ids,
             "release_commands": unresolved_command_ids,
+            "successor_wave_authority": unresolved_successor_authority_ids,
             "import_oracle_discipline": unresolved_import_ids,
         },
         "notes": (
@@ -394,7 +483,7 @@ def main() -> int:
     if not out.is_absolute():
         out = root / out
 
-    payload = build_payload(root)
+    payload = build_payload(root, out)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
     print(str(out))
