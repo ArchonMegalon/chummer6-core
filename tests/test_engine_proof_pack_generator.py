@@ -22,6 +22,27 @@ def load_generator() -> Any:
     return module
 
 
+def without_generated_at(payload: dict[str, Any]) -> dict[str, Any]:
+    comparable = dict(payload)
+    comparable.pop("generated_at", None)
+    return comparable
+
+
+class EngineProofPackReceiptReproducibilityTests(unittest.TestCase):
+    def test_checked_in_engine_proof_pack_matches_generator_except_timestamp(self) -> None:
+        generator = load_generator()
+        receipt_path = REPO_ROOT / ".codex-studio" / "published" / "ENGINE_PROOF_PACK.generated.json"
+        checked_in_payload = json.loads(receipt_path.read_text(encoding="utf-8"))
+
+        regenerated_payload = generator.build_payload(REPO_ROOT, receipt_path)
+
+        self.assertEqual(
+            without_generated_at(regenerated_payload),
+            without_generated_at(checked_in_payload),
+            "Checked-in ENGINE_PROOF_PACK.generated.json should be reproducible from the generator except generated_at.",
+        )
+
+
 class EngineProofPackGeneratorTests(unittest.TestCase):
     def setUp(self) -> None:
         self.generator = load_generator()

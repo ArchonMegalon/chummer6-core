@@ -53,10 +53,11 @@ python3 scripts/generate-engine-proof-pack.py
 ```
 
 The generator treats the generated proof pack path as a planned output so a clean first run cannot fail only because `ENGINE_PROOF_PACK.generated.json` does not already exist. Other successor queue proof anchors must resolve on disk.
+The checked-in receipt is also treated as a reproducible artifact: `tests/test_engine_proof_pack_generator.py` rebuilds the payload from repo-local evidence and compares it to `.codex-studio/published/ENGINE_PROOF_PACK.generated.json`, ignoring only `generated_at`.
 
 ## Verification
 
-The generator unit tests prove fail-closed behavior for missing evidence symbols, missing executable benchmark workloads, missing adjacent import oracles, release-channel promoted tuple drift, release-channel artifact shelf drift, successor registry or queue tokens that only appear on another milestone/package row, non-resolving successor queue proof anchors, and core-task completion evidence that only appears on a later milestone-104 task:
+The generator unit tests prove fail-closed behavior for missing evidence symbols, missing executable benchmark workloads, missing adjacent import oracles, release-channel promoted tuple drift, release-channel artifact shelf drift, successor registry or queue tokens that only appear on another milestone/package row, non-resolving successor queue proof anchors, core-task completion evidence that only appears on a later milestone-104 task, and checked-in receipt drift from generator output:
 
 ```bash
 python3 tests/test_engine_proof_pack_generator.py
