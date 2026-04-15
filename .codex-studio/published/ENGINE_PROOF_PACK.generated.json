@@ -1,7 +1,7 @@
 {
   "contract_name": "chummer6-core.engine_proof_pack",
   "schema_version": 1,
-  "generated_at": "2026-04-15T14:02:39Z",
+  "generated_at": "2026-04-15T14:06:22Z",
   "status": "passed",
   "proof_kind": "release_bound_engine_proof",
   "milestone_id": 104,
@@ -249,6 +249,11 @@
       {
         "commit": "dafc1205",
         "purpose": "latest proof pack guard required by local closeout",
+        "status": "passed"
+      },
+      {
+        "commit": "65df3894",
+        "purpose": "active-run proof hygiene guard required by local closeout",
         "status": "passed"
       }
     ],
