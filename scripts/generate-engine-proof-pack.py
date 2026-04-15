@@ -109,6 +109,13 @@ SUCCESSOR_QUEUE_TOKENS = (
     "import_oracle_discipline",
 )
 
+SUCCESSOR_QUEUE_PROOF_ANCHORS = (
+    "/docker/chummercomplete/chummer-core-engine/.codex-studio/published/ENGINE_PROOF_PACK.generated.json",
+    "/docker/chummercomplete/chummer-core-engine/scripts/generate-engine-proof-pack.py",
+    "/docker/chummercomplete/chummer-core-engine/tests/test_engine_proof_pack_generator.py",
+    "/docker/chummercomplete/chummer-core-engine/docs/ENGINE_PROOF_PACK.md",
+)
+
 
 def _iso_now() -> str:
     return dt.datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
@@ -255,7 +262,7 @@ def _extract_list_item_block(text: str, item_header: str) -> str:
     return "\n".join(block_lines) + "\n"
 
 
-def _validate_successor_wave_authority() -> tuple[dict[str, Any], list[str]]:
+def _validate_successor_wave_authority(generated_output_path: Path | None = None) -> tuple[dict[str, Any], list[str]]:
     registry_path = Path(SUCCESSOR_WAVE_PACKAGE["source_registry_path"])
     queue_path = Path(SUCCESSOR_WAVE_PACKAGE["source_queue_path"])
 
@@ -275,8 +282,14 @@ def _validate_successor_wave_authority() -> tuple[dict[str, Any], list[str]]:
             missing_registry_task_tokens[task_id] = missing
             missing_registry_tokens.extend(f"{task_id}:{token}" for token in missing)
     missing_queue_tokens = queue_missing_scope_tokens + [token for token in SUCCESSOR_QUEUE_TOKENS if token not in queue_scope]
+    missing_queue_proof_anchors = []
+    for anchor in SUCCESSOR_QUEUE_PROOF_ANCHORS:
+        anchor_path = Path(anchor)
+        planned_generated_anchor = generated_output_path is not None and anchor_path.resolve() == generated_output_path.resolve()
+        if not anchor_path.exists() and not planned_generated_anchor:
+            missing_queue_proof_anchors.append(anchor)
     registry_status = "passed" if not missing_registry_tokens else "failed"
-    queue_status = "passed" if not missing_queue_tokens else "failed"
+    queue_status = "passed" if not missing_queue_tokens and not missing_queue_proof_anchors else "failed"
 
     unresolved: list[str] = []
     if registry_status != "passed":
@@ -299,15 +312,11 @@ def _validate_successor_wave_authority() -> tuple[dict[str, Any], list[str]]:
             "missing_registry_tokens": missing_registry_tokens,
             "missing_registry_task_tokens": missing_registry_task_tokens,
             "missing_queue_tokens": missing_queue_tokens,
+            "missing_queue_proof_anchors": missing_queue_proof_anchors,
             "closure_requirements": {
                 "status": "complete",
                 "landed_commit": "00800059",
-                "proof_anchors": [
-                    "/docker/chummercomplete/chummer-core-engine/.codex-studio/published/ENGINE_PROOF_PACK.generated.json",
-                    "/docker/chummercomplete/chummer-core-engine/scripts/generate-engine-proof-pack.py",
-                    "/docker/chummercomplete/chummer-core-engine/tests/test_engine_proof_pack_generator.py",
-                    "/docker/chummercomplete/chummer-core-engine/docs/ENGINE_PROOF_PACK.md",
-                ],
+                "proof_anchors": list(SUCCESSOR_QUEUE_PROOF_ANCHORS),
             },
         },
         unresolved,
@@ -516,7 +525,7 @@ def build_payload(root: Path, generated_output_path: Path | None = None) -> dict
     oracle_suites, unresolved_suite_ids = _build_oracle_suites(root)
     performance_budgets, unresolved_budget_ids = _build_budget_map(root)
     command_receipts, unresolved_command_ids = _validate_release_commands(root, generated_output_path)
-    successor_authority, unresolved_successor_authority_ids = _validate_successor_wave_authority()
+    successor_authority, unresolved_successor_authority_ids = _validate_successor_wave_authority(generated_output_path)
     import_discipline, unresolved_import_ids = _build_import_discipline(root, import_cert_path, import_cert)
 
     pack_status = (
