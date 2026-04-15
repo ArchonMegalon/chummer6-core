@@ -64,6 +64,7 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
         self.assertEqual(["engine_proof_pack", "import_oracle_discipline"], payload["successor_wave_package"]["owned_surfaces"])
         self.assertEqual("passed", payload["successor_wave_authority"]["status"])
         self.assertEqual("complete", payload["successor_wave_authority"]["closure_requirements"]["status"])
+        self.assertEqual(3227666051, payload["successor_wave_authority"]["closure_requirements"]["frontier_id"])
         self.assertEqual("00800059", payload["successor_wave_authority"]["closure_requirements"]["landed_commit"])
         self.assertEqual([], payload["unresolved"]["oracle_suites"])
         self.assertEqual([], payload["unresolved"]["performance_budgets"])
@@ -226,6 +227,18 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
         self.assertEqual("failed", payload["successor_wave_authority"]["status"])
         self.assertIn("source_queue", payload["unresolved"]["successor_wave_authority"])
         self.assertIn("status: complete", payload["successor_wave_authority"]["missing_queue_tokens"])
+
+    def test_build_payload_fails_closed_when_successor_queue_loses_frontier_id(self) -> None:
+        queue_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_queue_path"])
+        queue_text = queue_path.read_text(encoding="utf-8")
+        queue_path.write_text(queue_text.replace("    frontier_id: 3227666051\n", ""), encoding="utf-8")
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertEqual("failed", payload["successor_wave_authority"]["status"])
+        self.assertIn("source_queue", payload["unresolved"]["successor_wave_authority"])
+        self.assertIn("frontier_id: 3227666051", payload["successor_wave_authority"]["missing_queue_tokens"])
 
     def test_build_payload_fails_closed_when_successor_queue_loses_landed_commit(self) -> None:
         queue_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_queue_path"])
@@ -510,6 +523,7 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
                 [
                     "items:",
                     "  - package_id: next90-m104-core-proof-pack",
+                    "    frontier_id: 3227666051",
                     "    milestone_id: 104",
                     "    repo: chummer6-core",
                     "    status: complete",

@@ -100,6 +100,7 @@ SUCCESSOR_REGISTRY_TASK_TOKENS = {
 
 SUCCESSOR_QUEUE_TOKENS = (
     "package_id: next90-m104-core-proof-pack",
+    "frontier_id: 3227666051",
     "milestone_id: 104",
     "repo: chummer6-core",
     "status: complete",
@@ -374,6 +375,7 @@ def _validate_successor_wave_authority(generated_output_path: Path | None = None
             "unexpected_queue_owned_surfaces": unexpected_queue_owned_surfaces,
             "closure_requirements": {
                 "status": "complete",
+                "frontier_id": SUCCESSOR_WAVE_PACKAGE["frontier_id"],
                 "landed_commit": "00800059",
                 "proof_anchors": list(SUCCESSOR_QUEUE_PROOF_ANCHORS),
             },
