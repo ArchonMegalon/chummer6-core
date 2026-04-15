@@ -1,0 +1,224 @@
+{
+  "contract_name": "chummer6-core.engine_proof_pack",
+  "schema_version": 1,
+  "generated_at": "2026-04-15T08:12:19Z",
+  "status": "passed",
+  "proof_kind": "release_bound_engine_proof",
+  "milestone_id": 104,
+  "package_id": "next90-m104-core-proof-pack",
+  "release_commands": [
+    {
+      "id": "core_engine_tests",
+      "command": "dotnet run --project Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj -c Release",
+      "status": "passed",
+      "required_inputs": [
+        "Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj",
+        ".codex-studio/published/ENGINE_PROOF_PACK.generated.json"
+      ],
+      "missing_inputs": []
+    },
+    {
+      "id": "benchmark_budget_check",
+      "command": "dotnet run --project Chummer.Benchmarks/Chummer.Benchmarks.csproj -c Release -- --budget-check --budget-file Chummer.Benchmarks/workspace-benchmark-budgets.json",
+      "status": "passed",
+      "required_inputs": [
+        "Chummer.Benchmarks/Chummer.Benchmarks.csproj",
+        "Chummer.Benchmarks/workspace-benchmark-budgets.json"
+      ],
+      "missing_inputs": []
+    }
+  ],
+  "commands": [
+    "dotnet run --project Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj -c Release",
+    "dotnet run --project Chummer.Benchmarks/Chummer.Benchmarks.csproj -c Release -- --budget-check --budget-file Chummer.Benchmarks/workspace-benchmark-budgets.json"
+  ],
+  "required_oracle_suite_ids": [
+    "creation",
+    "advancement",
+    "augment",
+    "matrix",
+    "magic",
+    "vehicle",
+    "source_toggle",
+    "amend_package"
+  ],
+  "oracle_suites": [
+    {
+      "id": "creation",
+      "description": "Creation legality and deterministic builder entry checks.",
+      "status": "passed",
+      "evidence": [
+        "Chummer.CoreEngine.Tests/Program.cs::LegacyChummer5FixtureCorpusImportsRoundTripThroughWorkspaceService",
+        "Chummer.Tests/TestFiles/Fuzzy-chargen.chum5"
+      ],
+      "missing_evidence": []
+    },
+    {
+      "id": "advancement",
+      "description": "Career advancement deltas and post-chargen progression checks.",
+      "status": "passed",
+      "evidence": [
+        "Chummer.CoreEngine.Tests/Program.cs::LegacyChummer5FixtureCorpusImportsRoundTripThroughWorkspaceService",
+        "Chummer.Tests/TestFiles/Munin_Career.chum5"
+      ],
+      "missing_evidence": []
+    },
+    {
+      "id": "augment",
+      "description": "Cyberware/bioware and augmentation parity checks.",
+      "status": "passed",
+      "evidence": [
+        "Chummer.CoreEngine.Tests/HeroLabRulesParityAudit.cs",
+        "Chummer.CoreEngine.Tests/Fixtures/HeroLab/Sr5/Two Banshees.por"
+      ],
+      "missing_evidence": []
+    },
+    {
+      "id": "matrix",
+      "description": "Matrix-heavy fixture and import parity checks.",
+      "status": "passed",
+      "evidence": [
+        "Chummer.CoreEngine.Tests/Fixtures/Sr4/sr4-technomancer-hacker.chum4",
+        "Chummer.CoreEngine.Tests/Fixtures/HeroLab/Sr6/sr6-starter.hlo.json"
+      ],
+      "missing_evidence": []
+    },
+    {
+      "id": "magic",
+      "description": "Magic lane fixture and import parity checks.",
+      "status": "passed",
+      "evidence": [
+        "Chummer.CoreEngine.Tests/Fixtures/Sr4/sr4-hermetic-mage.chum4",
+        "Chummer.Tests/TestFiles/Spirit_Warden.chum5"
+      ],
+      "missing_evidence": []
+    },
+    {
+      "id": "vehicle",
+      "description": "Vehicle and rigger lane fixture checks.",
+      "status": "passed",
+      "evidence": [
+        "Chummer.CoreEngine.Tests/Fixtures/Sr4/sr4-rigger-wheelman.chum4",
+        "Chummer.Tests/TestFiles/Apex Predator.chum5"
+      ],
+      "missing_evidence": []
+    },
+    {
+      "id": "source_toggle",
+      "description": "Source-toggle and source-selection receipt checks.",
+      "status": "passed",
+      "evidence": [
+        "Chummer.Infrastructure/Xml/XmlToolCatalogService.cs::BuildSourceToggleLaneReceipt",
+        "Chummer.Tests/ApiIntegrationTests.cs::sourceToggleLaneReceipt"
+      ],
+      "missing_evidence": []
+    },
+    {
+      "id": "amend_package",
+      "description": "Amend package apply/diff receipt checks.",
+      "status": "passed",
+      "evidence": [
+        "Chummer.Application/Content/DefaultRuleProfileApplicationService.cs",
+        "Chummer.Application/Content/DefaultRuntimeLockDiffService.cs"
+      ],
+      "missing_evidence": []
+    }
+  ],
+  "required_performance_budget_ids": [
+    "load",
+    "explain",
+    "diff_apply",
+    "import",
+    "export_prep"
+  ],
+  "performance_budgets": [
+    {
+      "id": "import",
+      "workload": "workspace.import.bastion",
+      "status": "passed",
+      "max_mean_milliseconds": 250.0,
+      "max_allocated_bytes": 32000000,
+      "source": "Benchmark budget workload",
+      "benchmark_budget_source": "Chummer.Benchmarks/workspace-benchmark-budgets.json"
+    },
+    {
+      "id": "load",
+      "workload": "workspace.section.skills.bastion",
+      "status": "passed",
+      "max_mean_milliseconds": 180.0,
+      "max_allocated_bytes": 32000000,
+      "source": "Benchmark budget workload",
+      "benchmark_budget_source": "Chummer.Benchmarks/workspace-benchmark-budgets.json"
+    },
+    {
+      "id": "diff_apply",
+      "workload": "workspace.save.bastion",
+      "status": "passed",
+      "max_mean_milliseconds": 80.0,
+      "max_allocated_bytes": 16000000,
+      "source": "Benchmark budget workload",
+      "benchmark_budget_source": "Chummer.Benchmarks/workspace-benchmark-budgets.json"
+    },
+    {
+      "id": "explain",
+      "workload": "runtime.explain.trace",
+      "status": "passed",
+      "max_mean_milliseconds": 220.0,
+      "max_allocated_bytes": 24000000,
+      "source": "Release budget target (enforced by core-engine explain fixture and release-proof receipt until benchmark lane is promoted)",
+      "benchmark_budget_source": "Chummer.Benchmarks/workspace-benchmark-budgets.json"
+    },
+    {
+      "id": "export_prep",
+      "workload": "workspace.export.bastion",
+      "status": "passed",
+      "max_mean_milliseconds": 160.0,
+      "max_allocated_bytes": 20000000,
+      "source": "Release budget target (enforced by workspace round-trip/export fixtures until benchmark lane is promoted)",
+      "benchmark_budget_source": "Chummer.Benchmarks/workspace-benchmark-budgets.json"
+    }
+  ],
+  "import_oracle_discipline": {
+    "status": "passed",
+    "source_receipt_path": ".codex-studio/published/IMPORT_PARITY_CERTIFICATION.generated.json",
+    "source_receipt_status": "passed",
+    "required_import_oracle_names": [
+      "Chummer4",
+      "Chummer5a",
+      "Hero Lab Classic"
+    ],
+    "required_adjacent_oracle_names": [
+      "Genesis",
+      "CommLink6"
+    ],
+    "import_oracles": [
+      {
+        "name": "Chummer4",
+        "sources_covered": 1,
+        "sources_expected": 1
+      },
+      {
+        "name": "Chummer5a",
+        "sources_covered": 1,
+        "sources_expected": 1
+      },
+      {
+        "name": "Hero Lab Classic",
+        "sources_covered": 1,
+        "sources_expected": 1
+      }
+    ],
+    "adjacent_oracles": [
+      "Genesis",
+      "CommLink6"
+    ],
+    "unresolved": []
+  },
+  "unresolved": {
+    "oracle_suites": [],
+    "performance_budgets": [],
+    "release_commands": [],
+    "import_oracle_discipline": []
+  },
+  "notes": "Release-bound engine proof pack for milestone 104. This receipt keeps golden oracle suites, import-oracle discipline, and budget posture machine-readable for desktop release waves."
+}
