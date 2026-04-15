@@ -1,7 +1,7 @@
 {
   "contract_name": "chummer6-core.engine_proof_pack",
   "schema_version": 1,
-  "generated_at": "2026-04-15T09:20:22Z",
+  "generated_at": "2026-04-15T09:39:19Z",
   "status": "passed",
   "proof_kind": "release_bound_engine_proof",
   "milestone_id": 104,
@@ -42,11 +42,27 @@
       "package_id: next90-m104-core-proof-pack",
       "milestone_id: 104",
       "repo: chummer6-core",
+      "status: complete",
+      "landed_commit: 00800059",
+      "/docker/chummercomplete/chummer-core-engine/.codex-studio/published/ENGINE_PROOF_PACK.generated.json",
+      "/docker/chummercomplete/chummer-core-engine/scripts/generate-engine-proof-pack.py",
+      "/docker/chummercomplete/chummer-core-engine/tests/test_engine_proof_pack_generator.py",
+      "/docker/chummercomplete/chummer-core-engine/docs/ENGINE_PROOF_PACK.md",
       "engine_proof_pack",
       "import_oracle_discipline"
     ],
     "missing_registry_tokens": [],
-    "missing_queue_tokens": []
+    "missing_queue_tokens": [],
+    "closure_requirements": {
+      "status": "complete",
+      "landed_commit": "00800059",
+      "proof_anchors": [
+        "/docker/chummercomplete/chummer-core-engine/.codex-studio/published/ENGINE_PROOF_PACK.generated.json",
+        "/docker/chummercomplete/chummer-core-engine/scripts/generate-engine-proof-pack.py",
+        "/docker/chummercomplete/chummer-core-engine/tests/test_engine_proof_pack_generator.py",
+        "/docker/chummercomplete/chummer-core-engine/docs/ENGINE_PROOF_PACK.md"
+      ]
+    }
   },
   "release_commands": [
     {
