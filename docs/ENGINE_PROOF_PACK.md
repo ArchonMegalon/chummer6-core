@@ -20,6 +20,10 @@ The proof pack must fail closed unless it includes:
 - release commands with existing repo-local project and budget inputs
 - evidence anchors that resolve to checked-in files; anchors with `::` must also resolve to a symbol or stable token in that file
 
+All required performance lanes must resolve to named workloads in `Chummer.Benchmarks/workspace-benchmark-budgets.json`.
+They must also resolve to executable workload evidence in `Chummer.Benchmarks/MigrationWorkspaceBenchmarks.cs`.
+The proof generator fails closed when a required budget lane is missing from either the budget file or the executable benchmark workload source.
+
 The import-oracle discipline lane requires named coverage for Chummer4, Chummer5a, Hero Lab Classic, Genesis, and CommLink6.
 
 ## Generation
