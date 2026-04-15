@@ -181,6 +181,7 @@ REQUIRED_LOCAL_COMMIT_PROOFS = (
     ("2187db33", "latest proof pack guard authority required by local closeout"),
     ("b488d109", "current M104 proof pack authority required by registry and queue closeout"),
     ("b6fddf74", "latest M104 proof pack authority guard required by registry and queue closeout"),
+    ("3b9a29c2", "latest M104 proof pack guard required by local closeout"),
 )
 
 
