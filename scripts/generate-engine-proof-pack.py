@@ -117,6 +117,7 @@ SUCCESSOR_REGISTRY_TASK_TOKENS = {
         "/docker/chummercomplete/chummer-core-engine commit e10f2739 pins the current cd30503f queue proof floor in the generated proof pack, unit tests, and proof-pack documentation.",
         "/docker/chummercomplete/chummer-core-engine commit 3c242c2f pins the current f914ce6a helper hygiene proof floor in the generated proof pack, unit tests, and proof-pack documentation.",
         "/docker/chummercomplete/chummer-core-engine commit ea449f7b pins the current c2872b40 queue proof floor guard in the generated proof pack, unit tests, and proof-pack documentation.",
+        "/docker/chummercomplete/chummer-core-engine commit 18365058 pins the current ea449f7b queue proof guard in the generated proof pack, unit tests, and proof-pack documentation.",
         "dotnet run --project Chummer.Benchmarks/Chummer.Benchmarks.csproj -c Release -- --budget-check --budget-file Chummer.Benchmarks/workspace-benchmark-budgets.json exits 0",
     ),
 }
@@ -150,6 +151,7 @@ SUCCESSOR_QUEUE_TOKENS = (
     "/docker/chummercomplete/chummer-core-engine commit e10f2739 pins the current cd30503f queue proof floor in the generated proof pack, unit tests, and proof-pack documentation.",
     "/docker/chummercomplete/chummer-core-engine commit 3c242c2f pins the current f914ce6a helper hygiene proof floor in the generated proof pack, unit tests, and proof-pack documentation.",
     "/docker/chummercomplete/chummer-core-engine commit ea449f7b pins the current c2872b40 queue proof floor guard in the generated proof pack, unit tests, and proof-pack documentation.",
+    "/docker/chummercomplete/chummer-core-engine commit 18365058 pins the current ea449f7b queue proof guard in the generated proof pack, unit tests, and proof-pack documentation.",
     "allowed_paths:",
     "- src",
     "- tests",
@@ -238,6 +240,7 @@ REQUIRED_LOCAL_COMMIT_PROOFS = (
     ("3c242c2f", "current M104 helper hygiene proof floor queue citation required by local closeout"),
     ("c2872b40", "current M104 queue proof floor guard required by local closeout"),
     ("ea449f7b", "current M104 queue proof floor guard pin required by registry and queue closeout"),
+    ("18365058", "current M104 queue proof guard pin required by registry and queue closeout"),
 )
 
 
