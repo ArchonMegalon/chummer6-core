@@ -515,7 +515,7 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
             registry_text.replace(
                 "          - successor_wave_authority=passed\n",
                 "          - successor_wave_authority=passed\n"
-                "          - operator telemetry transcript\n",
+                "          - Operator Telemetry transcript\n",
             ),
             encoding="utf-8",
         )
@@ -634,6 +634,25 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
         self.assertIn("source_queue", payload["unresolved"]["successor_wave_authority"])
         self.assertEqual(["ACTIVE_RUN_HANDOFF"], payload["successor_wave_authority"]["disallowed_queue_active_run_tokens"])
 
+    def test_build_payload_fails_closed_when_successor_queue_cites_mixed_case_active_run_helper_proof(self) -> None:
+        queue_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_queue_path"])
+        queue_text = queue_path.read_text(encoding="utf-8")
+        queue_path.write_text(
+            queue_text.replace(
+                "      - /docker/chummercomplete/chummer-core-engine/docs/ENGINE_PROOF_PACK.md\n",
+                "      - /docker/chummercomplete/chummer-core-engine/docs/ENGINE_PROOF_PACK.md\n"
+                "      - Active Run Helper transcript\n",
+            ),
+            encoding="utf-8",
+        )
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertEqual("failed", payload["successor_wave_authority"]["status"])
+        self.assertIn("source_queue", payload["unresolved"]["successor_wave_authority"])
+        self.assertEqual(["active run helper"], payload["successor_wave_authority"]["disallowed_queue_active_run_tokens"])
+
     def test_build_payload_fails_closed_when_design_queue_loses_package_authority(self) -> None:
         design_queue_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_design_queue_path"])
         design_queue_path.write_text("package_id: different-package\n", encoding="utf-8")
@@ -682,7 +701,7 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
             queue_text.replace(
                 "      - /docker/chummercomplete/chummer-core-engine/docs/ENGINE_PROOF_PACK.md\n",
                 "      - /docker/chummercomplete/chummer-core-engine/docs/ENGINE_PROOF_PACK.md\n"
-                "      - active-run telemetry helper output\n",
+                "      - Active-Run Telemetry Helper Output\n",
             ),
             encoding="utf-8",
         )
