@@ -87,6 +87,8 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
         self.assertEqual([], payload["successor_wave_authority"]["unexpected_queue_owned_surfaces"])
         self.assertEqual([], payload["successor_wave_authority"]["design_queue_missing_tokens"])
         self.assertEqual([], payload["successor_wave_authority"]["design_queue_missing_proof_anchors"])
+        self.assertEqual([], payload["successor_wave_authority"]["off_package_queue_proof_anchors"])
+        self.assertEqual([], payload["successor_wave_authority"]["design_queue_off_package_proof_anchors"])
         self.assertEqual(["src", "tests", "docs", "scripts"], payload["successor_wave_authority"]["design_queue_allowed_paths"])
         self.assertEqual(
             ["engine_proof_pack", "import_oracle_discipline"],
@@ -406,6 +408,28 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
         self.assertIn("source_queue", payload["unresolved"]["successor_wave_authority"])
         self.assertIn(proof_anchor, payload["successor_wave_authority"]["missing_queue_tokens"])
 
+    def test_build_payload_fails_closed_when_successor_queue_anchor_points_to_sibling_package_repo(self) -> None:
+        original_anchors = self.generator.SUCCESSOR_QUEUE_PROOF_ANCHORS
+        off_package_anchor = "/docker/chummercomplete/chummer6-ui-finish/scripts/ai/milestones/next90-m104-ui-explain-receipts-check.sh"
+        self.generator.SUCCESSOR_QUEUE_PROOF_ANCHORS = original_anchors + (off_package_anchor,)
+        queue_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_queue_path"])
+        queue_text = queue_path.read_text(encoding="utf-8")
+        queue_text = queue_text.replace(
+            "      - /docker/chummercomplete/chummer-core-engine/docs/ENGINE_PROOF_PACK.md\n",
+            "      - /docker/chummercomplete/chummer-core-engine/docs/ENGINE_PROOF_PACK.md\n"
+            f"      - {off_package_anchor}\n",
+        )
+        queue_path.write_text(queue_text, encoding="utf-8")
+        try:
+            payload = self.generator.build_payload(self.root, self.output_path)
+        finally:
+            self.generator.SUCCESSOR_QUEUE_PROOF_ANCHORS = original_anchors
+
+        self.assertEqual("failed", payload["status"])
+        self.assertEqual("failed", payload["successor_wave_authority"]["status"])
+        self.assertIn("source_queue", payload["unresolved"]["successor_wave_authority"])
+        self.assertEqual([off_package_anchor], payload["successor_wave_authority"]["off_package_queue_proof_anchors"])
+
     def test_build_payload_fails_closed_when_design_queue_loses_package_authority(self) -> None:
         design_queue_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_design_queue_path"])
         design_queue_path.write_text("package_id: different-package\n", encoding="utf-8")
@@ -418,6 +442,32 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
         self.assertIn(
             "package_id: next90-m104-core-proof-pack",
             payload["successor_wave_authority"]["design_queue_missing_tokens"],
+        )
+        self.assertEqual([], payload["successor_wave_authority"]["missing_queue_tokens"])
+
+    def test_build_payload_fails_closed_when_design_queue_anchor_points_to_sibling_package_repo(self) -> None:
+        original_anchors = self.generator.SUCCESSOR_QUEUE_PROOF_ANCHORS
+        off_package_anchor = "/docker/chummercomplete/chummer6-ui-finish/scripts/ai/milestones/next90-m104-ui-explain-receipts-check.sh"
+        self.generator.SUCCESSOR_QUEUE_PROOF_ANCHORS = original_anchors + (off_package_anchor,)
+        design_queue_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_design_queue_path"])
+        queue_text = design_queue_path.read_text(encoding="utf-8")
+        queue_text = queue_text.replace(
+            "      - /docker/chummercomplete/chummer-core-engine/docs/ENGINE_PROOF_PACK.md\n",
+            "      - /docker/chummercomplete/chummer-core-engine/docs/ENGINE_PROOF_PACK.md\n"
+            f"      - {off_package_anchor}\n",
+        )
+        design_queue_path.write_text(queue_text, encoding="utf-8")
+        try:
+            payload = self.generator.build_payload(self.root, self.output_path)
+        finally:
+            self.generator.SUCCESSOR_QUEUE_PROOF_ANCHORS = original_anchors
+
+        self.assertEqual("failed", payload["status"])
+        self.assertEqual("failed", payload["successor_wave_authority"]["status"])
+        self.assertIn("source_design_queue", payload["unresolved"]["successor_wave_authority"])
+        self.assertEqual(
+            [off_package_anchor],
+            payload["successor_wave_authority"]["design_queue_off_package_proof_anchors"],
         )
         self.assertEqual([], payload["successor_wave_authority"]["missing_queue_tokens"])
 
