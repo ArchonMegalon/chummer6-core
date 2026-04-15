@@ -1,7 +1,7 @@
 {
   "contract_name": "chummer6-core.engine_proof_pack",
   "schema_version": 1,
-  "generated_at": "2026-04-15T18:58:52Z",
+  "generated_at": "2026-04-15T19:05:35Z",
   "status": "passed",
   "proof_kind": "release_bound_engine_proof",
   "milestone_id": 104,
@@ -431,6 +431,11 @@
       {
         "commit": "abf63719",
         "purpose": "current M104 proof pack local floor required by local closeout",
+        "status": "passed"
+      },
+      {
+        "commit": "bbc7fba8",
+        "purpose": "current M104 engine proof pack floor required by local closeout",
         "status": "passed"
       }
     ],
