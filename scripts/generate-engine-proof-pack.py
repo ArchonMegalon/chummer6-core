@@ -151,6 +151,7 @@ REQUIRED_LOCAL_COMMIT_PROOFS = (
     ("7b42b69f", "package-local proof anchor scope guard"),
     ("220dd257", "current proof pack guard binding"),
     ("b5571717", "proof pack guard binding"),
+    ("56048971", "latest proof pack guard binding"),
 )
 
 
