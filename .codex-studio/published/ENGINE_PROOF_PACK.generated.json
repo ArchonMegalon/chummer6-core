@@ -1,7 +1,7 @@
 {
   "contract_name": "chummer6-core.engine_proof_pack",
   "schema_version": 1,
-  "generated_at": "2026-04-15T15:50:51Z",
+  "generated_at": "2026-04-15T15:57:11Z",
   "status": "passed",
   "proof_kind": "release_bound_engine_proof",
   "milestone_id": 104,
@@ -371,6 +371,11 @@
       {
         "commit": "e10f2739",
         "purpose": "current M104 queue proof floor required by local closeout",
+        "status": "passed"
+      },
+      {
+        "commit": "e7d4270e",
+        "purpose": "current M104 queue proof floor guard required by local closeout",
         "status": "passed"
       }
     ],
