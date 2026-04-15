@@ -124,6 +124,9 @@ SUCCESSOR_QUEUE_PROOF_ANCHORS = (
     "/docker/chummercomplete/chummer-core-engine/docs/ENGINE_PROOF_PACK.md",
 )
 
+EXPECTED_QUEUE_ALLOWED_PATHS = tuple(SUCCESSOR_WAVE_PACKAGE["allowed_paths"])
+EXPECTED_QUEUE_OWNED_SURFACES = tuple(SUCCESSOR_WAVE_PACKAGE["owned_surfaces"])
+
 
 def _iso_now() -> str:
     return dt.datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
@@ -270,6 +273,36 @@ def _extract_list_item_block(text: str, item_header: str) -> str:
     return "\n".join(block_lines) + "\n"
 
 
+def _extract_yaml_list_values(block: str, key: str) -> list[str]:
+    lines = block.splitlines()
+    for index, line in enumerate(lines):
+        stripped = line.lstrip()
+        if stripped != f"{key}:":
+            continue
+
+        key_indent = len(line) - len(stripped)
+        values: list[str] = []
+        for item_line in lines[index + 1 :]:
+            item_stripped = item_line.lstrip()
+            item_indent = len(item_line) - len(item_stripped)
+            if not item_stripped:
+                continue
+            if item_indent <= key_indent:
+                break
+            if item_stripped.startswith("- "):
+                values.append(item_stripped[2:].strip())
+        return values
+    return []
+
+
+def _list_drift(actual: list[str], expected: tuple[str, ...]) -> tuple[list[str], list[str]]:
+    actual_set = set(actual)
+    expected_set = set(expected)
+    missing = [value for value in expected if value not in actual_set]
+    unexpected = [value for value in actual if value not in expected_set]
+    return missing, unexpected
+
+
 def _validate_successor_wave_authority(generated_output_path: Path | None = None) -> tuple[dict[str, Any], list[str]]:
     registry_path = Path(SUCCESSOR_WAVE_PACKAGE["source_registry_path"])
     queue_path = Path(SUCCESSOR_WAVE_PACKAGE["source_queue_path"])
@@ -296,6 +329,18 @@ def _validate_successor_wave_authority(generated_output_path: Path | None = None
         planned_generated_anchor = generated_output_path is not None and anchor_path.resolve() == generated_output_path.resolve()
         if not anchor_path.exists() and not planned_generated_anchor:
             missing_queue_proof_anchors.append(anchor)
+    queue_allowed_paths = _extract_yaml_list_values(queue_scope, "allowed_paths") if queue_scope else []
+    missing_queue_allowed_paths, unexpected_queue_allowed_paths = _list_drift(queue_allowed_paths, EXPECTED_QUEUE_ALLOWED_PATHS)
+    queue_owned_surfaces = _extract_yaml_list_values(queue_scope, "owned_surfaces") if queue_scope else []
+    missing_queue_owned_surfaces, unexpected_queue_owned_surfaces = _list_drift(queue_owned_surfaces, EXPECTED_QUEUE_OWNED_SURFACES)
+    for value in missing_queue_allowed_paths:
+        missing_queue_tokens.append(f"allowed_paths:{value}")
+    for value in unexpected_queue_allowed_paths:
+        missing_queue_tokens.append(f"unexpected_allowed_path:{value}")
+    for value in missing_queue_owned_surfaces:
+        missing_queue_tokens.append(f"owned_surfaces:{value}")
+    for value in unexpected_queue_owned_surfaces:
+        missing_queue_tokens.append(f"unexpected_owned_surface:{value}")
     registry_status = "passed" if not missing_registry_tokens else "failed"
     queue_status = "passed" if not missing_queue_tokens and not missing_queue_proof_anchors else "failed"
 
@@ -321,6 +366,12 @@ def _validate_successor_wave_authority(generated_output_path: Path | None = None
             "missing_registry_task_tokens": missing_registry_task_tokens,
             "missing_queue_tokens": missing_queue_tokens,
             "missing_queue_proof_anchors": missing_queue_proof_anchors,
+            "queue_allowed_paths": queue_allowed_paths,
+            "expected_queue_allowed_paths": list(EXPECTED_QUEUE_ALLOWED_PATHS),
+            "unexpected_queue_allowed_paths": unexpected_queue_allowed_paths,
+            "queue_owned_surfaces": queue_owned_surfaces,
+            "expected_queue_owned_surfaces": list(EXPECTED_QUEUE_OWNED_SURFACES),
+            "unexpected_queue_owned_surfaces": unexpected_queue_owned_surfaces,
             "closure_requirements": {
                 "status": "complete",
                 "landed_commit": "00800059",

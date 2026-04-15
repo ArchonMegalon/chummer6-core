@@ -1,7 +1,7 @@
 {
   "contract_name": "chummer6-core.engine_proof_pack",
   "schema_version": 1,
-  "generated_at": "2026-04-15T10:41:19Z",
+  "generated_at": "2026-04-15T10:54:53Z",
   "status": "passed",
   "proof_kind": "release_bound_engine_proof",
   "milestone_id": 104,
@@ -79,6 +79,28 @@
     "missing_registry_task_tokens": {},
     "missing_queue_tokens": [],
     "missing_queue_proof_anchors": [],
+    "queue_allowed_paths": [
+      "src",
+      "tests",
+      "docs",
+      "scripts"
+    ],
+    "expected_queue_allowed_paths": [
+      "src",
+      "tests",
+      "docs",
+      "scripts"
+    ],
+    "unexpected_queue_allowed_paths": [],
+    "queue_owned_surfaces": [
+      "engine_proof_pack",
+      "import_oracle_discipline"
+    ],
+    "expected_queue_owned_surfaces": [
+      "engine_proof_pack",
+      "import_oracle_discipline"
+    ],
+    "unexpected_queue_owned_surfaces": [],
     "closure_requirements": {
       "status": "complete",
       "landed_commit": "00800059",

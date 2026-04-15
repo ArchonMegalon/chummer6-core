@@ -73,6 +73,13 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
         self.assertEqual([], payload["unresolved"]["import_oracle_discipline"])
         self.assertEqual("passed", payload["release_channel_binding"]["status"])
         self.assertEqual("docker", payload["release_channel_binding"]["channel_id"])
+        self.assertEqual(["src", "tests", "docs", "scripts"], payload["successor_wave_authority"]["queue_allowed_paths"])
+        self.assertEqual([], payload["successor_wave_authority"]["unexpected_queue_allowed_paths"])
+        self.assertEqual(
+            ["engine_proof_pack", "import_oracle_discipline"],
+            payload["successor_wave_authority"]["queue_owned_surfaces"],
+        )
+        self.assertEqual([], payload["successor_wave_authority"]["unexpected_queue_owned_surfaces"])
         self.assertEqual(
             [
                 "avalonia:linux:linux-x64",
@@ -243,6 +250,38 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
         self.assertEqual("failed", payload["successor_wave_authority"]["status"])
         self.assertIn("source_queue", payload["unresolved"]["successor_wave_authority"])
         self.assertIn("- scripts", payload["successor_wave_authority"]["missing_queue_tokens"])
+
+    def test_build_payload_fails_closed_when_successor_queue_adds_unassigned_allowed_path(self) -> None:
+        queue_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_queue_path"])
+        queue_text = queue_path.read_text(encoding="utf-8")
+        queue_path.write_text(
+            queue_text.replace("      - scripts\n", "      - scripts\n      - Chummer.Core\n"),
+            encoding="utf-8",
+        )
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertEqual("failed", payload["successor_wave_authority"]["status"])
+        self.assertIn("source_queue", payload["unresolved"]["successor_wave_authority"])
+        self.assertEqual(["Chummer.Core"], payload["successor_wave_authority"]["unexpected_queue_allowed_paths"])
+        self.assertIn("unexpected_allowed_path:Chummer.Core", payload["successor_wave_authority"]["missing_queue_tokens"])
+
+    def test_build_payload_fails_closed_when_successor_queue_adds_unassigned_owned_surface(self) -> None:
+        queue_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_queue_path"])
+        queue_text = queue_path.read_text(encoding="utf-8")
+        queue_path.write_text(
+            queue_text.replace("      - import_oracle_discipline\n", "      - import_oracle_discipline\n      - desktop_ui_receipts\n"),
+            encoding="utf-8",
+        )
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertEqual("failed", payload["successor_wave_authority"]["status"])
+        self.assertIn("source_queue", payload["unresolved"]["successor_wave_authority"])
+        self.assertEqual(["desktop_ui_receipts"], payload["successor_wave_authority"]["unexpected_queue_owned_surfaces"])
+        self.assertIn("unexpected_owned_surface:desktop_ui_receipts", payload["successor_wave_authority"]["missing_queue_tokens"])
 
     def test_build_payload_fails_closed_when_successor_registry_token_only_exists_on_another_milestone(self) -> None:
         registry_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_registry_path"])
