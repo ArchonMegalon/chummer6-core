@@ -170,6 +170,7 @@ REQUIRED_LOCAL_COMMIT_PROOFS = (
     ("a2173476", "current proof pack guard required by registry and queue closeout"),
     ("dafc1205", "latest proof pack guard required by local closeout"),
     ("65df3894", "active-run proof hygiene guard required by local closeout"),
+    ("4a56911d", "active-run proof hygiene guard binding required by local closeout"),
 )
 
 
