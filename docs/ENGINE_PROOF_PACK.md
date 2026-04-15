@@ -25,6 +25,7 @@ The proof pack must fail closed unless it includes:
 - oracle suites: `creation`, `advancement`, `augment`, `matrix`, `magic`, `vehicle`, `source_toggle`, `amend_package`
 - performance budget lanes: `load`, `explain`, `diff_apply`, `import`, `export_prep`
 - import-oracle discipline status sourced from `IMPORT_PARITY_CERTIFICATION.generated.json`
+- release-channel binding sourced from `/docker/chummercomplete/chummer-hub-registry/.codex-studio/published/RELEASE_CHANNEL.generated.json`
 - release commands with existing repo-local project and budget inputs
 - evidence anchors that resolve to checked-in files; anchors with `::` must also resolve to a symbol or stable token in that file
 
@@ -33,6 +34,15 @@ They must also resolve to executable workload evidence in `Chummer.Benchmarks/Mi
 The proof generator fails closed when a required budget lane is missing from either the budget file or the executable benchmark workload source.
 
 The import-oracle discipline lane requires named coverage for Chummer4, Chummer5a, Hero Lab Classic, Genesis, and CommLink6.
+
+The release-channel binding requires the current release shelf to be `published`, `promoted_preview`, release-proof `passed`, and desktop tuple coverage `complete`.
+It also fail-closes unless the promoted primary Avalonia installer tuples resolve for Linux, Windows, and macOS:
+
+- `avalonia:linux:linux-x64`
+- `avalonia:windows:win-x64`
+- `avalonia:macos:osx-arm64`
+
+Each required tuple must remain `routeRole=primary`, `promotionState=promoted`, `parityPosture=flagship_primary`, `updateEligibility=eligible`, `revokeState=not_revoked`, and `installPosture=installer_first`, with its artifact id present on the release shelf.
 
 ## Generation
 
@@ -46,7 +56,7 @@ The generator treats the generated proof pack path as a planned output so a clea
 
 ## Verification
 
-The generator unit tests prove fail-closed behavior for missing evidence symbols, missing executable benchmark workloads, missing adjacent import oracles, successor registry or queue tokens that only appear on another milestone/package row, non-resolving successor queue proof anchors, and core-task completion evidence that only appears on a later milestone-104 task:
+The generator unit tests prove fail-closed behavior for missing evidence symbols, missing executable benchmark workloads, missing adjacent import oracles, release-channel promoted tuple drift, release-channel artifact shelf drift, successor registry or queue tokens that only appear on another milestone/package row, non-resolving successor queue proof anchors, and core-task completion evidence that only appears on a later milestone-104 task:
 
 ```bash
 python3 tests/test_engine_proof_pack_generator.py
@@ -55,7 +65,8 @@ python3 tests/test_engine_proof_pack_generator.py
 The core engine test harness enforces the generated proof pack shape and required coverage after regenerating the receipt:
 
 ```bash
-dotnet run --project Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj -c Release
+dotnet build Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj -c Release --nologo -m:1
+dotnet Chummer.CoreEngine.Tests/bin/Release/net10.0/Chummer.CoreEngine.Tests.dll
 ```
 
 The benchmark budget command listed in the proof pack remains the release command for measured workload budget enforcement.

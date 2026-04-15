@@ -48,7 +48,18 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
         self.assertEqual([], payload["unresolved"]["performance_budgets"])
         self.assertEqual([], payload["unresolved"]["release_commands"])
         self.assertEqual([], payload["unresolved"]["successor_wave_authority"])
+        self.assertEqual([], payload["unresolved"]["release_channel_binding"])
         self.assertEqual([], payload["unresolved"]["import_oracle_discipline"])
+        self.assertEqual("passed", payload["release_channel_binding"]["status"])
+        self.assertEqual("docker", payload["release_channel_binding"]["channel_id"])
+        self.assertEqual(
+            [
+                "avalonia:linux:linux-x64",
+                "avalonia:windows:win-x64",
+                "avalonia:macos:osx-arm64",
+            ],
+            payload["release_channel_binding"]["required_promoted_desktop_tuples"],
+        )
         self.assertEqual([], payload["successor_wave_authority"]["missing_queue_proof_anchors"])
 
     def test_build_payload_fails_closed_when_a_suite_evidence_symbol_is_missing(self) -> None:
@@ -81,6 +92,72 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
 
         self.assertEqual("failed", payload["status"])
         self.assertIn("missing_adjacent_oracle:CommLink6", payload["unresolved"]["import_oracle_discipline"])
+
+    def test_build_payload_fails_closed_when_release_channel_loses_promoted_tuple(self) -> None:
+        release_path = self.generator.RELEASE_CHANNEL_PATH
+        release_payload = json.loads(release_path.read_text(encoding="utf-8"))
+        release_payload["desktopTupleCoverage"]["desktopRouteTruth"] = [
+            row
+            for row in release_payload["desktopTupleCoverage"]["desktopRouteTruth"]
+            if row["tupleId"] != "avalonia:windows:win-x64"
+        ]
+        release_path.write_text(json.dumps(release_payload), encoding="utf-8")
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertIn(
+            "required_promoted_tuple:avalonia:windows:win-x64",
+            payload["unresolved"]["release_channel_binding"],
+        )
+
+    def test_build_payload_fails_closed_when_release_channel_primary_tuple_is_not_primary(self) -> None:
+        release_path = self.generator.RELEASE_CHANNEL_PATH
+        release_payload = json.loads(release_path.read_text(encoding="utf-8"))
+        for row in release_payload["desktopTupleCoverage"]["desktopRouteTruth"]:
+            if row["tupleId"] == "avalonia:linux:linux-x64":
+                row["routeRole"] = "fallback"
+                row["parityPosture"] = "explicit_fallback"
+        release_path.write_text(json.dumps(release_payload), encoding="utf-8")
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertIn(
+            "required_promoted_tuple:avalonia:linux:linux-x64",
+            payload["unresolved"]["release_channel_binding"],
+        )
+        linux_tuple = next(
+            row
+            for row in payload["release_channel_binding"]["promoted_primary_tuples"]
+            if row["tuple_id"] == "avalonia:linux:linux-x64"
+        )
+        self.assertIn("routeRole:fallback", linux_tuple["unresolved"])
+        self.assertIn("parityPosture:explicit_fallback", linux_tuple["unresolved"])
+
+    def test_build_payload_fails_closed_when_release_channel_artifact_is_not_on_shelf(self) -> None:
+        release_path = self.generator.RELEASE_CHANNEL_PATH
+        release_payload = json.loads(release_path.read_text(encoding="utf-8"))
+        release_payload["artifacts"] = [
+            row
+            for row in release_payload["artifacts"]
+            if row["artifactId"] != "avalonia-osx-arm64-installer"
+        ]
+        release_path.write_text(json.dumps(release_payload), encoding="utf-8")
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertIn(
+            "required_promoted_tuple:avalonia:macos:osx-arm64",
+            payload["unresolved"]["release_channel_binding"],
+        )
+        macos_tuple = next(
+            row
+            for row in payload["release_channel_binding"]["promoted_primary_tuples"]
+            if row["tuple_id"] == "avalonia:macos:osx-arm64"
+        )
+        self.assertIn("artifact_not_on_shelf:avalonia-osx-arm64-installer", macos_tuple["unresolved"])
 
     def test_build_payload_fails_closed_when_successor_queue_loses_package_authority(self) -> None:
         queue_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_queue_path"])
@@ -397,6 +474,70 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
         )
         self.generator.SUCCESSOR_WAVE_PACKAGE["source_registry_path"] = str(registry_path)
         self.generator.SUCCESSOR_WAVE_PACKAGE["source_queue_path"] = str(queue_path)
+        release_channel_path = self.root / "release-channel.generated.json"
+        release_channel_path.write_text(
+            json.dumps(
+                {
+                    "status": "published",
+                    "rolloutState": "promoted_preview",
+                    "channelId": "docker",
+                    "version": "run-test",
+                    "releaseProof": {"status": "passed"},
+                    "artifacts": [
+                        {"artifactId": "avalonia-linux-x64-installer"},
+                        {"artifactId": "avalonia-win-x64-installer"},
+                        {"artifactId": "avalonia-osx-arm64-installer"},
+                    ],
+                    "desktopTupleCoverage": {
+                        "complete": True,
+                        "desktopRouteTruth": [
+                            {
+                                "tupleId": "avalonia:linux:linux-x64",
+                                "head": "avalonia",
+                                "platform": "linux",
+                                "rid": "linux-x64",
+                                "artifactId": "avalonia-linux-x64-installer",
+                                "routeRole": "primary",
+                                "promotionState": "promoted",
+                                "parityPosture": "flagship_primary",
+                                "updateEligibility": "eligible",
+                                "revokeState": "not_revoked",
+                                "installPosture": "installer_first",
+                            },
+                            {
+                                "tupleId": "avalonia:windows:win-x64",
+                                "head": "avalonia",
+                                "platform": "windows",
+                                "rid": "win-x64",
+                                "artifactId": "avalonia-win-x64-installer",
+                                "routeRole": "primary",
+                                "promotionState": "promoted",
+                                "parityPosture": "flagship_primary",
+                                "updateEligibility": "eligible",
+                                "revokeState": "not_revoked",
+                                "installPosture": "installer_first",
+                            },
+                            {
+                                "tupleId": "avalonia:macos:osx-arm64",
+                                "head": "avalonia",
+                                "platform": "macos",
+                                "rid": "osx-arm64",
+                                "artifactId": "avalonia-osx-arm64-installer",
+                                "routeRole": "primary",
+                                "promotionState": "promoted",
+                                "parityPosture": "flagship_primary",
+                                "updateEligibility": "eligible",
+                                "revokeState": "not_revoked",
+                                "installPosture": "installer_first",
+                            },
+                        ],
+                    },
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        self.generator.RELEASE_CHANNEL_PATH = release_channel_path
 
 
 if __name__ == "__main__":
