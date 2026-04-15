@@ -9,11 +9,14 @@ It keeps engine trust evidence machine-readable so desktop release polish cannot
 
 - path: `.codex-studio/published/ENGINE_PROOF_PACK.generated.json`
 - contract: `chummer6-core.engine_proof_pack`
+- successor package: `next90-m104-core-proof-pack`
+- successor frontier: `3227666051`
 
 ## Required coverage
 
 The proof pack must fail closed unless it includes:
 
+- successor-wave authority for milestone `104`, owned surfaces `engine_proof_pack` and `import_oracle_discipline`, and the canonical successor registry plus queue staging paths
 - oracle suites: `creation`, `advancement`, `augment`, `matrix`, `magic`, `vehicle`, `source_toggle`, `amend_package`
 - performance budget lanes: `load`, `explain`, `diff_apply`, `import`, `export_prep`
 - import-oracle discipline status sourced from `IMPORT_PARITY_CERTIFICATION.generated.json`
@@ -34,9 +37,17 @@ From repo root:
 python3 scripts/generate-engine-proof-pack.py
 ```
 
+The generator treats the generated proof pack path as a planned output so a clean first run cannot fail only because `ENGINE_PROOF_PACK.generated.json` does not already exist.
+
 ## Verification
 
-The core engine test harness enforces the proof pack shape and required coverage:
+The generator unit tests prove fail-closed behavior for missing evidence symbols, missing executable benchmark workloads, and missing adjacent import oracles:
+
+```bash
+python3 tests/test_engine_proof_pack_generator.py
+```
+
+The core engine test harness enforces the generated proof pack shape and required coverage after regenerating the receipt:
 
 ```bash
 dotnet run --project Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj -c Release

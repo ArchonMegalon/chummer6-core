@@ -29,6 +29,7 @@ if [[ "$skip_build" -eq 0 ]]; then
   dotnet build "$project_path" --nologo -m:1 -p:ChummerEngineContractsPackageVersion="$contracts_package_version" "${build_args[@]}"
 fi
 
+python3 "$repo_root/tests/test_engine_proof_pack_generator.py"
 python3 "$repo_root/scripts/generate-engine-proof-pack.py" --repo-root "$repo_root" >/dev/null
 
 dotnet "Chummer.CoreEngine.Tests/bin/Debug/$target_framework/Chummer.CoreEngine.Tests.dll"

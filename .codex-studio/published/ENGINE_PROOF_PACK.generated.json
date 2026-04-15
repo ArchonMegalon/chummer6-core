@@ -1,11 +1,53 @@
 {
   "contract_name": "chummer6-core.engine_proof_pack",
   "schema_version": 1,
-  "generated_at": "2026-04-15T08:52:45Z",
+  "generated_at": "2026-04-15T09:20:22Z",
   "status": "passed",
   "proof_kind": "release_bound_engine_proof",
   "milestone_id": 104,
   "package_id": "next90-m104-core-proof-pack",
+  "successor_wave_package": {
+    "program_wave": "next_90_day_product_advance",
+    "frontier_id": 3227666051,
+    "wave": "W7",
+    "milestone_id": 104,
+    "package_id": "next90-m104-core-proof-pack",
+    "repo": "chummer6-core",
+    "title": "Build golden oracle suites and release-bound engine proof packs",
+    "owned_surfaces": [
+      "engine_proof_pack",
+      "import_oracle_discipline"
+    ],
+    "allowed_paths": [
+      "src",
+      "tests",
+      "docs",
+      "scripts"
+    ],
+    "source_registry_path": "/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml",
+    "source_queue_path": "/docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml"
+  },
+  "successor_wave_authority": {
+    "status": "passed",
+    "registry_path": "/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml",
+    "queue_path": "/docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml",
+    "required_registry_tokens": [
+      "id: 104",
+      "title: Engine proof pack, explain budgets, and import-oracle discipline",
+      "owner: chummer6-core",
+      "104.1",
+      "104.2"
+    ],
+    "required_queue_tokens": [
+      "package_id: next90-m104-core-proof-pack",
+      "milestone_id: 104",
+      "repo: chummer6-core",
+      "engine_proof_pack",
+      "import_oracle_discipline"
+    ],
+    "missing_registry_tokens": [],
+    "missing_queue_tokens": []
+  },
   "release_commands": [
     {
       "id": "core_engine_tests",
@@ -233,6 +275,7 @@
     "oracle_suites": [],
     "performance_budgets": [],
     "release_commands": [],
+    "successor_wave_authority": [],
     "import_oracle_discipline": []
   },
   "notes": "Release-bound engine proof pack for milestone 104. This receipt keeps golden oracle suites, import-oracle discipline, and budget posture machine-readable for desktop release waves."

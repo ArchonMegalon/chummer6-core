@@ -10,19 +10,27 @@ test -f docs/AI_PROVIDER_TRANSPORT_BOUNDARY.md
 test -f docs/CORE_RUNTIME_RESTORE_RUNBOOK.md
 test -f docs/WORKSPACE_RETENTION_POLICY.md
 test -f docs/LEGACY_MIGRATION_CERTIFICATION.md
+test -f docs/ENGINE_PROOF_PACK.md
+test -f tests/test_engine_proof_pack_generator.py
 test -f docs/LEGACY_ROOT_SURFACE_INVENTORY.md
 test -f docs/LEGACY_PLUGIN_PURIFICATION_INCREMENT_WL111.md
 test -f docs/LEGACY_PLUGIN_AND_HELPER_OPERATIONAL_EVIDENCE_WL112.md
 test -f docs/CHUMMER_CONTRACTS_MIGRATION_AND_VERIFY_WL113_3.md
+test -f docs/CAMPAIGN_ENGINE_RECOVERY_CONTRACTS_WL200_203.md
 rg -n 'HttpAiProviderTransportClient|EnvironmentAiProviderCredentialCatalog|EnvironmentAiProviderTransportOptionsCatalog|RemoteHttpAiProvider|AddLegacyEnvironmentAiTransportCompatibility|EmptyAiProviderCredentialCatalog|EmptyAiProviderTransportOptionsCatalog|WL-D020' docs/AI_PROVIDER_TRANSPORT_BOUNDARY.md >/dev/null
 rg -n 'EXPLAIN_AND_RUNTIME_CANON\.md|scripts/runbook\.sh|scripts/migration-loop\.sh|DualHeadAcceptanceTests|MigrationComplianceTests|RUNBOOK_MODE=local-tests' docs/CORE_RUNTIME_RESTORE_RUNBOOK.md >/dev/null
 rg -n 'retention-cleanup|retention-cleanup-smoke|MIG-093|retention|cleanup|runbook' docs/WORKSPACE_RETENTION_POLICY.md >/dev/null
+rg -n 'milestone `104`|ENGINE_PROOF_PACK\.generated\.json|oracle suites|performance budget lanes|IMPORT_PARITY_CERTIFICATION\.generated\.json|next90-m104-core-proof-pack|3227666051|test_engine_proof_pack_generator\.py' docs/ENGINE_PROOF_PACK.md >/dev/null
 rg -n 'RUNBOOK_MODE" == "retention-cleanup"|RUNBOOK_MODE" == "retention-cleanup-smoke"|emit_retention_cleanup|RETENTION_WORKSPACE_DAYS|RETENTION_LOG_DAYS' scripts/runbook.sh >/dev/null
 rg -n 'chummer5a|PARITY_ORACLE\.json|scripts/migration-loop\.sh 1|scripts/audit-compliance\.sh|MigrationComplianceTests|DualHeadAcceptanceTests|ArchitectureGuardrailTests' docs/LEGACY_MIGRATION_CERTIFICATION.md >/dev/null
 rg -n 'Chummer/|Plugins/|Chummer\.Infrastructure\.Browser/|compatibility-only|Chummer\.Contracts|Chummer\.Application|Chummer\.Core|Chummer\.Infrastructure|Chummer\.Rulesets' docs/LEGACY_ROOT_SURFACE_INVENTORY.md >/dev/null
 rg -n 'WL-111|WL-108\.1|WL-108\.3|Plugins/ChummerHub\.Client|Chummer/Plugins|compatibility-only|retirement gate' docs/LEGACY_PLUGIN_PURIFICATION_INCREMENT_WL111.md >/dev/null
 rg -n 'WL-112|WL-108\.2|WL-108\.4|WL-108\.5|Plugins/SamplePlugin|repo_tool\.sh|repo_inspect\.sh|read_file\.sh|find_text\.sh|replace_text_literal\.sh|git_commit_repo_work\.sh|git_status\.sh|upsert_env_var\.sh|operational-only|hosted contract ownership' docs/LEGACY_PLUGIN_AND_HELPER_OPERATIONAL_EVIDENCE_WL112.md >/dev/null
 rg -n 'WL-113\.3|Chummer\.Engine\.Contracts|bootstrap-contracts-feed\.sh|compatibility-only|Chummer\.Infrastructure\.Browser|Chummer\.Tests|Chummer/Chummer\.csproj|scripts/ai/verify\.sh' docs/CHUMMER_CONTRACTS_MIGRATION_AND_VERIFY_WL113_3.md >/dev/null
+rg -n 'WL-200|WL-201|WL-202|WL-203|SessionOperationRecoveryContract|SessionOperationThroughputGuardrail|SessionLongRunningOperationState|retry-after-backoff|resume' docs/CAMPAIGN_ENGINE_RECOVERY_CONTRACTS_WL200_203.md >/dev/null
+rg -n 'SessionOperationFailureClasses|SessionOperationRetryClasses|SessionOperationSafeActionIds|SessionOperationThroughputMetrics|RecoverableCancellation' Chummer.Contracts/Session/SessionOperationRecoveryContracts.cs >/dev/null
+rg -n 'campaign_failure_recovery_contract_coverage|engine_retry_class_coverage|campaign_engine_batch_budget_regressions|ambiguous_long_running_operation_states' .codex-design/product/METRICS_AND_SLOS.yaml >/dev/null
+rg -n 'build_explain_rule_execution_failure|campaign_batch_budget_exceeded|campaign_snapshot_cancelled_recoverable' .codex-design/product/GOLDEN_JOURNEY_RELEASE_GATES.yaml >/dev/null
 rg -n 'WL-108\.1|WL-108\.2|WL-108\.3|WL-108\.4|WL-108\.5|WL-111|WL-112' WORKLIST.md docs/HELPER_TOOLING_RESIDUAL_BACKLOG.md >/dev/null
 rg -n 'AddSingleton<IAiProviderCredentialCatalog, EmptyAiProviderCredentialCatalog>\(\)|AddSingleton<IAiProviderTransportOptionsCatalog, EmptyAiProviderTransportOptionsCatalog>\(\)|AddSingleton<IAiProviderTransportClient>\(_ => new NotImplementedAiProviderTransportClient\(\)\)|AddLegacyEnvironmentAiTransportCompatibility|AddSingleton<IAiProviderCredentialCatalog, EnvironmentAiProviderCredentialCatalog>\(\)|AddSingleton<IAiProviderTransportOptionsCatalog, EnvironmentAiProviderTransportOptionsCatalog>\(\)|new HttpAiProviderTransportClient\(provider.GetRequiredService<IAiProviderCredentialCatalog>\(\)\)' Chummer.Infrastructure/DependencyInjection/ServiceCollectionExtensions.cs >/dev/null
 
@@ -74,6 +82,8 @@ done
 
 rg -n '<ChummerEngineContractsPackageVersion>0\.0\.0-local</ChummerEngineContractsPackageVersion>|<ChummerEngineContractsLocalFeed>|RestoreAdditionalProjectSources' Directory.Build.props >/dev/null
 rg -n 'bootstrap-contracts-feed\.sh|ChummerEngineContractsPackageVersion|CHUMMER_ENGINE_CONTRACTS_PACKAGE_VERSION' scripts/ai/build.sh scripts/ai/restore.sh scripts/ai/test_core_engine.sh >/dev/null
+test -f scripts/generate-engine-proof-pack.py
+python3 tests/test_engine_proof_pack_generator.py
 
 if rg -n 'repo_tool\.sh|repo_inspect\.sh|read_file\.sh|find_text\.sh|replace_text_literal\.sh|git_commit_repo_work\.sh|git_status\.sh|upsert_env_var\.sh' \
   Chummer.Api Chummer.Application Chummer.Core Chummer.CoreEngine.Tests Chummer.Infrastructure Chummer.Rulesets --glob '*.cs' --glob '*.csproj' --glob '*.props' --glob '*.targets' >/dev/null 2>&1; then
