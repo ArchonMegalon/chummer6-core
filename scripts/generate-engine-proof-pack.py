@@ -228,6 +228,7 @@ REQUIRED_LOCAL_COMMIT_PROOFS = (
     ("abf63719", "current M104 proof pack local floor required by local closeout"),
     ("bbc7fba8", "current M104 engine proof pack floor required by local closeout"),
     ("a1a1d505", "current M104 engine proof pack floor required by local closeout"),
+    ("18d03556", "current M104 active-run helper hygiene floor required by local closeout"),
 )
 
 
