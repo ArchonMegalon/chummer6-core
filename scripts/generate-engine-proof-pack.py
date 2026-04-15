@@ -72,6 +72,7 @@ SUCCESSOR_WAVE_PACKAGE = {
     ],
     "source_registry_path": "/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml",
     "source_queue_path": "/docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml",
+    "source_design_queue_path": "/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_QUEUE_STAGING.generated.yaml",
 }
 
 SUCCESSOR_REGISTRY_MILESTONE_TOKENS = (
@@ -304,26 +305,11 @@ def _list_drift(actual: list[str], expected: tuple[str, ...]) -> tuple[list[str]
     return missing, unexpected
 
 
-def _validate_successor_wave_authority(generated_output_path: Path | None = None) -> tuple[dict[str, Any], list[str]]:
-    registry_path = Path(SUCCESSOR_WAVE_PACKAGE["source_registry_path"])
-    queue_path = Path(SUCCESSOR_WAVE_PACKAGE["source_queue_path"])
-
-    registry_text = _read_text(registry_path)
+def _validate_queue_authority(queue_path: Path, generated_output_path: Path | None = None) -> dict[str, Any]:
     queue_text = _read_text(queue_path)
-    registry_scope = _extract_list_item_block(registry_text, "id: 104")
     queue_scope = _extract_list_item_block(queue_text, "package_id: next90-m104-core-proof-pack")
-    registry_missing_scope_tokens = ["milestone_block:id:104"] if not registry_scope else []
-    queue_missing_scope_tokens = ["queue_item:next90-m104-core-proof-pack"] if not queue_scope else []
-    missing_registry_tokens = registry_missing_scope_tokens + [token for token in SUCCESSOR_REGISTRY_MILESTONE_TOKENS if token not in registry_scope]
-    missing_registry_task_tokens: dict[str, list[str]] = {}
-    for task_id, required_tokens in SUCCESSOR_REGISTRY_TASK_TOKENS.items():
-        task_scope = _extract_list_item_block(registry_scope, f"id: {task_id}") if registry_scope else ""
-        missing = [f"task_block:id:{task_id}"] if not task_scope else []
-        missing.extend(token for token in required_tokens if token not in task_scope)
-        if missing:
-            missing_registry_task_tokens[task_id] = missing
-            missing_registry_tokens.extend(f"{task_id}:{token}" for token in missing)
-    missing_queue_tokens = queue_missing_scope_tokens + [token for token in SUCCESSOR_QUEUE_TOKENS if token not in queue_scope]
+    missing_queue_tokens = ["queue_item:next90-m104-core-proof-pack"] if not queue_scope else []
+    missing_queue_tokens.extend(token for token in SUCCESSOR_QUEUE_TOKENS if token not in queue_scope)
     missing_queue_proof_anchors = []
     for anchor in SUCCESSOR_QUEUE_PROOF_ANCHORS:
         anchor_path = Path(anchor)
@@ -342,37 +328,83 @@ def _validate_successor_wave_authority(generated_output_path: Path | None = None
         missing_queue_tokens.append(f"owned_surfaces:{value}")
     for value in unexpected_queue_owned_surfaces:
         missing_queue_tokens.append(f"unexpected_owned_surface:{value}")
+
+    return {
+        "path": str(queue_path),
+        "status": "passed" if not missing_queue_tokens and not missing_queue_proof_anchors else "failed",
+        "missing_tokens": missing_queue_tokens,
+        "missing_proof_anchors": missing_queue_proof_anchors,
+        "allowed_paths": queue_allowed_paths,
+        "expected_allowed_paths": list(EXPECTED_QUEUE_ALLOWED_PATHS),
+        "unexpected_allowed_paths": unexpected_queue_allowed_paths,
+        "owned_surfaces": queue_owned_surfaces,
+        "expected_owned_surfaces": list(EXPECTED_QUEUE_OWNED_SURFACES),
+        "unexpected_owned_surfaces": unexpected_queue_owned_surfaces,
+    }
+
+
+def _validate_successor_wave_authority(generated_output_path: Path | None = None) -> tuple[dict[str, Any], list[str]]:
+    registry_path = Path(SUCCESSOR_WAVE_PACKAGE["source_registry_path"])
+    queue_path = Path(SUCCESSOR_WAVE_PACKAGE["source_queue_path"])
+    design_queue_path = Path(SUCCESSOR_WAVE_PACKAGE["source_design_queue_path"])
+
+    registry_text = _read_text(registry_path)
+    registry_scope = _extract_list_item_block(registry_text, "id: 104")
+    registry_missing_scope_tokens = ["milestone_block:id:104"] if not registry_scope else []
+    missing_registry_tokens = registry_missing_scope_tokens + [token for token in SUCCESSOR_REGISTRY_MILESTONE_TOKENS if token not in registry_scope]
+    missing_registry_task_tokens: dict[str, list[str]] = {}
+    for task_id, required_tokens in SUCCESSOR_REGISTRY_TASK_TOKENS.items():
+        task_scope = _extract_list_item_block(registry_scope, f"id: {task_id}") if registry_scope else ""
+        missing = [f"task_block:id:{task_id}"] if not task_scope else []
+        missing.extend(token for token in required_tokens if token not in task_scope)
+        if missing:
+            missing_registry_task_tokens[task_id] = missing
+            missing_registry_tokens.extend(f"{task_id}:{token}" for token in missing)
+
+    fleet_queue_authority = _validate_queue_authority(queue_path, generated_output_path)
+    design_queue_authority = _validate_queue_authority(design_queue_path, generated_output_path)
     registry_status = "passed" if not missing_registry_tokens else "failed"
-    queue_status = "passed" if not missing_queue_tokens and not missing_queue_proof_anchors else "failed"
 
     unresolved: list[str] = []
     if registry_status != "passed":
         unresolved.append("source_registry")
-    if queue_status != "passed":
+    if fleet_queue_authority["status"] != "passed":
         unresolved.append("source_queue")
+    if design_queue_authority["status"] != "passed":
+        unresolved.append("source_design_queue")
 
     return (
         {
             "status": "passed" if not unresolved else "failed",
             "registry_path": str(registry_path),
             "queue_path": str(queue_path),
+            "design_queue_path": str(design_queue_path),
             "required_registry_tokens": list(SUCCESSOR_REGISTRY_MILESTONE_TOKENS),
             "required_registry_task_tokens": {task_id: list(tokens) for task_id, tokens in SUCCESSOR_REGISTRY_TASK_TOKENS.items()},
             "required_queue_tokens": list(SUCCESSOR_QUEUE_TOKENS),
             "validation_scope": {
                 "registry": "milestones item id: 104",
                 "queue": "items package_id: next90-m104-core-proof-pack",
+                "design_queue": "items package_id: next90-m104-core-proof-pack",
             },
             "missing_registry_tokens": missing_registry_tokens,
             "missing_registry_task_tokens": missing_registry_task_tokens,
-            "missing_queue_tokens": missing_queue_tokens,
-            "missing_queue_proof_anchors": missing_queue_proof_anchors,
-            "queue_allowed_paths": queue_allowed_paths,
+            "missing_queue_tokens": fleet_queue_authority["missing_tokens"],
+            "missing_queue_proof_anchors": fleet_queue_authority["missing_proof_anchors"],
+            "queue_allowed_paths": fleet_queue_authority["allowed_paths"],
             "expected_queue_allowed_paths": list(EXPECTED_QUEUE_ALLOWED_PATHS),
-            "unexpected_queue_allowed_paths": unexpected_queue_allowed_paths,
-            "queue_owned_surfaces": queue_owned_surfaces,
+            "unexpected_queue_allowed_paths": fleet_queue_authority["unexpected_allowed_paths"],
+            "queue_owned_surfaces": fleet_queue_authority["owned_surfaces"],
             "expected_queue_owned_surfaces": list(EXPECTED_QUEUE_OWNED_SURFACES),
-            "unexpected_queue_owned_surfaces": unexpected_queue_owned_surfaces,
+            "unexpected_queue_owned_surfaces": fleet_queue_authority["unexpected_owned_surfaces"],
+            "design_queue_missing_tokens": design_queue_authority["missing_tokens"],
+            "design_queue_missing_proof_anchors": design_queue_authority["missing_proof_anchors"],
+            "design_queue_allowed_paths": design_queue_authority["allowed_paths"],
+            "expected_design_queue_allowed_paths": list(EXPECTED_QUEUE_ALLOWED_PATHS),
+            "unexpected_design_queue_allowed_paths": design_queue_authority["unexpected_allowed_paths"],
+            "design_queue_owned_surfaces": design_queue_authority["owned_surfaces"],
+            "expected_design_queue_owned_surfaces": list(EXPECTED_QUEUE_OWNED_SURFACES),
+            "unexpected_design_queue_owned_surfaces": design_queue_authority["unexpected_owned_surfaces"],
             "closure_requirements": {
                 "status": "complete",
                 "frontier_id": SUCCESSOR_WAVE_PACKAGE["frontier_id"],

@@ -18,6 +18,7 @@ The proof pack must fail closed unless it includes:
 
 - successor-wave authority for milestone `104`, owned surfaces `engine_proof_pack` and `import_oracle_discipline`, and the canonical successor registry plus queue staging paths
 - queue closeout proof that the successor queue row is marked `status: complete`, pins frontier `3227666051`, cites landed commit `00800059`, and lists the proof anchors for this generated pack, generator, tests, and documentation
+- design-owned queue closeout proof from `/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_QUEUE_STAGING.generated.yaml`, in addition to the Fleet staging mirror, so Fleet-local staging cannot be the only authority that keeps the package closed
 - filesystem resolution for the queue proof anchors so stale or moved closeout evidence cannot keep the package marked passed
 - row-scoped queue authority for the assigned allowed paths: `src`, `tests`, `docs`, and `scripts`
 - exact row-scoped queue authority for allowed paths and owned surfaces, so later queue edits cannot widen the package beyond `src`, `tests`, `docs`, `scripts`, `engine_proof_pack`, and `import_oracle_discipline` while keeping the proof pack green
@@ -54,11 +55,12 @@ python3 scripts/generate-engine-proof-pack.py
 ```
 
 The generator treats the generated proof pack path as a planned output so a clean first run cannot fail only because `ENGINE_PROOF_PACK.generated.json` does not already exist. Other successor queue proof anchors must resolve on disk.
+Both the Fleet staging queue and the design-owned staging queue must retain the completed `next90-m104-core-proof-pack` row with the same frontier, allowed paths, owned surfaces, landed commit, and proof anchors.
 The checked-in receipt is also treated as a reproducible artifact: `tests/test_engine_proof_pack_generator.py` rebuilds the payload from repo-local evidence and compares it to `.codex-studio/published/ENGINE_PROOF_PACK.generated.json`, ignoring only `generated_at`.
 
 ## Verification
 
-The generator unit tests prove fail-closed behavior for missing evidence symbols, missing executable benchmark workloads, missing adjacent import oracles, release-channel promoted tuple drift, release-channel artifact shelf drift, successor registry or queue tokens that only appear on another milestone/package row, missing successor frontier id, unassigned successor queue allowed paths or owned surfaces, non-resolving successor queue proof anchors, core-task completion evidence that only appears on a later milestone-104 task, and checked-in receipt drift from generator output:
+The generator unit tests prove fail-closed behavior for missing evidence symbols, missing executable benchmark workloads, missing adjacent import oracles, release-channel promoted tuple drift, release-channel artifact shelf drift, successor registry or queue tokens that only appear on another milestone/package row, missing successor frontier id, unassigned successor queue allowed paths or owned surfaces, non-resolving successor queue proof anchors, design-owned queue drift, core-task completion evidence that only appears on a later milestone-104 task, and checked-in receipt drift from generator output:
 
 ```bash
 python3 tests/test_engine_proof_pack_generator.py

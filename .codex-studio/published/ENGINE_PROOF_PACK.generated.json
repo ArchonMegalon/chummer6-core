@@ -1,7 +1,7 @@
 {
   "contract_name": "chummer6-core.engine_proof_pack",
   "schema_version": 1,
-  "generated_at": "2026-04-15T11:06:09Z",
+  "generated_at": "2026-04-15T11:18:40Z",
   "status": "passed",
   "proof_kind": "release_bound_engine_proof",
   "milestone_id": 104,
@@ -25,12 +25,14 @@
       "scripts"
     ],
     "source_registry_path": "/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml",
-    "source_queue_path": "/docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml"
+    "source_queue_path": "/docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml",
+    "source_design_queue_path": "/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_QUEUE_STAGING.generated.yaml"
   },
   "successor_wave_authority": {
     "status": "passed",
     "registry_path": "/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml",
     "queue_path": "/docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml",
+    "design_queue_path": "/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_QUEUE_STAGING.generated.yaml",
     "required_registry_tokens": [
       "id: 104",
       "title: Engine proof pack, explain budgets, and import-oracle discipline",
@@ -74,7 +76,8 @@
     ],
     "validation_scope": {
       "registry": "milestones item id: 104",
-      "queue": "items package_id: next90-m104-core-proof-pack"
+      "queue": "items package_id: next90-m104-core-proof-pack",
+      "design_queue": "items package_id: next90-m104-core-proof-pack"
     },
     "missing_registry_tokens": [],
     "missing_registry_task_tokens": {},
@@ -102,6 +105,30 @@
       "import_oracle_discipline"
     ],
     "unexpected_queue_owned_surfaces": [],
+    "design_queue_missing_tokens": [],
+    "design_queue_missing_proof_anchors": [],
+    "design_queue_allowed_paths": [
+      "src",
+      "tests",
+      "docs",
+      "scripts"
+    ],
+    "expected_design_queue_allowed_paths": [
+      "src",
+      "tests",
+      "docs",
+      "scripts"
+    ],
+    "unexpected_design_queue_allowed_paths": [],
+    "design_queue_owned_surfaces": [
+      "engine_proof_pack",
+      "import_oracle_discipline"
+    ],
+    "expected_design_queue_owned_surfaces": [
+      "engine_proof_pack",
+      "import_oracle_discipline"
+    ],
+    "unexpected_design_queue_owned_surfaces": [],
     "closure_requirements": {
       "status": "complete",
       "frontier_id": 3227666051,

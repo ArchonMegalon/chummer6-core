@@ -66,6 +66,7 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
         self.assertEqual("complete", payload["successor_wave_authority"]["closure_requirements"]["status"])
         self.assertEqual(3227666051, payload["successor_wave_authority"]["closure_requirements"]["frontier_id"])
         self.assertEqual("00800059", payload["successor_wave_authority"]["closure_requirements"]["landed_commit"])
+        self.assertEqual("passed", payload["successor_wave_authority"]["status"])
         self.assertEqual([], payload["unresolved"]["oracle_suites"])
         self.assertEqual([], payload["unresolved"]["performance_budgets"])
         self.assertEqual([], payload["unresolved"]["release_commands"])
@@ -81,6 +82,13 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
             payload["successor_wave_authority"]["queue_owned_surfaces"],
         )
         self.assertEqual([], payload["successor_wave_authority"]["unexpected_queue_owned_surfaces"])
+        self.assertEqual([], payload["successor_wave_authority"]["design_queue_missing_tokens"])
+        self.assertEqual([], payload["successor_wave_authority"]["design_queue_missing_proof_anchors"])
+        self.assertEqual(["src", "tests", "docs", "scripts"], payload["successor_wave_authority"]["design_queue_allowed_paths"])
+        self.assertEqual(
+            ["engine_proof_pack", "import_oracle_discipline"],
+            payload["successor_wave_authority"]["design_queue_owned_surfaces"],
+        )
         self.assertEqual(
             [
                 "avalonia:linux:linux-x64",
@@ -395,6 +403,21 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
         self.assertIn("source_queue", payload["unresolved"]["successor_wave_authority"])
         self.assertIn(proof_anchor, payload["successor_wave_authority"]["missing_queue_tokens"])
 
+    def test_build_payload_fails_closed_when_design_queue_loses_package_authority(self) -> None:
+        design_queue_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_design_queue_path"])
+        design_queue_path.write_text("package_id: different-package\n", encoding="utf-8")
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertEqual("failed", payload["successor_wave_authority"]["status"])
+        self.assertIn("source_design_queue", payload["unresolved"]["successor_wave_authority"])
+        self.assertIn(
+            "package_id: next90-m104-core-proof-pack",
+            payload["successor_wave_authority"]["design_queue_missing_tokens"],
+        )
+        self.assertEqual([], payload["successor_wave_authority"]["missing_queue_tokens"])
+
     def test_list_item_block_for_nested_queue_key_stops_before_later_package(self) -> None:
         text = "\n".join(
             [
@@ -494,6 +517,7 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
     def _seed_successor_wave_authority(self) -> None:
         registry_path = self.root / "successor-registry.yaml"
         queue_path = self.root / "successor-queue.yaml"
+        design_queue_path = self.root / "successor-design-queue.yaml"
         registry_path.write_text(
             "\n".join(
                 [
@@ -518,7 +542,7 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
             + "\n",
             encoding="utf-8",
         )
-        queue_path.write_text(
+        queue_text = (
             "\n".join(
                 [
                     "items:",
@@ -543,11 +567,13 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
                     "      - import_oracle_discipline",
                 ]
             )
-            + "\n",
-            encoding="utf-8",
+            + "\n"
         )
+        queue_path.write_text(queue_text, encoding="utf-8")
+        design_queue_path.write_text(queue_text, encoding="utf-8")
         self.generator.SUCCESSOR_WAVE_PACKAGE["source_registry_path"] = str(registry_path)
         self.generator.SUCCESSOR_WAVE_PACKAGE["source_queue_path"] = str(queue_path)
+        self.generator.SUCCESSOR_WAVE_PACKAGE["source_design_queue_path"] = str(design_queue_path)
         release_channel_path = self.root / "release-channel.generated.json"
         release_channel_path.write_text(
             json.dumps(
