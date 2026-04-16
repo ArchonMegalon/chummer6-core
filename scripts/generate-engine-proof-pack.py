@@ -376,38 +376,40 @@ def _find_disallowed_active_run_tokens(text: str) -> list[str]:
 
 
 def _extract_list_item_block(text: str, item_header: str) -> str:
+    blocks = _extract_list_item_blocks(text, item_header)
+    return blocks[0] if blocks else ""
+
+
+def _extract_list_item_blocks(text: str, item_header: str) -> list[str]:
     lines = text.splitlines()
-    match_index = -1
-    for index, line in enumerate(lines):
+    blocks: list[str] = []
+    for match_index, line in enumerate(lines):
         stripped = line.lstrip()
-        if stripped == item_header or stripped == f"- {item_header}":
-            match_index = index
-            break
+        if stripped != item_header and stripped != f"- {item_header}":
+            continue
 
-    if match_index < 0:
-        return ""
+        match_indent = len(lines[match_index]) - len(lines[match_index].lstrip())
+        start_index = match_index
+        item_indent = match_indent
+        if not lines[match_index].lstrip().startswith("- "):
+            for parent_index in range(match_index - 1, -1, -1):
+                parent = lines[parent_index]
+                parent_stripped = parent.lstrip()
+                parent_indent = len(parent) - len(parent_stripped)
+                if parent_indent < match_indent and parent_stripped.startswith("- "):
+                    start_index = parent_index
+                    item_indent = parent_indent
+                    break
 
-    match_indent = len(lines[match_index]) - len(lines[match_index].lstrip())
-    start_index = match_index
-    item_indent = match_indent
-    if not lines[match_index].lstrip().startswith("- "):
-        for parent_index in range(match_index - 1, -1, -1):
-            parent = lines[parent_index]
-            parent_stripped = parent.lstrip()
-            parent_indent = len(parent) - len(parent_stripped)
-            if parent_indent < match_indent and parent_stripped.startswith("- "):
-                start_index = parent_index
-                item_indent = parent_indent
+        block_lines = [lines[start_index]]
+        for block_line in lines[start_index + 1 :]:
+            stripped = block_line.lstrip()
+            indent = len(block_line) - len(stripped)
+            if indent == item_indent and stripped.startswith("- "):
                 break
-
-    block_lines = [lines[start_index]]
-    for line in lines[start_index + 1 :]:
-        stripped = line.lstrip()
-        indent = len(line) - len(stripped)
-        if indent == item_indent and stripped.startswith("- "):
-            break
-        block_lines.append(line)
-    return "\n".join(block_lines) + "\n"
+            block_lines.append(block_line)
+        blocks.append("\n".join(block_lines) + "\n")
+    return blocks
 
 
 def _extract_yaml_list_values(block: str, key: str) -> list[str]:
@@ -455,8 +457,12 @@ def _is_canonical_anchor_outside_package(anchor_path: Path) -> bool:
 
 def _validate_queue_authority(queue_path: Path, generated_output_path: Path | None = None) -> dict[str, Any]:
     queue_text = _read_text(queue_path)
-    queue_scope = _extract_list_item_block(queue_text, "package_id: next90-m104-core-proof-pack")
+    queue_scopes = _extract_list_item_blocks(queue_text, "package_id: next90-m104-core-proof-pack")
+    queue_scope = queue_scopes[0] if queue_scopes else ""
     missing_queue_tokens = ["queue_item:next90-m104-core-proof-pack"] if not queue_scope else []
+    duplicate_package_rows = max(0, len(queue_scopes) - 1)
+    if duplicate_package_rows:
+        missing_queue_tokens.append("duplicate_queue_item:next90-m104-core-proof-pack")
     missing_queue_tokens.extend(token for token in SUCCESSOR_QUEUE_TOKENS if token not in queue_scope)
     disallowed_active_run_tokens = _find_disallowed_active_run_tokens(queue_scope)
     missing_queue_proof_anchors = []
@@ -495,6 +501,8 @@ def _validate_queue_authority(queue_path: Path, generated_output_path: Path | No
         "missing_proof_anchors": missing_queue_proof_anchors,
         "off_package_proof_anchors": off_package_queue_proof_anchors,
         "disallowed_active_run_tokens": disallowed_active_run_tokens,
+        "package_row_count": len(queue_scopes),
+        "duplicate_package_rows": duplicate_package_rows,
         "allowed_paths": queue_allowed_paths,
         "expected_allowed_paths": list(EXPECTED_QUEUE_ALLOWED_PATHS),
         "unexpected_allowed_paths": unexpected_queue_allowed_paths,
@@ -560,6 +568,8 @@ def _validate_successor_wave_authority(generated_output_path: Path | None = None
             "missing_queue_proof_anchors": fleet_queue_authority["missing_proof_anchors"],
             "off_package_queue_proof_anchors": fleet_queue_authority["off_package_proof_anchors"],
             "disallowed_queue_active_run_tokens": fleet_queue_authority["disallowed_active_run_tokens"],
+            "queue_package_row_count": fleet_queue_authority["package_row_count"],
+            "duplicate_queue_package_rows": fleet_queue_authority["duplicate_package_rows"],
             "queue_allowed_paths": fleet_queue_authority["allowed_paths"],
             "expected_queue_allowed_paths": list(EXPECTED_QUEUE_ALLOWED_PATHS),
             "unexpected_queue_allowed_paths": fleet_queue_authority["unexpected_allowed_paths"],
@@ -570,6 +580,8 @@ def _validate_successor_wave_authority(generated_output_path: Path | None = None
             "design_queue_missing_proof_anchors": design_queue_authority["missing_proof_anchors"],
             "design_queue_off_package_proof_anchors": design_queue_authority["off_package_proof_anchors"],
             "disallowed_design_queue_active_run_tokens": design_queue_authority["disallowed_active_run_tokens"],
+            "design_queue_package_row_count": design_queue_authority["package_row_count"],
+            "duplicate_design_queue_package_rows": design_queue_authority["duplicate_package_rows"],
             "design_queue_allowed_paths": design_queue_authority["allowed_paths"],
             "expected_design_queue_allowed_paths": list(EXPECTED_QUEUE_ALLOWED_PATHS),
             "unexpected_design_queue_allowed_paths": design_queue_authority["unexpected_allowed_paths"],

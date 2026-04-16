@@ -288,6 +288,10 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
         self.assertEqual({}, payload["successor_wave_authority"]["disallowed_registry_active_run_tokens"])
         self.assertEqual([], payload["successor_wave_authority"]["disallowed_queue_active_run_tokens"])
         self.assertEqual([], payload["successor_wave_authority"]["disallowed_design_queue_active_run_tokens"])
+        self.assertEqual(1, payload["successor_wave_authority"]["queue_package_row_count"])
+        self.assertEqual(0, payload["successor_wave_authority"]["duplicate_queue_package_rows"])
+        self.assertEqual(1, payload["successor_wave_authority"]["design_queue_package_row_count"])
+        self.assertEqual(0, payload["successor_wave_authority"]["duplicate_design_queue_package_rows"])
         self.assertEqual(["src", "tests", "docs", "scripts"], payload["successor_wave_authority"]["design_queue_allowed_paths"])
         self.assertEqual(
             ["engine_proof_pack", "import_oracle_discipline"],
@@ -427,6 +431,24 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
         self.assertEqual("failed", payload["successor_wave_authority"]["status"])
         self.assertIn("source_queue", payload["unresolved"]["successor_wave_authority"])
         self.assertIn("status: complete", payload["successor_wave_authority"]["missing_queue_tokens"])
+
+    def test_build_payload_fails_closed_when_successor_queue_has_duplicate_package_rows(self) -> None:
+        queue_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_queue_path"])
+        queue_text = queue_path.read_text(encoding="utf-8")
+        queue_text += "\n  - package_id: next90-m104-core-proof-pack\n    status: complete\n"
+        queue_path.write_text(queue_text, encoding="utf-8")
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertEqual("failed", payload["successor_wave_authority"]["status"])
+        self.assertIn("source_queue", payload["unresolved"]["successor_wave_authority"])
+        self.assertEqual(2, payload["successor_wave_authority"]["queue_package_row_count"])
+        self.assertEqual(1, payload["successor_wave_authority"]["duplicate_queue_package_rows"])
+        self.assertIn(
+            "duplicate_queue_item:next90-m104-core-proof-pack",
+            payload["successor_wave_authority"]["missing_queue_tokens"],
+        )
 
     def test_build_payload_fails_closed_when_successor_queue_loses_completion_status(self) -> None:
         queue_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_queue_path"])
@@ -704,6 +726,25 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
         self.assertIn("source_design_queue", payload["unresolved"]["successor_wave_authority"])
         self.assertIn(
             "package_id: next90-m104-core-proof-pack",
+            payload["successor_wave_authority"]["design_queue_missing_tokens"],
+        )
+        self.assertEqual([], payload["successor_wave_authority"]["missing_queue_tokens"])
+
+    def test_build_payload_fails_closed_when_design_queue_has_duplicate_package_rows(self) -> None:
+        design_queue_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_design_queue_path"])
+        queue_text = design_queue_path.read_text(encoding="utf-8")
+        queue_text += "\n  - package_id: next90-m104-core-proof-pack\n    status: complete\n"
+        design_queue_path.write_text(queue_text, encoding="utf-8")
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertEqual("failed", payload["successor_wave_authority"]["status"])
+        self.assertIn("source_design_queue", payload["unresolved"]["successor_wave_authority"])
+        self.assertEqual(2, payload["successor_wave_authority"]["design_queue_package_row_count"])
+        self.assertEqual(1, payload["successor_wave_authority"]["duplicate_design_queue_package_rows"])
+        self.assertIn(
+            "duplicate_queue_item:next90-m104-core-proof-pack",
             payload["successor_wave_authority"]["design_queue_missing_tokens"],
         )
         self.assertEqual([], payload["successor_wave_authority"]["missing_queue_tokens"])
