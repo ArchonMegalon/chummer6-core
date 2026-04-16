@@ -318,6 +318,7 @@ REQUIRED_LOCAL_COMMIT_PROOFS = (
     ("7501f49a", "current M104 proof floor pin required by registry and queue closeout"),
     ("ac961fe1", "current M104 proof floor pin required by local closeout"),
     ("36311e16", "current M104 local proof floor pin required by queue closeout"),
+    ("db3cc033", "current M104 queue-cited proof floor required by local closeout"),
 )
 
 
