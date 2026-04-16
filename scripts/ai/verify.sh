@@ -84,6 +84,7 @@ rg -n '<ChummerEngineContractsPackageVersion>0\.0\.0-local</ChummerEngineContrac
 rg -n 'bootstrap-contracts-feed\.sh|ChummerEngineContractsPackageVersion|CHUMMER_ENGINE_CONTRACTS_PACKAGE_VERSION' scripts/ai/build.sh scripts/ai/restore.sh scripts/ai/test_core_engine.sh >/dev/null
 test -f scripts/generate-engine-proof-pack.py
 python3 tests/test_engine_proof_pack_generator.py
+python3 scripts/generate-engine-proof-pack.py --check
 
 if rg -n 'repo_tool\.sh|repo_inspect\.sh|read_file\.sh|find_text\.sh|replace_text_literal\.sh|git_commit_repo_work\.sh|git_status\.sh|upsert_env_var\.sh' \
   Chummer.Api Chummer.Application Chummer.Core Chummer.CoreEngine.Tests Chummer.Infrastructure Chummer.Rulesets --glob '*.cs' --glob '*.csproj' --glob '*.props' --glob '*.targets' >/dev/null 2>&1; then
