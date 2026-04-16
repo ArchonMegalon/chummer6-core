@@ -315,6 +315,10 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
             "96eca660",
             [row["commit"] for row in payload["local_commit_proofs"]["required_commits"]],
         )
+        self.assertIn(
+            "05e47cff",
+            [row["commit"] for row in payload["local_commit_proofs"]["required_commits"]],
+        )
         self.assertEqual("complete", payload["successor_wave_authority"]["closure_requirements"]["status"])
         self.assertEqual(3227666051, payload["successor_wave_authority"]["closure_requirements"]["frontier_id"])
         self.assertEqual("00800059", payload["successor_wave_authority"]["closure_requirements"]["landed_commit"])
@@ -1962,6 +1966,25 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
         }
         self.assertEqual("failed", missing["96eca660"])
 
+    def test_build_payload_fails_closed_when_current_m104_queue_bound_guard_does_not_resolve(self) -> None:
+        (self.root / ".git").mkdir()
+
+        def fake_cat_file(command: list[str], **_: Any) -> Any:
+            commit_ref = command[-1]
+            return mock.Mock(returncode=1 if commit_ref.startswith("05e47cff") else 0)
+
+        with mock.patch.object(self.generator.subprocess, "run", side_effect=fake_cat_file):
+            payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertEqual("failed", payload["local_commit_proofs"]["status"])
+        self.assertIn("05e47cff", payload["unresolved"]["local_commit_proofs"])
+        missing = {
+            row["commit"]: row["status"]
+            for row in payload["local_commit_proofs"]["required_commits"]
+        }
+        self.assertEqual("failed", missing["05e47cff"])
+
     def test_list_item_block_for_nested_queue_key_stops_before_later_package(self) -> None:
         text = "\n".join(
             [
@@ -2144,6 +2167,7 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
                     "          - /docker/chummercomplete/chummer-core-engine commit 40babebd pins the latest 5baebb73 queue proof guard in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.",
                     "          - /docker/chummercomplete/chummer-core-engine commit 22171b35 pins the current 40babebd proof guard in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.",
                     "          - /docker/chummercomplete/chummer-core-engine commit 96eca660 pins the current c6fbd75f non-mutating proof guard in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.",
+                    "          - /docker/chummercomplete/chummer-core-engine commit 05e47cff binds the M104 proof guard to successor queues so future shards verify the current closed-package guard.",
                     "          - dotnet run --project Chummer.Benchmarks/Chummer.Benchmarks.csproj -c Release -- --budget-check --budget-file Chummer.Benchmarks/workspace-benchmark-budgets.json exits 0",
                 ]
             )
@@ -2193,6 +2217,7 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
                     "      - /docker/chummercomplete/chummer-core-engine commit 40babebd pins the latest 5baebb73 queue proof guard in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.",
                     "      - /docker/chummercomplete/chummer-core-engine commit 22171b35 pins the current 40babebd proof guard in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.",
                     "      - /docker/chummercomplete/chummer-core-engine commit 96eca660 pins the current c6fbd75f non-mutating proof guard in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.",
+                    "      - /docker/chummercomplete/chummer-core-engine commit 05e47cff binds the M104 proof guard to successor queues so future shards verify the current closed-package guard.",
                     "    allowed_paths:",
                     "      - src",
                     "      - tests",
