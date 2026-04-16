@@ -791,6 +791,25 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
         self.assertIn("source_queue", payload["unresolved"]["successor_wave_authority"])
         self.assertEqual(["ACTIVE_RUN_HANDOFF"], payload["successor_wave_authority"]["disallowed_queue_active_run_tokens"])
 
+    def test_build_payload_fails_closed_when_successor_queue_cites_task_local_telemetry_proof(self) -> None:
+        queue_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_queue_path"])
+        queue_text = queue_path.read_text(encoding="utf-8")
+        queue_path.write_text(
+            queue_text.replace(
+                "      - /docker/chummercomplete/chummer-core-engine/docs/ENGINE_PROOF_PACK.md\n",
+                "      - /docker/chummercomplete/chummer-core-engine/docs/ENGINE_PROOF_PACK.md\n"
+                "      - /var/lib/codex-fleet/chummer_design_supervisor/shard-4/runs/run/TASK_LOCAL_TELEMETRY.generated.json\n",
+            ),
+            encoding="utf-8",
+        )
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertEqual("failed", payload["successor_wave_authority"]["status"])
+        self.assertIn("source_queue", payload["unresolved"]["successor_wave_authority"])
+        self.assertEqual(["TASK_LOCAL_TELEMETRY"], payload["successor_wave_authority"]["disallowed_queue_active_run_tokens"])
+
     def test_build_payload_fails_closed_when_successor_queue_cites_mixed_case_active_run_helper_proof(self) -> None:
         queue_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_queue_path"])
         queue_text = queue_path.read_text(encoding="utf-8")
@@ -809,6 +828,28 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
         self.assertEqual("failed", payload["successor_wave_authority"]["status"])
         self.assertIn("source_queue", payload["unresolved"]["successor_wave_authority"])
         self.assertEqual(["active run helper"], payload["successor_wave_authority"]["disallowed_queue_active_run_tokens"])
+
+    def test_build_payload_fails_closed_when_registry_cites_supervisor_status_helper_proof(self) -> None:
+        registry_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_registry_path"])
+        registry_text = registry_path.read_text(encoding="utf-8")
+        registry_path.write_text(
+            registry_text.replace(
+                "        - successor_wave_authority=passed\n",
+                "        - successor_wave_authority=passed\n"
+                "        - Supervisor status helper output reports this package complete.\n",
+            ),
+            encoding="utf-8",
+        )
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertEqual("failed", payload["successor_wave_authority"]["status"])
+        self.assertIn("source_registry", payload["unresolved"]["successor_wave_authority"])
+        self.assertEqual(
+            ["supervisor status", "status helper"],
+            payload["successor_wave_authority"]["disallowed_registry_active_run_tokens"]["104.2"],
+        )
 
     def test_build_payload_fails_closed_when_design_queue_loses_package_authority(self) -> None:
         design_queue_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_design_queue_path"])
@@ -889,6 +930,29 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
         self.assertIn("source_design_queue", payload["unresolved"]["successor_wave_authority"])
         self.assertEqual(
             ["active-run telemetry"],
+            payload["successor_wave_authority"]["disallowed_design_queue_active_run_tokens"],
+        )
+        self.assertEqual([], payload["successor_wave_authority"]["missing_queue_tokens"])
+
+    def test_build_payload_fails_closed_when_design_queue_cites_active_run_helper_command_proof(self) -> None:
+        design_queue_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_design_queue_path"])
+        queue_text = design_queue_path.read_text(encoding="utf-8")
+        design_queue_path.write_text(
+            queue_text.replace(
+                "      - /docker/chummercomplete/chummer-core-engine/docs/ENGINE_PROOF_PACK.md\n",
+                "      - /docker/chummercomplete/chummer-core-engine/docs/ENGINE_PROOF_PACK.md\n"
+                "      - active-run helper command transcript\n",
+            ),
+            encoding="utf-8",
+        )
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertEqual("failed", payload["successor_wave_authority"]["status"])
+        self.assertIn("source_design_queue", payload["unresolved"]["successor_wave_authority"])
+        self.assertEqual(
+            ["active-run helper", "active-run helper command"],
             payload["successor_wave_authority"]["disallowed_design_queue_active_run_tokens"],
         )
         self.assertEqual([], payload["successor_wave_authority"]["missing_queue_tokens"])

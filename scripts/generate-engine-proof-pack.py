@@ -198,10 +198,17 @@ EXPECTED_QUEUE_ALLOWED_PATHS = tuple(SUCCESSOR_WAVE_PACKAGE["allowed_paths"])
 EXPECTED_QUEUE_OWNED_SURFACES = tuple(SUCCESSOR_WAVE_PACKAGE["owned_surfaces"])
 DISALLOWED_ACTIVE_RUN_PROOF_TOKENS = (
     "ACTIVE_RUN_HANDOFF",
+    "TASK_LOCAL_TELEMETRY",
     "active-run telemetry",
+    "task-local telemetry",
     "operator telemetry",
     "active run helper",
     "active-run helper",
+    "active-run helper command",
+    "active-run helper commands",
+    "operator/OODA telemetry",
+    "supervisor status",
+    "status helper",
 )
 DISALLOWED_ACTIVE_RUN_PROOF_TOKEN_MATCHES = tuple(
     (token, token.lower()) for token in DISALLOWED_ACTIVE_RUN_PROOF_TOKENS
