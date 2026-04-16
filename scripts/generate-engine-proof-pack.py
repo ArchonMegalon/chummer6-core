@@ -343,6 +343,7 @@ REQUIRED_LOCAL_COMMIT_PROOFS = (
     ("e04d7b88", "current M104 checked-in receipt proof guard required by local closeout"),
     ("58656418", "current M104 worker proof hygiene guard required by local closeout"),
     ("73638668", "current M104 worker proof hygiene guard pin required by registry and queue closeout"),
+    ("a404b474", "current M104 latest worker proof guard required by local closeout"),
 )
 
 
