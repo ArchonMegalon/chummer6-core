@@ -126,6 +126,7 @@ SUCCESSOR_REGISTRY_TASK_TOKENS = {
         "/docker/chummercomplete/chummer-core-engine commit 2c8742ad fail-closes duplicate M104 package rows in Fleet and design queue staging so future shards verify the unique completed package.",
         "/docker/chummercomplete/chummer-core-engine commit 40babebd pins the latest 5baebb73 queue proof guard in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.",
         "/docker/chummercomplete/chummer-core-engine commit 22171b35 pins the current 40babebd proof guard in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.",
+        "/docker/chummercomplete/chummer-core-engine commit 96eca660 pins the current c6fbd75f non-mutating proof guard in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.",
         "dotnet run --project Chummer.Benchmarks/Chummer.Benchmarks.csproj -c Release -- --budget-check --budget-file Chummer.Benchmarks/workspace-benchmark-budgets.json exits 0",
     ),
 }
@@ -168,6 +169,7 @@ SUCCESSOR_QUEUE_TOKENS = (
     "/docker/chummercomplete/chummer-core-engine commit 2c8742ad fail-closes duplicate M104 package rows in Fleet and design queue staging so future shards verify the unique completed package.",
     "/docker/chummercomplete/chummer-core-engine commit 40babebd pins the latest 5baebb73 queue proof guard in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.",
     "/docker/chummercomplete/chummer-core-engine commit 22171b35 pins the current 40babebd proof guard in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.",
+    "/docker/chummercomplete/chummer-core-engine commit 96eca660 pins the current c6fbd75f non-mutating proof guard in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.",
     "allowed_paths:",
     "- src",
     "- tests",
@@ -267,6 +269,7 @@ REQUIRED_LOCAL_COMMIT_PROOFS = (
     ("40babebd", "latest M104 queue proof guard pin required by registry and queue closeout"),
     ("22171b35", "current M104 proof guard pin required by registry and queue closeout"),
     ("c6fbd75f", "current M104 non-mutating proof pack check required by local closeout"),
+    ("96eca660", "current M104 non-mutating proof guard pin required by registry and queue closeout"),
 )
 
 
