@@ -1,7 +1,7 @@
 {
   "contract_name": "chummer6-core.engine_proof_pack",
   "schema_version": 1,
-  "generated_at": "2026-04-16T23:09:49Z",
+  "generated_at": "2026-04-16T23:13:32Z",
   "status": "passed",
   "proof_kind": "release_bound_engine_proof",
   "milestone_id": 104,
@@ -711,6 +711,11 @@
       {
         "commit": "e04d7b88",
         "purpose": "current M104 checked-in receipt proof guard required by local closeout",
+        "status": "passed"
+      },
+      {
+        "commit": "58656418",
+        "purpose": "current M104 worker proof hygiene guard required by local closeout",
         "status": "passed"
       }
     ],
