@@ -407,6 +407,10 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
             "1bcb9b7e",
             [row["commit"] for row in payload["local_commit_proofs"]["required_commits"]],
         )
+        self.assertIn(
+            "e04d7b88",
+            [row["commit"] for row in payload["local_commit_proofs"]["required_commits"]],
+        )
         self.assertEqual("complete", payload["successor_wave_authority"]["closure_requirements"]["status"])
         self.assertEqual(3227666051, payload["successor_wave_authority"]["closure_requirements"]["frontier_id"])
         self.assertEqual("00800059", payload["successor_wave_authority"]["closure_requirements"]["landed_commit"])
@@ -905,6 +909,28 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
         self.assertIn("source_queue", payload["unresolved"]["successor_wave_authority"])
         self.assertEqual(["active run helper"], payload["successor_wave_authority"]["disallowed_queue_active_run_tokens"])
 
+    def test_build_payload_fails_closed_when_successor_queue_cites_successor_wave_telemetry(self) -> None:
+        queue_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_queue_path"])
+        queue_text = queue_path.read_text(encoding="utf-8")
+        queue_path.write_text(
+            queue_text.replace(
+                "      - /docker/chummercomplete/chummer-core-engine/docs/ENGINE_PROOF_PACK.md\n",
+                "      - /docker/chummercomplete/chummer-core-engine/docs/ENGINE_PROOF_PACK.md\n"
+                "      - successor-wave telemetry remaining milestones and critical path prove completion\n",
+            ),
+            encoding="utf-8",
+        )
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertEqual("failed", payload["successor_wave_authority"]["status"])
+        self.assertIn("source_queue", payload["unresolved"]["successor_wave_authority"])
+        self.assertEqual(
+            ["successor-wave telemetry", "remaining milestones", "critical path"],
+            payload["successor_wave_authority"]["disallowed_queue_active_run_tokens"],
+        )
+
     def test_build_payload_fails_closed_when_registry_cites_supervisor_status_helper_proof(self) -> None:
         registry_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_registry_path"])
         registry_text = registry_path.read_text(encoding="utf-8")
@@ -924,6 +950,28 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
         self.assertIn("source_registry", payload["unresolved"]["successor_wave_authority"])
         self.assertEqual(
             ["supervisor status", "status helper"],
+            payload["successor_wave_authority"]["disallowed_registry_active_run_tokens"]["104.2"],
+        )
+
+    def test_build_payload_fails_closed_when_registry_cites_operator_ooda_loop_proof(self) -> None:
+        registry_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_registry_path"])
+        registry_text = registry_path.read_text(encoding="utf-8")
+        registry_path.write_text(
+            registry_text.replace(
+                "        - successor_wave_authority=passed\n",
+                "        - successor_wave_authority=passed\n"
+                "        - operator/OODA loop helper output reports this package complete.\n",
+            ),
+            encoding="utf-8",
+        )
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertEqual("failed", payload["successor_wave_authority"]["status"])
+        self.assertIn("source_registry", payload["unresolved"]["successor_wave_authority"])
+        self.assertEqual(
+            ["operator/OODA loop"],
             payload["successor_wave_authority"]["disallowed_registry_active_run_tokens"]["104.2"],
         )
 

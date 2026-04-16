@@ -231,6 +231,12 @@ DISALLOWED_ACTIVE_RUN_PROOF_TOKENS = (
     "active-run helper command",
     "active-run helper commands",
     "operator/OODA telemetry",
+    "operator/OODA loop",
+    "OODA helper",
+    "successor-wave telemetry",
+    "remaining milestones",
+    "remaining queue items",
+    "critical path",
     "supervisor status",
     "status helper",
 )
@@ -332,6 +338,7 @@ REQUIRED_LOCAL_COMMIT_PROOFS = (
     ("e4e502a1", "current M104 proof floor required by local closeout"),
     ("1f2c5724", "current M104 proof pack floor required by local closeout"),
     ("1bcb9b7e", "current M104 proof pack guard required by local closeout"),
+    ("e04d7b88", "current M104 checked-in receipt proof guard required by local closeout"),
 )
 
 
