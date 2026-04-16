@@ -1,7 +1,7 @@
 {
   "contract_name": "chummer6-core.engine_proof_pack",
   "schema_version": 1,
-  "generated_at": "2026-04-16T23:17:24Z",
+  "generated_at": "2026-04-16T23:21:21Z",
   "status": "passed",
   "proof_kind": "release_bound_engine_proof",
   "milestone_id": 104,
@@ -723,6 +723,11 @@
       {
         "commit": "73638668",
         "purpose": "current M104 worker proof hygiene guard pin required by registry and queue closeout",
+        "status": "passed"
+      },
+      {
+        "commit": "a404b474",
+        "purpose": "current M104 latest worker proof guard required by local closeout",
         "status": "passed"
       }
     ],
