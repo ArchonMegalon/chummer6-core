@@ -259,6 +259,7 @@ REQUIRED_LOCAL_COMMIT_PROOFS = (
     ("df1330b4", "latest M104 queue proof floor required by registry and queue closeout"),
     ("6610ff2e", "current M104 queue proof floor resolution guard required by registry and queue closeout"),
     ("2c8742ad", "current M104 duplicate queue row guard required by registry and queue closeout"),
+    ("5baebb73", "latest M104 queue proof guard required by local closeout"),
 )
 
 
