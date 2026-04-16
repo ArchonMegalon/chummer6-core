@@ -331,6 +331,7 @@ REQUIRED_LOCAL_COMMIT_PROOFS = (
     ("eacefaf2", "current M104 local proof floor required by local closeout"),
     ("e4e502a1", "current M104 proof floor required by local closeout"),
     ("1f2c5724", "current M104 proof pack floor required by local closeout"),
+    ("1bcb9b7e", "current M104 proof pack guard required by local closeout"),
 )
 
 
