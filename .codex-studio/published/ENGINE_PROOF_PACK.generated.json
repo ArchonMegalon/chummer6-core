@@ -1,7 +1,7 @@
 {
   "contract_name": "chummer6-core.engine_proof_pack",
   "schema_version": 1,
-  "generated_at": "2026-04-16T16:59:52Z",
+  "generated_at": "2026-04-16T17:08:41Z",
   "status": "passed",
   "proof_kind": "release_bound_engine_proof",
   "milestone_id": 104,
@@ -77,6 +77,7 @@
         "/docker/chummercomplete/chummer-core-engine commit df1330b4 pins the latest 71441924 queue proof floor in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.",
         "/docker/chummercomplete/chummer-core-engine commit 6610ff2e tightens the M104 proof pack so the df1330b4 queue proof floor must resolve locally.",
         "/docker/chummercomplete/chummer-core-engine commit 2c8742ad fail-closes duplicate M104 package rows in Fleet and design queue staging so future shards verify the unique completed package.",
+        "/docker/chummercomplete/chummer-core-engine commit 40babebd pins the latest 5baebb73 queue proof guard in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.",
         "dotnet run --project Chummer.Benchmarks/Chummer.Benchmarks.csproj -c Release -- --budget-check --budget-file Chummer.Benchmarks/workspace-benchmark-budgets.json exits 0"
       ]
     },
@@ -116,6 +117,7 @@
       "/docker/chummercomplete/chummer-core-engine commit df1330b4 pins the latest 71441924 queue proof floor in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.",
       "/docker/chummercomplete/chummer-core-engine commit 6610ff2e tightens the M104 proof pack so the df1330b4 queue proof floor must resolve locally.",
       "/docker/chummercomplete/chummer-core-engine commit 2c8742ad fail-closes duplicate M104 package rows in Fleet and design queue staging so future shards verify the unique completed package.",
+      "/docker/chummercomplete/chummer-core-engine commit 40babebd pins the latest 5baebb73 queue proof guard in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.",
       "allowed_paths:",
       "- src",
       "- tests",
@@ -533,6 +535,11 @@
       {
         "commit": "5baebb73",
         "purpose": "latest M104 queue proof guard required by local closeout",
+        "status": "passed"
+      },
+      {
+        "commit": "40babebd",
+        "purpose": "latest M104 queue proof guard pin required by registry and queue closeout",
         "status": "passed"
       }
     ],
