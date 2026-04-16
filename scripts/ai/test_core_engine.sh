@@ -30,6 +30,6 @@ if [[ "$skip_build" -eq 0 ]]; then
 fi
 
 python3 "$repo_root/tests/test_engine_proof_pack_generator.py"
-python3 "$repo_root/scripts/generate-engine-proof-pack.py" --repo-root "$repo_root" >/dev/null
+python3 "$repo_root/scripts/generate-engine-proof-pack.py" --repo-root "$repo_root" --check >/dev/null
 
 dotnet "Chummer.CoreEngine.Tests/bin/Debug/$target_framework/Chummer.CoreEngine.Tests.dll"

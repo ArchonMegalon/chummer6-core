@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import subprocess
+import sys
 import tempfile
 import unittest
 from unittest import mock
@@ -42,6 +44,29 @@ class EngineProofPackReceiptReproducibilityTests(unittest.TestCase):
             without_generated_at(checked_in_payload),
             "Checked-in ENGINE_PROOF_PACK.generated.json should be reproducible from the generator except generated_at.",
         )
+
+    def test_generator_check_mode_accepts_current_checked_in_receipt(self) -> None:
+        receipt_path = REPO_ROOT / ".codex-studio" / "published" / "ENGINE_PROOF_PACK.generated.json"
+
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(GENERATOR_PATH),
+                "--repo-root",
+                str(REPO_ROOT),
+                "--out",
+                str(receipt_path),
+                "--check",
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=False,
+        )
+
+        self.assertEqual("", result.stderr)
+        self.assertEqual(0, result.returncode)
+        self.assertIn(str(receipt_path), result.stdout)
 
 
 class EngineProofPackGeneratorTests(unittest.TestCase):
@@ -326,6 +351,32 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
             payload["release_channel_binding"]["required_promoted_desktop_tuples"],
         )
         self.assertEqual([], payload["successor_wave_authority"]["missing_queue_proof_anchors"])
+
+    def test_generator_check_mode_fails_closed_for_stale_checked_in_receipt(self) -> None:
+        payload = self.generator.build_payload(self.root, self.output_path)
+        stale_payload = dict(payload)
+        stale_payload["package_id"] = "stale-package"
+        self.output_path.parent.mkdir(parents=True, exist_ok=True)
+        self.output_path.write_text(json.dumps(stale_payload, indent=2) + "\n", encoding="utf-8")
+
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(GENERATOR_PATH),
+                "--repo-root",
+                str(self.root),
+                "--out",
+                str(self.output_path),
+                "--check",
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=False,
+        )
+
+        self.assertEqual(1, result.returncode)
+        self.assertIn("checked-in receipt is stale", result.stderr)
 
     def test_build_payload_fails_closed_when_a_suite_evidence_symbol_is_missing(self) -> None:
         (self.root / "Chummer.CoreEngine.Tests" / "Program.cs").write_text("wrong symbol\n", encoding="utf-8")

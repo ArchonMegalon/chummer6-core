@@ -87,6 +87,7 @@ python3 scripts/generate-engine-proof-pack.py
 ```
 
 The generator treats the generated proof pack path as a planned output so a clean first run cannot fail only because `ENGINE_PROOF_PACK.generated.json` does not already exist. Other successor queue proof anchors must resolve on disk.
+Use `python3 scripts/generate-engine-proof-pack.py --check` when verification must prove the checked-in receipt is current without rewriting the artifact.
 Both the Fleet staging queue and the design-owned staging queue must retain the completed `next90-m104-core-proof-pack` row with the same frontier, allowed paths, owned surfaces, landed commit, and proof anchors.
 Each queue must contain exactly one `next90-m104-core-proof-pack` row.
 The checked-in receipt is also treated as a reproducible artifact: `tests/test_engine_proof_pack_generator.py` rebuilds the payload from repo-local evidence and compares it to `.codex-studio/published/ENGINE_PROOF_PACK.generated.json`, ignoring only `generated_at`.

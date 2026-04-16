@@ -283,6 +283,12 @@ def _load_json(path: Path) -> dict[str, Any]:
     return payload if isinstance(payload, dict) else {}
 
 
+def _without_generated_at(payload: dict[str, Any]) -> dict[str, Any]:
+    comparable = dict(payload)
+    comparable.pop("generated_at", None)
+    return comparable
+
+
 def _extract_status(payload: dict[str, Any]) -> str:
     return str(payload.get("status") or "").strip().lower()
 
@@ -1014,6 +1020,11 @@ def build_payload(root: Path, generated_output_path: Path | None = None) -> dict
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Generate ENGINE_PROOF_PACK.generated.json")
     parser.add_argument(
+        "--check",
+        action="store_true",
+        help="verify the checked-in proof pack is current without rewriting it",
+    )
+    parser.add_argument(
         "--repo-root",
         default=str(Path(__file__).resolve().parents[1]),
         help="path to the chummer-core-engine repo root",
@@ -1034,6 +1045,29 @@ def main() -> int:
         out = root / out
 
     payload = build_payload(root, out)
+    if args.check:
+        if payload.get("status") != "passed":
+            unresolved = payload.get("unresolved") if isinstance(payload.get("unresolved"), dict) else {}
+            unresolved_ids = {
+                key: value
+                for key, value in unresolved.items()
+                if isinstance(value, list) and value
+            }
+            print(
+                f"ENGINE_PROOF_PACK check failed closed: {json.dumps(unresolved_ids, sort_keys=True)}",
+                file=sys.stderr,
+            )
+            return 1
+        checked_in_payload = _load_json(out)
+        if not checked_in_payload:
+            print(f"ENGINE_PROOF_PACK check failed: missing or invalid checked-in receipt at {out}", file=sys.stderr)
+            return 1
+        if _without_generated_at(payload) != _without_generated_at(checked_in_payload):
+            print(f"ENGINE_PROOF_PACK check failed: checked-in receipt is stale at {out}", file=sys.stderr)
+            return 1
+        print(str(out))
+        return 0
+
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
     print(str(out))
