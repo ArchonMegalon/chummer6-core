@@ -1,7 +1,7 @@
 {
   "contract_name": "chummer6-core.engine_proof_pack",
   "schema_version": 1,
-  "generated_at": "2026-04-16T16:43:34Z",
+  "generated_at": "2026-04-16T16:49:13Z",
   "status": "passed",
   "proof_kind": "release_bound_engine_proof",
   "milestone_id": 104,
@@ -132,6 +132,8 @@
     "missing_queue_proof_anchors": [],
     "off_package_queue_proof_anchors": [],
     "disallowed_queue_active_run_tokens": [],
+    "queue_package_row_count": 1,
+    "duplicate_queue_package_rows": 0,
     "queue_allowed_paths": [
       "src",
       "tests",
@@ -158,6 +160,8 @@
     "design_queue_missing_proof_anchors": [],
     "design_queue_off_package_proof_anchors": [],
     "disallowed_design_queue_active_run_tokens": [],
+    "design_queue_package_row_count": 1,
+    "duplicate_design_queue_package_rows": 0,
     "design_queue_allowed_paths": [
       "src",
       "tests",
