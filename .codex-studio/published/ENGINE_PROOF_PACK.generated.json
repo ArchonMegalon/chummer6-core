@@ -1,7 +1,7 @@
 {
   "contract_name": "chummer6-core.engine_proof_pack",
   "schema_version": 1,
-  "generated_at": "2026-04-16T17:13:18Z",
+  "generated_at": "2026-04-16T17:31:15Z",
   "status": "passed",
   "proof_kind": "release_bound_engine_proof",
   "milestone_id": 104,
@@ -547,6 +547,11 @@
       {
         "commit": "22171b35",
         "purpose": "current M104 proof guard pin required by registry and queue closeout",
+        "status": "passed"
+      },
+      {
+        "commit": "c6fbd75f",
+        "purpose": "current M104 non-mutating proof pack check required by local closeout",
         "status": "passed"
       }
     ],

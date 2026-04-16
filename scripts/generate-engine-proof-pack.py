@@ -266,6 +266,7 @@ REQUIRED_LOCAL_COMMIT_PROOFS = (
     ("5baebb73", "latest M104 queue proof guard required by local closeout"),
     ("40babebd", "latest M104 queue proof guard pin required by registry and queue closeout"),
     ("22171b35", "current M104 proof guard pin required by registry and queue closeout"),
+    ("c6fbd75f", "current M104 non-mutating proof pack check required by local closeout"),
 )
 
 
