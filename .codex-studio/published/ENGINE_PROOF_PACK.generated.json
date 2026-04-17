@@ -1,7 +1,7 @@
 {
   "contract_name": "chummer6-core.engine_proof_pack",
   "schema_version": 1,
-  "generated_at": "2026-04-17T00:24:11Z",
+  "generated_at": "2026-04-17T00:50:36Z",
   "status": "passed",
   "proof_kind": "release_bound_engine_proof",
   "milestone_id": 104,
@@ -99,6 +99,7 @@
         "/docker/chummercomplete/chummer-core-engine commit 73638668 pins the current 58656418 worker proof hygiene guard in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.",
         "/docker/chummercomplete/chummer-core-engine commit c58d18e1 pins the current 5f50cb7b engine proof floor in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.",
         "/docker/chummercomplete/chummer-core-engine commit 39c875fd pins the current d584120b local engine proof floor in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.",
+        "/docker/chummercomplete/chummer-core-engine commit f1b6c5ca pins the queued 39c875fd proof floor into the generator, unit tests, proof-pack documentation, and checked-in receipt.",
         "dotnet run --project Chummer.Benchmarks/Chummer.Benchmarks.csproj -c Release -- --budget-check --budget-file Chummer.Benchmarks/workspace-benchmark-budgets.json exits 0"
       ]
     },
@@ -160,6 +161,7 @@
       "/docker/chummercomplete/chummer-core-engine commit 73638668 pins the current 58656418 worker proof hygiene guard in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.",
       "/docker/chummercomplete/chummer-core-engine commit c58d18e1 pins the current 5f50cb7b engine proof floor in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.",
       "/docker/chummercomplete/chummer-core-engine commit 39c875fd pins the current d584120b local engine proof floor in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.",
+      "/docker/chummercomplete/chummer-core-engine commit f1b6c5ca pins the queued 39c875fd proof floor into the generator, unit tests, proof-pack documentation, and checked-in receipt.",
       "allowed_paths:",
       "- src",
       "- tests",
@@ -777,6 +779,11 @@
       {
         "commit": "39c875fd",
         "purpose": "current M104 queued local engine proof floor pin required by registry and queue closeout",
+        "status": "passed"
+      },
+      {
+        "commit": "f1b6c5ca",
+        "purpose": "current M104 queued proof floor pin required by registry and queue closeout",
         "status": "passed"
       }
     ],
