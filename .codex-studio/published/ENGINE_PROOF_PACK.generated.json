@@ -1,7 +1,7 @@
 {
   "contract_name": "chummer6-core.engine_proof_pack",
   "schema_version": 1,
-  "generated_at": "2026-04-17T20:40:40Z",
+  "generated_at": "2026-04-17T20:42:37Z",
   "status": "passed",
   "proof_kind": "release_bound_engine_proof",
   "milestone_id": 104,
@@ -279,8 +279,8 @@
       "/docker/chummercomplete/chummer-core-engine/docs/ENGINE_PROOF_PACK.md",
       "/docker/chummercomplete/chummer-core-engine/docs/NEXT90_M104_CORE_PROOF_PACK_CLOSEOUT.md"
     ],
-    "queue_proof_count": 77,
-    "design_queue_proof_count": 77,
+    "queue_proof_count": 78,
+    "design_queue_proof_count": 78,
     "queue_proof_missing_from_design_queue": [],
     "design_queue_proof_missing_from_queue": [],
     "queue_mirror_parity_status": "passed",
@@ -578,6 +578,10 @@
         },
         {
           "commit": "aeeeaf6e",
+          "status": "passed"
+        },
+        {
+          "commit": "c84b251f",
           "status": "passed"
         }
       ],
