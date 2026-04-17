@@ -1,7 +1,7 @@
 {
   "contract_name": "chummer6-core.engine_proof_pack",
   "schema_version": 1,
-  "generated_at": "2026-04-17T06:17:47Z",
+  "generated_at": "2026-04-17T06:26:35Z",
   "status": "passed",
   "proof_kind": "release_bound_engine_proof",
   "milestone_id": 104,
@@ -113,6 +113,7 @@
         "/docker/chummercomplete/chummer-core-engine commit 7a432bc3 pins the current c323b4ad queue proof floor guard in the generator, unit tests, proof-pack documentation, and checked-in receipt.",
         "/docker/chummercomplete/chummer-core-engine commit c124e4af pins the current 7a432bc3 proof pack guard floor in the generator, unit tests, proof-pack documentation, and checked-in receipt.",
         "/docker/chummercomplete/chummer-core-engine commit 870be707 pins the current af67ecfd handoff proof floor in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.",
+        "/docker/chummercomplete/chummer-core-engine commit b8000b80 tightens the M104 OODA telemetry proof guard so plain governor-loop evidence cannot close the package.",
         "dotnet run --project Chummer.Benchmarks/Chummer.Benchmarks.csproj -c Release -- --budget-check --budget-file Chummer.Benchmarks/workspace-benchmark-budgets.json exits 0"
       ]
     },
@@ -188,6 +189,7 @@
       "/docker/chummercomplete/chummer-core-engine commit 7a432bc3 pins the current c323b4ad queue proof floor guard in the generator, unit tests, proof-pack documentation, and checked-in receipt.",
       "/docker/chummercomplete/chummer-core-engine commit c124e4af pins the current 7a432bc3 proof pack guard floor in the generator, unit tests, proof-pack documentation, and checked-in receipt.",
       "/docker/chummercomplete/chummer-core-engine commit 870be707 pins the current af67ecfd handoff proof floor in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.",
+      "/docker/chummercomplete/chummer-core-engine commit b8000b80 tightens the M104 OODA telemetry proof guard so plain governor-loop evidence cannot close the package.",
       "allowed_paths:",
       "- src",
       "- tests",
@@ -260,8 +262,8 @@
       "import_oracle_discipline"
     ],
     "unexpected_design_queue_owned_surfaces": [],
-    "queue_proof_count": 74,
-    "design_queue_proof_count": 74,
+    "queue_proof_count": 75,
+    "design_queue_proof_count": 75,
     "queue_proof_missing_from_design_queue": [],
     "design_queue_proof_missing_from_queue": [],
     "queue_mirror_parity_status": "passed",
@@ -935,6 +937,11 @@
       {
         "commit": "498dff3d",
         "purpose": "current M104 queue mirror parity guard required by local closeout",
+        "status": "passed"
+      },
+      {
+        "commit": "b8000b80",
+        "purpose": "current M104 OODA telemetry proof guard required by registry and queue closeout",
         "status": "passed"
       }
     ],
