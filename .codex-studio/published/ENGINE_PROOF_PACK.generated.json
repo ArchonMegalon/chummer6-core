@@ -1,7 +1,7 @@
 {
   "contract_name": "chummer6-core.engine_proof_pack",
   "schema_version": 1,
-  "generated_at": "2026-04-17T04:45:07Z",
+  "generated_at": "2026-04-17T04:47:09Z",
   "status": "passed",
   "proof_kind": "release_bound_engine_proof",
   "milestone_id": 104,
@@ -260,8 +260,8 @@
       "import_oracle_discipline"
     ],
     "unexpected_design_queue_owned_surfaces": [],
-    "queue_proof_count": 73,
-    "design_queue_proof_count": 73,
+    "queue_proof_count": 74,
+    "design_queue_proof_count": 74,
     "queue_proof_missing_from_design_queue": [],
     "design_queue_proof_missing_from_queue": [],
     "queue_mirror_parity_status": "passed",
