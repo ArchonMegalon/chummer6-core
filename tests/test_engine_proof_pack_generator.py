@@ -569,6 +569,9 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
         self.assertEqual(0, payload["successor_wave_authority"]["duplicate_queue_package_rows"])
         self.assertEqual(1, payload["successor_wave_authority"]["design_queue_package_row_count"])
         self.assertEqual(0, payload["successor_wave_authority"]["duplicate_design_queue_package_rows"])
+        self.assertEqual("passed", payload["successor_wave_authority"]["queue_mirror_parity_status"])
+        self.assertEqual([], payload["successor_wave_authority"]["queue_proof_missing_from_design_queue"])
+        self.assertEqual([], payload["successor_wave_authority"]["design_queue_proof_missing_from_queue"])
         self.assertEqual(["src", "tests", "docs", "scripts"], payload["successor_wave_authority"]["design_queue_allowed_paths"])
         self.assertEqual(
             ["engine_proof_pack", "import_oracle_discipline"],
@@ -1117,6 +1120,23 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
             payload["successor_wave_authority"]["design_queue_missing_tokens"],
         )
         self.assertEqual([], payload["successor_wave_authority"]["missing_queue_tokens"])
+
+    def test_build_payload_fails_closed_when_fleet_and_design_queue_proof_rows_drift(self) -> None:
+        design_queue_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_design_queue_path"])
+        queue_text = design_queue_path.read_text(encoding="utf-8")
+        proof_item = "/docker/chummercomplete/chummer-core-engine/docs/NEXT90_M104_CORE_PROOF_PACK_CLOSEOUT.md"
+        design_queue_path.write_text(queue_text.replace(f"      - {proof_item}\n", ""), encoding="utf-8")
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertEqual("failed", payload["successor_wave_authority"]["status"])
+        self.assertIn("queue_mirror_parity", payload["unresolved"]["successor_wave_authority"])
+        self.assertEqual("failed", payload["successor_wave_authority"]["queue_mirror_parity_status"])
+        self.assertIn(
+            proof_item,
+            payload["successor_wave_authority"]["queue_proof_missing_from_design_queue"],
+        )
 
     def test_build_payload_fails_closed_when_design_queue_has_duplicate_package_rows(self) -> None:
         design_queue_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_design_queue_path"])
