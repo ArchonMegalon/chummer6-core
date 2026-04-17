@@ -1,7 +1,7 @@
 {
   "contract_name": "chummer6-core.engine_proof_pack",
   "schema_version": 1,
-  "generated_at": "2026-04-17T19:32:11Z",
+  "generated_at": "2026-04-17T19:43:05Z",
   "status": "passed",
   "proof_kind": "release_bound_engine_proof",
   "milestone_id": 104,
@@ -989,6 +989,11 @@
       {
         "commit": "2e4e8e81",
         "purpose": "current M104 handoff evidence proof floor required by local closeout",
+        "status": "passed"
+      },
+      {
+        "commit": "b5d46938",
+        "purpose": "current M104 engine proof pack discipline guard required by local closeout",
         "status": "passed"
       }
     ],
