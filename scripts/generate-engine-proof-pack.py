@@ -667,6 +667,7 @@ def _validate_queue_authority(queue_path: Path, generated_output_path: Path | No
         "owned_surfaces": queue_owned_surfaces,
         "expected_owned_surfaces": list(EXPECTED_QUEUE_OWNED_SURFACES),
         "unexpected_owned_surfaces": unexpected_queue_owned_surfaces,
+        "proof": _extract_yaml_list_values(queue_scope, "proof") if queue_scope else [],
     }
 
 
@@ -695,6 +696,21 @@ def _validate_successor_wave_authority(generated_output_path: Path | None = None
 
     fleet_queue_authority = _validate_queue_authority(queue_path, generated_output_path)
     design_queue_authority = _validate_queue_authority(design_queue_path, generated_output_path)
+    queue_proof = fleet_queue_authority["proof"]
+    design_queue_proof = design_queue_authority["proof"]
+    queue_proof_set = set(queue_proof)
+    design_queue_proof_set = set(design_queue_proof)
+    queue_proof_missing_from_design_queue = [
+        proof for proof in queue_proof if proof not in design_queue_proof_set
+    ]
+    design_queue_proof_missing_from_queue = [
+        proof for proof in design_queue_proof if proof not in queue_proof_set
+    ]
+    queue_mirror_parity_status = (
+        "passed"
+        if not queue_proof_missing_from_design_queue and not design_queue_proof_missing_from_queue
+        else "failed"
+    )
     registry_status = "passed" if not missing_registry_tokens else "failed"
 
     unresolved: list[str] = []
@@ -704,6 +720,8 @@ def _validate_successor_wave_authority(generated_output_path: Path | None = None
         unresolved.append("source_queue")
     if design_queue_authority["status"] != "passed":
         unresolved.append("source_design_queue")
+    if queue_mirror_parity_status != "passed":
+        unresolved.append("queue_mirror_parity")
 
     return (
         {
@@ -746,6 +764,11 @@ def _validate_successor_wave_authority(generated_output_path: Path | None = None
             "design_queue_owned_surfaces": design_queue_authority["owned_surfaces"],
             "expected_design_queue_owned_surfaces": list(EXPECTED_QUEUE_OWNED_SURFACES),
             "unexpected_design_queue_owned_surfaces": design_queue_authority["unexpected_owned_surfaces"],
+            "queue_proof_count": len(queue_proof),
+            "design_queue_proof_count": len(design_queue_proof),
+            "queue_proof_missing_from_design_queue": queue_proof_missing_from_design_queue,
+            "design_queue_proof_missing_from_queue": design_queue_proof_missing_from_queue,
+            "queue_mirror_parity_status": queue_mirror_parity_status,
             "closure_requirements": {
                 "status": "complete",
                 "frontier_id": SUCCESSOR_WAVE_PACKAGE["frontier_id"],

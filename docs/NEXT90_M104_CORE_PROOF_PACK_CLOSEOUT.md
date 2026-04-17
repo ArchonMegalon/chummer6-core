@@ -12,6 +12,7 @@ The core-owned successor slice is closed when all of these remain true:
 - `.codex-studio/published/ENGINE_PROOF_PACK.generated.json` reports `status=passed`.
 - `successor_wave_authority` reports `status=passed`.
 - The Fleet queue mirror and design-owned queue each contain exactly one `next90-m104-core-proof-pack` row.
+- The Fleet queue mirror and design-owned queue package rows keep matching proof lists; `queue_mirror_parity_status` remains `passed`.
 - That row remains `status: complete`, keeps `frontier_id: 3227666051`, and keeps `landed_commit: 00800059`.
 - The row keeps only the assigned allowed paths: `src`, `tests`, `docs`, and `scripts`.
 - The row keeps only the assigned owned surfaces: `engine_proof_pack` and `import_oracle_discipline`.
