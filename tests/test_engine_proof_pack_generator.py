@@ -515,6 +515,10 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
             "c124e4af",
             [row["commit"] for row in payload["local_commit_proofs"]["required_commits"]],
         )
+        self.assertIn(
+            "5a649e57",
+            [row["commit"] for row in payload["local_commit_proofs"]["required_commits"]],
+        )
         self.assertEqual("complete", payload["successor_wave_authority"]["closure_requirements"]["status"])
         self.assertEqual(3227666051, payload["successor_wave_authority"]["closure_requirements"]["frontier_id"])
         self.assertEqual("00800059", payload["successor_wave_authority"]["closure_requirements"]["landed_commit"])
@@ -3185,6 +3189,25 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
             for row in payload["local_commit_proofs"]["required_commits"]
         }
         self.assertEqual("failed", missing["c124e4af"])
+
+    def test_build_payload_fails_closed_when_current_m104_handoff_anchor_does_not_resolve(self) -> None:
+        (self.root / ".git").mkdir()
+
+        def fake_cat_file(command: list[str], **_: Any) -> Any:
+            commit_ref = command[-1]
+            return mock.Mock(returncode=1 if commit_ref.startswith("5a649e57") else 0)
+
+        with mock.patch.object(self.generator.subprocess, "run", side_effect=fake_cat_file):
+            payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertEqual("failed", payload["local_commit_proofs"]["status"])
+        self.assertIn("5a649e57", payload["unresolved"]["local_commit_proofs"])
+        missing = {
+            row["commit"]: row["status"]
+            for row in payload["local_commit_proofs"]["required_commits"]
+        }
+        self.assertEqual("failed", missing["5a649e57"])
 
     def test_list_item_block_for_nested_queue_key_stops_before_later_package(self) -> None:
         text = "\n".join(
