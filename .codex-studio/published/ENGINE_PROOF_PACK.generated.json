@@ -1,7 +1,7 @@
 {
   "contract_name": "chummer6-core.engine_proof_pack",
   "schema_version": 1,
-  "generated_at": "2026-04-17T07:46:19Z",
+  "generated_at": "2026-04-17T19:32:11Z",
   "status": "passed",
   "proof_kind": "release_bound_engine_proof",
   "milestone_id": 104,
@@ -236,6 +236,13 @@
       "import_oracle_discipline"
     ],
     "unexpected_queue_owned_surfaces": [],
+    "queue_path_proof_anchors": [
+      "/docker/chummercomplete/chummer-core-engine/.codex-studio/published/ENGINE_PROOF_PACK.generated.json",
+      "/docker/chummercomplete/chummer-core-engine/scripts/generate-engine-proof-pack.py",
+      "/docker/chummercomplete/chummer-core-engine/tests/test_engine_proof_pack_generator.py",
+      "/docker/chummercomplete/chummer-core-engine/docs/ENGINE_PROOF_PACK.md",
+      "/docker/chummercomplete/chummer-core-engine/docs/NEXT90_M104_CORE_PROOF_PACK_CLOSEOUT.md"
+    ],
     "design_queue_missing_tokens": [],
     "design_queue_missing_proof_anchors": [],
     "design_queue_off_package_proof_anchors": [],
@@ -264,6 +271,13 @@
       "import_oracle_discipline"
     ],
     "unexpected_design_queue_owned_surfaces": [],
+    "design_queue_path_proof_anchors": [
+      "/docker/chummercomplete/chummer-core-engine/.codex-studio/published/ENGINE_PROOF_PACK.generated.json",
+      "/docker/chummercomplete/chummer-core-engine/scripts/generate-engine-proof-pack.py",
+      "/docker/chummercomplete/chummer-core-engine/tests/test_engine_proof_pack_generator.py",
+      "/docker/chummercomplete/chummer-core-engine/docs/ENGINE_PROOF_PACK.md",
+      "/docker/chummercomplete/chummer-core-engine/docs/NEXT90_M104_CORE_PROOF_PACK_CLOSEOUT.md"
+    ],
     "queue_proof_count": 76,
     "design_queue_proof_count": 76,
     "queue_proof_missing_from_design_queue": [],
@@ -299,13 +313,20 @@
       "`engine_proof_pack` and `import_oracle_discipline`",
       "Queue proof anchors resolve inside `/docker/chummercomplete/chummer-core-engine`",
       "`ecbb466c`",
+      "`498dff3d`",
       "`a2c8ad9f`",
       "`2c98f61c`",
+      "`2e4e8e81`",
       "Registry and queue evidence do not cite task-local telemetry",
       "active-run handoff field labels",
+      "supervisor helper loops",
+      "The same proof-hygiene ban applies after percent-decoding and HTML unescaping, after URL form-decoding, and after separator normalization",
       "Do not reopen this core package for adjacent M104 work.",
       "python3 scripts/generate-engine-proof-pack.py --check",
-      "python3 tests/test_engine_proof_pack_generator.py"
+      "python3 tests/test_engine_proof_pack_generator.py",
+      "dotnet build Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj -c Release --nologo -m:1",
+      "dotnet Chummer.CoreEngine.Tests/bin/Release/net10.0/Chummer.CoreEngine.Tests.dll",
+      "dotnet run --project Chummer.Benchmarks/Chummer.Benchmarks.csproj -c Release -- --budget-check --budget-file Chummer.Benchmarks/workspace-benchmark-budgets.json"
     ],
     "missing_tokens": [],
     "disallowed_evidence_tokens": []
@@ -964,6 +985,11 @@
         "commit": "2c98f61c",
         "purpose": "current M104 closeout handoff evidence guard required by local closeout",
         "status": "passed"
+      },
+      {
+        "commit": "2e4e8e81",
+        "purpose": "current M104 handoff evidence proof floor required by local closeout",
+        "status": "passed"
       }
     ],
     "missing_commits": []
@@ -1149,7 +1175,10 @@
       "benchmark_budget_source": "Chummer.Benchmarks/workspace-benchmark-budgets.json",
       "missing_workload": false,
       "benchmark_workload_evidence": "Chummer.Benchmarks/MigrationWorkspaceBenchmarks.cs",
-      "missing_executable_workload": false
+      "missing_executable_workload": false,
+      "duplicate_workload": false,
+      "duplicate_workload_names": [],
+      "malformed_threshold": false
     },
     {
       "id": "load",
@@ -1161,7 +1190,10 @@
       "benchmark_budget_source": "Chummer.Benchmarks/workspace-benchmark-budgets.json",
       "missing_workload": false,
       "benchmark_workload_evidence": "Chummer.Benchmarks/MigrationWorkspaceBenchmarks.cs",
-      "missing_executable_workload": false
+      "missing_executable_workload": false,
+      "duplicate_workload": false,
+      "duplicate_workload_names": [],
+      "malformed_threshold": false
     },
     {
       "id": "diff_apply",
@@ -1173,7 +1205,10 @@
       "benchmark_budget_source": "Chummer.Benchmarks/workspace-benchmark-budgets.json",
       "missing_workload": false,
       "benchmark_workload_evidence": "Chummer.Benchmarks/MigrationWorkspaceBenchmarks.cs",
-      "missing_executable_workload": false
+      "missing_executable_workload": false,
+      "duplicate_workload": false,
+      "duplicate_workload_names": [],
+      "malformed_threshold": false
     },
     {
       "id": "explain",
@@ -1185,7 +1220,10 @@
       "benchmark_budget_source": "Chummer.Benchmarks/workspace-benchmark-budgets.json",
       "missing_workload": false,
       "benchmark_workload_evidence": "Chummer.Benchmarks/MigrationWorkspaceBenchmarks.cs",
-      "missing_executable_workload": false
+      "missing_executable_workload": false,
+      "duplicate_workload": false,
+      "duplicate_workload_names": [],
+      "malformed_threshold": false
     },
     {
       "id": "export_prep",
@@ -1197,7 +1235,10 @@
       "benchmark_budget_source": "Chummer.Benchmarks/workspace-benchmark-budgets.json",
       "missing_workload": false,
       "benchmark_workload_evidence": "Chummer.Benchmarks/MigrationWorkspaceBenchmarks.cs",
-      "missing_executable_workload": false
+      "missing_executable_workload": false,
+      "duplicate_workload": false,
+      "duplicate_workload_names": [],
+      "malformed_threshold": false
     }
   ],
   "import_oracle_discipline": {
@@ -1213,6 +1254,27 @@
       "Genesis",
       "CommLink6"
     ],
+    "required_source_receipt_coverage_total": 5,
+    "required_source_receipt_commands": [
+      "dotnet run --project Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj -c Release"
+    ],
+    "required_source_receipt_evidence": [
+      "core-engine-tests: ok"
+    ],
+    "source_receipt_commands": [
+      "dotnet run --project Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj -c Release"
+    ],
+    "source_receipt_evidence": [
+      "core-engine-tests: ok"
+    ],
+    "missing_required_source_receipt_commands": [],
+    "missing_required_source_receipt_evidence": [],
+    "unexpected_source_receipt_commands": [],
+    "unexpected_source_receipt_evidence": [],
+    "duplicate_source_receipt_commands": [],
+    "duplicate_source_receipt_evidence": [],
+    "disallowed_source_receipt_command_tokens": [],
+    "disallowed_source_receipt_evidence_tokens": [],
     "import_oracles": [
       {
         "name": "Chummer4",
@@ -1231,8 +1293,16 @@
       }
     ],
     "adjacent_oracles": [
-      "Genesis",
-      "CommLink6"
+      {
+        "name": "Genesis",
+        "sources_covered": 1,
+        "sources_expected": 1
+      },
+      {
+        "name": "CommLink6",
+        "sources_covered": 1,
+        "sources_expected": 1
+      }
     ],
     "unresolved": []
   },

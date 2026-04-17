@@ -25,12 +25,20 @@
     }
   ],
   "adjacent_oracles": [
-    "Genesis",
-    "CommLink6"
+    {
+      "name": "Genesis",
+      "sources_covered": 1,
+      "sources_expected": 1
+    },
+    {
+      "name": "CommLink6",
+      "sources_covered": 1,
+      "sources_expected": 1
+    }
   ],
   "coverage": {
-    "sources_covered": 4,
-    "sources_expected": 4,
+    "sources_covered": 5,
+    "sources_expected": 5,
     "coverage_percent": 100
   },
   "evidence": [
