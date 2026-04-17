@@ -1,7 +1,7 @@
 {
   "contract_name": "chummer6-core.engine_proof_pack",
   "schema_version": 1,
-  "generated_at": "2026-04-17T19:50:38Z",
+  "generated_at": "2026-04-17T20:30:49Z",
   "status": "passed",
   "proof_kind": "release_bound_engine_proof",
   "milestone_id": 104,
@@ -318,6 +318,7 @@
       "`a2c8ad9f`",
       "`2c98f61c`",
       "`2e4e8e81`",
+      "`8f4702a5`",
       "Registry and queue evidence do not cite task-local telemetry",
       "active-run handoff field labels",
       "supervisor helper loops",
@@ -1000,6 +1001,11 @@
       {
         "commit": "c1300863",
         "purpose": "current M104 engine proof pack discipline guard pin required by local closeout",
+        "status": "passed"
+      },
+      {
+        "commit": "8f4702a5",
+        "purpose": "current M104 release-bound proof discipline guard required by local closeout",
         "status": "passed"
       }
     ],
