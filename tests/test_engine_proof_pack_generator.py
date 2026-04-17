@@ -1048,7 +1048,10 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
         self.assertEqual("failed", payload["status"])
         self.assertEqual("failed", payload["successor_wave_authority"]["status"])
         self.assertIn("source_queue", payload["unresolved"]["successor_wave_authority"])
-        self.assertEqual(["ACTIVE_RUN_HANDOFF"], payload["successor_wave_authority"]["disallowed_queue_active_run_tokens"])
+        self.assertEqual(
+            ["/var/lib/codex-fleet/", "ACTIVE_RUN_HANDOFF"],
+            payload["successor_wave_authority"]["disallowed_queue_active_run_tokens"],
+        )
 
     def test_build_payload_fails_closed_when_successor_queue_cites_task_local_telemetry_proof(self) -> None:
         queue_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_queue_path"])
@@ -1067,7 +1070,10 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
         self.assertEqual("failed", payload["status"])
         self.assertEqual("failed", payload["successor_wave_authority"]["status"])
         self.assertIn("source_queue", payload["unresolved"]["successor_wave_authority"])
-        self.assertEqual(["TASK_LOCAL_TELEMETRY"], payload["successor_wave_authority"]["disallowed_queue_active_run_tokens"])
+        self.assertEqual(
+            ["/var/lib/codex-fleet/", "TASK_LOCAL_TELEMETRY"],
+            payload["successor_wave_authority"]["disallowed_queue_active_run_tokens"],
+        )
 
     def test_build_payload_fails_closed_when_successor_queue_cites_mixed_case_active_run_helper_proof(self) -> None:
         queue_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_queue_path"])
@@ -1107,6 +1113,29 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
         self.assertIn("source_queue", payload["unresolved"]["successor_wave_authority"])
         self.assertEqual(
             ["successor-wave telemetry", "remaining milestones", "critical path"],
+            payload["successor_wave_authority"]["disallowed_queue_active_run_tokens"],
+        )
+
+    def test_build_payload_fails_closed_when_successor_queue_cites_active_run_handoff_field_output(self) -> None:
+        queue_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_queue_path"])
+        queue_text = queue_path.read_text(encoding="utf-8")
+        queue_path.write_text(
+            queue_text.replace(
+                "      - /docker/chummercomplete/chummer-core-engine/docs/ENGINE_PROOF_PACK.md\n",
+                "      - /docker/chummercomplete/chummer-core-engine/docs/ENGINE_PROOF_PACK.md\n"
+                "      - Prompt path: /var/lib/codex-fleet/chummer_design_supervisor/shard-4/runs/run/prompt.txt\n"
+                "      - Recent stderr tail reports the package row as complete.\n",
+            ),
+            encoding="utf-8",
+        )
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertEqual("failed", payload["successor_wave_authority"]["status"])
+        self.assertIn("source_queue", payload["unresolved"]["successor_wave_authority"])
+        self.assertEqual(
+            ["/var/lib/codex-fleet/", "prompt path:", "recent stderr tail"],
             payload["successor_wave_authority"]["disallowed_queue_active_run_tokens"],
         )
 
