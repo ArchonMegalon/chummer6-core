@@ -1,7 +1,7 @@
 {
   "contract_name": "chummer6-core.engine_proof_pack",
   "schema_version": 1,
-  "generated_at": "2026-04-17T02:27:45Z",
+  "generated_at": "2026-04-17T03:01:37Z",
   "status": "passed",
   "proof_kind": "release_bound_engine_proof",
   "milestone_id": 104,
@@ -107,6 +107,7 @@
         "/docker/chummercomplete/chummer-core-engine commit cc6cf25b pins the M104 current proof floor guard.",
         "/docker/chummercomplete/chummer-core-engine commit bb9af238 pins the current cc6cf25b proof floor guard in the generator, unit tests, proof-pack documentation, and checked-in receipt.",
         "/docker/chummercomplete/chummer-core-engine commit 44512fcf pins the current bb9af238 proof floor guard in the generator, unit tests, proof-pack documentation, and checked-in receipt.",
+        "/docker/chummercomplete/chummer-core-engine commit 5e808a1b pins the current adc72a7e proof floor guard in the generator, unit tests, proof-pack documentation, and checked-in receipt.",
         "dotnet run --project Chummer.Benchmarks/Chummer.Benchmarks.csproj -c Release -- --budget-check --budget-file Chummer.Benchmarks/workspace-benchmark-budgets.json exits 0"
       ]
     },
@@ -176,6 +177,7 @@
       "/docker/chummercomplete/chummer-core-engine commit cc6cf25b pins the M104 current proof floor guard.",
       "/docker/chummercomplete/chummer-core-engine commit bb9af238 pins the current cc6cf25b proof floor guard in the generator, unit tests, proof-pack documentation, and checked-in receipt.",
       "/docker/chummercomplete/chummer-core-engine commit 44512fcf pins the current bb9af238 proof floor guard in the generator, unit tests, proof-pack documentation, and checked-in receipt.",
+      "/docker/chummercomplete/chummer-core-engine commit 5e808a1b pins the current adc72a7e proof floor guard in the generator, unit tests, proof-pack documentation, and checked-in receipt.",
       "allowed_paths:",
       "- src",
       "- tests",
@@ -843,6 +845,11 @@
       {
         "commit": "adc72a7e",
         "purpose": "current M104 latest local proof floor required by local closeout",
+        "status": "passed"
+      },
+      {
+        "commit": "5e808a1b",
+        "purpose": "current M104 queue-cited proof floor guard required by registry and queue closeout",
         "status": "passed"
       }
     ],
