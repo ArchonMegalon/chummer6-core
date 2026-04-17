@@ -1,7 +1,7 @@
 {
   "contract_name": "chummer6-core.engine_proof_pack",
   "schema_version": 1,
-  "generated_at": "2026-04-17T04:35:16Z",
+  "generated_at": "2026-04-17T04:45:07Z",
   "status": "passed",
   "proof_kind": "release_bound_engine_proof",
   "milestone_id": 104,
@@ -906,6 +906,11 @@
       {
         "commit": "870be707",
         "purpose": "current M104 handoff proof floor pin required by registry and queue closeout",
+        "status": "passed"
+      },
+      {
+        "commit": "498dff3d",
+        "purpose": "current M104 queue mirror parity guard required by local closeout",
         "status": "passed"
       }
     ],

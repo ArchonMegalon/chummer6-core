@@ -405,6 +405,7 @@ REQUIRED_LOCAL_COMMIT_PROOFS = (
     ("1a98d904", "current M104 documented handoff proof anchor required by local closeout"),
     ("af67ecfd", "current M104 handoff proof floor required by local closeout"),
     ("870be707", "current M104 handoff proof floor pin required by registry and queue closeout"),
+    ("498dff3d", "current M104 queue mirror parity guard required by local closeout"),
 )
 
 
