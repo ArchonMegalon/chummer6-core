@@ -526,6 +526,7 @@ REQUIRED_LOCAL_COMMIT_PROOFS = (
     ("2c98f61c", "current M104 closeout handoff evidence guard required by local closeout"),
     ("2e4e8e81", "current M104 handoff evidence proof floor required by local closeout"),
     ("b5d46938", "current M104 engine proof pack discipline guard required by local closeout"),
+    ("c1300863", "current M104 engine proof pack discipline guard pin required by local closeout"),
 )
 
 

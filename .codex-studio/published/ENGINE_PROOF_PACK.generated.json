@@ -1,7 +1,7 @@
 {
   "contract_name": "chummer6-core.engine_proof_pack",
   "schema_version": 1,
-  "generated_at": "2026-04-17T19:43:05Z",
+  "generated_at": "2026-04-17T19:47:44Z",
   "status": "passed",
   "proof_kind": "release_bound_engine_proof",
   "milestone_id": 104,
@@ -994,6 +994,11 @@
       {
         "commit": "b5d46938",
         "purpose": "current M104 engine proof pack discipline guard required by local closeout",
+        "status": "passed"
+      },
+      {
+        "commit": "c1300863",
+        "purpose": "current M104 engine proof pack discipline guard pin required by local closeout",
         "status": "passed"
       }
     ],
