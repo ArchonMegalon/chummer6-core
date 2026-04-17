@@ -273,6 +273,7 @@ PACKAGE_CLOSEOUT_REQUIRED_TOKENS = (
     "Queue proof anchors resolve inside `/docker/chummercomplete/chummer-core-engine`",
     "`ecbb466c`",
     "`a2c8ad9f`",
+    "`2c98f61c`",
     "Registry and queue evidence do not cite task-local telemetry",
     "active-run handoff field labels",
     "Do not reopen this core package for adjacent M104 work.",
@@ -455,6 +456,7 @@ REQUIRED_LOCAL_COMMIT_PROOFS = (
     ("b8000b80", "current M104 OODA telemetry proof guard required by registry and queue closeout"),
     ("ecbb466c", "current M104 OODA proof guard pin required by registry and queue closeout"),
     ("a2c8ad9f", "current M104 active-run handoff field proof guard required by local closeout"),
+    ("2c98f61c", "current M104 closeout handoff evidence guard required by local closeout"),
 )
 
 
