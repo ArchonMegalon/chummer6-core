@@ -820,6 +820,23 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
         self.assertIn("/var/lib/codex-fleet/", payload["closeout_document"]["disallowed_evidence_tokens"])
         self.assertIn("TASK_LOCAL_TELEMETRY.generated.json", payload["closeout_document"]["disallowed_evidence_tokens"])
 
+    def test_build_payload_fails_closed_when_closeout_cites_active_run_handoff_labels(self) -> None:
+        closeout_path = self.root / "docs" / "NEXT90_M104_CORE_PROOF_PACK_CLOSEOUT.md"
+        closeout_text = closeout_path.read_text(encoding="utf-8")
+        closeout_path.write_text(
+            closeout_text
+            + "\nProof: Open milestone ids: 3227666051; Focus profiles: next_90_day_successor_wave\n",
+            encoding="utf-8",
+        )
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertEqual("failed", payload["closeout_document"]["status"])
+        self.assertIn("closeout_disallowed_active_run_evidence", payload["unresolved"]["closeout_document"])
+        self.assertIn("open milestone ids:", payload["closeout_document"]["disallowed_evidence_tokens"])
+        self.assertIn("focus profiles:", payload["closeout_document"]["disallowed_evidence_tokens"])
+
     def test_build_payload_fails_closed_when_successor_queue_loses_frontier_id(self) -> None:
         queue_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_queue_path"])
         queue_text = queue_path.read_text(encoding="utf-8")
@@ -1128,6 +1145,8 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
                 "      - /docker/chummercomplete/chummer-core-engine/docs/ENGINE_PROOF_PACK.md\n",
                 "      - /docker/chummercomplete/chummer-core-engine/docs/ENGINE_PROOF_PACK.md\n"
                 "      - Prompt path: /var/lib/codex-fleet/chummer_design_supervisor/shard-4/runs/run/prompt.txt\n"
+                "      - Open milestone ids: 3227666051\n"
+                "      - Focus profiles: next_90_day_successor_wave\n"
                 "      - Recent stderr tail reports the package row as complete.\n",
             ),
             encoding="utf-8",
@@ -1139,8 +1158,38 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
         self.assertEqual("failed", payload["successor_wave_authority"]["status"])
         self.assertIn("source_queue", payload["unresolved"]["successor_wave_authority"])
         self.assertEqual(
-            ["/var/lib/codex-fleet/", "prompt path:", "recent stderr tail"],
+            [
+                "/var/lib/codex-fleet/",
+                "open milestone ids:",
+                "focus profiles:",
+                "prompt path:",
+                "recent stderr tail",
+            ],
             payload["successor_wave_authority"]["disallowed_queue_active_run_tokens"],
+        )
+
+    def test_build_payload_fails_closed_when_registry_cites_active_run_handoff_labels(self) -> None:
+        registry_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_registry_path"])
+        registry_text = registry_path.read_text(encoding="utf-8")
+        registry_path.write_text(
+            registry_text.replace(
+                "        - successor_wave_authority=passed\n",
+                "        - successor_wave_authority=passed\n"
+                "        - Open milestone ids: 3227666051\n"
+                "        - Frontier ids: 3227666051\n"
+                "        - Focus texts: next90-m104-core-proof-pack\n",
+            ),
+            encoding="utf-8",
+        )
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertEqual("failed", payload["successor_wave_authority"]["status"])
+        self.assertIn("source_registry", payload["unresolved"]["successor_wave_authority"])
+        self.assertEqual(
+            ["frontier ids:", "open milestone ids:", "focus texts:"],
+            payload["successor_wave_authority"]["disallowed_registry_active_run_tokens"]["104.2"],
         )
 
     def test_build_payload_fails_closed_when_registry_cites_supervisor_status_helper_proof(self) -> None:
@@ -3647,7 +3696,7 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
                     "- The row keeps only the assigned owned surfaces: `engine_proof_pack` and `import_oracle_discipline`.",
                     "- Queue proof anchors resolve inside `/docker/chummercomplete/chummer-core-engine`.",
                     "- Local commit proof includes `ecbb466c` and `a2c8ad9f`, the current M104 proof guard anchors.",
-                    "- Registry and queue evidence do not cite task-local telemetry as release proof.",
+                    "- Registry and queue evidence do not cite task-local telemetry or active-run handoff field labels as release proof.",
                     "",
                     "## Do Not Reopen",
                     "",

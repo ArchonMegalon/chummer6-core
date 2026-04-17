@@ -274,6 +274,7 @@ PACKAGE_CLOSEOUT_REQUIRED_TOKENS = (
     "`ecbb466c`",
     "`a2c8ad9f`",
     "Registry and queue evidence do not cite task-local telemetry",
+    "active-run handoff field labels",
     "Do not reopen this core package for adjacent M104 work.",
     "python3 scripts/generate-engine-proof-pack.py --check",
     "python3 tests/test_engine_proof_pack_generator.py",
@@ -308,6 +309,11 @@ DISALLOWED_ACTIVE_RUN_PROOF_TOKENS = (
     "supervisor status",
     "status helper",
     "run id:",
+    "frontier ids:",
+    "open milestone ids:",
+    "focus profiles:",
+    "focus owners:",
+    "focus texts:",
     "selected account:",
     "selected model:",
     "first output at:",
@@ -575,9 +581,11 @@ def _validate_package_closeout(root: Path) -> tuple[dict[str, Any], list[str]]:
         token for token in PACKAGE_CLOSEOUT_REQUIRED_TOKENS if token not in closeout_text
     ]
     lower_text = closeout_text.lower()
-    disallowed_evidence_tokens = [
+    disallowed_closeout_tokens = [
         token for token in PACKAGE_CLOSEOUT_DISALLOWED_EVIDENCE_TOKENS if token.lower() in lower_text
     ]
+    disallowed_evidence_tokens = disallowed_closeout_tokens + _find_disallowed_closeout_evidence_tokens(closeout_text)
+    disallowed_evidence_tokens = list(dict.fromkeys(disallowed_evidence_tokens))
 
     unresolved: list[str] = []
     if not closeout_path.is_file():
@@ -606,6 +614,15 @@ def _find_disallowed_active_run_tokens(text: str) -> list[str]:
         for token, normalized in DISALLOWED_ACTIVE_RUN_PROOF_TOKEN_MATCHES
         if normalized in lower_text
     ]
+
+
+def _find_disallowed_closeout_evidence_tokens(text: str) -> list[str]:
+    evidence_lines = [
+        line
+        for line in text.splitlines()
+        if "proof:" in line.lower() or "evidence:" in line.lower()
+    ]
+    return _find_disallowed_active_run_tokens("\n".join(evidence_lines))
 
 
 def _extract_list_item_block(text: str, item_header: str) -> str:
