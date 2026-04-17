@@ -7,6 +7,6 @@
     <ChummerDesktopRuntimeIdentifiers Condition="'$(ChummerDesktopRuntimeIdentifiers)' == ''">linux-x64;linux-arm64;win-x64;win-arm64;osx-arm64;osx-x64</ChummerDesktopRuntimeIdentifiers>
     <ChummerLocalContractsProject Condition="'$(ChummerLocalContractsProject)' == '' and Exists('$(MSBuildThisFileDirectory)Chummer.Contracts/Chummer.Contracts.csproj')">$(MSBuildThisFileDirectory)Chummer.Contracts/Chummer.Contracts.csproj</ChummerLocalContractsProject>
     <ChummerEngineContractsLocalFeed>$(MSBuildThisFileDirectory).tmp/ai/local-nuget</ChummerEngineContractsLocalFeed>
-    <RestoreAdditionalProjectSources Condition="'$(UseChummerEngineContractsLocalFeed)' != 'false'">$(RestoreAdditionalProjectSources);$(ChummerEngineContractsLocalFeed)</RestoreAdditionalProjectSources>
+    <RestoreAdditionalProjectSources Condition="'$(UseChummerEngineContractsLocalFeed)' != 'false' and Exists('$(ChummerEngineContractsLocalFeed)')">$(RestoreAdditionalProjectSources);$(ChummerEngineContractsLocalFeed)</RestoreAdditionalProjectSources>
   </PropertyGroup>
 </Project>
