@@ -1,7 +1,7 @@
 {
   "contract_name": "chummer6-core.engine_proof_pack",
   "schema_version": 1,
-  "generated_at": "2026-04-17T20:30:49Z",
+  "generated_at": "2026-04-17T20:35:35Z",
   "status": "passed",
   "proof_kind": "release_bound_engine_proof",
   "milestone_id": 104,
@@ -284,6 +284,301 @@
     "queue_proof_missing_from_design_queue": [],
     "design_queue_proof_missing_from_queue": [],
     "queue_mirror_parity_status": "passed",
+    "package_commit_citations": {
+      "status": "passed",
+      "git_available": true,
+      "commits": [
+        {
+          "commit": "00800059",
+          "status": "passed"
+        },
+        {
+          "commit": "fd15fe87",
+          "status": "passed"
+        },
+        {
+          "commit": "44fdda0f",
+          "status": "passed"
+        },
+        {
+          "commit": "86040e30",
+          "status": "passed"
+        },
+        {
+          "commit": "35cd27b4",
+          "status": "passed"
+        },
+        {
+          "commit": "cfc465a5",
+          "status": "passed"
+        },
+        {
+          "commit": "8dd516ef",
+          "status": "passed"
+        },
+        {
+          "commit": "c88178fa",
+          "status": "passed"
+        },
+        {
+          "commit": "769e7259",
+          "status": "passed"
+        },
+        {
+          "commit": "d4b3b0ba",
+          "status": "passed"
+        },
+        {
+          "commit": "a2173476",
+          "status": "passed"
+        },
+        {
+          "commit": "4b124997",
+          "status": "passed"
+        },
+        {
+          "commit": "b488d109",
+          "status": "passed"
+        },
+        {
+          "commit": "b6fddf74",
+          "status": "passed"
+        },
+        {
+          "commit": "f6608678",
+          "status": "passed"
+        },
+        {
+          "commit": "a3cbb548",
+          "status": "passed"
+        },
+        {
+          "commit": "df0527b2",
+          "status": "passed"
+        },
+        {
+          "commit": "8574f63f",
+          "status": "passed"
+        },
+        {
+          "commit": "6b3a662c",
+          "status": "passed"
+        },
+        {
+          "commit": "3b63478f",
+          "status": "passed"
+        },
+        {
+          "commit": "cd30503f",
+          "status": "passed"
+        },
+        {
+          "commit": "e10f2739",
+          "status": "passed"
+        },
+        {
+          "commit": "3c242c2f",
+          "status": "passed"
+        },
+        {
+          "commit": "ea449f7b",
+          "status": "passed"
+        },
+        {
+          "commit": "18365058",
+          "status": "passed"
+        },
+        {
+          "commit": "5031ee41",
+          "status": "passed"
+        },
+        {
+          "commit": "cbce6a19",
+          "status": "passed"
+        },
+        {
+          "commit": "71441924",
+          "status": "passed"
+        },
+        {
+          "commit": "df1330b4",
+          "status": "passed"
+        },
+        {
+          "commit": "6610ff2e",
+          "status": "passed"
+        },
+        {
+          "commit": "2c8742ad",
+          "status": "passed"
+        },
+        {
+          "commit": "40babebd",
+          "status": "passed"
+        },
+        {
+          "commit": "22171b35",
+          "status": "passed"
+        },
+        {
+          "commit": "96eca660",
+          "status": "passed"
+        },
+        {
+          "commit": "05e47cff",
+          "status": "passed"
+        },
+        {
+          "commit": "93d06011",
+          "status": "passed"
+        },
+        {
+          "commit": "31aec38a",
+          "status": "passed"
+        },
+        {
+          "commit": "ceccc309",
+          "status": "passed"
+        },
+        {
+          "commit": "5dff1a2e",
+          "status": "passed"
+        },
+        {
+          "commit": "2301a043",
+          "status": "passed"
+        },
+        {
+          "commit": "5c75316f",
+          "status": "passed"
+        },
+        {
+          "commit": "28be988f",
+          "status": "passed"
+        },
+        {
+          "commit": "c6a2ee8e",
+          "status": "passed"
+        },
+        {
+          "commit": "6684fc89",
+          "status": "passed"
+        },
+        {
+          "commit": "ccbfc6b2",
+          "status": "passed"
+        },
+        {
+          "commit": "2a3ebcb9",
+          "status": "passed"
+        },
+        {
+          "commit": "7501f49a",
+          "status": "passed"
+        },
+        {
+          "commit": "36311e16",
+          "status": "passed"
+        },
+        {
+          "commit": "be5755a6",
+          "status": "passed"
+        },
+        {
+          "commit": "8ffec2b1",
+          "status": "passed"
+        },
+        {
+          "commit": "1bcb9b7e",
+          "status": "passed"
+        },
+        {
+          "commit": "e04d7b88",
+          "status": "passed"
+        },
+        {
+          "commit": "73638668",
+          "status": "passed"
+        },
+        {
+          "commit": "51bb2d8f",
+          "status": "passed"
+        },
+        {
+          "commit": "c58d18e1",
+          "status": "passed"
+        },
+        {
+          "commit": "39c875fd",
+          "status": "passed"
+        },
+        {
+          "commit": "f1b6c5ca",
+          "status": "passed"
+        },
+        {
+          "commit": "faf14925",
+          "status": "passed"
+        },
+        {
+          "commit": "64b8f873",
+          "status": "passed"
+        },
+        {
+          "commit": "06a2e06a",
+          "status": "passed"
+        },
+        {
+          "commit": "6d25fb18",
+          "status": "passed"
+        },
+        {
+          "commit": "cc6cf25b",
+          "status": "passed"
+        },
+        {
+          "commit": "bb9af238",
+          "status": "passed"
+        },
+        {
+          "commit": "44512fcf",
+          "status": "passed"
+        },
+        {
+          "commit": "5e808a1b",
+          "status": "passed"
+        },
+        {
+          "commit": "c323b4ad",
+          "status": "passed"
+        },
+        {
+          "commit": "7a432bc3",
+          "status": "passed"
+        },
+        {
+          "commit": "c124e4af",
+          "status": "passed"
+        },
+        {
+          "commit": "870be707",
+          "status": "passed"
+        },
+        {
+          "commit": "2f430d09",
+          "status": "passed"
+        },
+        {
+          "commit": "b8000b80",
+          "status": "passed"
+        },
+        {
+          "commit": "ecbb466c",
+          "status": "passed"
+        }
+      ],
+      "missing_commits": []
+    },
     "closure_requirements": {
       "status": "complete",
       "frontier_id": 3227666051,

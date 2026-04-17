@@ -398,6 +398,9 @@ DISALLOWED_ACTIVE_RUN_PROOF_TOKENS = (
 DISALLOWED_ACTIVE_RUN_PROOF_TOKEN_MATCHES = tuple(
     (token, token.lower()) for token in DISALLOWED_ACTIVE_RUN_PROOF_TOKENS
 )
+PACKAGE_COMMIT_CITATION_RE = re.compile(
+    r"/docker/chummercomplete/chummer-core-engine\s+commit\s+([0-9a-fA-F]{7,40})\b"
+)
 
 REQUIRED_LOCAL_COMMIT_PROOFS = (
     ("00800059", "initial fail-closed successor authority and oracle/budget generator tests"),
@@ -917,7 +920,50 @@ def _validate_queue_authority(queue_path: Path, generated_output_path: Path | No
     }
 
 
-def _validate_successor_wave_authority(generated_output_path: Path | None = None) -> tuple[dict[str, Any], list[str]]:
+def _extract_package_commit_citations(text: str) -> list[str]:
+    commits: list[str] = []
+    for match in PACKAGE_COMMIT_CITATION_RE.finditer(text):
+        commit = match.group(1).lower()
+        if commit not in commits:
+            commits.append(commit)
+    return commits
+
+
+def _validate_local_commit_set(root: Path, commits: list[str]) -> tuple[dict[str, Any], list[str]]:
+    unresolved: list[str] = []
+    git_available = (root / ".git").exists()
+    rows: list[dict[str, Any]] = []
+    for commit in commits:
+        resolved = False
+        if git_available:
+            result = subprocess.run(
+                ["git", "-C", str(root), "cat-file", "-e", f"{commit}^{{commit}}"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+            )
+            resolved = result.returncode == 0
+        if git_available and not resolved:
+            unresolved.append(commit)
+        rows.append(
+            {
+                "commit": commit,
+                "status": "passed" if resolved else ("failed" if git_available else "skipped"),
+            }
+        )
+
+    return (
+        {
+            "status": "passed" if git_available and not unresolved else ("failed" if unresolved else "skipped"),
+            "git_available": git_available,
+            "commits": rows,
+            "missing_commits": unresolved,
+        },
+        unresolved,
+    )
+
+
+def _validate_successor_wave_authority(root: Path, generated_output_path: Path | None = None) -> tuple[dict[str, Any], list[str]]:
     registry_path = Path(SUCCESSOR_WAVE_PACKAGE["source_registry_path"])
     queue_path = Path(SUCCESSOR_WAVE_PACKAGE["source_queue_path"])
     design_queue_path = Path(SUCCESSOR_WAVE_PACKAGE["source_design_queue_path"])
@@ -942,6 +988,20 @@ def _validate_successor_wave_authority(generated_output_path: Path | None = None
 
     fleet_queue_authority = _validate_queue_authority(queue_path, generated_output_path)
     design_queue_authority = _validate_queue_authority(design_queue_path, generated_output_path)
+    fleet_queue_scope = _extract_list_item_block(
+        _read_text(queue_path),
+        "package_id: next90-m104-core-proof-pack",
+    )
+    design_queue_scope = _extract_list_item_block(
+        _read_text(design_queue_path),
+        "package_id: next90-m104-core-proof-pack",
+    )
+    package_commit_citations, unresolved_package_commit_citations = _validate_local_commit_set(
+        root,
+        _extract_package_commit_citations(
+            "\n".join([registry_scope, fleet_queue_scope, design_queue_scope])
+        ),
+    )
     queue_proof = fleet_queue_authority["proof"]
     design_queue_proof = design_queue_authority["proof"]
     queue_proof_set = set(queue_proof)
@@ -968,6 +1028,8 @@ def _validate_successor_wave_authority(generated_output_path: Path | None = None
         unresolved.append("source_design_queue")
     if queue_mirror_parity_status != "passed":
         unresolved.append("queue_mirror_parity")
+    if unresolved_package_commit_citations:
+        unresolved.append("package_commit_citations")
 
     return (
         {
@@ -1017,6 +1079,7 @@ def _validate_successor_wave_authority(generated_output_path: Path | None = None
             "queue_proof_missing_from_design_queue": queue_proof_missing_from_design_queue,
             "design_queue_proof_missing_from_queue": design_queue_proof_missing_from_queue,
             "queue_mirror_parity_status": queue_mirror_parity_status,
+            "package_commit_citations": package_commit_citations,
             "closure_requirements": {
                 "status": "complete",
                 "frontier_id": SUCCESSOR_WAVE_PACKAGE["frontier_id"],
@@ -1587,7 +1650,7 @@ def build_payload(root: Path, generated_output_path: Path | None = None) -> dict
     oracle_suites, unresolved_suite_ids = _build_oracle_suites(root)
     performance_budgets, unresolved_budget_ids = _build_budget_map(root)
     command_receipts, unresolved_command_ids = _validate_release_commands(root, generated_output_path)
-    successor_authority, unresolved_successor_authority_ids = _validate_successor_wave_authority(generated_output_path)
+    successor_authority, unresolved_successor_authority_ids = _validate_successor_wave_authority(root, generated_output_path)
     closeout_document, unresolved_closeout_document_ids = _validate_package_closeout(root)
     local_commit_proofs, unresolved_local_commit_ids = _validate_local_commit_proofs(root)
     release_channel_binding, unresolved_release_channel_ids = _build_release_channel_binding(RELEASE_CHANNEL_PATH)
