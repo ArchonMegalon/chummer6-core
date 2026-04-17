@@ -155,6 +155,7 @@ SUCCESSOR_REGISTRY_TASK_TOKENS = {
         "/docker/chummercomplete/chummer-core-engine commit bb9af238 pins the current cc6cf25b proof floor guard in the generator, unit tests, proof-pack documentation, and checked-in receipt.",
         "/docker/chummercomplete/chummer-core-engine commit 44512fcf pins the current bb9af238 proof floor guard in the generator, unit tests, proof-pack documentation, and checked-in receipt.",
         "/docker/chummercomplete/chummer-core-engine commit 5e808a1b pins the current adc72a7e proof floor guard in the generator, unit tests, proof-pack documentation, and checked-in receipt.",
+        "/docker/chummercomplete/chummer-core-engine commit c323b4ad pins the current 5e808a1b queue proof floor guard in the generator, unit tests, proof-pack documentation, and checked-in receipt.",
         "dotnet run --project Chummer.Benchmarks/Chummer.Benchmarks.csproj -c Release -- --budget-check --budget-file Chummer.Benchmarks/workspace-benchmark-budgets.json exits 0",
     ),
 }
@@ -226,6 +227,7 @@ SUCCESSOR_QUEUE_TOKENS = (
     "/docker/chummercomplete/chummer-core-engine commit bb9af238 pins the current cc6cf25b proof floor guard in the generator, unit tests, proof-pack documentation, and checked-in receipt.",
     "/docker/chummercomplete/chummer-core-engine commit 44512fcf pins the current bb9af238 proof floor guard in the generator, unit tests, proof-pack documentation, and checked-in receipt.",
     "/docker/chummercomplete/chummer-core-engine commit 5e808a1b pins the current adc72a7e proof floor guard in the generator, unit tests, proof-pack documentation, and checked-in receipt.",
+    "/docker/chummercomplete/chummer-core-engine commit c323b4ad pins the current 5e808a1b queue proof floor guard in the generator, unit tests, proof-pack documentation, and checked-in receipt.",
     "allowed_paths:",
     "- src",
     "- tests",
@@ -386,6 +388,7 @@ REQUIRED_LOCAL_COMMIT_PROOFS = (
     ("4db6d429", "latest M104 proof floor guard required by local closeout"),
     ("adc72a7e", "current M104 latest local proof floor required by local closeout"),
     ("5e808a1b", "current M104 queue-cited proof floor guard required by registry and queue closeout"),
+    ("c323b4ad", "current M104 queue proof floor guard required by registry and queue closeout"),
 )
 
 
