@@ -1582,6 +1582,7 @@ def build_payload(root: Path, generated_output_path: Path | None = None) -> dict
         "proof_kind": "release_bound_engine_proof",
         "milestone_id": 104,
         "package_id": "next90-m104-core-proof-pack",
+        "frontier_id": SUCCESSOR_WAVE_PACKAGE["frontier_id"],
         "successor_wave_package": SUCCESSOR_WAVE_PACKAGE,
         "successor_wave_authority": successor_authority,
         "closeout_document": closeout_document,

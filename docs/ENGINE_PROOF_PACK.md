@@ -11,12 +11,14 @@ It keeps engine trust evidence machine-readable so desktop release polish cannot
 - contract: `chummer6-core.engine_proof_pack`
 - successor package: `next90-m104-core-proof-pack`
 - successor frontier: `3227666051`
+- receipt identity: top-level `package_id=next90-m104-core-proof-pack`, `frontier_id=3227666051`, and `milestone_id=104`
 
 ## Required coverage
 
 The proof pack must fail closed unless it includes:
 
 - successor-wave authority for milestone `104`, owned surfaces `engine_proof_pack` and `import_oracle_discipline`, and the canonical successor registry plus queue staging paths
+- top-level successor package identity, so release-bound proof consumers do not need to infer the assigned frontier from nested authority metadata
 - queue closeout proof that the successor queue row is marked `status: complete`, pins frontier `3227666051`, cites landed commit `00800059`, and lists the proof anchors for this generated pack, generator, tests, and documentation
 - package-local closeout proof in `docs/NEXT90_M104_CORE_PROOF_PACK_CLOSEOUT.md`, so future shards have an explicit do-not-reopen handoff for the completed core slice
 - closeout-document hygiene that fails closed if the package-local handoff loses its package identity, closed-scope tokens, do-not-reopen instruction, verification commands, or cites task-local run artifacts as proof

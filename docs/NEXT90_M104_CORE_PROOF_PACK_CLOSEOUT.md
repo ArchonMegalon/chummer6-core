@@ -10,6 +10,7 @@ Owner: `chummer6-core`
 The core-owned successor slice is closed when all of these remain true:
 
 - `.codex-studio/published/ENGINE_PROOF_PACK.generated.json` reports `status=passed`.
+- `.codex-studio/published/ENGINE_PROOF_PACK.generated.json` carries top-level `package_id=next90-m104-core-proof-pack`, `frontier_id=3227666051`, and `milestone_id=104`.
 - `successor_wave_authority` reports `status=passed`.
 - The Fleet queue mirror and design-owned queue each contain exactly one `next90-m104-core-proof-pack` row.
 - The Fleet queue mirror and design-owned queue package rows keep matching proof lists; `queue_mirror_parity_status` remains `passed`.
