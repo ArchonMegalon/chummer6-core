@@ -286,6 +286,7 @@ PACKAGE_CLOSEOUT_DISALLOWED_EVIDENCE_TOKENS = (
 EXPECTED_QUEUE_ALLOWED_PATHS = tuple(SUCCESSOR_WAVE_PACKAGE["allowed_paths"])
 EXPECTED_QUEUE_OWNED_SURFACES = tuple(SUCCESSOR_WAVE_PACKAGE["owned_surfaces"])
 DISALLOWED_ACTIVE_RUN_PROOF_TOKENS = (
+    "/var/lib/codex-fleet/",
     "ACTIVE_RUN_HANDOFF",
     "TASK_LOCAL_TELEMETRY",
     "active-run telemetry",
@@ -305,6 +306,13 @@ DISALLOWED_ACTIVE_RUN_PROOF_TOKENS = (
     "critical path",
     "supervisor status",
     "status helper",
+    "run id:",
+    "selected account:",
+    "selected model:",
+    "first output at:",
+    "last output at:",
+    "prompt path:",
+    "recent stderr tail",
 )
 DISALLOWED_ACTIVE_RUN_PROOF_TOKEN_MATCHES = tuple(
     (token, token.lower()) for token in DISALLOWED_ACTIVE_RUN_PROOF_TOKENS
