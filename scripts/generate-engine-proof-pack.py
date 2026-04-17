@@ -148,6 +148,7 @@ SUCCESSOR_REGISTRY_TASK_TOKENS = {
         "/docker/chummercomplete/chummer-core-engine commit 39c875fd pins the current d584120b local engine proof floor in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.",
         "/docker/chummercomplete/chummer-core-engine commit f1b6c5ca pins the queued 39c875fd proof floor into the generator, unit tests, proof-pack documentation, and checked-in receipt.",
         "/docker/chummercomplete/chummer-core-engine commit faf14925 pins the current f1b6c5ca proof floor guard in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.",
+        "/docker/chummercomplete/chummer-core-engine commit 64b8f873 requires the current faf14925 proof floor guard in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.",
         "dotnet run --project Chummer.Benchmarks/Chummer.Benchmarks.csproj -c Release -- --budget-check --budget-file Chummer.Benchmarks/workspace-benchmark-budgets.json exits 0",
     ),
 }
@@ -212,6 +213,7 @@ SUCCESSOR_QUEUE_TOKENS = (
     "/docker/chummercomplete/chummer-core-engine commit 39c875fd pins the current d584120b local engine proof floor in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.",
     "/docker/chummercomplete/chummer-core-engine commit f1b6c5ca pins the queued 39c875fd proof floor into the generator, unit tests, proof-pack documentation, and checked-in receipt.",
     "/docker/chummercomplete/chummer-core-engine commit faf14925 pins the current f1b6c5ca proof floor guard in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.",
+    "/docker/chummercomplete/chummer-core-engine commit 64b8f873 requires the current faf14925 proof floor guard in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.",
     "allowed_paths:",
     "- src",
     "- tests",
@@ -363,6 +365,7 @@ REQUIRED_LOCAL_COMMIT_PROOFS = (
     ("39c875fd", "current M104 queued local engine proof floor pin required by registry and queue closeout"),
     ("f1b6c5ca", "current M104 queued proof floor pin required by registry and queue closeout"),
     ("faf14925", "current M104 proof floor guard pin required by registry and queue closeout"),
+    ("64b8f873", "current M104 proof floor guard requirement required by local closeout"),
 )
 
 
