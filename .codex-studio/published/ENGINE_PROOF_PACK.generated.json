@@ -1,7 +1,7 @@
 {
   "contract_name": "chummer6-core.engine_proof_pack",
   "schema_version": 1,
-  "generated_at": "2026-04-17T04:47:09Z",
+  "generated_at": "2026-04-17T04:56:50Z",
   "status": "passed",
   "proof_kind": "release_bound_engine_proof",
   "milestone_id": 104,
@@ -277,6 +277,30 @@
         "/docker/chummercomplete/chummer-core-engine/docs/NEXT90_M104_CORE_PROOF_PACK_CLOSEOUT.md"
       ]
     }
+  },
+  "closeout_document": {
+    "status": "passed",
+    "path": "docs/NEXT90_M104_CORE_PROOF_PACK_CLOSEOUT.md",
+    "required_tokens": [
+      "Package: `next90-m104-core-proof-pack`",
+      "Frontier: `3227666051`",
+      "Milestone: `104`",
+      "Owner: `chummer6-core`",
+      ".codex-studio/published/ENGINE_PROOF_PACK.generated.json` reports `status=passed`",
+      "`successor_wave_authority` reports `status=passed`",
+      "exactly one `next90-m104-core-proof-pack` row",
+      "`frontier_id: 3227666051`",
+      "`landed_commit: 00800059`",
+      "`src`, `tests`, `docs`, and `scripts`",
+      "`engine_proof_pack` and `import_oracle_discipline`",
+      "Queue proof anchors resolve inside `/docker/chummercomplete/chummer-core-engine`",
+      "Registry and queue evidence do not cite task-local telemetry",
+      "Do not reopen this core package for adjacent M104 work.",
+      "python3 scripts/generate-engine-proof-pack.py --check",
+      "python3 tests/test_engine_proof_pack_generator.py"
+    ],
+    "missing_tokens": [],
+    "disallowed_evidence_tokens": []
   },
   "local_commit_proofs": {
     "status": "passed",
@@ -1189,6 +1213,7 @@
     "performance_budgets": [],
     "release_commands": [],
     "successor_wave_authority": [],
+    "closeout_document": [],
     "local_commit_proofs": [],
     "release_channel_binding": [],
     "import_oracle_discipline": []

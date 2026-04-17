@@ -253,6 +253,31 @@ SUCCESSOR_QUEUE_PROOF_ANCHORS = (
     "/docker/chummercomplete/chummer-core-engine/docs/NEXT90_M104_CORE_PROOF_PACK_CLOSEOUT.md",
 )
 
+PACKAGE_CLOSEOUT_PATH = Path("docs/NEXT90_M104_CORE_PROOF_PACK_CLOSEOUT.md")
+PACKAGE_CLOSEOUT_REQUIRED_TOKENS = (
+    "Package: `next90-m104-core-proof-pack`",
+    "Frontier: `3227666051`",
+    "Milestone: `104`",
+    "Owner: `chummer6-core`",
+    ".codex-studio/published/ENGINE_PROOF_PACK.generated.json` reports `status=passed`",
+    "`successor_wave_authority` reports `status=passed`",
+    "exactly one `next90-m104-core-proof-pack` row",
+    "`frontier_id: 3227666051`",
+    "`landed_commit: 00800059`",
+    "`src`, `tests`, `docs`, and `scripts`",
+    "`engine_proof_pack` and `import_oracle_discipline`",
+    "Queue proof anchors resolve inside `/docker/chummercomplete/chummer-core-engine`",
+    "Registry and queue evidence do not cite task-local telemetry",
+    "Do not reopen this core package for adjacent M104 work.",
+    "python3 scripts/generate-engine-proof-pack.py --check",
+    "python3 tests/test_engine_proof_pack_generator.py",
+)
+PACKAGE_CLOSEOUT_DISALLOWED_EVIDENCE_TOKENS = (
+    "/var/lib/codex-fleet/",
+    "TASK_LOCAL_TELEMETRY.generated.json",
+    "ACTIVE_RUN_HANDOFF.generated.md",
+)
+
 EXPECTED_QUEUE_ALLOWED_PATHS = tuple(SUCCESSOR_WAVE_PACKAGE["allowed_paths"])
 EXPECTED_QUEUE_OWNED_SURFACES = tuple(SUCCESSOR_WAVE_PACKAGE["owned_surfaces"])
 DISALLOWED_ACTIVE_RUN_PROOF_TOKENS = (
@@ -523,6 +548,37 @@ def _validate_text_tokens(path: Path, required_tokens: tuple[str, ...]) -> tuple
         return "failed", list(required_tokens)
     missing = [token for token in required_tokens if token not in text]
     return ("passed" if not missing else "failed", missing)
+
+
+def _validate_package_closeout(root: Path) -> tuple[dict[str, Any], list[str]]:
+    closeout_path = root / PACKAGE_CLOSEOUT_PATH
+    closeout_text = _read_text(closeout_path)
+    missing_tokens = list(PACKAGE_CLOSEOUT_REQUIRED_TOKENS) if not closeout_text else [
+        token for token in PACKAGE_CLOSEOUT_REQUIRED_TOKENS if token not in closeout_text
+    ]
+    lower_text = closeout_text.lower()
+    disallowed_evidence_tokens = [
+        token for token in PACKAGE_CLOSEOUT_DISALLOWED_EVIDENCE_TOKENS if token.lower() in lower_text
+    ]
+
+    unresolved: list[str] = []
+    if not closeout_path.is_file():
+        unresolved.append("closeout_document_missing")
+    if missing_tokens:
+        unresolved.append("closeout_required_tokens")
+    if disallowed_evidence_tokens:
+        unresolved.append("closeout_disallowed_active_run_evidence")
+
+    return (
+        {
+            "status": "passed" if not unresolved else "failed",
+            "path": _to_rel(closeout_path, root),
+            "required_tokens": list(PACKAGE_CLOSEOUT_REQUIRED_TOKENS),
+            "missing_tokens": missing_tokens,
+            "disallowed_evidence_tokens": disallowed_evidence_tokens,
+        },
+        unresolved,
+    )
 
 
 def _find_disallowed_active_run_tokens(text: str) -> list[str]:
@@ -1128,6 +1184,7 @@ def build_payload(root: Path, generated_output_path: Path | None = None) -> dict
     performance_budgets, unresolved_budget_ids = _build_budget_map(root)
     command_receipts, unresolved_command_ids = _validate_release_commands(root, generated_output_path)
     successor_authority, unresolved_successor_authority_ids = _validate_successor_wave_authority(generated_output_path)
+    closeout_document, unresolved_closeout_document_ids = _validate_package_closeout(root)
     local_commit_proofs, unresolved_local_commit_ids = _validate_local_commit_proofs(root)
     release_channel_binding, unresolved_release_channel_ids = _build_release_channel_binding(RELEASE_CHANNEL_PATH)
     import_discipline, unresolved_import_ids = _build_import_discipline(root, import_cert_path, import_cert)
@@ -1138,6 +1195,7 @@ def build_payload(root: Path, generated_output_path: Path | None = None) -> dict
         and not unresolved_budget_ids
         and not unresolved_command_ids
         and not unresolved_successor_authority_ids
+        and not unresolved_closeout_document_ids
         and not unresolved_local_commit_ids
         and not unresolved_release_channel_ids
         and not unresolved_import_ids
@@ -1154,6 +1212,7 @@ def build_payload(root: Path, generated_output_path: Path | None = None) -> dict
         "package_id": "next90-m104-core-proof-pack",
         "successor_wave_package": SUCCESSOR_WAVE_PACKAGE,
         "successor_wave_authority": successor_authority,
+        "closeout_document": closeout_document,
         "local_commit_proofs": local_commit_proofs,
         "release_channel_binding": release_channel_binding,
         "release_commands": command_receipts,
@@ -1168,6 +1227,7 @@ def build_payload(root: Path, generated_output_path: Path | None = None) -> dict
             "performance_budgets": unresolved_budget_ids,
             "release_commands": unresolved_command_ids,
             "successor_wave_authority": unresolved_successor_authority_ids,
+            "closeout_document": unresolved_closeout_document_ids,
             "local_commit_proofs": unresolved_local_commit_ids,
             "release_channel_binding": unresolved_release_channel_ids,
             "import_oracle_discipline": unresolved_import_ids,

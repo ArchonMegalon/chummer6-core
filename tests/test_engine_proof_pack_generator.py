@@ -89,6 +89,8 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
         self.assertEqual("next_90_day_product_advance", payload["successor_wave_package"]["program_wave"])
         self.assertEqual(["engine_proof_pack", "import_oracle_discipline"], payload["successor_wave_package"]["owned_surfaces"])
         self.assertEqual("passed", payload["successor_wave_authority"]["status"])
+        self.assertEqual("passed", payload["closeout_document"]["status"])
+        self.assertEqual([], payload["unresolved"]["closeout_document"])
         self.assertEqual("skipped", payload["local_commit_proofs"]["status"])
         self.assertEqual([], payload["unresolved"]["local_commit_proofs"])
         self.assertIn(
@@ -771,6 +773,40 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
         self.assertEqual("failed", payload["successor_wave_authority"]["status"])
         self.assertIn("source_queue", payload["unresolved"]["successor_wave_authority"])
         self.assertIn("status: complete", payload["successor_wave_authority"]["missing_queue_tokens"])
+
+    def test_build_payload_fails_closed_when_closeout_loses_do_not_reopen_handoff(self) -> None:
+        closeout_path = self.root / "docs" / "NEXT90_M104_CORE_PROOF_PACK_CLOSEOUT.md"
+        closeout_text = closeout_path.read_text(encoding="utf-8")
+        closeout_path.write_text(
+            closeout_text.replace("Do not reopen this core package for adjacent M104 work.", ""),
+            encoding="utf-8",
+        )
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertEqual("failed", payload["closeout_document"]["status"])
+        self.assertIn("closeout_required_tokens", payload["unresolved"]["closeout_document"])
+        self.assertIn(
+            "Do not reopen this core package for adjacent M104 work.",
+            payload["closeout_document"]["missing_tokens"],
+        )
+
+    def test_build_payload_fails_closed_when_closeout_cites_active_run_evidence_path(self) -> None:
+        closeout_path = self.root / "docs" / "NEXT90_M104_CORE_PROOF_PACK_CLOSEOUT.md"
+        closeout_text = closeout_path.read_text(encoding="utf-8")
+        closeout_path.write_text(
+            closeout_text + "\nProof: /var/lib/codex-fleet/run/TASK_LOCAL_TELEMETRY.generated.json\n",
+            encoding="utf-8",
+        )
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertEqual("failed", payload["closeout_document"]["status"])
+        self.assertIn("closeout_disallowed_active_run_evidence", payload["unresolved"]["closeout_document"])
+        self.assertIn("/var/lib/codex-fleet/", payload["closeout_document"]["disallowed_evidence_tokens"])
+        self.assertIn("TASK_LOCAL_TELEMETRY.generated.json", payload["closeout_document"]["disallowed_evidence_tokens"])
 
     def test_build_payload_fails_closed_when_successor_queue_loses_frontier_id(self) -> None:
         queue_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_queue_path"])
@@ -3472,7 +3508,37 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
         self._seed_successor_wave_authority()
         self._write(
             "docs/NEXT90_M104_CORE_PROOF_PACK_CLOSEOUT.md",
-            "Package: next90-m104-core-proof-pack\nDo not reopen this completed core slice.\n",
+            "\n".join(
+                [
+                    "# Next90 M104 Core Proof Pack Closeout",
+                    "",
+                    "Package: `next90-m104-core-proof-pack`",
+                    "Frontier: `3227666051`",
+                    "Milestone: `104`",
+                    "Owner: `chummer6-core`",
+                    "",
+                    "## Closed Scope",
+                    "",
+                    "- `.codex-studio/published/ENGINE_PROOF_PACK.generated.json` reports `status=passed`.",
+                    "- `successor_wave_authority` reports `status=passed`.",
+                    "- The Fleet queue mirror and design-owned queue each contain exactly one `next90-m104-core-proof-pack` row.",
+                    "- That row remains `status: complete`, keeps `frontier_id: 3227666051`, and keeps `landed_commit: 00800059`.",
+                    "- The row keeps only the assigned allowed paths: `src`, `tests`, `docs`, and `scripts`.",
+                    "- The row keeps only the assigned owned surfaces: `engine_proof_pack` and `import_oracle_discipline`.",
+                    "- Queue proof anchors resolve inside `/docker/chummercomplete/chummer-core-engine`.",
+                    "- Registry and queue evidence do not cite task-local telemetry as release proof.",
+                    "",
+                    "## Do Not Reopen",
+                    "",
+                    "Do not reopen this core package for adjacent M104 work.",
+                    "",
+                    "```bash",
+                    "python3 scripts/generate-engine-proof-pack.py --check",
+                    "python3 tests/test_engine_proof_pack_generator.py",
+                    "```",
+                ]
+            )
+            + "\n",
         )
 
     def _write(self, relative_path: str, content: str) -> None:
