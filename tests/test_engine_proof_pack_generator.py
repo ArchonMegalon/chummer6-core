@@ -538,6 +538,10 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
         self.assertEqual([], payload["successor_wave_authority"]["design_queue_missing_proof_anchors"])
         self.assertEqual([], payload["successor_wave_authority"]["off_package_queue_proof_anchors"])
         self.assertEqual([], payload["successor_wave_authority"]["design_queue_off_package_proof_anchors"])
+        self.assertIn(
+            "/docker/chummercomplete/chummer-core-engine/docs/NEXT90_M104_CORE_PROOF_PACK_CLOSEOUT.md",
+            payload["successor_wave_authority"]["closure_requirements"]["proof_anchors"],
+        )
         self.assertEqual({}, payload["successor_wave_authority"]["disallowed_registry_active_run_tokens"])
         self.assertEqual([], payload["successor_wave_authority"]["disallowed_queue_active_run_tokens"])
         self.assertEqual([], payload["successor_wave_authority"]["disallowed_design_queue_active_run_tokens"])
@@ -3308,6 +3312,10 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
             ),
         )
         self._seed_successor_wave_authority()
+        self._write(
+            "docs/NEXT90_M104_CORE_PROOF_PACK_CLOSEOUT.md",
+            "Package: next90-m104-core-proof-pack\nDo not reopen this completed core slice.\n",
+        )
 
     def _write(self, relative_path: str, content: str) -> None:
         path = self.root / relative_path
@@ -3336,6 +3344,7 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
                     "        status: complete",
                     "        evidence:",
                     "          - successor_wave_authority=passed",
+                    "          - /docker/chummercomplete/chummer-core-engine/docs/NEXT90_M104_CORE_PROOF_PACK_CLOSEOUT.md",
                     "          - /docker/chummercomplete/chummer-core-engine commit 8dd516ef makes failed engine proof pack generation exit nonzero while still writing diagnostic receipts.",
                     "          - /docker/chummercomplete/chummer-core-engine commit c88178fa tightens design-owned queue scope proof so canonical allowed-path or owned-surface drift cannot keep M104 passed.",
                     "          - /docker/chummercomplete/chummer-core-engine commit 769e7259 pins local commit proof through guard 56048971 so the completed M104 proof pack cannot pass if the latest guard disappears.",
@@ -3416,6 +3425,7 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
                     "      - /docker/chummercomplete/chummer-core-engine/scripts/generate-engine-proof-pack.py",
                     "      - /docker/chummercomplete/chummer-core-engine/tests/test_engine_proof_pack_generator.py",
                     "      - /docker/chummercomplete/chummer-core-engine/docs/ENGINE_PROOF_PACK.md",
+                    "      - /docker/chummercomplete/chummer-core-engine/docs/NEXT90_M104_CORE_PROOF_PACK_CLOSEOUT.md",
                     "      - /docker/chummercomplete/chummer-core-engine commit 8dd516ef makes failed engine proof pack generation exit nonzero while still writing diagnostic receipts.",
                     "      - /docker/chummercomplete/chummer-core-engine commit c88178fa tightens design-owned queue scope proof so canonical allowed-path or owned-surface drift cannot keep M104 passed.",
                     "      - /docker/chummercomplete/chummer-core-engine commit 769e7259 pins local commit proof through guard 56048971 so future shards verify the closed package instead of repeating it.",

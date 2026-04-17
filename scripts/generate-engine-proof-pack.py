@@ -99,6 +99,7 @@ SUCCESSOR_REGISTRY_TASK_TOKENS = {
         "owner: chummer6-core",
         "status: complete",
         "successor_wave_authority=passed",
+        "/docker/chummercomplete/chummer-core-engine/docs/NEXT90_M104_CORE_PROOF_PACK_CLOSEOUT.md",
         "/docker/chummercomplete/chummer-core-engine commit 8dd516ef makes failed engine proof pack generation exit nonzero while still writing diagnostic receipts.",
         "/docker/chummercomplete/chummer-core-engine commit c88178fa tightens design-owned queue scope proof so canonical allowed-path or owned-surface drift cannot keep M104 passed.",
         "/docker/chummercomplete/chummer-core-engine commit 769e7259 pins local commit proof through guard 56048971 so the completed M104 proof pack cannot pass if the latest guard disappears.",
@@ -173,6 +174,7 @@ SUCCESSOR_QUEUE_TOKENS = (
     "/docker/chummercomplete/chummer-core-engine/scripts/generate-engine-proof-pack.py",
     "/docker/chummercomplete/chummer-core-engine/tests/test_engine_proof_pack_generator.py",
     "/docker/chummercomplete/chummer-core-engine/docs/ENGINE_PROOF_PACK.md",
+    "/docker/chummercomplete/chummer-core-engine/docs/NEXT90_M104_CORE_PROOF_PACK_CLOSEOUT.md",
     "/docker/chummercomplete/chummer-core-engine commit 8dd516ef makes failed engine proof pack generation exit nonzero while still writing diagnostic receipts.",
     "/docker/chummercomplete/chummer-core-engine commit c88178fa tightens design-owned queue scope proof so canonical allowed-path or owned-surface drift cannot keep M104 passed.",
     "/docker/chummercomplete/chummer-core-engine commit 769e7259 pins local commit proof through guard 56048971 so future shards verify the closed package instead of repeating it.",
@@ -246,6 +248,7 @@ SUCCESSOR_QUEUE_PROOF_ANCHORS = (
     "/docker/chummercomplete/chummer-core-engine/scripts/generate-engine-proof-pack.py",
     "/docker/chummercomplete/chummer-core-engine/tests/test_engine_proof_pack_generator.py",
     "/docker/chummercomplete/chummer-core-engine/docs/ENGINE_PROOF_PACK.md",
+    "/docker/chummercomplete/chummer-core-engine/docs/NEXT90_M104_CORE_PROOF_PACK_CLOSEOUT.md",
 )
 
 EXPECTED_QUEUE_ALLOWED_PATHS = tuple(SUCCESSOR_WAVE_PACKAGE["allowed_paths"])
