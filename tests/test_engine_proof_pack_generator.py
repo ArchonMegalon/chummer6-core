@@ -685,6 +685,22 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
         explain_budget = next(row for row in payload["performance_budgets"] if row["id"] == "explain")
         self.assertTrue(explain_budget["missing_executable_workload"])
 
+    def test_build_payload_fails_closed_when_budget_workload_is_only_in_factory(self) -> None:
+        source_path = self.root / "Chummer.Benchmarks" / "MigrationWorkspaceBenchmarks.cs"
+        source_text = source_path.read_text(encoding="utf-8")
+        source_text = source_text.replace(
+            '[Benchmark(Description = "runtime.explain.trace")]',
+            '[Benchmark(Description = "runtime.explain.summary")]',
+        )
+        source_path.write_text(source_text, encoding="utf-8")
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertIn("explain", payload["unresolved"]["performance_budgets"])
+        explain_budget = next(row for row in payload["performance_budgets"] if row["id"] == "explain")
+        self.assertTrue(explain_budget["missing_executable_workload"])
+
     def test_build_payload_fails_closed_when_budget_workload_is_duplicated(self) -> None:
         budget_path = self.root / "Chummer.Benchmarks" / "workspace-benchmark-budgets.json"
         budget_payload = json.loads(budget_path.read_text(encoding="utf-8"))
@@ -884,6 +900,21 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
         self.assertEqual("failed", payload["status"])
         self.assertIn("incomplete_import_oracle:Chummer4", payload["unresolved"]["import_oracle_discipline"])
 
+    def test_build_payload_fails_closed_when_required_import_oracle_is_overcounted(self) -> None:
+        cert_path = self.root / ".codex-studio" / "published" / "IMPORT_PARITY_CERTIFICATION.generated.json"
+        cert = json.loads(cert_path.read_text(encoding="utf-8"))
+        cert["import_oracles"] = [
+            {"name": "Chummer4", "sources_covered": 2, "sources_expected": 1},
+            {"name": "Chummer5a", "sources_covered": 1, "sources_expected": 1},
+            {"name": "Hero Lab Classic", "sources_covered": 1, "sources_expected": 1},
+        ]
+        cert_path.write_text(json.dumps(cert), encoding="utf-8")
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertIn("incomplete_import_oracle:Chummer4", payload["unresolved"]["import_oracle_discipline"])
+
     def test_build_payload_fails_closed_when_adjacent_import_oracle_is_undercovered(self) -> None:
         cert_path = self.root / ".codex-studio" / "published" / "IMPORT_PARITY_CERTIFICATION.generated.json"
         cert = json.loads(cert_path.read_text(encoding="utf-8"))
@@ -974,6 +1005,20 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
         cert = json.loads(cert_path.read_text(encoding="utf-8"))
         cert["adjacent_oracles"] = [
             {"name": "Genesis", "sources_covered": 1.0, "sources_expected": 1.0},
+            {"name": "CommLink6", "sources_covered": 1, "sources_expected": 1},
+        ]
+        cert_path.write_text(json.dumps(cert), encoding="utf-8")
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertIn("incomplete_adjacent_oracle:Genesis", payload["unresolved"]["import_oracle_discipline"])
+
+    def test_build_payload_fails_closed_when_adjacent_import_oracle_is_overcounted(self) -> None:
+        cert_path = self.root / ".codex-studio" / "published" / "IMPORT_PARITY_CERTIFICATION.generated.json"
+        cert = json.loads(cert_path.read_text(encoding="utf-8"))
+        cert["adjacent_oracles"] = [
+            {"name": "Genesis", "sources_covered": 2, "sources_expected": 1},
             {"name": "CommLink6", "sources_covered": 1, "sources_expected": 1},
         ]
         cert_path.write_text(json.dumps(cert), encoding="utf-8")
@@ -1167,6 +1212,10 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
             payload["unresolved"]["import_oracle_discipline"],
         )
         self.assertIn(
+            "source_receipt_command_disallowed_active_run_proof:supervisor status helper",
+            payload["unresolved"]["import_oracle_discipline"],
+        )
+        self.assertIn(
             "source_receipt_evidence_disallowed_active_run_proof:/var/lib/codex-fleet/",
             payload["unresolved"]["import_oracle_discipline"],
         )
@@ -1175,12 +1224,47 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
             payload["unresolved"]["import_oracle_discipline"],
         )
         self.assertEqual(
-            ["supervisor status", "status helper"],
+            ["supervisor status", "supervisor status helper", "status helper"],
             payload["import_oracle_discipline"]["disallowed_source_receipt_command_tokens"],
         )
         self.assertEqual(
             ["/var/lib/codex-fleet/", "prompt path:"],
             payload["import_oracle_discipline"]["disallowed_source_receipt_evidence_tokens"],
+        )
+
+    def test_build_payload_fails_closed_when_import_receipt_cites_supervisor_status_eta_helper_instruction(self) -> None:
+        cert_path = self.root / ".codex-studio" / "published" / "IMPORT_PARITY_CERTIFICATION.generated.json"
+        cert = json.loads(cert_path.read_text(encoding="utf-8"))
+        cert["commands"] = cert["commands"] + [
+            "Do not run supervisor status or eta helpers inside this worker run"
+        ]
+        cert_path.write_text(json.dumps(cert), encoding="utf-8")
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertIn(
+            "source_receipt_command_disallowed_active_run_proof:do not run supervisor status",
+            payload["unresolved"]["import_oracle_discipline"],
+        )
+        self.assertIn(
+            "source_receipt_command_disallowed_active_run_proof:do not run supervisor status or eta helpers",
+            payload["unresolved"]["import_oracle_discipline"],
+        )
+        self.assertIn(
+            "source_receipt_command_disallowed_active_run_proof:supervisor status or eta helpers",
+            payload["unresolved"]["import_oracle_discipline"],
+        )
+        self.assertEqual(
+            [
+                "do not run supervisor status",
+                "do not run supervisor status or eta helpers",
+                "supervisor status",
+                "supervisor status or eta helpers",
+                "ETA helper",
+                "ETA helpers",
+            ],
+            payload["import_oracle_discipline"]["disallowed_source_receipt_command_tokens"],
         )
 
     def test_build_payload_fails_closed_when_import_receipt_cites_docker_fleet_state_run_path(self) -> None:
@@ -1500,6 +1584,32 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
             payload["unresolved"]["release_channel_binding"],
         )
 
+    def test_build_payload_fails_closed_when_release_channel_has_malformed_artifact_rows(self) -> None:
+        release_path = self.generator.RELEASE_CHANNEL_PATH
+        release_payload = json.loads(release_path.read_text(encoding="utf-8"))
+        release_payload["artifacts"].append({"artifactId": ""})
+        release_payload["artifacts"].append("avalonia-linux-x64-installer")
+        release_path.write_text(json.dumps(release_payload), encoding="utf-8")
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertIn("malformed_artifact_row:3", payload["unresolved"]["release_channel_binding"])
+        self.assertIn("malformed_artifact_row:4", payload["unresolved"]["release_channel_binding"])
+
+    def test_build_payload_fails_closed_when_release_channel_has_malformed_route_truth_rows(self) -> None:
+        release_path = self.generator.RELEASE_CHANNEL_PATH
+        release_payload = json.loads(release_path.read_text(encoding="utf-8"))
+        release_payload["desktopTupleCoverage"]["desktopRouteTruth"].append({"tupleId": ""})
+        release_payload["desktopTupleCoverage"]["desktopRouteTruth"].append("avalonia:linux:linux-x64")
+        release_path.write_text(json.dumps(release_payload), encoding="utf-8")
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertIn("malformed_desktop_tuple_row:3", payload["unresolved"]["release_channel_binding"])
+        self.assertIn("malformed_desktop_tuple_row:4", payload["unresolved"]["release_channel_binding"])
+
     def test_build_payload_fails_closed_when_successor_queue_loses_package_authority(self) -> None:
         queue_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_queue_path"])
         queue_path.write_text("package_id: different-package\n", encoding="utf-8")
@@ -1717,6 +1827,29 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
         self.assertIn("supervisor helper loops", payload["closeout_document"]["disallowed_evidence_tokens"])
         self.assertIn("helper loop", payload["closeout_document"]["disallowed_evidence_tokens"])
         self.assertIn("helper loops", payload["closeout_document"]["disallowed_evidence_tokens"])
+
+    def test_build_payload_fails_closed_when_closeout_cites_supervisor_status_eta_helper_instruction(self) -> None:
+        closeout_path = self.root / "docs" / "NEXT90_M104_CORE_PROOF_PACK_CLOSEOUT.md"
+        closeout_text = closeout_path.read_text(encoding="utf-8")
+        closeout_path.write_text(
+            closeout_text + "\nProof: Do not run supervisor status or eta helpers inside this worker run.\n",
+            encoding="utf-8",
+        )
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertEqual("failed", payload["closeout_document"]["status"])
+        self.assertIn("closeout_disallowed_active_run_evidence", payload["unresolved"]["closeout_document"])
+        self.assertIn("do not run supervisor status", payload["closeout_document"]["disallowed_evidence_tokens"])
+        self.assertIn(
+            "do not run supervisor status or eta helpers",
+            payload["closeout_document"]["disallowed_evidence_tokens"],
+        )
+        self.assertIn(
+            "supervisor status or eta helpers",
+            payload["closeout_document"]["disallowed_evidence_tokens"],
+        )
 
     def test_build_payload_fails_closed_when_closeout_cites_operator_status_snippet_evidence(self) -> None:
         closeout_path = self.root / "docs" / "NEXT90_M104_CORE_PROOF_PACK_CLOSEOUT.md"
@@ -2318,7 +2451,7 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
         self.assertEqual("failed", payload["successor_wave_authority"]["status"])
         self.assertIn("source_queue", payload["unresolved"]["successor_wave_authority"])
         self.assertEqual(
-            ["supervisor status", "status helper"],
+            ["supervisor status", "supervisor status helper", "status helper"],
             payload["successor_wave_authority"]["disallowed_queue_active_run_tokens"],
         )
 
@@ -2340,7 +2473,7 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
         self.assertEqual("failed", payload["successor_wave_authority"]["status"])
         self.assertIn("source_queue", payload["unresolved"]["successor_wave_authority"])
         self.assertEqual(
-            ["ETA helper", "supervisor ETA"],
+            ["ETA helper", "supervisor ETA", "supervisor ETA helper"],
             payload["successor_wave_authority"]["disallowed_queue_active_run_tokens"],
         )
 
@@ -2490,7 +2623,7 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
         self.assertEqual("failed", payload["successor_wave_authority"]["status"])
         self.assertIn("source_registry", payload["unresolved"]["successor_wave_authority"])
         self.assertEqual(
-            ["supervisor status", "status helper"],
+            ["supervisor status", "supervisor status helper", "status helper"],
             payload["successor_wave_authority"]["disallowed_registry_active_run_tokens"]["104.2"],
         )
 
@@ -2512,7 +2645,7 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
         self.assertEqual("failed", payload["successor_wave_authority"]["status"])
         self.assertIn("source_registry", payload["unresolved"]["successor_wave_authority"])
         self.assertEqual(
-            ["ETA helper", "supervisor ETA"],
+            ["ETA helper", "supervisor ETA", "supervisor ETA helper"],
             payload["successor_wave_authority"]["disallowed_registry_active_run_tokens"]["104.2"],
         )
 
@@ -2941,7 +3074,7 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
         self.assertEqual("failed", payload["successor_wave_authority"]["status"])
         self.assertIn("source_design_queue", payload["unresolved"]["successor_wave_authority"])
         self.assertEqual(
-            ["supervisor status", "status helper"],
+            ["supervisor status", "supervisor status helper", "status helper"],
             payload["successor_wave_authority"]["disallowed_design_queue_active_run_tokens"],
         )
         self.assertEqual([], payload["successor_wave_authority"]["missing_queue_tokens"])
@@ -2964,7 +3097,7 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
         self.assertEqual("failed", payload["successor_wave_authority"]["status"])
         self.assertIn("source_design_queue", payload["unresolved"]["successor_wave_authority"])
         self.assertEqual(
-            ["ETA helper", "supervisor ETA"],
+            ["ETA helper", "supervisor ETA", "supervisor ETA helper"],
             payload["successor_wave_authority"]["disallowed_design_queue_active_run_tokens"],
         )
         self.assertEqual([], payload["successor_wave_authority"]["missing_queue_tokens"])
@@ -5316,11 +5449,24 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
             "Chummer.Benchmarks/MigrationWorkspaceBenchmarks.cs",
             "\n".join(
                 [
-                    "workspace.import.bastion",
-                    "workspace.section.skills.bastion",
-                    "workspace.save.bastion",
-                    "runtime.explain.trace",
-                    "workspace.export.bastion",
+                    '[Benchmark(Description = "workspace.import.bastion")]',
+                    'public object ImportBastionLegacyWorkspace() => new();',
+                    '[Benchmark(Description = "workspace.section.skills.bastion")]',
+                    'public object GetSkillsSectionFromImportedBastionWorkspace() => new();',
+                    '[Benchmark(Description = "workspace.save.bastion")]',
+                    'public object SaveImportedBastionWorkspace() => new();',
+                    '[Benchmark(Description = "runtime.explain.trace")]',
+                    'public object ComposeExplainTraceReceipt() => new();',
+                    '[Benchmark(Description = "workspace.export.bastion")]',
+                    'public object PrepareExportForImportedBastionWorkspace() => new();',
+                    "internal static IReadOnlyList<BenchmarkWorkload> CreateBudgetWorkloads() =>",
+                    "[",
+                    '    new BenchmarkWorkload(Name: "workspace.import.bastion"),',
+                    '    new BenchmarkWorkload(Name: "workspace.section.skills.bastion"),',
+                    '    new BenchmarkWorkload(Name: "workspace.save.bastion"),',
+                    '    new BenchmarkWorkload(Name: "runtime.explain.trace"),',
+                    '    new BenchmarkWorkload(Name: "workspace.export.bastion"),',
+                    "];",
                 ]
             ),
         )

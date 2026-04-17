@@ -350,6 +350,8 @@ DISALLOWED_ACTIVE_RUN_PROOF_TOKENS = (
     "previous attempt burned time",
     "run these exact commands first",
     "do not invent another orientation step",
+    "do not run supervisor status",
+    "do not run supervisor status or eta helpers",
     "read these files directly first",
     "use the shard runtime handoff",
     "current steering focus:",
@@ -367,6 +369,8 @@ DISALLOWED_ACTIVE_RUN_PROOF_TOKENS = (
     "remaining queue items",
     "critical path",
     "supervisor status",
+    "supervisor status helper",
+    "supervisor status or eta helpers",
     "supervisor helper",
     "supervisor helper loop",
     "supervisor helper loops",
@@ -376,6 +380,7 @@ DISALLOWED_ACTIVE_RUN_PROOF_TOKENS = (
     "ETA helper",
     "ETA helpers",
     "supervisor ETA",
+    "supervisor ETA helper",
     "run id:",
     "frontier ids:",
     "open milestone ids:",
@@ -1177,7 +1182,7 @@ def _build_budget_map(root: Path) -> tuple[list[dict[str, Any]], list[str]]:
     unresolved: list[str] = []
     for budget_id, workload_name, source in budget_specs:
         workload_payload = by_name.get(workload_name, {})
-        executable_workload_present = workload_name in benchmark_workload_source
+        executable_workload_present = _benchmark_workload_is_executable(benchmark_workload_source, workload_name)
         duplicate_workload = workload_name in duplicate_workload_set
         ms = _try_float(workload_payload.get("maxMeanMilliseconds")) if workload_payload else None
         alloc = _try_json_int(workload_payload.get("maxAllocatedBytes")) if workload_payload else None
@@ -1219,6 +1224,19 @@ def _build_budget_map(root: Path) -> tuple[list[dict[str, Any]], list[str]]:
     return budgets, unresolved
 
 
+def _benchmark_workload_is_executable(source: str, workload_name: str) -> bool:
+    escaped_workload = re.escape(workload_name)
+    benchmark_attribute = re.search(
+        rf'\[Benchmark\s*\(\s*Description\s*=\s*"{escaped_workload}"\s*\)\]',
+        source,
+    )
+    budget_factory_row = re.search(
+        rf'\bName\s*:\s*"{escaped_workload}"',
+        source,
+    )
+    return benchmark_attribute is not None and budget_factory_row is not None
+
+
 def _build_release_channel_binding(release_channel_path: Path) -> tuple[dict[str, Any], list[str]]:
     payload = _load_json(release_channel_path)
     unresolved: list[str] = []
@@ -1235,6 +1253,11 @@ def _build_release_channel_binding(release_channel_path: Path) -> tuple[dict[str
     desktop_complete = bool(desktop_coverage.get("complete"))
     route_truth = desktop_coverage.get("desktopRouteTruth") if isinstance(desktop_coverage.get("desktopRouteTruth"), list) else []
     artifacts = payload.get("artifacts") if isinstance(payload.get("artifacts"), list) else []
+    malformed_artifact_rows = [
+        index
+        for index, row in enumerate(artifacts)
+        if not isinstance(row, dict) or not str(row.get("artifactId") or row.get("id") or "").strip()
+    ]
     artifact_id_values = [
         str(row.get("artifactId") or row.get("id") or "").strip()
         for row in artifacts
@@ -1243,6 +1266,11 @@ def _build_release_channel_binding(release_channel_path: Path) -> tuple[dict[str
     ]
     artifact_ids = set(artifact_id_values)
     duplicate_artifact_ids = _duplicate_values(artifact_id_values)
+    malformed_route_truth_rows = [
+        index
+        for index, row in enumerate(route_truth)
+        if not isinstance(row, dict) or not str(row.get("tupleId") or "").strip()
+    ]
     route_tuple_values = [
         str(row.get("tupleId") or "").strip()
         for row in route_truth
@@ -1259,6 +1287,8 @@ def _build_release_channel_binding(release_channel_path: Path) -> tuple[dict[str
         unresolved.append("release_proof_status")
     if not desktop_complete:
         unresolved.append("desktop_tuple_coverage")
+    unresolved.extend(f"malformed_artifact_row:{index}" for index in malformed_artifact_rows)
+    unresolved.extend(f"malformed_desktop_tuple_row:{index}" for index in malformed_route_truth_rows)
     unresolved.extend(f"duplicate_artifact_id:{artifact_id}" for artifact_id in duplicate_artifact_ids)
     unresolved.extend(f"duplicate_desktop_tuple:{tuple_id}" for tuple_id in duplicate_route_tuple_ids)
 
@@ -1351,7 +1381,7 @@ def _oracle_coverage_is_complete(row: Any) -> bool:
     expected = _try_json_int(row.get("sources_expected"))
     if covered is None or expected is None:
         return False
-    return expected > 0 and covered >= expected
+    return expected > 0 and covered == expected
 
 
 def _coverage_summary_is_complete(row: Any, expected_total: int) -> bool:
