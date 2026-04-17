@@ -292,6 +292,7 @@ DISALLOWED_ACTIVE_RUN_PROOF_TOKENS = (
     "active-run helper commands",
     "operator/OODA telemetry",
     "operator/OODA loop",
+    "OODA loop",
     "OODA helper",
     "successor-wave telemetry",
     "remaining milestones",
