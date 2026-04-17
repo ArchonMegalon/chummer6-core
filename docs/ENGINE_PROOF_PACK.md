@@ -18,6 +18,7 @@ The proof pack must fail closed unless it includes:
 
 - successor-wave authority for milestone `104`, owned surfaces `engine_proof_pack` and `import_oracle_discipline`, and the canonical successor registry plus queue staging paths
 - queue closeout proof that the successor queue row is marked `status: complete`, pins frontier `3227666051`, cites landed commit `00800059`, and lists the proof anchors for this generated pack, generator, tests, and documentation
+- package-local closeout proof in `docs/NEXT90_M104_CORE_PROOF_PACK_CLOSEOUT.md`, so future shards have an explicit do-not-reopen handoff for the completed core slice
 - queue and registry closeout proof for commit `8dd516ef`, which makes failed generator runs exit nonzero while still writing diagnostic receipts
 - queue and registry closeout proof for commit `c88178fa`, which proves design-owned queue scope drift fails closed
 - queue and registry closeout proof for commit `769e7259`, which binds this completed package to the latest local guard chain
@@ -127,6 +128,7 @@ The generator treats the generated proof pack path as a planned output so a clea
 Use `python3 scripts/generate-engine-proof-pack.py --check` when verification must prove the checked-in receipt is current without rewriting the artifact.
 Both the Fleet staging queue and the design-owned staging queue must retain the completed `next90-m104-core-proof-pack` row with the same frontier, allowed paths, owned surfaces, landed commit, and proof anchors.
 Each queue must contain exactly one `next90-m104-core-proof-pack` row.
+The package-local closeout note must remain listed as a resolved queue proof anchor beside the generated receipt, generator, tests, and this proof-pack contract.
 The checked-in receipt is also treated as a reproducible artifact: `tests/test_engine_proof_pack_generator.py` rebuilds the payload from repo-local evidence and compares it to `.codex-studio/published/ENGINE_PROOF_PACK.generated.json`, ignoring only `generated_at`.
 The generator still writes the diagnostic receipt when evidence is missing, but exits nonzero whenever the generated pack status is not `passed`.
 
