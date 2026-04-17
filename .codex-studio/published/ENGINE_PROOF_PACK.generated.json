@@ -1,7 +1,7 @@
 {
   "contract_name": "chummer6-core.engine_proof_pack",
   "schema_version": 1,
-  "generated_at": "2026-04-16T23:58:52Z",
+  "generated_at": "2026-04-17T00:07:35Z",
   "status": "passed",
   "proof_kind": "release_bound_engine_proof",
   "milestone_id": 104,
@@ -760,6 +760,11 @@
       {
         "commit": "c58d18e1",
         "purpose": "current M104 engine proof floor pin required by registry and queue closeout",
+        "status": "passed"
+      },
+      {
+        "commit": "67e0f654",
+        "purpose": "current M104 engine proof floor pin required by local closeout",
         "status": "passed"
       }
     ],

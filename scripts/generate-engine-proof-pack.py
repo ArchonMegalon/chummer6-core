@@ -352,6 +352,7 @@ REQUIRED_LOCAL_COMMIT_PROOFS = (
     ("b0776012", "current M104 proof pack floor pin required by local closeout"),
     ("5f50cb7b", "current M104 engine proof floor required by local closeout"),
     ("c58d18e1", "current M104 engine proof floor pin required by registry and queue closeout"),
+    ("67e0f654", "current M104 engine proof floor pin required by local closeout"),
 )
 
 
