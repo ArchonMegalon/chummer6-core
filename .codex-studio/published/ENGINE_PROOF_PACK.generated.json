@@ -1,7 +1,7 @@
 {
   "contract_name": "chummer6-core.engine_proof_pack",
   "schema_version": 1,
-  "generated_at": "2026-04-17T06:37:43Z",
+  "generated_at": "2026-04-17T07:18:18Z",
   "status": "passed",
   "proof_kind": "release_bound_engine_proof",
   "milestone_id": 104,
@@ -299,6 +299,7 @@
       "`engine_proof_pack` and `import_oracle_discipline`",
       "Queue proof anchors resolve inside `/docker/chummercomplete/chummer-core-engine`",
       "`ecbb466c`",
+      "`a2c8ad9f`",
       "Registry and queue evidence do not cite task-local telemetry",
       "Do not reopen this core package for adjacent M104 work.",
       "python3 scripts/generate-engine-proof-pack.py --check",
@@ -950,6 +951,11 @@
       {
         "commit": "ecbb466c",
         "purpose": "current M104 OODA proof guard pin required by registry and queue closeout",
+        "status": "passed"
+      },
+      {
+        "commit": "a2c8ad9f",
+        "purpose": "current M104 active-run handoff field proof guard required by local closeout",
         "status": "passed"
       }
     ],

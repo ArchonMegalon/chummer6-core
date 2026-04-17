@@ -272,6 +272,7 @@ PACKAGE_CLOSEOUT_REQUIRED_TOKENS = (
     "`engine_proof_pack` and `import_oracle_discipline`",
     "Queue proof anchors resolve inside `/docker/chummercomplete/chummer-core-engine`",
     "`ecbb466c`",
+    "`a2c8ad9f`",
     "Registry and queue evidence do not cite task-local telemetry",
     "Do not reopen this core package for adjacent M104 work.",
     "python3 scripts/generate-engine-proof-pack.py --check",
@@ -447,6 +448,7 @@ REQUIRED_LOCAL_COMMIT_PROOFS = (
     ("498dff3d", "current M104 queue mirror parity guard required by local closeout"),
     ("b8000b80", "current M104 OODA telemetry proof guard required by registry and queue closeout"),
     ("ecbb466c", "current M104 OODA proof guard pin required by registry and queue closeout"),
+    ("a2c8ad9f", "current M104 active-run handoff field proof guard required by local closeout"),
 )
 
 
