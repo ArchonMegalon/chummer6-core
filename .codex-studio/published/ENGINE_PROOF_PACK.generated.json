@@ -1,7 +1,7 @@
 {
   "contract_name": "chummer6-core.engine_proof_pack",
   "schema_version": 1,
-  "generated_at": "2026-04-17T07:39:58Z",
+  "generated_at": "2026-04-17T07:46:19Z",
   "status": "passed",
   "proof_kind": "release_bound_engine_proof",
   "milestone_id": 104,
@@ -300,6 +300,7 @@
       "Queue proof anchors resolve inside `/docker/chummercomplete/chummer-core-engine`",
       "`ecbb466c`",
       "`a2c8ad9f`",
+      "`2c98f61c`",
       "Registry and queue evidence do not cite task-local telemetry",
       "active-run handoff field labels",
       "Do not reopen this core package for adjacent M104 work.",
@@ -957,6 +958,11 @@
       {
         "commit": "a2c8ad9f",
         "purpose": "current M104 active-run handoff field proof guard required by local closeout",
+        "status": "passed"
+      },
+      {
+        "commit": "2c98f61c",
+        "purpose": "current M104 closeout handoff evidence guard required by local closeout",
         "status": "passed"
       }
     ],
