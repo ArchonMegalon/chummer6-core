@@ -626,6 +626,11 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
         self.assertEqual(1, payload["successor_wave_authority"]["design_queue_package_row_count"])
         self.assertEqual(0, payload["successor_wave_authority"]["duplicate_design_queue_package_rows"])
         self.assertEqual("passed", payload["successor_wave_authority"]["queue_mirror_parity_status"])
+        self.assertEqual("skipped", payload["successor_wave_authority"]["package_commit_citations"]["status"])
+        self.assertIn(
+            "8dd516ef",
+            [row["commit"] for row in payload["successor_wave_authority"]["package_commit_citations"]["commits"]],
+        )
         self.assertEqual([], payload["successor_wave_authority"]["queue_proof_missing_from_design_queue"])
         self.assertEqual([], payload["successor_wave_authority"]["design_queue_proof_missing_from_queue"])
         self.assertEqual(["src", "tests", "docs", "scripts"], payload["successor_wave_authority"]["design_queue_allowed_paths"])
@@ -2804,6 +2809,33 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
         self.assertIn(
             proof_item,
             payload["successor_wave_authority"]["queue_proof_missing_from_design_queue"],
+        )
+
+    def test_build_payload_fails_closed_when_queue_cited_package_commit_does_not_resolve(self) -> None:
+        (self.root / ".git").mkdir()
+        queue_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_queue_path"])
+        design_queue_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_design_queue_path"])
+        queue_text = queue_path.read_text(encoding="utf-8")
+        cited_commit_proof = (
+            "      - /docker/chummercomplete/chummer-core-engine commit 2f430d09 "
+            "pins the current 498dff3d queue mirror proof floor in the generator, unit tests, and checked-in receipt.\n"
+        )
+        queue_path.write_text(queue_text + cited_commit_proof, encoding="utf-8")
+        design_queue_path.write_text(queue_text + cited_commit_proof, encoding="utf-8")
+
+        def fake_cat_file(command: list[str], **_: Any) -> Any:
+            commit_ref = command[-1]
+            return mock.Mock(returncode=1 if commit_ref.startswith("2f430d09") else 0)
+
+        with mock.patch.object(self.generator.subprocess, "run", side_effect=fake_cat_file):
+            payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertEqual("failed", payload["successor_wave_authority"]["status"])
+        self.assertIn("package_commit_citations", payload["unresolved"]["successor_wave_authority"])
+        self.assertEqual(
+            ["2f430d09"],
+            payload["successor_wave_authority"]["package_commit_citations"]["missing_commits"],
         )
 
     def test_build_payload_fails_closed_when_design_queue_has_duplicate_package_rows(self) -> None:
