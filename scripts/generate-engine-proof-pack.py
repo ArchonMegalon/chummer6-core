@@ -161,6 +161,7 @@ SUCCESSOR_REGISTRY_TASK_TOKENS = {
         "/docker/chummercomplete/chummer-core-engine commit c124e4af pins the current 7a432bc3 proof pack guard floor in the generator, unit tests, proof-pack documentation, and checked-in receipt.",
         "/docker/chummercomplete/chummer-core-engine commit 870be707 pins the current af67ecfd handoff proof floor in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.",
         "/docker/chummercomplete/chummer-core-engine commit b8000b80 tightens the M104 OODA telemetry proof guard so plain governor-loop evidence cannot close the package.",
+        "/docker/chummercomplete/chummer-core-engine commit ecbb466c pins the current b8000b80 OODA proof guard in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.",
         "dotnet run --project Chummer.Benchmarks/Chummer.Benchmarks.csproj -c Release -- --budget-check --budget-file Chummer.Benchmarks/workspace-benchmark-budgets.json exits 0",
     ),
 }
@@ -238,6 +239,7 @@ SUCCESSOR_QUEUE_TOKENS = (
     "/docker/chummercomplete/chummer-core-engine commit c124e4af pins the current 7a432bc3 proof pack guard floor in the generator, unit tests, proof-pack documentation, and checked-in receipt.",
     "/docker/chummercomplete/chummer-core-engine commit 870be707 pins the current af67ecfd handoff proof floor in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.",
     "/docker/chummercomplete/chummer-core-engine commit b8000b80 tightens the M104 OODA telemetry proof guard so plain governor-loop evidence cannot close the package.",
+    "/docker/chummercomplete/chummer-core-engine commit ecbb466c pins the current b8000b80 OODA proof guard in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.",
     "allowed_paths:",
     "- src",
     "- tests",
@@ -269,6 +271,7 @@ PACKAGE_CLOSEOUT_REQUIRED_TOKENS = (
     "`src`, `tests`, `docs`, and `scripts`",
     "`engine_proof_pack` and `import_oracle_discipline`",
     "Queue proof anchors resolve inside `/docker/chummercomplete/chummer-core-engine`",
+    "`ecbb466c`",
     "Registry and queue evidence do not cite task-local telemetry",
     "Do not reopen this core package for adjacent M104 work.",
     "python3 scripts/generate-engine-proof-pack.py --check",
@@ -435,6 +438,7 @@ REQUIRED_LOCAL_COMMIT_PROOFS = (
     ("870be707", "current M104 handoff proof floor pin required by registry and queue closeout"),
     ("498dff3d", "current M104 queue mirror parity guard required by local closeout"),
     ("b8000b80", "current M104 OODA telemetry proof guard required by registry and queue closeout"),
+    ("ecbb466c", "current M104 OODA proof guard pin required by registry and queue closeout"),
 )
 
 
