@@ -1142,7 +1142,29 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
         self.assertEqual("failed", payload["successor_wave_authority"]["status"])
         self.assertIn("source_registry", payload["unresolved"]["successor_wave_authority"])
         self.assertEqual(
-            ["operator/OODA loop"],
+            ["operator/OODA loop", "OODA loop"],
+            payload["successor_wave_authority"]["disallowed_registry_active_run_tokens"]["104.2"],
+        )
+
+    def test_build_payload_fails_closed_when_registry_cites_plain_ooda_loop_proof(self) -> None:
+        registry_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_registry_path"])
+        registry_text = registry_path.read_text(encoding="utf-8")
+        registry_path.write_text(
+            registry_text.replace(
+                "        - successor_wave_authority=passed\n",
+                "        - successor_wave_authority=passed\n"
+                "        - OODA loop owns telemetry and reports this package complete.\n",
+            ),
+            encoding="utf-8",
+        )
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertEqual("failed", payload["successor_wave_authority"]["status"])
+        self.assertIn("source_registry", payload["unresolved"]["successor_wave_authority"])
+        self.assertEqual(
+            ["OODA loop"],
             payload["successor_wave_authority"]["disallowed_registry_active_run_tokens"]["104.2"],
         )
 
