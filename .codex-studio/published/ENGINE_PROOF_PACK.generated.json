@@ -1,7 +1,7 @@
 {
   "contract_name": "chummer6-core.engine_proof_pack",
   "schema_version": 1,
-  "generated_at": "2026-04-17T01:22:03Z",
+  "generated_at": "2026-04-17T01:37:02Z",
   "status": "passed",
   "proof_kind": "release_bound_engine_proof",
   "milestone_id": 104,
@@ -102,6 +102,7 @@
         "/docker/chummercomplete/chummer-core-engine commit f1b6c5ca pins the queued 39c875fd proof floor into the generator, unit tests, proof-pack documentation, and checked-in receipt.",
         "/docker/chummercomplete/chummer-core-engine commit faf14925 pins the current f1b6c5ca proof floor guard in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.",
         "/docker/chummercomplete/chummer-core-engine commit 64b8f873 requires the current faf14925 proof floor guard in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.",
+        "/docker/chummercomplete/chummer-core-engine commit 06a2e06a pins the current 64b8f873 proof floor requirement in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.",
         "dotnet run --project Chummer.Benchmarks/Chummer.Benchmarks.csproj -c Release -- --budget-check --budget-file Chummer.Benchmarks/workspace-benchmark-budgets.json exits 0"
       ]
     },
@@ -166,6 +167,7 @@
       "/docker/chummercomplete/chummer-core-engine commit f1b6c5ca pins the queued 39c875fd proof floor into the generator, unit tests, proof-pack documentation, and checked-in receipt.",
       "/docker/chummercomplete/chummer-core-engine commit faf14925 pins the current f1b6c5ca proof floor guard in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.",
       "/docker/chummercomplete/chummer-core-engine commit 64b8f873 requires the current faf14925 proof floor guard in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.",
+      "/docker/chummercomplete/chummer-core-engine commit 06a2e06a pins the current 64b8f873 proof floor requirement in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.",
       "allowed_paths:",
       "- src",
       "- tests",
@@ -798,6 +800,11 @@
       {
         "commit": "64b8f873",
         "purpose": "current M104 proof floor guard requirement required by local closeout",
+        "status": "passed"
+      },
+      {
+        "commit": "06a2e06a",
+        "purpose": "current M104 proof floor requirement pin required by registry and queue closeout",
         "status": "passed"
       }
     ],
