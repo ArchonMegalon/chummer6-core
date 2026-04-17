@@ -294,6 +294,7 @@ PACKAGE_CLOSEOUT_REQUIRED_TOKENS = (
     "`a2c8ad9f`",
     "`2c98f61c`",
     "`2e4e8e81`",
+    "`8f4702a5`",
     "Registry and queue evidence do not cite task-local telemetry",
     "active-run handoff field labels",
     "supervisor helper loops",
@@ -532,6 +533,7 @@ REQUIRED_LOCAL_COMMIT_PROOFS = (
     ("2e4e8e81", "current M104 handoff evidence proof floor required by local closeout"),
     ("b5d46938", "current M104 engine proof pack discipline guard required by local closeout"),
     ("c1300863", "current M104 engine proof pack discipline guard pin required by local closeout"),
+    ("8f4702a5", "current M104 release-bound proof discipline guard required by local closeout"),
 )
 
 
