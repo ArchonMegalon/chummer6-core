@@ -1,7 +1,7 @@
 {
   "contract_name": "chummer6-core.engine_proof_pack",
   "schema_version": 1,
-  "generated_at": "2026-04-17T04:06:05Z",
+  "generated_at": "2026-04-17T04:14:33Z",
   "status": "passed",
   "proof_kind": "release_bound_engine_proof",
   "milestone_id": 104,
@@ -879,6 +879,16 @@
       {
         "commit": "5a649e57",
         "purpose": "current M104 handoff anchor required by local closeout",
+        "status": "passed"
+      },
+      {
+        "commit": "c01dfa10",
+        "purpose": "current M104 handoff proof anchor required by local closeout",
+        "status": "passed"
+      },
+      {
+        "commit": "1a98d904",
+        "purpose": "current M104 documented handoff proof anchor required by local closeout",
         "status": "passed"
       }
     ],

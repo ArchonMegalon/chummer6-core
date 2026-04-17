@@ -16,7 +16,7 @@ The core-owned successor slice is closed when all of these remain true:
 - The row keeps only the assigned allowed paths: `src`, `tests`, `docs`, and `scripts`.
 - The row keeps only the assigned owned surfaces: `engine_proof_pack` and `import_oracle_discipline`.
 - Queue proof anchors resolve inside `/docker/chummercomplete/chummer-core-engine`.
-- Local commit proof includes `5a649e57`, the M104 proof pack handoff anchor.
+- Local commit proof includes `5a649e57`, `c01dfa10`, and `1a98d904`, the M104 proof pack handoff anchors.
 - Registry and queue evidence do not cite task-local telemetry, active-run handoff files, operator telemetry, supervisor-status helpers, or active-run helper command output as release proof.
 
 ## Do Not Reopen
