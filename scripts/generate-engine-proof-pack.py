@@ -537,6 +537,7 @@ REQUIRED_LOCAL_COMMIT_PROOFS = (
     ("b5d46938", "current M104 engine proof pack discipline guard required by local closeout"),
     ("c1300863", "current M104 engine proof pack discipline guard pin required by local closeout"),
     ("8f4702a5", "current M104 release-bound proof discipline guard required by local closeout"),
+    ("aeeeaf6e", "current M104 package-commit citation proof guard required by registry and queue closeout"),
 )
 
 
