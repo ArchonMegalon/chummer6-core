@@ -557,6 +557,10 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
             "2c98f61c",
             [row["commit"] for row in payload["local_commit_proofs"]["required_commits"]],
         )
+        self.assertIn(
+            "2e4e8e81",
+            [row["commit"] for row in payload["local_commit_proofs"]["required_commits"]],
+        )
         self.assertEqual("complete", payload["successor_wave_authority"]["closure_requirements"]["status"])
         self.assertEqual(3227666051, payload["successor_wave_authority"]["closure_requirements"]["frontier_id"])
         self.assertEqual("00800059", payload["successor_wave_authority"]["closure_requirements"]["landed_commit"])
@@ -567,6 +571,23 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
         self.assertEqual([], payload["unresolved"]["successor_wave_authority"])
         self.assertEqual([], payload["unresolved"]["release_channel_binding"])
         self.assertEqual([], payload["unresolved"]["import_oracle_discipline"])
+        self.assertEqual(
+            ["dotnet run --project Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj -c Release"],
+            payload["import_oracle_discipline"]["required_source_receipt_commands"],
+        )
+        self.assertEqual(
+            ["core-engine-tests: ok"],
+            payload["import_oracle_discipline"]["required_source_receipt_evidence"],
+        )
+        self.assertEqual(5, payload["import_oracle_discipline"]["required_source_receipt_coverage_total"])
+        self.assertEqual([], payload["import_oracle_discipline"]["missing_required_source_receipt_commands"])
+        self.assertEqual([], payload["import_oracle_discipline"]["missing_required_source_receipt_evidence"])
+        self.assertEqual([], payload["import_oracle_discipline"]["unexpected_source_receipt_commands"])
+        self.assertEqual([], payload["import_oracle_discipline"]["unexpected_source_receipt_evidence"])
+        self.assertEqual([], payload["import_oracle_discipline"]["duplicate_source_receipt_commands"])
+        self.assertEqual([], payload["import_oracle_discipline"]["duplicate_source_receipt_evidence"])
+        self.assertEqual([], payload["import_oracle_discipline"]["disallowed_source_receipt_command_tokens"])
+        self.assertEqual([], payload["import_oracle_discipline"]["disallowed_source_receipt_evidence_tokens"])
         self.assertEqual("passed", payload["release_channel_binding"]["status"])
         self.assertEqual("docker", payload["release_channel_binding"]["channel_id"])
         self.assertEqual(["src", "tests", "docs", "scripts"], payload["successor_wave_authority"]["queue_allowed_paths"])
@@ -655,6 +676,90 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
         explain_budget = next(row for row in payload["performance_budgets"] if row["id"] == "explain")
         self.assertTrue(explain_budget["missing_executable_workload"])
 
+    def test_build_payload_fails_closed_when_budget_workload_is_duplicated(self) -> None:
+        budget_path = self.root / "Chummer.Benchmarks" / "workspace-benchmark-budgets.json"
+        budget_payload = json.loads(budget_path.read_text(encoding="utf-8"))
+        budget_payload["workloads"].append(
+            {"name": "runtime.explain.trace", "maxMeanMilliseconds": 220, "maxAllocatedBytes": 24000000}
+        )
+        budget_path.write_text(json.dumps(budget_payload), encoding="utf-8")
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertIn("explain", payload["unresolved"]["performance_budgets"])
+        explain_budget = next(row for row in payload["performance_budgets"] if row["id"] == "explain")
+        self.assertTrue(explain_budget["duplicate_workload"])
+        self.assertIn("runtime.explain.trace", explain_budget["duplicate_workload_names"])
+
+    def test_build_payload_fails_closed_when_budget_thresholds_are_malformed(self) -> None:
+        budget_path = self.root / "Chummer.Benchmarks" / "workspace-benchmark-budgets.json"
+        budget_payload = json.loads(budget_path.read_text(encoding="utf-8"))
+        for workload in budget_payload["workloads"]:
+            if workload["name"] == "runtime.explain.trace":
+                workload["maxMeanMilliseconds"] = "fast"
+                workload["maxAllocatedBytes"] = True
+        budget_path.write_text(json.dumps(budget_payload), encoding="utf-8")
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertIn("explain", payload["unresolved"]["performance_budgets"])
+        explain_budget = next(row for row in payload["performance_budgets"] if row["id"] == "explain")
+        self.assertTrue(explain_budget["malformed_threshold"])
+        self.assertEqual(0, explain_budget["max_mean_milliseconds"])
+        self.assertEqual(0, explain_budget["max_allocated_bytes"])
+
+    def test_build_payload_fails_closed_when_budget_thresholds_are_numeric_strings(self) -> None:
+        budget_path = self.root / "Chummer.Benchmarks" / "workspace-benchmark-budgets.json"
+        budget_payload = json.loads(budget_path.read_text(encoding="utf-8"))
+        for workload in budget_payload["workloads"]:
+            if workload["name"] == "runtime.explain.trace":
+                workload["maxMeanMilliseconds"] = "220"
+                workload["maxAllocatedBytes"] = "24000000"
+        budget_path.write_text(json.dumps(budget_payload), encoding="utf-8")
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertIn("explain", payload["unresolved"]["performance_budgets"])
+        explain_budget = next(row for row in payload["performance_budgets"] if row["id"] == "explain")
+        self.assertTrue(explain_budget["malformed_threshold"])
+        self.assertEqual(0, explain_budget["max_mean_milliseconds"])
+        self.assertEqual(0, explain_budget["max_allocated_bytes"])
+
+    def test_build_payload_fails_closed_when_budget_allocated_bytes_are_fractional(self) -> None:
+        budget_path = self.root / "Chummer.Benchmarks" / "workspace-benchmark-budgets.json"
+        budget_payload = json.loads(budget_path.read_text(encoding="utf-8"))
+        for workload in budget_payload["workloads"]:
+            if workload["name"] == "workspace.export.bastion":
+                workload["maxAllocatedBytes"] = 1024.5
+        budget_path.write_text(json.dumps(budget_payload), encoding="utf-8")
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertIn("export_prep", payload["unresolved"]["performance_budgets"])
+        export_budget = next(row for row in payload["performance_budgets"] if row["id"] == "export_prep")
+        self.assertTrue(export_budget["malformed_threshold"])
+        self.assertEqual(0, export_budget["max_allocated_bytes"])
+
+    def test_build_payload_fails_closed_when_budget_allocated_bytes_are_integer_valued_float(self) -> None:
+        budget_path = self.root / "Chummer.Benchmarks" / "workspace-benchmark-budgets.json"
+        budget_payload = json.loads(budget_path.read_text(encoding="utf-8"))
+        for workload in budget_payload["workloads"]:
+            if workload["name"] == "workspace.export.bastion":
+                workload["maxAllocatedBytes"] = 1024.0
+        budget_path.write_text(json.dumps(budget_payload), encoding="utf-8")
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertIn("export_prep", payload["unresolved"]["performance_budgets"])
+        export_budget = next(row for row in payload["performance_budgets"] if row["id"] == "export_prep")
+        self.assertTrue(export_budget["malformed_threshold"])
+        self.assertEqual(0, export_budget["max_allocated_bytes"])
+
     def test_build_payload_fails_closed_when_adjacent_import_oracle_is_missing(self) -> None:
         cert_path = self.root / ".codex-studio" / "published" / "IMPORT_PARITY_CERTIFICATION.generated.json"
         cert = json.loads(cert_path.read_text(encoding="utf-8"))
@@ -665,6 +770,618 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
 
         self.assertEqual("failed", payload["status"])
         self.assertIn("missing_adjacent_oracle:CommLink6", payload["unresolved"]["import_oracle_discipline"])
+        self.assertIn("malformed_adjacent_oracle:Genesis", payload["unresolved"]["import_oracle_discipline"])
+
+    def test_build_payload_fails_closed_when_adjacent_import_oracles_are_name_only(self) -> None:
+        cert_path = self.root / ".codex-studio" / "published" / "IMPORT_PARITY_CERTIFICATION.generated.json"
+        cert = json.loads(cert_path.read_text(encoding="utf-8"))
+        cert["adjacent_oracles"] = ["Genesis", "CommLink6"]
+        cert_path.write_text(json.dumps(cert), encoding="utf-8")
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertIn("malformed_adjacent_oracle:Genesis", payload["unresolved"]["import_oracle_discipline"])
+        self.assertIn("malformed_adjacent_oracle:CommLink6", payload["unresolved"]["import_oracle_discipline"])
+
+    def test_build_payload_fails_closed_when_required_import_oracle_is_duplicated(self) -> None:
+        cert_path = self.root / ".codex-studio" / "published" / "IMPORT_PARITY_CERTIFICATION.generated.json"
+        cert = json.loads(cert_path.read_text(encoding="utf-8"))
+        cert["import_oracles"] = [
+            {"name": "Chummer4", "sources_covered": 0, "sources_expected": 1},
+            {"name": "Chummer4", "sources_covered": 1, "sources_expected": 1},
+            {"name": "Chummer5a", "sources_covered": 1, "sources_expected": 1},
+            {"name": "Hero Lab Classic", "sources_covered": 1, "sources_expected": 1},
+        ]
+        cert_path.write_text(json.dumps(cert), encoding="utf-8")
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertIn("duplicate_import_oracle:chummer4", payload["unresolved"]["import_oracle_discipline"])
+
+    def test_build_payload_fails_closed_when_required_import_oracle_counts_are_malformed(self) -> None:
+        cert_path = self.root / ".codex-studio" / "published" / "IMPORT_PARITY_CERTIFICATION.generated.json"
+        cert = json.loads(cert_path.read_text(encoding="utf-8"))
+        cert["import_oracles"] = [
+            {"name": "Chummer4", "sources_covered": "all", "sources_expected": 1},
+            {"name": "Chummer5a", "sources_covered": 1, "sources_expected": 1},
+            {"name": "Hero Lab Classic", "sources_covered": 1, "sources_expected": 1},
+        ]
+        cert_path.write_text(json.dumps(cert), encoding="utf-8")
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertIn("incomplete_import_oracle:Chummer4", payload["unresolved"]["import_oracle_discipline"])
+
+    def test_build_payload_fails_closed_when_required_import_oracle_counts_are_numeric_strings(self) -> None:
+        cert_path = self.root / ".codex-studio" / "published" / "IMPORT_PARITY_CERTIFICATION.generated.json"
+        cert = json.loads(cert_path.read_text(encoding="utf-8"))
+        cert["import_oracles"] = [
+            {"name": "Chummer4", "sources_covered": "1", "sources_expected": "1"},
+            {"name": "Chummer5a", "sources_covered": 1, "sources_expected": 1},
+            {"name": "Hero Lab Classic", "sources_covered": 1, "sources_expected": 1},
+        ]
+        cert_path.write_text(json.dumps(cert), encoding="utf-8")
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertIn("incomplete_import_oracle:Chummer4", payload["unresolved"]["import_oracle_discipline"])
+
+    def test_build_payload_fails_closed_when_required_import_oracle_counts_are_booleans(self) -> None:
+        cert_path = self.root / ".codex-studio" / "published" / "IMPORT_PARITY_CERTIFICATION.generated.json"
+        cert = json.loads(cert_path.read_text(encoding="utf-8"))
+        cert["import_oracles"] = [
+            {"name": "Chummer4", "sources_covered": True, "sources_expected": True},
+            {"name": "Chummer5a", "sources_covered": 1, "sources_expected": 1},
+            {"name": "Hero Lab Classic", "sources_covered": 1, "sources_expected": 1},
+        ]
+        cert_path.write_text(json.dumps(cert), encoding="utf-8")
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertIn("incomplete_import_oracle:Chummer4", payload["unresolved"]["import_oracle_discipline"])
+
+    def test_build_payload_fails_closed_when_required_import_oracle_counts_are_fractional(self) -> None:
+        cert_path = self.root / ".codex-studio" / "published" / "IMPORT_PARITY_CERTIFICATION.generated.json"
+        cert = json.loads(cert_path.read_text(encoding="utf-8"))
+        cert["import_oracles"] = [
+            {"name": "Chummer4", "sources_covered": 1.5, "sources_expected": 1.5},
+            {"name": "Chummer5a", "sources_covered": 1, "sources_expected": 1},
+            {"name": "Hero Lab Classic", "sources_covered": 1, "sources_expected": 1},
+        ]
+        cert_path.write_text(json.dumps(cert), encoding="utf-8")
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertIn("incomplete_import_oracle:Chummer4", payload["unresolved"]["import_oracle_discipline"])
+
+    def test_build_payload_fails_closed_when_required_import_oracle_counts_are_integer_floats(self) -> None:
+        cert_path = self.root / ".codex-studio" / "published" / "IMPORT_PARITY_CERTIFICATION.generated.json"
+        cert = json.loads(cert_path.read_text(encoding="utf-8"))
+        cert["import_oracles"] = [
+            {"name": "Chummer4", "sources_covered": 1.0, "sources_expected": 1.0},
+            {"name": "Chummer5a", "sources_covered": 1, "sources_expected": 1},
+            {"name": "Hero Lab Classic", "sources_covered": 1, "sources_expected": 1},
+        ]
+        cert_path.write_text(json.dumps(cert), encoding="utf-8")
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertIn("incomplete_import_oracle:Chummer4", payload["unresolved"]["import_oracle_discipline"])
+
+    def test_build_payload_fails_closed_when_adjacent_import_oracle_is_undercovered(self) -> None:
+        cert_path = self.root / ".codex-studio" / "published" / "IMPORT_PARITY_CERTIFICATION.generated.json"
+        cert = json.loads(cert_path.read_text(encoding="utf-8"))
+        cert["adjacent_oracles"] = [
+            {"name": "Genesis", "sources_covered": 1, "sources_expected": 1},
+            {"name": "CommLink6", "sources_covered": 0, "sources_expected": 1},
+        ]
+        cert_path.write_text(json.dumps(cert), encoding="utf-8")
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertIn("incomplete_adjacent_oracle:CommLink6", payload["unresolved"]["import_oracle_discipline"])
+
+    def test_build_payload_fails_closed_when_adjacent_import_oracle_is_duplicated(self) -> None:
+        cert_path = self.root / ".codex-studio" / "published" / "IMPORT_PARITY_CERTIFICATION.generated.json"
+        cert = json.loads(cert_path.read_text(encoding="utf-8"))
+        cert["adjacent_oracles"] = [
+            {"name": "Genesis", "sources_covered": 0, "sources_expected": 1},
+            {"name": "Genesis", "sources_covered": 1, "sources_expected": 1},
+            {"name": "CommLink6", "sources_covered": 1, "sources_expected": 1},
+        ]
+        cert_path.write_text(json.dumps(cert), encoding="utf-8")
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertIn("duplicate_adjacent_oracle:genesis", payload["unresolved"]["import_oracle_discipline"])
+
+    def test_build_payload_fails_closed_when_adjacent_import_oracle_counts_are_malformed(self) -> None:
+        cert_path = self.root / ".codex-studio" / "published" / "IMPORT_PARITY_CERTIFICATION.generated.json"
+        cert = json.loads(cert_path.read_text(encoding="utf-8"))
+        cert["adjacent_oracles"] = [
+            {"name": "Genesis", "sources_covered": "all", "sources_expected": 1},
+            {"name": "CommLink6", "sources_covered": 1, "sources_expected": 1},
+        ]
+        cert_path.write_text(json.dumps(cert), encoding="utf-8")
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertIn("incomplete_adjacent_oracle:Genesis", payload["unresolved"]["import_oracle_discipline"])
+
+    def test_build_payload_fails_closed_when_adjacent_import_oracle_counts_are_numeric_strings(self) -> None:
+        cert_path = self.root / ".codex-studio" / "published" / "IMPORT_PARITY_CERTIFICATION.generated.json"
+        cert = json.loads(cert_path.read_text(encoding="utf-8"))
+        cert["adjacent_oracles"] = [
+            {"name": "Genesis", "sources_covered": "1", "sources_expected": "1"},
+            {"name": "CommLink6", "sources_covered": 1, "sources_expected": 1},
+        ]
+        cert_path.write_text(json.dumps(cert), encoding="utf-8")
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertIn("incomplete_adjacent_oracle:Genesis", payload["unresolved"]["import_oracle_discipline"])
+
+    def test_build_payload_fails_closed_when_adjacent_import_oracle_counts_are_booleans(self) -> None:
+        cert_path = self.root / ".codex-studio" / "published" / "IMPORT_PARITY_CERTIFICATION.generated.json"
+        cert = json.loads(cert_path.read_text(encoding="utf-8"))
+        cert["adjacent_oracles"] = [
+            {"name": "Genesis", "sources_covered": True, "sources_expected": True},
+            {"name": "CommLink6", "sources_covered": 1, "sources_expected": 1},
+        ]
+        cert_path.write_text(json.dumps(cert), encoding="utf-8")
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertIn("incomplete_adjacent_oracle:Genesis", payload["unresolved"]["import_oracle_discipline"])
+
+    def test_build_payload_fails_closed_when_adjacent_import_oracle_counts_are_fractional(self) -> None:
+        cert_path = self.root / ".codex-studio" / "published" / "IMPORT_PARITY_CERTIFICATION.generated.json"
+        cert = json.loads(cert_path.read_text(encoding="utf-8"))
+        cert["adjacent_oracles"] = [
+            {"name": "Genesis", "sources_covered": 1.5, "sources_expected": 1.5},
+            {"name": "CommLink6", "sources_covered": 1, "sources_expected": 1},
+        ]
+        cert_path.write_text(json.dumps(cert), encoding="utf-8")
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertIn("incomplete_adjacent_oracle:Genesis", payload["unresolved"]["import_oracle_discipline"])
+
+    def test_build_payload_fails_closed_when_adjacent_import_oracle_counts_are_integer_floats(self) -> None:
+        cert_path = self.root / ".codex-studio" / "published" / "IMPORT_PARITY_CERTIFICATION.generated.json"
+        cert = json.loads(cert_path.read_text(encoding="utf-8"))
+        cert["adjacent_oracles"] = [
+            {"name": "Genesis", "sources_covered": 1.0, "sources_expected": 1.0},
+            {"name": "CommLink6", "sources_covered": 1, "sources_expected": 1},
+        ]
+        cert_path.write_text(json.dumps(cert), encoding="utf-8")
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertIn("incomplete_adjacent_oracle:Genesis", payload["unresolved"]["import_oracle_discipline"])
+
+    def test_build_payload_fails_closed_when_import_receipt_loses_commands(self) -> None:
+        cert_path = self.root / ".codex-studio" / "published" / "IMPORT_PARITY_CERTIFICATION.generated.json"
+        cert = json.loads(cert_path.read_text(encoding="utf-8"))
+        cert["commands"] = []
+        cert_path.write_text(json.dumps(cert), encoding="utf-8")
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertIn("source_receipt_commands", payload["unresolved"]["import_oracle_discipline"])
+
+    def test_build_payload_fails_closed_when_import_receipt_identity_drifts(self) -> None:
+        cert_path = self.root / ".codex-studio" / "published" / "IMPORT_PARITY_CERTIFICATION.generated.json"
+        cert = json.loads(cert_path.read_text(encoding="utf-8"))
+        cert["contract_name"] = "chummer6-core.operator_summary"
+        cert["schema_version"] = 2
+        cert["proof_kind"] = "status_helper_summary"
+        cert_path.write_text(json.dumps(cert), encoding="utf-8")
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertIn("source_receipt_identity:contract_name", payload["unresolved"]["import_oracle_discipline"])
+        self.assertIn("source_receipt_identity:schema_version", payload["unresolved"]["import_oracle_discipline"])
+        self.assertIn("source_receipt_identity:proof_kind", payload["unresolved"]["import_oracle_discipline"])
+
+    def test_build_payload_fails_closed_when_import_receipt_has_malformed_commands(self) -> None:
+        cert_path = self.root / ".codex-studio" / "published" / "IMPORT_PARITY_CERTIFICATION.generated.json"
+        cert = json.loads(cert_path.read_text(encoding="utf-8"))
+        cert["commands"] = [
+            "dotnet run --project Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj -c Release",
+            "",
+            {"command": "not a release-bound command string"},
+        ]
+        cert_path.write_text(json.dumps(cert), encoding="utf-8")
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertIn("source_receipt_commands_malformed", payload["unresolved"]["import_oracle_discipline"])
+
+    def test_build_payload_fails_closed_when_import_receipt_loses_evidence(self) -> None:
+        cert_path = self.root / ".codex-studio" / "published" / "IMPORT_PARITY_CERTIFICATION.generated.json"
+        cert = json.loads(cert_path.read_text(encoding="utf-8"))
+        cert["evidence"] = []
+        cert_path.write_text(json.dumps(cert), encoding="utf-8")
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertIn("source_receipt_evidence", payload["unresolved"]["import_oracle_discipline"])
+
+    def test_build_payload_fails_closed_when_import_receipt_has_malformed_evidence(self) -> None:
+        cert_path = self.root / ".codex-studio" / "published" / "IMPORT_PARITY_CERTIFICATION.generated.json"
+        cert = json.loads(cert_path.read_text(encoding="utf-8"))
+        cert["evidence"] = [
+            "core-engine-tests: ok",
+            " ",
+            {"path": "docs/ENGINE_PROOF_PACK.md"},
+        ]
+        cert_path.write_text(json.dumps(cert), encoding="utf-8")
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertIn("source_receipt_evidence_malformed", payload["unresolved"]["import_oracle_discipline"])
+
+    def test_build_payload_fails_closed_when_import_receipt_loses_required_command(self) -> None:
+        cert_path = self.root / ".codex-studio" / "published" / "IMPORT_PARITY_CERTIFICATION.generated.json"
+        cert = json.loads(cert_path.read_text(encoding="utf-8"))
+        cert["commands"] = [
+            "dotnet test Chummer.Tests/Chummer.Tests.csproj --filter ImportParity",
+        ]
+        cert_path.write_text(json.dumps(cert), encoding="utf-8")
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        required_command = "dotnet run --project Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj -c Release"
+        self.assertEqual("failed", payload["status"])
+        self.assertIn(
+            f"source_receipt_required_command:{required_command}",
+            payload["unresolved"]["import_oracle_discipline"],
+        )
+        self.assertEqual(
+            [required_command],
+            payload["import_oracle_discipline"]["missing_required_source_receipt_commands"],
+        )
+
+    def test_build_payload_fails_closed_when_import_receipt_loses_required_evidence(self) -> None:
+        cert_path = self.root / ".codex-studio" / "published" / "IMPORT_PARITY_CERTIFICATION.generated.json"
+        cert = json.loads(cert_path.read_text(encoding="utf-8"))
+        cert["evidence"] = ["import-parity-summary: ok"]
+        cert_path.write_text(json.dumps(cert), encoding="utf-8")
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertIn(
+            "source_receipt_required_evidence:core-engine-tests: ok",
+            payload["unresolved"]["import_oracle_discipline"],
+        )
+        self.assertEqual(
+            ["core-engine-tests: ok"],
+            payload["import_oracle_discipline"]["missing_required_source_receipt_evidence"],
+        )
+
+    def test_build_payload_fails_closed_when_import_receipt_adds_non_release_bound_rows(self) -> None:
+        cert_path = self.root / ".codex-studio" / "published" / "IMPORT_PARITY_CERTIFICATION.generated.json"
+        cert = json.loads(cert_path.read_text(encoding="utf-8"))
+        cert["commands"] = cert["commands"] + [
+            "dotnet test Chummer.Tests/Chummer.Tests.csproj --filter ImportParity",
+        ]
+        cert["evidence"] = cert["evidence"] + [
+            "operator-summary: import parity passed",
+        ]
+        cert_path.write_text(json.dumps(cert), encoding="utf-8")
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertIn(
+            "source_receipt_unexpected_command:dotnet test Chummer.Tests/Chummer.Tests.csproj --filter ImportParity",
+            payload["unresolved"]["import_oracle_discipline"],
+        )
+        self.assertIn(
+            "source_receipt_unexpected_evidence:operator-summary: import parity passed",
+            payload["unresolved"]["import_oracle_discipline"],
+        )
+        self.assertEqual(
+            ["dotnet test Chummer.Tests/Chummer.Tests.csproj --filter ImportParity"],
+            payload["import_oracle_discipline"]["unexpected_source_receipt_commands"],
+        )
+        self.assertEqual(
+            ["operator-summary: import parity passed"],
+            payload["import_oracle_discipline"]["unexpected_source_receipt_evidence"],
+        )
+
+    def test_build_payload_fails_closed_when_import_receipt_has_duplicate_command_or_evidence(self) -> None:
+        cert_path = self.root / ".codex-studio" / "published" / "IMPORT_PARITY_CERTIFICATION.generated.json"
+        cert = json.loads(cert_path.read_text(encoding="utf-8"))
+        cert["commands"] = cert["commands"] + cert["commands"]
+        cert["evidence"] = cert["evidence"] + cert["evidence"]
+        cert_path.write_text(json.dumps(cert), encoding="utf-8")
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        required_command = "dotnet run --project Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj -c Release"
+        self.assertEqual("failed", payload["status"])
+        self.assertIn(
+            f"source_receipt_duplicate_command:{required_command}",
+            payload["unresolved"]["import_oracle_discipline"],
+        )
+        self.assertIn(
+            "source_receipt_duplicate_evidence:core-engine-tests: ok",
+            payload["unresolved"]["import_oracle_discipline"],
+        )
+        self.assertEqual(
+            [required_command],
+            payload["import_oracle_discipline"]["duplicate_source_receipt_commands"],
+        )
+        self.assertEqual(
+            ["core-engine-tests: ok"],
+            payload["import_oracle_discipline"]["duplicate_source_receipt_evidence"],
+        )
+
+    def test_build_payload_fails_closed_when_import_receipt_cites_active_run_evidence(self) -> None:
+        cert_path = self.root / ".codex-studio" / "published" / "IMPORT_PARITY_CERTIFICATION.generated.json"
+        cert = json.loads(cert_path.read_text(encoding="utf-8"))
+        cert["commands"] = cert["commands"] + ["supervisor status helper import parity pass"]
+        cert["evidence"] = cert["evidence"] + ["Prompt path: /var/lib/codex-fleet/run/prompt.txt"]
+        cert_path.write_text(json.dumps(cert), encoding="utf-8")
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertIn(
+            "source_receipt_command_disallowed_active_run_proof:supervisor status",
+            payload["unresolved"]["import_oracle_discipline"],
+        )
+        self.assertIn(
+            "source_receipt_command_disallowed_active_run_proof:status helper",
+            payload["unresolved"]["import_oracle_discipline"],
+        )
+        self.assertIn(
+            "source_receipt_evidence_disallowed_active_run_proof:/var/lib/codex-fleet/",
+            payload["unresolved"]["import_oracle_discipline"],
+        )
+        self.assertIn(
+            "source_receipt_evidence_disallowed_active_run_proof:prompt path:",
+            payload["unresolved"]["import_oracle_discipline"],
+        )
+        self.assertEqual(
+            ["supervisor status", "status helper"],
+            payload["import_oracle_discipline"]["disallowed_source_receipt_command_tokens"],
+        )
+        self.assertEqual(
+            ["/var/lib/codex-fleet/", "prompt path:"],
+            payload["import_oracle_discipline"]["disallowed_source_receipt_evidence_tokens"],
+        )
+
+    def test_build_payload_fails_closed_when_import_receipt_cites_docker_fleet_state_run_path(self) -> None:
+        cert_path = self.root / ".codex-studio" / "published" / "IMPORT_PARITY_CERTIFICATION.generated.json"
+        cert = json.loads(cert_path.read_text(encoding="utf-8"))
+        cert["evidence"] = cert["evidence"] + [
+            "/docker/fleet/state/chummer_design_supervisor/shard-4/runs/run/prompt.txt"
+        ]
+        cert_path.write_text(json.dumps(cert), encoding="utf-8")
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertIn(
+            "source_receipt_evidence_disallowed_active_run_proof:/docker/fleet/state/chummer_design_supervisor/",
+            payload["unresolved"]["import_oracle_discipline"],
+        )
+        self.assertEqual(
+            ["/docker/fleet/state/chummer_design_supervisor/"],
+            payload["import_oracle_discipline"]["disallowed_source_receipt_evidence_tokens"],
+        )
+
+    def test_build_payload_fails_closed_when_import_receipt_cites_percent_encoded_active_run_evidence(self) -> None:
+        cert_path = self.root / ".codex-studio" / "published" / "IMPORT_PARITY_CERTIFICATION.generated.json"
+        cert = json.loads(cert_path.read_text(encoding="utf-8"))
+        cert["commands"] = cert["commands"] + ["supervisor%20helper%20loop%20import%20proof"]
+        cert["evidence"] = cert["evidence"] + ["Prompt%20path%3A%20%2Fvar%2Flib%2Fcodex-fleet%2Frun%2Fprompt.txt"]
+        cert_path.write_text(json.dumps(cert), encoding="utf-8")
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertIn(
+            "source_receipt_command_disallowed_active_run_proof:supervisor helper",
+            payload["unresolved"]["import_oracle_discipline"],
+        )
+        self.assertIn(
+            "source_receipt_command_disallowed_active_run_proof:helper loop",
+            payload["unresolved"]["import_oracle_discipline"],
+        )
+        self.assertIn(
+            "source_receipt_evidence_disallowed_active_run_proof:/var/lib/codex-fleet/",
+            payload["unresolved"]["import_oracle_discipline"],
+        )
+        self.assertIn(
+            "source_receipt_evidence_disallowed_active_run_proof:prompt path:",
+            payload["unresolved"]["import_oracle_discipline"],
+        )
+
+    def test_build_payload_fails_closed_when_import_receipt_cites_form_encoded_active_run_evidence(self) -> None:
+        cert_path = self.root / ".codex-studio" / "published" / "IMPORT_PARITY_CERTIFICATION.generated.json"
+        cert = json.loads(cert_path.read_text(encoding="utf-8"))
+        cert["commands"] = cert["commands"] + ["supervisor+helper+loop+import+proof"]
+        cert["evidence"] = cert["evidence"] + ["Prompt+path%3A+%2Fvar%2Flib%2Fcodex-fleet%2Frun%2Fprompt.txt"]
+        cert_path.write_text(json.dumps(cert), encoding="utf-8")
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertIn(
+            "source_receipt_command_disallowed_active_run_proof:supervisor helper",
+            payload["unresolved"]["import_oracle_discipline"],
+        )
+        self.assertIn(
+            "source_receipt_command_disallowed_active_run_proof:helper loop",
+            payload["unresolved"]["import_oracle_discipline"],
+        )
+        self.assertIn(
+            "source_receipt_evidence_disallowed_active_run_proof:/var/lib/codex-fleet/",
+            payload["unresolved"]["import_oracle_discipline"],
+        )
+        self.assertIn(
+            "source_receipt_evidence_disallowed_active_run_proof:prompt path:",
+            payload["unresolved"]["import_oracle_discipline"],
+        )
+
+    def test_build_payload_fails_closed_when_import_receipt_cites_implementation_only_retry_prompt(self) -> None:
+        cert_path = self.root / ".codex-studio" / "published" / "IMPORT_PARITY_CERTIFICATION.generated.json"
+        cert = json.loads(cert_path.read_text(encoding="utf-8"))
+        cert["commands"] = cert["commands"] + ["implementation-only retry import proof"]
+        cert["evidence"] = cert["evidence"] + ["Previous attempt burned time; import oracle is complete"]
+        cert_path.write_text(json.dumps(cert), encoding="utf-8")
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertIn(
+            "source_receipt_command_disallowed_active_run_proof:implementation-only retry",
+            payload["unresolved"]["import_oracle_discipline"],
+        )
+        self.assertIn(
+            "source_receipt_command_disallowed_active_run_proof:implementation-only",
+            payload["unresolved"]["import_oracle_discipline"],
+        )
+        self.assertIn(
+            "source_receipt_evidence_disallowed_active_run_proof:previous attempt burned time",
+            payload["unresolved"]["import_oracle_discipline"],
+        )
+        self.assertIn(
+            "source_receipt_evidence_disallowed_active_run_proof:previous attempt",
+            payload["unresolved"]["import_oracle_discipline"],
+        )
+        self.assertEqual(
+            ["implementation-only retry", "implementation-only"],
+            payload["import_oracle_discipline"]["disallowed_source_receipt_command_tokens"],
+        )
+        self.assertEqual(
+            ["previous attempt", "previous attempt burned time"],
+            payload["import_oracle_discipline"]["disallowed_source_receipt_evidence_tokens"],
+        )
+
+    def test_build_payload_fails_closed_when_import_receipt_coverage_summary_is_missing(self) -> None:
+        cert_path = self.root / ".codex-studio" / "published" / "IMPORT_PARITY_CERTIFICATION.generated.json"
+        cert = json.loads(cert_path.read_text(encoding="utf-8"))
+        cert.pop("coverage", None)
+        cert_path.write_text(json.dumps(cert), encoding="utf-8")
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertIn("source_receipt_coverage", payload["unresolved"]["import_oracle_discipline"])
+
+    def test_build_payload_fails_closed_when_import_receipt_coverage_summary_is_incomplete(self) -> None:
+        cert_path = self.root / ".codex-studio" / "published" / "IMPORT_PARITY_CERTIFICATION.generated.json"
+        cert = json.loads(cert_path.read_text(encoding="utf-8"))
+        cert["coverage"] = {"sources_covered": 3, "sources_expected": 4, "coverage_percent": 75}
+        cert_path.write_text(json.dumps(cert), encoding="utf-8")
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertIn("source_receipt_coverage", payload["unresolved"]["import_oracle_discipline"])
+
+    def test_build_payload_fails_closed_when_import_receipt_coverage_summary_omits_adjacent_oracles(self) -> None:
+        cert_path = self.root / ".codex-studio" / "published" / "IMPORT_PARITY_CERTIFICATION.generated.json"
+        cert = json.loads(cert_path.read_text(encoding="utf-8"))
+        cert["coverage"] = {"sources_covered": 4, "sources_expected": 4, "coverage_percent": 100}
+        cert_path.write_text(json.dumps(cert), encoding="utf-8")
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertEqual(5, payload["import_oracle_discipline"]["required_source_receipt_coverage_total"])
+        self.assertIn("source_receipt_coverage", payload["unresolved"]["import_oracle_discipline"])
+
+    def test_build_payload_fails_closed_when_import_receipt_coverage_percent_is_missing(self) -> None:
+        cert_path = self.root / ".codex-studio" / "published" / "IMPORT_PARITY_CERTIFICATION.generated.json"
+        cert = json.loads(cert_path.read_text(encoding="utf-8"))
+        cert["coverage"] = {"sources_covered": 5, "sources_expected": 5}
+        cert_path.write_text(json.dumps(cert), encoding="utf-8")
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertIn("source_receipt_coverage", payload["unresolved"]["import_oracle_discipline"])
+
+    def test_build_payload_fails_closed_when_import_receipt_coverage_percent_is_string_encoded(self) -> None:
+        cert_path = self.root / ".codex-studio" / "published" / "IMPORT_PARITY_CERTIFICATION.generated.json"
+        cert = json.loads(cert_path.read_text(encoding="utf-8"))
+        cert["coverage"] = {"sources_covered": 5, "sources_expected": 5, "coverage_percent": "100"}
+        cert_path.write_text(json.dumps(cert), encoding="utf-8")
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertIn("source_receipt_coverage", payload["unresolved"]["import_oracle_discipline"])
+
+    def test_build_payload_fails_closed_when_import_receipt_coverage_percent_is_boolean(self) -> None:
+        cert_path = self.root / ".codex-studio" / "published" / "IMPORT_PARITY_CERTIFICATION.generated.json"
+        cert = json.loads(cert_path.read_text(encoding="utf-8"))
+        cert["coverage"] = {"sources_covered": 5, "sources_expected": 5, "coverage_percent": True}
+        cert_path.write_text(json.dumps(cert), encoding="utf-8")
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertIn("source_receipt_coverage", payload["unresolved"]["import_oracle_discipline"])
+
+    def test_build_payload_fails_closed_when_import_receipt_coverage_percent_is_under_full(self) -> None:
+        cert_path = self.root / ".codex-studio" / "published" / "IMPORT_PARITY_CERTIFICATION.generated.json"
+        cert = json.loads(cert_path.read_text(encoding="utf-8"))
+        cert["coverage"] = {"sources_covered": 5, "sources_expected": 5, "coverage_percent": 99}
+        cert_path.write_text(json.dumps(cert), encoding="utf-8")
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertIn("source_receipt_coverage", payload["unresolved"]["import_oracle_discipline"])
+
+    def test_build_payload_fails_closed_when_import_receipt_coverage_summary_is_malformed(self) -> None:
+        cert_path = self.root / ".codex-studio" / "published" / "IMPORT_PARITY_CERTIFICATION.generated.json"
+        cert = json.loads(cert_path.read_text(encoding="utf-8"))
+        cert["coverage"] = {"sources_covered": True, "sources_expected": 5.5, "coverage_percent": 100}
+        cert_path.write_text(json.dumps(cert), encoding="utf-8")
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertIn("source_receipt_coverage", payload["unresolved"]["import_oracle_discipline"])
+
+    def test_build_payload_fails_closed_when_import_receipt_coverage_summary_uses_integer_floats(self) -> None:
+        cert_path = self.root / ".codex-studio" / "published" / "IMPORT_PARITY_CERTIFICATION.generated.json"
+        cert = json.loads(cert_path.read_text(encoding="utf-8"))
+        cert["coverage"] = {"sources_covered": 5.0, "sources_expected": 5.0, "coverage_percent": 100}
+        cert_path.write_text(json.dumps(cert), encoding="utf-8")
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertIn("source_receipt_coverage", payload["unresolved"]["import_oracle_discipline"])
 
     def test_build_payload_fails_closed_when_release_channel_loses_promoted_tuple(self) -> None:
         release_path = self.generator.RELEASE_CHANNEL_PATH
@@ -732,6 +1449,48 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
         )
         self.assertIn("artifact_not_on_shelf:avalonia-osx-arm64-installer", macos_tuple["unresolved"])
 
+    def test_build_payload_fails_closed_when_release_channel_duplicates_promoted_tuple(self) -> None:
+        release_path = self.generator.RELEASE_CHANNEL_PATH
+        release_payload = json.loads(release_path.read_text(encoding="utf-8"))
+        release_payload["desktopTupleCoverage"]["desktopRouteTruth"].append(
+            {
+                "tupleId": "avalonia:linux:linux-x64",
+                "head": "avalonia",
+                "platform": "linux",
+                "rid": "linux-x64",
+                "artifactId": "avalonia-linux-x64-installer",
+                "routeRole": "fallback",
+                "promotionState": "promoted",
+                "parityPosture": "explicit_fallback",
+                "updateEligibility": "eligible",
+                "revokeState": "not_revoked",
+                "installPosture": "installer_first",
+            }
+        )
+        release_path.write_text(json.dumps(release_payload), encoding="utf-8")
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertIn(
+            "duplicate_desktop_tuple:avalonia:linux:linux-x64",
+            payload["unresolved"]["release_channel_binding"],
+        )
+
+    def test_build_payload_fails_closed_when_release_channel_duplicates_artifact_id(self) -> None:
+        release_path = self.generator.RELEASE_CHANNEL_PATH
+        release_payload = json.loads(release_path.read_text(encoding="utf-8"))
+        release_payload["artifacts"].append({"artifactId": "avalonia-linux-x64-installer"})
+        release_path.write_text(json.dumps(release_payload), encoding="utf-8")
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertIn(
+            "duplicate_artifact_id:avalonia-linux-x64-installer",
+            payload["unresolved"]["release_channel_binding"],
+        )
+
     def test_build_payload_fails_closed_when_successor_queue_loses_package_authority(self) -> None:
         queue_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_queue_path"])
         queue_path.write_text("package_id: different-package\n", encoding="utf-8")
@@ -778,6 +1537,25 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
             payload["successor_wave_authority"]["missing_queue_tokens"],
         )
 
+    def test_build_payload_fails_closed_when_successor_queue_has_duplicate_proof_items(self) -> None:
+        queue_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_queue_path"])
+        queue_text = queue_path.read_text(encoding="utf-8")
+        proof_item = "/docker/chummercomplete/chummer-core-engine/docs/NEXT90_M104_CORE_PROOF_PACK_CLOSEOUT.md"
+        queue_path.write_text(
+            queue_text.replace(f"      - {proof_item}\n", f"      - {proof_item}\n      - {proof_item}\n"),
+            encoding="utf-8",
+        )
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertEqual("failed", payload["successor_wave_authority"]["status"])
+        self.assertIn("source_queue", payload["unresolved"]["successor_wave_authority"])
+        self.assertIn(
+            f"duplicate_proof_item:{proof_item}",
+            payload["successor_wave_authority"]["missing_queue_tokens"],
+        )
+
     def test_build_payload_fails_closed_when_successor_queue_loses_completion_status(self) -> None:
         queue_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_queue_path"])
         queue_text = queue_path.read_text(encoding="utf-8")
@@ -808,6 +1586,22 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
             payload["closeout_document"]["missing_tokens"],
         )
 
+    def test_build_payload_fails_closed_when_closeout_loses_benchmark_budget_command(self) -> None:
+        closeout_path = self.root / "docs" / "NEXT90_M104_CORE_PROOF_PACK_CLOSEOUT.md"
+        closeout_text = closeout_path.read_text(encoding="utf-8")
+        benchmark_command = (
+            "dotnet run --project Chummer.Benchmarks/Chummer.Benchmarks.csproj -c Release -- "
+            "--budget-check --budget-file Chummer.Benchmarks/workspace-benchmark-budgets.json"
+        )
+        closeout_path.write_text(closeout_text.replace(benchmark_command, ""), encoding="utf-8")
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertEqual("failed", payload["closeout_document"]["status"])
+        self.assertIn("closeout_required_tokens", payload["unresolved"]["closeout_document"])
+        self.assertIn(benchmark_command, payload["closeout_document"]["missing_tokens"])
+
     def test_build_payload_fails_closed_when_closeout_cites_active_run_evidence_path(self) -> None:
         closeout_path = self.root / "docs" / "NEXT90_M104_CORE_PROOF_PACK_CLOSEOUT.md"
         closeout_text = closeout_path.read_text(encoding="utf-8")
@@ -823,6 +1617,61 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
         self.assertIn("closeout_disallowed_active_run_evidence", payload["unresolved"]["closeout_document"])
         self.assertIn("/var/lib/codex-fleet/", payload["closeout_document"]["disallowed_evidence_tokens"])
         self.assertIn("TASK_LOCAL_TELEMETRY.generated.json", payload["closeout_document"]["disallowed_evidence_tokens"])
+
+    def test_build_payload_fails_closed_when_closeout_cites_docker_fleet_state_run_path(self) -> None:
+        closeout_path = self.root / "docs" / "NEXT90_M104_CORE_PROOF_PACK_CLOSEOUT.md"
+        closeout_text = closeout_path.read_text(encoding="utf-8")
+        closeout_path.write_text(
+            closeout_text
+            + "\nProof: /docker/fleet/state/chummer_design_supervisor/shard-4/runs/run/prompt.txt\n",
+            encoding="utf-8",
+        )
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertEqual("failed", payload["closeout_document"]["status"])
+        self.assertIn("closeout_disallowed_active_run_evidence", payload["unresolved"]["closeout_document"])
+        self.assertIn(
+            "/docker/fleet/state/chummer_design_supervisor/",
+            payload["closeout_document"]["disallowed_evidence_tokens"],
+        )
+
+    def test_build_payload_fails_closed_when_closeout_cites_percent_encoded_active_run_evidence(self) -> None:
+        closeout_path = self.root / "docs" / "NEXT90_M104_CORE_PROOF_PACK_CLOSEOUT.md"
+        closeout_text = closeout_path.read_text(encoding="utf-8")
+        closeout_path.write_text(
+            closeout_text
+            + "\nProof: supervisor%20helper%20loops%20from%20%2Fvar%2Flib%2Fcodex-fleet%2Frun\n",
+            encoding="utf-8",
+        )
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertEqual("failed", payload["closeout_document"]["status"])
+        self.assertIn("closeout_disallowed_active_run_evidence", payload["unresolved"]["closeout_document"])
+        self.assertIn("/var/lib/codex-fleet/", payload["closeout_document"]["disallowed_evidence_tokens"])
+        self.assertIn("supervisor helper", payload["closeout_document"]["disallowed_evidence_tokens"])
+        self.assertIn("supervisor helper loops", payload["closeout_document"]["disallowed_evidence_tokens"])
+
+    def test_build_payload_fails_closed_when_closeout_cites_form_encoded_active_run_evidence(self) -> None:
+        closeout_path = self.root / "docs" / "NEXT90_M104_CORE_PROOF_PACK_CLOSEOUT.md"
+        closeout_text = closeout_path.read_text(encoding="utf-8")
+        closeout_path.write_text(
+            closeout_text
+            + "\nProof: supervisor+helper+loops+from+%2Fvar%2Flib%2Fcodex-fleet%2Frun\n",
+            encoding="utf-8",
+        )
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertEqual("failed", payload["closeout_document"]["status"])
+        self.assertIn("closeout_disallowed_active_run_evidence", payload["unresolved"]["closeout_document"])
+        self.assertIn("/var/lib/codex-fleet/", payload["closeout_document"]["disallowed_evidence_tokens"])
+        self.assertIn("supervisor helper", payload["closeout_document"]["disallowed_evidence_tokens"])
+        self.assertIn("supervisor helper loops", payload["closeout_document"]["disallowed_evidence_tokens"])
 
     def test_build_payload_fails_closed_when_closeout_cites_active_run_handoff_labels(self) -> None:
         closeout_path = self.root / "docs" / "NEXT90_M104_CORE_PROOF_PACK_CLOSEOUT.md"
@@ -840,6 +1689,77 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
         self.assertIn("closeout_disallowed_active_run_evidence", payload["unresolved"]["closeout_document"])
         self.assertIn("open milestone ids:", payload["closeout_document"]["disallowed_evidence_tokens"])
         self.assertIn("focus profiles:", payload["closeout_document"]["disallowed_evidence_tokens"])
+
+    def test_build_payload_fails_closed_when_closeout_cites_supervisor_helper_loop_evidence(self) -> None:
+        closeout_path = self.root / "docs" / "NEXT90_M104_CORE_PROOF_PACK_CLOSEOUT.md"
+        closeout_text = closeout_path.read_text(encoding="utf-8")
+        closeout_path.write_text(
+            closeout_text + "\nProof: supervisor helper loops reported this package as complete.\n",
+            encoding="utf-8",
+        )
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertEqual("failed", payload["closeout_document"]["status"])
+        self.assertIn("closeout_disallowed_active_run_evidence", payload["unresolved"]["closeout_document"])
+        self.assertIn("supervisor helper", payload["closeout_document"]["disallowed_evidence_tokens"])
+        self.assertIn("supervisor helper loop", payload["closeout_document"]["disallowed_evidence_tokens"])
+        self.assertIn("supervisor helper loops", payload["closeout_document"]["disallowed_evidence_tokens"])
+        self.assertIn("helper loop", payload["closeout_document"]["disallowed_evidence_tokens"])
+        self.assertIn("helper loops", payload["closeout_document"]["disallowed_evidence_tokens"])
+
+    def test_build_payload_fails_closed_when_closeout_cites_operator_status_snippet_evidence(self) -> None:
+        closeout_path = self.root / "docs" / "NEXT90_M104_CORE_PROOF_PACK_CLOSEOUT.md"
+        closeout_text = closeout_path.read_text(encoding="utf-8")
+        closeout_path.write_text(
+            closeout_text + "\nEvidence: Historical operator status snippets marked this package complete.\n",
+            encoding="utf-8",
+        )
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertEqual("failed", payload["closeout_document"]["status"])
+        self.assertIn("closeout_disallowed_active_run_evidence", payload["unresolved"]["closeout_document"])
+        self.assertIn("operator status snippet", payload["closeout_document"]["disallowed_evidence_tokens"])
+        self.assertIn("operator status snippets", payload["closeout_document"]["disallowed_evidence_tokens"])
+        self.assertIn("historical operator status", payload["closeout_document"]["disallowed_evidence_tokens"])
+        self.assertIn("historical operator status snippet", payload["closeout_document"]["disallowed_evidence_tokens"])
+        self.assertIn("historical operator status snippets", payload["closeout_document"]["disallowed_evidence_tokens"])
+
+    def test_build_payload_fails_closed_when_closeout_contains_historical_operator_status_stale_note(self) -> None:
+        closeout_path = self.root / "docs" / "NEXT90_M104_CORE_PROOF_PACK_CLOSEOUT.md"
+        closeout_text = closeout_path.read_text(encoding="utf-8")
+        closeout_path.write_text(
+            closeout_text + "\nHistorical operator status snippets are stale notes, not proof.\n",
+            encoding="utf-8",
+        )
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertEqual("failed", payload["closeout_document"]["status"])
+        self.assertIn("closeout_disallowed_active_run_evidence", payload["unresolved"]["closeout_document"])
+        self.assertIn("historical operator status", payload["closeout_document"]["disallowed_evidence_tokens"])
+        self.assertIn("historical operator status snippet", payload["closeout_document"]["disallowed_evidence_tokens"])
+        self.assertIn("historical operator status snippets", payload["closeout_document"]["disallowed_evidence_tokens"])
+
+    def test_build_payload_fails_closed_when_closeout_cites_implementation_only_retry_prompt(self) -> None:
+        closeout_path = self.root / "docs" / "NEXT90_M104_CORE_PROOF_PACK_CLOSEOUT.md"
+        closeout_text = closeout_path.read_text(encoding="utf-8")
+        closeout_path.write_text(
+            closeout_text + "\nProof: Previous attempt burned time, this retry is implementation-only.\n",
+            encoding="utf-8",
+        )
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertEqual("failed", payload["closeout_document"]["status"])
+        self.assertIn("closeout_disallowed_active_run_evidence", payload["unresolved"]["closeout_document"])
+        self.assertIn("implementation-only", payload["closeout_document"]["disallowed_evidence_tokens"])
+        self.assertIn("previous attempt burned time", payload["closeout_document"]["disallowed_evidence_tokens"])
 
     def test_build_payload_fails_closed_when_successor_queue_loses_frontier_id(self) -> None:
         queue_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_queue_path"])
@@ -1056,6 +1976,46 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
         self.assertIn("source_queue", payload["unresolved"]["successor_wave_authority"])
         self.assertEqual([off_package_anchor], payload["successor_wave_authority"]["off_package_queue_proof_anchors"])
 
+    def test_build_payload_fails_closed_when_successor_queue_adds_extra_sibling_package_proof_path(self) -> None:
+        off_package_anchor = "/docker/chummercomplete/chummer6-ui-finish/scripts/ai/milestones/next90-m104-ui-explain-receipts-check.sh"
+        queue_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_queue_path"])
+        queue_text = queue_path.read_text(encoding="utf-8")
+        queue_path.write_text(
+            queue_text.replace(
+                "      - /docker/chummercomplete/chummer-core-engine/docs/ENGINE_PROOF_PACK.md\n",
+                "      - /docker/chummercomplete/chummer-core-engine/docs/ENGINE_PROOF_PACK.md\n"
+                f"      - {off_package_anchor}\n",
+            ),
+            encoding="utf-8",
+        )
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertEqual("failed", payload["successor_wave_authority"]["status"])
+        self.assertIn("source_queue", payload["unresolved"]["successor_wave_authority"])
+        self.assertEqual([off_package_anchor], payload["successor_wave_authority"]["off_package_queue_proof_anchors"])
+
+    def test_build_payload_fails_closed_when_successor_queue_adds_extra_missing_package_proof_path(self) -> None:
+        missing_anchor = "/docker/chummercomplete/chummer-core-engine/docs/missing-extra-m104-proof.md"
+        queue_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_queue_path"])
+        queue_text = queue_path.read_text(encoding="utf-8")
+        queue_path.write_text(
+            queue_text.replace(
+                "      - /docker/chummercomplete/chummer-core-engine/docs/ENGINE_PROOF_PACK.md\n",
+                "      - /docker/chummercomplete/chummer-core-engine/docs/ENGINE_PROOF_PACK.md\n"
+                f"      - {missing_anchor}\n",
+            ),
+            encoding="utf-8",
+        )
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertEqual("failed", payload["successor_wave_authority"]["status"])
+        self.assertIn("source_queue", payload["unresolved"]["successor_wave_authority"])
+        self.assertIn(missing_anchor, payload["successor_wave_authority"]["missing_queue_proof_anchors"])
+
     def test_build_payload_fails_closed_when_successor_queue_cites_active_run_proof(self) -> None:
         queue_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_queue_path"])
         queue_text = queue_path.read_text(encoding="utf-8")
@@ -1078,6 +2038,28 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
             payload["successor_wave_authority"]["disallowed_queue_active_run_tokens"],
         )
 
+    def test_build_payload_fails_closed_when_successor_queue_cites_docker_fleet_state_run_path(self) -> None:
+        queue_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_queue_path"])
+        queue_text = queue_path.read_text(encoding="utf-8")
+        queue_path.write_text(
+            queue_text.replace(
+                "      - /docker/chummercomplete/chummer-core-engine/docs/ENGINE_PROOF_PACK.md\n",
+                "      - /docker/chummercomplete/chummer-core-engine/docs/ENGINE_PROOF_PACK.md\n"
+                "      - /docker/fleet/state/chummer_design_supervisor/shard-4/runs/run/prompt.txt\n",
+            ),
+            encoding="utf-8",
+        )
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertEqual("failed", payload["successor_wave_authority"]["status"])
+        self.assertIn("source_queue", payload["unresolved"]["successor_wave_authority"])
+        self.assertEqual(
+            ["/docker/fleet/state/chummer_design_supervisor/"],
+            payload["successor_wave_authority"]["disallowed_queue_active_run_tokens"],
+        )
+
     def test_build_payload_fails_closed_when_successor_queue_cites_task_local_telemetry_proof(self) -> None:
         queue_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_queue_path"])
         queue_text = queue_path.read_text(encoding="utf-8")
@@ -1096,7 +2078,7 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
         self.assertEqual("failed", payload["successor_wave_authority"]["status"])
         self.assertIn("source_queue", payload["unresolved"]["successor_wave_authority"])
         self.assertEqual(
-            ["/var/lib/codex-fleet/", "TASK_LOCAL_TELEMETRY"],
+            ["/var/lib/codex-fleet/", "TASK_LOCAL_TELEMETRY", "task-local telemetry"],
             payload["successor_wave_authority"]["disallowed_queue_active_run_tokens"],
         )
 
@@ -1117,7 +2099,94 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
         self.assertEqual("failed", payload["status"])
         self.assertEqual("failed", payload["successor_wave_authority"]["status"])
         self.assertIn("source_queue", payload["unresolved"]["successor_wave_authority"])
-        self.assertEqual(["active run helper"], payload["successor_wave_authority"]["disallowed_queue_active_run_tokens"])
+        self.assertEqual(
+            ["active run helper", "active-run helper"],
+            payload["successor_wave_authority"]["disallowed_queue_active_run_tokens"],
+        )
+
+    def test_build_payload_fails_closed_when_successor_queue_cites_percent_encoded_helper_proof(self) -> None:
+        queue_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_queue_path"])
+        queue_text = queue_path.read_text(encoding="utf-8")
+        queue_path.write_text(
+            queue_text.replace(
+                "      - /docker/chummercomplete/chummer-core-engine/docs/ENGINE_PROOF_PACK.md\n",
+                "      - /docker/chummercomplete/chummer-core-engine/docs/ENGINE_PROOF_PACK.md\n"
+                "      - supervisor%20helper%20loops%20from%20%2Fvar%2Flib%2Fcodex-fleet%2Frun\n",
+            ),
+            encoding="utf-8",
+        )
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertEqual("failed", payload["successor_wave_authority"]["status"])
+        self.assertIn("source_queue", payload["unresolved"]["successor_wave_authority"])
+        self.assertEqual(
+            [
+                "/var/lib/codex-fleet/",
+                "supervisor helper",
+                "supervisor helper loop",
+                "supervisor helper loops",
+                "helper loop",
+                "helper loops",
+            ],
+            payload["successor_wave_authority"]["disallowed_queue_active_run_tokens"],
+        )
+
+    def test_build_payload_fails_closed_when_successor_queue_cites_form_encoded_helper_proof(self) -> None:
+        queue_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_queue_path"])
+        queue_text = queue_path.read_text(encoding="utf-8")
+        queue_path.write_text(
+            queue_text.replace(
+                "      - /docker/chummercomplete/chummer-core-engine/docs/ENGINE_PROOF_PACK.md\n",
+                "      - /docker/chummercomplete/chummer-core-engine/docs/ENGINE_PROOF_PACK.md\n"
+                "      - supervisor+helper+loops+from+%2Fvar%2Flib%2Fcodex-fleet%2Frun\n",
+            ),
+            encoding="utf-8",
+        )
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertEqual("failed", payload["successor_wave_authority"]["status"])
+        self.assertIn("source_queue", payload["unresolved"]["successor_wave_authority"])
+        self.assertEqual(
+            [
+                "/var/lib/codex-fleet/",
+                "supervisor helper",
+                "supervisor helper loop",
+                "supervisor helper loops",
+                "helper loop",
+                "helper loops",
+            ],
+            payload["successor_wave_authority"]["disallowed_queue_active_run_tokens"],
+        )
+
+    def test_build_payload_fails_closed_when_successor_queue_cites_separator_obfuscated_helper_proof(self) -> None:
+        queue_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_queue_path"])
+        queue_text = queue_path.read_text(encoding="utf-8")
+        queue_path.write_text(
+            queue_text.replace(
+                "      - /docker/chummercomplete/chummer-core-engine/docs/ENGINE_PROOF_PACK.md\n",
+                "      - /docker/chummercomplete/chummer-core-engine/docs/ENGINE_PROOF_PACK.md\n"
+                "      - supervisor-helper_loop output reports this package complete\n",
+            ),
+            encoding="utf-8",
+        )
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertEqual("failed", payload["successor_wave_authority"]["status"])
+        self.assertIn("source_queue", payload["unresolved"]["successor_wave_authority"])
+        self.assertEqual(
+            [
+                "supervisor helper",
+                "supervisor helper loop",
+                "helper loop",
+            ],
+            payload["successor_wave_authority"]["disallowed_queue_active_run_tokens"],
+        )
 
     def test_build_payload_fails_closed_when_successor_queue_cites_successor_wave_telemetry(self) -> None:
         queue_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_queue_path"])
@@ -1138,6 +2207,28 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
         self.assertIn("source_queue", payload["unresolved"]["successor_wave_authority"])
         self.assertEqual(
             ["successor-wave telemetry", "remaining milestones", "critical path"],
+            payload["successor_wave_authority"]["disallowed_queue_active_run_tokens"],
+        )
+
+    def test_build_payload_fails_closed_when_successor_queue_cites_task_local_telemetry_fields(self) -> None:
+        queue_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_queue_path"])
+        queue_text = queue_path.read_text(encoding="utf-8")
+        queue_path.write_text(
+            queue_text.replace(
+                "      - /docker/chummercomplete/chummer-core-engine/docs/ENGINE_PROOF_PACK.md\n",
+                "      - /docker/chummercomplete/chummer-core-engine/docs/ENGINE_PROOF_PACK.md\n"
+                "      - frontier_briefs says status complete; polling_disabled and status_query_supported are true.\n",
+            ),
+            encoding="utf-8",
+        )
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertEqual("failed", payload["successor_wave_authority"]["status"])
+        self.assertIn("source_queue", payload["unresolved"]["successor_wave_authority"])
+        self.assertEqual(
+            ["frontier_briefs", "status_query_supported", "polling_disabled"],
             payload["successor_wave_authority"]["disallowed_queue_active_run_tokens"],
         )
 
@@ -1172,6 +2263,160 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
             payload["successor_wave_authority"]["disallowed_queue_active_run_tokens"],
         )
 
+    def test_build_payload_fails_closed_when_successor_queue_cites_supervisor_helper_loop_evidence(self) -> None:
+        queue_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_queue_path"])
+        queue_text = queue_path.read_text(encoding="utf-8")
+        queue_path.write_text(
+            queue_text.replace(
+                "      - /docker/chummercomplete/chummer-core-engine/docs/ENGINE_PROOF_PACK.md\n",
+                "      - /docker/chummercomplete/chummer-core-engine/docs/ENGINE_PROOF_PACK.md\n"
+                "      - supervisor helper loops reported this package as complete\n",
+            ),
+            encoding="utf-8",
+        )
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertEqual("failed", payload["successor_wave_authority"]["status"])
+        self.assertIn("source_queue", payload["unresolved"]["successor_wave_authority"])
+        self.assertEqual(
+            [
+                "supervisor helper",
+                "supervisor helper loop",
+                "supervisor helper loops",
+                "helper loop",
+                "helper loops",
+            ],
+            payload["successor_wave_authority"]["disallowed_queue_active_run_tokens"],
+        )
+
+    def test_build_payload_fails_closed_when_successor_queue_cites_supervisor_status_helper_proof(self) -> None:
+        queue_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_queue_path"])
+        queue_text = queue_path.read_text(encoding="utf-8")
+        queue_path.write_text(
+            queue_text.replace(
+                "      - /docker/chummercomplete/chummer-core-engine/docs/ENGINE_PROOF_PACK.md\n",
+                "      - /docker/chummercomplete/chummer-core-engine/docs/ENGINE_PROOF_PACK.md\n"
+                "      - Supervisor status helper output reports this package complete.\n",
+            ),
+            encoding="utf-8",
+        )
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertEqual("failed", payload["successor_wave_authority"]["status"])
+        self.assertIn("source_queue", payload["unresolved"]["successor_wave_authority"])
+        self.assertEqual(
+            ["supervisor status", "status helper"],
+            payload["successor_wave_authority"]["disallowed_queue_active_run_tokens"],
+        )
+
+    def test_build_payload_fails_closed_when_successor_queue_cites_supervisor_eta_helper_proof(self) -> None:
+        queue_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_queue_path"])
+        queue_text = queue_path.read_text(encoding="utf-8")
+        queue_path.write_text(
+            queue_text.replace(
+                "      - /docker/chummercomplete/chummer-core-engine/docs/ENGINE_PROOF_PACK.md\n",
+                "      - /docker/chummercomplete/chummer-core-engine/docs/ENGINE_PROOF_PACK.md\n"
+                "      - Supervisor ETA helper output reports this package complete.\n",
+            ),
+            encoding="utf-8",
+        )
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertEqual("failed", payload["successor_wave_authority"]["status"])
+        self.assertIn("source_queue", payload["unresolved"]["successor_wave_authority"])
+        self.assertEqual(
+            ["ETA helper", "supervisor ETA"],
+            payload["successor_wave_authority"]["disallowed_queue_active_run_tokens"],
+        )
+
+    def test_build_payload_fails_closed_when_successor_queue_cites_historical_operator_status_snippets(self) -> None:
+        queue_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_queue_path"])
+        queue_text = queue_path.read_text(encoding="utf-8")
+        queue_path.write_text(
+            queue_text.replace(
+                "      - /docker/chummercomplete/chummer-core-engine/docs/ENGINE_PROOF_PACK.md\n",
+                "      - /docker/chummercomplete/chummer-core-engine/docs/ENGINE_PROOF_PACK.md\n"
+                "      - Historical operator status snippets marked this package complete.\n",
+            ),
+            encoding="utf-8",
+        )
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertEqual("failed", payload["successor_wave_authority"]["status"])
+        self.assertIn("source_queue", payload["unresolved"]["successor_wave_authority"])
+        self.assertEqual(
+            [
+                "operator status snippet",
+                "operator status snippets",
+                "historical operator status",
+                "historical operator status snippet",
+                "historical operator status snippets",
+            ],
+            payload["successor_wave_authority"]["disallowed_queue_active_run_tokens"],
+        )
+
+    def test_build_payload_fails_closed_when_successor_queue_cites_implementation_only_retry_prompt(self) -> None:
+        queue_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_queue_path"])
+        queue_text = queue_path.read_text(encoding="utf-8")
+        queue_path.write_text(
+            queue_text.replace(
+                "      - /docker/chummercomplete/chummer-core-engine/docs/ENGINE_PROOF_PACK.md\n",
+                "      - /docker/chummercomplete/chummer-core-engine/docs/ENGINE_PROOF_PACK.md\n"
+                "      - Previous attempt burned time on supervisor loops; this retry is implementation-only.\n",
+            ),
+            encoding="utf-8",
+        )
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertEqual("failed", payload["successor_wave_authority"]["status"])
+        self.assertIn("source_queue", payload["unresolved"]["successor_wave_authority"])
+        self.assertEqual(
+            ["implementation-only", "previous attempt", "previous attempt burned time"],
+            payload["successor_wave_authority"]["disallowed_queue_active_run_tokens"],
+        )
+
+    def test_build_payload_fails_closed_when_successor_queue_cites_retry_orientation_prompt(self) -> None:
+        queue_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_queue_path"])
+        queue_text = queue_path.read_text(encoding="utf-8")
+        queue_path.write_text(
+            queue_text.replace(
+                "      - /docker/chummercomplete/chummer-core-engine/docs/ENGINE_PROOF_PACK.md\n",
+                "      - /docker/chummercomplete/chummer-core-engine/docs/ENGINE_PROOF_PACK.md\n"
+                "      - Run these exact commands first and do not invent another orientation step.\n"
+                "      - Writable scope roots: /docker/fleet and /docker/chummercomplete.\n"
+                "      - If you stop, report only: What shipped, What remains, Exact blocker.\n",
+            ),
+            encoding="utf-8",
+        )
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertEqual("failed", payload["successor_wave_authority"]["status"])
+        self.assertIn("source_queue", payload["unresolved"]["successor_wave_authority"])
+        self.assertEqual(
+            [
+                "run these exact commands first",
+                "do not invent another orientation step",
+                "writable scope roots:",
+                "if you stop, report only:",
+                "what shipped:",
+                "what remains:",
+                "exact blocker:",
+            ],
+            payload["successor_wave_authority"]["disallowed_queue_active_run_tokens"],
+        )
+
     def test_build_payload_fails_closed_when_registry_cites_active_run_handoff_labels(self) -> None:
         registry_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_registry_path"])
         registry_text = registry_path.read_text(encoding="utf-8")
@@ -1196,6 +2441,28 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
             payload["successor_wave_authority"]["disallowed_registry_active_run_tokens"]["104.2"],
         )
 
+    def test_build_payload_fails_closed_when_registry_cites_task_local_telemetry_fields(self) -> None:
+        registry_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_registry_path"])
+        registry_text = registry_path.read_text(encoding="utf-8")
+        registry_path.write_text(
+            registry_text.replace(
+                "        - successor_wave_authority=passed\n",
+                "        - successor_wave_authority=passed\n"
+                "        - first_commands, slice_summary, and frontier_briefs prove this worker completed.\n",
+            ),
+            encoding="utf-8",
+        )
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertEqual("failed", payload["successor_wave_authority"]["status"])
+        self.assertIn("source_registry", payload["unresolved"]["successor_wave_authority"])
+        self.assertEqual(
+            ["frontier_briefs", "first_commands", "slice_summary"],
+            payload["successor_wave_authority"]["disallowed_registry_active_run_tokens"]["104.2"],
+        )
+
     def test_build_payload_fails_closed_when_registry_cites_supervisor_status_helper_proof(self) -> None:
         registry_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_registry_path"])
         registry_text = registry_path.read_text(encoding="utf-8")
@@ -1215,6 +2482,56 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
         self.assertIn("source_registry", payload["unresolved"]["successor_wave_authority"])
         self.assertEqual(
             ["supervisor status", "status helper"],
+            payload["successor_wave_authority"]["disallowed_registry_active_run_tokens"]["104.2"],
+        )
+
+    def test_build_payload_fails_closed_when_registry_cites_supervisor_eta_helper_proof(self) -> None:
+        registry_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_registry_path"])
+        registry_text = registry_path.read_text(encoding="utf-8")
+        registry_path.write_text(
+            registry_text.replace(
+                "        - successor_wave_authority=passed\n",
+                "        - successor_wave_authority=passed\n"
+                "        - Supervisor ETA helper output reports this package complete.\n",
+            ),
+            encoding="utf-8",
+        )
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertEqual("failed", payload["successor_wave_authority"]["status"])
+        self.assertIn("source_registry", payload["unresolved"]["successor_wave_authority"])
+        self.assertEqual(
+            ["ETA helper", "supervisor ETA"],
+            payload["successor_wave_authority"]["disallowed_registry_active_run_tokens"]["104.2"],
+        )
+
+    def test_build_payload_fails_closed_when_registry_cites_supervisor_helper_loop_evidence(self) -> None:
+        registry_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_registry_path"])
+        registry_text = registry_path.read_text(encoding="utf-8")
+        registry_path.write_text(
+            registry_text.replace(
+                "        - successor_wave_authority=passed\n",
+                "        - successor_wave_authority=passed\n"
+                "        - supervisor helper loops reported this package as complete.\n",
+            ),
+            encoding="utf-8",
+        )
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertEqual("failed", payload["successor_wave_authority"]["status"])
+        self.assertIn("source_registry", payload["unresolved"]["successor_wave_authority"])
+        self.assertEqual(
+            [
+                "supervisor helper",
+                "supervisor helper loop",
+                "supervisor helper loops",
+                "helper loop",
+                "helper loops",
+            ],
             payload["successor_wave_authority"]["disallowed_registry_active_run_tokens"]["104.2"],
         )
 
@@ -1259,6 +2576,55 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
         self.assertIn("source_registry", payload["unresolved"]["successor_wave_authority"])
         self.assertEqual(
             ["OODA loop"],
+            payload["successor_wave_authority"]["disallowed_registry_active_run_tokens"]["104.2"],
+        )
+
+    def test_build_payload_fails_closed_when_registry_cites_implementation_only_retry_prompt(self) -> None:
+        registry_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_registry_path"])
+        registry_text = registry_path.read_text(encoding="utf-8")
+        registry_path.write_text(
+            registry_text.replace(
+                "        - successor_wave_authority=passed\n",
+                "        - successor_wave_authority=passed\n"
+                "        - Previous attempt burned time; this retry is implementation-only.\n",
+            ),
+            encoding="utf-8",
+        )
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertEqual("failed", payload["successor_wave_authority"]["status"])
+        self.assertIn("source_registry", payload["unresolved"]["successor_wave_authority"])
+        self.assertEqual(
+            ["implementation-only", "previous attempt", "previous attempt burned time"],
+            payload["successor_wave_authority"]["disallowed_registry_active_run_tokens"]["104.2"],
+        )
+
+    def test_build_payload_fails_closed_when_registry_cites_retry_orientation_prompt(self) -> None:
+        registry_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_registry_path"])
+        registry_text = registry_path.read_text(encoding="utf-8")
+        registry_path.write_text(
+            registry_text.replace(
+                "        - successor_wave_authority=passed\n",
+                "        - successor_wave_authority=passed\n"
+                "        - Current steering focus: next90-m104-core-proof-pack.\n"
+                "        - Read these files directly first, then use the shard runtime handoff.\n",
+            ),
+            encoding="utf-8",
+        )
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertEqual("failed", payload["successor_wave_authority"]["status"])
+        self.assertIn("source_registry", payload["unresolved"]["successor_wave_authority"])
+        self.assertEqual(
+            [
+                "read these files directly first",
+                "use the shard runtime handoff",
+                "current steering focus:",
+            ],
             payload["successor_wave_authority"]["disallowed_registry_active_run_tokens"]["104.2"],
         )
 
@@ -1313,6 +2679,26 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
         )
         self.assertEqual([], payload["successor_wave_authority"]["missing_queue_tokens"])
 
+    def test_build_payload_fails_closed_when_design_queue_has_duplicate_proof_items(self) -> None:
+        design_queue_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_design_queue_path"])
+        queue_text = design_queue_path.read_text(encoding="utf-8")
+        proof_item = "/docker/chummercomplete/chummer-core-engine/docs/NEXT90_M104_CORE_PROOF_PACK_CLOSEOUT.md"
+        design_queue_path.write_text(
+            queue_text.replace(f"      - {proof_item}\n", f"      - {proof_item}\n      - {proof_item}\n"),
+            encoding="utf-8",
+        )
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertEqual("failed", payload["successor_wave_authority"]["status"])
+        self.assertIn("source_design_queue", payload["unresolved"]["successor_wave_authority"])
+        self.assertIn(
+            f"duplicate_proof_item:{proof_item}",
+            payload["successor_wave_authority"]["design_queue_missing_tokens"],
+        )
+        self.assertEqual([], payload["successor_wave_authority"]["missing_queue_tokens"])
+
     def test_build_payload_fails_closed_when_design_queue_anchor_points_to_sibling_package_repo(self) -> None:
         original_anchors = self.generator.SUCCESSOR_QUEUE_PROOF_ANCHORS
         off_package_anchor = "/docker/chummercomplete/chummer6-ui-finish/scripts/ai/milestones/next90-m104-ui-explain-receipts-check.sh"
@@ -1337,6 +2723,51 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
             [off_package_anchor],
             payload["successor_wave_authority"]["design_queue_off_package_proof_anchors"],
         )
+        self.assertEqual([], payload["successor_wave_authority"]["missing_queue_tokens"])
+
+    def test_build_payload_fails_closed_when_design_queue_adds_extra_sibling_package_proof_path(self) -> None:
+        off_package_anchor = "/docker/chummercomplete/chummer6-ui-finish/scripts/ai/milestones/next90-m104-ui-explain-receipts-check.sh"
+        design_queue_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_design_queue_path"])
+        queue_text = design_queue_path.read_text(encoding="utf-8")
+        design_queue_path.write_text(
+            queue_text.replace(
+                "      - /docker/chummercomplete/chummer-core-engine/docs/ENGINE_PROOF_PACK.md\n",
+                "      - /docker/chummercomplete/chummer-core-engine/docs/ENGINE_PROOF_PACK.md\n"
+                f"      - {off_package_anchor}\n",
+            ),
+            encoding="utf-8",
+        )
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertEqual("failed", payload["successor_wave_authority"]["status"])
+        self.assertIn("source_design_queue", payload["unresolved"]["successor_wave_authority"])
+        self.assertEqual(
+            [off_package_anchor],
+            payload["successor_wave_authority"]["design_queue_off_package_proof_anchors"],
+        )
+        self.assertEqual([], payload["successor_wave_authority"]["missing_queue_tokens"])
+
+    def test_build_payload_fails_closed_when_design_queue_adds_extra_missing_package_proof_path(self) -> None:
+        missing_anchor = "/docker/chummercomplete/chummer-core-engine/docs/missing-extra-m104-proof.md"
+        design_queue_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_design_queue_path"])
+        queue_text = design_queue_path.read_text(encoding="utf-8")
+        design_queue_path.write_text(
+            queue_text.replace(
+                "      - /docker/chummercomplete/chummer-core-engine/docs/ENGINE_PROOF_PACK.md\n",
+                "      - /docker/chummercomplete/chummer-core-engine/docs/ENGINE_PROOF_PACK.md\n"
+                f"      - {missing_anchor}\n",
+            ),
+            encoding="utf-8",
+        )
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertEqual("failed", payload["successor_wave_authority"]["status"])
+        self.assertIn("source_design_queue", payload["unresolved"]["successor_wave_authority"])
+        self.assertIn(missing_anchor, payload["successor_wave_authority"]["design_queue_missing_proof_anchors"])
         self.assertEqual([], payload["successor_wave_authority"]["missing_queue_tokens"])
 
     def test_build_payload_fails_closed_when_design_queue_cites_active_run_proof(self) -> None:
@@ -1380,7 +2811,151 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
         self.assertEqual("failed", payload["successor_wave_authority"]["status"])
         self.assertIn("source_design_queue", payload["unresolved"]["successor_wave_authority"])
         self.assertEqual(
-            ["active-run helper", "active-run helper command"],
+            ["active run helper", "active-run helper", "active-run helper command"],
+            payload["successor_wave_authority"]["disallowed_design_queue_active_run_tokens"],
+        )
+        self.assertEqual([], payload["successor_wave_authority"]["missing_queue_tokens"])
+
+    def test_build_payload_fails_closed_when_design_queue_cites_task_local_telemetry_fields(self) -> None:
+        design_queue_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_design_queue_path"])
+        queue_text = design_queue_path.read_text(encoding="utf-8")
+        design_queue_path.write_text(
+            queue_text.replace(
+                "      - /docker/chummercomplete/chummer-core-engine/docs/ENGINE_PROOF_PACK.md\n",
+                "      - /docker/chummercomplete/chummer-core-engine/docs/ENGINE_PROOF_PACK.md\n"
+                "      - frontier_briefs says status complete; polling_disabled and status_query_supported are true.\n",
+            ),
+            encoding="utf-8",
+        )
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertEqual("failed", payload["successor_wave_authority"]["status"])
+        self.assertIn("source_design_queue", payload["unresolved"]["successor_wave_authority"])
+        self.assertEqual(
+            ["frontier_briefs", "status_query_supported", "polling_disabled"],
+            payload["successor_wave_authority"]["disallowed_design_queue_active_run_tokens"],
+        )
+        self.assertEqual([], payload["successor_wave_authority"]["missing_queue_tokens"])
+
+    def test_build_payload_fails_closed_when_design_queue_cites_separator_obfuscated_task_local_telemetry(self) -> None:
+        design_queue_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_design_queue_path"])
+        queue_text = design_queue_path.read_text(encoding="utf-8")
+        design_queue_path.write_text(
+            queue_text.replace(
+                "      - /docker/chummercomplete/chummer-core-engine/docs/ENGINE_PROOF_PACK.md\n",
+                "      - /docker/chummercomplete/chummer-core-engine/docs/ENGINE_PROOF_PACK.md\n"
+                "      - task.local.telemetry helper output marked this package complete.\n",
+            ),
+            encoding="utf-8",
+        )
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertEqual("failed", payload["successor_wave_authority"]["status"])
+        self.assertIn("source_design_queue", payload["unresolved"]["successor_wave_authority"])
+        self.assertEqual(
+            ["TASK_LOCAL_TELEMETRY", "task-local telemetry"],
+            payload["successor_wave_authority"]["disallowed_design_queue_active_run_tokens"],
+        )
+        self.assertEqual([], payload["successor_wave_authority"]["missing_queue_tokens"])
+
+    def test_build_payload_fails_closed_when_design_queue_cites_docker_fleet_state_run_path(self) -> None:
+        design_queue_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_design_queue_path"])
+        queue_text = design_queue_path.read_text(encoding="utf-8")
+        design_queue_path.write_text(
+            queue_text.replace(
+                "      - /docker/chummercomplete/chummer-core-engine/docs/ENGINE_PROOF_PACK.md\n",
+                "      - /docker/chummercomplete/chummer-core-engine/docs/ENGINE_PROOF_PACK.md\n"
+                "      - /docker/fleet/state/chummer_design_supervisor/shard-4/runs/run/prompt.txt\n",
+            ),
+            encoding="utf-8",
+        )
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertEqual("failed", payload["successor_wave_authority"]["status"])
+        self.assertIn("source_design_queue", payload["unresolved"]["successor_wave_authority"])
+        self.assertEqual(
+            ["/docker/fleet/state/chummer_design_supervisor/"],
+            payload["successor_wave_authority"]["disallowed_design_queue_active_run_tokens"],
+        )
+        self.assertEqual([], payload["successor_wave_authority"]["missing_queue_tokens"])
+
+    def test_build_payload_fails_closed_when_design_queue_cites_supervisor_helper_loop_evidence(self) -> None:
+        design_queue_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_design_queue_path"])
+        queue_text = design_queue_path.read_text(encoding="utf-8")
+        design_queue_path.write_text(
+            queue_text.replace(
+                "      - /docker/chummercomplete/chummer-core-engine/docs/ENGINE_PROOF_PACK.md\n",
+                "      - /docker/chummercomplete/chummer-core-engine/docs/ENGINE_PROOF_PACK.md\n"
+                "      - supervisor helper loops reported this package as complete\n",
+            ),
+            encoding="utf-8",
+        )
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertEqual("failed", payload["successor_wave_authority"]["status"])
+        self.assertIn("source_design_queue", payload["unresolved"]["successor_wave_authority"])
+        self.assertEqual(
+            [
+                "supervisor helper",
+                "supervisor helper loop",
+                "supervisor helper loops",
+                "helper loop",
+                "helper loops",
+            ],
+            payload["successor_wave_authority"]["disallowed_design_queue_active_run_tokens"],
+        )
+        self.assertEqual([], payload["successor_wave_authority"]["missing_queue_tokens"])
+
+    def test_build_payload_fails_closed_when_design_queue_cites_supervisor_status_helper_proof(self) -> None:
+        design_queue_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_design_queue_path"])
+        queue_text = design_queue_path.read_text(encoding="utf-8")
+        design_queue_path.write_text(
+            queue_text.replace(
+                "      - /docker/chummercomplete/chummer-core-engine/docs/ENGINE_PROOF_PACK.md\n",
+                "      - /docker/chummercomplete/chummer-core-engine/docs/ENGINE_PROOF_PACK.md\n"
+                "      - Supervisor status helper output reports this package complete.\n",
+            ),
+            encoding="utf-8",
+        )
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertEqual("failed", payload["successor_wave_authority"]["status"])
+        self.assertIn("source_design_queue", payload["unresolved"]["successor_wave_authority"])
+        self.assertEqual(
+            ["supervisor status", "status helper"],
+            payload["successor_wave_authority"]["disallowed_design_queue_active_run_tokens"],
+        )
+        self.assertEqual([], payload["successor_wave_authority"]["missing_queue_tokens"])
+
+    def test_build_payload_fails_closed_when_design_queue_cites_supervisor_eta_helper_proof(self) -> None:
+        design_queue_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_design_queue_path"])
+        queue_text = design_queue_path.read_text(encoding="utf-8")
+        design_queue_path.write_text(
+            queue_text.replace(
+                "      - /docker/chummercomplete/chummer-core-engine/docs/ENGINE_PROOF_PACK.md\n",
+                "      - /docker/chummercomplete/chummer-core-engine/docs/ENGINE_PROOF_PACK.md\n"
+                "      - Supervisor ETA helper output reports this package complete.\n",
+            ),
+            encoding="utf-8",
+        )
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertEqual("failed", payload["successor_wave_authority"]["status"])
+        self.assertIn("source_design_queue", payload["unresolved"]["successor_wave_authority"])
+        self.assertEqual(
+            ["ETA helper", "supervisor ETA"],
             payload["successor_wave_authority"]["disallowed_design_queue_active_run_tokens"],
         )
         self.assertEqual([], payload["successor_wave_authority"]["missing_queue_tokens"])
@@ -3572,6 +5147,25 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
         }
         self.assertEqual("failed", missing["2c98f61c"])
 
+    def test_build_payload_fails_closed_when_current_m104_handoff_evidence_floor_does_not_resolve(self) -> None:
+        (self.root / ".git").mkdir()
+
+        def fake_cat_file(command: list[str], **_: Any) -> Any:
+            commit_ref = command[-1]
+            return mock.Mock(returncode=1 if commit_ref.startswith("2e4e8e81") else 0)
+
+        with mock.patch.object(self.generator.subprocess, "run", side_effect=fake_cat_file):
+            payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertEqual("failed", payload["local_commit_proofs"]["status"])
+        self.assertIn("2e4e8e81", payload["unresolved"]["local_commit_proofs"])
+        missing = {
+            row["commit"]: row["status"]
+            for row in payload["local_commit_proofs"]["required_commits"]
+        }
+        self.assertEqual("failed", missing["2e4e8e81"])
+
     def test_list_item_block_for_nested_queue_key_stops_before_later_package(self) -> None:
         text = "\n".join(
             [
@@ -3687,13 +5281,30 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
             ".codex-studio/published/IMPORT_PARITY_CERTIFICATION.generated.json",
             json.dumps(
                 {
+                    "contract_name": "chummer6-core.import_parity_certification",
+                    "schema_version": 1,
+                    "proof_kind": "local_parity_harness",
                     "status": "passed",
+                    "commands": [
+                        "dotnet run --project Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj -c Release"
+                    ],
                     "import_oracles": [
                         {"name": "Chummer4", "sources_covered": 1, "sources_expected": 1},
                         {"name": "Chummer5a", "sources_covered": 1, "sources_expected": 1},
                         {"name": "Hero Lab Classic", "sources_covered": 1, "sources_expected": 1},
                     ],
-                    "adjacent_oracles": ["Genesis", "CommLink6"],
+                    "adjacent_oracles": [
+                        {"name": "Genesis", "sources_covered": 1, "sources_expected": 1},
+                        {"name": "CommLink6", "sources_covered": 1, "sources_expected": 1},
+                    ],
+                    "coverage": {
+                        "sources_covered": 5,
+                        "sources_expected": 5,
+                        "coverage_percent": 100,
+                    },
+                    "evidence": [
+                        "core-engine-tests: ok"
+                    ],
                 }
             ),
         )
@@ -3718,8 +5329,9 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
                     "- The row keeps only the assigned allowed paths: `src`, `tests`, `docs`, and `scripts`.",
                     "- The row keeps only the assigned owned surfaces: `engine_proof_pack` and `import_oracle_discipline`.",
                     "- Queue proof anchors resolve inside `/docker/chummercomplete/chummer-core-engine`.",
-                    "- Local commit proof includes `ecbb466c`, `a2c8ad9f`, and `2c98f61c`, the current M104 proof guard anchors.",
-                    "- Registry and queue evidence do not cite task-local telemetry or active-run handoff field labels as release proof.",
+                    "- Local commit proof includes `498dff3d`, `ecbb466c`, `a2c8ad9f`, `2c98f61c`, and `2e4e8e81`, the queue-mirror parity guard and current M104 proof guard anchors.",
+                    "- Registry and queue evidence do not cite task-local telemetry, active-run handoff field labels, or supervisor helper loops as release proof.",
+                    "- The same proof-hygiene ban applies after percent-decoding and HTML unescaping, after URL form-decoding, and after separator normalization.",
                     "",
                     "## Do Not Reopen",
                     "",
@@ -3728,6 +5340,9 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
                     "```bash",
                     "python3 scripts/generate-engine-proof-pack.py --check",
                     "python3 tests/test_engine_proof_pack_generator.py",
+                    "dotnet build Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj -c Release --nologo -m:1",
+                    "dotnet Chummer.CoreEngine.Tests/bin/Release/net10.0/Chummer.CoreEngine.Tests.dll",
+                    "dotnet run --project Chummer.Benchmarks/Chummer.Benchmarks.csproj -c Release -- --budget-check --budget-file Chummer.Benchmarks/workspace-benchmark-budgets.json",
                     "```",
                 ]
             )

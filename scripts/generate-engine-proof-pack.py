@@ -3,11 +3,15 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import html
 import json
+import math
 from pathlib import Path
+import re
 import subprocess
 import sys
 from typing import Any
+from urllib.parse import unquote, unquote_plus
 
 UTC = dt.timezone.utc
 
@@ -51,6 +55,20 @@ RELEASE_COMMANDS = (
     "dotnet build Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj -c Release --nologo -m:1 && dotnet Chummer.CoreEngine.Tests/bin/Release/net10.0/Chummer.CoreEngine.Tests.dll",
     "dotnet run --project Chummer.Benchmarks/Chummer.Benchmarks.csproj -c Release -- --budget-check --budget-file Chummer.Benchmarks/workspace-benchmark-budgets.json",
 )
+
+REQUIRED_IMPORT_CERT_COMMANDS = (
+    "dotnet run --project Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj -c Release",
+)
+
+REQUIRED_IMPORT_CERT_EVIDENCE = (
+    "core-engine-tests: ok",
+)
+
+REQUIRED_IMPORT_CERT_IDENTITY = {
+    "contract_name": "chummer6-core.import_parity_certification",
+    "schema_version": 1,
+    "proof_kind": "local_parity_harness",
+}
 
 RELEASE_CHANNEL_PATH = Path("/docker/chummercomplete/chummer-hub-registry/.codex-studio/published/RELEASE_CHANNEL.generated.json")
 CANONICAL_CHUMMER_ROOT = Path("/docker/chummercomplete")
@@ -272,29 +290,45 @@ PACKAGE_CLOSEOUT_REQUIRED_TOKENS = (
     "`engine_proof_pack` and `import_oracle_discipline`",
     "Queue proof anchors resolve inside `/docker/chummercomplete/chummer-core-engine`",
     "`ecbb466c`",
+    "`498dff3d`",
     "`a2c8ad9f`",
     "`2c98f61c`",
+    "`2e4e8e81`",
     "Registry and queue evidence do not cite task-local telemetry",
     "active-run handoff field labels",
+    "supervisor helper loops",
+    "The same proof-hygiene ban applies after percent-decoding and HTML unescaping, after URL form-decoding, and after separator normalization",
     "Do not reopen this core package for adjacent M104 work.",
     "python3 scripts/generate-engine-proof-pack.py --check",
     "python3 tests/test_engine_proof_pack_generator.py",
+    "dotnet build Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj -c Release --nologo -m:1",
+    "dotnet Chummer.CoreEngine.Tests/bin/Release/net10.0/Chummer.CoreEngine.Tests.dll",
+    "dotnet run --project Chummer.Benchmarks/Chummer.Benchmarks.csproj -c Release -- --budget-check --budget-file Chummer.Benchmarks/workspace-benchmark-budgets.json",
 )
 PACKAGE_CLOSEOUT_DISALLOWED_EVIDENCE_TOKENS = (
     "/var/lib/codex-fleet/",
     "TASK_LOCAL_TELEMETRY.generated.json",
     "ACTIVE_RUN_HANDOFF.generated.md",
+    "historical operator status",
+    "historical operator status snippet",
+    "historical operator status snippets",
 )
 
 EXPECTED_QUEUE_ALLOWED_PATHS = tuple(SUCCESSOR_WAVE_PACKAGE["allowed_paths"])
 EXPECTED_QUEUE_OWNED_SURFACES = tuple(SUCCESSOR_WAVE_PACKAGE["owned_surfaces"])
 DISALLOWED_ACTIVE_RUN_PROOF_TOKENS = (
     "/var/lib/codex-fleet/",
+    "/docker/fleet/state/chummer_design_supervisor/",
     "ACTIVE_RUN_HANDOFF",
     "TASK_LOCAL_TELEMETRY",
     "active-run telemetry",
     "task-local telemetry",
     "operator telemetry",
+    "operator status snippet",
+    "operator status snippets",
+    "historical operator status",
+    "historical operator status snippet",
+    "historical operator status snippets",
     "active run helper",
     "active-run helper",
     "active-run helper command",
@@ -304,11 +338,44 @@ DISALLOWED_ACTIVE_RUN_PROOF_TOKENS = (
     "OODA loop",
     "OODA helper",
     "successor-wave telemetry",
+    "implementation-only retry",
+    "implementation-only worker",
+    "implementation-only pass",
+    "implementation-only prompt",
+    "implementation-only package",
+    "implementation-only proof",
+    "implementation-only closeout",
+    "implementation-only",
+    "previous attempt",
+    "previous attempt burned time",
+    "run these exact commands first",
+    "do not invent another orientation step",
+    "read these files directly first",
+    "use the shard runtime handoff",
+    "current steering focus:",
+    "writable scope roots:",
+    "if you stop, report only:",
+    "what shipped:",
+    "what remains:",
+    "exact blocker:",
+    "frontier_briefs",
+    "first_commands",
+    "status_query_supported",
+    "polling_disabled",
+    "slice_summary",
     "remaining milestones",
     "remaining queue items",
     "critical path",
     "supervisor status",
+    "supervisor helper",
+    "supervisor helper loop",
+    "supervisor helper loops",
+    "helper loop",
+    "helper loops",
     "status helper",
+    "ETA helper",
+    "ETA helpers",
+    "supervisor ETA",
     "run id:",
     "frontier ids:",
     "open milestone ids:",
@@ -457,6 +524,7 @@ REQUIRED_LOCAL_COMMIT_PROOFS = (
     ("ecbb466c", "current M104 OODA proof guard pin required by registry and queue closeout"),
     ("a2c8ad9f", "current M104 active-run handoff field proof guard required by local closeout"),
     ("2c98f61c", "current M104 closeout handoff evidence guard required by local closeout"),
+    ("2e4e8e81", "current M104 handoff evidence proof floor required by local closeout"),
 )
 
 
@@ -610,12 +678,39 @@ def _validate_package_closeout(root: Path) -> tuple[dict[str, Any], list[str]]:
 
 
 def _find_disallowed_active_run_tokens(text: str) -> list[str]:
-    lower_text = text.lower()
+    lower_text = "\n".join(_proof_text_variants(text))
     return [
         token
         for token, normalized in DISALLOWED_ACTIVE_RUN_PROOF_TOKEN_MATCHES
-        if normalized in lower_text
+        if normalized in lower_text or _normalize_proof_separators(normalized) in lower_text
     ]
+
+
+def _proof_text_variants(text: str) -> list[str]:
+    variants: list[str] = []
+    candidates = [text, html.unescape(text)]
+    for candidate in candidates:
+        stack = [candidate]
+        for _ in range(4):
+            next_stack: list[str] = []
+            for current in stack:
+                lowered = current.lower()
+                if lowered not in variants:
+                    variants.append(lowered)
+                separator_normalized = _normalize_proof_separators(lowered)
+                if separator_normalized not in variants:
+                    variants.append(separator_normalized)
+                for decoded in (unquote(current), unquote_plus(current)):
+                    if decoded != current and decoded not in next_stack:
+                        next_stack.append(decoded)
+            if not next_stack:
+                break
+            stack = next_stack
+    return variants
+
+
+def _normalize_proof_separators(text: str) -> str:
+    return re.sub(r"[\s._:/\\+-]+", " ", text).strip()
 
 
 def _find_disallowed_closeout_evidence_tokens(text: str) -> list[str]:
@@ -694,6 +789,25 @@ def _list_drift(actual: list[str], expected: tuple[str, ...]) -> tuple[list[str]
     return missing, unexpected
 
 
+def _duplicate_values(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    duplicates: list[str] = []
+    for value in values:
+        if value in seen and value not in duplicates:
+            duplicates.append(value)
+        seen.add(value)
+    return duplicates
+
+
+def _duplicate_workload_names(workloads: list[Any]) -> list[str]:
+    names = [
+        str(row.get("name") or "").strip()
+        for row in workloads
+        if isinstance(row, dict) and str(row.get("name") or "").strip()
+    ]
+    return _duplicate_values(names)
+
+
 def _is_canonical_anchor_outside_package(anchor_path: Path) -> bool:
     try:
         resolved = anchor_path.resolve()
@@ -707,6 +821,23 @@ def _is_canonical_anchor_outside_package(anchor_path: Path) -> bool:
     return False
 
 
+def _queue_proof_path_items(proof_items: list[str]) -> list[str]:
+    path_items: list[str] = []
+    canonical_prefix = str(CANONICAL_CHUMMER_ROOT) + "/"
+    for item in proof_items:
+        path_part = item.partition("::")[0].strip()
+        if not path_part.startswith(canonical_prefix):
+            continue
+        if " commit " in path_part:
+            continue
+        path_items.append(path_part)
+    return path_items
+
+
+def _path_is_planned_generated(path: Path, generated_output_path: Path | None) -> bool:
+    return generated_output_path is not None and path.resolve() == generated_output_path.resolve()
+
+
 def _validate_queue_authority(queue_path: Path, generated_output_path: Path | None = None) -> dict[str, Any]:
     queue_text = _read_text(queue_path)
     queue_scopes = _extract_list_item_blocks(queue_text, "package_id: next90-m104-core-proof-pack")
@@ -717,21 +848,30 @@ def _validate_queue_authority(queue_path: Path, generated_output_path: Path | No
         missing_queue_tokens.append("duplicate_queue_item:next90-m104-core-proof-pack")
     missing_queue_tokens.extend(token for token in SUCCESSOR_QUEUE_TOKENS if token not in queue_scope)
     disallowed_active_run_tokens = _find_disallowed_active_run_tokens(queue_scope)
+    queue_proof = _extract_yaml_list_values(queue_scope, "proof") if queue_scope else []
     missing_queue_proof_anchors = []
     for anchor in SUCCESSOR_QUEUE_PROOF_ANCHORS:
         anchor_path = Path(anchor)
-        planned_generated_anchor = generated_output_path is not None and anchor_path.resolve() == generated_output_path.resolve()
-        if not anchor_path.exists() and not planned_generated_anchor:
+        if not anchor_path.exists() and not _path_is_planned_generated(anchor_path, generated_output_path):
             missing_queue_proof_anchors.append(anchor)
+    queue_path_proof_anchors = _queue_proof_path_items(queue_proof)
+    for anchor in queue_path_proof_anchors:
+        anchor_path = Path(anchor)
+        if _is_canonical_anchor_outside_package(anchor_path):
+            continue
+        if not anchor_path.exists() and not _path_is_planned_generated(anchor_path, generated_output_path):
+            missing_queue_proof_anchors.append(anchor)
+    missing_queue_proof_anchors = list(dict.fromkeys(missing_queue_proof_anchors))
     off_package_queue_proof_anchors = [
         anchor
-        for anchor in SUCCESSOR_QUEUE_PROOF_ANCHORS
-        if anchor in queue_scope and _is_canonical_anchor_outside_package(Path(anchor))
+        for anchor in queue_path_proof_anchors
+        if _is_canonical_anchor_outside_package(Path(anchor))
     ]
     queue_allowed_paths = _extract_yaml_list_values(queue_scope, "allowed_paths") if queue_scope else []
     missing_queue_allowed_paths, unexpected_queue_allowed_paths = _list_drift(queue_allowed_paths, EXPECTED_QUEUE_ALLOWED_PATHS)
     queue_owned_surfaces = _extract_yaml_list_values(queue_scope, "owned_surfaces") if queue_scope else []
     missing_queue_owned_surfaces, unexpected_queue_owned_surfaces = _list_drift(queue_owned_surfaces, EXPECTED_QUEUE_OWNED_SURFACES)
+    duplicate_queue_proof_items = _duplicate_values(queue_proof)
     for value in missing_queue_allowed_paths:
         missing_queue_tokens.append(f"allowed_paths:{value}")
     for value in unexpected_queue_allowed_paths:
@@ -740,6 +880,8 @@ def _validate_queue_authority(queue_path: Path, generated_output_path: Path | No
         missing_queue_tokens.append(f"owned_surfaces:{value}")
     for value in unexpected_queue_owned_surfaces:
         missing_queue_tokens.append(f"unexpected_owned_surface:{value}")
+    for value in duplicate_queue_proof_items:
+        missing_queue_tokens.append(f"duplicate_proof_item:{value}")
 
     return {
         "path": str(queue_path),
@@ -761,7 +903,8 @@ def _validate_queue_authority(queue_path: Path, generated_output_path: Path | No
         "owned_surfaces": queue_owned_surfaces,
         "expected_owned_surfaces": list(EXPECTED_QUEUE_OWNED_SURFACES),
         "unexpected_owned_surfaces": unexpected_queue_owned_surfaces,
-        "proof": _extract_yaml_list_values(queue_scope, "proof") if queue_scope else [],
+        "proof": queue_proof,
+        "path_proof_anchors": queue_path_proof_anchors,
     }
 
 
@@ -846,6 +989,7 @@ def _validate_successor_wave_authority(generated_output_path: Path | None = None
             "queue_owned_surfaces": fleet_queue_authority["owned_surfaces"],
             "expected_queue_owned_surfaces": list(EXPECTED_QUEUE_OWNED_SURFACES),
             "unexpected_queue_owned_surfaces": fleet_queue_authority["unexpected_owned_surfaces"],
+            "queue_path_proof_anchors": fleet_queue_authority["path_proof_anchors"],
             "design_queue_missing_tokens": design_queue_authority["missing_tokens"],
             "design_queue_missing_proof_anchors": design_queue_authority["missing_proof_anchors"],
             "design_queue_off_package_proof_anchors": design_queue_authority["off_package_proof_anchors"],
@@ -858,6 +1002,7 @@ def _validate_successor_wave_authority(generated_output_path: Path | None = None
             "design_queue_owned_surfaces": design_queue_authority["owned_surfaces"],
             "expected_design_queue_owned_surfaces": list(EXPECTED_QUEUE_OWNED_SURFACES),
             "unexpected_design_queue_owned_surfaces": design_queue_authority["unexpected_owned_surfaces"],
+            "design_queue_path_proof_anchors": design_queue_authority["path_proof_anchors"],
             "queue_proof_count": len(queue_proof),
             "design_queue_proof_count": len(design_queue_proof),
             "queue_proof_missing_from_design_queue": queue_proof_missing_from_design_queue,
@@ -1015,6 +1160,8 @@ def _build_budget_map(root: Path) -> tuple[list[dict[str, Any]], list[str]]:
         if not name:
             continue
         by_name[name] = row
+    duplicate_workloads = _duplicate_workload_names(workloads)
+    duplicate_workload_set = set(duplicate_workloads)
 
     budget_specs: list[tuple[str, str, str]] = [
         ("import", "workspace.import.bastion", "Benchmark budget workload"),
@@ -1029,9 +1176,24 @@ def _build_budget_map(root: Path) -> tuple[list[dict[str, Any]], list[str]]:
     for budget_id, workload_name, source in budget_specs:
         workload_payload = by_name.get(workload_name, {})
         executable_workload_present = workload_name in benchmark_workload_source
-        ms = float(workload_payload.get("maxMeanMilliseconds") or 0)
-        alloc = int(workload_payload.get("maxAllocatedBytes") or 0)
-        status = "passed" if workload_payload and executable_workload_present and ms > 0 and alloc > 0 else "failed"
+        duplicate_workload = workload_name in duplicate_workload_set
+        ms = _try_float(workload_payload.get("maxMeanMilliseconds")) if workload_payload else None
+        alloc = _try_json_int(workload_payload.get("maxAllocatedBytes")) if workload_payload else None
+        malformed_threshold = workload_payload and (
+            ms is None or alloc is None or not math.isfinite(ms)
+        )
+        status = (
+            "passed"
+            if workload_payload
+            and executable_workload_present
+            and not duplicate_workload
+            and ms is not None
+            and alloc is not None
+            and math.isfinite(ms)
+            and ms > 0
+            and alloc > 0
+            else "failed"
+        )
         if status != "passed":
             unresolved.append(budget_id)
         budgets.append(
@@ -1039,13 +1201,16 @@ def _build_budget_map(root: Path) -> tuple[list[dict[str, Any]], list[str]]:
                 "id": budget_id,
                 "workload": workload_name,
                 "status": status,
-                "max_mean_milliseconds": ms,
-                "max_allocated_bytes": alloc,
+                "max_mean_milliseconds": ms or 0,
+                "max_allocated_bytes": alloc or 0,
                 "source": source,
                 "benchmark_budget_source": _to_rel(workload_budgets_path, root),
                 "missing_workload": not bool(workload_payload),
                 "benchmark_workload_evidence": _to_rel(benchmark_workload_source_path, root),
                 "missing_executable_workload": not executable_workload_present,
+                "duplicate_workload": duplicate_workload,
+                "duplicate_workload_names": duplicate_workloads,
+                "malformed_threshold": bool(malformed_threshold),
             }
         )
 
@@ -1068,11 +1233,21 @@ def _build_release_channel_binding(release_channel_path: Path) -> tuple[dict[str
     desktop_complete = bool(desktop_coverage.get("complete"))
     route_truth = desktop_coverage.get("desktopRouteTruth") if isinstance(desktop_coverage.get("desktopRouteTruth"), list) else []
     artifacts = payload.get("artifacts") if isinstance(payload.get("artifacts"), list) else []
-    artifact_ids = {
+    artifact_id_values = [
         str(row.get("artifactId") or row.get("id") or "").strip()
         for row in artifacts
         if isinstance(row, dict)
-    }
+        and str(row.get("artifactId") or row.get("id") or "").strip()
+    ]
+    artifact_ids = set(artifact_id_values)
+    duplicate_artifact_ids = _duplicate_values(artifact_id_values)
+    route_tuple_values = [
+        str(row.get("tupleId") or "").strip()
+        for row in route_truth
+        if isinstance(row, dict)
+        and str(row.get("tupleId") or "").strip()
+    ]
+    duplicate_route_tuple_ids = _duplicate_values(route_tuple_values)
 
     if status != "published":
         unresolved.append("release_channel_status")
@@ -1082,6 +1257,8 @@ def _build_release_channel_binding(release_channel_path: Path) -> tuple[dict[str
         unresolved.append("release_proof_status")
     if not desktop_complete:
         unresolved.append("desktop_tuple_coverage")
+    unresolved.extend(f"duplicate_artifact_id:{artifact_id}" for artifact_id in duplicate_artifact_ids)
+    unresolved.extend(f"duplicate_desktop_tuple:{tuple_id}" for tuple_id in duplicate_route_tuple_ids)
 
     route_by_tuple = {
         str(row.get("tupleId") or "").strip(): row
@@ -1163,6 +1340,86 @@ def _oracle_name(row: Any) -> str:
     return str(row or "").strip()
 
 
+def _oracle_coverage_is_complete(row: Any) -> bool:
+    if not isinstance(row, dict):
+        return False
+    if "sources_covered" not in row or "sources_expected" not in row:
+        return False
+    covered = _try_json_int(row.get("sources_covered"))
+    expected = _try_json_int(row.get("sources_expected"))
+    if covered is None or expected is None:
+        return False
+    return expected > 0 and covered >= expected
+
+
+def _coverage_summary_is_complete(row: Any, expected_total: int) -> bool:
+    if not isinstance(row, dict):
+        return False
+    covered = _try_json_int(row.get("sources_covered"))
+    expected = _try_json_int(row.get("sources_expected"))
+    percent = _try_json_int(row.get("coverage_percent"))
+    if covered is None or expected is None or percent is None:
+        return False
+    return expected == expected_total and covered == expected_total and percent >= 100
+
+
+def _try_json_int(value: Any) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    return None
+
+
+def _try_int(value: Any) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        if not math.isfinite(value) or not value.is_integer():
+            return None
+        return int(value)
+    return None
+
+
+def _try_float(value: Any) -> float | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    return None
+
+
+def _string_list_errors(payload: dict[str, Any], key: str) -> tuple[bool, bool]:
+    rows = payload.get(key)
+    if not isinstance(rows, list):
+        return False, False
+    has_value = any(isinstance(row, str) and row.strip() for row in rows)
+    has_malformed = any(not isinstance(row, str) or not row.strip() for row in rows)
+    return has_value, has_malformed
+
+
+def _string_list_values(payload: dict[str, Any], key: str) -> list[str]:
+    rows = payload.get(key)
+    if not isinstance(rows, list):
+        return []
+    return [row.strip() for row in rows if isinstance(row, str) and row.strip()]
+
+
+def _duplicate_oracle_names(rows: list[Any]) -> list[str]:
+    seen: set[str] = set()
+    duplicates: list[str] = []
+    for row in rows:
+        normalized = _normalize_token(_oracle_name(row))
+        if not normalized:
+            continue
+        if normalized in seen and normalized not in duplicates:
+            duplicates.append(normalized)
+        seen.add(normalized)
+    return duplicates
+
+
 def _normalize_token(value: str) -> str:
     return value.strip().lower().replace(" ", "")
 
@@ -1175,12 +1432,67 @@ def _build_import_discipline(
     import_status = _extract_status(import_cert)
     import_oracles = import_cert.get("import_oracles") if isinstance(import_cert.get("import_oracles"), list) else []
     adjacent_oracles = import_cert.get("adjacent_oracles") if isinstance(import_cert.get("adjacent_oracles"), list) else []
+    coverage_summary = import_cert.get("coverage")
+    expected_coverage_total = len(REQUIRED_IMPORT_ORACLE_NAMES) + len(REQUIRED_ADJACENT_ORACLE_NAMES)
 
     unresolved: list[str] = []
     if not import_cert_path.is_file():
         unresolved.append("source_receipt_missing")
+    for key, expected_value in REQUIRED_IMPORT_CERT_IDENTITY.items():
+        if import_cert.get(key) != expected_value:
+            unresolved.append(f"source_receipt_identity:{key}")
     if import_status not in {"pass", "passed", "ready"}:
         unresolved.append("source_receipt_status")
+    has_commands, malformed_commands = _string_list_errors(import_cert, "commands")
+    if not has_commands:
+        unresolved.append("source_receipt_commands")
+    if malformed_commands:
+        unresolved.append("source_receipt_commands_malformed")
+    has_evidence, malformed_evidence = _string_list_errors(import_cert, "evidence")
+    if not has_evidence:
+        unresolved.append("source_receipt_evidence")
+    if malformed_evidence:
+        unresolved.append("source_receipt_evidence_malformed")
+    if not _coverage_summary_is_complete(coverage_summary, expected_coverage_total):
+        unresolved.append("source_receipt_coverage")
+
+    command_values = _string_list_values(import_cert, "commands")
+    evidence_values = _string_list_values(import_cert, "evidence")
+    duplicate_commands = _duplicate_values(command_values)
+    duplicate_evidence = _duplicate_values(evidence_values)
+    missing_required_commands = [
+        command for command in REQUIRED_IMPORT_CERT_COMMANDS if command not in command_values
+    ]
+    missing_required_evidence = [
+        evidence for evidence in REQUIRED_IMPORT_CERT_EVIDENCE if evidence not in evidence_values
+    ]
+    unexpected_commands = [
+        command for command in command_values if command not in REQUIRED_IMPORT_CERT_COMMANDS
+    ]
+    unexpected_evidence = [
+        evidence for evidence in evidence_values if evidence not in REQUIRED_IMPORT_CERT_EVIDENCE
+    ]
+    disallowed_command_tokens = _find_disallowed_active_run_tokens("\n".join(command_values))
+    disallowed_evidence_tokens = _find_disallowed_active_run_tokens("\n".join(evidence_values))
+    for command in missing_required_commands:
+        unresolved.append(f"source_receipt_required_command:{command}")
+    for evidence in missing_required_evidence:
+        unresolved.append(f"source_receipt_required_evidence:{evidence}")
+    for command in unexpected_commands:
+        unresolved.append(f"source_receipt_unexpected_command:{command}")
+    for evidence in unexpected_evidence:
+        unresolved.append(f"source_receipt_unexpected_evidence:{evidence}")
+    for command in duplicate_commands:
+        unresolved.append(f"source_receipt_duplicate_command:{command}")
+    for evidence in duplicate_evidence:
+        unresolved.append(f"source_receipt_duplicate_evidence:{evidence}")
+    for token in disallowed_command_tokens:
+        unresolved.append(f"source_receipt_command_disallowed_active_run_proof:{token}")
+    for token in disallowed_evidence_tokens:
+        unresolved.append(f"source_receipt_evidence_disallowed_active_run_proof:{token}")
+
+    for duplicate_name in _duplicate_oracle_names(import_oracles):
+        unresolved.append(f"duplicate_import_oracle:{duplicate_name}")
 
     oracle_by_name = {_normalize_token(_oracle_name(row)): row for row in import_oracles}
     for required_name in REQUIRED_IMPORT_ORACLE_NAMES:
@@ -1188,15 +1500,23 @@ def _build_import_discipline(
         if not isinstance(row, dict):
             unresolved.append(f"missing_import_oracle:{required_name}")
             continue
-        covered = int(row.get("sources_covered") or 0)
-        expected = int(row.get("sources_expected") or 0)
-        if expected <= 0 or covered < expected:
+        if not _oracle_coverage_is_complete(row):
             unresolved.append(f"incomplete_import_oracle:{required_name}")
 
-    adjacent_tokens = {_normalize_token(_oracle_name(row)) for row in adjacent_oracles}
+    for duplicate_name in _duplicate_oracle_names(adjacent_oracles):
+        unresolved.append(f"duplicate_adjacent_oracle:{duplicate_name}")
+
+    adjacent_by_name = {_normalize_token(_oracle_name(row)): row for row in adjacent_oracles}
     for required_name in REQUIRED_ADJACENT_ORACLE_NAMES:
-        if _normalize_token(required_name) not in adjacent_tokens:
+        row = adjacent_by_name.get(_normalize_token(required_name))
+        if row is None:
             unresolved.append(f"missing_adjacent_oracle:{required_name}")
+            continue
+        if not isinstance(row, dict):
+            unresolved.append(f"malformed_adjacent_oracle:{required_name}")
+            continue
+        if not _oracle_coverage_is_complete(row):
+            unresolved.append(f"incomplete_adjacent_oracle:{required_name}")
 
     return (
         {
@@ -1205,6 +1525,19 @@ def _build_import_discipline(
             "source_receipt_status": import_status,
             "required_import_oracle_names": list(REQUIRED_IMPORT_ORACLE_NAMES),
             "required_adjacent_oracle_names": list(REQUIRED_ADJACENT_ORACLE_NAMES),
+            "required_source_receipt_coverage_total": expected_coverage_total,
+            "required_source_receipt_commands": list(REQUIRED_IMPORT_CERT_COMMANDS),
+            "required_source_receipt_evidence": list(REQUIRED_IMPORT_CERT_EVIDENCE),
+            "source_receipt_commands": command_values,
+            "source_receipt_evidence": evidence_values,
+            "missing_required_source_receipt_commands": missing_required_commands,
+            "missing_required_source_receipt_evidence": missing_required_evidence,
+            "unexpected_source_receipt_commands": unexpected_commands,
+            "unexpected_source_receipt_evidence": unexpected_evidence,
+            "duplicate_source_receipt_commands": duplicate_commands,
+            "duplicate_source_receipt_evidence": duplicate_evidence,
+            "disallowed_source_receipt_command_tokens": disallowed_command_tokens,
+            "disallowed_source_receipt_evidence_tokens": disallowed_evidence_tokens,
             "import_oracles": import_oracles,
             "adjacent_oracles": adjacent_oracles,
             "unresolved": unresolved,
