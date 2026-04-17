@@ -1,11 +1,12 @@
 {
   "contract_name": "chummer6-core.engine_proof_pack",
   "schema_version": 1,
-  "generated_at": "2026-04-17T19:47:44Z",
+  "generated_at": "2026-04-17T19:50:38Z",
   "status": "passed",
   "proof_kind": "release_bound_engine_proof",
   "milestone_id": 104,
   "package_id": "next90-m104-core-proof-pack",
+  "frontier_id": 3227666051,
   "successor_wave_package": {
     "program_wave": "next_90_day_product_advance",
     "frontier_id": 3227666051,

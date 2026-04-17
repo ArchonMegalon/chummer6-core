@@ -85,6 +85,7 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
 
         self.assertEqual("passed", payload["status"])
         self.assertEqual("next90-m104-core-proof-pack", payload["package_id"])
+        self.assertEqual(3227666051, payload["frontier_id"])
         self.assertEqual(104, payload["milestone_id"])
         self.assertEqual("next_90_day_product_advance", payload["successor_wave_package"]["program_wave"])
         self.assertEqual(["engine_proof_pack", "import_oracle_discipline"], payload["successor_wave_package"]["owned_surfaces"])
