@@ -545,6 +545,10 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
             "b8000b80",
             [row["commit"] for row in payload["local_commit_proofs"]["required_commits"]],
         )
+        self.assertIn(
+            "ecbb466c",
+            [row["commit"] for row in payload["local_commit_proofs"]["required_commits"]],
+        )
         self.assertEqual("complete", payload["successor_wave_authority"]["closure_requirements"]["status"])
         self.assertEqual(3227666051, payload["successor_wave_authority"]["closure_requirements"]["frontier_id"])
         self.assertEqual("00800059", payload["successor_wave_authority"]["closure_requirements"]["landed_commit"])
@@ -3425,6 +3429,25 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
         }
         self.assertEqual("failed", missing["b8000b80"])
 
+    def test_build_payload_fails_closed_when_current_m104_ooda_proof_guard_pin_does_not_resolve(self) -> None:
+        (self.root / ".git").mkdir()
+
+        def fake_cat_file(command: list[str], **_: Any) -> Any:
+            commit_ref = command[-1]
+            return mock.Mock(returncode=1 if commit_ref.startswith("ecbb466c") else 0)
+
+        with mock.patch.object(self.generator.subprocess, "run", side_effect=fake_cat_file):
+            payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertEqual("failed", payload["local_commit_proofs"]["status"])
+        self.assertIn("ecbb466c", payload["unresolved"]["local_commit_proofs"])
+        missing = {
+            row["commit"]: row["status"]
+            for row in payload["local_commit_proofs"]["required_commits"]
+        }
+        self.assertEqual("failed", missing["ecbb466c"])
+
     def test_list_item_block_for_nested_queue_key_stops_before_later_package(self) -> None:
         text = "\n".join(
             [
@@ -3571,6 +3594,7 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
                     "- The row keeps only the assigned allowed paths: `src`, `tests`, `docs`, and `scripts`.",
                     "- The row keeps only the assigned owned surfaces: `engine_proof_pack` and `import_oracle_discipline`.",
                     "- Queue proof anchors resolve inside `/docker/chummercomplete/chummer-core-engine`.",
+                    "- Local commit proof includes `ecbb466c`, the current M104 proof guard anchor.",
                     "- Registry and queue evidence do not cite task-local telemetry as release proof.",
                     "",
                     "## Do Not Reopen",
@@ -3675,6 +3699,7 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
                     "          - /docker/chummercomplete/chummer-core-engine commit c124e4af pins the current 7a432bc3 proof pack guard floor in the generator, unit tests, proof-pack documentation, and checked-in receipt.",
                     "          - /docker/chummercomplete/chummer-core-engine commit 870be707 pins the current af67ecfd handoff proof floor in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.",
                     "          - /docker/chummercomplete/chummer-core-engine commit b8000b80 tightens the M104 OODA telemetry proof guard so plain governor-loop evidence cannot close the package.",
+                    "          - /docker/chummercomplete/chummer-core-engine commit ecbb466c pins the current b8000b80 OODA proof guard in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.",
                     "          - dotnet run --project Chummer.Benchmarks/Chummer.Benchmarks.csproj -c Release -- --budget-check --budget-file Chummer.Benchmarks/workspace-benchmark-budgets.json exits 0",
                 ]
             )
@@ -3758,6 +3783,7 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
                     "      - /docker/chummercomplete/chummer-core-engine commit c124e4af pins the current 7a432bc3 proof pack guard floor in the generator, unit tests, proof-pack documentation, and checked-in receipt.",
                     "      - /docker/chummercomplete/chummer-core-engine commit 870be707 pins the current af67ecfd handoff proof floor in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.",
                     "      - /docker/chummercomplete/chummer-core-engine commit b8000b80 tightens the M104 OODA telemetry proof guard so plain governor-loop evidence cannot close the package.",
+                    "      - /docker/chummercomplete/chummer-core-engine commit ecbb466c pins the current b8000b80 OODA proof guard in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.",
                     "    allowed_paths:",
                     "      - src",
                     "      - tests",
