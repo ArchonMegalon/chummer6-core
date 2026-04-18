@@ -18,6 +18,10 @@ It keeps engine trust evidence machine-readable so desktop release polish cannot
 The proof pack must fail closed unless it includes:
 
 - successor-wave authority for milestone `104`, owned surfaces `engine_proof_pack` and `import_oracle_discipline`, and the canonical successor registry plus queue staging paths
+- an `oracle_suite_summary` block that publishes the required suite count, passed suite count, covered rulesets, and promoted-desktop release scope for the golden oracle lane
+- per-suite oracle metadata including `coverage_focus`, `rulesets`, and `fixture_count`, so release consumers can see which veteran-replacement lane each proof row is carrying
+- a `performance_budget_summary` block that publishes the required budget count, passed budget count, release commands, and promoted-desktop release scope for the benchmark lane
+- per-budget release metadata including `release_gate` and `scenario`, so explain and performance budgets read as release-bound workloads instead of anonymous thresholds
 - top-level successor package identity, so release-bound proof consumers do not need to infer the assigned frontier from nested authority metadata
 - queue closeout proof that the successor queue row is marked `status: complete`, pins frontier `3227666051`, cites landed commit `00800059`, and lists the proof anchors for this generated pack, generator, tests, and documentation
 - package-local closeout proof in `docs/NEXT90_M104_CORE_PROOF_PACK_CLOSEOUT.md`, so future shards have an explicit do-not-reopen handoff for the completed core slice

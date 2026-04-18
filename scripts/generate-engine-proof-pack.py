@@ -1132,76 +1132,96 @@ def _validate_local_commit_proofs(root: Path) -> tuple[dict[str, Any], list[str]
 
 
 def _build_oracle_suites(root: Path) -> tuple[list[dict[str, Any]], list[str]]:
-    suites_spec: list[tuple[str, str, list[str]]] = [
-        (
-            "creation",
-            "Creation legality and deterministic builder entry checks.",
-            [
+    suites_spec: list[dict[str, Any]] = [
+        {
+            "id": "creation",
+            "description": "Creation legality and deterministic builder entry checks.",
+            "coverage_focus": "builder_entry",
+            "rulesets": ["sr5"],
+            "evidence": [
                 "Chummer.CoreEngine.Tests/Program.cs::LegacyChummer5FixtureCorpusImportsRoundTripThroughWorkspaceService",
                 "Chummer.Tests/TestFiles/Fuzzy-chargen.chum5",
             ],
-        ),
-        (
-            "advancement",
-            "Career advancement deltas and post-chargen progression checks.",
-            [
+        },
+        {
+            "id": "advancement",
+            "description": "Career advancement deltas and post-chargen progression checks.",
+            "coverage_focus": "career_progression",
+            "rulesets": ["sr5"],
+            "evidence": [
                 "Chummer.CoreEngine.Tests/Program.cs::LegacyChummer5FixtureCorpusImportsRoundTripThroughWorkspaceService",
                 "Chummer.Tests/TestFiles/Munin_Career.chum5",
             ],
-        ),
-        (
-            "augment",
-            "Cyberware/bioware and augmentation parity checks.",
-            [
+        },
+        {
+            "id": "augment",
+            "description": "Cyberware/bioware and augmentation parity checks.",
+            "coverage_focus": "augmentation_interactions",
+            "rulesets": ["sr5"],
+            "evidence": [
                 "Chummer.CoreEngine.Tests/HeroLabRulesParityAudit.cs",
                 "Chummer.CoreEngine.Tests/Fixtures/HeroLab/Sr5/Two Banshees.por",
             ],
-        ),
-        (
-            "matrix",
-            "Matrix-heavy fixture and import parity checks.",
-            [
+        },
+        {
+            "id": "matrix",
+            "description": "Matrix-heavy fixture and import parity checks.",
+            "coverage_focus": "matrix_edge_cases",
+            "rulesets": ["sr4", "sr6"],
+            "evidence": [
                 "Chummer.CoreEngine.Tests/Fixtures/Sr4/sr4-technomancer-hacker.chum4",
                 "Chummer.CoreEngine.Tests/Fixtures/HeroLab/Sr6/sr6-starter.hlo.json",
             ],
-        ),
-        (
-            "magic",
-            "Magic lane fixture and import parity checks.",
-            [
+        },
+        {
+            "id": "magic",
+            "description": "Magic lane fixture and import parity checks.",
+            "coverage_focus": "magic_edge_cases",
+            "rulesets": ["sr4", "sr5"],
+            "evidence": [
                 "Chummer.CoreEngine.Tests/Fixtures/Sr4/sr4-hermetic-mage.chum4",
                 "Chummer.Tests/TestFiles/Spirit_Warden.chum5",
             ],
-        ),
-        (
-            "vehicle",
-            "Vehicle and rigger lane fixture checks.",
-            [
+        },
+        {
+            "id": "vehicle",
+            "description": "Vehicle and rigger lane fixture checks.",
+            "coverage_focus": "vehicle_edge_cases",
+            "rulesets": ["sr4", "sr5"],
+            "evidence": [
                 "Chummer.CoreEngine.Tests/Fixtures/Sr4/sr4-rigger-wheelman.chum4",
                 "Chummer.Tests/TestFiles/Apex Predator.chum5",
             ],
-        ),
-        (
-            "source_toggle",
-            "Source-toggle and source-selection receipt checks.",
-            [
+        },
+        {
+            "id": "source_toggle",
+            "description": "Source-toggle and source-selection receipt checks.",
+            "coverage_focus": "sourcebook_and_settings_discipline",
+            "rulesets": ["sr5"],
+            "evidence": [
                 "Chummer.Infrastructure/Xml/XmlToolCatalogService.cs::BuildSourceToggleLaneReceipt",
                 "Chummer.Tests/ApiIntegrationTests.cs::sourceToggleLaneReceipt",
             ],
-        ),
-        (
-            "amend_package",
-            "Amend package apply/diff receipt checks.",
-            [
+        },
+        {
+            "id": "amend_package",
+            "description": "Amend package apply/diff receipt checks.",
+            "coverage_focus": "custom_data_and_xml_diff_apply",
+            "rulesets": ["sr5"],
+            "evidence": [
                 "Chummer.Application/Content/DefaultRuleProfileApplicationService.cs",
                 "Chummer.Application/Content/DefaultRuntimeLockDiffService.cs",
             ],
-        ),
+        },
     ]
 
     suites: list[dict[str, Any]] = []
     unresolved: list[str] = []
-    for suite_id, description, evidence in suites_spec:
+    for suite_spec in suites_spec:
+        suite_id = str(suite_spec["id"])
+        description = str(suite_spec["description"])
+        evidence = list(suite_spec["evidence"])
+        rulesets = [str(row).strip().lower() for row in suite_spec.get("rulesets", []) if str(row).strip()]
         status, missing = _evidence_status(root, evidence)
         if missing:
             unresolved.append(suite_id)
@@ -1209,6 +1229,9 @@ def _build_oracle_suites(root: Path) -> tuple[list[dict[str, Any]], list[str]]:
             {
                 "id": suite_id,
                 "description": description,
+                "coverage_focus": str(suite_spec.get("coverage_focus") or "").strip(),
+                "rulesets": rulesets,
+                "fixture_count": len(evidence),
                 "status": status,
                 "evidence": evidence,
                 "missing_evidence": missing,
@@ -1236,17 +1259,50 @@ def _build_budget_map(root: Path) -> tuple[list[dict[str, Any]], list[str]]:
     duplicate_workloads = _duplicate_workload_names(workloads)
     duplicate_workload_set = set(duplicate_workloads)
 
-    budget_specs: list[tuple[str, str, str]] = [
-        ("import", "workspace.import.bastion", "Benchmark budget workload"),
-        ("load", "workspace.section.skills.bastion", "Benchmark budget workload"),
-        ("diff_apply", "workspace.save.bastion", "Benchmark budget workload"),
-        ("explain", "runtime.explain.trace", "Benchmark budget workload"),
-        ("export_prep", "workspace.export.bastion", "Benchmark budget workload"),
+    budget_specs: list[dict[str, str]] = [
+        {
+            "id": "import",
+            "workload": "workspace.import.bastion",
+            "source": "Benchmark budget workload",
+            "release_gate": "desktop_release_import",
+            "scenario": "Import Bastion legacy workspace into the promoted desktop release candidate.",
+        },
+        {
+            "id": "load",
+            "workload": "workspace.section.skills.bastion",
+            "source": "Benchmark budget workload",
+            "release_gate": "desktop_release_load",
+            "scenario": "Load the imported Bastion workspace and hydrate the skills section for flagship desktop review.",
+        },
+        {
+            "id": "diff_apply",
+            "workload": "workspace.save.bastion",
+            "source": "Benchmark budget workload",
+            "release_gate": "desktop_release_diff_apply",
+            "scenario": "Save the imported Bastion workspace so release-bound diff/apply posture stays under budget.",
+        },
+        {
+            "id": "explain",
+            "workload": "runtime.explain.trace",
+            "source": "Benchmark budget workload",
+            "release_gate": "desktop_release_explain",
+            "scenario": "Compose an explain trace receipt for the promoted desktop release proof pack.",
+        },
+        {
+            "id": "export_prep",
+            "workload": "workspace.export.bastion",
+            "source": "Benchmark budget workload",
+            "release_gate": "desktop_release_export_prep",
+            "scenario": "Prepare export payloads from the imported Bastion workspace for release-bound exchange proof.",
+        },
     ]
 
     budgets: list[dict[str, Any]] = []
     unresolved: list[str] = []
-    for budget_id, workload_name, source in budget_specs:
+    for budget_spec in budget_specs:
+        budget_id = budget_spec["id"]
+        workload_name = budget_spec["workload"]
+        source = budget_spec["source"]
         workload_payload = by_name.get(workload_name, {})
         executable_workload_present = _benchmark_workload_is_executable(benchmark_workload_source, workload_name)
         duplicate_workload = workload_name in duplicate_workload_set
@@ -1273,6 +1329,8 @@ def _build_budget_map(root: Path) -> tuple[list[dict[str, Any]], list[str]]:
             {
                 "id": budget_id,
                 "workload": workload_name,
+                "release_gate": budget_spec["release_gate"],
+                "scenario": budget_spec["scenario"],
                 "status": status,
                 "max_mean_milliseconds": ms or 0,
                 "max_allocated_bytes": alloc or 0,
@@ -1288,6 +1346,40 @@ def _build_budget_map(root: Path) -> tuple[list[dict[str, Any]], list[str]]:
         )
 
     return budgets, unresolved
+
+
+def _build_oracle_suite_summary(suites: list[dict[str, Any]]) -> dict[str, Any]:
+    passed_count = sum(1 for row in suites if row.get("status") == "passed")
+    rulesets = sorted(
+        {
+            str(ruleset).strip().lower()
+            for row in suites
+            for ruleset in row.get("rulesets", [])
+            if str(ruleset).strip()
+        }
+    )
+    return {
+        "required_suite_ids": list(REQUIRED_ORACLE_SUITE_IDS),
+        "required_suite_count": len(REQUIRED_ORACLE_SUITE_IDS),
+        "published_suite_count": len(suites),
+        "passed_suite_count": passed_count,
+        "coverage_status": "passed" if passed_count == len(REQUIRED_ORACLE_SUITE_IDS) else "failed",
+        "covered_rulesets": rulesets,
+        "release_scope": "promoted_desktop_release",
+    }
+
+
+def _build_budget_summary(budgets: list[dict[str, Any]]) -> dict[str, Any]:
+    passed_count = sum(1 for row in budgets if row.get("status") == "passed")
+    return {
+        "required_budget_ids": list(REQUIRED_BUDGET_IDS),
+        "required_budget_count": len(REQUIRED_BUDGET_IDS),
+        "published_budget_count": len(budgets),
+        "passed_budget_count": passed_count,
+        "coverage_status": "passed" if passed_count == len(REQUIRED_BUDGET_IDS) else "failed",
+        "release_commands": list(RELEASE_COMMANDS),
+        "release_scope": "promoted_desktop_release",
+    }
 
 
 def _benchmark_workload_is_executable(source: str, workload_name: str) -> bool:
@@ -1650,6 +1742,8 @@ def build_payload(root: Path, generated_output_path: Path | None = None) -> dict
 
     oracle_suites, unresolved_suite_ids = _build_oracle_suites(root)
     performance_budgets, unresolved_budget_ids = _build_budget_map(root)
+    oracle_suite_summary = _build_oracle_suite_summary(oracle_suites)
+    performance_budget_summary = _build_budget_summary(performance_budgets)
     command_receipts, unresolved_command_ids = _validate_release_commands(root, generated_output_path)
     successor_authority, unresolved_successor_authority_ids = _validate_successor_wave_authority(root, generated_output_path)
     closeout_document, unresolved_closeout_document_ids = _validate_package_closeout(root)
@@ -1688,8 +1782,10 @@ def build_payload(root: Path, generated_output_path: Path | None = None) -> dict
         "commands": list(RELEASE_COMMANDS),
         "required_oracle_suite_ids": list(REQUIRED_ORACLE_SUITE_IDS),
         "oracle_suites": oracle_suites,
+        "oracle_suite_summary": oracle_suite_summary,
         "required_performance_budget_ids": list(REQUIRED_BUDGET_IDS),
         "performance_budgets": performance_budgets,
+        "performance_budget_summary": performance_budget_summary,
         "import_oracle_discipline": import_discipline,
         "unresolved": {
             "oracle_suites": unresolved_suite_ids,

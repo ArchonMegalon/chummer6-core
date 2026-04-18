@@ -1,7 +1,7 @@
 {
   "contract_name": "chummer6-core.engine_proof_pack",
   "schema_version": 1,
-  "generated_at": "2026-04-17T20:42:37Z",
+  "generated_at": "2026-04-18T18:30:46Z",
   "status": "passed",
   "proof_kind": "release_bound_engine_proof",
   "milestone_id": 104,
@@ -1404,6 +1404,11 @@
     {
       "id": "creation",
       "description": "Creation legality and deterministic builder entry checks.",
+      "coverage_focus": "builder_entry",
+      "rulesets": [
+        "sr5"
+      ],
+      "fixture_count": 2,
       "status": "passed",
       "evidence": [
         "Chummer.CoreEngine.Tests/Program.cs::LegacyChummer5FixtureCorpusImportsRoundTripThroughWorkspaceService",
@@ -1414,6 +1419,11 @@
     {
       "id": "advancement",
       "description": "Career advancement deltas and post-chargen progression checks.",
+      "coverage_focus": "career_progression",
+      "rulesets": [
+        "sr5"
+      ],
+      "fixture_count": 2,
       "status": "passed",
       "evidence": [
         "Chummer.CoreEngine.Tests/Program.cs::LegacyChummer5FixtureCorpusImportsRoundTripThroughWorkspaceService",
@@ -1424,6 +1434,11 @@
     {
       "id": "augment",
       "description": "Cyberware/bioware and augmentation parity checks.",
+      "coverage_focus": "augmentation_interactions",
+      "rulesets": [
+        "sr5"
+      ],
+      "fixture_count": 2,
       "status": "passed",
       "evidence": [
         "Chummer.CoreEngine.Tests/HeroLabRulesParityAudit.cs",
@@ -1434,6 +1449,12 @@
     {
       "id": "matrix",
       "description": "Matrix-heavy fixture and import parity checks.",
+      "coverage_focus": "matrix_edge_cases",
+      "rulesets": [
+        "sr4",
+        "sr6"
+      ],
+      "fixture_count": 2,
       "status": "passed",
       "evidence": [
         "Chummer.CoreEngine.Tests/Fixtures/Sr4/sr4-technomancer-hacker.chum4",
@@ -1444,6 +1465,12 @@
     {
       "id": "magic",
       "description": "Magic lane fixture and import parity checks.",
+      "coverage_focus": "magic_edge_cases",
+      "rulesets": [
+        "sr4",
+        "sr5"
+      ],
+      "fixture_count": 2,
       "status": "passed",
       "evidence": [
         "Chummer.CoreEngine.Tests/Fixtures/Sr4/sr4-hermetic-mage.chum4",
@@ -1454,6 +1481,12 @@
     {
       "id": "vehicle",
       "description": "Vehicle and rigger lane fixture checks.",
+      "coverage_focus": "vehicle_edge_cases",
+      "rulesets": [
+        "sr4",
+        "sr5"
+      ],
+      "fixture_count": 2,
       "status": "passed",
       "evidence": [
         "Chummer.CoreEngine.Tests/Fixtures/Sr4/sr4-rigger-wheelman.chum4",
@@ -1464,6 +1497,11 @@
     {
       "id": "source_toggle",
       "description": "Source-toggle and source-selection receipt checks.",
+      "coverage_focus": "sourcebook_and_settings_discipline",
+      "rulesets": [
+        "sr5"
+      ],
+      "fixture_count": 2,
       "status": "passed",
       "evidence": [
         "Chummer.Infrastructure/Xml/XmlToolCatalogService.cs::BuildSourceToggleLaneReceipt",
@@ -1474,6 +1512,11 @@
     {
       "id": "amend_package",
       "description": "Amend package apply/diff receipt checks.",
+      "coverage_focus": "custom_data_and_xml_diff_apply",
+      "rulesets": [
+        "sr5"
+      ],
+      "fixture_count": 2,
       "status": "passed",
       "evidence": [
         "Chummer.Application/Content/DefaultRuleProfileApplicationService.cs",
@@ -1482,6 +1525,28 @@
       "missing_evidence": []
     }
   ],
+  "oracle_suite_summary": {
+    "required_suite_ids": [
+      "creation",
+      "advancement",
+      "augment",
+      "matrix",
+      "magic",
+      "vehicle",
+      "source_toggle",
+      "amend_package"
+    ],
+    "required_suite_count": 8,
+    "published_suite_count": 8,
+    "passed_suite_count": 8,
+    "coverage_status": "passed",
+    "covered_rulesets": [
+      "sr4",
+      "sr5",
+      "sr6"
+    ],
+    "release_scope": "promoted_desktop_release"
+  },
   "required_performance_budget_ids": [
     "load",
     "explain",
@@ -1493,6 +1558,8 @@
     {
       "id": "import",
       "workload": "workspace.import.bastion",
+      "release_gate": "desktop_release_import",
+      "scenario": "Import Bastion legacy workspace into the promoted desktop release candidate.",
       "status": "passed",
       "max_mean_milliseconds": 250.0,
       "max_allocated_bytes": 32000000,
@@ -1508,6 +1575,8 @@
     {
       "id": "load",
       "workload": "workspace.section.skills.bastion",
+      "release_gate": "desktop_release_load",
+      "scenario": "Load the imported Bastion workspace and hydrate the skills section for flagship desktop review.",
       "status": "passed",
       "max_mean_milliseconds": 180.0,
       "max_allocated_bytes": 32000000,
@@ -1523,6 +1592,8 @@
     {
       "id": "diff_apply",
       "workload": "workspace.save.bastion",
+      "release_gate": "desktop_release_diff_apply",
+      "scenario": "Save the imported Bastion workspace so release-bound diff/apply posture stays under budget.",
       "status": "passed",
       "max_mean_milliseconds": 80.0,
       "max_allocated_bytes": 16000000,
@@ -1538,6 +1609,8 @@
     {
       "id": "explain",
       "workload": "runtime.explain.trace",
+      "release_gate": "desktop_release_explain",
+      "scenario": "Compose an explain trace receipt for the promoted desktop release proof pack.",
       "status": "passed",
       "max_mean_milliseconds": 220.0,
       "max_allocated_bytes": 24000000,
@@ -1553,6 +1626,8 @@
     {
       "id": "export_prep",
       "workload": "workspace.export.bastion",
+      "release_gate": "desktop_release_export_prep",
+      "scenario": "Prepare export payloads from the imported Bastion workspace for release-bound exchange proof.",
       "status": "passed",
       "max_mean_milliseconds": 160.0,
       "max_allocated_bytes": 96000000,
@@ -1566,6 +1641,24 @@
       "malformed_threshold": false
     }
   ],
+  "performance_budget_summary": {
+    "required_budget_ids": [
+      "load",
+      "explain",
+      "diff_apply",
+      "import",
+      "export_prep"
+    ],
+    "required_budget_count": 5,
+    "published_budget_count": 5,
+    "passed_budget_count": 5,
+    "coverage_status": "passed",
+    "release_commands": [
+      "dotnet build Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj -c Release --nologo -m:1 && dotnet Chummer.CoreEngine.Tests/bin/Release/net10.0/Chummer.CoreEngine.Tests.dll",
+      "dotnet run --project Chummer.Benchmarks/Chummer.Benchmarks.csproj -c Release -- --budget-check --budget-file Chummer.Benchmarks/workspace-benchmark-budgets.json"
+    ],
+    "release_scope": "promoted_desktop_release"
+  },
   "import_oracle_discipline": {
     "status": "passed",
     "source_receipt_path": ".codex-studio/published/IMPORT_PARITY_CERTIFICATION.generated.json",
