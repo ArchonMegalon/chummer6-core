@@ -743,6 +743,8 @@ items:
       - runtime handoff frontier metadata proof markers fail the standalone verifier and shared successor authority check
       - distinct queue proof anti-collapse guard prevents broad prose proof lines from satisfying command and negative-proof rows
       - duplicate queue, design-queue, and registry work-task rows for next90-m102-fleet-reporter-receipts fail the shared successor authority check
+      - cached packet fallback provenance guard keeps ready followthrough closed when `source.refresh_mode=cached_packets_fallback`
+      - seeded cached-packet mirror provenance guard keeps ready followthrough closed when `seeded_from_cached_packets_generated_at` is present
     allowed_paths:
       - scripts
       - tests
@@ -882,12 +884,14 @@ items:
       - /docker/chummercomplete/chummer6-ui-finish/.codex-studio/published/NEXT90_M104_UI_EXPLAIN_RECEIPTS.generated.json
       - /docker/chummercomplete/chummer6-ui-finish/scripts/ai/milestones/next90-m104-ui-explain-receipts-check.sh
       - /docker/chummercomplete/chummer6-ui-finish/Chummer.Avalonia/DesktopTrustReceiptText.cs
+      - /docker/chummercomplete/chummer6-ui-finish/Chummer.Avalonia/DesktopTrustPanelFactory.cs
       - /docker/chummercomplete/chummer6-ui-finish/Chummer.Desktop.Runtime/DesktopInstallLinkingRuntime.cs
       - /docker/chummercomplete/chummer6-ui-finish/Chummer.Blazor/Components/Shell/DialogTrustReceiptText.cs
       - /docker/chummercomplete/chummer6-ui-finish/Chummer.Blazor/Components/Shell/DialogHost.razor
       - /docker/chummercomplete/chummer6-ui-finish/Chummer.Blazor/Components/Shell/SectionPane.razor
       - /docker/chummercomplete/chummer6-ui-finish/Chummer.Tests/Presentation/BlazorShellComponentTests.cs
       - /docker/chummercomplete/chummer6-ui-finish/Chummer.Tests/Presentation/AccessibilitySignoffSmokeTests.cs
+      - /docker/chummercomplete/chummer6-ui-finish/Chummer.Tests/Presentation/DesktopTrustPanelFactoryTests.cs
       - /docker/chummercomplete/chummer6-ui-finish commit b0f5a122 tightens exact allowed_paths and owned_surfaces closure for this completed package.
       - /docker/chummercomplete/chummer6-ui-finish commit 0a2a321f tightens M104 explain receipt guard wiring for the completed package proof chain.
       - /docker/chummercomplete/chummer6-ui-finish commit 2c29f1be tightens M104 explain receipt commit proof for the completed package.
@@ -1020,6 +1024,9 @@ items:
     wave: W8
     repo: executive-assistant
     status: complete
+    landed_commit: dacbdad
+    completion_action: verify_closed_package_only
+    do_not_reopen_reason: M106 executive-assistant governor packets are complete; future shards must verify this packet pack, focused test, canonical registry row, Fleet queue row, and design queue row instead of reopening the EA-owned operator-packet and reporter-followthrough slice.
     proof:
       - /docker/EA/docs/chummer_governor_packets/CHUMMER_GOVERNOR_PACKET_PACK.yaml
       - /docker/EA/docs/chummer_governor_packets/OPERATOR_AND_REPORTER_PACKET_SPECIMENS.yaml

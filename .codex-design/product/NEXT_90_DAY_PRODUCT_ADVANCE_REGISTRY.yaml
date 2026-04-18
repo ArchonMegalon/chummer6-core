@@ -449,6 +449,7 @@ milestones:
           - /docker/fleet/scripts/materialize_support_case_packets.py now fail-closes duplicate next90-m102-fleet-reporter-receipts queue rows, duplicate design-queue rows, and duplicate registry work-task rows so stale closure proof cannot hide behind the first matching row.
           - /docker/fleet/scripts/materialize_support_case_packets.py now requires generated successor scope-drift, closure-field drift, and missing Fleet proof-anchor markers in both the Fleet queue mirror and design-owned queue source so future shards verify the closed proof floor instead of repeating it.
           - /docker/fleet/scripts/verify_next90_m102_fleet_reporter_receipts.py now fail-closes runtime handoff metadata proof markers so copied worker-run metadata cannot close the package.
+          - /docker/fleet/scripts/verify_next90_m102_fleet_reporter_receipts.py now records the cached packet fallback provenance guard and seeded cached-packet mirror provenance guard so ready followthrough cannot survive `cached_packets_fallback` or `seeded_from_cached_packets_generated_at`.
 
   - id: 103
     title: Chummer5a parity lab and veteran migration certification
@@ -648,11 +649,13 @@ milestones:
         landed_commit: 63f57d62
         evidence:
           - /docker/chummercomplete/chummer6-ui-finish/Chummer.Avalonia/DesktopTrustReceiptText.cs surfaces import rule-environment receipts and diagnostics before-after diffs on Avalonia import, support, support-case, and report-issue flows.
+          - /docker/chummercomplete/chummer6-ui-finish/Chummer.Avalonia/DesktopTrustPanelFactory.cs keeps the Avalonia trust panels sectioned, headed, and fallback-safe for import dialogs and support diagnostics without widening the completed package scope.
           - /docker/chummercomplete/chummer6-ui-finish/Chummer.Desktop.Runtime/DesktopInstallLinkingRuntime.cs binds the copied support packet, diagnostics correlation key, and before-after environment diff lines to the same local install without mutating install or workspace state.
           - /docker/chummercomplete/chummer6-ui-finish/Chummer.Blazor/Components/Shell/DialogTrustReceiptText.cs and DialogHost.razor surface the same grounded import receipt and before-after environment diff on the Blazor fallback dialog host.
           - /docker/chummercomplete/chummer6-ui-finish/Chummer.Blazor/Components/Shell/SectionPane.razor exposes Build Lab blocker receipts and before-after environment diffs in the desktop fallback build surface.
           - /docker/chummercomplete/chummer6-ui-finish/.codex-studio/published/NEXT90_M104_UI_EXPLAIN_RECEIPTS.generated.json records registry, queue, owned-surface, required-proof, and source-marker pass evidence for the desktop explain receipt slice.
           - /docker/chummercomplete/chummer6-ui-finish/scripts/ai/milestones/next90-m104-ui-explain-receipts-check.sh fail-closes missing registry authority, queue closure, required proof files, owned-surface markers, import receipts, build blocker receipts, and support diagnostics diffs.
+          - /docker/chummercomplete/chummer6-ui-finish/Chummer.Tests/Presentation/DesktopTrustPanelFactoryTests.cs covers the Avalonia trust-panel fallback and section-heading render path so the closed package remains bound to the visible receipt surface instead of text helpers alone.
           - /docker/chummercomplete/chummer6-ui-finish commit b0f5a122 tightens the successor queue proof so the completed M104 package fails closed if allowed_paths or owned_surfaces widen beyond the assigned slice.
           - /docker/chummercomplete/chummer6-ui-finish commit 0a2a321f tightens M104 explain receipt guard wiring so the compliance guard is part of the completed package proof chain.
           - /docker/chummercomplete/chummer6-ui-finish commit 2c29f1be tightens M104 explain receipt commit proof so the completed package remains bound to the landed implementation commit.
@@ -1046,6 +1049,9 @@ milestones:
         owner: executive-assistant
         title: Synthesize support, parity, and release signals into operator-ready packets and reporter followthrough mail.
         status: complete
+        landed_commit: dacbdad
+        completion_action: verify_closed_package_only
+        do_not_reopen_reason: M106 executive-assistant governor packets are complete; future shards must verify this packet pack, focused test, canonical registry row, Fleet queue row, and design queue row instead of reopening the EA-owned operator-packet and reporter-followthrough slice.
         evidence:
           - /docker/EA/docs/chummer_governor_packets/CHUMMER_GOVERNOR_PACKET_PACK.yaml is task_proven for operator_packets:weekly_governor and reporter_followthrough:release_truth.
           - /docker/EA/docs/chummer_governor_packets/OPERATOR_AND_REPORTER_PACKET_SPECIMENS.yaml projects operator and reporter packet shapes from the same readiness, parity, support, and release-truth anchors.
