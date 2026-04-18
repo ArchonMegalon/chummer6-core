@@ -286,6 +286,7 @@ items:
       - /docker/chummercomplete/chummer6-ui-finish commit a7ff93b4 pins the M101 release train proof floor to the current closed-package guard.
       - /docker/chummercomplete/chummer6-ui-finish commit fb8ad231 resolves the M101 release train proof citation to the current generated receipt and verifier guard.
       - /docker/chummercomplete/chummer6-ui-finish commit 46eb74e2 tightens the M101 release train proof citation.
+      - /docker/chummercomplete/chummer6-ui-finish commit 35433ce3 tightens M101 proof floor authority guard.
       - bash scripts/ai/milestones/next90-m101-ui-release-train-check.sh
       - source assertion check for M101 guard tokens and primaryProofIndependentFromFallback=true
     allowed_paths:
@@ -416,6 +417,8 @@ items:
       - /docker/chummercomplete/chummer-core-engine commit ecbb466c pins the current b8000b80 OODA proof guard in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.
       - /docker/chummercomplete/chummer-core-engine commit aeeeaf6e tightens M104 package-commit citation proof so registry, Fleet queue, and design queue package-local commit evidence must resolve locally.
       - /docker/chummercomplete/chummer-core-engine commit c84b251f pins the M104 package-commit citation guard as an explicit local proof floor.
+      - /docker/chummercomplete/chummer-core-engine commit 29b17c68 tightens the M104 engine proof pack release summaries so suite and budget metadata stay release-bound and explainable.
+      - /docker/chummercomplete/chummer-core-engine commit 262030df tightens the M104 proof-pack closure guards so queue closure instructions and import aggregate coverage fail closed.
     allowed_paths:
       - src
       - tests
