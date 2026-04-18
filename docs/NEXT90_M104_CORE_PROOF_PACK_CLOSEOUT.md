@@ -18,8 +18,10 @@ The core-owned successor slice is closed when all of these remain true:
 - `successor_wave_authority` reports `status=passed`.
 - The Fleet queue mirror and design-owned queue each contain exactly one `next90-m104-core-proof-pack` row.
 - The Fleet queue mirror and design-owned queue package rows keep matching proof lists; `queue_mirror_parity_status` remains `passed`.
+- The Fleet queue mirror and design-owned queue keep matching `completion_action` and exact `do_not_reopen_reason` text, so closure instructions cannot drift between mirrors.
 - The Fleet queue mirror and design-owned queue proof lists contain no duplicated proof item.
-- That row remains `status: complete`, keeps `frontier_id: 3227666051`, and keeps `landed_commit: 00800059`.
+- That row remains `status: complete`, keeps `frontier_id: 3227666051`, keeps `landed_commit: 00800059`, and keeps `completion_action: verify_closed_package_only`.
+- That row keeps a package-specific `do_not_reopen_reason`, so later shards must verify the closed package instead of reopening M104.
 - The row keeps only the assigned allowed paths: `src`, `tests`, `docs`, and `scripts`.
 - The row keeps only the assigned owned surfaces: `engine_proof_pack` and `import_oracle_discipline`.
 - Queue proof anchors resolve inside `/docker/chummercomplete/chummer-core-engine`.
@@ -31,7 +33,7 @@ The core-owned successor slice is closed when all of these remain true:
 - Registry and queue evidence do not cite retry-orientation prompt fragments such as exact-command orientation, current steering focus, direct-read handoff context, writable scope roots, or stop-report templates as release proof.
 - Registry, queue, closeout, and import-certification evidence do not cite copied worker-run prohibitions such as "do not run supervisor status or eta helpers" as release proof.
 - Import-certification command and evidence lists remain exact release-bound receipts: only `dotnet run --project Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj -c Release` and `core-engine-tests: ok` may satisfy the source receipt.
-- Import-certification coverage counts and `coverage_percent` remain JSON integers, not string-encoded numbers, floats, booleans, under-100-percent summaries, or totals that omit the adjacent Genesis and CommLink6 oracle rows; performance-budget thresholds remain JSON numeric values.
+- Import-certification coverage counts and `coverage_percent` remain JSON integers, not string-encoded numbers, floats, booleans, under-100-percent or over-100-percent summaries, or totals that omit the adjacent Genesis and CommLink6 oracle rows; performance-budget thresholds remain JSON numeric values.
 - The same proof-hygiene ban applies after percent-decoding and HTML unescaping, after URL form-decoding, and after separator normalization, so encoded or separator-obfuscated active-run paths, task-local telemetry, or supervisor-helper evidence cannot close the package.
 - Release-channel desktop tuple and artifact ids remain unique, so promoted desktop proof cannot pass by hiding a stale duplicate route or shelf receipt.
 - Release-channel artifact and desktop route-truth rows remain structured objects with non-empty ids, so malformed shelf rows cannot be ignored while promoted tuple proof stays green.

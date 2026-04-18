@@ -191,6 +191,8 @@ SUCCESSOR_QUEUE_TOKENS = (
     "repo: chummer6-core",
     "status: complete",
     "landed_commit: 00800059",
+    "completion_action: verify_closed_package_only",
+    "do_not_reopen_reason: M104 chummer6-core engine proof pack is complete;",
     "/docker/chummercomplete/chummer-core-engine/.codex-studio/published/ENGINE_PROOF_PACK.generated.json",
     "/docker/chummercomplete/chummer-core-engine/scripts/generate-engine-proof-pack.py",
     "/docker/chummercomplete/chummer-core-engine/tests/test_engine_proof_pack_generator.py",
@@ -286,6 +288,9 @@ PACKAGE_CLOSEOUT_REQUIRED_TOKENS = (
     "exactly one `next90-m104-core-proof-pack` row",
     "`frontier_id: 3227666051`",
     "`landed_commit: 00800059`",
+    "matching `completion_action` and exact `do_not_reopen_reason` text",
+    "`completion_action: verify_closed_package_only`",
+    "`do_not_reopen_reason`",
     "`src`, `tests`, `docs`, and `scripts`",
     "`engine_proof_pack` and `import_oracle_discipline`",
     "Queue proof anchors resolve inside `/docker/chummercomplete/chummer-core-engine`",
@@ -794,6 +799,16 @@ def _extract_yaml_list_values(block: str, key: str) -> list[str]:
     return []
 
 
+def _extract_yaml_scalar_value(block: str, key: str) -> str:
+    for line in block.splitlines():
+        stripped = line.lstrip()
+        prefix = f"{key}:"
+        if not stripped.startswith(prefix):
+            continue
+        return stripped[len(prefix) :].strip()
+    return ""
+
+
 def _list_drift(actual: list[str], expected: tuple[str, ...]) -> tuple[list[str], list[str]]:
     actual_set = set(actual)
     expected_set = set(expected)
@@ -1005,6 +1020,10 @@ def _validate_successor_wave_authority(root: Path, generated_output_path: Path |
     )
     queue_proof = fleet_queue_authority["proof"]
     design_queue_proof = design_queue_authority["proof"]
+    queue_completion_action = _extract_yaml_scalar_value(fleet_queue_scope, "completion_action")
+    design_queue_completion_action = _extract_yaml_scalar_value(design_queue_scope, "completion_action")
+    queue_do_not_reopen_reason = _extract_yaml_scalar_value(fleet_queue_scope, "do_not_reopen_reason")
+    design_queue_do_not_reopen_reason = _extract_yaml_scalar_value(design_queue_scope, "do_not_reopen_reason")
     queue_proof_set = set(queue_proof)
     design_queue_proof_set = set(design_queue_proof)
     queue_proof_missing_from_design_queue = [
@@ -1013,9 +1032,16 @@ def _validate_successor_wave_authority(root: Path, generated_output_path: Path |
     design_queue_proof_missing_from_queue = [
         proof for proof in design_queue_proof if proof not in queue_proof_set
     ]
+    queue_closure_field_drift: list[str] = []
+    if queue_completion_action != design_queue_completion_action:
+        queue_closure_field_drift.append("completion_action")
+    if queue_do_not_reopen_reason != design_queue_do_not_reopen_reason:
+        queue_closure_field_drift.append("do_not_reopen_reason")
     queue_mirror_parity_status = (
         "passed"
-        if not queue_proof_missing_from_design_queue and not design_queue_proof_missing_from_queue
+        if not queue_proof_missing_from_design_queue
+        and not design_queue_proof_missing_from_queue
+        and not queue_closure_field_drift
         else "failed"
     )
     registry_status = "passed" if not missing_registry_tokens else "failed"
@@ -1077,8 +1103,13 @@ def _validate_successor_wave_authority(root: Path, generated_output_path: Path |
             "design_queue_path_proof_anchors": design_queue_authority["path_proof_anchors"],
             "queue_proof_count": len(queue_proof),
             "design_queue_proof_count": len(design_queue_proof),
+            "queue_completion_action": queue_completion_action,
+            "design_queue_completion_action": design_queue_completion_action,
+            "queue_do_not_reopen_reason": queue_do_not_reopen_reason,
+            "design_queue_do_not_reopen_reason": design_queue_do_not_reopen_reason,
             "queue_proof_missing_from_design_queue": queue_proof_missing_from_design_queue,
             "design_queue_proof_missing_from_queue": design_queue_proof_missing_from_queue,
+            "queue_closure_field_drift": queue_closure_field_drift,
             "queue_mirror_parity_status": queue_mirror_parity_status,
             "package_commit_citations": package_commit_citations,
             "closure_requirements": {
@@ -1550,7 +1581,7 @@ def _coverage_summary_is_complete(row: Any, expected_total: int) -> bool:
     percent = _try_json_int(row.get("coverage_percent"))
     if covered is None or expected is None or percent is None:
         return False
-    return expected == expected_total and covered == expected_total and percent >= 100
+    return expected == expected_total and covered == expected_total and percent == 100
 
 
 def _try_json_int(value: Any) -> int | None:

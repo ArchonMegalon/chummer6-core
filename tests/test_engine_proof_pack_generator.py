@@ -90,6 +90,23 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
         self.assertEqual("next_90_day_product_advance", payload["successor_wave_package"]["program_wave"])
         self.assertEqual(["engine_proof_pack", "import_oracle_discipline"], payload["successor_wave_package"]["owned_surfaces"])
         self.assertEqual("passed", payload["successor_wave_authority"]["status"])
+        self.assertEqual(
+            "verify_closed_package_only",
+            payload["successor_wave_authority"]["queue_completion_action"],
+        )
+        self.assertEqual(
+            "verify_closed_package_only",
+            payload["successor_wave_authority"]["design_queue_completion_action"],
+        )
+        self.assertEqual(
+            "M104 chummer6-core engine proof pack is complete; future shards must verify this receipt, queue row, design queue row, and closeout note instead of reopening the proof-pack package.",
+            payload["successor_wave_authority"]["queue_do_not_reopen_reason"],
+        )
+        self.assertEqual(
+            "M104 chummer6-core engine proof pack is complete; future shards must verify this receipt, queue row, design queue row, and closeout note instead of reopening the proof-pack package.",
+            payload["successor_wave_authority"]["design_queue_do_not_reopen_reason"],
+        )
+        self.assertEqual([], payload["successor_wave_authority"]["queue_closure_field_drift"])
         self.assertEqual("passed", payload["closeout_document"]["status"])
         self.assertEqual([], payload["unresolved"]["closeout_document"])
         self.assertEqual("skipped", payload["local_commit_proofs"]["status"])
@@ -1495,6 +1512,17 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
         self.assertEqual("failed", payload["status"])
         self.assertIn("source_receipt_coverage", payload["unresolved"]["import_oracle_discipline"])
 
+    def test_build_payload_fails_closed_when_import_receipt_coverage_percent_is_over_full(self) -> None:
+        cert_path = self.root / ".codex-studio" / "published" / "IMPORT_PARITY_CERTIFICATION.generated.json"
+        cert = json.loads(cert_path.read_text(encoding="utf-8"))
+        cert["coverage"] = {"sources_covered": 5, "sources_expected": 5, "coverage_percent": 101}
+        cert_path.write_text(json.dumps(cert), encoding="utf-8")
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertIn("source_receipt_coverage", payload["unresolved"]["import_oracle_discipline"])
+
     def test_build_payload_fails_closed_when_import_receipt_coverage_summary_is_malformed(self) -> None:
         cert_path = self.root / ".codex-studio" / "published" / "IMPORT_PARITY_CERTIFICATION.generated.json"
         cert = json.loads(cert_path.read_text(encoding="utf-8"))
@@ -1967,6 +1995,39 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
         self.assertEqual("failed", payload["successor_wave_authority"]["status"])
         self.assertIn("source_queue", payload["unresolved"]["successor_wave_authority"])
         self.assertIn("landed_commit: 00800059", payload["successor_wave_authority"]["missing_queue_tokens"])
+
+    def test_build_payload_fails_closed_when_successor_queue_loses_completion_action(self) -> None:
+        queue_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_queue_path"])
+        queue_text = queue_path.read_text(encoding="utf-8")
+        queue_path.write_text(queue_text.replace("    completion_action: verify_closed_package_only\n", ""), encoding="utf-8")
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertEqual("failed", payload["successor_wave_authority"]["status"])
+        self.assertIn("source_queue", payload["unresolved"]["successor_wave_authority"])
+        self.assertIn("completion_action: verify_closed_package_only", payload["successor_wave_authority"]["missing_queue_tokens"])
+
+    def test_build_payload_fails_closed_when_successor_queue_loses_do_not_reopen_reason(self) -> None:
+        queue_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_queue_path"])
+        queue_text = queue_path.read_text(encoding="utf-8")
+        queue_path.write_text(
+            queue_text.replace(
+                "    do_not_reopen_reason: M104 chummer6-core engine proof pack is complete; future shards must verify this receipt, queue row, design queue row, and closeout note instead of reopening the proof-pack package.\n",
+                "",
+            ),
+            encoding="utf-8",
+        )
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertEqual("failed", payload["successor_wave_authority"]["status"])
+        self.assertIn("source_queue", payload["unresolved"]["successor_wave_authority"])
+        self.assertIn(
+            "do_not_reopen_reason: M104 chummer6-core engine proof pack is complete;",
+            payload["successor_wave_authority"]["missing_queue_tokens"],
+        )
 
     def test_build_payload_fails_closed_when_successor_queue_loses_allowed_path_authority(self) -> None:
         queue_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_queue_path"])
@@ -2826,6 +2887,47 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
         )
         self.assertEqual([], payload["successor_wave_authority"]["missing_queue_tokens"])
 
+    def test_build_payload_fails_closed_when_design_queue_loses_completion_action(self) -> None:
+        design_queue_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_design_queue_path"])
+        queue_text = design_queue_path.read_text(encoding="utf-8")
+        design_queue_path.write_text(
+            queue_text.replace("    completion_action: verify_closed_package_only\n", ""),
+            encoding="utf-8",
+        )
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertEqual("failed", payload["successor_wave_authority"]["status"])
+        self.assertIn("source_design_queue", payload["unresolved"]["successor_wave_authority"])
+        self.assertIn(
+            "completion_action: verify_closed_package_only",
+            payload["successor_wave_authority"]["design_queue_missing_tokens"],
+        )
+        self.assertEqual([], payload["successor_wave_authority"]["missing_queue_tokens"])
+
+    def test_build_payload_fails_closed_when_design_queue_loses_do_not_reopen_reason(self) -> None:
+        design_queue_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_design_queue_path"])
+        queue_text = design_queue_path.read_text(encoding="utf-8")
+        design_queue_path.write_text(
+            queue_text.replace(
+                "    do_not_reopen_reason: M104 chummer6-core engine proof pack is complete; future shards must verify this receipt, queue row, design queue row, and closeout note instead of reopening the proof-pack package.\n",
+                "",
+            ),
+            encoding="utf-8",
+        )
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertEqual("failed", payload["successor_wave_authority"]["status"])
+        self.assertIn("source_design_queue", payload["unresolved"]["successor_wave_authority"])
+        self.assertIn(
+            "do_not_reopen_reason: M104 chummer6-core engine proof pack is complete;",
+            payload["successor_wave_authority"]["design_queue_missing_tokens"],
+        )
+        self.assertEqual([], payload["successor_wave_authority"]["missing_queue_tokens"])
+
     def test_build_payload_fails_closed_when_fleet_and_design_queue_proof_rows_drift(self) -> None:
         design_queue_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_design_queue_path"])
         queue_text = design_queue_path.read_text(encoding="utf-8")
@@ -2841,6 +2943,32 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
         self.assertIn(
             proof_item,
             payload["successor_wave_authority"]["queue_proof_missing_from_design_queue"],
+        )
+
+    def test_build_payload_fails_closed_when_fleet_and_design_queue_do_not_reopen_reason_drifts(self) -> None:
+        design_queue_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_design_queue_path"])
+        queue_text = design_queue_path.read_text(encoding="utf-8")
+        design_queue_path.write_text(
+            queue_text.replace(
+                "    do_not_reopen_reason: M104 chummer6-core engine proof pack is complete; future shards must verify this receipt, queue row, design queue row, and closeout note instead of reopening the proof-pack package.\n",
+                "    do_not_reopen_reason: M104 chummer6-core engine proof pack is complete; future shards must verify only the design queue row before reopening this slice.\n",
+            ),
+            encoding="utf-8",
+        )
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertEqual("failed", payload["successor_wave_authority"]["status"])
+        self.assertIn("queue_mirror_parity", payload["unresolved"]["successor_wave_authority"])
+        self.assertEqual(["do_not_reopen_reason"], payload["successor_wave_authority"]["queue_closure_field_drift"])
+        self.assertEqual(
+            "M104 chummer6-core engine proof pack is complete; future shards must verify this receipt, queue row, design queue row, and closeout note instead of reopening the proof-pack package.",
+            payload["successor_wave_authority"]["queue_do_not_reopen_reason"],
+        )
+        self.assertEqual(
+            "M104 chummer6-core engine proof pack is complete; future shards must verify only the design queue row before reopening this slice.",
+            payload["successor_wave_authority"]["design_queue_do_not_reopen_reason"],
         )
 
     def test_build_payload_fails_closed_when_queue_cited_package_commit_does_not_resolve(self) -> None:
@@ -5624,7 +5752,9 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
                     "- `.codex-studio/published/ENGINE_PROOF_PACK.generated.json` reports `status=passed`.",
                     "- `successor_wave_authority` reports `status=passed`.",
                     "- The Fleet queue mirror and design-owned queue each contain exactly one `next90-m104-core-proof-pack` row.",
-                    "- That row remains `status: complete`, keeps `frontier_id: 3227666051`, and keeps `landed_commit: 00800059`.",
+                    "- The Fleet queue mirror and design-owned queue keep matching `completion_action` and exact `do_not_reopen_reason` text, so closure instructions cannot drift between mirrors.",
+                    "- That row remains `status: complete`, keeps `frontier_id: 3227666051`, keeps `landed_commit: 00800059`, and keeps `completion_action: verify_closed_package_only`.",
+                    "- That row keeps a package-specific `do_not_reopen_reason`, so later shards must verify the closed package instead of reopening M104.",
                     "- The row keeps only the assigned allowed paths: `src`, `tests`, `docs`, and `scripts`.",
                     "- The row keeps only the assigned owned surfaces: `engine_proof_pack` and `import_oracle_discipline`.",
                     "- Queue proof anchors resolve inside `/docker/chummercomplete/chummer-core-engine`.",
@@ -5754,6 +5884,8 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
                     "    repo: chummer6-core",
                     "    status: complete",
                     "    landed_commit: 00800059",
+                    "    completion_action: verify_closed_package_only",
+                    "    do_not_reopen_reason: M104 chummer6-core engine proof pack is complete; future shards must verify this receipt, queue row, design queue row, and closeout note instead of reopening the proof-pack package.",
                     "    proof:",
                     "      - /docker/chummercomplete/chummer-core-engine/.codex-studio/published/ENGINE_PROOF_PACK.generated.json",
                     "      - /docker/chummercomplete/chummer-core-engine/scripts/generate-engine-proof-pack.py",
