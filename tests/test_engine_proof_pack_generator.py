@@ -588,6 +588,24 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
         self.assertEqual([], payload["unresolved"]["successor_wave_authority"])
         self.assertEqual([], payload["unresolved"]["release_channel_binding"])
         self.assertEqual([], payload["unresolved"]["import_oracle_discipline"])
+        self.assertEqual("passed", payload["oracle_suite_summary"]["coverage_status"])
+        self.assertEqual(8, payload["oracle_suite_summary"]["required_suite_count"])
+        self.assertEqual(8, payload["oracle_suite_summary"]["published_suite_count"])
+        self.assertEqual(8, payload["oracle_suite_summary"]["passed_suite_count"])
+        self.assertEqual(["sr4", "sr5", "sr6"], payload["oracle_suite_summary"]["covered_rulesets"])
+        self.assertEqual("promoted_desktop_release", payload["oracle_suite_summary"]["release_scope"])
+        self.assertEqual("passed", payload["performance_budget_summary"]["coverage_status"])
+        self.assertEqual(5, payload["performance_budget_summary"]["required_budget_count"])
+        self.assertEqual(5, payload["performance_budget_summary"]["published_budget_count"])
+        self.assertEqual(5, payload["performance_budget_summary"]["passed_budget_count"])
+        self.assertEqual("promoted_desktop_release", payload["performance_budget_summary"]["release_scope"])
+        self.assertEqual(
+            [
+                "dotnet build Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj -c Release --nologo -m:1 && dotnet Chummer.CoreEngine.Tests/bin/Release/net10.0/Chummer.CoreEngine.Tests.dll",
+                "dotnet run --project Chummer.Benchmarks/Chummer.Benchmarks.csproj -c Release -- --budget-check --budget-file Chummer.Benchmarks/workspace-benchmark-budgets.json",
+            ],
+            payload["performance_budget_summary"]["release_commands"],
+        )
         self.assertEqual(
             ["dotnet run --project Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj -c Release"],
             payload["import_oracle_discipline"]["required_source_receipt_commands"],
@@ -651,6 +669,16 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
             payload["release_channel_binding"]["required_promoted_desktop_tuples"],
         )
         self.assertEqual([], payload["successor_wave_authority"]["missing_queue_proof_anchors"])
+        matrix_suite = next(row for row in payload["oracle_suites"] if row["id"] == "matrix")
+        self.assertEqual("matrix_edge_cases", matrix_suite["coverage_focus"])
+        self.assertEqual(["sr4", "sr6"], matrix_suite["rulesets"])
+        self.assertEqual(2, matrix_suite["fixture_count"])
+        explain_budget = next(row for row in payload["performance_budgets"] if row["id"] == "explain")
+        self.assertEqual("desktop_release_explain", explain_budget["release_gate"])
+        self.assertEqual(
+            "Compose an explain trace receipt for the promoted desktop release proof pack.",
+            explain_budget["scenario"],
+        )
 
     def test_generator_check_mode_fails_closed_for_stale_checked_in_receipt(self) -> None:
         payload = self.generator.build_payload(self.root, self.output_path)

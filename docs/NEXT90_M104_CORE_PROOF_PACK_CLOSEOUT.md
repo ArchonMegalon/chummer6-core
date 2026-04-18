@@ -11,6 +11,10 @@ The core-owned successor slice is closed when all of these remain true:
 
 - `.codex-studio/published/ENGINE_PROOF_PACK.generated.json` reports `status=passed`.
 - `.codex-studio/published/ENGINE_PROOF_PACK.generated.json` carries top-level `package_id=next90-m104-core-proof-pack`, `frontier_id=3227666051`, and `milestone_id=104`.
+- `.codex-studio/published/ENGINE_PROOF_PACK.generated.json` publishes `oracle_suite_summary.coverage_status=passed`, `oracle_suite_summary.covered_rulesets=[sr4, sr5, sr6]`, and `oracle_suite_summary.release_scope=promoted_desktop_release`.
+- Every required oracle suite row keeps release-bound `coverage_focus`, `rulesets`, and `fixture_count` metadata so the golden oracle lane stays explainable by suite.
+- `.codex-studio/published/ENGINE_PROOF_PACK.generated.json` publishes `performance_budget_summary.coverage_status=passed`, the exact release commands, and `performance_budget_summary.release_scope=promoted_desktop_release`.
+- Every required performance budget row keeps release-bound `release_gate` and `scenario` metadata so the benchmark lane stays bound to promoted desktop workloads instead of anonymous thresholds.
 - `successor_wave_authority` reports `status=passed`.
 - The Fleet queue mirror and design-owned queue each contain exactly one `next90-m104-core-proof-pack` row.
 - The Fleet queue mirror and design-owned queue package rows keep matching proof lists; `queue_mirror_parity_status` remains `passed`.
