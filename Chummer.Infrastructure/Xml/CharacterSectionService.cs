@@ -451,7 +451,8 @@ public sealed class CharacterSectionService : ICharacterSectionService
                     .Elements("spec")
                     .Select(spec => ReadValue(spec, "name"))
                     .Where(name => !string.IsNullOrWhiteSpace(name))
-                    .ToArray() ?? Array.Empty<string>()))
+                    .ToArray() ?? Array.Empty<string>(),
+                Name: FirstNonBlank(ReadValue(skill, "name"), ReadValue(skill, "suid"))))
             .ToArray()
             ?? Array.Empty<CharacterSkillSummary>();
 
@@ -1048,6 +1049,9 @@ public sealed class CharacterSectionService : ICharacterSectionService
     {
         return int.TryParse(value, out int parsed) ? parsed : 0;
     }
+
+    private static string FirstNonBlank(params string[] values)
+        => values.FirstOrDefault(static value => !string.IsNullOrWhiteSpace(value)) ?? string.Empty;
 
     private static bool ParseBool(string value)
     {

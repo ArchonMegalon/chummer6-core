@@ -216,7 +216,8 @@ public sealed class Sr4WorkspaceCodec : IRulesetWorkspaceCodec
                 IsKnowledge: ParseBool(ReadValue(skill, "knowledge", "isknowledge")),
                 BaseValue: ParseInt(ReadValue(skill, "rating", "base")),
                 KarmaValue: ParseInt(ReadValue(skill, "karma")),
-                Specializations: ReadSkillSpecializations(skill)))
+                Specializations: ReadSkillSpecializations(skill),
+                Name: ReadValue(skill, "name", "suid")))
             .Where(skill => !string.IsNullOrWhiteSpace(skill.Suid) || !string.IsNullOrWhiteSpace(skill.Guid))
             .ToArray();
 

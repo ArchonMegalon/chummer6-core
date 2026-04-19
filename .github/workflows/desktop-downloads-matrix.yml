@@ -112,8 +112,17 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
+      - name: Prepare local compatibility NuGet feed directory
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$GITHUB_WORKSPACE/.tmp/ai/local-nuget"
+          mkdir -p "$GITHUB_WORKSPACE/.c/core/.tmp/ai/local-nuget"
+
       - name: Restore
-        run: dotnet restore ${{ matrix.project }}
+        run: |
+          dotnet restore ${{ matrix.project }} \
+            -p:UseChummerEngineContractsLocalFeed=false
 
       - name: Publish desktop app
         shell: bash
@@ -123,9 +132,11 @@ jobs:
           dotnet publish "${{ matrix.project }}" \
             -c Release \
             -r "${{ matrix.rid }}" \
+            --no-restore \
             --self-contained true \
             -p:PublishSingleFile=true \
             -p:PublishTrimmed=false \
+            -p:UseChummerEngineContractsLocalFeed=false \
             -p:IncludeNativeLibrariesForSelfExtract=true \
             -o "$out_dir"
 
