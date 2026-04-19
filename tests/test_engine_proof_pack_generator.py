@@ -632,6 +632,8 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
         self.assertEqual(8, payload["oracle_suite_summary"]["required_suite_count"])
         self.assertEqual(8, payload["oracle_suite_summary"]["published_suite_count"])
         self.assertEqual(8, payload["oracle_suite_summary"]["passed_suite_count"])
+        self.assertEqual(10, payload["oracle_suite_summary"]["required_golden_fixture_count"])
+        self.assertEqual(10, payload["oracle_suite_summary"]["published_golden_fixture_count"])
         self.assertEqual(["sr4", "sr5", "sr6"], payload["oracle_suite_summary"]["covered_rulesets"])
         self.assertEqual("promoted_desktop_release", payload["oracle_suite_summary"]["release_scope"])
         self.assertEqual("passed", payload["performance_budget_summary"]["coverage_status"])
@@ -702,6 +704,7 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
         self.assertEqual(1, payload["successor_wave_authority"]["design_queue_package_row_count"])
         self.assertEqual(0, payload["successor_wave_authority"]["duplicate_design_queue_package_rows"])
         self.assertEqual("passed", payload["successor_wave_authority"]["queue_mirror_parity_status"])
+        self.assertEqual([], payload["successor_wave_authority"]["off_package_package_commit_citations"])
         self.assertEqual("skipped", payload["successor_wave_authority"]["package_commit_citations"]["status"])
         self.assertIn(
             "8dd516ef",
@@ -726,13 +729,25 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
         matrix_suite = next(row for row in payload["oracle_suites"] if row["id"] == "matrix")
         self.assertEqual("matrix_edge_cases", matrix_suite["coverage_focus"])
         self.assertEqual(["sr4", "sr6"], matrix_suite["rulesets"])
+        self.assertEqual("promoted_desktop_release", matrix_suite["release_scope"])
         self.assertEqual(2, matrix_suite["fixture_count"])
+        self.assertEqual(2, matrix_suite["golden_fixture_count"])
+        self.assertEqual(4, matrix_suite["total_fixture_count"])
+        self.assertEqual(
+            [
+                "Chummer.CoreEngine.Tests/Fixtures/Contracts/sr4-parity-corpus.golden.json",
+                "Chummer.CoreEngine.Tests/Fixtures/Contracts/sr6-parity-corpus.golden.json",
+            ],
+            matrix_suite["golden_fixtures"],
+        )
+        self.assertEqual([], matrix_suite["missing_golden_fixtures"])
         explain_budget = next(row for row in payload["performance_budgets"] if row["id"] == "explain")
         self.assertEqual("desktop_release_explain", explain_budget["release_gate"])
         self.assertEqual(
             "Compose an explain trace receipt for the promoted desktop release proof pack.",
             explain_budget["scenario"],
         )
+        self.assertEqual("promoted_desktop_release", explain_budget["release_scope"])
 
     def test_generator_check_mode_fails_closed_for_stale_checked_in_receipt(self) -> None:
         payload = self.generator.build_payload(self.root, self.output_path)
@@ -768,6 +783,19 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
         self.assertEqual("failed", payload["status"])
         self.assertIn("creation", payload["unresolved"]["oracle_suites"])
         self.assertIn("advancement", payload["unresolved"]["oracle_suites"])
+
+    def test_build_payload_fails_closed_when_a_suite_golden_fixture_is_missing(self) -> None:
+        (self.root / "Chummer.CoreEngine.Tests" / "Fixtures" / "Contracts" / "sr6-parity-corpus.golden.json").unlink()
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertIn("matrix", payload["unresolved"]["oracle_suites"])
+        matrix_suite = next(row for row in payload["oracle_suites"] if row["id"] == "matrix")
+        self.assertEqual(
+            ["Chummer.CoreEngine.Tests/Fixtures/Contracts/sr6-parity-corpus.golden.json"],
+            matrix_suite["missing_golden_fixtures"],
+        )
 
     def test_build_payload_fails_closed_when_budget_workload_is_not_executable(self) -> None:
         source_path = self.root / "Chummer.Benchmarks" / "MigrationWorkspaceBenchmarks.cs"
@@ -821,6 +849,24 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
         self.assertEqual(["amend_package"], summary["missing_required_suite_ids"])
         self.assertEqual(["legacy_shadow"], summary["unexpected_published_suite_ids"])
         self.assertEqual([], summary["duplicate_published_suite_ids"])
+
+    def test_oracle_suite_summary_keeps_required_golden_fixture_count_canonical_when_published_rows_shrink(self) -> None:
+        suites = [
+            {"id": "creation", "status": "passed", "rulesets": ["sr5"], "golden_fixture_count": 1},
+            {"id": "advancement", "status": "passed", "rulesets": ["sr5"], "golden_fixture_count": 0},
+            {"id": "augment", "status": "passed", "rulesets": ["sr5"], "golden_fixture_count": 0},
+            {"id": "matrix", "status": "passed", "rulesets": ["sr4", "sr6"], "golden_fixture_count": 1},
+            {"id": "magic", "status": "passed", "rulesets": ["sr4", "sr5"], "golden_fixture_count": 0},
+            {"id": "vehicle", "status": "passed", "rulesets": ["sr4", "sr5"], "golden_fixture_count": 0},
+            {"id": "source_toggle", "status": "passed", "rulesets": ["sr5"], "golden_fixture_count": 1},
+            {"id": "amend_package", "status": "passed", "rulesets": ["sr5"], "golden_fixture_count": 0},
+        ]
+
+        summary = self.generator._build_oracle_suite_summary(suites)
+
+        self.assertEqual(10, summary["required_golden_fixture_count"])
+        self.assertEqual(3, summary["published_golden_fixture_count"])
+        self.assertEqual("passed", summary["coverage_status"])
 
     def test_budget_summary_fails_closed_when_required_budget_id_is_missing(self) -> None:
         budgets = [
@@ -3155,6 +3201,27 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
         self.assertEqual(
             ["2f430d09"],
             payload["successor_wave_authority"]["package_commit_citations"]["missing_commits"],
+        )
+
+    def test_build_payload_fails_closed_when_queue_cites_sibling_repo_commit(self) -> None:
+        queue_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_queue_path"])
+        design_queue_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_design_queue_path"])
+        queue_text = queue_path.read_text(encoding="utf-8")
+        sibling_commit_proof = (
+            "      - /docker/chummercomplete/chummer6-ui-finish commit 1234abcd "
+            "claims the UI-owned proof floor is enough to close this package.\n"
+        )
+        queue_path.write_text(queue_text + sibling_commit_proof, encoding="utf-8")
+        design_queue_path.write_text(queue_text + sibling_commit_proof, encoding="utf-8")
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertEqual("failed", payload["successor_wave_authority"]["status"])
+        self.assertIn("off_package_package_commit_citations", payload["unresolved"]["successor_wave_authority"])
+        self.assertEqual(
+            ["/docker/chummercomplete/chummer6-ui-finish commit 1234abcd"],
+            payload["successor_wave_authority"]["off_package_package_commit_citations"],
         )
 
     def test_build_payload_fails_closed_when_design_queue_has_duplicate_package_rows(self) -> None:
@@ -5820,6 +5887,16 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
         self._write("Chummer.Tests/TestFiles/Spirit_Warden.chum5", "fixture\n")
         self._write("Chummer.CoreEngine.Tests/Fixtures/Sr4/sr4-rigger-wheelman.chum4", "fixture\n")
         self._write("Chummer.Tests/TestFiles/Apex Predator.chum5", "fixture\n")
+        self._write("Chummer.CoreEngine.Tests/Fixtures/Contracts/sr5-parity-corpus.golden.json", "{}\n")
+        self._write("Chummer.CoreEngine.Tests/Fixtures/Contracts/session-ledger.golden.json", "{}\n")
+        self._write("Chummer.CoreEngine.Tests/Fixtures/Contracts/runtime-lock-diff.golden.json", "{}\n")
+        self._write("Chummer.CoreEngine.Tests/Fixtures/Contracts/sr4-parity-corpus.golden.json", "{}\n")
+        self._write("Chummer.CoreEngine.Tests/Fixtures/Contracts/sr6-parity-corpus.golden.json", "{}\n")
+        self._write("Chummer.CoreEngine.Tests/Fixtures/Contracts/explain-trace.golden.json", "{}\n")
+        self._write("Chummer.CoreEngine.Tests/Fixtures/Contracts/runtime-summary.golden.json", "{}\n")
+        self._write("Chummer.CoreEngine.Tests/Fixtures/Contracts/buildkit-manifest.normalized.golden.json", "{}\n")
+        self._write("Chummer.CoreEngine.Tests/Fixtures/Contracts/runtime-lock-install-preview.normalized.golden.json", "{}\n")
+        self._write("Chummer.CoreEngine.Tests/Fixtures/Contracts/runtime-lock-install-candidate.normalized.golden.json", "{}\n")
         self._write("Chummer.Infrastructure/Xml/XmlToolCatalogService.cs", "BuildSourceToggleLaneReceipt\n")
         self._write("Chummer.Tests/ApiIntegrationTests.cs", "sourceToggleLaneReceipt\n")
         self._write("Chummer.Application/Content/DefaultRuleProfileApplicationService.cs", "service\n")
@@ -5910,6 +5987,8 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
                     "",
                     "- `.codex-studio/published/ENGINE_PROOF_PACK.generated.json` reports `status=passed`.",
                     "- `successor_wave_authority` reports `status=passed`.",
+                    "- `.codex-studio/published/ENGINE_PROOF_PACK.generated.json` publishes `published_golden_fixture_count=10`.",
+                    "- Every required oracle suite row keeps explicit checked-in `golden_fixtures` metadata.",
                     "- The Fleet queue mirror and design-owned queue each contain exactly one `next90-m104-core-proof-pack` row.",
                     "- The Fleet queue mirror and design-owned queue keep matching `completion_action` and exact `do_not_reopen_reason` text, so closure instructions cannot drift between mirrors.",
                     "- That row remains `status: complete`, keeps `frontier_id: 3227666051`, keeps `landed_commit: 00800059`, and keeps `completion_action: verify_closed_package_only`.",
