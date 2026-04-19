@@ -26,6 +26,8 @@ REQUIRED_ORACLE_SUITE_IDS = (
     "amend_package",
 )
 
+REQUIRED_GOLDEN_FIXTURE_COUNT = 10
+
 REQUIRED_BUDGET_IDS = (
     "load",
     "explain",
@@ -50,6 +52,8 @@ REQUIRED_ADJACENT_ORACLE_NAMES = (
     "Genesis",
     "CommLink6",
 )
+
+RELEASE_SCOPE = "promoted_desktop_release"
 
 RELEASE_COMMANDS = (
     "dotnet build Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj -c Release --nologo -m:1 && dotnet Chummer.CoreEngine.Tests/bin/Release/net10.0/Chummer.CoreEngine.Tests.dll",
@@ -293,6 +297,8 @@ PACKAGE_CLOSEOUT_REQUIRED_TOKENS = (
     "Owner: `chummer6-core`",
     ".codex-studio/published/ENGINE_PROOF_PACK.generated.json` reports `status=passed`",
     "`successor_wave_authority` reports `status=passed`",
+    "`published_golden_fixture_count=10`",
+    "`golden_fixtures`",
     "exactly one `next90-m104-core-proof-pack` row",
     "`frontier_id: 3227666051`",
     "`landed_commit: 00800059`",
@@ -416,6 +422,9 @@ DISALLOWED_ACTIVE_RUN_PROOF_TOKEN_MATCHES = tuple(
 )
 PACKAGE_COMMIT_CITATION_RE = re.compile(
     r"/docker/chummercomplete/chummer-core-engine\s+commit\s+([0-9a-fA-F]{7,40})\b"
+)
+CANONICAL_COMMIT_CITATION_RE = re.compile(
+    r"(/docker/chummercomplete/[^\s]+)\s+commit\s+([0-9a-fA-F]{7,40})\b"
 )
 
 REQUIRED_LOCAL_COMMIT_PROOFS = (
@@ -959,6 +968,19 @@ def _extract_package_commit_citations(text: str) -> list[str]:
     return commits
 
 
+def _extract_off_package_commit_citations(text: str) -> list[str]:
+    citations: list[str] = []
+    for match in CANONICAL_COMMIT_CITATION_RE.finditer(text):
+        repo_path = Path(match.group(1))
+        commit = match.group(2).lower()
+        if not _is_canonical_anchor_outside_package(repo_path):
+            continue
+        citation = f"{repo_path} commit {commit}"
+        if citation not in citations:
+            citations.append(citation)
+    return citations
+
+
 def _validate_local_commit_set(root: Path, commits: list[str]) -> tuple[dict[str, Any], list[str]]:
     unresolved: list[str] = []
     git_available = (root / ".git").exists()
@@ -1004,8 +1026,11 @@ def _validate_successor_wave_authority(root: Path, generated_output_path: Path |
     missing_registry_tokens = registry_missing_scope_tokens + [token for token in SUCCESSOR_REGISTRY_MILESTONE_TOKENS if token not in registry_scope]
     missing_registry_task_tokens: dict[str, list[str]] = {}
     disallowed_registry_active_run_tokens: dict[str, list[str]] = {}
+    registry_task_scopes: list[str] = []
     for task_id, required_tokens in SUCCESSOR_REGISTRY_TASK_TOKENS.items():
         task_scope = _extract_list_item_block(registry_scope, f"id: {task_id}") if registry_scope else ""
+        if task_scope:
+            registry_task_scopes.append(task_scope)
         missing = [f"task_block:id:{task_id}"] if not task_scope else []
         missing.extend(token for token in required_tokens if token not in task_scope)
         if missing:
@@ -1026,12 +1051,13 @@ def _validate_successor_wave_authority(root: Path, generated_output_path: Path |
         _read_text(design_queue_path),
         "package_id: next90-m104-core-proof-pack",
     )
+    package_proof_scopes = registry_task_scopes + [fleet_queue_scope, design_queue_scope]
+    package_proof_text = "\n".join(scope for scope in package_proof_scopes if scope)
     package_commit_citations, unresolved_package_commit_citations = _validate_local_commit_set(
         root,
-        _extract_package_commit_citations(
-            "\n".join([registry_scope, fleet_queue_scope, design_queue_scope])
-        ),
+        _extract_package_commit_citations(package_proof_text),
     )
+    off_package_package_commit_citations = _extract_off_package_commit_citations(package_proof_text)
     queue_proof = fleet_queue_authority["proof"]
     design_queue_proof = design_queue_authority["proof"]
     queue_completion_action = _extract_yaml_scalar_value(fleet_queue_scope, "completion_action")
@@ -1071,6 +1097,8 @@ def _validate_successor_wave_authority(root: Path, generated_output_path: Path |
         unresolved.append("queue_mirror_parity")
     if unresolved_package_commit_citations:
         unresolved.append("package_commit_citations")
+    if off_package_package_commit_citations:
+        unresolved.append("off_package_package_commit_citations")
 
     return (
         {
@@ -1126,6 +1154,7 @@ def _validate_successor_wave_authority(root: Path, generated_output_path: Path |
             "queue_closure_field_drift": queue_closure_field_drift,
             "queue_mirror_parity_status": queue_mirror_parity_status,
             "package_commit_citations": package_commit_citations,
+            "off_package_package_commit_citations": off_package_package_commit_citations,
             "closure_requirements": {
                 "status": "complete",
                 "frontier_id": SUCCESSOR_WAVE_PACKAGE["frontier_id"],
@@ -1187,6 +1216,9 @@ def _build_oracle_suites(root: Path) -> tuple[list[dict[str, Any]], list[str]]:
                 "Chummer.CoreEngine.Tests/Program.cs::LegacyChummer5FixtureCorpusImportsRoundTripThroughWorkspaceService",
                 "Chummer.Tests/TestFiles/Fuzzy-chargen.chum5",
             ],
+            "golden_fixtures": [
+                "Chummer.CoreEngine.Tests/Fixtures/Contracts/sr5-parity-corpus.golden.json",
+            ],
         },
         {
             "id": "advancement",
@@ -1196,6 +1228,9 @@ def _build_oracle_suites(root: Path) -> tuple[list[dict[str, Any]], list[str]]:
             "evidence": [
                 "Chummer.CoreEngine.Tests/Program.cs::LegacyChummer5FixtureCorpusImportsRoundTripThroughWorkspaceService",
                 "Chummer.Tests/TestFiles/Munin_Career.chum5",
+            ],
+            "golden_fixtures": [
+                "Chummer.CoreEngine.Tests/Fixtures/Contracts/session-ledger.golden.json",
             ],
         },
         {
@@ -1207,6 +1242,9 @@ def _build_oracle_suites(root: Path) -> tuple[list[dict[str, Any]], list[str]]:
                 "Chummer.CoreEngine.Tests/HeroLabRulesParityAudit.cs",
                 "Chummer.CoreEngine.Tests/Fixtures/HeroLab/Sr5/Two Banshees.por",
             ],
+            "golden_fixtures": [
+                "Chummer.CoreEngine.Tests/Fixtures/Contracts/runtime-lock-diff.golden.json",
+            ],
         },
         {
             "id": "matrix",
@@ -1216,6 +1254,10 @@ def _build_oracle_suites(root: Path) -> tuple[list[dict[str, Any]], list[str]]:
             "evidence": [
                 "Chummer.CoreEngine.Tests/Fixtures/Sr4/sr4-technomancer-hacker.chum4",
                 "Chummer.CoreEngine.Tests/Fixtures/HeroLab/Sr6/sr6-starter.hlo.json",
+            ],
+            "golden_fixtures": [
+                "Chummer.CoreEngine.Tests/Fixtures/Contracts/sr4-parity-corpus.golden.json",
+                "Chummer.CoreEngine.Tests/Fixtures/Contracts/sr6-parity-corpus.golden.json",
             ],
         },
         {
@@ -1227,6 +1269,9 @@ def _build_oracle_suites(root: Path) -> tuple[list[dict[str, Any]], list[str]]:
                 "Chummer.CoreEngine.Tests/Fixtures/Sr4/sr4-hermetic-mage.chum4",
                 "Chummer.Tests/TestFiles/Spirit_Warden.chum5",
             ],
+            "golden_fixtures": [
+                "Chummer.CoreEngine.Tests/Fixtures/Contracts/explain-trace.golden.json",
+            ],
         },
         {
             "id": "vehicle",
@@ -1236,6 +1281,9 @@ def _build_oracle_suites(root: Path) -> tuple[list[dict[str, Any]], list[str]]:
             "evidence": [
                 "Chummer.CoreEngine.Tests/Fixtures/Sr4/sr4-rigger-wheelman.chum4",
                 "Chummer.Tests/TestFiles/Apex Predator.chum5",
+            ],
+            "golden_fixtures": [
+                "Chummer.CoreEngine.Tests/Fixtures/Contracts/runtime-summary.golden.json",
             ],
         },
         {
@@ -1247,6 +1295,9 @@ def _build_oracle_suites(root: Path) -> tuple[list[dict[str, Any]], list[str]]:
                 "Chummer.Infrastructure/Xml/XmlToolCatalogService.cs::BuildSourceToggleLaneReceipt",
                 "Chummer.Tests/ApiIntegrationTests.cs::sourceToggleLaneReceipt",
             ],
+            "golden_fixtures": [
+                "Chummer.CoreEngine.Tests/Fixtures/Contracts/buildkit-manifest.normalized.golden.json",
+            ],
         },
         {
             "id": "amend_package",
@@ -1257,6 +1308,10 @@ def _build_oracle_suites(root: Path) -> tuple[list[dict[str, Any]], list[str]]:
                 "Chummer.Application/Content/DefaultRuleProfileApplicationService.cs",
                 "Chummer.Application/Content/DefaultRuntimeLockDiffService.cs",
             ],
+            "golden_fixtures": [
+                "Chummer.CoreEngine.Tests/Fixtures/Contracts/runtime-lock-install-preview.normalized.golden.json",
+                "Chummer.CoreEngine.Tests/Fixtures/Contracts/runtime-lock-install-candidate.normalized.golden.json",
+            ],
         },
     ]
 
@@ -1266,9 +1321,11 @@ def _build_oracle_suites(root: Path) -> tuple[list[dict[str, Any]], list[str]]:
         suite_id = str(suite_spec["id"])
         description = str(suite_spec["description"])
         evidence = list(suite_spec["evidence"])
+        golden_fixtures = list(suite_spec.get("golden_fixtures", []))
         rulesets = [str(row).strip().lower() for row in suite_spec.get("rulesets", []) if str(row).strip()]
         status, missing = _evidence_status(root, evidence)
-        if missing:
+        _, missing_golden_fixtures = _evidence_status(root, golden_fixtures)
+        if missing or missing_golden_fixtures:
             unresolved.append(suite_id)
         suites.append(
             {
@@ -1276,10 +1333,15 @@ def _build_oracle_suites(root: Path) -> tuple[list[dict[str, Any]], list[str]]:
                 "description": description,
                 "coverage_focus": str(suite_spec.get("coverage_focus") or "").strip(),
                 "rulesets": rulesets,
+                "release_scope": RELEASE_SCOPE,
                 "fixture_count": len(evidence),
-                "status": status,
+                "golden_fixture_count": len(golden_fixtures),
+                "total_fixture_count": len(evidence) + len(golden_fixtures),
+                "status": "passed" if status == "passed" and not missing_golden_fixtures else "failed",
                 "evidence": evidence,
                 "missing_evidence": missing,
+                "golden_fixtures": golden_fixtures,
+                "missing_golden_fixtures": missing_golden_fixtures,
             }
         )
 
@@ -1376,6 +1438,7 @@ def _build_budget_map(root: Path) -> tuple[list[dict[str, Any]], list[str]]:
                 "workload": workload_name,
                 "release_gate": budget_spec["release_gate"],
                 "scenario": budget_spec["scenario"],
+                "release_scope": RELEASE_SCOPE,
                 "status": status,
                 "max_mean_milliseconds": ms or 0,
                 "max_allocated_bytes": alloc or 0,
@@ -1413,11 +1476,16 @@ def _build_oracle_suite_summary(suites: list[dict[str, Any]]) -> dict[str, Any]:
             if str(ruleset).strip()
         }
     )
+    published_golden_fixture_count = sum(
+        int(row.get("golden_fixture_count") or 0) for row in suites if isinstance(row.get("golden_fixture_count"), int)
+    )
     return {
         "required_suite_ids": required_suite_ids,
         "required_suite_count": len(REQUIRED_ORACLE_SUITE_IDS),
         "published_suite_count": len(suites),
         "passed_suite_count": passed_count,
+        "required_golden_fixture_count": REQUIRED_GOLDEN_FIXTURE_COUNT,
+        "published_golden_fixture_count": published_golden_fixture_count,
         "missing_required_suite_ids": missing_required_suite_ids,
         "unexpected_published_suite_ids": unexpected_published_suite_ids,
         "duplicate_published_suite_ids": duplicate_suite_ids,
@@ -1427,7 +1495,7 @@ def _build_oracle_suite_summary(suites: list[dict[str, Any]]) -> dict[str, Any]:
             else "failed"
         ),
         "covered_rulesets": rulesets,
-        "release_scope": "promoted_desktop_release",
+        "release_scope": RELEASE_SCOPE,
     }
 
 
@@ -1457,7 +1525,7 @@ def _build_budget_summary(budgets: list[dict[str, Any]]) -> dict[str, Any]:
             else "failed"
         ),
         "release_commands": list(RELEASE_COMMANDS),
-        "release_scope": "promoted_desktop_release",
+        "release_scope": RELEASE_SCOPE,
     }
 
 

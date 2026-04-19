@@ -1,7 +1,7 @@
 {
   "contract_name": "chummer6-core.engine_proof_pack",
   "schema_version": 1,
-  "generated_at": "2026-04-19T10:21:29Z",
+  "generated_at": "2026-04-19T11:05:28Z",
   "status": "passed",
   "proof_kind": "release_bound_engine_proof",
   "milestone_id": 104,
@@ -615,6 +615,7 @@
       ],
       "missing_commits": []
     },
+    "off_package_package_commit_citations": [],
     "closure_requirements": {
       "status": "complete",
       "frontier_id": 3227666051,
@@ -638,6 +639,8 @@
       "Owner: `chummer6-core`",
       ".codex-studio/published/ENGINE_PROOF_PACK.generated.json` reports `status=passed`",
       "`successor_wave_authority` reports `status=passed`",
+      "`published_golden_fixture_count=10`",
+      "`golden_fixtures`",
       "exactly one `next90-m104-core-proof-pack` row",
       "`frontier_id: 3227666051`",
       "`landed_commit: 00800059`",
@@ -1457,13 +1460,20 @@
       "rulesets": [
         "sr5"
       ],
+      "release_scope": "promoted_desktop_release",
       "fixture_count": 2,
+      "golden_fixture_count": 1,
+      "total_fixture_count": 3,
       "status": "passed",
       "evidence": [
         "Chummer.CoreEngine.Tests/Program.cs::LegacyChummer5FixtureCorpusImportsRoundTripThroughWorkspaceService",
         "Chummer.Tests/TestFiles/Fuzzy-chargen.chum5"
       ],
-      "missing_evidence": []
+      "missing_evidence": [],
+      "golden_fixtures": [
+        "Chummer.CoreEngine.Tests/Fixtures/Contracts/sr5-parity-corpus.golden.json"
+      ],
+      "missing_golden_fixtures": []
     },
     {
       "id": "advancement",
@@ -1472,13 +1482,20 @@
       "rulesets": [
         "sr5"
       ],
+      "release_scope": "promoted_desktop_release",
       "fixture_count": 2,
+      "golden_fixture_count": 1,
+      "total_fixture_count": 3,
       "status": "passed",
       "evidence": [
         "Chummer.CoreEngine.Tests/Program.cs::LegacyChummer5FixtureCorpusImportsRoundTripThroughWorkspaceService",
         "Chummer.Tests/TestFiles/Munin_Career.chum5"
       ],
-      "missing_evidence": []
+      "missing_evidence": [],
+      "golden_fixtures": [
+        "Chummer.CoreEngine.Tests/Fixtures/Contracts/session-ledger.golden.json"
+      ],
+      "missing_golden_fixtures": []
     },
     {
       "id": "augment",
@@ -1487,13 +1504,20 @@
       "rulesets": [
         "sr5"
       ],
+      "release_scope": "promoted_desktop_release",
       "fixture_count": 2,
+      "golden_fixture_count": 1,
+      "total_fixture_count": 3,
       "status": "passed",
       "evidence": [
         "Chummer.CoreEngine.Tests/HeroLabRulesParityAudit.cs",
         "Chummer.CoreEngine.Tests/Fixtures/HeroLab/Sr5/Two Banshees.por"
       ],
-      "missing_evidence": []
+      "missing_evidence": [],
+      "golden_fixtures": [
+        "Chummer.CoreEngine.Tests/Fixtures/Contracts/runtime-lock-diff.golden.json"
+      ],
+      "missing_golden_fixtures": []
     },
     {
       "id": "matrix",
@@ -1503,13 +1527,21 @@
         "sr4",
         "sr6"
       ],
+      "release_scope": "promoted_desktop_release",
       "fixture_count": 2,
+      "golden_fixture_count": 2,
+      "total_fixture_count": 4,
       "status": "passed",
       "evidence": [
         "Chummer.CoreEngine.Tests/Fixtures/Sr4/sr4-technomancer-hacker.chum4",
         "Chummer.CoreEngine.Tests/Fixtures/HeroLab/Sr6/sr6-starter.hlo.json"
       ],
-      "missing_evidence": []
+      "missing_evidence": [],
+      "golden_fixtures": [
+        "Chummer.CoreEngine.Tests/Fixtures/Contracts/sr4-parity-corpus.golden.json",
+        "Chummer.CoreEngine.Tests/Fixtures/Contracts/sr6-parity-corpus.golden.json"
+      ],
+      "missing_golden_fixtures": []
     },
     {
       "id": "magic",
@@ -1519,13 +1551,20 @@
         "sr4",
         "sr5"
       ],
+      "release_scope": "promoted_desktop_release",
       "fixture_count": 2,
+      "golden_fixture_count": 1,
+      "total_fixture_count": 3,
       "status": "passed",
       "evidence": [
         "Chummer.CoreEngine.Tests/Fixtures/Sr4/sr4-hermetic-mage.chum4",
         "Chummer.Tests/TestFiles/Spirit_Warden.chum5"
       ],
-      "missing_evidence": []
+      "missing_evidence": [],
+      "golden_fixtures": [
+        "Chummer.CoreEngine.Tests/Fixtures/Contracts/explain-trace.golden.json"
+      ],
+      "missing_golden_fixtures": []
     },
     {
       "id": "vehicle",
@@ -1535,13 +1574,20 @@
         "sr4",
         "sr5"
       ],
+      "release_scope": "promoted_desktop_release",
       "fixture_count": 2,
+      "golden_fixture_count": 1,
+      "total_fixture_count": 3,
       "status": "passed",
       "evidence": [
         "Chummer.CoreEngine.Tests/Fixtures/Sr4/sr4-rigger-wheelman.chum4",
         "Chummer.Tests/TestFiles/Apex Predator.chum5"
       ],
-      "missing_evidence": []
+      "missing_evidence": [],
+      "golden_fixtures": [
+        "Chummer.CoreEngine.Tests/Fixtures/Contracts/runtime-summary.golden.json"
+      ],
+      "missing_golden_fixtures": []
     },
     {
       "id": "source_toggle",
@@ -1550,13 +1596,20 @@
       "rulesets": [
         "sr5"
       ],
+      "release_scope": "promoted_desktop_release",
       "fixture_count": 2,
+      "golden_fixture_count": 1,
+      "total_fixture_count": 3,
       "status": "passed",
       "evidence": [
         "Chummer.Infrastructure/Xml/XmlToolCatalogService.cs::BuildSourceToggleLaneReceipt",
         "Chummer.Tests/ApiIntegrationTests.cs::sourceToggleLaneReceipt"
       ],
-      "missing_evidence": []
+      "missing_evidence": [],
+      "golden_fixtures": [
+        "Chummer.CoreEngine.Tests/Fixtures/Contracts/buildkit-manifest.normalized.golden.json"
+      ],
+      "missing_golden_fixtures": []
     },
     {
       "id": "amend_package",
@@ -1565,13 +1618,21 @@
       "rulesets": [
         "sr5"
       ],
+      "release_scope": "promoted_desktop_release",
       "fixture_count": 2,
+      "golden_fixture_count": 2,
+      "total_fixture_count": 4,
       "status": "passed",
       "evidence": [
         "Chummer.Application/Content/DefaultRuleProfileApplicationService.cs",
         "Chummer.Application/Content/DefaultRuntimeLockDiffService.cs"
       ],
-      "missing_evidence": []
+      "missing_evidence": [],
+      "golden_fixtures": [
+        "Chummer.CoreEngine.Tests/Fixtures/Contracts/runtime-lock-install-preview.normalized.golden.json",
+        "Chummer.CoreEngine.Tests/Fixtures/Contracts/runtime-lock-install-candidate.normalized.golden.json"
+      ],
+      "missing_golden_fixtures": []
     }
   ],
   "oracle_suite_summary": {
@@ -1588,6 +1649,8 @@
     "required_suite_count": 8,
     "published_suite_count": 8,
     "passed_suite_count": 8,
+    "required_golden_fixture_count": 10,
+    "published_golden_fixture_count": 10,
     "missing_required_suite_ids": [],
     "unexpected_published_suite_ids": [],
     "duplicate_published_suite_ids": [],
@@ -1612,6 +1675,7 @@
       "workload": "workspace.import.bastion",
       "release_gate": "desktop_release_import",
       "scenario": "Import Bastion legacy workspace into the promoted desktop release candidate.",
+      "release_scope": "promoted_desktop_release",
       "status": "passed",
       "max_mean_milliseconds": 250.0,
       "max_allocated_bytes": 32000000,
@@ -1629,6 +1693,7 @@
       "workload": "workspace.section.skills.bastion",
       "release_gate": "desktop_release_load",
       "scenario": "Load the imported Bastion workspace and hydrate the skills section for flagship desktop review.",
+      "release_scope": "promoted_desktop_release",
       "status": "passed",
       "max_mean_milliseconds": 180.0,
       "max_allocated_bytes": 32000000,
@@ -1646,6 +1711,7 @@
       "workload": "workspace.save.bastion",
       "release_gate": "desktop_release_diff_apply",
       "scenario": "Save the imported Bastion workspace so release-bound diff/apply posture stays under budget.",
+      "release_scope": "promoted_desktop_release",
       "status": "passed",
       "max_mean_milliseconds": 80.0,
       "max_allocated_bytes": 16000000,
@@ -1663,6 +1729,7 @@
       "workload": "runtime.explain.trace",
       "release_gate": "desktop_release_explain",
       "scenario": "Compose an explain trace receipt for the promoted desktop release proof pack.",
+      "release_scope": "promoted_desktop_release",
       "status": "passed",
       "max_mean_milliseconds": 220.0,
       "max_allocated_bytes": 24000000,
@@ -1680,6 +1747,7 @@
       "workload": "workspace.export.bastion",
       "release_gate": "desktop_release_export_prep",
       "scenario": "Prepare export payloads from the imported Bastion workspace for release-bound exchange proof.",
+      "release_scope": "promoted_desktop_release",
       "status": "passed",
       "max_mean_milliseconds": 160.0,
       "max_allocated_bytes": 96000000,
