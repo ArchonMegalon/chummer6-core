@@ -7,6 +7,7 @@
     <AnalysisLevel>none</AnalysisLevel>
     <NoWarn>All</NoWarn>
     <TargetFramework>net10.0</TargetFramework>
+    <RuntimeIdentifiers Condition="'$(RuntimeIdentifiers)' == ''">$(ChummerDesktopRuntimeIdentifiers)</RuntimeIdentifiers>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <Version>0.0.0-local</Version>

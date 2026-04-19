@@ -981,6 +981,38 @@ public class DualHeadAcceptanceTests
     }
 
     [TestMethod]
+    public async Task Avalonia_and_Blazor_translator_and_xml_editor_dialogs_preserve_matching_lane_posture()
+    {
+        string xml = File.ReadAllText(FindTestFilePath("Apex Predator.chum5"));
+        byte[] documentBytes = Encoding.UTF8.GetBytes(xml);
+        string[] commandIds = ["translator", "xml_editor"];
+
+        Dictionary<string, CommandDialogSnapshot> avaloniaSnapshots = await CaptureAvaloniaCommandDialogSnapshotsAsync(documentBytes, commandIds);
+        Dictionary<string, CommandDialogSnapshot> blazorSnapshots = await CaptureBlazorCommandDialogSnapshotsAsync(documentBytes, commandIds);
+
+        foreach (string commandId in commandIds)
+        {
+            Assert.IsTrue(avaloniaSnapshots.TryGetValue(commandId, out CommandDialogSnapshot? avalonia), $"Missing Avalonia dialog snapshot for command '{commandId}'.");
+            Assert.IsTrue(blazorSnapshots.TryGetValue(commandId, out CommandDialogSnapshot? blazor), $"Missing Blazor dialog snapshot for command '{commandId}'.");
+            AssertCommandDialogSnapshotEqual(avalonia, blazor, commandId);
+        }
+
+        DialogFieldSnapshot[] translatorFields = avaloniaSnapshots["translator"].Fields;
+        CollectionAssert.IsSubsetOf(
+            ["translatorLanePosture", "translatorBridgePosture", "translatorOverlayCount", "translatorSearch"],
+            translatorFields.Select(field => field.Id).ToArray());
+        Assert.AreEqual("governed", translatorFields.Single(field => string.Equals(field.Id, "translatorLanePosture", StringComparison.Ordinal)).Value);
+        Assert.AreEqual("governed", translatorFields.Single(field => string.Equals(field.Id, "translatorBridgePosture", StringComparison.Ordinal)).Value);
+
+        DialogFieldSnapshot[] xmlEditorFields = avaloniaSnapshots["xml_editor"].Fields;
+        CollectionAssert.IsSubsetOf(
+            ["xmlEditorLanePosture", "xmlEditorOverlayCount", "xmlEditorCustomDataLanePosture", "xmlEditorCustomDataDirectoryCount", "xmlEditorReceipt", "xmlEditorDialog"],
+            xmlEditorFields.Select(field => field.Id).ToArray());
+        Assert.AreEqual("governed", xmlEditorFields.Single(field => string.Equals(field.Id, "xmlEditorLanePosture", StringComparison.Ordinal)).Value);
+        Assert.AreEqual("partial", xmlEditorFields.Single(field => string.Equals(field.Id, "xmlEditorCustomDataLanePosture", StringComparison.Ordinal)).Value);
+    }
+
+    [TestMethod]
     public async Task Avalonia_and_Blazor_character_settings_save_updates_shared_state()
     {
         string xml = File.ReadAllText(FindTestFilePath("Apex Predator.chum5"));

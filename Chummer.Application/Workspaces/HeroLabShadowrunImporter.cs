@@ -496,7 +496,8 @@ public static class HeroLabShadowrunImporter
                 IsKnowledge: skill.IsKnowledge,
                 BaseValue: skill.BaseValue,
                 KarmaValue: Math.Max(0, skill.TotalValue - skill.BaseValue),
-                Specializations: Array.Empty<string>()))
+                Specializations: Array.Empty<string>(),
+                Name: skill.Name))
             .ToList(),
             oracleSkills);
 
@@ -1227,7 +1228,8 @@ public static class HeroLabShadowrunImporter
                         IsKnowledge: oracle.IsKnowledge,
                         BaseValue: oracle.BaseValue,
                         KarmaValue: Math.Max(0, oracle.TotalValue - oracle.BaseValue),
-                        Specializations: Array.Empty<string>()));
+                        Specializations: Array.Empty<string>(),
+                        Name: oracle.Name));
                 }
 
                 break;

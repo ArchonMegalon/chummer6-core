@@ -279,7 +279,8 @@ public sealed record CharacterSkillSummary(
     bool IsKnowledge,
     int BaseValue,
     int KarmaValue,
-    IReadOnlyList<string> Specializations);
+    IReadOnlyList<string> Specializations,
+    string Name = "");
 
 public sealed record CharacterSkillsSection(
     int Count,

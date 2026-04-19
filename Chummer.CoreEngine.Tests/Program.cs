@@ -53,6 +53,7 @@ internal static class CoreEngineTests
             SelectionAndFilterDisabledReasonsStayKeyed();
             SessionEventCompatibilityContractsRoundTripToCanonicalEnvelope();
             SessionApiObservabilityEnvelopeCarriesCorrelationAndTraceSeams();
+            SessionOperationRecoveryContractsStayActionableAndDeterministic();
             RuntimeInspectorProjectsCapabilityAndCompatibilityKeys();
             RuntimeInspectorProjectionIsDeterministicAcrossPackAndBindingOrder();
             RuleProfileRegistryRuntimeLockCompileOrderAndProviderBindingsAreDeterministic();
@@ -518,6 +519,81 @@ internal static class CoreEngineTests
 
         AssertEx.NotNull(notImplemented.Observability, "Not-implemented session responses should still carry observability.");
         AssertEx.Equal("corr-123", notImplemented.Observability!.CorrelationId, "Not-implemented session responses should propagate correlation ids.");
+    }
+
+    private static void SessionOperationRecoveryContractsStayActionableAndDeterministic()
+    {
+        SessionOperationObservability observability = SessionApiObservability.Create(
+            operation: SessionApiOperations.RefreshRuntimeBundle,
+            ownerId: "owner-recovery",
+            characterId: "char-recovery",
+            correlationId: "corr-recovery",
+            traceId: "trace-recovery",
+            tags: new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["ruleset"] = "sr6",
+                ["surface"] = "campaign-engine"
+            });
+
+        SessionOperationRecoveryContract ruleFailure = SessionOperationRecoveryContracts.RuleExecutionFailure(
+            SessionApiOperations.RefreshRuntimeBundle,
+            observability);
+        SessionOperationThroughputGuardrail batchGuardrail =
+            SessionOperationRecoveryContracts.CampaignEngineBatchGuardrail(
+                SessionApiOperations.SyncCharacterLedger,
+                maxBatchSize: 250,
+                targetP95Latency: TimeSpan.FromSeconds(2),
+                hardTimeout: TimeSpan.FromSeconds(15),
+                maxAllocatedBytes: 64 * 1024 * 1024);
+        SessionLongRunningOperationState cancelled = SessionOperationRecoveryContracts.RecoverableCancellation(
+            operationId: "op-123",
+            operation: SessionApiOperations.SyncCharacterLedger,
+            resumeToken: "resume-token-123");
+
+        AssertEx.Equal(
+            SessionOperationFailureClasses.RuleExecutionFailure,
+            ruleFailure.FailureClass,
+            "Rule execution failures should expose a deterministic failure class.");
+        AssertEx.Equal(
+            SessionOperationRetryClasses.UseFallback,
+            ruleFailure.RetryClass,
+            "Rule execution failures should tell clients whether fallback is the safest path.");
+        AssertEx.True(ruleFailure.Retriable, "Rule execution failures should remain retryable when the engine marks a safe path.");
+        AssertEx.True(ruleFailure.FallbackAllowed, "Rule execution failures should expose fallback availability explicitly.");
+        AssertEx.Equal(
+            SessionOperationSafeActionIds.UseFallback,
+            ruleFailure.PrimaryAction?.ActionId,
+            "Rule execution failures should put the safest next action first.");
+        AssertEx.Equal(
+            "session.recovery.rule_execution_failure",
+            SessionOperationRecoveryContracts.ResolveUserMessageKey(ruleFailure),
+            "Recovery contracts should expose localization-safe user copy keys.");
+        AssertEx.Equal(
+            "corr-recovery",
+            ruleFailure.Observability?.CorrelationId,
+            "Recovery contracts should preserve the same correlation seam as the failed operation.");
+
+        AssertEx.Equal(
+            "campaign_engine_batch",
+            batchGuardrail.BudgetClass,
+            "Campaign-engine batch guardrails should publish a deterministic budget class.");
+        AssertEx.Equal(250, batchGuardrail.MaxBatchSize, "Campaign-engine batch guardrails should expose max batch size.");
+        AssertEx.Equal(
+            SessionOperationThroughputMetrics.CampaignEngineBatchDurationMilliseconds,
+            batchGuardrail.MetricName,
+            "Campaign-engine batch guardrails should expose the metric seam used by release proof.");
+
+        AssertEx.Equal(
+            SessionLongRunningOperationStates.Cancelled,
+            cancelled.State,
+            "Cancelled long-running operations should use a stable state id.");
+        AssertEx.True(cancelled.Recoverable, "Cancelled long-running operations should say whether user recovery is possible.");
+        AssertEx.True(cancelled.Resumable, "Cancelled long-running operations should say whether resume is possible.");
+        AssertEx.True(cancelled.RollbackAvailable, "Cancelled long-running operations should say whether rollback is available.");
+        AssertEx.Equal(
+            SessionOperationRetryClasses.Resume,
+            cancelled.Recovery?.RetryClass,
+            "Recoverable cancellation should map to the resume retry class.");
     }
 
     private static void RuntimeInspectorProjectsCapabilityAndCompatibilityKeys()
@@ -2641,6 +2717,12 @@ internal static class CoreEngineTests
 
         JsonArray? suites = payload?["oracle_suites"] as JsonArray;
         AssertEx.True(suites is not null && suites.Count > 0, "Engine proof pack should enumerate oracle suites.");
+        JsonObject? suiteSummary = payload?["oracle_suite_summary"] as JsonObject;
+        AssertEx.NotNull(suiteSummary, "Engine proof pack should publish an oracle suite summary for release-bound consumers.");
+        AssertEx.Equal("passed", suiteSummary?["coverage_status"]?.GetValue<string>() ?? string.Empty, "Oracle suite summary should stay passed.");
+        AssertEx.Equal(8, suiteSummary?["required_suite_count"]?.GetValue<int>() ?? 0, "Oracle suite summary should publish the required suite count.");
+        AssertEx.Equal(8, suiteSummary?["published_suite_count"]?.GetValue<int>() ?? 0, "Oracle suite summary should publish the covered suite count.");
+        AssertEx.Equal("promoted_desktop_release", suiteSummary?["release_scope"]?.GetValue<string>() ?? string.Empty, "Oracle suite summary should stay tied to promoted desktop releases.");
 
         HashSet<string> requiredSuiteIds =
         [
@@ -2678,12 +2760,24 @@ internal static class CoreEngineTests
             AssertEx.True(
                 suiteEvidence is not null && suiteEvidence.Count > 0,
                 $"Engine proof pack suite '{requiredSuiteId}' should include evidence anchors.");
+            AssertEx.True(
+                (suiteObject?["fixture_count"]?.GetValue<int>() ?? 0) > 0,
+                $"Engine proof pack suite '{requiredSuiteId}' should publish a positive evidence count.");
+            AssertEx.True(
+                !string.IsNullOrWhiteSpace(suiteObject?["coverage_focus"]?.GetValue<string>() ?? string.Empty),
+                $"Engine proof pack suite '{requiredSuiteId}' should publish its coverage focus.");
         }
 
         JsonArray? budgetRows = payload?["performance_budgets"] as JsonArray;
         AssertEx.True(
             budgetRows is not null && budgetRows.Count > 0,
             "Engine proof pack should enumerate performance budget lanes.");
+        JsonObject? budgetSummary = payload?["performance_budget_summary"] as JsonObject;
+        AssertEx.NotNull(budgetSummary, "Engine proof pack should publish a performance budget summary for release-bound consumers.");
+        AssertEx.Equal("passed", budgetSummary?["coverage_status"]?.GetValue<string>() ?? string.Empty, "Performance budget summary should stay passed.");
+        AssertEx.Equal(5, budgetSummary?["required_budget_count"]?.GetValue<int>() ?? 0, "Performance budget summary should publish the required budget count.");
+        AssertEx.Equal(5, budgetSummary?["published_budget_count"]?.GetValue<int>() ?? 0, "Performance budget summary should publish the covered budget count.");
+        AssertEx.Equal("promoted_desktop_release", budgetSummary?["release_scope"]?.GetValue<string>() ?? string.Empty, "Performance budget summary should stay tied to promoted desktop releases.");
 
         HashSet<string> requiredBudgetIds = ["load", "explain", "diff_apply", "import", "export_prep"];
         HashSet<string> foundBudgetIds = budgetRows!
@@ -2724,6 +2818,12 @@ internal static class CoreEngineTests
                 "Chummer.Benchmarks/MigrationWorkspaceBenchmarks.cs",
                 budgetObject?["benchmark_workload_evidence"]?.GetValue<string>() ?? string.Empty,
                 $"Budget lane '{requiredBudgetId}' should cite the benchmark workload implementation.");
+            AssertEx.True(
+                !string.IsNullOrWhiteSpace(budgetObject?["release_gate"]?.GetValue<string>() ?? string.Empty),
+                $"Budget lane '{requiredBudgetId}' should publish its release gate.");
+            AssertEx.True(
+                !string.IsNullOrWhiteSpace(budgetObject?["scenario"]?.GetValue<string>() ?? string.Empty),
+                $"Budget lane '{requiredBudgetId}' should publish its measured scenario.");
             AssertEx.Equal(
                 false,
                 budgetObject?["missing_executable_workload"]?.GetValue<bool>() ?? true,
@@ -2734,11 +2834,36 @@ internal static class CoreEngineTests
         AssertEx.NotNull(discipline, "Engine proof pack should include import-oracle discipline posture.");
         string disciplineStatus = discipline?["status"]?.GetValue<string>()?.Trim().ToLowerInvariant() ?? string.Empty;
         AssertEx.Equal("passed", disciplineStatus, "Engine proof pack import-oracle discipline should stay passed.");
+        AssertEx.Equal(
+            "verify_closed_package_only",
+            payload?["queue_completion_action"]?.GetValue<string>() ?? string.Empty,
+            "Engine proof pack should mirror the Fleet queue completion action at the top level.");
+        AssertEx.Equal(
+            "verify_closed_package_only",
+            payload?["design_queue_completion_action"]?.GetValue<string>() ?? string.Empty,
+            "Engine proof pack should mirror the design queue completion action at the top level.");
+        AssertEx.Equal(
+            "M104 chummer6-core engine proof pack is complete; future shards must verify this receipt, queue row, design queue row, and closeout note instead of reopening the proof-pack package.",
+            payload?["queue_do_not_reopen_reason"]?.GetValue<string>() ?? string.Empty,
+            "Engine proof pack should mirror the Fleet queue do-not-reopen instruction at the top level.");
+        AssertEx.Equal(
+            "M104 chummer6-core engine proof pack is complete; future shards must verify this receipt, queue row, design queue row, and closeout note instead of reopening the proof-pack package.",
+            payload?["design_queue_do_not_reopen_reason"]?.GetValue<string>() ?? string.Empty,
+            "Engine proof pack should mirror the design queue do-not-reopen instruction at the top level.");
+        JsonArray? queueClosureFieldDrift = payload?["queue_closure_field_drift"] as JsonArray;
+        AssertEx.True(
+            queueClosureFieldDrift is not null && queueClosureFieldDrift.Count == 0,
+            "Engine proof pack should report no top-level queue closure field drift.");
 
         JsonArray? importOracles = discipline?["import_oracles"] as JsonArray;
         JsonArray? adjacentOracles = discipline?["adjacent_oracles"] as JsonArray;
         AssertEx.True(importOracles is not null && importOracles.Count > 0, "Engine proof pack should include legacy import oracle coverage.");
         AssertEx.True(adjacentOracles is not null && adjacentOracles.Count > 0, "Engine proof pack should include adjacent SR6 oracle coverage.");
+        JsonObject? importCoverage = discipline?["source_receipt_coverage"] as JsonObject;
+        AssertEx.NotNull(importCoverage, "Engine proof pack should surface aggregate import-oracle coverage from the source receipt.");
+        AssertEx.Equal(5, importCoverage?["sources_covered"]?.GetValue<int>() ?? 0, "Import-oracle aggregate coverage should publish the covered source count.");
+        AssertEx.Equal(5, importCoverage?["sources_expected"]?.GetValue<int>() ?? 0, "Import-oracle aggregate coverage should publish the expected source count.");
+        AssertEx.Equal(100, importCoverage?["coverage_percent"]?.GetValue<int>() ?? 0, "Import-oracle aggregate coverage should stay fully covered.");
     }
 
     private static void BuildLabCreateSurfaceIsExposedAcrossRulesets()
