@@ -679,6 +679,18 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
         self.assertEqual([], payload["import_oracle_discipline"]["duplicate_source_receipt_evidence"])
         self.assertEqual([], payload["import_oracle_discipline"]["disallowed_source_receipt_command_tokens"])
         self.assertEqual([], payload["import_oracle_discipline"]["disallowed_source_receipt_evidence_tokens"])
+        self.assertEqual(
+            ["Chummer4", "Chummer5a", "Hero Lab Classic"],
+            payload["import_oracle_discipline"]["published_import_oracle_names"],
+        )
+        self.assertEqual(
+            ["Genesis", "CommLink6"],
+            payload["import_oracle_discipline"]["published_adjacent_oracle_names"],
+        )
+        self.assertEqual([], payload["import_oracle_discipline"]["malformed_import_oracle_rows"])
+        self.assertEqual([], payload["import_oracle_discipline"]["malformed_adjacent_oracle_rows"])
+        self.assertEqual([], payload["import_oracle_discipline"]["unexpected_import_oracle_names"])
+        self.assertEqual([], payload["import_oracle_discipline"]["unexpected_adjacent_oracle_names"])
         self.assertEqual("passed", payload["release_channel_binding"]["status"])
         self.assertEqual("docker", payload["release_channel_binding"]["channel_id"])
         self.assertEqual(["src", "tests", "docs", "scripts"], payload["successor_wave_authority"]["queue_allowed_paths"])
@@ -1044,6 +1056,33 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
         self.assertEqual("failed", payload["status"])
         self.assertIn("duplicate_import_oracle:chummer4", payload["unresolved"]["import_oracle_discipline"])
 
+    def test_build_payload_fails_closed_when_unexpected_import_oracle_is_present(self) -> None:
+        cert_path = self.root / ".codex-studio" / "published" / "IMPORT_PARITY_CERTIFICATION.generated.json"
+        cert = json.loads(cert_path.read_text(encoding="utf-8"))
+        cert["import_oracles"].append({"name": "Legacy Toolbox", "sources_covered": 1, "sources_expected": 1})
+        cert_path.write_text(json.dumps(cert), encoding="utf-8")
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertIn("unexpected_import_oracle:Legacy Toolbox", payload["unresolved"]["import_oracle_discipline"])
+        self.assertEqual(
+            ["Legacy Toolbox"],
+            payload["import_oracle_discipline"]["unexpected_import_oracle_names"],
+        )
+
+    def test_build_payload_fails_closed_when_import_oracle_row_is_malformed(self) -> None:
+        cert_path = self.root / ".codex-studio" / "published" / "IMPORT_PARITY_CERTIFICATION.generated.json"
+        cert = json.loads(cert_path.read_text(encoding="utf-8"))
+        cert["import_oracles"].append({"sources_covered": 1, "sources_expected": 1})
+        cert_path.write_text(json.dumps(cert), encoding="utf-8")
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertIn("malformed_import_oracle_row:3", payload["unresolved"]["import_oracle_discipline"])
+        self.assertEqual([3], payload["import_oracle_discipline"]["malformed_import_oracle_rows"])
+
     def test_build_payload_fails_closed_when_required_import_oracle_counts_are_malformed(self) -> None:
         cert_path = self.root / ".codex-studio" / "published" / "IMPORT_PARITY_CERTIFICATION.generated.json"
         cert = json.loads(cert_path.read_text(encoding="utf-8"))
@@ -1162,6 +1201,36 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
 
         self.assertEqual("failed", payload["status"])
         self.assertIn("duplicate_adjacent_oracle:genesis", payload["unresolved"]["import_oracle_discipline"])
+
+    def test_build_payload_fails_closed_when_unexpected_adjacent_import_oracle_is_present(self) -> None:
+        cert_path = self.root / ".codex-studio" / "published" / "IMPORT_PARITY_CERTIFICATION.generated.json"
+        cert = json.loads(cert_path.read_text(encoding="utf-8"))
+        cert["adjacent_oracles"].append({"name": "Shadowrun Online", "sources_covered": 1, "sources_expected": 1})
+        cert_path.write_text(json.dumps(cert), encoding="utf-8")
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertIn(
+            "unexpected_adjacent_oracle:Shadowrun Online",
+            payload["unresolved"]["import_oracle_discipline"],
+        )
+        self.assertEqual(
+            ["Shadowrun Online"],
+            payload["import_oracle_discipline"]["unexpected_adjacent_oracle_names"],
+        )
+
+    def test_build_payload_fails_closed_when_adjacent_import_oracle_row_is_malformed(self) -> None:
+        cert_path = self.root / ".codex-studio" / "published" / "IMPORT_PARITY_CERTIFICATION.generated.json"
+        cert = json.loads(cert_path.read_text(encoding="utf-8"))
+        cert["adjacent_oracles"].append({"sources_covered": 1, "sources_expected": 1})
+        cert_path.write_text(json.dumps(cert), encoding="utf-8")
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertIn("malformed_adjacent_oracle_row:2", payload["unresolved"]["import_oracle_discipline"])
+        self.assertEqual([2], payload["import_oracle_discipline"]["malformed_adjacent_oracle_rows"])
 
     def test_build_payload_fails_closed_when_adjacent_import_oracle_counts_are_malformed(self) -> None:
         cert_path = self.root / ".codex-studio" / "published" / "IMPORT_PARITY_CERTIFICATION.generated.json"

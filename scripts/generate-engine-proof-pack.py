@@ -1767,6 +1767,17 @@ def _duplicate_oracle_names(rows: list[Any]) -> list[str]:
     return duplicates
 
 
+def _malformed_oracle_rows(rows: list[Any]) -> list[int]:
+    malformed: list[int] = []
+    for index, row in enumerate(rows):
+        if not isinstance(row, dict):
+            malformed.append(index)
+            continue
+        if not _normalize_token(_oracle_name(row)):
+            malformed.append(index)
+    return malformed
+
+
 def _normalize_token(value: str) -> str:
     return value.strip().lower().replace(" ", "")
 
@@ -1840,6 +1851,19 @@ def _build_import_discipline(
 
     for duplicate_name in _duplicate_oracle_names(import_oracles):
         unresolved.append(f"duplicate_import_oracle:{duplicate_name}")
+    malformed_import_oracle_rows = _malformed_oracle_rows(import_oracles)
+    for index in malformed_import_oracle_rows:
+        unresolved.append(f"malformed_import_oracle_row:{index}")
+
+    published_import_oracle_names = [_oracle_name(row) for row in import_oracles if _oracle_name(row)]
+    unexpected_import_oracle_names = [
+        oracle_name
+        for oracle_name in published_import_oracle_names
+        if _normalize_token(oracle_name)
+        not in {_normalize_token(required_name) for required_name in REQUIRED_IMPORT_ORACLE_NAMES}
+    ]
+    for oracle_name in unexpected_import_oracle_names:
+        unresolved.append(f"unexpected_import_oracle:{oracle_name}")
 
     oracle_by_name = {_normalize_token(_oracle_name(row)): row for row in import_oracles}
     for required_name in REQUIRED_IMPORT_ORACLE_NAMES:
@@ -1852,6 +1876,19 @@ def _build_import_discipline(
 
     for duplicate_name in _duplicate_oracle_names(adjacent_oracles):
         unresolved.append(f"duplicate_adjacent_oracle:{duplicate_name}")
+    malformed_adjacent_oracle_rows = _malformed_oracle_rows(adjacent_oracles)
+    for index in malformed_adjacent_oracle_rows:
+        unresolved.append(f"malformed_adjacent_oracle_row:{index}")
+
+    published_adjacent_oracle_names = [_oracle_name(row) for row in adjacent_oracles if _oracle_name(row)]
+    unexpected_adjacent_oracle_names = [
+        oracle_name
+        for oracle_name in published_adjacent_oracle_names
+        if _normalize_token(oracle_name)
+        not in {_normalize_token(required_name) for required_name in REQUIRED_ADJACENT_ORACLE_NAMES}
+    ]
+    for oracle_name in unexpected_adjacent_oracle_names:
+        unresolved.append(f"unexpected_adjacent_oracle:{oracle_name}")
 
     adjacent_by_name = {_normalize_token(_oracle_name(row)): row for row in adjacent_oracles}
     for required_name in REQUIRED_ADJACENT_ORACLE_NAMES:
@@ -1873,6 +1910,10 @@ def _build_import_discipline(
             "source_receipt_coverage": coverage_summary if isinstance(coverage_summary, dict) else None,
             "required_import_oracle_names": list(REQUIRED_IMPORT_ORACLE_NAMES),
             "required_adjacent_oracle_names": list(REQUIRED_ADJACENT_ORACLE_NAMES),
+            "published_import_oracle_names": published_import_oracle_names,
+            "published_adjacent_oracle_names": published_adjacent_oracle_names,
+            "malformed_import_oracle_rows": malformed_import_oracle_rows,
+            "malformed_adjacent_oracle_rows": malformed_adjacent_oracle_rows,
             "required_source_receipt_coverage_total": expected_coverage_total,
             "required_source_receipt_commands": list(REQUIRED_IMPORT_CERT_COMMANDS),
             "required_source_receipt_evidence": list(REQUIRED_IMPORT_CERT_EVIDENCE),
@@ -1886,6 +1927,8 @@ def _build_import_discipline(
             "duplicate_source_receipt_evidence": duplicate_evidence,
             "disallowed_source_receipt_command_tokens": disallowed_command_tokens,
             "disallowed_source_receipt_evidence_tokens": disallowed_evidence_tokens,
+            "unexpected_import_oracle_names": unexpected_import_oracle_names,
+            "unexpected_adjacent_oracle_names": unexpected_adjacent_oracle_names,
             "import_oracles": import_oracles,
             "adjacent_oracles": adjacent_oracles,
             "unresolved": unresolved,
