@@ -1,7 +1,7 @@
 {
   "contract_name": "chummer6-core.engine_proof_pack",
   "schema_version": 1,
-  "generated_at": "2026-04-19T11:05:28Z",
+  "generated_at": "2026-04-19T13:08:30Z",
   "status": "passed",
   "proof_kind": "release_bound_engine_proof",
   "milestone_id": 104,
@@ -1800,6 +1800,17 @@
       "Genesis",
       "CommLink6"
     ],
+    "published_import_oracle_names": [
+      "Chummer4",
+      "Chummer5a",
+      "Hero Lab Classic"
+    ],
+    "published_adjacent_oracle_names": [
+      "Genesis",
+      "CommLink6"
+    ],
+    "malformed_import_oracle_rows": [],
+    "malformed_adjacent_oracle_rows": [],
     "required_source_receipt_coverage_total": 5,
     "required_source_receipt_commands": [
       "dotnet run --project Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj -c Release"
@@ -1821,6 +1832,8 @@
     "duplicate_source_receipt_evidence": [],
     "disallowed_source_receipt_command_tokens": [],
     "disallowed_source_receipt_evidence_tokens": [],
+    "unexpected_import_oracle_names": [],
+    "unexpected_adjacent_oracle_names": [],
     "import_oracles": [
       {
         "name": "Chummer4",
