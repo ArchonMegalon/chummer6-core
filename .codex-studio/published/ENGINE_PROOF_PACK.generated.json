@@ -1,12 +1,17 @@
 {
   "contract_name": "chummer6-core.engine_proof_pack",
   "schema_version": 1,
-  "generated_at": "2026-04-18T19:14:38Z",
+  "generated_at": "2026-04-19T10:21:29Z",
   "status": "passed",
   "proof_kind": "release_bound_engine_proof",
   "milestone_id": 104,
   "package_id": "next90-m104-core-proof-pack",
   "frontier_id": 3227666051,
+  "queue_completion_action": "verify_closed_package_only",
+  "design_queue_completion_action": "verify_closed_package_only",
+  "queue_do_not_reopen_reason": "M104 chummer6-core engine proof pack is complete; future shards must verify this receipt, queue row, design queue row, and closeout note instead of reopening the proof-pack package.",
+  "design_queue_do_not_reopen_reason": "M104 chummer6-core engine proof pack is complete; future shards must verify this receipt, queue row, design queue row, and closeout note instead of reopening the proof-pack package.",
+  "queue_closure_field_drift": [],
   "successor_wave_package": {
     "program_wave": "next_90_day_product_advance",
     "frontier_id": 3227666051,
@@ -116,6 +121,10 @@
         "/docker/chummercomplete/chummer-core-engine commit 870be707 pins the current af67ecfd handoff proof floor in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.",
         "/docker/chummercomplete/chummer-core-engine commit b8000b80 tightens the M104 OODA telemetry proof guard so plain governor-loop evidence cannot close the package.",
         "/docker/chummercomplete/chummer-core-engine commit ecbb466c pins the current b8000b80 OODA proof guard in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.",
+        "/docker/chummercomplete/chummer-core-engine commit aeeeaf6e tightens M104 package-commit citation proof so registry, Fleet queue, and design queue package-local commit evidence must resolve locally.",
+        "/docker/chummercomplete/chummer-core-engine commit c84b251f pins the M104 package-commit citation guard as an explicit local proof floor.",
+        "/docker/chummercomplete/chummer-core-engine commit 29b17c68 tightens the M104 engine proof pack release summaries so suite and budget metadata stay release-bound and explainable.",
+        "/docker/chummercomplete/chummer-core-engine commit 262030df tightens the M104 proof-pack closure guards so queue closure instructions and import aggregate coverage fail closed.",
         "dotnet run --project Chummer.Benchmarks/Chummer.Benchmarks.csproj -c Release -- --budget-check --budget-file Chummer.Benchmarks/workspace-benchmark-budgets.json exits 0"
       ]
     },
@@ -195,6 +204,10 @@
       "/docker/chummercomplete/chummer-core-engine commit 870be707 pins the current af67ecfd handoff proof floor in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.",
       "/docker/chummercomplete/chummer-core-engine commit b8000b80 tightens the M104 OODA telemetry proof guard so plain governor-loop evidence cannot close the package.",
       "/docker/chummercomplete/chummer-core-engine commit ecbb466c pins the current b8000b80 OODA proof guard in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.",
+      "/docker/chummercomplete/chummer-core-engine commit aeeeaf6e tightens M104 package-commit citation proof so registry, Fleet queue, and design queue package-local commit evidence must resolve locally.",
+      "/docker/chummercomplete/chummer-core-engine commit c84b251f pins the M104 package-commit citation guard as an explicit local proof floor.",
+      "/docker/chummercomplete/chummer-core-engine commit 29b17c68 tightens the M104 engine proof pack release summaries so suite and budget metadata stay release-bound and explainable.",
+      "/docker/chummercomplete/chummer-core-engine commit 262030df tightens the M104 proof-pack closure guards so queue closure instructions and import aggregate coverage fail closed.",
       "allowed_paths:",
       "- src",
       "- tests",
@@ -281,8 +294,8 @@
       "/docker/chummercomplete/chummer-core-engine/docs/ENGINE_PROOF_PACK.md",
       "/docker/chummercomplete/chummer-core-engine/docs/NEXT90_M104_CORE_PROOF_PACK_CLOSEOUT.md"
     ],
-    "queue_proof_count": 78,
-    "design_queue_proof_count": 78,
+    "queue_proof_count": 80,
+    "design_queue_proof_count": 80,
     "queue_completion_action": "verify_closed_package_only",
     "design_queue_completion_action": "verify_closed_package_only",
     "queue_do_not_reopen_reason": "M104 chummer6-core engine proof pack is complete; future shards must verify this receipt, queue row, design queue row, and closeout note instead of reopening the proof-pack package.",
@@ -590,6 +603,14 @@
         {
           "commit": "c84b251f",
           "status": "passed"
+        },
+        {
+          "commit": "29b17c68",
+          "status": "passed"
+        },
+        {
+          "commit": "262030df",
+          "status": "passed"
         }
       ],
       "missing_commits": []
@@ -632,6 +653,9 @@
       "`2c98f61c`",
       "`2e4e8e81`",
       "`8f4702a5`",
+      "`c84b251f`",
+      "`29b17c68`",
+      "`262030df`",
       "Registry and queue evidence do not cite task-local telemetry",
       "active-run handoff field labels",
       "supervisor helper loops",
@@ -1325,6 +1349,21 @@
         "commit": "aeeeaf6e",
         "purpose": "current M104 package-commit citation proof guard required by registry and queue closeout",
         "status": "passed"
+      },
+      {
+        "commit": "c84b251f",
+        "purpose": "current M104 package-commit citation local proof floor required by registry and queue closeout",
+        "status": "passed"
+      },
+      {
+        "commit": "29b17c68",
+        "purpose": "current M104 release-summary proof floor required by registry and queue closeout",
+        "status": "passed"
+      },
+      {
+        "commit": "262030df",
+        "purpose": "current M104 proof-pack closure guard floor required by registry and queue closeout",
+        "status": "passed"
       }
     ],
     "missing_commits": []
@@ -1549,6 +1588,9 @@
     "required_suite_count": 8,
     "published_suite_count": 8,
     "passed_suite_count": 8,
+    "missing_required_suite_ids": [],
+    "unexpected_published_suite_ids": [],
+    "duplicate_published_suite_ids": [],
     "coverage_status": "passed",
     "covered_rulesets": [
       "sr4",
@@ -1662,6 +1704,9 @@
     "required_budget_count": 5,
     "published_budget_count": 5,
     "passed_budget_count": 5,
+    "missing_required_budget_ids": [],
+    "unexpected_published_budget_ids": [],
+    "duplicate_published_budget_ids": [],
     "coverage_status": "passed",
     "release_commands": [
       "dotnet build Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj -c Release --nologo -m:1 && dotnet Chummer.CoreEngine.Tests/bin/Release/net10.0/Chummer.CoreEngine.Tests.dll",
@@ -1673,6 +1718,11 @@
     "status": "passed",
     "source_receipt_path": ".codex-studio/published/IMPORT_PARITY_CERTIFICATION.generated.json",
     "source_receipt_status": "passed",
+    "source_receipt_coverage": {
+      "sources_covered": 5,
+      "sources_expected": 5,
+      "coverage_percent": 100
+    },
     "required_import_oracle_names": [
       "Chummer4",
       "Chummer5a",
