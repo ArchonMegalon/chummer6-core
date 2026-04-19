@@ -87,6 +87,17 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
         self.assertEqual("next90-m104-core-proof-pack", payload["package_id"])
         self.assertEqual(3227666051, payload["frontier_id"])
         self.assertEqual(104, payload["milestone_id"])
+        self.assertEqual("verify_closed_package_only", payload["queue_completion_action"])
+        self.assertEqual("verify_closed_package_only", payload["design_queue_completion_action"])
+        self.assertEqual(
+            "M104 chummer6-core engine proof pack is complete; future shards must verify this receipt, queue row, design queue row, and closeout note instead of reopening the proof-pack package.",
+            payload["queue_do_not_reopen_reason"],
+        )
+        self.assertEqual(
+            "M104 chummer6-core engine proof pack is complete; future shards must verify this receipt, queue row, design queue row, and closeout note instead of reopening the proof-pack package.",
+            payload["design_queue_do_not_reopen_reason"],
+        )
+        self.assertEqual([], payload["queue_closure_field_drift"])
         self.assertEqual("next_90_day_product_advance", payload["successor_wave_package"]["program_wave"])
         self.assertEqual(["engine_proof_pack", "import_oracle_discipline"], payload["successor_wave_package"]["owned_surfaces"])
         self.assertEqual("passed", payload["successor_wave_authority"]["status"])
@@ -595,6 +606,18 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
             "aeeeaf6e",
             [row["commit"] for row in payload["local_commit_proofs"]["required_commits"]],
         )
+        self.assertIn(
+            "c84b251f",
+            [row["commit"] for row in payload["local_commit_proofs"]["required_commits"]],
+        )
+        self.assertIn(
+            "29b17c68",
+            [row["commit"] for row in payload["local_commit_proofs"]["required_commits"]],
+        )
+        self.assertIn(
+            "262030df",
+            [row["commit"] for row in payload["local_commit_proofs"]["required_commits"]],
+        )
         self.assertEqual("complete", payload["successor_wave_authority"]["closure_requirements"]["status"])
         self.assertEqual(3227666051, payload["successor_wave_authority"]["closure_requirements"]["frontier_id"])
         self.assertEqual("00800059", payload["successor_wave_authority"]["closure_requirements"]["landed_commit"])
@@ -632,6 +655,20 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
             payload["import_oracle_discipline"]["required_source_receipt_evidence"],
         )
         self.assertEqual(5, payload["import_oracle_discipline"]["required_source_receipt_coverage_total"])
+        self.assertEqual(
+            {
+                "sources_covered": 5,
+                "sources_expected": 5,
+                "coverage_percent": 100,
+            },
+            payload["import_oracle_discipline"]["source_receipt_coverage"],
+        )
+        self.assertEqual([], payload["oracle_suite_summary"]["missing_required_suite_ids"])
+        self.assertEqual([], payload["oracle_suite_summary"]["unexpected_published_suite_ids"])
+        self.assertEqual([], payload["oracle_suite_summary"]["duplicate_published_suite_ids"])
+        self.assertEqual([], payload["performance_budget_summary"]["missing_required_budget_ids"])
+        self.assertEqual([], payload["performance_budget_summary"]["unexpected_published_budget_ids"])
+        self.assertEqual([], payload["performance_budget_summary"]["duplicate_published_budget_ids"])
         self.assertEqual([], payload["import_oracle_discipline"]["missing_required_source_receipt_commands"])
         self.assertEqual([], payload["import_oracle_discipline"]["missing_required_source_receipt_evidence"])
         self.assertEqual([], payload["import_oracle_discipline"]["unexpected_source_receipt_commands"])
@@ -742,6 +779,84 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
         self.assertIn("explain", payload["unresolved"]["performance_budgets"])
         explain_budget = next(row for row in payload["performance_budgets"] if row["id"] == "explain")
         self.assertTrue(explain_budget["missing_executable_workload"])
+
+    def test_oracle_suite_summary_fails_closed_when_required_suite_id_is_missing(self) -> None:
+        suites = [
+            {"id": "creation", "status": "passed", "rulesets": ["sr5"]},
+            {"id": "advancement", "status": "passed", "rulesets": ["sr5"]},
+            {"id": "augment", "status": "passed", "rulesets": ["sr5"]},
+            {"id": "matrix", "status": "passed", "rulesets": ["sr4", "sr6"]},
+            {"id": "magic", "status": "passed", "rulesets": ["sr4", "sr5"]},
+            {"id": "vehicle", "status": "passed", "rulesets": ["sr4", "sr5"]},
+            {"id": "source_toggle", "status": "passed", "rulesets": ["sr5"]},
+            {"id": "vehicle", "status": "passed", "rulesets": ["sr4", "sr5"]},
+        ]
+
+        summary = self.generator._build_oracle_suite_summary(suites)
+
+        self.assertEqual("failed", summary["coverage_status"])
+        self.assertEqual(8, summary["published_suite_count"])
+        self.assertEqual(8, summary["passed_suite_count"])
+        self.assertEqual(["amend_package"], summary["missing_required_suite_ids"])
+        self.assertEqual([], summary["unexpected_published_suite_ids"])
+        self.assertEqual(["vehicle"], summary["duplicate_published_suite_ids"])
+
+    def test_oracle_suite_summary_fails_closed_when_unexpected_suite_id_is_present(self) -> None:
+        suites = [
+            {"id": "creation", "status": "passed", "rulesets": ["sr5"]},
+            {"id": "advancement", "status": "passed", "rulesets": ["sr5"]},
+            {"id": "augment", "status": "passed", "rulesets": ["sr5"]},
+            {"id": "matrix", "status": "passed", "rulesets": ["sr4", "sr6"]},
+            {"id": "magic", "status": "passed", "rulesets": ["sr4", "sr5"]},
+            {"id": "vehicle", "status": "passed", "rulesets": ["sr4", "sr5"]},
+            {"id": "source_toggle", "status": "passed", "rulesets": ["sr5"]},
+            {"id": "legacy_shadow", "status": "passed", "rulesets": ["sr5"]},
+        ]
+
+        summary = self.generator._build_oracle_suite_summary(suites)
+
+        self.assertEqual("failed", summary["coverage_status"])
+        self.assertEqual(8, summary["published_suite_count"])
+        self.assertEqual(8, summary["passed_suite_count"])
+        self.assertEqual(["amend_package"], summary["missing_required_suite_ids"])
+        self.assertEqual(["legacy_shadow"], summary["unexpected_published_suite_ids"])
+        self.assertEqual([], summary["duplicate_published_suite_ids"])
+
+    def test_budget_summary_fails_closed_when_required_budget_id_is_missing(self) -> None:
+        budgets = [
+            {"id": "import", "status": "passed"},
+            {"id": "load", "status": "passed"},
+            {"id": "diff_apply", "status": "passed"},
+            {"id": "explain", "status": "passed"},
+            {"id": "explain", "status": "passed"},
+        ]
+
+        summary = self.generator._build_budget_summary(budgets)
+
+        self.assertEqual("failed", summary["coverage_status"])
+        self.assertEqual(5, summary["published_budget_count"])
+        self.assertEqual(5, summary["passed_budget_count"])
+        self.assertEqual(["export_prep"], summary["missing_required_budget_ids"])
+        self.assertEqual([], summary["unexpected_published_budget_ids"])
+        self.assertEqual(["explain"], summary["duplicate_published_budget_ids"])
+
+    def test_budget_summary_fails_closed_when_unexpected_budget_id_is_present(self) -> None:
+        budgets = [
+            {"id": "import", "status": "passed"},
+            {"id": "load", "status": "passed"},
+            {"id": "diff_apply", "status": "passed"},
+            {"id": "explain", "status": "passed"},
+            {"id": "legacy_budget", "status": "passed"},
+        ]
+
+        summary = self.generator._build_budget_summary(budgets)
+
+        self.assertEqual("failed", summary["coverage_status"])
+        self.assertEqual(5, summary["published_budget_count"])
+        self.assertEqual(5, summary["passed_budget_count"])
+        self.assertEqual(["export_prep"], summary["missing_required_budget_ids"])
+        self.assertEqual(["legacy_budget"], summary["unexpected_published_budget_ids"])
+        self.assertEqual([], summary["duplicate_published_budget_ids"])
 
     def test_build_payload_fails_closed_when_budget_workload_is_only_in_factory(self) -> None:
         source_path = self.root / "Chummer.Benchmarks" / "MigrationWorkspaceBenchmarks.cs"
@@ -2969,6 +3084,50 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
         self.assertEqual(
             "M104 chummer6-core engine proof pack is complete; future shards must verify only the design queue row before reopening this slice.",
             payload["successor_wave_authority"]["design_queue_do_not_reopen_reason"],
+        )
+        self.assertEqual(
+            payload["successor_wave_authority"]["queue_do_not_reopen_reason"],
+            payload["queue_do_not_reopen_reason"],
+        )
+        self.assertEqual(
+            payload["successor_wave_authority"]["design_queue_do_not_reopen_reason"],
+            payload["design_queue_do_not_reopen_reason"],
+        )
+        self.assertEqual(
+            payload["successor_wave_authority"]["queue_closure_field_drift"],
+            payload["queue_closure_field_drift"],
+        )
+
+    def test_build_payload_fails_closed_when_fleet_and_design_queue_completion_action_drifts(self) -> None:
+        design_queue_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_design_queue_path"])
+        queue_text = design_queue_path.read_text(encoding="utf-8")
+        design_queue_path.write_text(
+            queue_text.replace(
+                "    completion_action: verify_closed_package_only\n",
+                "    completion_action: reopen_package\n",
+            ),
+            encoding="utf-8",
+        )
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertEqual("failed", payload["successor_wave_authority"]["status"])
+        self.assertIn("queue_mirror_parity", payload["unresolved"]["successor_wave_authority"])
+        self.assertEqual(["completion_action"], payload["successor_wave_authority"]["queue_closure_field_drift"])
+        self.assertEqual("verify_closed_package_only", payload["successor_wave_authority"]["queue_completion_action"])
+        self.assertEqual("reopen_package", payload["successor_wave_authority"]["design_queue_completion_action"])
+        self.assertEqual(
+            payload["successor_wave_authority"]["queue_completion_action"],
+            payload["queue_completion_action"],
+        )
+        self.assertEqual(
+            payload["successor_wave_authority"]["design_queue_completion_action"],
+            payload["design_queue_completion_action"],
+        )
+        self.assertEqual(
+            payload["successor_wave_authority"]["queue_closure_field_drift"],
+            payload["queue_closure_field_drift"],
         )
 
     def test_build_payload_fails_closed_when_queue_cited_package_commit_does_not_resolve(self) -> None:
@@ -5758,7 +5917,7 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
                     "- The row keeps only the assigned allowed paths: `src`, `tests`, `docs`, and `scripts`.",
                     "- The row keeps only the assigned owned surfaces: `engine_proof_pack` and `import_oracle_discipline`.",
                     "- Queue proof anchors resolve inside `/docker/chummercomplete/chummer-core-engine`.",
-                    "- Local commit proof includes `498dff3d`, `ecbb466c`, `a2c8ad9f`, `2c98f61c`, `2e4e8e81`, and `8f4702a5`, the queue-mirror parity guard and current M104 proof guard anchors.",
+                    "- Local commit proof includes `498dff3d`, `ecbb466c`, `a2c8ad9f`, `2c98f61c`, `2e4e8e81`, `8f4702a5`, `c84b251f`, `29b17c68`, and `262030df`, the queue-mirror parity guard, package-commit citation floor, release-summary guard, closure-instruction guard, and current M104 proof guard anchors.",
                     "- Registry and queue evidence do not cite task-local telemetry, active-run handoff field labels, or supervisor helper loops as release proof.",
                     "- The same proof-hygiene ban applies after percent-decoding and HTML unescaping, after URL form-decoding, and after separator normalization.",
                     "",
@@ -5868,6 +6027,10 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
                     "          - /docker/chummercomplete/chummer-core-engine commit 870be707 pins the current af67ecfd handoff proof floor in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.",
                     "          - /docker/chummercomplete/chummer-core-engine commit b8000b80 tightens the M104 OODA telemetry proof guard so plain governor-loop evidence cannot close the package.",
                     "          - /docker/chummercomplete/chummer-core-engine commit ecbb466c pins the current b8000b80 OODA proof guard in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.",
+                    "          - /docker/chummercomplete/chummer-core-engine commit aeeeaf6e tightens M104 package-commit citation proof so registry, Fleet queue, and design queue package-local commit evidence must resolve locally.",
+                    "          - /docker/chummercomplete/chummer-core-engine commit c84b251f pins the M104 package-commit citation guard as an explicit local proof floor.",
+                    "          - /docker/chummercomplete/chummer-core-engine commit 29b17c68 tightens the M104 engine proof pack release summaries so suite and budget metadata stay release-bound and explainable.",
+                    "          - /docker/chummercomplete/chummer-core-engine commit 262030df tightens the M104 proof-pack closure guards so queue closure instructions and import aggregate coverage fail closed.",
                     "          - dotnet run --project Chummer.Benchmarks/Chummer.Benchmarks.csproj -c Release -- --budget-check --budget-file Chummer.Benchmarks/workspace-benchmark-budgets.json exits 0",
                 ]
             )
@@ -5954,6 +6117,10 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
                     "      - /docker/chummercomplete/chummer-core-engine commit 870be707 pins the current af67ecfd handoff proof floor in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.",
                     "      - /docker/chummercomplete/chummer-core-engine commit b8000b80 tightens the M104 OODA telemetry proof guard so plain governor-loop evidence cannot close the package.",
                     "      - /docker/chummercomplete/chummer-core-engine commit ecbb466c pins the current b8000b80 OODA proof guard in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.",
+                    "      - /docker/chummercomplete/chummer-core-engine commit aeeeaf6e tightens M104 package-commit citation proof so registry, Fleet queue, and design queue package-local commit evidence must resolve locally.",
+                    "      - /docker/chummercomplete/chummer-core-engine commit c84b251f pins the M104 package-commit citation guard as an explicit local proof floor.",
+                    "      - /docker/chummercomplete/chummer-core-engine commit 29b17c68 tightens the M104 engine proof pack release summaries so suite and budget metadata stay release-bound and explainable.",
+                    "      - /docker/chummercomplete/chummer-core-engine commit 262030df tightens the M104 proof-pack closure guards so queue closure instructions and import aggregate coverage fail closed.",
                     "    allowed_paths:",
                     "      - src",
                     "      - tests",

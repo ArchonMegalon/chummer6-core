@@ -180,6 +180,10 @@ SUCCESSOR_REGISTRY_TASK_TOKENS = {
         "/docker/chummercomplete/chummer-core-engine commit 870be707 pins the current af67ecfd handoff proof floor in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.",
         "/docker/chummercomplete/chummer-core-engine commit b8000b80 tightens the M104 OODA telemetry proof guard so plain governor-loop evidence cannot close the package.",
         "/docker/chummercomplete/chummer-core-engine commit ecbb466c pins the current b8000b80 OODA proof guard in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.",
+        "/docker/chummercomplete/chummer-core-engine commit aeeeaf6e tightens M104 package-commit citation proof so registry, Fleet queue, and design queue package-local commit evidence must resolve locally.",
+        "/docker/chummercomplete/chummer-core-engine commit c84b251f pins the M104 package-commit citation guard as an explicit local proof floor.",
+        "/docker/chummercomplete/chummer-core-engine commit 29b17c68 tightens the M104 engine proof pack release summaries so suite and budget metadata stay release-bound and explainable.",
+        "/docker/chummercomplete/chummer-core-engine commit 262030df tightens the M104 proof-pack closure guards so queue closure instructions and import aggregate coverage fail closed.",
         "dotnet run --project Chummer.Benchmarks/Chummer.Benchmarks.csproj -c Release -- --budget-check --budget-file Chummer.Benchmarks/workspace-benchmark-budgets.json exits 0",
     ),
 }
@@ -260,6 +264,10 @@ SUCCESSOR_QUEUE_TOKENS = (
     "/docker/chummercomplete/chummer-core-engine commit 870be707 pins the current af67ecfd handoff proof floor in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.",
     "/docker/chummercomplete/chummer-core-engine commit b8000b80 tightens the M104 OODA telemetry proof guard so plain governor-loop evidence cannot close the package.",
     "/docker/chummercomplete/chummer-core-engine commit ecbb466c pins the current b8000b80 OODA proof guard in the generated proof pack, unit tests, proof-pack documentation, and checked-in receipt.",
+    "/docker/chummercomplete/chummer-core-engine commit aeeeaf6e tightens M104 package-commit citation proof so registry, Fleet queue, and design queue package-local commit evidence must resolve locally.",
+    "/docker/chummercomplete/chummer-core-engine commit c84b251f pins the M104 package-commit citation guard as an explicit local proof floor.",
+    "/docker/chummercomplete/chummer-core-engine commit 29b17c68 tightens the M104 engine proof pack release summaries so suite and budget metadata stay release-bound and explainable.",
+    "/docker/chummercomplete/chummer-core-engine commit 262030df tightens the M104 proof-pack closure guards so queue closure instructions and import aggregate coverage fail closed.",
     "allowed_paths:",
     "- src",
     "- tests",
@@ -300,6 +308,9 @@ PACKAGE_CLOSEOUT_REQUIRED_TOKENS = (
     "`2c98f61c`",
     "`2e4e8e81`",
     "`8f4702a5`",
+    "`c84b251f`",
+    "`29b17c68`",
+    "`262030df`",
     "Registry and queue evidence do not cite task-local telemetry",
     "active-run handoff field labels",
     "supervisor helper loops",
@@ -543,6 +554,9 @@ REQUIRED_LOCAL_COMMIT_PROOFS = (
     ("c1300863", "current M104 engine proof pack discipline guard pin required by local closeout"),
     ("8f4702a5", "current M104 release-bound proof discipline guard required by local closeout"),
     ("aeeeaf6e", "current M104 package-commit citation proof guard required by registry and queue closeout"),
+    ("c84b251f", "current M104 package-commit citation local proof floor required by registry and queue closeout"),
+    ("29b17c68", "current M104 release-summary proof floor required by registry and queue closeout"),
+    ("262030df", "current M104 proof-pack closure guard floor required by registry and queue closeout"),
 )
 
 
@@ -1381,6 +1395,16 @@ def _build_budget_map(root: Path) -> tuple[list[dict[str, Any]], list[str]]:
 
 def _build_oracle_suite_summary(suites: list[dict[str, Any]]) -> dict[str, Any]:
     passed_count = sum(1 for row in suites if row.get("status") == "passed")
+    required_suite_ids = list(REQUIRED_ORACLE_SUITE_IDS)
+    published_suite_ids = [str(row.get("id") or "").strip() for row in suites if str(row.get("id") or "").strip()]
+    matching_suite_ids = sorted(published_suite_ids) == sorted(required_suite_ids)
+    duplicate_suite_ids = _duplicate_values(published_suite_ids)
+    missing_required_suite_ids = [
+        suite_id for suite_id in required_suite_ids if suite_id not in published_suite_ids
+    ]
+    unexpected_published_suite_ids = [
+        suite_id for suite_id in published_suite_ids if suite_id not in required_suite_ids
+    ]
     rulesets = sorted(
         {
             str(ruleset).strip().lower()
@@ -1390,11 +1414,18 @@ def _build_oracle_suite_summary(suites: list[dict[str, Any]]) -> dict[str, Any]:
         }
     )
     return {
-        "required_suite_ids": list(REQUIRED_ORACLE_SUITE_IDS),
+        "required_suite_ids": required_suite_ids,
         "required_suite_count": len(REQUIRED_ORACLE_SUITE_IDS),
         "published_suite_count": len(suites),
         "passed_suite_count": passed_count,
-        "coverage_status": "passed" if passed_count == len(REQUIRED_ORACLE_SUITE_IDS) else "failed",
+        "missing_required_suite_ids": missing_required_suite_ids,
+        "unexpected_published_suite_ids": unexpected_published_suite_ids,
+        "duplicate_published_suite_ids": duplicate_suite_ids,
+        "coverage_status": (
+            "passed"
+            if passed_count == len(REQUIRED_ORACLE_SUITE_IDS) and matching_suite_ids
+            else "failed"
+        ),
         "covered_rulesets": rulesets,
         "release_scope": "promoted_desktop_release",
     }
@@ -1402,12 +1433,29 @@ def _build_oracle_suite_summary(suites: list[dict[str, Any]]) -> dict[str, Any]:
 
 def _build_budget_summary(budgets: list[dict[str, Any]]) -> dict[str, Any]:
     passed_count = sum(1 for row in budgets if row.get("status") == "passed")
+    required_budget_ids = list(REQUIRED_BUDGET_IDS)
+    published_budget_ids = [str(row.get("id") or "").strip() for row in budgets if str(row.get("id") or "").strip()]
+    matching_budget_ids = sorted(published_budget_ids) == sorted(required_budget_ids)
+    duplicate_budget_ids = _duplicate_values(published_budget_ids)
+    missing_required_budget_ids = [
+        budget_id for budget_id in required_budget_ids if budget_id not in published_budget_ids
+    ]
+    unexpected_published_budget_ids = [
+        budget_id for budget_id in published_budget_ids if budget_id not in required_budget_ids
+    ]
     return {
-        "required_budget_ids": list(REQUIRED_BUDGET_IDS),
+        "required_budget_ids": required_budget_ids,
         "required_budget_count": len(REQUIRED_BUDGET_IDS),
         "published_budget_count": len(budgets),
         "passed_budget_count": passed_count,
-        "coverage_status": "passed" if passed_count == len(REQUIRED_BUDGET_IDS) else "failed",
+        "missing_required_budget_ids": missing_required_budget_ids,
+        "unexpected_published_budget_ids": unexpected_published_budget_ids,
+        "duplicate_published_budget_ids": duplicate_budget_ids,
+        "coverage_status": (
+            "passed"
+            if passed_count == len(REQUIRED_BUDGET_IDS) and matching_budget_ids
+            else "failed"
+        ),
         "release_commands": list(RELEASE_COMMANDS),
         "release_scope": "promoted_desktop_release",
     }
@@ -1744,6 +1792,7 @@ def _build_import_discipline(
             "status": "passed" if not unresolved else "failed",
             "source_receipt_path": _to_rel(import_cert_path, root),
             "source_receipt_status": import_status,
+            "source_receipt_coverage": coverage_summary if isinstance(coverage_summary, dict) else None,
             "required_import_oracle_names": list(REQUIRED_IMPORT_ORACLE_NAMES),
             "required_adjacent_oracle_names": list(REQUIRED_ADJACENT_ORACLE_NAMES),
             "required_source_receipt_coverage_total": expected_coverage_total,
@@ -1804,6 +1853,11 @@ def build_payload(root: Path, generated_output_path: Path | None = None) -> dict
         "milestone_id": 104,
         "package_id": "next90-m104-core-proof-pack",
         "frontier_id": SUCCESSOR_WAVE_PACKAGE["frontier_id"],
+        "queue_completion_action": successor_authority["queue_completion_action"],
+        "design_queue_completion_action": successor_authority["design_queue_completion_action"],
+        "queue_do_not_reopen_reason": successor_authority["queue_do_not_reopen_reason"],
+        "design_queue_do_not_reopen_reason": successor_authority["design_queue_do_not_reopen_reason"],
+        "queue_closure_field_drift": successor_authority["queue_closure_field_drift"],
         "successor_wave_package": SUCCESSOR_WAVE_PACKAGE,
         "successor_wave_authority": successor_authority,
         "closeout_document": closeout_document,
