@@ -2637,6 +2637,28 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
             payload["successor_wave_authority"]["disallowed_queue_active_run_tokens"],
         )
 
+    def test_build_payload_fails_closed_when_successor_queue_cites_focus_field_names(self) -> None:
+        queue_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_queue_path"])
+        queue_text = queue_path.read_text(encoding="utf-8")
+        queue_path.write_text(
+            queue_text.replace(
+                "      - /docker/chummercomplete/chummer-core-engine/docs/ENGINE_PROOF_PACK.md\n",
+                "      - /docker/chummercomplete/chummer-core-engine/docs/ENGINE_PROOF_PACK.md\n"
+                "      - focus_owners and focus_texts said this package was complete.\n",
+            ),
+            encoding="utf-8",
+        )
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertEqual("failed", payload["successor_wave_authority"]["status"])
+        self.assertIn("source_queue", payload["unresolved"]["successor_wave_authority"])
+        self.assertEqual(
+            ["focus_owners", "focus_texts", "focus owners:", "focus texts:"],
+            payload["successor_wave_authority"]["disallowed_queue_active_run_tokens"],
+        )
+
     def test_build_payload_fails_closed_when_successor_queue_cites_active_run_handoff_field_output(self) -> None:
         queue_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_queue_path"])
         queue_text = queue_path.read_text(encoding="utf-8")
@@ -2660,6 +2682,7 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
         self.assertEqual(
             [
                 "/var/lib/codex-fleet/",
+                "focus_profiles",
                 "open milestone ids:",
                 "focus profiles:",
                 "prompt path:",
@@ -2822,6 +2845,42 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
             payload["successor_wave_authority"]["disallowed_queue_active_run_tokens"],
         )
 
+    def test_build_payload_fails_closed_when_successor_queue_cites_worker_orientation_rules(self) -> None:
+        queue_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_queue_path"])
+        queue_text = queue_path.read_text(encoding="utf-8")
+        queue_path.write_text(
+            queue_text.replace(
+                "      - /docker/chummercomplete/chummer-core-engine/docs/ENGINE_PROOF_PACK.md\n",
+                "      - /docker/chummercomplete/chummer-core-engine/docs/ENGINE_PROOF_PACK.md\n"
+                "      - Execution discipline: keep implementation inside the package repo.\n"
+                "      - Required order: verify the package first.\n"
+                "      - First action rule: open the telemetry file before queue proof.\n"
+                "      - Assigned successor queue package: next90-m104-core-proof-pack.\n"
+                "      - Assigned slice authority: engine_proof_pack.\n"
+                "      - Successor frontier detail: 3227666051 status complete.\n"
+                "      - Execution rules inside this run: use the worker-safe handoff.\n",
+            ),
+            encoding="utf-8",
+        )
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertEqual("failed", payload["successor_wave_authority"]["status"])
+        self.assertIn("source_queue", payload["unresolved"]["successor_wave_authority"])
+        self.assertEqual(
+            [
+                "first action rule:",
+                "execution discipline:",
+                "required order:",
+                "execution rules inside this run:",
+                "assigned slice authority:",
+                "assigned successor queue package:",
+                "successor frontier detail:",
+            ],
+            payload["successor_wave_authority"]["disallowed_queue_active_run_tokens"],
+        )
+
     def test_build_payload_fails_closed_when_registry_cites_active_run_handoff_labels(self) -> None:
         registry_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_registry_path"])
         registry_text = registry_path.read_text(encoding="utf-8")
@@ -2842,7 +2901,7 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
         self.assertEqual("failed", payload["successor_wave_authority"]["status"])
         self.assertIn("source_registry", payload["unresolved"]["successor_wave_authority"])
         self.assertEqual(
-            ["frontier ids:", "open milestone ids:", "focus texts:"],
+            ["focus_texts", "frontier ids:", "open milestone ids:", "focus texts:"],
             payload["successor_wave_authority"]["disallowed_registry_active_run_tokens"]["104.2"],
         )
 
@@ -2865,6 +2924,28 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
         self.assertIn("source_registry", payload["unresolved"]["successor_wave_authority"])
         self.assertEqual(
             ["frontier_briefs", "first_commands", "slice_summary"],
+            payload["successor_wave_authority"]["disallowed_registry_active_run_tokens"]["104.2"],
+        )
+
+    def test_build_payload_fails_closed_when_registry_cites_focus_field_names(self) -> None:
+        registry_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_registry_path"])
+        registry_text = registry_path.read_text(encoding="utf-8")
+        registry_path.write_text(
+            registry_text.replace(
+                "        - successor_wave_authority=passed\n",
+                "        - successor_wave_authority=passed\n"
+                "        - focus_owners and focus_profiles marked the worker complete.\n",
+            ),
+            encoding="utf-8",
+        )
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertEqual("failed", payload["successor_wave_authority"]["status"])
+        self.assertIn("source_registry", payload["unresolved"]["successor_wave_authority"])
+        self.assertEqual(
+            ["focus_owners", "focus_profiles", "focus profiles:", "focus owners:"],
             payload["successor_wave_authority"]["disallowed_registry_active_run_tokens"]["104.2"],
         )
 
@@ -3029,6 +3110,42 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
                 "read these files directly first",
                 "use the shard runtime handoff",
                 "current steering focus:",
+            ],
+            payload["successor_wave_authority"]["disallowed_registry_active_run_tokens"]["104.2"],
+        )
+
+    def test_build_payload_fails_closed_when_registry_cites_worker_orientation_rules(self) -> None:
+        registry_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_registry_path"])
+        registry_text = registry_path.read_text(encoding="utf-8")
+        registry_path.write_text(
+            registry_text.replace(
+                "        - successor_wave_authority=passed\n",
+                "        - successor_wave_authority=passed\n"
+                "        - Execution discipline: keep implementation inside the package repo.\n"
+                "        - Required order: verify the package first.\n"
+                "        - First action rule: open the telemetry file before queue proof.\n"
+                "        - Assigned successor queue package: next90-m104-core-proof-pack.\n"
+                "        - Assigned slice authority: engine_proof_pack.\n"
+                "        - Successor frontier detail: 3227666051 status complete.\n"
+                "        - Execution rules inside this run: use the worker-safe handoff.\n",
+            ),
+            encoding="utf-8",
+        )
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertEqual("failed", payload["successor_wave_authority"]["status"])
+        self.assertIn("source_registry", payload["unresolved"]["successor_wave_authority"])
+        self.assertEqual(
+            [
+                "first action rule:",
+                "execution discipline:",
+                "required order:",
+                "execution rules inside this run:",
+                "assigned slice authority:",
+                "assigned successor queue package:",
+                "successor frontier detail:",
             ],
             payload["successor_wave_authority"]["disallowed_registry_active_run_tokens"]["104.2"],
         )
@@ -3403,6 +3520,29 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
         )
         self.assertEqual([], payload["successor_wave_authority"]["missing_queue_tokens"])
 
+    def test_build_payload_fails_closed_when_design_queue_cites_focus_field_names(self) -> None:
+        design_queue_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_design_queue_path"])
+        queue_text = design_queue_path.read_text(encoding="utf-8")
+        design_queue_path.write_text(
+            queue_text.replace(
+                "      - /docker/chummercomplete/chummer-core-engine/docs/ENGINE_PROOF_PACK.md\n",
+                "      - /docker/chummercomplete/chummer-core-engine/docs/ENGINE_PROOF_PACK.md\n"
+                "      - focus_profiles and focus_texts proved this worker was done.\n",
+            ),
+            encoding="utf-8",
+        )
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertEqual("failed", payload["successor_wave_authority"]["status"])
+        self.assertIn("source_design_queue", payload["unresolved"]["successor_wave_authority"])
+        self.assertEqual(
+            ["focus_profiles", "focus_texts", "focus profiles:", "focus texts:"],
+            payload["successor_wave_authority"]["disallowed_design_queue_active_run_tokens"],
+        )
+        self.assertEqual([], payload["successor_wave_authority"]["missing_queue_tokens"])
+
     def test_build_payload_fails_closed_when_design_queue_cites_separator_obfuscated_task_local_telemetry(self) -> None:
         design_queue_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_design_queue_path"])
         queue_text = design_queue_path.read_text(encoding="utf-8")
@@ -3520,6 +3660,43 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
         self.assertIn("source_design_queue", payload["unresolved"]["successor_wave_authority"])
         self.assertEqual(
             ["ETA helper", "supervisor ETA", "supervisor ETA helper"],
+            payload["successor_wave_authority"]["disallowed_design_queue_active_run_tokens"],
+        )
+        self.assertEqual([], payload["successor_wave_authority"]["missing_queue_tokens"])
+
+    def test_build_payload_fails_closed_when_design_queue_cites_worker_orientation_rules(self) -> None:
+        design_queue_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_design_queue_path"])
+        queue_text = design_queue_path.read_text(encoding="utf-8")
+        design_queue_path.write_text(
+            queue_text.replace(
+                "      - /docker/chummercomplete/chummer-core-engine/docs/ENGINE_PROOF_PACK.md\n",
+                "      - /docker/chummercomplete/chummer-core-engine/docs/ENGINE_PROOF_PACK.md\n"
+                "      - Execution discipline: keep implementation inside the package repo.\n"
+                "      - Required order: verify the package first.\n"
+                "      - First action rule: open the telemetry file before queue proof.\n"
+                "      - Assigned successor queue package: next90-m104-core-proof-pack.\n"
+                "      - Assigned slice authority: engine_proof_pack.\n"
+                "      - Successor frontier detail: 3227666051 status complete.\n"
+                "      - Execution rules inside this run: use the worker-safe handoff.\n",
+            ),
+            encoding="utf-8",
+        )
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertEqual("failed", payload["successor_wave_authority"]["status"])
+        self.assertIn("source_design_queue", payload["unresolved"]["successor_wave_authority"])
+        self.assertEqual(
+            [
+                "first action rule:",
+                "execution discipline:",
+                "required order:",
+                "execution rules inside this run:",
+                "assigned slice authority:",
+                "assigned successor queue package:",
+                "successor frontier detail:",
+            ],
             payload["successor_wave_authority"]["disallowed_design_queue_active_run_tokens"],
         )
         self.assertEqual([], payload["successor_wave_authority"]["missing_queue_tokens"])
