@@ -2,6 +2,7 @@ using Chummer.Application.Characters;
 using Chummer.Application.AI;
 using Chummer.Application.BuildLab;
 using Chummer.Application.Content;
+using Chummer.Application.Explain;
 using Chummer.Application.Hub;
 using Chummer.Application.Owners;
 using Chummer.Application.LifeModules;
@@ -58,6 +59,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IBuildIdeaCardCatalogService, DefaultBuildIdeaCardCatalogService>();
         services.AddSingleton<IAiDigestService, DefaultAiDigestService>();
         services.AddSingleton<IAiExplainService, DefaultAiExplainService>();
+        services.AddSingleton<ICalculationReportService, DefaultCalculationReportService>();
         services.AddSingleton<IAiPortraitPromptService, DefaultAiPortraitPromptService>();
         services.AddSingleton<IAiHistoryDraftService, DefaultAiHistoryDraftService>();
         services.AddSingleton<IAiMediaQueueService, DefaultAiMediaQueueService>();
@@ -145,6 +147,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<ISessionProfileSelectionStore>(_ => new FileSessionProfileSelectionStore(stateDirectory));
         services.AddSingleton<ISessionRuntimeBundleStore>(_ => new FileSessionRuntimeBundleStore(stateDirectory));
         services.AddSingleton<ISessionService, OwnerScopedSessionService>();
+        services.AddSingleton<ISessionActionBudgetService, DefaultSessionActionBudgetService>();
         services.AddSingleton<IRosterStore>(_ => new FileRosterStore(stateDirectory));
         services.AddSingleton<IWorkspaceStore>(_ =>
         {
