@@ -1,16 +1,25 @@
+name: Release Notification
+
 on:
   release:
     types: [created]
-name: Release Notification
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-notification-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  build:
-
+  notify-discord:
     runs-on: ubuntu-latest
-
+    env:
+      DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
     steps:
-    - name: Discord notification
-      env:
-        DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
-      uses: Ilshidur/action-discord@master
-      with:
-        args: 'A new build has been released: https://get.chummer.net'
+      - name: Discord notification
+        if: ${{ env.DISCORD_WEBHOOK != '' }}
+        run: |
+          set -euo pipefail
+          payload='{"content":"A new build has been released: https://get.chummer.net"}'
+          curl -fsSL -H "Content-Type: application/json" -d "$payload" "$DISCORD_WEBHOOK"

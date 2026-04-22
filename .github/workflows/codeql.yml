@@ -13,7 +13,7 @@ name: "CodeQL"
 
 on:
   push:
-    branches: [ "master" ]
+    branches: [ "main" ]
     # Only run on the following paths / file type changes
     paths:
         - "**.sln"
@@ -25,7 +25,7 @@ on:
 
   pull_request:
     # The branches below must be a subset of the branches above
-    branches: [ "master" ]
+    branches: [ "main" ]
     # Only run on the following paths / file type changes
     paths:
         - "**.sln"
@@ -36,6 +36,10 @@ on:
         - "**.yml" # Include this to have the action rerun on yml changes
   schedule:
     - cron: '20 15 * * 1'
+
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   analyze:
@@ -63,7 +67,7 @@ jobs:
 
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
 
     # Initializes the CodeQL tools for scanning.
     - name: Initialize CodeQL

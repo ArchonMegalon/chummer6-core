@@ -335,12 +335,14 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     
     - name: Notify Discord on failure
-      if: failure() && github.event_name == 'schedule'
-      uses: Ilshidur/action-discord@master
+      if: failure() && github.event_name == 'schedule' && env.DISCORD_WEBHOOK != ''
       env:
         DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
-      with:
-        args: 'Nightly build failed: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}'
+      shell: bash
+      run: |
+        set -euo pipefail
+        payload=$(printf '{"content":"Nightly build failed: %s/%s/actions/runs/%s"}' "${{ github.server_url }}" "${{ github.repository }}" "${{ github.run_id }}")
+        curl -fsSL -H "Content-Type: application/json" -d "$payload" "$DISCORD_WEBHOOK"
     
     - name: Build summary
       if: always()
@@ -355,4 +357,3 @@ jobs:
         if ("${{ steps.check_commit.outputs.skip }}" -eq "true") {
           Write-Host "- ⚠️ Build was skipped (duplicate commit)" >> $env:GITHUB_STEP_SUMMARY
         }
-
