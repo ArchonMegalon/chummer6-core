@@ -1,7 +1,7 @@
-mode: append
+mode: prepend
 items:
-- title: Auto-detect and repair recurring `core` mirror drift after 1170 repeated audit observations; keep one bounded queue slice for the affected local design mirror bundle instead of reopening one-off mirror refresh work.
-  task: Auto-detect and repair recurring `core` mirror drift after 1170 repeated audit observations; keep one bounded queue slice for the affected local design mirror bundle instead of reopening one-off mirror refresh work.
+- title: Auto-detect and repair recurring `core` mirror drift after 5758 repeated audit observations; keep one bounded queue slice for the affected local design mirror bundle instead of reopening one-off mirror refresh work.
+  task: Auto-detect and repair recurring `core` mirror drift after 5758 repeated audit observations; keep one bounded queue slice for the affected local design mirror bundle instead of reopening one-off mirror refresh work.
   package_id: audit-task-11707
   source_ref: audit_task_candidates[11707]
   audit_finding_key: project.design_mirror_missing_or_stale
@@ -9,19 +9,7 @@ items:
   source_items:
   - /docker/chummercomplete/chummer-core-engine/.codex-design/product/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml
   - /docker/chummercomplete/chummer-core-engine/.codex-design/product/NEXT_90_DAY_QUEUE_STAGING.generated.yaml
-  allowed_paths:
-  - .codex-design
-  owned_surfaces:
-  - design_mirror:core
-- title: Auto-detect and repair recurring `core` mirror drift after 1206 repeated audit observations; keep one bounded queue slice for the affected local design mirror bundle instead of reopening one-off mirror refresh work.
-  task: Auto-detect and repair recurring `core` mirror drift after 1206 repeated audit observations; keep one bounded queue slice for the affected local design mirror bundle instead of reopening one-off mirror refresh work.
-  package_id: audit-task-11707
-  source_ref: audit_task_candidates[11707]
-  audit_finding_key: project.design_mirror_missing_or_stale
-  audit_scope_id: core
-  source_items:
-  - /docker/chummercomplete/chummer-core-engine/.codex-design/product/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml
-  - /docker/chummercomplete/chummer-core-engine/.codex-design/product/NEXT_90_DAY_QUEUE_STAGING.generated.yaml
+  - /docker/chummercomplete/chummer-core-engine/.codex-design/product/horizons/karma-forge.md
   allowed_paths:
   - .codex-design
   owned_surfaces:

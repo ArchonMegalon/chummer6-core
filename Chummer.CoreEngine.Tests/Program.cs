@@ -31,6 +31,7 @@ using Chummer.Rulesets.Hosting.Presentation;
 using Chummer.Rulesets.Sr4;
 using Chummer.Rulesets.Sr5;
 using Chummer.Rulesets.Sr6;
+using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
@@ -72,6 +73,8 @@ internal static class CoreEngineTests
             ActiveCoreEngineSolutionStaysPurified();
             LegacyPluginCargoStaysOutsideActiveCoreBoundary();
             HardeningBacklogStaysMilestoneMapped();
+            DesignMirrorVerificationStaysClosedWhenMirrorIsCurrent();
+            DesignMirrorVerificationFailsClosedWhenUnexpectedProductMirrorFileRemains();
             LocalizationFallbackHelpersNormalizeLegacyContracts();
             SessionAndRuntimeCompatibilityProjectionsStayDeterministic();
             JournalProjectionIsDeterministicAndValidated();
@@ -5972,6 +5975,82 @@ internal static class CoreEngineTests
             && projectMilestonesText.Contains("id: A9.3", StringComparison.Ordinal)
             && projectMilestonesText.Contains("worklist: WL-084", StringComparison.Ordinal),
             "Project milestone registry should map the A0 follow-through and remaining A6-A9 work explicitly.");
+    }
+
+    private static void DesignMirrorVerificationStaysClosedWhenMirrorIsCurrent()
+    {
+        string repoRoot = GetRepositoryRoot();
+        string queuePath = Path.Combine(repoRoot, ".codex-studio", "published", "QUEUE.generated.yaml");
+        string queueText = File.ReadAllText(queuePath);
+
+        AssertEx.True(
+            !queueText.Contains("audit-task-11707", StringComparison.Ordinal)
+            && !queueText.Contains("project.design_mirror_missing_or_stale", StringComparison.Ordinal),
+            "Mirror-drift queue rows should clear once the local design mirror matches canon.");
+
+        ProcessStartInfo startInfo = new("python3", "scripts/ai/verify_design_mirror.py")
+        {
+            WorkingDirectory = repoRoot,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+        };
+
+        using Process process = Process.Start(startInfo)
+            ?? throw new InvalidOperationException("Failed to start design-mirror verifier.");
+        string stdout = process.StandardOutput.ReadToEnd();
+        string stderr = process.StandardError.ReadToEnd();
+        process.WaitForExit();
+
+        AssertEx.True(
+            process.ExitCode == 0,
+            $"Design-mirror verifier should pass once the queue row is cleared. stdout={stdout} stderr={stderr}");
+        AssertEx.True(
+            stdout.Contains("stale_paths=0", StringComparison.Ordinal)
+            && stdout.Contains("queue_errors=0", StringComparison.Ordinal),
+            $"Design-mirror verifier should report a clean mirror. stdout={stdout}");
+    }
+
+    private static void DesignMirrorVerificationFailsClosedWhenUnexpectedProductMirrorFileRemains()
+    {
+        string repoRoot = GetRepositoryRoot();
+        string extraFilePath = Path.Combine(
+            repoRoot,
+            ".codex-design",
+            "product",
+            "unexpected-leftover-mirror-drift-test.md");
+        File.WriteAllText(extraFilePath, "# stale leftover\n");
+
+        try
+        {
+            ProcessStartInfo startInfo = new("python3", "scripts/ai/verify_design_mirror.py")
+            {
+                WorkingDirectory = repoRoot,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+            };
+
+            using Process process = Process.Start(startInfo)
+                ?? throw new InvalidOperationException("Failed to start design-mirror verifier.");
+            string stdout = process.StandardOutput.ReadToEnd();
+            string stderr = process.StandardError.ReadToEnd();
+            process.WaitForExit();
+
+            AssertEx.True(
+                process.ExitCode != 0,
+                $"Design-mirror verifier should fail closed when an unexpected leftover product mirror file remains. stdout={stdout} stderr={stderr}");
+            AssertEx.True(
+                stdout.Contains(".codex-design/product/unexpected-leftover-mirror-drift-test.md", StringComparison.Ordinal),
+                $"Design-mirror verifier should report the unexpected leftover product mirror file. stdout={stdout}");
+        }
+        finally
+        {
+            if (File.Exists(extraFilePath))
+            {
+                File.Delete(extraFilePath);
+            }
+        }
     }
 
     private static void ActiveCoreEngineSolutionStaysPurified()
