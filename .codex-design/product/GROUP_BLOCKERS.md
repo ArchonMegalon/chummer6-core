@@ -1,107 +1,63 @@
 # Group blockers
 
-Last reviewed: 2026-03-13
+Last reviewed: 2026-04-10
 
-## RED blockers
+Review-template mirror drift status:
+- `BLK-007` remains cleared after WL-D012 drift follow-up completion and the `chummer6-ui` UI-template parity revalidation recorded on `2026-03-13T18:15:19Z`.
+- Completed WL-D007 drift rows now include `57`, `58`, `59`, `60`, `61`, `62`, and `63` with publish/revalidation evidence in `products/chummer/sync/REVIEW_TEMPLATE_MIRROR_PUBLISH_EVIDENCE.md`.
+
+## Recently cleared
 
 ### BLK-001 — design repo is not yet fully canonical
 
-The central design repo still needs complete, current, substantive canon for active repos, packages, milestones, blockers, and mirrors.
-
-Why this matters:
-Workers will improvise boundaries if central design stays shallow or stale.
-
-Unblock by:
-
-* replacing stub files with substantive canon
-* onboarding media-factory everywhere
-* removing orphan root-level product docs
-* making sync coverage complete
-
-Owners:
-
-* chummer6-design
-
-### BLK-002 — package canon is not fully settled
-
-`Chummer.Engine.Contracts`, `Chummer.Play.Contracts`, `Chummer.Run.Contracts`, `Chummer.Ui.Kit`, `Chummer.Hub.Registry.Contracts`, and `Chummer.Media.Contracts` are not yet all equally real, equally canonical, and equally consumed package-only.
-
-Why this matters:
-Repo splits remain conceptual if package truth is ambiguous.
-
-Owners:
-
-* chummer6-design
-* chummer6-core
-* chummer6-hub
-* chummer6-ui-kit
-* chummer6-hub-registry
-* chummer6-media-factory
-
-### BLK-003 — session semantic duplication risk
-
-Semantic session event meaning still risks being defined in more than one place when play/run transport contracts duplicate engine semantics.
-
-Why this matters:
-Replay truth, sync truth, reducer truth, and client truth can drift.
-
-Owners:
-
-* chummer6-core
-* chummer6-hub
-* chummer6-mobile
-
-## YELLOW blockers
+Cleared 2026-03-19.
+The design repo now carries current repo/milestone/blocker truth with substantive canon and synced mirrors.
 
 ### BLK-004 — play repo still needs mirror and real client maturity
 
-`chummer6-mobile` must fully consume package-only seams, receive mirrored design context, and replace placeholder/scaffold flows with real client and ledger behavior.
-
-Owners:
-
-* chummer6-mobile
-* chummer6-design
+Cleared 2026-03-19.
+`chummer6-mobile` now has executable package-boundary, replay/resume, and role-shell proof with mirrored design context in place.
 
 ### BLK-005 — media-factory split is not yet operational
 
-The repo exists, but contract ownership, source tree, mirror coverage, and live execution cutover are still incomplete.
-
-Owners:
-
-* chummer6-media-factory
-* chummer6-hub
-* chummer6-design
+Cleared 2026-03-19.
+`chummer6-media-factory` now owns runtime asset/render execution code and `chummer6-hub` consumes that owner-repo runtime assembly in clean-room verification.
 
 ### BLK-006 — README drift in older repos
 
-Core and run-services still narrate older multi-head runtime ownership in ways that can mislead workers.
+Cleared 2026-03-19.
+`chummer6-core` and `chummer6-hub` now describe the post-split boundary directly instead of narrating older multi-head ownership.
 
-Owners:
+### BLK-002 — package canon is not fully settled
 
-* chummer6-core
-* chummer6-hub
+Cleared 2026-03-19.
+`Chummer.Engine.Contracts`, `Chummer.Play.Contracts`, and `Chummer.Run.Contracts` now have executable owner-repo boundaries, while `Chummer.Ui.Kit`, `Chummer.Hub.Registry.Contracts`, `Chummer.Run.Registry`, `Chummer.Media.Contracts`, and `Chummer.Media.Factory.Runtime` are already package-clean. The new `Chummer.Campaign.Contracts` and `Chummer.Control.Contracts` families are an additive middle-layer wave, not a re-opened foundational package blocker.
 
-### BLK-007 — local mirror milestone parity drift
+### BLK-003 — session semantic duplication risk
 
-`PROGRAM_MILESTONES.yaml` changed in canonical design after WL-D008 mirror publication, so `.codex-design/product/PROGRAM_MILESTONES.yaml` in all seven code repos now drifts (`source=fc55da...`, mirrored targets still `71a806...`).
+Cleared 2026-03-19.
+Semantic session meaning is now single-owned in `chummer6-core`, the mobile/play wrapper surface is explicit, and run-services verifies that no second play/run relay family shadows the canonical session owner.
 
-Why this matters:
-Workers and GitHub review in code repos can consume stale milestone truth even when central canon is current.
+### BLK-008 — no-step-back legacy and adjacent client parity is not yet closed
 
-Owners:
+Cleared 2026-04-04.
+The parity registry now closes every in-scope non-plugin family through proof-backed successor routes, and milestones `13` through `18` in `NEXT_12_BIGGEST_WINS_REGISTRY.yaml` are complete.
 
-* chummer6-design
-* chummer6-core
-* chummer6-ui
-* chummer6-hub
-* chummer6-mobile
-* chummer6-ui-kit
-* chummer6-hub-registry
-* chummer6-media-factory
+### BLK-009 — flagship localization proof is below release bar
+
+Cleared 2026-04-10.
+The localization release gate now passes on current shipping-locale proof, so localization is no longer the active release blocker.
+
+### BLK-010 — campaign-OS lived-system proof still lags the architectural center
+
+Cleared 2026-04-15.
+Current Fleet readiness proof, journey gates, support packets, release-channel tuple coverage, and desktop host-proof receipts now agree that no unresolved local or external release-proof requests remain for the Next 12 closeout.
+
+## RED blockers
+
+None.
 
 ## GREEN candidates once current blockers clear
 
-* full hub-registry extraction
-* run-services shrink phase
-* engine purification phase
-* release hardening phase
+* recurring canon freshness and mirror maintenance
+* additive product evolution beyond the foundational split/release wave

@@ -25,6 +25,7 @@ If a code repo README or design mirror conflicts with central canon, central can
 Every active product must have:
 
 * vision
+* horizons
 * architecture
 * ownership
 * roadmap / milestones
@@ -56,7 +57,15 @@ Changes canonical package ownership, contract families, compatibility promises, 
 
 Changes program sequencing, status, release gates, or group blockers.
 
-Types C, D, and E must update multiple canonical files in the same change.
+### Type F — horizon/public-signal change
+
+Changes canonical future-capability posture, public-guide relationship, or advisory participation rules.
+
+### Type G — governor/autopilot change
+
+Changes whole-product stop/reroute authority, feedback-routing logic, or the operating scorecard that turns product reality into program decisions.
+
+Types C, D, E, F, and G must update multiple canonical files in the same change.
 
 ## Mandatory file updates by change type
 
@@ -89,6 +98,28 @@ Types C, D, and E must update multiple canonical files in the same change.
 * `sync/sync-manifest.yaml`
 * review coverage
 
+### Horizon/public-signal change must update
+
+* `products/chummer/HORIZONS.md`
+* `products/chummer/horizons/*.md`
+* `products/chummer/PUBLIC_GUIDE_POLICY.md`
+* `products/chummer/HORIZON_SIGNAL_POLICY.md`
+* `products/chummer/PUBLIC_MEDIA_AND_GUIDE_ASSET_POLICY.md`
+* `products/chummer/PROGRAM_MILESTONES.yaml`
+* `products/chummer/ROADMAP.md`
+* `products/chummer/README.md`
+* `sync/sync-manifest.yaml` if new canonical files must mirror downstream
+
+### Governor/autopilot change must update
+
+* `products/chummer/PRODUCT_GOVERNOR_AND_AUTOPILOT_LOOP.md`
+* `products/chummer/FEEDBACK_AND_SIGNAL_OODA_LOOP.md`
+* `products/chummer/PRODUCT_HEALTH_SCORECARD.yaml`
+* `products/chummer/OWNERSHIP_MATRIX.md`
+* `products/chummer/PROGRAM_MILESTONES.yaml`
+* `products/chummer/README.md`
+* `sync/sync-manifest.yaml` if new canonical files must mirror downstream
+
 ## Mirror discipline
 
 Every active worker-driven code repo must receive:
@@ -98,6 +129,58 @@ Every active worker-driven code repo must receive:
 * review context mirror
 
 Missing `.codex-design/*` in an active repo is a program-level blocker, not a local inconvenience.
+
+## Petition path
+
+When a worker or reviewer is blocked by canon, the legal next move is a design petition, not a repo-local workaround.
+
+Design petitions live under `products/chummer/proposals/` and must identify:
+
+* blocked repo
+* violated boundary or missing seam
+* why current canon is insufficient
+* workaround attempts rejected
+* proposed resolution
+* affected canonical files
+* urgency
+
+Petitions are design inputs. They are not implementation patches, and they do not overrule canon until merged here.
+
+## Product-governor relationship
+
+The lead designer and product governor are adjacent but different roles.
+
+The lead designer:
+
+* owns vision, canon, boundary truth, and milestone truth
+* decides whether a packet implies a canon change
+
+The product governor:
+
+* owns whole-product pulse
+* decides whether reality requires code, docs, queue, policy, freeze, or reroute action
+* escalates canon contradictions back to the lead designer
+
+The lead designer is not the raw support inbox and not the default stop/replan operator.
+
+## Synthesis rule
+
+Repeated auditor or worker findings with the same root cause must be clustered before they become backlog truth.
+
+The lead-designer repo should prefer:
+
+* one synthesized blocker delta
+* one synthesized milestone delta
+* one synthesized design task
+
+over a stream of nearly identical uncovered-scope publications.
+
+## Evidence discipline
+
+Canonical product/design truth belongs in canonical files under `products/chummer/*`.
+
+Operational mirror/checksum/drift evidence belongs in automation-owned machine-readable outputs plus short human summaries.
+The design repo must not drift into becoming a giant parity diary.
 
 ## Auditor publication rules
 
@@ -130,3 +213,6 @@ Examples:
 * package ownership is unambiguous
 * milestones are specific enough to gate release decisions
 * no orphan design docs live outside canonical product paths
+* workers have a legal petition path when canon is insufficient
+* repeated drift findings are synthesized before they become visible backlog truth
+* recurring parity evidence is compact enough that canon remains easy to read

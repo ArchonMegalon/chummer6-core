@@ -1,0 +1,230 @@
+product: chummer
+version: 1
+last_reviewed: 2026-04-10
+purpose: Canonical scorecard for release-critical user trust, continuity, publication, and install quality.
+golden_journey_source: GOLDEN_JOURNEY_RELEASE_GATES.yaml
+
+scorecards:
+  - id: golden_journey_proof
+    owner_repo: fleet
+    user_promise: The main campaign-OS journeys are proven as lived product flows, not only described as coherent repo boundaries.
+    metrics:
+      - name: blocked_golden_journey_count
+        target: 0
+        measurement: "`products/chummer/JOURNEY_GATES.generated.json` must report zero blocked golden journeys before promotion claims widen."
+      - name: warning_golden_journey_without_governor_note
+        target: explained_only
+        measurement: "A warning golden journey must carry a bounded governor reason and next action instead of being silently tolerated."
+
+  - id: deterministic_rules_truth
+    owner_repo: chummer6-core
+    user_promise: Numbers and legality stay reproducible and explainable.
+    metrics:
+      - name: promoted_mechanics_receipt_coverage
+        target: 100%
+        measurement: Every promoted mechanics-affecting output exposes an explain or receipt pointer in repo verification and release signoff.
+      - name: active_rule_environment_receipt_coverage
+        target: 100%
+        measurement: Every promoted build, explain, import, and compare surface exposes the active ruleset, preset, source-pack, and amend-package fingerprint or a receipt pointer to it.
+      - name: release_blocking_math_regressions
+        target: 0
+        measurement: No open release blocker may remain for rules divergence on a promoted channel.
+
+  - id: edition_authorship_and_import_confidence
+    owner_repo: chummer6-core
+    user_promise: SR4, SR5, and SR6 feel authored, and legacy imports expose drift instead of hiding it.
+    metrics:
+      - name: ruleset_specific_surface_coverage
+        target: 100%
+        measurement: Promoted build and explain flows expose edition-specific terminology and workflow cues wherever canon marks the editions as materially divergent.
+      - name: untriaged_legacy_oracle_divergences
+        target: 0
+        measurement: Chummer4, Chummer5a, and approved Hero Lab oracle tests may fail only with a bounded owner and reason. Silent or ignored divergences fail the gate.
+
+  - id: flagship_desktop_quality
+    owner_repo: chummer6-ui
+    user_promise: Every shipped desktop head feels like a premium product rather than a technically working preview, even when only one head is the default public route.
+    metrics:
+      - name: promoted_platform_primary_path_ambiguity
+        target: 0
+        measurement: Each promoted platform exposes one obvious primary download and first-run path. Fallback artifacts must not read as equally primary by accident.
+      - name: fallback_head_designation_honesty
+        target: 100%
+        measurement: Each promoted desktop lane names exactly one primary head and one bounded fallback head; fallback copy never reads as equally primary in shelf, install help, or release notes.
+      - name: fallback_head_independent_flagship_coverage
+        target: 100%
+        measurement: When Blazor Desktop is the sole or recommended desktop route, it must clear the same startup, install, update, crash-recovery, feedback, workflow, and visual-familiarity proof as Avalonia.
+      - name: shipped_head_independent_flagship_coverage
+        target: 100%
+        measurement: Any desktop head that ships in a lane claiming flagship or gold quality independently clears the full startup, install, update, crash-recovery, feedback, workflow, and visual-familiarity proof set instead of borrowing the primary head's proof.
+      - name: install_update_recovery_flow_regressions
+        target: 0
+        measurement: Startup, install, update, crash-recovery, and feedback/reporting proofs stay green for the flagship head on every promoted platform.
+
+  - id: session_continuity
+    owner_repo: chummer6-mobile
+    user_promise: A table can reconnect and resume without rebuilding truth by memory.
+    metrics:
+      - name: replay_reconnect_success
+        target: ">=99% before promotion"
+        measurement: Standard reconnect and replay verification must pass across supported device and session scenarios.
+      - name: silent_shared_state_drift
+        target: 0
+        measurement: Drift must surface explicit stale or conflict state with receipt-backed recovery cues. Silent merge or silent discard fails the gate.
+
+  - id: campaign_and_dossier_continuity
+    owner_repo: chummer6-hub
+    user_promise: A runner, crew, and campaign remain understandable across build, play, recap, and return.
+    metrics:
+      - name: living_dossier_history_linkage
+        target: 100%
+        measurement: The promoted dossier model must preserve explicit links between build receipts, campaign context, recovery state, and recap-ready history.
+      - name: replay_safe_campaign_snapshot_integrity
+        target: 100%
+        measurement: Campaign continuity projections must be reconstructable from replay-safe event or snapshot truth rather than ad hoc UI-only state.
+
+  - id: roaming_workspace_trust
+    owner_repo: chummer6-hub
+    user_promise: Claimed devices restore the right runners, campaigns, rule environments, artifacts, and eligible features without becoming mystery cloud blobs.
+    metrics:
+      - name: claimed_device_restore_candidate_fidelity
+        target: 100%
+        measurement: Restore surfaces must project recent runner, campaign, rule-environment, and artifact refs with provenance and conflict cues rather than opaque raw file sync.
+      - name: entitlement_grant_honesty
+        target: 100%
+        measurement: Premium, preview, GM, or creator access on a claimed install must derive from Hub-truth capability grants and eligible channel posture rather than synced install-local flags.
+      - name: next_safe_action_clarity
+        target: 100%
+        measurement: Home and campaign workspace surfaces must tell the user what changed for them, what is blocked, and the next safe action instead of only projecting raw version or status noise.
+      - name: device_role_posture_visibility
+        target: 100%
+        measurement: A claimed install with a device role or distinct channel posture must expose that posture clearly without implying it silently affects other installs.
+      - name: missing_rule_package_guidance_gaps
+        target: 0
+        measurement: Missing, incompatible, or downgraded rule packs or amend packages must surface a next safe action before the client computes against the wrong environment.
+
+  - id: hosted_identity_and_participation
+    owner_repo: chummer6-hub
+    user_promise: Sign-in, participation, and recognition stay boring, honest, and receipt-backed.
+    metrics:
+      - name: visible_auth_route_honesty
+        target: 100%
+        measurement: Every visible auth route explains enabled, disabled, or fallback posture in the current build.
+      - name: recognition_from_signed_receipts
+        target: 100%
+        measurement: Recognition, rewards, or entitlement changes must derive from validated Fleet contribution receipts rather than raw time or auth completion.
+
+  - id: install_and_update_coherence
+    owner_repo: chummer6-hub-registry
+    user_promise: Downloads, installers, and updater truth point to one coherent record.
+    metrics:
+      - name: promoted_channel_to_public_shelf_freshness
+        target: "<=24h"
+        measurement: A promoted channel update must reach the public download shelf projection within one day.
+      - name: promoted_installer_metadata_completeness
+        target: 100%
+        measurement: Every promoted installer record includes channel, platform, architecture, runtime-bundle head, and compatibility data.
+
+  - id: artifact_publication_integrity
+    owner_repo: chummer6-media-factory
+    user_promise: Rich artifacts can feel finished without losing provenance.
+    metrics:
+      - name: published_artifact_manifest_linkage
+        target: 100%
+        measurement: Every published or preview artifact has a manifest, linked preview state, and provenance-bearing receipt chain.
+      - name: preview_first_policy_breaches
+        target: 0
+        measurement: No promoted render lane may skip required preview-first behavior where the canon says preview-first is mandatory.
+
+  - id: support_and_closure_honesty
+    owner_repo: chummer6-hub
+    user_promise: Users can report pain, follow status, and trust the meaning of fixed.
+    metrics:
+      - name: reporter_visible_closure_from_release_truth
+        target: 100%
+        measurement: User-facing fixed or resolved notices must be emitted from actual channel or release truth rather than merged-code events.
+      - name: unresolved_known_issue_without_guidance
+        target: 0
+        measurement: A known issue that remains open must have visible help, workaround, or status guidance instead of silent case drift.
+
+  - id: flagship_surface_coherence
+    owner_repo: product_governor
+    user_promise: Downloads, support, status, and in-product flows describe one coherent premium product.
+    metrics:
+      - name: public_to_product_coherence_breaks
+        target: 0
+        measurement: Public shelf, help, support status, and promoted in-product UX must not contradict each other about availability, preview posture, or next safe action.
+      - name: flagship_acceptance_failures_open
+        target: 0
+        measurement: Required surfaces in FLAGSHIP_RELEASE_ACCEPTANCE.yaml may not remain open without a bounded preview explanation and owner.
+
+release_gates:
+  - id: public_surface_honesty
+    pass_conditions:
+      - PUBLIC_FEATURE_REGISTRY, RELEASE_EVIDENCE_PACK, and downstream public projections agree on available, preview, and horizon labels.
+      - Public auth routes and participation CTAs match the canonical guest and registered posture.
+
+  - id: deterministic_truth_gate
+    pass_conditions:
+      - Core verification proves deterministic mechanics and explain coverage for promoted surfaces.
+      - No release-blocking math or legality blocker remains open.
+
+  - id: rule_environment_gate
+    pass_conditions:
+      - Promoted build, explain, import, and compare flows expose the active rule environment and package fingerprint before the user trusts the result.
+      - Missing or incompatible rule packs or amend packages produce explicit receipt-backed guidance instead of ambient local drift.
+
+  - id: edition_authorship_and_import_gate
+    pass_conditions:
+      - SR4, SR5, and SR6 use authored terminology and workflow cues where canon says the editions diverge.
+      - Legacy Chummer4, Chummer5a, and approved Hero Lab oracle tests surface no untriaged parity drift.
+
+  - id: flagship_desktop_gate
+    pass_conditions:
+      - Avalonia is the promoted primary head for the lane, or the release docs explicitly reclassify another head as flagship for that lane.
+      - Blazor Desktop is only accepted as fallback when the desktop cut and platform matrix explicitly bound it as secondary; otherwise it must meet the same flagship proof set as Avalonia.
+      - Any shipped desktop head in a flagship or gold claim independently has build, startup, install, update, crash-recovery, feedback-entry, workflow, and visual-familiarity proof on every promoted platform it promises.
+      - Dense-data build, compare, and explain flows preserve one obvious primary path and bounded fallback behavior.
+
+  - id: continuity_and_conflict_recovery_gate
+    pass_conditions:
+      - Replay and reconnect flows pass the supported continuity scenarios.
+      - Shared-state drift is visible, receipt-backed, and recoverable without silent data loss.
+
+  - id: install_and_update_gate
+    pass_conditions:
+      - Registry promotion truth, Hub download UX, and UI installer outputs agree on channel and compatibility state.
+      - Update feeds never outrun registry truth.
+
+  - id: publication_and_provenance_gate
+    pass_conditions:
+      - Published artifacts preserve manifest, preview, and provenance links end to end.
+      - Registry publication state and media render state never become parallel authorities.
+
+  - id: campaign_and_closure_gate
+    pass_conditions:
+      - Build, campaign, recap, and replay flows preserve one living-dossier story instead of fragmenting into head-local truth.
+      - Reporter-facing closure only claims fixed when the user's channel or support posture actually changed.
+
+  - id: roaming_workspace_gate
+    pass_conditions:
+      - Claimed-device restore keeps person, campaign, group, and install scopes explicit instead of flattening them into one sync blob.
+      - Dossier or rule-environment conflicts surface compare, branch, or repair choices rather than silent last-write-wins.
+      - Secrets, logs, crash dumps, and per-install channel posture remain local-only.
+      - Home or campaign workspace surfaces explain what changed for this user and what is safe to do next.
+
+  - id: golden_journey_gate
+    pass_conditions:
+      - The six system journeys in GOLDEN_JOURNEY_RELEASE_GATES.yaml are materialized into Fleet journey-gate truth and none are blocked.
+      - A journey warning may remain only when the governor can cite the reason, the next action, and the bounded non-breach claim for that wave.
+
+  - id: flagship_coherence_gate
+    pass_conditions:
+      - Public, download, help, support, and status copy name head posture consistently, and a fallback head never becomes the silent default.
+      - Required surfaces in FLAGSHIP_RELEASE_ACCEPTANCE.yaml are green or carry bounded preview explanations that do not overclaim public readiness.
+      - Public, download, help, support, and status surfaces tell the same product story as the promoted in-product experience.
+
+rules:
+  - These metrics are release gates, not dashboard decoration.
+  - If instrumentation is not live yet, the owning repo must enforce the metric through verification plus release-signoff evidence.
+  - A blocker that contradicts a gate condition automatically fails that gate.
