@@ -32,6 +32,7 @@ using Chummer.Rulesets.Sr4;
 using Chummer.Rulesets.Sr5;
 using Chummer.Rulesets.Sr6;
 using System.Diagnostics;
+using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
@@ -75,6 +76,11 @@ internal static class CoreEngineTests
             HardeningBacklogStaysMilestoneMapped();
             DesignMirrorVerificationStaysClosedWhenMirrorIsCurrent();
             DesignMirrorVerificationFailsClosedWhenUnexpectedProductMirrorFileRemains();
+            DesignMirrorSyncCheckModeDoesNotRepairMirrorDrift();
+            DesignMirrorVerificationAllowsSingleBoundedAuditRowWhileMirrorIsStale();
+            DesignMirrorVerificationAllowsLaunchPathAliasForBoundedAuditRow();
+            DesignMirrorVerificationFailsClosedWhenBoundedAuditRowDoesNotCoverStaleSet();
+            DesignMirrorVerificationFailsClosedWhenMirrorDriftQueueRowIsDuplicated();
             LocalizationFallbackHelpersNormalizeLegacyContracts();
             SessionAndRuntimeCompatibilityProjectionsStayDeterministic();
             JournalProjectionIsDeterministicAndValidated();
@@ -6053,6 +6059,174 @@ internal static class CoreEngineTests
         }
     }
 
+    private static void DesignMirrorSyncCheckModeDoesNotRepairMirrorDrift()
+    {
+        string repoRoot = GetRepositoryRoot();
+        string mirrorPath = Path.Combine(repoRoot, ".codex-design", "product", "README.md");
+        string originalMirrorText = File.ReadAllText(mirrorPath);
+
+        try
+        {
+            string staleMarker = "\n<!-- sync check drift test -->\n";
+            File.WriteAllText(mirrorPath, originalMirrorText + staleMarker);
+
+            (int exitCode, string stdout, string stderr) = RunDesignMirrorSync(repoRoot, "--check");
+
+            AssertEx.True(
+                exitCode == 0,
+                $"Design-mirror sync dry run should succeed while reporting pending drift. stdout={stdout} stderr={stderr}");
+            AssertEx.True(
+                stdout.Contains("changed=1", StringComparison.Ordinal)
+                && stdout.Contains("update .codex-design/product/README.md", StringComparison.Ordinal),
+                $"Design-mirror sync dry run should report the stale README mirror path. stdout={stdout}");
+            AssertEx.True(
+                File.ReadAllText(mirrorPath).EndsWith(staleMarker, StringComparison.Ordinal),
+                "Design-mirror sync dry run must not repair mirror drift in place.");
+        }
+        finally
+        {
+            File.WriteAllText(mirrorPath, originalMirrorText);
+        }
+    }
+
+    private static void DesignMirrorVerificationAllowsSingleBoundedAuditRowWhileMirrorIsStale()
+    {
+        string repoRoot = GetRepositoryRoot();
+        string queuePath = Path.Combine(repoRoot, ".codex-studio", "published", "QUEUE.generated.yaml");
+        string mirrorPath = Path.Combine(repoRoot, ".codex-design", "product", "README.md");
+        string originalQueueText = File.ReadAllText(queuePath);
+        string originalMirrorText = File.ReadAllText(mirrorPath);
+
+        try
+        {
+            File.WriteAllText(mirrorPath, originalMirrorText + "\n<!-- stale drift test -->\n");
+            File.WriteAllText(
+                queuePath,
+                BuildMirrorDriftQueueYaml(repoRoot, ".codex-design/product/README.md"));
+
+            (int exitCode, string stdout, string stderr) = RunDesignMirrorVerifier(repoRoot);
+
+            AssertEx.True(
+                exitCode == 0,
+                $"Design-mirror verifier should allow a single bounded queue row while mirror drift is actively tracked. stdout={stdout} stderr={stderr}");
+            AssertEx.True(
+                stdout.Contains("stale_paths=1", StringComparison.Ordinal)
+                && stdout.Contains("queue_errors=0", StringComparison.Ordinal)
+                && stdout.Contains("queue_state=bounded", StringComparison.Ordinal),
+                $"Design-mirror verifier should report bounded stale state. stdout={stdout}");
+        }
+        finally
+        {
+            File.WriteAllText(mirrorPath, originalMirrorText);
+            File.WriteAllText(queuePath, originalQueueText);
+        }
+    }
+
+    private static void DesignMirrorVerificationAllowsLaunchPathAliasForBoundedAuditRow()
+    {
+        string repoRoot = GetRepositoryRoot();
+        string aliasRoot = Path.Combine(Directory.GetParent(repoRoot)?.FullName ?? string.Empty, "chummer6-core");
+        if (!Directory.Exists(aliasRoot)
+            || !string.Equals(Path.GetFullPath(aliasRoot), Path.GetFullPath(repoRoot), StringComparison.Ordinal)
+                && !string.Equals(ResolvePath(aliasRoot), ResolvePath(repoRoot), StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        string queuePath = Path.Combine(repoRoot, ".codex-studio", "published", "QUEUE.generated.yaml");
+        string mirrorPath = Path.Combine(repoRoot, ".codex-design", "product", "README.md");
+        string originalQueueText = File.ReadAllText(queuePath);
+        string originalMirrorText = File.ReadAllText(mirrorPath);
+
+        try
+        {
+            File.WriteAllText(mirrorPath, originalMirrorText + "\n<!-- stale drift alias test -->\n");
+            File.WriteAllText(
+                queuePath,
+                BuildMirrorDriftQueueYaml(aliasRoot, ".codex-design/product/README.md"));
+
+            (int exitCode, string stdout, string stderr) = RunDesignMirrorVerifier(repoRoot);
+
+            AssertEx.True(
+                exitCode == 0,
+                $"Design-mirror verifier should accept bounded queue rows published through the launch-path alias. stdout={stdout} stderr={stderr}");
+            AssertEx.True(
+                stdout.Contains("stale_paths=1", StringComparison.Ordinal)
+                && stdout.Contains("queue_state=bounded", StringComparison.Ordinal),
+                $"Design-mirror verifier should keep the aliased queue row bounded to the stale bundle. stdout={stdout}");
+        }
+        finally
+        {
+            File.WriteAllText(mirrorPath, originalMirrorText);
+            File.WriteAllText(queuePath, originalQueueText);
+        }
+    }
+
+    private static void DesignMirrorVerificationFailsClosedWhenBoundedAuditRowDoesNotCoverStaleSet()
+    {
+        string repoRoot = GetRepositoryRoot();
+        string queuePath = Path.Combine(repoRoot, ".codex-studio", "published", "QUEUE.generated.yaml");
+        string mirrorPath = Path.Combine(repoRoot, ".codex-design", "product", "README.md");
+        string originalQueueText = File.ReadAllText(queuePath);
+        string originalMirrorText = File.ReadAllText(mirrorPath);
+
+        try
+        {
+            File.WriteAllText(mirrorPath, originalMirrorText + "\n<!-- stale drift mismatch test -->\n");
+            File.WriteAllText(
+                queuePath,
+                BuildMirrorDriftQueueYaml(repoRoot, ".codex-design/product/VISION.md"));
+
+            (int exitCode, string stdout, string stderr) = RunDesignMirrorVerifier(repoRoot);
+
+            AssertEx.True(
+                exitCode != 0,
+                $"Design-mirror verifier should fail closed when the bounded queue row does not cover the stale bundle. stdout={stdout} stderr={stderr}");
+            AssertEx.True(
+                stdout.Contains("audit_task_11707_source_items_do_not_match_stale_paths", StringComparison.Ordinal),
+                $"Design-mirror verifier should explain queue-row stale-bundle mismatches. stdout={stdout}");
+        }
+        finally
+        {
+            File.WriteAllText(mirrorPath, originalMirrorText);
+            File.WriteAllText(queuePath, originalQueueText);
+        }
+    }
+
+    private static void DesignMirrorVerificationFailsClosedWhenMirrorDriftQueueRowIsDuplicated()
+    {
+        string repoRoot = GetRepositoryRoot();
+        string queuePath = Path.Combine(repoRoot, ".codex-studio", "published", "QUEUE.generated.yaml");
+        string mirrorPath = Path.Combine(repoRoot, ".codex-design", "product", "README.md");
+        string originalQueueText = File.ReadAllText(queuePath);
+        string originalMirrorText = File.ReadAllText(mirrorPath);
+
+        try
+        {
+            File.WriteAllText(mirrorPath, originalMirrorText + "\n<!-- stale drift duplicate queue test -->\n");
+            string row = BuildMirrorDriftQueueItem(repoRoot, ".codex-design/product/README.md");
+            File.WriteAllText(
+                queuePath,
+                "mode: prepend\nitems:\n"
+                + row
+                + row);
+
+            (int exitCode, string stdout, string stderr) = RunDesignMirrorVerifier(repoRoot);
+
+            AssertEx.True(
+                exitCode != 0,
+                $"Design-mirror verifier should fail closed when mirror-drift queue rows are duplicated. stdout={stdout} stderr={stderr}");
+            AssertEx.True(
+                stdout.Contains("duplicate_audit_task_11707_rows=2", StringComparison.Ordinal),
+                $"Design-mirror verifier should report duplicate queue rows. stdout={stdout}");
+        }
+        finally
+        {
+            File.WriteAllText(mirrorPath, originalMirrorText);
+            File.WriteAllText(queuePath, originalQueueText);
+        }
+    }
+
     private static void ActiveCoreEngineSolutionStaysPurified()
     {
         string repoRoot = GetRepositoryRoot();
@@ -6189,6 +6363,84 @@ internal static class CoreEngineTests
 
     private static string GetHeroLabFixtureDirectory()
         => Path.Combine(GetRepositoryRoot(), "Chummer.CoreEngine.Tests", "Fixtures", "HeroLab");
+
+    private static (int ExitCode, string Stdout, string Stderr) RunDesignMirrorVerifier(string repoRoot)
+    {
+        ProcessStartInfo startInfo = new("python3", "scripts/ai/verify_design_mirror.py")
+        {
+            WorkingDirectory = repoRoot,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+        };
+
+        using Process process = Process.Start(startInfo)
+            ?? throw new InvalidOperationException("Failed to start design-mirror verifier.");
+        string stdout = process.StandardOutput.ReadToEnd();
+        string stderr = process.StandardError.ReadToEnd();
+        process.WaitForExit();
+        return (process.ExitCode, stdout, stderr);
+    }
+
+    private static (int ExitCode, string Stdout, string Stderr) RunDesignMirrorSync(string repoRoot, params string[] arguments)
+    {
+        string argumentText = arguments.Length == 0
+            ? "scripts/ai/sync_design_mirror.py"
+            : $"scripts/ai/sync_design_mirror.py {string.Join(" ", arguments)}";
+        ProcessStartInfo startInfo = new("python3", argumentText)
+        {
+            WorkingDirectory = repoRoot,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+        };
+
+        using Process process = Process.Start(startInfo)
+            ?? throw new InvalidOperationException("Failed to start design-mirror sync.");
+        string stdout = process.StandardOutput.ReadToEnd();
+        string stderr = process.StandardError.ReadToEnd();
+        process.WaitForExit();
+        return (process.ExitCode, stdout, stderr);
+    }
+
+    private static string BuildMirrorDriftQueueYaml(string repoRoot, params string[] relativePaths)
+        => "mode: prepend\nitems:\n" + BuildMirrorDriftQueueItem(repoRoot, relativePaths);
+
+    private static string BuildMirrorDriftQueueItem(string repoRoot, params string[] relativePaths)
+    {
+        string sourceItems = string.Join(
+            string.Empty,
+            relativePaths.Select(path => $"  - {Path.Combine(repoRoot, path).Replace('\\', '/')}\n"));
+        return
+            "- title: Auto-detect and repair recurring `core` mirror drift after test observations.\n"
+            + "  task: Auto-detect and repair recurring `core` mirror drift after test observations.\n"
+            + "  package_id: audit-task-11707\n"
+            + "  source_ref: audit_task_candidates[11707]\n"
+            + "  audit_finding_key: project.design_mirror_missing_or_stale\n"
+            + "  audit_scope_id: core\n"
+            + "  source_items:\n"
+            + sourceItems
+            + "  allowed_paths:\n"
+            + "  - .codex-design\n"
+            + "  owned_surfaces:\n"
+            + "  - design_mirror:core\n";
+    }
+
+    private static string ResolvePath(string path)
+    {
+        ProcessStartInfo startInfo = new("realpath", path)
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+        };
+
+        using Process process = Process.Start(startInfo)
+            ?? throw new InvalidOperationException("Failed to start realpath.");
+        string stdout = process.StandardOutput.ReadToEnd().Trim();
+        process.WaitForExit();
+        return process.ExitCode == 0 ? stdout : Path.GetFullPath(path);
+    }
 
     private static string GetRepositoryRoot()
     {

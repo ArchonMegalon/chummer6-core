@@ -76,6 +76,36 @@ def load_queue_items() -> list[dict[str, object]]:
     return [item for item in items if isinstance(item, dict)]
 
 
+def normalize_source_items(source_items: list[object]) -> tuple[list[str], list[str]]:
+    design_root = (REPO_ROOT / ".codex-design").resolve()
+    invalid_items: list[str] = []
+    normalized: list[str] = []
+
+    for item in source_items:
+        if not isinstance(item, str):
+            invalid_items.append(str(item))
+            continue
+
+        candidate = Path(item)
+        if not candidate.is_absolute():
+            invalid_items.append(item)
+            continue
+
+        try:
+            resolved = candidate.resolve().relative_to(design_root)
+        except ValueError:
+            invalid_items.append(item)
+            continue
+
+        if any(part == ".." for part in Path(item).parts):
+            invalid_items.append(item)
+            continue
+
+        normalized.append(str(Path(".codex-design") / resolved))
+
+    return normalized, invalid_items
+
+
 def verify_audit_row(items: list[dict[str, object]], stale_paths: list[str]) -> list[str]:
     errors: list[str] = []
     matching_rows = [
@@ -110,16 +140,25 @@ def verify_audit_row(items: list[dict[str, object]], stale_paths: list[str]) -> 
         errors.append("audit_task_11707_missing_source_items")
         return errors
 
-    repo_prefix = str(REPO_ROOT) + "/.codex-design/"
-    bad_source_items = [
-        str(item)
-        for item in source_items
-        if not isinstance(item, str)
-        or not item.startswith(repo_prefix)
-        or "/.." in item
-    ]
+    normalized_source_items, bad_source_items = normalize_source_items(source_items)
     if bad_source_items:
         errors.append(f"audit_task_11707_invalid_source_items={bad_source_items}")
+        return errors
+
+    source_item_counts = Counter(normalized_source_items)
+    duplicate_source_items = sorted(path for path, count in source_item_counts.items() if count > 1)
+    if duplicate_source_items:
+        errors.append(f"audit_task_11707_duplicate_source_items={duplicate_source_items}")
+
+    stale_set = set(stale_paths)
+    source_item_set = set(normalized_source_items)
+    missing_stale_paths = sorted(stale_set - source_item_set)
+    extra_source_items = sorted(source_item_set - stale_set)
+    if missing_stale_paths or extra_source_items:
+        errors.append(
+            "audit_task_11707_source_items_do_not_match_stale_paths"
+            f" missing={missing_stale_paths} extra={extra_source_items}"
+        )
 
     return errors
 
@@ -131,13 +170,17 @@ def main() -> int:
     queue_items = load_queue_items()
     queue_errors = verify_audit_row(queue_items, stale_paths)
 
-    if stale_paths or queue_errors:
+    if queue_errors:
         print(f"stale_paths={len(stale_paths)} queue_errors={len(queue_errors)}")
         for rel_path in stale_paths:
             print(f"stale {rel_path}")
         for error in queue_errors:
             print(f"error {error}")
         return 1
+
+    if stale_paths:
+        print(f"stale_paths={len(stale_paths)} queue_errors=0 queue_state=bounded")
+        return 0
 
     queue_digest = hashlib.sha1(QUEUE_PATH.read_bytes()).hexdigest() if QUEUE_PATH.is_file() else "missing"
     print(f"stale_paths=0 queue_errors=0 queue_sha1={queue_digest}")
