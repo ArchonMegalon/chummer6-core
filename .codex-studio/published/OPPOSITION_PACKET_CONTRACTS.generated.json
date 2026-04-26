@@ -1,0 +1,104 @@
+{
+  "generated_at": "2026-04-24T04:49:29Z",
+  "status": "passed",
+  "package_id": "next90-m113-core-opposition-packet-contracts",
+  "frontier_id": 2325506990,
+  "milestone_id": 113,
+  "title": "Define opposition and scene packet contracts with rules-backed stats",
+  "task": "Define opposition and scene packet contracts with rules-backed stats and bounded-loss receipts.",
+  "repo": "chummer6-core",
+  "repo_root": "/docker/chummercomplete/chummer-core-engine",
+  "owned_surfaces": [
+    "gm_prep_packets",
+    "opposition_contracts"
+  ],
+  "allowed_paths": [
+    "src",
+    "tests",
+    "docs",
+    "scripts"
+  ],
+  "published_receipt_path": "/docker/chummercomplete/chummer6-core/.codex-studio/published/OPPOSITION_PACKET_CONTRACTS.generated.json",
+  "receipt_path": "/docker/chummercomplete/chummer-core-engine/.codex-studio/published/OPPOSITION_PACKET_CONTRACTS.generated.json",
+  "proof_anchor_count": 7,
+  "proof_files": [
+    {
+      "key": "contracts",
+      "path": "Chummer.Contracts/Campaign/OppositionPacketContracts.cs",
+      "exists": true,
+      "digest": "sha256:d8daab6f413033f03c181de408aea53935f65ee23c7cac4b4b5ca24769c2198f",
+      "missing_snippets": [],
+      "status": "passed"
+    },
+    {
+      "key": "service",
+      "path": "Chummer.Application/Campaign/DefaultOppositionPacketContractService.cs",
+      "exists": true,
+      "digest": "sha256:f45b5922ce93fde85b5f33971fb636e7c019a2ae3186edf048235b9f303ec40b",
+      "missing_snippets": [],
+      "status": "passed"
+    },
+    {
+      "key": "service_interface",
+      "path": "Chummer.Application/Campaign/IOppositionPacketContractService.cs",
+      "exists": true,
+      "digest": "sha256:7998cd31641f1d706af545be486074450480873e95158bd55680d96f93a252c5",
+      "missing_snippets": [],
+      "status": "passed"
+    },
+    {
+      "key": "tests",
+      "path": "Chummer.CoreEngine.Tests/OppositionPacketContractContractTests.cs",
+      "exists": true,
+      "digest": "sha256:c44625091a6cbc0f764267155cdea134006d4ad9ffac459adbb84992f2e664e9",
+      "missing_snippets": [],
+      "status": "passed"
+    },
+    {
+      "key": "test_program",
+      "path": "Chummer.CoreEngine.Tests/Program.cs",
+      "exists": true,
+      "digest": "sha256:1f523af31dadb78f77de1c7596d294044d14d05ade2578b1f9e2649130cd6517",
+      "missing_snippets": [],
+      "status": "passed"
+    },
+    {
+      "key": "service_registration",
+      "path": "Chummer.Infrastructure/DependencyInjection/ServiceCollectionExtensions.cs",
+      "exists": true,
+      "digest": "sha256:e7e266f6b44a2ab86c65fb6b088ebb2986246692492d43b9a4b8c12a2d83cf09",
+      "missing_snippets": [],
+      "status": "passed"
+    },
+    {
+      "key": "docs",
+      "path": "docs/OPPOSITION_PACKET_CONTRACTS.md",
+      "exists": true,
+      "digest": "sha256:f6c376e836e18ac84285e790c168c16508c824f36aecfe8e4a234997a46e8566",
+      "missing_snippets": [],
+      "status": "passed"
+    }
+  ],
+  "verification_commands": [
+    "dotnet run --project Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj --no-restore",
+    "python3 tests/test_opposition_packet_contract_receipt.py",
+    "python3 scripts/verify-opposition-packet-contracts.py --repo-root . --out .codex-studio/published/OPPOSITION_PACKET_CONTRACTS.generated.json"
+  ],
+  "contract_extensions": [
+    "packet_receipt_context",
+    "packet_stat_aggregation"
+  ],
+  "seeded_examples": {
+    "entry_packet_id": "red-samurai",
+    "pack_packet_id": "renraku-security",
+    "scene_packet_id": "renraku-checkpoint",
+    "sr6_scene_packet_id": "ancients-smash-and-grab",
+    "review_required_pack_id": "broken-pack",
+    "review_required_scene_id": "broken-scene",
+    "runtime_unbound_entry_id": "runtime-unbound-guard"
+  },
+  "unresolved": {
+    "missing_files": [],
+    "snippet_failures": {}
+  }
+}
