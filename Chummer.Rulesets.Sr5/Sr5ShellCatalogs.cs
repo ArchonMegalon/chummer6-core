@@ -41,7 +41,7 @@ internal static class Sr5AppCommandCatalog
             Sr5("master_index", "command.master_index", "tools", false, true),
             Sr5("character_roster", "command.character_roster", "tools", false, true),
             Sr5("data_exporter", "command.data_exporter", "tools", true, true),
-            Sr5("report_bug", "command.report_bug", "help", false, true),
+            Sr5("report_bug", "command.report_bug", "tools", false, true),
             Sr5("new_window", "command.new_window", "windows", false, true),
             Sr5("close_window", "command.close_window", "windows", false, true),
             Sr5("close_all", "command.close_all", "windows", false, true),
@@ -50,7 +50,7 @@ internal static class Sr5AppCommandCatalog
             Sr5("revision_history", "command.revision_history", "help", false, true),
             Sr5("dumpshock", "command.dumpshock", "help", false, true),
             Sr5("about", "command.about", "help", false, true),
-            Sr5("update", "command.update", "help", false, true),
+            Sr5("update", "command.update", "tools", false, true),
             Sr5("restart", "command.restart", "help", false, true)
         ];
     }
