@@ -611,6 +611,72 @@ public class ToolCatalogServiceTests
     }
 
     [TestMethod]
+    public void Master_index_keeps_sr6_supplement_lane_governed_when_only_german_only_books_lack_snippets()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            string dataDir = Path.Combine(root, "data");
+            Directory.CreateDirectory(dataDir);
+            File.WriteAllText(
+                Path.Combine(dataDir, "books.xml"),
+                """
+                <chummer>
+                  <books>
+                    <book>
+                      <id>book-sr6</id>
+                      <name>Shadowrun, Sixth World Core Rulebook</name>
+                      <code>SR6</code>
+                      <matches>
+                        <match>
+                          <language>en-us</language>
+                          <text>Sixth World core excerpt.</text>
+                          <page>8</page>
+                        </match>
+                      </matches>
+                    </book>
+                    <book>
+                      <id>book-fs</id>
+                      <name>Firing Squad</name>
+                      <code>FS</code>
+                      <matches>
+                        <match>
+                          <language>en-us</language>
+                          <text>Combat expansion excerpt.</text>
+                          <page>22</page>
+                        </match>
+                      </matches>
+                    </book>
+                    <book>
+                      <id>book-shb</id>
+                      <name>Schattenhandbuch (German-Only)</name>
+                      <code>SHB</code>
+                    </book>
+                    <book>
+                      <id>book-shb2</id>
+                      <name>Schattenhandbuch 2 (German-Only)</name>
+                      <code>SHB2</code>
+                    </book>
+                  </books>
+                </chummer>
+                """);
+
+            var service = new XmlToolCatalogService(root);
+            MasterIndexResponse response = service.GetMasterIndex();
+
+            Assert.AreEqual("stale", response.ReferenceLanePosture);
+            Assert.AreEqual(4, response.SourcebookCount);
+            Assert.AreEqual(2, response.SourcebooksWithSnippets);
+            Assert.AreEqual(2, response.SourcebooksMissingSnippets);
+            Assert.AreEqual("governed", response.Sr6SupplementLanePosture);
+        }
+        finally
+        {
+            DeleteTempDirectory(root);
+        }
+    }
+
+    [TestMethod]
     public void Master_index_reports_stale_reference_source_posture_for_invalid_pdf_or_url_targets()
     {
         string root = CreateTempDirectory();

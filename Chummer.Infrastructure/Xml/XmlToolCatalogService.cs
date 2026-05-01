@@ -761,9 +761,16 @@ public sealed class XmlToolCatalogService : IToolCatalogService
             return "missing";
         }
 
-        return sourcebooks.Any(sourcebook => string.Equals(sourcebook.ReferencePosture, "no-snippets", StringComparison.Ordinal))
+        return sourcebooks.Any(sourcebook =>
+                string.Equals(sourcebook.ReferencePosture, "no-snippets", StringComparison.Ordinal)
+                && !IsSupplementSnippetExempt(sourcebook))
             ? "stale"
             : "governed";
+    }
+
+    private static bool IsSupplementSnippetExempt(MasterIndexSourcebookEntry sourcebook)
+    {
+        return sourcebook.Name.Contains("(German-Only)", StringComparison.OrdinalIgnoreCase);
     }
 
     private static int CountSr6DesignerFamiliesAvailable(IReadOnlyDictionary<string, XDocument?> filesByName)
