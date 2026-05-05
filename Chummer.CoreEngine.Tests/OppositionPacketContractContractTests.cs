@@ -169,6 +169,34 @@ internal static class OppositionPacketContractContractTests
         AssertEx.True(
             runtimeUnboundPacket.PacketStats.All(stat => stat.RulesAnchor.RuntimeFingerprint is null && stat.ExplainTrace.RuntimeFingerprint is null),
             "Packet-level aggregate stats should stay honest when runtime fingerprints are not yet bound.");
+
+        OppositionPacketContract? mixedRuntimePack = missingDataService.GetOppositionPacket(OwnerScope.LocalSingleUser, "mixed-runtime-pack", RulesetDefaults.Sr5);
+        AssertEx.True(mixedRuntimePack is not null, "Packets with mixed member runtimes should still project into opposition packet contracts.");
+        AssertEx.True(mixedRuntimePack!.RuntimeFingerprint is null, "Mixed-runtime packs should not bluff a single packet runtime fingerprint.");
+        AssertEx.Equal(
+            GmPrepPacketBoundedLossPostures.BoundedLoss,
+            mixedRuntimePack.BoundedLossReceipt.Posture,
+            "Mixed-runtime packs should stay bounded-loss until one promoted runtime is chosen.");
+        AssertEx.True(
+            mixedRuntimePack.BoundedLossReceipt.Items.Any(item => string.Equals(item.Code, "runtime-fingerprint-mixed", StringComparison.Ordinal)),
+            "Mixed-runtime packs should emit an explicit bounded-loss item.");
+        AssertEx.True(
+            mixedRuntimePack.PacketStats.All(stat => stat.RulesAnchor.RuntimeFingerprint is null && stat.ExplainTrace.RuntimeFingerprint is null),
+            "Mixed-runtime pack summaries should keep packet-level runtime anchors unbound.");
+
+        ScenePacketContract? mixedRuntimeScene = missingDataService.GetScenePacket(OwnerScope.LocalSingleUser, "mixed-runtime-scene", RulesetDefaults.Sr5);
+        AssertEx.True(mixedRuntimeScene is not null, "Scenes with mixed member runtimes should still project into scene packet contracts.");
+        AssertEx.True(mixedRuntimeScene!.RuntimeFingerprint is null, "Mixed-runtime scenes should not bluff a single packet runtime fingerprint.");
+        AssertEx.Equal(
+            GmPrepPacketBoundedLossPostures.BoundedLoss,
+            mixedRuntimeScene.BoundedLossReceipt.Posture,
+            "Mixed-runtime scenes should stay bounded-loss until one promoted runtime is chosen.");
+        AssertEx.True(
+            mixedRuntimeScene.BoundedLossReceipt.Items.Any(item => string.Equals(item.Code, "runtime-fingerprint-mixed", StringComparison.Ordinal)),
+            "Mixed-runtime scenes should emit an explicit bounded-loss item.");
+        AssertEx.True(
+            mixedRuntimeScene.PacketStats.All(stat => stat.RulesAnchor.RuntimeFingerprint is null && stat.ExplainTrace.RuntimeFingerprint is null),
+            "Mixed-runtime scene summaries should keep packet-level runtime anchors unbound.");
     }
 
     private sealed class StubNpcVaultRegistryService : INpcVaultRegistryService
@@ -191,7 +219,14 @@ internal static class OppositionPacketContractContractTests
                 description: "Seeded guard without a runtime fingerprint so the receipt must stay explicit.",
                 threatTier: "low",
                 runtimeFingerprint: null,
-                tags: ["checkpoint"])
+                tags: ["checkpoint"]),
+            BuildEntry(
+                entryId: "alt-runtime-decker",
+                title: "Alternate Runtime Decker",
+                description: "Seeded decker pinned to a different runtime fingerprint for mixed-runtime packet proof.",
+                threatTier: "medium",
+                runtimeFingerprint: "sha256:alt-runtime",
+                tags: ["matrix", "support"])
         ];
 
         private readonly NpcPackRegistryEntry[] _packs =
@@ -213,6 +248,26 @@ internal static class OppositionPacketContractContractTests
                     Visibility: ArtifactVisibilityModes.Public,
                     TrustTier: ArtifactTrustTiers.Curated,
                     Tags: ["checkpoint"]),
+                Owner: SystemOwner,
+                PublicationStatus: NpcPublicationStatuses.Published,
+                UpdatedAtUtc: SeededAt),
+            new(
+                Manifest: new NpcPackManifest(
+                    PackId: "mixed-runtime-pack",
+                    Version: "1.0.0",
+                    Title: "Mixed Runtime Pack",
+                    Description: "Pack with governed members bound to different runtime fingerprints.",
+                    RulesetId: RulesetDefaults.Sr5,
+                    Entries:
+                    [
+                        new NpcPackMemberReference("fallback-guard", 1),
+                        new NpcPackMemberReference("alt-runtime-decker", 1)
+                    ],
+                    SessionReady: true,
+                    GmBoardReady: true,
+                    Visibility: ArtifactVisibilityModes.Public,
+                    TrustTier: ArtifactTrustTiers.Curated,
+                    Tags: ["checkpoint", "matrix"]),
                 Owner: SystemOwner,
                 PublicationStatus: NpcPublicationStatuses.Published,
                 UpdatedAtUtc: SeededAt)
@@ -237,6 +292,26 @@ internal static class OppositionPacketContractContractTests
                     Visibility: ArtifactVisibilityModes.Public,
                     TrustTier: ArtifactTrustTiers.Curated,
                     Tags: ["checkpoint"]),
+                Owner: SystemOwner,
+                PublicationStatus: NpcPublicationStatuses.Published,
+                UpdatedAtUtc: SeededAt),
+            new(
+                Manifest: new EncounterPackManifest(
+                    EncounterPackId: "mixed-runtime-scene",
+                    Version: "1.0.0",
+                    Title: "Mixed Runtime Scene",
+                    Description: "Scene with governed participants pinned to different runtime fingerprints.",
+                    RulesetId: RulesetDefaults.Sr5,
+                    Participants:
+                    [
+                        new EncounterPackParticipantReference("fallback-guard", 1, "lead"),
+                        new EncounterPackParticipantReference("alt-runtime-decker", 1, "matrix-support")
+                    ],
+                    SessionReady: true,
+                    GmBoardReady: true,
+                    Visibility: ArtifactVisibilityModes.Public,
+                    TrustTier: ArtifactTrustTiers.Curated,
+                    Tags: ["checkpoint", "matrix"]),
                 Owner: SystemOwner,
                 PublicationStatus: NpcPublicationStatuses.Published,
                 UpdatedAtUtc: SeededAt)

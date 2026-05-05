@@ -80,6 +80,10 @@ public class WorkspaceServiceTests
         Assert.AreEqual("sr5", imported.RulesetId);
         Assert.IsFalse(string.IsNullOrWhiteSpace(imported.ImportReceiptId));
         Assert.AreEqual(WorkspacePortabilityCompatibilityStates.Compatible, imported.Portability?.CompatibilityState);
+        Assert.AreEqual(WorkspacePortabilityOutputKinds.NativeWorkspaceXml, imported.Portability?.OutputKind);
+        Assert.AreEqual(WorkspacePortabilityLossStates.None, imported.Portability?.Loss?.State);
+        Assert.AreEqual(imported.ImportReceiptId, imported.Portability?.Provenance?.ReceiptId);
+        Assert.AreEqual(2, imported.Portability?.Lineage?.Count);
         Assert.IsNotNull(imported.WorkflowDeterministicReceipt);
         Assert.AreEqual("governed", imported.WorkflowDeterministicReceipt?.WorkflowStatePosture);
         StringAssert.Contains(imported.Portability?.ReceiptSummary ?? string.Empty, "Portable import completed");
@@ -211,6 +215,33 @@ public class WorkspaceServiceTests
         Assert.IsFalse(string.IsNullOrWhiteSpace(imported.Id.Value));
         Assert.AreEqual("BOM Runner", imported.Summary.Name);
         Assert.AreEqual("BOM", imported.Summary.Alias);
+    }
+
+    [TestMethod]
+    public void Import_json_marks_portable_dossier_review_posture()
+    {
+        TrackingWorkspaceStore store = new();
+        RecordingWorkspaceCodec codec = new();
+        WorkspaceService workspaceService = new(store, new RulesetWorkspaceCodecResolver([codec]), new WorkspaceImportRulesetDetector());
+
+        WorkspaceImportResult imported = workspaceService.Import(new WorkspaceImportDocument(
+            "{\"name\":\"Codec Runner\"}",
+            "sr6",
+            WorkspaceDocumentFormat.Json));
+
+        Assert.IsFalse(string.IsNullOrWhiteSpace(imported.Id.Value));
+        Assert.AreEqual("sr6", imported.RulesetId);
+        Assert.AreEqual(WorkspacePortabilityOutputKinds.PortableDossier, imported.Portability?.OutputKind);
+        Assert.AreEqual(WorkspacePortabilityCompatibilityStates.CompatibleWithWarnings, imported.Portability?.CompatibilityState);
+        Assert.AreEqual(WorkspacePortabilityLossStates.BoundedLoss, imported.Portability?.Loss?.State);
+        Assert.AreEqual(WorkspacePortabilityRevocationStates.Revocable, imported.Portability?.Revocation?.State);
+        Assert.AreEqual("workspace-portability:portable-dossier", imported.Portability?.Revocation?.FamilyId);
+        CollectionAssert.AreEqual(["format-review-required"], imported.Portability?.Compatibility?.WarningCodes?.ToArray());
+        CollectionAssert.AreEqual(["native-workspace-review"], imported.Portability?.Loss?.AffectedSections?.ToArray());
+        Assert.AreEqual(imported.ImportReceiptId, imported.Portability?.Provenance?.ReceiptId);
+        Assert.AreEqual(2, imported.Portability?.Lineage?.Count);
+        StringAssert.Contains(imported.Portability?.PortabilityEnvelope?.Summary ?? string.Empty, "Inspect-first import posture");
+        StringAssert.Contains(imported.Portability?.NextSafeAction ?? string.Empty, "export a fresh portable package");
     }
 
     [TestMethod]
@@ -583,12 +614,102 @@ public class WorkspaceServiceTests
         Assert.IsFalse(string.IsNullOrWhiteSpace(result.Value.PackageId));
         Assert.AreEqual(WorkspacePortabilityFormatIds.PortableDossierV1, result.Value.Portability?.FormatId);
         Assert.AreEqual(WorkspacePortabilityCompatibilityStates.Compatible, result.Value.Portability?.CompatibilityState);
+        Assert.AreEqual(WorkspacePortabilityOutputKinds.PortableDossier, result.Value.Portability?.OutputKind);
+        Assert.AreEqual(WorkspacePortabilityLossStates.None, result.Value.Portability?.Loss?.State);
+        Assert.AreEqual(result.Value.PackageId, result.Value.Portability?.Provenance?.ReceiptId);
+        Assert.AreEqual(WorkspacePortabilityRevocationStates.Revocable, result.Value.Portability?.Revocation?.State);
+        Assert.AreEqual("workspace-portability:portable-dossier", result.Value.Portability?.Revocation?.FamilyId);
+        CollectionAssert.AreEqual([id.Value], result.Value.Portability?.Revocation?.SupersedesArtifactIds?.ToArray());
+        Assert.AreEqual(2, result.Value.Portability?.Lineage?.Count);
+        Assert.AreEqual(5, result.Value.Portability?.RelatedOutputs?.Count);
+        string packageId = result.Value.PackageId;
+        CollectionAssert.AreEquivalent(
+            [
+                WorkspacePortabilityOutputKinds.PortableDossier,
+                WorkspacePortabilityOutputKinds.CampaignBundle,
+                WorkspacePortabilityOutputKinds.ReplayTimeline,
+                WorkspacePortabilityOutputKinds.SessionRecap,
+                WorkspacePortabilityOutputKinds.ExternalExchange
+            ],
+            result.Value.Portability?.RelatedOutputs?.Select(static output => output.OutputKind).ToArray());
+        Assert.IsTrue(
+            result.Value.Portability?.RelatedOutputs?.Any(static output => output.OutputKind == WorkspacePortabilityOutputKinds.PortableDossier
+                && string.Equals(output.Provenance.SourceArtifactId, output.Lineage[0].ArtifactId, StringComparison.Ordinal)
+                && string.Equals(output.Provenance.SourceFormatId, WorkspacePortabilityFormatIds.NativeWorkspaceXmlV1, StringComparison.Ordinal)
+                && string.Equals(output.Lineage[2].FormatId, WorkspacePortabilityFormatIds.PortableDossierV1, StringComparison.Ordinal)) == true);
+        Assert.IsTrue(
+            result.Value.Portability?.RelatedOutputs?.Where(static output => output.OutputKind != WorkspacePortabilityOutputKinds.PortableDossier)
+                .All(output =>
+                    string.Equals(output.Provenance.SourceArtifactId, packageId, StringComparison.Ordinal)
+                    && string.Equals(output.Provenance.SourceFormatId, WorkspacePortabilityFormatIds.PortableDossierV1, StringComparison.Ordinal)
+                    && string.Equals(output.Lineage[1].ArtifactId, packageId, StringComparison.Ordinal)) == true);
+        Assert.IsTrue(
+            result.Value.Portability?.RelatedOutputs?.All(static output => output.Lineage.Count == 3
+                && output.Compatibility.State == WorkspacePortabilityCompatibilityStates.Compatible
+                && output.Loss.State == WorkspacePortabilityLossStates.None
+                && output.Provenance.ReceiptId.Length > 0
+                && output.PortabilityEnvelope.SupportedExchangeModes.Count > 0
+                && output.Revocation.State == WorkspacePortabilityRevocationStates.Revocable
+                && string.Equals(output.Revocation.Scope, "governed-replace", StringComparison.Ordinal)) == true);
+        Assert.IsTrue(
+            result.Value.Portability?.RelatedOutputs?.Any(static output => output.OutputKind == WorkspacePortabilityOutputKinds.CampaignBundle
+                && string.Equals(output.WorkflowId, "workflow.campaign.bundle", StringComparison.Ordinal)
+                && string.Equals(output.Lineage[2].FormatId, WorkspacePortabilityFormatIds.CampaignBundleV1, StringComparison.Ordinal)
+                && string.Equals(output.Revocation.FamilyId, "workspace-portability:campaign-bundle", StringComparison.Ordinal)
+                && output.Summary.Contains("Campaign federation", StringComparison.Ordinal)) == true);
+        Assert.IsTrue(
+            result.Value.Portability?.RelatedOutputs?.Any(static output => output.OutputKind == WorkspacePortabilityOutputKinds.ReplayTimeline
+                && string.Equals(output.WorkflowId, "workflow.replay.timeline", StringComparison.Ordinal)
+                && string.Equals(output.Lineage[2].FormatId, WorkspacePortabilityFormatIds.ReplayTimelineV1, StringComparison.Ordinal)
+                && output.PortabilityEnvelope.SupportedExchangeModes.SequenceEqual(
+                    [WorkspacePortabilityExchangeModes.InspectOnly, WorkspacePortabilityExchangeModes.Merge])) == true);
+        Assert.IsTrue(
+            result.Value.Portability?.RelatedOutputs?.Any(static output => output.OutputKind == WorkspacePortabilityOutputKinds.SessionRecap
+                && string.Equals(output.WorkflowId, "workflow.recap.session", StringComparison.Ordinal)
+                && string.Equals(output.Lineage[2].FormatId, WorkspacePortabilityFormatIds.SessionRecapV1, StringComparison.Ordinal)
+                && output.Summary.Contains("Session recap", StringComparison.Ordinal)) == true);
+        Assert.IsTrue(
+            result.Value.Portability?.RelatedOutputs?.Any(static output => output.OutputKind == WorkspacePortabilityOutputKinds.ExternalExchange
+                && string.Equals(output.WorkflowId, "workflow.exchange.external", StringComparison.Ordinal)
+                && string.Equals(output.Lineage[2].FormatId, WorkspacePortabilityFormatIds.ExternalExchangeV1, StringComparison.Ordinal)
+                && output.Summary.Contains("External exchange", StringComparison.Ordinal)) == true);
         StringAssert.Contains(result.Value.Portability?.ReceiptSummary ?? string.Empty, "Portable export is ready");
         StringAssert.Contains(result.Value.Portability?.ProvenanceSummary ?? string.Empty, id.Value);
         string payload = Encoding.UTF8.GetString(Convert.FromBase64String(result.Value.ContentBase64));
         StringAssert.Contains(payload, "\"Name\": \"Codec Runner\"");
         StringAssert.Contains(payload, "\"Reaction\"");
         StringAssert.Contains(payload, "\"Fixer\"");
+    }
+
+    [TestMethod]
+    public void Export_marks_bounded_loss_when_portable_sections_are_missing()
+    {
+        InMemoryWorkspaceStore store = new();
+        CharacterWorkspaceId id = store.Create(new WorkspaceDocument(
+            PayloadEnvelope: new WorkspacePayloadEnvelope(
+                RulesetId: "sr6",
+                SchemaVersion: 0,
+                PayloadKind: string.Empty,
+                Payload: "<codec-export/>"),
+            Format: WorkspaceDocumentFormat.NativeXml));
+        RecordingWorkspaceCodec codec = new(includeContacts: false);
+        WorkspaceService workspaceService = new(store, new RulesetWorkspaceCodecResolver([codec]), new WorkspaceImportRulesetDetector());
+
+        CommandResult<WorkspaceExportReceipt> result = workspaceService.Export(id);
+
+        Assert.IsTrue(result.Success);
+        Assert.IsNotNull(result.Value?.Portability);
+        Assert.AreEqual(WorkspacePortabilityCompatibilityStates.CompatibleWithWarnings, result.Value.Portability.CompatibilityState);
+        Assert.AreEqual(WorkspacePortabilityLossStates.BoundedLoss, result.Value.Portability.Loss?.State);
+        CollectionAssert.AreEqual(["contacts"], result.Value.Portability.Loss?.AffectedSections?.ToArray());
+        CollectionAssert.AreEqual(["missing-sections"], result.Value.Portability.Compatibility?.WarningCodes?.ToArray());
+        StringAssert.Contains(result.Value.Portability.PortabilityEnvelope?.Summary ?? string.Empty, "Inspect-first dossier portability");
+        Assert.IsTrue(
+            result.Value.Portability.RelatedOutputs?.All(static output =>
+                output.Compatibility.State == WorkspacePortabilityCompatibilityStates.CompatibleWithWarnings
+                && output.Loss.State == WorkspacePortabilityLossStates.BoundedLoss
+                && output.Loss.AffectedSections.SequenceEqual(["contacts"])
+                && output.Revocation.State == WorkspacePortabilityRevocationStates.Revocable) == true);
     }
 
     [TestMethod]
@@ -742,6 +863,13 @@ public class WorkspaceServiceTests
 
     private sealed class RecordingWorkspaceCodec : IRulesetWorkspaceCodec
     {
+        private readonly bool _includeContacts;
+
+        public RecordingWorkspaceCodec(bool includeContacts = true)
+        {
+            _includeContacts = includeContacts;
+        }
+
         public string RulesetId => "sr6";
 
         public int SchemaVersion => 7;
@@ -872,7 +1000,7 @@ public class WorkspaceServiceTests
                 Skills: (CharacterSkillsSection)ParseSection("skills", envelope),
                 Inventory: (CharacterInventorySection)ParseSection("inventory", envelope),
                 Qualities: (CharacterQualitiesSection)ParseSection("qualities", envelope),
-                Contacts: (CharacterContactsSection)ParseSection("contacts", envelope));
+                Contacts: _includeContacts ? (CharacterContactsSection)ParseSection("contacts", envelope) : null);
         }
     }
 }

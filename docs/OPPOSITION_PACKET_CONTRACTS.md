@@ -30,17 +30,19 @@ The semantic owner for reusable opposition packets still lives outside this repo
 - `renraku-checkpoint` demonstrates a scene packet with explicit role lanes and spotlight stats.
 - `broken-pack` and `broken-scene` prove `review-required` bounded-loss posture when governed entries are missing.
 - `runtime-unbound-guard` proves the packet remains explicit about missing runtime fingerprints instead of bluffing full grounding.
+- `mixed-runtime-pack` and `mixed-runtime-scene` prove packet-level stats stay unbound, with a `runtime-fingerprint-mixed` receipt item, when governed members come from different promoted runtimes.
 
 ## Verification
 
 Run:
 
 ```bash
-dotnet run --project Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj --no-restore
+CHUMMER_CORE_ENGINE_TEST_FILTER=opposition-packet-contracts dotnet run --project Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj
 python3 tests/test_opposition_packet_contract_receipt.py
 python3 scripts/verify-opposition-packet-contracts.py --repo-root . --out .codex-studio/published/OPPOSITION_PACKET_CONTRACTS.generated.json
 ```
 
 The managed `dotnet run` path is the behavior proof for the seeded opposition and scene packets.
 The Python receipt test and verifier are the repo-local package proof anchors that keep this slice in standard verification.
-The checked-in receipt lives at `/docker/chummercomplete/chummer6-core/.codex-studio/published/OPPOSITION_PACKET_CONTRACTS.generated.json` and is validated for drift by the focused Python test and verifier check mode.
+They also fail closed if the canonical successor registry row or either staged queue row drifts away from `113.2`, the completed package status, or the governed surface list.
+The checked-in receipt lives at `/docker/chummercomplete/chummer-core-engine/.codex-studio/published/OPPOSITION_PACKET_CONTRACTS.generated.json` and is validated for drift by the focused Python test and verifier check mode.

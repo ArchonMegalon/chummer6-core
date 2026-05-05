@@ -604,6 +604,10 @@ public sealed class WorkspaceService : IWorkspaceService
     {
         string displayName = string.IsNullOrWhiteSpace(summary.Name) ? id.Value : summary.Name;
         bool needsReview = document.Format != WorkspaceDocumentFormat.NativeXml;
+        string receiptId = BuildReceiptId("import", id.Value, payloadSha256);
+        string outputKind = document.Format == WorkspaceDocumentFormat.Json
+            ? WorkspacePortabilityOutputKinds.PortableDossier
+            : WorkspacePortabilityOutputKinds.NativeWorkspaceXml;
         WorkspacePortabilityNote formatNote = new(
             Code: "format-identity",
             Severity: needsReview
@@ -619,7 +623,7 @@ public sealed class WorkspaceService : IWorkspaceService
         WorkspacePortabilityNote provenanceNote = new(
             Code: "provenance-payload",
             Severity: WorkspacePortabilityNoteSeverities.Info,
-            Summary: $"Import receipt {BuildReceiptId("import", id.Value, payloadSha256)} captured payload hash {payloadSha256[..12]} at {importedAtUtc:O}.");
+            Summary: $"Import receipt {receiptId} captured payload hash {payloadSha256[..12]} at {importedAtUtc:O}.");
 
         return new WorkspacePortabilityReceipt(
             FormatId: document.Format == WorkspaceDocumentFormat.Json
@@ -648,7 +652,68 @@ public sealed class WorkspaceService : IWorkspaceService
                 formatNote,
                 rulesetNote,
                 provenanceNote
-            ]);
+            ],
+            OutputKind: outputKind,
+            Lineage:
+            [
+                new WorkspacePortabilityLineageEntry(
+                    StageId: "import-source",
+                    ArtifactId: $"{document.Format}:{payloadSha256[..12]}",
+                    FormatId: document.Format == WorkspaceDocumentFormat.Json
+                        ? WorkspacePortabilityFormatIds.PortableDossierV1
+                        : WorkspacePortabilityFormatIds.NativeWorkspaceXmlV1,
+                    Summary: $"Imported source payload arrived on the {outputKind} rail."),
+                new WorkspacePortabilityLineageEntry(
+                    StageId: "governed-workspace",
+                    ArtifactId: id.Value,
+                    FormatId: WorkspacePortabilityFormatIds.NativeWorkspaceXmlV1,
+                    Summary: $"{displayName} now lives as governed workspace truth on {rulesetId}.")
+            ],
+            Compatibility: new WorkspacePortabilityCompatibilityReceipt(
+                SourceRulesetId: rulesetId,
+                TargetRulesetId: rulesetId,
+                State: needsReview
+                    ? WorkspacePortabilityCompatibilityStates.CompatibleWithWarnings
+                    : WorkspacePortabilityCompatibilityStates.Compatible,
+                WarningCodes: needsReview ? ["format-review-required"] : [],
+                BlockingCodes: []),
+            Loss: new WorkspacePortabilityLossReceipt(
+                State: needsReview
+                    ? WorkspacePortabilityLossStates.BoundedLoss
+                    : WorkspacePortabilityLossStates.None,
+                Summary: needsReview
+                    ? "Portable import may omit native-only detail until the governed workspace is re-exported."
+                    : "No governed content loss was detected on import.",
+                AffectedSections: needsReview ? ["native-workspace-review"] : []),
+            Provenance: new WorkspacePortabilityProvenanceReceipt(
+                ReceiptId: receiptId,
+                GeneratedAtUtc: importedAtUtc,
+                SourceArtifactId: id.Value,
+                SourceFormatId: document.Format == WorkspaceDocumentFormat.Json
+                    ? WorkspacePortabilityFormatIds.PortableDossierV1
+                    : WorkspacePortabilityFormatIds.NativeWorkspaceXmlV1,
+                PayloadSha256: payloadSha256),
+            PortabilityEnvelope: new WorkspacePortabilityEnvelopeReceipt(
+                OutputKind: outputKind,
+                PortabilityPosture: needsReview
+                    ? WorkspacePortabilityCompatibilityStates.CompatibleWithWarnings
+                    : WorkspacePortabilityCompatibilityStates.Compatible,
+                Summary: needsReview
+                    ? "Inspect-first import posture: use inspect-only semantics before broader governed handoff."
+                    : "Governed workspace posture is portable and ready for standard dossier exchange.",
+                SupportedExchangeModes:
+                [
+                    WorkspacePortabilityExchangeModes.InspectOnly,
+                    WorkspacePortabilityExchangeModes.Merge,
+                    WorkspacePortabilityExchangeModes.Replace
+                ]),
+            Revocation: BuildRevocationReceipt(
+                outputKind,
+                artifactId: id.Value,
+                summary: needsReview
+                    ? "Imported governed workspace stays active but should only supersede downstream artifacts after inspect-first review."
+                    : "Imported governed workspace stays active as the replace-authoritative source for downstream dossier and exchange artifacts.",
+                supersedesArtifactIds: []));
     }
 
     private static WorkspacePortabilityReceipt BuildExportPortabilityReceipt(
@@ -662,9 +727,233 @@ public sealed class WorkspaceService : IWorkspaceService
         string displayName = string.IsNullOrWhiteSpace(bundle.Summary.Name) ? id.Value : bundle.Summary.Name;
         string[] missingSections = GetMissingPortableSections(bundle);
         bool hasWarnings = missingSections.Length > 0;
+        string receiptId = BuildReceiptId("portable", id.Value, payloadSha256);
         string sectionCoverageSummary = hasWarnings
             ? $"Portable package is missing {string.Join(", ", missingSections)}; receiving surfaces should inspect before governed replace."
             : "Portable package keeps profile, progress, attributes, skills, inventory, qualities, and contacts on the same governed receipt.";
+        WorkspacePortabilityCompatibilityReceipt compatibility = new(
+            SourceRulesetId: normalizedRulesetId,
+            TargetRulesetId: normalizedRulesetId,
+            State: hasWarnings
+                ? WorkspacePortabilityCompatibilityStates.CompatibleWithWarnings
+                : WorkspacePortabilityCompatibilityStates.Compatible,
+            WarningCodes: hasWarnings ? ["missing-sections"] : [],
+            BlockingCodes: []);
+        WorkspacePortabilityLossReceipt loss = new(
+            State: hasWarnings
+                ? WorkspacePortabilityLossStates.BoundedLoss
+                : WorkspacePortabilityLossStates.None,
+            Summary: hasWarnings
+                ? $"Portable dossier omitted {string.Join(", ", missingSections)} and needs inspect-only review before governed replace."
+                : "Portable dossier preserved the governed export sections without bounded loss.",
+            AffectedSections: missingSections);
+        WorkspacePortabilityProvenanceReceipt provenance = new(
+            ReceiptId: receiptId,
+            GeneratedAtUtc: exportedAtUtc,
+            SourceArtifactId: id.Value,
+            SourceFormatId: WorkspacePortabilityFormatIds.NativeWorkspaceXmlV1,
+            PayloadSha256: payloadSha256);
+        WorkspacePortabilityEnvelopeReceipt portabilityEnvelope = new(
+            OutputKind: WorkspacePortabilityOutputKinds.PortableDossier,
+            PortabilityPosture: hasWarnings
+                ? WorkspacePortabilityCompatibilityStates.CompatibleWithWarnings
+                : WorkspacePortabilityCompatibilityStates.Compatible,
+            Summary: hasWarnings
+                ? "Inspect-first dossier portability because one or more governed sections are absent from the export."
+                : "Portable dossier package can seed dossier, campaign, replay, recap, and external exchange consumers from one governed receipt.",
+            SupportedExchangeModes:
+            [
+                WorkspacePortabilityExchangeModes.InspectOnly,
+                WorkspacePortabilityExchangeModes.Merge,
+                WorkspacePortabilityExchangeModes.Replace
+            ]);
+        WorkspacePortabilityRevocationReceipt revocation = BuildRevocationReceipt(
+            WorkspacePortabilityOutputKinds.PortableDossier,
+            artifactId: receiptId,
+            summary: hasWarnings
+                ? "Portable dossier package stays revocable and should only supersede downstream artifacts after inspect-first review."
+                : "Portable dossier package stays revocable and can supersede downstream dossier-family artifacts on governed replace.",
+            supersedesArtifactIds:
+            [
+                id.Value
+            ]);
+        WorkspacePortabilityLineageEntry workspaceLineage = new(
+            StageId: "governed-workspace",
+            ArtifactId: id.Value,
+            FormatId: WorkspacePortabilityFormatIds.NativeWorkspaceXmlV1,
+            Summary: $"{displayName} starts from governed workspace truth on {normalizedRulesetId}.");
+        WorkspacePortabilityLineageEntry portablePackageLineage = new(
+            StageId: "portable-package",
+            ArtifactId: receiptId,
+            FormatId: WorkspacePortabilityFormatIds.PortableDossierV1,
+            Summary: $"Portable dossier package is ready for dossier, campaign, replay, recap, and external exchange follow-through.");
+        WorkspacePortabilityRelatedOutputReceipt[] relatedOutputs =
+        [
+            BuildRelatedOutputReceipt(
+                outputKind: WorkspacePortabilityOutputKinds.PortableDossier,
+                workflowId: "workflow.portability.dossier",
+                summary: hasWarnings
+                    ? "Portable dossier handoff stays inspect-first until the missing governed sections are reviewed."
+                    : "Portable dossier handoff stays ready for governed inspect-only, merge, or replace.",
+                stageId: "portable-dossier-output",
+                artifactId: receiptId,
+                formatId: WorkspacePortabilityFormatIds.PortableDossierV1,
+                lineageSummary: "Portable dossier output remains the canonical handoff package for governed character exchange.",
+                governedSourceArtifactId: id.Value,
+                governedSourceFormatId: WorkspacePortabilityFormatIds.NativeWorkspaceXmlV1,
+                parentArtifactId: receiptId,
+                parentFormatId: WorkspacePortabilityFormatIds.PortableDossierV1,
+                compatibility: compatibility,
+                loss: loss,
+                provenance: provenance,
+                revocation: revocation,
+                supportedExchangeModes: portabilityEnvelope.SupportedExchangeModes),
+            BuildRelatedOutputReceipt(
+                outputKind: WorkspacePortabilityOutputKinds.CampaignBundle,
+                workflowId: "workflow.campaign.bundle",
+                summary: hasWarnings
+                    ? "Campaign federation should stay inspect-first until receiving surfaces confirm the omitted governed sections."
+                    : "Campaign federation can consume the portable dossier without inventing a separate campaign portability schema.",
+                stageId: "campaign-bundle-output",
+                artifactId: $"{receiptId}:campaign",
+                formatId: WorkspacePortabilityFormatIds.CampaignBundleV1,
+                lineageSummary: "Campaign bundle posture derives from the governed portable dossier receipt instead of a campaign-local export heuristic.",
+                governedSourceArtifactId: id.Value,
+                governedSourceFormatId: WorkspacePortabilityFormatIds.NativeWorkspaceXmlV1,
+                parentArtifactId: receiptId,
+                parentFormatId: WorkspacePortabilityFormatIds.PortableDossierV1,
+                compatibility: compatibility,
+                loss: loss,
+                provenance: provenance with
+                {
+                    ReceiptId = $"{receiptId}:campaign",
+                    SourceArtifactId = receiptId,
+                    SourceFormatId = WorkspacePortabilityFormatIds.PortableDossierV1
+                },
+                revocation: BuildRevocationReceipt(
+                    WorkspacePortabilityOutputKinds.CampaignBundle,
+                    artifactId: $"{receiptId}:campaign",
+                    summary: hasWarnings
+                        ? "Campaign bundle artifacts stay revocable and should only supersede downstream campaign copies after inspect-first review."
+                        : "Campaign bundle artifacts stay revocable and can supersede older campaign-bundle siblings without mutating canonical campaign truth.",
+                    supersedesArtifactIds:
+                    [
+                        receiptId
+                    ]),
+                supportedExchangeModes: portabilityEnvelope.SupportedExchangeModes),
+            BuildRelatedOutputReceipt(
+                outputKind: WorkspacePortabilityOutputKinds.ReplayTimeline,
+                workflowId: "workflow.replay.timeline",
+                summary: hasWarnings
+                    ? "Replay timelines should open inspect-first because omitted dossier sections may weaken governed replay context."
+                    : "Replay timelines can reuse the governed portable dossier receipt without losing lineage or portability posture.",
+                stageId: "replay-timeline-output",
+                artifactId: $"{receiptId}:replay",
+                formatId: WorkspacePortabilityFormatIds.ReplayTimelineV1,
+                lineageSummary: "Replay timeline posture stays pinned to the portable dossier receipt so replay exports inherit governed lineage and loss truth.",
+                governedSourceArtifactId: id.Value,
+                governedSourceFormatId: WorkspacePortabilityFormatIds.NativeWorkspaceXmlV1,
+                parentArtifactId: receiptId,
+                parentFormatId: WorkspacePortabilityFormatIds.PortableDossierV1,
+                compatibility: compatibility,
+                loss: loss,
+                provenance: provenance with
+                {
+                    ReceiptId = $"{receiptId}:replay",
+                    SourceArtifactId = receiptId,
+                    SourceFormatId = WorkspacePortabilityFormatIds.PortableDossierV1
+                },
+                revocation: BuildRevocationReceipt(
+                    WorkspacePortabilityOutputKinds.ReplayTimeline,
+                    artifactId: $"{receiptId}:replay",
+                    summary: hasWarnings
+                        ? "Replay timelines stay revocable and should not replace downstream replay artifacts until inspect-first review clears bounded loss."
+                        : "Replay timelines stay revocable and can supersede older replay-timeline siblings without changing canonical rules truth.",
+                    supersedesArtifactIds:
+                    [
+                        receiptId
+                    ]),
+                supportedExchangeModes:
+                [
+                    WorkspacePortabilityExchangeModes.InspectOnly,
+                    WorkspacePortabilityExchangeModes.Merge
+                ]),
+            BuildRelatedOutputReceipt(
+                outputKind: WorkspacePortabilityOutputKinds.SessionRecap,
+                workflowId: "workflow.recap.session",
+                summary: hasWarnings
+                    ? "Session recap payloads should stay inspect-first until the receiving surface confirms the omitted governed sections."
+                    : "Session recap payloads can publish from the same governed receipt family as dossier export.",
+                stageId: "session-recap-output",
+                artifactId: $"{receiptId}:recap",
+                formatId: WorkspacePortabilityFormatIds.SessionRecapV1,
+                lineageSummary: "Session recap posture inherits governed dossier lineage instead of synthesizing recap-local compatibility or loss truth.",
+                governedSourceArtifactId: id.Value,
+                governedSourceFormatId: WorkspacePortabilityFormatIds.NativeWorkspaceXmlV1,
+                parentArtifactId: receiptId,
+                parentFormatId: WorkspacePortabilityFormatIds.PortableDossierV1,
+                compatibility: compatibility,
+                loss: loss,
+                provenance: provenance with
+                {
+                    ReceiptId = $"{receiptId}:recap",
+                    SourceArtifactId = receiptId,
+                    SourceFormatId = WorkspacePortabilityFormatIds.PortableDossierV1
+                },
+                revocation: BuildRevocationReceipt(
+                    WorkspacePortabilityOutputKinds.SessionRecap,
+                    artifactId: $"{receiptId}:recap",
+                    summary: hasWarnings
+                        ? "Session recap artifacts stay revocable and should only supersede downstream recap copies after inspect-first review."
+                        : "Session recap artifacts stay revocable and can supersede older recap siblings without mutating canonical campaign truth.",
+                    supersedesArtifactIds:
+                    [
+                        receiptId
+                    ]),
+                supportedExchangeModes:
+                [
+                    WorkspacePortabilityExchangeModes.InspectOnly,
+                    WorkspacePortabilityExchangeModes.Merge
+                ]),
+            BuildRelatedOutputReceipt(
+                outputKind: WorkspacePortabilityOutputKinds.ExternalExchange,
+                workflowId: "workflow.exchange.external",
+                summary: hasWarnings
+                    ? "External exchange consumers should inspect-first before replace because bounded-loss posture is already present in the governed dossier receipt."
+                    : "External exchange consumers can inherit governed compatibility, provenance, and portability posture directly from the dossier receipt.",
+                stageId: "external-exchange-output",
+                artifactId: $"{receiptId}:external",
+                formatId: WorkspacePortabilityFormatIds.ExternalExchangeV1,
+                lineageSummary: "External exchange posture stays downstream of the governed dossier receipt instead of mutating canonical campaign or rules truth.",
+                governedSourceArtifactId: id.Value,
+                governedSourceFormatId: WorkspacePortabilityFormatIds.NativeWorkspaceXmlV1,
+                parentArtifactId: receiptId,
+                parentFormatId: WorkspacePortabilityFormatIds.PortableDossierV1,
+                compatibility: compatibility,
+                loss: loss,
+                provenance: provenance with
+                {
+                    ReceiptId = $"{receiptId}:external",
+                    SourceArtifactId = receiptId,
+                    SourceFormatId = WorkspacePortabilityFormatIds.PortableDossierV1
+                },
+                revocation: BuildRevocationReceipt(
+                    WorkspacePortabilityOutputKinds.ExternalExchange,
+                    artifactId: $"{receiptId}:external",
+                    summary: hasWarnings
+                        ? "External exchange artifacts stay revocable and should only supersede downstream exchange copies after inspect-first review."
+                        : "External exchange artifacts stay revocable and can supersede older exchange siblings without mutating canonical publication truth.",
+                    supersedesArtifactIds:
+                    [
+                        receiptId
+                    ]),
+                supportedExchangeModes:
+                [
+                    WorkspacePortabilityExchangeModes.InspectOnly,
+                    WorkspacePortabilityExchangeModes.Merge,
+                    WorkspacePortabilityExchangeModes.Replace
+                ])
+        ];
 
         return new WorkspacePortabilityReceipt(
             FormatId: WorkspacePortabilityFormatIds.PortableDossierV1,
@@ -675,7 +964,7 @@ public sealed class WorkspaceService : IWorkspaceService
             ReceiptSummary: hasWarnings
                 ? "Portable export is ready, but inspect the package before merge or governed replace on a receiving surface."
                 : "Portable export is ready for inspect-only, merge, or governed replace on a receiving surface.",
-            ProvenanceSummary: $"Portable package {BuildReceiptId("portable", id.Value, payloadSha256)} captured payload hash {payloadSha256[..12]} from workspace {id.Value} at {exportedAtUtc:O}.",
+            ProvenanceSummary: $"Portable package {receiptId} captured payload hash {payloadSha256[..12]} from workspace {id.Value} at {exportedAtUtc:O}.",
             PayloadSha256: payloadSha256,
             NextSafeAction: hasWarnings
                 ? "Open inspect-only first on the receiving surface and verify the missing sections before merge or replace."
@@ -702,7 +991,83 @@ public sealed class WorkspaceService : IWorkspaceService
                     Code: "provenance-payload",
                     Severity: WorkspacePortabilityNoteSeverities.Info,
                     Summary: $"Workspace {id.Value} export captured payload hash {payloadSha256[..12]} at {exportedAtUtc:O}.")
-            ]);
+            ],
+            OutputKind: WorkspacePortabilityOutputKinds.PortableDossier,
+            Lineage: [workspaceLineage, portablePackageLineage],
+            Compatibility: compatibility,
+            Loss: loss,
+            Provenance: provenance,
+            PortabilityEnvelope: portabilityEnvelope,
+            Revocation: revocation,
+            RelatedOutputs: relatedOutputs);
+    }
+
+    private static WorkspacePortabilityRelatedOutputReceipt BuildRelatedOutputReceipt(
+        string outputKind,
+        string workflowId,
+        string summary,
+        string stageId,
+        string artifactId,
+        string formatId,
+        string lineageSummary,
+        string governedSourceArtifactId,
+        string governedSourceFormatId,
+        string parentArtifactId,
+        string parentFormatId,
+        WorkspacePortabilityCompatibilityReceipt compatibility,
+        WorkspacePortabilityLossReceipt loss,
+        WorkspacePortabilityProvenanceReceipt provenance,
+        WorkspacePortabilityRevocationReceipt revocation,
+        IReadOnlyList<string> supportedExchangeModes)
+    {
+        WorkspacePortabilityLineageEntry[] lineage =
+        [
+            new(
+                StageId: "governed-workspace",
+                ArtifactId: governedSourceArtifactId,
+                FormatId: governedSourceFormatId,
+                Summary: $"Governed workspace {governedSourceArtifactId} remains the canonical source artifact."),
+            new(
+                StageId: "portable-package",
+                ArtifactId: parentArtifactId,
+                FormatId: parentFormatId,
+                Summary: "Portable dossier package holds the canonical governed exchange payload."),
+            new(
+                StageId: stageId,
+                ArtifactId: artifactId,
+                FormatId: formatId,
+                Summary: lineageSummary)
+        ];
+
+        return new WorkspacePortabilityRelatedOutputReceipt(
+            OutputKind: outputKind,
+            WorkflowId: workflowId,
+            Summary: summary,
+            Lineage: lineage,
+            Compatibility: compatibility,
+            Loss: loss,
+            Provenance: provenance,
+            PortabilityEnvelope: new WorkspacePortabilityEnvelopeReceipt(
+                OutputKind: outputKind,
+                PortabilityPosture: compatibility.State,
+                Summary: summary,
+                SupportedExchangeModes: supportedExchangeModes),
+            Revocation: revocation);
+    }
+
+    private static WorkspacePortabilityRevocationReceipt BuildRevocationReceipt(
+        string outputKind,
+        string artifactId,
+        string summary,
+        IReadOnlyList<string> supersedesArtifactIds)
+    {
+        return new WorkspacePortabilityRevocationReceipt(
+            State: WorkspacePortabilityRevocationStates.Revocable,
+            FamilyId: $"workspace-portability:{outputKind}",
+            ArtifactId: artifactId,
+            Scope: "governed-replace",
+            Summary: summary,
+            SupersedesArtifactIds: supersedesArtifactIds);
     }
 
     private static string[] GetMissingPortableSections(DataExportBundle bundle)

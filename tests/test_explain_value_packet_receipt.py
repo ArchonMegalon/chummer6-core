@@ -12,12 +12,12 @@ from typing import Any
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-GENERATOR_PATH = REPO_ROOT / "scripts" / "verify-opposition-packet-contracts.py"
-CHECKED_IN_RECEIPT_PATH = REPO_ROOT / ".codex-studio" / "published" / "OPPOSITION_PACKET_CONTRACTS.generated.json"
+GENERATOR_PATH = REPO_ROOT / "scripts" / "verify-explain-value-packets.py"
+CHECKED_IN_RECEIPT_PATH = REPO_ROOT / ".codex-studio" / "published" / "EXPLAIN_VALUE_PACKETS.generated.json"
 
 
 def load_generator() -> Any:
-    spec = importlib.util.spec_from_file_location("verify_opposition_packet_contracts", GENERATOR_PATH)
+    spec = importlib.util.spec_from_file_location("verify_explain_value_packets", GENERATOR_PATH)
     if spec is None or spec.loader is None:
         raise RuntimeError(f"Unable to load generator from {GENERATOR_PATH}")
     module = importlib.util.module_from_spec(spec)
@@ -32,11 +32,11 @@ def without_generated_at(payload: dict[str, Any]) -> dict[str, Any]:
     return comparable
 
 
-class OppositionPacketContractReceiptTests(unittest.TestCase):
+class ExplainValuePacketReceiptTests(unittest.TestCase):
     def setUp(self) -> None:
         self.generator = load_generator()
         self.temp_dir = tempfile.TemporaryDirectory()
-        self.output_path = Path(self.temp_dir.name) / "OPPOSITION_PACKET_CONTRACTS.generated.json"
+        self.output_path = Path(self.temp_dir.name) / "EXPLAIN_VALUE_PACKETS.generated.json"
 
     def tearDown(self) -> None:
         self.temp_dir.cleanup()
@@ -45,34 +45,40 @@ class OppositionPacketContractReceiptTests(unittest.TestCase):
         payload = self.generator.build_payload(REPO_ROOT, self.output_path)
 
         self.assertEqual("passed", payload["status"])
-        self.assertEqual("next90-m113-core-opposition-packet-contracts", payload["package_id"])
-        self.assertEqual(2325506990, payload["frontier_id"])
-        self.assertEqual(113, payload["milestone_id"])
-        self.assertEqual("113.2", payload["work_task_id"])
-        self.assertEqual(["gm_prep_packets", "opposition_contracts"], payload["owned_surfaces"])
+        self.assertEqual("next90-m145-core-explain-every-value-packets", payload["package_id"])
+        self.assertEqual(1451045101, payload["frontier_id"])
+        self.assertEqual(145, payload["milestone_id"])
+        self.assertEqual(["explain_every_value_packets", "counterfactual_explain:core"], payload["owned_surfaces"])
         self.assertEqual(["src", "tests", "docs", "scripts"], payload["allowed_paths"])
         self.assertEqual(
-            "/docker/chummercomplete/chummer-core-engine/.codex-studio/published/OPPOSITION_PACKET_CONTRACTS.generated.json",
+            "/docker/chummercomplete/chummer-core-engine/.codex-studio/published/EXPLAIN_VALUE_PACKETS.generated.json",
             payload["published_receipt_path"],
         )
-        self.assertEqual(7, payload["proof_anchor_count"])
-        self.assertEqual(3, payload["authority_anchor_count"])
+        self.assertEqual(6, payload["proof_anchor_count"])
+        self.assertEqual(2, payload["authority_anchor_count"])
         self.assertEqual([], payload["unresolved"]["missing_files"])
         self.assertEqual({}, payload["unresolved"]["snippet_failures"])
         self.assertEqual(
             [
-                "CHUMMER_CORE_ENGINE_TEST_FILTER=opposition-packet-contracts dotnet run --project Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj",
-                "python3 tests/test_opposition_packet_contract_receipt.py",
-                "python3 scripts/verify-opposition-packet-contracts.py --repo-root . --out .codex-studio/published/OPPOSITION_PACKET_CONTRACTS.generated.json",
+                "CHUMMER_CORE_ENGINE_TEST_FILTER=explain-value-packets dotnet run --project Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj -m:1 -p:UseSharedCompilation=false",
+                "python3 tests/test_explain_value_packet_receipt.py",
+                "python3 scripts/verify-explain-value-packets.py --repo-root . --out .codex-studio/published/EXPLAIN_VALUE_PACKETS.generated.json",
             ],
             payload["verification_commands"],
         )
-        self.assertEqual("broken-pack", payload["seeded_examples"]["review_required_pack_id"])
-        self.assertEqual("broken-scene", payload["seeded_examples"]["review_required_scene_id"])
-        self.assertEqual("runtime-unbound-guard", payload["seeded_examples"]["runtime_unbound_entry_id"])
-        self.assertEqual(["packet_receipt_context", "packet_stat_aggregation"], payload["contract_extensions"])
-        self.assertEqual("complete", payload["authority_expectations"]["queue_status"])
-        self.assertEqual("complete", payload["authority_expectations"]["design_queue_status"])
+        self.assertEqual(
+            [
+                "mechanical-result",
+                "legality-state",
+                "warning",
+                "before-after-delta",
+                "counterfactual",
+                "source-anchor",
+            ],
+            payload["coverage_registry_kinds"],
+        )
+        self.assertEqual(["why", "why-not", "what-if"], payload["counterfactual_outcome_kinds"])
+        self.assertEqual(3, payload["bounded_counterfactual_limit"])
         self.assertTrue(
             all(file_row["status"] == "passed" and file_row["digest"].startswith("sha256:") for file_row in payload["proof_files"]),
         )
@@ -160,3 +166,7 @@ class OppositionPacketContractReceiptTests(unittest.TestCase):
         self.assertEqual("", check_result.stderr)
         self.assertEqual(1, check_result.returncode)
         self.assertIn("checked-in receipt is stale", check_result.stdout)
+
+
+if __name__ == "__main__":
+    unittest.main()

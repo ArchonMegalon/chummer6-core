@@ -1,6 +1,7 @@
 using Chummer.Application.Characters;
 using Chummer.Application.AI;
 using Chummer.Application.BuildLab;
+using Chummer.Application.Campaign;
 using Chummer.Application.Content;
 using Chummer.Application.Explain;
 using Chummer.Application.Hub;
@@ -59,6 +60,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IBuildIdeaCardCatalogService, DefaultBuildIdeaCardCatalogService>();
         services.AddSingleton<IAiDigestService, DefaultAiDigestService>();
         services.AddSingleton<IAiExplainService, DefaultAiExplainService>();
+        services.AddSingleton<IExplainValuePacketService, DefaultExplainValuePacketService>();
         services.AddSingleton<ICalculationReportService, DefaultCalculationReportService>();
         services.AddSingleton<IAiPortraitPromptService, DefaultAiPortraitPromptService>();
         services.AddSingleton<IAiHistoryDraftService, DefaultAiHistoryDraftService>();
@@ -96,6 +98,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IContentOverlayCatalogService>(overlays);
         services.AddSingleton<IBuildKitRegistryService, DefaultBuildKitRegistryService>();
         services.AddSingleton<INpcVaultRegistryService, DefaultNpcVaultRegistryService>();
+        services.AddSingleton<IOppositionPacketContractService, DefaultOppositionPacketContractService>();
         services.AddSingleton<IRulePackManifestStore>(_ => new FileRulePackManifestStore(stateDirectory));
         services.AddSingleton<IRulePackInstallHistoryStore>(_ => new FileRulePackInstallHistoryStore(stateDirectory));
         services.AddSingleton<IRulePackInstallStateStore>(_ => new FileRulePackInstallStateStore(stateDirectory));
@@ -110,6 +113,8 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IRuleProfileRegistryService, DefaultRuleProfileRegistryService>();
         services.AddSingleton<IRuleProfileApplicationService, DefaultRuleProfileApplicationService>();
         services.AddSingleton<IRuntimeInspectorService, DefaultRuntimeInspectorService>();
+        services.AddSingleton<IRuntimeLockDiffService, DefaultRuntimeLockDiffService>();
+        services.AddSingleton<IRuleEnvironmentStudioService, DefaultRuleEnvironmentStudioService>();
         services.AddSingleton<IActiveRuntimeStatusService, DefaultActiveRuntimeStatusService>();
         services.AddSingleton<IRuntimeLockInstallHistoryStore>(_ => new FileRuntimeLockInstallHistoryStore(stateDirectory));
         services.AddSingleton<IRuntimeLockStore>(_ => new FileRuntimeLockStore(stateDirectory));

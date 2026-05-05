@@ -19,7 +19,14 @@ It would also handle bad signals and device handoffs honestly: clear offline sta
 ## Tool posture
 
 No external tool is required for the canonical core of this horizon.
-If projections or operator aids appear later, they remain downstream helpers only.
+If bounded helper lanes appear later, they remain downstream only.
+
+* `Emailit` - reconnect, relink, or continuity notices after Hub decides they should exist
+* `Documentation.AI` - recovery, relink, and continuity help projection from approved source truth
+* `PeekShot` - share-safe continuity receipts and reconnect proof cards
+* `BrowserAct` - operator capture and repro support for broken reconnect or device-handoff flows
+
+None of those tools may own session state, reconnect authority, or conflict resolution truth.
 
 ## What has to be true first
 

@@ -13,13 +13,14 @@ from typing import Any
 PACKAGE_ID = "next90-m113-core-opposition-packet-contracts"
 FRONTIER_ID = 2325506990
 MILESTONE_ID = 113
+WORK_TASK_ID = "113.2"
 TITLE = "Define opposition and scene packet contracts with rules-backed stats"
 TASK = "Define opposition and scene packet contracts with rules-backed stats and bounded-loss receipts."
 OWNED_SURFACES = ["gm_prep_packets", "opposition_contracts"]
 ALLOWED_PATHS = ["src", "tests", "docs", "scripts"]
 PACKAGE_REPO = "chummer6-core"
 PACKAGE_REPO_ROOT = "/docker/chummercomplete/chummer-core-engine"
-PUBLISHED_RECEIPT_PATH = "/docker/chummercomplete/chummer6-core/.codex-studio/published/OPPOSITION_PACKET_CONTRACTS.generated.json"
+PUBLISHED_RECEIPT_PATH = "/docker/chummercomplete/chummer-core-engine/.codex-studio/published/OPPOSITION_PACKET_CONTRACTS.generated.json"
 DEFAULT_OUTPUT_RELATIVE_PATH = Path(".codex-studio") / "published" / "OPPOSITION_PACKET_CONTRACTS.generated.json"
 
 REQUIRED_FILES = {
@@ -30,6 +31,47 @@ REQUIRED_FILES = {
     "test_program": Path("Chummer.CoreEngine.Tests/Program.cs"),
     "service_registration": Path("Chummer.Infrastructure/DependencyInjection/ServiceCollectionExtensions.cs"),
     "docs": Path("docs/OPPOSITION_PACKET_CONTRACTS.md"),
+}
+
+AUTHORITY_FILES = {
+    "successor_registry": (
+        Path("/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml"),
+        [
+            "  - id: 113",
+            "    title: Crew, roster, opposition packets, and GM prep library",
+            "      - id: 113.2",
+            "        owner: chummer6-core",
+            "        title: Define opposition and scene packet contracts with rules-backed stats and bounded-loss receipts.",
+        ],
+    ),
+    "successor_queue": (
+        Path("/docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml"),
+        [
+            "- title: Define opposition and scene packet contracts with rules-backed stats",
+            "  task: Define opposition and scene packet contracts with rules-backed stats and bounded-loss receipts.",
+            f"  package_id: {PACKAGE_ID}",
+            f"  work_task_id: {WORK_TASK_ID}",
+            "  milestone_id: 113",
+            "  status: complete",
+            "  repo: chummer6-core",
+            "  - gm_prep_packets",
+            "  - opposition_contracts",
+        ],
+    ),
+    "design_successor_queue": (
+        Path("/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_QUEUE_STAGING.generated.yaml"),
+        [
+            "- title: Define opposition and scene packet contracts with rules-backed stats",
+            "  task: Define opposition and scene packet contracts with rules-backed stats and bounded-loss receipts.",
+            f"  package_id: {PACKAGE_ID}",
+            f"  work_task_id: {WORK_TASK_ID}",
+            "  milestone_id: 113",
+            "  status: complete",
+            "  repo: chummer6-core",
+            "  - gm_prep_packets",
+            "  - opposition_contracts",
+        ],
+    ),
 }
 
 REQUIRED_SNIPPETS = {
@@ -61,6 +103,7 @@ REQUIRED_SNIPPETS = {
         'service.GetScenePacket(OwnerScope.LocalSingleUser, "renraku-checkpoint", RulesetDefaults.Sr5)',
         "GmPrepPacketBoundedLossPostures.ReviewRequired",
         "runtime-fingerprint-missing",
+        "runtime-fingerprint-mixed",
         "missing-entry:missing-scout",
         "PacketStats.Any",
         "RuntimeBoundStatCount",
@@ -76,7 +119,7 @@ REQUIRED_SNIPPETS = {
         PACKAGE_ID,
         str(FRONTIER_ID),
         "python3 tests/test_opposition_packet_contract_receipt.py",
-        "dotnet run --project Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj --no-restore",
+        "CHUMMER_CORE_ENGINE_TEST_FILTER=opposition-packet-contracts dotnet run --project Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj",
         "python3 scripts/verify-opposition-packet-contracts.py --repo-root . --out .codex-studio/published/OPPOSITION_PACKET_CONTRACTS.generated.json",
         "packet-level peak stats",
         "receipt context",
@@ -127,12 +170,34 @@ def inspect_file(repo_root: Path, key: str, relative_path: Path) -> ProofFileSta
     )
 
 
+def inspect_authority_file(key: str, path: Path, required_snippets: list[str]) -> ProofFileStatus:
+    if not path.exists():
+        return ProofFileStatus(key, path, False, None, required_snippets)
+
+    content = read_text(path)
+    missing_snippets = [snippet for snippet in required_snippets if snippet not in content]
+    digest_source = content if missing_snippets else "\n".join(required_snippets)
+    return ProofFileStatus(
+        key=key,
+        relative_path=path,
+        exists=True,
+        digest=sha256_digest(digest_source),
+        missing_snippets=missing_snippets,
+    )
+
+
 def build_payload(repo_root: Path, out_path: Path) -> dict[str, Any]:
     proof_files = [inspect_file(repo_root, key, path) for key, path in REQUIRED_FILES.items()]
-    missing_files = [status.key for status in proof_files if not status.exists]
+    authority_files = [
+        inspect_authority_file(key, path, snippets)
+        for key, (path, snippets) in AUTHORITY_FILES.items()
+    ]
+
+    all_files = proof_files + authority_files
+    missing_files = [status.key for status in all_files if not status.exists]
     snippet_failures = {
         status.key: status.missing_snippets
-        for status in proof_files
+        for status in all_files
         if status.exists and status.missing_snippets
     }
     passed = not missing_files and not snippet_failures
@@ -143,6 +208,7 @@ def build_payload(repo_root: Path, out_path: Path) -> dict[str, Any]:
         "package_id": PACKAGE_ID,
         "frontier_id": FRONTIER_ID,
         "milestone_id": MILESTONE_ID,
+        "work_task_id": WORK_TASK_ID,
         "title": TITLE,
         "task": TASK,
         "repo": PACKAGE_REPO,
@@ -152,9 +218,11 @@ def build_payload(repo_root: Path, out_path: Path) -> dict[str, Any]:
         "published_receipt_path": PUBLISHED_RECEIPT_PATH,
         "receipt_path": str(out_path),
         "proof_anchor_count": len(proof_files),
+        "authority_anchor_count": len(authority_files),
         "proof_files": [status.to_json() for status in proof_files],
+        "authority_files": [status.to_json() for status in authority_files],
         "verification_commands": [
-            "dotnet run --project Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj --no-restore",
+            "CHUMMER_CORE_ENGINE_TEST_FILTER=opposition-packet-contracts dotnet run --project Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj",
             "python3 tests/test_opposition_packet_contract_receipt.py",
             "python3 scripts/verify-opposition-packet-contracts.py --repo-root . --out .codex-studio/published/OPPOSITION_PACKET_CONTRACTS.generated.json",
         ],
@@ -162,6 +230,12 @@ def build_payload(repo_root: Path, out_path: Path) -> dict[str, Any]:
             "packet_receipt_context",
             "packet_stat_aggregation",
         ],
+        "authority_expectations": {
+            "queue_status": "complete",
+            "design_queue_status": "complete",
+            "allowed_paths": ALLOWED_PATHS,
+            "owned_surfaces": OWNED_SURFACES,
+        },
         "seeded_examples": {
             "entry_packet_id": "red-samurai",
             "pack_packet_id": "renraku-security",

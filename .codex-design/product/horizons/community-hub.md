@@ -39,8 +39,21 @@ The public fantasy is:
 
 ## Tool posture
 
-Bounded scheduling, intake, and publication tooling may help with discovery, booking, and weekly honors.
-Meeting tools and observer tools stay projection or assistance lanes only.
+COMMUNITY HUB profits from intake, scheduling, review, and closeout tooling, but accepted roster and run truth remain first-party.
+
+* `Deftform` - structured intake and application preflight support
+* `Lunacal` - booking and human-escalation lane
+* `MetaSurvey` - follow-up and network-signal collection
+* `Teable` - operator review-board and AdminIntent workbench
+* `NextStep` - governed queue and closeout runbook execution
+* `ApproveThis` - bounded approval edge for operator or guest signoff
+* `Emailit` - invite, reminder, decision, and closeout delivery after Hub decides the message should exist
+* bounded `FacePop` and `Signitic` - public-entry and passive recruitment lanes only
+* bounded `vidBoard` and `Taja` - approved onboarding, honors, and recap media only
+* bounded `hedy.ai`, `Nonverbia`, and `BrowserAct` - consent-gated observer, debrief, and capture helpers only
+
+Meeting tools and play surfaces stay projection or handoff lanes only.
+They do not become run, roster, consent, or consequence truth.
 
 ## What has to be true first
 

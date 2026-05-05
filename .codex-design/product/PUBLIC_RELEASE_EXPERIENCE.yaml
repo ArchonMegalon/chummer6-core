@@ -11,8 +11,7 @@ flagship_claim_summary: Flagship wording is reserved for surfaces that currently
 flagship_grade_summary: A public release is only truly ready when downloads, install/update help, recovery, support, and the product surfaces behind them feel like one premium, honest product rather than a technically functional preview bundle.
 flagship_acceptance_source: FLAGSHIP_RELEASE_ACCEPTANCE.yaml
 desktop_flagship_head: Chummer.Avalonia
-desktop_fallback_head: Chummer.Blazor.Desktop
-desktop_cut_summary: The current desktop wave treats Avalonia as the primary desktop preview head, keeps Blazor Desktop as the bounded compatibility fallback only while Avalonia remains the promoted primary route, and reserves flagship wording for lanes that independently satisfy flagship acceptance.
+desktop_cut_summary: The current desktop wave treats Avalonia as the primary desktop preview head, ships one clear desktop route on the public shelf, and reserves flagship wording for lanes that independently satisfy flagship acceptance.
 supported_locale_targets:
   - en-US
   - de-DE
@@ -30,8 +29,8 @@ flagship_release_rules:
   - The shelf must present one obvious primary download path per supported platform.
   - Every official client download or install handoff must start from chummer.run and resolve through registry-backed release truth.
   - GitHub releases, GitHub Actions artifacts, repo attachments, and repo-hosted binary shelves must not be used as public client download sources.
-  - Avalonia is the flagship desktop head. Blazor Desktop is only a compatibility fallback when the platform matrix and release copy both say so.
-  - If Blazor Desktop is the only visible desktop head for a lane or the recommended download, the release page must treat it as the flagship route and require flagship proof rather than fallback proof.
+  - Avalonia is the current desktop head on the public shelf.
+  - If a second desktop head is published later, the release page must label it as secondary until it earns direct flagship proof for the promised scope.
   - Public proof shelf wording is limited to posted files, recent checks, and inspectable trails; it must not imply that all current product surfaces are flagship-ready.
   - Public proof shelf wording must stay subordinate to the posted install shelf for each platform; proof cards and explainer bundles cannot outrank the actual download route.
   - Public proof shelf wording must also stay subordinate to the recommended install route when artifact-factory packets, captions, previews, or packet-detail pages are visible on the same public surface.
