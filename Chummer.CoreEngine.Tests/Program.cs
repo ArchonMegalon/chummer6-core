@@ -63,6 +63,13 @@ internal static class CoreEngineTests
                 return 0;
             }
 
+            if (string.Equals(filter, "parity-m143", StringComparison.OrdinalIgnoreCase))
+            {
+                ExportPrintSupplementAndRuleEnvironmentReceiptsStayDeterministic();
+                Console.WriteLine("core-engine-tests: ok");
+                return 0;
+            }
+
             CapabilityDescriptorsEmitLocalizationKeys();
             Sr4RulesetExecutesDeterministicCapabilities();
             Sr5RulesetExecutesDeterministicCapabilities();
@@ -109,6 +116,7 @@ internal static class CoreEngineTests
             EngineProofPackReceiptCoversRequiredOracleSuitesAndBudgets();
             MasterIndexDeterministicReceiptsStayBoundToParityTargets();
             DenseWorkbenchAndWorkflowReceiptsStayDeterministic();
+            ExportPrintSupplementAndRuleEnvironmentReceiptsStayDeterministic();
             BuildLabCreateSurfaceIsExposedAcrossRulesets();
             Sr4AndSr6CodecsExposeBuildLabSections();
             ContentInstallPreviewsEmitLocalizationKeys();
@@ -3056,6 +3064,79 @@ internal static class CoreEngineTests
         AssertEx.NotNull(print.Value?.WorkflowDeterministicReceipt, "Workspace print flows should emit workflow-state deterministic receipts.");
 
         AssertEx.True(workspaceService.Close(imported.Id), "The SR5 parity fixture workspace should close cleanly after workflow-state receipt verification.");
+    }
+
+    private static void ExportPrintSupplementAndRuleEnvironmentReceiptsStayDeterministic()
+    {
+        XmlToolCatalogService toolCatalogService = new(GetRepositoryRoot());
+        MasterIndexResponse masterIndex = toolCatalogService.GetMasterIndex();
+
+        AssertEx.NotNull(masterIndex.Sr6SuccessorDeterministicReceipt, "Master index should emit deterministic successor-lane receipts.");
+        AssertEx.Equal(
+            "family:sr6_supplements_designers_and_house_rules",
+            masterIndex.Sr6SuccessorDeterministicReceipt!.ParityFamilyId,
+            "Successor-lane deterministic receipts should stay bound to the SR6 supplements/designers/house-rules parity family.");
+        AssertEx.Equal(
+            masterIndex.Sr6SupplementLanePosture,
+            masterIndex.Sr6SuccessorDeterministicReceipt.Sr6SupplementLanePosture,
+            "Successor-lane deterministic receipts should mirror the supplement posture published by the master index.");
+        AssertEx.Equal(
+            masterIndex.Sr6SuccessorLaneReceipt,
+            masterIndex.Sr6SuccessorDeterministicReceipt.Sr6SuccessorLaneReceipt,
+            "Successor-lane deterministic receipts should mirror the published successor summary receipt.");
+        AssertEx.Equal(
+            masterIndex.OnlineStorageCoveragePercent,
+            masterIndex.Sr6SuccessorDeterministicReceipt.OnlineStorageCoveragePercent,
+            "Successor-lane deterministic receipts should mirror the online-storage coverage percentage.");
+
+        string xml = File.ReadAllText(Path.Combine(GetLegacyFixtureDirectory(), "Gentle Earthquake.chum5"));
+        ICharacterFileQueries fileQueries = new XmlCharacterFileQueries(new CharacterFileService());
+        ICharacterSectionQueries sectionQueries = new XmlCharacterSectionQueries(new CharacterSectionService());
+        ICharacterMetadataCommands metadataCommands = new XmlCharacterMetadataCommands(new CharacterFileService());
+        WorkspaceService workspaceService = new(
+            new InMemoryWorkspaceStore(),
+            new RulesetWorkspaceCodecResolver(
+            [
+                new Sr5WorkspaceCodec(fileQueries, sectionQueries, metadataCommands),
+                new Sr4WorkspaceCodec(),
+                new Sr6WorkspaceCodec()
+            ]),
+            new WorkspaceImportRulesetDetector());
+
+        WorkspaceImportResult imported = workspaceService.Import(new WorkspaceImportDocument(
+            xml,
+            string.Empty,
+            WorkspaceDocumentFormat.NativeXml));
+
+        CommandResult<WorkspaceExportReceipt> export = workspaceService.Export(imported.Id);
+        AssertEx.True(export.Success, "Workspace exports should succeed for the governed SR5 parity fixture.");
+        AssertEx.NotNull(export.Value?.ExchangeDeterministicReceipt, "Workspace exports should emit deterministic exchange receipts.");
+        AssertEx.Equal(
+            "family:sheet_export_print_viewer_and_exchange",
+            export.Value!.ExchangeDeterministicReceipt!.ParityFamilyId,
+            "Workspace export exchange receipts should stay bound to the export/print/viewer parity family.");
+        AssertEx.Equal(
+            "governed",
+            export.Value.ExchangeDeterministicReceipt.RuleEnvironmentPosture,
+            "Workspace export exchange receipts should keep the governed rule-environment posture from the checked-in SR5 fixture.");
+
+        CommandResult<WorkspacePrintReceipt> print = workspaceService.Print(imported.Id);
+        AssertEx.True(print.Success, "Workspace print flows should succeed for the governed SR5 parity fixture.");
+        AssertEx.NotNull(print.Value?.ExchangeDeterministicReceipt, "Workspace print flows should emit deterministic exchange receipts.");
+        AssertEx.Equal(
+            export.Value.ExchangeDeterministicReceipt.RuleEnvironmentFingerprint,
+            print.Value!.ExchangeDeterministicReceipt!.RuleEnvironmentFingerprint,
+            "Workspace export and print exchange receipts should keep the same deterministic rule-environment fingerprint.");
+        AssertEx.Equal(
+            export.Value.ExchangeDeterministicReceipt.RuleEnvironmentSummary,
+            print.Value.ExchangeDeterministicReceipt.RuleEnvironmentSummary,
+            "Workspace export and print exchange receipts should keep the same deterministic rule-environment summary.");
+        AssertEx.SequenceEqual(
+            export.Value.ExchangeDeterministicReceipt.BannedWareGrades,
+            print.Value.ExchangeDeterministicReceipt.BannedWareGrades,
+            "Workspace export and print exchange receipts should preserve canonical banned-ware grade ordering.");
+
+        AssertEx.True(workspaceService.Close(imported.Id), "The SR5 parity fixture workspace should close cleanly after export/print rule-environment receipt verification.");
     }
 
     private static void BuildLabCreateSurfaceIsExposedAcrossRulesets()

@@ -81,6 +81,7 @@ public class WorkspaceServiceTests
         Assert.IsFalse(string.IsNullOrWhiteSpace(imported.ImportReceiptId));
         Assert.AreEqual(WorkspacePortabilityCompatibilityStates.Compatible, imported.Portability?.CompatibilityState);
         Assert.IsNotNull(imported.WorkflowDeterministicReceipt);
+        Assert.AreEqual("governed", imported.WorkflowDeterministicReceipt?.WorkflowStatePosture);
         StringAssert.Contains(imported.Portability?.ReceiptSummary ?? string.Empty, "Portable import completed");
         StringAssert.Contains(imported.Portability?.ProvenanceSummary ?? string.Empty, imported.Id.Value);
         IReadOnlyList<WorkspaceListItem> listed = workspaceService.List();
@@ -128,6 +129,28 @@ public class WorkspaceServiceTests
         Assert.AreEqual("sr5", download.Value?.RulesetId);
         Assert.IsFalse(string.IsNullOrWhiteSpace(download.Value?.ReceiptId));
         Assert.IsNotNull(download.Value?.WorkflowDeterministicReceipt);
+
+        var export = workspaceService.Export(imported.Id);
+        Assert.IsTrue(export.Success);
+        Assert.AreEqual("sr5", export.Value?.RulesetId);
+        Assert.IsFalse(string.IsNullOrWhiteSpace(export.Value?.PackageId));
+        Assert.IsNotNull(export.Value?.WorkflowDeterministicReceipt);
+        Assert.IsNotNull(export.Value?.ExchangeDeterministicReceipt);
+        Assert.AreEqual("export", export.Value?.ExchangeDeterministicReceipt?.SurfaceKind);
+        Assert.AreEqual("governed", export.Value?.ExchangeDeterministicReceipt?.RuleEnvironmentPosture);
+        Assert.AreEqual("default.xml", export.Value?.ExchangeDeterministicReceipt?.SettingsProfile);
+        Assert.AreEqual("Standard", export.Value?.ExchangeDeterministicReceipt?.GameplayOption);
+
+        var print = workspaceService.Print(imported.Id);
+        Assert.IsTrue(print.Success);
+        Assert.AreEqual("sr5", print.Value?.RulesetId);
+        Assert.IsFalse(string.IsNullOrWhiteSpace(print.Value?.ReceiptId));
+        Assert.IsNotNull(print.Value?.WorkflowDeterministicReceipt);
+        Assert.IsNotNull(print.Value?.ExchangeDeterministicReceipt);
+        Assert.AreEqual("print", print.Value?.ExchangeDeterministicReceipt?.SurfaceKind);
+        Assert.AreEqual(
+            export.Value?.ExchangeDeterministicReceipt?.RuleEnvironmentFingerprint,
+            print.Value?.ExchangeDeterministicReceipt?.RuleEnvironmentFingerprint);
 
         bool closed = workspaceService.Close(imported.Id);
         Assert.IsTrue(closed);

@@ -2295,12 +2295,15 @@ public class ApiIntegrationTests
         Assert.IsNotNull(response["customDataXmlBridgeDeterministicReceipt"]);
         Assert.IsNotNull(response["translatorDeterministicReceipt"]);
         Assert.IsNotNull(response["importOracleDeterministicReceipt"]);
+        Assert.IsNotNull(response["sr6SuccessorDeterministicReceipt"]);
         JsonObject? customDataDeterministicReceipt = response["customDataXmlBridgeDeterministicReceipt"] as JsonObject;
         JsonObject? translatorDeterministicReceipt = response["translatorDeterministicReceipt"] as JsonObject;
         JsonObject? importOracleDeterministicReceipt = response["importOracleDeterministicReceipt"] as JsonObject;
+        JsonObject? sr6SuccessorDeterministicReceipt = response["sr6SuccessorDeterministicReceipt"] as JsonObject;
         Assert.AreEqual("family:custom_data_xml_and_translator_bridge", customDataDeterministicReceipt?["parityFamilyId"]?.GetValue<string>());
         Assert.AreEqual("source:translator_route", translatorDeterministicReceipt?["parityRouteId"]?.GetValue<string>());
         Assert.AreEqual("family:legacy_and_adjacent_import_oracles", importOracleDeterministicReceipt?["parityFamilyId"]?.GetValue<string>());
+        Assert.AreEqual("family:sr6_supplements_designers_and_house_rules", sr6SuccessorDeterministicReceipt?["parityFamilyId"]?.GetValue<string>());
         JsonObject? firstSourcebook = response["sourcebooks"]?.AsArray().OfType<JsonObject>().FirstOrDefault();
         if (firstSourcebook is not null)
         {

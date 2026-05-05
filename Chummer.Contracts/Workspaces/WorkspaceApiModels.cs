@@ -68,7 +68,8 @@ public sealed record WorkspaceExportResponse(
     string PackageId = "",
     DateTimeOffset ExportedAtUtc = default,
     WorkspacePortabilityReceipt? Portability = null,
-    WorkspaceWorkflowDeterministicReceipt? WorkflowDeterministicReceipt = null);
+    WorkspaceWorkflowDeterministicReceipt? WorkflowDeterministicReceipt = null,
+    WorkspaceExchangeDeterministicReceipt? ExchangeDeterministicReceipt = null);
 
 public sealed record WorkspacePrintResponse(
     string Id,
@@ -79,4 +80,5 @@ public sealed record WorkspacePrintResponse(
     string Title,
     string RulesetId,
     string ReceiptId = "",
-    WorkspaceWorkflowDeterministicReceipt? WorkflowDeterministicReceipt = null);
+    WorkspaceWorkflowDeterministicReceipt? WorkflowDeterministicReceipt = null,
+    WorkspaceExchangeDeterministicReceipt? ExchangeDeterministicReceipt = null);

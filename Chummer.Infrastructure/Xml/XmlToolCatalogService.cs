@@ -183,7 +183,19 @@ public sealed class XmlToolCatalogService : IToolCatalogService
                         CountEnabledDataOverlays(catalog)),
                     enabledDataOverlayCount: CountEnabledDataOverlays(catalog)),
                 TranslatorDeterministicReceipt: BuildTranslatorDeterministicReceipt(translatorSummary),
-                ImportOracleDeterministicReceipt: BuildImportOracleDeterministicReceipt(importOracleSummary));
+                ImportOracleDeterministicReceipt: BuildImportOracleDeterministicReceipt(importOracleSummary),
+                Sr6SuccessorDeterministicReceipt: BuildSr6SuccessorDeterministicReceipt(
+                    ResolveSr6SupplementLanePosture(Array.Empty<MasterIndexSourcebookEntry>()),
+                    ResolveSr6DesignerToolsPosture(0, Sr6DesignerFamiliesExpected),
+                    0,
+                    Sr6DesignerFamiliesExpected,
+                    ResolveHouseRuleLanePosture(catalog),
+                    CountHouseRuleOverlays(catalog),
+                    onlineStorageSummary.LanePosture,
+                    onlineStorageSummary.ReceiptPosture,
+                    onlineStorageSummary.ReceiptsCovered,
+                    onlineStorageSummary.ReceiptsExpected,
+                    onlineStorageSummary.CoveragePercent));
 
         IReadOnlyList<MasterIndexSourcebookEntry> sourcebooks = BuildSourcebookEntries(filesByName);
         string referenceLanePosture = ResolveReferenceLanePosture(sourcebooks);
@@ -338,7 +350,19 @@ public sealed class XmlToolCatalogService : IToolCatalogService
                     enabledDataOverlayCount),
                 enabledDataOverlayCount),
             TranslatorDeterministicReceipt: BuildTranslatorDeterministicReceipt(translatorSummary),
-            ImportOracleDeterministicReceipt: BuildImportOracleDeterministicReceipt(importOracleSummary));
+            ImportOracleDeterministicReceipt: BuildImportOracleDeterministicReceipt(importOracleSummary),
+            Sr6SuccessorDeterministicReceipt: BuildSr6SuccessorDeterministicReceipt(
+                sr6SupplementLanePosture,
+                sr6DesignerToolsPosture,
+                sr6DesignerFamiliesAvailable,
+                Sr6DesignerFamiliesExpected,
+                houseRuleLanePosture,
+                houseRuleOverlayCount,
+                onlineStorageSummary.LanePosture,
+                onlineStorageSummary.ReceiptPosture,
+                onlineStorageSummary.ReceiptsCovered,
+                onlineStorageSummary.ReceiptsExpected,
+                onlineStorageSummary.CoveragePercent));
     }
 
     public TranslatorLanguagesResponse GetTranslatorLanguages()
@@ -699,6 +723,44 @@ public sealed class XmlToolCatalogService : IToolCatalogService
             ImportOracleCoveragePercent: summary.CoveragePercent,
             ImportOracleMissingSources: summary.MissingSources.ToArray(),
             AdjacentSr6OracleLaneReceipt: BuildAdjacentSr6OracleLaneReceipt(summary));
+    }
+
+    private static Sr6SuccessorLaneDeterministicReceipt BuildSr6SuccessorDeterministicReceipt(
+        string sr6SupplementLanePosture,
+        string sr6DesignerToolsPosture,
+        int sr6DesignerFamiliesAvailable,
+        int sr6DesignerFamiliesExpected,
+        string houseRuleLanePosture,
+        int houseRuleOverlayCount,
+        string onlineStorageLanePosture,
+        string onlineStorageReceiptPosture,
+        int onlineStorageReceiptsCovered,
+        int onlineStorageReceiptsExpected,
+        int onlineStorageCoveragePercent)
+    {
+        return new Sr6SuccessorLaneDeterministicReceipt(
+            ParityFamilyId: "family:sr6_supplements_designers_and_house_rules",
+            Sr6SupplementLanePosture: sr6SupplementLanePosture,
+            Sr6SuccessorLaneReceipt: BuildSr6SuccessorLaneReceipt(
+                sr6SupplementLanePosture,
+                sr6DesignerToolsPosture,
+                sr6DesignerFamiliesAvailable,
+                sr6DesignerFamiliesExpected,
+                houseRuleLanePosture,
+                houseRuleOverlayCount,
+                onlineStorageLanePosture,
+                onlineStorageReceiptsCovered,
+                onlineStorageReceiptsExpected),
+            Sr6DesignerToolsPosture: sr6DesignerToolsPosture,
+            Sr6DesignerFamiliesAvailable: sr6DesignerFamiliesAvailable,
+            Sr6DesignerFamiliesExpected: sr6DesignerFamiliesExpected,
+            HouseRuleLanePosture: houseRuleLanePosture,
+            HouseRuleOverlayCount: houseRuleOverlayCount,
+            OnlineStorageLanePosture: onlineStorageLanePosture,
+            OnlineStorageReceiptPosture: onlineStorageReceiptPosture,
+            OnlineStorageReceiptsCovered: onlineStorageReceiptsCovered,
+            OnlineStorageReceiptsExpected: onlineStorageReceiptsExpected,
+            OnlineStorageCoveragePercent: onlineStorageCoveragePercent);
     }
 
     private static string BuildCustomDataLaneReceipt(string customDataLanePosture, int distinctCustomDataDirectoryCount, int enabledDataOverlayCount)
