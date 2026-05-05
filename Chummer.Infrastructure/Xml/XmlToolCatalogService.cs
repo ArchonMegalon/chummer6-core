@@ -19,6 +19,9 @@ public sealed class XmlToolCatalogService : IToolCatalogService
     ];
 
     private const int Sr6DesignerFamiliesExpected = 5;
+    private const string CustomDataXmlBridgeParityFamilyId = "family:custom_data_xml_and_translator_bridge";
+    private const string TranslatorParityRouteId = "source:translator_route";
+    private const string ImportOracleParityFamilyId = "family:legacy_and_adjacent_import_oracles";
     private readonly IContentOverlayCatalogService _overlays;
     private readonly record struct SettingsCatalogSummary(
         int ProfileCount,
@@ -164,7 +167,23 @@ public sealed class XmlToolCatalogService : IToolCatalogService
                     CountHouseRuleOverlays(catalog),
                     onlineStorageSummary.LanePosture,
                     onlineStorageSummary.ReceiptsCovered,
-                    onlineStorageSummary.ReceiptsExpected));
+                    onlineStorageSummary.ReceiptsExpected),
+                CustomDataXmlBridgeDeterministicReceipt: BuildCustomDataXmlBridgeDeterministicReceipt(
+                    customDataLanePosture: "missing",
+                    customDataLaneReceipt: "No enabled custom data directory entries were discovered in settings.xml.",
+                    customDataAuthoringLaneReceipt: BuildCustomDataAuthoringLaneReceipt(
+                        customDataLanePosture: "missing",
+                        distinctCustomDataDirectoryCount: 0,
+                        enabledDataOverlayCount: CountEnabledDataOverlays(catalog)),
+                    settingsProfilesWithCustomDataDirectories: 0,
+                    distinctCustomDataDirectoryCount: 0,
+                    xmlBridgePosture: ResolveXmlBridgePosture(catalog),
+                    xmlBridgeLaneReceipt: BuildXmlBridgeLaneReceipt(
+                        ResolveXmlBridgePosture(catalog),
+                        CountEnabledDataOverlays(catalog)),
+                    enabledDataOverlayCount: CountEnabledDataOverlays(catalog)),
+                TranslatorDeterministicReceipt: BuildTranslatorDeterministicReceipt(translatorSummary),
+                ImportOracleDeterministicReceipt: BuildImportOracleDeterministicReceipt(importOracleSummary));
 
         IReadOnlyList<MasterIndexSourcebookEntry> sourcebooks = BuildSourcebookEntries(filesByName);
         string referenceLanePosture = ResolveReferenceLanePosture(sourcebooks);
@@ -300,7 +319,26 @@ public sealed class XmlToolCatalogService : IToolCatalogService
                 houseRuleOverlayCount,
                 onlineStorageSummary.LanePosture,
                 onlineStorageSummary.ReceiptsCovered,
-                onlineStorageSummary.ReceiptsExpected));
+                onlineStorageSummary.ReceiptsExpected),
+            CustomDataXmlBridgeDeterministicReceipt: BuildCustomDataXmlBridgeDeterministicReceipt(
+                customDataLanePosture,
+                BuildCustomDataLaneReceipt(
+                    customDataLanePosture,
+                    settingsSummary.DistinctCustomDataDirectoryCount,
+                    enabledDataOverlayCount),
+                BuildCustomDataAuthoringLaneReceipt(
+                    customDataLanePosture,
+                    settingsSummary.DistinctCustomDataDirectoryCount,
+                    enabledDataOverlayCount),
+                settingsSummary.ProfilesWithCustomDataDirectories,
+                settingsSummary.DistinctCustomDataDirectoryCount,
+                ResolveXmlBridgePosture(catalog),
+                BuildXmlBridgeLaneReceipt(
+                    ResolveXmlBridgePosture(catalog),
+                    enabledDataOverlayCount),
+                enabledDataOverlayCount),
+            TranslatorDeterministicReceipt: BuildTranslatorDeterministicReceipt(translatorSummary),
+            ImportOracleDeterministicReceipt: BuildImportOracleDeterministicReceipt(importOracleSummary));
     }
 
     public TranslatorLanguagesResponse GetTranslatorLanguages()
@@ -608,6 +646,59 @@ public sealed class XmlToolCatalogService : IToolCatalogService
         return string.Equals(sourceToggleLanePosture, "governed", StringComparison.Ordinal)
             ? $"{profilesWithSourceToggles} of {profileCount} settings profiles project source selection with {distinctSourcebookToggles} sourcebook toggles ({sourcebookToggleCoveragePercent}% catalog coverage)."
             : $"{profilesWithSourceToggles} of {profileCount} settings profiles project source selection, but one or more sourcebook toggles do not map to the catalog.";
+    }
+
+    private static CustomDataXmlBridgeDeterministicReceipt BuildCustomDataXmlBridgeDeterministicReceipt(
+        string customDataLanePosture,
+        string customDataLaneReceipt,
+        string customDataAuthoringLaneReceipt,
+        int settingsProfilesWithCustomDataDirectories,
+        int distinctCustomDataDirectoryCount,
+        string xmlBridgePosture,
+        string xmlBridgeLaneReceipt,
+        int enabledDataOverlayCount)
+    {
+        return new CustomDataXmlBridgeDeterministicReceipt(
+            ParityFamilyId: CustomDataXmlBridgeParityFamilyId,
+            CustomDataLanePosture: customDataLanePosture,
+            CustomDataLaneReceipt: customDataLaneReceipt,
+            CustomDataAuthoringLaneReceipt: customDataAuthoringLaneReceipt,
+            SettingsProfilesWithCustomDataDirectories: settingsProfilesWithCustomDataDirectories,
+            DistinctCustomDataDirectoryCount: distinctCustomDataDirectoryCount,
+            XmlBridgePosture: xmlBridgePosture,
+            XmlBridgeLaneReceipt: xmlBridgeLaneReceipt,
+            EnabledDataOverlayCount: enabledDataOverlayCount);
+    }
+
+    private static TranslatorLaneDeterministicReceipt BuildTranslatorDeterministicReceipt(TranslatorCatalogSummary summary)
+    {
+        return new TranslatorLaneDeterministicReceipt(
+            ParityRouteId: TranslatorParityRouteId,
+            TranslatorLanePosture: summary.LanePosture,
+            TranslatorLaneReceipt: BuildTranslatorLaneReceipt(summary),
+            TranslatorBridgePosture: summary.BridgePosture,
+            TranslatorLanguageCount: summary.LanguageCount,
+            EnabledLanguageOverlayCount: summary.EnabledOverlayCount);
+    }
+
+    private static ImportOracleLaneDeterministicReceipt BuildImportOracleDeterministicReceipt(ImportOracleSummary summary)
+    {
+        return new ImportOracleLaneDeterministicReceipt(
+            ParityFamilyId: ImportOracleParityFamilyId,
+            ImportOracleLanePosture: summary.LanePosture,
+            ImportOracleLaneReceipt: BuildImportOracleLaneReceipt(summary),
+            ImportOracleReceiptPosture: summary.ReceiptPosture,
+            LegacyChummer4FixtureCount: summary.LegacyChummer4FixtureCount,
+            LegacyChummer5FixtureCount: summary.LegacyChummer5FixtureCount,
+            HeroLabFixtureCount: summary.HeroLabFixtureCount,
+            AdjacentSr6OracleReceiptPosture: summary.AdjacentSr6OracleReceiptPosture,
+            AdjacentSr6OracleSourcesCovered: summary.AdjacentSr6OracleSourcesCovered,
+            AdjacentSr6OracleSourcesExpected: summary.AdjacentSr6OracleSourcesExpected,
+            ImportOracleSourcesCovered: summary.SourcesCovered,
+            ImportOracleSourcesExpected: summary.SourcesExpected,
+            ImportOracleCoveragePercent: summary.CoveragePercent,
+            ImportOracleMissingSources: summary.MissingSources.ToArray(),
+            AdjacentSr6OracleLaneReceipt: BuildAdjacentSr6OracleLaneReceipt(summary));
     }
 
     private static string BuildCustomDataLaneReceipt(string customDataLanePosture, int distinctCustomDataDirectoryCount, int enabledDataOverlayCount)
