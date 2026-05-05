@@ -15,7 +15,8 @@ public sealed record WorkspaceImportResult(
     string RulesetId,
     string ImportReceiptId = "",
     DateTimeOffset ImportedAtUtc = default,
-    WorkspacePortabilityReceipt? Portability = null);
+    WorkspacePortabilityReceipt? Portability = null,
+    WorkspaceWorkflowDeterministicReceipt? WorkflowDeterministicReceipt = null);
 
 public sealed record WorkspaceImportResponse(
     string Id,
@@ -23,7 +24,8 @@ public sealed record WorkspaceImportResponse(
     string RulesetId,
     string ImportReceiptId = "",
     DateTimeOffset ImportedAtUtc = default,
-    WorkspacePortabilityReceipt? Portability = null);
+    WorkspacePortabilityReceipt? Portability = null,
+    WorkspaceWorkflowDeterministicReceipt? WorkflowDeterministicReceipt = null);
 
 public sealed record WorkspaceListItemResponse(
     string Id,
@@ -42,7 +44,9 @@ public sealed record WorkspaceMetadataResponse(
 public sealed record WorkspaceSaveResponse(
     string Id,
     int DocumentLength,
-    string RulesetId);
+    string RulesetId,
+    string ReceiptId = "",
+    WorkspaceWorkflowDeterministicReceipt? WorkflowDeterministicReceipt = null);
 
 public sealed record WorkspaceDownloadResponse(
     string Id,
@@ -50,7 +54,9 @@ public sealed record WorkspaceDownloadResponse(
     string ContentBase64,
     string FileName,
     int DocumentLength,
-    string RulesetId);
+    string RulesetId,
+    string ReceiptId = "",
+    WorkspaceWorkflowDeterministicReceipt? WorkflowDeterministicReceipt = null);
 
 public sealed record WorkspaceExportResponse(
     string Id,
@@ -61,7 +67,8 @@ public sealed record WorkspaceExportResponse(
     string RulesetId,
     string PackageId = "",
     DateTimeOffset ExportedAtUtc = default,
-    WorkspacePortabilityReceipt? Portability = null);
+    WorkspacePortabilityReceipt? Portability = null,
+    WorkspaceWorkflowDeterministicReceipt? WorkflowDeterministicReceipt = null);
 
 public sealed record WorkspacePrintResponse(
     string Id,
@@ -70,4 +77,6 @@ public sealed record WorkspacePrintResponse(
     string MimeType,
     int DocumentLength,
     string Title,
-    string RulesetId);
+    string RulesetId,
+    string ReceiptId = "",
+    WorkspaceWorkflowDeterministicReceipt? WorkflowDeterministicReceipt = null);

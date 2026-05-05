@@ -88,6 +88,10 @@ rg -n '<ChummerEngineContractsPackageVersion>0\.0\.0-local</ChummerEngineContrac
 rg -n 'bootstrap-contracts-feed\.sh|ChummerEngineContractsPackageVersion|CHUMMER_ENGINE_CONTRACTS_PACKAGE_VERSION' scripts/ai/build.sh scripts/ai/restore.sh scripts/ai/test_core_engine.sh >/dev/null
 rg -n 'CustomDataXmlBridgeDeterministicReceipt|TranslatorLaneDeterministicReceipt|ImportOracleLaneDeterministicReceipt' Chummer.Contracts/Api/ToolCatalogModels.cs >/dev/null
 rg -n 'BuildCustomDataXmlBridgeDeterministicReceipt|BuildTranslatorDeterministicReceipt|BuildImportOracleDeterministicReceipt' Chummer.Infrastructure/Xml/XmlToolCatalogService.cs >/dev/null
+rg -n 'SessionActionBudgetDeterministicReceipt' Chummer.Contracts/Session/SessionActionBudgetContracts.cs >/dev/null
+rg -n 'WorkspaceWorkflowDeterministicReceipt' Chummer.Contracts/Workspaces/CharacterWorkspaceModels.cs Chummer.Contracts/Workspaces/WorkspaceApiModels.cs >/dev/null
+rg -n 'BuildDeterministicReceipt|BuildWorkflowDeterministicReceipt' Chummer.Application/Session/DefaultSessionActionBudgetService.cs Chummer.Application/Workspaces/WorkspaceService.cs >/dev/null
+test -f docs/NEXT90_M142_DENSE_WORKBENCH_RECEIPTS.md
 test -f scripts/generate-engine-proof-pack.py
 python3 tests/test_engine_proof_pack_generator.py
 test -f scripts/verify-opposition-packet-contracts.py

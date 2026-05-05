@@ -31,6 +31,7 @@ public sealed class DataExportService : IDataExportService
         CharacterInventorySection? inventory = SafeParse(() => ParseSection<CharacterInventorySection>("inventory", document));
         CharacterQualitiesSection? qualities = SafeParse(() => ParseSection<CharacterQualitiesSection>("qualities", document));
         CharacterContactsSection? contacts = SafeParse(() => ParseSection<CharacterContactsSection>("contacts", document));
+        CharacterLifestylesSection? lifestyles = SafeParse(() => ParseSection<CharacterLifestylesSection>("lifestyles", document));
 
         return new DataExportBundle(
             Summary: summary,
@@ -40,7 +41,8 @@ public sealed class DataExportService : IDataExportService
             Skills: skills,
             Inventory: inventory,
             Qualities: qualities,
-            Contacts: contacts);
+            Contacts: contacts,
+            Lifestyles: lifestyles);
     }
 
     private TSection ParseSection<TSection>(string sectionId, CharacterDocument document)

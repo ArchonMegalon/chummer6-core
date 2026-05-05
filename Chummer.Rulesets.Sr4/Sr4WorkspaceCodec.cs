@@ -145,7 +145,8 @@ public sealed class Sr4WorkspaceCodec : IRulesetWorkspaceCodec
             Skills: TryParseExportSection<CharacterSkillsSection>("skills", envelope),
             Inventory: TryParseExportSection<CharacterInventorySection>("inventory", envelope),
             Qualities: TryParseExportSection<CharacterQualitiesSection>("qualities", envelope),
-            Contacts: TryParseExportSection<CharacterContactsSection>("contacts", envelope));
+            Contacts: TryParseExportSection<CharacterContactsSection>("contacts", envelope),
+            Lifestyles: TryParseExportSection<CharacterLifestylesSection>("lifestyles", envelope));
     }
 
     private TSection? TryParseExportSection<TSection>(string sectionId, WorkspacePayloadEnvelope envelope)

@@ -56,6 +56,13 @@ internal static class CoreEngineTests
                 return 0;
             }
 
+            if (string.Equals(filter, "parity-m142", StringComparison.OrdinalIgnoreCase))
+            {
+                DenseWorkbenchAndWorkflowReceiptsStayDeterministic();
+                Console.WriteLine("core-engine-tests: ok");
+                return 0;
+            }
+
             CapabilityDescriptorsEmitLocalizationKeys();
             Sr4RulesetExecutesDeterministicCapabilities();
             Sr5RulesetExecutesDeterministicCapabilities();
@@ -101,6 +108,7 @@ internal static class CoreEngineTests
             ImportParityCertificationReceiptCoversLegacyAndAdjacentOracles();
             EngineProofPackReceiptCoversRequiredOracleSuitesAndBudgets();
             MasterIndexDeterministicReceiptsStayBoundToParityTargets();
+            DenseWorkbenchAndWorkflowReceiptsStayDeterministic();
             BuildLabCreateSurfaceIsExposedAcrossRulesets();
             Sr4AndSr6CodecsExposeBuildLabSections();
             ContentInstallPreviewsEmitLocalizationKeys();
@@ -2936,6 +2944,118 @@ internal static class CoreEngineTests
         AssertEx.True(
             importOracle?.ImportOracleMissingSources is not null,
             "Import-oracle deterministic receipt should always publish a missing-source list, even when empty.");
+    }
+
+    private static void DenseWorkbenchAndWorkflowReceiptsStayDeterministic()
+    {
+        DefaultSessionActionBudgetService actionBudgetService = new();
+        SessionActionBudgetResult actionBudget = actionBudgetService.Compute(new SessionActionBudgetInput(
+            ActorRef: "runner-1",
+            RoundRef: "round-1",
+            RulesetId: RulesetDefaults.Sr6,
+            InitiativeDice: 3,
+            MinorSpent: 0,
+            MajorSpent: 0));
+
+        AssertEx.NotNull(actionBudget.DeterministicReceipt, "SR6 action budgets should emit deterministic parity receipts.");
+        AssertEx.Equal(
+            "governed",
+            actionBudget.DeterministicReceipt!.ActionBudgetPosture,
+            "SR6 action-budget deterministic receipts should stay governed when affordances and source anchors are present.");
+        AssertEx.SequenceEqual(
+            [
+                "anytime:full-defense",
+                "on-turn:take-major-action",
+                "on-turn:take-minor-action"
+            ],
+            actionBudget.DeterministicReceipt.AffordanceKeys,
+            "SR6 action-budget deterministic receipts should preserve a stable affordance ordering.");
+        AssertEx.SequenceEqual(
+            [
+                "sr6_core_anytime_major_conversion",
+                "sr6_core_minor_actions"
+            ],
+            actionBudget.DeterministicReceipt.ReceiptSourceAnchors,
+            "SR6 action-budget deterministic receipts should preserve the canonical source-anchor ordering.");
+
+        string xml = File.ReadAllText(Path.Combine(GetLegacyFixtureDirectory(), "Gentle Earthquake.chum5"));
+        ICharacterFileQueries fileQueries = new XmlCharacterFileQueries(new CharacterFileService());
+        ICharacterSectionQueries sectionQueries = new XmlCharacterSectionQueries(new CharacterSectionService());
+        ICharacterMetadataCommands metadataCommands = new XmlCharacterMetadataCommands(new CharacterFileService());
+        WorkspaceService workspaceService = new(
+            new InMemoryWorkspaceStore(),
+            new RulesetWorkspaceCodecResolver(
+            [
+                new Sr5WorkspaceCodec(fileQueries, sectionQueries, metadataCommands),
+                new Sr4WorkspaceCodec(),
+                new Sr6WorkspaceCodec()
+            ]),
+            new WorkspaceImportRulesetDetector());
+
+        WorkspaceImportResult imported = workspaceService.Import(new WorkspaceImportDocument(
+            xml,
+            string.Empty,
+            WorkspaceDocumentFormat.NativeXml));
+        CharacterProgressSection? progress = workspaceService.GetProgress(imported.Id);
+        CharacterContactsSection? contacts = workspaceService.GetSection(imported.Id, "contacts") as CharacterContactsSection;
+        CharacterLifestylesSection? lifestyles = workspaceService.GetSection(imported.Id, "lifestyles") as CharacterLifestylesSection;
+
+        AssertEx.NotNull(imported.WorkflowDeterministicReceipt, "Workspace imports should emit workflow-state deterministic receipts.");
+        AssertEx.NotNull(progress, "The governed SR5 fixture should expose progress data.");
+        AssertEx.NotNull(contacts, "The governed SR5 fixture should expose contact data.");
+        AssertEx.NotNull(lifestyles, "The governed SR5 fixture should expose lifestyle data.");
+        AssertEx.Equal(
+            "governed",
+            imported.WorkflowDeterministicReceipt!.WorkflowStatePosture,
+            "Workflow-state deterministic receipts should stay governed for the checked-in SR5 parity fixture.");
+        AssertEx.Equal(
+            100,
+            imported.WorkflowDeterministicReceipt.CoveragePercent,
+            "Workflow-state deterministic receipts should report full coverage when progress, contacts, lifestyles, and notes surfaces all resolve.");
+        AssertEx.Equal(
+            progress!.InitiateGrade,
+            imported.WorkflowDeterministicReceipt.InitiateGrade,
+            "Workflow-state deterministic receipts should project the same initiate grade exposed by the workspace progress section.");
+        AssertEx.Equal(
+            contacts!.Count,
+            imported.WorkflowDeterministicReceipt.ContactCount,
+            "Workflow-state deterministic receipts should project the same contact count exposed by the workspace contacts section.");
+        AssertEx.Equal(
+            lifestyles!.Count,
+            imported.WorkflowDeterministicReceipt.LifestyleCount,
+            "Workflow-state deterministic receipts should project the same lifestyle count exposed by the workspace lifestyles section.");
+        AssertEx.True(
+            imported.WorkflowDeterministicReceipt.HasNotesField,
+            "Workflow-state deterministic receipts should confirm that character notes remain present on the SR5 parity fixture.");
+        AssertEx.True(
+            imported.WorkflowDeterministicReceipt.HasGameNotesField,
+            "Workflow-state deterministic receipts should confirm that gameplay notes remain present on the SR5 parity fixture.");
+
+        CommandResult<WorkspaceSaveReceipt> save = workspaceService.Save(imported.Id);
+        AssertEx.True(save.Success, "Workspace saves should succeed for the SR5 parity fixture.");
+        AssertEx.True(!string.IsNullOrWhiteSpace(save.Value?.ReceiptId), "Workspace saves should emit a deterministic receipt id.");
+        AssertEx.NotNull(save.Value?.WorkflowDeterministicReceipt, "Workspace saves should emit workflow-state deterministic receipts.");
+
+        CommandResult<WorkspaceDownloadReceipt> download = workspaceService.Download(imported.Id);
+        AssertEx.True(download.Success, "Workspace downloads should succeed for the SR5 parity fixture.");
+        AssertEx.True(!string.IsNullOrWhiteSpace(download.Value?.ReceiptId), "Workspace downloads should emit a deterministic receipt id.");
+        AssertEx.NotNull(download.Value?.WorkflowDeterministicReceipt, "Workspace downloads should emit workflow-state deterministic receipts.");
+
+        CommandResult<WorkspaceExportReceipt> export = workspaceService.Export(imported.Id);
+        AssertEx.True(export.Success, "Workspace exports should succeed for the SR5 parity fixture.");
+        AssertEx.True(!string.IsNullOrWhiteSpace(export.Value?.PackageId), "Workspace exports should keep emitting portable package ids.");
+        AssertEx.NotNull(export.Value?.WorkflowDeterministicReceipt, "Workspace exports should emit workflow-state deterministic receipts.");
+        AssertEx.Equal(
+            export.Value!.PackageId,
+            export.Value.WorkflowDeterministicReceipt!.ReceiptId,
+            "Workspace export workflow-state receipts should stay anchored to the portable package id.");
+
+        CommandResult<WorkspacePrintReceipt> print = workspaceService.Print(imported.Id);
+        AssertEx.True(print.Success, "Workspace print flows should succeed for the SR5 parity fixture.");
+        AssertEx.True(!string.IsNullOrWhiteSpace(print.Value?.ReceiptId), "Workspace print flows should emit a deterministic receipt id.");
+        AssertEx.NotNull(print.Value?.WorkflowDeterministicReceipt, "Workspace print flows should emit workflow-state deterministic receipts.");
+
+        AssertEx.True(workspaceService.Close(imported.Id), "The SR5 parity fixture workspace should close cleanly after workflow-state receipt verification.");
     }
 
     private static void BuildLabCreateSurfaceIsExposedAcrossRulesets()

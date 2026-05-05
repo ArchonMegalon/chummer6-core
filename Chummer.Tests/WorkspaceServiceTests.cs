@@ -80,6 +80,7 @@ public class WorkspaceServiceTests
         Assert.AreEqual("sr5", imported.RulesetId);
         Assert.IsFalse(string.IsNullOrWhiteSpace(imported.ImportReceiptId));
         Assert.AreEqual(WorkspacePortabilityCompatibilityStates.Compatible, imported.Portability?.CompatibilityState);
+        Assert.IsNotNull(imported.WorkflowDeterministicReceipt);
         StringAssert.Contains(imported.Portability?.ReceiptSummary ?? string.Empty, "Portable import completed");
         StringAssert.Contains(imported.Portability?.ProvenanceSummary ?? string.Empty, imported.Id.Value);
         IReadOnlyList<WorkspaceListItem> listed = workspaceService.List();
@@ -119,10 +120,14 @@ public class WorkspaceServiceTests
         Assert.AreEqual(imported.Id, save.Value?.Id);
         Assert.IsGreaterThan(0, save.Value?.DocumentLength ?? 0);
         Assert.AreEqual("sr5", save.Value?.RulesetId);
+        Assert.IsFalse(string.IsNullOrWhiteSpace(save.Value?.ReceiptId));
+        Assert.IsNotNull(save.Value?.WorkflowDeterministicReceipt);
 
         var download = workspaceService.Download(imported.Id);
         Assert.IsTrue(download.Success);
         Assert.AreEqual("sr5", download.Value?.RulesetId);
+        Assert.IsFalse(string.IsNullOrWhiteSpace(download.Value?.ReceiptId));
+        Assert.IsNotNull(download.Value?.WorkflowDeterministicReceipt);
 
         bool closed = workspaceService.Close(imported.Id);
         Assert.IsTrue(closed);
@@ -256,6 +261,7 @@ public class WorkspaceServiceTests
             Assert.IsFalse(string.IsNullOrWhiteSpace(imported.Id.Value), $"{fileName} should create a workspace id.");
             Assert.IsFalse(string.IsNullOrWhiteSpace(imported.Summary.Name), $"{fileName} should retain a character name.");
             Assert.AreEqual(WorkspacePortabilityCompatibilityStates.Compatible, imported.Portability?.CompatibilityState, $"{fileName} should import as native governed XML.");
+            Assert.IsNotNull(imported.WorkflowDeterministicReceipt, $"{fileName} should emit workflow-state proof on import.");
 
             foreach (string sectionId in sectionIds)
             {
@@ -274,16 +280,19 @@ public class WorkspaceServiceTests
             CommandResult<WorkspaceSaveReceipt> save = workspaceService.Save(imported.Id);
             Assert.IsTrue(save.Success, $"{fileName} should save after import.");
             Assert.IsFalse(string.IsNullOrWhiteSpace(save.Value?.ReceiptId), $"{fileName} save should produce a receipt.");
+            Assert.IsNotNull(save.Value?.WorkflowDeterministicReceipt, $"{fileName} save should emit workflow-state proof.");
 
             CommandResult<WorkspaceDownloadReceipt> download = workspaceService.Download(imported.Id);
             Assert.IsTrue(download.Success, $"{fileName} should download after import.");
             Assert.AreEqual(WorkspaceDocumentFormat.NativeXml, download.Value?.Format, $"{fileName} should remain a .chum5-native document.");
             Assert.IsTrue((download.Value?.DocumentLength ?? 0) > 0, $"{fileName} download should contain payload bytes.");
+            Assert.IsNotNull(download.Value?.WorkflowDeterministicReceipt, $"{fileName} download should emit workflow-state proof.");
 
             CommandResult<WorkspaceExportReceipt> export = workspaceService.Export(imported.Id);
             Assert.IsTrue(export.Success, $"{fileName} should export after import.");
             Assert.IsFalse(string.IsNullOrWhiteSpace(export.Value?.PackageId), $"{fileName} export should produce a portable package id.");
             Assert.IsNotNull(export.Value?.Portability, $"{fileName} export should include portability guidance.");
+            Assert.IsNotNull(export.Value?.WorkflowDeterministicReceipt, $"{fileName} export should emit workflow-state proof.");
 
             Assert.IsTrue(workspaceService.Close(imported.Id), $"{fileName} should close cleanly after roundtrip verification.");
         }
@@ -360,6 +369,7 @@ public class WorkspaceServiceTests
             Assert.IsFalse(string.IsNullOrWhiteSpace(imported.Id.Value), $"{fileName} should create a workspace id.");
             Assert.IsFalse(string.IsNullOrWhiteSpace(imported.Summary.Name), $"{fileName} should retain a character name.");
             Assert.AreEqual(WorkspacePortabilityCompatibilityStates.Compatible, imported.Portability?.CompatibilityState, $"{fileName} should import as native governed XML.");
+            Assert.IsNotNull(imported.WorkflowDeterministicReceipt, $"{fileName} should emit workflow-state proof on import.");
 
             foreach (string sectionId in sectionIds)
             {
@@ -389,13 +399,17 @@ public class WorkspaceServiceTests
 
             CommandResult<WorkspaceSaveReceipt> save = workspaceService.Save(imported.Id);
             Assert.IsTrue(save.Success, $"{fileName} should save after import.");
+            Assert.IsFalse(string.IsNullOrWhiteSpace(save.Value?.ReceiptId), $"{fileName} save should emit a deterministic receipt id.");
+            Assert.IsNotNull(save.Value?.WorkflowDeterministicReceipt, $"{fileName} save should emit workflow-state proof.");
             CommandResult<WorkspaceDownloadReceipt> download = workspaceService.Download(imported.Id);
             Assert.IsTrue(download.Success, $"{fileName} should download after import.");
             Assert.AreEqual(WorkspaceDocumentFormat.NativeXml, download.Value?.Format, $"{fileName} should remain a .chum4-native document.");
             StringAssert.EndsWith(download.Value?.FileName ?? string.Empty, ".chum4");
+            Assert.IsNotNull(download.Value?.WorkflowDeterministicReceipt, $"{fileName} download should emit workflow-state proof.");
             CommandResult<WorkspaceExportReceipt> export = workspaceService.Export(imported.Id);
             Assert.IsTrue(export.Success, $"{fileName} should export after import.");
             Assert.IsFalse(string.IsNullOrWhiteSpace(export.Value?.PackageId), $"{fileName} export should produce a portable package id.");
+            Assert.IsNotNull(export.Value?.WorkflowDeterministicReceipt, $"{fileName} export should emit workflow-state proof.");
 
             Assert.IsTrue(workspaceService.Close(imported.Id), $"{fileName} should close cleanly after roundtrip verification.");
         }

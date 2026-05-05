@@ -56,6 +56,22 @@ public sealed record SessionActionBudgetReceipt(
     string SummaryKey,
     IReadOnlyList<RulesetExplainParameter>? SummaryParameters = null);
 
+public sealed record SessionActionBudgetDeterministicReceipt(
+    string ParityFamilyId,
+    string ActionBudgetPosture,
+    string ReceiptId,
+    string RulesetId,
+    string ActorRef,
+    string RoundRef,
+    int InitiativeDice,
+    int MajorAvailable,
+    int MinorAvailable,
+    int ConvertibleAnytimeMajorCount,
+    int HeldConvertedMajorCount,
+    IReadOnlyList<string> AffordanceKeys,
+    IReadOnlyList<string> ReceiptSourceAnchors,
+    string ExplainEntryId);
+
 public sealed record SessionActionBudgetInput(
     string ActorRef,
     string RoundRef,
@@ -83,4 +99,5 @@ public sealed record SessionActionBudgetResult(
     IReadOnlyList<SessionActionAffordance> Affordances,
     IReadOnlyList<SessionActionBudgetReceipt> Receipts,
     IReadOnlyList<RulesetCapabilityDiagnostic>? Diagnostics = null,
-    string? ExplainEntryId = null);
+    string? ExplainEntryId = null,
+    SessionActionBudgetDeterministicReceipt? DeterministicReceipt = null);
