@@ -18,7 +18,12 @@ The same workflows must still function in hosted-only mode, and no canonical tru
 ## Key tool posture
 
 * no mandatory external tool
-* optional bounded use of `1min.AI`, `AI Magicx`, or other helpers where local orchestration benefits from acceleration evidence
+* bounded `1min.AI` and `AI Magicx` - hosted parity and fallback comparison lanes while local acceleration remains optional
+* bounded `BrowserAct` - operator capture and hosted-vs-local repro helper
+* bounded `Documentation.AI` - local setup, operator help, and parity-guide projection
+
+Those tools may help benchmark, explain, or document the lane.
+They do not become local truth owners or required runtime dependencies.
 
 ## What has to be true first
 

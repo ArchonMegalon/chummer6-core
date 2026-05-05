@@ -42,6 +42,16 @@ It activates when:
 
 Until then, this wave should shape follow-on work without preempting the current flagship closeout. Spare Fleet shards may already execute successor-wave slices, but they must not steal shards that are still assigned to the current closeout frontier.
 
+## Staged queue semantics
+
+`NEXT_90_DAY_QUEUE_STAGING.generated.yaml` is a pre-authored successor queue, not a passive parking-lot backlog.
+
+1. Matching repo controllers may ingest `not_started` and `in_progress` rows immediately and materialize them as `ready` work packages.
+2. `not_started` means dispatchable when spare shard capacity exists; it does not mean a human must manually promote the row before Fleet can see it.
+3. Every successor wave in this registry is now staged and queue-materialized. W22P is the lead current successor frontier, and the staged successor queue now drives current frontier selection while W23-W27 remain queue-materialized behind it until the parity-proof tranche is closed.
+4. Full flagship readiness still blocks publish claims, but automatic runtime dispatch no longer falls back to the legacy flagship closeout package queue first. Already-running flagship closeout shards still must not be preempted automatically.
+5. A staged slice that is not actually dispatchable should not sit as ambiguous `not_started` forever. Review non-terminal staged slices at least weekly and either keep `not_started` with a fresh owner decision, move the slice to `blocked` with the dependency named, move it to `in_progress`, or close it as `done` or `skipped`.
+
 ## Ordering rule
 
 1. Before broader successor breadth, drive the Chummer5A human-parity matrix to zero `no` rows and clear desktop executable proof drift.
@@ -282,6 +292,12 @@ Exit: a GM can assemble tonight's governed pack, the world can talk back on a we
 ### 140. Runner passport, weekly world dispatch, creator operating system, and LTD-powered cadence closure
 Owners: `chummer6-core`, `chummer6-hub`, `chummer6-hub-registry`, `chummer6-ui`, `chummer6-mobile`, `chummer6-media-factory`, `executive-assistant`, `fleet`, `chummer6-design`
 Exit: a runner can carry governed trust posture between communities, the world can emit recurring return prompts from approved truth, creator publication behaves like a live operating system instead of a shelf, and LTD-powered followthrough loops stay bounded by Chummer-owned receipts instead of becoming shadow authority.
+
+## Wave 28 - make every visible number defend itself
+
+### 145. Explain every visible value with grounded follow-up and bounded presenter mode
+Owners: `chummer6-core`, `chummer6-ui`, `chummer6-mobile`, `chummer6-media-factory`, `executive-assistant`, `fleet`, `chummer6-design`
+Exit: every promoted visible mechanical value, legality result, or warning can open a packet-backed explain drawer with source anchors, bounded why/why-not/what-if follow-up, and optional narration or presenter layers that stay subordinate to first-party text truth.
 
 ## Non-goals for this quarter
 

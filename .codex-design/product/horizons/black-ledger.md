@@ -48,6 +48,23 @@ The result is a Shadowrun world that feels less like a static backdrop and more 
 
 ---
 
+## Key tool posture
+
+BLACK LEDGER benefits from a split between operator lanes and downstream world-output lanes.
+
+* `Teable` - operator projection and AdminIntent workbench for review queues, world-tick prep, and curation
+* `NextStep` - governed world-tick, closeout, and operator checklist discipline
+* `ApproveThis` - bounded external approval edge where shared-city or guest review matters
+* `Signitic` - passive world-tick, faction, and season projection into first-party destinations
+* `Emailit` - digest, closeout, and notification delivery after Hub decides the message should exist
+* bounded `vidBoard`, `MarkupGo`, `PeekShot`, `Soundmadeseen`, and `Taja` - approved world-output and recap lanes only
+* bounded `MetaSurvey`, `Deftform`, `Lunacal`, `BrowserAct`, and `Documentation.AI` - discovery, intake, scheduling, capture, and support helpers only
+
+Those tools can help operate, publish, and close the loop.
+They do not own world truth, campaign truth, faction state, mission-market truth, or operator authority.
+
+---
+
 ## The world map
 
 BLACK LEDGER gives each active Chummer world a map.

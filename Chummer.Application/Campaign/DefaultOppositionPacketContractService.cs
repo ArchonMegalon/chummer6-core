@@ -135,7 +135,7 @@ public sealed class DefaultOppositionPacketContractService : IOppositionPacketCo
             }));
         }
 
-        string? runtimeFingerprint = ResolveRuntimeFingerprint(members);
+        string? runtimeFingerprint = ResolveRuntimeFingerprint(members, receiptItems);
         IReadOnlyList<GmPrepPacketRuleStat> packetStats = BuildPacketStats(
             packetId: pack.Manifest.PackId,
             packetKind: OppositionPacketKinds.NpcPack,
@@ -206,7 +206,7 @@ public sealed class DefaultOppositionPacketContractService : IOppositionPacketCo
         }
 
         string engagementKind = ResolveEngagementKind(encounter.Manifest.Tags);
-        string? runtimeFingerprint = ResolveRuntimeFingerprint(roles);
+        string? runtimeFingerprint = ResolveRuntimeFingerprint(roles, receiptItems);
         IReadOnlyList<GmPrepPacketRuleStat> packetStats = BuildPacketStats(
             packetId: encounter.Manifest.EncounterPackId,
             packetKind: ScenePacketKinds.EncounterPack,
@@ -528,7 +528,7 @@ public sealed class DefaultOppositionPacketContractService : IOppositionPacketCo
                 NextSafeAction: "Open the source NPC entry before final encounter balancing."),
             new(
                 Code: "tactics-remain-authored",
-                Severity: GmPrepPacketBoundedLossSeverities.Info,
+                Severity: GmPrepPacketBoundedLossSeverities.Warning,
                 Summary: "Opening tactics, spell order, and matrix scripts are intentionally left as GM-authored prep instead of hidden auto-play truth.",
                 MissingField: "tacticalScript",
                 NextSafeAction: "Attach a scene note or briefing artifact for table-specific tactics.")
@@ -616,17 +616,43 @@ public sealed class DefaultOppositionPacketContractService : IOppositionPacketCo
         yield return null;
     }
 
-    private static string? ResolveRuntimeFingerprint(IEnumerable<OppositionPacketMemberContract> members)
-        => members
-            .SelectMany(static member => member.Stats)
-            .Select(static stat => stat.ExplainTrace.RuntimeFingerprint)
-            .FirstOrDefault(static fingerprint => !string.IsNullOrWhiteSpace(fingerprint));
+    private static string? ResolveRuntimeFingerprint(
+        IEnumerable<OppositionPacketMemberContract> members,
+        List<GmPrepPacketBoundedLossItem> receiptItems)
+        => ResolveRuntimeFingerprint(
+            members.SelectMany(static member => member.Stats).Select(static stat => stat.ExplainTrace.RuntimeFingerprint),
+            receiptItems);
 
-    private static string? ResolveRuntimeFingerprint(IEnumerable<ScenePacketRoleContract> roles)
-        => roles
-            .SelectMany(static role => role.SpotlightStats)
-            .Select(static stat => stat.ExplainTrace.RuntimeFingerprint)
-            .FirstOrDefault(static fingerprint => !string.IsNullOrWhiteSpace(fingerprint));
+    private static string? ResolveRuntimeFingerprint(
+        IEnumerable<ScenePacketRoleContract> roles,
+        List<GmPrepPacketBoundedLossItem> receiptItems)
+        => ResolveRuntimeFingerprint(
+            roles.SelectMany(static role => role.SpotlightStats).Select(static stat => stat.ExplainTrace.RuntimeFingerprint),
+            receiptItems);
+
+    private static string? ResolveRuntimeFingerprint(
+        IEnumerable<string?> runtimeFingerprints,
+        List<GmPrepPacketBoundedLossItem> receiptItems)
+    {
+        List<string> distinctFingerprints = runtimeFingerprints
+            .Where(static fingerprint => !string.IsNullOrWhiteSpace(fingerprint))
+            .Select(static fingerprint => fingerprint!)
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+
+        if (distinctFingerprints.Count <= 1)
+        {
+            return distinctFingerprints.FirstOrDefault();
+        }
+
+        receiptItems.Add(new GmPrepPacketBoundedLossItem(
+            Code: "runtime-fingerprint-mixed",
+            Severity: GmPrepPacketBoundedLossSeverities.Warning,
+            Summary: "The packet merges governed entries from multiple runtime fingerprints, so packet-level stats stay unbound until one promoted runtime is chosen.",
+            MissingField: "runtimeFingerprint",
+            NextSafeAction: "Normalize the packet onto one promoted runtime before publishing packet-level trust."));
+        return null;
+    }
 
     private static string BuildRoleLabel(string title, string? role)
         => string.IsNullOrWhiteSpace(role)
@@ -757,6 +783,11 @@ public sealed class DefaultOppositionPacketContractService : IOppositionPacketCo
         if (tagSet.Contains("support") || normalizedRole.Contains("support", StringComparison.Ordinal))
         {
             profile = profile with { DefenseDice = profile.DefenseDice + 1, AttackDice = Math.Max(4, profile.AttackDice - 1) };
+        }
+
+        if (normalizedRole.Contains("lead", StringComparison.Ordinal))
+        {
+            profile = profile with { DefenseDice = profile.DefenseDice + 1 };
         }
 
         return profile;

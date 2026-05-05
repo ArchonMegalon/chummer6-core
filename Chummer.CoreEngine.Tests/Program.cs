@@ -1,5 +1,6 @@
 using Chummer.Application.AI;
 using Chummer.Application.BuildLab;
+using Chummer.Application.Campaign;
 using Chummer.Application.Characters;
 using Chummer.Application.Content;
 using Chummer.Application.Explain;
@@ -15,6 +16,7 @@ using Chummer.Contracts.Api;
 using Chummer.Contracts.BuildLab;
 using Chummer.Contracts.Characters;
 using Chummer.Contracts.Content;
+using Chummer.Contracts.Diagnostics;
 using Chummer.Contracts.Hub;
 using Chummer.Contracts.Journal;
 using Chummer.Contracts.Owners;
@@ -26,11 +28,13 @@ using Chummer.Contracts.Validation;
 using Chummer.Contracts.Workspaces;
 using Chummer.Infrastructure.Workspaces;
 using Chummer.Infrastructure.Xml;
+using Chummer.Infrastructure.DependencyInjection;
 using Chummer.Rulesets.Hosting;
 using Chummer.Rulesets.Hosting.Presentation;
 using Chummer.Rulesets.Sr4;
 using Chummer.Rulesets.Sr5;
 using Chummer.Rulesets.Sr6;
+using Microsoft.Extensions.DependencyInjection;
 using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -70,6 +74,38 @@ internal static class CoreEngineTests
                 return 0;
             }
 
+            if (string.Equals(filter, "explain-value-packets", StringComparison.OrdinalIgnoreCase))
+            {
+                ExplainValuePacketsStayDeterministicAndBounded();
+                Console.WriteLine("core-engine-tests: ok");
+                return 0;
+            }
+
+            if (string.Equals(filter, "rule-environment-studio", StringComparison.OrdinalIgnoreCase))
+            {
+                RuntimeLockDiffIsDeterministicAndParameterized();
+                RuleEnvironmentStudioProjectionPublishesLifecycleDiffAndExplainContracts();
+                RuleEnvironmentStudioProjectionPublishesFirstPinGuidance();
+                RuleEnvironmentStudioProjectionPublishesClearGuidanceWhenRuntimeIsAlreadyPinned();
+                RuleEnvironmentStudioProjectionPublishesExplainReceiptFloorWithoutWarnings();
+                Console.WriteLine("core-engine-tests: ok");
+                return 0;
+            }
+
+            if (string.Equals(filter, "core-exchange-contracts", StringComparison.OrdinalIgnoreCase))
+            {
+                WorkspaceExportPortabilityReceiptsCoverAllGovernedOutputLanes();
+                Console.WriteLine("core-engine-tests: ok");
+                return 0;
+            }
+
+            if (string.Equals(filter, "opposition-packet-contracts", StringComparison.OrdinalIgnoreCase))
+            {
+                OppositionPacketContractContractTests.Run();
+                Console.WriteLine("core-engine-tests: ok");
+                return 0;
+            }
+
             CapabilityDescriptorsEmitLocalizationKeys();
             Sr4RulesetExecutesDeterministicCapabilities();
             Sr5RulesetExecutesDeterministicCapabilities();
@@ -83,6 +119,10 @@ internal static class CoreEngineTests
             RuntimeInspectorProjectionIsDeterministicAcrossPackAndBindingOrder();
             RuleProfileRegistryRuntimeLockCompileOrderAndProviderBindingsAreDeterministic();
             RuntimeLockDiffIsDeterministicAndParameterized();
+            RuleEnvironmentStudioProjectionPublishesLifecycleDiffAndExplainContracts();
+            RuleEnvironmentStudioProjectionPublishesFirstPinGuidance();
+            RuleEnvironmentStudioProjectionPublishesClearGuidanceWhenRuntimeIsAlreadyPinned();
+            RuleEnvironmentStudioProjectionPublishesExplainReceiptFloorWithoutWarnings();
             RuntimeFingerprintComputationIsStableAcrossOrderingVariance();
             AiExplainProjectionEmitsStructuredProvenance();
             AiExplainProjectionPrefersTraceContextOverMismatchedSessionContext();
@@ -103,6 +143,7 @@ internal static class CoreEngineTests
             SessionAndRuntimeCompatibilityProjectionsStayDeterministic();
             JournalProjectionIsDeterministicAndValidated();
             ValidationSummaryAndExplainHookCompositionStayDeterministic();
+            ExplainValuePacketsStayDeterministicAndBounded();
             BuildLabOutputsAreDeterministicAndLocalized();
             BuildRouteProviderScaffoldUsesDeterministicBuildLabOutputs();
             BuildRouteGatewayUsesDeterministicBuildLabOutputs();
@@ -117,10 +158,12 @@ internal static class CoreEngineTests
             MasterIndexDeterministicReceiptsStayBoundToParityTargets();
             DenseWorkbenchAndWorkflowReceiptsStayDeterministic();
             ExportPrintSupplementAndRuleEnvironmentReceiptsStayDeterministic();
+            WorkspaceExportPortabilityReceiptsCoverAllGovernedOutputLanes();
             BuildLabCreateSurfaceIsExposedAcrossRulesets();
             Sr4AndSr6CodecsExposeBuildLabSections();
             ContentInstallPreviewsEmitLocalizationKeys();
             NpcVaultRegistryEmitsCuratedPackets();
+            OppositionPacketContractContractTests.Run();
             HubCatalogSurfacesNpcVaultPackets();
             RelationshipHeatSimulationStaysDeterministic();
             Console.WriteLine("core-engine-tests: ok");
@@ -789,6 +832,305 @@ internal static class CoreEngineTests
                 RuntimeLockDiffChangeKinds.ProviderBindingChanged
             ],
             "Runtime-lock diffs should emit changes in a deterministic kind order.");
+    }
+
+    private static void RuleEnvironmentStudioProjectionPublishesLifecycleDiffAndExplainContracts()
+    {
+        RuleProfileRegistryEntry profile = CreateProfile();
+        RuntimeLockRegistryEntry currentRuntime = new(
+            LockId: "runtime-lock-sha256-current",
+            Owner: OwnerScope.LocalSingleUser,
+            Title: "Current Campaign Runtime",
+            Visibility: ArtifactVisibilityModes.LocalOnly,
+            CatalogKind: RuntimeLockCatalogKinds.Saved,
+            RuntimeLock: new ResolvedRuntimeLock(
+                RulesetId: RulesetDefaults.Sr5,
+                ContentBundles:
+                [
+                    new ContentBundleDescriptor(
+                        BundleId: "official.sr5.base",
+                        RulesetId: RulesetDefaults.Sr5,
+                        Version: "schema-1",
+                        Title: "SR5 Base",
+                        Description: "Built-in base content.",
+                        AssetPaths: ["data/", "lang/"]),
+                    new ContentBundleDescriptor(
+                        BundleId: "campaign.seattle",
+                        RulesetId: RulesetDefaults.Sr5,
+                        Version: "2026.05",
+                        Title: "Seattle Campaign",
+                        Description: "Campaign additions.",
+                        AssetPaths: ["campaign/", "lang/"])
+                ],
+                RulePacks:
+                [
+                    new ArtifactVersionReference("house-rules", "1.0.0"),
+                    new ArtifactVersionReference("gm-overrides", "1.0.0")
+                ],
+                ProviderBindings: new Dictionary<string, string>(StringComparer.Ordinal)
+                {
+                    [RulePackCapabilityIds.ContentCatalog] = "gm-overrides/content.catalog"
+                },
+                EngineApiVersion: "rulepack-v1",
+                RuntimeFingerprint: "runtime-lock-sha256-current"),
+            UpdatedAtUtc: DateTimeOffset.UtcNow,
+            Description: "Current runtime pinned on the workspace.",
+            Install: new ArtifactInstallState(
+                State: ArtifactInstallStates.Pinned,
+                InstalledAtUtc: DateTimeOffset.UtcNow,
+                InstalledTargetKind: RuleProfileApplyTargetKinds.Workspace,
+                InstalledTargetId: "workspace-7",
+                RuntimeFingerprint: "runtime-lock-sha256-current"));
+        DefaultRuleEnvironmentStudioService service = CreateRuleEnvironmentStudioService(profile, [currentRuntime]);
+
+        RuleEnvironmentStudioProjection? projection = service.GetProfileProjection(
+            OwnerScope.LocalSingleUser,
+            profile.Manifest.ProfileId,
+            new RuleProfileApplyTarget(RuleProfileApplyTargetKinds.Workspace, "workspace-7"),
+            RulesetDefaults.Sr5);
+
+        AssertEx.NotNull(projection, "Rule-environment studio projection should resolve the seeded profile.");
+        AssertEx.Equal(
+            RuntimeInspectorPromotionStages.Published,
+            projection!.Lifecycle.CurrentStage,
+            "Stable rule profiles should project the published lifecycle stage.");
+        AssertEx.Equal(
+            RuleEnvironmentStudioDiffStatuses.RequiresReview,
+            projection.Diff.Status,
+            "Pinned runtime drift should force a rule-environment review state.");
+        AssertEx.Equal(
+            "runtime-lock-sha256-current",
+            projection.Diff.CurrentRuntimeFingerprint,
+            "Rule-environment studio projection should publish the current pinned runtime fingerprint.");
+        AssertEx.Equal(
+            "runtime-lock-sha256",
+            projection.Diff.DesiredRuntimeFingerprint,
+            "Rule-environment studio projection should publish the desired runtime fingerprint.");
+        AssertEx.True(
+            projection.Diff.Delta is { Changes.Count: > 0 },
+            "Runtime drift should produce a deterministic before/after diff receipt.");
+        AssertEx.SequenceEqual(
+            projection.ExplainReceipt.RequiredCoverageKinds,
+            [
+                ExplainValuePacketCoverageKinds.BeforeAfterDelta,
+                ExplainValuePacketCoverageKinds.MechanicalResult,
+                ExplainValuePacketCoverageKinds.SourceAnchor,
+                ExplainValuePacketCoverageKinds.Warning
+            ],
+            "Explain receipt requirements should stay deterministic and include delta plus warning coverage when the environment changed.");
+        AssertEx.Equal(
+            DefaultExplainValuePacketService.MaxCounterfactuals,
+            projection.ExplainReceipt.CounterfactualLimit,
+            "Rule-environment studio explain receipts should expose the engine counterfactual bound.");
+        AssertEx.Equal(
+            "ruleenvironment.studio.explain.engine-truth",
+            projection.ExplainReceipt.SummaryKey,
+            "Rule-environment studio explain receipts should stay pinned to engine-truth localization keys.");
+        AssertEx.Equal(
+            RuleEnvironmentStudioDiffStatuses.RequiresReview,
+            projection.ExplainReceipt.DiffStatus,
+            "Explain receipts should publish the review posture directly.");
+        AssertEx.Equal(
+            RuntimeInspectorPromotionStages.Published,
+            projection.ExplainReceipt.CurrentStage,
+            "Explain receipts should publish the current lifecycle stage directly.");
+        AssertEx.Equal(
+            RuntimeInspectorPromotionStages.Published,
+            projection.ExplainReceipt.PromotionTargetStage,
+            "Explain receipts should publish the promotion target stage directly.");
+    }
+
+    private static void RuleEnvironmentStudioProjectionPublishesFirstPinGuidance()
+    {
+        RuleProfileRegistryEntry profile = CreateProfile();
+        DefaultRuleEnvironmentStudioService service = CreateRuleEnvironmentStudioService(profile, []);
+
+        RuleEnvironmentStudioProjection? projection = service.GetProfileProjection(
+            OwnerScope.LocalSingleUser,
+            profile.Manifest.ProfileId,
+            new RuleProfileApplyTarget(RuleProfileApplyTargetKinds.Workspace, "workspace-11"),
+            RulesetDefaults.Sr5);
+
+        AssertEx.NotNull(projection, "Rule-environment studio projection should resolve first-pin previews.");
+        AssertEx.Equal(
+            RuleEnvironmentStudioDiffStatuses.FirstPin,
+            projection!.Diff.Status,
+            "Missing current runtime should project the first-pin lifecycle.");
+        AssertEx.Equal(
+            "ruleenvironment.studio.diff.first-pin",
+            projection.Diff.SummaryKey,
+            "First-pin projections should stay keyed for downstream localization.");
+        AssertEx.True(
+            projection.Diff.Delta is null,
+            "First-pin projections should not fabricate a before/after delta when no current runtime exists.");
+        AssertEx.True(
+            !projection.ExplainReceipt.DeltaIncluded,
+            "First-pin explain receipts should not claim before/after coverage.");
+        AssertEx.Equal(
+            RuleEnvironmentStudioDiffStatuses.FirstPin,
+            projection.ExplainReceipt.DiffStatus,
+            "First-pin explain receipts should publish the first-pin diff posture directly.");
+        AssertEx.SequenceEqual(
+            projection.ExplainReceipt.RequiredCoverageKinds,
+            [
+                ExplainValuePacketCoverageKinds.MechanicalResult,
+                ExplainValuePacketCoverageKinds.SourceAnchor,
+                ExplainValuePacketCoverageKinds.Warning
+            ],
+            "First-pin explain receipts should collapse to the engine-truth minimum coverage.");
+    }
+
+    private static void RuleEnvironmentStudioProjectionPublishesClearGuidanceWhenRuntimeIsAlreadyPinned()
+    {
+        RuleProfileRegistryEntry profile = CreateProfile();
+        RuntimeLockRegistryEntry currentRuntime = new(
+            LockId: "runtime-lock-sha256-current",
+            Owner: OwnerScope.LocalSingleUser,
+            Title: "Current Workspace Runtime",
+            Visibility: ArtifactVisibilityModes.LocalOnly,
+            CatalogKind: RuntimeLockCatalogKinds.Saved,
+            RuntimeLock: profile.Manifest.RuntimeLock,
+            UpdatedAtUtc: DateTimeOffset.UtcNow,
+            Description: "Pinned runtime already matches the desired environment.",
+            Install: new ArtifactInstallState(
+                State: ArtifactInstallStates.Pinned,
+                InstalledAtUtc: DateTimeOffset.UtcNow,
+                InstalledTargetKind: RuleProfileApplyTargetKinds.Workspace,
+                InstalledTargetId: "workspace-7",
+                RuntimeFingerprint: profile.Manifest.RuntimeLock.RuntimeFingerprint));
+        DefaultRuleEnvironmentStudioService service = CreateRuleEnvironmentStudioService(profile, [currentRuntime]);
+
+        RuleEnvironmentStudioProjection? projection = service.GetProfileProjection(
+            OwnerScope.LocalSingleUser,
+            profile.Manifest.ProfileId,
+            new RuleProfileApplyTarget(RuleProfileApplyTargetKinds.Workspace, "workspace-7"),
+            RulesetDefaults.Sr5);
+
+        AssertEx.NotNull(projection, "Rule-environment studio projection should resolve unchanged runtimes.");
+        AssertEx.Equal(
+            RuleEnvironmentStudioDiffStatuses.Clear,
+            projection!.Diff.Status,
+            "Matching runtimes should resolve the clear diff state.");
+        AssertEx.Equal(
+            "ruleenvironment.studio.diff.clear",
+            projection.Diff.SummaryKey,
+            "Clear projections should stay keyed for downstream localization.");
+        AssertEx.True(
+            projection.Diff.Delta is { Changes.Count: 0 },
+            "Matching runtimes should still expose a deterministic empty diff projection.");
+        AssertEx.True(
+            !projection.ExplainReceipt.DeltaIncluded,
+            "Clear explain receipts should not require before/after coverage.");
+        AssertEx.Equal(
+            RuleEnvironmentStudioDiffStatuses.Clear,
+            projection.ExplainReceipt.DiffStatus,
+            "Clear explain receipts should publish the no-op diff posture directly.");
+        AssertEx.SequenceEqual(
+            projection.ExplainReceipt.RequiredCoverageKinds,
+            [
+                ExplainValuePacketCoverageKinds.MechanicalResult,
+                ExplainValuePacketCoverageKinds.SourceAnchor,
+                ExplainValuePacketCoverageKinds.Warning
+            ],
+            "Clear explain receipts should collapse to the engine-truth minimum coverage.");
+    }
+
+    private static void RuleEnvironmentStudioProjectionPublishesExplainReceiptFloorWithoutWarnings()
+    {
+        RuleProfileRegistryEntry profile = CreateProfile() with
+        {
+            Publication = new RuleProfilePublicationMetadata(
+                OwnerId: "local-single-user",
+                Visibility: ArtifactVisibilityModes.Public,
+                PublicationStatus: RuleProfilePublicationStatuses.Published,
+                Review: new RulePackReviewDecision(RulePackReviewStates.NotRequired),
+                Shares: [],
+                PublishedAtUtc: DateTimeOffset.UnixEpoch)
+        };
+        RuntimeLockRegistryEntry currentRuntime = new(
+            LockId: "runtime-lock-sha256",
+            Owner: OwnerScope.LocalSingleUser,
+            Title: "Published Workspace Runtime",
+            Visibility: ArtifactVisibilityModes.Public,
+            CatalogKind: RuntimeLockCatalogKinds.Published,
+            RuntimeLock: profile.Manifest.RuntimeLock,
+            UpdatedAtUtc: DateTimeOffset.UnixEpoch,
+            Description: "Published runtime already matches the desired environment.",
+            Install: new ArtifactInstallState(
+                State: ArtifactInstallStates.Pinned,
+                InstalledAtUtc: DateTimeOffset.UnixEpoch,
+                InstalledTargetKind: RuleProfileApplyTargetKinds.Workspace,
+                InstalledTargetId: "workspace-21",
+                RuntimeFingerprint: profile.Manifest.RuntimeLock.RuntimeFingerprint));
+        DefaultRuleEnvironmentStudioService service = CreateRuleEnvironmentStudioService(profile, [currentRuntime]);
+
+        RuleEnvironmentStudioProjection? projection = service.GetProfileProjection(
+            OwnerScope.LocalSingleUser,
+            profile.Manifest.ProfileId,
+            new RuleProfileApplyTarget(RuleProfileApplyTargetKinds.Workspace, "workspace-21"),
+            RulesetDefaults.Sr5);
+
+        AssertEx.NotNull(projection, "Rule-environment studio projection should resolve published no-warning runtimes.");
+        AssertEx.Equal(
+            RuleEnvironmentStudioExplainSources.Engine,
+            projection!.ExplainReceipt.SourceKind,
+            "Rule-environment studio explain receipts should stay sourced from the engine.");
+        AssertEx.Equal(
+            CalculationReportPrivacyModes.SupportCase,
+            projection.ExplainReceipt.PrivacyMode,
+            "Rule-environment studio explain receipts should keep the support-case privacy floor.");
+        AssertEx.True(
+            projection.ExplainReceipt.EngineTruthRequired,
+            "Rule-environment studio explain receipts should fail closed on engine truth.");
+        AssertEx.True(
+            projection.ExplainReceipt.SourceAnchorsRequired,
+            "Rule-environment studio explain receipts should fail closed on source anchors.");
+        AssertEx.Equal(
+            RuleEnvironmentStudioDiffStatuses.Clear,
+            projection.ExplainReceipt.DiffStatus,
+            "No-warning explain receipts should still publish the clear diff posture.");
+        AssertEx.Equal(
+            RuntimeInspectorPromotionStages.Published,
+            projection.ExplainReceipt.CurrentStage,
+            "No-warning explain receipts should publish the current lifecycle stage.");
+        AssertEx.Equal(
+            RuntimeInspectorPromotionStages.Published,
+            projection.ExplainReceipt.PromotionTargetStage,
+            "No-warning explain receipts should publish the promotion target stage.");
+        AssertEx.True(
+            !projection.ExplainReceipt.DeltaIncluded,
+            "Matching published runtimes should not claim before/after delta coverage.");
+        AssertEx.SequenceEqual(
+            projection.ExplainReceipt.RequiredCoverageKinds,
+            [
+                ExplainValuePacketCoverageKinds.MechanicalResult,
+                ExplainValuePacketCoverageKinds.SourceAnchor
+            ],
+            "No-warning explain receipts should collapse to the mechanical-result and source-anchor floor.");
+        AssertEx.Equal(
+            9,
+            projection.ExplainReceipt.SummaryParameters.Count,
+            "Rule-environment studio explain receipts should keep a deterministic parameter envelope.");
+        AssertEx.Equal(
+            RuleEnvironmentStudioDiffStatuses.Clear,
+            projection.ExplainReceipt.SummaryParameters.Single(parameter => string.Equals(parameter.Name, "diffStatus", StringComparison.Ordinal)).Value.StringValue,
+            "No-warning explain receipts should publish the diff status inside the summary envelope.");
+        AssertEx.Equal(
+            RuntimeInspectorPromotionStages.Published,
+            projection.ExplainReceipt.SummaryParameters.Single(parameter => string.Equals(parameter.Name, "currentStage", StringComparison.Ordinal)).Value.StringValue,
+            "No-warning explain receipts should publish the lifecycle stage inside the summary envelope.");
+        AssertEx.Equal(
+            RuntimeInspectorPromotionStages.Published,
+            projection.ExplainReceipt.SummaryParameters.Single(parameter => string.Equals(parameter.Name, "promotionTargetStage", StringComparison.Ordinal)).Value.StringValue,
+            "No-warning explain receipts should publish the promotion target stage inside the summary envelope.");
+        AssertEx.Equal(
+            0,
+            projection.ExplainReceipt.SummaryParameters.Single(parameter => string.Equals(parameter.Name, "warningCount", StringComparison.Ordinal)).Value.IntegerValue,
+            "No-warning explain receipts should publish a zero warning count.");
+        AssertEx.Equal(
+            false,
+            projection.ExplainReceipt.SummaryParameters.Single(parameter => string.Equals(parameter.Name, "deltaIncluded", StringComparison.Ordinal)).Value.BooleanValue,
+            "No-warning explain receipts should publish that delta coverage is absent.");
     }
 
     private static void RuntimeFingerprintComputationIsStableAcrossOrderingVariance()
@@ -3088,7 +3430,6 @@ internal static class CoreEngineTests
             masterIndex.OnlineStorageCoveragePercent,
             masterIndex.Sr6SuccessorDeterministicReceipt.OnlineStorageCoveragePercent,
             "Successor-lane deterministic receipts should mirror the online-storage coverage percentage.");
-
         string xml = File.ReadAllText(Path.Combine(GetLegacyFixtureDirectory(), "Gentle Earthquake.chum5"));
         ICharacterFileQueries fileQueries = new XmlCharacterFileQueries(new CharacterFileService());
         ICharacterSectionQueries sectionQueries = new XmlCharacterSectionQueries(new CharacterSectionService());
@@ -3102,7 +3443,6 @@ internal static class CoreEngineTests
                 new Sr6WorkspaceCodec()
             ]),
             new WorkspaceImportRulesetDetector());
-
         WorkspaceImportResult imported = workspaceService.Import(new WorkspaceImportDocument(
             xml,
             string.Empty,
@@ -3137,6 +3477,84 @@ internal static class CoreEngineTests
             "Workspace export and print exchange receipts should preserve canonical banned-ware grade ordering.");
 
         AssertEx.True(workspaceService.Close(imported.Id), "The SR5 parity fixture workspace should close cleanly after export/print rule-environment receipt verification.");
+    }
+
+    private static void WorkspaceExportPortabilityReceiptsCoverAllGovernedOutputLanes()
+    {
+        string xml = File.ReadAllText(Path.Combine(GetLegacyFixtureDirectory(), "Gentle Earthquake.chum5"));
+        ICharacterFileQueries fileQueries = new XmlCharacterFileQueries(new CharacterFileService());
+        ICharacterSectionQueries sectionQueries = new XmlCharacterSectionQueries(new CharacterSectionService());
+        ICharacterMetadataCommands metadataCommands = new XmlCharacterMetadataCommands(new CharacterFileService());
+        WorkspaceService workspaceService = new(
+            new InMemoryWorkspaceStore(),
+            new RulesetWorkspaceCodecResolver(
+            [
+                new Sr5WorkspaceCodec(fileQueries, sectionQueries, metadataCommands),
+                new Sr4WorkspaceCodec(),
+                new Sr6WorkspaceCodec()
+            ]),
+            new WorkspaceImportRulesetDetector());
+        WorkspaceImportResult imported = workspaceService.Import(new WorkspaceImportDocument(
+            xml,
+            string.Empty,
+            WorkspaceDocumentFormat.NativeXml));
+
+        CommandResult<WorkspaceExportReceipt> export = workspaceService.Export(imported.Id);
+
+        AssertEx.True(export.Success, "Workspace export should succeed for the governed codec fixture.");
+        AssertEx.NotNull(export.Value?.Portability, "Workspace export should emit a governed portability receipt.");
+        AssertEx.NotNull(export.Value?.Portability?.RelatedOutputs, "Workspace export should emit per-output portability receipts.");
+        AssertEx.Equal(5, export.Value!.Portability!.RelatedOutputs!.Count, "Workspace export should cover dossier, campaign, replay, recap, and external exchange outputs.");
+        AssertEx.SequenceEqual(
+            [
+                WorkspacePortabilityOutputKinds.CampaignBundle,
+                WorkspacePortabilityOutputKinds.ExternalExchange,
+                WorkspacePortabilityOutputKinds.PortableDossier,
+                WorkspacePortabilityOutputKinds.ReplayTimeline,
+                WorkspacePortabilityOutputKinds.SessionRecap
+            ],
+            export.Value.Portability.RelatedOutputs
+                .Select(static output => output.OutputKind)
+                .OrderBy(static outputKind => outputKind, StringComparer.Ordinal)
+                .ToArray(),
+            "Workspace export should keep the successor output kinds explicit and deterministic.");
+        AssertEx.True(
+            export.Value.Portability.RelatedOutputs.All(static output =>
+                output.Lineage.Count == 3
+                && string.Equals(output.Compatibility.State, WorkspacePortabilityCompatibilityStates.Compatible, StringComparison.Ordinal)
+                && string.Equals(output.Loss.State, WorkspacePortabilityLossStates.None, StringComparison.Ordinal)
+                && !string.IsNullOrWhiteSpace(output.Provenance.ReceiptId)
+                && output.PortabilityEnvelope.SupportedExchangeModes.Count > 0
+                && string.Equals(output.Revocation.State, WorkspacePortabilityRevocationStates.Revocable, StringComparison.Ordinal)
+                && !string.IsNullOrWhiteSpace(output.Revocation.FamilyId)),
+            "Every related output receipt should carry lineage, compatibility, loss, provenance, portability envelope, and revocation payloads.");
+        WorkspacePortabilityRelatedOutputReceipt? campaign = export.Value.Portability.RelatedOutputs
+            .FirstOrDefault(static output => string.Equals(output.OutputKind, WorkspacePortabilityOutputKinds.CampaignBundle, StringComparison.Ordinal));
+        WorkspacePortabilityRelatedOutputReceipt? replay = export.Value.Portability.RelatedOutputs
+            .FirstOrDefault(static output => string.Equals(output.OutputKind, WorkspacePortabilityOutputKinds.ReplayTimeline, StringComparison.Ordinal));
+        WorkspacePortabilityRelatedOutputReceipt? recap = export.Value.Portability.RelatedOutputs
+            .FirstOrDefault(static output => string.Equals(output.OutputKind, WorkspacePortabilityOutputKinds.SessionRecap, StringComparison.Ordinal));
+        WorkspacePortabilityRelatedOutputReceipt? external = export.Value.Portability.RelatedOutputs
+            .FirstOrDefault(static output => string.Equals(output.OutputKind, WorkspacePortabilityOutputKinds.ExternalExchange, StringComparison.Ordinal));
+        AssertEx.NotNull(campaign, "Campaign bundle portability receipt should be present.");
+        AssertEx.NotNull(replay, "Replay timeline portability receipt should be present.");
+        AssertEx.NotNull(recap, "Session recap portability receipt should be present.");
+        AssertEx.NotNull(external, "External exchange portability receipt should be present.");
+        AssertEx.Equal("workflow.campaign.bundle", campaign!.WorkflowId, "Campaign bundle receipt should publish the canonical workflow id.");
+        AssertEx.True(campaign.Summary.Contains("Campaign federation", StringComparison.Ordinal), "Campaign bundle receipt should keep campaign federation guidance explicit.");
+        AssertEx.Equal("workspace-portability:campaign-bundle", campaign.Revocation.FamilyId, "Campaign bundle receipt should publish the canonical revocation family.");
+        AssertEx.Equal("workflow.replay.timeline", replay!.WorkflowId, "Replay timeline receipt should publish the canonical workflow id.");
+        AssertEx.SequenceEqual(
+            [WorkspacePortabilityExchangeModes.InspectOnly, WorkspacePortabilityExchangeModes.Merge],
+            replay.PortabilityEnvelope.SupportedExchangeModes.ToArray(),
+            "Replay timeline receipt should stay inspect-or-merge only.");
+        AssertEx.Equal("workspace-portability:replay-timeline", replay.Revocation.FamilyId, "Replay timeline receipt should publish the canonical revocation family.");
+        AssertEx.Equal("workflow.recap.session", recap!.WorkflowId, "Session recap receipt should publish the canonical workflow id.");
+        AssertEx.True(recap.Summary.Contains("Session recap", StringComparison.Ordinal), "Session recap receipt should keep recap guidance explicit.");
+        AssertEx.Equal("workspace-portability:session-recap", recap.Revocation.FamilyId, "Session recap receipt should publish the canonical revocation family.");
+        AssertEx.Equal("workflow.exchange.external", external!.WorkflowId, "External exchange receipt should publish the canonical workflow id.");
+        AssertEx.True(external.Summary.Contains("External exchange", StringComparison.Ordinal), "External exchange receipt should keep downstream exchange guidance explicit.");
+        AssertEx.Equal("workspace-portability:external-exchange", external.Revocation.FamilyId, "External exchange receipt should publish the canonical revocation family.");
     }
 
     private static void BuildLabCreateSurfaceIsExposedAcrossRulesets()
@@ -3291,6 +3709,153 @@ internal static class CoreEngineTests
             string.Equals(summary.Failures[1].Explain?.HookId, "ledger-entry:ledger-2:trace-ledger-2", StringComparison.Ordinal)
             && string.Equals(summary.Failures[2].Explain?.HookId, "timeline-event:timeline-2:trace-timeline-2", StringComparison.Ordinal),
             "Validation summaries should attach explain-hook references for downstream integration surfaces.");
+    }
+
+    private static void ExplainValuePacketsStayDeterministicAndBounded()
+    {
+        DefaultExplainValuePacketService service = new();
+        ExplainValuePacket packet = service.CreatePacket(new ExplainValuePacketInput(
+            PacketId: " packet-1 ",
+            CalculationKey: "initiative.total",
+            RulesetId: RulesetDefaults.Sr5,
+            RuntimeFingerprint: "sha256:golden-runtime",
+            SubjectId: "runner-1",
+            SubjectKind: CalculationReportSubjectKinds.DerivedValue,
+            Value: RulesetCapabilityBridge.FromObject(14),
+            ExplainTrace: CreateExplainTraceFixture(),
+            Validation: new ValidationSummary(
+                ScopeKind: " legality ",
+                ScopeId: " runner-1 ",
+                State: ValidationSummaryStates.Warnings,
+                SummaryKey: "validation.summary.warnings",
+                SummaryParameters: [],
+                TotalCount: 1,
+                ErrorCount: 0,
+                WarningCount: 1,
+                InfoCount: 0,
+                Failures:
+                [
+                    new ValidationFailureEnvelope(
+                        FailureId: " 0001:availability:runner-1 ",
+                        Code: " availability ",
+                        Severity: RulesetCapabilityDiagnosticSeverities.Warning,
+                        MessageKey: "validation.warning.availability",
+                        MessageParameters: [])
+                ]),
+            Delta: CreateRuntimeLockDiffFixture(),
+            Counterfactuals:
+            [
+                CreateCounterfactualFixture("what-if-2", ExplainCounterfactualOutcomeKinds.WhatIf, 16, 2),
+                CreateCounterfactualFixture("why-1", ExplainCounterfactualOutcomeKinds.Why, 14, 1),
+                CreateCounterfactualFixture("why-not-0", ExplainCounterfactualOutcomeKinds.WhyNot, 12, 0),
+                CreateCounterfactualFixture("trimmed", ExplainCounterfactualOutcomeKinds.WhatIf, 20, 3)
+            ]));
+
+        AssertEx.Equal("packet-1", packet.PacketId, "Explain value packets should normalize packet identifiers.");
+        AssertEx.Equal(DefaultExplainValuePacketService.MaxCounterfactuals, packet.CounterfactualLimit, "Explain value packets should publish the bounded counterfactual limit.");
+        AssertEx.Equal(1, packet.CounterfactualOverflowCount, "Explain value packets should report trimmed counterfactual overflow.");
+        AssertEx.Equal(3, packet.Counterfactuals.Count, "Explain value packets should keep only the bounded counterfactual count.");
+        AssertEx.Equal(1, packet.Validation?.WarningCount ?? 0, "Explain value packets should preserve warning posture.");
+        AssertEx.True(packet.Delta?.Changes.Count > 0, "Explain value packets should retain before/after deltas.");
+        AssertEx.SequenceEqual(
+            [
+                ExplainValuePacketCoverageKinds.BeforeAfterDelta,
+                ExplainValuePacketCoverageKinds.BeforeAfterDelta,
+                ExplainValuePacketCoverageKinds.BeforeAfterDelta,
+                ExplainValuePacketCoverageKinds.BeforeAfterDelta,
+                ExplainValuePacketCoverageKinds.Counterfactual,
+                ExplainValuePacketCoverageKinds.Counterfactual,
+                ExplainValuePacketCoverageKinds.Counterfactual,
+                ExplainValuePacketCoverageKinds.LegalityState,
+                ExplainValuePacketCoverageKinds.LegalityState,
+                ExplainValuePacketCoverageKinds.LegalityState,
+                ExplainValuePacketCoverageKinds.LegalityState,
+                ExplainValuePacketCoverageKinds.MechanicalResult,
+                ExplainValuePacketCoverageKinds.MechanicalResult,
+                ExplainValuePacketCoverageKinds.MechanicalResult,
+                ExplainValuePacketCoverageKinds.MechanicalResult,
+                ExplainValuePacketCoverageKinds.SourceAnchor,
+                ExplainValuePacketCoverageKinds.SourceAnchor,
+                ExplainValuePacketCoverageKinds.SourceAnchor,
+                ExplainValuePacketCoverageKinds.SourceAnchor,
+                ExplainValuePacketCoverageKinds.Warning,
+                ExplainValuePacketCoverageKinds.Warning,
+                ExplainValuePacketCoverageKinds.Warning,
+                ExplainValuePacketCoverageKinds.Warning
+            ],
+            packet.CoverageRegistry.Select(static row => row.SurfaceKind),
+            "Explain value packets should emit ordered coverage rows for promoted visible-value surfaces.");
+        AssertEx.SequenceEqual(
+            ["why-not-0", "why-1", "what-if-2"],
+            packet.Counterfactuals.Select(static counterfactual => counterfactual.CounterfactualId),
+            "Explain value packets should order counterfactual packets deterministically.");
+        AssertEx.True(
+            packet.SourceAnchors.Any(static pointer => string.Equals(pointer.Kind, RulesetEvidencePointerKinds.RuntimeLock, StringComparison.Ordinal)),
+            "Explain value packets should preserve runtime and source-anchor evidence.");
+        AssertEx.True(
+            packet.CoverageRegistry.Any(static row =>
+                string.Equals(row.SurfaceKind, ExplainValuePacketCoverageKinds.MechanicalResult, StringComparison.Ordinal)
+                && string.Equals(row.SubjectId, "why-not-0", StringComparison.Ordinal)),
+            "Explain value packets should emit coverage rows for each counterfactual visible result.");
+        AssertEx.True(
+            packet.CoverageRegistry.Any(static row =>
+                string.Equals(row.SurfaceKind, ExplainValuePacketCoverageKinds.LegalityState, StringComparison.Ordinal)
+                && string.Equals(row.SubjectId, "why-1", StringComparison.Ordinal)
+                && row.SummaryParameters.Any(static parameter => string.Equals(parameter.Name, "state", StringComparison.Ordinal))),
+            "Explain value packets should emit legality-state coverage for counterfactual rows.");
+        AssertEx.True(
+            packet.CoverageRegistry.Any(static row =>
+                string.Equals(row.SurfaceKind, ExplainValuePacketCoverageKinds.SourceAnchor, StringComparison.Ordinal)
+                && string.Equals(row.SubjectId, "what-if-2:anchors", StringComparison.Ordinal)),
+            "Explain value packets should emit source-anchor coverage for counterfactual rows.");
+        AssertEx.True(
+            packet.CoverageRegistry.Any(static row =>
+                string.Equals(row.SurfaceKind, ExplainValuePacketCoverageKinds.Warning, StringComparison.Ordinal)
+                && string.Equals(row.SubjectId, "why-not-0", StringComparison.Ordinal)),
+            "Explain value packets should emit warning coverage for counterfactual rows.");
+        AssertEx.True(
+            packet.Counterfactuals.All(static counterfactual =>
+                string.Equals(counterfactual.OutcomeKind, ExplainCounterfactualOutcomeKinds.Why, StringComparison.Ordinal)
+                || string.Equals(counterfactual.OutcomeKind, ExplainCounterfactualOutcomeKinds.WhyNot, StringComparison.Ordinal)
+                || string.Equals(counterfactual.OutcomeKind, ExplainCounterfactualOutcomeKinds.WhatIf, StringComparison.Ordinal)),
+            "Explain value packets should keep counterfactual outcomes inside the promoted packet surface.");
+        AssertEx.True(
+            !packet.CoverageRegistry.Any(static row => string.Equals(row.SubjectId, "trimmed", StringComparison.Ordinal)),
+            "Explain value packets should not leak trimmed counterfactuals into the coverage registry.");
+        bool rejectedUnsupportedOutcomeKind = false;
+        try
+        {
+            service.CreatePacket(new ExplainValuePacketInput(
+                PacketId: "packet-invalid",
+                CalculationKey: "initiative.total",
+                RulesetId: RulesetDefaults.Sr5,
+                RuntimeFingerprint: "sha256:golden-runtime",
+                SubjectId: "runner-1",
+                SubjectKind: CalculationReportSubjectKinds.DerivedValue,
+                Value: RulesetCapabilityBridge.FromObject(14),
+                ExplainTrace: CreateExplainTraceFixture(),
+                Counterfactuals:
+                [
+                    CreateCounterfactualFixture("unsupported-outcome", "because", 9, 0)
+                ]));
+        }
+        catch (ArgumentOutOfRangeException)
+        {
+            rejectedUnsupportedOutcomeKind = true;
+        }
+
+        AssertEx.True(
+            rejectedUnsupportedOutcomeKind,
+            "Explain value packets should reject unsupported counterfactual outcome kinds instead of publishing ad hoc packet posture.");
+
+        ServiceProvider serviceProvider = new ServiceCollection()
+            .AddChummerHeadlessCore(AppContext.BaseDirectory, Directory.GetCurrentDirectory())
+            .BuildServiceProvider();
+        IExplainValuePacketService registeredService = serviceProvider.GetRequiredService<IExplainValuePacketService>();
+        AssertEx.Equal(
+            typeof(DefaultExplainValuePacketService),
+            registeredService.GetType(),
+            "Explain value packets should stay available through the core headless dependency graph.");
     }
 
     private static void ContentInstallPreviewsEmitLocalizationKeys()
@@ -3655,6 +4220,42 @@ internal static class CoreEngineTests
                 Shares: []),
             new ArtifactInstallState(ArtifactInstallStates.Available),
             RegistryEntrySourceKinds.BuiltInCoreProfile);
+    }
+
+    private static DefaultRuleEnvironmentStudioService CreateRuleEnvironmentStudioService(
+        RuleProfileRegistryEntry profile,
+        IReadOnlyList<RuntimeLockRegistryEntry> runtimes)
+    {
+        RuleProfileRegistryServiceStub profileRegistry = new([profile]);
+        RulePackRegistryServiceStub packRegistry = new(
+        [
+            CreateRulePackEntry(
+                packId: "house-rules",
+                capabilities:
+                [
+                    new RulePackCapabilityDescriptor(
+                        RulePackCapabilityIds.ContentCatalog,
+                        "json",
+                        "merge-catalog",
+                        Explainable: true,
+                        SessionSafe: true)
+                ])
+        ]);
+        DefaultRuleProfileApplicationService profileApplicationService = new(
+            profileRegistry,
+            new RuntimeLockInstallServiceStub(),
+            new RuleProfileInstallStateStoreStub(),
+            new RuleProfileInstallHistoryStoreStub());
+        DefaultRuntimeInspectorService runtimeInspectorService = new(
+            new RulesetPluginRegistry([new Sr5RulesetPlugin()]),
+            profileRegistry,
+            packRegistry);
+
+        return new DefaultRuleEnvironmentStudioService(
+            profileApplicationService,
+            runtimeInspectorService,
+            new DefaultRuntimeLockDiffService(),
+            new RuntimeLockRegistryServiceStub(runtimes));
     }
 
     private static RuleProfileRegistryEntry CreateDeterministicInspectorProfile(
@@ -4819,6 +5420,47 @@ internal static class CoreEngineTests
                 CapabilityId: RulePackCapabilityIds.DeriveStat,
                 ProviderId: "combat-pack/derive.initiative",
                 PackId: "combat-pack"));
+    }
+
+    private static ExplainCounterfactualInput CreateCounterfactualFixture(string counterfactualId, string outcomeKind, int value, int displayOrder)
+    {
+        return new ExplainCounterfactualInput(
+            CounterfactualId: counterfactualId,
+            OutcomeKind: outcomeKind,
+            LabelKey: $"counterfactual.{counterfactualId}",
+            LabelParameters: [],
+            Value: RulesetCapabilityBridge.FromObject(value),
+            ExplainTrace: CreateExplainTraceFixture() with
+            {
+                FinalValue = RulesetCapabilityBridge.FromObject(value),
+                SummaryParameters =
+                [
+                    new RulesetExplainParameter("targetKey", RulesetCapabilityBridge.FromObject("initiative.total")),
+                    new RulesetExplainParameter("finalValue", RulesetCapabilityBridge.FromObject(value))
+                ]
+            },
+            Validation: new ValidationSummary(
+                ScopeKind: "counterfactual",
+                ScopeId: counterfactualId,
+                State: ValidationSummaryStates.Warnings,
+                SummaryKey: "validation.summary.warnings",
+                SummaryParameters: [],
+                TotalCount: 1,
+                ErrorCount: 0,
+                WarningCount: 1,
+                InfoCount: 0,
+                Failures:
+                [
+                    new ValidationFailureEnvelope(
+                        FailureId: $"{counterfactualId}:warning",
+                        Code: "counterfactual.warning",
+                        Severity: RulesetCapabilityDiagnosticSeverities.Warning,
+                        MessageKey: "validation.warning.counterfactual",
+                        MessageParameters: [])
+                ]),
+            Delta: CreateRuntimeLockDiffFixture(),
+            LegalityState: ValidationSummaryStates.Warnings,
+            DisplayOrder: displayOrder);
     }
 
     private static RuntimeLockDiffProjection CreateRuntimeLockDiffFixture()

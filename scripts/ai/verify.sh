@@ -13,6 +13,8 @@ test -f docs/LEGACY_MIGRATION_CERTIFICATION.md
 test -f docs/ENGINE_PROOF_PACK.md
 test -f docs/NEXT90_M141_IMPORT_ROUTE_RECEIPTS.md
 test -f docs/NEXT90_M143_EXPORT_PRINT_SUPPLEMENT_RULE_ENVIRONMENT_RECEIPTS.md
+test -f docs/NEXT90_M114_RULE_ENVIRONMENT_STUDIO_CONTRACTS.md
+test -f docs/NEXT90_M115_CORE_EXCHANGE_CONTRACTS.md
 test -f tests/test_engine_proof_pack_generator.py
 test -f docs/LEGACY_ROOT_SURFACE_INVENTORY.md
 test -f docs/LEGACY_PLUGIN_PURIFICATION_INCREMENT_WL111.md
@@ -26,6 +28,11 @@ rg -n 'retention-cleanup|retention-cleanup-smoke|MIG-093|retention|cleanup|runbo
 rg -n 'milestone `104`|ENGINE_PROOF_PACK\.generated\.json|oracle_suite_summary|performance_budget_summary|coverage_focus|fixture_count|release_gate|scenario|IMPORT_PARITY_CERTIFICATION\.generated\.json|next90-m104-core-proof-pack|3227666051|completion_action|do_not_reopen_reason|queue-mirror closeout parity|test_engine_proof_pack_generator\.py|unexpected oracle rows fail closed|malformed extra rows fail closed' docs/ENGINE_PROOF_PACK.md >/dev/null
 rg -n 'next90-m141-core-bind-import-oracle-custom-data-and-amend-package-flows-to-deterministic|4304178368|source:translator_route|family:custom_data_xml_and_translator_bridge|family:legacy_and_adjacent_import_oracles|customDataXmlBridgeDeterministicReceipt|translatorDeterministicReceipt|importOracleDeterministicReceipt|ENGINE_PROOF_PACK\.generated\.json|amend_package' docs/NEXT90_M141_IMPORT_ROUTE_RECEIPTS.md >/dev/null
 rg -n 'next90-m143-core-keep-export-print-supplement-and-rule-environment-receipts-deterministi|2778308338|family:sheet_export_print_viewer_and_exchange|family:sr6_supplements_designers_and_house_rules|WorkspaceExchangeDeterministicReceipt|Sr6SuccessorLaneDeterministicReceipt|sr6SuccessorDeterministicReceipt|exchangeDeterministicReceipt|parity-m143' docs/NEXT90_M143_EXPORT_PRINT_SUPPLEMENT_RULE_ENVIRONMENT_RECEIPTS.md >/dev/null
+rg -n 'next90-m114-core-rule-environment-studio|deterministic first-pin, clear, and requires-review diff states|CHUMMER_CORE_ENGINE_TEST_FILTER=rule-environment-studio|verify-next90-m114-rule-environment-studio\.py|IRuleEnvironmentStudioService' docs/NEXT90_M114_RULE_ENVIRONMENT_STUDIO_CONTRACTS.md >/dev/null
+rg -n 'next90-m115-core-exchange-contracts|`relatedOutputs`|campaign federation|replay timeline|session recap|external exchange|verify-next90-m115-core-exchange-contracts\.py|NEXT90_M115_CORE_EXCHANGE_CONTRACTS\.generated\.json' docs/NEXT90_M115_CORE_EXCHANGE_CONTRACTS.md >/dev/null
+rg -n 'next90-m143-core-keep-export-print-supplement-and-rule-environment-receipts-deterministi|2778308338|family:sheet_export_print_viewer_and_exchange|family:sr6_supplements_designers_and_house_rules|WorkspaceExchangeDeterministicReceipt|Sr6SuccessorLaneDeterministicReceipt|sr6SuccessorDeterministicReceipt|exchangeDeterministicReceipt|parity-m143' docs/NEXT90_M143_EXPORT_PRINT_SUPPLEMENT_RULE_ENVIRONMENT_RECEIPTS.md >/dev/null
+rg -n 'next90-m114-core-rule-environment-studio|deterministic first-pin, clear, and requires-review diff states|CHUMMER_CORE_ENGINE_TEST_FILTER=rule-environment-studio|verify-next90-m114-rule-environment-studio\.py|IRuleEnvironmentStudioService' docs/NEXT90_M114_RULE_ENVIRONMENT_STUDIO_CONTRACTS.md >/dev/null
+rg -n 'next90-m115-core-exchange-contracts|`relatedOutputs`|campaign federation|replay timeline|session recap|external exchange|verify-next90-m115-core-exchange-contracts\.py|NEXT90_M115_CORE_EXCHANGE_CONTRACTS\.generated\.json' docs/NEXT90_M115_CORE_EXCHANGE_CONTRACTS.md >/dev/null
 rg -n 'oracle_suite_summary\.coverage_status=passed|oracle_suite_summary\.covered_rulesets=\[sr4, sr5, sr6\]|oracle_suite_summary\.release_scope=promoted_desktop_release|coverage_focus|fixture_count|performance_budget_summary\.coverage_status=passed|performance_budget_summary\.release_scope=promoted_desktop_release|release commands|release_gate|scenario|completion_action: verify_closed_package_only|do_not_reopen_reason|matching `completion_action` and exact `do_not_reopen_reason` text|published_import_oracle_names|published_adjacent_oracle_names|unexpected-name lists remain empty|malformed_import_oracle_rows=\[\]|malformed_adjacent_oracle_rows=\[\]' docs/NEXT90_M104_CORE_PROOF_PACK_CLOSEOUT.md >/dev/null
 rg -n 'RUNBOOK_MODE" == "retention-cleanup"|RUNBOOK_MODE" == "retention-cleanup-smoke"|emit_retention_cleanup|RETENTION_WORKSPACE_DAYS|RETENTION_LOG_DAYS' scripts/runbook.sh >/dev/null
 rg -n 'chummer5a|PARITY_ORACLE\.json|scripts/migration-loop\.sh 1|scripts/audit-compliance\.sh|MigrationComplianceTests|DualHeadAcceptanceTests|ArchitectureGuardrailTests' docs/LEGACY_MIGRATION_CERTIFICATION.md >/dev/null
@@ -102,6 +109,20 @@ test -f scripts/verify-opposition-packet-contracts.py
 test -f tests/test_opposition_packet_contract_receipt.py
 python3 tests/test_opposition_packet_contract_receipt.py
 python3 scripts/verify-opposition-packet-contracts.py --repo-root . --out .codex-studio/published/OPPOSITION_PACKET_CONTRACTS.generated.json --check
+test -f scripts/verify-explain-value-packets.py
+test -f tests/test_explain_value_packet_receipt.py
+python3 tests/test_explain_value_packet_receipt.py
+python3 scripts/verify-explain-value-packets.py --repo-root . --out .codex-studio/published/EXPLAIN_VALUE_PACKETS.generated.json --check
+test -f scripts/verify-next90-m114-rule-environment-studio.py
+test -f tests/test_next90_m114_rule_environment_studio.py
+CHUMMER_CORE_ENGINE_TEST_FILTER=rule-environment-studio dotnet run --project Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj -m:1 -p:UseSharedCompilation=false
+python3 tests/test_next90_m114_rule_environment_studio.py
+python3 scripts/verify-next90-m114-rule-environment-studio.py --repo-root . --out .codex-studio/published/NEXT90_M114_RULE_ENVIRONMENT_STUDIO.generated.json --check
+test -f scripts/verify-next90-m115-core-exchange-contracts.py
+test -f tests/test_next90_m115_core_exchange_contracts.py
+CHUMMER_CORE_ENGINE_TEST_FILTER=core-exchange-contracts dotnet run --project Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj -m:1 -p:UseSharedCompilation=false
+python3 tests/test_next90_m115_core_exchange_contracts.py
+python3 scripts/verify-next90-m115-core-exchange-contracts.py --repo-root . --out .codex-studio/published/NEXT90_M115_CORE_EXCHANGE_CONTRACTS.generated.json --check
 python3 scripts/generate-engine-proof-pack.py --check
 python3 scripts/ai/verify_design_mirror.py
 rg -n '"queue_completion_action": "verify_closed_package_only"|"design_queue_completion_action": "verify_closed_package_only"|"queue_do_not_reopen_reason": "M104 chummer6-core engine proof pack is complete; future shards must verify this receipt, queue row, design queue row, and closeout note instead of reopening the proof-pack package\."|"design_queue_do_not_reopen_reason": "M104 chummer6-core engine proof pack is complete; future shards must verify this receipt, queue row, design queue row, and closeout note instead of reopening the proof-pack package\."|"queue_closure_field_drift": \[\]|"published_import_oracle_names": \[|"published_adjacent_oracle_names": \[|"malformed_import_oracle_rows": \[\]|"malformed_adjacent_oracle_rows": \[\]|"unexpected_import_oracle_names": \[\]|"unexpected_adjacent_oracle_names": \[\]' .codex-studio/published/ENGINE_PROOF_PACK.generated.json >/dev/null
