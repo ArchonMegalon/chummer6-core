@@ -46,6 +46,16 @@ internal static class CoreEngineTests
     {
         try
         {
+            string? filter = Environment.GetEnvironmentVariable("CHUMMER_CORE_ENGINE_TEST_FILTER");
+            if (string.Equals(filter, "parity-master-index", StringComparison.OrdinalIgnoreCase))
+            {
+                ImportParityCertificationReceiptCoversLegacyAndAdjacentOracles();
+                EngineProofPackReceiptCoversRequiredOracleSuitesAndBudgets();
+                MasterIndexDeterministicReceiptsStayBoundToParityTargets();
+                Console.WriteLine("core-engine-tests: ok");
+                return 0;
+            }
+
             CapabilityDescriptorsEmitLocalizationKeys();
             Sr4RulesetExecutesDeterministicCapabilities();
             Sr5RulesetExecutesDeterministicCapabilities();
@@ -90,6 +100,7 @@ internal static class CoreEngineTests
             HeroLabRulesParityAudit.AssertHeroLabImportsAndParity(GetHeroLabFixtureDirectory());
             ImportParityCertificationReceiptCoversLegacyAndAdjacentOracles();
             EngineProofPackReceiptCoversRequiredOracleSuitesAndBudgets();
+            MasterIndexDeterministicReceiptsStayBoundToParityTargets();
             BuildLabCreateSurfaceIsExposedAcrossRulesets();
             Sr4AndSr6CodecsExposeBuildLabSections();
             ContentInstallPreviewsEmitLocalizationKeys();
@@ -2867,6 +2878,64 @@ internal static class CoreEngineTests
         AssertEx.Equal(5, importCoverage?["sources_covered"]?.GetValue<int>() ?? 0, "Import-oracle aggregate coverage should publish the covered source count.");
         AssertEx.Equal(5, importCoverage?["sources_expected"]?.GetValue<int>() ?? 0, "Import-oracle aggregate coverage should publish the expected source count.");
         AssertEx.Equal(100, importCoverage?["coverage_percent"]?.GetValue<int>() ?? 0, "Import-oracle aggregate coverage should stay fully covered.");
+    }
+
+    private static void MasterIndexDeterministicReceiptsStayBoundToParityTargets()
+    {
+        XmlToolCatalogService service = new(GetRepositoryRoot());
+        MasterIndexResponse response = service.GetMasterIndex();
+
+        CustomDataXmlBridgeDeterministicReceipt? customData = response.CustomDataXmlBridgeDeterministicReceipt;
+        AssertEx.NotNull(customData, "Master index should publish a deterministic custom-data/XML bridge receipt.");
+        AssertEx.Equal(
+            "family:custom_data_xml_and_translator_bridge",
+            customData?.ParityFamilyId ?? string.Empty,
+            "Custom-data/XML bridge deterministic receipt should stay pinned to the parity family id.");
+        AssertEx.Equal(
+            response.CustomDataLanePosture,
+            customData?.CustomDataLanePosture ?? string.Empty,
+            "Custom-data deterministic receipt should mirror the top-level custom-data posture.");
+        AssertEx.Equal(
+            response.XmlBridgePosture,
+            customData?.XmlBridgePosture ?? string.Empty,
+            "Custom-data deterministic receipt should mirror the top-level XML bridge posture.");
+
+        TranslatorLaneDeterministicReceipt? translator = response.TranslatorDeterministicReceipt;
+        AssertEx.NotNull(translator, "Master index should publish a deterministic translator receipt.");
+        AssertEx.Equal(
+            "source:translator_route",
+            translator?.ParityRouteId ?? string.Empty,
+            "Translator deterministic receipt should stay pinned to the translator route.");
+        AssertEx.Equal(
+            response.TranslatorLanePosture,
+            translator?.TranslatorLanePosture ?? string.Empty,
+            "Translator deterministic receipt should mirror the top-level translator posture.");
+        AssertEx.Equal(
+            response.TranslatorBridgePosture,
+            translator?.TranslatorBridgePosture ?? string.Empty,
+            "Translator deterministic receipt should mirror the top-level translator bridge posture.");
+
+        ImportOracleLaneDeterministicReceipt? importOracle = response.ImportOracleDeterministicReceipt;
+        AssertEx.NotNull(importOracle, "Master index should publish a deterministic import-oracle receipt.");
+        AssertEx.Equal(
+            "family:legacy_and_adjacent_import_oracles",
+            importOracle?.ParityFamilyId ?? string.Empty,
+            "Import-oracle deterministic receipt should stay pinned to the legacy and adjacent import family.");
+        AssertEx.Equal(
+            response.ImportOracleLanePosture,
+            importOracle?.ImportOracleLanePosture ?? string.Empty,
+            "Import-oracle deterministic receipt should mirror the top-level import posture.");
+        AssertEx.Equal(
+            response.ImportOracleCoveragePercent,
+            importOracle?.ImportOracleCoveragePercent ?? -1,
+            "Import-oracle deterministic receipt should mirror the top-level import coverage percent.");
+        AssertEx.Equal(
+            response.AdjacentSr6OracleReceiptPosture,
+            importOracle?.AdjacentSr6OracleReceiptPosture ?? string.Empty,
+            "Import-oracle deterministic receipt should mirror the adjacent SR6 oracle posture.");
+        AssertEx.True(
+            importOracle?.ImportOracleMissingSources is not null,
+            "Import-oracle deterministic receipt should always publish a missing-source list, even when empty.");
     }
 
     private static void BuildLabCreateSurfaceIsExposedAcrossRulesets()

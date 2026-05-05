@@ -69,7 +69,10 @@ public sealed record MasterIndexResponse(
     IReadOnlyList<string>? ImportOracleMissingSources = null,
     string ImportOracleLaneReceipt = "",
     string AdjacentSr6OracleLaneReceipt = "",
-    string Sr6SuccessorLaneReceipt = "");
+    string Sr6SuccessorLaneReceipt = "",
+    CustomDataXmlBridgeDeterministicReceipt? CustomDataXmlBridgeDeterministicReceipt = null,
+    TranslatorLaneDeterministicReceipt? TranslatorDeterministicReceipt = null,
+    ImportOracleLaneDeterministicReceipt? ImportOracleDeterministicReceipt = null);
 
 public sealed record MasterIndexSourcebookEntry(
     string Id,
@@ -100,3 +103,39 @@ public sealed record TranslatorLanguagesResponse(
     IReadOnlyList<TranslatorLanguageEntry> Languages,
     string TranslatorBridgePosture = "missing",
     int EnabledLanguageOverlayCount = 0);
+
+public sealed record CustomDataXmlBridgeDeterministicReceipt(
+    string ParityFamilyId,
+    string CustomDataLanePosture,
+    string CustomDataLaneReceipt,
+    string CustomDataAuthoringLaneReceipt,
+    int SettingsProfilesWithCustomDataDirectories,
+    int DistinctCustomDataDirectoryCount,
+    string XmlBridgePosture,
+    string XmlBridgeLaneReceipt,
+    int EnabledDataOverlayCount);
+
+public sealed record TranslatorLaneDeterministicReceipt(
+    string ParityRouteId,
+    string TranslatorLanePosture,
+    string TranslatorLaneReceipt,
+    string TranslatorBridgePosture,
+    int TranslatorLanguageCount,
+    int EnabledLanguageOverlayCount);
+
+public sealed record ImportOracleLaneDeterministicReceipt(
+    string ParityFamilyId,
+    string ImportOracleLanePosture,
+    string ImportOracleLaneReceipt,
+    string ImportOracleReceiptPosture,
+    int LegacyChummer4FixtureCount,
+    int LegacyChummer5FixtureCount,
+    int HeroLabFixtureCount,
+    string AdjacentSr6OracleReceiptPosture,
+    int AdjacentSr6OracleSourcesCovered,
+    int AdjacentSr6OracleSourcesExpected,
+    int ImportOracleSourcesCovered,
+    int ImportOracleSourcesExpected,
+    int ImportOracleCoveragePercent,
+    IReadOnlyList<string> ImportOracleMissingSources,
+    string AdjacentSr6OracleLaneReceipt);

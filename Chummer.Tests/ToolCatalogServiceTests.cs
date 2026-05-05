@@ -59,6 +59,10 @@ public class ToolCatalogServiceTests
             Assert.AreEqual(
                 "No custom-data authoring directories were discovered in settings.xml.",
                 response.CustomDataAuthoringLaneReceipt);
+            Assert.IsNotNull(response.CustomDataXmlBridgeDeterministicReceipt);
+            Assert.AreEqual("family:custom_data_xml_and_translator_bridge", response.CustomDataXmlBridgeDeterministicReceipt!.ParityFamilyId);
+            Assert.AreEqual("missing", response.CustomDataXmlBridgeDeterministicReceipt.CustomDataLanePosture);
+            Assert.AreEqual("missing", response.CustomDataXmlBridgeDeterministicReceipt.XmlBridgePosture);
             Assert.AreEqual(0, response.SettingsProfilesWithCustomDataDirectories);
             Assert.AreEqual(0, response.DistinctCustomDataDirectoryCount);
             Assert.AreEqual("missing", response.XmlBridgePosture);
@@ -66,6 +70,9 @@ public class ToolCatalogServiceTests
             Assert.AreEqual(0, response.EnabledDataOverlayCount);
             Assert.AreEqual("missing", response.TranslatorLanePosture);
             Assert.AreEqual("No translator language corpus or language overlay bridge was detected.", response.TranslatorLaneReceipt);
+            Assert.IsNotNull(response.TranslatorDeterministicReceipt);
+            Assert.AreEqual("source:translator_route", response.TranslatorDeterministicReceipt!.ParityRouteId);
+            Assert.AreEqual("missing", response.TranslatorDeterministicReceipt.TranslatorLanePosture);
             Assert.AreEqual("missing", response.TranslatorBridgePosture);
             Assert.AreEqual(0, response.TranslatorLanguageCount);
             Assert.AreEqual(0, response.EnabledLanguageOverlayCount);
@@ -101,6 +108,12 @@ public class ToolCatalogServiceTests
             Assert.AreEqual(
                 "No adjacent SR6 oracle certification receipt coverage was discovered for Genesis/CommLink6.",
                 response.AdjacentSr6OracleLaneReceipt);
+            Assert.IsNotNull(response.ImportOracleDeterministicReceipt);
+            Assert.AreEqual("family:legacy_and_adjacent_import_oracles", response.ImportOracleDeterministicReceipt!.ParityFamilyId);
+            Assert.AreEqual("missing", response.ImportOracleDeterministicReceipt.ImportOracleLanePosture);
+            CollectionAssert.AreEquivalent(
+                new[] { "chummer4", "chummer5a", "hero-lab-classic", "genesis-commlink6" },
+                response.ImportOracleDeterministicReceipt.ImportOracleMissingSources.ToArray());
             StringAssert.Contains(response.Sr6SuccessorLaneReceipt, "Supplement posture is missing");
         }
         finally
@@ -542,6 +555,12 @@ public class ToolCatalogServiceTests
             Assert.AreEqual("governed", response.TranslatorBridgePosture);
             Assert.AreEqual(1, response.TranslatorLanguageCount);
             Assert.AreEqual(1, response.EnabledLanguageOverlayCount);
+            Assert.IsNotNull(response.TranslatorDeterministicReceipt);
+            Assert.AreEqual("source:translator_route", response.TranslatorDeterministicReceipt!.ParityRouteId);
+            Assert.AreEqual("governed", response.TranslatorDeterministicReceipt.TranslatorLanePosture);
+            Assert.AreEqual("governed", response.TranslatorDeterministicReceipt.TranslatorBridgePosture);
+            Assert.AreEqual(1, response.TranslatorDeterministicReceipt.TranslatorLanguageCount);
+            Assert.AreEqual(1, response.TranslatorDeterministicReceipt.EnabledLanguageOverlayCount);
         }
         finally
         {
@@ -1065,6 +1084,12 @@ public class ToolCatalogServiceTests
             Assert.AreEqual(1, response.EnabledDataOverlayCount);
             Assert.AreEqual("governed", response.XmlBridgePosture);
             Assert.AreEqual("1 enabled data overlay bridge(s) with XML payload coverage were detected.", response.XmlBridgeLaneReceipt);
+            Assert.IsNotNull(response.CustomDataXmlBridgeDeterministicReceipt);
+            Assert.AreEqual("family:custom_data_xml_and_translator_bridge", response.CustomDataXmlBridgeDeterministicReceipt!.ParityFamilyId);
+            Assert.AreEqual("governed", response.CustomDataXmlBridgeDeterministicReceipt.CustomDataLanePosture);
+            Assert.AreEqual("governed", response.CustomDataXmlBridgeDeterministicReceipt.XmlBridgePosture);
+            Assert.AreEqual(2, response.CustomDataXmlBridgeDeterministicReceipt.DistinctCustomDataDirectoryCount);
+            Assert.AreEqual(1, response.CustomDataXmlBridgeDeterministicReceipt.EnabledDataOverlayCount);
         }
         finally
         {
@@ -1313,6 +1338,12 @@ public class ToolCatalogServiceTests
             Assert.AreEqual(
                 "Adjacent SR6 oracle coverage is 2/2 with receipt posture governed (Genesis/CommLink6).",
                 response.AdjacentSr6OracleLaneReceipt);
+            Assert.IsNotNull(response.ImportOracleDeterministicReceipt);
+            Assert.AreEqual("family:legacy_and_adjacent_import_oracles", response.ImportOracleDeterministicReceipt!.ParityFamilyId);
+            Assert.AreEqual("governed", response.ImportOracleDeterministicReceipt.ImportOracleLanePosture);
+            Assert.AreEqual("governed", response.ImportOracleDeterministicReceipt.ImportOracleReceiptPosture);
+            Assert.AreEqual(100, response.ImportOracleDeterministicReceipt.ImportOracleCoveragePercent);
+            Assert.AreEqual(0, response.ImportOracleDeterministicReceipt.ImportOracleMissingSources.Count);
         }
         finally
         {

@@ -2292,6 +2292,15 @@ public class ApiIntegrationTests
         Assert.IsNotNull(response["importOracleLaneReceipt"]);
         Assert.IsNotNull(response["adjacentSr6OracleLaneReceipt"]);
         Assert.IsNotNull(response["sr6SuccessorLaneReceipt"]);
+        Assert.IsNotNull(response["customDataXmlBridgeDeterministicReceipt"]);
+        Assert.IsNotNull(response["translatorDeterministicReceipt"]);
+        Assert.IsNotNull(response["importOracleDeterministicReceipt"]);
+        JsonObject? customDataDeterministicReceipt = response["customDataXmlBridgeDeterministicReceipt"] as JsonObject;
+        JsonObject? translatorDeterministicReceipt = response["translatorDeterministicReceipt"] as JsonObject;
+        JsonObject? importOracleDeterministicReceipt = response["importOracleDeterministicReceipt"] as JsonObject;
+        Assert.AreEqual("family:custom_data_xml_and_translator_bridge", customDataDeterministicReceipt?["parityFamilyId"]?.GetValue<string>());
+        Assert.AreEqual("source:translator_route", translatorDeterministicReceipt?["parityRouteId"]?.GetValue<string>());
+        Assert.AreEqual("family:legacy_and_adjacent_import_oracles", importOracleDeterministicReceipt?["parityFamilyId"]?.GetValue<string>());
         JsonObject? firstSourcebook = response["sourcebooks"]?.AsArray().OfType<JsonObject>().FirstOrDefault();
         if (firstSourcebook is not null)
         {
