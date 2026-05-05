@@ -114,6 +114,11 @@ public class ToolCatalogServiceTests
             CollectionAssert.AreEquivalent(
                 new[] { "chummer4", "chummer5a", "hero-lab-classic", "genesis-commlink6" },
                 response.ImportOracleDeterministicReceipt.ImportOracleMissingSources.ToArray());
+            Assert.IsNotNull(response.Sr6SuccessorDeterministicReceipt);
+            Assert.AreEqual("family:sr6_supplements_designers_and_house_rules", response.Sr6SuccessorDeterministicReceipt!.ParityFamilyId);
+            Assert.AreEqual("missing", response.Sr6SuccessorDeterministicReceipt.Sr6SupplementLanePosture);
+            Assert.AreEqual("missing", response.Sr6SuccessorDeterministicReceipt.HouseRuleLanePosture);
+            Assert.AreEqual("missing", response.Sr6SuccessorDeterministicReceipt.OnlineStorageLanePosture);
             StringAssert.Contains(response.Sr6SuccessorLaneReceipt, "Supplement posture is missing");
         }
         finally
@@ -688,6 +693,8 @@ public class ToolCatalogServiceTests
             Assert.AreEqual(2, response.SourcebooksWithSnippets);
             Assert.AreEqual(2, response.SourcebooksMissingSnippets);
             Assert.AreEqual("governed", response.Sr6SupplementLanePosture);
+            Assert.IsNotNull(response.Sr6SuccessorDeterministicReceipt);
+            Assert.AreEqual("governed", response.Sr6SuccessorDeterministicReceipt!.Sr6SupplementLanePosture);
         }
         finally
         {

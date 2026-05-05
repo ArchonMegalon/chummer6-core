@@ -17,6 +17,7 @@ namespace Chummer.Application.Workspaces;
 public sealed class WorkspaceService : IWorkspaceService
 {
     private const string DenseWorkbenchParityFamilyId = "family:initiative_action_notes_and_workflow_state";
+    private const string ExchangeParityFamilyId = "family:sheet_export_print_viewer_and_exchange";
     private readonly IWorkspaceStore _workspaceStore;
     private readonly IRulesetWorkspaceCodecResolver _workspaceCodecResolver;
     private readonly IWorkspaceImportRulesetDetector _workspaceImportRulesetDetector;
@@ -467,7 +468,13 @@ public sealed class WorkspaceService : IWorkspaceService
                 id,
                 rulesetId,
                 bundle,
-                payload));
+                payload),
+            ExchangeDeterministicReceipt: BuildExchangeDeterministicReceipt(
+                surfaceKind: "export",
+                outputDescriptor: WorkspaceDocumentFormat.Json.ToString(),
+                receiptId: packageId,
+                rulesetId: rulesetId,
+                payload: payload));
     }
 
     private static WorkspacePrintReceipt BuildPrintReceipt(
@@ -498,7 +505,13 @@ public sealed class WorkspaceService : IWorkspaceService
                 id,
                 rulesetId,
                 bundle,
-                payload));
+                payload),
+            ExchangeDeterministicReceipt: BuildExchangeDeterministicReceipt(
+                surfaceKind: "print",
+                outputDescriptor: "text/html",
+                receiptId: receiptId,
+                rulesetId: rulesetId,
+                payload: payload));
     }
 
     private static string BuildPrintHtml(DataExportBundle bundle, string title)
@@ -774,6 +787,29 @@ public sealed class WorkspaceService : IWorkspaceService
             HasGameNotesContent: noteSummary.HasGameNotesContent);
     }
 
+    private static WorkspaceExchangeDeterministicReceipt BuildExchangeDeterministicReceipt(
+        string surfaceKind,
+        string outputDescriptor,
+        string receiptId,
+        string rulesetId,
+        string payload)
+    {
+        WorkspaceRuleEnvironmentReceipt ruleEnvironment = BuildRuleEnvironmentReceipt(rulesetId, payload);
+        return new WorkspaceExchangeDeterministicReceipt(
+            ParityFamilyId: ExchangeParityFamilyId,
+            ReceiptId: receiptId,
+            SurfaceKind: surfaceKind,
+            OutputDescriptor: outputDescriptor,
+            RulesetId: RulesetDefaults.NormalizeOptional(rulesetId) ?? string.Empty,
+            RuleEnvironmentPosture: ruleEnvironment.Posture,
+            RuleEnvironmentSummary: ruleEnvironment.Summary,
+            RuleEnvironmentFingerprint: ruleEnvironment.Fingerprint,
+            SettingsProfile: ruleEnvironment.SettingsProfile,
+            GameplayOption: ruleEnvironment.GameplayOption,
+            GameEdition: ruleEnvironment.GameEdition,
+            BannedWareGrades: ruleEnvironment.BannedWareGrades);
+    }
+
     private static WorkspaceNoteFieldSummary BuildNoteFieldSummary(string payload)
     {
         try
@@ -800,6 +836,146 @@ public sealed class WorkspaceService : IWorkspaceService
                 HasNotesContent: false,
                 HasGameNotesContent: false);
         }
+    }
+
+    private static WorkspaceRuleEnvironmentReceipt BuildRuleEnvironmentReceipt(string rulesetId, string payload)
+    {
+        string normalizedRulesetId = RulesetDefaults.NormalizeOptional(rulesetId) ?? string.Empty;
+
+        try
+        {
+            XDocument document = XDocument.Parse(payload, LoadOptions.None);
+            XElement? root = document.Root;
+            string settingsProfile = ReadElementValue(root, "settings");
+            string gameplayOption = ReadElementValue(root, "gameplayoption");
+            string gameEdition = ReadElementValue(root, "gameedition");
+            string gameplayOptionQualityLimit = ReadElementValue(root, "gameplayoptionqualitylimit");
+            string maxNuyen = ReadElementValue(root, "maxnuyen");
+            string maxKarma = ReadElementValue(root, "maxkarma");
+            string contactMultiplier = ReadElementValue(root, "contactmultiplier");
+            string[] bannedWareGrades = (root?.Element("bannedwaregrades")?.Elements("bannedwaregrade")
+                    ?? Enumerable.Empty<XElement>())
+                .Select(entry => entry.Value?.Trim() ?? string.Empty)
+                .Where(static value => !string.IsNullOrWhiteSpace(value))
+                .OrderBy(static value => value, StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+
+            string posture =
+                string.IsNullOrWhiteSpace(settingsProfile)
+                && string.IsNullOrWhiteSpace(gameplayOption)
+                && string.IsNullOrWhiteSpace(gameEdition)
+                && bannedWareGrades.Length == 0
+                    ? "missing"
+                    : "governed";
+
+            return new WorkspaceRuleEnvironmentReceipt(
+                Posture: posture,
+                Summary: BuildRuleEnvironmentSummary(
+                    normalizedRulesetId,
+                    settingsProfile,
+                    gameplayOption,
+                    gameEdition,
+                    gameplayOptionQualityLimit,
+                    maxNuyen,
+                    maxKarma,
+                    contactMultiplier,
+                    bannedWareGrades),
+                Fingerprint: BuildRuleEnvironmentFingerprint(
+                    normalizedRulesetId,
+                    settingsProfile,
+                    gameplayOption,
+                    gameEdition,
+                    gameplayOptionQualityLimit,
+                    maxNuyen,
+                    maxKarma,
+                    contactMultiplier,
+                    bannedWareGrades),
+                SettingsProfile: settingsProfile,
+                GameplayOption: gameplayOption,
+                GameEdition: gameEdition,
+                BannedWareGrades: bannedWareGrades);
+        }
+        catch
+        {
+            return new WorkspaceRuleEnvironmentReceipt(
+                Posture: "stale",
+                Summary: $"Workspace payload could not be parsed into a deterministic rule-environment receipt for {FormatRuleEnvironmentValue(normalizedRulesetId)}.",
+                Fingerprint: ComputeSha256(Encoding.UTF8.GetBytes($"unparsed\nruleset={normalizedRulesetId}\npayload={payload}")),
+                SettingsProfile: string.Empty,
+                GameplayOption: string.Empty,
+                GameEdition: string.Empty,
+                BannedWareGrades: Array.Empty<string>());
+        }
+    }
+
+    private static string BuildRuleEnvironmentSummary(
+        string rulesetId,
+        string settingsProfile,
+        string gameplayOption,
+        string gameEdition,
+        string gameplayOptionQualityLimit,
+        string maxNuyen,
+        string maxKarma,
+        string contactMultiplier,
+        IReadOnlyList<string> bannedWareGrades)
+    {
+        if (string.IsNullOrWhiteSpace(settingsProfile)
+            && string.IsNullOrWhiteSpace(gameplayOption)
+            && string.IsNullOrWhiteSpace(gameEdition)
+            && bannedWareGrades.Count == 0)
+        {
+            return $"No rule-environment fields were discovered for {FormatRuleEnvironmentValue(rulesetId)}.";
+        }
+
+        string label = FirstNonEmpty(gameplayOption, settingsProfile, gameEdition, rulesetId);
+        return $"{label}; settings={FormatRuleEnvironmentValue(settingsProfile)}; game-edition={FormatRuleEnvironmentValue(gameEdition)}; quality-limit={FormatRuleEnvironmentValue(gameplayOptionQualityLimit)}; max-nuyen={FormatRuleEnvironmentValue(maxNuyen)}; max-karma={FormatRuleEnvironmentValue(maxKarma)}; contact-multiplier={FormatRuleEnvironmentValue(contactMultiplier)}; banned-ware-grades={bannedWareGrades.Count}.";
+    }
+
+    private static string BuildRuleEnvironmentFingerprint(
+        string rulesetId,
+        string settingsProfile,
+        string gameplayOption,
+        string gameEdition,
+        string gameplayOptionQualityLimit,
+        string maxNuyen,
+        string maxKarma,
+        string contactMultiplier,
+        IReadOnlyList<string> bannedWareGrades)
+    {
+        StringBuilder builder = new();
+        builder.Append("ruleset=").Append(rulesetId).Append('\n');
+        builder.Append("settings=").Append(settingsProfile).Append('\n');
+        builder.Append("gameplay-option=").Append(gameplayOption).Append('\n');
+        builder.Append("game-edition=").Append(gameEdition).Append('\n');
+        builder.Append("quality-limit=").Append(gameplayOptionQualityLimit).Append('\n');
+        builder.Append("max-nuyen=").Append(maxNuyen).Append('\n');
+        builder.Append("max-karma=").Append(maxKarma).Append('\n');
+        builder.Append("contact-multiplier=").Append(contactMultiplier).Append('\n');
+        builder.Append("banned-ware-grades=").Append(string.Join("|", bannedWareGrades)).Append('\n');
+        return ComputeSha256(Encoding.UTF8.GetBytes(builder.ToString()));
+    }
+
+    private static string ReadElementValue(XElement? parent, string elementName)
+    {
+        return parent?.Element(elementName)?.Value?.Trim() ?? string.Empty;
+    }
+
+    private static string FirstNonEmpty(params string[] values)
+    {
+        foreach (string value in values)
+        {
+            if (!string.IsNullOrWhiteSpace(value))
+            {
+                return value.Trim();
+            }
+        }
+
+        return string.Empty;
+    }
+
+    private static string FormatRuleEnvironmentValue(string value)
+    {
+        return string.IsNullOrWhiteSpace(value) ? "none" : value.Trim();
     }
 
     private static int CalculateCoveragePercent(int coveredSurfaceCount, int expectedSurfaceCount)
@@ -834,6 +1010,15 @@ public sealed class WorkspaceService : IWorkspaceService
         bool HasGameNotesField,
         bool HasNotesContent,
         bool HasGameNotesContent);
+
+    private readonly record struct WorkspaceRuleEnvironmentReceipt(
+        string Posture,
+        string Summary,
+        string Fingerprint,
+        string SettingsProfile,
+        string GameplayOption,
+        string GameEdition,
+        IReadOnlyList<string> BannedWareGrades);
 
     private bool TryResolveEnvelope(OwnerScope owner, CharacterWorkspaceId id, out WorkspacePayloadEnvelope envelope)
     {

@@ -72,7 +72,8 @@ public sealed record MasterIndexResponse(
     string Sr6SuccessorLaneReceipt = "",
     CustomDataXmlBridgeDeterministicReceipt? CustomDataXmlBridgeDeterministicReceipt = null,
     TranslatorLaneDeterministicReceipt? TranslatorDeterministicReceipt = null,
-    ImportOracleLaneDeterministicReceipt? ImportOracleDeterministicReceipt = null);
+    ImportOracleLaneDeterministicReceipt? ImportOracleDeterministicReceipt = null,
+    Sr6SuccessorLaneDeterministicReceipt? Sr6SuccessorDeterministicReceipt = null);
 
 public sealed record MasterIndexSourcebookEntry(
     string Id,
@@ -139,3 +140,18 @@ public sealed record ImportOracleLaneDeterministicReceipt(
     int ImportOracleCoveragePercent,
     IReadOnlyList<string> ImportOracleMissingSources,
     string AdjacentSr6OracleLaneReceipt);
+
+public sealed record Sr6SuccessorLaneDeterministicReceipt(
+    string ParityFamilyId,
+    string Sr6SupplementLanePosture,
+    string Sr6SuccessorLaneReceipt,
+    string Sr6DesignerToolsPosture,
+    int Sr6DesignerFamiliesAvailable,
+    int Sr6DesignerFamiliesExpected,
+    string HouseRuleLanePosture,
+    int HouseRuleOverlayCount,
+    string OnlineStorageLanePosture,
+    string OnlineStorageReceiptPosture,
+    int OnlineStorageReceiptsCovered,
+    int OnlineStorageReceiptsExpected,
+    int OnlineStorageCoveragePercent);

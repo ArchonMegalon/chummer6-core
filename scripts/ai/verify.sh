@@ -12,6 +12,7 @@ test -f docs/WORKSPACE_RETENTION_POLICY.md
 test -f docs/LEGACY_MIGRATION_CERTIFICATION.md
 test -f docs/ENGINE_PROOF_PACK.md
 test -f docs/NEXT90_M141_IMPORT_ROUTE_RECEIPTS.md
+test -f docs/NEXT90_M143_EXPORT_PRINT_SUPPLEMENT_RULE_ENVIRONMENT_RECEIPTS.md
 test -f tests/test_engine_proof_pack_generator.py
 test -f docs/LEGACY_ROOT_SURFACE_INVENTORY.md
 test -f docs/LEGACY_PLUGIN_PURIFICATION_INCREMENT_WL111.md
@@ -24,6 +25,7 @@ rg -n 'EXPLAIN_AND_RUNTIME_CANON\.md|scripts/runbook\.sh|scripts/migration-loop\
 rg -n 'retention-cleanup|retention-cleanup-smoke|MIG-093|retention|cleanup|runbook' docs/WORKSPACE_RETENTION_POLICY.md >/dev/null
 rg -n 'milestone `104`|ENGINE_PROOF_PACK\.generated\.json|oracle_suite_summary|performance_budget_summary|coverage_focus|fixture_count|release_gate|scenario|IMPORT_PARITY_CERTIFICATION\.generated\.json|next90-m104-core-proof-pack|3227666051|completion_action|do_not_reopen_reason|queue-mirror closeout parity|test_engine_proof_pack_generator\.py|unexpected oracle rows fail closed|malformed extra rows fail closed' docs/ENGINE_PROOF_PACK.md >/dev/null
 rg -n 'next90-m141-core-bind-import-oracle-custom-data-and-amend-package-flows-to-deterministic|4304178368|source:translator_route|family:custom_data_xml_and_translator_bridge|family:legacy_and_adjacent_import_oracles|customDataXmlBridgeDeterministicReceipt|translatorDeterministicReceipt|importOracleDeterministicReceipt|ENGINE_PROOF_PACK\.generated\.json|amend_package' docs/NEXT90_M141_IMPORT_ROUTE_RECEIPTS.md >/dev/null
+rg -n 'next90-m143-core-keep-export-print-supplement-and-rule-environment-receipts-deterministi|2778308338|family:sheet_export_print_viewer_and_exchange|family:sr6_supplements_designers_and_house_rules|WorkspaceExchangeDeterministicReceipt|Sr6SuccessorLaneDeterministicReceipt|sr6SuccessorDeterministicReceipt|exchangeDeterministicReceipt|parity-m143' docs/NEXT90_M143_EXPORT_PRINT_SUPPLEMENT_RULE_ENVIRONMENT_RECEIPTS.md >/dev/null
 rg -n 'oracle_suite_summary\.coverage_status=passed|oracle_suite_summary\.covered_rulesets=\[sr4, sr5, sr6\]|oracle_suite_summary\.release_scope=promoted_desktop_release|coverage_focus|fixture_count|performance_budget_summary\.coverage_status=passed|performance_budget_summary\.release_scope=promoted_desktop_release|release commands|release_gate|scenario|completion_action: verify_closed_package_only|do_not_reopen_reason|matching `completion_action` and exact `do_not_reopen_reason` text|published_import_oracle_names|published_adjacent_oracle_names|unexpected-name lists remain empty|malformed_import_oracle_rows=\[\]|malformed_adjacent_oracle_rows=\[\]' docs/NEXT90_M104_CORE_PROOF_PACK_CLOSEOUT.md >/dev/null
 rg -n 'RUNBOOK_MODE" == "retention-cleanup"|RUNBOOK_MODE" == "retention-cleanup-smoke"|emit_retention_cleanup|RETENTION_WORKSPACE_DAYS|RETENTION_LOG_DAYS' scripts/runbook.sh >/dev/null
 rg -n 'chummer5a|PARITY_ORACLE\.json|scripts/migration-loop\.sh 1|scripts/audit-compliance\.sh|MigrationComplianceTests|DualHeadAcceptanceTests|ArchitectureGuardrailTests' docs/LEGACY_MIGRATION_CERTIFICATION.md >/dev/null
@@ -87,10 +89,12 @@ done
 rg -n '<ChummerEngineContractsPackageVersion>0\.0\.0-local</ChummerEngineContractsPackageVersion>|<ChummerEngineContractsLocalFeed>|RestoreAdditionalProjectSources' Directory.Build.props >/dev/null
 rg -n 'bootstrap-contracts-feed\.sh|ChummerEngineContractsPackageVersion|CHUMMER_ENGINE_CONTRACTS_PACKAGE_VERSION' scripts/ai/build.sh scripts/ai/restore.sh scripts/ai/test_core_engine.sh >/dev/null
 rg -n 'CustomDataXmlBridgeDeterministicReceipt|TranslatorLaneDeterministicReceipt|ImportOracleLaneDeterministicReceipt' Chummer.Contracts/Api/ToolCatalogModels.cs >/dev/null
-rg -n 'BuildCustomDataXmlBridgeDeterministicReceipt|BuildTranslatorDeterministicReceipt|BuildImportOracleDeterministicReceipt' Chummer.Infrastructure/Xml/XmlToolCatalogService.cs >/dev/null
+rg -n 'CustomDataXmlBridgeDeterministicReceipt|TranslatorLaneDeterministicReceipt|ImportOracleLaneDeterministicReceipt|Sr6SuccessorLaneDeterministicReceipt' Chummer.Contracts/Api/ToolCatalogModels.cs >/dev/null
+rg -n 'BuildCustomDataXmlBridgeDeterministicReceipt|BuildTranslatorDeterministicReceipt|BuildImportOracleDeterministicReceipt|BuildSr6SuccessorDeterministicReceipt' Chummer.Infrastructure/Xml/XmlToolCatalogService.cs >/dev/null
 rg -n 'SessionActionBudgetDeterministicReceipt' Chummer.Contracts/Session/SessionActionBudgetContracts.cs >/dev/null
 rg -n 'WorkspaceWorkflowDeterministicReceipt' Chummer.Contracts/Workspaces/CharacterWorkspaceModels.cs Chummer.Contracts/Workspaces/WorkspaceApiModels.cs >/dev/null
-rg -n 'BuildDeterministicReceipt|BuildWorkflowDeterministicReceipt' Chummer.Application/Session/DefaultSessionActionBudgetService.cs Chummer.Application/Workspaces/WorkspaceService.cs >/dev/null
+rg -n 'WorkspaceExchangeDeterministicReceipt' Chummer.Contracts/Workspaces/CharacterWorkspaceModels.cs Chummer.Contracts/Workspaces/WorkspaceApiModels.cs >/dev/null
+rg -n 'BuildDeterministicReceipt|BuildWorkflowDeterministicReceipt|BuildExchangeDeterministicReceipt|BuildRuleEnvironmentReceipt' Chummer.Application/Session/DefaultSessionActionBudgetService.cs Chummer.Application/Workspaces/WorkspaceService.cs >/dev/null
 test -f docs/NEXT90_M142_DENSE_WORKBENCH_RECEIPTS.md
 test -f scripts/generate-engine-proof-pack.py
 python3 tests/test_engine_proof_pack_generator.py

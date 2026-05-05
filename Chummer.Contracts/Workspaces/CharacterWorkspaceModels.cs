@@ -119,6 +119,20 @@ public sealed record WorkspaceWorkflowDeterministicReceipt(
     bool HasNotesContent,
     bool HasGameNotesContent);
 
+public sealed record WorkspaceExchangeDeterministicReceipt(
+    string ParityFamilyId,
+    string ReceiptId,
+    string SurfaceKind,
+    string OutputDescriptor,
+    string RulesetId,
+    string RuleEnvironmentPosture,
+    string RuleEnvironmentSummary,
+    string RuleEnvironmentFingerprint,
+    string SettingsProfile,
+    string GameplayOption,
+    string GameEdition,
+    IReadOnlyList<string> BannedWareGrades);
+
 public sealed record WorkspaceSaveReceipt(
     CharacterWorkspaceId Id,
     int DocumentLength,
@@ -146,7 +160,8 @@ public sealed record WorkspaceExportReceipt(
     string PackageId = "",
     DateTimeOffset ExportedAtUtc = default,
     WorkspacePortabilityReceipt? Portability = null,
-    WorkspaceWorkflowDeterministicReceipt? WorkflowDeterministicReceipt = null);
+    WorkspaceWorkflowDeterministicReceipt? WorkflowDeterministicReceipt = null,
+    WorkspaceExchangeDeterministicReceipt? ExchangeDeterministicReceipt = null);
 
 public sealed record WorkspacePrintReceipt(
     CharacterWorkspaceId Id,
@@ -157,7 +172,8 @@ public sealed record WorkspacePrintReceipt(
     string Title,
     string RulesetId,
     string ReceiptId = "",
-    WorkspaceWorkflowDeterministicReceipt? WorkflowDeterministicReceipt = null);
+    WorkspaceWorkflowDeterministicReceipt? WorkflowDeterministicReceipt = null,
+    WorkspaceExchangeDeterministicReceipt? ExchangeDeterministicReceipt = null);
 
 public sealed record WorkspaceListItem(
     CharacterWorkspaceId Id,
