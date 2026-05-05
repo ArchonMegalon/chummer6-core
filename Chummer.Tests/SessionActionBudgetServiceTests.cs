@@ -27,6 +27,14 @@ public class SessionActionBudgetServiceTests
         Assert.AreEqual(5, result.Minor.Base);
         Assert.AreEqual(5, result.Minor.Available);
         Assert.AreEqual(5, result.Minor.TurnStartCap);
+        Assert.IsNotNull(result.DeterministicReceipt);
+        Assert.AreEqual("governed", result.DeterministicReceipt!.ActionBudgetPosture);
+        CollectionAssert.AreEqual(
+            new[] { "anytime:full-defense", "on-turn:take-major-action", "on-turn:take-minor-action" },
+            result.DeterministicReceipt.AffordanceKeys.ToArray());
+        CollectionAssert.AreEqual(
+            new[] { "sr6_core_anytime_major_conversion", "sr6_core_minor_actions" },
+            result.DeterministicReceipt.ReceiptSourceAnchors.ToArray());
     }
 
     [TestMethod]

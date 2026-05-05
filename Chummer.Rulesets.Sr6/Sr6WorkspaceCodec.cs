@@ -237,7 +237,8 @@ public sealed class Sr6WorkspaceCodec : IRulesetWorkspaceCodec
             Skills: ParseSection("skills", envelope) as CharacterSkillsSection,
             Inventory: ParseSection("inventory", envelope) as CharacterInventorySection,
             Qualities: ParseSection("qualities", envelope) as CharacterQualitiesSection,
-            Contacts: ParseSection("contacts", envelope) as CharacterContactsSection);
+            Contacts: ParseSection("contacts", envelope) as CharacterContactsSection,
+            Lifestyles: ParseSection("lifestyles", envelope) as CharacterLifestylesSection);
     }
 
     private static XElement ParseRoot(string payload)

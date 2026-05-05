@@ -5,6 +5,8 @@ namespace Chummer.Application.Session;
 
 public sealed class DefaultSessionActionBudgetService : ISessionActionBudgetService
 {
+    private const string DenseWorkbenchParityFamilyId = "family:initiative_action_notes_and_workflow_state";
+
     public SessionActionBudgetResult Compute(SessionActionBudgetInput input)
     {
         ArgumentNullException.ThrowIfNull(input);
@@ -65,6 +67,9 @@ public sealed class DefaultSessionActionBudgetService : ISessionActionBudgetServ
             .Select(template => EvaluateAffordance(template, isOwnTurnActive, major, minor))
             .ToArray();
         SessionActionBudgetReceipt[] receipts = NormalizeReceipts(input.Receipts, rulesetId);
+        string explainEntryId = string.IsNullOrWhiteSpace(input.ExplainEntryId)
+            ? $"{actorRef}:{roundRef}:action-budget"
+            : input.ExplainEntryId.Trim();
 
         return new SessionActionBudgetResult(
             ActorRef: actorRef,
@@ -77,7 +82,18 @@ public sealed class DefaultSessionActionBudgetService : ISessionActionBudgetServ
             Affordances: affordances,
             Receipts: receipts,
             Diagnostics: diagnostics,
-            ExplainEntryId: string.IsNullOrWhiteSpace(input.ExplainEntryId) ? $"{actorRef}:{roundRef}:action-budget" : input.ExplainEntryId.Trim());
+            ExplainEntryId: explainEntryId,
+            DeterministicReceipt: BuildDeterministicReceipt(
+                actorRef,
+                roundRef,
+                rulesetId,
+                initiativeDice,
+                major,
+                minor,
+                conversions,
+                affordances,
+                receipts,
+                explainEntryId));
     }
 
     private static SessionActionAffordance EvaluateAffordance(
@@ -245,4 +261,78 @@ public sealed class DefaultSessionActionBudgetService : ISessionActionBudgetServ
 
     private static RulesetExplainParameter Param(string name, object? value)
         => new(name, RulesetCapabilityBridge.FromObject(value));
+
+    private static SessionActionBudgetDeterministicReceipt BuildDeterministicReceipt(
+        string actorRef,
+        string roundRef,
+        string rulesetId,
+        int initiativeDice,
+        SessionActionBudgetBucket major,
+        SessionActionBudgetBucket minor,
+        SessionActionBudgetConversionState conversions,
+        IReadOnlyList<SessionActionAffordance> affordances,
+        IReadOnlyList<SessionActionBudgetReceipt> receipts,
+        string explainEntryId)
+    {
+        string[] affordanceKeys = affordances
+            .Select(static affordance => $"{affordance.Timing}:{affordance.ActionKey}")
+            .OrderBy(static key => key, StringComparer.Ordinal)
+            .ToArray();
+        string[] receiptSourceAnchors = receipts
+            .Select(static receipt => receipt.SourceAnchorRef)
+            .OrderBy(static anchor => anchor, StringComparer.Ordinal)
+            .ToArray();
+
+        return new SessionActionBudgetDeterministicReceipt(
+            ParityFamilyId: DenseWorkbenchParityFamilyId,
+            ActionBudgetPosture: ResolveActionBudgetPosture(affordanceKeys.Length, receiptSourceAnchors.Length),
+            ReceiptId: BuildDeterministicReceiptId(
+                rulesetId,
+                actorRef,
+                roundRef,
+                initiativeDice,
+                major.Available,
+                minor.Available,
+                conversions.ConvertibleAnytimeMajorCount,
+                conversions.HeldConvertedMajorCount),
+            RulesetId: rulesetId,
+            ActorRef: actorRef,
+            RoundRef: roundRef,
+            InitiativeDice: initiativeDice,
+            MajorAvailable: major.Available,
+            MinorAvailable: minor.Available,
+            ConvertibleAnytimeMajorCount: conversions.ConvertibleAnytimeMajorCount,
+            HeldConvertedMajorCount: conversions.HeldConvertedMajorCount,
+            AffordanceKeys: affordanceKeys,
+            ReceiptSourceAnchors: receiptSourceAnchors,
+            ExplainEntryId: explainEntryId);
+    }
+
+    private static string ResolveActionBudgetPosture(int affordanceCount, int receiptCount)
+    {
+        if (affordanceCount <= 0 && receiptCount <= 0)
+        {
+            return "missing";
+        }
+
+        return affordanceCount <= 0 || receiptCount <= 0
+            ? "stale"
+            : "governed";
+    }
+
+    private static string BuildDeterministicReceiptId(
+        string rulesetId,
+        string actorRef,
+        string roundRef,
+        int initiativeDice,
+        int majorAvailable,
+        int minorAvailable,
+        int convertibleAnytimeMajorCount,
+        int heldConvertedMajorCount)
+    {
+        string rulesetToken = string.IsNullOrWhiteSpace(rulesetId) ? "ruleset" : rulesetId.Trim().ToLowerInvariant();
+        string actorToken = string.IsNullOrWhiteSpace(actorRef) ? "actor" : actorRef.Trim().ToLowerInvariant();
+        string roundToken = string.IsNullOrWhiteSpace(roundRef) ? "round" : roundRef.Trim().ToLowerInvariant();
+        return $"action-budget-{rulesetToken}-{actorToken}-{roundToken}-{initiativeDice}-{majorAvailable}-{minorAvailable}-{convertibleAnytimeMajorCount}-{heldConvertedMajorCount}";
+    }
 }

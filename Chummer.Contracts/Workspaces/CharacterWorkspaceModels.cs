@@ -104,10 +104,27 @@ public sealed record WorkspaceImportDocument(
     }
 }
 
+public sealed record WorkspaceWorkflowDeterministicReceipt(
+    string ParityFamilyId,
+    string ReceiptId,
+    string WorkspaceId,
+    string RulesetId,
+    string WorkflowStatePosture,
+    int CoveragePercent,
+    int InitiateGrade,
+    int ContactCount,
+    int LifestyleCount,
+    bool HasNotesField,
+    bool HasGameNotesField,
+    bool HasNotesContent,
+    bool HasGameNotesContent);
+
 public sealed record WorkspaceSaveReceipt(
     CharacterWorkspaceId Id,
     int DocumentLength,
-    string RulesetId);
+    string RulesetId,
+    string ReceiptId = "",
+    WorkspaceWorkflowDeterministicReceipt? WorkflowDeterministicReceipt = null);
 
 public sealed record WorkspaceDownloadReceipt(
     CharacterWorkspaceId Id,
@@ -115,7 +132,9 @@ public sealed record WorkspaceDownloadReceipt(
     string ContentBase64,
     string FileName,
     int DocumentLength,
-    string RulesetId);
+    string RulesetId,
+    string ReceiptId = "",
+    WorkspaceWorkflowDeterministicReceipt? WorkflowDeterministicReceipt = null);
 
 public sealed record WorkspaceExportReceipt(
     CharacterWorkspaceId Id,
@@ -126,7 +145,8 @@ public sealed record WorkspaceExportReceipt(
     string RulesetId,
     string PackageId = "",
     DateTimeOffset ExportedAtUtc = default,
-    WorkspacePortabilityReceipt? Portability = null);
+    WorkspacePortabilityReceipt? Portability = null,
+    WorkspaceWorkflowDeterministicReceipt? WorkflowDeterministicReceipt = null);
 
 public sealed record WorkspacePrintReceipt(
     CharacterWorkspaceId Id,
@@ -135,7 +155,9 @@ public sealed record WorkspacePrintReceipt(
     string MimeType,
     int DocumentLength,
     string Title,
-    string RulesetId);
+    string RulesetId,
+    string ReceiptId = "",
+    WorkspaceWorkflowDeterministicReceipt? WorkflowDeterministicReceipt = null);
 
 public sealed record WorkspaceListItem(
     CharacterWorkspaceId Id,

@@ -10,4 +10,5 @@ public sealed record DataExportBundle(
     CharacterSkillsSection? Skills,
     CharacterInventorySection? Inventory,
     CharacterQualitiesSection? Qualities,
-    CharacterContactsSection? Contacts);
+    CharacterContactsSection? Contacts,
+    CharacterLifestylesSection? Lifestyles = null);

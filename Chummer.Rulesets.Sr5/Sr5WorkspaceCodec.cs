@@ -104,7 +104,10 @@ public sealed class Sr5WorkspaceCodec : IRulesetWorkspaceCodec
         string xml = ToXmlContent(envelope.Payload, WorkspaceDocumentFormat.NativeXml);
         if (TryBuildSinglePassExportBundle(xml, out DataExportBundle? bundle))
         {
-            return bundle;
+            return bundle with
+            {
+                Lifestyles = TryParseExportSection<CharacterLifestylesSection>("lifestyles", envelope)
+            };
         }
 
         return new DataExportBundle(
@@ -115,7 +118,8 @@ public sealed class Sr5WorkspaceCodec : IRulesetWorkspaceCodec
             Skills: TryParseExportSection<CharacterSkillsSection>("skills", envelope),
             Inventory: TryParseExportSection<CharacterInventorySection>("inventory", envelope),
             Qualities: TryParseExportSection<CharacterQualitiesSection>("qualities", envelope),
-            Contacts: TryParseExportSection<CharacterContactsSection>("contacts", envelope));
+            Contacts: TryParseExportSection<CharacterContactsSection>("contacts", envelope),
+            Lifestyles: TryParseExportSection<CharacterLifestylesSection>("lifestyles", envelope));
     }
 
     private static bool TryBuildSinglePassExportBundle(string xml, out DataExportBundle? bundle)

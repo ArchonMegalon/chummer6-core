@@ -3,6 +3,7 @@ using System.Net;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Xml.Linq;
 using Chummer.Contracts.Api;
 using Chummer.Contracts.Characters;
 using Chummer.Contracts.Owners;
@@ -15,6 +16,7 @@ namespace Chummer.Application.Workspaces;
 
 public sealed class WorkspaceService : IWorkspaceService
 {
+    private const string DenseWorkbenchParityFamilyId = "family:initiative_action_notes_and_workflow_state";
     private readonly IWorkspaceStore _workspaceStore;
     private readonly IRulesetWorkspaceCodecResolver _workspaceCodecResolver;
     private readonly IWorkspaceImportRulesetDetector _workspaceImportRulesetDetector;
@@ -50,11 +52,13 @@ public sealed class WorkspaceService : IWorkspaceService
             Format: document.Format));
         DateTimeOffset importedAtUtc = DateTimeOffset.UtcNow;
         string payloadSha256 = ComputeSha256(Encoding.UTF8.GetBytes(document.Content));
+        string importReceiptId = BuildReceiptId("import", id.Value, payloadSha256);
+        DataExportBundle bundle = codec.BuildExportBundle(envelope);
         return new WorkspaceImportResult(
             Id: id,
             Summary: summary,
             RulesetId: envelope.RulesetId,
-            ImportReceiptId: BuildReceiptId("import", id.Value, payloadSha256),
+            ImportReceiptId: importReceiptId,
             ImportedAtUtc: importedAtUtc,
             Portability: BuildImportPortabilityReceipt(
                 id,
@@ -62,7 +66,13 @@ public sealed class WorkspaceService : IWorkspaceService
                 envelope.RulesetId,
                 summary,
                 importedAtUtc,
-                payloadSha256));
+                payloadSha256),
+            WorkflowDeterministicReceipt: BuildWorkflowDeterministicReceipt(
+                importReceiptId,
+                id,
+                envelope.RulesetId,
+                bundle,
+                envelope.Payload));
     }
 
     public IReadOnlyList<WorkspaceListItem> List(int? maxCount = null)
@@ -302,12 +312,23 @@ public sealed class WorkspaceService : IWorkspaceService
         }
 
         WorkspacePayloadEnvelope envelope = ResolveEnvelope(document);
+        IRulesetWorkspaceCodec codec = _workspaceCodecResolver.Resolve(envelope.RulesetId);
+        DataExportBundle bundle = codec.BuildExportBundle(envelope);
+        string payloadSha256 = ComputeSha256(Encoding.UTF8.GetBytes(envelope.Payload));
+        string receiptId = BuildReceiptId("save", id.Value, payloadSha256);
         return new CommandResult<WorkspaceSaveReceipt>(
                 Success: true,
                 Value: new WorkspaceSaveReceipt(
                     Id: id,
                     DocumentLength: envelope.Payload.Length,
-                    RulesetId: envelope.RulesetId),
+                    RulesetId: envelope.RulesetId,
+                    ReceiptId: receiptId,
+                    WorkflowDeterministicReceipt: BuildWorkflowDeterministicReceipt(
+                        receiptId,
+                        id,
+                        envelope.RulesetId,
+                        bundle,
+                        envelope.Payload)),
                 Error: null);
     }
 
@@ -328,7 +349,19 @@ public sealed class WorkspaceService : IWorkspaceService
 
         WorkspacePayloadEnvelope envelope = ResolveEnvelope(document);
         IRulesetWorkspaceCodec codec = _workspaceCodecResolver.Resolve(envelope.RulesetId);
-        WorkspaceDownloadReceipt receipt = codec.BuildDownload(id, envelope, document.Format);
+        DataExportBundle bundle = codec.BuildExportBundle(envelope);
+        string payloadSha256 = ComputeSha256(Encoding.UTF8.GetBytes(envelope.Payload));
+        string receiptId = BuildReceiptId("download", id.Value, payloadSha256);
+        WorkspaceDownloadReceipt receipt = codec.BuildDownload(id, envelope, document.Format) with
+        {
+            ReceiptId = receiptId,
+            WorkflowDeterministicReceipt = BuildWorkflowDeterministicReceipt(
+                receiptId,
+                id,
+                envelope.RulesetId,
+                bundle,
+                envelope.Payload)
+        };
 
         return new CommandResult<WorkspaceDownloadReceipt>(
             Success: true,
@@ -354,7 +387,8 @@ public sealed class WorkspaceService : IWorkspaceService
         WorkspacePayloadEnvelope envelope = ResolveEnvelope(document);
         IRulesetWorkspaceCodec codec = _workspaceCodecResolver.Resolve(envelope.RulesetId);
         DataExportBundle bundle = codec.BuildExportBundle(envelope);
-        WorkspaceExportReceipt receipt = BuildExportReceipt(id, envelope.RulesetId, bundle);
+        string payloadSha256 = ComputeSha256(Encoding.UTF8.GetBytes(envelope.Payload));
+        WorkspaceExportReceipt receipt = BuildExportReceipt(id, envelope.RulesetId, bundle, payloadSha256, envelope.Payload);
 
         return new CommandResult<WorkspaceExportReceipt>(
             Success: true,
@@ -380,7 +414,8 @@ public sealed class WorkspaceService : IWorkspaceService
         WorkspacePayloadEnvelope envelope = ResolveEnvelope(document);
         IRulesetWorkspaceCodec codec = _workspaceCodecResolver.Resolve(envelope.RulesetId);
         DataExportBundle bundle = codec.BuildExportBundle(envelope);
-        WorkspacePrintReceipt receipt = BuildPrintReceipt(id, envelope.RulesetId, bundle);
+        string payloadSha256 = ComputeSha256(Encoding.UTF8.GetBytes(envelope.Payload));
+        WorkspacePrintReceipt receipt = BuildPrintReceipt(id, envelope.RulesetId, bundle, payloadSha256, envelope.Payload);
 
         return new CommandResult<WorkspacePrintReceipt>(
             Success: true,
@@ -397,17 +432,20 @@ public sealed class WorkspaceService : IWorkspaceService
     private static WorkspaceExportReceipt BuildExportReceipt(
         CharacterWorkspaceId id,
         string rulesetId,
-        DataExportBundle bundle)
+        DataExportBundle bundle,
+        string payloadSha256,
+        string payload)
     {
         string json = JsonSerializer.Serialize(bundle, new JsonSerializerOptions
         {
             WriteIndented = true
         });
         byte[] bytes = Encoding.UTF8.GetBytes(json);
-        string payloadSha256 = ComputeSha256(bytes);
+        string packageSha256 = ComputeSha256(bytes);
         string baseFileName = string.IsNullOrWhiteSpace(bundle.Summary.Name) ? id.Value : bundle.Summary.Name;
         string fileName = $"{SanitizeFileName(baseFileName)}-export.json";
         DateTimeOffset exportedAtUtc = DateTimeOffset.UtcNow;
+        string packageId = BuildReceiptId("portable", id.Value, packageSha256);
 
         return new WorkspaceExportReceipt(
             Id: id,
@@ -416,26 +454,35 @@ public sealed class WorkspaceService : IWorkspaceService
             FileName: fileName,
             DocumentLength: bytes.Length,
             RulesetId: RulesetDefaults.NormalizeOptional(rulesetId) ?? string.Empty,
-            PackageId: BuildReceiptId("portable", id.Value, payloadSha256),
+            PackageId: packageId,
             ExportedAtUtc: exportedAtUtc,
             Portability: BuildExportPortabilityReceipt(
                 id,
                 rulesetId,
                 bundle,
                 exportedAtUtc,
-                payloadSha256));
+                packageSha256),
+            WorkflowDeterministicReceipt: BuildWorkflowDeterministicReceipt(
+                packageId,
+                id,
+                rulesetId,
+                bundle,
+                payload));
     }
 
     private static WorkspacePrintReceipt BuildPrintReceipt(
         CharacterWorkspaceId id,
         string rulesetId,
-        DataExportBundle bundle)
+        DataExportBundle bundle,
+        string payloadSha256,
+        string payload)
     {
         string title = string.IsNullOrWhiteSpace(bundle.Summary.Name)
             ? $"Character {id.Value}"
             : bundle.Summary.Name;
         string html = BuildPrintHtml(bundle, title);
         byte[] bytes = Encoding.UTF8.GetBytes(html);
+        string receiptId = BuildReceiptId("print", id.Value, payloadSha256);
 
         return new WorkspacePrintReceipt(
             Id: id,
@@ -444,7 +491,14 @@ public sealed class WorkspaceService : IWorkspaceService
             MimeType: "text/html",
             DocumentLength: bytes.Length,
             Title: title,
-            RulesetId: RulesetDefaults.NormalizeOptional(rulesetId) ?? string.Empty);
+            RulesetId: RulesetDefaults.NormalizeOptional(rulesetId) ?? string.Empty,
+            ReceiptId: receiptId,
+            WorkflowDeterministicReceipt: BuildWorkflowDeterministicReceipt(
+                receiptId,
+                id,
+                rulesetId,
+                bundle,
+                payload));
     }
 
     private static string BuildPrintHtml(DataExportBundle bundle, string title)
@@ -680,6 +734,84 @@ public sealed class WorkspaceService : IWorkspaceService
         return missing.ToArray();
     }
 
+    private static WorkspaceWorkflowDeterministicReceipt BuildWorkflowDeterministicReceipt(
+        string receiptId,
+        CharacterWorkspaceId id,
+        string rulesetId,
+        DataExportBundle bundle,
+        string payload)
+    {
+        WorkspaceNoteFieldSummary noteSummary = BuildNoteFieldSummary(payload);
+        bool hasProgress = bundle.Progress is not null;
+        bool hasContacts = bundle.Contacts is not null;
+        bool hasLifestyles = bundle.Lifestyles is not null;
+        bool hasNotesSurface = noteSummary.Parsed;
+        int coveredSurfaceCount =
+            (hasProgress ? 1 : 0)
+            + (hasContacts ? 1 : 0)
+            + (hasLifestyles ? 1 : 0)
+            + (hasNotesSurface ? 1 : 0);
+        int coveragePercent = CalculateCoveragePercent(coveredSurfaceCount, 4);
+        string workflowStatePosture = coveredSurfaceCount <= 0
+            ? "missing"
+            : coveredSurfaceCount < 4
+                ? "stale"
+                : "governed";
+
+        return new WorkspaceWorkflowDeterministicReceipt(
+            ParityFamilyId: DenseWorkbenchParityFamilyId,
+            ReceiptId: receiptId,
+            WorkspaceId: id.Value,
+            RulesetId: RulesetDefaults.NormalizeOptional(rulesetId) ?? string.Empty,
+            WorkflowStatePosture: workflowStatePosture,
+            CoveragePercent: coveragePercent,
+            InitiateGrade: bundle.Progress?.InitiateGrade ?? 0,
+            ContactCount: bundle.Contacts?.Count ?? 0,
+            LifestyleCount: bundle.Lifestyles?.Count ?? 0,
+            HasNotesField: noteSummary.HasNotesField,
+            HasGameNotesField: noteSummary.HasGameNotesField,
+            HasNotesContent: noteSummary.HasNotesContent,
+            HasGameNotesContent: noteSummary.HasGameNotesContent);
+    }
+
+    private static WorkspaceNoteFieldSummary BuildNoteFieldSummary(string payload)
+    {
+        try
+        {
+            XDocument document = XDocument.Parse(payload, LoadOptions.None);
+            XElement? root = document.Root;
+            XElement? notesNode = root?.Element("notes");
+            XElement? gameNotesNode = root?.Element("gamenotes");
+            string notes = notesNode?.Value?.Trim() ?? string.Empty;
+            string gameNotes = gameNotesNode?.Value?.Trim() ?? string.Empty;
+            return new WorkspaceNoteFieldSummary(
+                Parsed: true,
+                HasNotesField: notesNode is not null,
+                HasGameNotesField: gameNotesNode is not null,
+                HasNotesContent: notes.Length > 0,
+                HasGameNotesContent: gameNotes.Length > 0);
+        }
+        catch
+        {
+            return new WorkspaceNoteFieldSummary(
+                Parsed: false,
+                HasNotesField: false,
+                HasGameNotesField: false,
+                HasNotesContent: false,
+                HasGameNotesContent: false);
+        }
+    }
+
+    private static int CalculateCoveragePercent(int coveredSurfaceCount, int expectedSurfaceCount)
+    {
+        if (expectedSurfaceCount <= 0)
+        {
+            return 0;
+        }
+
+        return (int)Math.Round(coveredSurfaceCount * 100d / expectedSurfaceCount, MidpointRounding.AwayFromZero);
+    }
+
     private static string BuildReceiptId(string prefix, string entityId, string payloadSha256)
     {
         string normalizedPrefix = string.IsNullOrWhiteSpace(prefix) ? "receipt" : prefix.Trim().ToLowerInvariant();
@@ -695,6 +827,13 @@ public sealed class WorkspaceService : IWorkspaceService
         byte[] hashBytes = SHA256.HashData(bytes);
         return Convert.ToHexString(hashBytes).ToLowerInvariant();
     }
+
+    private readonly record struct WorkspaceNoteFieldSummary(
+        bool Parsed,
+        bool HasNotesField,
+        bool HasGameNotesField,
+        bool HasNotesContent,
+        bool HasGameNotesContent);
 
     private bool TryResolveEnvelope(OwnerScope owner, CharacterWorkspaceId id, out WorkspacePayloadEnvelope envelope)
     {
