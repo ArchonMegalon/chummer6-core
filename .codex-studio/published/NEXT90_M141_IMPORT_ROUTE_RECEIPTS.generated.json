@@ -1,0 +1,200 @@
+{
+  "generated_at": "2026-05-06T02:50:46Z",
+  "status": "passed",
+  "package_id": "next90-m141-core-bind-import-oracle-custom-data-and-amend-package-flows-to-deterministic",
+  "frontier_id": 4304178368,
+  "flagship_frontier_id": 2350979521,
+  "milestone_id": 141,
+  "work_task_id": "141.2",
+  "title": "Bind import-oracle, custom-data, and amend-package flows to deterministic receipts that can be cited by parity and workflow gates.",
+  "task": "Bind import-oracle, custom-data, and amend-package flows to deterministic receipts that can be cited by parity and workflow gates.",
+  "repo": "chummer6-core",
+  "repo_root": "/docker/chummercomplete/chummer-core-engine",
+  "owned_surfaces": [
+    "bind_import_oracle_custom_data_and_amend_package_flows_t:core"
+  ],
+  "allowed_paths": [
+    "src",
+    "tests",
+    "docs",
+    "scripts"
+  ],
+  "published_receipt_path": "/docker/chummercomplete/chummer-core-engine/.codex-studio/published/NEXT90_M141_IMPORT_ROUTE_RECEIPTS.generated.json",
+  "receipt_path": "/docker/chummercomplete/chummer-core-engine/.codex-studio/published/NEXT90_M141_IMPORT_ROUTE_RECEIPTS.generated.json",
+  "proof_anchor_count": 12,
+  "authority_anchor_count": 3,
+  "proof_files": [
+    {
+      "key": "contracts",
+      "path": "/docker/chummercomplete/chummer-core-engine/Chummer.Contracts/Api/ToolCatalogModels.cs",
+      "exists": true,
+      "digest": "sha256:e1f8dac6daa9b46264dfb7dc44a1f8687ffd1d670bcaea77d9db71586e3566c1",
+      "digest_scope": "full-file",
+      "missing_snippets": [],
+      "status": "passed"
+    },
+    {
+      "key": "tool_catalog_service",
+      "path": "/docker/chummercomplete/chummer-core-engine/Chummer.Infrastructure/Xml/XmlToolCatalogService.cs",
+      "exists": true,
+      "digest": "sha256:708a5b856acdd5403ac96982c1f86309b3ce2957d1747e0bea61048ab6ee2c49",
+      "digest_scope": "full-file",
+      "missing_snippets": [],
+      "status": "passed"
+    },
+    {
+      "key": "tool_catalog_tests",
+      "path": "/docker/chummercomplete/chummer-core-engine/Chummer.Tests/ToolCatalogServiceTests.cs",
+      "exists": true,
+      "digest": "sha256:a1baf59031361d6886ba3a1946003353a8ebe049d27c9a6041c5ba294a9a672a",
+      "digest_scope": "full-file",
+      "missing_snippets": [],
+      "status": "passed"
+    },
+    {
+      "key": "api_integration_tests",
+      "path": "/docker/chummercomplete/chummer-core-engine/Chummer.Tests/ApiIntegrationTests.cs",
+      "exists": true,
+      "digest": "sha256:991312cccc9bccee6eddcd576ada5e2adc117e2361b0ed2033a91bc8c9cae800",
+      "digest_scope": "full-file",
+      "missing_snippets": [],
+      "status": "passed"
+    },
+    {
+      "key": "engine_proof_pack_doc",
+      "path": "/docker/chummercomplete/chummer-core-engine/docs/ENGINE_PROOF_PACK.md",
+      "exists": true,
+      "digest": "sha256:90784d446d50a8e9fc2fb7e451c95a898b711e92b404cfc4ea2c6fc5f22b649d",
+      "digest_scope": "full-file",
+      "missing_snippets": [],
+      "status": "passed"
+    },
+    {
+      "key": "m141_docs",
+      "path": "/docker/chummercomplete/chummer-core-engine/docs/NEXT90_M141_IMPORT_ROUTE_RECEIPTS.md",
+      "exists": true,
+      "digest": "sha256:505f54d722638530cbe1fc4ee8fab34c3c557f4859cadba250e25ef56f0140d7",
+      "digest_scope": "full-file",
+      "missing_snippets": [],
+      "status": "passed"
+    },
+    {
+      "key": "m141_closeout",
+      "path": "/docker/chummercomplete/chummer-core-engine/docs/NEXT90_M141_IMPORT_ROUTE_CLOSEOUT.md",
+      "exists": true,
+      "digest": "sha256:06999e05dce8329d78d546899647edcecc97ed21dbcf958186145dad5ae9b595",
+      "digest_scope": "full-file",
+      "missing_snippets": [],
+      "status": "passed"
+    },
+    {
+      "key": "repo_verify",
+      "path": "/docker/chummercomplete/chummer-core-engine/scripts/ai/verify.sh",
+      "exists": true,
+      "digest": "sha256:0b0789875321766253102a32602605692266d8c3ec115454feb07cc1abdb0815",
+      "digest_scope": "full-file",
+      "missing_snippets": [],
+      "status": "passed"
+    },
+    {
+      "key": "engine_proof_pack_generator",
+      "path": "/docker/chummercomplete/chummer-core-engine/scripts/generate-engine-proof-pack.py",
+      "exists": true,
+      "digest": "sha256:eebc8ef2eac9423db2717b6a45375a6ab7c87c4085e7a41bbcef6b58dcfaf20e",
+      "digest_scope": "full-file",
+      "missing_snippets": [],
+      "status": "passed"
+    },
+    {
+      "key": "engine_proof_pack_generator_tests",
+      "path": "/docker/chummercomplete/chummer-core-engine/tests/test_engine_proof_pack_generator.py",
+      "exists": true,
+      "digest": "sha256:3e0d5f2a3872c055797f43fa66b8219a410308e934d8237770c0a3bec549e7e3",
+      "digest_scope": "full-file",
+      "missing_snippets": [],
+      "status": "passed"
+    },
+    {
+      "key": "engine_proof_pack_published",
+      "path": "/docker/chummercomplete/chummer-core-engine/.codex-studio/published/ENGINE_PROOF_PACK.generated.json",
+      "exists": true,
+      "digest": "sha256:bcec6d2131d27e67060bcda953e56e261478f566ea7e2e7894df77583ad13933",
+      "digest_scope": "stable-json-subset",
+      "missing_snippets": [],
+      "status": "passed"
+    },
+    {
+      "key": "import_parity_certification",
+      "path": "/docker/chummercomplete/chummer-core-engine/.codex-studio/published/IMPORT_PARITY_CERTIFICATION.generated.json",
+      "exists": true,
+      "digest": "sha256:3c6ad6f0fa07df2152736d3a00a8933e50dec4b6e509f5387ea275184c7e52bf",
+      "digest_scope": "stable-json-subset",
+      "missing_snippets": [],
+      "status": "passed"
+    }
+  ],
+  "authority_files": [
+    {
+      "key": "successor_registry",
+      "path": "/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml",
+      "exists": true,
+      "digest": "sha256:f7490689dd763eaa48b876bdb5d5e5247250e33586070284bccad4c33f714c99",
+      "digest_scope": "work-task-row",
+      "missing_snippets": [],
+      "status": "passed"
+    },
+    {
+      "key": "successor_queue",
+      "path": "/docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml",
+      "exists": true,
+      "digest": "sha256:f9620e24cdb849d28b9e3756304bbe4ef370164e91dfd792e32db4d7421e87af",
+      "digest_scope": "package-rows",
+      "missing_snippets": [],
+      "status": "passed"
+    },
+    {
+      "key": "design_successor_queue",
+      "path": "/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_QUEUE_STAGING.generated.yaml",
+      "exists": true,
+      "digest": "sha256:f9620e24cdb849d28b9e3756304bbe4ef370164e91dfd792e32db4d7421e87af",
+      "digest_scope": "package-rows",
+      "missing_snippets": [],
+      "status": "passed"
+    }
+  ],
+  "authority_row_counts": {
+    "successor_registry": 1,
+    "successor_queue": 1,
+    "design_successor_queue": 1
+  },
+  "verification_commands": [
+    "python3 tests/test_next90_m141_import_route_receipts.py",
+    "python3 scripts/verify-next90-m141-import-route-receipts.py --repo-root . --out .codex-studio/published/NEXT90_M141_IMPORT_ROUTE_RECEIPTS.generated.json --check"
+  ],
+  "master_index_route": "/api/tools/master-index",
+  "parity_route_id": "source:translator_route",
+  "receipt_family_ids": [
+    "family:custom_data_xml_and_translator_bridge",
+    "family:legacy_and_adjacent_import_oracles"
+  ],
+  "deterministic_receipt_fields": [
+    "customDataXmlBridgeDeterministicReceipt",
+    "translatorDeterministicReceipt",
+    "importOracleDeterministicReceipt",
+    "amendPackageDeterministicReceipt"
+  ],
+  "engine_proof_pack_required_suite_ids": [
+    "source_toggle",
+    "amend_package"
+  ],
+  "supporting_receipts": [
+    ".codex-studio/published/ENGINE_PROOF_PACK.generated.json",
+    ".codex-studio/published/IMPORT_PARITY_CERTIFICATION.generated.json"
+  ],
+  "unresolved": {
+    "missing_files": [],
+    "snippet_failures": {},
+    "authority_row_issues": {},
+    "supporting_receipt_semantic_issues": {}
+  }
+}
