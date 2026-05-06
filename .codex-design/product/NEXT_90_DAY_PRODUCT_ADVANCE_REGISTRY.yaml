@@ -2334,8 +2334,8 @@ milestones:
         status: complete
         completion_action: verify_closed_package_only
         do_not_reopen_reason: M117 chummer6-hub-registry shelf ref normalization is complete;
-          future shards must verify the registry contracts, release-channel manifest projection,
-          queue mirrors, and proof hooks instead of reopening this slice.
+          future shards must verify the registry contracts, manifest projection, queue mirrors,
+          and proof hooks instead of reopening this slice.
         evidence:
           - /docker/chummercomplete/chummer-hub-registry/Chummer.Hub.Registry.Contracts/ReleaseChannelContracts.cs defines the normalized preview, caption, packet, locale, retention, shelf, and publication-state fields for artifact-identity, publication-binding, and exchange-lineage registry rows.
           - /docker/chummercomplete/chummer-hub-registry/Chummer.Run.Registry/Services/ReleaseChannelManifestStore.cs preserves the same normalized shelf refs and publication posture when runtime consumers load the published release-channel manifest.
@@ -3596,7 +3596,7 @@ milestones:
       - /docker/EA/docs/chummer_closure_coverage/CHUMMER_CLOSURE_COVERAGE_PACK.yaml, /docker/EA/docs/chummer_closure_coverage/SUCCESSOR_HANDOFF_CLOSEOUT.yaml, /docker/EA/scripts/materialize_next90_m135_ea_closure_coverage.py, and /docker/EA/scripts/verify_next90_m135_ea_closure_coverage.py now publish one verify-only EA closure bundle that binds compile, signal, companion, public copy, operator packet, provider digest, and followthrough coverage to existing packet and design truth without widening authority.
       - /docker/EA/.codex-studio/published/NEXT90_M135_EA_CLOSURE_COVERAGE.generated.json now summarizes the live M106, M113, M118, M120, M129, and M145 source contracts, plus provider-digest and public-copy guard markers, as one fail-closed closure receipt.
       - /docker/EA/scripts/chummer6_provider_readiness.py and /docker/EA/scripts/chummer6_guide_worker.py remain explicit bounded source surfaces for provider digest and public copy coverage by requiring readiness-state output, overlay checks, anti-planning language guards, blank-CTA guards, and truncated-copy guards instead of freeform copy.
-      - `python3 scripts/materialize_next90_m135_ea_closure_coverage.py`, `python3 scripts/verify_next90_m135_ea_closure_coverage.py`, `python3 scripts/verify_next90_m113_operator_safe_packets.py`, `python3 scripts/verify_next90_m118_ea_organizer_packets.py`, `python3 scripts/verify_next90_m129_ea_participation_followthrough_packets.py`, `python3 tests/test_chummer_governor_packet_pack.py`, `python3 tests/test_next90_m120_ea_launch_pulse_followthrough.py`, `python3 tests/test_next90_m145_grounded_explain_narration_packs.py`, and `python3 -m py_compile scripts/chummer6_provider_readiness.py scripts/chummer6_guide_worker.py` all exit 0.
+      - python3 scripts/materialize_next90_m135_ea_closure_coverage.py, python3 scripts/verify_next90_m135_ea_closure_coverage.py, python3 scripts/verify_next90_m113_operator_safe_packets.py, python3 scripts/verify_next90_m118_ea_organizer_packets.py, python3 scripts/verify_next90_m129_ea_participation_followthrough_packets.py, and python3 -m py_compile scripts/chummer6_provider_readiness.py scripts/chummer6_guide_worker.py all exit 0.
 
   - id: 136
     title: Calm-under-pressure payoff, veteran-depth parity, and campaign continuity closure
