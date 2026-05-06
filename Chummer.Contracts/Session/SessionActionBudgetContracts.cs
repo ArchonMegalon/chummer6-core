@@ -15,6 +15,12 @@ public static class SessionActionAffordanceStates
     public const string Unavailable = "unavailable";
 }
 
+public static class SessionTurnLedgerDeltaStates
+{
+    public const string Previewable = "previewable";
+    public const string Blocked = "blocked";
+}
+
 public sealed record SessionActionBudgetBucket(
     int Base,
     int Available,
@@ -54,7 +60,27 @@ public sealed record SessionActionAffordance(
 public sealed record SessionActionBudgetReceipt(
     string SourceAnchorRef,
     string SummaryKey,
-    IReadOnlyList<RulesetExplainParameter>? SummaryParameters = null);
+    IReadOnlyList<RulesetExplainParameter>? SummaryParameters = null,
+    SourceAnchor? SourceAnchor = null);
+
+public sealed record SessionTurnLedgerDelta(
+    string DeltaId,
+    string ActionKey,
+    string Timing,
+    SessionActionBudgetCost Cost,
+    string State,
+    int MajorDelta,
+    int MinorDelta,
+    int HeldConvertedMajorDelta,
+    int MajorAvailableAfter,
+    int MinorAvailableAfter,
+    int ConvertibleAnytimeMajorCountAfter,
+    IReadOnlyList<string> ReceiptSourceAnchorRefs,
+    string? SummaryKey = null,
+    IReadOnlyList<RulesetExplainParameter>? SummaryParameters = null,
+    string? ExplainEntryId = null,
+    string? UnavailableReasonKey = null,
+    IReadOnlyList<RulesetExplainParameter>? UnavailableReasonParameters = null);
 
 public sealed record SessionActionBudgetDeterministicReceipt(
     string ParityFamilyId,
@@ -64,12 +90,18 @@ public sealed record SessionActionBudgetDeterministicReceipt(
     string ActorRef,
     string RoundRef,
     int InitiativeDice,
+    int CoveragePercent,
     int MajorAvailable,
     int MinorAvailable,
     int ConvertibleAnytimeMajorCount,
     int HeldConvertedMajorCount,
+    IReadOnlyList<string> CoveredWorkflowRouteIds,
+    IReadOnlyList<string> MissingWorkflowRouteIds,
     IReadOnlyList<string> AffordanceKeys,
+    IReadOnlyList<string> TurnLedgerDeltaIds,
     IReadOnlyList<string> ReceiptSourceAnchors,
+    int SourceAnchorReceiptCount,
+    int MissingSourceAnchorReceiptCount,
     string ExplainEntryId);
 
 public sealed record SessionActionBudgetInput(
@@ -97,6 +129,7 @@ public sealed record SessionActionBudgetResult(
     SessionActionBudgetBucket Minor,
     SessionActionBudgetConversionState Conversions,
     IReadOnlyList<SessionActionAffordance> Affordances,
+    IReadOnlyList<SessionTurnLedgerDelta> TurnLedger,
     IReadOnlyList<SessionActionBudgetReceipt> Receipts,
     IReadOnlyList<RulesetCapabilityDiagnostic>? Diagnostics = null,
     string? ExplainEntryId = null,

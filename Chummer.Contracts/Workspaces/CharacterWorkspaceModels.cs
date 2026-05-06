@@ -107,6 +107,7 @@ public sealed record WorkspaceImportDocument(
 public sealed record WorkspaceWorkflowDeterministicReceipt(
     string ParityFamilyId,
     string ReceiptId,
+    string ReceiptScopeId,
     string WorkspaceId,
     string RulesetId,
     string WorkflowStatePosture,
@@ -114,6 +115,8 @@ public sealed record WorkspaceWorkflowDeterministicReceipt(
     int InitiateGrade,
     int ContactCount,
     int LifestyleCount,
+    IReadOnlyList<string> CoveredWorkflowRouteIds,
+    IReadOnlyList<string> MissingWorkflowRouteIds,
     bool HasNotesField,
     bool HasGameNotesField,
     bool HasNotesContent,

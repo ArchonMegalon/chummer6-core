@@ -6,6 +6,13 @@ namespace Chummer.Application.Session;
 public sealed class DefaultSessionActionBudgetService : ISessionActionBudgetService
 {
     private const string DenseWorkbenchParityFamilyId = "family:initiative_action_notes_and_workflow_state";
+    private static readonly string[] CanonicalWorkflowRouteIds =
+    [
+        "workflow:initiative",
+        "workflow:actions",
+        "workflow:turn-ledger",
+        "workflow:rules-reference"
+    ];
 
     public SessionActionBudgetResult Compute(SessionActionBudgetInput input)
     {
@@ -67,6 +74,15 @@ public sealed class DefaultSessionActionBudgetService : ISessionActionBudgetServ
             .Select(template => EvaluateAffordance(template, isOwnTurnActive, major, minor))
             .ToArray();
         SessionActionBudgetReceipt[] receipts = NormalizeReceipts(input.Receipts, rulesetId);
+        SessionTurnLedgerDelta[] turnLedger = BuildTurnLedger(
+            rulesetId,
+            isOwnTurnActive,
+            input.CanSpendFourMinorForAnytimeMajor,
+            major,
+            minor,
+            conversions,
+            affordances,
+            receipts);
         string explainEntryId = string.IsNullOrWhiteSpace(input.ExplainEntryId)
             ? $"{actorRef}:{roundRef}:action-budget"
             : input.ExplainEntryId.Trim();
@@ -80,6 +96,7 @@ public sealed class DefaultSessionActionBudgetService : ISessionActionBudgetServ
             Minor: minor,
             Conversions: conversions,
             Affordances: affordances,
+            TurnLedger: turnLedger,
             Receipts: receipts,
             Diagnostics: diagnostics,
             ExplainEntryId: explainEntryId,
@@ -92,6 +109,7 @@ public sealed class DefaultSessionActionBudgetService : ISessionActionBudgetServ
                 minor,
                 conversions,
                 affordances,
+                turnLedger,
                 receipts,
                 explainEntryId));
     }
@@ -186,7 +204,8 @@ public sealed class DefaultSessionActionBudgetService : ISessionActionBudgetServ
                 {
                     SourceAnchorRef = receipt.SourceAnchorRef.Trim(),
                     SummaryKey = string.IsNullOrWhiteSpace(receipt.SummaryKey) ? "session.action-budget.receipt" : receipt.SummaryKey.Trim(),
-                    SummaryParameters = receipt.SummaryParameters ?? []
+                    SummaryParameters = receipt.SummaryParameters ?? [],
+                    SourceAnchor = NormalizeSourceAnchor(receipt.SourceAnchor)
                 })
                 .ToArray()
             : GetDefaultReceipts(rulesetId);
@@ -235,12 +254,71 @@ public sealed class DefaultSessionActionBudgetService : ISessionActionBudgetServ
         return
         [
             new(
+                SourceAnchorRef: "sr6_core_major_actions",
+                SummaryKey: "session.action-budget.receipt.sr6.major-actions",
+                SourceAnchor: BuildDefaultSourceAnchor(
+                    rulesetId,
+                    sourceAnchorRef: "sr6_core_major_actions",
+                    page: 41,
+                    sectionHint: "Major Actions")),
+            new(
                 SourceAnchorRef: "sr6_core_minor_actions",
-                SummaryKey: "session.action-budget.receipt.sr6.minor-actions"),
+                SummaryKey: "session.action-budget.receipt.sr6.minor-actions",
+                SourceAnchor: BuildDefaultSourceAnchor(
+                    rulesetId,
+                    sourceAnchorRef: "sr6_core_minor_actions",
+                    page: 42,
+                    sectionHint: "Minor Actions")),
+            new(
+                SourceAnchorRef: "sr6_core_full_defense",
+                SummaryKey: "session.action-budget.receipt.sr6.full-defense",
+                SourceAnchor: BuildDefaultSourceAnchor(
+                    rulesetId,
+                    sourceAnchorRef: "sr6_core_full_defense",
+                    page: 44,
+                    sectionHint: "Full Defense")),
             new(
                 SourceAnchorRef: "sr6_core_anytime_major_conversion",
-                SummaryKey: "session.action-budget.receipt.sr6.anytime-major-conversion")
+                SummaryKey: "session.action-budget.receipt.sr6.anytime-major-conversion",
+                SourceAnchor: BuildDefaultSourceAnchor(
+                    rulesetId,
+                    sourceAnchorRef: "sr6_core_anytime_major_conversion",
+                    page: 45,
+                    sectionHint: "Anytime Major Conversion"))
         ];
+    }
+
+    private static SessionTurnLedgerDelta[] BuildTurnLedger(
+        string rulesetId,
+        bool isOwnTurnActive,
+        bool canSpendFourMinorForAnytimeMajor,
+        SessionActionBudgetBucket major,
+        SessionActionBudgetBucket minor,
+        SessionActionBudgetConversionState conversions,
+        IReadOnlyList<SessionActionAffordance> affordances,
+        IReadOnlyList<SessionActionBudgetReceipt> receipts)
+    {
+        List<SessionTurnLedgerDelta> deltas = affordances
+            .Select(affordance => BuildAffordanceDelta(affordance, isOwnTurnActive, canSpendFourMinorForAnytimeMajor, major, minor, receipts))
+            .ToList();
+
+        SessionTurnLedgerDelta? conversionDelta = BuildConversionDelta(
+            rulesetId,
+            isOwnTurnActive,
+            canSpendFourMinorForAnytimeMajor,
+            major,
+            minor,
+            conversions,
+            receipts);
+        if (conversionDelta is not null)
+        {
+            deltas.Add(conversionDelta);
+        }
+
+        return deltas
+            .OrderBy(static delta => delta.Timing, StringComparer.Ordinal)
+            .ThenBy(static delta => delta.ActionKey, StringComparer.Ordinal)
+            .ToArray();
     }
 
     private static SessionActionBudgetCost NormalizeCost(SessionActionBudgetCost cost)
@@ -271,6 +349,7 @@ public sealed class DefaultSessionActionBudgetService : ISessionActionBudgetServ
         SessionActionBudgetBucket minor,
         SessionActionBudgetConversionState conversions,
         IReadOnlyList<SessionActionAffordance> affordances,
+        IReadOnlyList<SessionTurnLedgerDelta> turnLedger,
         IReadOnlyList<SessionActionBudgetReceipt> receipts,
         string explainEntryId)
     {
@@ -278,14 +357,43 @@ public sealed class DefaultSessionActionBudgetService : ISessionActionBudgetServ
             .Select(static affordance => $"{affordance.Timing}:{affordance.ActionKey}")
             .OrderBy(static key => key, StringComparer.Ordinal)
             .ToArray();
+        string[] turnLedgerDeltaIds = turnLedger
+            .Select(static delta => delta.DeltaId)
+            .OrderBy(static deltaId => deltaId, StringComparer.Ordinal)
+            .ToArray();
         string[] receiptSourceAnchors = receipts
             .Select(static receipt => receipt.SourceAnchorRef)
             .OrderBy(static anchor => anchor, StringComparer.Ordinal)
             .ToArray();
+        int sourceAnchorReceiptCount = receipts.Count(static receipt => receipt.SourceAnchor is not null);
+        int missingSourceAnchorReceiptCount = receipts.Count - sourceAnchorReceiptCount;
+        int missingTurnLedgerReceiptSourceAnchorCount = turnLedger.Count(static delta => HasMissingRequiredReceiptSourceAnchors(delta));
+        bool hasActionSurface = affordanceKeys.Length > 0;
+        bool hasTurnLedgerSurface = turnLedgerDeltaIds.Length > 0;
+        bool hasRulesReferenceSurface = receiptSourceAnchors.Length > 0;
+        string[] coveredWorkflowRouteIds = CanonicalWorkflowRouteIds
+            .Where(routeId => routeId switch
+            {
+                "workflow:initiative" => true,
+                "workflow:actions" => hasActionSurface,
+                "workflow:turn-ledger" => hasTurnLedgerSurface,
+                "workflow:rules-reference" => hasRulesReferenceSurface,
+                _ => false
+            })
+            .ToArray();
+        string[] missingWorkflowRouteIds = CanonicalWorkflowRouteIds
+            .Except(coveredWorkflowRouteIds, StringComparer.Ordinal)
+            .ToArray();
+        int coveragePercent = (int)Math.Round((double)(coveredWorkflowRouteIds.Length * 100) / CanonicalWorkflowRouteIds.Length, MidpointRounding.AwayFromZero);
 
         return new SessionActionBudgetDeterministicReceipt(
             ParityFamilyId: DenseWorkbenchParityFamilyId,
-            ActionBudgetPosture: ResolveActionBudgetPosture(affordanceKeys.Length, receiptSourceAnchors.Length),
+            ActionBudgetPosture: ResolveActionBudgetPosture(
+                affordanceKeys.Length,
+                turnLedgerDeltaIds.Length,
+                receiptSourceAnchors.Length,
+                missingSourceAnchorReceiptCount,
+                missingTurnLedgerReceiptSourceAnchorCount),
             ReceiptId: BuildDeterministicReceiptId(
                 rulesetId,
                 actorRef,
@@ -299,23 +407,38 @@ public sealed class DefaultSessionActionBudgetService : ISessionActionBudgetServ
             ActorRef: actorRef,
             RoundRef: roundRef,
             InitiativeDice: initiativeDice,
+            CoveragePercent: coveragePercent,
             MajorAvailable: major.Available,
             MinorAvailable: minor.Available,
             ConvertibleAnytimeMajorCount: conversions.ConvertibleAnytimeMajorCount,
             HeldConvertedMajorCount: conversions.HeldConvertedMajorCount,
+            CoveredWorkflowRouteIds: coveredWorkflowRouteIds,
+            MissingWorkflowRouteIds: missingWorkflowRouteIds,
             AffordanceKeys: affordanceKeys,
+            TurnLedgerDeltaIds: turnLedgerDeltaIds,
             ReceiptSourceAnchors: receiptSourceAnchors,
+            SourceAnchorReceiptCount: sourceAnchorReceiptCount,
+            MissingSourceAnchorReceiptCount: missingSourceAnchorReceiptCount,
             ExplainEntryId: explainEntryId);
     }
 
-    private static string ResolveActionBudgetPosture(int affordanceCount, int receiptCount)
+    private static string ResolveActionBudgetPosture(
+        int affordanceCount,
+        int turnLedgerCount,
+        int receiptCount,
+        int missingSourceAnchorReceiptCount,
+        int missingTurnLedgerReceiptSourceAnchorCount)
     {
-        if (affordanceCount <= 0 && receiptCount <= 0)
+        if (affordanceCount <= 0 && turnLedgerCount <= 0 && receiptCount <= 0)
         {
             return "missing";
         }
 
-        return affordanceCount <= 0 || receiptCount <= 0
+        return affordanceCount <= 0
+            || turnLedgerCount <= 0
+            || receiptCount <= 0
+            || missingSourceAnchorReceiptCount > 0
+            || missingTurnLedgerReceiptSourceAnchorCount > 0
             ? "stale"
             : "governed";
     }
@@ -335,4 +458,173 @@ public sealed class DefaultSessionActionBudgetService : ISessionActionBudgetServ
         string roundToken = string.IsNullOrWhiteSpace(roundRef) ? "round" : roundRef.Trim().ToLowerInvariant();
         return $"action-budget-{rulesetToken}-{actorToken}-{roundToken}-{initiativeDice}-{majorAvailable}-{minorAvailable}-{convertibleAnytimeMajorCount}-{heldConvertedMajorCount}";
     }
+
+    private static SessionTurnLedgerDelta BuildAffordanceDelta(
+        SessionActionAffordance affordance,
+        bool isOwnTurnActive,
+        bool canSpendFourMinorForAnytimeMajor,
+        SessionActionBudgetBucket major,
+        SessionActionBudgetBucket minor,
+        IReadOnlyList<SessionActionBudgetReceipt> receipts)
+    {
+        bool isPreviewable = string.Equals(affordance.State, SessionActionAffordanceStates.Available, StringComparison.Ordinal);
+        int majorDelta = isPreviewable ? -affordance.Cost.Major : 0;
+        int minorDelta = isPreviewable ? -affordance.Cost.Minor : 0;
+        int majorAvailableAfter = Math.Max(0, major.Available + majorDelta);
+        int minorAvailableAfter = Math.Max(0, minor.Available + minorDelta);
+        int convertibleAnytimeMajorCountAfter = canSpendFourMinorForAnytimeMajor && isOwnTurnActive
+            ? minorAvailableAfter / 4
+            : 0;
+        string[] receiptSourceAnchorRefs = ResolveReceiptSourceAnchors(affordance.ActionKey, receipts);
+
+        return new SessionTurnLedgerDelta(
+            DeltaId: BuildTurnLedgerDeltaId(affordance.ActionKey, affordance.Timing),
+            ActionKey: affordance.ActionKey,
+            Timing: affordance.Timing,
+            Cost: affordance.Cost,
+            State: isPreviewable ? SessionTurnLedgerDeltaStates.Previewable : SessionTurnLedgerDeltaStates.Blocked,
+            MajorDelta: majorDelta,
+            MinorDelta: minorDelta,
+            HeldConvertedMajorDelta: 0,
+            MajorAvailableAfter: majorAvailableAfter,
+            MinorAvailableAfter: minorAvailableAfter,
+            ConvertibleAnytimeMajorCountAfter: convertibleAnytimeMajorCountAfter,
+            ReceiptSourceAnchorRefs: receiptSourceAnchorRefs,
+            SummaryKey: affordance.SummaryKey,
+            SummaryParameters: affordance.SummaryParameters ?? [],
+            ExplainEntryId: affordance.ExplainEntryId,
+            UnavailableReasonKey: affordance.UnavailableReasonKey,
+            UnavailableReasonParameters: affordance.UnavailableReasonParameters ?? []);
+    }
+
+    private static SessionTurnLedgerDelta? BuildConversionDelta(
+        string rulesetId,
+        bool isOwnTurnActive,
+        bool canSpendFourMinorForAnytimeMajor,
+        SessionActionBudgetBucket major,
+        SessionActionBudgetBucket minor,
+        SessionActionBudgetConversionState conversions,
+        IReadOnlyList<SessionActionBudgetReceipt> receipts)
+    {
+        if (!string.Equals(rulesetId, "sr6", StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        bool isPreviewable = isOwnTurnActive && canSpendFourMinorForAnytimeMajor && conversions.ConvertibleAnytimeMajorCount > 0;
+        int majorDelta = isPreviewable ? 1 : 0;
+        int minorDelta = isPreviewable ? -4 : 0;
+        int majorAvailableAfter = Math.Max(0, major.Available + majorDelta);
+        int minorAvailableAfter = Math.Max(0, minor.Available + minorDelta);
+        int convertibleAnytimeMajorCountAfter = isPreviewable ? Math.Max(0, minorAvailableAfter / 4) : 0;
+
+        return new SessionTurnLedgerDelta(
+            DeltaId: BuildTurnLedgerDeltaId("convert-four-minor-to-anytime-major", SessionActionBudgetTimingModes.OnTurn),
+            ActionKey: "convert-four-minor-to-anytime-major",
+            Timing: SessionActionBudgetTimingModes.OnTurn,
+            Cost: new SessionActionBudgetCost(Minor: 4),
+            State: isPreviewable ? SessionTurnLedgerDeltaStates.Previewable : SessionTurnLedgerDeltaStates.Blocked,
+            MajorDelta: majorDelta,
+            MinorDelta: minorDelta,
+            HeldConvertedMajorDelta: 0,
+            MajorAvailableAfter: majorAvailableAfter,
+            MinorAvailableAfter: minorAvailableAfter,
+            ConvertibleAnytimeMajorCountAfter: convertibleAnytimeMajorCountAfter,
+            ReceiptSourceAnchorRefs: ResolveReceiptSourceAnchors("convert-four-minor-to-anytime-major", receipts),
+            SummaryKey: "session.action-budget.turn-ledger.convert-four-minor-to-anytime-major",
+            SummaryParameters:
+            [
+                Param("majorAvailableAfter", majorAvailableAfter),
+                Param("minorAvailableAfter", minorAvailableAfter)
+            ],
+            ExplainEntryId: "session.action-budget.turn-ledger.convert-four-minor-to-anytime-major",
+            UnavailableReasonKey: isPreviewable ? null : "session.action-budget.reason.insufficient-budget",
+            UnavailableReasonParameters: isPreviewable
+                ? []
+                : [
+                    Param("requiredMinor", 4),
+                    Param("availableMinor", minor.Available),
+                    Param("isOwnTurnActive", isOwnTurnActive)
+                ]);
+    }
+
+    private static string[] ResolveReceiptSourceAnchors(string actionKey, IReadOnlyList<SessionActionBudgetReceipt> receipts)
+    {
+        string[] preferred = GetPreferredReceiptSourceAnchors(actionKey);
+
+        HashSet<string> available = receipts
+            .Where(static receipt => receipt.SourceAnchor is not null)
+            .Select(static receipt => receipt.SourceAnchorRef)
+            .ToHashSet(StringComparer.Ordinal);
+
+        return preferred
+            .Where(available.Contains)
+            .OrderBy(static anchor => anchor, StringComparer.Ordinal)
+            .ToArray();
+    }
+
+    private static bool HasMissingRequiredReceiptSourceAnchors(SessionTurnLedgerDelta delta)
+    {
+        string[] preferred = GetPreferredReceiptSourceAnchors(delta.ActionKey);
+        if (preferred.Length == 0)
+        {
+            return false;
+        }
+
+        HashSet<string> actual = delta.ReceiptSourceAnchorRefs.ToHashSet(StringComparer.Ordinal);
+        return preferred.Any(anchor => !actual.Contains(anchor));
+    }
+
+    private static string[] GetPreferredReceiptSourceAnchors(string actionKey)
+        => actionKey switch
+        {
+            "take-major-action" => ["sr6_core_major_actions"],
+            "take-minor-action" => ["sr6_core_minor_actions"],
+            "full-defense" => ["sr6_core_full_defense", "sr6_core_minor_actions"],
+            "convert-four-minor-to-anytime-major" => ["sr6_core_anytime_major_conversion", "sr6_core_minor_actions"],
+            _ => []
+        };
+
+    private static string BuildTurnLedgerDeltaId(string actionKey, string timing)
+    {
+        string normalizedActionKey = string.IsNullOrWhiteSpace(actionKey) ? "action" : actionKey.Trim().ToLowerInvariant();
+        string normalizedTiming = string.IsNullOrWhiteSpace(timing) ? SessionActionBudgetTimingModes.Anytime : timing.Trim().ToLowerInvariant();
+        return $"turn-ledger-{normalizedTiming}-{normalizedActionKey}";
+    }
+
+    private static SourceAnchor? NormalizeSourceAnchor(SourceAnchor? sourceAnchor)
+    {
+        if (sourceAnchor is null)
+        {
+            return null;
+        }
+
+        return sourceAnchor with
+        {
+            Id = RequireTrimmed(sourceAnchor.Id, nameof(sourceAnchor.Id)),
+            RulesetId = RequireTrimmed(sourceAnchor.RulesetId, nameof(sourceAnchor.RulesetId)),
+            SourcePackRef = RequireTrimmed(sourceAnchor.SourcePackRef, nameof(sourceAnchor.SourcePackRef)),
+            Locale = RequireTrimmed(sourceAnchor.Locale, nameof(sourceAnchor.Locale)),
+            Page = Math.Max(1, sourceAnchor.Page),
+            SectionHint = RequireTrimmed(sourceAnchor.SectionHint, nameof(sourceAnchor.SectionHint)),
+            AnchorKey = RequireTrimmed(sourceAnchor.AnchorKey, nameof(sourceAnchor.AnchorKey)),
+            BindingPolicy = string.IsNullOrWhiteSpace(sourceAnchor.BindingPolicy)
+                ? SourceAnchorBindingPolicies.UserLocalFileOnly
+                : sourceAnchor.BindingPolicy.Trim()
+        };
+    }
+
+    private static SourceAnchor BuildDefaultSourceAnchor(
+        string rulesetId,
+        string sourceAnchorRef,
+        int page,
+        string sectionHint)
+        => new(
+            Id: sourceAnchorRef,
+            RulesetId: rulesetId,
+            SourcePackRef: $"{rulesetId}-core",
+            Locale: "en-US",
+            Page: page,
+            SectionHint: sectionHint,
+            AnchorKey: sourceAnchorRef);
 }

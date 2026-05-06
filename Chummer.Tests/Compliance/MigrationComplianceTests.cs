@@ -2789,6 +2789,37 @@ public class MigrationComplianceTests
     }
 
     [TestMethod]
+    public void Campaign_advance_receipt_contracts_lock_in_adoption_goal_and_black_ledger_semantics()
+    {
+        string contractPath = FindPath("Chummer.Contracts", "Campaign", "CampaignAdvanceReceiptContracts.cs");
+        string contractText = File.ReadAllText(contractPath);
+        string serviceInterfacePath = FindPath("Chummer.Application", "Campaign", "ICampaignAdvanceReceiptService.cs");
+        string serviceInterfaceText = File.ReadAllText(serviceInterfacePath);
+        string servicePath = FindPath("Chummer.Application", "Campaign", "DefaultCampaignAdvanceReceiptService.cs");
+        string serviceText = File.ReadAllText(servicePath);
+
+        StringAssert.Contains(contractText, "public static class CampaignAdoptionConfidencePostures");
+        StringAssert.Contains(contractText, "public sealed record CampaignAdoptionConfidenceReceipt");
+        StringAssert.Contains(contractText, "public sealed record RunnerRewardReceipt");
+        StringAssert.Contains(contractText, "public sealed record DowntimeAllocationReceipt");
+        StringAssert.Contains(contractText, "public sealed record RunnerGoalUpdateReceipt");
+        StringAssert.Contains(contractText, "public sealed record BlackLedgerConsequenceReceipt");
+        StringAssert.Contains(contractText, "public sealed record CampaignAdvanceDeterministicReceipt");
+        StringAssert.Contains(contractText, "public sealed record CampaignAdvanceReceiptBundle");
+        StringAssert.Contains(contractText, "family:campaign_adoption_runner_goal_and_black_ledger");
+        StringAssert.Contains(serviceInterfaceText, "CampaignAdvanceReceiptBundle Build(CampaignAdvanceReceiptInput input);");
+        StringAssert.Contains(serviceText, "BuildConsequenceReceipt(");
+        StringAssert.Contains(serviceText, "BuildGoalReceipt(");
+        StringAssert.Contains(serviceText, "BuildDowntimeReceipt(");
+        StringAssert.Contains(serviceText, "BuildAdoptionReceipt(");
+        StringAssert.Contains(serviceText, "BuildRunSummarySeed");
+        StringAssert.Contains(serviceText, "BuildShadowfeedSeed");
+        StringAssert.Contains(serviceText, "ComputeFactionResponseSeed");
+        StringAssert.Contains(serviceText, "ComputeDowntimeProgression");
+        StringAssert.Contains(serviceText, "BlackLedgerConsequenceAudiences.PlayerSafe");
+    }
+
+    [TestMethod]
     public void Relationship_and_heat_simulation_contracts_lock_in_computation_primitives()
     {
         string simulationContractsPath = FindPath("Chummer.Contracts", "Simulation", "RelationshipHeatContracts.cs");

@@ -22,6 +22,8 @@ public sealed class XmlToolCatalogService : IToolCatalogService
     private const string CustomDataXmlBridgeParityFamilyId = "family:custom_data_xml_and_translator_bridge";
     private const string TranslatorParityRouteId = "source:translator_route";
     private const string ImportOracleParityFamilyId = "family:legacy_and_adjacent_import_oracles";
+    private static readonly string[] RequiredAmendPackageSuiteIds = ["source_toggle", "amend_package"];
+    private const string EngineProofPackContractName = "chummer6-core.engine_proof_pack";
     private readonly IContentOverlayCatalogService _overlays;
     private readonly record struct SettingsCatalogSummary(
         int ProfileCount,
@@ -51,6 +53,13 @@ public sealed class XmlToolCatalogService : IToolCatalogService
         int ReceiptsCovered,
         int ReceiptsExpected,
         int CoveragePercent);
+    private readonly record struct AmendPackageSummary(
+        string ProofReceiptPath,
+        string LanePosture,
+        string ProofPackStatus,
+        string SourceToggleSuiteStatus,
+        string AmendPackageSuiteStatus,
+        string AmendPackageCoverageFocus);
     private readonly record struct TranslatorCatalogSummary(
         string LanePosture,
         string BridgePosture,
@@ -80,6 +89,7 @@ public sealed class XmlToolCatalogService : IToolCatalogService
             catalog.BaseLanguagePath,
             pack => pack.LanguagePath);
         ImportOracleSummary importOracleSummary = BuildImportOracleSummary(catalog.BaseDataPath);
+        AmendPackageSummary amendPackageSummary = BuildAmendPackageSummary(catalog.BaseDataPath);
         OnlineStorageSummary onlineStorageSummary = BuildOnlineStorageSummary(catalog.BaseDataPath);
         TranslatorCatalogSummary translatorSummary = BuildTranslatorCatalogSummary(catalog, languageFilesByName);
         if (filesByName.Count == 0)
@@ -184,6 +194,7 @@ public sealed class XmlToolCatalogService : IToolCatalogService
                     enabledDataOverlayCount: CountEnabledDataOverlays(catalog)),
                 TranslatorDeterministicReceipt: BuildTranslatorDeterministicReceipt(translatorSummary),
                 ImportOracleDeterministicReceipt: BuildImportOracleDeterministicReceipt(importOracleSummary),
+                AmendPackageDeterministicReceipt: BuildAmendPackageDeterministicReceipt(amendPackageSummary),
                 Sr6SuccessorDeterministicReceipt: BuildSr6SuccessorDeterministicReceipt(
                     ResolveSr6SupplementLanePosture(Array.Empty<MasterIndexSourcebookEntry>()),
                     ResolveSr6DesignerToolsPosture(0, Sr6DesignerFamiliesExpected),
@@ -351,6 +362,7 @@ public sealed class XmlToolCatalogService : IToolCatalogService
                 enabledDataOverlayCount),
             TranslatorDeterministicReceipt: BuildTranslatorDeterministicReceipt(translatorSummary),
             ImportOracleDeterministicReceipt: BuildImportOracleDeterministicReceipt(importOracleSummary),
+            AmendPackageDeterministicReceipt: BuildAmendPackageDeterministicReceipt(amendPackageSummary),
             Sr6SuccessorDeterministicReceipt: BuildSr6SuccessorDeterministicReceipt(
                 sr6SupplementLanePosture,
                 sr6DesignerToolsPosture,
@@ -725,6 +737,20 @@ public sealed class XmlToolCatalogService : IToolCatalogService
             AdjacentSr6OracleLaneReceipt: BuildAdjacentSr6OracleLaneReceipt(summary));
     }
 
+    private static AmendPackageDeterministicReceipt BuildAmendPackageDeterministicReceipt(AmendPackageSummary summary)
+    {
+        return new AmendPackageDeterministicReceipt(
+            ProofContractName: EngineProofPackContractName,
+            ProofReceiptPath: summary.ProofReceiptPath,
+            LanePosture: summary.LanePosture,
+            LaneReceipt: BuildAmendPackageLaneReceipt(summary),
+            ProofPackStatus: summary.ProofPackStatus,
+            SourceToggleSuiteStatus: summary.SourceToggleSuiteStatus,
+            AmendPackageSuiteStatus: summary.AmendPackageSuiteStatus,
+            AmendPackageCoverageFocus: summary.AmendPackageCoverageFocus,
+            RequiredSuiteIds: RequiredAmendPackageSuiteIds);
+    }
+
     private static Sr6SuccessorLaneDeterministicReceipt BuildSr6SuccessorDeterministicReceipt(
         string sr6SupplementLanePosture,
         string sr6DesignerToolsPosture,
@@ -852,6 +878,16 @@ public sealed class XmlToolCatalogService : IToolCatalogService
         }
 
         return $"Adjacent SR6 oracle coverage is {summary.AdjacentSr6OracleSourcesCovered}/{summary.AdjacentSr6OracleSourcesExpected} with receipt posture {summary.AdjacentSr6OracleReceiptPosture} (Genesis/CommLink6).";
+    }
+
+    private static string BuildAmendPackageLaneReceipt(AmendPackageSummary summary)
+    {
+        if (string.Equals(summary.LanePosture, "missing", StringComparison.Ordinal))
+        {
+            return "No engine proof pack receipt was discovered for the source-toggle and amend-package suites.";
+        }
+
+        return $"Engine proof pack status is {summary.ProofPackStatus}; source-toggle suite is {summary.SourceToggleSuiteStatus}; amend-package suite is {summary.AmendPackageSuiteStatus} ({summary.AmendPackageCoverageFocus}).";
     }
 
     private static string BuildOnlineStorageLaneReceipt(OnlineStorageSummary summary)
@@ -1160,6 +1196,56 @@ public sealed class XmlToolCatalogService : IToolCatalogService
             MissingSources: missingSources);
     }
 
+    private static AmendPackageSummary BuildAmendPackageSummary(string baseDataPath)
+    {
+        string? proofRoot = TryResolveEngineProofRoot(baseDataPath);
+        string receiptPath = string.IsNullOrWhiteSpace(proofRoot)
+            ? string.Empty
+            : Path.Combine(proofRoot, ".codex-studio", "published", "ENGINE_PROOF_PACK.generated.json");
+        if (string.IsNullOrWhiteSpace(receiptPath) || !File.Exists(receiptPath))
+        {
+            return new AmendPackageSummary(
+                ProofReceiptPath: receiptPath,
+                LanePosture: "missing",
+                ProofPackStatus: "missing",
+                SourceToggleSuiteStatus: "missing",
+                AmendPackageSuiteStatus: "missing",
+                AmendPackageCoverageFocus: string.Empty);
+        }
+
+        try
+        {
+            JsonNode? payload = JsonNode.Parse(File.ReadAllText(receiptPath));
+            string proofPackStatus = NormalizeReceiptStatus(payload?["status"]?.GetValue<string>());
+            JsonArray? suites = payload?["oracle_suites"] as JsonArray;
+            string sourceToggleSuiteStatus = ResolveOracleSuiteStatus(suites, "source_toggle");
+            string amendPackageSuiteStatus = ResolveOracleSuiteStatus(suites, "amend_package");
+            string amendPackageCoverageFocus = ResolveOracleSuiteCoverageFocus(suites, "amend_package");
+            bool governed =
+                string.Equals(proofPackStatus, "governed", StringComparison.Ordinal)
+                && string.Equals(sourceToggleSuiteStatus, "governed", StringComparison.Ordinal)
+                && string.Equals(amendPackageSuiteStatus, "governed", StringComparison.Ordinal);
+
+            return new AmendPackageSummary(
+                ProofReceiptPath: receiptPath,
+                LanePosture: governed ? "governed" : "stale",
+                ProofPackStatus: proofPackStatus,
+                SourceToggleSuiteStatus: sourceToggleSuiteStatus,
+                AmendPackageSuiteStatus: amendPackageSuiteStatus,
+                AmendPackageCoverageFocus: amendPackageCoverageFocus);
+        }
+        catch
+        {
+            return new AmendPackageSummary(
+                ProofReceiptPath: receiptPath,
+                LanePosture: "stale",
+                ProofPackStatus: "stale",
+                SourceToggleSuiteStatus: "stale",
+                AmendPackageSuiteStatus: "stale",
+                AmendPackageCoverageFocus: string.Empty);
+        }
+    }
+
     private static string ResolveImportOracleReceiptPosture(string receiptPath)
     {
         if (!File.Exists(receiptPath))
@@ -1179,6 +1265,49 @@ public sealed class XmlToolCatalogService : IToolCatalogService
         {
             return "stale";
         }
+    }
+
+    private static string ResolveOracleSuiteStatus(JsonArray? suites, string suiteId)
+    {
+        if (suites is null || suites.Count == 0)
+        {
+            return "missing";
+        }
+
+        JsonObject? suite = suites
+            .OfType<JsonObject>()
+            .FirstOrDefault(node => string.Equals(node["id"]?.GetValue<string>(), suiteId, StringComparison.Ordinal));
+        if (suite is null)
+        {
+            return "missing";
+        }
+
+        return NormalizeReceiptStatus(suite["status"]?.GetValue<string>());
+    }
+
+    private static string ResolveOracleSuiteCoverageFocus(JsonArray? suites, string suiteId)
+    {
+        if (suites is null || suites.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        JsonObject? suite = suites
+            .OfType<JsonObject>()
+            .FirstOrDefault(node => string.Equals(node["id"]?.GetValue<string>(), suiteId, StringComparison.Ordinal));
+        return suite?["coverage_focus"]?.GetValue<string>()?.Trim() ?? string.Empty;
+    }
+
+    private static string NormalizeReceiptStatus(string? status)
+    {
+        if (string.IsNullOrWhiteSpace(status))
+        {
+            return "missing";
+        }
+
+        return string.Equals(status.Trim(), "passed", StringComparison.OrdinalIgnoreCase)
+            ? "governed"
+            : "stale";
     }
 
     private static (string ReceiptPosture, int SourcesCovered) ResolveAdjacentSr6OracleCoverage(string receiptPath)
@@ -1235,6 +1364,27 @@ public sealed class XmlToolCatalogService : IToolCatalogService
         {
             return ("stale", 0);
         }
+    }
+
+    private static string? TryResolveEngineProofRoot(string baseDataPath)
+    {
+        if (string.IsNullOrWhiteSpace(baseDataPath))
+        {
+            return null;
+        }
+
+        DirectoryInfo? current = new(Path.GetFullPath(baseDataPath));
+        while (current is not null)
+        {
+            if (Directory.Exists(Path.Combine(current.FullName, ".codex-studio", "published")))
+            {
+                return current.FullName;
+            }
+
+            current = current.Parent;
+        }
+
+        return null;
     }
 
     private static string? TryResolveImportOracleRoot(string baseDataPath)

@@ -4,6 +4,7 @@
 
 `ENGINE_PROOF_PACK.generated.json` is the release-bound core proof contract for milestone `104`.
 It keeps engine trust evidence machine-readable so desktop release polish cannot outrun mechanical confidence.
+Milestone `141` cites the `source_toggle` and `amend_package` suite rows beside `NEXT90_M141_IMPORT_ROUTE_RECEIPTS.generated.json` so parity and workflow gates can bind custom-data, translator, import-oracle, and amend-package truth without inventing a second amend oracle.
 
 ## Artifact
 

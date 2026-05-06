@@ -26,6 +26,47 @@ DEFAULT_OUTPUT_RELATIVE_PATH = Path(".codex-studio") / "published" / "NEXT90_M14
 TRANSLATOR_ROUTE_ID = "source:translator_route"
 CUSTOM_DATA_FAMILY_ID = "family:custom_data_xml_and_translator_bridge"
 IMPORT_ORACLE_FAMILY_ID = "family:legacy_and_adjacent_import_oracles"
+EXPECTED_ENGINE_PROOF_PACK_REQUIRED_SUITE_IDS = [
+    "creation",
+    "advancement",
+    "augment",
+    "matrix",
+    "magic",
+    "vehicle",
+    "source_toggle",
+    "amend_package",
+]
+EXPECTED_ENGINE_PROOF_PACK_SUITES = {
+    "source_toggle": {
+        "status": "passed",
+        "coverage_focus": "sourcebook_and_settings_discipline",
+        "rulesets": ["sr5"],
+        "release_scope": "promoted_desktop_release",
+        "golden_fixture_count": 1,
+        "evidence": [
+            "Chummer.Infrastructure/Xml/XmlToolCatalogService.cs::BuildSourceToggleLaneReceipt",
+            "Chummer.Tests/ApiIntegrationTests.cs::sourceToggleLaneReceipt",
+        ],
+        "golden_fixtures": [
+            "Chummer.CoreEngine.Tests/Fixtures/Contracts/buildkit-manifest.normalized.golden.json",
+        ],
+    },
+    "amend_package": {
+        "status": "passed",
+        "coverage_focus": "custom_data_and_xml_diff_apply",
+        "rulesets": ["sr5"],
+        "release_scope": "promoted_desktop_release",
+        "golden_fixture_count": 2,
+        "evidence": [
+            "Chummer.Application/Content/DefaultRuleProfileApplicationService.cs",
+            "Chummer.Application/Content/DefaultRuntimeLockDiffService.cs",
+        ],
+        "golden_fixtures": [
+            "Chummer.CoreEngine.Tests/Fixtures/Contracts/runtime-lock-install-preview.normalized.golden.json",
+            "Chummer.CoreEngine.Tests/Fixtures/Contracts/runtime-lock-install-candidate.normalized.golden.json",
+        ],
+    },
+}
 
 REQUIRED_FILES = {
     "contracts": Path("Chummer.Contracts/Api/ToolCatalogModels.cs"),
@@ -97,6 +138,8 @@ REQUIRED_SNIPPETS = {
         "importOracleDeterministicReceipt",
         "amendPackageDeterministicReceipt",
         ".codex-studio/published/NEXT90_M141_IMPORT_ROUTE_RECEIPTS.generated.json",
+        "worker handoff artifacts",
+        "run-local telemetry artifacts",
         "python3 tests/test_next90_m141_import_route_receipts.py",
     ],
     "m141_closeout": [
@@ -104,6 +147,8 @@ REQUIRED_SNIPPETS = {
         str(FRONTIER_ID),
         str(FLAGSHIP_FRONTIER_ID),
         ".codex-studio/published/NEXT90_M141_IMPORT_ROUTE_RECEIPTS.generated.json",
+        "worker handoff artifacts",
+        "run-local telemetry artifacts",
         "python3 tests/test_next90_m141_import_route_receipts.py",
         "python3 scripts/verify-next90-m141-import-route-receipts.py --repo-root . --out .codex-studio/published/NEXT90_M141_IMPORT_ROUTE_RECEIPTS.generated.json --check",
         "Do not reopen this core package for desktop screenshot capture, Hub parity-claim posture, Fleet gate materialization, or EA compare-packet work.",
@@ -113,6 +158,8 @@ REQUIRED_SNIPPETS = {
         "test -f tests/test_next90_m141_import_route_receipts.py",
         "python3 tests/test_next90_m141_import_route_receipts.py",
         "python3 scripts/verify-next90-m141-import-route-receipts.py --repo-root . --out .codex-studio/published/NEXT90_M141_IMPORT_ROUTE_RECEIPTS.generated.json --check",
+        "worker handoff artifacts",
+        "run-local telemetry artifacts",
     ],
     "engine_proof_pack_generator": [
         '"id": "source_toggle"',
@@ -188,6 +235,43 @@ EXPECTED_AUTHORITY_ROW_COUNTS = {
     "successor_queue": 1,
     "design_successor_queue": 1,
 }
+
+DISALLOWED_ACTIVE_RUN_PROOF_TOKENS = (
+    "/var/lib/codex-fleet/",
+    "TASK_LOCAL_TELEMETRY.generated.json",
+    "ACTIVE_RUN_HANDOFF.generated.md",
+    "run these exact commands first",
+    "do not invent another orientation step",
+    "first action rule:",
+    "use the shard runtime handoff",
+    "execution discipline:",
+    "execution rules inside this run:",
+    "assigned successor queue package:",
+    "successor frontier detail:",
+)
+EXPECTED_CLOSED_PACKAGE_REASON = (
+    "M141 chummer6-core import-route deterministic receipt lane is complete; future shards must verify "
+    "the closed-package receipt, Python guard tests, canonical registry row, and queue mirrors instead "
+    "of reopening this slice."
+)
+EXPECTED_REGISTRY_CLOSURE_SNIPPETS = [
+    "status: complete",
+    "completion_action: verify_closed_package_only",
+    EXPECTED_CLOSED_PACKAGE_REASON,
+    ".codex-studio/published/NEXT90_M141_IMPORT_ROUTE_RECEIPTS.generated.json",
+    "python3 tests/test_next90_m141_import_route_receipts.py",
+    "python3 scripts/verify-next90-m141-import-route-receipts.py --repo-root . --out .codex-studio/published/NEXT90_M141_IMPORT_ROUTE_RECEIPTS.generated.json --check",
+]
+EXPECTED_QUEUE_CLOSURE_SNIPPETS = [
+    "status: complete",
+    "completion_action: verify_closed_package_only",
+    "landed_commit: unlanded",
+    EXPECTED_CLOSED_PACKAGE_REASON,
+    "proof:",
+    "/docker/chummercomplete/chummer-core-engine/.codex-studio/published/NEXT90_M141_IMPORT_ROUTE_RECEIPTS.generated.json",
+    "python3 tests/test_next90_m141_import_route_receipts.py",
+    "python3 scripts/verify-next90-m141-import-route-receipts.py --repo-root . --out .codex-studio/published/NEXT90_M141_IMPORT_ROUTE_RECEIPTS.generated.json --check",
+]
 
 
 @dataclass(frozen=True)
@@ -301,6 +385,55 @@ def count_authority_rows(key: str, content: str) -> int:
     return 0 if marker is None else content.count(marker)
 
 
+def find_disallowed_active_run_tokens(content: str) -> list[str]:
+    content_lower = content.lower()
+    return [
+        token
+        for token in DISALLOWED_ACTIVE_RUN_PROOF_TOKENS
+        if token.lower() in content_lower
+    ]
+
+
+def build_authority_semantic_issues() -> dict[str, list[str]]:
+    issues: dict[str, list[str]] = {}
+
+    queue_path, _ = CANONICAL_AUTHORITY_FILES["successor_queue"]
+    design_queue_path, _ = CANONICAL_AUTHORITY_FILES["design_successor_queue"]
+    if queue_path.exists() and design_queue_path.exists():
+        queue_scope, _ = extract_authority_scope("successor_queue", read_text(queue_path))
+        design_queue_scope, _ = extract_authority_scope("design_successor_queue", read_text(design_queue_path))
+        if queue_scope != design_queue_scope:
+            issues["queue_mirror_drift"] = [
+                "fleet_and_design_queue_package_rows_differ"
+            ]
+
+    for key, (path, _) in CANONICAL_AUTHORITY_FILES.items():
+        if not path.exists():
+            continue
+
+        scoped_content, _ = extract_authority_scope(key, read_text(path))
+        disallowed_tokens = find_disallowed_active_run_tokens(scoped_content)
+        if disallowed_tokens:
+            issues[f"{key}_disallowed_active_run_proof"] = disallowed_tokens
+
+        expected_closure_snippets = (
+            EXPECTED_REGISTRY_CLOSURE_SNIPPETS
+            if key == "successor_registry"
+            else EXPECTED_QUEUE_CLOSURE_SNIPPETS
+            if key in {"successor_queue", "design_successor_queue"}
+            else []
+        )
+        missing_closure_snippets = [
+            snippet for snippet in expected_closure_snippets if snippet not in scoped_content
+        ]
+        if missing_closure_snippets:
+            issues[f"{key}_closure_drift"] = [
+                f"missing_closure_snippet:{snippet}" for snippet in missing_closure_snippets
+            ]
+
+    return issues
+
+
 def extract_proof_scope(key: str, content: str) -> tuple[str, str]:
     if key == "engine_proof_pack_published":
         payload = json.loads(content)
@@ -361,36 +494,77 @@ def inspect_file(path: Path, key: str, required_snippets: list[str], *, authorit
 def build_supporting_receipt_semantic_issues(repo_root: Path) -> dict[str, list[str]]:
     issues: dict[str, list[str]] = {}
 
+    for key in ("m141_docs", "m141_closeout"):
+        path = repo_root / REQUIRED_FILES[key]
+        if not path.exists():
+            continue
+
+        disallowed_tokens = find_disallowed_active_run_tokens(read_text(path))
+        if disallowed_tokens:
+            issues[key] = [f"disallowed_active_run_proof:{token}" for token in disallowed_tokens]
+
     engine_proof_pack_path = repo_root / REQUIRED_FILES["engine_proof_pack_published"]
     if engine_proof_pack_path.exists():
         payload = json.loads(read_text(engine_proof_pack_path))
         engine_issues: list[str] = []
 
+        if payload.get("contract_name") != "chummer6-core.engine_proof_pack":
+            engine_issues.append(f"unexpected_contract_name:{payload.get('contract_name')}")
         if payload.get("status") != "passed":
             engine_issues.append(f"unexpected_status:{payload.get('status')}")
         if payload.get("package_id") != "next90-m104-core-proof-pack":
             engine_issues.append(f"unexpected_package_id:{payload.get('package_id')}")
+        if payload.get("frontier_id") != 3227666051:
+            engine_issues.append(f"unexpected_frontier_id:{payload.get('frontier_id')}")
+        if payload.get("required_oracle_suite_ids") != EXPECTED_ENGINE_PROOF_PACK_REQUIRED_SUITE_IDS:
+            engine_issues.append(
+                "unexpected_required_suite_ids:"
+                + ",".join(str(item) for item in payload.get("required_oracle_suite_ids", []))
+            )
+        missing_required_suite_ids = payload.get("missing_required_suite_ids")
+        if missing_required_suite_ids not in (None, []):
+            engine_issues.append(
+                "unexpected_missing_required_suite_ids:"
+                + ",".join(str(item) for item in missing_required_suite_ids)
+            )
 
         suites = {
             suite.get("id"): suite
             for suite in payload.get("oracle_suites", [])
             if isinstance(suite, dict) and suite.get("id") in {"source_toggle", "amend_package"}
         }
-        expected_suite_statuses = {
-            "source_toggle": "passed",
-            "amend_package": "passed",
-        }
-        for suite_id, expected_status in expected_suite_statuses.items():
+        for suite_id, expected_suite in EXPECTED_ENGINE_PROOF_PACK_SUITES.items():
             suite = suites.get(suite_id)
             if suite is None:
                 engine_issues.append(f"missing_suite:{suite_id}")
                 continue
-            if suite.get("status") != expected_status:
+            if suite.get("status") != expected_suite["status"]:
                 engine_issues.append(f"unexpected_suite_status:{suite_id}:{suite.get('status')}")
-
-        amend_suite = suites.get("amend_package")
-        if amend_suite is not None and amend_suite.get("coverage_focus") != "custom_data_and_xml_diff_apply":
-            engine_issues.append(f"unexpected_amend_coverage_focus:{amend_suite.get('coverage_focus')}")
+            if suite.get("coverage_focus") != expected_suite["coverage_focus"]:
+                engine_issues.append(
+                    f"unexpected_{suite_id}_coverage_focus:{suite.get('coverage_focus')}"
+                )
+            if suite.get("rulesets") != expected_suite["rulesets"]:
+                engine_issues.append(
+                    f"unexpected_{suite_id}_rulesets:"
+                    + ",".join(str(item) for item in suite.get("rulesets", []))
+                )
+            if suite.get("release_scope") != expected_suite["release_scope"]:
+                engine_issues.append(f"unexpected_{suite_id}_release_scope:{suite.get('release_scope')}")
+            if suite.get("golden_fixture_count") != expected_suite["golden_fixture_count"]:
+                engine_issues.append(
+                    f"unexpected_{suite_id}_golden_fixture_count:{suite.get('golden_fixture_count')}"
+                )
+            if suite.get("evidence") != expected_suite["evidence"]:
+                engine_issues.append(
+                    f"unexpected_{suite_id}_evidence:"
+                    + ",".join(str(item) for item in suite.get("evidence", []))
+                )
+            if suite.get("golden_fixtures") != expected_suite["golden_fixtures"]:
+                engine_issues.append(
+                    f"unexpected_{suite_id}_golden_fixtures:"
+                    + ",".join(str(item) for item in suite.get("golden_fixtures", []))
+                )
 
         if engine_issues:
             issues["engine_proof_pack_published"] = engine_issues
@@ -487,11 +661,13 @@ def build_payload(repo_root: Path, out_path: Path) -> dict[str, Any]:
         for key, count in authority_row_counts.items()
         if count != EXPECTED_AUTHORITY_ROW_COUNTS.get(key, 1)
     }
+    authority_semantic_issues = build_authority_semantic_issues()
     supporting_receipt_semantic_issues = build_supporting_receipt_semantic_issues(repo_root)
     passed = (
         not missing_files
         and not snippet_failures
         and not authority_row_issues
+        and not authority_semantic_issues
         and not supporting_receipt_semantic_issues
     )
 
@@ -538,6 +714,7 @@ def build_payload(repo_root: Path, out_path: Path) -> dict[str, Any]:
             "missing_files": missing_files,
             "snippet_failures": snippet_failures,
             "authority_row_issues": authority_row_issues,
+            "authority_semantic_issues": authority_semantic_issues,
             "supporting_receipt_semantic_issues": supporting_receipt_semantic_issues,
         },
     }

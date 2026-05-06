@@ -1,0 +1,233 @@
+{
+  "generated_at": "2026-05-06T11:00:16Z",
+  "status": "passed",
+  "package_id": "next90-m142-core-keep-initiative-action-notes-and-workflow-state-receipts-deterministic",
+  "frontier_id": 7923205254,
+  "milestone_id": 142,
+  "work_task_id": "142.3",
+  "title": "Keep initiative, action, notes, and workflow-state receipts deterministic enough for parity and task-speed proof.",
+  "task": "Keep initiative, action, notes, and workflow-state receipts deterministic enough for parity and task-speed proof.",
+  "repo": "chummer6-core",
+  "repo_root": "/docker/chummercomplete/chummer-core-engine",
+  "owned_surfaces": [
+    "keep_initiative_action_notes_and_workflow_state_receipts:core"
+  ],
+  "allowed_paths": [
+    "src",
+    "tests",
+    "docs",
+    "scripts"
+  ],
+  "published_receipt_path": "/docker/chummercomplete/chummer-core-engine/.codex-studio/published/NEXT90_M142_DENSE_WORKBENCH_RECEIPTS.generated.json",
+  "receipt_path": "/docker/chummercomplete/chummer-core-engine/.codex-studio/published/NEXT90_M142_DENSE_WORKBENCH_RECEIPTS.generated.json",
+  "proof_anchor_count": 11,
+  "authority_anchor_count": 3,
+  "proof_files": [
+    {
+      "key": "receipt_verifier",
+      "path": "/docker/chummercomplete/chummer-core-engine/scripts/verify-next90-m142-dense-workbench-receipts.py",
+      "exists": true,
+      "digest": "sha256:0de8a5fe8d14ec0534e64dd9ef63210ee87ed36e916c0a9dcbc7899644aeb219",
+      "digest_scope": "full-file",
+      "missing_snippets": [],
+      "status": "passed"
+    },
+    {
+      "key": "receipt_test",
+      "path": "/docker/chummercomplete/chummer-core-engine/tests/test_next90_m142_dense_workbench_receipts.py",
+      "exists": true,
+      "digest": "sha256:f04cde442c9b735829eb7c1a293c352f1224204035647fc8ec9e353e14d0a62d",
+      "digest_scope": "full-file",
+      "missing_snippets": [],
+      "status": "passed"
+    },
+    {
+      "key": "action_budget_contracts",
+      "path": "/docker/chummercomplete/chummer-core-engine/Chummer.Contracts/Session/SessionActionBudgetContracts.cs",
+      "exists": true,
+      "digest": "sha256:9f4dcf4a35c85a86f0ddac7a7c95ebda414120c15c6efb00bc6c7a4ee0547da4",
+      "digest_scope": "m142-action-budget-contract-block",
+      "missing_snippets": [],
+      "status": "passed"
+    },
+    {
+      "key": "workspace_contracts",
+      "path": "/docker/chummercomplete/chummer-core-engine/Chummer.Contracts/Workspaces/CharacterWorkspaceModels.cs",
+      "exists": true,
+      "digest": "sha256:6733ae591e45d88ea132e60c16a800dcb26c263872a7ec66e9efa51961fbad44",
+      "digest_scope": "m142-workflow-contract-block",
+      "missing_snippets": [],
+      "status": "passed"
+    },
+    {
+      "key": "action_budget_service",
+      "path": "/docker/chummercomplete/chummer-core-engine/Chummer.Application/Session/DefaultSessionActionBudgetService.cs",
+      "exists": true,
+      "digest": "sha256:1c38893eb576a3b28da0023c74725f9c63bb7e341dbf6c65e108733de553780a",
+      "digest_scope": "m142-action-budget-blocks",
+      "missing_snippets": [],
+      "status": "passed"
+    },
+    {
+      "key": "workspace_service",
+      "path": "/docker/chummercomplete/chummer-core-engine/Chummer.Application/Workspaces/WorkspaceService.cs",
+      "exists": true,
+      "digest": "sha256:d01e6d8899c6c5b50728bb3e2ff4d4044301885a3849dad1c4f7ac525ac33f69",
+      "digest_scope": "m142-workflow-blocks",
+      "missing_snippets": [],
+      "status": "passed"
+    },
+    {
+      "key": "test_program",
+      "path": "/docker/chummercomplete/chummer-core-engine/Chummer.CoreEngine.Tests/Program.cs",
+      "exists": true,
+      "digest": "sha256:dbda596555d0d6560fd360e0a249649a6e505af6603f006ef9d4380b2cbc75fc",
+      "digest_scope": "m142-test-method",
+      "missing_snippets": [],
+      "status": "passed"
+    },
+    {
+      "key": "session_action_budget_mstest",
+      "path": "/docker/chummercomplete/chummer-core-engine/Chummer.Tests/SessionActionBudgetServiceTests.cs",
+      "exists": true,
+      "digest": "sha256:8864b7feeb9c2ba1b5e8ffa53a0a53559be2080665d8f014e501d85363c3cc0f",
+      "digest_scope": "m142-session-test-method",
+      "missing_snippets": [],
+      "status": "passed"
+    },
+    {
+      "key": "workspace_service_mstest",
+      "path": "/docker/chummercomplete/chummer-core-engine/Chummer.Tests/WorkspaceServiceTests.cs",
+      "exists": true,
+      "digest": "sha256:915788fc08e81637028cd91ff23a65bc176263793c9670f6ebad9f3e159eca97",
+      "digest_scope": "m142-workspace-test-methods",
+      "missing_snippets": [],
+      "status": "passed"
+    },
+    {
+      "key": "repo_verify",
+      "path": "/docker/chummercomplete/chummer-core-engine/scripts/ai/verify.sh",
+      "exists": true,
+      "digest": "sha256:31bcb511136297eea82436570b0da86bff3e9b8d06e408eba5d5aa2ff33de62b",
+      "digest_scope": "m142-verify-block",
+      "missing_snippets": [],
+      "status": "passed"
+    },
+    {
+      "key": "docs",
+      "path": "/docker/chummercomplete/chummer-core-engine/docs/NEXT90_M142_DENSE_WORKBENCH_RECEIPTS.md",
+      "exists": true,
+      "digest": "sha256:37eda5709e304c7d1c8c270b48bbcf65d8ed9312b20a696ce643ada9ad032764",
+      "digest_scope": "full-file",
+      "missing_snippets": [],
+      "status": "passed"
+    }
+  ],
+  "authority_files": [
+    {
+      "key": "successor_registry",
+      "path": "/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml",
+      "exists": true,
+      "digest": "sha256:6c99a91062a0dcaded4a467952259818fe16a6f7799d4abae857048693b2d154",
+      "digest_scope": "milestone-row",
+      "missing_snippets": [],
+      "status": "passed"
+    },
+    {
+      "key": "successor_queue",
+      "path": "/docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml",
+      "exists": true,
+      "digest": "sha256:3f1ae5aad923257c9333ccb5fff8e61ecb65003942804bfc5c422a27d09d4bdf",
+      "digest_scope": "package-rows",
+      "missing_snippets": [],
+      "status": "passed"
+    },
+    {
+      "key": "design_successor_queue",
+      "path": "/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_QUEUE_STAGING.generated.yaml",
+      "exists": true,
+      "digest": "sha256:3f1ae5aad923257c9333ccb5fff8e61ecb65003942804bfc5c422a27d09d4bdf",
+      "digest_scope": "package-rows",
+      "missing_snippets": [],
+      "status": "passed"
+    }
+  ],
+  "authority_row_counts": {
+    "successor_registry": 1,
+    "successor_queue": 1,
+    "design_successor_queue": 1
+  },
+  "expected_authority_row_counts": {
+    "successor_registry": 1,
+    "successor_queue": 1,
+    "design_successor_queue": 1
+  },
+  "canonical_queue_frontier_ids": {
+    "successor_queue": 7923205254,
+    "design_successor_queue": 7923205254
+  },
+  "canonical_queue_contracts": {
+    "successor_queue": {
+      "allowed_paths": [
+        "src",
+        "tests",
+        "docs",
+        "scripts"
+      ],
+      "owned_surfaces": [
+        "keep_initiative_action_notes_and_workflow_state_receipts:core"
+      ],
+      "task": "Keep initiative, action, notes, and workflow-state receipts deterministic enough for parity and task-speed proof.",
+      "package_id": "next90-m142-core-keep-initiative-action-notes-and-workflow-state-receipts-deterministic",
+      "work_task_id": "142.3",
+      "frontier_id": "7923205254",
+      "milestone_id": "142",
+      "status": "not_started",
+      "wave": "W22P",
+      "repo": "chummer6-core"
+    },
+    "design_successor_queue": {
+      "allowed_paths": [
+        "src",
+        "tests",
+        "docs",
+        "scripts"
+      ],
+      "owned_surfaces": [
+        "keep_initiative_action_notes_and_workflow_state_receipts:core"
+      ],
+      "task": "Keep initiative, action, notes, and workflow-state receipts deterministic enough for parity and task-speed proof.",
+      "package_id": "next90-m142-core-keep-initiative-action-notes-and-workflow-state-receipts-deterministic",
+      "work_task_id": "142.3",
+      "frontier_id": "7923205254",
+      "milestone_id": "142",
+      "status": "not_started",
+      "wave": "W22P",
+      "repo": "chummer6-core"
+    }
+  },
+  "parity_family_id": "family:initiative_action_notes_and_workflow_state",
+  "action_budget_route_ids": [
+    "workflow:initiative",
+    "workflow:actions",
+    "workflow:turn-ledger",
+    "workflow:rules-reference"
+  ],
+  "workflow_state_route_ids": [
+    "workflow:workflow-state",
+    "workflow:contacts",
+    "workflow:lifestyles",
+    "workflow:notes"
+  ],
+  "verification_commands": [
+    "CHUMMER_CORE_ENGINE_TEST_FILTER=parity-m142 dotnet run --project Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj -m:1 -p:UseSharedCompilation=false",
+    "python3 tests/test_next90_m142_dense_workbench_receipts.py",
+    "python3 scripts/verify-next90-m142-dense-workbench-receipts.py --repo-root . --out .codex-studio/published/NEXT90_M142_DENSE_WORKBENCH_RECEIPTS.generated.json"
+  ],
+  "test_filter": "parity-m142",
+  "unresolved": {
+    "missing_files": [],
+    "snippet_failures": {},
+    "authority_row_issues": {}
+  }
+}

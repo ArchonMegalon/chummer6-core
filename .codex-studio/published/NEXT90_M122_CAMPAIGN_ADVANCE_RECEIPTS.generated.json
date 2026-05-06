@@ -1,0 +1,156 @@
+{
+  "generated_at": "2026-05-06T09:59:32Z",
+  "status": "passed",
+  "package_id": "next90-m122-core-add-deterministic-reward-downtime-goal-update-and-conseq",
+  "frontier_id": 1771239378,
+  "milestone_id": 122,
+  "work_task_id": "122.2",
+  "title": "Add deterministic reward, downtime, goal-update, and consequence receipt contracts consumed by adoption and BLACK LEDGER flows.",
+  "task": "Add deterministic reward, downtime, goal-update, and consequence receipt contracts consumed by adoption and BLACK LEDGER flows.",
+  "repo": "chummer6-core",
+  "repo_root": "/docker/chummercomplete/chummer-core-engine",
+  "owned_surfaces": [
+    "add_deterministic_reward_downtime_goal:core"
+  ],
+  "allowed_paths": [
+    "src",
+    "tests",
+    "docs",
+    "scripts"
+  ],
+  "published_receipt_path": "/docker/chummercomplete/chummer-core-engine/.codex-studio/published/NEXT90_M122_CAMPAIGN_ADVANCE_RECEIPTS.generated.json",
+  "receipt_path": "/docker/chummercomplete/chummer-core-engine/.codex-studio/published/NEXT90_M122_CAMPAIGN_ADVANCE_RECEIPTS.generated.json",
+  "proof_anchor_count": 9,
+  "authority_anchor_count": 3,
+  "proof_files": [
+    {
+      "key": "contracts",
+      "path": "/docker/chummercomplete/chummer-core-engine/Chummer.Contracts/Campaign/CampaignAdvanceReceiptContracts.cs",
+      "exists": true,
+      "digest": "sha256:c25a0a3b3d5297a4b19e84668058f0a794ffd7f899d41469a255b30e2dfa1b4a",
+      "digest_scope": "full-file",
+      "missing_snippets": [],
+      "status": "passed"
+    },
+    {
+      "key": "service",
+      "path": "/docker/chummercomplete/chummer-core-engine/Chummer.Application/Campaign/DefaultCampaignAdvanceReceiptService.cs",
+      "exists": true,
+      "digest": "sha256:51f40e412993ed979909d243b7832aede617133b6ca597ef5d3dff12907b2f0b",
+      "digest_scope": "full-file",
+      "missing_snippets": [],
+      "status": "passed"
+    },
+    {
+      "key": "service_interface",
+      "path": "/docker/chummercomplete/chummer-core-engine/Chummer.Application/Campaign/ICampaignAdvanceReceiptService.cs",
+      "exists": true,
+      "digest": "sha256:1da382aabcd30cb7fb2213e22f2a9bc9a21fe90a5ee89167607bc0fef7e94032",
+      "digest_scope": "full-file",
+      "missing_snippets": [],
+      "status": "passed"
+    },
+    {
+      "key": "dependency_injection",
+      "path": "/docker/chummercomplete/chummer-core-engine/Chummer.Infrastructure/DependencyInjection/ServiceCollectionExtensions.cs",
+      "exists": true,
+      "digest": "sha256:5ab846906746f4d13633230f000a2954403cd2d4d6dfa8a25d793b9455745437",
+      "digest_scope": "full-file",
+      "missing_snippets": [],
+      "status": "passed"
+    },
+    {
+      "key": "test_program",
+      "path": "/docker/chummercomplete/chummer-core-engine/Chummer.CoreEngine.Tests/Program.cs",
+      "exists": true,
+      "digest": "sha256:368456a20a557d049c44126af7b666f2fe220364eadd646bc74a60bca1a7a33a",
+      "digest_scope": "full-file",
+      "missing_snippets": [],
+      "status": "passed"
+    },
+    {
+      "key": "mstest",
+      "path": "/docker/chummercomplete/chummer-core-engine/Chummer.Tests/CampaignAdvanceReceiptServiceTests.cs",
+      "exists": true,
+      "digest": "sha256:37c6986b4837b046d65cad30f9e585aca69448ecac3c8d4ff5a06800d1d62ed7",
+      "digest_scope": "full-file",
+      "missing_snippets": [],
+      "status": "passed"
+    },
+    {
+      "key": "compliance",
+      "path": "/docker/chummercomplete/chummer-core-engine/Chummer.Tests/Compliance/MigrationComplianceTests.cs",
+      "exists": true,
+      "digest": "sha256:1f59c66e97283c9fc650becd73e1c55c40d7bd473b637986c9966969cac79bd7",
+      "digest_scope": "full-file",
+      "missing_snippets": [],
+      "status": "passed"
+    },
+    {
+      "key": "repo_verify",
+      "path": "/docker/chummercomplete/chummer-core-engine/scripts/ai/verify.sh",
+      "exists": true,
+      "digest": "sha256:39fc18c13df99af157396f5000883ab7ea36f66180714be0dc3cac7c723c1872",
+      "digest_scope": "full-file",
+      "missing_snippets": [],
+      "status": "passed"
+    },
+    {
+      "key": "docs",
+      "path": "/docker/chummercomplete/chummer-core-engine/docs/NEXT90_M122_CAMPAIGN_ADVANCE_RECEIPTS.md",
+      "exists": true,
+      "digest": "sha256:ef80c4425a9a8dd7f9d349ccd181002eb0cd3966d9a7e12d42621f2962d9ba0d",
+      "digest_scope": "full-file",
+      "missing_snippets": [],
+      "status": "passed"
+    }
+  ],
+  "authority_files": [
+    {
+      "key": "successor_registry",
+      "path": "/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml",
+      "exists": true,
+      "digest": "sha256:2da24c4a2b56f8cebe89ac2bf46d8c9a803f7fb2be81d4d48c3b040ccb78cb5b",
+      "digest_scope": "milestone-row",
+      "missing_snippets": [],
+      "status": "passed"
+    },
+    {
+      "key": "successor_queue",
+      "path": "/docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml",
+      "exists": true,
+      "digest": "sha256:0159e72e39d5d995181249095d483faa8f2a0e393225dbaf22fc91a4ec653f72",
+      "digest_scope": "package-rows",
+      "missing_snippets": [],
+      "status": "passed"
+    },
+    {
+      "key": "design_successor_queue",
+      "path": "/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_QUEUE_STAGING.generated.yaml",
+      "exists": true,
+      "digest": "sha256:0159e72e39d5d995181249095d483faa8f2a0e393225dbaf22fc91a4ec653f72",
+      "digest_scope": "package-rows",
+      "missing_snippets": [],
+      "status": "passed"
+    }
+  ],
+  "authority_row_counts": {
+    "successor_registry": 1,
+    "successor_queue": 2,
+    "design_successor_queue": 2
+  },
+  "verification_commands": [
+    "CHUMMER_CORE_ENGINE_TEST_FILTER=next90-m122-campaign-advance-receipts dotnet run --project Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj -m:1 -p:UseSharedCompilation=false",
+    "python3 tests/test_next90_m122_campaign_advance_receipts.py",
+    "python3 scripts/verify-next90-m122-campaign-advance-receipts.py --repo-root . --out .codex-studio/published/NEXT90_M122_CAMPAIGN_ADVANCE_RECEIPTS.generated.json"
+  ],
+  "receipt_family": "family:campaign_adoption_runner_goal_and_black_ledger",
+  "world_tick_id": "world-tick:campaign-7:rr-2048",
+  "news_item_id": "news-item:shadowfeed-2048:rr-2048",
+  "test_filter": "next90-m122-campaign-advance-receipts",
+  "unresolved": {
+    "missing_files": [],
+    "snippet_failures": {},
+    "authority_row_issues": {}
+  }
+}

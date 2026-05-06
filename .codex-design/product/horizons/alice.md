@@ -1,10 +1,10 @@
 # ALICE
 
-## The problem
+## Table pain
 
 Players often discover bad builds, illegal interactions, or weak upgrade paths only after the run has already gone sideways.
 
-## What it would do
+## Bounded product move
 
 Chummer would compare builds, catch trouble before play, and explain tradeoffs without making up rules or legality.
 The first proof slice for that horizon is:
@@ -73,13 +73,19 @@ Facepop is not part of the runtime feature path; it remains a public concierge/t
 
 Research and assistive drafting tools may support operator-facing explanations, but analysis outcomes stay grounded in engine-owned semantics.
 
-## What has to be true first
+## Foundations
 
 * explain views that show their work
 * deterministic runtime data
 * strong comparison flows
 * snapshot / branch / apply receipts for runner state
 * rule-environment overlays that can be compared without mutating the active build
+
+## Build path
+
+* intent: eventual product lane
+* current state: horizon
+* next state: bounded research
 
 ## First proof slice
 
@@ -101,7 +107,11 @@ The first slice is successful when a user can answer:
 * What did I lose by taking the upgrade?
 * Can I undo this safely before I commit?
 
-## Why it is not ready yet
+## Owner handoff gate
+
+Build-ghost comparison and apply flows must consume core-owned truth and explicit apply receipts rather than assistant-side heuristics or silent runner mutation.
+
+## Why still a horizon
 
 Chummer still needs sturdier compare-and-explain views before it should start giving confident build advice.
 It also needs branch-and-apply semantics that feel safe enough for players to trust with a real runner instead of a disposable test file.

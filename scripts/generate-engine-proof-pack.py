@@ -764,6 +764,14 @@ def _normalize_proof_separators(text: str) -> str:
     return re.sub(r"[\s._:/\\+-]+", " ", text).strip()
 
 
+def _normalize_whitespace(text: str) -> str:
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _contains_wrapped_token(text: str, token: str) -> bool:
+    return _normalize_whitespace(token) in _normalize_whitespace(text)
+
+
 def _find_disallowed_closeout_evidence_tokens(text: str) -> list[str]:
     evidence_lines = [
         line
@@ -907,7 +915,7 @@ def _validate_queue_authority(queue_path: Path, generated_output_path: Path | No
     duplicate_package_rows = max(0, len(queue_scopes) - 1)
     if duplicate_package_rows:
         missing_queue_tokens.append("duplicate_queue_item:next90-m104-core-proof-pack")
-    missing_queue_tokens.extend(token for token in SUCCESSOR_QUEUE_TOKENS if token not in queue_scope)
+    missing_queue_tokens.extend(token for token in SUCCESSOR_QUEUE_TOKENS if not _contains_wrapped_token(queue_scope, token))
     disallowed_active_run_tokens = _find_disallowed_active_run_tokens(queue_scope)
     queue_proof = _extract_yaml_list_values(queue_scope, "proof") if queue_scope else []
     missing_queue_proof_anchors = []
@@ -1033,7 +1041,9 @@ def _validate_successor_wave_authority(root: Path, generated_output_path: Path |
     registry_text = _read_text(registry_path)
     registry_scope = _extract_list_item_block(registry_text, "id: 104")
     registry_missing_scope_tokens = ["milestone_block:id:104"] if not registry_scope else []
-    missing_registry_tokens = registry_missing_scope_tokens + [token for token in SUCCESSOR_REGISTRY_MILESTONE_TOKENS if token not in registry_scope]
+    missing_registry_tokens = registry_missing_scope_tokens + [
+        token for token in SUCCESSOR_REGISTRY_MILESTONE_TOKENS if not _contains_wrapped_token(registry_scope, token)
+    ]
     missing_registry_task_tokens: dict[str, list[str]] = {}
     disallowed_registry_active_run_tokens: dict[str, list[str]] = {}
     registry_task_scopes: list[str] = []
@@ -1042,7 +1052,7 @@ def _validate_successor_wave_authority(root: Path, generated_output_path: Path |
         if task_scope:
             registry_task_scopes.append(task_scope)
         missing = [f"task_block:id:{task_id}"] if not task_scope else []
-        missing.extend(token for token in required_tokens if token not in task_scope)
+        missing.extend(token for token in required_tokens if not _contains_wrapped_token(task_scope, token))
         if missing:
             missing_registry_task_tokens[task_id] = missing
             missing_registry_tokens.extend(f"{task_id}:{token}" for token in missing)
@@ -1613,9 +1623,10 @@ def _build_release_channel_binding(release_channel_path: Path) -> tuple[dict[str
         if isinstance(row, dict)
     }
 
+    required_promoted_desktop_tuples = _resolve_required_promoted_desktop_tuples(desktop_coverage, route_truth)
     promoted_primary_tuples: list[dict[str, Any]] = []
     missing_required_tuples: list[str] = []
-    for tuple_id, head, platform, rid in REQUIRED_PROMOTED_DESKTOP_TUPLES:
+    for tuple_id, head, platform, rid in required_promoted_desktop_tuples:
         row = route_by_tuple.get(tuple_id)
         if not isinstance(row, dict):
             missing_required_tuples.append(tuple_id)
@@ -1672,7 +1683,7 @@ def _build_release_channel_binding(release_channel_path: Path) -> tuple[dict[str
             "release_proof_status": release_proof_status,
             "desktop_tuple_coverage_complete": desktop_complete,
             "required_promoted_desktop_tuples": [
-                tuple_id for tuple_id, _, _, _ in REQUIRED_PROMOTED_DESKTOP_TUPLES
+                tuple_id for tuple_id, _, _, _ in required_promoted_desktop_tuples
             ],
             "promoted_primary_tuples": promoted_primary_tuples,
             "unresolved": unresolved,
@@ -1685,6 +1696,44 @@ def _oracle_name(row: Any) -> str:
     if isinstance(row, dict):
         return str(row.get("name") or row.get("id") or "").strip()
     return str(row or "").strip()
+
+
+def _resolve_required_promoted_desktop_tuples(
+    desktop_coverage: dict[str, Any],
+    route_truth: list[dict[str, Any]],
+) -> list[tuple[str, str, str, str]]:
+    required_triplets = desktop_coverage.get("requiredDesktopPlatformHeadRidTuples")
+    if not isinstance(required_triplets, list) or not required_triplets:
+        return list(REQUIRED_PROMOTED_DESKTOP_TUPLES)
+
+    required_rows: list[tuple[str, str, str, str]] = []
+    seen: set[tuple[str, str, str, str]] = set()
+    for triplet in required_triplets:
+        parts = [str(part).strip() for part in str(triplet or "").split(":")]
+        if len(parts) != 3 or not all(parts):
+            continue
+        head, rid, platform = parts
+        tuple_id = ""
+        for row in route_truth:
+            if not isinstance(row, dict):
+                continue
+            if (
+                str(row.get("head") or "").strip() == head
+                and str(row.get("rid") or "").strip() == rid
+                and str(row.get("platform") or "").strip() == platform
+                and str(row.get("routeRole") or "").strip() == "primary"
+            ):
+                tuple_id = str(row.get("tupleId") or "").strip()
+                break
+        if not tuple_id:
+            tuple_id = f"{head}:{platform}:{rid}"
+        resolved = (tuple_id, head, platform, rid)
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        required_rows.append(resolved)
+
+    return required_rows or list(REQUIRED_PROMOTED_DESKTOP_TUPLES)
 
 
 def _oracle_coverage_is_complete(row: Any) -> bool:

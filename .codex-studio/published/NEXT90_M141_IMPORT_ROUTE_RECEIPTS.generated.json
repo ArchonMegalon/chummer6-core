@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-05-06T02:50:46Z",
+  "generated_at": "2026-05-06T12:54:00Z",
   "status": "passed",
   "package_id": "next90-m141-core-bind-import-oracle-custom-data-and-amend-package-flows-to-deterministic",
   "frontier_id": 4304178368,
@@ -73,7 +73,7 @@
       "key": "m141_docs",
       "path": "/docker/chummercomplete/chummer-core-engine/docs/NEXT90_M141_IMPORT_ROUTE_RECEIPTS.md",
       "exists": true,
-      "digest": "sha256:505f54d722638530cbe1fc4ee8fab34c3c557f4859cadba250e25ef56f0140d7",
+      "digest": "sha256:85188789cdd4678c099edd610e99df6913723d054c2d854b217d1175172b8d18",
       "digest_scope": "full-file",
       "missing_snippets": [],
       "status": "passed"
@@ -82,7 +82,7 @@
       "key": "m141_closeout",
       "path": "/docker/chummercomplete/chummer-core-engine/docs/NEXT90_M141_IMPORT_ROUTE_CLOSEOUT.md",
       "exists": true,
-      "digest": "sha256:06999e05dce8329d78d546899647edcecc97ed21dbcf958186145dad5ae9b595",
+      "digest": "sha256:199ca72651a049aa47f9000a77c40d157eddfd213ed04611ada1dba9b93b6cf1",
       "digest_scope": "full-file",
       "missing_snippets": [],
       "status": "passed"
@@ -91,7 +91,7 @@
       "key": "repo_verify",
       "path": "/docker/chummercomplete/chummer-core-engine/scripts/ai/verify.sh",
       "exists": true,
-      "digest": "sha256:0b0789875321766253102a32602605692266d8c3ec115454feb07cc1abdb0815",
+      "digest": "sha256:39fc18c13df99af157396f5000883ab7ea36f66180714be0dc3cac7c723c1872",
       "digest_scope": "full-file",
       "missing_snippets": [],
       "status": "passed"
@@ -100,7 +100,7 @@
       "key": "engine_proof_pack_generator",
       "path": "/docker/chummercomplete/chummer-core-engine/scripts/generate-engine-proof-pack.py",
       "exists": true,
-      "digest": "sha256:eebc8ef2eac9423db2717b6a45375a6ab7c87c4085e7a41bbcef6b58dcfaf20e",
+      "digest": "sha256:f53827219ecb7b14268e08fe9b6d45cb99d4346f25023eb132d0e42355dc0098",
       "digest_scope": "full-file",
       "missing_snippets": [],
       "status": "passed"
@@ -109,7 +109,7 @@
       "key": "engine_proof_pack_generator_tests",
       "path": "/docker/chummercomplete/chummer-core-engine/tests/test_engine_proof_pack_generator.py",
       "exists": true,
-      "digest": "sha256:3e0d5f2a3872c055797f43fa66b8219a410308e934d8237770c0a3bec549e7e3",
+      "digest": "sha256:6b9d3a8b26ccd3bb68be9502b21304ebb0f56ce15859051e56df6099474543ff",
       "digest_scope": "full-file",
       "missing_snippets": [],
       "status": "passed"
@@ -138,7 +138,7 @@
       "key": "successor_registry",
       "path": "/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml",
       "exists": true,
-      "digest": "sha256:f7490689dd763eaa48b876bdb5d5e5247250e33586070284bccad4c33f714c99",
+      "digest": "sha256:15dde2d7a36241212ca8be5048713fc28071f13672025e557df3ab329e640497",
       "digest_scope": "work-task-row",
       "missing_snippets": [],
       "status": "passed"
@@ -147,7 +147,7 @@
       "key": "successor_queue",
       "path": "/docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml",
       "exists": true,
-      "digest": "sha256:f9620e24cdb849d28b9e3756304bbe4ef370164e91dfd792e32db4d7421e87af",
+      "digest": "sha256:ee6a2cb39b2e2ff9668edc3821c0cad9cf2ad4618ae12913bb31dc80359f91d9",
       "digest_scope": "package-rows",
       "missing_snippets": [],
       "status": "passed"
@@ -156,7 +156,7 @@
       "key": "design_successor_queue",
       "path": "/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_QUEUE_STAGING.generated.yaml",
       "exists": true,
-      "digest": "sha256:f9620e24cdb849d28b9e3756304bbe4ef370164e91dfd792e32db4d7421e87af",
+      "digest": "sha256:ee6a2cb39b2e2ff9668edc3821c0cad9cf2ad4618ae12913bb31dc80359f91d9",
       "digest_scope": "package-rows",
       "missing_snippets": [],
       "status": "passed"
@@ -195,6 +195,7 @@
     "missing_files": [],
     "snippet_failures": {},
     "authority_row_issues": {},
+    "authority_semantic_issues": {},
     "supporting_receipt_semantic_issues": {}
   }
 }

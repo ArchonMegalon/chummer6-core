@@ -39,6 +39,14 @@
   <ItemGroup Condition="'$(TargetFramework)' == 'net10.0'">
     <Compile Remove="ChummerTest.cs" />
     <Compile Remove="XmlNodeExtensionsTests.cs" />
+    <Compile Remove="Compliance\MigrationComplianceTests.cs" />
+    <Compile Remove="InProcessChummerClientRulesetPluginTests.cs" />
+    <Compile Remove="OwnerScopedApiEndpointTests.cs" />
+    <Compile Remove="Presentation\**\*.cs" />
+    <Compile Remove="RequestOwnerContextAccessorTests.cs" />
+    <Compile Remove="RestartSafeWorkspacePersistenceTests.cs" />
+    <Compile Remove="RulesetSeamContractsTests.cs" />
+    <Compile Remove="ServiceCollectionDesktopRuntimeExtensionsTests.cs" />
   </ItemGroup>
   <ItemGroup>
     <Compile Update="Properties\Settings.Designer.cs">

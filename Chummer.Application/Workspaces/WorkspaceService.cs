@@ -18,6 +18,13 @@ public sealed class WorkspaceService : IWorkspaceService
 {
     private const string DenseWorkbenchParityFamilyId = "family:initiative_action_notes_and_workflow_state";
     private const string ExchangeParityFamilyId = "family:sheet_export_print_viewer_and_exchange";
+    private static readonly string[] CanonicalWorkflowRouteIds =
+    [
+        "workflow:workflow-state",
+        "workflow:contacts",
+        "workflow:lifestyles",
+        "workflow:notes"
+    ];
     private readonly IWorkspaceStore _workspaceStore;
     private readonly IRulesetWorkspaceCodecResolver _workspaceCodecResolver;
     private readonly IWorkspaceImportRulesetDetector _workspaceImportRulesetDetector;
@@ -1119,11 +1126,25 @@ public sealed class WorkspaceService : IWorkspaceService
         DataExportBundle bundle,
         string payload)
     {
+        string payloadSha256 = ComputeSha256(Encoding.UTF8.GetBytes(payload));
         WorkspaceNoteFieldSummary noteSummary = BuildNoteFieldSummary(payload);
         bool hasProgress = bundle.Progress is not null;
         bool hasContacts = bundle.Contacts is not null;
         bool hasLifestyles = bundle.Lifestyles is not null;
         bool hasNotesSurface = noteSummary.Parsed;
+        string[] coveredWorkflowRouteIds = CanonicalWorkflowRouteIds
+            .Where(routeId => routeId switch
+            {
+                "workflow:workflow-state" => hasProgress,
+                "workflow:contacts" => hasContacts,
+                "workflow:lifestyles" => hasLifestyles,
+                "workflow:notes" => hasNotesSurface,
+                _ => false
+            })
+            .ToArray();
+        string[] missingWorkflowRouteIds = CanonicalWorkflowRouteIds
+            .Except(coveredWorkflowRouteIds, StringComparer.Ordinal)
+            .ToArray();
         int coveredSurfaceCount =
             (hasProgress ? 1 : 0)
             + (hasContacts ? 1 : 0)
@@ -1139,6 +1160,7 @@ public sealed class WorkspaceService : IWorkspaceService
         return new WorkspaceWorkflowDeterministicReceipt(
             ParityFamilyId: DenseWorkbenchParityFamilyId,
             ReceiptId: receiptId,
+            ReceiptScopeId: BuildWorkflowReceiptScopeId(rulesetId, payloadSha256),
             WorkspaceId: id.Value,
             RulesetId: RulesetDefaults.NormalizeOptional(rulesetId) ?? string.Empty,
             WorkflowStatePosture: workflowStatePosture,
@@ -1146,10 +1168,20 @@ public sealed class WorkspaceService : IWorkspaceService
             InitiateGrade: bundle.Progress?.InitiateGrade ?? 0,
             ContactCount: bundle.Contacts?.Count ?? 0,
             LifestyleCount: bundle.Lifestyles?.Count ?? 0,
+            CoveredWorkflowRouteIds: coveredWorkflowRouteIds,
+            MissingWorkflowRouteIds: missingWorkflowRouteIds,
             HasNotesField: noteSummary.HasNotesField,
             HasGameNotesField: noteSummary.HasGameNotesField,
             HasNotesContent: noteSummary.HasNotesContent,
             HasGameNotesContent: noteSummary.HasGameNotesContent);
+    }
+
+    private static string BuildWorkflowReceiptScopeId(string rulesetId, string payloadSha256)
+    {
+        string normalizedRulesetId = RulesetDefaults.NormalizeOptional(rulesetId) ?? "ruleset";
+        string normalizedHash = string.IsNullOrWhiteSpace(payloadSha256) ? "payload" : payloadSha256.Trim().ToLowerInvariant();
+        string truncatedHash = normalizedHash.Length <= 12 ? normalizedHash : normalizedHash[..12];
+        return $"workflow-state-{normalizedRulesetId}-{truncatedHash}";
     }
 
     private static WorkspaceExchangeDeterministicReceipt BuildExchangeDeterministicReceipt(
@@ -1356,11 +1388,25 @@ public sealed class WorkspaceService : IWorkspaceService
     private static string BuildReceiptId(string prefix, string entityId, string payloadSha256)
     {
         string normalizedPrefix = string.IsNullOrWhiteSpace(prefix) ? "receipt" : prefix.Trim().ToLowerInvariant();
-        string normalizedEntityId = string.IsNullOrWhiteSpace(entityId) ? "workspace" : entityId.Trim().ToLowerInvariant();
+        string normalizedEntityId = NormalizeReceiptEntityId(entityId);
         string truncatedHash = payloadSha256.Length <= 12
             ? payloadSha256
             : payloadSha256[..12];
         return $"{normalizedPrefix}-{normalizedEntityId}-{truncatedHash}";
+    }
+
+    private static string NormalizeReceiptEntityId(string entityId)
+    {
+        string normalizedEntityId = string.IsNullOrWhiteSpace(entityId) ? "workspace" : entityId.Trim().ToLowerInvariant();
+        return LooksLikeTransientWorkspaceId(normalizedEntityId)
+            ? "workspace"
+            : normalizedEntityId;
+    }
+
+    private static bool LooksLikeTransientWorkspaceId(string value)
+    {
+        return value.Length == 32 && value.All(static character => Uri.IsHexDigit(character))
+            || Guid.TryParse(value, out _);
     }
 
     private static string ComputeSha256(byte[] bytes)
