@@ -7,7 +7,9 @@ using Chummer.Application.Explain;
 using Chummer.Application.Hub;
 using Chummer.Application.Owners;
 using Chummer.Application.LifeModules;
+using Chummer.Application.Seeds;
 using Chummer.Application.Session;
+using Chummer.Application.Simulation;
 using Chummer.Application.Tools;
 using Chummer.Application.Workspaces;
 using Chummer.Infrastructure.AI;
@@ -58,6 +60,9 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IAiProviderHealthStore>(_ => new FileAiProviderHealthStore(stateDirectory));
         services.AddSingleton<IAiBudgetService, DefaultAiBudgetService>();
         services.AddSingleton<IBuildIdeaCardCatalogService, DefaultBuildIdeaCardCatalogService>();
+        services.AddSingleton<IAestheticDigestService, DefaultAestheticDigestService>();
+        services.AddSingleton<ISemanticSeedService, DefaultSemanticSeedService>();
+        services.AddSingleton<IRelationshipHeatService, DefaultRelationshipHeatService>();
         services.AddSingleton<IAiDigestService, DefaultAiDigestService>();
         services.AddSingleton<IAiExplainService, DefaultAiExplainService>();
         services.AddSingleton<IExplainValuePacketService, DefaultExplainValuePacketService>();
@@ -99,6 +104,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IBuildKitRegistryService, DefaultBuildKitRegistryService>();
         services.AddSingleton<INpcVaultRegistryService, DefaultNpcVaultRegistryService>();
         services.AddSingleton<IOppositionPacketContractService, DefaultOppositionPacketContractService>();
+        services.AddSingleton<ICampaignAdvanceReceiptService, DefaultCampaignAdvanceReceiptService>();
         services.AddSingleton<IRulePackManifestStore>(_ => new FileRulePackManifestStore(stateDirectory));
         services.AddSingleton<IRulePackInstallHistoryStore>(_ => new FileRulePackInstallHistoryStore(stateDirectory));
         services.AddSingleton<IRulePackInstallStateStore>(_ => new FileRulePackInstallStateStore(stateDirectory));

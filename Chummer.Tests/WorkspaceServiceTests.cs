@@ -86,6 +86,17 @@ public class WorkspaceServiceTests
         Assert.AreEqual(2, imported.Portability?.Lineage?.Count);
         Assert.IsNotNull(imported.WorkflowDeterministicReceipt);
         Assert.AreEqual("governed", imported.WorkflowDeterministicReceipt?.WorkflowStatePosture);
+        Assert.IsFalse(string.IsNullOrWhiteSpace(imported.WorkflowDeterministicReceipt?.ReceiptScopeId));
+        CollectionAssert.AreEqual(
+            new[]
+            {
+                "workflow:workflow-state",
+                "workflow:contacts",
+                "workflow:lifestyles",
+                "workflow:notes"
+            },
+            imported.WorkflowDeterministicReceipt?.CoveredWorkflowRouteIds.ToArray());
+        CollectionAssert.AreEqual(Array.Empty<string>(), imported.WorkflowDeterministicReceipt?.MissingWorkflowRouteIds.ToArray());
         StringAssert.Contains(imported.Portability?.ReceiptSummary ?? string.Empty, "Portable import completed");
         StringAssert.Contains(imported.Portability?.ProvenanceSummary ?? string.Empty, imported.Id.Value);
         IReadOnlyList<WorkspaceListItem> listed = workspaceService.List();
@@ -242,6 +253,59 @@ public class WorkspaceServiceTests
         Assert.AreEqual(2, imported.Portability?.Lineage?.Count);
         StringAssert.Contains(imported.Portability?.PortabilityEnvelope?.Summary ?? string.Empty, "Inspect-first import posture");
         StringAssert.Contains(imported.Portability?.NextSafeAction ?? string.Empty, "export a fresh portable package");
+    }
+
+    [TestMethod]
+    public void Import_reuses_content_addressed_receipt_ids_across_distinct_workspace_instances()
+    {
+        const string xml = "<character><name>Repeatable</name><alias>Receipt</alias><metatype>Human</metatype><buildmethod>Priority</buildmethod><createdversion>1.0</createdversion><appversion>1.0</appversion><karma>15</karma><nuyen>2500</nuyen><created>True</created><gameedition>SR5</gameedition><settings>default.xml</settings><gameplayoption>Standard</gameplayoption><notes>Stable notes</notes><gamenotes>Stable game notes</gamenotes><contacts><contact><name>Fixer</name></contact></contacts><lifestyles><lifestyle><name>Middle</name></lifestyle></lifestyles></character>";
+
+        WorkspaceService workspaceService = CreateWorkspaceService(
+            new InMemoryWorkspaceStore(),
+            new XmlCharacterFileQueries(new CharacterFileService()),
+            new XmlCharacterSectionQueries(new CharacterSectionService()),
+            new XmlCharacterMetadataCommands(new CharacterFileService()));
+
+        WorkspaceImportResult first = workspaceService.Import(new WorkspaceImportDocument(xml, RulesetDefaults.Sr5, WorkspaceDocumentFormat.NativeXml));
+        WorkspaceImportResult second = workspaceService.Import(new WorkspaceImportDocument(xml, RulesetDefaults.Sr5, WorkspaceDocumentFormat.NativeXml));
+
+        Assert.AreNotEqual(first.Id.Value, second.Id.Value);
+        Assert.AreEqual(first.ImportReceiptId, second.ImportReceiptId);
+        Assert.AreEqual(first.Portability?.Provenance?.ReceiptId, second.Portability?.Provenance?.ReceiptId);
+        Assert.AreEqual(first.WorkflowDeterministicReceipt?.ReceiptId, second.WorkflowDeterministicReceipt?.ReceiptId);
+        Assert.AreEqual(first.WorkflowDeterministicReceipt?.ReceiptScopeId, second.WorkflowDeterministicReceipt?.ReceiptScopeId);
+
+        CommandResult<WorkspaceSaveReceipt> firstSave = workspaceService.Save(first.Id);
+        CommandResult<WorkspaceSaveReceipt> secondSave = workspaceService.Save(second.Id);
+        Assert.IsTrue(firstSave.Success);
+        Assert.IsTrue(secondSave.Success);
+        Assert.AreEqual(firstSave.Value?.ReceiptId, secondSave.Value?.ReceiptId);
+        Assert.AreEqual(firstSave.Value?.WorkflowDeterministicReceipt?.ReceiptId, secondSave.Value?.WorkflowDeterministicReceipt?.ReceiptId);
+        Assert.AreEqual(firstSave.Value?.WorkflowDeterministicReceipt?.ReceiptScopeId, secondSave.Value?.WorkflowDeterministicReceipt?.ReceiptScopeId);
+
+        CommandResult<WorkspaceDownloadReceipt> firstDownload = workspaceService.Download(first.Id);
+        CommandResult<WorkspaceDownloadReceipt> secondDownload = workspaceService.Download(second.Id);
+        Assert.IsTrue(firstDownload.Success);
+        Assert.IsTrue(secondDownload.Success);
+        Assert.AreEqual(firstDownload.Value?.ReceiptId, secondDownload.Value?.ReceiptId);
+        Assert.AreEqual(firstDownload.Value?.WorkflowDeterministicReceipt?.ReceiptId, secondDownload.Value?.WorkflowDeterministicReceipt?.ReceiptId);
+        Assert.AreEqual(firstDownload.Value?.WorkflowDeterministicReceipt?.ReceiptScopeId, secondDownload.Value?.WorkflowDeterministicReceipt?.ReceiptScopeId);
+
+        CommandResult<WorkspaceExportReceipt> firstExport = workspaceService.Export(first.Id);
+        CommandResult<WorkspaceExportReceipt> secondExport = workspaceService.Export(second.Id);
+        Assert.IsTrue(firstExport.Success);
+        Assert.IsTrue(secondExport.Success);
+        Assert.AreEqual(firstExport.Value?.PackageId, secondExport.Value?.PackageId);
+        Assert.AreEqual(firstExport.Value?.WorkflowDeterministicReceipt?.ReceiptId, secondExport.Value?.WorkflowDeterministicReceipt?.ReceiptId);
+        Assert.AreEqual(firstExport.Value?.WorkflowDeterministicReceipt?.ReceiptScopeId, secondExport.Value?.WorkflowDeterministicReceipt?.ReceiptScopeId);
+
+        CommandResult<WorkspacePrintReceipt> firstPrint = workspaceService.Print(first.Id);
+        CommandResult<WorkspacePrintReceipt> secondPrint = workspaceService.Print(second.Id);
+        Assert.IsTrue(firstPrint.Success);
+        Assert.IsTrue(secondPrint.Success);
+        Assert.AreEqual(firstPrint.Value?.ReceiptId, secondPrint.Value?.ReceiptId);
+        Assert.AreEqual(firstPrint.Value?.WorkflowDeterministicReceipt?.ReceiptId, secondPrint.Value?.WorkflowDeterministicReceipt?.ReceiptId);
+        Assert.AreEqual(firstPrint.Value?.WorkflowDeterministicReceipt?.ReceiptScopeId, secondPrint.Value?.WorkflowDeterministicReceipt?.ReceiptScopeId);
     }
 
     [TestMethod]

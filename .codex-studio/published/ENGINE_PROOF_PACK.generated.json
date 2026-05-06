@@ -1,7 +1,7 @@
 {
   "contract_name": "chummer6-core.engine_proof_pack",
   "schema_version": 1,
-  "generated_at": "2026-04-21T14:27:10Z",
+  "generated_at": "2026-05-06T11:23:09Z",
   "status": "passed",
   "proof_kind": "release_bound_engine_proof",
   "milestone_id": 104,
@@ -9,8 +9,8 @@
   "frontier_id": 3227666051,
   "queue_completion_action": "verify_closed_package_only",
   "design_queue_completion_action": "verify_closed_package_only",
-  "queue_do_not_reopen_reason": "M104 chummer6-core engine proof pack is complete; future shards must verify this receipt, queue row, design queue row, and closeout note instead of reopening the proof-pack package.",
-  "design_queue_do_not_reopen_reason": "M104 chummer6-core engine proof pack is complete; future shards must verify this receipt, queue row, design queue row, and closeout note instead of reopening the proof-pack package.",
+  "queue_do_not_reopen_reason": "M104 chummer6-core engine proof pack is complete; future shards must verify this receipt, queue row,",
+  "design_queue_do_not_reopen_reason": "M104 chummer6-core engine proof pack is complete; future shards must verify this receipt, queue row,",
   "queue_closure_field_drift": [],
   "successor_wave_package": {
     "program_wave": "next_90_day_product_advance",
@@ -294,12 +294,12 @@
       "/docker/chummercomplete/chummer-core-engine/docs/ENGINE_PROOF_PACK.md",
       "/docker/chummercomplete/chummer-core-engine/docs/NEXT90_M104_CORE_PROOF_PACK_CLOSEOUT.md"
     ],
-    "queue_proof_count": 80,
-    "design_queue_proof_count": 80,
+    "queue_proof_count": 81,
+    "design_queue_proof_count": 81,
     "queue_completion_action": "verify_closed_package_only",
     "design_queue_completion_action": "verify_closed_package_only",
-    "queue_do_not_reopen_reason": "M104 chummer6-core engine proof pack is complete; future shards must verify this receipt, queue row, design queue row, and closeout note instead of reopening the proof-pack package.",
-    "design_queue_do_not_reopen_reason": "M104 chummer6-core engine proof pack is complete; future shards must verify this receipt, queue row, design queue row, and closeout note instead of reopening the proof-pack package.",
+    "queue_do_not_reopen_reason": "M104 chummer6-core engine proof pack is complete; future shards must verify this receipt, queue row,",
+    "design_queue_do_not_reopen_reason": "M104 chummer6-core engine proof pack is complete; future shards must verify this receipt, queue row,",
     "queue_proof_missing_from_design_queue": [],
     "design_queue_proof_missing_from_queue": [],
     "queue_closure_field_drift": [],
@@ -610,6 +610,10 @@
         },
         {
           "commit": "262030df",
+          "status": "passed"
+        },
+        {
+          "commit": "1b53f23f",
           "status": "passed"
         }
       ],
@@ -1374,16 +1378,15 @@
   "release_channel_binding": {
     "status": "passed",
     "source_receipt_path": "/docker/chummercomplete/chummer-hub-registry/.codex-studio/published/RELEASE_CHANNEL.generated.json",
-    "channel_id": "docker",
-    "version": "run-20260420-072339",
+    "channel_id": "preview",
+    "version": "run-20260503-163502",
     "release_channel_status": "published",
     "rollout_state": "promoted_preview",
     "release_proof_status": "passed",
     "desktop_tuple_coverage_complete": true,
     "required_promoted_desktop_tuples": [
       "avalonia:linux:linux-x64",
-      "avalonia:windows:win-x64",
-      "avalonia:macos:osx-arm64"
+      "avalonia:windows:win-x64"
     ],
     "promoted_primary_tuples": [
       {
@@ -1401,15 +1404,6 @@
         "platform": "windows",
         "rid": "win-x64",
         "artifact_id": "avalonia-win-x64-installer",
-        "status": "passed",
-        "unresolved": []
-      },
-      {
-        "tuple_id": "avalonia:macos:osx-arm64",
-        "head": "avalonia",
-        "platform": "macos",
-        "rid": "osx-arm64",
-        "artifact_id": "avalonia-osx-arm64-installer",
         "status": "passed",
         "unresolved": []
       }

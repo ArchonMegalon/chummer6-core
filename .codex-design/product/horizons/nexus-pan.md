@@ -1,10 +1,10 @@
 # NEXUS-PAN
 
-## The problem
+## Table pain
 
 When phones, tablets, or laptops drift apart during play, the whole table stops trusting what is on screen.
 
-## What it would do
+## Bounded product move
 
 Chummer would keep reconnects and shared session state steady enough that players can jump back in without the GM rebuilding context by hand.
 It would build on the existing session record instead of creating a separate version of events.
@@ -28,7 +28,7 @@ If bounded helper lanes appear later, they remain downstream only.
 
 None of those tools may own session state, reconnect authority, or conflict resolution truth.
 
-## What has to be true first
+## Foundations
 
 * durable session state
 * reliable sync bundles
@@ -37,7 +37,17 @@ None of those tools may own session state, reconnect authority, or conflict reso
 * offline-capable local state
 * explicit stale, pending, and conflicted state
 
-## Why it is not ready yet
+## Build path
+
+* intent: eventual product lane
+* current state: horizon
+* next state: bounded research
+
+## Owner handoff gate
+
+Session continuity proof must exist across core, mobile, and hub without second semantic families.
+
+## Why still a horizon
 
 The live release still needs boringly reliable session continuity.
 Until reconnects and shared-state handoffs stay solid under stress, a richer PAN layer would add confusion instead of removing it.

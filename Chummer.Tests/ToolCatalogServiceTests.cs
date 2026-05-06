@@ -114,6 +114,15 @@ public class ToolCatalogServiceTests
             CollectionAssert.AreEquivalent(
                 new[] { "chummer4", "chummer5a", "hero-lab-classic", "genesis-commlink6" },
                 response.ImportOracleDeterministicReceipt.ImportOracleMissingSources.ToArray());
+            Assert.IsNotNull(response.AmendPackageDeterministicReceipt);
+            Assert.AreEqual("chummer6-core.engine_proof_pack", response.AmendPackageDeterministicReceipt!.ProofContractName);
+            Assert.AreEqual("missing", response.AmendPackageDeterministicReceipt.LanePosture);
+            Assert.AreEqual("missing", response.AmendPackageDeterministicReceipt.ProofPackStatus);
+            Assert.AreEqual("missing", response.AmendPackageDeterministicReceipt.SourceToggleSuiteStatus);
+            Assert.AreEqual("missing", response.AmendPackageDeterministicReceipt.AmendPackageSuiteStatus);
+            CollectionAssert.AreEqual(
+                new[] { "source_toggle", "amend_package" },
+                response.AmendPackageDeterministicReceipt.RequiredSuiteIds.ToArray());
             Assert.IsNotNull(response.Sr6SuccessorDeterministicReceipt);
             Assert.AreEqual("family:sr6_supplements_designers_and_house_rules", response.Sr6SuccessorDeterministicReceipt!.ParityFamilyId);
             Assert.AreEqual("missing", response.Sr6SuccessorDeterministicReceipt.Sr6SupplementLanePosture);
@@ -1324,6 +1333,26 @@ public class ToolCatalogServiceTests
                   "notes": "SR4/SR5/SR6 import parity is proven."
                 }
                 """);
+            File.WriteAllText(
+                Path.Combine(certificationDir, "ENGINE_PROOF_PACK.generated.json"),
+                """
+                {
+                  "contract_name": "chummer6-core.engine_proof_pack",
+                  "status": "passed",
+                  "oracle_suites": [
+                    {
+                      "id": "source_toggle",
+                      "status": "passed",
+                      "coverage_focus": "sourcebook_and_settings_discipline"
+                    },
+                    {
+                      "id": "amend_package",
+                      "status": "passed",
+                      "coverage_focus": "custom_data_and_xml_diff_apply"
+                    }
+                  ]
+                }
+                """);
 
             var service = new XmlToolCatalogService(root);
             MasterIndexResponse response = service.GetMasterIndex();
@@ -1351,6 +1380,16 @@ public class ToolCatalogServiceTests
             Assert.AreEqual("governed", response.ImportOracleDeterministicReceipt.ImportOracleReceiptPosture);
             Assert.AreEqual(100, response.ImportOracleDeterministicReceipt.ImportOracleCoveragePercent);
             Assert.AreEqual(0, response.ImportOracleDeterministicReceipt.ImportOracleMissingSources.Count);
+            Assert.IsNotNull(response.AmendPackageDeterministicReceipt);
+            Assert.AreEqual("chummer6-core.engine_proof_pack", response.AmendPackageDeterministicReceipt!.ProofContractName);
+            Assert.AreEqual("governed", response.AmendPackageDeterministicReceipt.LanePosture);
+            Assert.AreEqual("governed", response.AmendPackageDeterministicReceipt.ProofPackStatus);
+            Assert.AreEqual("governed", response.AmendPackageDeterministicReceipt.SourceToggleSuiteStatus);
+            Assert.AreEqual("governed", response.AmendPackageDeterministicReceipt.AmendPackageSuiteStatus);
+            Assert.AreEqual("custom_data_and_xml_diff_apply", response.AmendPackageDeterministicReceipt.AmendPackageCoverageFocus);
+            CollectionAssert.AreEqual(
+                new[] { "source_toggle", "amend_package" },
+                response.AmendPackageDeterministicReceipt.RequiredSuiteIds.ToArray());
         }
         finally
         {

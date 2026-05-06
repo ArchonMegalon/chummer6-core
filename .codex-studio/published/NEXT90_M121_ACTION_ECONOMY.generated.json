@@ -1,0 +1,131 @@
+{
+  "generated_at": "2026-05-06T08:24:51Z",
+  "status": "passed",
+  "package_id": "next90-m121-core-implement-actionbudgetresult-actionaffordance-turnledger",
+  "frontier_id": 1122632660,
+  "milestone_id": 121,
+  "work_task_id": "121.1",
+  "title": "Implement ActionBudgetResult, ActionAffordance, TurnLedgerDelta, and source-anchor receipts for the first SR6 combat-round proof.",
+  "task": "Implement ActionBudgetResult, ActionAffordance, TurnLedgerDelta, and source-anchor receipts for the first SR6 combat-round proof.",
+  "repo": "chummer6-core",
+  "repo_root": "/docker/chummercomplete/chummer-core-engine",
+  "owned_surfaces": [
+    "implement_actionbudgetresult_actionaffordance_turnledger:core"
+  ],
+  "allowed_paths": [
+    "src",
+    "tests",
+    "docs",
+    "scripts"
+  ],
+  "published_receipt_path": "/docker/chummercomplete/chummer-core-engine/.codex-studio/published/NEXT90_M121_ACTION_ECONOMY.generated.json",
+  "receipt_path": "/docker/chummercomplete/chummer-core-engine/.codex-studio/published/NEXT90_M121_ACTION_ECONOMY.generated.json",
+  "proof_anchor_count": 7,
+  "authority_anchor_count": 3,
+  "proof_files": [
+    {
+      "key": "contracts",
+      "path": "/docker/chummercomplete/chummer-core-engine/Chummer.Contracts/Session/SessionActionBudgetContracts.cs",
+      "exists": true,
+      "digest": "sha256:01ad3d1ed0ae6ab6271f402ddaa6c1444b83859639054749dc4c635a5fddb7d9",
+      "missing_snippets": [],
+      "status": "passed"
+    },
+    {
+      "key": "service",
+      "path": "/docker/chummercomplete/chummer-core-engine/Chummer.Application/Session/DefaultSessionActionBudgetService.cs",
+      "exists": true,
+      "digest": "sha256:33e696f672f90663bfe3080499bd591100ec525c1ce3b29441e2200ecd580c75",
+      "missing_snippets": [],
+      "status": "passed"
+    },
+    {
+      "key": "service_interface",
+      "path": "/docker/chummercomplete/chummer-core-engine/Chummer.Application/Session/ISessionActionBudgetService.cs",
+      "exists": true,
+      "digest": "sha256:7e6c4a2488ca010c99814936be73151d9f2f04f8f265e39df1fa41011f16f0c9",
+      "missing_snippets": [],
+      "status": "passed"
+    },
+    {
+      "key": "test_program",
+      "path": "/docker/chummercomplete/chummer-core-engine/Chummer.CoreEngine.Tests/Program.cs",
+      "exists": true,
+      "digest": "sha256:368456a20a557d049c44126af7b666f2fe220364eadd646bc74a60bca1a7a33a",
+      "missing_snippets": [],
+      "status": "passed"
+    },
+    {
+      "key": "mstest",
+      "path": "/docker/chummercomplete/chummer-core-engine/Chummer.Tests/SessionActionBudgetServiceTests.cs",
+      "exists": true,
+      "digest": "sha256:e8204dee1f470fef980fb856a0bdee3ee30808bffdf0b6e19e636ffa26fb9722",
+      "missing_snippets": [],
+      "status": "passed"
+    },
+    {
+      "key": "repo_verify",
+      "path": "/docker/chummercomplete/chummer-core-engine/scripts/ai/verify.sh",
+      "exists": true,
+      "digest": "sha256:39fc18c13df99af157396f5000883ab7ea36f66180714be0dc3cac7c723c1872",
+      "missing_snippets": [],
+      "status": "passed"
+    },
+    {
+      "key": "docs",
+      "path": "/docker/chummercomplete/chummer-core-engine/docs/NEXT90_M121_ACTION_ECONOMY_CONTRACTS.md",
+      "exists": true,
+      "digest": "sha256:863dc01306a273a1d0aecdbf308d78b78a2b92e2516c99d5638f9f5c3248bd53",
+      "missing_snippets": [],
+      "status": "passed"
+    }
+  ],
+  "authority_files": [
+    {
+      "key": "successor_registry",
+      "path": "/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml",
+      "exists": true,
+      "digest": "sha256:ace86dcc0d68ec77951fa72b14f98c083ab4d668410dd32293b81cfcd2380a8f",
+      "missing_snippets": [],
+      "status": "passed"
+    },
+    {
+      "key": "successor_queue",
+      "path": "/docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml",
+      "exists": true,
+      "digest": "sha256:653d06efce9d6f13bb56e0e95795db7d39609a0e39da449e8907c9ea3713ad07",
+      "missing_snippets": [],
+      "status": "passed"
+    },
+    {
+      "key": "design_successor_queue",
+      "path": "/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_QUEUE_STAGING.generated.yaml",
+      "exists": true,
+      "digest": "sha256:e1409b3d23ff238523cc249da74d9d129ba025d51b0b4145fe3be6bb3f1b6284",
+      "missing_snippets": [],
+      "status": "passed"
+    }
+  ],
+  "verification_commands": [
+    "CHUMMER_CORE_ENGINE_TEST_FILTER=next90-m121-action-economy dotnet run --project Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj -m:1 -p:UseSharedCompilation=false",
+    "python3 tests/test_next90_m121_action_economy.py",
+    "python3 scripts/verify-next90-m121-action-economy.py --repo-root . --out .codex-studio/published/NEXT90_M121_ACTION_ECONOMY.generated.json"
+  ],
+  "first_combat_round_actions": [
+    "take-major-action",
+    "take-minor-action",
+    "full-defense",
+    "convert-four-minor-to-anytime-major"
+  ],
+  "source_anchor_receipts": [
+    "sr6_core_major_actions",
+    "sr6_core_minor_actions",
+    "sr6_core_full_defense",
+    "sr6_core_anytime_major_conversion"
+  ],
+  "test_filter": "next90-m121-action-economy",
+  "unresolved": {
+    "missing_files": [],
+    "snippet_failures": {}
+  }
+}

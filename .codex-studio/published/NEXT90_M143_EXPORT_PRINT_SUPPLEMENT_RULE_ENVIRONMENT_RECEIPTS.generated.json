@@ -1,0 +1,180 @@
+{
+  "generated_at": "2026-05-06T17:01:54Z",
+  "status": "passed",
+  "package_id": "next90-m143-core-keep-export-print-supplement-and-rule-environment-receipts-deterministi",
+  "frontier_id": 2778308338,
+  "milestone_id": 143,
+  "work_task_id": "143.2",
+  "title": "Keep export, print, supplement, and rule-environment receipts deterministic enough to prove the workflows rather than just render them.",
+  "task": "Keep export, print, supplement, and rule-environment receipts deterministic enough to prove the workflows rather than just render them.",
+  "repo": "chummer6-core",
+  "repo_root": "/docker/chummercomplete/chummer-core-engine",
+  "owned_surfaces": [
+    "keep_export_print_supplement_and_rule_environment_receip:core"
+  ],
+  "allowed_paths": [
+    "src",
+    "tests",
+    "docs",
+    "scripts"
+  ],
+  "published_receipt_path": "/docker/chummercomplete/chummer-core-engine/.codex-studio/published/NEXT90_M143_EXPORT_PRINT_SUPPLEMENT_RULE_ENVIRONMENT_RECEIPTS.generated.json",
+  "receipt_path": "/docker/chummercomplete/chummer-core-engine/.codex-studio/published/NEXT90_M143_EXPORT_PRINT_SUPPLEMENT_RULE_ENVIRONMENT_RECEIPTS.generated.json",
+  "proof_anchor_count": 10,
+  "authority_anchor_count": 3,
+  "proof_files": [
+    {
+      "key": "tool_catalog_contracts",
+      "path": "/docker/chummercomplete/chummer-core-engine/Chummer.Contracts/Api/ToolCatalogModels.cs",
+      "exists": true,
+      "digest": "sha256:e1f8dac6daa9b46264dfb7dc44a1f8687ffd1d670bcaea77d9db71586e3566c1",
+      "digest_scope": "full-file",
+      "missing_snippets": [],
+      "status": "passed"
+    },
+    {
+      "key": "workspace_contracts",
+      "path": "/docker/chummercomplete/chummer-core-engine/Chummer.Contracts/Workspaces/CharacterWorkspaceModels.cs",
+      "exists": true,
+      "digest": "sha256:08099b951fccf476edec4942df81b239d19f39e5ec691a30ef709f2c82a34199",
+      "digest_scope": "full-file",
+      "missing_snippets": [],
+      "status": "passed"
+    },
+    {
+      "key": "tool_catalog_service",
+      "path": "/docker/chummercomplete/chummer-core-engine/Chummer.Infrastructure/Xml/XmlToolCatalogService.cs",
+      "exists": true,
+      "digest": "sha256:708a5b856acdd5403ac96982c1f86309b3ce2957d1747e0bea61048ab6ee2c49",
+      "digest_scope": "full-file",
+      "missing_snippets": [],
+      "status": "passed"
+    },
+    {
+      "key": "workspace_service",
+      "path": "/docker/chummercomplete/chummer-core-engine/Chummer.Application/Workspaces/WorkspaceService.cs",
+      "exists": true,
+      "digest": "sha256:38d20701b00c43dc595e76cb111d019571ec9bc33f248bccc3c968ccfb025f33",
+      "digest_scope": "full-file",
+      "missing_snippets": [],
+      "status": "passed"
+    },
+    {
+      "key": "test_program",
+      "path": "/docker/chummercomplete/chummer-core-engine/Chummer.CoreEngine.Tests/Program.cs",
+      "exists": true,
+      "digest": "sha256:eb589007571f229dc24f4dc52f4869e6ae6aa485b7b3a0490a285daf5e9ab21e",
+      "digest_scope": "full-file",
+      "missing_snippets": [],
+      "status": "passed"
+    },
+    {
+      "key": "tool_catalog_mstest",
+      "path": "/docker/chummercomplete/chummer-core-engine/Chummer.Tests/ToolCatalogServiceTests.cs",
+      "exists": true,
+      "digest": "sha256:a1baf59031361d6886ba3a1946003353a8ebe049d27c9a6041c5ba294a9a672a",
+      "digest_scope": "full-file",
+      "missing_snippets": [],
+      "status": "passed"
+    },
+    {
+      "key": "workspace_service_mstest",
+      "path": "/docker/chummercomplete/chummer-core-engine/Chummer.Tests/WorkspaceServiceTests.cs",
+      "exists": true,
+      "digest": "sha256:b676118645af9d50e3248983800f7c08c8b392a1d39f98daeb52fb8b4e97f0de",
+      "digest_scope": "full-file",
+      "missing_snippets": [],
+      "status": "passed"
+    },
+    {
+      "key": "api_integration_mstest",
+      "path": "/docker/chummercomplete/chummer-core-engine/Chummer.Tests/ApiIntegrationTests.cs",
+      "exists": true,
+      "digest": "sha256:991312cccc9bccee6eddcd576ada5e2adc117e2361b0ed2033a91bc8c9cae800",
+      "digest_scope": "full-file",
+      "missing_snippets": [],
+      "status": "passed"
+    },
+    {
+      "key": "repo_verify",
+      "path": "/docker/chummercomplete/chummer-core-engine/scripts/ai/verify.sh",
+      "exists": true,
+      "digest": "sha256:34669dcd873bf225505641015acc024c54737a69de6b3f4bf75aa603acf02b05",
+      "digest_scope": "m143-verify-block",
+      "missing_snippets": [],
+      "status": "passed"
+    },
+    {
+      "key": "docs",
+      "path": "/docker/chummercomplete/chummer-core-engine/docs/NEXT90_M143_EXPORT_PRINT_SUPPLEMENT_RULE_ENVIRONMENT_RECEIPTS.md",
+      "exists": true,
+      "digest": "sha256:e374f873170c6501ddcc93a1b94ba9ff4118f3c7b600cfcd5e305fbdab3e4cc7",
+      "digest_scope": "full-file",
+      "missing_snippets": [],
+      "status": "passed"
+    }
+  ],
+  "authority_files": [
+    {
+      "key": "successor_registry",
+      "path": "/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml",
+      "exists": true,
+      "digest": "sha256:804244a83ae307c2c96c2bde2c5fa41e53ef4161d23c7471c6e7457d62e92b11",
+      "digest_scope": "milestone-row",
+      "missing_snippets": [],
+      "status": "passed"
+    },
+    {
+      "key": "successor_queue",
+      "path": "/docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml",
+      "exists": true,
+      "digest": "sha256:b645a7ae9b3647d9eb8cdfbe8d57795ca5bc9cf6d119f007e582ae83cc4a8902",
+      "digest_scope": "package-rows",
+      "missing_snippets": [],
+      "status": "passed"
+    },
+    {
+      "key": "design_successor_queue",
+      "path": "/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_QUEUE_STAGING.generated.yaml",
+      "exists": true,
+      "digest": "sha256:b645a7ae9b3647d9eb8cdfbe8d57795ca5bc9cf6d119f007e582ae83cc4a8902",
+      "digest_scope": "package-rows",
+      "missing_snippets": [],
+      "status": "passed"
+    }
+  ],
+  "authority_row_counts": {
+    "successor_registry": 1,
+    "successor_queue": 1,
+    "design_successor_queue": 1
+  },
+  "expected_authority_row_counts": {
+    "successor_registry": 1,
+    "successor_queue": 1,
+    "design_successor_queue": 1
+  },
+  "parity_family_ids": [
+    "family:sheet_export_print_viewer_and_exchange",
+    "family:sr6_supplements_designers_and_house_rules"
+  ],
+  "output_route_ids": [
+    "menu:open_for_printing",
+    "menu:open_for_export",
+    "menu:file_print_multiple"
+  ],
+  "supplement_route_ids": [
+    "workflow:sr6_supplements",
+    "workflow:house_rules"
+  ],
+  "verification_commands": [
+    "CHUMMER_CORE_ENGINE_TEST_FILTER=parity-m143 dotnet run --project Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj -m:1 -p:UseSharedCompilation=false",
+    "python3 tests/test_next90_m143_export_print_supplement_rule_environment_receipts.py",
+    "python3 scripts/verify-next90-m143-export-print-supplement-rule-environment-receipts.py --repo-root . --out .codex-studio/published/NEXT90_M143_EXPORT_PRINT_SUPPLEMENT_RULE_ENVIRONMENT_RECEIPTS.generated.json"
+  ],
+  "test_filter": "parity-m143",
+  "unresolved": {
+    "missing_files": [],
+    "snippet_failures": {},
+    "authority_row_issues": {}
+  }
+}

@@ -12,6 +12,7 @@ import yaml
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DESIGN_ROOT = REPO_ROOT.parent / "chummer-design"
 MANIFEST_PATH = DESIGN_ROOT / "products" / "chummer" / "sync" / "sync-manifest.yaml"
+QUEUE_PATH = REPO_ROOT / ".codex-studio" / "published" / "QUEUE.generated.yaml"
 
 
 def load_manifest() -> dict[str, object]:
@@ -84,6 +85,37 @@ def prune_product_root(product_root: Path, expected_rel_paths: set[Path]) -> lis
     return removed
 
 
+def clear_design_mirror_audit_queue_row() -> bool:
+    if not QUEUE_PATH.is_file():
+        return False
+
+    data = yaml.safe_load(QUEUE_PATH.read_text(encoding="utf-8")) or {}
+    if not isinstance(data, dict):
+        raise ValueError("queue_yaml_not_object")
+
+    items = data.get("items") or []
+    if not isinstance(items, list):
+        raise ValueError("queue_items_not_list")
+
+    filtered_items = [
+        item for item in items
+        if not (
+            isinstance(item, dict)
+            and (
+                item.get("package_id") == "audit-task-11707"
+                or item.get("audit_finding_key") == "project.design_mirror_missing_or_stale"
+            )
+        )
+    ]
+
+    if len(filtered_items) == len(items):
+        return False
+
+    data["items"] = filtered_items
+    QUEUE_PATH.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
+    return True
+
+
 def main() -> int:
     manifest = load_manifest()
     mirrors = manifest.get("mirrors") or []
@@ -129,12 +161,15 @@ def main() -> int:
         str(Path(product_target) / rel)
         for rel in prune_product_root(REPO_ROOT / product_target, expected_product_rel_paths)
     ]
+    queue_cleared = clear_design_mirror_audit_queue_row()
 
-    print(f"changed={len(changed)} removed={len(removed)}")
+    print(f"changed={len(changed)} removed={len(removed)} queue_cleared={1 if queue_cleared else 0}")
     for rel in changed:
         print(f"update {rel}")
     for rel in removed:
         print(f"remove {rel}")
+    if queue_cleared:
+        print("queue_clear .codex-studio/published/QUEUE.generated.yaml audit-task-11707")
     return 0
 
 

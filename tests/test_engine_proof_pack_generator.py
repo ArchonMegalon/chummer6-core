@@ -2382,6 +2382,24 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
         self.assertIn("source_queue", payload["unresolved"]["successor_wave_authority"])
         self.assertIn(proof_anchor, payload["successor_wave_authority"]["missing_queue_tokens"])
 
+    def test_build_payload_accepts_wrapped_successor_queue_proof_tokens(self) -> None:
+        queue_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_queue_path"])
+        queue_text = queue_path.read_text(encoding="utf-8")
+        original = (
+            "      - /docker/chummercomplete/chummer-core-engine commit 8dd516ef makes failed engine proof pack generation exit nonzero while still writing diagnostic receipts.\n"
+        )
+        wrapped = (
+            "      - /docker/chummercomplete/chummer-core-engine commit 8dd516ef makes failed engine proof pack generation exit nonzero\n"
+            "        while still writing diagnostic receipts.\n"
+        )
+        queue_path.write_text(queue_text.replace(original, wrapped), encoding="utf-8")
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("passed", payload["status"])
+        self.assertEqual("passed", payload["successor_wave_authority"]["status"])
+        self.assertNotIn("source_queue", payload["unresolved"]["successor_wave_authority"])
+
     def test_build_payload_fails_closed_when_successor_queue_proof_anchor_does_not_resolve(self) -> None:
         missing_anchor = str(self.root / "docs" / "missing-engine-proof-pack.md")
         original_anchors = self.generator.SUCCESSOR_QUEUE_PROOF_ANCHORS

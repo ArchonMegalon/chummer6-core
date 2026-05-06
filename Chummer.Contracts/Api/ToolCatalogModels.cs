@@ -73,6 +73,7 @@ public sealed record MasterIndexResponse(
     CustomDataXmlBridgeDeterministicReceipt? CustomDataXmlBridgeDeterministicReceipt = null,
     TranslatorLaneDeterministicReceipt? TranslatorDeterministicReceipt = null,
     ImportOracleLaneDeterministicReceipt? ImportOracleDeterministicReceipt = null,
+    AmendPackageDeterministicReceipt? AmendPackageDeterministicReceipt = null,
     Sr6SuccessorLaneDeterministicReceipt? Sr6SuccessorDeterministicReceipt = null);
 
 public sealed record MasterIndexSourcebookEntry(
@@ -140,6 +141,17 @@ public sealed record ImportOracleLaneDeterministicReceipt(
     int ImportOracleCoveragePercent,
     IReadOnlyList<string> ImportOracleMissingSources,
     string AdjacentSr6OracleLaneReceipt);
+
+public sealed record AmendPackageDeterministicReceipt(
+    string ProofContractName,
+    string ProofReceiptPath,
+    string LanePosture,
+    string LaneReceipt,
+    string ProofPackStatus,
+    string SourceToggleSuiteStatus,
+    string AmendPackageSuiteStatus,
+    string AmendPackageCoverageFocus,
+    IReadOnlyList<string> RequiredSuiteIds);
 
 public sealed record Sr6SuccessorLaneDeterministicReceipt(
     string ParityFamilyId,

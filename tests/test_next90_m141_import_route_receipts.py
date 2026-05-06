@@ -50,6 +50,21 @@ def duplicate_queue_row_in_items(queue_text: str, package_row: str) -> str:
     return prefix + duplicated_items_body
 
 
+def replace_queue_row_in_items(queue_text: str, original_row: str, replacement_row: str) -> str:
+    items_marker = "\nitems:\n"
+    items_start = queue_text.find(items_marker)
+    if items_start < 0:
+        raise AssertionError("queue fixture missing items section")
+
+    prefix = queue_text[: items_start + len(items_marker)]
+    items_body = queue_text[items_start + len(items_marker) :]
+    replaced_items_body = items_body.replace(original_row, replacement_row, 1)
+    if replaced_items_body == items_body:
+        raise AssertionError("queue fixture missing package row inside items section")
+
+    return prefix + replaced_items_body
+
+
 class Next90M141ImportRouteReceiptTests(unittest.TestCase):
     def setUp(self) -> None:
         self.generator = load_generator()
@@ -116,6 +131,7 @@ class Next90M141ImportRouteReceiptTests(unittest.TestCase):
         self.assertEqual([], payload["unresolved"]["missing_files"])
         self.assertEqual({}, payload["unresolved"]["snippet_failures"])
         self.assertEqual({}, payload["unresolved"]["authority_row_issues"])
+        self.assertEqual({}, payload["unresolved"]["authority_semantic_issues"])
         self.assertEqual({}, payload["unresolved"]["supporting_receipt_semantic_issues"])
         self.assertEqual(
             ["stable-json-subset", "stable-json-subset"],
@@ -314,9 +330,25 @@ class Next90M141ImportRouteReceiptTests(unittest.TestCase):
             "  work_task_id: '141.2'\n"
             "  frontier_id: 4304178368\n"
             "  milestone_id: 141\n"
-            "  status: not_started\n"
+            "  status: complete\n"
+            "  landed_commit: unlanded\n"
+            "  completion_action: verify_closed_package_only\n"
+            "  do_not_reopen_reason: M141 chummer6-core import-route deterministic receipt lane is complete; future shards must verify the closed-package receipt, Python guard tests, canonical registry row, and queue mirrors instead of reopening this slice.\n"
             "  wave: W22P\n"
             "  repo: chummer6-core\n"
+            "  proof:\n"
+            "  - /docker/chummercomplete/chummer-core-engine/Chummer.Contracts/Api/ToolCatalogModels.cs\n"
+            "  - /docker/chummercomplete/chummer-core-engine/Chummer.Infrastructure/Xml/XmlToolCatalogService.cs\n"
+            "  - /docker/chummercomplete/chummer-core-engine/Chummer.Tests/ToolCatalogServiceTests.cs\n"
+            "  - /docker/chummercomplete/chummer-core-engine/Chummer.Tests/ApiIntegrationTests.cs\n"
+            "  - /docker/chummercomplete/chummer-core-engine/scripts/verify-next90-m141-import-route-receipts.py\n"
+            "  - /docker/chummercomplete/chummer-core-engine/tests/test_next90_m141_import_route_receipts.py\n"
+            "  - /docker/chummercomplete/chummer-core-engine/docs/NEXT90_M141_IMPORT_ROUTE_RECEIPTS.md\n"
+            "  - /docker/chummercomplete/chummer-core-engine/docs/NEXT90_M141_IMPORT_ROUTE_CLOSEOUT.md\n"
+            "  - /docker/chummercomplete/chummer-core-engine/.codex-studio/published/NEXT90_M141_IMPORT_ROUTE_RECEIPTS.generated.json\n"
+            "  - python3 tests/test_next90_m141_import_route_receipts.py\n"
+            "  - python3 scripts/verify-next90-m141-import-route-receipts.py --repo-root . --out .codex-studio/published/NEXT90_M141_IMPORT_ROUTE_RECEIPTS.generated.json --check\n"
+            "  - bash scripts/ai/verify.sh\n"
             "  allowed_paths:\n"
             "  - src\n"
             "  - tests\n"
@@ -348,9 +380,25 @@ class Next90M141ImportRouteReceiptTests(unittest.TestCase):
             "  work_task_id: '141.2'\n"
             "  frontier_id: 4304178368\n"
             "  milestone_id: 141\n"
-            "  status: not_started\n"
+            "  status: complete\n"
+            "  landed_commit: unlanded\n"
+            "  completion_action: verify_closed_package_only\n"
+            "  do_not_reopen_reason: M141 chummer6-core import-route deterministic receipt lane is complete; future shards must verify the closed-package receipt, Python guard tests, canonical registry row, and queue mirrors instead of reopening this slice.\n"
             "  wave: W22P\n"
             "  repo: chummer6-core\n"
+            "  proof:\n"
+            "  - /docker/chummercomplete/chummer-core-engine/Chummer.Contracts/Api/ToolCatalogModels.cs\n"
+            "  - /docker/chummercomplete/chummer-core-engine/Chummer.Infrastructure/Xml/XmlToolCatalogService.cs\n"
+            "  - /docker/chummercomplete/chummer-core-engine/Chummer.Tests/ToolCatalogServiceTests.cs\n"
+            "  - /docker/chummercomplete/chummer-core-engine/Chummer.Tests/ApiIntegrationTests.cs\n"
+            "  - /docker/chummercomplete/chummer-core-engine/scripts/verify-next90-m141-import-route-receipts.py\n"
+            "  - /docker/chummercomplete/chummer-core-engine/tests/test_next90_m141_import_route_receipts.py\n"
+            "  - /docker/chummercomplete/chummer-core-engine/docs/NEXT90_M141_IMPORT_ROUTE_RECEIPTS.md\n"
+            "  - /docker/chummercomplete/chummer-core-engine/docs/NEXT90_M141_IMPORT_ROUTE_CLOSEOUT.md\n"
+            "  - /docker/chummercomplete/chummer-core-engine/.codex-studio/published/NEXT90_M141_IMPORT_ROUTE_RECEIPTS.generated.json\n"
+            "  - python3 tests/test_next90_m141_import_route_receipts.py\n"
+            "  - python3 scripts/verify-next90-m141-import-route-receipts.py --repo-root . --out .codex-studio/published/NEXT90_M141_IMPORT_ROUTE_RECEIPTS.generated.json --check\n"
+            "  - bash scripts/ai/verify.sh\n"
             "  allowed_paths:\n"
             "  - src\n"
             "  - tests\n"
@@ -370,6 +418,114 @@ class Next90M141ImportRouteReceiptTests(unittest.TestCase):
         finally:
             queue_path.write_text(queue_text, encoding="utf-8")
 
+    def test_build_payload_fails_closed_when_fleet_and_design_queue_package_rows_drift(self) -> None:
+        queue_path = Path("/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_QUEUE_STAGING.generated.yaml")
+        queue_text = queue_path.read_text(encoding="utf-8")
+        original_row = (
+            "- title: Bind import-oracle, custom-data, and amend-package flows to deterministic receipts that can be cited by parity and\n"
+            "    workflow gates.\n"
+            "  task: Bind import-oracle, custom-data, and amend-package flows to deterministic receipts that can be cited by parity and\n"
+            "    workflow gates.\n"
+            "  package_id: next90-m141-core-bind-import-oracle-custom-data-and-amend-package-flows-to-deterministic\n"
+            "  work_task_id: '141.2'\n"
+            "  frontier_id: 4304178368\n"
+            "  milestone_id: 141\n"
+            "  status: complete\n"
+            "  landed_commit: unlanded\n"
+            "  completion_action: verify_closed_package_only\n"
+            "  do_not_reopen_reason: M141 chummer6-core import-route deterministic receipt lane is complete; future shards must verify the closed-package receipt, Python guard tests, canonical registry row, and queue mirrors instead of reopening this slice.\n"
+            "  wave: W22P\n"
+            "  repo: chummer6-core\n"
+            "  proof:\n"
+            "  - /docker/chummercomplete/chummer-core-engine/Chummer.Contracts/Api/ToolCatalogModels.cs\n"
+            "  - /docker/chummercomplete/chummer-core-engine/Chummer.Infrastructure/Xml/XmlToolCatalogService.cs\n"
+            "  - /docker/chummercomplete/chummer-core-engine/Chummer.Tests/ToolCatalogServiceTests.cs\n"
+            "  - /docker/chummercomplete/chummer-core-engine/Chummer.Tests/ApiIntegrationTests.cs\n"
+            "  - /docker/chummercomplete/chummer-core-engine/scripts/verify-next90-m141-import-route-receipts.py\n"
+            "  - /docker/chummercomplete/chummer-core-engine/tests/test_next90_m141_import_route_receipts.py\n"
+            "  - /docker/chummercomplete/chummer-core-engine/docs/NEXT90_M141_IMPORT_ROUTE_RECEIPTS.md\n"
+            "  - /docker/chummercomplete/chummer-core-engine/docs/NEXT90_M141_IMPORT_ROUTE_CLOSEOUT.md\n"
+            "  - /docker/chummercomplete/chummer-core-engine/.codex-studio/published/NEXT90_M141_IMPORT_ROUTE_RECEIPTS.generated.json\n"
+            "  - python3 tests/test_next90_m141_import_route_receipts.py\n"
+            "  - python3 scripts/verify-next90-m141-import-route-receipts.py --repo-root . --out .codex-studio/published/NEXT90_M141_IMPORT_ROUTE_RECEIPTS.generated.json --check\n"
+            "  - bash scripts/ai/verify.sh\n"
+            "  allowed_paths:\n"
+            "  - src\n"
+            "  - tests\n"
+            "  - docs\n"
+            "  - scripts\n"
+            "  owned_surfaces:\n"
+            "  - bind_import_oracle_custom_data_and_amend_package_flows_t:core\n"
+        )
+        replacement_row = original_row.replace("  status: complete\n", "  status: in_progress\n", 1)
+
+        try:
+            queue_path.write_text(
+                replace_queue_row_in_items(queue_text, original_row, replacement_row),
+                encoding="utf-8",
+            )
+
+            payload = self.generator.build_payload(REPO_ROOT, self.output_path)
+
+            self.assertEqual("failed", payload["status"])
+            self.assertEqual(
+                ["fleet_and_design_queue_package_rows_differ"],
+                payload["unresolved"]["authority_semantic_issues"]["queue_mirror_drift"],
+            )
+            self.assertIn(
+                "missing_closure_snippet:status: complete",
+                payload["unresolved"]["authority_semantic_issues"]["design_successor_queue_closure_drift"],
+            )
+        finally:
+            queue_path.write_text(queue_text, encoding="utf-8")
+
+    def test_build_payload_fails_closed_when_registry_scope_cites_task_local_telemetry(self) -> None:
+        registry_path = Path("/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml")
+        registry_text = registry_path.read_text(encoding="utf-8")
+        original_row = (
+            "    - id: '141.2'\n"
+            "      owner: chummer6-core\n"
+            "      title: Bind import-oracle, custom-data, and amend-package flows to deterministic receipts that can be cited by parity and workflow gates.\n"
+        )
+        replacement_row = original_row + "      evidence: TASK_LOCAL_TELEMETRY.generated.json\n"
+
+        try:
+            registry_path.write_text(registry_text.replace(original_row, replacement_row, 1), encoding="utf-8")
+
+            payload = self.generator.build_payload(REPO_ROOT, self.output_path)
+
+            self.assertEqual("failed", payload["status"])
+            self.assertEqual(
+                {"successor_registry_disallowed_active_run_proof": ["TASK_LOCAL_TELEMETRY.generated.json"]},
+                payload["unresolved"]["authority_semantic_issues"],
+            )
+        finally:
+            registry_path.write_text(registry_text, encoding="utf-8")
+
+    def test_build_payload_fails_closed_when_registry_row_is_not_marked_complete(self) -> None:
+        registry_path = Path("/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml")
+        registry_text = registry_path.read_text(encoding="utf-8")
+        original_row = (
+            "    - id: '141.2'\n"
+            "      owner: chummer6-core\n"
+            "      title: Bind import-oracle, custom-data, and amend-package flows to deterministic receipts that can be cited by parity and workflow gates.\n"
+            "      status: complete\n"
+        )
+        replacement_row = original_row.replace("      status: complete\n", "      status: in_progress\n", 1)
+
+        try:
+            registry_path.write_text(registry_text.replace(original_row, replacement_row, 1), encoding="utf-8")
+
+            payload = self.generator.build_payload(REPO_ROOT, self.output_path)
+
+            self.assertEqual("failed", payload["status"])
+            self.assertIn(
+                "missing_closure_snippet:status: complete",
+                payload["unresolved"]["authority_semantic_issues"]["successor_registry_closure_drift"],
+            )
+        finally:
+            registry_path.write_text(registry_text, encoding="utf-8")
+
     def test_build_payload_fails_closed_when_engine_proof_pack_semantics_drift(self) -> None:
         proof_pack_path = REPO_ROOT / ".codex-studio" / "published" / "ENGINE_PROOF_PACK.generated.json"
         original_payload = json.loads(proof_pack_path.read_text(encoding="utf-8"))
@@ -388,7 +544,77 @@ class Next90M141ImportRouteReceiptTests(unittest.TestCase):
 
             self.assertEqual("failed", payload["status"])
             self.assertEqual(
-                {"engine_proof_pack_published": ["unexpected_amend_coverage_focus:unexpected_drift"]},
+                {"engine_proof_pack_published": ["unexpected_amend_package_coverage_focus:unexpected_drift"]},
+                payload["unresolved"]["supporting_receipt_semantic_issues"],
+            )
+        finally:
+            proof_pack_path.write_text(json.dumps(original_payload, indent=2) + "\n", encoding="utf-8")
+
+    def test_build_payload_fails_closed_when_engine_proof_pack_required_suite_metadata_drifts(self) -> None:
+        proof_pack_path = REPO_ROOT / ".codex-studio" / "published" / "ENGINE_PROOF_PACK.generated.json"
+        original_payload = json.loads(proof_pack_path.read_text(encoding="utf-8"))
+        mutated_payload = json.loads(json.dumps(original_payload))
+        mutated_payload["contract_name"] = "unexpected.engine_proof_pack"
+        mutated_payload["frontier_id"] = 999
+        mutated_payload["required_oracle_suite_ids"] = ["creation", "source_toggle"]
+        mutated_payload["missing_required_suite_ids"] = ["amend_package"]
+
+        for suite in mutated_payload["oracle_suites"]:
+            if suite.get("id") == "source_toggle":
+                suite["rulesets"] = ["sr6"]
+                suite["golden_fixture_count"] = 0
+            elif suite.get("id") == "amend_package":
+                suite["release_scope"] = "unexpected_release_scope"
+                break
+        else:
+            raise AssertionError("missing source_toggle/amend_package suite fixtures")
+
+        try:
+            proof_pack_path.write_text(json.dumps(mutated_payload, indent=2) + "\n", encoding="utf-8")
+
+            payload = self.generator.build_payload(REPO_ROOT, self.output_path)
+
+            self.assertEqual("failed", payload["status"])
+            self.assertEqual(
+                {
+                    "engine_proof_pack_published": [
+                        "unexpected_contract_name:unexpected.engine_proof_pack",
+                        "unexpected_frontier_id:999",
+                        "unexpected_required_suite_ids:creation,source_toggle",
+                        "unexpected_missing_required_suite_ids:amend_package",
+                        "unexpected_source_toggle_rulesets:sr6",
+                        "unexpected_source_toggle_golden_fixture_count:0",
+                        "unexpected_amend_package_release_scope:unexpected_release_scope",
+                    ]
+                },
+                payload["unresolved"]["supporting_receipt_semantic_issues"],
+            )
+        finally:
+            proof_pack_path.write_text(json.dumps(original_payload, indent=2) + "\n", encoding="utf-8")
+
+    def test_build_payload_fails_closed_when_engine_proof_pack_suite_evidence_drifts(self) -> None:
+        proof_pack_path = REPO_ROOT / ".codex-studio" / "published" / "ENGINE_PROOF_PACK.generated.json"
+        original_payload = json.loads(proof_pack_path.read_text(encoding="utf-8"))
+        mutated_payload = json.loads(json.dumps(original_payload))
+        for suite in mutated_payload["oracle_suites"]:
+            if suite.get("id") == "source_toggle":
+                suite["evidence"] = ["unexpected/source-toggle.cs"]
+            elif suite.get("id") == "amend_package":
+                suite["golden_fixtures"] = ["unexpected/amend-package.golden.json"]
+
+        try:
+            proof_pack_path.write_text(json.dumps(mutated_payload, indent=2) + "\n", encoding="utf-8")
+
+            payload = self.generator.build_payload(REPO_ROOT, self.output_path)
+
+            self.assertEqual("failed", payload["status"])
+            self.assertEqual(
+                {
+                    "engine_proof_pack_published": [
+                        "unexpected_source_toggle_evidence:unexpected/source-toggle.cs",
+                        "unexpected_amend_package_golden_fixtures:unexpected/amend-package.golden.json",
+                    ]
+                },
                 payload["unresolved"]["supporting_receipt_semantic_issues"],
             )
         finally:
@@ -443,6 +669,26 @@ class Next90M141ImportRouteReceiptTests(unittest.TestCase):
             )
         finally:
             parity_path.write_text(json.dumps(original_payload, indent=2) + "\n", encoding="utf-8")
+
+    def test_build_payload_fails_closed_when_local_closeout_cites_active_run_handoff(self) -> None:
+        closeout_path = REPO_ROOT / "docs" / "NEXT90_M141_IMPORT_ROUTE_CLOSEOUT.md"
+        closeout_text = closeout_path.read_text(encoding="utf-8")
+
+        try:
+            closeout_path.write_text(
+                closeout_text + "\nProof shortcut: ACTIVE_RUN_HANDOFF.generated.md\n",
+                encoding="utf-8",
+            )
+
+            payload = self.generator.build_payload(REPO_ROOT, self.output_path)
+
+            self.assertEqual("failed", payload["status"])
+            self.assertEqual(
+                {"m141_closeout": ["disallowed_active_run_proof:ACTIVE_RUN_HANDOFF.generated.md"]},
+                payload["unresolved"]["supporting_receipt_semantic_issues"],
+            )
+        finally:
+            closeout_path.write_text(closeout_text, encoding="utf-8")
 
 
 if __name__ == "__main__":

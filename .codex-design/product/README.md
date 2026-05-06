@@ -232,6 +232,7 @@ The current horizon set covers knowledge fabric, spatial/runsite artifacts, crea
 `ORGANIZER_ROLE_AND_AUDIT_BOUNDARIES.md` defines the role split, truth order, operation families, and hard boundaries for organizer, league, convention, and season operations.
 `COMMUNITY_SCALE_AUDIT_PACKET_SCHEMA.yaml` is the machine-readable audit packet contract that organizer actions, publication moves, moderation events, and support escalations must satisfy before Fleet, EA, or external mirrors can project them.
 `EXPERIENCE_SUCCESS_METRICS.md` translates repo and release gates back into user-facing promises so the product is measured as a lived system, not only as a clean repo graph.
+`FIRST_PLAYABLE_SESSION_ONBOARDING_METRICS.md` defines the first-playable-session success contract, lane scorecards, and bounded onboarding claims for desktop, no-desktop, and recovery entry paths.
 `RELEASE_PIPELINE.md` is the canonical source for where release orchestration, desktop packaging, runtime-bundle production, registry publication truth, updater feeds, and public download/install rendering belong.
 `DESKTOP_CLIENT_PRODUCT_CUT.md` names the shipped flagship desktop head, the fallback head, the current preview cut, and the explicit platform posture so delivery focus does not drift with repo shape.
 `DESKTOP_PLATFORM_ACCEPTANCE_MATRIX.yaml` is the machine-readable release truth for Windows, Linux, and macOS package posture, smoke gating, signing/notarization expectations, updater mode, and supportability.

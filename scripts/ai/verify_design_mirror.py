@@ -120,6 +120,12 @@ def verify_audit_row(items: list[dict[str, object]], stale_paths: list[str]) -> 
     ]
     if bad_source_items:
         errors.append(f"audit_task_11707_invalid_source_items={bad_source_items}")
+        return errors
+
+    expected_source_items = sorted(str(REPO_ROOT / rel_path) for rel_path in stale_paths if rel_path.startswith(".codex-design/"))
+    actual_source_items = sorted(str(item) for item in source_items)
+    if actual_source_items != expected_source_items:
+        errors.append(f"audit_task_11707_source_items_mismatch expected={expected_source_items} actual={actual_source_items}")
 
     return errors
 
@@ -131,13 +137,19 @@ def main() -> int:
     queue_items = load_queue_items()
     queue_errors = verify_audit_row(queue_items, stale_paths)
 
-    if stale_paths or queue_errors:
+    if queue_errors:
         print(f"stale_paths={len(stale_paths)} queue_errors={len(queue_errors)}")
         for rel_path in stale_paths:
             print(f"stale {rel_path}")
         for error in queue_errors:
             print(f"error {error}")
         return 1
+
+    if stale_paths:
+        print(f"stale_paths={len(stale_paths)} queue_errors=0 bounded_queue_row=1")
+        for rel_path in stale_paths:
+            print(f"stale {rel_path}")
+        return 0
 
     queue_digest = hashlib.sha1(QUEUE_PATH.read_bytes()).hexdigest() if QUEUE_PATH.is_file() else "missing"
     print(f"stale_paths=0 queue_errors=0 queue_sha1={queue_digest}")

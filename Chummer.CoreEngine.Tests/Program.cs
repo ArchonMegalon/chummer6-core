@@ -6,6 +6,7 @@ using Chummer.Application.Content;
 using Chummer.Application.Explain;
 using Chummer.Application.Hub;
 using Chummer.Application.Journal;
+using Chummer.Application.Seeds;
 using Chummer.Application.Session;
 using Chummer.Application.Simulation;
 using Chummer.Application.Validation;
@@ -14,6 +15,7 @@ using Chummer.Contracts;
 using Chummer.Contracts.AI;
 using Chummer.Contracts.Api;
 using Chummer.Contracts.BuildLab;
+using Chummer.Contracts.Campaign;
 using Chummer.Contracts.Characters;
 using Chummer.Contracts.Content;
 using Chummer.Contracts.Diagnostics;
@@ -74,6 +76,25 @@ internal static class CoreEngineTests
                 return 0;
             }
 
+            if (string.Equals(filter, "next90-m121-action-economy", StringComparison.OrdinalIgnoreCase))
+            {
+                Sr6CombatRoundActionEconomyPublishesAnchoredTurnLedgerProof();
+                Sr6CombatRoundActionEconomyDowngradesWhenSourceAnchorReceiptsGoMissing();
+                Sr6CombatRoundActionEconomyDowngradesWhenRequiredTurnLedgerAnchorsAreMissing();
+                Console.WriteLine("core-engine-tests: ok");
+                return 0;
+            }
+
+            if (string.Equals(filter, "next90-m122-campaign-advance-receipts", StringComparison.OrdinalIgnoreCase))
+            {
+                CampaignAdvanceReceiptsStayDeterministic();
+                CampaignAdvanceReceiptsDowngradeWhenAdoptionOrSpoilerStateDrifts();
+                CampaignAdvanceReceiptsStayReviewRequiredWhenConflictsRemain();
+                CampaignAdvanceReceiptsMarkGoalAchievedWhenRewardAndDowntimeFinishProgress();
+                Console.WriteLine("core-engine-tests: ok");
+                return 0;
+            }
+
             if (string.Equals(filter, "explain-value-packets", StringComparison.OrdinalIgnoreCase))
             {
                 ExplainValuePacketsStayDeterministicAndBounded();
@@ -95,6 +116,17 @@ internal static class CoreEngineTests
             if (string.Equals(filter, "core-exchange-contracts", StringComparison.OrdinalIgnoreCase))
             {
                 WorkspaceExportPortabilityReceiptsCoverAllGovernedOutputLanes();
+                Console.WriteLine("core-engine-tests: ok");
+                return 0;
+            }
+
+            if (string.Equals(filter, "design-mirror", StringComparison.OrdinalIgnoreCase))
+            {
+                DesignMirrorVerificationStaysClosedWhenMirrorIsCurrent();
+                DesignMirrorVerificationAllowsSingleBoundedAuditRowForExactStaleBundle();
+                DesignMirrorVerificationFailsClosedWhenAuditRowDoesNotMatchStaleBundle();
+                DesignMirrorVerificationFailsClosedWhenDuplicateAuditRowsExist();
+                DesignMirrorVerificationFailsClosedWhenUnexpectedProductMirrorFileRemains();
                 Console.WriteLine("core-engine-tests: ok");
                 return 0;
             }
@@ -138,6 +170,9 @@ internal static class CoreEngineTests
             LegacyPluginCargoStaysOutsideActiveCoreBoundary();
             HardeningBacklogStaysMilestoneMapped();
             DesignMirrorVerificationStaysClosedWhenMirrorIsCurrent();
+            DesignMirrorVerificationAllowsSingleBoundedAuditRowForExactStaleBundle();
+            DesignMirrorVerificationFailsClosedWhenAuditRowDoesNotMatchStaleBundle();
+            DesignMirrorVerificationFailsClosedWhenDuplicateAuditRowsExist();
             DesignMirrorVerificationFailsClosedWhenUnexpectedProductMirrorFileRemains();
             LocalizationFallbackHelpersNormalizeLegacyContracts();
             SessionAndRuntimeCompatibilityProjectionsStayDeterministic();
@@ -157,6 +192,13 @@ internal static class CoreEngineTests
             EngineProofPackReceiptCoversRequiredOracleSuitesAndBudgets();
             MasterIndexDeterministicReceiptsStayBoundToParityTargets();
             DenseWorkbenchAndWorkflowReceiptsStayDeterministic();
+            Sr6CombatRoundActionEconomyPublishesAnchoredTurnLedgerProof();
+            Sr6CombatRoundActionEconomyDowngradesWhenSourceAnchorReceiptsGoMissing();
+            Sr6CombatRoundActionEconomyDowngradesWhenRequiredTurnLedgerAnchorsAreMissing();
+            CampaignAdvanceReceiptsStayDeterministic();
+            CampaignAdvanceReceiptsDowngradeWhenAdoptionOrSpoilerStateDrifts();
+            CampaignAdvanceReceiptsStayReviewRequiredWhenConflictsRemain();
+            CampaignAdvanceReceiptsMarkGoalAchievedWhenRewardAndDowntimeFinishProgress();
             ExportPrintSupplementAndRuleEnvironmentReceiptsStayDeterministic();
             WorkspaceExportPortabilityReceiptsCoverAllGovernedOutputLanes();
             BuildLabCreateSurfaceIsExposedAcrossRulesets();
@@ -3323,10 +3365,21 @@ internal static class CoreEngineTests
         AssertEx.SequenceEqual(
             [
                 "sr6_core_anytime_major_conversion",
+                "sr6_core_full_defense",
+                "sr6_core_major_actions",
                 "sr6_core_minor_actions"
             ],
             actionBudget.DeterministicReceipt.ReceiptSourceAnchors,
             "SR6 action-budget deterministic receipts should preserve the canonical source-anchor ordering.");
+        AssertEx.SequenceEqual(
+            [
+                "turn-ledger-anytime-full-defense",
+                "turn-ledger-on-turn-convert-four-minor-to-anytime-major",
+                "turn-ledger-on-turn-take-major-action",
+                "turn-ledger-on-turn-take-minor-action"
+            ],
+            actionBudget.DeterministicReceipt.TurnLedgerDeltaIds,
+            "SR6 action-budget deterministic receipts should preserve the canonical turn-ledger ordering.");
 
         string xml = File.ReadAllText(Path.Combine(GetLegacyFixtureDirectory(), "Gentle Earthquake.chum5"));
         ICharacterFileQueries fileQueries = new XmlCharacterFileQueries(new CharacterFileService());
@@ -3363,6 +3416,23 @@ internal static class CoreEngineTests
             imported.WorkflowDeterministicReceipt.CoveragePercent,
             "Workflow-state deterministic receipts should report full coverage when progress, contacts, lifestyles, and notes surfaces all resolve.");
         AssertEx.Equal(
+            "workflow-state-sr5-49ec47f4a5cf",
+            imported.WorkflowDeterministicReceipt.ReceiptScopeId,
+            "Workflow-state deterministic receipts should publish a content-addressed proof scope for the governed SR5 parity fixture.");
+        AssertEx.SequenceEqual(
+            [
+                "workflow:workflow-state",
+                "workflow:contacts",
+                "workflow:lifestyles",
+                "workflow:notes"
+            ],
+            imported.WorkflowDeterministicReceipt.CoveredWorkflowRouteIds,
+            "Workflow-state deterministic receipts should expose direct workflow-route coverage in deterministic order.");
+        AssertEx.SequenceEqual(
+            Array.Empty<string>(),
+            imported.WorkflowDeterministicReceipt.MissingWorkflowRouteIds,
+            "Governed workflow-state receipts should not report missing direct workflow routes.");
+        AssertEx.Equal(
             progress!.InitiateGrade,
             imported.WorkflowDeterministicReceipt.InitiateGrade,
             "Workflow-state deterministic receipts should project the same initiate grade exposed by the workspace progress section.");
@@ -3380,6 +3450,22 @@ internal static class CoreEngineTests
         AssertEx.True(
             imported.WorkflowDeterministicReceipt.HasGameNotesField,
             "Workflow-state deterministic receipts should confirm that gameplay notes remain present on the SR5 parity fixture.");
+
+        WorkspaceImportResult repeatedImport = workspaceService.Import(new WorkspaceImportDocument(
+            xml,
+            string.Empty,
+            WorkspaceDocumentFormat.NativeXml));
+        AssertEx.True(
+            !string.Equals(imported.Id.Value, repeatedImport.Id.Value, StringComparison.Ordinal),
+            "Repeated imports should still materialize distinct workspace instances.");
+        AssertEx.Equal(
+            imported.ImportReceiptId,
+            repeatedImport.ImportReceiptId,
+            "Import receipt ids should stay content-addressed instead of drifting with transient workspace ids.");
+        AssertEx.Equal(
+            imported.WorkflowDeterministicReceipt.ReceiptId,
+            repeatedImport.WorkflowDeterministicReceipt?.ReceiptId,
+            "Workflow-state deterministic receipt ids should stay content-addressed instead of drifting with transient workspace ids.");
 
         CommandResult<WorkspaceSaveReceipt> save = workspaceService.Save(imported.Id);
         AssertEx.True(save.Success, "Workspace saves should succeed for the SR5 parity fixture.");
@@ -3406,6 +3492,177 @@ internal static class CoreEngineTests
         AssertEx.NotNull(print.Value?.WorkflowDeterministicReceipt, "Workspace print flows should emit workflow-state deterministic receipts.");
 
         AssertEx.True(workspaceService.Close(imported.Id), "The SR5 parity fixture workspace should close cleanly after workflow-state receipt verification.");
+    }
+
+    private static void Sr6CombatRoundActionEconomyPublishesAnchoredTurnLedgerProof()
+    {
+        DefaultSessionActionBudgetService actionBudgetService = new();
+        SessionActionBudgetResult actionBudget = actionBudgetService.Compute(new SessionActionBudgetInput(
+            ActorRef: "runner-1",
+            RoundRef: "round-1",
+            RulesetId: RulesetDefaults.Sr6,
+            InitiativeDice: 3));
+
+        AssertEx.NotNull(actionBudget.DeterministicReceipt, "SR6 combat-round action budgets should emit deterministic proof.");
+        AssertEx.Equal(
+            "governed",
+            actionBudget.DeterministicReceipt!.ActionBudgetPosture,
+            "SR6 combat-round proof should stay governed when turn-ledger previews and source-anchor receipts are present.");
+        AssertEx.Equal(
+            4,
+            actionBudget.TurnLedger.Count,
+            "SR6 combat-round proof should expose three base action previews and the anytime-major conversion preview.");
+        AssertEx.Equal(
+            4,
+            actionBudget.DeterministicReceipt.SourceAnchorReceiptCount,
+            "Every default SR6 receipt should stay backed by a source-anchor object.");
+        AssertEx.Equal(
+            100,
+            actionBudget.DeterministicReceipt.CoveragePercent,
+            "SR6 combat-round proof should carry full direct workflow-route coverage when initiative, actions, turn-ledger previews, and rules references all resolve.");
+        AssertEx.SequenceEqual(
+            [
+                "workflow:initiative",
+                "workflow:actions",
+                "workflow:turn-ledger",
+                "workflow:rules-reference"
+            ],
+            actionBudget.DeterministicReceipt.CoveredWorkflowRouteIds,
+            "SR6 combat-round proof should expose the canonical direct workflow routes in deterministic order.");
+        AssertEx.Equal(
+            0,
+            actionBudget.DeterministicReceipt.MissingSourceAnchorReceiptCount,
+            "Governed SR6 combat-round proof should not drop source-anchor objects.");
+
+        SessionTurnLedgerDelta conversionDelta = actionBudget.TurnLedger.Single(delta => string.Equals(delta.ActionKey, "convert-four-minor-to-anytime-major", StringComparison.Ordinal));
+        AssertEx.Equal(
+            SessionTurnLedgerDeltaStates.Previewable,
+            conversionDelta.State,
+            "The anytime-major conversion preview should be previewable when four minor actions remain.");
+        AssertEx.Equal(
+            2,
+            conversionDelta.MajorAvailableAfter,
+            "The conversion preview should show the extra anytime major before mutation.");
+        AssertEx.SequenceEqual(
+            [
+                "sr6_core_anytime_major_conversion",
+                "sr6_core_minor_actions"
+            ],
+            conversionDelta.ReceiptSourceAnchorRefs,
+            "The conversion preview should cite both the conversion and minor-action source anchors.");
+    }
+
+    private static void Sr6CombatRoundActionEconomyDowngradesWhenSourceAnchorReceiptsGoMissing()
+    {
+        DefaultSessionActionBudgetService actionBudgetService = new();
+        SessionActionBudgetResult actionBudget = actionBudgetService.Compute(new SessionActionBudgetInput(
+            ActorRef: "runner-2",
+            RoundRef: "round-2",
+            RulesetId: RulesetDefaults.Sr6,
+            InitiativeDice: 3,
+            Receipts:
+            [
+                new SessionActionBudgetReceipt(
+                    SourceAnchorRef: "sr6_core_major_actions",
+                    SummaryKey: "session.action-budget.receipt.sr6.major-actions"),
+                new SessionActionBudgetReceipt(
+                    SourceAnchorRef: "sr6_core_minor_actions",
+                    SummaryKey: "session.action-budget.receipt.sr6.minor-actions")
+            ]));
+
+        AssertEx.NotNull(actionBudget.DeterministicReceipt, "Custom SR6 action-budget receipts should still emit deterministic proof.");
+        AssertEx.Equal(
+            "stale",
+            actionBudget.DeterministicReceipt!.ActionBudgetPosture,
+            "SR6 combat-round proof should fail closed when receipt refs lose their source-anchor objects.");
+        AssertEx.Equal(
+            2,
+            actionBudget.DeterministicReceipt.MissingSourceAnchorReceiptCount,
+            "The deterministic receipt should count missing source-anchor objects explicitly.");
+        SessionTurnLedgerDelta takeMajorDelta = actionBudget.TurnLedger.Single(delta => string.Equals(delta.ActionKey, "take-major-action", StringComparison.Ordinal));
+        SessionTurnLedgerDelta takeMinorDelta = actionBudget.TurnLedger.Single(delta => string.Equals(delta.ActionKey, "take-minor-action", StringComparison.Ordinal));
+        SessionTurnLedgerDelta fullDefenseDelta = actionBudget.TurnLedger.Single(delta => string.Equals(delta.ActionKey, "full-defense", StringComparison.Ordinal));
+        SessionTurnLedgerDelta conversionDelta = actionBudget.TurnLedger.Single(delta => string.Equals(delta.ActionKey, "convert-four-minor-to-anytime-major", StringComparison.Ordinal));
+        AssertEx.SequenceEqual(
+            Array.Empty<string>(),
+            takeMajorDelta.ReceiptSourceAnchorRefs,
+            "Action previews should not cite source-anchor refs when the backing receipt payload is missing.");
+        AssertEx.SequenceEqual(
+            Array.Empty<string>(),
+            takeMinorDelta.ReceiptSourceAnchorRefs,
+            "Minor-action previews should not cite source-anchor refs when the backing receipt payload is missing.");
+        AssertEx.SequenceEqual(
+            Array.Empty<string>(),
+            fullDefenseDelta.ReceiptSourceAnchorRefs,
+            "Full-defense previews should not cite source-anchor refs when the backing receipt payload is missing.");
+        AssertEx.SequenceEqual(
+            Array.Empty<string>(),
+            conversionDelta.ReceiptSourceAnchorRefs,
+            "Conversion previews should not cite source-anchor refs when the backing receipt payload is missing.");
+    }
+
+    private static void Sr6CombatRoundActionEconomyDowngradesWhenRequiredTurnLedgerAnchorsAreMissing()
+    {
+        DefaultSessionActionBudgetService actionBudgetService = new();
+        SessionActionBudgetResult actionBudget = actionBudgetService.Compute(new SessionActionBudgetInput(
+            ActorRef: "runner-3",
+            RoundRef: "round-3",
+            RulesetId: RulesetDefaults.Sr6,
+            InitiativeDice: 3,
+            Receipts:
+            [
+                new SessionActionBudgetReceipt(
+                    SourceAnchorRef: "sr6_core_major_actions",
+                    SummaryKey: "session.action-budget.receipt.sr6.major-actions",
+                    SourceAnchor: new SourceAnchor(
+                        Id: "sr6_core_major_actions",
+                        RulesetId: RulesetDefaults.Sr6,
+                        SourcePackRef: "sr6-core",
+                        Locale: "en-US",
+                        Page: 41,
+                        SectionHint: "Major Actions",
+                        AnchorKey: "sr6_core_major_actions")),
+                new SessionActionBudgetReceipt(
+                    SourceAnchorRef: "sr6_core_minor_actions",
+                    SummaryKey: "session.action-budget.receipt.sr6.minor-actions",
+                    SourceAnchor: new SourceAnchor(
+                        Id: "sr6_core_minor_actions",
+                        RulesetId: RulesetDefaults.Sr6,
+                        SourcePackRef: "sr6-core",
+                        Locale: "en-US",
+                        Page: 42,
+                        SectionHint: "Minor Actions",
+                        AnchorKey: "sr6_core_minor_actions"))
+            ]));
+
+        AssertEx.NotNull(actionBudget.DeterministicReceipt, "Partially anchored SR6 action-budget receipts should still emit deterministic proof.");
+        AssertEx.Equal(
+            "stale",
+            actionBudget.DeterministicReceipt!.ActionBudgetPosture,
+            "SR6 combat-round proof should fail closed when promoted turn-ledger previews lose required source-anchor refs.");
+        AssertEx.Equal(
+            2,
+            actionBudget.DeterministicReceipt.SourceAnchorReceiptCount,
+            "The deterministic receipt should preserve the count of anchored custom receipt objects.");
+        AssertEx.Equal(
+            0,
+            actionBudget.DeterministicReceipt.MissingSourceAnchorReceiptCount,
+            "The failure mode here is missing required turn-ledger refs, not missing source-anchor objects.");
+
+        SessionTurnLedgerDelta fullDefenseDelta = actionBudget.TurnLedger.Single(delta => string.Equals(delta.ActionKey, "full-defense", StringComparison.Ordinal));
+        SessionTurnLedgerDelta conversionDelta = actionBudget.TurnLedger.Single(delta => string.Equals(delta.ActionKey, "convert-four-minor-to-anytime-major", StringComparison.Ordinal));
+        AssertEx.SequenceEqual(
+            [
+                "sr6_core_minor_actions"
+            ],
+            fullDefenseDelta.ReceiptSourceAnchorRefs,
+            "The full-defense preview should surface the surviving minor-action anchor when the dedicated full-defense anchor is missing.");
+        AssertEx.SequenceEqual(
+            [
+                "sr6_core_minor_actions"
+            ],
+            conversionDelta.ReceiptSourceAnchorRefs,
+            "The conversion preview should surface the surviving minor-action anchor when the dedicated conversion anchor is missing.");
     }
 
     private static void ExportPrintSupplementAndRuleEnvironmentReceiptsStayDeterministic()
@@ -4133,6 +4390,218 @@ internal static class CoreEngineTests
         AssertEx.Equal("redmond-watch", faction.FactionId, "Faction response seeds should preserve faction ids.");
         AssertEx.Equal(48m, faction.ResponseScore, "Faction response seeds should combine hostility and exposure deterministically.");
         AssertEx.SequenceEqual(faction.ResponseTags, ["faction.response.high"], "Faction response seeds should emit the deterministic response tag.");
+    }
+
+    private static void CampaignAdvanceReceiptsStayDeterministic()
+    {
+        DefaultCampaignAdvanceReceiptService service = new(
+            new DefaultRelationshipHeatService(),
+            new DefaultSemanticSeedService(new DefaultAestheticDigestService()));
+
+        CampaignAdvanceReceiptBundle receipt = service.Build(new CampaignAdvanceReceiptInput(
+            CampaignId: "campaign-7",
+            RunnerId: "runner-1",
+            RulesetId: RulesetDefaults.Sr5,
+            Adoption: new CampaignAdoptionInput(
+                CampaignId: "campaign-7",
+                RulesetId: RulesetDefaults.Sr5,
+                AdoptedRunnerIds: ["runner-1", "runner-2"],
+                MissingRunnerIds: [],
+                ConflictTags: [],
+                CrewContextTags: ["street", "trust"]),
+            Reward: new RewardEventInput(
+                RewardEventId: "reward-2048",
+                RewardKind: "karma",
+                Amount: 6m,
+                Unit: "karma",
+                GoalProgressDelta: 1.5m,
+                RewardTags: ["primary-objective", "session-closeout"]),
+            Downtime: new DowntimeAllocationInput(
+                Days: 3,
+                RecoveryRatePerDay: 2m,
+                InitialBurden: 9m,
+                ActivityTags: ["healing", "legwork"]),
+            Goal: new RunnerGoalUpdateInput(
+                GoalId: "goal-7",
+                GoalTitle: "Clear the bounty",
+                CurrentProgress: 2m,
+                TargetProgress: 10m,
+                RewardProgressDelta: 1.5m,
+                DowntimeProgressDelta: 0.5m,
+                GoalTags: ["heat", "survival"]),
+            Consequence: new BlackLedgerConsequenceInput(
+                ResolutionReportId: "rr-2048",
+                RunId: "run-2048",
+                FeedId: "shadowfeed-2048",
+                FactionId: "redmond-watch",
+                Hostility: 24m,
+                Exposure: 32m,
+                ConsequenceTags: ["intel", "security"],
+                SpoilerTags: [])));
+
+        AssertEx.Equal(CampaignAdoptionConfidencePostures.Governed, receipt.Adoption.Posture, "Campaign adoption should stay governed when mappings are complete.");
+        AssertEx.Equal(6m, receipt.Downtime.RecoveredBurden, "Downtime receipts should preserve deterministic burden recovery.");
+        AssertEx.Equal(RunnerGoalUpdateStates.Advanced, receipt.Goal.State, "Runner goals should advance when reward and downtime progress are both present.");
+        AssertEx.Equal(4m, receipt.Goal.UpdatedProgress, "Runner goal receipts should clamp to the deterministic updated progress.");
+        AssertEx.Equal(BlackLedgerConsequencePostures.Governed, receipt.Consequence.Posture, "BLACK LEDGER receipts should stay governed when adoption and spoiler posture are clean.");
+        AssertEx.Equal(48m, receipt.Consequence.ResponseScore, "BLACK LEDGER receipts should preserve faction response scoring.");
+        AssertEx.SequenceEqual(
+            ["heat.high", "heat.low", "heat.medium", "intel", "security"],
+            receipt.Consequence.ConsequenceTags,
+            "BLACK LEDGER receipts should merge run-summary consequence tags with explicit consequence tags deterministically.");
+        AssertEx.Equal("family:campaign_adoption_runner_goal_and_black_ledger", receipt.DeterministicReceipt.ParityFamilyId, "Campaign-advance deterministic receipts should stay pinned to the campaign-adoption parity family.");
+        AssertEx.Equal("world-tick:campaign-7:rr-2048", receipt.DeterministicReceipt.WorldTickId, "Campaign-advance deterministic receipts should preserve the world-tick id.");
+        AssertEx.Equal("news-item:shadowfeed-2048:rr-2048", receipt.DeterministicReceipt.NewsItemId, "Campaign-advance deterministic receipts should preserve the player-safe news item id.");
+    }
+
+    private static void CampaignAdvanceReceiptsDowngradeWhenAdoptionOrSpoilerStateDrifts()
+    {
+        DefaultCampaignAdvanceReceiptService service = new(
+            new DefaultRelationshipHeatService(),
+            new DefaultSemanticSeedService(new DefaultAestheticDigestService()));
+
+        CampaignAdvanceReceiptBundle receipt = service.Build(new CampaignAdvanceReceiptInput(
+            CampaignId: "campaign-7",
+            RunnerId: "runner-1",
+            RulesetId: RulesetDefaults.Sr5,
+            Adoption: new CampaignAdoptionInput(
+                CampaignId: "campaign-7",
+                RulesetId: RulesetDefaults.Sr5,
+                AdoptedRunnerIds: ["runner-1"],
+                MissingRunnerIds: ["runner-2"],
+                ConflictTags: ["duplicate-contact-map"]),
+            Reward: new RewardEventInput(
+                RewardEventId: "reward-2048",
+                RewardKind: "karma",
+                Amount: 6m,
+                Unit: "karma",
+                GoalProgressDelta: 1.5m),
+            Downtime: new DowntimeAllocationInput(
+                Days: 3,
+                RecoveryRatePerDay: 2m,
+                InitialBurden: 9m),
+            Goal: new RunnerGoalUpdateInput(
+                GoalId: "goal-7",
+                GoalTitle: "Clear the bounty",
+                CurrentProgress: 2m,
+                TargetProgress: 10m,
+                RewardProgressDelta: 1.5m,
+                DowntimeProgressDelta: 0.5m),
+            Consequence: new BlackLedgerConsequenceInput(
+                ResolutionReportId: "rr-2048",
+                RunId: "run-2048",
+                FeedId: "shadowfeed-2048",
+                FactionId: "redmond-watch",
+                Hostility: 24m,
+                Exposure: 32m,
+                ConsequenceTags: ["intel"],
+                SpoilerTags: ["betrayal"])));
+
+        AssertEx.Equal(CampaignAdoptionConfidencePostures.Blocked, receipt.Adoption.Posture, "Missing runner mappings should block adoption receipts.");
+        AssertEx.Equal(BlackLedgerConsequencePostures.Blocked, receipt.Consequence.Posture, "Blocked adoption should block BLACK LEDGER publication receipts.");
+        AssertEx.Equal(BlackLedgerConsequenceAudiences.GmOnly, receipt.Consequence.Audience, "Spoiler-tagged consequences should stay GM-only.");
+        AssertEx.SequenceEqual(receipt.Consequence.SpoilerTags, ["betrayal"], "Spoiler tags should survive deterministic sorting.");
+    }
+
+    private static void CampaignAdvanceReceiptsStayReviewRequiredWhenConflictsRemain()
+    {
+        DefaultCampaignAdvanceReceiptService service = new(
+            new DefaultRelationshipHeatService(),
+            new DefaultSemanticSeedService(new DefaultAestheticDigestService()));
+
+        CampaignAdvanceReceiptBundle receipt = service.Build(new CampaignAdvanceReceiptInput(
+            CampaignId: "campaign-7",
+            RunnerId: "runner-1",
+            RulesetId: RulesetDefaults.Sr5,
+            Adoption: new CampaignAdoptionInput(
+                CampaignId: "campaign-7",
+                RulesetId: RulesetDefaults.Sr5,
+                AdoptedRunnerIds: ["runner-1", "runner-2"],
+                MissingRunnerIds: [],
+                ConflictTags: ["duplicate-contact-map", "roster-ambiguity"]),
+            Reward: new RewardEventInput(
+                RewardEventId: "reward-2048",
+                RewardKind: "karma",
+                Amount: 6m,
+                Unit: "karma",
+                GoalProgressDelta: 1.5m),
+            Downtime: new DowntimeAllocationInput(
+                Days: 3,
+                RecoveryRatePerDay: 2m,
+                InitialBurden: 9m),
+            Goal: new RunnerGoalUpdateInput(
+                GoalId: "goal-7",
+                GoalTitle: "Clear the bounty",
+                CurrentProgress: 2m,
+                TargetProgress: 10m,
+                RewardProgressDelta: 1.5m,
+                DowntimeProgressDelta: 0.5m),
+            Consequence: new BlackLedgerConsequenceInput(
+                ResolutionReportId: "rr-2048",
+                RunId: "run-2048",
+                FeedId: "shadowfeed-2048",
+                FactionId: "redmond-watch",
+                Hostility: 24m,
+                Exposure: 32m,
+                ConsequenceTags: ["intel"],
+                SpoilerTags: [])));
+
+        AssertEx.Equal(CampaignAdoptionConfidencePostures.ReviewRequired, receipt.Adoption.Posture, "Conflict-bearing adoption should remain review-required when all runners still map.");
+        AssertEx.SequenceEqual(receipt.Adoption.ConflictTags, ["duplicate-contact-map", "roster-ambiguity"], "Review-required adoption should preserve deterministic conflict tags.");
+        AssertEx.Equal(BlackLedgerConsequencePostures.ReviewRequired, receipt.Consequence.Posture, "Conflict-bearing adoption should keep BLACK LEDGER publication review-required.");
+        AssertEx.Equal(BlackLedgerConsequenceAudiences.PlayerSafe, receipt.Consequence.Audience, "Conflict-only drift should remain player-safe without spoiler tags.");
+        AssertEx.Equal("review-required", receipt.DeterministicReceipt.AdoptionPosture, "Review-required adoption should flow into the deterministic campaign-advance receipt.");
+        AssertEx.Equal("review-required", receipt.DeterministicReceipt.ConsequencePosture, "Review-required adoption should keep downstream BLACK LEDGER publication review-required.");
+    }
+
+    private static void CampaignAdvanceReceiptsMarkGoalAchievedWhenRewardAndDowntimeFinishProgress()
+    {
+        DefaultCampaignAdvanceReceiptService service = new(
+            new DefaultRelationshipHeatService(),
+            new DefaultSemanticSeedService(new DefaultAestheticDigestService()));
+
+        CampaignAdvanceReceiptBundle receipt = service.Build(new CampaignAdvanceReceiptInput(
+            CampaignId: "campaign-7",
+            RunnerId: "runner-1",
+            RulesetId: RulesetDefaults.Sr5,
+            Adoption: new CampaignAdoptionInput(
+                CampaignId: "campaign-7",
+                RulesetId: RulesetDefaults.Sr5,
+                AdoptedRunnerIds: ["runner-1", "runner-2"],
+                MissingRunnerIds: [],
+                ConflictTags: []),
+            Reward: new RewardEventInput(
+                RewardEventId: "reward-2048",
+                RewardKind: "karma",
+                Amount: 6m,
+                Unit: "karma",
+                GoalProgressDelta: 0.5m),
+            Downtime: new DowntimeAllocationInput(
+                Days: 3,
+                RecoveryRatePerDay: 2m,
+                InitialBurden: 9m),
+            Goal: new RunnerGoalUpdateInput(
+                GoalId: "goal-7",
+                GoalTitle: "Clear the bounty",
+                CurrentProgress: 4m,
+                TargetProgress: 5m,
+                RewardProgressDelta: 0.5m,
+                DowntimeProgressDelta: 1m,
+                GoalTags: ["heat", "survival"]),
+            Consequence: new BlackLedgerConsequenceInput(
+                ResolutionReportId: "rr-2048",
+                RunId: "run-2048",
+                FeedId: "shadowfeed-2048",
+                FactionId: "redmond-watch",
+                Hostility: 24m,
+                Exposure: 32m,
+                ConsequenceTags: ["intel"],
+                SpoilerTags: [])));
+
+        AssertEx.Equal(RunnerGoalUpdateStates.Achieved, receipt.Goal.State, "Reward plus downtime progress should mark the runner goal achieved.");
+        AssertEx.Equal(5m, receipt.Goal.UpdatedProgress, "Achieved goals should clamp to the target progress.");
+        AssertEx.Equal(1.5m, receipt.Goal.AppliedProgressDelta, "Achieved goals should preserve the combined reward and downtime delta.");
+        AssertEx.SequenceEqual(receipt.Goal.GoalTags, ["heat", "survival"], "Achieved goals should preserve deterministic goal tags.");
     }
 
     private static RuleProfileRegistryEntry CreateProfile()
@@ -6923,6 +7392,159 @@ internal static class CoreEngineTests
             $"Design-mirror verifier should report a clean mirror. stdout={stdout}");
     }
 
+    private static void DesignMirrorVerificationAllowsSingleBoundedAuditRowForExactStaleBundle()
+    {
+        string repoRoot = GetRepositoryRoot();
+        string readmePath = Path.Combine(repoRoot, ".codex-design", "product", "README.md");
+        string queuePath = Path.Combine(repoRoot, ".codex-studio", "published", "QUEUE.generated.yaml");
+        string originalReadme = File.ReadAllText(readmePath);
+        string originalQueue = File.ReadAllText(queuePath);
+
+        try
+        {
+            File.WriteAllText(readmePath, originalReadme + "\n<!-- mirror drift regression -->\n");
+            string sourceItem = $"{repoRoot.Replace("\\", "/")}/.codex-design/product/README.md";
+            File.WriteAllText(
+                queuePath,
+                $"""
+mode: append
+items:
+  - title: Stabilize design-doc parity hygiene loop
+    task: Auto-detect and repair recurring core mirror drift while keeping one bounded queue slice for the affected local design mirror bundle.
+    package_id: audit-task-11707
+    audit_finding_key: project.design_mirror_missing_or_stale
+    audit_scope_id: core
+    allowed_paths:
+      - .codex-design
+    owned_surfaces:
+      - design_mirror:core
+    source_items:
+      - {sourceItem}
+source_queue_fingerprint: regression-test
+""");
+
+            (int exitCode, string stdout, string stderr) = RunDesignMirrorVerifier(repoRoot);
+
+            AssertEx.True(
+                exitCode == 0,
+                $"Design-mirror verifier should allow one bounded audit row when it exactly matches the stale mirror bundle. stdout={stdout} stderr={stderr}");
+            AssertEx.True(
+                stdout.Contains("stale_paths=0", StringComparison.Ordinal) == false
+                && stdout.Contains("queue_errors=0", StringComparison.Ordinal),
+                $"Design-mirror verifier should accept the stale-plus-single-row bounded state without queue errors. stdout={stdout}");
+        }
+        finally
+        {
+            File.WriteAllText(readmePath, originalReadme);
+            File.WriteAllText(queuePath, originalQueue);
+        }
+    }
+
+    private static void DesignMirrorVerificationFailsClosedWhenAuditRowDoesNotMatchStaleBundle()
+    {
+        string repoRoot = GetRepositoryRoot();
+        string readmePath = Path.Combine(repoRoot, ".codex-design", "product", "README.md");
+        string queuePath = Path.Combine(repoRoot, ".codex-studio", "published", "QUEUE.generated.yaml");
+        string originalReadme = File.ReadAllText(readmePath);
+        string originalQueue = File.ReadAllText(queuePath);
+
+        try
+        {
+            File.WriteAllText(readmePath, originalReadme + "\n<!-- mirror drift regression -->\n");
+            string sourceItem = $"{repoRoot.Replace("\\", "/")}/.codex-design/product/VISION.md";
+            File.WriteAllText(
+                queuePath,
+                $"""
+mode: append
+items:
+  - title: Stabilize design-doc parity hygiene loop
+    task: Auto-detect and repair recurring core mirror drift while keeping one bounded queue slice for the affected local design mirror bundle.
+    package_id: audit-task-11707
+    audit_finding_key: project.design_mirror_missing_or_stale
+    audit_scope_id: core
+    allowed_paths:
+      - .codex-design
+    owned_surfaces:
+      - design_mirror:core
+    source_items:
+      - {sourceItem}
+source_queue_fingerprint: regression-test
+""");
+
+            (int exitCode, string stdout, string stderr) = RunDesignMirrorVerifier(repoRoot);
+
+            AssertEx.True(
+                exitCode != 0,
+                $"Design-mirror verifier should fail closed when the bounded audit row does not match the stale mirror bundle. stdout={stdout} stderr={stderr}");
+            AssertEx.True(
+                stdout.Contains("audit_task_11707_source_items_mismatch", StringComparison.Ordinal),
+                $"Design-mirror verifier should report the stale-bundle mismatch. stdout={stdout}");
+        }
+        finally
+        {
+            File.WriteAllText(readmePath, originalReadme);
+            File.WriteAllText(queuePath, originalQueue);
+        }
+    }
+
+    private static void DesignMirrorVerificationFailsClosedWhenDuplicateAuditRowsExist()
+    {
+        string repoRoot = GetRepositoryRoot();
+        string readmePath = Path.Combine(repoRoot, ".codex-design", "product", "README.md");
+        string queuePath = Path.Combine(repoRoot, ".codex-studio", "published", "QUEUE.generated.yaml");
+        string originalReadme = File.ReadAllText(readmePath);
+        string originalQueue = File.ReadAllText(queuePath);
+
+        try
+        {
+            File.WriteAllText(readmePath, originalReadme + "\n<!-- mirror drift regression -->\n");
+            string sourceItem = $"{repoRoot.Replace("\\", "/")}/.codex-design/product/README.md";
+            File.WriteAllText(
+                queuePath,
+                $"""
+mode: append
+items:
+  - title: Stabilize design-doc parity hygiene loop
+    task: Auto-detect and repair recurring core mirror drift while keeping one bounded queue slice for the affected local design mirror bundle.
+    package_id: audit-task-11707
+    audit_finding_key: project.design_mirror_missing_or_stale
+    audit_scope_id: core
+    allowed_paths:
+      - .codex-design
+    owned_surfaces:
+      - design_mirror:core
+    source_items:
+      - {sourceItem}
+  - title: Duplicate stale mirror row
+    task: Duplicate stale mirror row
+    package_id: audit-task-11707
+    audit_finding_key: project.design_mirror_missing_or_stale
+    audit_scope_id: core
+    allowed_paths:
+      - .codex-design
+    owned_surfaces:
+      - design_mirror:core
+    source_items:
+      - {sourceItem}
+source_queue_fingerprint: regression-test
+""");
+
+            (int exitCode, string stdout, string stderr) = RunDesignMirrorVerifier(repoRoot);
+
+            AssertEx.True(
+                exitCode != 0,
+                $"Design-mirror verifier should fail closed when duplicate audit rows exist. stdout={stdout} stderr={stderr}");
+            AssertEx.True(
+                stdout.Contains("duplicate_audit_task_11707_rows=2", StringComparison.Ordinal),
+                $"Design-mirror verifier should report duplicate audit rows. stdout={stdout}");
+        }
+        finally
+        {
+            File.WriteAllText(readmePath, originalReadme);
+            File.WriteAllText(queuePath, originalQueue);
+        }
+    }
+
     private static void DesignMirrorVerificationFailsClosedWhenUnexpectedProductMirrorFileRemains()
     {
         string repoRoot = GetRepositoryRoot();
@@ -6963,6 +7585,24 @@ internal static class CoreEngineTests
                 File.Delete(extraFilePath);
             }
         }
+    }
+
+    private static (int ExitCode, string Stdout, string Stderr) RunDesignMirrorVerifier(string repoRoot)
+    {
+        ProcessStartInfo startInfo = new("python3", "scripts/ai/verify_design_mirror.py")
+        {
+            WorkingDirectory = repoRoot,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+        };
+
+        using Process process = Process.Start(startInfo)
+            ?? throw new InvalidOperationException("Failed to start design-mirror verifier.");
+        string stdout = process.StandardOutput.ReadToEnd();
+        string stderr = process.StandardError.ReadToEnd();
+        process.WaitForExit();
+        return (process.ExitCode, stdout, stderr);
     }
 
     private static void ActiveCoreEngineSolutionStaysPurified()

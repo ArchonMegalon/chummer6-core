@@ -24,7 +24,11 @@ A real rule environment.
 
 ---
 
-## The promise
+## Table pain
+
+House rules are common, but hidden XML, one-off spreadsheets, and Discord-pin folklore make the table pay for every custom choice with lost trust and compatibility drift.
+
+## Bounded product move
 
 **Change the table. Keep the trust.**
 
@@ -172,6 +176,25 @@ Chummer can answer:
 That is the kind of trust tabletop tools usually do not give you.
 
 ---
+
+## Likely owners
+
+* `chummer6-core`
+* `chummer6-hub`
+* `chummer6-hub-registry`
+
+## Foundations
+
+* edition-specific rule-environment seams that do not flatten SR4, SR5, and SR6 differences
+* import and parity evidence strong enough to falsify unsafe rule-pack claims
+* governed package, approval, rollback, and compatibility metadata
+* runtime receipts that can explain why a runner is legal, blocked, grandfathered, or stale
+
+## Build path
+
+* intent: eventual product lane
+* current state: horizon
+* next state: bounded research
 
 ## What it looks like for a GM
 
@@ -1025,3 +1048,11 @@ Where BLACK LEDGER’s world consequences become playable rewards and threats.
 Where Chummer5a’s custom-data legacy becomes a safer future.
 
 **KARMA FORGE is the forge where tables shape their own Shadowrun — without burning down the campaign.**
+## Owner handoff gate
+
+Rule evolution must route through governed packages, approvals, and compatibility metadata before promotion.
+
+## Why still a horizon
+
+Alternate-ruleset and house-rule power only become product-safe when the activation, rollback, compatibility, and explain loops are boringly provable.
+Until those seams are strong enough, KARMA FORGE stays a bounded future lane instead of a live product promise.

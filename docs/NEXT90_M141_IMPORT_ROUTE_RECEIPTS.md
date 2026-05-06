@@ -47,8 +47,11 @@ It binds the stable core anchors for this slice:
 - `.codex-studio/published/IMPORT_PARITY_CERTIFICATION.generated.json`
 - `.codex-studio/published/ENGINE_PROOF_PACK.generated.json`
 
-The verifier fails closed when the canonical `141.2` successor registry work-task row or either queue staging row drifts, duplicates, or loses the package identity for this core package.
-It also fails closed when `.codex-studio/published/ENGINE_PROOF_PACK.generated.json` stops reporting passed `source_toggle` and `amend_package` suites, or when `.codex-studio/published/IMPORT_PARITY_CERTIFICATION.generated.json` loses the exact Chummer4/Chummer5a/Hero Lab Classic plus Genesis/CommLink6 parity coverage set or drifts away from the expected per-source `1 of 1` coverage counts.
+The verifier fails closed when the canonical `141.2` successor registry work-task row or either queue staging row drifts, duplicates, loses the package identity for this core package, diverges between the Fleet queue mirror and the design-owned queue mirror, or stops carrying the closed-package `status: complete` plus `completion_action: verify_closed_package_only` contract for this lane.
+It also fails closed when `.codex-studio/published/ENGINE_PROOF_PACK.generated.json` stops reporting the expected proof-pack contract/package/frontier identity, stops reporting the full required oracle-suite set, stops reporting passed `source_toggle` and `amend_package` suites, or drifts on the exact `sr5` ruleset / release-scope / golden-fixture metadata that this package cites for those two suite rows.
+It also fails closed when those cited `source_toggle` and `amend_package` suite rows drift on the exact evidence paths or golden fixture paths that this package binds into its deterministic receipt.
+It also fails closed when `.codex-studio/published/IMPORT_PARITY_CERTIFICATION.generated.json` loses the exact Chummer4/Chummer5a/Hero Lab Classic plus Genesis/CommLink6 parity coverage set or drifts away from the expected per-source `1 of 1` coverage counts.
+It also fails closed when the local M141 docs or the cited registry/queue package rows try to use worker handoff artifacts or run-local telemetry artifacts as package proof.
 It also fails closed when `--check` sees a current failed payload, even if the checked-in receipt was refreshed to that same failed state.
 The checked-in receipt also cites the live flagship closeout frontier so desktop workflow and parity gates can point at the current closeout lane instead of only the successor-wave package row.
 
