@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-05-05T10:32:42Z",
+  "generated_at": "2026-05-06T08:08:52Z",
   "status": "passed",
   "package_id": "next90-m114-core-rule-environment-studio",
   "frontier_id": 1542103988,
@@ -51,7 +51,7 @@
       "key": "di",
       "path": "/docker/chummercomplete/chummer-core-engine/Chummer.Infrastructure/DependencyInjection/ServiceCollectionExtensions.cs",
       "exists": true,
-      "digest": "sha256:20f2b7f0fcf445ba28cec23a5c7e9b5f31703977b44864167982d22990709eaf",
+      "digest": "sha256:5ab846906746f4d13633230f000a2954403cd2d4d6dfa8a25d793b9455745437",
       "missing_snippets": [],
       "status": "passed"
     },
@@ -59,7 +59,7 @@
       "key": "test_program",
       "path": "/docker/chummercomplete/chummer-core-engine/Chummer.CoreEngine.Tests/Program.cs",
       "exists": true,
-      "digest": "sha256:882cd118684837adc1337524147accae7b2dfd3ce9766f002d7bbf66e7a0ee66",
+      "digest": "sha256:368456a20a557d049c44126af7b666f2fe220364eadd646bc74a60bca1a7a33a",
       "missing_snippets": [],
       "status": "passed"
     },
@@ -67,7 +67,7 @@
       "key": "repo_verify",
       "path": "/docker/chummercomplete/chummer-core-engine/scripts/ai/verify.sh",
       "exists": true,
-      "digest": "sha256:d9d68d1a43f51d714eb1ee9ea152551053fc1424c19e37995bbbaa1d2af4f7d8",
+      "digest": "sha256:39fc18c13df99af157396f5000883ab7ea36f66180714be0dc3cac7c723c1872",
       "missing_snippets": [],
       "status": "passed"
     },
@@ -85,7 +85,7 @@
       "key": "successor_registry",
       "path": "/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml",
       "exists": true,
-      "digest": "sha256:900765c301ae4b0ea988d61f338f1979850dea869a759626ec71902053fdf84b",
+      "digest": "sha256:ace86dcc0d68ec77951fa72b14f98c083ab4d668410dd32293b81cfcd2380a8f",
       "missing_snippets": [],
       "status": "passed"
     },
@@ -93,7 +93,7 @@
       "key": "successor_queue",
       "path": "/docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml",
       "exists": true,
-      "digest": "sha256:d6b83f9b76074b23d90d581ebcaf27fc25cd3ff410511d47225599e188ea86f3",
+      "digest": "sha256:653d06efce9d6f13bb56e0e95795db7d39609a0e39da449e8907c9ea3713ad07",
       "missing_snippets": [],
       "status": "passed"
     }
