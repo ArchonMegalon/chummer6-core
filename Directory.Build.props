@@ -3,6 +3,7 @@
     <MaxCpuCount>1</MaxCpuCount>
     <RestoreUseStaticGraphEvaluation>false</RestoreUseStaticGraphEvaluation>
     <DefaultItemExcludes>$(DefaultItemExcludes);**/obj_tmp/**</DefaultItemExcludes>
+    <RestorePackagesPath Condition="'$(RestorePackagesPath)' == ''">$(MSBuildThisFileDirectory).tmp/nuget/packages</RestorePackagesPath>
     <ChummerEngineContractsPackageVersion>0.0.0-local</ChummerEngineContractsPackageVersion>
     <ChummerDesktopRuntimeIdentifiers Condition="'$(ChummerDesktopRuntimeIdentifiers)' == ''">linux-x64;linux-arm64;win-x64;win-arm64;osx-arm64;osx-x64</ChummerDesktopRuntimeIdentifiers>
     <ChummerLocalContractsProject Condition="'$(ChummerLocalContractsProject)' == '' and Exists('$(MSBuildThisFileDirectory)Chummer.Contracts/Chummer.Contracts.csproj')">$(MSBuildThisFileDirectory)Chummer.Contracts/Chummer.Contracts.csproj</ChummerLocalContractsProject>

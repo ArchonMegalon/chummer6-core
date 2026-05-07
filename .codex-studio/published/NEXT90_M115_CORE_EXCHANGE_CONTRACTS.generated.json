@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-05-05T09:08:00Z",
+  "generated_at": "2026-05-07T13:21:24Z",
   "status": "passed",
   "package_id": "next90-m115-core-exchange-contracts",
   "frontier_id": 2537363316,
@@ -36,7 +36,7 @@
       "key": "workspace_service",
       "path": "/docker/chummercomplete/chummer-core-engine/Chummer.Application/Workspaces/WorkspaceService.cs",
       "exists": true,
-      "digest": "sha256:b4967ba595375ace43a3c45e188f3877932bec4a23bb58fffedbff98842b98c3",
+      "digest": "sha256:38d20701b00c43dc595e76cb111d019571ec9bc33f248bccc3c968ccfb025f33",
       "missing_snippets": [],
       "status": "passed"
     },
@@ -44,7 +44,7 @@
       "key": "core_engine_tests",
       "path": "/docker/chummercomplete/chummer-core-engine/Chummer.CoreEngine.Tests/Program.cs",
       "exists": true,
-      "digest": "sha256:9ee6f1f2f90d2eab6f3173b70f410f758a9c6c5e64409cc1cee2bce4567d4b31",
+      "digest": "sha256:8d0d1c3c134365f1f70fdb054c6ac5c32ccdca68822556522fc35644dff7aafc",
       "missing_snippets": [],
       "status": "passed"
     },
@@ -52,7 +52,7 @@
       "key": "workspace_tests",
       "path": "/docker/chummercomplete/chummer-core-engine/Chummer.Tests/WorkspaceServiceTests.cs",
       "exists": true,
-      "digest": "sha256:8fb6036953fdc42f72b909f81e9b5543e2cf1f652d98a73bfa16b37f326fdffc",
+      "digest": "sha256:b676118645af9d50e3248983800f7c08c8b392a1d39f98daeb52fb8b4e97f0de",
       "missing_snippets": [],
       "status": "passed"
     },
@@ -60,7 +60,7 @@
       "key": "repo_verify",
       "path": "/docker/chummercomplete/chummer-core-engine/scripts/ai/verify.sh",
       "exists": true,
-      "digest": "sha256:d9d68d1a43f51d714eb1ee9ea152551053fc1424c19e37995bbbaa1d2af4f7d8",
+      "digest": "sha256:5912bc1df8bf2ece7f70f918b53124d78637d9fe573f986bf227926e3283eee8",
       "missing_snippets": [],
       "status": "passed"
     },
@@ -94,7 +94,7 @@
       "key": "successor_registry",
       "path": "/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml",
       "exists": true,
-      "digest": "sha256:c98b3e5d7600efc0c81dc4fd2fd0dd4dd78da0a533c7cdbe136f4dbf23abcefb",
+      "digest": "sha256:9c79185e3659c39ff55bff79c070bd5b4176441694fd382e4d8b6fffd2ff25d7",
       "missing_snippets": [],
       "status": "passed"
     },
@@ -102,7 +102,7 @@
       "key": "successor_queue",
       "path": "/docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml",
       "exists": true,
-      "digest": "sha256:16726f08bc4a2e1f8f3132fcf3b2361765dfd1224e76c2ab8a17e99a81a813cf",
+      "digest": "sha256:54e2c81910f1f9a9a7ec6d6460bb228d907327087fd1527dbe2891352892cc74",
       "missing_snippets": [],
       "status": "passed"
     },
@@ -110,7 +110,7 @@
       "key": "design_successor_queue",
       "path": "/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_QUEUE_STAGING.generated.yaml",
       "exists": true,
-      "digest": "sha256:8875d08175673a6a19a7daa84d724bc0fd21a37f991c3e2331d5bb648de3a050",
+      "digest": "sha256:39e43d779a6d5e34e0c5f7bca07cd79c241bbd220d4537ede65c8e97d694de6f",
       "missing_snippets": [],
       "status": "passed"
     }

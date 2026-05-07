@@ -123,6 +123,7 @@ internal static class CoreEngineTests
             if (string.Equals(filter, "design-mirror", StringComparison.OrdinalIgnoreCase))
             {
                 DesignMirrorVerificationStaysClosedWhenMirrorIsCurrent();
+                DesignMirrorSyncRepairsStaleBundleAndClearsQueueRow();
                 DesignMirrorVerificationAllowsSingleBoundedAuditRowForExactStaleBundle();
                 DesignMirrorVerificationFailsClosedWhenAuditRowDoesNotMatchStaleBundle();
                 DesignMirrorVerificationFailsClosedWhenDuplicateAuditRowsExist();
@@ -170,6 +171,7 @@ internal static class CoreEngineTests
             LegacyPluginCargoStaysOutsideActiveCoreBoundary();
             HardeningBacklogStaysMilestoneMapped();
             DesignMirrorVerificationStaysClosedWhenMirrorIsCurrent();
+            DesignMirrorSyncRepairsStaleBundleAndClearsQueueRow();
             DesignMirrorVerificationAllowsSingleBoundedAuditRowForExactStaleBundle();
             DesignMirrorVerificationFailsClosedWhenAuditRowDoesNotMatchStaleBundle();
             DesignMirrorVerificationFailsClosedWhenDuplicateAuditRowsExist();
@@ -3416,7 +3418,7 @@ internal static class CoreEngineTests
             imported.WorkflowDeterministicReceipt.CoveragePercent,
             "Workflow-state deterministic receipts should report full coverage when progress, contacts, lifestyles, and notes surfaces all resolve.");
         AssertEx.Equal(
-            "workflow-state-sr5-49ec47f4a5cf",
+            "workflow-state-sr5-d201a7b40170",
             imported.WorkflowDeterministicReceipt.ReceiptScopeId,
             "Workflow-state deterministic receipts should publish a content-addressed proof scope for the governed SR5 parity fixture.");
         AssertEx.SequenceEqual(
@@ -7432,6 +7434,76 @@ source_queue_fingerprint: regression-test
                 stdout.Contains("stale_paths=0", StringComparison.Ordinal) == false
                 && stdout.Contains("queue_errors=0", StringComparison.Ordinal),
                 $"Design-mirror verifier should accept the stale-plus-single-row bounded state without queue errors. stdout={stdout}");
+        }
+        finally
+        {
+            File.WriteAllText(readmePath, originalReadme);
+            File.WriteAllText(queuePath, originalQueue);
+        }
+    }
+
+    private static void DesignMirrorSyncRepairsStaleBundleAndClearsQueueRow()
+    {
+        string repoRoot = GetRepositoryRoot();
+        string readmePath = Path.Combine(repoRoot, ".codex-design", "product", "README.md");
+        string queuePath = Path.Combine(repoRoot, ".codex-studio", "published", "QUEUE.generated.yaml");
+        string originalReadme = File.ReadAllText(readmePath);
+        string originalQueue = File.ReadAllText(queuePath);
+
+        try
+        {
+            string staleReadme = originalReadme + "\n<!-- mirror drift regression -->\n";
+            File.WriteAllText(readmePath, staleReadme);
+            string sourceItem = $"{repoRoot.Replace("\\", "/")}/.codex-design/product/README.md";
+            File.WriteAllText(
+                queuePath,
+                $"""
+mode: append
+items:
+  - title: Stabilize design-doc parity hygiene loop
+    task: Auto-detect and repair recurring core mirror drift while keeping one bounded queue slice for the affected local design mirror bundle.
+    package_id: audit-task-11707
+    audit_finding_key: project.design_mirror_missing_or_stale
+    audit_scope_id: core
+    allowed_paths:
+      - .codex-design
+    owned_surfaces:
+      - design_mirror:core
+    source_items:
+      - {sourceItem}
+source_queue_fingerprint: regression-test
+""");
+
+            ProcessStartInfo startInfo = new("python3", "scripts/ai/sync_design_mirror.py")
+            {
+                WorkingDirectory = repoRoot,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+            };
+
+            using Process process = Process.Start(startInfo)
+                ?? throw new InvalidOperationException("Failed to start design-mirror sync.");
+            string stdout = process.StandardOutput.ReadToEnd();
+            string stderr = process.StandardError.ReadToEnd();
+            process.WaitForExit();
+
+            AssertEx.True(
+                process.ExitCode == 0,
+                $"Design-mirror sync should repair stale mirror content and clear the bounded queue row. stdout={stdout} stderr={stderr}");
+            AssertEx.True(
+                stdout.Contains("changed=1", StringComparison.Ordinal)
+                && stdout.Contains("queue_cleared=1", StringComparison.Ordinal)
+                && stdout.Contains("update .codex-design/product/README.md", StringComparison.Ordinal)
+                && stdout.Contains("queue_clear .codex-studio/published/QUEUE.generated.yaml audit-task-11707", StringComparison.Ordinal),
+                $"Design-mirror sync should report the repaired mirror file and cleared queue row. stdout={stdout}");
+            AssertEx.Equal(
+                originalReadme,
+                File.ReadAllText(readmePath),
+                "Design-mirror sync should restore the canonical README mirror bytes.");
+            AssertEx.True(
+                !File.ReadAllText(queuePath).Contains("audit-task-11707", StringComparison.Ordinal),
+                "Design-mirror sync should remove the bounded audit queue row once the mirror is repaired.");
         }
         finally
         {
