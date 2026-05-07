@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-05-07T12:58:36Z",
+  "generated_at": "2026-05-07T13:41:11Z",
   "status": "passed",
   "package_id": "next90-m121-core-implement-actionbudgetresult-actionaffordance-turnledger",
   "frontier_id": 1122632660,
@@ -51,7 +51,7 @@
       "key": "test_program",
       "path": "/docker/chummercomplete/chummer-core-engine/Chummer.CoreEngine.Tests/Program.cs",
       "exists": true,
-      "digest": "sha256:146ad67ae35dbee9507ed74935c7bfc9d0eba708d15b56991c2fbac2900383b6",
+      "digest": "sha256:8d0d1c3c134365f1f70fdb054c6ac5c32ccdca68822556522fc35644dff7aafc",
       "missing_snippets": [],
       "status": "passed"
     },

@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-05-07T12:57:52Z",
+  "generated_at": "2026-05-07T13:39:41Z",
   "status": "passed",
   "package_id": "next90-m143-core-keep-export-print-supplement-and-rule-environment-receipts-deterministi",
   "frontier_id": 2778308338,
@@ -63,7 +63,7 @@
       "key": "test_program",
       "path": "/docker/chummercomplete/chummer-core-engine/Chummer.CoreEngine.Tests/Program.cs",
       "exists": true,
-      "digest": "sha256:146ad67ae35dbee9507ed74935c7bfc9d0eba708d15b56991c2fbac2900383b6",
+      "digest": "sha256:8d0d1c3c134365f1f70fdb054c6ac5c32ccdca68822556522fc35644dff7aafc",
       "digest_scope": "full-file",
       "missing_snippets": [],
       "status": "passed"
