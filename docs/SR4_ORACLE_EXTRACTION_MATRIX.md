@@ -9,7 +9,7 @@ Purpose: turn the historical `chummer5a/chummer` SR4 archive into an explicit ex
 | Runtime registration | scaffolded only; not part of default runtime path | `docs/MIGRATION_BACKLOG.md` | SR4 cannot ship by accident; promotion must be gated by parity proof. |
 | Plugin shell/catalogs | present | `Chummer.Rulesets.Sr4/Sr4ShellCatalogs.cs` | workbench seams exist, so engine work can land without inventing new UI contracts. |
 | Workspace codec | partial | `Chummer.Rulesets.Sr4/Sr4WorkspaceCodec.cs` | import/export shape exists, but most section projections still need real parsing. |
-| Rule/script execution | not implemented | `Chummer.Rulesets.Sr4/Sr4RulesetPlugin.cs` | deterministic SR4 capability providers do not exist yet. |
+| Rule/script execution | baseline deterministic host wired for `derive.stat` and `session.quick-actions` only | `Chummer.Rulesets.Sr4/Sr4RulesetPlugin.cs` | SR4 no longer fails as a pure unavailable host, but subsystem depth is still far from parity. |
 | Test posture | partial scaffold coverage only | `Chummer.CoreEngine.Tests/Program.cs` and `Chummer.Tests/RulesetSeamContractsTests.cs` | SR4 still lacks a parity corpus and executable rules-coverage gate. |
 
 ## Legacy oracle inputs

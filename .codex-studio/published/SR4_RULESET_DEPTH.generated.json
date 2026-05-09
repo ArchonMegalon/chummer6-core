@@ -1,0 +1,44 @@
+{
+  "contract_name": "chummer-core.sr4_ruleset_depth",
+  "status": "pass",
+  "generated_at": "2026-05-08T18:34:35.566887Z",
+  "ruleset_id": "sr4",
+  "display_name": "Shadowrun 4",
+  "claim_ceiling": "partial",
+  "serious_implementation_claim": "not_allowed",
+  "claim_summary": "SR4 has a deterministic baseline host plus a broad XML projection layer, but it is not a serious rules-complete SR4 implementation.",
+  "code_summary": {
+    "workflow_count": 11,
+    "surface_count": 6,
+    "capability_ids": [
+      "derive.stat",
+      "session.quick-actions"
+    ],
+    "section_ids": [
+      "armors",
+      "attributedetails",
+      "attributes",
+      "build",
+      "build-lab",
+      "calendar",
+      "contacts",
+      "lifestyles",
+      "powers",
+      "rules",
+      "skills"
+    ],
+    "supports_wrap_import": true,
+    "supports_parse_summary": true,
+    "supports_parse_section": true,
+    "supports_validate": true,
+    "supports_update_metadata": true,
+    "supports_build_download": true,
+    "supports_export_bundle": true,
+    "delegates_shared_section_queries": false,
+    "contains_empty_stub_sections": true
+  },
+  "evidence_sources": [
+    "Chummer.Rulesets.Sr4/Sr4RulesetPlugin.cs",
+    "Chummer.Rulesets.Sr4/Sr4WorkspaceCodec.cs"
+  ]
+}
