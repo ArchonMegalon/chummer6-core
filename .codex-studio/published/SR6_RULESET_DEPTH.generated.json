@@ -1,0 +1,42 @@
+{
+  "contract_name": "chummer-core.sr6_ruleset_depth",
+  "status": "pass",
+  "generated_at": "2026-05-08T18:34:35.567586Z",
+  "ruleset_id": "sr6",
+  "display_name": "Shadowrun 6",
+  "claim_ceiling": "no",
+  "serious_implementation_claim": "not_allowed",
+  "claim_summary": "SR6 currently exposes shell/import scaffolding and a deterministic baseline host, but the section and rules depth remain skeletal.",
+  "code_summary": {
+    "workflow_count": 11,
+    "surface_count": 6,
+    "capability_ids": [
+      "derive.stat",
+      "session.quick-actions"
+    ],
+    "section_ids": [
+      "attributes",
+      "build-lab",
+      "contacts",
+      "inventory",
+      "profile",
+      "progress",
+      "qualities",
+      "rules",
+      "skills"
+    ],
+    "supports_wrap_import": true,
+    "supports_parse_summary": true,
+    "supports_parse_section": true,
+    "supports_validate": true,
+    "supports_update_metadata": true,
+    "supports_build_download": true,
+    "supports_export_bundle": true,
+    "delegates_shared_section_queries": false,
+    "contains_empty_stub_sections": true
+  },
+  "evidence_sources": [
+    "Chummer.Rulesets.Sr6/Sr6RulesetPlugin.cs",
+    "Chummer.Rulesets.Sr6/Sr6WorkspaceCodec.cs"
+  ]
+}

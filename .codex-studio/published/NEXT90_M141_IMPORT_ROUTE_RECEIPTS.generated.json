@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-05-06T12:54:00Z",
+  "generated_at": "2026-05-06T23:00:49Z",
   "status": "passed",
   "package_id": "next90-m141-core-bind-import-oracle-custom-data-and-amend-package-flows-to-deterministic",
   "frontier_id": 4304178368,
@@ -91,7 +91,7 @@
       "key": "repo_verify",
       "path": "/docker/chummercomplete/chummer-core-engine/scripts/ai/verify.sh",
       "exists": true,
-      "digest": "sha256:39fc18c13df99af157396f5000883ab7ea36f66180714be0dc3cac7c723c1872",
+      "digest": "sha256:5912bc1df8bf2ece7f70f918b53124d78637d9fe573f986bf227926e3283eee8",
       "digest_scope": "full-file",
       "missing_snippets": [],
       "status": "passed"
@@ -100,7 +100,7 @@
       "key": "engine_proof_pack_generator",
       "path": "/docker/chummercomplete/chummer-core-engine/scripts/generate-engine-proof-pack.py",
       "exists": true,
-      "digest": "sha256:f53827219ecb7b14268e08fe9b6d45cb99d4346f25023eb132d0e42355dc0098",
+      "digest": "sha256:08e0c388674dee437644310006e6f69e322edf740ac00ebea3928e9f677b28ce",
       "digest_scope": "full-file",
       "missing_snippets": [],
       "status": "passed"
@@ -109,7 +109,7 @@
       "key": "engine_proof_pack_generator_tests",
       "path": "/docker/chummercomplete/chummer-core-engine/tests/test_engine_proof_pack_generator.py",
       "exists": true,
-      "digest": "sha256:6b9d3a8b26ccd3bb68be9502b21304ebb0f56ce15859051e56df6099474543ff",
+      "digest": "sha256:61284513a6f69e38bc78d5b7c4f1c27d13090ef0d234c3a3fc0521e5e7701d9b",
       "digest_scope": "full-file",
       "missing_snippets": [],
       "status": "passed"

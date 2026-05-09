@@ -1,0 +1,14 @@
+{
+  "contract_name": "chummer.core_engine.sr4_claim_retirement",
+  "status": "pass",
+  "generated_at": "2026-05-08T20:02:00.000000Z",
+  "ruleset": "SR4",
+  "claim_status": "retired",
+  "summary": "SR4 serious-support claim explicitly retired. The product does not intend to provide serious SR4 implementation coverage. All public and internal product copy has been audited and updated to reflect bounded baseline-host posture only.",
+  "retirement_scope": [
+    "serious SR4 implementation claims",
+    "production-grade SR4 workflow promises",
+    "SR4 acceptance-proof coverage expectations"
+  ],
+  "abs_ids": ["ABS-003"]
+}

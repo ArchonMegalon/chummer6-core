@@ -2386,11 +2386,12 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
         queue_path = Path(self.generator.SUCCESSOR_WAVE_PACKAGE["source_queue_path"])
         queue_text = queue_path.read_text(encoding="utf-8")
         original = (
-            "      - /docker/chummercomplete/chummer-core-engine commit 8dd516ef makes failed engine proof pack generation exit nonzero while still writing diagnostic receipts.\n"
+            "      - /docker/chummercomplete/chummer-core-engine commit 8dd516ef makes failed engine proof pack generation exit nonzero while still\n"
+            "        writing diagnostic receipts.\n"
         )
         wrapped = (
-            "      - /docker/chummercomplete/chummer-core-engine commit 8dd516ef makes failed engine proof pack generation exit nonzero\n"
-            "        while still writing diagnostic receipts.\n"
+            "      - /docker/chummercomplete/chummer-core-engine commit 8dd516ef makes failed engine proof pack\n"
+            "        generation exit nonzero while still writing diagnostic receipts.\n"
         )
         queue_path.write_text(queue_text.replace(original, wrapped), encoding="utf-8")
 

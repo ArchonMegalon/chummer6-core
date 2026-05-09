@@ -1,0 +1,24 @@
+{
+  "contract_name": "chummer.core_engine.sr5_acceptance_proof",
+  "status": "pass",
+  "generated_at": "2026-05-08T20:02:00.000000Z",
+  "summary": "SR5 acceptance proof passed. Core workflow set is supported end-to-end with production-grade rule execution.",
+  "ruleset": "SR5",
+  "claim_ceiling": "serious",
+  "serious_implementation_claim": "allowed",
+  "evidence_receipts": [
+    ".codex-studio/published/SR5_RULESET_DEPTH.generated.json",
+    "/docker/chummercomplete/chummer-core-engine/.codex-studio/published/SR5_RULESET_DEPTH.generated.json"
+  ],
+  "accepted_workflows": [
+    "character_creation_economics_validation",
+    "inventory_legality_availability",
+    "qualities_augment_magic_resonance_flows",
+    "explainable_rule_execution",
+    "import_export_round_trip_fidelity"
+  ],
+  "coverage_threshold": "production_grade",
+  "abs_ids": [
+    "ABS-006"
+  ]
+}

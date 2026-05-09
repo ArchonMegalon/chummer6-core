@@ -841,12 +841,26 @@ def _extract_yaml_list_values(block: str, key: str) -> list[str]:
 
 
 def _extract_yaml_scalar_value(block: str, key: str) -> str:
-    for line in block.splitlines():
+    lines = block.splitlines()
+    for index, line in enumerate(lines):
         stripped = line.lstrip()
         prefix = f"{key}:"
         if not stripped.startswith(prefix):
             continue
-        return stripped[len(prefix) :].strip()
+        value = stripped[len(prefix) :].strip()
+        key_indent = len(line) - len(stripped)
+        continuations: list[str] = []
+        for continuation in lines[index + 1 :]:
+            continuation_stripped = continuation.lstrip()
+            if not continuation_stripped:
+                break
+            continuation_indent = len(continuation) - len(continuation_stripped)
+            if continuation_indent <= key_indent or continuation_stripped.startswith("- "):
+                break
+            continuations.append(continuation_stripped)
+        if continuations:
+            return " ".join([value, *continuations]).strip()
+        return value
     return ""
 
 

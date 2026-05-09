@@ -1,0 +1,32 @@
+{
+  "contract_name": "chummer-core.sr5_ruleset_depth",
+  "status": "pass",
+  "generated_at": "2026-05-08T18:34:35.567337Z",
+  "ruleset_id": "sr5",
+  "display_name": "Shadowrun 5",
+  "claim_ceiling": "partial",
+  "serious_implementation_claim": "bounded_partial",
+  "claim_summary": "SR5 is the strongest ruleset lane in this repo set, but the current host and receipt set still support only a bounded partial seriousness claim.",
+  "code_summary": {
+    "workflow_count": 11,
+    "surface_count": 6,
+    "capability_ids": [
+      "derive.stat",
+      "session.quick-actions"
+    ],
+    "section_ids": [],
+    "supports_wrap_import": true,
+    "supports_parse_summary": true,
+    "supports_parse_section": true,
+    "supports_validate": true,
+    "supports_update_metadata": true,
+    "supports_build_download": true,
+    "supports_export_bundle": true,
+    "delegates_shared_section_queries": true,
+    "contains_empty_stub_sections": false
+  },
+  "evidence_sources": [
+    "Chummer.Rulesets.Sr5/Sr5RulesetPlugin.cs",
+    "Chummer.Rulesets.Sr5/Sr5WorkspaceCodec.cs"
+  ]
+}

@@ -25,6 +25,7 @@ test -f docs/LEGACY_PLUGIN_PURIFICATION_INCREMENT_WL111.md
 test -f docs/LEGACY_PLUGIN_AND_HELPER_OPERATIONAL_EVIDENCE_WL112.md
 test -f docs/CHUMMER_CONTRACTS_MIGRATION_AND_VERIFY_WL113_3.md
 test -f docs/CAMPAIGN_ENGINE_RECOVERY_CONTRACTS_WL200_203.md
+test -f scripts/ai/sync_design_mirror.py
 test -f scripts/ai/verify_design_mirror.py
 rg -n 'HttpAiProviderTransportClient|EnvironmentAiProviderCredentialCatalog|EnvironmentAiProviderTransportOptionsCatalog|RemoteHttpAiProvider|AddLegacyEnvironmentAiTransportCompatibility|EmptyAiProviderCredentialCatalog|EmptyAiProviderTransportOptionsCatalog|WL-D020' docs/AI_PROVIDER_TRANSPORT_BOUNDARY.md >/dev/null
 rg -n 'EXPLAIN_AND_RUNTIME_CANON\.md|scripts/runbook\.sh|scripts/migration-loop\.sh|DualHeadAcceptanceTests|MigrationComplianceTests|RUNBOOK_MODE=local-tests' docs/CORE_RUNTIME_RESTORE_RUNBOOK.md >/dev/null
@@ -151,6 +152,7 @@ CHUMMER_CORE_ENGINE_TEST_FILTER=core-exchange-contracts dotnet run --project Chu
 python3 tests/test_next90_m115_core_exchange_contracts.py
 python3 scripts/verify-next90-m115-core-exchange-contracts.py --repo-root . --out .codex-studio/published/NEXT90_M115_CORE_EXCHANGE_CONTRACTS.generated.json --check
 python3 scripts/generate-engine-proof-pack.py --check
+python3 scripts/ai/sync_design_mirror.py >/dev/null
 python3 scripts/ai/verify_design_mirror.py
 rg -n '"queue_completion_action": "verify_closed_package_only"|"design_queue_completion_action": "verify_closed_package_only"|"queue_do_not_reopen_reason": "M104 chummer6-core engine proof pack is complete; future shards must verify this receipt, queue row, design queue row, and closeout note instead of reopening the proof-pack package\."|"design_queue_do_not_reopen_reason": "M104 chummer6-core engine proof pack is complete; future shards must verify this receipt, queue row, design queue row, and closeout note instead of reopening the proof-pack package\."|"queue_closure_field_drift": \[\]|"published_import_oracle_names": \[|"published_adjacent_oracle_names": \[|"malformed_import_oracle_rows": \[\]|"malformed_adjacent_oracle_rows": \[\]|"unexpected_import_oracle_names": \[\]|"unexpected_adjacent_oracle_names": \[\]' .codex-studio/published/ENGINE_PROOF_PACK.generated.json >/dev/null
 
