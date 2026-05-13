@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-05-07T13:21:23Z",
+  "generated_at": "2026-05-13T00:47:21Z",
   "status": "passed",
   "package_id": "next90-m114-core-rule-environment-studio",
   "frontier_id": 1542103988,
@@ -85,7 +85,7 @@
       "key": "successor_registry",
       "path": "/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml",
       "exists": true,
-      "digest": "sha256:9c79185e3659c39ff55bff79c070bd5b4176441694fd382e4d8b6fffd2ff25d7",
+      "digest": "sha256:52f226d7a4043d33eed12287db7c4060de5305c6c728e150c1525c4ea1f6fa41",
       "missing_snippets": [],
       "status": "passed"
     },
@@ -93,7 +93,7 @@
       "key": "successor_queue",
       "path": "/docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml",
       "exists": true,
-      "digest": "sha256:54e2c81910f1f9a9a7ec6d6460bb228d907327087fd1527dbe2891352892cc74",
+      "digest": "sha256:fa9f621dc6eddb503ec60c0905df3377cd36a78459b9b530293c14e28bbaf81d",
       "missing_snippets": [],
       "status": "passed"
     }

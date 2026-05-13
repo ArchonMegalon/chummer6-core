@@ -87,8 +87,8 @@ class Next90M122CampaignAdvanceReceiptTests(unittest.TestCase):
         self.assertEqual(
             {
                 "successor_registry": 1,
-                "successor_queue": 2,
-                "design_successor_queue": 2,
+                "successor_queue": 1,
+                "design_successor_queue": 1,
             },
             payload["authority_row_counts"],
         )
@@ -230,8 +230,8 @@ class Next90M122CampaignAdvanceReceiptTests(unittest.TestCase):
             payload = self.generator.build_payload(REPO_ROOT, self.output_path)
 
             self.assertEqual("failed", payload["status"])
-            self.assertEqual(3, payload["authority_row_counts"]["successor_queue"])
-            self.assertEqual({"successor_queue": 3}, payload["unresolved"]["authority_row_issues"])
+            self.assertEqual(2, payload["authority_row_counts"]["successor_queue"])
+            self.assertEqual({"successor_queue": 2}, payload["unresolved"]["authority_row_issues"])
         finally:
             queue_path.write_text(queue_text, encoding="utf-8")
 
@@ -264,8 +264,8 @@ class Next90M122CampaignAdvanceReceiptTests(unittest.TestCase):
             payload = self.generator.build_payload(REPO_ROOT, self.output_path)
 
             self.assertEqual("failed", payload["status"])
-            self.assertEqual(3, payload["authority_row_counts"]["design_successor_queue"])
-            self.assertEqual({"design_successor_queue": 3}, payload["unresolved"]["authority_row_issues"])
+            self.assertEqual(2, payload["authority_row_counts"]["design_successor_queue"])
+            self.assertEqual({"design_successor_queue": 2}, payload["unresolved"]["authority_row_issues"])
         finally:
             queue_path.write_text(queue_text, encoding="utf-8")
 

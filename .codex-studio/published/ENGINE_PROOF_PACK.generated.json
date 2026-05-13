@@ -1,7 +1,7 @@
 {
   "contract_name": "chummer6-core.engine_proof_pack",
   "schema_version": 1,
-  "generated_at": "2026-05-07T13:21:34Z",
+  "generated_at": "2026-05-13T00:44:11Z",
   "status": "passed",
   "proof_kind": "release_bound_engine_proof",
   "milestone_id": 104,
@@ -1378,7 +1378,7 @@
   "release_channel_binding": {
     "status": "passed",
     "source_receipt_path": "/docker/chummercomplete/chummer-hub-registry/.codex-studio/published/RELEASE_CHANNEL.generated.json",
-    "channel_id": "preview",
+    "channel_id": "docker",
     "version": "run-20260503-163502",
     "release_channel_status": "published",
     "rollout_state": "promoted_preview",
