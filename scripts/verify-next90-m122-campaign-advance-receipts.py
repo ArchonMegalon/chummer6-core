@@ -161,8 +161,8 @@ AUTHORITY_ROW_MARKERS = {
 
 EXPECTED_AUTHORITY_ROW_COUNTS = {
     "successor_registry": 1,
-    "successor_queue": 2,
-    "design_successor_queue": 2,
+    "successor_queue": 1,
+    "design_successor_queue": 1,
 }
 
 

@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-05-07T18:01:13Z",
+  "generated_at": "2026-05-13T00:53:00Z",
   "status": "passed",
   "package_id": "next90-m122-core-add-deterministic-reward-downtime-goal-update-and-conseq",
   "frontier_id": 1771239378,
@@ -119,7 +119,7 @@
       "key": "successor_queue",
       "path": "/docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml",
       "exists": true,
-      "digest": "sha256:0159e72e39d5d995181249095d483faa8f2a0e393225dbaf22fc91a4ec653f72",
+      "digest": "sha256:273eee49e219d5466722ce5d9bf11cab1d893ce63fb0a05de27d97051ce1e68c",
       "digest_scope": "package-rows",
       "missing_snippets": [],
       "status": "passed"
@@ -128,7 +128,7 @@
       "key": "design_successor_queue",
       "path": "/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_QUEUE_STAGING.generated.yaml",
       "exists": true,
-      "digest": "sha256:0159e72e39d5d995181249095d483faa8f2a0e393225dbaf22fc91a4ec653f72",
+      "digest": "sha256:273eee49e219d5466722ce5d9bf11cab1d893ce63fb0a05de27d97051ce1e68c",
       "digest_scope": "package-rows",
       "missing_snippets": [],
       "status": "passed"
@@ -136,8 +136,8 @@
   ],
   "authority_row_counts": {
     "successor_registry": 1,
-    "successor_queue": 2,
-    "design_successor_queue": 2
+    "successor_queue": 1,
+    "design_successor_queue": 1
   },
   "verification_commands": [
     "CHUMMER_CORE_ENGINE_TEST_FILTER=next90-m122-campaign-advance-receipts dotnet run --project Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj -m:1 -p:UseSharedCompilation=false",

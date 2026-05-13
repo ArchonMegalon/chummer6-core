@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-05-07T17:58:12Z",
+  "generated_at": "2026-05-13T00:52:02Z",
   "status": "passed",
   "package_id": "next90-m142-core-keep-initiative-action-notes-and-workflow-state-receipts-deterministic",
   "frontier_id": 7923205254,
@@ -128,7 +128,7 @@
       "key": "successor_registry",
       "path": "/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml",
       "exists": true,
-      "digest": "sha256:6c99a91062a0dcaded4a467952259818fe16a6f7799d4abae857048693b2d154",
+      "digest": "sha256:4e99984508c15d9b3b1b8d63948a02ceb76d417b6a2d053a13baefb2d547c096",
       "digest_scope": "milestone-row",
       "missing_snippets": [],
       "status": "passed"
