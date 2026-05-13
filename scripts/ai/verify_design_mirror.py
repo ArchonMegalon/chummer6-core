@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import sys
 from collections import Counter
+import json
 from pathlib import Path
 
 import yaml
@@ -12,6 +13,31 @@ from sync_design_mirror import DESIGN_ROOT, REPO_ROOT, expand_product_sources, l
 
 
 QUEUE_PATH = REPO_ROOT / ".codex-studio" / "published" / "QUEUE.generated.yaml"
+WEEKLY_PRODUCT_PULSE_PATH = REPO_ROOT / ".codex-design" / "product" / "WEEKLY_PRODUCT_PULSE.generated.json"
+
+
+def mirror_files_match(source: Path, destination: Path) -> bool:
+    if not destination.is_file():
+        return False
+
+    if source.read_bytes() == destination.read_bytes():
+        return True
+
+    if destination == WEEKLY_PRODUCT_PULSE_PATH:
+        try:
+            source_payload = json.loads(source.read_text(encoding="utf-8"))
+            destination_payload = json.loads(destination.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            return False
+
+        if isinstance(source_payload, dict) and isinstance(destination_payload, dict):
+            source_payload = dict(source_payload)
+            destination_payload = dict(destination_payload)
+            source_payload.pop("generated_at", None)
+            destination_payload.pop("generated_at", None)
+            return source_payload == destination_payload
+
+    return False
 
 
 def get_core_mirror(manifest: dict[str, object]) -> dict[str, object]:
@@ -41,7 +67,7 @@ def collect_stale_paths(manifest: dict[str, object], mirror: dict[str, object]) 
         source = DESIGN_ROOT / source_rel
         destination = REPO_ROOT / relative_product_target(source_rel, duplicate_basenames, product_target)
         expected_product_files.add(destination.relative_to(REPO_ROOT))
-        if not destination.is_file() or source.read_bytes() != destination.read_bytes():
+        if not mirror_files_match(source, destination):
             stale.append(str(destination.relative_to(REPO_ROOT)))
 
     product_root = REPO_ROOT / product_target
@@ -53,12 +79,12 @@ def collect_stale_paths(manifest: dict[str, object], mirror: dict[str, object]) 
 
     repo_source = DESIGN_ROOT / str(mirror.get("repo_source") or "").strip()
     repo_target = REPO_ROOT / str(mirror.get("repo_target") or ".codex-design/repo/IMPLEMENTATION_SCOPE.md").strip()
-    if repo_source.is_file() and (not repo_target.is_file() or repo_source.read_bytes() != repo_target.read_bytes()):
+    if repo_source.is_file() and not mirror_files_match(repo_source, repo_target):
         stale.append(str(repo_target.relative_to(REPO_ROOT)))
 
     review_source = DESIGN_ROOT / str(mirror.get("review_source") or "").strip()
     review_target = REPO_ROOT / str(mirror.get("review_target") or ".codex-design/review/REVIEW_CONTEXT.md").strip()
-    if review_source.is_file() and (not review_target.is_file() or review_source.read_bytes() != review_target.read_bytes()):
+    if review_source.is_file() and not mirror_files_match(review_source, review_target):
         stale.append(str(review_target.relative_to(REPO_ROOT)))
 
     return stale

@@ -4,6 +4,7 @@ from __future__ import annotations
 import shutil
 import sys
 from collections import Counter
+import json
 from pathlib import Path
 
 import yaml
@@ -13,6 +14,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 DESIGN_ROOT = REPO_ROOT.parent / "chummer-design"
 MANIFEST_PATH = DESIGN_ROOT / "products" / "chummer" / "sync" / "sync-manifest.yaml"
 QUEUE_PATH = REPO_ROOT / ".codex-studio" / "published" / "QUEUE.generated.yaml"
+WEEKLY_PRODUCT_PULSE_RELATIVE_PATH = Path("products/chummer/WEEKLY_PRODUCT_PULSE.generated.json")
 
 
 def load_manifest() -> dict[str, object]:
@@ -56,8 +58,32 @@ def relative_product_target(source_rel: str, duplicate_basenames: set[str], prod
     return Path(product_target) / relative_source
 
 
+def files_match(source: Path, destination: Path) -> bool:
+    if not destination.exists():
+        return False
+
+    if source.read_bytes() == destination.read_bytes():
+        return True
+
+    if source.as_posix().endswith(str(WEEKLY_PRODUCT_PULSE_RELATIVE_PATH)):
+        try:
+            source_payload = json.loads(source.read_text(encoding="utf-8"))
+            destination_payload = json.loads(destination.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            return False
+
+        if isinstance(source_payload, dict) and isinstance(destination_payload, dict):
+            source_payload = dict(source_payload)
+            destination_payload = dict(destination_payload)
+            source_payload.pop("generated_at", None)
+            destination_payload.pop("generated_at", None)
+            return source_payload == destination_payload
+
+    return False
+
+
 def copy_if_changed(source: Path, destination: Path) -> bool:
-    if destination.exists() and source.read_bytes() == destination.read_bytes():
+    if files_match(source, destination):
         return False
     destination.parent.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(source, destination)
