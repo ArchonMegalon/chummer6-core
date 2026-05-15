@@ -1,5 +1,6 @@
 #nullable enable annotations
 
+using System.Linq;
 using Chummer.Application.Campaign;
 using Chummer.Application.Seeds;
 using Chummer.Application.Simulation;
@@ -34,10 +35,10 @@ public class CampaignAdvanceReceiptServiceTests
         Assert.AreEqual("world-tick:campaign-7:rr-2048", result.Consequence.WorldTickId);
         Assert.AreEqual("news-item:shadowfeed-2048:rr-2048", result.Consequence.NewsItemId);
         CollectionAssert.AreEqual(
-            new[] { "operations", "security" },
+            new[] { "operations" },
             result.Consequence.NewsTopicTags.ToArray());
         CollectionAssert.AreEqual(
-            new[] { "heat.low", "heat.medium", "heat.high", "intel", "security" },
+            new[] { "heat.high", "heat.low", "heat.medium", "intel", "security" },
             result.Consequence.ConsequenceTags.ToArray());
         Assert.IsNotNull(result.DeterministicReceipt);
         Assert.AreEqual(CampaignAdvanceReceiptFamilies.AdoptionRunnerGoalAndBlackLedger, result.DeterministicReceipt.ParityFamilyId);

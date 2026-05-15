@@ -247,8 +247,8 @@ public class WorkspaceServiceTests
         Assert.AreEqual(WorkspacePortabilityLossStates.BoundedLoss, imported.Portability?.Loss?.State);
         Assert.AreEqual(WorkspacePortabilityRevocationStates.Revocable, imported.Portability?.Revocation?.State);
         Assert.AreEqual("workspace-portability:portable-dossier", imported.Portability?.Revocation?.FamilyId);
-        CollectionAssert.AreEqual(["format-review-required"], imported.Portability?.Compatibility?.WarningCodes?.ToArray());
-        CollectionAssert.AreEqual(["native-workspace-review"], imported.Portability?.Loss?.AffectedSections?.ToArray());
+        CollectionAssert.AreEqual(new[] { "format-review-required" }, imported.Portability?.Compatibility?.WarningCodes?.ToArray());
+        CollectionAssert.AreEqual(new[] { "native-workspace-review" }, imported.Portability?.Loss?.AffectedSections?.ToArray());
         Assert.AreEqual(imported.ImportReceiptId, imported.Portability?.Provenance?.ReceiptId);
         Assert.AreEqual(2, imported.Portability?.Lineage?.Count);
         StringAssert.Contains(imported.Portability?.PortabilityEnvelope?.Summary ?? string.Empty, "Inspect-first import posture");
@@ -683,18 +683,19 @@ public class WorkspaceServiceTests
         Assert.AreEqual(result.Value.PackageId, result.Value.Portability?.Provenance?.ReceiptId);
         Assert.AreEqual(WorkspacePortabilityRevocationStates.Revocable, result.Value.Portability?.Revocation?.State);
         Assert.AreEqual("workspace-portability:portable-dossier", result.Value.Portability?.Revocation?.FamilyId);
-        CollectionAssert.AreEqual([id.Value], result.Value.Portability?.Revocation?.SupersedesArtifactIds?.ToArray());
+        CollectionAssert.AreEqual(new[] { id.Value }, result.Value.Portability?.Revocation?.SupersedesArtifactIds?.ToArray());
         Assert.AreEqual(2, result.Value.Portability?.Lineage?.Count);
         Assert.AreEqual(5, result.Value.Portability?.RelatedOutputs?.Count);
         string packageId = result.Value.PackageId;
         CollectionAssert.AreEquivalent(
-            [
+            new[]
+            {
                 WorkspacePortabilityOutputKinds.PortableDossier,
                 WorkspacePortabilityOutputKinds.CampaignBundle,
                 WorkspacePortabilityOutputKinds.ReplayTimeline,
                 WorkspacePortabilityOutputKinds.SessionRecap,
                 WorkspacePortabilityOutputKinds.ExternalExchange
-            ],
+            },
             result.Value.Portability?.RelatedOutputs?.Select(static output => output.OutputKind).ToArray());
         Assert.IsTrue(
             result.Value.Portability?.RelatedOutputs?.Any(static output => output.OutputKind == WorkspacePortabilityOutputKinds.PortableDossier
@@ -726,7 +727,7 @@ public class WorkspaceServiceTests
                 && string.Equals(output.WorkflowId, "workflow.replay.timeline", StringComparison.Ordinal)
                 && string.Equals(output.Lineage[2].FormatId, WorkspacePortabilityFormatIds.ReplayTimelineV1, StringComparison.Ordinal)
                 && output.PortabilityEnvelope.SupportedExchangeModes.SequenceEqual(
-                    [WorkspacePortabilityExchangeModes.InspectOnly, WorkspacePortabilityExchangeModes.Merge])) == true);
+                    new[] { WorkspacePortabilityExchangeModes.InspectOnly, WorkspacePortabilityExchangeModes.Merge })) == true);
         Assert.IsTrue(
             result.Value.Portability?.RelatedOutputs?.Any(static output => output.OutputKind == WorkspacePortabilityOutputKinds.SessionRecap
                 && string.Equals(output.WorkflowId, "workflow.recap.session", StringComparison.Ordinal)
@@ -765,14 +766,14 @@ public class WorkspaceServiceTests
         Assert.IsNotNull(result.Value?.Portability);
         Assert.AreEqual(WorkspacePortabilityCompatibilityStates.CompatibleWithWarnings, result.Value.Portability.CompatibilityState);
         Assert.AreEqual(WorkspacePortabilityLossStates.BoundedLoss, result.Value.Portability.Loss?.State);
-        CollectionAssert.AreEqual(["contacts"], result.Value.Portability.Loss?.AffectedSections?.ToArray());
-        CollectionAssert.AreEqual(["missing-sections"], result.Value.Portability.Compatibility?.WarningCodes?.ToArray());
+        CollectionAssert.AreEqual(new[] { "contacts" }, result.Value.Portability.Loss?.AffectedSections?.ToArray());
+        CollectionAssert.AreEqual(new[] { "missing-sections" }, result.Value.Portability.Compatibility?.WarningCodes?.ToArray());
         StringAssert.Contains(result.Value.Portability.PortabilityEnvelope?.Summary ?? string.Empty, "Inspect-first dossier portability");
         Assert.IsTrue(
             result.Value.Portability.RelatedOutputs?.All(static output =>
                 output.Compatibility.State == WorkspacePortabilityCompatibilityStates.CompatibleWithWarnings
                 && output.Loss.State == WorkspacePortabilityLossStates.BoundedLoss
-                && output.Loss.AffectedSections.SequenceEqual(["contacts"])
+                && output.Loss.AffectedSections.SequenceEqual(new[] { "contacts" })
                 && output.Revocation.State == WorkspacePortabilityRevocationStates.Revocable) == true);
     }
 

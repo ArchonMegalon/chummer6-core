@@ -231,14 +231,14 @@ public class CharacterSectionServiceTests
         Assert.AreEqual(0, connector.Depth);
         Assert.AreEqual("Right", connector.Location);
         Assert.IsTrue(connector.IsModular);
-        Assert.IsGreaterThan(connector.ChildCount, 0);
+        Assert.IsGreaterThan(0, connector.ChildCount);
 
         Assert.AreEqual("Modular Connector, Shoulder", arm.ParentName);
         Assert.AreEqual(1, arm.Depth);
         Assert.AreEqual("shoulder", arm.MountSlot);
         StringAssert.Contains(arm.HierarchyPath, "Modular Connector, Shoulder");
         Assert.IsTrue(arm.IsModular);
-        Assert.IsGreaterThan(arm.ChildCount, 0);
+        Assert.IsGreaterThan(0, arm.ChildCount);
 
         Assert.AreEqual("Obvious Full Arm, Modular", weapon.ParentName);
         Assert.AreEqual(2, weapon.Depth);

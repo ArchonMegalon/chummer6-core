@@ -64,6 +64,8 @@ def build_receipt(config: dict[str, object]) -> dict[str, object]:
     capability_ids = []
     if "RulePackCapabilityIds.DeriveStat" in plugin_text:
         capability_ids.append("derive.stat")
+    if "RulePackCapabilityIds.DeriveInitiative" in plugin_text:
+        capability_ids.append("derive.initiative")
     if "RulePackCapabilityIds.SessionQuickActions" in plugin_text:
         capability_ids.append("session.quick-actions")
 

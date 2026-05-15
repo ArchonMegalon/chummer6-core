@@ -281,7 +281,7 @@ public class RuntimeFingerprintServiceTests
                     RelativePath: "tests/rules.xml",
                     Checksum: "sha256:asset-c")
             ],
-            targets: [RulesetDefaults.Dummy, RulesetDefaults.Sr5],
+            targets: ["dummy", RulesetDefaults.Sr5],
             executionPolicies:
             [
                 new RulePackExecutionPolicyHint(
@@ -354,7 +354,7 @@ public class RuntimeFingerprintServiceTests
                     RelativePath: "data/house-rules.xml",
                     Checksum: "sha256:asset-b")
             ],
-            targets: [RulesetDefaults.Sr5, RulesetDefaults.Dummy],
+            targets: [RulesetDefaults.Sr5, "dummy"],
             executionPolicies:
             [
                 new RulePackExecutionPolicyHint(
@@ -522,7 +522,7 @@ public class RuntimeFingerprintServiceTests
                     RelativePath: "tests/rules.xml",
                     Checksum: "sha256:asset-c")
             ],
-            targets: [RulesetDefaults.Dummy, RulesetDefaults.Sr5],
+            targets: ["dummy", RulesetDefaults.Sr5],
             executionPolicies:
             [
                 new RulePackExecutionPolicyHint(

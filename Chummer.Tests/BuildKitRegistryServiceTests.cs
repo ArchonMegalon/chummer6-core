@@ -1,6 +1,8 @@
 #nullable enable annotations
 
+using System.Linq;
 using Chummer.Application.Content;
+using Chummer.Contracts.Content;
 using Chummer.Contracts.Owners;
 using Chummer.Contracts.Rulesets;
 using Microsoft.VisualStudio.TestTools.UnitTesting;

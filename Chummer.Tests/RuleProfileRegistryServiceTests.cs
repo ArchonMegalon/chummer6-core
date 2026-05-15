@@ -178,7 +178,7 @@ public class RuleProfileRegistryServiceTests
             CreateRulePack(
                 "beta-pack",
                 "1.0.0",
-                [RulePackCapabilityIds.Validation],
+                [RulePackCapabilityIds.DeriveStat],
                 [
                     new ArtifactVersionReference("leaf-pack", "1.0.0"),
                     new ArtifactVersionReference("root-pack", "2.0.0")
@@ -191,7 +191,7 @@ public class RuleProfileRegistryServiceTests
             CreateRulePack(
                 "beta-pack",
                 "1.0.0",
-                [RulePackCapabilityIds.Validation],
+                [RulePackCapabilityIds.DeriveStat],
                 [
                     new ArtifactVersionReference("root-pack", "2.0.0"),
                     new ArtifactVersionReference("leaf-pack", "1.0.0")
@@ -234,8 +234,17 @@ public class RuleProfileRegistryServiceTests
                 [new ArtifactVersionReference("alpha-pack", "1.0.0")])
         ]);
 
-        InvalidOperationException exception = Assert.ThrowsException<InvalidOperationException>(
-            () => service.Get(OwnerScope.LocalSingleUser, "local.sr5.current-overlays", RulesetDefaults.Sr5));
+        InvalidOperationException exception;
+        try
+        {
+            _ = service.Get(OwnerScope.LocalSingleUser, "local.sr5.current-overlays", RulesetDefaults.Sr5);
+            Assert.Fail("Expected cyclic rulepack dependency graph to throw.");
+            throw new InvalidOperationException("Unreachable.");
+        }
+        catch (InvalidOperationException ex)
+        {
+            exception = ex;
+        }
 
         StringAssert.Contains(exception.Message, "RulePack dependency cycle detected");
         StringAssert.Contains(exception.Message, "alpha-pack@1.0.0 -> beta-pack@1.0.0 -> alpha-pack@1.0.0");

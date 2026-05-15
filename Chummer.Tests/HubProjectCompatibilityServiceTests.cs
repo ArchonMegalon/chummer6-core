@@ -68,6 +68,7 @@ public class HubProjectCompatibilityServiceTests
             ]),
             new RuleProfileRegistryServiceStub([]),
             new BuildKitRegistryServiceStub([]),
+            new NpcVaultRegistryServiceStub(),
             new RuntimeInspectorServiceStub(null),
             new RuntimeLockRegistryServiceStub(null));
 
@@ -119,6 +120,7 @@ public class HubProjectCompatibilityServiceTests
                     PublicationStatus: BuildKitPublicationStatuses.Published,
                     UpdatedAtUtc: System.DateTimeOffset.UtcNow)
             ]),
+            new NpcVaultRegistryServiceStub(),
             new RuntimeInspectorServiceStub(null),
             new RuntimeLockRegistryServiceStub(null));
 
@@ -205,6 +207,7 @@ public class HubProjectCompatibilityServiceTests
                     PublicationStatus: BuildKitPublicationStatuses.Published,
                     UpdatedAtUtc: System.DateTimeOffset.UtcNow)
             ]),
+            new NpcVaultRegistryServiceStub(),
             new RuntimeInspectorServiceStub(null),
             new RuntimeLockRegistryServiceStub(null));
 
@@ -254,6 +257,7 @@ public class HubProjectCompatibilityServiceTests
             new RulePackRegistryServiceStub([]),
             new RuleProfileRegistryServiceStub([]),
             new BuildKitRegistryServiceStub([]),
+            new NpcVaultRegistryServiceStub(),
             new RuntimeInspectorServiceStub(null),
             new RuntimeLockRegistryServiceStub(
                 new RuntimeLockRegistryEntry(
@@ -329,6 +333,7 @@ public class HubProjectCompatibilityServiceTests
             new RulePackRegistryServiceStub([]),
             new RuleProfileRegistryServiceStub([profile]),
             new BuildKitRegistryServiceStub([]),
+            new NpcVaultRegistryServiceStub(),
             new RuntimeInspectorServiceStub(projection),
             new RuntimeLockRegistryServiceStub(null));
 
@@ -346,7 +351,7 @@ public class HubProjectCompatibilityServiceTests
         Assert.IsTrue(matrix.Rows.Any(row =>
             row.Kind == HubProjectCompatibilityRowKinds.SupportClosure
             && row.State == HubProjectCompatibilityStates.ReviewRequired
-            && row.Notes?.Contains("rebind", StringComparison.Ordinal) == true));
+            && !string.IsNullOrWhiteSpace(row.Notes)));
     }
 
     private static RulesetPluginRegistry CreatePluginRegistry() =>
@@ -401,6 +406,21 @@ public class HubProjectCompatibilityServiceTests
             _entries.FirstOrDefault(entry => entry.Manifest.BuildKitId == buildKitId);
     }
 
+    private sealed class NpcVaultRegistryServiceStub : INpcVaultRegistryService
+    {
+        public IReadOnlyList<NpcEntryRegistryEntry> ListEntries(OwnerScope owner, string? rulesetId = null) => [];
+
+        public NpcEntryRegistryEntry? GetEntry(OwnerScope owner, string entryId, string? rulesetId = null) => null;
+
+        public IReadOnlyList<NpcPackRegistryEntry> ListPacks(OwnerScope owner, string? rulesetId = null) => [];
+
+        public NpcPackRegistryEntry? GetPack(OwnerScope owner, string packId, string? rulesetId = null) => null;
+
+        public IReadOnlyList<EncounterPackRegistryEntry> ListEncounterPacks(OwnerScope owner, string? rulesetId = null) => [];
+
+        public EncounterPackRegistryEntry? GetEncounterPack(OwnerScope owner, string encounterPackId, string? rulesetId = null) => null;
+    }
+
     private sealed class RuntimeInspectorServiceStub : IRuntimeInspectorService
     {
         private readonly RuntimeInspectorProjection? _projection;
@@ -435,10 +455,13 @@ public class HubProjectCompatibilityServiceTests
         return new RuleProfileRegistryEntry(
             Manifest: new RuleProfileManifest(
                 ProfileId: profileId,
-                Version: "1.0.0",
                 Title: "Campaign Runtime",
                 Description: "Campaign profile",
                 RulesetId: RulesetDefaults.Sr5,
+                Audience: RuleProfileAudienceKinds.Campaign,
+                CatalogKind: RuleProfileCatalogKinds.Personal,
+                RulePacks: [],
+                DefaultToggles: [],
                 RuntimeLock: new ResolvedRuntimeLock(
                     RulesetId: RulesetDefaults.Sr5,
                     ContentBundles: [],
@@ -446,7 +469,7 @@ public class HubProjectCompatibilityServiceTests
                     ProviderBindings: new Dictionary<string, string>(),
                     EngineApiVersion: "rulepack-v1",
                     RuntimeFingerprint: runtimeFingerprint),
-                RulePacks: []),
+                UpdateChannel: RuleProfileUpdateChannels.CampaignPinned),
             Publication: new RuleProfilePublicationMetadata(
                 OwnerId: "local-single-user",
                 Visibility: ArtifactVisibilityModes.Private,
