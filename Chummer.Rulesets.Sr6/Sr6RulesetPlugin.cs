@@ -132,6 +132,15 @@ public class Sr6RulesetCapabilityDescriptorProvider : IRulesetCapabilityDescript
             MaximumGasBudget: MaximumBudget,
             TitleKey: "ruleset.capability.derive.stat.title"),
         new(
+            CapabilityId: RulePackCapabilityIds.DeriveInitiative,
+            InvocationKind: RulesetCapabilityInvocationKinds.Rule,
+            Title: "Initiative Evaluation",
+            Explainable: true,
+            SessionSafe: true,
+            DefaultGasBudget: DefaultBudget,
+            MaximumGasBudget: MaximumBudget,
+            TitleKey: "ruleset.capability.derive.initiative.title"),
+        new(
             CapabilityId: RulePackCapabilityIds.SessionQuickActions,
             InvocationKind: RulesetCapabilityInvocationKinds.Script,
             Title: "Session Quick Actions",
@@ -155,6 +164,12 @@ public class Sr6DeterministicRulesetCapabilityHost : IRulesetCapabilityHost
             && string.Equals(request.CapabilityId, RulePackCapabilityIds.DeriveStat, StringComparison.Ordinal))
         {
             return ValueTask.FromResult(EvaluateDeriveStat(request));
+        }
+
+        if (string.Equals(request.InvocationKind, RulesetCapabilityInvocationKinds.Rule, StringComparison.Ordinal)
+            && string.Equals(request.CapabilityId, RulePackCapabilityIds.DeriveInitiative, StringComparison.Ordinal))
+        {
+            return ValueTask.FromResult(EvaluateDeriveInitiative(request));
         }
 
         if (string.Equals(request.InvocationKind, RulesetCapabilityInvocationKinds.Script, StringComparison.Ordinal)
@@ -212,6 +227,43 @@ public class Sr6DeterministicRulesetCapabilityHost : IRulesetCapabilityHost
             Explain: CreateExplainTrace(request.CapabilityId, output, "sr6.host/derive.stat"));
     }
 
+    private static RulesetCapabilityInvocationResult EvaluateDeriveInitiative(RulesetCapabilityInvocationRequest request)
+    {
+        long reaction = GetIntegerArgument(request.Arguments, "reaction") ?? 0;
+        long intuition = GetIntegerArgument(request.Arguments, "intuition") ?? 0;
+        long initiativeDice = GetIntegerArgument(request.Arguments, "initiativeDice") ?? 0;
+        long finalValue = reaction + intuition + initiativeDice;
+
+        RulesetCapabilityValue output = new(
+            RulesetCapabilityValueKinds.Object,
+            Properties: new Dictionary<string, RulesetCapabilityValue>(StringComparer.Ordinal)
+            {
+                ["capability"] = RulesetCapabilityBridge.FromObject(request.CapabilityId),
+                ["value"] = RulesetCapabilityBridge.FromObject(finalValue),
+                ["reaction"] = RulesetCapabilityBridge.FromObject(reaction),
+                ["intuition"] = RulesetCapabilityBridge.FromObject(intuition),
+                ["initiativeDice"] = RulesetCapabilityBridge.FromObject(initiativeDice),
+                ["formulaKey"] = RulesetCapabilityBridge.FromObject("sr6.initiative.reaction_plus_intuition_plus_dice")
+            });
+
+        return new RulesetCapabilityInvocationResult(
+            Success: true,
+            Output: output,
+            Diagnostics:
+            [
+                new(
+                    "sr6.initiative.executed",
+                    "SR6 deterministic derive-initiative capability executed.",
+                    RulesetCapabilityDiagnosticSeverities.Info,
+                    MessageKey: "sr6.initiative.executed")
+            ],
+            Explain: CreateExplainTrace(
+                capabilityId: request.CapabilityId,
+                output: output,
+                providerId: "sr6.host/derive.initiative",
+                targetKey: "initiative.total"));
+    }
+
     private static RulesetCapabilityInvocationResult EvaluateSessionQuickActions(RulesetCapabilityInvocationRequest request)
     {
         string[] quickActions = ["anticipate", "dodge", "full-defense"];
@@ -237,7 +289,11 @@ public class Sr6DeterministicRulesetCapabilityHost : IRulesetCapabilityHost
             Explain: CreateExplainTrace(request.CapabilityId, output, "sr6.host/session.quick-actions"));
     }
 
-    private static RulesetExplainTrace CreateExplainTrace(string capabilityId, RulesetCapabilityValue output, string providerId)
+    private static RulesetExplainTrace CreateExplainTrace(
+        string capabilityId,
+        RulesetCapabilityValue output,
+        string providerId,
+        string? targetKey = null)
     {
         RulesetGasUsage gas = new(
             ProviderInstructionsConsumed: 1,
@@ -245,7 +301,7 @@ public class Sr6DeterministicRulesetCapabilityHost : IRulesetCapabilityHost
             PeakMemoryBytes: 256);
 
         return new RulesetExplainTrace(
-            TargetKey: capabilityId,
+            TargetKey: targetKey ?? capabilityId,
             FinalValue: output,
             SummaryKey: "ruleset.explain.summary.sr6.host.execution",
             SummaryParameters:

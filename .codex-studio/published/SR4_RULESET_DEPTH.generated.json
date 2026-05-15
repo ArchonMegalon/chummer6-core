@@ -1,7 +1,7 @@
 {
   "contract_name": "chummer-core.sr4_ruleset_depth",
   "status": "pass",
-  "generated_at": "2026-05-08T18:34:35.566887Z",
+  "generated_at": "2026-05-15T21:00:02.234523Z",
   "ruleset_id": "sr4",
   "display_name": "Shadowrun 4",
   "claim_ceiling": "partial",
@@ -12,6 +12,7 @@
     "surface_count": 6,
     "capability_ids": [
       "derive.stat",
+      "derive.initiative",
       "session.quick-actions"
     ],
     "section_ids": [

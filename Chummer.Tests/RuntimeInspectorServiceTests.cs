@@ -81,6 +81,12 @@ public class RuntimeInspectorServiceTests
             && string.Equals(descriptor.TitleKey, "ruleset.capability.derive.stat.title", StringComparison.Ordinal)
             && string.IsNullOrWhiteSpace(descriptor.ProviderId)));
         Assert.IsTrue(projection.CapabilityDescriptors.Any(descriptor =>
+            string.Equals(descriptor.CapabilityId, RulePackCapabilityIds.DeriveInitiative, StringComparison.Ordinal)
+            && string.Equals(descriptor.InvocationKind, RulesetCapabilityInvocationKinds.Rule, StringComparison.Ordinal)
+            && string.Equals(descriptor.TitleKey, "ruleset.capability.derive.initiative.title", StringComparison.Ordinal)
+            && !descriptor.SessionSafe
+            && string.IsNullOrWhiteSpace(descriptor.ProviderId)));
+        Assert.IsTrue(projection.CapabilityDescriptors.Any(descriptor =>
             string.Equals(descriptor.CapabilityId, RulePackCapabilityIds.SessionQuickActions, StringComparison.Ordinal)
             && string.Equals(descriptor.TitleKey, "ruleset.capability.session.quick-actions.title", StringComparison.Ordinal)
             && descriptor.SessionSafe
@@ -171,7 +177,7 @@ public class RuntimeInspectorServiceTests
             && string.Equals(item.AfterValue, "runtime-lock-sha256", StringComparison.Ordinal)
             && item.RequiresRebind));
         Assert.IsNotNull(projection.Promotion);
-        StringAssert.Contains(projection.Promotion!.RollbackSummary, "Rollback can re-pin runtime-lock-sha256");
+        StringAssert.Contains(projection.Promotion!.RollbackSummary, "No install target is pinned yet");
         Assert.AreEqual(RuntimeInspectorPromotionStages.Published, projection.Promotion.CurrentStage);
         Assert.AreEqual(RuntimeInspectorPromotionStages.Published, projection.Promotion.PromotionTargetStage);
     }

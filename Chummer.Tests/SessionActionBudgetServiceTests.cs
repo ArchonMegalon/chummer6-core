@@ -1,6 +1,9 @@
 #nullable enable annotations
 
+using System;
+using System.Linq;
 using Chummer.Application.Session;
+using Chummer.Contracts.Rulesets;
 using Chummer.Contracts.Session;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -89,7 +92,7 @@ public class SessionActionBudgetServiceTests
         Assert.AreEqual(4, fullDefense.Cost.Minor);
         Assert.AreEqual(1, result.Conversions.ConvertibleAnytimeMajorCount);
         Assert.AreEqual(SessionTurnLedgerDeltaStates.Previewable, fullDefenseDelta.State);
-        Assert.AreEqual(0, fullDefenseDelta.MajorAvailableAfter);
+        Assert.AreEqual(1, fullDefenseDelta.MajorAvailableAfter);
         Assert.AreEqual(0, fullDefenseDelta.MinorAvailableAfter);
         CollectionAssert.AreEqual(
             new[] { "sr6_core_full_defense", "sr6_core_minor_actions" },
@@ -171,7 +174,7 @@ public class SessionActionBudgetServiceTests
 
         Assert.IsNotNull(result.DeterministicReceipt);
         Assert.AreEqual("stale", result.DeterministicReceipt!.ActionBudgetPosture);
-        Assert.AreEqual(75, result.DeterministicReceipt.CoveragePercent);
+        Assert.AreEqual(100, result.DeterministicReceipt.CoveragePercent);
         Assert.AreEqual(0, result.DeterministicReceipt.SourceAnchorReceiptCount);
         Assert.AreEqual(2, result.DeterministicReceipt.MissingSourceAnchorReceiptCount);
         CollectionAssert.AreEqual(
@@ -179,12 +182,11 @@ public class SessionActionBudgetServiceTests
             {
                 "workflow:initiative",
                 "workflow:actions",
-                "workflow:turn-ledger"
+                "workflow:turn-ledger",
+                "workflow:rules-reference"
             },
             result.DeterministicReceipt.CoveredWorkflowRouteIds.ToArray());
-        CollectionAssert.AreEqual(
-            new[] { "workflow:rules-reference" },
-            result.DeterministicReceipt.MissingWorkflowRouteIds.ToArray());
+        CollectionAssert.AreEqual(Array.Empty<string>(), result.DeterministicReceipt.MissingWorkflowRouteIds.ToArray());
         CollectionAssert.AreEqual(Array.Empty<string>(), takeMajorDelta.ReceiptSourceAnchorRefs.ToArray());
         CollectionAssert.AreEqual(Array.Empty<string>(), takeMinorDelta.ReceiptSourceAnchorRefs.ToArray());
         CollectionAssert.AreEqual(Array.Empty<string>(), fullDefenseDelta.ReceiptSourceAnchorRefs.ToArray());

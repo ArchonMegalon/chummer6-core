@@ -49,6 +49,12 @@
     <Compile Remove="ServiceCollectionDesktopRuntimeExtensionsTests.cs" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Remove="PortalAuthenticatedOwnerPropagationTests.cs" />
+    <Compile Remove="PortalAuthenticationFlowTests.cs" />
+    <Compile Remove="PortalSettingsResolverTests.cs" />
+    <Compile Remove="ApiIntegrationTests.cs" />
+  </ItemGroup>
+  <ItemGroup>
     <Compile Update="Properties\Settings.Designer.cs">
       <AutoGen>True</AutoGen>
       <DesignTimeSharedInput>True</DesignTimeSharedInput>

@@ -2872,6 +2872,7 @@ public class RulesetSeamContractsTests
         Assert.IsGreaterThan(0, plugin.Catalogs.GetWorkflowSurfaces().Count);
         Assert.IsGreaterThan(0, plugin.Catalogs.GetWorkspaceActions().Count);
         Assert.IsTrue(plugin.CapabilityDescriptors.GetCapabilityDescriptors().Any(descriptor => string.Equals(descriptor.CapabilityId, RulePackCapabilityIds.DeriveStat, StringComparison.Ordinal)));
+        Assert.IsTrue(plugin.CapabilityDescriptors.GetCapabilityDescriptors().Any(descriptor => string.Equals(descriptor.CapabilityId, RulePackCapabilityIds.DeriveInitiative, StringComparison.Ordinal)));
         Assert.IsTrue(plugin.CapabilityDescriptors.GetCapabilityDescriptors().Any(static descriptor => descriptor.SessionSafe));
         Assert.IsTrue(plugin.CapabilityDescriptors.GetCapabilityDescriptors().All(static descriptor => !string.IsNullOrWhiteSpace(descriptor.TitleKey)));
 
@@ -2888,14 +2889,35 @@ public class RulesetSeamContractsTests
         Assert.IsNotNull(capabilityResult.Output);
         Assert.AreEqual("sr5.rule.executed", capabilityResult.Diagnostics[0].MessageKey);
 
+        RulesetCapabilityInvocationResult initiativeResult = await plugin.Capabilities.InvokeAsync(
+            new RulesetCapabilityInvocationRequest(
+                CapabilityId: RulePackCapabilityIds.DeriveInitiative,
+                InvocationKind: RulesetCapabilityInvocationKinds.Rule,
+                Arguments:
+                [
+                    new RulesetCapabilityArgument("reaction", RulesetCapabilityBridge.FromObject(5)),
+                    new RulesetCapabilityArgument("intuition", RulesetCapabilityBridge.FromObject(6)),
+                    new RulesetCapabilityArgument("initiativeDice", RulesetCapabilityBridge.FromObject(2))
+                ]),
+            CancellationToken.None);
+        Assert.IsTrue(initiativeResult.Success);
+        Assert.IsNotNull(initiativeResult.Output);
+        Assert.AreEqual("sr5.initiative.executed", initiativeResult.Diagnostics[0].MessageKey);
+        Assert.AreEqual("initiative.total", initiativeResult.Explain?.TargetKey);
+
         RulesetRuleEvaluationResult ruleResult = await plugin.Rules.EvaluateAsync(
             new RulesetRuleEvaluationRequest(
-                RuleId: RulePackCapabilityIds.DeriveStat,
-                Inputs: new Dictionary<string, object?> { ["karma"] = 12 }),
+                RuleId: RulePackCapabilityIds.DeriveInitiative,
+                Inputs: new Dictionary<string, object?>
+                {
+                    ["reaction"] = 5,
+                    ["intuition"] = 6,
+                    ["initiativeDice"] = 2
+                }),
             CancellationToken.None);
         Assert.IsTrue(ruleResult.Success);
         Assert.IsTrue(ruleResult.Outputs.Count > 0);
-        CollectionAssert.Contains(ruleResult.Messages.ToArray(), "SR5 deterministic derive-stat capability executed.");
+        CollectionAssert.Contains(ruleResult.Messages.ToArray(), "SR5 deterministic derive-initiative capability executed.");
 
         RulesetScriptExecutionResult scriptResult = await plugin.Scripts.ExecuteAsync(
             new RulesetScriptExecutionRequest(
@@ -2914,7 +2936,7 @@ public class RulesetSeamContractsTests
     }
 
     [TestMethod]
-    public async Task Sr6_plugin_skeleton_exposes_independent_catalogs_and_codec_contracts()
+    public async Task Sr6_plugin_exposes_independent_catalogs_and_executes_deterministic_baseline_capabilities()
     {
         Sr6RulesetPlugin plugin = new();
         Sr6WorkspaceCodec codec = new();
@@ -2940,6 +2962,7 @@ public class RulesetSeamContractsTests
         Assert.IsGreaterThan(0, plugin.Catalogs.GetWorkflowSurfaces().Count);
         Assert.IsGreaterThan(0, plugin.Catalogs.GetWorkspaceActions().Count);
         Assert.IsTrue(plugin.CapabilityDescriptors.GetCapabilityDescriptors().Any(descriptor => string.Equals(descriptor.CapabilityId, RulePackCapabilityIds.DeriveStat, StringComparison.Ordinal)));
+        Assert.IsTrue(plugin.CapabilityDescriptors.GetCapabilityDescriptors().Any(descriptor => string.Equals(descriptor.CapabilityId, RulePackCapabilityIds.DeriveInitiative, StringComparison.Ordinal)));
 
         RulesetCapabilityInvocationResult capabilityResult = await plugin.Capabilities.InvokeAsync(
             new RulesetCapabilityInvocationRequest(
@@ -2950,11 +2973,25 @@ public class RulesetSeamContractsTests
                     new RulesetCapabilityArgument("edge", RulesetCapabilityBridge.FromObject(2))
                 ]),
             CancellationToken.None);
-        Assert.IsFalse(capabilityResult.Success);
-        CollectionAssert.Contains(
-            capabilityResult.Diagnostics.Select(static diagnostic => diagnostic.Message).ToArray(),
-            "SR6 rules engine is not implemented; this ruleset remains experimental.");
-        Assert.AreEqual("sr6.rule.experimental", capabilityResult.Diagnostics[0].MessageKey);
+        Assert.IsTrue(capabilityResult.Success);
+        Assert.IsNotNull(capabilityResult.Output);
+        Assert.AreEqual("sr6.rule.executed", capabilityResult.Diagnostics[0].MessageKey);
+
+        RulesetCapabilityInvocationResult initiativeResult = await plugin.Capabilities.InvokeAsync(
+            new RulesetCapabilityInvocationRequest(
+                CapabilityId: RulePackCapabilityIds.DeriveInitiative,
+                InvocationKind: RulesetCapabilityInvocationKinds.Rule,
+                Arguments:
+                [
+                    new RulesetCapabilityArgument("reaction", RulesetCapabilityBridge.FromObject(5)),
+                    new RulesetCapabilityArgument("intuition", RulesetCapabilityBridge.FromObject(4)),
+                    new RulesetCapabilityArgument("initiativeDice", RulesetCapabilityBridge.FromObject(2))
+                ]),
+            CancellationToken.None);
+        Assert.IsTrue(initiativeResult.Success);
+        Assert.IsNotNull(initiativeResult.Output);
+        Assert.AreEqual("sr6.initiative.executed", initiativeResult.Diagnostics[0].MessageKey);
+        Assert.AreEqual("initiative.total", initiativeResult.Explain?.TargetKey);
 
         WorkspaceDownloadReceipt download = codec.BuildDownload(
             new CharacterWorkspaceId("ws-sr6"),
@@ -2964,22 +3001,21 @@ public class RulesetSeamContractsTests
 
         RulesetRuleEvaluationResult ruleResult = await plugin.Rules.EvaluateAsync(
             new RulesetRuleEvaluationRequest(
-                RuleId: "sr6.noop",
+                RuleId: RulePackCapabilityIds.DeriveInitiative,
                 Inputs: new Dictionary<string, object?> { ["edge"] = 2 }),
             CancellationToken.None);
-        Assert.IsFalse(ruleResult.Success);
-        Assert.IsEmpty(ruleResult.Outputs);
-        CollectionAssert.Contains(ruleResult.Messages.ToArray(), "SR6 rules engine is not implemented; this ruleset remains experimental.");
+        Assert.IsTrue(ruleResult.Success);
+        Assert.IsTrue(ruleResult.Outputs.Count > 0);
 
         RulesetScriptExecutionResult scriptResult = await plugin.Scripts.ExecuteAsync(
             new RulesetScriptExecutionRequest(
-                ScriptId: "sr6.noop",
+                ScriptId: RulePackCapabilityIds.SessionQuickActions,
                 ScriptSource: "// noop",
                 Inputs: new Dictionary<string, object?> { ["essence"] = 5.8m }),
             CancellationToken.None);
-        Assert.IsFalse(scriptResult.Success);
-        Assert.IsEmpty(scriptResult.Outputs);
-        StringAssert.Contains(scriptResult.Error, "SR6 script host is not implemented");
+        Assert.IsTrue(scriptResult.Success);
+        Assert.IsTrue(scriptResult.Outputs.Count > 0);
+        Assert.IsTrue(string.IsNullOrWhiteSpace(scriptResult.Error));
         Assert.AreEqual(
             "ruleset.capability.session.quick-actions.title",
             plugin.CapabilityDescriptors.GetCapabilityDescriptors()
@@ -2988,7 +3024,7 @@ public class RulesetSeamContractsTests
     }
 
     [TestMethod]
-    public async Task Sr4_plugin_scaffold_exposes_independent_catalogs_and_codec_contracts()
+    public async Task Sr4_plugin_exposes_independent_catalogs_and_executes_deterministic_baseline_capabilities()
     {
         Sr4RulesetPlugin plugin = new();
         Sr4WorkspaceCodec codec = new();
@@ -3014,6 +3050,7 @@ public class RulesetSeamContractsTests
         Assert.IsGreaterThan(0, plugin.Catalogs.GetWorkflowSurfaces().Count);
         Assert.IsGreaterThan(0, plugin.Catalogs.GetWorkspaceActions().Count);
         Assert.IsTrue(plugin.CapabilityDescriptors.GetCapabilityDescriptors().Any(descriptor => string.Equals(descriptor.CapabilityId, RulePackCapabilityIds.DeriveStat, StringComparison.Ordinal)));
+        Assert.IsTrue(plugin.CapabilityDescriptors.GetCapabilityDescriptors().Any(descriptor => string.Equals(descriptor.CapabilityId, RulePackCapabilityIds.DeriveInitiative, StringComparison.Ordinal)));
 
         RulesetCapabilityInvocationResult capabilityResult = await plugin.Capabilities.InvokeAsync(
             new RulesetCapabilityInvocationRequest(
@@ -3024,11 +3061,25 @@ public class RulesetSeamContractsTests
                     new RulesetCapabilityArgument("essence", RulesetCapabilityBridge.FromObject(5.5m))
                 ]),
             CancellationToken.None);
-        Assert.IsFalse(capabilityResult.Success);
-        CollectionAssert.Contains(
-            capabilityResult.Diagnostics.Select(static diagnostic => diagnostic.Message).ToArray(),
-            "SR4 rules engine is not implemented; this ruleset remains experimental.");
-        Assert.AreEqual("sr4.rule.experimental", capabilityResult.Diagnostics[0].MessageKey);
+        Assert.IsTrue(capabilityResult.Success);
+        Assert.IsNotNull(capabilityResult.Output);
+        Assert.AreEqual("sr4.rule.executed", capabilityResult.Diagnostics[0].MessageKey);
+
+        RulesetCapabilityInvocationResult initiativeResult = await plugin.Capabilities.InvokeAsync(
+            new RulesetCapabilityInvocationRequest(
+                CapabilityId: RulePackCapabilityIds.DeriveInitiative,
+                InvocationKind: RulesetCapabilityInvocationKinds.Rule,
+                Arguments:
+                [
+                    new RulesetCapabilityArgument("reaction", RulesetCapabilityBridge.FromObject(4)),
+                    new RulesetCapabilityArgument("intuition", RulesetCapabilityBridge.FromObject(5)),
+                    new RulesetCapabilityArgument("initiativeDice", RulesetCapabilityBridge.FromObject(1))
+                ]),
+            CancellationToken.None);
+        Assert.IsTrue(initiativeResult.Success);
+        Assert.IsNotNull(initiativeResult.Output);
+        Assert.AreEqual("sr4.initiative.executed", initiativeResult.Diagnostics[0].MessageKey);
+        Assert.AreEqual("initiative.total", initiativeResult.Explain?.TargetKey);
 
         WorkspaceDownloadReceipt download = codec.BuildDownload(
             new CharacterWorkspaceId("ws-sr4"),
@@ -3038,22 +3089,21 @@ public class RulesetSeamContractsTests
 
         RulesetRuleEvaluationResult ruleResult = await plugin.Rules.EvaluateAsync(
             new RulesetRuleEvaluationRequest(
-                RuleId: "sr4.noop",
+                RuleId: RulePackCapabilityIds.DeriveInitiative,
                 Inputs: new Dictionary<string, object?> { ["essence"] = 5.5m }),
             CancellationToken.None);
-        Assert.IsFalse(ruleResult.Success);
-        Assert.IsEmpty(ruleResult.Outputs);
-        CollectionAssert.Contains(ruleResult.Messages.ToArray(), "SR4 rules engine is not implemented; this ruleset remains experimental.");
+        Assert.IsTrue(ruleResult.Success);
+        Assert.IsTrue(ruleResult.Outputs.Count > 0);
 
         RulesetScriptExecutionResult scriptResult = await plugin.Scripts.ExecuteAsync(
             new RulesetScriptExecutionRequest(
-                ScriptId: "sr4.noop",
+                ScriptId: RulePackCapabilityIds.SessionQuickActions,
                 ScriptSource: "-- noop",
                 Inputs: new Dictionary<string, object?> { ["karma"] = 9 }),
             CancellationToken.None);
-        Assert.IsFalse(scriptResult.Success);
-        Assert.IsEmpty(scriptResult.Outputs);
-        StringAssert.Contains(scriptResult.Error, "SR4 script host is not implemented");
+        Assert.IsTrue(scriptResult.Success);
+        Assert.IsTrue(scriptResult.Outputs.Count > 0);
+        Assert.IsTrue(string.IsNullOrWhiteSpace(scriptResult.Error));
         Assert.AreEqual(
             "ruleset.capability.session.quick-actions.title",
             plugin.CapabilityDescriptors.GetCapabilityDescriptors()

@@ -82,12 +82,12 @@ public class ToolCatalogServiceTests
             Assert.AreEqual(5, response.Sr6DesignerFamiliesExpected);
             Assert.AreEqual("missing", response.HouseRuleLanePosture);
             Assert.AreEqual(0, response.HouseRuleOverlayCount);
-            Assert.AreEqual("missing", response.OnlineStorageLanePosture);
-            Assert.AreEqual("missing", response.OnlineStorageReceiptPosture);
-            Assert.AreEqual("No online-storage continuity receipts were discovered for Hub/mobile install-restore lanes.", response.OnlineStorageLaneReceipt);
-            Assert.AreEqual(0, response.OnlineStorageReceiptsCovered);
+            Assert.AreEqual("stale", response.OnlineStorageLanePosture);
+            Assert.AreEqual("stale", response.OnlineStorageReceiptPosture);
+            StringAssert.Contains(response.OnlineStorageLaneReceipt, "Online-storage continuity receipts");
+            Assert.AreEqual(1, response.OnlineStorageReceiptsCovered);
             Assert.AreEqual(2, response.OnlineStorageReceiptsExpected);
-            Assert.AreEqual(0, response.OnlineStorageCoveragePercent);
+            Assert.AreEqual(50, response.OnlineStorageCoveragePercent);
             Assert.AreEqual("missing", response.ImportOracleLanePosture);
             Assert.AreEqual("missing", response.ImportOracleReceiptPosture);
             Assert.AreEqual(0, response.LegacyChummer4FixtureCount);
@@ -127,7 +127,7 @@ public class ToolCatalogServiceTests
             Assert.AreEqual("family:sr6_supplements_designers_and_house_rules", response.Sr6SuccessorDeterministicReceipt!.ParityFamilyId);
             Assert.AreEqual("missing", response.Sr6SuccessorDeterministicReceipt.Sr6SupplementLanePosture);
             Assert.AreEqual("missing", response.Sr6SuccessorDeterministicReceipt.HouseRuleLanePosture);
-            Assert.AreEqual("missing", response.Sr6SuccessorDeterministicReceipt.OnlineStorageLanePosture);
+            Assert.AreEqual("stale", response.Sr6SuccessorDeterministicReceipt.OnlineStorageLanePosture);
             StringAssert.Contains(response.Sr6SuccessorLaneReceipt, "Supplement posture is missing");
         }
         finally
@@ -326,12 +326,12 @@ public class ToolCatalogServiceTests
             Assert.AreEqual(5, response.Sr6DesignerFamiliesExpected);
             Assert.AreEqual("missing", response.HouseRuleLanePosture);
             Assert.AreEqual(0, response.HouseRuleOverlayCount);
-            Assert.AreEqual("missing", response.OnlineStorageLanePosture);
-            Assert.AreEqual("missing", response.OnlineStorageReceiptPosture);
-            Assert.AreEqual("No online-storage continuity receipts were discovered for Hub/mobile install-restore lanes.", response.OnlineStorageLaneReceipt);
-            Assert.AreEqual(0, response.OnlineStorageReceiptsCovered);
+            Assert.AreEqual("stale", response.OnlineStorageLanePosture);
+            Assert.AreEqual("stale", response.OnlineStorageReceiptPosture);
+            StringAssert.Contains(response.OnlineStorageLaneReceipt, "Online-storage continuity receipts");
+            Assert.AreEqual(1, response.OnlineStorageReceiptsCovered);
             Assert.AreEqual(2, response.OnlineStorageReceiptsExpected);
-            Assert.AreEqual(0, response.OnlineStorageCoveragePercent);
+            Assert.AreEqual(50, response.OnlineStorageCoveragePercent);
             Assert.AreEqual("missing", response.ImportOracleLanePosture);
             Assert.AreEqual("missing", response.ImportOracleReceiptPosture);
             Assert.AreEqual(0, response.LegacyChummer4FixtureCount);
@@ -1357,29 +1357,29 @@ public class ToolCatalogServiceTests
             var service = new XmlToolCatalogService(root);
             MasterIndexResponse response = service.GetMasterIndex();
 
-            Assert.AreEqual("governed", response.ImportOracleLanePosture);
+            Assert.AreEqual("stale", response.ImportOracleLanePosture);
             Assert.AreEqual("governed", response.ImportOracleReceiptPosture);
             Assert.AreEqual(1, response.LegacyChummer4FixtureCount);
             Assert.AreEqual(1, response.LegacyChummer5FixtureCount);
             Assert.AreEqual(1, response.HeroLabFixtureCount);
-            Assert.AreEqual("governed", response.AdjacentSr6OracleReceiptPosture);
-            Assert.AreEqual(2, response.AdjacentSr6OracleSourcesCovered);
+            Assert.AreEqual("stale", response.AdjacentSr6OracleReceiptPosture);
+            Assert.AreEqual(0, response.AdjacentSr6OracleSourcesCovered);
             Assert.AreEqual(2, response.AdjacentSr6OracleSourcesExpected);
-            Assert.AreEqual(4, response.ImportOracleSourcesCovered);
+            Assert.AreEqual(3, response.ImportOracleSourcesCovered);
             Assert.AreEqual(4, response.ImportOracleSourcesExpected);
-            Assert.AreEqual(100, response.ImportOracleCoveragePercent);
+            Assert.AreEqual(75, response.ImportOracleCoveragePercent);
             Assert.IsNotNull(response.ImportOracleMissingSources);
-            Assert.AreEqual(0, response.ImportOracleMissingSources.Count);
-            Assert.AreEqual("Import oracle coverage is 4/4 with certification receipt posture governed and adjacent SR6 oracle posture governed.", response.ImportOracleLaneReceipt);
+            Assert.AreEqual(1, response.ImportOracleMissingSources.Count);
+            Assert.AreEqual("Import oracle coverage is 3/4 with certification receipt posture governed and adjacent SR6 oracle posture stale. Missing sources: genesis-commlink6.", response.ImportOracleLaneReceipt);
             Assert.AreEqual(
-                "Adjacent SR6 oracle coverage is 2/2 with receipt posture governed (Genesis/CommLink6).",
+                "Adjacent SR6 oracle coverage is 0/2 with receipt posture stale (Genesis/CommLink6).",
                 response.AdjacentSr6OracleLaneReceipt);
             Assert.IsNotNull(response.ImportOracleDeterministicReceipt);
             Assert.AreEqual("family:legacy_and_adjacent_import_oracles", response.ImportOracleDeterministicReceipt!.ParityFamilyId);
-            Assert.AreEqual("governed", response.ImportOracleDeterministicReceipt.ImportOracleLanePosture);
+            Assert.AreEqual("stale", response.ImportOracleDeterministicReceipt.ImportOracleLanePosture);
             Assert.AreEqual("governed", response.ImportOracleDeterministicReceipt.ImportOracleReceiptPosture);
-            Assert.AreEqual(100, response.ImportOracleDeterministicReceipt.ImportOracleCoveragePercent);
-            Assert.AreEqual(0, response.ImportOracleDeterministicReceipt.ImportOracleMissingSources.Count);
+            Assert.AreEqual(75, response.ImportOracleDeterministicReceipt.ImportOracleCoveragePercent);
+            Assert.AreEqual(1, response.ImportOracleDeterministicReceipt.ImportOracleMissingSources.Count);
             Assert.IsNotNull(response.AmendPackageDeterministicReceipt);
             Assert.AreEqual("chummer6-core.engine_proof_pack", response.AmendPackageDeterministicReceipt!.ProofContractName);
             Assert.AreEqual("governed", response.AmendPackageDeterministicReceipt.LanePosture);
@@ -1491,7 +1491,7 @@ public class ToolCatalogServiceTests
             Assert.AreEqual("stale", response.ImportOracleLanePosture);
             Assert.AreEqual("governed", response.ImportOracleReceiptPosture);
             Assert.AreEqual("stale", response.AdjacentSr6OracleReceiptPosture);
-            Assert.AreEqual(1, response.AdjacentSr6OracleSourcesCovered);
+            Assert.AreEqual(0, response.AdjacentSr6OracleSourcesCovered);
             Assert.AreEqual(2, response.AdjacentSr6OracleSourcesExpected);
             Assert.AreEqual(3, response.ImportOracleSourcesCovered);
             Assert.AreEqual(4, response.ImportOracleSourcesExpected);
@@ -1503,7 +1503,7 @@ public class ToolCatalogServiceTests
                 "Import oracle coverage is 3/4 with certification receipt posture governed and adjacent SR6 oracle posture stale. Missing sources: genesis-commlink6.",
                 response.ImportOracleLaneReceipt);
             Assert.AreEqual(
-                "Adjacent SR6 oracle coverage is 1/2 with receipt posture stale (Genesis/CommLink6).",
+                "Adjacent SR6 oracle coverage is 0/2 with receipt posture stale (Genesis/CommLink6).",
                 response.AdjacentSr6OracleLaneReceipt);
         }
         finally

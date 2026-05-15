@@ -5608,9 +5608,26 @@ items:
   work_task_id: '135.5'
   frontier_id: 1800141525
   milestone_id: 135
-  status: not_started
+  status: complete
   wave: W22
   repo: chummer6-hub-registry
+  completion_action: verify_closed_package_only
+  do_not_reopen_reason: M135.5 chummer6-hub-registry registry boundary coverage is complete; future shards must verify
+    the canonical registryBoundaryCoverage projection, queue row, mirror row, closeout, and package verifier instead
+    of reopening the persistence, release-channel, artifact-lineage, publication, entitlement, and compatibility boundary
+    slice.
+  proof:
+  - /docker/chummercomplete/chummer-hub-registry/docs/RELEASE_CHANNEL_PIPELINE.md
+  - /docker/chummercomplete/chummer-hub-registry/docs/next90-m135-registry-boundary-coverage.closeout.md
+  - /docker/chummercomplete/chummer-hub-registry/scripts/materialize_public_release_channel.py
+  - /docker/chummercomplete/chummer-hub-registry/scripts/verify_public_release_channel.py
+  - /docker/chummercomplete/chummer-hub-registry/scripts/test_verify_public_release_channel.py
+  - /docker/chummercomplete/chummer-hub-registry/scripts/verify_next90_m135_registry_boundary_coverage.py
+  - /docker/chummercomplete/chummer-hub-registry/scripts/test_verify_next90_m135_registry_boundary_coverage.py
+  - /docker/chummercomplete/chummer-hub-registry/.codex-studio/published/RELEASE_CHANNEL.generated.json
+  - /docker/chummercomplete/chummer-hub-registry/.codex-studio/published/releases.json
+  - python3 scripts/verify_public_release_channel.py .codex-studio/published
+  - python3 -m unittest scripts/test_verify_public_release_channel.py scripts/test_verify_next90_m120_registry_launch_truth.py scripts/test_verify_next90_m135_registry_boundary_coverage.py
   allowed_paths:
   - Chummer.Hub.Registry
   - scripts
@@ -7451,9 +7468,25 @@ items:
   work_task_id: '144.2'
   frontier_id: 9104322752
   milestone_id: 144
-  status: not_started
+  status: complete
   wave: W22P
   repo: chummer6-hub-registry
+  completion_action: verify_closed_package_only
+  do_not_reopen_reason: M144.2 chummer6-hub-registry release-channel tuple coverage and startup-smoke receipt identity are complete;
+    future shards must verify the local mirror row, queue row, closeout, published tuple proof, and verifier-routing guard
+    instead of reopening the registry proof-drift slice.
+  proof:
+  - /docker/chummercomplete/chummer-hub-registry/docs/RELEASE_CHANNEL_PIPELINE.md
+  - /docker/chummercomplete/chummer-hub-registry/docs/next90-m144-registry-release-tuple-proof.closeout.md
+  - /docker/chummercomplete/chummer-hub-registry/scripts/verify_public_release_channel.py
+  - /docker/chummercomplete/chummer-hub-registry/scripts/test_verify_public_release_channel.py
+  - /docker/chummercomplete/chummer-hub-registry/scripts/verify_next90_m144_registry_release_tuple_proof.py
+  - /docker/chummercomplete/chummer-hub-registry/scripts/test_verify_next90_m144_registry_release_tuple_proof.py
+  - /docker/chummercomplete/chummer-hub-registry/scripts/ai/verify.sh
+  - /docker/chummercomplete/chummer-hub-registry/.codex-studio/published/RELEASE_CHANNEL.generated.json
+  - /docker/chummercomplete/chummer-hub-registry/.codex-studio/published/releases.json
+  - python3 scripts/verify_public_release_channel.py .codex-studio/published
+  - python3 -m unittest scripts/test_verify_public_release_channel.py scripts/test_verify_next90_m144_registry_release_tuple_proof.py
   allowed_paths:
   - Chummer.Hub.Registry
   - scripts

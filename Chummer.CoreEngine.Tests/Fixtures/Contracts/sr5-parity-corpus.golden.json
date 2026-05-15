@@ -35,6 +35,46 @@
       "explainPackId": "official.sr5.core"
     },
     {
+      "invocationKind": "rule",
+      "capabilityId": "derive.initiative",
+      "success": true,
+      "diagnosticKeys": [
+        "sr5.initiative.executed"
+      ],
+      "output": {
+        "kind": "object",
+        "properties": {
+          "capability": {
+            "kind": "string",
+            "stringValue": "derive.initiative"
+          },
+          "value": {
+            "kind": "integer",
+            "integerValue": 12
+          },
+          "reaction": {
+            "kind": "integer",
+            "integerValue": 5
+          },
+          "intuition": {
+            "kind": "integer",
+            "integerValue": 5
+          },
+          "initiativeDice": {
+            "kind": "integer",
+            "integerValue": 2
+          },
+          "formulaKey": {
+            "kind": "string",
+            "stringValue": "sr5.initiative.reaction_plus_intuition_plus_dice"
+          }
+        }
+      },
+      "explainSummaryKey": "ruleset.explain.summary.sr5.host.execution",
+      "explainProviderId": "sr5.host/derive.initiative",
+      "explainPackId": "official.sr5.core"
+    },
+    {
       "invocationKind": "script",
       "capabilityId": "session.quick-actions",
       "success": true,

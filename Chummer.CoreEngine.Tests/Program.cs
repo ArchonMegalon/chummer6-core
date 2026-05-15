@@ -6046,6 +6046,20 @@ internal static class CoreEngineTests
                     [
                         new RulesetCapabilityArgument("baseValue", RulesetCapabilityBridge.FromObject(7)),
                         new RulesetCapabilityArgument("modifier", RulesetCapabilityBridge.FromObject(3))
+                ]),
+            CancellationToken.None)
+            .GetAwaiter()
+            .GetResult();
+        RulesetCapabilityInvocationResult initiativeResult = sr4.Capabilities
+            .InvokeAsync(
+                new RulesetCapabilityInvocationRequest(
+                    CapabilityId: RulePackCapabilityIds.DeriveInitiative,
+                    InvocationKind: RulesetCapabilityInvocationKinds.Rule,
+                    Arguments:
+                    [
+                        new RulesetCapabilityArgument("reaction", RulesetCapabilityBridge.FromObject(4)),
+                        new RulesetCapabilityArgument("intuition", RulesetCapabilityBridge.FromObject(5)),
+                        new RulesetCapabilityArgument("initiativeDice", RulesetCapabilityBridge.FromObject(1))
                     ]),
                 CancellationToken.None)
             .GetAwaiter()
@@ -6066,6 +6080,7 @@ internal static class CoreEngineTests
             CapabilityCases:
             [
                 ToSr4ParityCorpusCase(deriveResult, RulesetCapabilityInvocationKinds.Rule, RulePackCapabilityIds.DeriveStat),
+                ToSr4ParityCorpusCase(initiativeResult, RulesetCapabilityInvocationKinds.Rule, RulePackCapabilityIds.DeriveInitiative),
                 ToSr4ParityCorpusCase(quickActionsResult, RulesetCapabilityInvocationKinds.Script, RulePackCapabilityIds.SessionQuickActions)
             ]);
     }
@@ -6087,6 +6102,20 @@ internal static class CoreEngineTests
                 CancellationToken.None)
             .GetAwaiter()
             .GetResult();
+        RulesetCapabilityInvocationResult initiativeResult = sr5.Capabilities
+            .InvokeAsync(
+                new RulesetCapabilityInvocationRequest(
+                    CapabilityId: RulePackCapabilityIds.DeriveInitiative,
+                    InvocationKind: RulesetCapabilityInvocationKinds.Rule,
+                    Arguments:
+                    [
+                        new RulesetCapabilityArgument("reaction", RulesetCapabilityBridge.FromObject(5)),
+                        new RulesetCapabilityArgument("intuition", RulesetCapabilityBridge.FromObject(5)),
+                        new RulesetCapabilityArgument("initiativeDice", RulesetCapabilityBridge.FromObject(2))
+                    ]),
+                CancellationToken.None)
+            .GetAwaiter()
+            .GetResult();
         RulesetCapabilityInvocationResult quickActionsResult = sr5.Capabilities
             .InvokeAsync(
                 new RulesetCapabilityInvocationRequest(
@@ -6103,6 +6132,7 @@ internal static class CoreEngineTests
             CapabilityCases:
             [
                 ToSr5ParityCorpusCase(deriveResult, RulesetCapabilityInvocationKinds.Rule, RulePackCapabilityIds.DeriveStat),
+                ToSr5ParityCorpusCase(initiativeResult, RulesetCapabilityInvocationKinds.Rule, RulePackCapabilityIds.DeriveInitiative),
                 ToSr5ParityCorpusCase(quickActionsResult, RulesetCapabilityInvocationKinds.Script, RulePackCapabilityIds.SessionQuickActions)
             ]);
     }
@@ -6120,6 +6150,20 @@ internal static class CoreEngineTests
                     [
                         new RulesetCapabilityArgument("baseValue", RulesetCapabilityBridge.FromObject(8)),
                         new RulesetCapabilityArgument("modifier", RulesetCapabilityBridge.FromObject(4))
+                ]),
+            CancellationToken.None)
+            .GetAwaiter()
+            .GetResult();
+        RulesetCapabilityInvocationResult initiativeResult = sr6.Capabilities
+            .InvokeAsync(
+                new RulesetCapabilityInvocationRequest(
+                    CapabilityId: RulePackCapabilityIds.DeriveInitiative,
+                    InvocationKind: RulesetCapabilityInvocationKinds.Rule,
+                    Arguments:
+                    [
+                        new RulesetCapabilityArgument("reaction", RulesetCapabilityBridge.FromObject(5)),
+                        new RulesetCapabilityArgument("intuition", RulesetCapabilityBridge.FromObject(4)),
+                        new RulesetCapabilityArgument("initiativeDice", RulesetCapabilityBridge.FromObject(2))
                     ]),
                 CancellationToken.None)
             .GetAwaiter()
@@ -6140,6 +6184,7 @@ internal static class CoreEngineTests
             CapabilityCases:
             [
                 ToSr6ParityCorpusCase(deriveResult, RulesetCapabilityInvocationKinds.Rule, RulePackCapabilityIds.DeriveStat),
+                ToSr6ParityCorpusCase(initiativeResult, RulesetCapabilityInvocationKinds.Rule, RulePackCapabilityIds.DeriveInitiative),
                 ToSr6ParityCorpusCase(quickActionsResult, RulesetCapabilityInvocationKinds.Script, RulePackCapabilityIds.SessionQuickActions)
             ]);
     }

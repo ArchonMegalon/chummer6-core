@@ -115,10 +115,10 @@ public sealed class AiProviderCatalogTests
         Assert.AreEqual("AI Magicx", provider.ExecutionPolicy.DisplayName);
         Assert.AreEqual(AiProviderAdapterKinds.Stub, provider.AdapterKind);
         Assert.IsFalse(provider.LiveExecutionEnabled);
-        StringAssert.Contains(response.Answer, "scaffold stayed server-side");
+        StringAssert.Contains(response.Answer, "Deterministic Build Lab planner ranked");
         Assert.AreEqual("Line's clean. I'm grounding this against your current Chummer runtime.", response.FlavorLine);
         Assert.IsNotNull(response.StructuredAnswer);
-        Assert.AreEqual(AiConfidenceLevels.Scaffolded, response.StructuredAnswer!.Confidence);
+        Assert.AreEqual(AiConfidenceLevels.Grounded, response.StructuredAnswer!.Confidence);
     }
 
     [TestMethod]
@@ -206,7 +206,7 @@ public sealed class AiProviderCatalogTests
         Assert.IsTrue(response.StructuredAnswer.ActionDrafts.Any(draft => draft.ActionId == AiSuggestedActionIds.PreviewKarmaSpend));
         Assert.IsTrue(response.StructuredAnswer.ActionDrafts.Any(draft => draft.ActionId == AiSuggestedActionIds.PreviewApplyPlan));
         Assert.IsTrue(response.StructuredAnswer.ActionDrafts.Any(draft => draft.ActionId == AiSuggestedActionIds.BrowseBuildIdeas));
-        Assert.IsTrue(response.Recommendations.Any());
+        Assert.IsTrue(response.StructuredAnswer!.Recommendations.Any());
         Assert.IsTrue(response.SuggestedActions.Any(action => action.ActionId == AiSuggestedActionIds.BrowseBuildIdeas));
         Assert.IsTrue(response.ToolInvocations.Any(invocation => invocation.ToolId == AiToolIds.SearchBuildIdeas));
         Assert.IsTrue(response.ToolInvocations.Any(invocation => invocation.ToolId == AiToolIds.CreateApplyPreview));
