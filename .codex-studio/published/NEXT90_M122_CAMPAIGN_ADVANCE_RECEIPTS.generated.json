@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-05-13T04:03:39Z",
+  "generated_at": "2026-05-17T18:49:02Z",
   "status": "passed",
   "package_id": "next90-m122-core-add-deterministic-reward-downtime-goal-update-and-conseq",
   "frontier_id": 1771239378,
@@ -63,7 +63,7 @@
       "key": "test_program",
       "path": "/docker/chummercomplete/chummer-core-engine/Chummer.CoreEngine.Tests/Program.cs",
       "exists": true,
-      "digest": "sha256:8d0d1c3c134365f1f70fdb054c6ac5c32ccdca68822556522fc35644dff7aafc",
+      "digest": "sha256:0f1fe7451fcb9fb31ffc0fdc6f07f664113886864022c8047a0c25faab17464c",
       "digest_scope": "full-file",
       "missing_snippets": [],
       "status": "passed"
@@ -72,7 +72,7 @@
       "key": "mstest",
       "path": "/docker/chummercomplete/chummer-core-engine/Chummer.Tests/CampaignAdvanceReceiptServiceTests.cs",
       "exists": true,
-      "digest": "sha256:37c6986b4837b046d65cad30f9e585aca69448ecac3c8d4ff5a06800d1d62ed7",
+      "digest": "sha256:f39d61914ba73a4ba38029504b3dbe78508b71f453ebf36f1821930a41ba8d9b",
       "digest_scope": "full-file",
       "missing_snippets": [],
       "status": "passed"
