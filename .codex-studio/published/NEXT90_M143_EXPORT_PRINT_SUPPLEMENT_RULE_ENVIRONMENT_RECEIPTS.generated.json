@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-05-13T19:33:51Z",
+  "generated_at": "2026-05-17T19:10:34Z",
   "status": "passed",
   "package_id": "next90-m143-core-keep-export-print-supplement-and-rule-environment-receipts-deterministi",
   "frontier_id": 2778308338,
@@ -63,7 +63,7 @@
       "key": "test_program",
       "path": "/docker/chummercomplete/chummer-core-engine/Chummer.CoreEngine.Tests/Program.cs",
       "exists": true,
-      "digest": "sha256:8d0d1c3c134365f1f70fdb054c6ac5c32ccdca68822556522fc35644dff7aafc",
+      "digest": "sha256:0f1fe7451fcb9fb31ffc0fdc6f07f664113886864022c8047a0c25faab17464c",
       "digest_scope": "full-file",
       "missing_snippets": [],
       "status": "passed"
@@ -72,7 +72,7 @@
       "key": "tool_catalog_mstest",
       "path": "/docker/chummercomplete/chummer-core-engine/Chummer.Tests/ToolCatalogServiceTests.cs",
       "exists": true,
-      "digest": "sha256:a1baf59031361d6886ba3a1946003353a8ebe049d27c9a6041c5ba294a9a672a",
+      "digest": "sha256:5ebfcef700d55c55927ec53b828f6030dd987e8952a09ba587aaf51d9b5bbc42",
       "digest_scope": "full-file",
       "missing_snippets": [],
       "status": "passed"
@@ -81,7 +81,7 @@
       "key": "workspace_service_mstest",
       "path": "/docker/chummercomplete/chummer-core-engine/Chummer.Tests/WorkspaceServiceTests.cs",
       "exists": true,
-      "digest": "sha256:b676118645af9d50e3248983800f7c08c8b392a1d39f98daeb52fb8b4e97f0de",
+      "digest": "sha256:a5f27ebc8c9f7f5323a9bfab04c6b1c31b6abcfed42c73f522437ca4f7983bd2",
       "digest_scope": "full-file",
       "missing_snippets": [],
       "status": "passed"
@@ -119,7 +119,7 @@
       "key": "successor_registry",
       "path": "/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml",
       "exists": true,
-      "digest": "sha256:804244a83ae307c2c96c2bde2c5fa41e53ef4161d23c7471c6e7457d62e92b11",
+      "digest": "sha256:ffca8c8b4d571b9634c510680ae5a3206b3582cd4c393f56ee0d5a4474f0aec8",
       "digest_scope": "milestone-row",
       "missing_snippets": [],
       "status": "passed"
