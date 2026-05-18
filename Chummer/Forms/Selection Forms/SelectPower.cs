@@ -19,6 +19,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Globalization;
 using System.Text;
 using System.Threading;
@@ -173,11 +174,15 @@ namespace Chummer
         /// <summary>
         /// Whether we should ignore how many of a given power may be taken. Generally used when bonding Qi Foci.
         /// </summary>
+        [Browsable(false)]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
         public bool IgnoreLimits { get; set; }
 
         /// <summary>
         /// Whether this window is being shown to select a power for a bonus node or to just select a power for a character traditionally
         /// </summary>
+        [Browsable(false)]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
         public bool ForBonus { get; set; }
 
         /// <summary>

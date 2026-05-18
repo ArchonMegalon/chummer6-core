@@ -19,6 +19,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
@@ -45,6 +46,8 @@ namespace Chummer
         private int _intMinimumRating;
         private int _intMaximumRating = int.MaxValue;
 
+        [Browsable(false)]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
         public string LinkedAttribute { get; set; } = string.Empty;
 
         private readonly XPathNavigator _objXmlDocument;

@@ -19,6 +19,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Globalization;
 using System.Text;
 using System.Threading;
@@ -298,11 +299,15 @@ namespace Chummer
         /// <summary>
         /// Is the mod being added to a vehicle weapon mount?
         /// </summary>
+        [Browsable(false)]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
         public bool VehicleMountMods { get; set; }
 
         /// <summary>
         /// If the mod is being added to a vehicle weapon mount, the (prospective) cost of the weapon mount without any additional mods.
         /// </summary>
+        [Browsable(false)]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
         public decimal ParentWeaponMountOwnCost { get; set; }
 
         #endregion Properties

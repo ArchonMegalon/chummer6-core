@@ -1082,6 +1082,8 @@ namespace Chummer
         }
 
         [CLSCompliant(false)]
+        [Browsable(false)]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
         public PageViewTelemetry MyStartupPvt { get; set; }
 
         private void OpenCharactersOnBeforeClearCollectionChanged(object sender, NotifyCollectionChangedEventArgs e)

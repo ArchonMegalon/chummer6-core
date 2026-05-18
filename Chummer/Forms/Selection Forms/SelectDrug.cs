@@ -19,6 +19,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Globalization;
 using System.Linq;
 using System.Text;
@@ -573,6 +574,8 @@ namespace Chummer
         /// <summary>
         /// Parent vehicle that the cyberlimb will be attached to.
         /// </summary>
+        [Browsable(false)]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
         public Vehicle ParentVehicle { get; set; }
 
         public decimal Markup => _decMarkup;
@@ -580,11 +583,15 @@ namespace Chummer
         /// <summary>
         /// Parent Drug that the current selection will be added to.
         /// </summary>
+        [Browsable(false)]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
         public Drug DrugParent { get; set; }
 
         /// <summary>
         /// Default text string to filter by.
         /// </summary>
+        [Browsable(false)]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
         public string DefaultSearchText { get; set; }
 
         #endregion Properties

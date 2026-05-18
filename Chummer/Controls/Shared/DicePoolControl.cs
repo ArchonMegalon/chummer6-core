@@ -18,6 +18,7 @@
  */
 
 using System;
+using System.ComponentModel;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
@@ -175,6 +176,8 @@ namespace Chummer.UI.Shared.Components
             }
         }
 
+        [Browsable(false)]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
         public string ToolTipText
         {
             get => lblDicePool.ToolTipText;

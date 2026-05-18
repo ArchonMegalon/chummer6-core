@@ -20,6 +20,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.Specialized;
+using System.ComponentModel;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
@@ -973,6 +974,8 @@ namespace Chummer
         /// <summary>
         /// Lifestyle that was created in the dialogue.
         /// </summary>
+        [Browsable(false)]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
         public Lifestyle SelectedLifestyle { get; set; }
 
         #endregion Properties

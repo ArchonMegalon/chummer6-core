@@ -19,6 +19,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -201,6 +202,8 @@ namespace Chummer
         /// <summary>
         /// Only show Martial Arts that are provided by a quality
         /// </summary>
+        [Browsable(false)]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
         public bool ShowQualities { get; set; }
 
         /// <summary>

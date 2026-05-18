@@ -14249,10 +14249,13 @@ namespace Chummer.Backend.Equipment
             return false;
         }
 
-        public Task<bool> AllowPasteObject(object input, CancellationToken token = default)
+        public async Task<bool> AllowPasteObject(object input, CancellationToken token = default)
         {
             token.ThrowIfCancellationRequested();
-            throw new NotImplementedException();
+            if (!(input is WeaponAccessory objAccessory))
+                return false;
+            return await CheckAccessoryRequirementsAsync(
+                await objAccessory.GetNodeXPathAsync(token: token).ConfigureAwait(false), token).ConfigureAwait(false);
         }
 
         /// <summary>

@@ -19,6 +19,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Linq;
 using System.Text;
 using System.Threading;
@@ -231,6 +232,8 @@ namespace Chummer
         /// </summary>
         public bool Alchemical => _blnAlchemical;
 
+        [Browsable(false)]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
         public bool FreeOnly { get; set; }
 
         /// <summary>

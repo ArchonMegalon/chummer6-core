@@ -20,6 +20,7 @@
 using System;
 using System.Buffers;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -1137,6 +1138,8 @@ namespace Chummer
         /// <summary>
         /// Set Improvement object to edit.
         /// </summary>
+        [Browsable(false)]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
         public Improvement EditImprovementObject { get; set; }
 
         #endregion Properties

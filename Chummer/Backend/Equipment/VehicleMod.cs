@@ -2733,7 +2733,14 @@ namespace Chummer.Backend.Equipment
         public Task<bool> AllowPasteObject(object input, CancellationToken token = default)
         {
             token.ThrowIfCancellationRequested();
-            throw new NotImplementedException();
+            if (input is Weapon)
+            {
+                return Task.FromResult(
+                    Name.StartsWith("Mechanical Arm", StringComparison.Ordinal) ||
+                    Name.Contains("Drone Arm"));
+            }
+
+            return Task.FromResult(false);
         }
 
         public bool Remove(bool blnConfirmDelete = true)

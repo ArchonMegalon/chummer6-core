@@ -19,6 +19,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Data;
 using System.Text;
 using System.Threading;
@@ -1057,6 +1058,8 @@ namespace Chummer
             set => _strWeaponFilter = value;
         }
 
+        [Browsable(false)]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
         public Weapon ParentWeapon { get; set; }
 
         public HashSet<string> Mounts => _setMounts;

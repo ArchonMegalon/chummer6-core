@@ -7429,10 +7429,16 @@ namespace Chummer.Backend.Equipment
             }
         }
 
-        public Task<bool> AllowPasteObject(object input, CancellationToken token = default)
+        public async Task<bool> AllowPasteObject(object input, CancellationToken token = default)
         {
             token.ThrowIfCancellationRequested();
-            throw new NotImplementedException();
+            if (!(input is Gear objGear))
+                return false;
+            XPathNodeIterator xmlAddonCategoryList =
+                (await this.GetNodeXPathAsync(token: token).ConfigureAwait(false))
+                ?.SelectAndCacheExpression("addoncategory", token);
+            return xmlAddonCategoryList?.Count > 0 && xmlAddonCategoryList.Cast<XPathNavigator>()
+                .Any(xmlCategory => xmlCategory.Value == objGear.Category);
         }
 
         public TaggedObservableCollection<Gear> GearChildren => Children;

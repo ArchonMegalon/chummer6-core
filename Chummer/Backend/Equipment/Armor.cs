@@ -3866,10 +3866,43 @@ namespace Chummer.Backend.Equipment
             }
         }
 
-        public Task<bool> AllowPasteObject(object input, CancellationToken token = default)
+        public async Task<bool> AllowPasteObject(object input, CancellationToken token = default)
         {
             token.ThrowIfCancellationRequested();
-            throw new NotImplementedException();
+            string strCapacity = await CalculatedCapacityAsync(GlobalSettings.InvariantCultureInfo, token)
+                .ConfigureAwait(false);
+            if (string.IsNullOrEmpty(strCapacity) || strCapacity == "0")
+                return false;
+
+            XPathNavigator xmlNode = await this.GetNodeXPathAsync(token: token).ConfigureAwait(false);
+            switch (input)
+            {
+                case ArmorMod objArmorMod:
+                {
+                    string strPasteCategory = objArmorMod.Category;
+                    if (xmlNode == null)
+                        return strPasteCategory == "General";
+                    XPathNavigator xmlForceModCategory =
+                        xmlNode.SelectSingleNodeAndCacheExpression("forcemodcategory", token);
+                    if (xmlForceModCategory != null)
+                        return xmlForceModCategory.Value == strPasteCategory;
+                    if (strPasteCategory == "General")
+                        return true;
+                    XPathNodeIterator xmlAddonCategoryList = xmlNode.SelectAndCacheExpression("addoncategory", token);
+                    return xmlAddonCategoryList.Count <= 0 || xmlAddonCategoryList.Cast<XPathNavigator>()
+                        .Any(xmlCategory => xmlCategory.Value == strPasteCategory);
+                }
+                case Gear objGear:
+                {
+                    if (xmlNode == null)
+                        return false;
+                    XPathNodeIterator xmlAddonCategoryList = xmlNode.SelectAndCacheExpression("addoncategory", token);
+                    return xmlAddonCategoryList.Count <= 0 || xmlAddonCategoryList.Cast<XPathNavigator>()
+                        .Any(xmlCategory => xmlCategory.Value == objGear.Category);
+                }
+                default:
+                    return false;
+            }
         }
 
         /// <inheritdoc />

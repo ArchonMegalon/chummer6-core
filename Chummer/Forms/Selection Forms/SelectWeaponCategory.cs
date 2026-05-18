@@ -19,6 +19,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Windows.Forms;
 using System.Xml.XPath;
 
@@ -29,6 +30,8 @@ namespace Chummer
         private string _strSelectedCategory = string.Empty;
         private string _strForceCategory = string.Empty;
 
+        [Browsable(false)]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
         public string WeaponType { get; set; }
 
         private readonly Character _objCharacter;

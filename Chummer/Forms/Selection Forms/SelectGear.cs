@@ -19,6 +19,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Globalization;
 using System.Linq;
 using System.Text;
@@ -706,11 +707,15 @@ namespace Chummer
         /// <summary>
         /// Only items that consume Armor Capacity should be shown.
         /// </summary>
+        [Browsable(false)]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
         public bool ShowArmorCapacityOnly { get; set; }
 
         /// <summary>
         /// Only items that are marked as being flechette ammo should be shown.
         /// </summary>
+        [Browsable(false)]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
         public bool ShowFlechetteAmmoOnly { get; set; }
 
         /// <summary>
@@ -807,11 +812,15 @@ namespace Chummer
         /// <summary>
         /// Default text string to filter by.
         /// </summary>
+        [Browsable(false)]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
         public string DefaultSearchText { get; set; }
 
         /// <summary>
         /// What weapon type is our gear allowed to have
         /// </summary>
+        [Browsable(false)]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
         public string ForceItemAmmoForWeaponType { get; set; }
 
         #endregion Properties

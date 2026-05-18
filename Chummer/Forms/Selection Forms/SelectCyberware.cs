@@ -19,6 +19,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Globalization;
 using System.Linq;
 using System.Text;
@@ -1139,26 +1140,36 @@ namespace Chummer
         /// <summary>
         /// Essence cost multiplier from the character.
         /// </summary>
+        [Browsable(false)]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
         public decimal CharacterESSMultiplier { get; set; } = 1.0m;
 
         /// <summary>
         /// Total Essence cost multiplier from the character (stacks multiplicatively at the very last step.
         /// </summary>
+        [Browsable(false)]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
         public decimal CharacterTotalESSMultiplier { get; set; } = 1.0m;
 
         /// <summary>
         /// Cost multiplier for Genetech.
         /// </summary>
+        [Browsable(false)]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
         public decimal GenetechCostMultiplier { get; set; } = 1.0m;
 
         /// <summary>
         /// Essence cost multiplier for Genetech.
         /// </summary>
+        [Browsable(false)]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
         public decimal GenetechEssMultiplier { get; set; } = 1.0m;
 
         /// <summary>
         /// Essence cost multiplier for Basic Bioware.
         /// </summary>
+        [Browsable(false)]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
         public decimal BasicBiowareESSMultiplier { get; set; } = 1.0m;
 
         /// <summary>
@@ -1260,11 +1271,15 @@ namespace Chummer
         /// <summary>
         /// Parent vehicle that the cyberlimb will be attached to.
         /// </summary>
+        [Browsable(false)]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
         public Vehicle ParentVehicle { get; set; }
 
         /// <summary>
         /// Parent vehicle that the cyberlimb will be attached to.
         /// </summary>
+        [Browsable(false)]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
         public VehicleMod ParentVehicleMod { get; set; }
 
         public decimal Markup => _decMarkup;
@@ -1284,6 +1299,8 @@ namespace Chummer
         /// <summary>
         /// Default text string to filter by.
         /// </summary>
+        [Browsable(false)]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
         public string DefaultSearchText { get; set; }
 
         #endregion Properties
@@ -2213,6 +2230,8 @@ namespace Chummer
         /// <summary>
         /// Is a given piece of ware being Upgraded?
         /// </summary>
+        [Browsable(false)]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
         public bool Upgrading { get; set; }
 
         /// <summary>

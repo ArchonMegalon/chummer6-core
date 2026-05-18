@@ -2188,10 +2188,27 @@ namespace Chummer.Backend.Equipment
             }
         }
 
-        public Task<bool> AllowPasteObject(object input, CancellationToken token = default)
+        public async Task<bool> AllowPasteObject(object input, CancellationToken token = default)
         {
             token.ThrowIfCancellationRequested();
-            throw new NotImplementedException();
+            if (!(input is Weapon objWeapon))
+                return false;
+
+            if (!string.IsNullOrEmpty(AllowedWeapons))
+            {
+                string strCheckValue = objWeapon.Name;
+                if (string.IsNullOrEmpty(strCheckValue) || !AllowedWeapons.Contains(strCheckValue))
+                    return false;
+            }
+
+            if (!string.IsNullOrEmpty(AllowedWeaponCategories))
+            {
+                string strCheckValue = objWeapon.Category;
+                if (string.IsNullOrEmpty(strCheckValue) || !AllowedWeaponCategories.Contains(strCheckValue))
+                    return false;
+            }
+
+            return await GetIsWeaponsFullAsync(token).ConfigureAwait(false);
         }
 
         /// <inheritdoc />

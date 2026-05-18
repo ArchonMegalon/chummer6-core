@@ -18,6 +18,7 @@
  */
 
 using System;
+using System.ComponentModel;
 using System.Threading;
 using System.Windows.Forms;
 
@@ -65,6 +66,8 @@ namespace Chummer
                 base.OnEnabledChanged(e);
         }
 
+        [Browsable(false)]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
         public new bool Enabled
         {
             get => _intRealEnabled > 0;
@@ -107,6 +110,8 @@ namespace Chummer
 
         private int _intDefaultColorScheme = ColorManager.IsLightMode.ToInt32();
 
+        [Browsable(false)]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
         public bool DefaultColorScheme
         {
             get => _intDefaultColorScheme > 0;

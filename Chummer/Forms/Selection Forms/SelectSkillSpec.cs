@@ -19,6 +19,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Text;
 using System.Windows.Forms;
 using System.Xml.XPath;
@@ -191,6 +192,8 @@ namespace Chummer
         /// <summary>
         /// Type of skill that we're selecting. Used to differentiate knowledge skills.
         /// </summary>
+        [Browsable(false)]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
         public string Mode { get; set; }
 
         #endregion Properties

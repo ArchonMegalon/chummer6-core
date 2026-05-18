@@ -2747,7 +2747,22 @@ namespace Chummer.Backend.Equipment
         public Task<bool> AllowPasteObject(object input, CancellationToken token = default)
         {
             token.ThrowIfCancellationRequested();
-            throw new NotImplementedException();
+            if (!(input is Gear objGear))
+                return Task.FromResult(false);
+
+            if (AllowGear?.SelectNodes("gearcategory")?.Cast<XmlNode>()
+                    .Any(objAllowed => objAllowed.InnerText == objGear.Category) == true)
+            {
+                return Task.FromResult(true);
+            }
+
+            if (AllowGear?.SelectNodes("gearname")?.Cast<XmlNode>()
+                    .Any(objAllowed => objAllowed.InnerText == objGear.Name) == true)
+            {
+                return Task.FromResult(true);
+            }
+
+            return Task.FromResult(false);
         }
 
         /// <inheritdoc />

@@ -18,6 +18,7 @@
  */
 
 using System;
+using System.ComponentModel;
 using System.Windows.Forms;
 
 namespace Chummer
@@ -58,6 +59,8 @@ namespace Chummer
         /// <summary>
         /// Number of dice that are rolled for the lifestyle.
         /// </summary>
+        [Browsable(false)]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
         public int Dice { get; set; }
 
         /// <summary>

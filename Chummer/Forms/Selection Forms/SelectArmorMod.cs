@@ -19,6 +19,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Globalization;
 using System.Text;
 using System.Threading;
@@ -187,11 +188,15 @@ namespace Chummer
         /// <summary>
         /// Categories that the Armor allows to be used.
         /// </summary>
+        [Browsable(false)]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
         public string AllowedCategories { get; set; } = string.Empty;
 
         /// <summary>
         /// Whether the General category should be included.
         /// </summary>
+        [Browsable(false)]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
         public bool ExcludeGeneralCategory { get; set; }
 
         /// <summary>
