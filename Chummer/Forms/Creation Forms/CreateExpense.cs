@@ -115,6 +115,8 @@ namespace Chummer
         /// <summary>
         /// Amount gained or spent.
         /// </summary>
+        [Browsable(false)]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
         public decimal Amount
         {
             get => _decAmount;
@@ -131,6 +133,8 @@ namespace Chummer
         /// <summary>
         /// Reason for the Karma change.
         /// </summary>
+        [Browsable(false)]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
         public string Reason
         {
             get => _strReason;
@@ -140,6 +144,8 @@ namespace Chummer
         /// <summary>
         /// Whether this is a Karma refund.
         /// </summary>
+        [Browsable(false)]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
         public bool Refund
         {
             get => _blnRefund;
@@ -149,6 +155,8 @@ namespace Chummer
         /// <summary>
         /// Whether this is a Karma refund.
         /// </summary>
+        [Browsable(false)]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
         public bool ForceCareerVisible
         {
             get => _blnForceCareerVisible;
@@ -158,6 +166,8 @@ namespace Chummer
         /// <summary>
         /// Date and Time that was selected.
         /// </summary>
+        [Browsable(false)]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
         public DateTime SelectedDate
         {
             get => _datSelectedDate;
@@ -167,6 +177,8 @@ namespace Chummer
         /// <summary>
         /// The Expense's mode (either Karma or Nuyen).
         /// </summary>
+        [Browsable(false)]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
         public ExpenseType Mode
         {
             set

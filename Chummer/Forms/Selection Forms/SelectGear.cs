@@ -679,6 +679,8 @@ namespace Chummer
         /// <summary>
         /// Only items that grant Capacity should be shown.
         /// </summary>
+        [Browsable(false)]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
         public bool ShowPositiveCapacityOnly
         {
             get => _blnShowPositiveCapacityOnly;
@@ -693,6 +695,8 @@ namespace Chummer
         /// <summary>
         /// Only items that consume Capacity should be shown.
         /// </summary>
+        [Browsable(false)]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
         public bool ShowNegativeCapacityOnly
         {
             get => _blnShowNegativeCapacityOnly;
@@ -721,6 +725,8 @@ namespace Chummer
         /// <summary>
         /// Guid of Gear that was selected in the dialogue.
         /// </summary>
+        [Browsable(false)]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
         public string SelectedGear
         {
             get => _strSelectedGear;
@@ -740,6 +746,8 @@ namespace Chummer
         /// <summary>
         /// Set the maximum Capacity the piece of Gear is allowed to be.
         /// </summary>
+        [Browsable(false)]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
         public decimal MaximumCapacity
         {
             get => _decMaximumCapacity;
@@ -786,6 +794,8 @@ namespace Chummer
         /// <summary>
         /// Whether the Stack Checkbox should be shown (default true).
         /// </summary>
+        [Browsable(false)]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
         public bool EnableStack
         {
             set
@@ -799,6 +809,8 @@ namespace Chummer
         /// <summary>
         /// Capacity display style.
         /// </summary>
+        [Browsable(false)]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
         public CapacityStyle CapacityDisplayStyle
         {
             set => _eCapacityStyle = value;

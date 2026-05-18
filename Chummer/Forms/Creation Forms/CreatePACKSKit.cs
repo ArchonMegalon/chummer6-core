@@ -328,68 +328,68 @@ namespace Chummer
                                     decNuyenBP.ToString(GlobalSettings.InvariantCultureInfo)).ConfigureAwait(false);
                         }
 
-                        /* TODO: Add support for active and knowledge skills and skill groups
                         // Export Active Skills.
-                        if (await chkActiveSkills.DoThreadSafeFuncAsync(x => x.Checked))
+                        if (await chkActiveSkills.DoThreadSafeFuncAsync(x => x.Checked).ConfigureAwait(false))
                         {
                             // <skills>
-                            await objWriter.WriteStartElementAsync("skills");
+                            await objWriter.WriteStartElementAsync("skills").ConfigureAwait(false);
 
                             // Active Skills.
-                            foreach (Skill objSkill in _objCharacter.SkillsSection.Skills)
+                            foreach (Skill objSkill in await _objCharacter.SkillsSection.GetSkillsAsync().ConfigureAwait(false))
                             {
                                 if (!objSkill.IsKnowledgeSkill && objSkill.Rating > 0)
                                 {
                                     // <skill>
-                                    await objWriter.WriteStartElementAsync("skill");
-                                    await objWriter.WriteElementStringAsync("name", objSkill.Name);
-                                    await objWriter.WriteElementStringAsync("rating", objSkill.Rating.ToString());
-                                    if (!string.IsNullOrEmpty(objSkill.Specialization))
-                                        await objWriter.WriteElementStringAsync("spec", objSkill.Specialization);
+                                    await objWriter.WriteStartElementAsync("skill").ConfigureAwait(false);
+                                    await objWriter.WriteElementStringAsync("name", objSkill.Name).ConfigureAwait(false);
+                                    await objWriter.WriteElementStringAsync("rating", objSkill.Rating.ToString(GlobalSettings.InvariantCultureInfo)).ConfigureAwait(false);
+                                    if (!string.IsNullOrEmpty(objSkill.TopMostDisplaySpecialization))
+                                        await objWriter.WriteElementStringAsync("spec", objSkill.TopMostDisplaySpecialization).ConfigureAwait(false);
                                     // </skill>
-                                    await objWriter.WriteEndElementAsync();
+                                    await objWriter.WriteEndElementAsync().ConfigureAwait(false);
                                 }
                             }
 
                             // Skill Groups.
-                            foreach (SkillGroup objSkillGroup in _objCharacter.SkillsSection.SkillGroups)
+                            foreach (SkillGroup objSkillGroup in await _objCharacter.SkillsSection.GetSkillGroupsAsync().ConfigureAwait(false))
                             {
-                                if (objSkillGroup.BaseUnbroken && objSkillGroup.Rating > 0)
+                                if (objSkillGroup.BaseUnbroken && objSkillGroup.Base > 0)
                                 {
                                     // <skillgroup>
-                                    await objWriter.WriteStartElementAsync("skillgroup");
-                                    await objWriter.WriteElementStringAsync("name", objSkillGroup.Name);
-                                    await objWriter.WriteElementStringAsync("rating", objSkillGroup.Rating.ToString());
+                                    await objWriter.WriteStartElementAsync("skillgroup").ConfigureAwait(false);
+                                    await objWriter.WriteElementStringAsync("name", objSkillGroup.Name).ConfigureAwait(false);
+                                    await objWriter.WriteElementStringAsync("rating", objSkillGroup.Base.ToString(GlobalSettings.InvariantCultureInfo)).ConfigureAwait(false);
                                     // </skillgroup>
-                                    await objWriter.WriteEndElementAsync();
+                                    await objWriter.WriteEndElementAsync().ConfigureAwait(false);
                                 }
                             }
                             // </skills>
-                            await objWriter.WriteEndElementAsync();
+                            await objWriter.WriteEndElementAsync().ConfigureAwait(false);
                         }
 
                         // Export Knowledge Skills.
-                        if (await chkKnowledgeSkills.DoThreadSafeFuncAsync(x => x.Checked))
+                        if (await chkKnowledgeSkills.DoThreadSafeFuncAsync(x => x.Checked).ConfigureAwait(false))
                         {
                             // <knowledgeskills>
-                            await objWriter.WriteStartElementAsync("knowledgeskills");
-                            foreach (KnowledgeSkill objSkill in _objCharacter.SkillsSection.Skills.OfType<KnowledgeSkill>())
+                            await objWriter.WriteStartElementAsync("knowledgeskills").ConfigureAwait(false);
+                            foreach (KnowledgeSkill objSkill in await _objCharacter.SkillsSection.GetKnowledgeSkillsAsync().ConfigureAwait(false))
                             {
+                                if (objSkill.Rating <= 0)
+                                    continue;
                                 // <skill>
-                                await objWriter.WriteStartElementAsync("skill");
-                                await objWriter.WriteElementStringAsync("name", objSkill.Name);
-                                await objWriter.WriteElementStringAsync("rating", objSkill.Rating.ToString(GlobalSettings.InvariantCultureInfo));
-                                if (!string.IsNullOrEmpty(objSkill.Specialization))
-                                    await objWriter.WriteElementStringAsync("spec", objSkill.Specialization);
-                                await objWriter.WriteElementStringAsync("category", objSkill.SkillCategory);
+                                await objWriter.WriteStartElementAsync("skill").ConfigureAwait(false);
+                                await objWriter.WriteElementStringAsync("name", objSkill.Name).ConfigureAwait(false);
+                                await objWriter.WriteElementStringAsync("rating", objSkill.Rating.ToString(GlobalSettings.InvariantCultureInfo)).ConfigureAwait(false);
+                                if (!string.IsNullOrEmpty(objSkill.TopMostDisplaySpecialization))
+                                    await objWriter.WriteElementStringAsync("spec", objSkill.TopMostDisplaySpecialization).ConfigureAwait(false);
+                                await objWriter.WriteElementStringAsync("category", objSkill.SkillCategory).ConfigureAwait(false);
                                 // </skill>
-                                await objWriter.WriteEndElementAsync();
+                                await objWriter.WriteEndElementAsync().ConfigureAwait(false);
                             }
 
                             // </knowledgeskills>
-                            await objWriter.WriteEndElementAsync();
+                            await objWriter.WriteEndElementAsync().ConfigureAwait(false);
                         }
-                        */
 
                         // Export Martial Arts.
                         if (await chkMartialArts.DoThreadSafeFuncAsync(x => x.Checked).ConfigureAwait(false))

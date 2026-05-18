@@ -42,6 +42,8 @@ namespace Chummer.UI.Skills
         private BindingListDisplay<SkillGroup> _lstSkillGroups;
         private BindingListDisplay<KnowledgeSkill> _lstKnowledgeSkills;
 
+        [Browsable(false)]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
         public CancellationToken MyToken { get; set; }
 
         public Character CharacterObject => _objCharacter;
@@ -138,6 +140,8 @@ namespace Chummer.UI.Skills
             }
         }
 
+        [Browsable(false)]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
         public Character CachedCharacter { get; set; }
 
         public async Task RealLoad(CancellationToken objMyToken = default, CancellationToken token = default)

@@ -1753,49 +1753,7 @@ namespace Chummer
                                 }
 
                                 token.ThrowIfCancellationRequested();
-                                XmlElement xmlExistingNode = objDocElement[objNode.Name];
-                                if (xmlExistingNode != null
-                                    && xmlExistingNode.Attributes?.Count == objNode.Attributes?.Count)
-                                {
-                                    token.ThrowIfCancellationRequested();
-                                    bool blnAllMatching = true;
-                                    foreach (XmlAttribute x in xmlExistingNode.Attributes)
-                                    {
-                                        token.ThrowIfCancellationRequested();
-                                        if (objNode.Attributes.GetNamedItem(x.Name)?.Value != x.Value)
-                                        {
-                                            blnAllMatching = false;
-                                            break;
-                                        }
-                                    }
-
-                                    if (blnAllMatching)
-                                    {
-                                        token.ThrowIfCancellationRequested();
-                                        /* We need to do this to avoid creating multiple copies of the root node, ie
-                                           <chummer>
-                                               <metatypes>
-                                                   <metatype>Standard</metatype>
-                                               </metatypes>
-                                               <metatypes>
-                                                   <metatype>Custom</metatype>
-                                               </metatypes>
-                                           </chummer>
-                                           Otherwise xpathnavigators that to a selectsinglenode will only grab the first instance of the name. TODO: fix better?
-                                       */
-                                        foreach (XmlNode childNode in objNode.ChildNodes)
-                                        {
-                                            token.ThrowIfCancellationRequested();
-                                            xmlExistingNode.AppendChild(xmlDataDoc.ImportNode(childNode, true));
-                                        }
-                                    }
-                                }
-                                else
-                                {
-                                    token.ThrowIfCancellationRequested();
-                                    // Append the entire child node to the new document.
-                                    objDocElement.AppendChild(xmlDataDoc.ImportNode(objNode, true));
-                                }
+                                MergeOrAppendRootChildNode(objDocElement, objNode, xmlDataDoc, token);
 
                                 blnReturn = true;
                             }
@@ -2067,49 +2025,8 @@ namespace Chummer
                                     objNode.RemoveChild(objRemoveNode);
                                 }
 
-                                XmlElement xmlExistingNode = objDocElement[objNode.Name];
-                                if (xmlExistingNode != null
-                                    && xmlExistingNode.Attributes?.Count == objNode.Attributes?.Count)
-                                {
-                                    token.ThrowIfCancellationRequested();
-                                    bool blnAllMatching = true;
-                                    foreach (XmlAttribute x in xmlExistingNode.Attributes)
-                                    {
-                                        token.ThrowIfCancellationRequested();
-                                        if (objNode.Attributes.GetNamedItem(x.Name)?.Value != x.Value)
-                                        {
-                                            blnAllMatching = false;
-                                            break;
-                                        }
-                                    }
-
-                                    if (blnAllMatching)
-                                    {
-                                        token.ThrowIfCancellationRequested();
-                                        /* We need to do this to avoid creating multiple copies of the root node, ie
-                                           <chummer>
-                                               <metatypes>
-                                                   <metatype>Standard</metatype>
-                                               </metatypes>
-                                               <metatypes>
-                                                   <metatype>Custom</metatype>
-                                               </metatypes>
-                                           </chummer>
-                                           Otherwise xpathnavigators that to a selectsinglenode will only grab the first instance of the name. TODO: fix better?
-                                       */
-                                        foreach (XmlNode childNode in objNode.ChildNodes)
-                                        {
-                                            token.ThrowIfCancellationRequested();
-                                            xmlExistingNode.AppendChild(xmlDataDoc.ImportNode(childNode, true));
-                                        }
-                                    }
-                                }
-                                else
-                                {
-                                    token.ThrowIfCancellationRequested();
-                                    // Append the entire child node to the new document.
-                                    objDocElement.AppendChild(xmlDataDoc.ImportNode(objNode, true));
-                                }
+                                token.ThrowIfCancellationRequested();
+                                MergeOrAppendRootChildNode(objDocElement, objNode, xmlDataDoc, token);
 
                                 blnReturn = true;
                             }
@@ -3385,6 +3302,43 @@ namespace Chummer
                     await objWriter.WriteEndDocumentAsync().ConfigureAwait(false);
                 }
             }
+        }
+
+        private static void MergeOrAppendRootChildNode(
+            XmlElement objDocElement,
+            XmlNode objNode,
+            XmlDocument xmlDataDoc,
+            CancellationToken token)
+        {
+            XmlElement xmlExistingNode = objDocElement[objNode.Name];
+            if (xmlExistingNode != null && RootChildNodesMatch(xmlExistingNode, objNode, token))
+            {
+                foreach (XmlNode childNode in objNode.ChildNodes)
+                {
+                    token.ThrowIfCancellationRequested();
+                    xmlExistingNode.AppendChild(xmlDataDoc.ImportNode(childNode, true));
+                }
+
+                return;
+            }
+
+            token.ThrowIfCancellationRequested();
+            objDocElement.AppendChild(xmlDataDoc.ImportNode(objNode, true));
+        }
+
+        private static bool RootChildNodesMatch(XmlElement xmlExistingNode, XmlNode objNode, CancellationToken token)
+        {
+            if (xmlExistingNode.Attributes?.Count != objNode.Attributes?.Count)
+                return false;
+
+            foreach (XmlAttribute x in xmlExistingNode.Attributes)
+            {
+                token.ThrowIfCancellationRequested();
+                if (objNode.Attributes.GetNamedItem(x.Name)?.Value != x.Value)
+                    return false;
+            }
+
+            return true;
         }
 
 #endregion Methods

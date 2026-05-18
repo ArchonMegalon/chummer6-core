@@ -1185,6 +1185,8 @@ namespace Chummer
         /// <summary>
         /// Set the maximum Capacity the piece of Cyberware is allowed to be.
         /// </summary>
+        [Browsable(false)]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
         public decimal MaximumCapacity
         {
             get => _decMaximumCapacity;
@@ -1213,6 +1215,8 @@ namespace Chummer
         /// <summary>
         /// Comma-separate list of Categories to show for Subsystems.
         /// </summary>
+        [Browsable(false)]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
         public string Subsystems
         {
             set => _strSubsystems = value;
@@ -1221,6 +1225,8 @@ namespace Chummer
         /// <summary>
         /// Comma-separate list of mount locations that are disallowed.
         /// </summary>
+        [Browsable(false)]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
         public string DisallowedMounts
         {
             set => _strDisallowedMounts = value;
@@ -1229,6 +1235,8 @@ namespace Chummer
         /// <summary>
         /// Comma-separate list of mount locations that already exist on the parent.
         /// </summary>
+        [Browsable(false)]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
         public string HasModularMounts
         {
             set => _strHasModularMounts = value;
@@ -1237,6 +1245,8 @@ namespace Chummer
         /// <summary>
         /// Manually set the Grade of the piece of Cyberware.
         /// </summary>
+        [Browsable(false)]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
         public Grade ForcedGrade
         {
             get => _objForcedGrade;

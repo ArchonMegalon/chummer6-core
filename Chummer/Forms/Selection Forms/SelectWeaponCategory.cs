@@ -130,6 +130,8 @@ namespace Chummer
         /// <summary>
         /// Description to show in the window.
         /// </summary>
+        [Browsable(false)]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
         public string Description
         {
             set => lblDescription.Text = value;
@@ -138,6 +140,8 @@ namespace Chummer
         /// <summary>
         /// Restrict the list to only a single Category.
         /// </summary>
+        [Browsable(false)]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
         public string OnlyCategory
         {
             get => _strForceCategory;

@@ -19,6 +19,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Linq;
 using System.Text;
 using System.Windows.Forms;
@@ -410,6 +411,8 @@ namespace Chummer
         /// <summary>
         /// Internal ID of the item that was selected.
         /// </summary>
+        [Browsable(false)]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
         public string SelectedItem
         {
             get => _strSelectedItem;
@@ -424,6 +427,8 @@ namespace Chummer
         /// <summary>
         /// Whether the Form should be accepted if there is only one item left in the list.
         /// </summary>
+        [Browsable(false)]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
         public bool AllowAutoSelect
         {
             get => _blnAllowAutoSelect;
@@ -433,6 +438,8 @@ namespace Chummer
         /// <summary>
         /// Description to show in the window.
         /// </summary>
+        [Browsable(false)]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
         public string Description
         {
             get => lblDescription.Text;

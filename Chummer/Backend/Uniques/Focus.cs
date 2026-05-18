@@ -144,24 +144,7 @@ namespace Chummer
             // Each Focus costs an amount of Karma equal to their Force x specific Karma cost.
             string strFocusName = objFocusGear?.Name ?? string.Empty;
             string strFocusExtra = objFocusGear?.Extra ?? string.Empty;
-            decimal decExtraKarmaCost = 0;
-            //TODO: Oh god I hate putting in this kind of behaviour but we don't have anything else handy that supports altering focus cost.
-            if (strFocusName.EndsWith(", Individualized, Complete", StringComparison.Ordinal))
-            {
-                decExtraKarmaCost = -2;
-                strFocusName = strFocusName.Replace(", Individualized, Complete", string.Empty);
-            }
-            else if (strFocusName.EndsWith(", Individualized, Partial", StringComparison.Ordinal))
-            {
-                decExtraKarmaCost = -1;
-                strFocusName = strFocusName.Replace(", Individualized, Partial", string.Empty);
-            }
-            int intPosition = strFocusName.IndexOf('(');
-            if (intPosition > -1)
-                strFocusName = strFocusName.Substring(0, intPosition - 1);
-            intPosition = strFocusName.IndexOf(',');
-            if (intPosition > -1)
-                strFocusName = strFocusName.Substring(0, intPosition);
+            (strFocusName, decimal decExtraKarmaCost) = NormalizeBindingFocusNameAndExtraCost(strFocusName);
             decimal decKarmaMultiplier = 1;
             CharacterSettings objSettings = _objCharacter.Settings;
             switch (strFocusName)
@@ -288,24 +271,7 @@ namespace Chummer
             // Each Focus costs an amount of Karma equal to their Force x specific Karma cost.
             string strFocusName = objFocusGear?.Name ?? string.Empty;
             string strFocusExtra = objFocusGear?.Extra ?? string.Empty;
-            decimal decExtraKarmaCost = 0;
-            //TODO: Oh god I hate putting in this kind of behaviour but we don't have anything else handy that supports altering focus cost.
-            if (strFocusName.EndsWith(", Individualized, Complete", StringComparison.Ordinal))
-            {
-                decExtraKarmaCost = -2;
-                strFocusName = strFocusName.Replace(", Individualized, Complete", string.Empty);
-            }
-            else if (strFocusName.EndsWith(", Individualized, Partial", StringComparison.Ordinal))
-            {
-                decExtraKarmaCost = -1;
-                strFocusName = strFocusName.Replace(", Individualized, Partial", string.Empty);
-            }
-            int intPosition = strFocusName.IndexOf('(');
-            if (intPosition > -1)
-                strFocusName = strFocusName.Substring(0, intPosition - 1);
-            intPosition = strFocusName.IndexOf(',');
-            if (intPosition > -1)
-                strFocusName = strFocusName.Substring(0, intPosition);
+            (strFocusName, decimal decExtraKarmaCost) = NormalizeBindingFocusNameAndExtraCost(strFocusName);
             decimal decKarmaMultiplier = 1;
             CharacterSettings objSettings = await _objCharacter.GetSettingsAsync(token).ConfigureAwait(false);
             switch (strFocusName)
@@ -423,6 +389,31 @@ namespace Chummer
             }
 
             return (await GetRatingAsync(token).ConfigureAwait(false) * decKarmaMultiplier + decExtraKarmaCost).StandardRound();
+        }
+
+        private static (string FocusName, decimal ExtraKarmaCost) NormalizeBindingFocusNameAndExtraCost(string focusName)
+        {
+            decimal extraKarmaCost = 0;
+            if (focusName.EndsWith(", Individualized, Complete", StringComparison.Ordinal))
+            {
+                extraKarmaCost = -2;
+                focusName = focusName.Replace(", Individualized, Complete", string.Empty);
+            }
+            else if (focusName.EndsWith(", Individualized, Partial", StringComparison.Ordinal))
+            {
+                extraKarmaCost = -1;
+                focusName = focusName.Replace(", Individualized, Partial", string.Empty);
+            }
+
+            int intPosition = focusName.IndexOf('(');
+            if (intPosition > 0)
+                focusName = focusName.Substring(0, intPosition - 1);
+
+            intPosition = focusName.IndexOf(',');
+            if (intPosition > -1)
+                focusName = focusName.Substring(0, intPosition);
+
+            return (focusName, extraKarmaCost);
         }
 
         #endregion Properties

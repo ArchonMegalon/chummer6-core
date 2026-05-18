@@ -247,155 +247,12 @@ namespace Chummer
         {
             try
             {
-                //TODO: THIS IS UGLY AS SHIT, FIX BETTER
-
-                string strSelectedMount = await cboSize.DoThreadSafeFuncAsync(x => x.SelectedValue?.ToString(), _objGenericToken).ConfigureAwait(false);
-                if (string.IsNullOrEmpty(strSelectedMount))
-                    return;
-                string strSelectedControl = await cboControl.DoThreadSafeFuncAsync(x => x.SelectedValue?.ToString(), _objGenericToken).ConfigureAwait(false);
-                if (string.IsNullOrEmpty(strSelectedControl))
-                    return;
-                string strSelectedFlexibility = await cboFlexibility.DoThreadSafeFuncAsync(x => x.SelectedValue?.ToString(), _objGenericToken).ConfigureAwait(false);
-                if (string.IsNullOrEmpty(strSelectedFlexibility))
-                    return;
-                string strSelectedVisibility = await cboVisibility.DoThreadSafeFuncAsync(x => x.SelectedValue?.ToString(), _objGenericToken).ConfigureAwait(false);
-                if (string.IsNullOrEmpty(strSelectedVisibility))
+                SelectedMountChoices objSelections = await GetSelectedMountChoicesAsync().ConfigureAwait(false);
+                if (objSelections == null)
                     return;
 
-                XmlNode xmlSelectedMount = _xmlDoc.TryGetNodeByNameOrId("/chummer/weaponmounts/weaponmount", strSelectedMount);
-                if (xmlSelectedMount == null)
+                if (SelectionViolatesForbiddenRules(objSelections) || !SelectionMeetsRequiredRules(objSelections))
                     return;
-                XmlNode xmlSelectedControl = _xmlDoc.TryGetNodeByNameOrId("/chummer/weaponmounts/weaponmount", strSelectedControl);
-                if (xmlSelectedControl == null)
-                    return;
-                XmlNode xmlSelectedFlexibility = _xmlDoc.TryGetNodeByNameOrId("/chummer/weaponmounts/weaponmount", strSelectedFlexibility);
-                if (xmlSelectedFlexibility == null)
-                    return;
-                XmlNode xmlSelectedVisibility = _xmlDoc.TryGetNodeByNameOrId("/chummer/weaponmounts/weaponmount", strSelectedVisibility);
-                if (xmlSelectedVisibility == null)
-                    return;
-
-                XmlElement xmlForbiddenNode = xmlSelectedMount["forbidden"];
-                if (xmlForbiddenNode != null)
-                {
-                    string strStringToCheck = xmlSelectedControl["name"]?.InnerTextViaPool(_objGenericToken);
-                    if (!string.IsNullOrEmpty(strStringToCheck))
-                    {
-                        using (XmlNodeList xmlControlNodeList = xmlForbiddenNode.SelectNodes("control"))
-                        {
-                            if (xmlControlNodeList?.Count > 0)
-                            {
-                                foreach (XmlNode xmlLoopNode in xmlControlNodeList)
-                                {
-                                    if (xmlLoopNode.InnerTextViaPool(_objGenericToken) == strStringToCheck)
-                                        return;
-                                }
-                            }
-                        }
-                    }
-
-                    strStringToCheck = xmlSelectedFlexibility["name"]?.InnerTextViaPool(_objGenericToken);
-                    if (!string.IsNullOrEmpty(strStringToCheck))
-                    {
-                        using (XmlNodeList xmlFlexibilityNodeList = xmlForbiddenNode.SelectNodes("flexibility"))
-                        {
-                            if (xmlFlexibilityNodeList?.Count > 0)
-                            {
-                                foreach (XmlNode xmlLoopNode in xmlFlexibilityNodeList)
-                                {
-                                    if (xmlLoopNode.InnerTextViaPool(_objGenericToken) == strStringToCheck)
-                                        return;
-                                }
-                            }
-                        }
-                    }
-
-                    strStringToCheck = xmlSelectedVisibility["name"]?.InnerTextViaPool(_objGenericToken);
-                    if (!string.IsNullOrEmpty(strStringToCheck))
-                    {
-                        using (XmlNodeList xmlVisibilityNodeList = xmlForbiddenNode.SelectNodes("visibility"))
-                        {
-                            if (xmlVisibilityNodeList?.Count > 0)
-                            {
-                                foreach (XmlNode xmlLoopNode in xmlVisibilityNodeList)
-                                {
-                                    if (xmlLoopNode.InnerTextViaPool(_objGenericToken) == strStringToCheck)
-                                        return;
-                                }
-                            }
-                        }
-                    }
-                }
-                XmlElement xmlRequiredNode = xmlSelectedMount["required"];
-                if (xmlRequiredNode != null)
-                {
-                    bool blnRequirementsMet = true;
-                    string strStringToCheck = xmlSelectedControl["name"]?.InnerTextViaPool(_objGenericToken);
-                    if (!string.IsNullOrEmpty(strStringToCheck))
-                    {
-                        using (XmlNodeList xmlControlNodeList = xmlRequiredNode.SelectNodes("control"))
-                        {
-                            if (xmlControlNodeList?.Count > 0)
-                            {
-                                foreach (XmlNode xmlLoopNode in xmlControlNodeList)
-                                {
-                                    blnRequirementsMet = false;
-                                    if (xmlLoopNode.InnerTextViaPool(_objGenericToken) == strStringToCheck)
-                                    {
-                                        blnRequirementsMet = true;
-                                        break;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    if (!blnRequirementsMet)
-                        return;
-
-                    strStringToCheck = xmlSelectedFlexibility["name"]?.InnerTextViaPool(_objGenericToken);
-                    if (!string.IsNullOrEmpty(strStringToCheck))
-                    {
-                        using (XmlNodeList xmlFlexibilityNodeList = xmlRequiredNode.SelectNodes("flexibility"))
-                        {
-                            if (xmlFlexibilityNodeList?.Count > 0)
-                            {
-                                foreach (XmlNode xmlLoopNode in xmlFlexibilityNodeList)
-                                {
-                                    blnRequirementsMet = false;
-                                    if (xmlLoopNode.InnerTextViaPool(_objGenericToken) == strStringToCheck)
-                                    {
-                                        blnRequirementsMet = true;
-                                        break;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    if (!blnRequirementsMet)
-                        return;
-
-                    strStringToCheck = xmlSelectedVisibility["name"]?.InnerTextViaPool(_objGenericToken);
-                    if (!string.IsNullOrEmpty(strStringToCheck))
-                    {
-                        using (XmlNodeList xmlVisibilityNodeList = xmlRequiredNode.SelectNodes("visibility"))
-                        {
-                            if (xmlVisibilityNodeList?.Count > 0)
-                            {
-                                foreach (XmlNode xmlLoopNode in xmlVisibilityNodeList)
-                                {
-                                    blnRequirementsMet = false;
-                                    if (xmlLoopNode.InnerTextViaPool(_objGenericToken) == strStringToCheck)
-                                    {
-                                        blnRequirementsMet = true;
-                                        break;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    if (!blnRequirementsMet)
-                        return;
-                }
 
                 bool blnNewWeaponMount = false;
                 try
@@ -406,31 +263,31 @@ namespace Chummer
                         {
                             _objMount = new WeaponMount(_objCharacter, _objVehicle);
                             blnNewWeaponMount = true;
-                            await _objMount.CreateAsync(xmlSelectedMount, _objGenericToken).ConfigureAwait(false);
+                            await _objMount.CreateAsync(objSelections.MountNode, _objGenericToken).ConfigureAwait(false);
                         }
-                        else if (_objMount.SourceIDString != strSelectedMount)
+                        else if (_objMount.SourceIDString != objSelections.MountId)
                         {
-                            await _objMount.CreateAsync(xmlSelectedMount, _objGenericToken).ConfigureAwait(false);
+                            await _objMount.CreateAsync(objSelections.MountNode, _objGenericToken).ConfigureAwait(false);
                         }
 
                         _objMount.DiscountCost = await chkBlackMarketDiscount.DoThreadSafeFuncAsync(x => x.Checked, _objGenericToken).ConfigureAwait(false);
 
                         WeaponMountOption objControlOption = new WeaponMountOption(_objCharacter);
-                        if (await objControlOption.CreateAsync(xmlSelectedControl, _objGenericToken).ConfigureAwait(false))
+                        if (await objControlOption.CreateAsync(objSelections.ControlNode, _objGenericToken).ConfigureAwait(false))
                         {
                             await _objMount.WeaponMountOptions.RemoveAllAsync(x => x.Category == "Control", _objGenericToken).ConfigureAwait(false);
                             await _objMount.WeaponMountOptions.AddAsync(objControlOption, _objGenericToken).ConfigureAwait(false);
                         }
 
                         WeaponMountOption objFlexibilityOption = new WeaponMountOption(_objCharacter);
-                        if (await objFlexibilityOption.CreateAsync(xmlSelectedFlexibility, _objGenericToken).ConfigureAwait(false))
+                        if (await objFlexibilityOption.CreateAsync(objSelections.FlexibilityNode, _objGenericToken).ConfigureAwait(false))
                         {
                             await _objMount.WeaponMountOptions.RemoveAllAsync(x => x.Category == "Flexibility", _objGenericToken).ConfigureAwait(false);
                             await _objMount.WeaponMountOptions.AddAsync(objFlexibilityOption, _objGenericToken).ConfigureAwait(false);
                         }
 
                         WeaponMountOption objVisibilityOption = new WeaponMountOption(_objCharacter);
-                        if (await objVisibilityOption.CreateAsync(xmlSelectedVisibility, _objGenericToken).ConfigureAwait(false))
+                        if (await objVisibilityOption.CreateAsync(objSelections.VisibilityNode, _objGenericToken).ConfigureAwait(false))
                         {
                             await _objMount.WeaponMountOptions.RemoveAllAsync(x => x.Category == "Visibility", _objGenericToken).ConfigureAwait(false);
                             await _objMount.WeaponMountOptions.AddAsync(objVisibilityOption, _objGenericToken).ConfigureAwait(false);
@@ -583,6 +440,120 @@ namespace Chummer
             {
                 //swallow this
             }
+        }
+
+        private async Task<SelectedMountChoices> GetSelectedMountChoicesAsync()
+        {
+            string strSelectedMount = await cboSize.DoThreadSafeFuncAsync(x => x.SelectedValue?.ToString(), _objGenericToken).ConfigureAwait(false);
+            string strSelectedControl = await cboControl.DoThreadSafeFuncAsync(x => x.SelectedValue?.ToString(), _objGenericToken).ConfigureAwait(false);
+            string strSelectedFlexibility = await cboFlexibility.DoThreadSafeFuncAsync(x => x.SelectedValue?.ToString(), _objGenericToken).ConfigureAwait(false);
+            string strSelectedVisibility = await cboVisibility.DoThreadSafeFuncAsync(x => x.SelectedValue?.ToString(), _objGenericToken).ConfigureAwait(false);
+            if (string.IsNullOrEmpty(strSelectedMount)
+                || string.IsNullOrEmpty(strSelectedControl)
+                || string.IsNullOrEmpty(strSelectedFlexibility)
+                || string.IsNullOrEmpty(strSelectedVisibility))
+            {
+                return null;
+            }
+
+            XmlNode xmlSelectedMount = _xmlDoc.TryGetNodeByNameOrId("/chummer/weaponmounts/weaponmount", strSelectedMount);
+            XmlNode xmlSelectedControl = _xmlDoc.TryGetNodeByNameOrId("/chummer/weaponmounts/weaponmount", strSelectedControl);
+            XmlNode xmlSelectedFlexibility = _xmlDoc.TryGetNodeByNameOrId("/chummer/weaponmounts/weaponmount", strSelectedFlexibility);
+            XmlNode xmlSelectedVisibility = _xmlDoc.TryGetNodeByNameOrId("/chummer/weaponmounts/weaponmount", strSelectedVisibility);
+            if (xmlSelectedMount == null
+                || xmlSelectedControl == null
+                || xmlSelectedFlexibility == null
+                || xmlSelectedVisibility == null)
+            {
+                return null;
+            }
+
+            return new SelectedMountChoices(
+                strSelectedMount,
+                xmlSelectedMount,
+                xmlSelectedControl,
+                xmlSelectedFlexibility,
+                xmlSelectedVisibility);
+        }
+
+        private bool SelectionViolatesForbiddenRules(SelectedMountChoices objSelections)
+        {
+            XmlElement xmlForbiddenNode = objSelections.MountNode["forbidden"];
+            return xmlForbiddenNode != null
+                   && (ListContainsSelectedName(xmlForbiddenNode, "control", objSelections.ControlNode)
+                       || ListContainsSelectedName(xmlForbiddenNode, "flexibility", objSelections.FlexibilityNode)
+                       || ListContainsSelectedName(xmlForbiddenNode, "visibility", objSelections.VisibilityNode));
+        }
+
+        private bool SelectionMeetsRequiredRules(SelectedMountChoices objSelections)
+        {
+            XmlElement xmlRequiredNode = objSelections.MountNode["required"];
+            return xmlRequiredNode == null
+                   || RequirementMatchesSelectedName(xmlRequiredNode, "control", objSelections.ControlNode)
+                   && RequirementMatchesSelectedName(xmlRequiredNode, "flexibility", objSelections.FlexibilityNode)
+                   && RequirementMatchesSelectedName(xmlRequiredNode, "visibility", objSelections.VisibilityNode);
+        }
+
+        private bool ListContainsSelectedName(XmlElement xmlParentNode, string strCategory, XmlNode xmlSelectedOption)
+        {
+            string strSelectedName = xmlSelectedOption["name"]?.InnerTextViaPool(_objGenericToken);
+            if (string.IsNullOrEmpty(strSelectedName))
+                return false;
+
+            using (XmlNodeList xmlNodeList = xmlParentNode.SelectNodes(strCategory))
+            {
+                if (xmlNodeList?.Count > 0)
+                {
+                    foreach (XmlNode xmlLoopNode in xmlNodeList)
+                    {
+                        if (xmlLoopNode.InnerTextViaPool(_objGenericToken) == strSelectedName)
+                            return true;
+                    }
+                }
+            }
+
+            return false;
+        }
+
+        private bool RequirementMatchesSelectedName(XmlElement xmlParentNode, string strCategory, XmlNode xmlSelectedOption)
+        {
+            string strSelectedName = xmlSelectedOption["name"]?.InnerTextViaPool(_objGenericToken);
+            if (string.IsNullOrEmpty(strSelectedName))
+                return true;
+
+            using (XmlNodeList xmlNodeList = xmlParentNode.SelectNodes(strCategory))
+            {
+                if (xmlNodeList?.Count > 0)
+                {
+                    foreach (XmlNode xmlLoopNode in xmlNodeList)
+                    {
+                        if (xmlLoopNode.InnerTextViaPool(_objGenericToken) == strSelectedName)
+                            return true;
+                    }
+
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        private sealed class SelectedMountChoices
+        {
+            public SelectedMountChoices(string strMountId, XmlNode xmlMountNode, XmlNode xmlControlNode, XmlNode xmlFlexibilityNode, XmlNode xmlVisibilityNode)
+            {
+                MountId = strMountId;
+                MountNode = xmlMountNode;
+                ControlNode = xmlControlNode;
+                FlexibilityNode = xmlFlexibilityNode;
+                VisibilityNode = xmlVisibilityNode;
+            }
+
+            public string MountId { get; }
+            public XmlNode MountNode { get; }
+            public XmlNode ControlNode { get; }
+            public XmlNode FlexibilityNode { get; }
+            public XmlNode VisibilityNode { get; }
         }
 
         private void cmdCancel_Click(object sender, EventArgs e)

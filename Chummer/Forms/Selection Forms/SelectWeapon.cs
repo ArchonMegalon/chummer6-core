@@ -1036,6 +1036,8 @@ namespace Chummer
         /// <summary>
         /// Only the provided Weapon Categories should be shown in the list.
         /// </summary>
+        [Browsable(false)]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
         public string LimitToCategories
         {
             set
@@ -1052,6 +1054,8 @@ namespace Chummer
         /// Additional XPath filter expression for weapon filtering beyond categories.
         /// This allows for flexible filtering on any weapon property (reach, type, damage, etc.).
         /// </summary>
+        [Browsable(false)]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
         public string WeaponFilter
         {
             get => _strWeaponFilter;

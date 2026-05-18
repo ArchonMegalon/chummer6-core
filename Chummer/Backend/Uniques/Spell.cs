@@ -2554,23 +2554,11 @@ namespace Chummer
                         case Improvement.ImprovementType.SpellCategory:
                             if (objImprovement.ImprovedName == Category)
                             {
-                                // SR5 318: Regardless of the number of bonded foci you have,
-                                // only one focus may add its Force to a dicepool for any given test.
-                                // We need to do some checking to make sure this is the most powerful focus before we add it in
-                                if (objImprovement.ImproveSource == Improvement.ImprovementSource.Gear)
+                                Improvement objCategoryImprovement =
+                                    ResolveSpellCategoryImprovement(objImprovement);
+                                if (objCategoryImprovement != null)
                                 {
-                                    //TODO: THIS IS NOT SAFE. While we can mostly assume that Gear that add to SpellCategory are Foci, it's not reliable.
-                                    // we are returning either the original improvement, null or a newly instantiated improvement
-                                    Improvement objCompensatedImprovement = _objCharacter.GetPowerFocusAdjustedImprovementValue(objImprovement);
-                                    if (objCompensatedImprovement != null)
-                                    {
-                                        yield return objCompensatedImprovement;
-                                        if (blnExitAfterFirst) yield break;
-                                    }
-                                }
-                                else
-                                {
-                                    yield return objImprovement;
+                                    yield return objCategoryImprovement;
                                     if (blnExitAfterFirst) yield break;
                                 }
                             }
@@ -2675,24 +2663,12 @@ namespace Chummer
                         case Improvement.ImprovementType.SpellCategory:
                             if (objImprovement.ImprovedName == Category)
                             {
-                                // SR5 318: Regardless of the number of bonded foci you have,
-                                // only one focus may add its Force to a dicepool for any given test.
-                                // We need to do some checking to make sure this is the most powerful focus before we add it in
-                                if (objImprovement.ImproveSource == Improvement.ImprovementSource.Gear)
+                                Improvement objCategoryImprovement =
+                                    await ResolveSpellCategoryImprovementAsync(objImprovement, token)
+                                        .ConfigureAwait(false);
+                                if (objCategoryImprovement != null)
                                 {
-                                    //TODO: THIS IS NOT SAFE. While we can mostly assume that Gear that add to SpellCategory are Foci, it's not reliable.
-                                    // we are returning either the original improvement, null or a newly instantiated improvement
-                                    Improvement objCompensatedImprovement = await _objCharacter.GetPowerFocusAdjustedImprovementValueAsync(objImprovement, token).ConfigureAwait(false);
-                                    if (objCompensatedImprovement != null)
-                                    {
-                                        lstReturn.Add(objCompensatedImprovement);
-                                        if (blnExitAfterFirst)
-                                            return false;
-                                    }
-                                }
-                                else
-                                {
-                                    lstReturn.Add(objImprovement);
+                                    lstReturn.Add(objCategoryImprovement);
                                     if (blnExitAfterFirst)
                                         return false;
                                 }
@@ -2765,6 +2741,26 @@ namespace Chummer
             {
                 await objLocker.DisposeAsync().ConfigureAwait(false);
             }
+        }
+
+        private Improvement ResolveSpellCategoryImprovement(Improvement improvement)
+        {
+            // SR5 318: only one bonded focus may contribute its Force to a spell test.
+            // Gear-sourced SpellCategory improvements therefore need the same power-focus compensation
+            // pass used elsewhere before the improvement can be treated as applicable spell-category truth.
+            return improvement.ImproveSource == Improvement.ImprovementSource.Gear
+                ? _objCharacter.GetPowerFocusAdjustedImprovementValue(improvement)
+                : improvement;
+        }
+
+        private async Task<Improvement> ResolveSpellCategoryImprovementAsync(
+            Improvement improvement,
+            CancellationToken token = default)
+        {
+            return improvement.ImproveSource == Improvement.ImprovementSource.Gear
+                ? await _objCharacter.GetPowerFocusAdjustedImprovementValueAsync(improvement, token)
+                    .ConfigureAwait(false)
+                : improvement;
         }
 
         #endregion ComplexProperties

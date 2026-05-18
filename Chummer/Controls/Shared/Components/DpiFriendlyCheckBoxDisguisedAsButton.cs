@@ -101,6 +101,8 @@ namespace Chummer
             Image = objBestImage;
         }
 
+        [Browsable(false)]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
         public new Image Image
         {
             get => base.Image;

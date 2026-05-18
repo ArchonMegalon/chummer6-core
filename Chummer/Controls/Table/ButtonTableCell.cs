@@ -18,6 +18,7 @@
  */
 
 using System;
+using System.ComponentModel;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
@@ -113,8 +114,12 @@ namespace Chummer.UI.Table
             }
         }
 
+        [Browsable(false)]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
         public Func<T, CancellationToken, Task> ClickHandler { get; set; }
 
+        [Browsable(false)]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
         public Func<T, CancellationToken, Task<bool>> EnabledExtractor { get; set; }
     }
 }

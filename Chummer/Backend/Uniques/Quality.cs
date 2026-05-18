@@ -1574,11 +1574,7 @@ namespace Chummer
             {
                 using (LockObject.EnterReadLock())
                 {
-                    return _objCharacter.Qualities.Count(objExistingQuality =>
-                                                             objExistingQuality.SourceID == SourceID
-                                                             && objExistingQuality.Extra == Extra &&
-                                                             objExistingQuality.SourceName == SourceName
-                                                             && objExistingQuality.Type == Type);
+                    return _objCharacter.Qualities.Count(MatchesQualityLevelIdentity);
                 }
             }
         }
@@ -1597,16 +1593,42 @@ namespace Chummer
                 string strMyExtra = await GetExtraAsync(token).ConfigureAwait(false);
                 string strMySourceName = await GetSourceNameAsync(token).ConfigureAwait(false);
                 QualityType eMyType = await GetTypeAsync(token).ConfigureAwait(false);
-                return await _objCharacter.Qualities.CountAsync(async objExistingQuality =>
-                    objExistingQuality.SourceID == guiMyId
-                    && await objExistingQuality.GetExtraAsync(token).ConfigureAwait(false) == strMyExtra
-                    && await objExistingQuality.GetSourceNameAsync(token).ConfigureAwait(false) == strMySourceName
-                    && await objExistingQuality.GetTypeAsync(token).ConfigureAwait(false) == eMyType, token: token).ConfigureAwait(false);
+                return await _objCharacter.Qualities.CountAsync(
+                    objExistingQuality => MatchesQualityLevelIdentityAsync(
+                        objExistingQuality,
+                        guiMyId,
+                        strMyExtra,
+                        strMySourceName,
+                        eMyType,
+                        token),
+                    token: token).ConfigureAwait(false);
             }
             finally
             {
                 await objLocker.DisposeAsync().ConfigureAwait(false);
             }
+        }
+
+        private bool MatchesQualityLevelIdentity(Quality existingQuality)
+        {
+            return existingQuality.SourceID == SourceID
+                   && existingQuality.Extra == Extra
+                   && existingQuality.SourceName == SourceName
+                   && existingQuality.Type == Type;
+        }
+
+        private static async Task<bool> MatchesQualityLevelIdentityAsync(
+            Quality existingQuality,
+            Guid sourceId,
+            string extra,
+            string sourceName,
+            QualityType qualityType,
+            CancellationToken token = default)
+        {
+            return existingQuality.SourceID == sourceId
+                   && await existingQuality.GetExtraAsync(token).ConfigureAwait(false) == extra
+                   && await existingQuality.GetSourceNameAsync(token).ConfigureAwait(false) == sourceName
+                   && await existingQuality.GetTypeAsync(token).ConfigureAwait(false) == qualityType;
         }
 
         /// <summary>
@@ -2860,7 +2882,7 @@ namespace Chummer
                                 intKarmaCost *= 2;
                             }
 
-                            // This should only happen when a character is trading up to a less-costly Quality.
+                            intKarmaCost = NormalizeQualitySwapKarmaCost(intKarmaCost);
                             if (intKarmaCost > 0)
                             {
                                 if (intKarmaCost > await _objCharacter.GetKarmaAsync(token).ConfigureAwait(false))
@@ -2887,11 +2909,6 @@ namespace Chummer
                                 {
                                     blnAddItem = false;
                                 }
-                            }
-                            else
-                            {
-                                // Trading a more expensive quality for a less expensive quality shouldn't give you karma. TODO: Optional rule to govern this behaviour.
-                                intKarmaCost = 0;
                             }
                         }
 
@@ -3253,8 +3270,7 @@ namespace Chummer
         }
 
         /// <summary>
-        /// Removes a quality from the character, assuming we have already gone through all the necessary UI prompts.
-        /// TODO: make Quality properly inherit from ICanRemove by also putting the UI stuff in here as well
+        /// Removes a quality from the character after the caller has already resolved any UI prompts.
         /// </summary>
         /// <returns>Nuyen cost of the actual removal (necessary for removing some stuff that adds qualities as part of their effects).</returns>
         public decimal DeleteQuality(bool blnFullRemoval = false, CancellationToken token = default)
@@ -3274,11 +3290,7 @@ namespace Chummer
                             if (i >= _objCharacter.Qualities.Count)
                                 continue;
                             Quality objLoopQuality = _objCharacter.Qualities[i];
-                            if (objLoopQuality.SourceID == SourceID
-                                && objLoopQuality.Extra == Extra
-                                && objLoopQuality.SourceName == SourceName
-                                && objLoopQuality.Type == Type
-                                && !ReferenceEquals(objLoopQuality, this))
+                            if (MatchesDeleteQualityFamily(objLoopQuality))
                                 decReturn += objLoopQuality.DeleteQuality(token: token);
                         }
                     }
@@ -3292,25 +3304,7 @@ namespace Chummer
                     // Remove any Weapons created by the Quality if applicable.
                     if (!WeaponID.IsEmptyGuid())
                     {
-                        token.ThrowIfCancellationRequested();
-                        List<Weapon> lstWeapons = _objCharacter.Weapons.DeepWhere(x => x.Children, x => x.ParentID == InternalId, token).ToList();
-                        foreach (Vehicle objVehicle in _objCharacter.Vehicles)
-                        {
-                            lstWeapons.AddRange(objVehicle.Weapons.DeepWhere(x => x.Children, x => x.ParentID == InternalId, token));
-                            foreach (VehicleMod objMod in objVehicle.Mods)
-                            {
-                                lstWeapons.AddRange(objMod.Weapons.DeepWhere(x => x.Children, x => x.ParentID == InternalId, token));
-                            }
-                            foreach (WeaponMount objMount in objVehicle.WeaponMounts)
-                            {
-                                lstWeapons.AddRange(objMount.Weapons.DeepWhere(x => x.Children, x => x.ParentID == InternalId, token));
-                                foreach (VehicleMod objMod in objMount.Mods)
-                                {
-                                    lstWeapons.AddRange(objMod.Weapons.DeepWhere(x => x.Children, x => x.ParentID == InternalId, token));
-                                }
-                            }
-                        }
-
+                        List<Weapon> lstWeapons = CollectGrantedWeapons(token);
                         decReturn += lstWeapons.Sum(objDeleteWeapon => objDeleteWeapon.TotalCost + objDeleteWeapon.DeleteWeapon());
                     }
 
@@ -3324,8 +3318,7 @@ namespace Chummer
         }
 
         /// <summary>
-        /// Removes a quality from the character, assuming we have already gone through all the necessary UI prompts.
-        /// TODO: make Quality properly inherit from ICanRemove by also putting the UI stuff in here as well
+        /// Removes a quality from the character after the caller has already resolved any UI prompts.
         /// </summary>
         /// <returns>Nuyen cost of the actual removal (necessary for removing some stuff that adds qualities as part of their effects).</returns>
         public async Task<decimal> DeleteQualityAsync(bool blnFullRemoval = false,
@@ -3352,11 +3345,7 @@ namespace Chummer
                             if (i >= await _objCharacter.Qualities.GetCountAsync(token).ConfigureAwait(false))
                                 continue;
                             Quality objLoopQuality = await _objCharacter.Qualities.GetValueAtAsync(i, token).ConfigureAwait(false);
-                            if (objLoopQuality.SourceID == guiMyId
-                                && await objLoopQuality.GetExtraAsync(token).ConfigureAwait(false) == strMyExtra
-                                && await objLoopQuality.GetSourceNameAsync(token).ConfigureAwait(false) == strMySourceName
-                                && await objLoopQuality.GetTypeAsync(token).ConfigureAwait(false) == eMyType
-                                && !ReferenceEquals(this, objLoopQuality))
+                            if (await MatchesDeleteQualityFamilyAsync(objLoopQuality, guiMyId, strMyExtra, strMySourceName, eMyType, token).ConfigureAwait(false))
                                 decReturn += await objLoopQuality.DeleteQualityAsync(token: token).ConfigureAwait(false);
                         }
                     }
@@ -3372,34 +3361,7 @@ namespace Chummer
                     // Remove any Weapons created by the Quality if applicable.
                     if (!WeaponID.IsEmptyGuid())
                     {
-                        List<Weapon> lstWeapons = await _objCharacter.Weapons
-                            .DeepWhereAsync(x => x.Children, x => x.ParentID == InternalId, token).ConfigureAwait(false);
-                        await _objCharacter.Vehicles.ForEachAsync(async objVehicle =>
-                        {
-                            lstWeapons.AddRange(await objVehicle.Weapons
-                                .DeepWhereAsync(x => x.Children, x => x.ParentID == InternalId, token)
-                                .ConfigureAwait(false));
-                            await objVehicle.Mods.ForEachAsync(async objMod =>
-                            {
-                                lstWeapons.AddRange(await objMod.Weapons
-                                    .DeepWhereAsync(x => x.Children, x => x.ParentID == InternalId, token)
-                                    .ConfigureAwait(false));
-                            }, token).ConfigureAwait(false);
-
-                            await objVehicle.WeaponMounts.ForEachAsync(async objMount =>
-                            {
-                                lstWeapons.AddRange(await objMount.Weapons
-                                    .DeepWhereAsync(x => x.Children, x => x.ParentID == InternalId, token)
-                                    .ConfigureAwait(false));
-                                await objMount.Mods.ForEachAsync(async objMod =>
-                                {
-                                    lstWeapons.AddRange(await objMod.Weapons
-                                        .DeepWhereAsync(x => x.Children, x => x.ParentID == InternalId, token)
-                                        .ConfigureAwait(false));
-                                }, token).ConfigureAwait(false);
-                            }, token).ConfigureAwait(false);
-                        }, token).ConfigureAwait(false);
-
+                        List<Weapon> lstWeapons = await CollectGrantedWeaponsAsync(token).ConfigureAwait(false);
                         decReturn += await lstWeapons.SumAsync(async objDeleteWeapon =>
                                 await objDeleteWeapon.GetTotalCostAsync(token).ConfigureAwait(false)
                                 + await objDeleteWeapon.DeleteWeaponAsync(token: token).ConfigureAwait(false), token)
@@ -3417,6 +3379,83 @@ namespace Chummer
             {
                 await DisposeAsync().ConfigureAwait(false);
             }
+        }
+
+        private bool MatchesDeleteQualityFamily(Quality objLoopQuality)
+        {
+            return !ReferenceEquals(objLoopQuality, this)
+                   && objLoopQuality.SourceID == SourceID
+                   && objLoopQuality.Extra == Extra
+                   && objLoopQuality.SourceName == SourceName
+                   && objLoopQuality.Type == Type;
+        }
+
+        private static int NormalizeQualitySwapKarmaCost(int intKarmaCost)
+        {
+            return Math.Max(0, intKarmaCost);
+        }
+
+        private async Task<bool> MatchesDeleteQualityFamilyAsync(Quality objLoopQuality, Guid guiMyId, string strMyExtra,
+            string strMySourceName, QualityType eMyType, CancellationToken token = default)
+        {
+            return !ReferenceEquals(this, objLoopQuality)
+                   && objLoopQuality.SourceID == guiMyId
+                   && await objLoopQuality.GetExtraAsync(token).ConfigureAwait(false) == strMyExtra
+                   && await objLoopQuality.GetSourceNameAsync(token).ConfigureAwait(false) == strMySourceName
+                   && await objLoopQuality.GetTypeAsync(token).ConfigureAwait(false) == eMyType;
+        }
+
+        private List<Weapon> CollectGrantedWeapons(CancellationToken token = default)
+        {
+            token.ThrowIfCancellationRequested();
+            List<Weapon> lstWeapons = _objCharacter.Weapons.DeepWhere(x => x.Children, x => x.ParentID == InternalId, token).ToList();
+            foreach (Vehicle objVehicle in _objCharacter.Vehicles)
+            {
+                lstWeapons.AddRange(objVehicle.Weapons.DeepWhere(x => x.Children, x => x.ParentID == InternalId, token));
+                foreach (VehicleMod objMod in objVehicle.Mods)
+                    lstWeapons.AddRange(objMod.Weapons.DeepWhere(x => x.Children, x => x.ParentID == InternalId, token));
+                foreach (WeaponMount objMount in objVehicle.WeaponMounts)
+                {
+                    lstWeapons.AddRange(objMount.Weapons.DeepWhere(x => x.Children, x => x.ParentID == InternalId, token));
+                    foreach (VehicleMod objMod in objMount.Mods)
+                        lstWeapons.AddRange(objMod.Weapons.DeepWhere(x => x.Children, x => x.ParentID == InternalId, token));
+                }
+            }
+
+            return lstWeapons;
+        }
+
+        private async Task<List<Weapon>> CollectGrantedWeaponsAsync(CancellationToken token = default)
+        {
+            List<Weapon> lstWeapons = await _objCharacter.Weapons
+                .DeepWhereAsync(x => x.Children, x => x.ParentID == InternalId, token).ConfigureAwait(false);
+            await _objCharacter.Vehicles.ForEachAsync(async objVehicle =>
+            {
+                lstWeapons.AddRange(await objVehicle.Weapons
+                    .DeepWhereAsync(x => x.Children, x => x.ParentID == InternalId, token)
+                    .ConfigureAwait(false));
+                await objVehicle.Mods.ForEachAsync(async objMod =>
+                {
+                    lstWeapons.AddRange(await objMod.Weapons
+                        .DeepWhereAsync(x => x.Children, x => x.ParentID == InternalId, token)
+                        .ConfigureAwait(false));
+                }, token).ConfigureAwait(false);
+
+                await objVehicle.WeaponMounts.ForEachAsync(async objMount =>
+                {
+                    lstWeapons.AddRange(await objMount.Weapons
+                        .DeepWhereAsync(x => x.Children, x => x.ParentID == InternalId, token)
+                        .ConfigureAwait(false));
+                    await objMount.Mods.ForEachAsync(async objMod =>
+                    {
+                        lstWeapons.AddRange(await objMod.Weapons
+                            .DeepWhereAsync(x => x.Children, x => x.ParentID == InternalId, token)
+                            .ConfigureAwait(false));
+                    }, token).ConfigureAwait(false);
+                }, token).ConfigureAwait(false);
+            }, token).ConfigureAwait(false);
+
+            return lstWeapons;
         }
 
         private int _intIsDisposed;

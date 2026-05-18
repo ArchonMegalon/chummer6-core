@@ -18,6 +18,7 @@
  */
 
 using System;
+using System.ComponentModel;
 using System.Drawing;
 using System.Threading;
 using System.Windows.Forms;
@@ -125,6 +126,8 @@ namespace Chummer.UI.Table
             }
         }
 
+        [Browsable(false)]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
         public SortOrder SortType
         {
             get => _eSortType;
@@ -135,6 +138,8 @@ namespace Chummer.UI.Table
             }
         }
 
+        [Browsable(false)]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
         public object TextTag
         {
             get => _lblCellText.DoThreadSafeFunc(x => x.Tag);

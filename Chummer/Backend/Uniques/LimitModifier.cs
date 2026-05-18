@@ -499,38 +499,68 @@ namespace Chummer
 
         #endregion UI Methods
 
-        public bool Remove(bool blnConfirmDelete = true)
+        private bool IsCharacterCreatedLimitModifier()
         {
-            if (_objCharacter.LimitModifiers.Contains(this) && blnConfirmDelete)
-            {
-                return CommonFunctions.ConfirmDelete(LanguageManager.GetString("Message_DeleteLimitModifier"))
-                       && _objCharacter.LimitModifiers.Remove(this);
-            }
+            return _objCharacter.LimitModifiers.Contains(this);
+        }
 
-            // No character-created limits found, which means it comes from an improvement.
-            // TODO: ImprovementSource exists for a reason.
+        private Task<bool> IsCharacterCreatedLimitModifierAsync(CancellationToken token = default)
+        {
+            return _objCharacter.LimitModifiers.ContainsAsync(this, token);
+        }
+
+        private static bool ConfirmLimitModifierRemoval(bool blnConfirmDelete)
+        {
+            return !blnConfirmDelete
+                   || CommonFunctions.ConfirmDelete(LanguageManager.GetString("Message_DeleteLimitModifier"));
+        }
+
+        private static async Task<bool> ConfirmLimitModifierRemovalAsync(bool blnConfirmDelete, CancellationToken token = default)
+        {
+            token.ThrowIfCancellationRequested();
+            return !blnConfirmDelete
+                   || await CommonFunctions.ConfirmDeleteAsync(
+                       await LanguageManager.GetStringAsync("Message_DeleteLimitModifier", token: token).ConfigureAwait(false),
+                       token).ConfigureAwait(false);
+        }
+
+        private static void ShowInheritedLimitModifierDeleteBlocked()
+        {
             Program.ShowScrollableMessageBox(LanguageManager.GetString("Message_CannotDeleteLimitModifier"),
                                              LanguageManager.GetString("MessageTitle_CannotDeleteLimitModifier"),
                                              MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+
+        private static Task ShowInheritedLimitModifierDeleteBlockedAsync(CancellationToken token = default)
+        {
+            return Program.ShowScrollableMessageBoxAsync(
+                LanguageManager.GetStringAsync("Message_CannotDeleteLimitModifier", token: token),
+                LanguageManager.GetStringAsync("MessageTitle_CannotDeleteLimitModifier", token: token),
+                MessageBoxButtons.OK, MessageBoxIcon.Information, token: token);
+        }
+
+        public bool Remove(bool blnConfirmDelete = true)
+        {
+            if (IsCharacterCreatedLimitModifier())
+            {
+                return ConfirmLimitModifierRemoval(blnConfirmDelete)
+                       && _objCharacter.LimitModifiers.Remove(this);
+            }
+
+            ShowInheritedLimitModifierDeleteBlocked();
             return false;
         }
 
         public async Task<bool> RemoveAsync(bool blnConfirmDelete = true, CancellationToken token = default)
         {
             token.ThrowIfCancellationRequested();
-            if (await _objCharacter.LimitModifiers.ContainsAsync(this, token).ConfigureAwait(false) && blnConfirmDelete)
+            if (await IsCharacterCreatedLimitModifierAsync(token).ConfigureAwait(false))
             {
-                return await CommonFunctions.ConfirmDeleteAsync(
-                           await LanguageManager.GetStringAsync("Message_DeleteLimitModifier", token: token).ConfigureAwait(false), token).ConfigureAwait(false)
+                return await ConfirmLimitModifierRemovalAsync(blnConfirmDelete, token).ConfigureAwait(false)
                        && await _objCharacter.LimitModifiers.RemoveAsync(this, token).ConfigureAwait(false);
             }
 
-            // No character-created limits found, which means it comes from an improvement.
-            // TODO: ImprovementSource exists for a reason.
-            await Program.ShowScrollableMessageBoxAsync(
-                await LanguageManager.GetStringAsync("Message_CannotDeleteLimitModifier", token: token).ConfigureAwait(false),
-                await LanguageManager.GetStringAsync("MessageTitle_CannotDeleteLimitModifier", token: token).ConfigureAwait(false),
-                MessageBoxButtons.OK, MessageBoxIcon.Information, token: token).ConfigureAwait(false);
+            await ShowInheritedLimitModifierDeleteBlockedAsync(token).ConfigureAwait(false);
             return false;
         }
     }

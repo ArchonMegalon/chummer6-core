@@ -1048,6 +1048,19 @@ namespace Chummer.Backend.Uniques
         /// </summary>
         public static Guid CustomMagicalTraditionGUID { get; } = new Guid(CustomMagicalTraditionGuidString);
 
+        private static readonly Guid[] s_CustomTraditionSourceIds = { CustomMagicalTraditionGUID };
+
+        private static bool IsCustomTraditionSourceId(Guid sourceId)
+        {
+            foreach (Guid customSourceId in s_CustomTraditionSourceIds)
+            {
+                if (sourceId.Equals(customSourceId))
+                    return true;
+            }
+
+            return false;
+        }
+
         /// <summary>
         /// Whether a Tradition is a custom one (i.e. it has a custom name and custom spirit settings)
         /// </summary>
@@ -1056,8 +1069,7 @@ namespace Chummer.Backend.Uniques
             get
             {
                 using (LockObject.EnterReadLock())
-                    return SourceID.Equals(CustomMagicalTraditionGUID);
-                // TODO: If Custom Technomancer Tradition added to streams.xml, check for that GUID as well
+                    return IsCustomTraditionSourceId(SourceID);
             }
         }
 
@@ -1071,7 +1083,7 @@ namespace Chummer.Backend.Uniques
             try
             {
                 token.ThrowIfCancellationRequested();
-                return await GetSourceIDAsync(token).ConfigureAwait(false) == CustomMagicalTraditionGUID;
+                return IsCustomTraditionSourceId(await GetSourceIDAsync(token).ConfigureAwait(false));
             }
             finally
             {

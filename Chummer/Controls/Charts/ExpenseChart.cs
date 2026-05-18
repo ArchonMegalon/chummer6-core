@@ -18,6 +18,7 @@
  */
 
 using System;
+using System.ComponentModel;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -143,6 +144,8 @@ namespace Chummer.UI.Charts
 
         private int _intNuyenMode;
 
+        [Browsable(false)]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
         public bool NuyenMode
         {
             get => _intNuyenMode > 0;

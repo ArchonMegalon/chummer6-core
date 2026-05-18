@@ -108,7 +108,7 @@ namespace Chummer
             this.chkActiveSkills.Tag = "Checkbox_CreatePACKSKit_ActiveSkills";
             this.chkActiveSkills.Text = "Active Skills";
             this.chkActiveSkills.UseVisualStyleBackColor = true;
-            this.chkActiveSkills.Visible = false;
+            this.chkActiveSkills.Visible = true;
             // 
             // chkKnowledgeSkills
             // 
@@ -122,7 +122,7 @@ namespace Chummer
             this.chkKnowledgeSkills.Tag = "Checkbox_CreatePACKSKit_KnowledgeSkills";
             this.chkKnowledgeSkills.Text = "Knowledge Skills";
             this.chkKnowledgeSkills.UseVisualStyleBackColor = true;
-            this.chkKnowledgeSkills.Visible = false;
+            this.chkKnowledgeSkills.Visible = true;
             // 
             // chkMartialArts
             // 

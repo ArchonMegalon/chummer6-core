@@ -49472,16 +49472,16 @@ namespace Chummer
                              Improvement.ImprovementType.FreeSpellsSkill))
                 {
                     Skill skill = SkillsSection.GetActiveSkill(imp.ImprovedName);
-                    int intSkillValue = SkillsSection.GetActiveSkill(imp.ImprovedName).TotalBaseRating;
+                    if (skill == null)
+                        continue;
+                    int intSkillValue = skill.TotalBaseRating;
                     if (imp.UniqueName.Contains("half"))
                         intSkillValue = intSkillValue.DivAwayFromZero(2);
                     if (imp.UniqueName.Contains("touchonly"))
                         intFreeTouchOnlySpells += intSkillValue;
                     else
                         intFreeGenericSpells += intSkillValue;
-                    //TODO: I don't like this being hardcoded, even though I know full well CGL are never going to reuse this
-                    intFreeGenericSpells += skill.Specializations.Count(spec =>
-                        Spells.Any(spell => spell.Category == spec.Name && !spell.FreeBonus));
+                    intFreeGenericSpells += CountSpecializationGrantedFreeSpells(skill);
                 }
 
                 int intTotalFreeNonTouchSpellsCount = Spells.Count(spell =>
@@ -49526,20 +49526,16 @@ namespace Chummer
                              Improvement.ImprovementType.FreeSpellsSkill, token: token).ConfigureAwait(false))
                 {
                     Skill skill = await objSkillsSection.GetActiveSkillAsync(imp.ImprovedName, token).ConfigureAwait(false);
-                    int intSkillValue = (await objSkillsSection.GetActiveSkillAsync(imp.ImprovedName, token).ConfigureAwait(false)).TotalBaseRating;
+                    if (skill == null)
+                        continue;
+                    int intSkillValue = skill.TotalBaseRating;
                     if (imp.UniqueName.Contains("half"))
                         intSkillValue = intSkillValue.DivAwayFromZero(2);
                     if (imp.UniqueName.Contains("touchonly"))
                         intFreeTouchOnlySpells += intSkillValue;
                     else
                         intFreeGenericSpells += intSkillValue;
-                    //TODO: I don't like this being hardcoded, even though I know full well CGL are never going to reuse this
-                    intFreeGenericSpells += await skill.Specializations.CountAsync(async spec =>
-                    {
-                        string strSpecName = await spec.GetNameAsync(token).ConfigureAwait(false);
-                        return await lstSpells.AnyAsync(spell => spell.Category == strSpecName && !spell.FreeBonus,
-                            token: token).ConfigureAwait(false);
-                    }, token).ConfigureAwait(false);
+                    intFreeGenericSpells += await CountSpecializationGrantedFreeSpellsAsync(skill, lstSpells, token).ConfigureAwait(false);
                 }
 
                 int intTotalFreeNonTouchSpellsCount = await lstSpells.CountAsync(spell =>
@@ -49557,6 +49553,30 @@ namespace Chummer
         }
 
         public event PropertyChangedEventHandler PropertyChanged;
+
+        private int CountSpecializationGrantedFreeSpells(Skill skill)
+        {
+            return skill.Specializations.Count(spec =>
+                Spells.Any(spell => spell.Category == spec.Name && !spell.FreeBonus));
+        }
+
+        private static async Task<int> CountSpecializationGrantedFreeSpellsAsync(
+            Skill skill,
+            ThreadSafeObservableCollection<Spell> lstSpells,
+            CancellationToken token)
+        {
+            return await skill.Specializations.CountAsync(
+                    async spec =>
+                    {
+                        string strSpecName = await spec.GetNameAsync(token).ConfigureAwait(false);
+                        return await lstSpells.AnyAsync(
+                                spell => spell.Category == strSpecName && !spell.FreeBonus,
+                                token: token)
+                            .ConfigureAwait(false);
+                    },
+                    token)
+                .ConfigureAwait(false);
+        }
 
         private readonly ConcurrentHashSet<PropertyChangedAsyncEventHandler> _setPropertyChangedAsync =
             new ConcurrentHashSet<PropertyChangedAsyncEventHandler>();

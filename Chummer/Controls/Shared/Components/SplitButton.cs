@@ -42,7 +42,6 @@ namespace Chummer
         private bool _isSplitMenuVisible;
 
         private ContextMenuStrip m_SplitMenuStrip;
-        private ContextMenu m_SplitMenu;
 
         private TextFormatFlags _textFormatFlags = TextFormatFlags.Default;
 
@@ -61,32 +60,6 @@ namespace Chummer
         {
             get => SplitMenuStrip;
             set => SplitMenuStrip = value;
-        }
-
-        [DefaultValue(null)]
-        public ContextMenu SplitMenu
-        {
-            get => m_SplitMenu;
-            set
-            {
-                ContextMenu objOldValue = Interlocked.Exchange(ref m_SplitMenu, value);
-                if (objOldValue == value)
-                    return;
-                //remove the event handlers for the old SplitMenu
-                if (objOldValue != null)
-                {
-                    objOldValue.Popup -= SplitMenu_Popup;
-                }
-
-                //add the event handlers for the new SplitMenu
-                if (value != null)
-                {
-                    ShowSplit = true;
-                    value.Popup += SplitMenu_Popup;
-                }
-                else
-                    ShowSplit = false;
-            }
         }
 
         [DefaultValue(null)]
@@ -277,10 +250,6 @@ namespace Chummer
                 return;
             }
 
-            //handle ContextMenu re-clicking the drop-down region to close the menu
-            if (m_SplitMenu != null && mevent.Button == MouseButtons.Left && !isMouseEntered)
-                _intSkipNextOpen = 1;
-
             if (_dropDownRectangle.Contains(mevent.Location) && !_isSplitMenuVisible && mevent.Button == MouseButtons.Left)
             {
                 ShowContextMenuStrip();
@@ -304,7 +273,7 @@ namespace Chummer
             {
                 ShowContextMenuStrip();
             }
-            else if (m_SplitMenuStrip == null && m_SplitMenu == null || !_isSplitMenuVisible)
+            else if (m_SplitMenuStrip == null || !_isSplitMenuVisible)
             {
                 SetButtonDrawState();
 
@@ -835,14 +804,7 @@ namespace Chummer
 
             State = PushButtonState.Pressed;
 
-            if (m_SplitMenu != null)
-            {
-                m_SplitMenu.Show(this, new Point(0, Height));
-            }
-            else
-            {
-                m_SplitMenuStrip?.Show(this, new Point(0, Height), ToolStripDropDownDirection.BelowRight);
-            }
+            m_SplitMenuStrip?.Show(this, new Point(0, Height), ToolStripDropDownDirection.BelowRight);
         }
 
         private void SplitMenuStrip_Opening(object sender, CancelEventArgs e)
@@ -861,24 +823,6 @@ namespace Chummer
                 _intSkipNextOpen = (_dropDownRectangle.Contains(PointToClient(Cursor.Position))
                                     && MouseButtons == MouseButtons.Left).ToInt32();
             }
-        }
-
-        private void SplitMenu_Popup(object sender, EventArgs e)
-        {
-            _isSplitMenuVisible = true;
-        }
-
-        protected override void WndProc(ref Message m)
-        {
-            //0x0212 == WM_EXITMENULOOP
-            if (m.Msg == 0x0212 && !Disposing && !IsDisposed)
-            {
-                //this message is only sent when a ContextMenu is closed (not a ContextMenuStrip)
-                _isSplitMenuVisible = false;
-                SetButtonDrawState();
-            }
-
-            base.WndProc(ref m);
         }
 
         private void SetButtonDrawState()

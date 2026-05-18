@@ -625,35 +625,10 @@ namespace Chummer
                     }
                 }
 
-                //TODO: Seems that the MysAd Second Attribute house rule gets accidentally enabled sometimes?
                 if (blnSync)
-                {
-                    if (Rating > TotalMaximumLevels)
-                    {
-                        Utils.BreakIfDebug();
-                        Rating = TotalMaximumLevels;
-                    }
-                    else if (Rating + FreeLevels > TotalMaximumLevels)
-                    {
-                        Utils.BreakIfDebug();
-                        TotalRating = TotalMaximumLevels;
-                    }
-                }
+                    NormalizeLoadedRatingToCurrentMaximum();
                 else
-                {
-                    int intRating = await GetRatingAsync(token).ConfigureAwait(false);
-                    int intTotalMaximumLevels = await GetTotalMaximumLevelsAsync(token).ConfigureAwait(false);
-                    if (intRating > intTotalMaximumLevels)
-                    {
-                        Utils.BreakIfDebug();
-                        await SetRatingAsync(intTotalMaximumLevels, token).ConfigureAwait(false);
-                    }
-                    else if (intRating + await GetFreeLevelsAsync(token).ConfigureAwait(false) > intTotalMaximumLevels)
-                    {
-                        Utils.BreakIfDebug();
-                        await SetTotalRatingAsync(intTotalMaximumLevels, token).ConfigureAwait(false);
-                    }
-                }
+                    await NormalizeLoadedRatingToCurrentMaximumAsync(token).ConfigureAwait(false);
             }
             finally
             {
@@ -1457,8 +1432,7 @@ namespace Chummer
             {
                 using (LockObject.EnterReadLock())
                 {
-                    //TODO: This isn't super safe, but it's more reliable than checking it at load as improvement effects like Essence Loss take effect after powers are loaded. Might need another solution.
-                    return _intRating = Math.Min(_intRating, TotalMaximumLevels);
+                    return ClampRatingToCurrentMaximum();
                 }
             }
             set
@@ -1481,15 +1455,58 @@ namespace Chummer
             try
             {
                 token.ThrowIfCancellationRequested();
-                //TODO: This isn't super safe, but it's more reliable than checking it at load as improvement effects like Essence Loss take effect after powers are loaded. Might need another solution.
-                int intTotalMax = await GetTotalMaximumLevelsAsync(token).ConfigureAwait(false);
-                if (_intRating <= intTotalMax)
-                    return _intRating;
-                return _intRating = intTotalMax;
+                return await ClampRatingToCurrentMaximumAsync(token).ConfigureAwait(false);
             }
             finally
             {
                 await objLocker.DisposeAsync().ConfigureAwait(false);
+            }
+        }
+
+        private int ClampRatingToCurrentMaximum()
+        {
+            int totalMaximumLevels = TotalMaximumLevels;
+            if (_intRating <= totalMaximumLevels)
+                return _intRating;
+            return _intRating = totalMaximumLevels;
+        }
+
+        private void NormalizeLoadedRatingToCurrentMaximum()
+        {
+            int totalMaximumLevels = TotalMaximumLevels;
+            if (Rating > totalMaximumLevels)
+            {
+                Utils.BreakIfDebug();
+                Rating = totalMaximumLevels;
+            }
+            else if (Rating + FreeLevels > totalMaximumLevels)
+            {
+                Utils.BreakIfDebug();
+                TotalRating = totalMaximumLevels;
+            }
+        }
+
+        private async Task<int> ClampRatingToCurrentMaximumAsync(CancellationToken token = default)
+        {
+            int totalMaximumLevels = await GetTotalMaximumLevelsAsync(token).ConfigureAwait(false);
+            if (_intRating <= totalMaximumLevels)
+                return _intRating;
+            return _intRating = totalMaximumLevels;
+        }
+
+        private async Task NormalizeLoadedRatingToCurrentMaximumAsync(CancellationToken token = default)
+        {
+            int intRating = await GetRatingAsync(token).ConfigureAwait(false);
+            int intTotalMaximumLevels = await GetTotalMaximumLevelsAsync(token).ConfigureAwait(false);
+            if (intRating > intTotalMaximumLevels)
+            {
+                Utils.BreakIfDebug();
+                await SetRatingAsync(intTotalMaximumLevels, token).ConfigureAwait(false);
+            }
+            else if (intRating + await GetFreeLevelsAsync(token).ConfigureAwait(false) > intTotalMaximumLevels)
+            {
+                Utils.BreakIfDebug();
+                await SetTotalRatingAsync(intTotalMaximumLevels, token).ConfigureAwait(false);
             }
         }
 
@@ -3240,23 +3257,7 @@ namespace Chummer
 
                                 if (blnRefreshImprovements)
                                 {
-                                    using (CharacterObject.LockObject.EnterWriteLock())
-                                    {
-                                        // We cannot actually go with setting a rating here because of a load of technical debt involving bonus nodes feeding into `Value` indirectly through a parser
-                                        // that uses `Rating` instead of using only `Rating` and having the parser work off of whatever is in the `Rating` field
-                                        // TODO: Solve this bad code
-                                        ImprovementManager.RemoveImprovements(CharacterObject,
-                                            Improvement.ImprovementSource.Power,
-                                            InternalId);
-                                        if (intTotalRating > 0)
-                                        {
-                                            ImprovementManager.SetForcedValue(Extra, CharacterObject);
-                                            ImprovementManager.CreateImprovements(CharacterObject,
-                                                Improvement.ImprovementSource.Power,
-                                                InternalId, Bonus, intTotalRating,
-                                                CurrentDisplayNameShort);
-                                        }
-                                    }
+                                    RefreshRatingDrivenImprovements(intTotalRating);
                                 }
                             }
                             else
@@ -3411,30 +3412,7 @@ namespace Chummer
 
                                 if (blnRefreshImprovements)
                                 {
-                                    IAsyncDisposable objLocker3 = await CharacterObject.LockObject.EnterWriteLockAsync(token)
-                                        .ConfigureAwait(false);
-                                    try
-                                    {
-                                        // We cannot actually go with setting a rating here because of a load of technical debt involving bonus nodes feeding into `Value` indirectly through a parser
-                                        // that uses `Rating` instead of using only `Rating` and having the parser work off of whatever is in the `Rating` field
-                                        // TODO: Solve this bad code
-                                        await ImprovementManager.RemoveImprovementsAsync(CharacterObject,
-                                            Improvement.ImprovementSource.Power,
-                                            InternalId, token).ConfigureAwait(false);
-                                        if (intTotalRating > 0)
-                                        {
-                                            ImprovementManager.SetForcedValue(await GetExtraAsync(token).ConfigureAwait(false), CharacterObject);
-                                            await ImprovementManager.CreateImprovementsAsync(CharacterObject,
-                                                Improvement.ImprovementSource.Power,
-                                                InternalId, xmlBonus, intTotalRating,
-                                                await GetCurrentDisplayNameShortAsync(token).ConfigureAwait(false),
-                                                token: token).ConfigureAwait(false);
-                                        }
-                                    }
-                                    finally
-                                    {
-                                        await objLocker3.DisposeAsync().ConfigureAwait(false);
-                                    }
+                                    await RefreshRatingDrivenImprovementsAsync(xmlBonus, intTotalRating, token).ConfigureAwait(false);
                                 }
                             }
                             else
@@ -3555,6 +3533,53 @@ namespace Chummer
                 {
                     await objLocker.DisposeAsync().ConfigureAwait(false);
                 }
+            }
+        }
+
+        private void RefreshRatingDrivenImprovements(int intTotalRating)
+        {
+            using (CharacterObject.LockObject.EnterWriteLock())
+            {
+                // Bonus parsing still consumes Rating-driven value state, so the refresh has to rebuild
+                // improvements after TotalRating changes instead of mutating one field in place.
+                ImprovementManager.RemoveImprovements(CharacterObject,
+                    Improvement.ImprovementSource.Power,
+                    InternalId);
+                if (intTotalRating > 0)
+                {
+                    ImprovementManager.SetForcedValue(Extra, CharacterObject);
+                    ImprovementManager.CreateImprovements(CharacterObject,
+                        Improvement.ImprovementSource.Power,
+                        InternalId, Bonus, intTotalRating,
+                        CurrentDisplayNameShort);
+                }
+            }
+        }
+
+        private async Task RefreshRatingDrivenImprovementsAsync(XmlNode xmlBonus, int intTotalRating, CancellationToken token = default)
+        {
+            token.ThrowIfCancellationRequested();
+            IAsyncDisposable objLocker = await CharacterObject.LockObject.EnterWriteLockAsync(token).ConfigureAwait(false);
+            try
+            {
+                // Bonus parsing still consumes Rating-driven value state, so the refresh has to rebuild
+                // improvements after TotalRating changes instead of mutating one field in place.
+                await ImprovementManager.RemoveImprovementsAsync(CharacterObject,
+                    Improvement.ImprovementSource.Power,
+                    InternalId, token).ConfigureAwait(false);
+                if (intTotalRating > 0)
+                {
+                    ImprovementManager.SetForcedValue(await GetExtraAsync(token).ConfigureAwait(false), CharacterObject);
+                    await ImprovementManager.CreateImprovementsAsync(CharacterObject,
+                        Improvement.ImprovementSource.Power,
+                        InternalId, xmlBonus, intTotalRating,
+                        await GetCurrentDisplayNameShortAsync(token).ConfigureAwait(false),
+                        token: token).ConfigureAwait(false);
+                }
+            }
+            finally
+            {
+                await objLocker.DisposeAsync().ConfigureAwait(false);
             }
         }
 

@@ -610,8 +610,7 @@ namespace Chummer.Backend.Skills
             bool blnDeleteSkillsFromBackupIfFound = false, string strName = "", CancellationToken token = default)
         {
             token.ThrowIfCancellationRequested();
-            // Lock is upgradeable because retrieving a new skill requires creating it, which requires adding it to the character
-            // Yes, this is counterintuitive. TODO: Fix this by allowing skills to be loaded in without necessarily adding them to their character first
+            // Lock is upgradeable because missing skills are materialized on demand and can be added to the owning character.
             using (LockObject.EnterUpgradeableReadLock(token))
             {
                 token.ThrowIfCancellationRequested();
@@ -638,14 +637,7 @@ namespace Chummer.Backend.Skills
                                 }
                                 else
                                 {
-                                    string strCategoryCleaned = xmlSkill["category"]?.InnerTextViaPool(token).CleanXPath();
-                                    bool blnIsKnowledgeSkill
-                                        = string.IsNullOrEmpty(strCategoryCleaned) || xmlSkillsDocument
-                                            .SelectSingleNodeAndCacheExpressionAsNavigator(
-                                                "/chummer/categories/category[. = "
-                                                + strCategoryCleaned + "]/@type", token)
-                                            ?.Value
-                                        != "active";
+                                    bool blnIsKnowledgeSkill = IsKnowledgeSkillNode(xmlSkillsDocument, xmlSkill, token);
                                     yield return new ValueTuple<Skill, bool>(Skill.FromData(xmlSkill, _objCharacter, blnIsKnowledgeSkill), true);
                                 }
                             }
@@ -658,14 +650,7 @@ namespace Chummer.Backend.Skills
                             }
                             else
                             {
-                                string strCategoryCleaned = xmlSkill["category"]?.InnerTextViaPool(token).CleanXPath();
-                                bool blnIsKnowledgeSkill
-                                    = string.IsNullOrEmpty(strCategoryCleaned) || xmlSkillsDocument
-                                        .SelectSingleNodeAndCacheExpressionAsNavigator(
-                                            "/chummer/categories/category[. = "
-                                            + strCategoryCleaned + "]/@type", token)
-                                        ?.Value
-                                    != "active";
+                                bool blnIsKnowledgeSkill = IsKnowledgeSkillNode(xmlSkillsDocument, xmlSkill, token);
                                 yield return new ValueTuple<Skill, bool>(Skill.FromData(xmlSkill, _objCharacter, blnIsKnowledgeSkill), true);
                             }
                         }
@@ -680,8 +665,7 @@ namespace Chummer.Backend.Skills
             XmlDocument xmlSkillsDocument =
                 await _objCharacter.LoadDataAsync("skills.xml", token: token).ConfigureAwait(false);
             token.ThrowIfCancellationRequested();
-            // Lock is upgradeable because retrieving a new skill requires creating it, which requires adding it to the character
-            // Yes, this is counterintuitive. TODO: Fix this by allowing skills to be loaded in without necessarily adding them to their character first
+            // Lock is upgradeable because missing skills are materialized on demand and can be added to the owning character.
             IAsyncDisposable objLocker = await LockObject.EnterUpgradeableReadLockAsync(token).ConfigureAwait(false);
             try
             {
@@ -708,13 +692,7 @@ namespace Chummer.Backend.Skills
                                     }
                                     else
                                     {
-                                        bool blnIsKnowledgeSkill
-                                            = xmlSkillsDocument
-                                                  .SelectSingleNodeAndCacheExpressionAsNavigator(
-                                                      "/chummer/categories/category[. = "
-                                                      + xmlSkill["category"]?.InnerTextViaPool(token).CleanXPath() + "]/@type", token)
-                                                  ?.Value
-                                              != "active";
+                                        bool blnIsKnowledgeSkill = IsKnowledgeSkillNode(xmlSkillsDocument, xmlSkill, token);
                                         lstReturn.Add(new ValueTuple<Skill, bool>(await Skill
                                             .FromDataAsync(xmlSkill, _objCharacter, blnIsKnowledgeSkill, token)
                                             .ConfigureAwait(false), true));
@@ -728,13 +706,7 @@ namespace Chummer.Backend.Skills
                                 }
                                 else
                                 {
-                                    bool blnIsKnowledgeSkill
-                                        = xmlSkillsDocument
-                                              .SelectSingleNodeAndCacheExpressionAsNavigator(
-                                                  "/chummer/categories/category[. = "
-                                                  + xmlSkill["category"]?.InnerTextViaPool(token).CleanXPath() + "]/@type", token)
-                                              ?.Value
-                                          != "active";
+                                    bool blnIsKnowledgeSkill = IsKnowledgeSkillNode(xmlSkillsDocument, xmlSkill, token);
                                     lstReturn.Add(new ValueTuple<Skill, bool>(await Skill
                                         .FromDataAsync(xmlSkill, _objCharacter, blnIsKnowledgeSkill, token)
                                         .ConfigureAwait(false), true));
@@ -759,6 +731,18 @@ namespace Chummer.Backend.Skills
             }
 
             return lstReturn;
+        }
+
+        private static bool IsKnowledgeSkillNode(XmlDocument xmlSkillsDocument, XmlNode xmlSkill, CancellationToken token)
+        {
+            string strCategoryCleaned = xmlSkill["category"]?.InnerTextViaPool(token).CleanXPath();
+            return string.IsNullOrEmpty(strCategoryCleaned)
+                   || xmlSkillsDocument
+                       .SelectSingleNodeAndCacheExpressionAsNavigator(
+                           "/chummer/categories/category[. = " + strCategoryCleaned + "]/@type",
+                           token)
+                       ?.Value
+                   != "active";
         }
 
         internal void AddSkills(FilterOption eFilterOption, string strName = "", CancellationToken token = default)
@@ -2434,79 +2418,9 @@ namespace Chummer.Backend.Skills
                             //TODO: Move it to the other side of the if someday?
 
                             if (blnSync)
-                            {
-                                if (!_objCharacter.Created)
-                                {
-                                    // zero out any skillgroups whose skills did not make the final cut
-                                    foreach (SkillGroup objSkillGroup in SkillGroups.AsEnumerableWithSideEffects())
-                                    {
-                                        token.ThrowIfCancellationRequested();
-                                        if (!objSkillGroup.SkillList.Any(x => _dicSkills.ContainsKey(x.DictionaryKey)))
-                                        {
-                                            objSkillGroup.Base = 0;
-                                            objSkillGroup.Karma = 0;
-                                        }
-                                        else
-                                        {
-                                            // TODO: Skill groups don't refresh their CanIncrease property correctly when the last of their skills is being added, as the total base rating will be zero. Call this here to force a refresh.
-                                            objSkillGroup.OnPropertyChanged(nameof(SkillGroup.SkillList));
-                                        }
-                                    }
-                                }
-                                else if (_objCharacterSettings.AllowSkillRegrouping)
-                                {
-                                    // TODO: Skill groups don't refresh their CanIncrease property correctly when the last of their skills is being added, as the total base rating will be zero. Call this here to force a refresh.
-                                    foreach (SkillGroup g in SkillGroups.AsEnumerableWithSideEffects())
-                                    {
-                                        token.ThrowIfCancellationRequested();
-                                        g.OnMultiplePropertyChanged(nameof(SkillGroup.SkillList), nameof(SkillGroup.HasAnyBreakingSkills));
-                                    }
-                                }
-                                else
-                                {
-                                    // TODO: Skill groups don't refresh their CanIncrease property correctly when the last of their skills is being added, as the total base rating will be zero. Call this here to force a refresh.
-                                    foreach (SkillGroup g in SkillGroups.AsEnumerableWithSideEffects())
-                                    {
-                                        token.ThrowIfCancellationRequested();
-                                        g.OnPropertyChanged(nameof(SkillGroup.SkillList));
-                                    }
-                                }
-                            }
-                            else if (!await _objCharacter.GetCreatedAsync(token).ConfigureAwait(false))
-                            {
-                                // zero out any skillgroups whose skills did not make the final cut
-                                await (await GetSkillGroupsAsync(token).ConfigureAwait(false)).ForEachWithSideEffectsAsync(async objSkillGroup =>
-                                {
-                                    token.ThrowIfCancellationRequested();
-                                    if (!await objSkillGroup.SkillList.AnyAsync(
-                                                async x => _dicSkills.ContainsKey(
-                                                        await x.GetDictionaryKeyAsync(token)
-                                                            .ConfigureAwait(false)), token: token)
-                                            .ConfigureAwait(false))
-                                    {
-                                        await objSkillGroup.SetBaseAsync(0, token).ConfigureAwait(false);
-                                        await objSkillGroup.SetKarmaAsync(0, token).ConfigureAwait(false);
-                                    }
-                                    else
-                                    {
-                                        // TODO: Skill groups don't refresh their CanIncrease property correctly when the last of their skills is being added, as the total base rating will be zero. Call this here to force a refresh.
-                                        await objSkillGroup.OnPropertyChangedAsync(nameof(SkillGroup.SkillList), token)
-                                            .ConfigureAwait(false);
-                                    }
-                                }, token).ConfigureAwait(false);
-                            }
-                            else if (_objCharacterSettings.AllowSkillRegrouping)
-                            {
-                                // TODO: Skill groups don't refresh their CanIncrease property correctly when the last of their skills is being added, as the total base rating will be zero. Call this here to force a refresh.
-                                await (await GetSkillGroupsAsync(token).ConfigureAwait(false)).ForEachWithSideEffectsAsync(objSkillGroup =>
-                                    objSkillGroup.OnMultiplePropertyChangedAsync(token, nameof(SkillGroup.SkillList), nameof(SkillGroup.HasAnyBreakingSkills)), token).ConfigureAwait(false);
-                            }
+                                FinalizeLoadedSkillGroups(token);
                             else
-                            {
-                                // TODO: Skill groups don't refresh their CanIncrease property correctly when the last of their skills is being added, as the total base rating will be zero. Call this here to force a refresh.
-                                await (await GetSkillGroupsAsync(token).ConfigureAwait(false)).ForEachWithSideEffectsAsync(objSkillGroup =>
-                                    objSkillGroup.OnPropertyChangedAsync(nameof(SkillGroup.SkillList), token), token).ConfigureAwait(false);
-                            }
+                                await FinalizeLoadedSkillGroupsAsync(token).ConfigureAwait(false);
 
                             //Workaround for probably breaking compability between earlier beta builds
                             if (xmlSkillNode["skillptsmax"] == null)
@@ -2591,6 +2505,67 @@ namespace Chummer.Backend.Skills
                 else
                     await objLockerAsync.DisposeAsync().ConfigureAwait(false);
             }
+        }
+
+        private void FinalizeLoadedSkillGroups(CancellationToken token)
+        {
+            bool blnIncludeBreakingSkills = _objCharacter.Created && _objCharacterSettings.AllowSkillRegrouping;
+            foreach (SkillGroup objSkillGroup in SkillGroups.AsEnumerableWithSideEffects())
+            {
+                token.ThrowIfCancellationRequested();
+                if (!_objCharacter.Created && !objSkillGroup.SkillList.Any(x => _dicSkills.ContainsKey(x.DictionaryKey)))
+                {
+                    objSkillGroup.Base = 0;
+                    objSkillGroup.Karma = 0;
+                    continue;
+                }
+
+                RefreshLoadedSkillGroup(objSkillGroup, blnIncludeBreakingSkills, token);
+            }
+        }
+
+        private async Task FinalizeLoadedSkillGroupsAsync(CancellationToken token)
+        {
+            bool blnCharacterCreated = await _objCharacter.GetCreatedAsync(token).ConfigureAwait(false);
+            bool blnIncludeBreakingSkills = blnCharacterCreated && _objCharacterSettings.AllowSkillRegrouping;
+            await (await GetSkillGroupsAsync(token).ConfigureAwait(false)).ForEachWithSideEffectsAsync(async objSkillGroup =>
+            {
+                token.ThrowIfCancellationRequested();
+                if (!blnCharacterCreated && !await objSkillGroup.SkillList.AnyAsync(
+                        async x => _dicSkills.ContainsKey(await x.GetDictionaryKeyAsync(token).ConfigureAwait(false)),
+                        token: token).ConfigureAwait(false))
+                {
+                    await objSkillGroup.SetBaseAsync(0, token).ConfigureAwait(false);
+                    await objSkillGroup.SetKarmaAsync(0, token).ConfigureAwait(false);
+                    return;
+                }
+
+                await RefreshLoadedSkillGroupAsync(objSkillGroup, blnIncludeBreakingSkills, token).ConfigureAwait(false);
+            }, token).ConfigureAwait(false);
+        }
+
+        private static void RefreshLoadedSkillGroup(SkillGroup objSkillGroup, bool blnIncludeBreakingSkills,
+                                                    CancellationToken token)
+        {
+            token.ThrowIfCancellationRequested();
+            if (blnIncludeBreakingSkills)
+            {
+                objSkillGroup.OnMultiplePropertyChanged(nameof(SkillGroup.SkillList),
+                    nameof(SkillGroup.HasAnyBreakingSkills));
+                return;
+            }
+
+            objSkillGroup.OnPropertyChanged(nameof(SkillGroup.SkillList));
+        }
+
+        private static Task RefreshLoadedSkillGroupAsync(SkillGroup objSkillGroup, bool blnIncludeBreakingSkills,
+                                                         CancellationToken token)
+        {
+            token.ThrowIfCancellationRequested();
+            return blnIncludeBreakingSkills
+                ? objSkillGroup.OnMultiplePropertyChangedAsync(token, nameof(SkillGroup.SkillList),
+                    nameof(SkillGroup.HasAnyBreakingSkills))
+                : objSkillGroup.OnPropertyChangedAsync(nameof(SkillGroup.SkillList), token);
         }
 
         internal void LoadFromHeroLab(XPathNavigator xmlSkillNode, CustomActivity parentActivity, CancellationToken token = default)

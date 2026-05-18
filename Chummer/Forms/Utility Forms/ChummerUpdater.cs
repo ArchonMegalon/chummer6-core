@@ -585,6 +585,8 @@ namespace Chummer
         /// <summary>
         /// When running in silent mode, the update window will not be shown.
         /// </summary>
+        [Browsable(false)]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
         public bool SilentMode
         {
             get => _intSilentMode > 0;
@@ -651,6 +653,8 @@ namespace Chummer
         /// <summary>
         /// Latest release build number located on Github.
         /// </summary>
+        [Browsable(false)]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
         public string LatestVersion
         {
             get => _strLatestVersion;

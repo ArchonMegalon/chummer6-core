@@ -67,6 +67,8 @@ namespace Chummer.UI.Shared.Components
             return lblDicePool.SetToolTipTextAsync(caption, token);
         }
 
+        [Browsable(false)]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
         public bool CanBeRolled
         {
             get => _blnCanBeRolled;
@@ -79,6 +81,8 @@ namespace Chummer.UI.Shared.Components
             }
         }
 
+        [Browsable(false)]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
         public bool CanEverBeRolled
         {
             get => _blnCanEverBeRolled;
@@ -91,6 +95,8 @@ namespace Chummer.UI.Shared.Components
             }
         }
 
+        [Browsable(false)]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
         public decimal DicePool
         {
             get

@@ -19,6 +19,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Globalization;
 using System.Text;
 using System.Threading;
@@ -152,6 +153,8 @@ namespace Chummer
         /// <summary>
         /// List of Ammo Gear that the user can selected.
         /// </summary>
+        [Browsable(false)]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
         public IEnumerable<Gear> Ammo
         {
             set
@@ -164,6 +167,8 @@ namespace Chummer
         /// <summary>
         /// List of ammunition that the user can select.
         /// </summary>
+        [Browsable(false)]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
         public IEnumerable<string> Count
         {
             set

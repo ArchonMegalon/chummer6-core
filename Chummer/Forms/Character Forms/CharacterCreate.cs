@@ -13891,8 +13891,7 @@ namespace Chummer
                                            + await CharacterObject.GetPositiveQualityKarmaAsync(token)
                                                .ConfigureAwait(false);
 
-                intKarmaPointsRemain -= intQualityPointsUsed;
-                intFreestyleBP += intQualityPointsUsed;
+                ApplyFreestyleKarmaUsage(ref intKarmaPointsRemain, ref intFreestyleBP, intQualityPointsUsed);
                 // Changelings must either have a balanced negative and positive number of metagenic qualities, or have 1 more point of positive than negative.
                 // If the latter, karma is used to balance them out.
                 if (await CharacterObject.GetMetagenicPositiveQualityKarmaAsync(token).ConfigureAwait(false)
@@ -14001,24 +14000,19 @@ namespace Chummer
                 token.ThrowIfCancellationRequested();
                 // ------------------------------------------------------------------------------
                 // Calculate the points used by Knowledge Skills.
-                int knowledgeKarmaUsed = await objSkillSection.KnowledgeSkills
+                int knowledgeKarmaSpent = await objSkillSection.KnowledgeSkills
                     .SumAsync(x => x.GetCurrentKarmaCostAsync(token),
                         token: token).ConfigureAwait(false);
 
                 token.ThrowIfCancellationRequested();
-                //TODO: Remaining is named USED?
-                intKarmaPointsRemain -= knowledgeKarmaUsed;
-
-                intFreestyleBP += knowledgeKarmaUsed;
+                ApplyFreestyleKarmaUsage(ref intKarmaPointsRemain, ref intFreestyleBP, knowledgeKarmaSpent);
 
                 token.ThrowIfCancellationRequested();
                 // ------------------------------------------------------------------------------
                 // Calculate the BP used by Resources/Nuyen.
                 int intNuyenBP = (await CharacterObject.GetNuyenBPAsync(token).ConfigureAwait(false)).StandardRound();
 
-                intKarmaPointsRemain -= intNuyenBP;
-
-                intFreestyleBP += intNuyenBP;
+                ApplyFreestyleKarmaUsage(ref intKarmaPointsRemain, ref intFreestyleBP, intNuyenBP);
 
                 token.ThrowIfCancellationRequested();
                 // ------------------------------------------------------------------------------
@@ -14143,19 +14137,7 @@ namespace Chummer
                             intLimitModTouchOnly += intSkillValue;
                         else
                             intLimitMod += intSkillValue;
-                        //TODO: I don't like this being hardcoded, even though I know full well CGL are never going to reuse this.
-                        spells -= await skill.Specializations.CountAsync(
-                                async spec =>
-                                    await (await CharacterObject.GetSpellsAsync(token)
-                                            .ConfigureAwait(false)).AnyAsync(
-                                            async spell =>
-                                                spell.Category ==
-                                                await spec.GetNameAsync(token).ConfigureAwait(false) &&
-                                                !spell.FreeBonus,
-                                            token)
-                                        .ConfigureAwait(false),
-                                token)
-                            .ConfigureAwait(false);
+                        spells -= await CountFreeSpellSpecializationMatchesAsync(skill, token).ConfigureAwait(false);
                     }
 
                     token.ThrowIfCancellationRequested();
@@ -14250,49 +14232,49 @@ namespace Chummer
                         {
                             if (lblBuildPrepsBP != null)
                             {
-                                string strText = string.Format(GlobalSettings.CultureInfo, "{0}{1}{2}",
-                                    prepPoints + spellPoints + ritualPoints
-                                    - 2 * (intFreeSpells + intLimitMod), strOf,
-                                    spellPoints + ritualPoints - (intFreeSpells + intLimitMod));
-                                if (intPrepPointsUsed > 0)
-                                    strText += string.Format(GlobalSettings.CultureInfo, "{0}{1}{2}{1}{3}", strColon,
-                                        strSpace, intPrepPointsUsed, strPoints);
+                                string strText = BuildSpellPointUsageLabel(
+                                    prepPoints + spellPoints + ritualPoints - 2 * (intFreeSpells + intLimitMod),
+                                    spellPoints + ritualPoints - (intFreeSpells + intLimitMod),
+                                    intPrepPointsUsed,
+                                    strOf,
+                                    strColon,
+                                    strSpace,
+                                    strPoints);
                                 await lblBuildPrepsBP.DoThreadSafeAsync(x => x.Text = strText, token)
                                     .ConfigureAwait(false);
                             }
 
                             if (lblSpellsBP != null)
                             {
-                                string strText;
-                                if (intQualityKarmaToSpellPoints != 0)
-                                    strText = string.Format(GlobalSettings.CultureInfo, "{0}{1}{2}({3})",
-                                        prepPoints + spellPoints + ritualPoints
-                                        - 2 * (intFreeSpells + intLimitMod), strOf,
-                                        prepPoints + ritualPoints - (intFreeSpells + intLimitMod),
-                                        string.Format(GlobalSettings.CultureInfo, await LanguageManager
-                                            .GetStringAsync(
-                                                "String_MasteryPointsAcronym", token: token)
-                                            .ConfigureAwait(false), intQualityKarmaToSpellPoints));
-                                else
-                                    strText = string.Format(GlobalSettings.CultureInfo, "{0}{1}{2}",
-                                        prepPoints + spellPoints + ritualPoints
-                                        - 2 * (intFreeSpells + intLimitMod), strOf,
-                                        prepPoints + ritualPoints - (intFreeSpells + intLimitMod));
-                                if (intSpellPointsUsed > 0)
-                                    strText += string.Format(GlobalSettings.CultureInfo, "{0}{1}{2}{1}{3}", strColon,
-                                        strSpace, intSpellPointsUsed, strPoints);
+                                string strMasteryPoints = intQualityKarmaToSpellPoints != 0
+                                    ? string.Format(
+                                        GlobalSettings.CultureInfo,
+                                        await LanguageManager.GetStringAsync("String_MasteryPointsAcronym", token: token)
+                                            .ConfigureAwait(false),
+                                        intQualityKarmaToSpellPoints)
+                                    : null;
+                                string strText = BuildSpellPointUsageLabel(
+                                    prepPoints + spellPoints + ritualPoints - 2 * (intFreeSpells + intLimitMod),
+                                    prepPoints + ritualPoints - (intFreeSpells + intLimitMod),
+                                    intSpellPointsUsed,
+                                    strOf,
+                                    strColon,
+                                    strSpace,
+                                    strPoints,
+                                    strMasteryPoints);
                                 await lblSpellsBP.DoThreadSafeAsync(x => x.Text = strText, token).ConfigureAwait(false);
                             }
 
                             if (lblBuildRitualsBP != null)
                             {
-                                string strText = string.Format(GlobalSettings.CultureInfo, "{0}{1}{2}",
-                                    prepPoints + spellPoints + ritualPoints
-                                    - 2 * (intFreeSpells + intLimitMod), strOf,
-                                    prepPoints + spellPoints - (intFreeSpells + intLimitMod));
-                                if (intRitualPointsUsed > 0)
-                                    strText += string.Format(GlobalSettings.CultureInfo, "{0}{1}{2}{1}{3}", strColon,
-                                        strSpace, intRitualPointsUsed, strPoints);
+                                string strText = BuildSpellPointUsageLabel(
+                                    prepPoints + spellPoints + ritualPoints - 2 * (intFreeSpells + intLimitMod),
+                                    prepPoints + spellPoints - (intFreeSpells + intLimitMod),
+                                    intRitualPointsUsed,
+                                    strOf,
+                                    strColon,
+                                    strSpace,
+                                    strPoints);
                                 await lblBuildRitualsBP.DoThreadSafeAsync(x => x.Text = strText, token)
                                     .ConfigureAwait(false);
                             }
@@ -14325,40 +14307,48 @@ namespace Chummer
                         }
                         else
                         {
-                            //TODO: Make the costs render better, currently looks wrong as hell
-                            strFormat = "{0}" + strOf + "{1}" + strColon + strSpace + "{2}" + strSpace + strPoints;
                             if (lblBuildPrepsBP != null)
                             {
                                 await lblBuildPrepsBP.DoThreadSafeAsync(x => x.Text =
-                                        string.Format(
-                                            GlobalSettings.CultureInfo, strFormat,
+                                        BuildSpellPointUsageLabel(
                                             prepPoints + spellPoints + ritualPoints
                                             - 2 * intLimitMod,
                                             spellPoints + ritualPoints - intLimitMod,
-                                            intPrepPointsUsed), token)
+                                            intPrepPointsUsed,
+                                            strOf,
+                                            strColon,
+                                            strSpace,
+                                            strPoints), token)
                                     .ConfigureAwait(false);
                             }
 
                             if (lblSpellsBP != null)
                             {
                                 await lblSpellsBP.DoThreadSafeAsync(x => x.Text =
-                                        string.Format(GlobalSettings.CultureInfo, strFormat,
+                                        BuildSpellPointUsageLabel(
                                             prepPoints + spellPoints + ritualPoints
                                             - 2 * intLimitMod,
                                             prepPoints + ritualPoints - intLimitMod,
-                                            intSpellPointsUsed), token)
+                                            intSpellPointsUsed,
+                                            strOf,
+                                            strColon,
+                                            strSpace,
+                                            strPoints), token)
                                     .ConfigureAwait(false);
                             }
 
                             if (lblBuildRitualsBP != null)
                             {
                                 await lblBuildRitualsBP.DoThreadSafeAsync(x => x.Text =
-                                        string.Format(
-                                            GlobalSettings.CultureInfo, strFormat,
+                                        BuildSpellPointUsageLabel(
                                             prepPoints + spellPoints + ritualPoints
                                             - 2 * intLimitMod,
                                             prepPoints + spellPoints - intLimitMod,
-                                            intRitualPointsUsed), token)
+                                            intRitualPointsUsed,
+                                            strOf,
+                                            strColon,
+                                            strSpace,
+                                            strPoints), token)
                                     .ConfigureAwait(false);
                             }
                         }
@@ -20892,12 +20882,13 @@ namespace Chummer
                     // Check if the character has gone over on Primary Attributes
                     if (i < 0)
                     {
-                        //TODO: ATTACH TO ATTRIBUTE SECTION
                         blnValid = false;
-                        sbdMessage.AppendLine().Append('\t').AppendFormat(GlobalSettings.CultureInfo,
-                                                                          await LanguageManager.GetStringAsync(
-                                                                              "Message_InvalidAttributeExcess",
-                                                                              token: token).ConfigureAwait(false), -i);
+                        await AppendAttributeSectionExcessMessageAsync(
+                            sbdMessage,
+                            "Message_InvalidAttributeExcess",
+                            "Label_SummaryPrimaryAttributes",
+                            -i,
+                            token).ConfigureAwait(false);
                     }
 
                     ThreadSafeObservableCollection<CharacterAttrib> lstSpecialAttributes
@@ -20908,12 +20899,13 @@ namespace Chummer
                     // Check if the character has gone over on Special Attributes
                     if (i < 0)
                     {
-                        //TODO: ATTACH TO ATTRIBUTE SECTION
                         blnValid = false;
-                        sbdMessage.AppendLine().Append('\t').AppendFormat(GlobalSettings.CultureInfo,
-                                                                          await LanguageManager.GetStringAsync(
-                                                                              "Message_InvalidSpecialExcess",
-                                                                              token: token).ConfigureAwait(false), -i);
+                        await AppendAttributeSectionExcessMessageAsync(
+                            sbdMessage,
+                            "Message_InvalidSpecialExcess",
+                            "Label_SummarySpecialAttributes",
+                            -i,
+                            token).ConfigureAwait(false);
                     }
 
                     // Check if the character has gone over on Skill Groups
@@ -21841,20 +21833,7 @@ namespace Chummer
                                 intLimitModTouchOnly += intSkillValue;
                             else
                                 intLimitMod += intSkillValue;
-                            //TODO: I don't like this being hardcoded, even though I know full well CGL are never going to reuse this.
-                            intUsedPoints -= await (await skill.GetSpecializationsAsync(token).ConfigureAwait(false))
-                                .CountAsync(
-                                    async spec =>
-                                    {
-                                        string strNameInner = await spec.GetNameAsync(token).ConfigureAwait(false);
-                                        return await (await CharacterObject.GetSpellsAsync(token)
-                                                .ConfigureAwait(false)).AnyAsync(
-                                                spell => spell.Category == strNameInner && !spell.FreeBonus,
-                                                token)
-                                            .ConfigureAwait(false);
-                                    },
-                                    token)
-                                .ConfigureAwait(false);
+                            intUsedPoints -= await CountFreeSpellSpecializationMatchesAsync(skill, token).ConfigureAwait(false);
                         }
 
                         if (await CharacterObject.GetUseMysticAdeptPPsAsync(token).ConfigureAwait(false)
@@ -21946,6 +21925,77 @@ namespace Chummer
             }
 
             return blnValid;
+        }
+
+        private async Task<int> CountFreeSpellSpecializationMatchesAsync(Skill skill, CancellationToken token)
+        {
+            ThreadSafeObservableCollection<Spell> lstSpells = await CharacterObject.GetSpellsAsync(token).ConfigureAwait(false);
+            return await (await skill.GetSpecializationsAsync(token).ConfigureAwait(false))
+                .CountAsync(
+                    async spec =>
+                    {
+                        string strNameInner = await spec.GetNameAsync(token).ConfigureAwait(false);
+                        return await lstSpells.AnyAsync(
+                                spell => spell.Category == strNameInner && !spell.FreeBonus,
+                                token)
+                            .ConfigureAwait(false);
+                    },
+                    token)
+                .ConfigureAwait(false);
+        }
+
+        private static string BuildSpellPointUsageLabel(
+            int intAvailablePoints,
+            int intComparisonPoints,
+            int intUsedPoints,
+            string strOf,
+            string strColon,
+            string strSpace,
+            string strPoints,
+            string strQualifier = null)
+        {
+            using (new FetchSafelyFromObjectPool<StringBuilder>(Utils.StringBuilderPool, out StringBuilder sbdText))
+            {
+                sbdText.Append(intAvailablePoints.ToString(GlobalSettings.CultureInfo))
+                    .Append(strOf)
+                    .Append(intComparisonPoints.ToString(GlobalSettings.CultureInfo));
+                if (!string.IsNullOrEmpty(strQualifier))
+                    sbdText.Append('(').Append(strQualifier).Append(')');
+                if (intUsedPoints > 0)
+                {
+                    sbdText.Append(strColon)
+                        .Append(strSpace)
+                        .Append(intUsedPoints.ToString(GlobalSettings.CultureInfo))
+                        .Append(strSpace)
+                        .Append(strPoints);
+                }
+
+                return sbdText.ToString();
+            }
+        }
+
+        private async Task AppendAttributeSectionExcessMessageAsync(
+            StringBuilder sbdMessage,
+            string strMessageKey,
+            string strSectionLabelKey,
+            int intExcessPoints,
+            CancellationToken token)
+        {
+            string strSectionName
+                = await LanguageManager.GetStringAsync(strSectionLabelKey, token: token).ConfigureAwait(false);
+            sbdMessage.AppendLine().Append('\t').Append(strSectionName).Append(": ").AppendFormat(
+                GlobalSettings.CultureInfo,
+                await LanguageManager.GetStringAsync(strMessageKey, token: token).ConfigureAwait(false),
+                intExcessPoints);
+        }
+
+        private static void ApplyFreestyleKarmaUsage(
+            ref int intKarmaPointsRemain,
+            ref int intFreestyleBP,
+            int intKarmaSpent)
+        {
+            intKarmaPointsRemain -= intKarmaSpent;
+            intFreestyleBP += intKarmaSpent;
         }
 
         /// <summary>
@@ -22353,7 +22403,7 @@ namespace Chummer
                     }
                 }
 
-                //TODO: PACKS SKILLS?
+                await ApplyPACKSSkillsAsync(objXmlKit, token).ConfigureAwait(false);
 
                 // Select a Martial Art.
                 XmlElement xmlSelectMartialArt = objXmlKit["selectmartialart"];
@@ -22446,20 +22496,6 @@ namespace Chummer
                         }
                     }
                 }
-
-                /*
-                // Update Adept Powers.
-                if (objXmlKit["powers"] != null)
-                {
-                    // Open the Powers XML file and locate the selected power.
-                    XmlDocument objXmlPowerDocument = XmlManager.Load("powers.xml");
-
-                    foreach (XmlNode objXmlPower in objXmlKit.SelectNodes("powers/power"))
-                    {
-                        //TODO: Fix
-                    }
-                }
-                */
 
                 // Update Complex Forms.
                 XmlElement xmlComplexForms = objXmlKit["complexforms"];
@@ -23310,6 +23346,156 @@ namespace Chummer
                                                                                    CharacterObject), token)
                                                                            .ConfigureAwait(false))
                 await frmBuildPACKSKit.ShowDialogSafeAsync(this, token).ConfigureAwait(false);
+        }
+
+        private async Task ApplyPACKSSkillsAsync(XmlNode objXmlKit, CancellationToken token)
+        {
+            XmlElement xmlSkills = objXmlKit["skills"];
+            if (xmlSkills != null)
+                await ApplyPACKSActiveSkillsAsync(xmlSkills, token).ConfigureAwait(false);
+
+            XmlElement xmlKnowledgeSkills = objXmlKit["knowledgeskills"];
+            if (xmlKnowledgeSkills != null)
+                await ApplyPACKSKnowledgeSkillsAsync(xmlKnowledgeSkills, token).ConfigureAwait(false);
+        }
+
+        private async Task ApplyPACKSActiveSkillsAsync(XmlElement xmlSkills, CancellationToken token)
+        {
+            SkillsSection objSkillsSection = await CharacterObject.GetSkillsSectionAsync(token).ConfigureAwait(false);
+            ThreadSafeBindingList<Skill> lstSkills = await objSkillsSection.GetSkillsAsync(token).ConfigureAwait(false);
+            ThreadSafeBindingList<SkillGroup> lstSkillGroups = await objSkillsSection.GetSkillGroupsAsync(token).ConfigureAwait(false);
+            XmlDocument xmlSkillsDocument = await CharacterObject.LoadDataAsync("skills.xml", token: token).ConfigureAwait(false);
+
+            using (XmlNodeList xmlSkillGroupList = xmlSkills.SelectNodes("skillgroup"))
+            {
+                if (xmlSkillGroupList != null)
+                {
+                    foreach (XmlNode objXmlSkillGroup in xmlSkillGroupList)
+                    {
+                        token.ThrowIfCancellationRequested();
+                        if (objXmlSkillGroup["hide"] != null)
+                            continue;
+
+                        string strName = objXmlSkillGroup["name"]?.InnerTextViaPool(token);
+                        if (string.IsNullOrEmpty(strName)
+                            || !objXmlSkillGroup.TryGetInt32FieldQuickly("rating", ref int intRating)
+                            || intRating <= 0)
+                            continue;
+
+                        SkillGroup objSkillGroup = await lstSkillGroups.FindAsync(x => x.Name == strName, token)
+                            .ConfigureAwait(false);
+                        if (objSkillGroup != null)
+                        {
+                            await objSkillGroup.SetBaseAsync(
+                                await objSkillGroup.GetBaseAsync(token).ConfigureAwait(false) + intRating,
+                                token).ConfigureAwait(false);
+                        }
+                    }
+                }
+            }
+
+            using (XmlNodeList xmlSkillList = xmlSkills.SelectNodes("skill"))
+            {
+                if (xmlSkillList == null)
+                    return;
+
+                foreach (XmlNode objXmlSkill in xmlSkillList)
+                {
+                    token.ThrowIfCancellationRequested();
+                    if (objXmlSkill["hide"] != null)
+                        continue;
+
+                    string strName = objXmlSkill["name"]?.InnerTextViaPool(token);
+                    if (string.IsNullOrEmpty(strName)
+                        || !objXmlSkill.TryGetInt32FieldQuickly("rating", ref int intRating)
+                        || intRating <= 0)
+                        continue;
+
+                    Skill objSkill = await lstSkills.FindAsync(
+                            async x => await x.GetNameAsync(token).ConfigureAwait(false) == strName,
+                            token)
+                        .ConfigureAwait(false);
+                    if (objSkill == null)
+                    {
+                        XmlNode objXmlSkillData = xmlSkillsDocument.TryGetNodeByNameOrId("/chummer/skills/skill", strName);
+                        if (objXmlSkillData == null)
+                            continue;
+
+                        objSkill = await Skill.FromDataAsync(objXmlSkillData, CharacterObject, false, token)
+                            .ConfigureAwait(false);
+                        if (objSkill == null)
+                            continue;
+
+                        await lstSkills.AddAsync(objSkill, token).ConfigureAwait(false);
+                    }
+
+                    await objSkill.SetBaseAsync(
+                        await objSkill.GetBaseAsync(token).ConfigureAwait(false) + intRating,
+                        token).ConfigureAwait(false);
+
+                    string strSpec = objXmlSkill["spec"]?.InnerTextViaPool(token);
+                    if (!string.IsNullOrWhiteSpace(strSpec))
+                        await objSkill.SetTopMostDisplaySpecializationAsync(strSpec, token).ConfigureAwait(false);
+                }
+            }
+        }
+
+        private async Task ApplyPACKSKnowledgeSkillsAsync(XmlElement xmlKnowledgeSkills, CancellationToken token)
+        {
+            SkillsSection objSkillsSection = await CharacterObject.GetSkillsSectionAsync(token).ConfigureAwait(false);
+            ThreadSafeBindingList<KnowledgeSkill> lstKnowledgeSkills
+                = await objSkillsSection.GetKnowledgeSkillsAsync(token).ConfigureAwait(false);
+
+            using (XmlNodeList xmlSkillList = xmlKnowledgeSkills.SelectNodes("skill"))
+            {
+                if (xmlSkillList == null)
+                    return;
+
+                foreach (XmlNode objXmlSkill in xmlSkillList)
+                {
+                    token.ThrowIfCancellationRequested();
+                    if (objXmlSkill["hide"] != null)
+                        continue;
+
+                    string strName = objXmlSkill["name"]?.InnerTextViaPool(token);
+                    if (string.IsNullOrEmpty(strName)
+                        || !objXmlSkill.TryGetInt32FieldQuickly("rating", ref int intRating)
+                        || intRating <= 0)
+                        continue;
+
+                    KnowledgeSkill objKnowledgeSkill = await lstKnowledgeSkills.FirstOrDefaultAsync(
+                            async x => await x.GetWritableNameAsync(token).ConfigureAwait(false) == strName,
+                            token)
+                        .ConfigureAwait(false);
+                    if (objKnowledgeSkill == null)
+                    {
+                        objKnowledgeSkill = new KnowledgeSkill(CharacterObject, false);
+                        try
+                        {
+                            await objKnowledgeSkill.SetDefaultAttributeAsync("LOG", token).ConfigureAwait(false);
+                            await objKnowledgeSkill.SetTypeAsync(
+                                objXmlSkill["category"]?.InnerTextViaPool(token) ?? "Professional",
+                                token).ConfigureAwait(false);
+                            await objKnowledgeSkill.SetWritableNameAsync(strName, token).ConfigureAwait(false);
+                            await lstKnowledgeSkills.AddAsync(objKnowledgeSkill, token).ConfigureAwait(false);
+                        }
+                        catch
+                        {
+                            await objKnowledgeSkill.RemoveAsync(CancellationToken.None).ConfigureAwait(false);
+                            throw;
+                        }
+                    }
+
+                    await objKnowledgeSkill.SetBaseAsync(
+                        await objKnowledgeSkill.GetBaseAsync(token).ConfigureAwait(false) + intRating,
+                        token).ConfigureAwait(false);
+
+                    string strSpec = objXmlSkill["spec"]?.InnerTextViaPool(token);
+                    if (!string.IsNullOrWhiteSpace(strSpec))
+                        await objKnowledgeSkill.SetTopMostDisplaySpecializationAsync(strSpec, token)
+                            .ConfigureAwait(false);
+                }
+            }
         }
 
         /// <summary>

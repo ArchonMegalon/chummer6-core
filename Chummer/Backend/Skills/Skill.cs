@@ -579,57 +579,9 @@ namespace Chummer.Backend.Skills
                 }
             }
 
-            /*
-            else //This is ugly but i'm not sure how to make it pretty
-            {
-                if (n["forced"] != null && n["name"] != null)
-                {
-                    skill = new KnowledgeSkill(character, n["name"].InnerText);
-                }
-                else
-                {
-                    KnowledgeSkill knoSkill = new KnowledgeSkill(character);
-                    knoSkill.Load(n);
-                    skill = knoSkill;
-                }
-            }
-            */
             // Legacy shim
             if (objLoadingSkill == null)
-            {
-                if (xmlSkillNode["forced"] != null)
-                {
-                    objLoadingSkill = new KnowledgeSkill(objCharacter,
-                        xmlSkillNode["name"]?.InnerTextViaPool() ?? string.Empty,
-                        !Convert.ToBoolean(
-                            xmlSkillNode["disableupgrades"]?.InnerTextViaPool(),
-                            GlobalSettings.InvariantCultureInfo));
-                    try
-                    {
-                        objLoadingSkill.IsLoading = true;
-                    }
-                    catch
-                    {
-                        objLoadingSkill.Remove();
-                        throw;
-                    }
-                }
-                else
-                {
-                    KnowledgeSkill objKnowledgeSkill = new KnowledgeSkill(objCharacter);
-                    try
-                    {
-                        objKnowledgeSkill.IsLoading = true;
-                        objKnowledgeSkill.Load(xmlSkillNode);
-                        objLoadingSkill = objKnowledgeSkill;
-                    }
-                    catch
-                    {
-                        objKnowledgeSkill.Remove();
-                        throw;
-                    }
-                }
-            }
+                objLoadingSkill = CreateLegacyKnowledgeSkill(objCharacter, xmlSkillNode);
 
             try
             {
@@ -833,57 +785,9 @@ namespace Chummer.Backend.Skills
                 }
             }
 
-            /*
-            else //This is ugly but i'm not sure how to make it pretty
-            {
-                if (n["forced"] != null && n["name"] != null)
-                {
-                    skill = new KnowledgeSkill(character, n["name"].InnerText);
-                }
-                else
-                {
-                    KnowledgeSkill knoSkill = new KnowledgeSkill(character);
-                    knoSkill.Load(n);
-                    skill = knoSkill;
-                }
-            }
-            */
             // Legacy shim
             if (objLoadingSkill == null)
-            {
-                if (xmlSkillNode["forced"] != null)
-                {
-                    objLoadingSkill = new KnowledgeSkill(objCharacter,
-                        xmlSkillNode["name"]?.InnerTextViaPool(token) ?? string.Empty,
-                        !Convert.ToBoolean(
-                            xmlSkillNode["disableupgrades"]?.InnerTextViaPool(token),
-                            GlobalSettings.InvariantCultureInfo));
-                    try
-                    {
-                        objLoadingSkill.IsLoading = true;
-                    }
-                    catch
-                    {
-                        await objLoadingSkill.RemoveAsync(CancellationToken.None).ConfigureAwait(false);
-                        throw;
-                    }
-                }
-                else
-                {
-                    KnowledgeSkill objKnowledgeSkill = new KnowledgeSkill(objCharacter);
-                    try
-                    {
-                        objKnowledgeSkill.IsLoading = true;
-                        await objKnowledgeSkill.LoadAsync(xmlSkillNode, token).ConfigureAwait(false);
-                        objLoadingSkill = objKnowledgeSkill;
-                    }
-                    catch
-                    {
-                        await objKnowledgeSkill.RemoveAsync(CancellationToken.None).ConfigureAwait(false);
-                        throw;
-                    }
-                }
-            }
+                objLoadingSkill = await CreateLegacyKnowledgeSkillAsync(objCharacter, xmlSkillNode, token).ConfigureAwait(false);
 
             try
             {
@@ -937,6 +841,81 @@ namespace Chummer.Backend.Skills
             finally
             {
                 objLoadingSkill.IsLoading = false;
+            }
+        }
+
+        private static Skill CreateLegacyKnowledgeSkill(Character objCharacter, XmlNode xmlSkillNode)
+        {
+            if (xmlSkillNode["forced"] != null)
+            {
+                Skill objLoadingSkill = new KnowledgeSkill(
+                    objCharacter,
+                    xmlSkillNode["name"]?.InnerTextViaPool() ?? string.Empty,
+                    !Convert.ToBoolean(
+                        xmlSkillNode["disableupgrades"]?.InnerTextViaPool(),
+                        GlobalSettings.InvariantCultureInfo));
+                try
+                {
+                    objLoadingSkill.IsLoading = true;
+                    return objLoadingSkill;
+                }
+                catch
+                {
+                    objLoadingSkill.Remove();
+                    throw;
+                }
+            }
+
+            KnowledgeSkill objKnowledgeSkill = new KnowledgeSkill(objCharacter);
+            try
+            {
+                objKnowledgeSkill.IsLoading = true;
+                objKnowledgeSkill.Load(xmlSkillNode);
+                return objKnowledgeSkill;
+            }
+            catch
+            {
+                objKnowledgeSkill.Remove();
+                throw;
+            }
+        }
+
+        private static async Task<Skill> CreateLegacyKnowledgeSkillAsync(
+            Character objCharacter,
+            XmlNode xmlSkillNode,
+            CancellationToken token)
+        {
+            if (xmlSkillNode["forced"] != null)
+            {
+                Skill objLoadingSkill = new KnowledgeSkill(
+                    objCharacter,
+                    xmlSkillNode["name"]?.InnerTextViaPool(token) ?? string.Empty,
+                    !Convert.ToBoolean(
+                        xmlSkillNode["disableupgrades"]?.InnerTextViaPool(token),
+                        GlobalSettings.InvariantCultureInfo));
+                try
+                {
+                    objLoadingSkill.IsLoading = true;
+                    return objLoadingSkill;
+                }
+                catch
+                {
+                    await objLoadingSkill.RemoveAsync(CancellationToken.None).ConfigureAwait(false);
+                    throw;
+                }
+            }
+
+            KnowledgeSkill objKnowledgeSkill = new KnowledgeSkill(objCharacter);
+            try
+            {
+                objKnowledgeSkill.IsLoading = true;
+                await objKnowledgeSkill.LoadAsync(xmlSkillNode, token).ConfigureAwait(false);
+                return objKnowledgeSkill;
+            }
+            catch
+            {
+                await objKnowledgeSkill.RemoveAsync(CancellationToken.None).ConfigureAwait(false);
+                throw;
             }
         }
 
@@ -3959,29 +3938,7 @@ namespace Chummer.Backend.Skills
                         }
                     }
 
-                    //TODO: This is a temporary workaround until proper support for selectively enabling or disabling skills works, as above.
-                    switch (Attribute.ToUpperInvariant())
-                    {
-                        case "MAG":
-                        case "MAGADEPT":
-                            intReturn = CharacterObject.MAGEnabled.ToInt32();
-                            _intCachedEnabled = intReturn;
-                            return intReturn > 0;
-
-                        case "RES":
-                            intReturn = CharacterObject.RESEnabled.ToInt32();
-                            _intCachedEnabled = intReturn;
-                            return intReturn > 0;
-
-                        case "DEP":
-                            intReturn = CharacterObject.DEPEnabled.ToInt32();
-                            _intCachedEnabled = intReturn;
-                            return intReturn > 0;
-
-                        default:
-                            _intCachedEnabled = 1;
-                            return true;
-                    }
+                    return ResolveAttributeEnabledState(Attribute);
                 }
             }
         }
@@ -4088,37 +4045,67 @@ namespace Chummer.Backend.Skills
                     }
                 }
 
-                //TODO: This is a temporary workaround until proper support for selectively enabling or disabling skills works, as above.
-                switch ((await GetAttributeAsync(token).ConfigureAwait(false)).ToUpperInvariant())
-                {
-                    case "MAG":
-                    case "MAGADEPT":
-                        intReturn = (await CharacterObject.GetMAGEnabledAsync(token).ConfigureAwait(false))
-                            .ToInt32();
-                        _intCachedEnabled = intReturn;
-                        return intReturn > 0;
-
-                    case "RES":
-                        intReturn = (await CharacterObject.GetRESEnabledAsync(token).ConfigureAwait(false))
-                            .ToInt32();
-                        _intCachedEnabled = intReturn;
-                        return intReturn > 0;
-
-                    case "DEP":
-                        intReturn = (await CharacterObject.GetDEPEnabledAsync(token).ConfigureAwait(false))
-                            .ToInt32();
-                        _intCachedEnabled = intReturn;
-                        return intReturn > 0;
-
-                    default:
-                        _intCachedEnabled = 1;
-                        return true;
-                }
+                return await ResolveAttributeEnabledStateAsync(
+                    await GetAttributeAsync(token).ConfigureAwait(false), token).ConfigureAwait(false);
             }
             finally
             {
                 await objLocker.DisposeAsync().ConfigureAwait(false);
             }
+        }
+
+        private bool ResolveAttributeEnabledState(string strAttribute)
+        {
+            int intReturn;
+            switch (strAttribute.ToUpperInvariant())
+            {
+                case "MAG":
+                case "MAGADEPT":
+                    intReturn = CharacterObject.MAGEnabled.ToInt32();
+                    break;
+
+                case "RES":
+                    intReturn = CharacterObject.RESEnabled.ToInt32();
+                    break;
+
+                case "DEP":
+                    intReturn = CharacterObject.DEPEnabled.ToInt32();
+                    break;
+
+                default:
+                    intReturn = 1;
+                    break;
+            }
+
+            _intCachedEnabled = intReturn;
+            return intReturn > 0;
+        }
+
+        private async Task<bool> ResolveAttributeEnabledStateAsync(string strAttribute, CancellationToken token)
+        {
+            int intReturn;
+            switch (strAttribute.ToUpperInvariant())
+            {
+                case "MAG":
+                case "MAGADEPT":
+                    intReturn = (await CharacterObject.GetMAGEnabledAsync(token).ConfigureAwait(false)).ToInt32();
+                    break;
+
+                case "RES":
+                    intReturn = (await CharacterObject.GetRESEnabledAsync(token).ConfigureAwait(false)).ToInt32();
+                    break;
+
+                case "DEP":
+                    intReturn = (await CharacterObject.GetDEPEnabledAsync(token).ConfigureAwait(false)).ToInt32();
+                    break;
+
+                default:
+                    intReturn = 1;
+                    break;
+            }
+
+            _intCachedEnabled = intReturn;
+            return intReturn > 0;
         }
 
         public bool ForceDisabled

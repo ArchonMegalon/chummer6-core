@@ -18,6 +18,7 @@
  */
 
 using System;
+using System.ComponentModel;
 using System.Drawing;
 using System.Threading;
 using System.Threading.Tasks;
@@ -39,6 +40,8 @@ namespace Chummer.UI.Table
         /// <summary>
         /// Alignment of the content
         /// </summary>
+        [Browsable(false)]
+        [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
         public Alignment Alignment { get; set; }
 
         public object Value { get; private set; }
