@@ -354,6 +354,344 @@ public class HubProjectCompatibilityServiceTests
             && !string.IsNullOrWhiteSpace(row.Notes)));
     }
 
+    [TestMethod]
+    public void Hub_project_compatibility_service_blocks_rule_profiles_when_required_pack_is_missing()
+    {
+        RuleProfileRegistryEntry profile = CreateRuleProfile("campaign-profile", ArtifactInstallStates.Installed, "sha256:required");
+        RuntimeInspectorProjection projection = CreateRuntimeInspectorProjection(
+            profile,
+            diagnostics:
+            [
+                new RuntimeLockCompatibilityDiagnostic(
+                    State: RuntimeLockCompatibilityStates.MissingPack,
+                    Message: "runtime.lock.compatibility.missing-pack")
+            ],
+            warnings: []);
+
+        DefaultHubProjectCompatibilityService service = new(
+            CreatePluginRegistry(),
+            new RulePackRegistryServiceStub([]),
+            new RuleProfileRegistryServiceStub([profile]),
+            new BuildKitRegistryServiceStub([]),
+            new NpcVaultRegistryServiceStub(),
+            new RuntimeInspectorServiceStub(projection),
+            new RuntimeLockRegistryServiceStub(null));
+
+        HubProjectCompatibilityMatrix? matrix = service.GetMatrix(OwnerScope.LocalSingleUser, HubCatalogItemKinds.RuleProfile, "campaign-profile", RulesetDefaults.Sr5);
+
+        Assert.IsNotNull(matrix);
+        Assert.IsTrue(matrix.Rows.Any(row =>
+            row.Kind == HubProjectCompatibilityRowKinds.SessionRuntime
+            && row.State == HubProjectCompatibilityStates.Blocked
+            && row.Notes == "1 required rule pack(s) are missing from the grounded runtime."));
+        Assert.IsTrue(matrix.Rows.Any(row =>
+            row.Kind == HubProjectCompatibilityRowKinds.CampaignReturn
+            && row.State == HubProjectCompatibilityStates.Blocked
+            && row.Notes?.Contains("missing rule packs land on the grounded runtime again", StringComparison.Ordinal) == true));
+        Assert.IsTrue(matrix.Rows.Any(row =>
+            row.Kind == HubProjectCompatibilityRowKinds.SupportClosure
+            && row.State == HubProjectCompatibilityStates.Blocked
+            && row.Notes?.Contains("0 selected rule pack(s)", StringComparison.Ordinal) == true));
+    }
+
+    [TestMethod]
+    public void Hub_project_compatibility_service_projects_partial_npc_entry_prep_without_runtime_row()
+    {
+        DefaultHubProjectCompatibilityService service = new(
+            CreatePluginRegistry(),
+            new RulePackRegistryServiceStub([]),
+            new RuleProfileRegistryServiceStub([]),
+            new BuildKitRegistryServiceStub([]),
+            new NpcVaultRegistryServiceStub(
+                entries:
+                [
+                    new NpcEntryRegistryEntry(
+                        new NpcEntryManifest(
+                            EntryId: "entry-1",
+                            Version: "1.0.0",
+                            Title: "Dock Ambusher",
+                            Description: "Prepared ambush lane.",
+                            RulesetId: RulesetDefaults.Sr5,
+                            ThreatTier: "high",
+                            Faction: "black-lodge",
+                            RuntimeFingerprint: null,
+                            SessionReady: true,
+                            GmBoardReady: false),
+                        OwnerScope.LocalSingleUser,
+                        NpcPublicationStatuses.Published,
+                        DateTimeOffset.UtcNow)
+                ]),
+            new RuntimeInspectorServiceStub(null),
+            new RuntimeLockRegistryServiceStub(null));
+
+        HubProjectCompatibilityMatrix? matrix = service.GetMatrix(OwnerScope.LocalSingleUser, HubCatalogItemKinds.NpcEntry, "entry-1", RulesetDefaults.Sr5);
+
+        Assert.IsNotNull(matrix);
+        Assert.AreEqual(HubCatalogItemKinds.NpcEntry, matrix.Kind);
+        Assert.IsFalse(matrix.Rows.Any(row => row.Kind == HubProjectCompatibilityRowKinds.RuntimeFingerprint));
+        Assert.IsTrue(matrix.Rows.Any(row =>
+            row.Kind == HubProjectCompatibilityRowKinds.SessionRuntime
+            && row.State == HubProjectCompatibilityStates.ReviewRequired
+            && row.CurrentValue == "prep-review-required"
+            && row.Notes?.Contains("without an explicit runtime fingerprint yet", StringComparison.Ordinal) == true));
+        Assert.IsTrue(matrix.Rows.Any(row =>
+            row.Kind == HubProjectCompatibilityRowKinds.CampaignReturn
+            && row.State == HubProjectCompatibilityStates.ReviewRequired
+            && row.Notes?.Contains("both session-ready and GM-board-ready", StringComparison.Ordinal) == true));
+        Assert.IsTrue(matrix.Rows.Any(row =>
+            row.Kind == HubProjectCompatibilityRowKinds.SupportClosure
+            && row.State == HubProjectCompatibilityStates.ReviewRequired
+            && row.Notes?.Contains("Dock Ambusher", StringComparison.Ordinal) == true));
+    }
+
+    [TestMethod]
+    public void Hub_project_compatibility_service_projects_compatible_encounter_pack_role_summary()
+    {
+        DefaultHubProjectCompatibilityService service = new(
+            CreatePluginRegistry(),
+            new RulePackRegistryServiceStub([]),
+            new RuleProfileRegistryServiceStub([]),
+            new BuildKitRegistryServiceStub([]),
+            new NpcVaultRegistryServiceStub(
+                encounterPacks:
+                [
+                    new EncounterPackRegistryEntry(
+                        new EncounterPackManifest(
+                            EncounterPackId: "enc-1",
+                            Version: "1.0.0",
+                            Title: "Harbor Sweep",
+                            Description: "Harbor sweep encounter.",
+                            RulesetId: RulesetDefaults.Sr5,
+                            Participants:
+                            [
+                                new EncounterPackParticipantReference("guard-a", 2, "overwatch"),
+                                new EncounterPackParticipantReference("guard-b", 1, "striker")
+                            ],
+                            Visibility: ArtifactVisibilityModes.Public,
+                            TrustTier: ArtifactTrustTiers.Curated,
+                            SessionReady: true,
+                            GmBoardReady: true),
+                        OwnerScope.LocalSingleUser,
+                        NpcPublicationStatuses.Published,
+                        DateTimeOffset.UtcNow)
+                ]),
+            new RuntimeInspectorServiceStub(null),
+            new RuntimeLockRegistryServiceStub(null));
+
+        HubProjectCompatibilityMatrix? matrix = service.GetMatrix(OwnerScope.LocalSingleUser, HubCatalogItemKinds.EncounterPack, "enc-1", RulesetDefaults.Sr5);
+
+        Assert.IsNotNull(matrix);
+        Assert.AreEqual(HubCatalogItemKinds.EncounterPack, matrix.Kind);
+        Assert.IsTrue(matrix.Rows.Any(row =>
+            row.Kind == HubProjectCompatibilityRowKinds.SessionRuntime
+            && row.State == HubProjectCompatibilityStates.Compatible
+            && row.CurrentValue == "campaign-bindable"
+            && row.Notes?.Contains("3 opposition seat(s)", StringComparison.Ordinal) == true
+            && row.Notes?.Contains("2 explicit role lane(s)", StringComparison.Ordinal) == true));
+        Assert.IsTrue(matrix.Rows.Any(row =>
+            row.Kind == HubProjectCompatibilityRowKinds.CampaignReturn
+            && row.State == HubProjectCompatibilityStates.Compatible
+            && row.Notes?.Contains("governed role and quantity truth", StringComparison.Ordinal) == true));
+        Assert.IsTrue(matrix.Rows.Any(row =>
+            row.Kind == HubProjectCompatibilityRowKinds.SupportClosure
+            && row.State == HubProjectCompatibilityStates.Compatible
+            && row.Notes?.Contains("2 explicit role lane(s)", StringComparison.Ordinal) == true));
+    }
+
+    [TestMethod]
+    public void Hub_project_compatibility_service_handles_runtime_lock_without_plugin_or_install_target_id()
+    {
+        DefaultHubProjectCompatibilityService service = new(
+            CreatePluginRegistry(),
+            new RulePackRegistryServiceStub([]),
+            new RuleProfileRegistryServiceStub([]),
+            new BuildKitRegistryServiceStub([]),
+            new NpcVaultRegistryServiceStub(),
+            new RuntimeInspectorServiceStub(null),
+            new RuntimeLockRegistryServiceStub(
+                new RuntimeLockRegistryEntry(
+                    LockId: "sha256:orphan",
+                    Owner: new OwnerScope("alice"),
+                    Title: "Orphan Runtime",
+                    Visibility: ArtifactVisibilityModes.Public,
+                    CatalogKind: RuntimeLockCatalogKinds.Saved,
+                    RuntimeLock: new ResolvedRuntimeLock(
+                        RulesetId: "shadowrun-x",
+                        ContentBundles: [],
+                        RulePacks: [],
+                        ProviderBindings: new Dictionary<string, string>(StringComparer.Ordinal)
+                        {
+                            [RulePackCapabilityIds.DeriveStat] = "missing-pack/derive-stat"
+                        },
+                        EngineApiVersion: "rulepack-v1",
+                        RuntimeFingerprint: "sha256:orphan"),
+                    UpdatedAtUtc: DateTimeOffset.UtcNow,
+                    Install: new ArtifactInstallState(
+                        ArtifactInstallStates.Pinned,
+                        InstalledTargetKind: RuntimeLockTargetKinds.Workspace,
+                        InstalledTargetId: null,
+                        RuntimeFingerprint: "sha256:orphan"))));
+
+        HubProjectCompatibilityMatrix? matrix = service.GetMatrix(new OwnerScope("alice"), HubCatalogItemKinds.RuntimeLock, "sha256:orphan", "shadowrun-x");
+
+        Assert.IsNotNull(matrix);
+        Assert.AreEqual(HubCatalogItemKinds.RuntimeLock, matrix.Kind);
+        Assert.IsNotNull(matrix.Capabilities);
+        Assert.IsEmpty(matrix.Capabilities);
+        Assert.IsTrue(matrix.Rows.Any(row =>
+            row.Kind == HubProjectCompatibilityRowKinds.Trust
+            && row.CurrentValue == ArtifactTrustTiers.Curated));
+        Assert.IsTrue(matrix.Rows.Any(row =>
+            row.Kind == HubProjectCompatibilityRowKinds.InstallState
+            && row.Notes is null));
+        Assert.IsTrue(matrix.Rows.Any(row =>
+            row.Kind == HubProjectCompatibilityRowKinds.CampaignReturn
+            && row.Notes?.Contains("the selected workspace", StringComparison.Ordinal) == true));
+        Assert.IsTrue(matrix.Rows.Any(row =>
+            row.Kind == HubProjectCompatibilityRowKinds.Capabilities
+            && row.CurrentValue == "0"
+            && row.NotesKey == "hub.project.compatibility.notes.capabilities.none"));
+    }
+
+    [TestMethod]
+    public void Hub_project_compatibility_service_rejects_unsupported_kind()
+    {
+        DefaultHubProjectCompatibilityService service = new(
+            CreatePluginRegistry(),
+            new RulePackRegistryServiceStub([]),
+            new RuleProfileRegistryServiceStub([]),
+            new BuildKitRegistryServiceStub([]),
+            new NpcVaultRegistryServiceStub(),
+            new RuntimeInspectorServiceStub(null),
+            new RuntimeLockRegistryServiceStub(null));
+
+        Assert.ThrowsExactly<ArgumentOutOfRangeException>(() =>
+            service.GetMatrix(OwnerScope.LocalSingleUser, "unsupported-kind", "item-1", RulesetDefaults.Sr5));
+    }
+
+    [TestMethod]
+    public void Hub_project_compatibility_service_can_resolve_rulepack_without_explicit_ruleset_query()
+    {
+        DefaultHubProjectCompatibilityService service = new(
+            CreatePluginRegistry(),
+            new RulePackRegistryServiceStub(
+            [
+                new RulePackRegistryEntry(
+                    new RulePackManifest(
+                        PackId: "sr6-pack",
+                        Version: "1.0.0",
+                        Title: "SR6 Capability Pack",
+                        Author: "GM",
+                        Description: "Session lane.",
+                        Targets: [RulesetDefaults.Sr6],
+                        EngineApiVersion: "rulepack-v1",
+                        DependsOn: [],
+                        ConflictsWith: [],
+                        Visibility: ArtifactVisibilityModes.Public,
+                        TrustTier: ArtifactTrustTiers.Curated,
+                        Assets: [],
+                        Capabilities:
+                        [
+                            new RulePackCapabilityDescriptor(
+                                CapabilityId: RulePackCapabilityIds.DeriveStat,
+                                AssetKind: RulePackAssetKinds.Lua,
+                                AssetMode: RulePackAssetModes.AddProvider,
+                                Explainable: false,
+                                SessionSafe: false)
+                        ],
+                        ExecutionPolicies:
+                        [
+                            new RulePackExecutionPolicyHint(
+                                Environment: RulePackExecutionEnvironments.SessionRuntimeBundle,
+                                PolicyMode: RulePackExecutionPolicyModes.Allow,
+                                MinimumTrustTier: ArtifactTrustTiers.LocalOnly,
+                                AllowedAssetModes: []),
+                            new RulePackExecutionPolicyHint(
+                                Environment: RulePackExecutionEnvironments.HostedServer,
+                                PolicyMode: RulePackExecutionPolicyModes.Allow,
+                                MinimumTrustTier: ArtifactTrustTiers.Curated,
+                                AllowedAssetModes: [])
+                        ]),
+                    new RulePackPublicationMetadata(
+                        OwnerId: "local-single-user",
+                        Visibility: ArtifactVisibilityModes.Public,
+                        PublicationStatus: RulePackPublicationStatuses.Published,
+                        Review: new RulePackReviewDecision(RulePackReviewStates.NotRequired),
+                        Shares: []),
+                    new ArtifactInstallState(ArtifactInstallStates.Installed))
+            ]),
+            new RuleProfileRegistryServiceStub([]),
+            new BuildKitRegistryServiceStub([]),
+            new NpcVaultRegistryServiceStub(),
+            new RuntimeInspectorServiceStub(null),
+            new RuntimeLockRegistryServiceStub(null));
+
+        HubProjectCompatibilityMatrix? matrix = service.GetMatrix(OwnerScope.LocalSingleUser, HubCatalogItemKinds.RulePack, "sr6-pack");
+
+        Assert.IsNotNull(matrix);
+        Assert.IsTrue(matrix.Rows.Any(row =>
+            row.Kind == HubProjectCompatibilityRowKinds.Ruleset
+            && row.CurrentValue == RulesetDefaults.Sr6));
+        Assert.IsTrue(matrix.Rows.Any(row =>
+            row.Kind == HubProjectCompatibilityRowKinds.SessionRuntime
+            && row.State == HubProjectCompatibilityStates.Compatible
+            && row.CurrentValueKey == "hub.project.compatibility.row.session-runtime.value.not-session-safe"));
+    }
+
+    [TestMethod]
+    public void Hub_project_compatibility_service_projects_compatible_npc_pack_summary()
+    {
+        DefaultHubProjectCompatibilityService service = new(
+            CreatePluginRegistry(),
+            new RulePackRegistryServiceStub([]),
+            new RuleProfileRegistryServiceStub([]),
+            new BuildKitRegistryServiceStub([]),
+            new NpcVaultRegistryServiceStub(
+                packs:
+                [
+                    new NpcPackRegistryEntry(
+                        new NpcPackManifest(
+                            PackId: "dock-pack",
+                            Version: "1.0.0",
+                            Title: "Dock Sweep",
+                            Description: "Prepared dock sweep.",
+                            RulesetId: RulesetDefaults.Sr5,
+                            Entries:
+                            [
+                                new NpcPackMemberReference("guard-a", 2),
+                                new NpcPackMemberReference("guard-b", 1)
+                            ],
+                            Visibility: ArtifactVisibilityModes.Public,
+                            TrustTier: ArtifactTrustTiers.Curated,
+                            SessionReady: true,
+                            GmBoardReady: true),
+                        OwnerScope.LocalSingleUser,
+                        NpcPublicationStatuses.Published,
+                        DateTimeOffset.UtcNow)
+                ]),
+            new RuntimeInspectorServiceStub(null),
+            new RuntimeLockRegistryServiceStub(null));
+
+        HubProjectCompatibilityMatrix? matrix = service.GetMatrix(OwnerScope.LocalSingleUser, HubCatalogItemKinds.NpcPack, "dock-pack", RulesetDefaults.Sr5);
+
+        Assert.IsNotNull(matrix);
+        Assert.AreEqual(HubCatalogItemKinds.NpcPack, matrix.Kind);
+        Assert.IsTrue(matrix.Rows.Any(row =>
+            row.Kind == HubProjectCompatibilityRowKinds.SessionRuntime
+            && row.State == HubProjectCompatibilityStates.Compatible
+            && row.CurrentValue == "campaign-bindable"
+            && row.Notes?.Contains("3 opposition seat(s)", StringComparison.Ordinal) == true
+            && row.Notes?.Contains("2 entry type(s)", StringComparison.Ordinal) == true));
+        Assert.IsTrue(matrix.Rows.Any(row =>
+            row.Kind == HubProjectCompatibilityRowKinds.CampaignReturn
+            && row.State == HubProjectCompatibilityStates.Compatible
+            && row.Notes?.Contains("governed opposition roster", StringComparison.Ordinal) == true));
+        Assert.IsTrue(matrix.Rows.Any(row =>
+            row.Kind == HubProjectCompatibilityRowKinds.SupportClosure
+            && row.State == HubProjectCompatibilityStates.Compatible
+            && row.Notes?.Contains("3 prepared opposition seat(s)", StringComparison.Ordinal) == true));
+    }
+
     private static RulesetPluginRegistry CreatePluginRegistry() =>
         new(
         [
@@ -373,7 +711,9 @@ public class HubProjectCompatibilityServiceTests
         public IReadOnlyList<RulePackRegistryEntry> List(OwnerScope owner, string? rulesetId = null) => _entries;
 
         public RulePackRegistryEntry? Get(OwnerScope owner, string packId, string? rulesetId = null) =>
-            _entries.FirstOrDefault(entry => entry.Manifest.PackId == packId);
+            _entries.FirstOrDefault(entry =>
+                entry.Manifest.PackId == packId
+                && (rulesetId is null || entry.Manifest.Targets.Contains(rulesetId, StringComparer.Ordinal)));
     }
 
     private sealed class RuleProfileRegistryServiceStub : IRuleProfileRegistryService
@@ -408,17 +748,34 @@ public class HubProjectCompatibilityServiceTests
 
     private sealed class NpcVaultRegistryServiceStub : INpcVaultRegistryService
     {
-        public IReadOnlyList<NpcEntryRegistryEntry> ListEntries(OwnerScope owner, string? rulesetId = null) => [];
+        private readonly IReadOnlyList<NpcEntryRegistryEntry> _entries;
+        private readonly IReadOnlyList<NpcPackRegistryEntry> _packs;
+        private readonly IReadOnlyList<EncounterPackRegistryEntry> _encounterPacks;
 
-        public NpcEntryRegistryEntry? GetEntry(OwnerScope owner, string entryId, string? rulesetId = null) => null;
+        public NpcVaultRegistryServiceStub(
+            IReadOnlyList<NpcEntryRegistryEntry>? entries = null,
+            IReadOnlyList<NpcPackRegistryEntry>? packs = null,
+            IReadOnlyList<EncounterPackRegistryEntry>? encounterPacks = null)
+        {
+            _entries = entries ?? [];
+            _packs = packs ?? [];
+            _encounterPacks = encounterPacks ?? [];
+        }
 
-        public IReadOnlyList<NpcPackRegistryEntry> ListPacks(OwnerScope owner, string? rulesetId = null) => [];
+        public IReadOnlyList<NpcEntryRegistryEntry> ListEntries(OwnerScope owner, string? rulesetId = null) => _entries;
 
-        public NpcPackRegistryEntry? GetPack(OwnerScope owner, string packId, string? rulesetId = null) => null;
+        public NpcEntryRegistryEntry? GetEntry(OwnerScope owner, string entryId, string? rulesetId = null) =>
+            _entries.FirstOrDefault(entry => string.Equals(entry.Manifest.EntryId, entryId, StringComparison.Ordinal));
 
-        public IReadOnlyList<EncounterPackRegistryEntry> ListEncounterPacks(OwnerScope owner, string? rulesetId = null) => [];
+        public IReadOnlyList<NpcPackRegistryEntry> ListPacks(OwnerScope owner, string? rulesetId = null) => _packs;
 
-        public EncounterPackRegistryEntry? GetEncounterPack(OwnerScope owner, string encounterPackId, string? rulesetId = null) => null;
+        public NpcPackRegistryEntry? GetPack(OwnerScope owner, string packId, string? rulesetId = null) =>
+            _packs.FirstOrDefault(pack => string.Equals(pack.Manifest.PackId, packId, StringComparison.Ordinal));
+
+        public IReadOnlyList<EncounterPackRegistryEntry> ListEncounterPacks(OwnerScope owner, string? rulesetId = null) => _encounterPacks;
+
+        public EncounterPackRegistryEntry? GetEncounterPack(OwnerScope owner, string encounterPackId, string? rulesetId = null) =>
+            _encounterPacks.FirstOrDefault(pack => string.Equals(pack.Manifest.EncounterPackId, encounterPackId, StringComparison.Ordinal));
     }
 
     private sealed class RuntimeInspectorServiceStub : IRuntimeInspectorService

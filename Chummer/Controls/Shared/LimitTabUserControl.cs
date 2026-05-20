@@ -273,8 +273,7 @@ namespace Chummer.UI.Shared
         #region Methods
 
         /// <summary>
-        /// Allows the user to input notes that should be linked to the selected object.
-        /// TODO: Should be linked back to CharacterShared in some way or moved into a more generic helper class.
+        /// Allows the user to edit notes and immediately reflect the updated note state on the active tree node.
         /// </summary>
         private async Task WriteNotes(IHasNotes objNotes, TreeNode treNode, CancellationToken token = default)
         {
@@ -289,8 +288,21 @@ namespace Chummer.UI.Shared
                 await objNotes.SetNotesColorAsync(frmItemNotes.MyForm.NotesColor, token).ConfigureAwait(false);
             }
 
-            strNotes = (await objNotes.GetNotesAsync(token).ConfigureAwait(false)).WordWrap();
-            objColor = await objNotes.GetPreferredColorAsync(token).ConfigureAwait(false);
+            await UpdateTreeNodeNotesPresentationAsync(
+                treNode,
+                (await objNotes.GetNotesAsync(token).ConfigureAwait(false)).WordWrap(),
+                await objNotes.GetPreferredColorAsync(token).ConfigureAwait(false),
+                token).ConfigureAwait(false);
+            if (MakeDirty != null)
+                await MakeDirty.Invoke(this, EventArgs.Empty, token).ConfigureAwait(false);
+        }
+
+        private static async Task UpdateTreeNodeNotesPresentationAsync(
+            TreeNode treNode,
+            string strNotes,
+            Color objColor,
+            CancellationToken token = default)
+        {
             TreeView objTreeView = treNode.TreeView;
             if (objTreeView != null)
             {
@@ -305,8 +317,6 @@ namespace Chummer.UI.Shared
                 treNode.ForeColor = objColor;
                 treNode.ToolTipText = strNotes;
             }
-            if (MakeDirty != null)
-                await MakeDirty.Invoke(this, EventArgs.Empty, token).ConfigureAwait(false);
         }
 
         /// <summary>

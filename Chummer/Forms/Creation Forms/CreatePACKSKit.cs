@@ -26,6 +26,7 @@ using System.Windows.Forms;
 using System.Xml;
 using Chummer.Annotations;
 using Chummer.Backend.Equipment;
+using Chummer.Backend.Skills;
 
 namespace Chummer
 {

@@ -182,6 +182,92 @@ public class RuntimeInspectorServiceTests
         Assert.AreEqual(RuntimeInspectorPromotionStages.Published, projection.Promotion.PromotionTargetStage);
     }
 
+    [TestMethod]
+    public void Runtime_inspector_service_handles_missing_plugin_pack_and_provider_binding_edge_paths()
+    {
+        RuleProfileRegistryEntry profile = CreateCustomProfile(
+            rulesetId: "shadowrun-x",
+            updateChannel: RuleProfileUpdateChannels.Preview,
+            sourceKind: "custom-profile",
+            publicationVisibility: ArtifactVisibilityModes.Public,
+            publicationStatus: RuleProfilePublicationStatuses.Draft,
+            publishedAtUtc: null,
+            installedRuntimeFingerprint: "",
+            installedTargetKind: RuleProfileApplyTargetKinds.Character,
+            installedTargetId: "char-7",
+            rulePacks:
+            [
+                new RuleProfilePackSelection(new ArtifactVersionReference("pack", "1.0.0"), Required: true, EnabledByDefault: true),
+                new RuleProfilePackSelection(new ArtifactVersionReference("pack.ext", "2.0.0"), Required: true, EnabledByDefault: false),
+                new RuleProfilePackSelection(new ArtifactVersionReference("missing-pack", "9.9.9"), Required: true, EnabledByDefault: true)
+            ],
+            providerBindings: new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                [RulePackCapabilityIds.DeriveStat] = "pack.ext/derive-stat",
+                [RulePackCapabilityIds.DeriveInitiative] = "provider-without-pack"
+            });
+
+        DefaultRuntimeInspectorService service = new(
+            new RulesetPluginRegistry([]),
+            new RuleProfileRegistryServiceStub(profile),
+            new RulePackRegistryServiceStub(
+            [
+                CreateRulePackEntry("pack", "1.0.0", "Pack Base", ArtifactVisibilityModes.LocalOnly),
+                CreateRulePackEntry("pack.ext", "2.0.0", "Pack Extended", ArtifactVisibilityModes.Public)
+            ]));
+
+        RuntimeInspectorProjection? projection = service.GetProfileProjection(OwnerScope.LocalSingleUser, "official.sr5.core", "shadowrun-x");
+
+        Assert.IsNotNull(projection);
+        Assert.HasCount(0, projection.CapabilityDescriptors ?? []);
+        Assert.AreEqual("runtime-lock-sha256", projection.Install.RuntimeFingerprint);
+        Assert.AreEqual("pack.ext", projection.ProviderBindings.Single(binding => binding.CapabilityId == RulePackCapabilityIds.DeriveStat).PackId);
+        Assert.IsNull(projection.ProviderBindings.Single(binding => binding.CapabilityId == RulePackCapabilityIds.DeriveInitiative).PackId);
+        Assert.AreEqual("missing-pack", projection.ResolvedRulePacks.Single(entry => entry.RulePack.Id == "missing-pack").Title);
+        Assert.AreEqual(ArtifactVisibilityModes.LocalOnly, projection.ResolvedRulePacks.Single(entry => entry.RulePack.Id == "missing-pack").Visibility);
+        Assert.IsTrue(projection.CompatibilityDiagnostics.Any(diagnostic =>
+            string.Equals(diagnostic.State, RuntimeLockCompatibilityStates.MissingPack, StringComparison.Ordinal)
+            && string.Equals(diagnostic.MessageKey, "runtime.lock.compatibility.missing-pack", StringComparison.Ordinal)));
+        Assert.IsTrue(projection.Warnings.Any(warning =>
+            string.Equals(warning.Kind, RuntimeInspectorWarningKinds.Compatibility, StringComparison.Ordinal)
+            && string.Equals(warning.MessageKey, "runtime.inspector.warning.compatibility.missing-pack", StringComparison.Ordinal)));
+        Assert.IsNotNull(projection.Promotion);
+        StringAssert.Contains(projection.Promotion!.PromotionSummary, "Preview rule environment");
+        StringAssert.Contains(projection.Promotion.RollbackSummary, "character:char-7");
+        StringAssert.Contains(projection.Promotion.LineageSummary, "custom-profile profile compiles");
+        Assert.AreEqual(RuntimeInspectorPromotionStages.Sandbox, projection.Promotion.CurrentStage);
+        Assert.AreEqual(RuntimeInspectorPromotionStages.CampaignApproved, projection.Promotion.PromotionTargetStage);
+    }
+
+    [TestMethod]
+    public void Runtime_inspector_service_surfaces_provider_binding_none_and_runtime_pinned_when_profile_has_no_rulepacks()
+    {
+        RuleProfileRegistryEntry profile = CreateCustomProfile(
+            rulePacks: [],
+            providerBindings: new Dictionary<string, string>(StringComparer.Ordinal),
+            updateChannel: RuleProfileUpdateChannels.CampaignPinned,
+            installedRuntimeFingerprint: "");
+
+        DefaultRuntimeInspectorService service = new(
+            CreatePluginRegistry(),
+            new RuleProfileRegistryServiceStub(profile),
+            new RulePackRegistryServiceStub([]));
+
+        RuntimeInspectorProjection? projection = service.GetProfileProjection(OwnerScope.LocalSingleUser, "official.sr5.core", RulesetDefaults.Sr5);
+
+        Assert.IsNotNull(projection);
+        Assert.HasCount(0, projection.ResolvedRulePacks);
+        Assert.IsTrue(projection.Warnings.Any(warning =>
+            string.Equals(warning.Kind, RuntimeInspectorWarningKinds.ProviderBinding, StringComparison.Ordinal)
+            && string.Equals(warning.MessageKey, "runtime.inspector.warning.provider-binding.none", StringComparison.Ordinal)));
+        Assert.HasCount(1, projection.MigrationPreview);
+        Assert.AreEqual("runtime.inspector.preview.runtime-pinned", projection.MigrationPreview[0].SummaryKey);
+        Assert.IsFalse(projection.MigrationPreview[0].RequiresRebind);
+        Assert.IsNotNull(projection.Promotion);
+        Assert.AreEqual(RuntimeInspectorPromotionStages.CampaignApproved, projection.Promotion!.CurrentStage);
+        Assert.AreEqual(RuntimeInspectorPromotionStages.Published, projection.Promotion.PromotionTargetStage);
+    }
+
     private static RulesetPluginRegistry CreatePluginRegistry() =>
         new(
         [
@@ -235,6 +321,105 @@ public class RuntimeInspectorServiceTests
                 Shares: []),
             new ArtifactInstallState(ArtifactInstallStates.Available, RuntimeFingerprint: installedRuntimeFingerprint),
             RegistryEntrySourceKinds.BuiltInCoreProfile);
+    }
+
+    private static RuleProfileRegistryEntry CreateCustomProfile(
+        string rulesetId = RulesetDefaults.Sr5,
+        string updateChannel = RuleProfileUpdateChannels.Stable,
+        string sourceKind = RegistryEntrySourceKinds.BuiltInCoreProfile,
+        string publicationVisibility = ArtifactVisibilityModes.LocalOnly,
+        string publicationStatus = RuleProfilePublicationStatuses.Published,
+        DateTimeOffset? publishedAtUtc = null,
+        string? installedRuntimeFingerprint = null,
+        string? installedTargetKind = null,
+        string? installedTargetId = null,
+        IReadOnlyList<RuleProfilePackSelection>? rulePacks = null,
+        IReadOnlyDictionary<string, string>? providerBindings = null)
+    {
+        return new RuleProfileRegistryEntry(
+            new RuleProfileManifest(
+                ProfileId: "official.sr5.core",
+                Title: "Official SR5 Core",
+                Description: "Curated runtime.",
+                RulesetId: rulesetId,
+                Audience: RuleProfileAudienceKinds.General,
+                CatalogKind: RuleProfileCatalogKinds.Official,
+                RulePacks: rulePacks ?? [],
+                DefaultToggles: [],
+                RuntimeLock: new ResolvedRuntimeLock(
+                    RulesetId: rulesetId,
+                    ContentBundles:
+                    [
+                        new ContentBundleDescriptor(
+                            BundleId: $"official.{rulesetId}.base",
+                            RulesetId: rulesetId,
+                            Version: "schema-1",
+                            Title: $"{rulesetId} Base",
+                            Description: "Built-in base content.",
+                            AssetPaths: ["data/", "lang/"])
+                    ],
+                    RulePacks: (rulePacks ?? []).Select(selection => selection.RulePack).ToArray(),
+                    ProviderBindings: providerBindings ?? new Dictionary<string, string>(StringComparer.Ordinal),
+                    EngineApiVersion: "rulepack-v1",
+                    RuntimeFingerprint: "runtime-lock-sha256"),
+                UpdateChannel: updateChannel),
+            new RuleProfilePublicationMetadata(
+                OwnerId: "local-single-user",
+                Visibility: publicationVisibility,
+                PublicationStatus: publicationStatus,
+                Review: new RulePackReviewDecision(RulePackReviewStates.NotRequired),
+                Shares: [],
+                PublishedAtUtc: publishedAtUtc),
+            new ArtifactInstallState(
+                ArtifactInstallStates.Available,
+                InstalledTargetKind: installedTargetKind,
+                InstalledTargetId: installedTargetId,
+                RuntimeFingerprint: installedRuntimeFingerprint),
+            sourceKind);
+    }
+
+    private static RulePackRegistryEntry CreateRulePackEntry(
+        string packId,
+        string version,
+        string title,
+        string visibility)
+    {
+        return new RulePackRegistryEntry(
+            new RulePackManifest(
+                PackId: packId,
+                Version: version,
+                Title: title,
+                Author: "GM",
+                Description: "Campaign overlay.",
+                Targets: [RulesetDefaults.Sr5],
+                EngineApiVersion: "rulepack-v1",
+                DependsOn: [],
+                ConflictsWith: [],
+                Visibility: visibility,
+                TrustTier: ArtifactTrustTiers.LocalOnly,
+                Assets:
+                [
+                    new RulePackAssetDescriptor(
+                        Kind: RulePackAssetKinds.Xml,
+                        Mode: RulePackAssetModes.MergeCatalog,
+                        RelativePath: "data/qualities.xml",
+                        Checksum: "sha256:abc")
+                ],
+                Capabilities:
+                [
+                    new RulePackCapabilityDescriptor(
+                        CapabilityId: RulePackCapabilityIds.ContentCatalog,
+                        AssetKind: RulePackAssetKinds.Xml,
+                        AssetMode: RulePackAssetModes.MergeCatalog)
+                ],
+                ExecutionPolicies: []),
+            new RulePackPublicationMetadata(
+                OwnerId: "local-single-user",
+                Visibility: visibility,
+                PublicationStatus: RulePackPublicationStatuses.Published,
+                Review: new RulePackReviewDecision(RulePackReviewStates.NotRequired),
+                Shares: []),
+            new ArtifactInstallState(ArtifactInstallStates.Installed));
     }
 
     private sealed class RuleProfileRegistryServiceStub : IRuleProfileRegistryService

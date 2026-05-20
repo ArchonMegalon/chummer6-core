@@ -76,6 +76,12 @@ public class XmlBoundaryGuardrailTests
 
     private static string FindDirectory(params string[] parts)
     {
+        string? canonicalOwnerDirectory = TryResolveCanonicalOwnerDirectory(parts);
+        if (!string.IsNullOrWhiteSpace(canonicalOwnerDirectory))
+        {
+            return canonicalOwnerDirectory;
+        }
+
         foreach (string? root in CandidateRoots())
         {
             if (string.IsNullOrWhiteSpace(root))
@@ -101,8 +107,68 @@ public class XmlBoundaryGuardrailTests
     private static IEnumerable<string?> CandidateRoots()
     {
         yield return Environment.GetEnvironmentVariable("CHUMMER_REPO_ROOT");
+        yield return "/docker/chummercomplete";
         yield return Directory.GetCurrentDirectory();
         yield return AppContext.BaseDirectory;
         yield return "/src";
+    }
+
+    private static string? TryResolveCanonicalOwnerDirectory(params string[] parts)
+    {
+        string[]? aliasParts = ResolveCanonicalOwnerAlias(parts);
+        if (aliasParts is null)
+        {
+            return null;
+        }
+
+        foreach (string? root in CandidateRoots())
+        {
+            if (string.IsNullOrWhiteSpace(root))
+            {
+                continue;
+            }
+
+            DirectoryInfo current = new(root);
+            while (true)
+            {
+                string candidate = Path.GetFullPath(Path.Combine(new[] { current.FullName }.Concat(aliasParts).ToArray()));
+                if (Directory.Exists(candidate))
+                {
+                    return candidate;
+                }
+
+                if (current.Parent is null)
+                {
+                    break;
+                }
+
+                current = current.Parent;
+            }
+        }
+
+        return null;
+    }
+
+    private static string[]? ResolveCanonicalOwnerAlias(params string[] parts)
+    {
+        if (parts.Length == 0)
+        {
+            return null;
+        }
+
+        return parts[0] switch
+        {
+            "Chummer.Application" or "Chummer.Benchmarks" or "Chummer.Contracts" or "Chummer.Core"
+                or "Chummer.FeatureSlice.Tests" or "Chummer.Infrastructure" or "Chummer.Infrastructure.Browser"
+                or "Chummer.Rulesets.Hosting" or "Chummer.Rulesets.Sr4" or "Chummer.Rulesets.Sr5"
+                or "Chummer.Rulesets.Sr6" or "Chummer.Tests" or "Chummer.CoreEngine.Tests" or "Chummer"
+                => new[] { "..", "chummer-core-engine" }.Concat(parts).ToArray(),
+            "Chummer.Api" or "Chummer.Avalonia" or "Chummer.Avalonia.Browser" or "Chummer.Blazor"
+                or "Chummer.Blazor.Desktop" or "Chummer.Desktop.Installer" or "Chummer.Desktop.Runtime"
+                or "Chummer.Desktop.Runtime.Tests" or "Chummer.Presentation" or "Chummer.Portal"
+                or "ChummerDataViewer" or "TextblockConverter" or "Translator"
+                => new[] { "..", "chummer-presentation" }.Concat(parts).ToArray(),
+            _ => null
+        };
     }
 }

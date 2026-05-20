@@ -263,7 +263,123 @@ public sealed class SessionServiceTests
         Assert.AreEqual("campaign.ready.pack", result.Payload.InstalledRulePacks[0].PackId);
     }
 
+    [TestMethod]
+    public void Owner_scoped_session_service_blocks_profile_selection_when_request_is_missing_or_unknown()
+    {
+        OwnerScopedSessionService service = CreateService();
+
+        SessionApiResult<SessionProfileSelectionReceipt> missingRequest = service.SelectProfile(OwnerScope.LocalSingleUser, "char-1", null);
+        SessionApiResult<SessionProfileSelectionReceipt> unknownProfile = service.SelectProfile(
+            OwnerScope.LocalSingleUser,
+            "char-1",
+            new SessionProfileSelectionRequest("missing.profile"));
+
+        Assert.IsTrue(missingRequest.IsImplemented);
+        Assert.IsNotNull(missingRequest.Payload);
+        Assert.AreEqual(SessionProfileSelectionOutcomes.Blocked, missingRequest.Payload.Outcome);
+        Assert.AreEqual("A session profile id is required.", missingRequest.Payload.DeferredReason);
+
+        Assert.IsTrue(unknownProfile.IsImplemented);
+        Assert.IsNotNull(unknownProfile.Payload);
+        Assert.AreEqual(SessionProfileSelectionOutcomes.Blocked, unknownProfile.Payload.Outcome);
+        Assert.AreEqual("Session profile 'missing.profile' was not found.", unknownProfile.Payload.DeferredReason);
+    }
+
+    [TestMethod]
+    public void Owner_scoped_session_service_blocks_profile_selection_when_profile_is_not_session_ready_or_apply_fails()
+    {
+        StubRulePackRegistryService blockedPackRegistry = new(
+        [
+            CreateRulePackEntry("campaign.blocked.pack", sessionReady: false)
+        ]);
+        StubRuleProfileRegistryService profileRegistry = new(
+        [
+            CreateProfileEntry(
+                "campaign.blocked.profile",
+                "Blocked Profile",
+                [new RuleProfilePackSelection(new ArtifactVersionReference("campaign.blocked.pack", "1.0.0"))],
+                "runtime-blocked-profile"),
+            CreateProfileEntry("campaign.apply.profile", "Apply Blocked", [], "runtime-apply-blocked")
+        ]);
+
+        OwnerScopedSessionService notReadyService = CreateService(
+            rulePackRegistryService: blockedPackRegistry,
+            ruleProfileRegistryService: profileRegistry,
+            ruleProfileApplicationService: new StubRuleProfileApplicationService(profileRegistry));
+        OwnerScopedSessionService applyBlockedService = CreateService(
+            rulePackRegistryService: blockedPackRegistry,
+            ruleProfileRegistryService: profileRegistry,
+            ruleProfileApplicationService: new NullRuleProfileApplicationService());
+
+        SessionApiResult<SessionProfileSelectionReceipt> notReady = notReadyService.SelectProfile(
+            OwnerScope.LocalSingleUser,
+            "char-1",
+            new SessionProfileSelectionRequest("campaign.blocked.profile"));
+        SessionApiResult<SessionProfileSelectionReceipt> applyBlocked = applyBlockedService.SelectProfile(
+            OwnerScope.LocalSingleUser,
+            "char-1",
+            new SessionProfileSelectionRequest("campaign.apply.profile"));
+
+        Assert.IsTrue(notReady.IsImplemented);
+        Assert.IsNotNull(notReady.Payload);
+        Assert.AreEqual(SessionProfileSelectionOutcomes.Blocked, notReady.Payload.Outcome);
+        Assert.AreEqual("Session profile 'campaign.blocked.profile' is not session-ready.", notReady.Payload.DeferredReason);
+
+        Assert.IsTrue(applyBlocked.IsImplemented);
+        Assert.IsNotNull(applyBlocked.Payload);
+        Assert.AreEqual(SessionProfileSelectionOutcomes.Blocked, applyBlocked.Payload.Outcome);
+        Assert.AreEqual("Session profile 'campaign.apply.profile' could not be applied.", applyBlocked.Payload.DeferredReason);
+    }
+
+    [TestMethod]
+    public void Owner_scoped_session_service_projects_blocked_runtime_state_for_missing_or_not_ready_selected_profiles()
+    {
+        InMemorySessionProfileSelectionStore missingProfileSelectionStore = new();
+        missingProfileSelectionStore.Upsert(
+            OwnerScope.LocalSingleUser,
+            new SessionProfileBinding("char-1", "missing.profile", RulesetDefaults.Sr5, "runtime-missing", DateTimeOffset.UtcNow));
+        OwnerScopedSessionService missingProfileService = CreateService(selectionStore: missingProfileSelectionStore);
+
+        StubRulePackRegistryService blockedPackRegistry = new(
+        [
+            CreateRulePackEntry("campaign.blocked.pack", sessionReady: false)
+        ]);
+        StubRuleProfileRegistryService blockedProfileRegistry = new(
+        [
+            CreateProfileEntry(
+                "campaign.blocked.profile",
+                "Blocked Profile",
+                [new RuleProfilePackSelection(new ArtifactVersionReference("campaign.blocked.pack", "1.0.0"))],
+                "runtime-blocked-profile")
+        ]);
+        InMemorySessionProfileSelectionStore blockedProfileSelectionStore = new();
+        blockedProfileSelectionStore.Upsert(
+            OwnerScope.LocalSingleUser,
+            new SessionProfileBinding("char-1", "campaign.blocked.profile", RulesetDefaults.Sr5, "runtime-blocked-profile", DateTimeOffset.UtcNow));
+        OwnerScopedSessionService blockedProfileService = CreateService(
+            selectionStore: blockedProfileSelectionStore,
+            rulePackRegistryService: blockedPackRegistry,
+            ruleProfileRegistryService: blockedProfileRegistry,
+            ruleProfileApplicationService: new StubRuleProfileApplicationService(blockedProfileRegistry));
+
+        SessionApiResult<SessionRuntimeStatusProjection> missingProfile = missingProfileService.GetRuntimeState(OwnerScope.LocalSingleUser, "char-1");
+        SessionApiResult<SessionRuntimeStatusProjection> blockedProfile = blockedProfileService.GetRuntimeState(OwnerScope.LocalSingleUser, "char-1");
+
+        Assert.IsTrue(missingProfile.IsImplemented);
+        Assert.IsNotNull(missingProfile.Payload);
+        Assert.AreEqual(SessionRuntimeSelectionStates.Blocked, missingProfile.Payload.SelectionState);
+        Assert.AreEqual("Session profile 'missing.profile' is no longer available.", missingProfile.Payload.DeferredReason);
+
+        Assert.IsTrue(blockedProfile.IsImplemented);
+        Assert.IsNotNull(blockedProfile.Payload);
+        Assert.AreEqual(SessionRuntimeSelectionStates.Blocked, blockedProfile.Payload.SelectionState);
+        Assert.AreEqual("Session profile 'campaign.blocked.profile' is not session-ready.", blockedProfile.Payload.DeferredReason);
+    }
+
     private static OwnerScopedSessionService CreateService(
+        IRuleProfileRegistryService? ruleProfileRegistryService = null,
+        IRuleProfileApplicationService? ruleProfileApplicationService = null,
+        IRulePackRegistryService? rulePackRegistryService = null,
         ISessionProfileSelectionStore? selectionStore = null,
         ISessionRuntimeBundleStore? runtimeBundleStore = null,
         IWorkspaceService? workspaceService = null,
@@ -284,10 +400,14 @@ public sealed class SessionServiceTests
                 "runtime-campaign-sr5-ready")
         ]);
 
+        IRulePackRegistryService effectiveRulePackRegistry = rulePackRegistryService ?? rulePackRegistry;
+        IRuleProfileRegistryService effectiveRuleProfileRegistry = ruleProfileRegistryService ?? ruleProfileRegistry;
+        IRuleProfileApplicationService effectiveRuleProfileApplicationService = ruleProfileApplicationService ?? new StubRuleProfileApplicationService(effectiveRuleProfileRegistry);
+
         return new OwnerScopedSessionService(
-            ruleProfileRegistry,
-            new StubRuleProfileApplicationService(ruleProfileRegistry),
-            rulePackRegistry,
+            effectiveRuleProfileRegistry,
+            effectiveRuleProfileApplicationService,
+            effectiveRulePackRegistry,
             new StubRulesetSelectionPolicy(),
             selectionStore ?? new InMemorySessionProfileSelectionStore(),
             runtimeBundleStore ?? new InMemorySessionRuntimeBundleStore(),
@@ -506,6 +626,13 @@ public sealed class SessionServiceTests
                     RebindNotices: [],
                     RequiresSessionReplay: true));
         }
+    }
+
+    private sealed class NullRuleProfileApplicationService : IRuleProfileApplicationService
+    {
+        public RuleProfilePreviewReceipt? Preview(OwnerScope owner, string profileId, RuleProfileApplyTarget target, string? rulesetId = null) => null;
+
+        public RuleProfileApplyReceipt? Apply(OwnerScope owner, string profileId, RuleProfileApplyTarget target, string? rulesetId = null) => null;
     }
 
     private sealed class StubRulePackRegistryService : IRulePackRegistryService

@@ -59,4 +59,24 @@ Run:
 
 ```bash
 bash scripts/ai/verify.sh
+bash scripts/ai/coverage.sh Chummer.Tests/Chummer.Tests.csproj
+bash scripts/ai/test-matrix.sh Chummer.Tests/Chummer.Tests.csproj
 ```
+
+`scripts/ai/test-matrix.sh` is the host-aware entrypoint for the current engine matrix:
+
+- always runs the Linux `net10.0` test lane
+- always builds the `net10.0-windows` target
+- only attempts Windows desktop execution when `Microsoft.WindowsDesktop.App 10.x` is available on the host
+
+So from Linux you get truthful source/build coverage for the Windows target, while native Windows host execution remains an explicit final certification step instead of a hidden assumption.
+
+For final native-host certification use:
+
+```bash
+bash scripts/ai/test-native-host-matrix.sh Chummer.Tests/Chummer.Tests.csproj
+```
+
+That wrapper requires real Windows desktop execution on Windows hosts instead of silently accepting a compile-only pass.
+
+`scripts/ai/coverage.sh` collects Linux `net10.0` coverage with the `XPlat Code Coverage` collector and writes a Cobertura summary JSON under `.artifacts/coverage/summary.json`.

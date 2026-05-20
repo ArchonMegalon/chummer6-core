@@ -817,6 +817,101 @@ public class WorkspaceServiceTests
         Assert.IsTrue(sr6Projection.Variants.Count > 0);
     }
 
+    [TestMethod]
+    public void Missing_workspace_operations_return_null_or_not_found_results()
+    {
+        TrackingWorkspaceStore store = new();
+        WorkspaceService workspaceService = new(
+            store,
+            new RulesetWorkspaceCodecResolver([new RecordingWorkspaceCodec()]),
+            new WorkspaceImportRulesetDetector());
+        CharacterWorkspaceId missingId = new("missing-workspace");
+
+        Assert.IsNull(workspaceService.GetSection(missingId, "profile"));
+        Assert.IsNull(workspaceService.GetSummary(missingId));
+        Assert.IsNull(workspaceService.Validate(missingId));
+        Assert.IsNull(workspaceService.GetProfile(missingId));
+        Assert.IsNull(workspaceService.GetProgress(missingId));
+        Assert.IsNull(workspaceService.GetSkills(missingId));
+        Assert.IsNull(workspaceService.GetRules(missingId));
+        Assert.IsNull(workspaceService.GetBuild(missingId));
+        Assert.IsNull(workspaceService.GetMovement(missingId));
+        Assert.IsNull(workspaceService.GetAwakening(missingId));
+
+        CommandResult<CharacterProfileSection> update = workspaceService.UpdateMetadata(missingId, new UpdateWorkspaceMetadata("Name", "Alias", "Notes"));
+        CommandResult<WorkspaceSaveReceipt> save = workspaceService.Save(missingId);
+        CommandResult<WorkspaceDownloadReceipt> download = workspaceService.Download(missingId);
+        CommandResult<WorkspaceExportReceipt> export = workspaceService.Export(missingId);
+        CommandResult<WorkspacePrintReceipt> print = workspaceService.Print(missingId);
+
+        Assert.IsFalse(update.Success);
+        Assert.AreEqual("Workspace not found.", update.Error);
+        Assert.IsFalse(save.Success);
+        Assert.AreEqual("Workspace not found.", save.Error);
+        Assert.IsFalse(download.Success);
+        Assert.AreEqual("Workspace not found.", download.Error);
+        Assert.IsFalse(export.Success);
+        Assert.AreEqual("Workspace not found.", export.Error);
+        Assert.IsFalse(print.Success);
+        Assert.AreEqual("Workspace not found.", print.Error);
+        Assert.IsFalse(workspaceService.Close(missingId));
+    }
+
+    [TestMethod]
+    public void UpdateMetadata_returns_error_when_codec_does_not_return_profile_section()
+    {
+        InMemoryWorkspaceStore store = new();
+        CharacterWorkspaceId id = store.Create(new WorkspaceDocument(
+            PayloadEnvelope: new WorkspacePayloadEnvelope(
+                RulesetId: "sr6",
+                SchemaVersion: 1,
+                PayloadKind: "sr6/custom-payload",
+                Payload: "<codec-update/>"),
+            Format: WorkspaceDocumentFormat.NativeXml));
+        WorkspaceService workspaceService = new(
+            store,
+            new RulesetWorkspaceCodecResolver([new ProfilelessUpdateWorkspaceCodec()]),
+            new WorkspaceImportRulesetDetector());
+
+        CommandResult<CharacterProfileSection> result = workspaceService.UpdateMetadata(
+            id,
+            new UpdateWorkspaceMetadata("Updated", "Alias", "Notes"));
+
+        Assert.IsFalse(result.Success);
+        Assert.AreEqual("Profile section was not available after metadata update.", result.Error);
+    }
+
+    [TestMethod]
+    public void List_skips_missing_entries_uses_fallback_summary_and_treats_nonpositive_max_as_unbounded()
+    {
+        ListWorkspaceStore store = new();
+        CharacterWorkspaceId goodId = new("good-workspace");
+        CharacterWorkspaceId badId = new("bad-workspace");
+        CharacterWorkspaceId missingId = new("missing-workspace");
+
+        store.Seed(goodId, new WorkspaceDocument(
+            PayloadEnvelope: new WorkspacePayloadEnvelope("sr6", 1, "sr6/custom-payload", "<good/>"),
+            Format: WorkspaceDocumentFormat.NativeXml));
+        store.Seed(badId, new WorkspaceDocument(
+            PayloadEnvelope: new WorkspacePayloadEnvelope("sr6", 1, "sr6/custom-payload", "<bad/>"),
+            Format: WorkspaceDocumentFormat.NativeXml));
+        store.SeedMissing(missingId);
+
+        WorkspaceService workspaceService = new(
+            store,
+            new RulesetWorkspaceCodecResolver([new FlakySummaryWorkspaceCodec()]),
+            new WorkspaceImportRulesetDetector());
+
+        IReadOnlyList<WorkspaceListItem> zeroList = workspaceService.List(maxCount: 0);
+        IReadOnlyList<WorkspaceListItem> negativeList = workspaceService.List(maxCount: -5);
+
+        Assert.HasCount(2, zeroList);
+        Assert.HasCount(2, negativeList);
+        Assert.IsFalse(zeroList.Any(item => string.Equals(item.Id.Value, missingId.Value, StringComparison.Ordinal)));
+        Assert.AreEqual("Codec Runner", zeroList.Single(item => string.Equals(item.Id.Value, goodId.Value, StringComparison.Ordinal)).Summary.Name);
+        Assert.AreEqual($"Workspace {badId.Value}", zeroList.Single(item => string.Equals(item.Id.Value, badId.Value, StringComparison.Ordinal)).Summary.Name);
+    }
+
     private sealed class TrackingWorkspaceStore : IWorkspaceStore
     {
         public int CreateCallCount { get; private set; }
@@ -1067,5 +1162,118 @@ public class WorkspaceServiceTests
                 Qualities: (CharacterQualitiesSection)ParseSection("qualities", envelope),
                 Contacts: _includeContacts ? (CharacterContactsSection)ParseSection("contacts", envelope) : null);
         }
+    }
+
+    private sealed class ProfilelessUpdateWorkspaceCodec : IRulesetWorkspaceCodec
+    {
+        public string RulesetId => "sr6";
+
+        public int SchemaVersion => 1;
+
+        public string PayloadKind => "sr6/custom-payload";
+
+        public WorkspacePayloadEnvelope WrapImport(string rulesetId, WorkspaceImportDocument document)
+            => new(RulesetDefaults.NormalizeOptional(rulesetId) ?? string.Empty, SchemaVersion, PayloadKind, document.Content);
+
+        public CharacterFileSummary ParseSummary(WorkspacePayloadEnvelope envelope)
+            => new("Codec Runner", "Alias", "Human", "Priority", "1.0", "1.0", 0m, 0m, true);
+
+        public object ParseSection(string sectionId, WorkspacePayloadEnvelope envelope)
+            => sectionId switch
+            {
+                "profile" => new Dictionary<string, object?>(StringComparer.Ordinal)
+                {
+                    ["status"] = "missing-profile"
+                },
+                _ => new object()
+            };
+
+        public CharacterValidationResult Validate(WorkspacePayloadEnvelope envelope)
+            => new(true, []);
+
+        public WorkspacePayloadEnvelope UpdateMetadata(WorkspacePayloadEnvelope envelope, UpdateWorkspaceMetadata command)
+            => envelope with { Payload = "<updated/>" };
+
+        public WorkspaceDownloadReceipt BuildDownload(CharacterWorkspaceId id, WorkspacePayloadEnvelope envelope, WorkspaceDocumentFormat format)
+            => throw new NotSupportedException();
+
+        public DataExportBundle BuildExportBundle(WorkspacePayloadEnvelope envelope)
+            => throw new NotSupportedException();
+    }
+
+    private sealed class FlakySummaryWorkspaceCodec : IRulesetWorkspaceCodec
+    {
+        public string RulesetId => "sr6";
+
+        public int SchemaVersion => 1;
+
+        public string PayloadKind => "sr6/custom-payload";
+
+        public WorkspacePayloadEnvelope WrapImport(string rulesetId, WorkspaceImportDocument document)
+            => new(RulesetDefaults.NormalizeOptional(rulesetId) ?? string.Empty, SchemaVersion, PayloadKind, document.Content);
+
+        public CharacterFileSummary ParseSummary(WorkspacePayloadEnvelope envelope)
+        {
+            if (string.Equals(envelope.Payload, "<bad/>", StringComparison.Ordinal))
+            {
+                throw new FormatException("bad summary");
+            }
+
+            return new CharacterFileSummary("Codec Runner", "SR6", "Human", "Priority", "1.0", "1.0", 0m, 0m, false);
+        }
+
+        public object ParseSection(string sectionId, WorkspacePayloadEnvelope envelope) => throw new NotSupportedException();
+
+        public CharacterValidationResult Validate(WorkspacePayloadEnvelope envelope) => new(true, []);
+
+        public WorkspacePayloadEnvelope UpdateMetadata(WorkspacePayloadEnvelope envelope, UpdateWorkspaceMetadata command) => envelope;
+
+        public WorkspaceDownloadReceipt BuildDownload(CharacterWorkspaceId id, WorkspacePayloadEnvelope envelope, WorkspaceDocumentFormat format) => throw new NotSupportedException();
+
+        public DataExportBundle BuildExportBundle(WorkspacePayloadEnvelope envelope) => throw new NotSupportedException();
+    }
+
+    private sealed class ListWorkspaceStore : IWorkspaceStore
+    {
+        private readonly Dictionary<string, WorkspaceDocument> _documents = new(StringComparer.Ordinal);
+        private readonly List<WorkspaceStoreEntry> _entries = [];
+
+        public void Seed(CharacterWorkspaceId id, WorkspaceDocument document)
+        {
+            _documents[id.Value] = document;
+            _entries.Add(new WorkspaceStoreEntry(id, DateTimeOffset.UtcNow));
+        }
+
+        public void SeedMissing(CharacterWorkspaceId id)
+        {
+            _entries.Add(new WorkspaceStoreEntry(id, DateTimeOffset.UtcNow));
+        }
+
+        public CharacterWorkspaceId Create(WorkspaceDocument document) => Create(OwnerScope.LocalSingleUser, document);
+
+        public CharacterWorkspaceId Create(OwnerScope owner, WorkspaceDocument document)
+        {
+            CharacterWorkspaceId id = new(Guid.NewGuid().ToString("N"));
+            Seed(id, document);
+            return id;
+        }
+
+        public IReadOnlyList<WorkspaceStoreEntry> List() => List(OwnerScope.LocalSingleUser);
+
+        public IReadOnlyList<WorkspaceStoreEntry> List(OwnerScope owner) => _entries;
+
+        public bool TryGet(CharacterWorkspaceId id, out WorkspaceDocument document) => TryGet(OwnerScope.LocalSingleUser, id, out document);
+
+        public bool TryGet(OwnerScope owner, CharacterWorkspaceId id, out WorkspaceDocument document)
+            => _documents.TryGetValue(id.Value, out document!);
+
+        public void Save(CharacterWorkspaceId id, WorkspaceDocument document) => Save(OwnerScope.LocalSingleUser, id, document);
+
+        public void Save(OwnerScope owner, CharacterWorkspaceId id, WorkspaceDocument document)
+            => _documents[id.Value] = document;
+
+        public bool Delete(CharacterWorkspaceId id) => Delete(OwnerScope.LocalSingleUser, id);
+
+        public bool Delete(OwnerScope owner, CharacterWorkspaceId id) => _documents.Remove(id.Value);
     }
 }

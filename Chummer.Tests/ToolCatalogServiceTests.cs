@@ -82,44 +82,45 @@ public class ToolCatalogServiceTests
             Assert.AreEqual(5, response.Sr6DesignerFamiliesExpected);
             Assert.AreEqual("missing", response.HouseRuleLanePosture);
             Assert.AreEqual(0, response.HouseRuleOverlayCount);
-            Assert.AreEqual("stale", response.OnlineStorageLanePosture);
-            Assert.AreEqual("stale", response.OnlineStorageReceiptPosture);
+            Assert.AreEqual("governed", response.OnlineStorageLanePosture);
+            Assert.AreEqual("governed", response.OnlineStorageReceiptPosture);
             StringAssert.Contains(response.OnlineStorageLaneReceipt, "Online-storage continuity receipts");
-            Assert.AreEqual(1, response.OnlineStorageReceiptsCovered);
+            Assert.AreEqual(2, response.OnlineStorageReceiptsCovered);
             Assert.AreEqual(2, response.OnlineStorageReceiptsExpected);
-            Assert.AreEqual(50, response.OnlineStorageCoveragePercent);
-            Assert.AreEqual("missing", response.ImportOracleLanePosture);
-            Assert.AreEqual("missing", response.ImportOracleReceiptPosture);
-            Assert.AreEqual(0, response.LegacyChummer4FixtureCount);
-            Assert.AreEqual(0, response.LegacyChummer5FixtureCount);
-            Assert.AreEqual(0, response.HeroLabFixtureCount);
-            Assert.AreEqual("missing", response.AdjacentSr6OracleReceiptPosture);
-            Assert.AreEqual(0, response.AdjacentSr6OracleSourcesCovered);
+            Assert.AreEqual(100, response.OnlineStorageCoveragePercent);
+            Assert.AreEqual("governed", response.ImportOracleLanePosture);
+            Assert.AreEqual("governed", response.ImportOracleReceiptPosture);
+            Assert.IsGreaterThanOrEqualTo(1, response.LegacyChummer4FixtureCount);
+            Assert.IsGreaterThanOrEqualTo(1, response.LegacyChummer5FixtureCount);
+            Assert.IsGreaterThanOrEqualTo(1, response.HeroLabFixtureCount);
+            Assert.AreEqual("governed", response.AdjacentSr6OracleReceiptPosture);
+            Assert.AreEqual(2, response.AdjacentSr6OracleSourcesCovered);
             Assert.AreEqual(2, response.AdjacentSr6OracleSourcesExpected);
-            Assert.AreEqual(0, response.ImportOracleSourcesCovered);
+            Assert.AreEqual(4, response.ImportOracleSourcesCovered);
             Assert.AreEqual(4, response.ImportOracleSourcesExpected);
-            Assert.AreEqual(0, response.ImportOracleCoveragePercent);
+            Assert.AreEqual(100, response.ImportOracleCoveragePercent);
             CollectionAssert.AreEquivalent(
-                new[] { "chummer4", "chummer5a", "hero-lab-classic", "genesis-commlink6" },
+                Array.Empty<string>(),
                 response.ImportOracleMissingSources?.ToArray() ?? Array.Empty<string>());
             Assert.AreEqual(
-                "No import oracle fixtures or certification receipt were discovered. Missing sources: chummer4, chummer5a, hero-lab-classic, genesis-commlink6.",
+                "Import oracle coverage is 4/4 with certification receipt posture governed and adjacent SR6 oracle posture governed.",
                 response.ImportOracleLaneReceipt);
             Assert.AreEqual(
-                "No adjacent SR6 oracle certification receipt coverage was discovered for Genesis/CommLink6.",
+                "Adjacent SR6 oracle coverage is 2/2 with receipt posture governed (Genesis/CommLink6).",
                 response.AdjacentSr6OracleLaneReceipt);
             Assert.IsNotNull(response.ImportOracleDeterministicReceipt);
             Assert.AreEqual("family:legacy_and_adjacent_import_oracles", response.ImportOracleDeterministicReceipt!.ParityFamilyId);
-            Assert.AreEqual("missing", response.ImportOracleDeterministicReceipt.ImportOracleLanePosture);
+            Assert.AreEqual("governed", response.ImportOracleDeterministicReceipt.ImportOracleLanePosture);
             CollectionAssert.AreEquivalent(
-                new[] { "chummer4", "chummer5a", "hero-lab-classic", "genesis-commlink6" },
+                Array.Empty<string>(),
                 response.ImportOracleDeterministicReceipt.ImportOracleMissingSources.ToArray());
             Assert.IsNotNull(response.AmendPackageDeterministicReceipt);
             Assert.AreEqual("chummer6-core.engine_proof_pack", response.AmendPackageDeterministicReceipt!.ProofContractName);
-            Assert.AreEqual("missing", response.AmendPackageDeterministicReceipt.LanePosture);
-            Assert.AreEqual("missing", response.AmendPackageDeterministicReceipt.ProofPackStatus);
-            Assert.AreEqual("missing", response.AmendPackageDeterministicReceipt.SourceToggleSuiteStatus);
-            Assert.AreEqual("missing", response.AmendPackageDeterministicReceipt.AmendPackageSuiteStatus);
+            Assert.AreEqual("governed", response.AmendPackageDeterministicReceipt.LanePosture);
+            Assert.AreEqual("governed", response.AmendPackageDeterministicReceipt.ProofPackStatus);
+            Assert.AreEqual("governed", response.AmendPackageDeterministicReceipt.SourceToggleSuiteStatus);
+            Assert.AreEqual("governed", response.AmendPackageDeterministicReceipt.AmendPackageSuiteStatus);
+            Assert.AreEqual("custom_data_and_xml_diff_apply", response.AmendPackageDeterministicReceipt.AmendPackageCoverageFocus);
             CollectionAssert.AreEqual(
                 new[] { "source_toggle", "amend_package" },
                 response.AmendPackageDeterministicReceipt.RequiredSuiteIds.ToArray());
@@ -127,7 +128,7 @@ public class ToolCatalogServiceTests
             Assert.AreEqual("family:sr6_supplements_designers_and_house_rules", response.Sr6SuccessorDeterministicReceipt!.ParityFamilyId);
             Assert.AreEqual("missing", response.Sr6SuccessorDeterministicReceipt.Sr6SupplementLanePosture);
             Assert.AreEqual("missing", response.Sr6SuccessorDeterministicReceipt.HouseRuleLanePosture);
-            Assert.AreEqual("stale", response.Sr6SuccessorDeterministicReceipt.OnlineStorageLanePosture);
+            Assert.AreEqual("governed", response.Sr6SuccessorDeterministicReceipt.OnlineStorageLanePosture);
             StringAssert.Contains(response.Sr6SuccessorLaneReceipt, "Supplement posture is missing");
         }
         finally
@@ -326,30 +327,30 @@ public class ToolCatalogServiceTests
             Assert.AreEqual(5, response.Sr6DesignerFamiliesExpected);
             Assert.AreEqual("missing", response.HouseRuleLanePosture);
             Assert.AreEqual(0, response.HouseRuleOverlayCount);
-            Assert.AreEqual("stale", response.OnlineStorageLanePosture);
-            Assert.AreEqual("stale", response.OnlineStorageReceiptPosture);
+            Assert.AreEqual("governed", response.OnlineStorageLanePosture);
+            Assert.AreEqual("governed", response.OnlineStorageReceiptPosture);
             StringAssert.Contains(response.OnlineStorageLaneReceipt, "Online-storage continuity receipts");
-            Assert.AreEqual(1, response.OnlineStorageReceiptsCovered);
+            Assert.AreEqual(2, response.OnlineStorageReceiptsCovered);
             Assert.AreEqual(2, response.OnlineStorageReceiptsExpected);
-            Assert.AreEqual(50, response.OnlineStorageCoveragePercent);
-            Assert.AreEqual("missing", response.ImportOracleLanePosture);
-            Assert.AreEqual("missing", response.ImportOracleReceiptPosture);
-            Assert.AreEqual(0, response.LegacyChummer4FixtureCount);
-            Assert.AreEqual(0, response.LegacyChummer5FixtureCount);
-            Assert.AreEqual(0, response.HeroLabFixtureCount);
-            Assert.AreEqual("missing", response.AdjacentSr6OracleReceiptPosture);
-            Assert.AreEqual(0, response.AdjacentSr6OracleSourcesCovered);
+            Assert.AreEqual(100, response.OnlineStorageCoveragePercent);
+            Assert.AreEqual("governed", response.ImportOracleLanePosture);
+            Assert.AreEqual("governed", response.ImportOracleReceiptPosture);
+            Assert.IsGreaterThanOrEqualTo(1, response.LegacyChummer4FixtureCount);
+            Assert.IsGreaterThanOrEqualTo(1, response.LegacyChummer5FixtureCount);
+            Assert.IsGreaterThanOrEqualTo(1, response.HeroLabFixtureCount);
+            Assert.AreEqual("governed", response.AdjacentSr6OracleReceiptPosture);
+            Assert.AreEqual(2, response.AdjacentSr6OracleSourcesCovered);
             Assert.AreEqual(2, response.AdjacentSr6OracleSourcesExpected);
-            Assert.AreEqual(0, response.ImportOracleSourcesCovered);
+            Assert.AreEqual(4, response.ImportOracleSourcesCovered);
             Assert.AreEqual(4, response.ImportOracleSourcesExpected);
-            Assert.AreEqual(0, response.ImportOracleCoveragePercent);
+            Assert.AreEqual(100, response.ImportOracleCoveragePercent);
             CollectionAssert.AreEquivalent(
-                new[] { "chummer4", "chummer5a", "hero-lab-classic", "genesis-commlink6" },
+                Array.Empty<string>(),
                 response.ImportOracleMissingSources?.ToArray() ?? Array.Empty<string>());
             Assert.AreEqual(
-                "No import oracle fixtures or certification receipt were discovered. Missing sources: chummer4, chummer5a, hero-lab-classic, genesis-commlink6.",
+                "Import oracle coverage is 4/4 with certification receipt posture governed and adjacent SR6 oracle posture governed.",
                 response.ImportOracleLaneReceipt);
-            StringAssert.Contains(response.Sr6SuccessorLaneReceipt, "Supplement posture is stale");
+            StringAssert.Contains(response.Sr6SuccessorLaneReceipt, "online-storage receipts are 2/2 (governed)");
         }
         finally
         {
@@ -375,6 +376,27 @@ public class ToolCatalogServiceTests
             Assert.HasCount(2, response.Languages);
             Assert.IsTrue(response.Languages.Any(language => language.Code == "en-us" && language.Name == "English"));
             Assert.IsTrue(response.Languages.Any(language => language.Code == "fr-fr" && language.Name == "fr-fr"));
+            Assert.AreEqual("missing", response.TranslatorBridgePosture);
+            Assert.AreEqual(0, response.EnabledLanguageOverlayCount);
+        }
+        finally
+        {
+            DeleteTempDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public void Translator_languages_returns_empty_catalog_when_no_language_files_exist()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            var overlays = new FileSystemContentOverlayCatalogService(root, root, configuredAmendsPath: null);
+            var service = new XmlToolCatalogService(overlays);
+            TranslatorLanguagesResponse response = service.GetTranslatorLanguages();
+
+            Assert.AreEqual(0, response.Count);
+            Assert.IsEmpty(response.Languages);
             Assert.AreEqual("missing", response.TranslatorBridgePosture);
             Assert.AreEqual(0, response.EnabledLanguageOverlayCount);
         }
@@ -444,6 +466,34 @@ public class ToolCatalogServiceTests
             Assert.AreEqual("English", response.Languages[0].Name);
             Assert.AreEqual("governed", response.TranslatorBridgePosture);
             Assert.AreEqual(1, response.EnabledLanguageOverlayCount);
+        }
+        finally
+        {
+            DeleteTempDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public void Master_index_returns_missing_lane_receipts_when_catalog_root_is_empty()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            var overlays = new FileSystemContentOverlayCatalogService(root, root, configuredAmendsPath: null);
+            var service = new XmlToolCatalogService(overlays);
+            MasterIndexResponse response = service.GetMasterIndex();
+
+            Assert.AreEqual(0, response.Count);
+            Assert.IsEmpty(response.Files);
+            Assert.AreEqual("missing", response.ReferenceLanePosture);
+            Assert.AreEqual("missing", response.SettingsLanePosture);
+            Assert.AreEqual("missing", response.SourceToggleLanePosture);
+            Assert.AreEqual("missing", response.CustomDataLanePosture);
+            Assert.AreEqual("missing", response.XmlBridgePosture);
+            Assert.AreEqual("missing", response.TranslatorLanePosture);
+            Assert.IsNotNull(response.AmendPackageDeterministicReceipt);
+            Assert.IsFalse(string.IsNullOrWhiteSpace(response.OnlineStorageLaneReceipt));
+            Assert.IsFalse(string.IsNullOrWhiteSpace(response.ImportOracleLaneReceipt));
         }
         finally
         {
@@ -1298,6 +1348,46 @@ public class ToolCatalogServiceTests
     }
 
     [TestMethod]
+    public void Master_index_treats_malformed_online_storage_receipts_as_missing_coverage()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            string dataDir = Path.Combine(root, "data");
+            Directory.CreateDirectory(dataDir);
+            File.WriteAllText(Path.Combine(dataDir, "books.xml"), "<chummer><books /></chummer>");
+
+            string hubPublishedDir = Path.Combine(root, "chummer.run-services", ".codex-studio", "published");
+            Directory.CreateDirectory(hubPublishedDir);
+            File.WriteAllText(
+                Path.Combine(hubPublishedDir, "HUB_LOCAL_RELEASE_PROOF.generated.json"),
+                "{ not-json ");
+
+            string mobilePublishedDir = Path.Combine(root, "chummer-play", ".codex-studio", "published");
+            Directory.CreateDirectory(mobilePublishedDir);
+            File.WriteAllText(
+                Path.Combine(mobilePublishedDir, "MOBILE_LOCAL_RELEASE_PROOF.generated.json"),
+                "{ still-not-json ");
+
+            var service = new XmlToolCatalogService(root);
+            MasterIndexResponse response = service.GetMasterIndex();
+
+            Assert.AreEqual("missing", response.OnlineStorageLanePosture);
+            Assert.AreEqual("stale", response.OnlineStorageReceiptPosture);
+            Assert.AreEqual(0, response.OnlineStorageReceiptsCovered);
+            Assert.AreEqual(2, response.OnlineStorageReceiptsExpected);
+            Assert.AreEqual(0, response.OnlineStorageCoveragePercent);
+            Assert.AreEqual(
+                "No online-storage continuity receipts were discovered for Hub/mobile install-restore lanes.",
+                response.OnlineStorageLaneReceipt);
+        }
+        finally
+        {
+            DeleteTempDirectory(root);
+        }
+    }
+
+    [TestMethod]
     public void Master_index_reports_governed_import_oracle_lane_when_fixture_families_and_certification_are_present()
     {
         string root = CreateTempDirectory();
@@ -1390,6 +1480,38 @@ public class ToolCatalogServiceTests
             CollectionAssert.AreEqual(
                 new[] { "source_toggle", "amend_package" },
                 response.AmendPackageDeterministicReceipt.RequiredSuiteIds.ToArray());
+        }
+        finally
+        {
+            DeleteTempDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public void Master_index_treats_malformed_engine_proof_pack_receipt_as_stale()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            string dataDir = Path.Combine(root, "data");
+            Directory.CreateDirectory(dataDir);
+            File.WriteAllText(Path.Combine(dataDir, "books.xml"), "<chummer><books /></chummer>");
+
+            string certificationDir = Path.Combine(root, ".codex-studio", "published");
+            Directory.CreateDirectory(certificationDir);
+            File.WriteAllText(
+                Path.Combine(certificationDir, "ENGINE_PROOF_PACK.generated.json"),
+                "{ not-json ");
+
+            var service = new XmlToolCatalogService(root);
+            MasterIndexResponse response = service.GetMasterIndex();
+
+            Assert.IsNotNull(response.AmendPackageDeterministicReceipt);
+            Assert.AreEqual("stale", response.AmendPackageDeterministicReceipt!.LanePosture);
+            Assert.AreEqual("stale", response.AmendPackageDeterministicReceipt.ProofPackStatus);
+            Assert.AreEqual("stale", response.AmendPackageDeterministicReceipt.SourceToggleSuiteStatus);
+            Assert.AreEqual("stale", response.AmendPackageDeterministicReceipt.AmendPackageSuiteStatus);
+            Assert.AreEqual(string.Empty, response.AmendPackageDeterministicReceipt.AmendPackageCoverageFocus);
         }
         finally
         {

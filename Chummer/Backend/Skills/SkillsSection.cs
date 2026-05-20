@@ -2411,11 +2411,8 @@ namespace Chummer.Backend.Skills
                                     .ConfigureAwait(false);
                             }
 
-                            //This might give subtle bugs in the future,
-                            //but right now it needs to be run once when upgrading or it might crash.
-                            //As some didn't they crashed on loading skills.
-                            //After this have run, it won't (for the crash i'm aware)
-                            //TODO: Move it to the other side of the if someday?
+                            // Normalize legacy-loaded skill groups before property refresh so
+                            // empty groups cannot survive into the upgraded load path.
 
                             if (blnSync)
                                 FinalizeLoadedSkillGroups(token);
@@ -2513,10 +2510,8 @@ namespace Chummer.Backend.Skills
             foreach (SkillGroup objSkillGroup in SkillGroups.AsEnumerableWithSideEffects())
             {
                 token.ThrowIfCancellationRequested();
-                if (!_objCharacter.Created && !objSkillGroup.SkillList.Any(x => _dicSkills.ContainsKey(x.DictionaryKey)))
+                if (!_objCharacter.Created && ResetEmptyLoadedSkillGroup(objSkillGroup, token))
                 {
-                    objSkillGroup.Base = 0;
-                    objSkillGroup.Karma = 0;
                     continue;
                 }
 
@@ -2531,17 +2526,40 @@ namespace Chummer.Backend.Skills
             await (await GetSkillGroupsAsync(token).ConfigureAwait(false)).ForEachWithSideEffectsAsync(async objSkillGroup =>
             {
                 token.ThrowIfCancellationRequested();
-                if (!blnCharacterCreated && !await objSkillGroup.SkillList.AnyAsync(
-                        async x => _dicSkills.ContainsKey(await x.GetDictionaryKeyAsync(token).ConfigureAwait(false)),
-                        token: token).ConfigureAwait(false))
+                if (!blnCharacterCreated
+                    && await ResetEmptyLoadedSkillGroupAsync(objSkillGroup, token).ConfigureAwait(false))
                 {
-                    await objSkillGroup.SetBaseAsync(0, token).ConfigureAwait(false);
-                    await objSkillGroup.SetKarmaAsync(0, token).ConfigureAwait(false);
                     return;
                 }
 
                 await RefreshLoadedSkillGroupAsync(objSkillGroup, blnIncludeBreakingSkills, token).ConfigureAwait(false);
             }, token).ConfigureAwait(false);
+        }
+
+        private bool ResetEmptyLoadedSkillGroup(SkillGroup objSkillGroup, CancellationToken token)
+        {
+            token.ThrowIfCancellationRequested();
+            if (objSkillGroup.SkillList.Any(x => _dicSkills.ContainsKey(x.DictionaryKey)))
+                return false;
+
+            objSkillGroup.Base = 0;
+            objSkillGroup.Karma = 0;
+            return true;
+        }
+
+        private async Task<bool> ResetEmptyLoadedSkillGroupAsync(SkillGroup objSkillGroup, CancellationToken token)
+        {
+            token.ThrowIfCancellationRequested();
+            if (await objSkillGroup.SkillList.AnyAsync(
+                    async x => _dicSkills.ContainsKey(await x.GetDictionaryKeyAsync(token).ConfigureAwait(false)),
+                    token: token).ConfigureAwait(false))
+            {
+                return false;
+            }
+
+            await objSkillGroup.SetBaseAsync(0, token).ConfigureAwait(false);
+            await objSkillGroup.SetKarmaAsync(0, token).ConfigureAwait(false);
+            return true;
         }
 
         private static void RefreshLoadedSkillGroup(SkillGroup objSkillGroup, bool blnIncludeBreakingSkills,
@@ -2682,23 +2700,14 @@ namespace Chummer.Backend.Skills
                             Skills.AddWithSort(objSkill, CompareSkills, (x, y) => MergeSkills(x, y, token), token);
                         }
 
-                        //This might give subtle bugs in the future,
-                        //but right now it needs to be run once when upgrading or it might crash.
-                        //As some didn't they crashed on loading skills.
-                        //After this have run, it won't (for the crash i'm aware)
-                        //TODO: Move it to the other side of the if someday?
+                        // Normalize legacy-loaded skill groups before point allocation so
+                        // empty groups cannot survive into the upgraded Hero Lab path.
 
                         if (!_objCharacter.Created)
                         {
-                            // zero out any skillgroups whose skills did not make the final cut
                             foreach (SkillGroup objSkillGroup in SkillGroups)
                             {
-                                token.ThrowIfCancellationRequested();
-                                if (!objSkillGroup.SkillList.Any(x => _dicSkills.ContainsKey(x.DictionaryKey)))
-                                {
-                                    objSkillGroup.Base = 0;
-                                    objSkillGroup.Karma = 0;
-                                }
+                                ResetEmptyLoadedSkillGroup(objSkillGroup, token);
                             }
 
                             if (_objCharacter.EffectiveBuildMethodUsesPriorityTables)

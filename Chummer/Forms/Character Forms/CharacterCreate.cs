@@ -23373,14 +23373,15 @@ namespace Chummer
                     foreach (XmlNode objXmlSkillGroup in xmlSkillGroupList)
                     {
                         token.ThrowIfCancellationRequested();
-                        if (objXmlSkillGroup["hide"] != null)
-                            continue;
+	                    if (objXmlSkillGroup["hide"] != null)
+	                        continue;
 
-                        string strName = objXmlSkillGroup["name"]?.InnerTextViaPool(token);
-                        if (string.IsNullOrEmpty(strName)
-                            || !objXmlSkillGroup.TryGetInt32FieldQuickly("rating", ref int intRating)
-                            || intRating <= 0)
-                            continue;
+	                    string strName = objXmlSkillGroup["name"]?.InnerTextViaPool(token);
+	                    int intRating = 0;
+	                    if (string.IsNullOrEmpty(strName)
+	                        || !objXmlSkillGroup.TryGetInt32FieldQuickly("rating", ref intRating)
+	                        || intRating <= 0)
+	                        continue;
 
                         SkillGroup objSkillGroup = await lstSkillGroups.FindAsync(x => x.Name == strName, token)
                             .ConfigureAwait(false);
@@ -23402,17 +23403,18 @@ namespace Chummer
                 foreach (XmlNode objXmlSkill in xmlSkillList)
                 {
                     token.ThrowIfCancellationRequested();
-                    if (objXmlSkill["hide"] != null)
-                        continue;
+	                    if (objXmlSkill["hide"] != null)
+	                        continue;
 
-                    string strName = objXmlSkill["name"]?.InnerTextViaPool(token);
-                    if (string.IsNullOrEmpty(strName)
-                        || !objXmlSkill.TryGetInt32FieldQuickly("rating", ref int intRating)
-                        || intRating <= 0)
-                        continue;
+	                    string strName = objXmlSkill["name"]?.InnerTextViaPool(token);
+	                    int intRating = 0;
+	                    if (string.IsNullOrEmpty(strName)
+	                        || !objXmlSkill.TryGetInt32FieldQuickly("rating", ref intRating)
+	                        || intRating <= 0)
+	                        continue;
 
                     Skill objSkill = await lstSkills.FindAsync(
-                            async x => await x.GetNameAsync(token).ConfigureAwait(false) == strName,
+                            x => x.CurrentDisplayName == strName || x.Name == strName,
                             token)
                         .ConfigureAwait(false);
                     if (objSkill == null)
@@ -23454,14 +23456,15 @@ namespace Chummer
                 foreach (XmlNode objXmlSkill in xmlSkillList)
                 {
                     token.ThrowIfCancellationRequested();
-                    if (objXmlSkill["hide"] != null)
-                        continue;
+	                    if (objXmlSkill["hide"] != null)
+	                        continue;
 
-                    string strName = objXmlSkill["name"]?.InnerTextViaPool(token);
-                    if (string.IsNullOrEmpty(strName)
-                        || !objXmlSkill.TryGetInt32FieldQuickly("rating", ref int intRating)
-                        || intRating <= 0)
-                        continue;
+	                    string strName = objXmlSkill["name"]?.InnerTextViaPool(token);
+	                    int intRating = 0;
+	                    if (string.IsNullOrEmpty(strName)
+	                        || !objXmlSkill.TryGetInt32FieldQuickly("rating", ref intRating)
+	                        || intRating <= 0)
+	                        continue;
 
                     KnowledgeSkill objKnowledgeSkill = await lstKnowledgeSkills.FirstOrDefaultAsync(
                             async x => await x.GetWritableNameAsync(token).ConfigureAwait(false) == strName,
