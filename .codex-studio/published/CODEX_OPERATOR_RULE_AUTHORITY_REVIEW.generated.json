@@ -1,0 +1,205 @@
+{
+  "audit_findings": [
+    {
+      "detail": "Local SR4, SR5, SR6 2019, and SR6 2024 PDFs are present and SHA-pinned.",
+      "id": "source_identity",
+      "status": "pass"
+    },
+    {
+      "detail": "No review artifact commits sourcebook prose, page images, fiction, or art.",
+      "id": "copyright_boundary",
+      "status": "pass"
+    },
+    {
+      "detail": "SR4 and SR6 required provider classes are present with no missing implementation/profile entries.",
+      "id": "provider_class_coverage",
+      "status": "pass"
+    },
+    {
+      "detail": "Focused SR4/SR6 seed fixture receipts report zero failures.",
+      "id": "seed_fixture_execution",
+      "status": "pass"
+    },
+    {
+      "detail": "RuleFact registries still contain seed-level dice/core facts only, not the full P0/P1 chapter authority corpus.",
+      "id": "rulefact_depth",
+      "status": "blocker"
+    },
+    {
+      "detail": "SR4 structured legacy data and SR6 private PDF line hashes are indexed, but not reviewed into normalized row-level authority records.",
+      "id": "row_level_table_mapping",
+      "status": "blocker"
+    },
+    {
+      "detail": "Official SR6 errata/update sources are identified, but errata deltas are not applied and reviewed in providers/table records; SR4 errata profile also remains pending.",
+      "id": "errata_application",
+      "status": "blocker"
+    },
+    {
+      "detail": "This is a Codex operator audit, not independent human/editorial/legal signoff.",
+      "id": "human_signoff",
+      "status": "blocker"
+    }
+  ],
+  "contract_name": "chummer.rule_authority_operator_review",
+  "copyright_boundary": {
+    "review_artifacts_are_hashes_counts_and_implementation_facts": true,
+    "sourcebook_art_committed": false,
+    "sourcebook_text_committed": false
+  },
+  "errata_sources": {
+    "sr6_aug_2019": {
+      "observed_page_count": 10,
+      "observed_sha256": "84a488965df544eb5661def7188baeef2a8d38d1fb006f00b5537e1850b6b5db",
+      "url": "https://shadowrunsixthworld.com/wp-content/uploads/sites/5/2019/08/SR6-Core-Rulebook-Errata-Aug-2019.pdf"
+    },
+    "sr6_city_edition_notice": {
+      "observed_fact": "official notice says City Edition: Seattle includes latest errata and updates",
+      "url": "https://shadowrunsixthworld.com/2021/09/15/hit-the-streets-with-shadowrun-sixth-world-city-edition-and-improved-dice-roller-app/"
+    },
+    "sr6_feb_2020": {
+      "observed_page_count": 6,
+      "observed_sha256": null,
+      "url": "https://shadowrunsixthworld.com/wp-content/uploads/sites/5/2020/03/SR6-Core-Rulebook-Errata-Feb-2020.pdf"
+    }
+  },
+  "generated_at_utc": "2026-05-29T15:19:33.078644Z",
+  "readiness_decision": {
+    "full_product_rule_authority_ready": false,
+    "reason": "Operator review closed source identity and provider evidence, but full authority still requires row-level reviewed records, errata application, expanded fixtures, and independent human signoff.",
+    "sr4_rule_authority_ready": false,
+    "sr6_rule_authority_ready": false
+  },
+  "reviewer": "codex_operator_audit_not_independent_legal_or_publisher_review",
+  "rulesets": {
+    "sr4": {
+      "copyright_status": "pass",
+      "errata_status": "pending",
+      "explain_status": "seed_receipts_available",
+      "fixture_failed": 0,
+      "fixture_passed": 21,
+      "fixture_status": "seed_fixtures_passed",
+      "implemented_provider_count": 14,
+      "missing_implemented_providers": [],
+      "missing_profile_status": [],
+      "provider_status": "pass",
+      "readiness_token_allowed": false,
+      "rulefact_count": 7,
+      "rulefact_ids": [
+        "sr4.dice.type",
+        "sr4.dice.hit_faces",
+        "sr4.dice.rule_of_six",
+        "sr4.dice.glitch",
+        "sr4.dice.critical_glitch",
+        "sr4.dice.buy_hits",
+        "sr4.dice.long_shot"
+      ],
+      "table_file_count": 27,
+      "table_import_status": "structured_legacy_data_indexed_pending_human_review",
+      "table_row_count": 6989
+    },
+    "sr5": {
+      "acceptance_proof_status": "pass",
+      "serious_implementation_claim": "allowed"
+    },
+    "sr6": {
+      "copyright_status": "pass",
+      "errata_status": "pending",
+      "explain_status": "seeded",
+      "fixture_failed": 0,
+      "fixture_passed": 37,
+      "fixture_status": "seed_fixtures_passed",
+      "implemented_provider_count": 18,
+      "missing_implemented_providers": [],
+      "missing_profile_status": [],
+      "provider_status": "provider_classes_covered_not_authority_ready",
+      "readiness_token_allowed": false,
+      "rulefact_count": 5,
+      "rulefact_ids": [
+        "sr6.dice.hit_faces",
+        "sr6.dice.glitch",
+        "sr6.dice.critical_glitch",
+        "sr6.dice.buy_hits",
+        "sr6.dice.wild_die"
+      ],
+      "table_file_count": null,
+      "table_import_status": "private_pdf_line_hash_import_indexed_pending_review",
+      "table_row_count": null
+    }
+  },
+  "source_identity": {
+    "sr4": {
+      "bytes": 57971222,
+      "exists": true,
+      "page_count": 378,
+      "page_count_matches_expected": true,
+      "path": "/mnt/pcloud/personal/Roleplay/sr/(SR4) Shadowrun 4e Core Rules.pdf",
+      "sha256": "28da9d6dfd8eba79a2ae46dc41e2ec825d16067d288e6f20e23c65767616d41d",
+      "sha256_matches_expected": true
+    },
+    "sr5": {
+      "bytes": 41663911,
+      "exists": true,
+      "page_count": 482,
+      "page_count_matches_expected": true,
+      "path": "/mnt/pcloud/personal/Roleplay/sr/Shadowrun Fifth Edition Core Rulebook.pdf",
+      "sha256": "b6769553a7348286e6396b49e364960c71bba5436412b88c5672e4f522ad52d5",
+      "sha256_matches_expected": true
+    },
+    "sr6_2019": {
+      "bytes": 42867088,
+      "exists": true,
+      "page_count": 322,
+      "page_count_matches_expected": true,
+      "path": "/mnt/pcloud/personal/Roleplay/sr/Shadowrun Sixth World.pdf",
+      "sha256": "74ac2d4be4298c79200d9cfebaab235ae2526f45a11c6db1e11cf307a56f76e2",
+      "sha256_matches_expected": true
+    },
+    "sr6_2024": {
+      "bytes": 182091868,
+      "exists": true,
+      "page_count": 354,
+      "page_count_matches_expected": true,
+      "path": "/mnt/pcloud/personal/Roleplay/sr/Shadowrun_6_Downloadversion_2024.pdf",
+      "sha256": "104dd5cc0f167232c3bc0f6453b389d9114dd7df483345e5b1211fda667bf023",
+      "sha256_matches_expected": true
+    }
+  },
+  "source_maps": {
+    "sr4": {
+      "book_profile": "sr4a_core_2009",
+      "chapter_count": 15,
+      "p0_chapters": [
+        "game_concepts",
+        "character_creation",
+        "skills",
+        "combat"
+      ],
+      "p1_chapters": [
+        "magic",
+        "matrix",
+        "running",
+        "street_gear"
+      ],
+      "source_file": "(SR4) Shadowrun 4e Core Rules.pdf"
+    },
+    "sr6": {
+      "book_profile": "sr6_core_2019",
+      "chapter_count": 12,
+      "p0_chapters": [
+        "game_concepts",
+        "character_creation",
+        "skills",
+        "combat"
+      ],
+      "p1_chapters": [
+        "magic",
+        "matrix",
+        "rigging",
+        "gear"
+      ],
+      "source_file": "Shadowrun Sixth World.pdf"
+    }
+  },
+  "status": "operator_review_complete_authority_blocked"
+}
