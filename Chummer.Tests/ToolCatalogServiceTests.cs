@@ -138,6 +138,44 @@ public class ToolCatalogServiceTests
     }
 
     [TestMethod]
+    public void Master_index_root_repo_deterministic_receipts_stay_bound_to_parity_targets()
+    {
+        string root = FindRepositoryRoot();
+
+        var service = new XmlToolCatalogService(root);
+        MasterIndexResponse response = service.GetMasterIndex();
+
+        Assert.IsNotNull(response.CustomDataXmlBridgeDeterministicReceipt);
+        Assert.AreEqual("family:custom_data_xml_and_translator_bridge", response.CustomDataXmlBridgeDeterministicReceipt!.ParityFamilyId);
+        Assert.AreEqual(response.CustomDataLanePosture, response.CustomDataXmlBridgeDeterministicReceipt.CustomDataLanePosture);
+        Assert.AreEqual(response.XmlBridgePosture, response.CustomDataXmlBridgeDeterministicReceipt.XmlBridgePosture);
+
+        Assert.IsNotNull(response.TranslatorDeterministicReceipt);
+        Assert.AreEqual("source:translator_route", response.TranslatorDeterministicReceipt!.ParityRouteId);
+        Assert.AreEqual(response.TranslatorLanePosture, response.TranslatorDeterministicReceipt.TranslatorLanePosture);
+        Assert.AreEqual(response.TranslatorBridgePosture, response.TranslatorDeterministicReceipt.TranslatorBridgePosture);
+
+        Assert.IsNotNull(response.ImportOracleDeterministicReceipt);
+        Assert.AreEqual("family:legacy_and_adjacent_import_oracles", response.ImportOracleDeterministicReceipt!.ParityFamilyId);
+        Assert.AreEqual(response.ImportOracleLanePosture, response.ImportOracleDeterministicReceipt.ImportOracleLanePosture);
+        Assert.AreEqual(response.ImportOracleCoveragePercent, response.ImportOracleDeterministicReceipt.ImportOracleCoveragePercent);
+        Assert.AreEqual(response.AdjacentSr6OracleReceiptPosture, response.ImportOracleDeterministicReceipt.AdjacentSr6OracleReceiptPosture);
+        Assert.IsNotNull(response.ImportOracleDeterministicReceipt.ImportOracleMissingSources);
+
+        Assert.IsNotNull(response.AmendPackageDeterministicReceipt);
+        Assert.AreEqual("chummer6-core.engine_proof_pack", response.AmendPackageDeterministicReceipt!.ProofContractName);
+        Assert.IsFalse(string.IsNullOrWhiteSpace(response.AmendPackageDeterministicReceipt.ProofPackStatus));
+        Assert.IsFalse(string.IsNullOrWhiteSpace(response.AmendPackageDeterministicReceipt.SourceToggleSuiteStatus));
+        Assert.IsFalse(string.IsNullOrWhiteSpace(response.AmendPackageDeterministicReceipt.AmendPackageSuiteStatus));
+
+        Assert.IsNotNull(response.Sr6SuccessorDeterministicReceipt);
+        Assert.AreEqual("family:sr6_supplements_designers_and_house_rules", response.Sr6SuccessorDeterministicReceipt!.ParityFamilyId);
+        Assert.AreEqual(response.Sr6SupplementLanePosture, response.Sr6SuccessorDeterministicReceipt.Sr6SupplementLanePosture);
+        Assert.AreEqual(response.HouseRuleLanePosture, response.Sr6SuccessorDeterministicReceipt.HouseRuleLanePosture);
+        Assert.AreEqual(response.OnlineStorageLanePosture, response.Sr6SuccessorDeterministicReceipt.OnlineStorageLanePosture);
+    }
+
+    [TestMethod]
     public void Master_index_merge_catalog_fragment_merges_into_canonical_file()
     {
         string root = CreateTempDirectory();
@@ -1639,6 +1677,23 @@ public class ToolCatalogServiceTests
         string path = Path.Combine(Path.GetTempPath(), "chummer-tests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(path);
         return path;
+    }
+
+    private static string FindRepositoryRoot()
+    {
+        DirectoryInfo? current = new(AppContext.BaseDirectory);
+        while (current is not null)
+        {
+            if (Directory.Exists(Path.Combine(current.FullName, "Chummer.Tests"))
+                && Directory.Exists(Path.Combine(current.FullName, "Chummer.Infrastructure")))
+            {
+                return current.FullName;
+            }
+
+            current = current.Parent;
+        }
+
+        throw new DirectoryNotFoundException("Could not locate the chummer-core-engine repository root.");
     }
 
     private static void DeleteTempDirectory(string path)

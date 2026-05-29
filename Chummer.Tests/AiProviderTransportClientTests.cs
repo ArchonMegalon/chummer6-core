@@ -227,6 +227,230 @@ public sealed class AiProviderTransportClientTests
         Assert.IsTrue(response.ToolInvocations.Any(invocation => invocation.ToolId == AiToolIds.ExplainDerivedValue));
     }
 
+    [TestMethod]
+    public void Http_transport_client_returns_failed_transport_state_for_http_errors()
+    {
+        RecordingHttpMessageHandler handler = new((_, _) => new HttpResponseMessage(HttpStatusCode.BadGateway)
+        {
+            Content = new StringContent("{\"error\":\"upstream down\"}")
+        });
+        using HttpClient httpClient = new(handler);
+        HttpAiProviderTransportClient client = new(CreateCredentialCatalog(), httpClient);
+
+        AiProviderTransportResponse response = client.Execute(
+            OwnerScope.LocalSingleUser,
+            new AiProviderTransportRequest(
+                ProviderId: AiProviderIds.OneMinAi,
+                RouteType: AiRouteTypes.Chat,
+                ConversationId: "conv-http-error",
+                BaseUrl: "https://api.1min.ai",
+                ModelId: "gpt-4.1-mini",
+                UserMessage: "Summarize the lane.",
+                SystemPrompt: "Structured Chummer data first.",
+                Stream: false,
+                AttachmentIds: Array.Empty<string>(),
+                RetrievalCorpusIds: [AiRetrievalCorpusIds.Runtime],
+                AllowedTools: Array.Empty<AiToolDescriptor>(),
+                CredentialTier: AiProviderCredentialTiers.Primary,
+                CredentialSlotIndex: 0,
+                RuntimeFingerprint: "sha256:http-error"));
+
+        Assert.AreEqual(AiProviderTransportStates.Failed, response.TransportState);
+        StringAssert.Contains(response.Answer, "HTTP 502");
+        Assert.AreEqual("The external relay failed, so this answer stayed on the grounded Chummer scaffold.", response.FlavorLine);
+        Assert.IsTrue(response.Citations.Any(citation => citation.Kind == AiCitationKinds.Runtime));
+    }
+
+    [TestMethod]
+    public void Http_transport_client_returns_failed_transport_state_when_provider_returns_no_assistant_content()
+    {
+        RecordingHttpMessageHandler handler = new((_, _) => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent("{\"choices\":[{\"message\":{\"content\":\"   \"}}]}")
+        });
+        using HttpClient httpClient = new(handler);
+        HttpAiProviderTransportClient client = new(CreateCredentialCatalog(), httpClient);
+
+        AiProviderTransportResponse response = client.Execute(
+            OwnerScope.LocalSingleUser,
+            new AiProviderTransportRequest(
+                ProviderId: AiProviderIds.AiMagicx,
+                RouteType: AiRouteTypes.Coach,
+                ConversationId: "conv-empty-answer",
+                BaseUrl: "https://beta.aimagicx.com/api/v1",
+                ModelId: "magicx-coach",
+                UserMessage: "What now?",
+                SystemPrompt: "Structured Chummer data first.",
+                Stream: false,
+                AttachmentIds: Array.Empty<string>(),
+                RetrievalCorpusIds: [AiRetrievalCorpusIds.Runtime],
+                AllowedTools: [AiGatewayDefaults.ResolveToolDescriptor(AiToolIds.ExplainDerivedValue)],
+                CredentialTier: AiProviderCredentialTiers.Primary,
+                CredentialSlotIndex: 0,
+                RuntimeFingerprint: "sha256:empty-answer"));
+
+        Assert.AreEqual(AiProviderTransportStates.Failed, response.TransportState);
+        StringAssert.Contains(response.Answer, "no assistant content");
+        Assert.IsTrue(response.ToolInvocations.Any(invocation => invocation.ToolId == AiToolIds.ExplainDerivedValue));
+    }
+
+    [TestMethod]
+    public void Http_transport_client_falls_back_to_primary_credential_and_reports_model_configuration_failures()
+    {
+        RecordingHttpMessageHandler handler = new((request, _) => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent("""
+{
+  "id": "fallback-credential",
+  "choices": [
+    {
+      "message": {
+        "content": "Fallback credential path is alive."
+      }
+    }
+  ]
+}
+""")
+        });
+        using HttpClient httpClient = new(handler);
+        HttpAiProviderTransportClient client = new(CreateCredentialCatalog(), httpClient);
+
+        AiProviderTransportResponse fallbackCredentialResponse = client.Execute(
+            OwnerScope.LocalSingleUser,
+            new AiProviderTransportRequest(
+                ProviderId: AiProviderIds.AiMagicx,
+                RouteType: AiRouteTypes.Coach,
+                ConversationId: "conv-fallback-credential",
+                BaseUrl: "https://beta.aimagicx.com/api/v1",
+                ModelId: "magicx-coach",
+                UserMessage: "Use a missing fallback slot.",
+                SystemPrompt: "Structured Chummer data first.",
+                Stream: false,
+                AttachmentIds: Array.Empty<string>(),
+                RetrievalCorpusIds: [AiRetrievalCorpusIds.Runtime],
+                AllowedTools: Array.Empty<AiToolDescriptor>(),
+                CredentialTier: AiProviderCredentialTiers.Fallback,
+                CredentialSlotIndex: 99,
+                RuntimeFingerprint: "sha256:fallback"));
+
+        Assert.AreEqual(AiProviderTransportStates.Completed, fallbackCredentialResponse.TransportState);
+        Assert.AreEqual("Bearer", handler.LastRequest?.Headers.Authorization?.Scheme);
+        Assert.AreEqual("fallback-magicx", handler.LastRequest?.Headers.Authorization?.Parameter);
+
+        AiProviderTransportResponse missingModelResponse = client.Execute(
+            OwnerScope.LocalSingleUser,
+            new AiProviderTransportRequest(
+                ProviderId: AiProviderIds.AiMagicx,
+                RouteType: AiRouteTypes.Coach,
+                ConversationId: "conv-missing-model",
+                BaseUrl: "https://beta.aimagicx.com/api/v1",
+                ModelId: " ",
+                UserMessage: "Missing model should fail closed.",
+                SystemPrompt: "Structured Chummer data first.",
+                Stream: false,
+                AttachmentIds: Array.Empty<string>(),
+                RetrievalCorpusIds: [AiRetrievalCorpusIds.Runtime],
+                AllowedTools: Array.Empty<AiToolDescriptor>(),
+                CredentialTier: AiProviderCredentialTiers.Primary,
+                CredentialSlotIndex: 0,
+                RuntimeFingerprint: "sha256:missing-model"));
+
+        Assert.AreEqual(AiProviderTransportStates.Failed, missingModelResponse.TransportState);
+        StringAssert.Contains(missingModelResponse.Answer, "requires a configured model id");
+    }
+
+    [TestMethod]
+    public void Http_transport_client_reports_missing_credential_catalog_entries_and_missing_api_keys()
+    {
+        using HttpClient httpClient = new(new RecordingHttpMessageHandler((_, _) => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent("{\"id\":\"unused\",\"choices\":[{\"message\":{\"content\":\"unused\"}}]}")
+        }));
+
+        HttpAiProviderTransportClient missingProviderClient = new(
+            new StaticCredentialCatalog(new Dictionary<string, AiProviderCredentialSet>(StringComparer.Ordinal)),
+            httpClient);
+        AiProviderTransportResponse missingProviderResponse = missingProviderClient.Execute(
+            OwnerScope.LocalSingleUser,
+            new AiProviderTransportRequest(
+                ProviderId: AiProviderIds.AiMagicx,
+                RouteType: AiRouteTypes.Coach,
+                ConversationId: "conv-missing-provider",
+                BaseUrl: "https://beta.aimagicx.com/api/v1",
+                ModelId: "magicx-coach",
+                UserMessage: "No credential catalog entry exists.",
+                SystemPrompt: "Structured Chummer data first.",
+                Stream: false,
+                AttachmentIds: Array.Empty<string>(),
+                RetrievalCorpusIds: [AiRetrievalCorpusIds.Runtime],
+                AllowedTools: Array.Empty<AiToolDescriptor>(),
+                CredentialTier: AiProviderCredentialTiers.Primary,
+                CredentialSlotIndex: 0,
+                RuntimeFingerprint: "sha256:missing-provider"));
+
+        Assert.AreEqual(AiProviderTransportStates.Failed, missingProviderResponse.TransportState);
+        StringAssert.Contains(missingProviderResponse.Answer, "No credential catalog entry was found");
+
+        HttpAiProviderTransportClient missingKeyClient = new(
+            new StaticCredentialCatalog(
+                new Dictionary<string, AiProviderCredentialSet>(StringComparer.Ordinal)
+                {
+                    [AiProviderIds.AiMagicx] = new([], [])
+                }),
+            httpClient);
+        AiProviderTransportResponse missingKeyResponse = missingKeyClient.Execute(
+            OwnerScope.LocalSingleUser,
+            new AiProviderTransportRequest(
+                ProviderId: AiProviderIds.AiMagicx,
+                RouteType: AiRouteTypes.Coach,
+                ConversationId: "conv-missing-key",
+                BaseUrl: "https://beta.aimagicx.com/api/v1",
+                ModelId: "magicx-coach",
+                UserMessage: "No configured API key exists.",
+                SystemPrompt: "Structured Chummer data first.",
+                Stream: false,
+                AttachmentIds: Array.Empty<string>(),
+                RetrievalCorpusIds: [AiRetrievalCorpusIds.Runtime],
+                AllowedTools: Array.Empty<AiToolDescriptor>(),
+                CredentialTier: AiProviderCredentialTiers.Primary,
+                CredentialSlotIndex: 0,
+                RuntimeFingerprint: "sha256:missing-key"));
+
+        Assert.AreEqual(AiProviderTransportStates.Failed, missingKeyResponse.TransportState);
+        StringAssert.Contains(missingKeyResponse.Answer, "No configured API key is available");
+    }
+
+    [TestMethod]
+    public void Http_transport_client_reports_unsupported_provider_failures()
+    {
+        using HttpClient httpClient = new(new RecordingHttpMessageHandler((_, _) => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent("{\"id\":\"unused\",\"choices\":[{\"message\":{\"content\":\"unused\"}}]}")
+        }));
+        HttpAiProviderTransportClient client = new(CreateCredentialCatalog(), httpClient);
+
+        AiProviderTransportResponse response = client.Execute(
+            OwnerScope.LocalSingleUser,
+            new AiProviderTransportRequest(
+                ProviderId: "unsupported.provider",
+                RouteType: AiRouteTypes.Chat,
+                ConversationId: "conv-unsupported",
+                BaseUrl: "https://example.test/unsupported",
+                ModelId: "unsupported-model",
+                UserMessage: "This should fail closed.",
+                SystemPrompt: "Structured Chummer data first.",
+                Stream: false,
+                AttachmentIds: Array.Empty<string>(),
+                RetrievalCorpusIds: [AiRetrievalCorpusIds.Runtime],
+                AllowedTools: Array.Empty<AiToolDescriptor>(),
+                CredentialTier: AiProviderCredentialTiers.Primary,
+                CredentialSlotIndex: 0,
+                RuntimeFingerprint: "sha256:unsupported"));
+
+        Assert.AreEqual(AiProviderTransportStates.Failed, response.TransportState);
+        StringAssert.Contains(response.Answer, "No credential catalog entry was found");
+    }
+
     private static AiProviderTurnPlan CreateTurnPlan()
     {
         AiProviderRouteDecision routeDecision = new(

@@ -102,7 +102,7 @@ public sealed class Sr5WorkspaceCodec : IRulesetWorkspaceCodec
     public DataExportBundle BuildExportBundle(WorkspacePayloadEnvelope envelope)
     {
         string xml = ToXmlContent(envelope.Payload, WorkspaceDocumentFormat.NativeXml);
-        if (TryBuildSinglePassExportBundle(xml, out DataExportBundle? bundle))
+        if (TryBuildSinglePassExportBundle(xml, out DataExportBundle? bundle) && bundle is not null)
         {
             return bundle with
             {

@@ -105,7 +105,7 @@ rg -n 'CustomDataXmlBridgeDeterministicReceipt|TranslatorLaneDeterministicReceip
 rg -n 'BuildCustomDataXmlBridgeDeterministicReceipt|BuildTranslatorDeterministicReceipt|BuildImportOracleDeterministicReceipt|BuildSr6SuccessorDeterministicReceipt' Chummer.Infrastructure/Xml/XmlToolCatalogService.cs >/dev/null
 python3 tests/test_next90_m141_import_route_receipts.py
 python3 scripts/verify-next90-m141-import-route-receipts.py --repo-root . --out .codex-studio/published/NEXT90_M141_IMPORT_ROUTE_RECEIPTS.generated.json --check
-CHUMMER_CORE_ENGINE_TEST_FILTER=parity-m143 dotnet run --project Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj -m:1 -p:UseSharedCompilation=false
+CHUMMER_CORE_ENGINE_TEST_FILTER=parity-m143 dotnet run --project Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj -c Release -m:1 -p:UseSharedCompilation=false
 python3 tests/test_next90_m143_export_print_supplement_rule_environment_receipts.py
 python3 scripts/verify-next90-m143-export-print-supplement-rule-environment-receipts.py --repo-root . --out .codex-studio/published/NEXT90_M143_EXPORT_PRINT_SUPPLEMENT_RULE_ENVIRONMENT_RECEIPTS.generated.json --check
 rg -n 'SessionActionBudgetDeterministicReceipt' Chummer.Contracts/Session/SessionActionBudgetContracts.cs >/dev/null
@@ -116,7 +116,7 @@ rg -n 'BuildDeterministicReceipt|BuildWorkflowDeterministicReceipt|BuildExchange
 test -f docs/NEXT90_M142_DENSE_WORKBENCH_RECEIPTS.md
 test -f scripts/verify-next90-m142-dense-workbench-receipts.py
 test -f tests/test_next90_m142_dense_workbench_receipts.py
-CHUMMER_CORE_ENGINE_TEST_FILTER=parity-m142 dotnet run --project Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj -m:1 -p:UseSharedCompilation=false
+CHUMMER_CORE_ENGINE_TEST_FILTER=parity-m142 dotnet run --project Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj -c Release -m:1 -p:UseSharedCompilation=false
 python3 tests/test_next90_m142_dense_workbench_receipts.py
 python3 scripts/verify-next90-m142-dense-workbench-receipts.py --repo-root . --out .codex-studio/published/NEXT90_M142_DENSE_WORKBENCH_RECEIPTS.generated.json --check
 test -f scripts/generate-engine-proof-pack.py
@@ -131,24 +131,24 @@ python3 tests/test_explain_value_packet_receipt.py
 python3 scripts/verify-explain-value-packets.py --repo-root . --out .codex-studio/published/EXPLAIN_VALUE_PACKETS.generated.json --check
 test -f scripts/verify-next90-m114-rule-environment-studio.py
 test -f tests/test_next90_m114_rule_environment_studio.py
-CHUMMER_CORE_ENGINE_TEST_FILTER=rule-environment-studio dotnet run --project Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj -m:1 -p:UseSharedCompilation=false
+CHUMMER_CORE_ENGINE_TEST_FILTER=rule-environment-studio dotnet run --project Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj -c Release -m:1 -p:UseSharedCompilation=false
 python3 tests/test_next90_m114_rule_environment_studio.py
 python3 scripts/verify-next90-m114-rule-environment-studio.py --repo-root . --out .codex-studio/published/NEXT90_M114_RULE_ENVIRONMENT_STUDIO.generated.json --check
 test -f docs/NEXT90_M121_ACTION_ECONOMY_CONTRACTS.md
 test -f scripts/verify-next90-m121-action-economy.py
 test -f tests/test_next90_m121_action_economy.py
-CHUMMER_CORE_ENGINE_TEST_FILTER=next90-m121-action-economy dotnet run --project Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj -m:1 -p:UseSharedCompilation=false
+CHUMMER_CORE_ENGINE_TEST_FILTER=next90-m121-action-economy dotnet run --project Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj -c Release -m:1 -p:UseSharedCompilation=false
 python3 tests/test_next90_m121_action_economy.py
 python3 scripts/verify-next90-m121-action-economy.py --repo-root . --out .codex-studio/published/NEXT90_M121_ACTION_ECONOMY.generated.json --check
 test -f docs/NEXT90_M122_CAMPAIGN_ADVANCE_RECEIPTS.md
 test -f scripts/verify-next90-m122-campaign-advance-receipts.py
 test -f tests/test_next90_m122_campaign_advance_receipts.py
-CHUMMER_CORE_ENGINE_TEST_FILTER=next90-m122-campaign-advance-receipts dotnet run --project Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj -m:1 -p:UseSharedCompilation=false
+CHUMMER_CORE_ENGINE_TEST_FILTER=next90-m122-campaign-advance-receipts dotnet run --project Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj -c Release -m:1 -p:UseSharedCompilation=false
 python3 tests/test_next90_m122_campaign_advance_receipts.py
 python3 scripts/verify-next90-m122-campaign-advance-receipts.py --repo-root . --out .codex-studio/published/NEXT90_M122_CAMPAIGN_ADVANCE_RECEIPTS.generated.json --check
 test -f scripts/verify-next90-m115-core-exchange-contracts.py
 test -f tests/test_next90_m115_core_exchange_contracts.py
-CHUMMER_CORE_ENGINE_TEST_FILTER=core-exchange-contracts dotnet run --project Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj -m:1 -p:UseSharedCompilation=false
+CHUMMER_CORE_ENGINE_TEST_FILTER=core-exchange-contracts dotnet run --project Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj -c Release -m:1 -p:UseSharedCompilation=false
 python3 tests/test_next90_m115_core_exchange_contracts.py
 python3 scripts/verify-next90-m115-core-exchange-contracts.py --repo-root . --out .codex-studio/published/NEXT90_M115_CORE_EXCHANGE_CONTRACTS.generated.json --check
 python3 scripts/generate-engine-proof-pack.py --check

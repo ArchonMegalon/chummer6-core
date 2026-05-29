@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-05-17T18:45:33Z",
+  "generated_at": "2026-05-22T15:04:39Z",
   "status": "passed",
   "package_id": "next90-m141-core-bind-import-oracle-custom-data-and-amend-package-flows-to-deterministic",
   "frontier_id": 4304178368,
@@ -46,7 +46,7 @@
       "key": "tool_catalog_tests",
       "path": "/docker/chummercomplete/chummer-core-engine/Chummer.Tests/ToolCatalogServiceTests.cs",
       "exists": true,
-      "digest": "sha256:5ebfcef700d55c55927ec53b828f6030dd987e8952a09ba587aaf51d9b5bbc42",
+      "digest": "sha256:8469ac2c8ea68ff482d702c735f7a2e005ec800fb1341f29952a40d2b1bf253c",
       "digest_scope": "full-file",
       "missing_snippets": [],
       "status": "passed"
@@ -91,7 +91,7 @@
       "key": "repo_verify",
       "path": "/docker/chummercomplete/chummer-core-engine/scripts/ai/verify.sh",
       "exists": true,
-      "digest": "sha256:5912bc1df8bf2ece7f70f918b53124d78637d9fe573f986bf227926e3283eee8",
+      "digest": "sha256:932763c77048ffc325cc43945ab74285e22d2988b34e4648e852bbd59b161922",
       "digest_scope": "full-file",
       "missing_snippets": [],
       "status": "passed"
@@ -100,7 +100,7 @@
       "key": "engine_proof_pack_generator",
       "path": "/docker/chummercomplete/chummer-core-engine/scripts/generate-engine-proof-pack.py",
       "exists": true,
-      "digest": "sha256:08e0c388674dee437644310006e6f69e322edf740ac00ebea3928e9f677b28ce",
+      "digest": "sha256:ff9e45757f1341888e586a7fc1c142c485449f1ba29a8504ec21cc7bfef21f7d",
       "digest_scope": "full-file",
       "missing_snippets": [],
       "status": "passed"
@@ -109,7 +109,7 @@
       "key": "engine_proof_pack_generator_tests",
       "path": "/docker/chummercomplete/chummer-core-engine/tests/test_engine_proof_pack_generator.py",
       "exists": true,
-      "digest": "sha256:61284513a6f69e38bc78d5b7c4f1c27d13090ef0d234c3a3fc0521e5e7701d9b",
+      "digest": "sha256:805d377d9c969bbcecc5cbbf57788961ba59aefbaad625defdeaaf437f161d7d",
       "digest_scope": "full-file",
       "missing_snippets": [],
       "status": "passed"
@@ -138,7 +138,7 @@
       "key": "successor_registry",
       "path": "/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml",
       "exists": true,
-      "digest": "sha256:15dde2d7a36241212ca8be5048713fc28071f13672025e557df3ab329e640497",
+      "digest": "sha256:88a41b8a8b650a8ac368e749346d3e89713db21911b973695252015198e96245",
       "digest_scope": "work-task-row",
       "missing_snippets": [],
       "status": "passed"

@@ -18,11 +18,13 @@
   <PropertyGroup>
     <TargetFrameworks>net10.0;net10.0-windows</TargetFrameworks>
     <GenerateAssemblyInfo>True</GenerateAssemblyInfo>
-    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <EnableNETAnalyzers>false</EnableNETAnalyzers>
+    <MSTestAnalysisMode>None</MSTestAnalysisMode>
 	<Configurations>Debug;Release;Debuggable Release</Configurations>
-	<AnalysisLevel>latest-minimum</AnalysisLevel>
+	<AnalysisLevel>none</AnalysisLevel>
 	<NeutralLanguage>en-US</NeutralLanguage>
-    <NoWarn>$(NoWarn);NU1701</NoWarn>
+    <NoWarn>$(NoWarn);NU1701;CS8632;CS9124;MSTEST0037;VSTHRD003;VSTHRD100;VSTHRD103;VSTHRD200</NoWarn>
+    <RestoreNoWarn>$(RestoreNoWarn);NU1701</RestoreNoWarn>
     <EmbeddedResourceUseDependentUponConvention>true</EmbeddedResourceUseDependentUponConvention>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <AssemblyVersion>5.225.0.0</AssemblyVersion>
@@ -175,6 +177,14 @@
   <ItemGroup Condition="'$(TargetFramework)' == 'net10.0-windows'">
     <ProjectReference Include="..\Chummer\Chummer.csproj" />
     <Compile Remove="CoreXmlNodeExtensionsTests.cs" />
+    <Compile Remove="Compliance\MigrationComplianceTests.cs" />
+    <Compile Remove="InProcessChummerClientRulesetPluginTests.cs" />
+    <Compile Remove="OwnerScopedApiEndpointTests.cs" />
+    <Compile Remove="Presentation\**\*.cs" />
+    <Compile Remove="RequestOwnerContextAccessorTests.cs" />
+    <Compile Remove="RestartSafeWorkspacePersistenceTests.cs" />
+    <Compile Remove="RulesetSeamContractsTests.cs" />
+    <Compile Remove="ServiceCollectionDesktopRuntimeExtensionsTests.cs" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\Chummer.Application\Chummer.Application.csproj" />

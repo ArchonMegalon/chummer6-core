@@ -3,6 +3,7 @@
     <EnableNETAnalyzers>false</EnableNETAnalyzers>
     <AnalysisLevel>none</AnalysisLevel>
     <NoWarn>All;WFO1000;NU1701</NoWarn>
+    <RestoreNoWarn>$(RestoreNoWarn);NU1701</RestoreNoWarn>
     <WarningsNotAsErrors>WFO1000</WarningsNotAsErrors>
     <TargetFramework>net10.0-windows</TargetFramework>
     <OutputType>WinExe</OutputType>
@@ -664,9 +665,6 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
     <Content Include="Backend\BuildLab\Packs\GearRules.lua">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
-    <Content Include="Backend\BuildLab\Packs\SpellRules.lua">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
     <Content Include="Backend\BuildLab\Packs\VehicleModRules.lua">

@@ -376,6 +376,55 @@ public sealed class SessionServiceTests
         Assert.AreEqual("Session profile 'campaign.blocked.profile' is not session-ready.", blockedProfile.Payload.DeferredReason);
     }
 
+    [TestMethod]
+    public void Owner_scoped_session_service_projects_expiring_soon_and_refresh_required_bundle_states()
+    {
+        InMemorySessionProfileSelectionStore selectionStore = new();
+        InMemorySessionRuntimeBundleStore runtimeBundleStore = new();
+        OwnerScopedSessionService service = CreateService(selectionStore: selectionStore, runtimeBundleStore: runtimeBundleStore);
+
+        service.SelectProfile(OwnerScope.LocalSingleUser, "char-1", new SessionProfileSelectionRequest("campaign.sr5.ready"));
+        SessionApiResult<SessionRuntimeBundleIssueReceipt> issued = service.GetRuntimeBundle(OwnerScope.LocalSingleUser, "char-1");
+        Assert.IsTrue(issued.IsImplemented);
+        Assert.IsNotNull(issued.Payload);
+
+        SessionRuntimeBundleRecord currentRecord = runtimeBundleStore.Records[0];
+        runtimeBundleStore.Records[0] = currentRecord with
+        {
+            Receipt = currentRecord.Receipt with
+            {
+                SignatureEnvelope = currentRecord.Receipt.SignatureEnvelope with
+                {
+                    ExpiresAtUtc = DateTimeOffset.UtcNow.AddHours(12)
+                }
+            }
+        };
+
+        SessionApiResult<SessionRuntimeStatusProjection> expiringSoon = service.GetRuntimeState(OwnerScope.LocalSingleUser, "char-1");
+        Assert.IsTrue(expiringSoon.IsImplemented);
+        Assert.IsNotNull(expiringSoon.Payload);
+        Assert.AreEqual(SessionRuntimeBundleFreshnessStates.ExpiringSoon, expiringSoon.Payload.BundleFreshness);
+        Assert.IsTrue(expiringSoon.Payload.RequiresBundleRefresh);
+
+        SessionRuntimeBundleRecord expiringRecord = runtimeBundleStore.Records[0];
+        runtimeBundleStore.Records[0] = expiringRecord with
+        {
+            Receipt = expiringRecord.Receipt with
+            {
+                SignatureEnvelope = expiringRecord.Receipt.SignatureEnvelope with
+                {
+                    ExpiresAtUtc = DateTimeOffset.UtcNow.AddMinutes(-1)
+                }
+            }
+        };
+
+        SessionApiResult<SessionRuntimeStatusProjection> refreshRequired = service.GetRuntimeState(OwnerScope.LocalSingleUser, "char-1");
+        Assert.IsTrue(refreshRequired.IsImplemented);
+        Assert.IsNotNull(refreshRequired.Payload);
+        Assert.AreEqual(SessionRuntimeBundleFreshnessStates.RefreshRequired, refreshRequired.Payload.BundleFreshness);
+        Assert.IsTrue(refreshRequired.Payload.RequiresBundleRefresh);
+    }
+
     private static OwnerScopedSessionService CreateService(
         IRuleProfileRegistryService? ruleProfileRegistryService = null,
         IRuleProfileApplicationService? ruleProfileApplicationService = null,

@@ -127,7 +127,7 @@ REQUIRED_SNIPPETS = {
         "test -f docs/NEXT90_M142_DENSE_WORKBENCH_RECEIPTS.md",
         "test -f scripts/verify-next90-m142-dense-workbench-receipts.py",
         "test -f tests/test_next90_m142_dense_workbench_receipts.py",
-        'CHUMMER_CORE_ENGINE_TEST_FILTER=parity-m142 dotnet run --project Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj -m:1 -p:UseSharedCompilation=false',
+        'CHUMMER_CORE_ENGINE_TEST_FILTER=parity-m142 dotnet run --project Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj -c Release -m:1 -p:UseSharedCompilation=false',
         "python3 tests/test_next90_m142_dense_workbench_receipts.py",
         "python3 scripts/verify-next90-m142-dense-workbench-receipts.py --repo-root . --out .codex-studio/published/NEXT90_M142_DENSE_WORKBENCH_RECEIPTS.generated.json --check",
     ],
@@ -141,7 +141,7 @@ REQUIRED_SNIPPETS = {
         "workflow:notes",
         "content-addressed",
         "exactly one canonical package row in each staged queue root",
-        "CHUMMER_CORE_ENGINE_TEST_FILTER=parity-m142 dotnet run --project Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj -m:1 -p:UseSharedCompilation=false",
+        "CHUMMER_CORE_ENGINE_TEST_FILTER=parity-m142 dotnet run --project Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj -c Release -m:1 -p:UseSharedCompilation=false",
     ],
 }
 
@@ -605,7 +605,7 @@ def build_payload(repo_root: Path, out_path: Path) -> dict[str, Any]:
             "workflow:notes",
         ],
         "verification_commands": [
-            "CHUMMER_CORE_ENGINE_TEST_FILTER=parity-m142 dotnet run --project Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj -m:1 -p:UseSharedCompilation=false",
+            "CHUMMER_CORE_ENGINE_TEST_FILTER=parity-m142 dotnet run --project Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj -c Release -m:1 -p:UseSharedCompilation=false",
             "python3 tests/test_next90_m142_dense_workbench_receipts.py",
             "python3 scripts/verify-next90-m142-dense-workbench-receipts.py --repo-root . --out .codex-studio/published/NEXT90_M142_DENSE_WORKBENCH_RECEIPTS.generated.json",
         ],

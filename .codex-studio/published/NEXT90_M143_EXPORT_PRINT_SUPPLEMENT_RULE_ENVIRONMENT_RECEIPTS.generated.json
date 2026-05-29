@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-05-17T19:17:34Z",
+  "generated_at": "2026-05-22T17:00:46Z",
   "status": "passed",
   "package_id": "next90-m143-core-keep-export-print-supplement-and-rule-environment-receipts-deterministi",
   "frontier_id": 2778308338,
@@ -72,7 +72,7 @@
       "key": "tool_catalog_mstest",
       "path": "/docker/chummercomplete/chummer-core-engine/Chummer.Tests/ToolCatalogServiceTests.cs",
       "exists": true,
-      "digest": "sha256:5ebfcef700d55c55927ec53b828f6030dd987e8952a09ba587aaf51d9b5bbc42",
+      "digest": "sha256:8469ac2c8ea68ff482d702c735f7a2e005ec800fb1341f29952a40d2b1bf253c",
       "digest_scope": "full-file",
       "missing_snippets": [],
       "status": "passed"
@@ -81,7 +81,7 @@
       "key": "workspace_service_mstest",
       "path": "/docker/chummercomplete/chummer-core-engine/Chummer.Tests/WorkspaceServiceTests.cs",
       "exists": true,
-      "digest": "sha256:a5f27ebc8c9f7f5323a9bfab04c6b1c31b6abcfed42c73f522437ca4f7983bd2",
+      "digest": "sha256:082a1aa51a94eb6b992e777204baf2c45b3370ce783a7a924839e73aa6c08c3f",
       "digest_scope": "full-file",
       "missing_snippets": [],
       "status": "passed"
@@ -99,7 +99,7 @@
       "key": "repo_verify",
       "path": "/docker/chummercomplete/chummer-core-engine/scripts/ai/verify.sh",
       "exists": true,
-      "digest": "sha256:1aa759a3467a7b277f79a1a49903d0c9a21201aac9cc228a342246526b4d0198",
+      "digest": "sha256:4e7fe79aa8115b3bde2f7943133ba7832fbe8d53fb2a7b005252b6df9210a68a",
       "digest_scope": "m143-verify-block",
       "missing_snippets": [],
       "status": "passed"
@@ -108,7 +108,7 @@
       "key": "docs",
       "path": "/docker/chummercomplete/chummer-core-engine/docs/NEXT90_M143_EXPORT_PRINT_SUPPLEMENT_RULE_ENVIRONMENT_RECEIPTS.md",
       "exists": true,
-      "digest": "sha256:e374f873170c6501ddcc93a1b94ba9ff4118f3c7b600cfcd5e305fbdab3e4cc7",
+      "digest": "sha256:43f5c05d8fc172d02a67e1063b851a53ccb1fe02e67016f4011e5dcda70ef6f9",
       "digest_scope": "full-file",
       "missing_snippets": [],
       "status": "passed"
@@ -119,7 +119,7 @@
       "key": "successor_registry",
       "path": "/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml",
       "exists": true,
-      "digest": "sha256:ffca8c8b4d571b9634c510680ae5a3206b3582cd4c393f56ee0d5a4474f0aec8",
+      "digest": "sha256:a81a19cda009e18452a92de5957b6a983e07de1772c9171f8722b4c6368f2ec2",
       "digest_scope": "milestone-row",
       "missing_snippets": [],
       "status": "passed"
@@ -167,7 +167,7 @@
     "workflow:house_rules"
   ],
   "verification_commands": [
-    "CHUMMER_CORE_ENGINE_TEST_FILTER=parity-m143 dotnet run --project Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj -m:1 -p:UseSharedCompilation=false",
+    "CHUMMER_CORE_ENGINE_TEST_FILTER=parity-m143 dotnet run --project Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj -c Release -m:1 -p:UseSharedCompilation=false",
     "python3 tests/test_next90_m143_export_print_supplement_rule_environment_receipts.py",
     "python3 scripts/verify-next90-m143-export-print-supplement-rule-environment-receipts.py --repo-root . --out .codex-studio/published/NEXT90_M143_EXPORT_PRINT_SUPPLEMENT_RULE_ENVIRONMENT_RECEIPTS.generated.json"
   ],

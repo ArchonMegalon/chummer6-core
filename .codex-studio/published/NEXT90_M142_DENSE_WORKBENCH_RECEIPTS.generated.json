@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-05-17T19:17:42Z",
+  "generated_at": "2026-05-22T17:00:54Z",
   "status": "passed",
   "package_id": "next90-m142-core-keep-initiative-action-notes-and-workflow-state-receipts-deterministic",
   "frontier_id": 7923205254,
@@ -27,7 +27,7 @@
       "key": "receipt_verifier",
       "path": "/docker/chummercomplete/chummer-core-engine/scripts/verify-next90-m142-dense-workbench-receipts.py",
       "exists": true,
-      "digest": "sha256:0de8a5fe8d14ec0534e64dd9ef63210ee87ed36e916c0a9dcbc7899644aeb219",
+      "digest": "sha256:14a6c5d4a9bec382b9413400590a671e59567d548b96d7664d915884cd0dff27",
       "digest_scope": "full-file",
       "missing_snippets": [],
       "status": "passed"
@@ -36,7 +36,7 @@
       "key": "receipt_test",
       "path": "/docker/chummercomplete/chummer-core-engine/tests/test_next90_m142_dense_workbench_receipts.py",
       "exists": true,
-      "digest": "sha256:f04cde442c9b735829eb7c1a293c352f1224204035647fc8ec9e353e14d0a62d",
+      "digest": "sha256:d1cccb0cee257ca0d6671c68fdb71a6772fb96f4154a56c2547ec85f76025490",
       "digest_scope": "full-file",
       "missing_snippets": [],
       "status": "passed"
@@ -108,7 +108,7 @@
       "key": "repo_verify",
       "path": "/docker/chummercomplete/chummer-core-engine/scripts/ai/verify.sh",
       "exists": true,
-      "digest": "sha256:31bcb511136297eea82436570b0da86bff3e9b8d06e408eba5d5aa2ff33de62b",
+      "digest": "sha256:5dee0545b1976d05973b4048289fb3c2dbe31942bc3e3bebcf7aaeec2319a09e",
       "digest_scope": "m142-verify-block",
       "missing_snippets": [],
       "status": "passed"
@@ -117,7 +117,7 @@
       "key": "docs",
       "path": "/docker/chummercomplete/chummer-core-engine/docs/NEXT90_M142_DENSE_WORKBENCH_RECEIPTS.md",
       "exists": true,
-      "digest": "sha256:37eda5709e304c7d1c8c270b48bbcf65d8ed9312b20a696ce643ada9ad032764",
+      "digest": "sha256:2cdeee03aba3155c1e98a4a1c0cc6f9d6b0d736e97d50af8fc7a3c207b4f3d1c",
       "digest_scope": "full-file",
       "missing_snippets": [],
       "status": "passed"
@@ -128,7 +128,7 @@
       "key": "successor_registry",
       "path": "/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml",
       "exists": true,
-      "digest": "sha256:4e99984508c15d9b3b1b8d63948a02ceb76d417b6a2d053a13baefb2d547c096",
+      "digest": "sha256:a46f0856172fe1313fddd3a21d5f428ec98074ded1bab4eee889f854d273c470",
       "digest_scope": "milestone-row",
       "missing_snippets": [],
       "status": "passed"
@@ -220,7 +220,7 @@
     "workflow:notes"
   ],
   "verification_commands": [
-    "CHUMMER_CORE_ENGINE_TEST_FILTER=parity-m142 dotnet run --project Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj -m:1 -p:UseSharedCompilation=false",
+    "CHUMMER_CORE_ENGINE_TEST_FILTER=parity-m142 dotnet run --project Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj -c Release -m:1 -p:UseSharedCompilation=false",
     "python3 tests/test_next90_m142_dense_workbench_receipts.py",
     "python3 scripts/verify-next90-m142-dense-workbench-receipts.py --repo-root . --out .codex-studio/published/NEXT90_M142_DENSE_WORKBENCH_RECEIPTS.generated.json"
   ],

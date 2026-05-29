@@ -3,10 +3,15 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/_env.sh"
+cd "$repo_root"
 
 project_path="${1:-Chummer.Tests/Chummer.Tests.csproj}"
 shift || true
 extra_args=("$@")
+
+if [[ "$project_path" != /* ]]; then
+  project_path="$repo_root/$project_path"
+fi
 
 linux_framework="net10.0"
 windows_framework="net10.0-windows"
@@ -16,13 +21,24 @@ has_windows_desktop_runtime() {
 }
 
 run_linux_matrix() {
+  echo "[matrix] restore linux target: $project_path ($linux_framework)"
+  bash "$SCRIPT_DIR/restore.sh" "$project_path" -p:TargetFramework="$linux_framework"
+
   echo "[matrix] test linux target: $project_path ($linux_framework)"
-  bash "$SCRIPT_DIR/test.sh" "$project_path" -f "$linux_framework" "${extra_args[@]}"
+  bash "$SCRIPT_DIR/test.sh" "$project_path" -f "$linux_framework" --no-restore "${extra_args[@]}"
 }
 
 run_windows_compile_matrix() {
   echo "[matrix] build windows target: $project_path ($windows_framework)"
-  bash "$SCRIPT_DIR/build.sh" "$project_path" -f "$windows_framework" --no-restore
+  dotnet build "$project_path" \
+    -c Debug \
+    -f "$windows_framework" \
+    -p:RestoreNoWarn=NU1701 \
+    --nologo \
+    -v:minimal \
+    -clp:ErrorsOnly\;Summary \
+    -warnAsMessage:NU1701 \
+    -m:1
 }
 
 run_windows_execution_matrix() {

@@ -98,7 +98,7 @@ REQUIRED_SNIPPETS = {
         "test -f docs/NEXT90_M143_EXPORT_PRINT_SUPPLEMENT_RULE_ENVIRONMENT_RECEIPTS.md",
         "test -f scripts/verify-next90-m143-export-print-supplement-rule-environment-receipts.py",
         "test -f tests/test_next90_m143_export_print_supplement_rule_environment_receipts.py",
-        'CHUMMER_CORE_ENGINE_TEST_FILTER=parity-m143 dotnet run --project Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj -m:1 -p:UseSharedCompilation=false',
+        'CHUMMER_CORE_ENGINE_TEST_FILTER=parity-m143 dotnet run --project Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj -c Release -m:1 -p:UseSharedCompilation=false',
         "python3 tests/test_next90_m143_export_print_supplement_rule_environment_receipts.py",
         "python3 scripts/verify-next90-m143-export-print-supplement-rule-environment-receipts.py --repo-root . --out .codex-studio/published/NEXT90_M143_EXPORT_PRINT_SUPPLEMENT_RULE_ENVIRONMENT_RECEIPTS.generated.json --check",
     ],
@@ -115,7 +115,7 @@ REQUIRED_SNIPPETS = {
         "workflow:sr6_supplements",
         "workflow:house_rules",
         "exactly one canonical package row in each staged queue root",
-        "CHUMMER_CORE_ENGINE_TEST_FILTER=parity-m143 dotnet run --project Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj -m:1 -p:UseSharedCompilation=false",
+        "CHUMMER_CORE_ENGINE_TEST_FILTER=parity-m143 dotnet run --project Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj -c Release -m:1 -p:UseSharedCompilation=false",
     ],
 }
 
@@ -359,7 +359,7 @@ def build_payload(repo_root: Path, out_path: Path) -> dict[str, Any]:
             "workflow:house_rules",
         ],
         "verification_commands": [
-            "CHUMMER_CORE_ENGINE_TEST_FILTER=parity-m143 dotnet run --project Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj -m:1 -p:UseSharedCompilation=false",
+            "CHUMMER_CORE_ENGINE_TEST_FILTER=parity-m143 dotnet run --project Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj -c Release -m:1 -p:UseSharedCompilation=false",
             "python3 tests/test_next90_m143_export_print_supplement_rule_environment_receipts.py",
             "python3 scripts/verify-next90-m143-export-print-supplement-rule-environment-receipts.py --repo-root . --out .codex-studio/published/NEXT90_M143_EXPORT_PRINT_SUPPLEMENT_RULE_ENVIRONMENT_RECEIPTS.generated.json",
         ],

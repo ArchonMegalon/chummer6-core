@@ -15,5 +15,9 @@
     <FileVersion>1.0.0.0</FileVersion>
     <AssemblyName>Chummer.Engine.Contracts</AssemblyName>
     <PackageId>Chummer.Engine.Contracts</PackageId>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
 </Project>
