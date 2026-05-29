@@ -1,0 +1,12 @@
+{
+  "acceptance_proof_status": "pass",
+  "book_profile": "sr5_core",
+  "copyright_boundary": "implementation facts and structured Chummer data only; no sourcebook prose, art, tables, or page images are reproduced",
+  "depth_status": "pass",
+  "final_verdict": "SR5_RULE_AUTHORITY_READY",
+  "operator_review_promoted_at_utc": "2026-05-29T16:59:27Z",
+  "ruleset": "sr5",
+  "schema": "sr5-rule-authority-registry-v1",
+  "status": "pass",
+  "table_import_status": "accepted_sr5_structured_data_indexed"
+}

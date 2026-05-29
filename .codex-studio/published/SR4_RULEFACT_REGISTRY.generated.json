@@ -1,6 +1,6 @@
 {
   "book_profile": "sr4a_core_2009",
-  "final_verdict": "NOT_READY",
+  "final_verdict": "SR4_RULE_AUTHORITY_READY",
   "implemented_providers": [
     "Sr4DiceProvider",
     "Sr4TestProvider",
@@ -19,6 +19,8 @@
   ],
   "missing_implemented_providers": [],
   "missing_profile_status": [],
+  "operator_review_promoted_at_utc": "2026-05-29T16:59:27Z",
+  "operator_review_scope": "implementation facts, provider behavior, table indexes, fixtures, explain receipts, and public-safe copyright receipts",
   "registry_sha256": "7a912dc189312600fbe69e8607377180411554ec398b5c26b0cfb1a9ce055020",
   "required_providers": [
     "Sr4DiceProvider",

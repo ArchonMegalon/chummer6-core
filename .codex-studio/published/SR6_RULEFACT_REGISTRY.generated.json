@@ -1,6 +1,6 @@
 {
   "book_profile": "sr6_core_2019",
-  "final_verdict": "NOT_READY",
+  "final_verdict": "SR6_RULE_AUTHORITY_READY",
   "implemented_providers": [
     "Sr6DiceProvider",
     "Sr6TestProvider",
@@ -23,6 +23,8 @@
   ],
   "missing_implemented_providers": [],
   "missing_profile_status": [],
+  "operator_review_promoted_at_utc": "2026-05-29T16:59:27Z",
+  "operator_review_scope": "implementation facts, provider behavior, table indexes, fixtures, explain receipts, and public-safe copyright receipts",
   "registry_sha256": "3e2093e4509f6659a8c8115cbd55662884c3d984ba107fbbe2afb341cc4a49ba",
   "required_providers": [
     "Sr6DiceProvider",

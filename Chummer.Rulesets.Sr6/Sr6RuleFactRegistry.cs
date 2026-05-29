@@ -17,6 +17,7 @@ public sealed record Sr6RuleFactRegistry(
 {
     public const string ExpectedSchema = "sr6-rulefact-registry-v1";
     public const string NotReadyVerdict = "NOT_READY";
+    public const string ReadyVerdict = "SR6_RULE_AUTHORITY_READY";
 
     private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.Web)
     {

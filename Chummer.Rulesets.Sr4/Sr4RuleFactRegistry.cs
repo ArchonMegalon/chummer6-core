@@ -17,6 +17,7 @@ public sealed record Sr4RuleFactRegistry(
 {
     public const string ExpectedSchema = "sr4-rulefact-registry-v1";
     public const string NotReadyVerdict = "NOT_READY";
+    public const string ReadyVerdict = "SR4_RULE_AUTHORITY_READY";
 
     private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.Web)
     {

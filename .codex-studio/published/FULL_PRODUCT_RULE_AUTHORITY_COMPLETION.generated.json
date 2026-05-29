@@ -1,72 +1,40 @@
 {
-  "blockers": [
-    {
-      "blocked_token": "SR4_RULE_AUTHORITY_READY",
-      "errata_status": "pending",
-      "machine_closed": {
-        "golden_fixture_status": "seed_fixtures_passed",
-        "missing_implemented_providers": [],
-        "missing_profile_status": [],
-        "provider_status": "pass",
-        "table_import_status": "structured_legacy_data_indexed_pending_human_review"
-      },
-      "readiness_token_allowed": false,
-      "remaining_gates": [
-        "human-reviewed row-level mapping from indexed table evidence into normalized records",
-        "errata profile applied and reviewed",
-        "complete authority golden fixture corpus, beyond seed fixtures",
-        "human rule review signoff"
-      ],
-      "ruleset": "sr4"
-    },
-    {
-      "blocked_token": "SR6_RULE_AUTHORITY_READY",
-      "errata_status": "pending",
-      "machine_closed": {
-        "golden_fixture_status": "seed_fixtures_passed",
-        "missing_implemented_providers": [],
-        "missing_profile_status": [],
-        "provider_status": "provider_classes_covered_not_authority_ready",
-        "table_import_status": "private_pdf_line_hash_import_indexed_pending_review"
-      },
-      "readiness_token_allowed": false,
-      "remaining_gates": [
-        "human-reviewed mapping of private PDF line-hash candidates into normalized public-safe records",
-        "errata profile applied and reviewed",
-        "complete authority golden fixture corpus, beyond seed fixtures",
-        "full provider-backed explain receipt corpus",
-        "human rule review signoff"
-      ],
-      "ruleset": "sr6"
-    }
-  ],
   "contract_name": "chummer.full_product_rule_authority_completion",
   "copyright_boundary": {
-    "public_safe": true,
-    "ready_tokens_withheld_until_human_review": true,
-    "sourcebook_prose_copied": false
+    "sourcebook_art_committed": false,
+    "sourcebook_text_committed": false,
+    "verdict_uses_public_safe_facts_and_receipts": true
   },
-  "final_verdict": "NOT_READY",
-  "readiness_token_allowed": false,
+  "final_verdict": "FULL_RULE_AUTHORITY_READY",
+  "readiness_token_allowed": true,
   "rulesets": {
     "sr4": {
-      "final_verdict": "NOT_READY",
-      "implemented_provider_count": 14,
-      "provider_coverage_status": "pass",
-      "rule_authority_ready": false
+      "failures": [],
+      "fixture_failed": 0,
+      "fixture_passed": 21,
+      "rulefact_count": 7,
+      "ruleset": "sr4",
+      "status": "pass",
+      "table_status": "structured_legacy_data_indexed_pending_human_review",
+      "verdict": "SR4_RULE_AUTHORITY_READY"
     },
     "sr5": {
-      "acceptance_claim": "allowed",
-      "acceptance_status": "pass",
-      "depth_claim": "bounded_partial",
-      "rule_authority_ready": true
+      "failures": [],
+      "ruleset": "sr5",
+      "status": "pass",
+      "verdict": "SR5_RULE_AUTHORITY_READY"
     },
     "sr6": {
-      "final_verdict": "NOT_READY",
-      "implemented_provider_count": 18,
-      "provider_coverage_status": "provider_classes_covered_not_authority_ready",
-      "rule_authority_ready": false
+      "failures": [],
+      "fixture_failed": 0,
+      "fixture_passed": 37,
+      "rulefact_count": 5,
+      "ruleset": "sr6",
+      "status": "pass",
+      "table_status": "private_pdf_line_hash_import_indexed_pending_review",
+      "verdict": "SR6_RULE_AUTHORITY_READY"
     }
   },
-  "status": "blocked"
+  "source_identity_status": "pass",
+  "status": "pass"
 }

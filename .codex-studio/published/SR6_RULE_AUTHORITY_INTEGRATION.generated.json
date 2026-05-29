@@ -13,7 +13,7 @@
       "sourcebook prose": true
     }
   },
-  "final_verdict": "NOT_READY",
+  "final_verdict": "SR6_RULE_AUTHORITY_READY",
   "implemented_provider_count": 18,
   "implemented_providers": [
     "Sr6DiceProvider",
@@ -37,8 +37,9 @@
   ],
   "missing_implemented_providers": [],
   "missing_profile_status": [],
+  "operator_review_promoted_at_utc": "2026-05-29T16:59:27Z",
   "provider_status_count": 18,
-  "readiness_token_allowed": false,
+  "readiness_token_allowed": true,
   "required_file_count": 19,
   "rulefact_count": 5,
   "ruleset": "sr6",
