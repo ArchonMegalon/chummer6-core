@@ -1,0 +1,45 @@
+{
+  "claim_allowed": {
+    "preview": true,
+    "production_grade": false,
+    "reason": "This package is a rule authority seed plus extraction pipeline, not completed provider implementation."
+  },
+  "copyright_boundary": {
+    "implementation_facts_only": true,
+    "quote_allowed_false": true
+  },
+  "errata_profile": {
+    "notes": "Add SR4A errata/corrections profile before production-grade claim.",
+    "required_before_gold": true,
+    "status": "pending"
+  },
+  "final_verdict": "NOT_READY",
+  "implemented_provider_count": 14,
+  "implemented_providers": [
+    "Sr4DiceProvider",
+    "Sr4TestProvider",
+    "Sr4EdgeProvider",
+    "Sr4ActionEconomyProvider",
+    "Sr4CharacterCreationProvider",
+    "Sr4SkillProvider",
+    "Sr4DerivedStatsProvider",
+    "Sr4CombatProvider",
+    "Sr4DamageProvider",
+    "Sr4MatrixProvider",
+    "Sr4MagicProvider",
+    "Sr4RiggingProvider",
+    "Sr4GearProvider",
+    "Sr4ExplainReceiptProvider"
+  ],
+  "missing_implemented_providers": [],
+  "missing_profile_status": [],
+  "provider_status_count": 14,
+  "readiness_token_allowed": false,
+  "required_file_count": 19,
+  "rulefact_count": 7,
+  "ruleset": "sr4",
+  "seed_root": "/docker/chummercomplete/chummer-core-engine/docs/rulesets/sr4-rule-authority",
+  "source_ref_count": 18,
+  "status": "pass",
+  "workpackage_count": 12
+}

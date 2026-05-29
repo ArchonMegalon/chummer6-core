@@ -1,0 +1,83 @@
+version: sr6-magic-seed-v1
+source_ref: sr6_core_2019:p126-169
+drain:
+  default_damage_type: Stun
+  resist_pool: Willpower + tradition_attribute
+  damage: max(0, drain_value - hits)
+  becomes_physical_if_damage_gt_magic: true
+  not_healable_by_magic_or_medkits: true
+spellcasting:
+  action: Cast Spell Major Action
+  steps:
+  - adjust_spell
+  - roll_spellcasting_test
+  - deal_with_drain
+  test_pool: Sorcery + Magic
+  adjustments:
+    amp_up:
+      combat_only: true
+      drain_increase_per_extra_base_damage: 2
+    increase_area:
+      area_spells_only: true
+      base_radius_meters: 2
+      drain_increase_per_extra_2m_radius: 1
+    shift_area:
+      requires_supported_sustained_area_spell: true
+      action: Minor
+      drain_increase: 0
+  spell_categories:
+  - Combat
+  - Detection
+  - Health
+  - Illusion
+  - Manipulation
+  range_types:
+  - Touch
+  - LOS
+  - LOS(A)
+  - Special
+  duration_types:
+  - I
+  - S
+  - L
+  - P
+  type_values:
+  - M
+  - P
+combat_spells:
+  ar: Magic + tradition_attribute
+  direct:
+    test: Sorcery + Magic vs Willpower + Intuition
+    damage: net_hits + amp_up_damage
+    damage_resisted: false
+  indirect:
+    test: Sorcery + Magic vs Reaction + Willpower
+    damage: ceil(Magic / 2) + net_hits + amp_up_damage
+    damage_resisted_with: Body
+sustained_spell_penalty: -2 dice pool to action tests per sustained spell
+ritual_spellcasting:
+  steps:
+  - choose_leader
+  - choose_ritual
+  - set_up_foundation
+  - spend_reagents
+  - perform_ritual
+  - seal_ritual
+  seal_test: Sorcery + Magic
+  reagent_drain_reduction: after initial offering, each extra dram reduces Drain by
+    1 to minimum 2
+summoning:
+  test: Conjuring + Magic vs Force * 2
+  success: at least one net hit
+  services: net_hits
+  drain: hits rolled by spirit
+  drain_physical_if_gt_magic: true
+  duration: one sunrise and one sunset cycle
+  active_spirit_force_cap: summoner Magic * 3
+  reagent_edge: spend reagents equal to Force for 1 bonus Edge
+banishing:
+  test: Conjuring + Magic vs Force * 2
+  effect: net_hits reduce remaining services
+  spirit_departs_when_services_zero: true
+  drain: 2 * hits rolled by spirit
+  drain_physical_if_gt_magic: true

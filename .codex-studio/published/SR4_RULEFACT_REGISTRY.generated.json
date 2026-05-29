@@ -1,0 +1,143 @@
+{
+  "book_profile": "sr4a_core_2009",
+  "final_verdict": "NOT_READY",
+  "implemented_providers": [
+    "Sr4DiceProvider",
+    "Sr4TestProvider",
+    "Sr4EdgeProvider",
+    "Sr4ActionEconomyProvider",
+    "Sr4CharacterCreationProvider",
+    "Sr4SkillProvider",
+    "Sr4DerivedStatsProvider",
+    "Sr4CombatProvider",
+    "Sr4DamageProvider",
+    "Sr4MatrixProvider",
+    "Sr4MagicProvider",
+    "Sr4RiggingProvider",
+    "Sr4GearProvider",
+    "Sr4ExplainReceiptProvider"
+  ],
+  "missing_implemented_providers": [],
+  "missing_profile_status": [],
+  "registry_sha256": "7a912dc189312600fbe69e8607377180411554ec398b5c26b0cfb1a9ce055020",
+  "required_providers": [
+    "Sr4DiceProvider",
+    "Sr4TestProvider",
+    "Sr4EdgeProvider",
+    "Sr4ActionEconomyProvider",
+    "Sr4CharacterCreationProvider",
+    "Sr4SkillProvider",
+    "Sr4DerivedStatsProvider",
+    "Sr4CombatProvider",
+    "Sr4DamageProvider",
+    "Sr4MatrixProvider",
+    "Sr4MagicProvider",
+    "Sr4RiggingProvider",
+    "Sr4GearProvider",
+    "Sr4ExplainReceiptProvider"
+  ],
+  "rulefact_count": 7,
+  "rulefacts": [
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "die": "d6"
+      },
+      "id": "sr4.dice.type",
+      "provider": "Sr4DiceProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p60",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "hit_faces": [
+          5,
+          6
+        ],
+        "target_number": 5
+      },
+      "id": "sr4.dice.hit_faces",
+      "provider": "Sr4DiceProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p60-62",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "enabled_by": [
+          "pre_roll_edge",
+          "post_roll_edge_extra_dice",
+          "optional_cinematic_rule"
+        ],
+        "exploding_sixes_default": false
+      },
+      "id": "sr4.dice.rule_of_six",
+      "provider": "Sr4DiceProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p62,p74",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "glitch_when_ones_at_least_half_pool": true
+      },
+      "id": "sr4.dice.glitch",
+      "provider": "Sr4DiceProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p62",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "critical_glitch_when": "glitch_and_zero_hits"
+      },
+      "id": "sr4.dice.critical_glitch",
+      "provider": "Sr4DiceProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p62",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "gm_approval_required": true,
+        "hits": "floor(dice_pool / 4)"
+      },
+      "id": "sr4.dice.buy_hits",
+      "provider": "Sr4TestProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p62",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "requires_spend_edge": true,
+        "roll_only_edge_dice": true,
+        "rule_of_six": false,
+        "when_pool_zero_or_less": true
+      },
+      "id": "sr4.dice.long_shot",
+      "provider": "Sr4EdgeProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p61,p74",
+      "status": "seed"
+    }
+  ],
+  "ruleset": "sr4",
+  "schema": "sr4-rulefact-registry-v1",
+  "source_package": "sr4_rule_authority_extraction_package_20260529.zip",
+  "source_ref_count": 18
+}

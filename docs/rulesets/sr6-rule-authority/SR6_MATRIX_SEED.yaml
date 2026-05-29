@@ -1,0 +1,65 @@
+version: sr6-matrix-seed-v1
+source_ref: sr6_core_2019:p170-195
+matrix_test_process:
+- grab_dice
+- distribute_edge
+- roll_dice
+- determine_effect
+dice_pools:
+  legal_matrix_actions: Electronics + Logic
+  illegal_matrix_actions: Cracking + Logic
+matrix_edge_compare:
+  attack_rating: Attack + Sleaze
+  defense_rating: Data Processing + Firewall
+  delta_for_edge: 4
+  max_bonus_edge_per_round: 2
+bonus_edge_expires_when:
+- leave_host
+- reboot_device
+- jack_out
+- os_triggers_convergence
+overwatch_score:
+  convergence_at: 40
+  illegal_action_increase: defender_hits on illegal action
+  hacking_program_use: +1 per use
+  maintain_illegal_user_access: +1 OS per round per host
+  maintain_illegal_admin_access: +3 OS per round per host
+  convergence_effect: device bricked, user dumped, location reported
+dumpshock:
+  cold_sim_damage: 3S
+  hot_sim_damage: 3P
+  resist_with: Willpower
+  edge_lockout_minutes: 10 - Willpower
+noise:
+  effect: -1 matrix test dice per noise
+  device_blocked_if_noise_gt_device_rating: true
+  distance:
+  - range: direct_connection
+    noise: 0
+  - range: up_to_100m
+    noise: 0
+  - range: 100m_to_1000m
+    noise: 1
+  - range: 1001m_to_10km
+    noise: 3
+  - range: 10km_to_100km
+    noise: 5
+  - range: greater_than_100km
+    noise: 8
+matrix_edge_actions:
+- id: emergency_boost
+  cost: 1
+  effect: temporary Matrix attribute +1 for one test
+- id: hog
+  cost: 2
+  effect: target host/persona Data Processing -2 and active program slots -1
+- id: signal_scream
+  cost: 2
+  effect: next action ignores noise penalty
+- id: technobabble
+  cost: 2
+  restriction: technomancer
+  effect: use Charisma instead of Logic on next Matrix action
+- id: under_the_radar
+  cost: 3
+  effect: next illegal action this turn does not increase OS

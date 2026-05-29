@@ -1,0 +1,24 @@
+{
+  "copyright_boundary": "Receipts contain metadata and counts only, not copyrighted rulebook prose or copied tables.",
+  "generated_at_utc": "2026-05-29T13:41:32+00:00",
+  "rulesets": {
+    "sr4": {
+      "file_count": 27,
+      "remaining_gate": "human review must confirm licenses, edition fit, errata, and row-level mappings before READY",
+      "row_count": 6989,
+      "table_import_status": "structured_legacy_data_indexed_pending_human_review"
+    },
+    "sr5": {
+      "file_count": 42,
+      "remaining_gate": "none under current SR5 acceptance proof",
+      "row_count": 9297,
+      "table_import_status": "accepted_sr5_structured_data_indexed"
+    },
+    "sr6": {
+      "remaining_gate": "human review must map hashed candidate rows into normalized data records before SR6_RULE_AUTHORITY_READY",
+      "sourcebook_count": 4,
+      "table_import_status": "private_pdf_line_hash_import_indexed_pending_review"
+    }
+  },
+  "status": "pass"
+}

@@ -1,0 +1,68 @@
+version: sr6-core-source-map-v1
+book:
+  id: sr6_core_2019
+  title: Shadowrun Sixth World Core Rulebook
+  source_file: Shadowrun Sixth World.pdf
+  commit_policy: Do not commit PDF or full extracted text.
+chapters:
+- id: game_concepts
+  title: Game Concepts
+  pages: 34-57
+  implementation_priority: P0
+- id: character_creation
+  title: Character Creation
+  pages: 58-79
+  implementation_priority: P0
+- id: archetypes
+  title: Archetypes
+  pages: 80-90
+  implementation_priority: P2 fixtures only
+- id: skills
+  title: Skills
+  pages: 92-99
+  implementation_priority: P0
+- id: combat
+  title: Combat
+  pages: 104-125
+  implementation_priority: P0
+- id: magic
+  title: Magic
+  pages: 126-169
+  implementation_priority: P1
+- id: matrix
+  title: Matrix
+  pages: 170-195
+  implementation_priority: P1
+- id: rigging
+  title: Rigging
+  pages: 196-201
+  implementation_priority: P1
+- id: npcs_critters
+  title: Wild Life / NPCs / Critters
+  pages: 202-229
+  implementation_priority: P2
+- id: running_game
+  title: Running the Game
+  pages: 230-243
+  implementation_priority: P2
+- id: gear
+  title: Gear
+  pages: 244-303
+  implementation_priority: P1 data import
+- id: index_tables
+  title: Index and Tables
+  pages: 304-321
+  implementation_priority: P2 validation
+initial_seed_coverage:
+- dice/tests
+- attributes/derived stats
+- action economy
+- edge
+- status effects
+- character creation priority/metatype seed
+- skills seed
+- combat process
+- matrix core
+- magic core
+- rigging core
+- gear data import plan

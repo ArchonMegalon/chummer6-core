@@ -1,0 +1,29 @@
+version: sr4-ruleset-profile-v1
+ruleset: sr4
+book_profile: sr4a_core_2009
+source: user_uploaded_private_pdf
+public_copy_policy: no rulebook prose
+errata_profile:
+  status: pending
+  required_before_gold: true
+  notes: Add SR4A errata/corrections profile before production-grade claim.
+provider_status:
+  Sr4DiceProvider: seed
+  Sr4TestProvider: seed
+  Sr4EdgeProvider: seed
+  Sr4ActionEconomyProvider: seed
+  Sr4CharacterCreationProvider: seed
+  Sr4SkillProvider: seed
+  Sr4DerivedStatsProvider: seed
+  Sr4CombatProvider: seed
+  Sr4DamageProvider: seed
+  Sr4MatrixProvider: seed
+  Sr4MagicProvider: seed
+  Sr4RiggingProvider: seed
+  Sr4GearProvider: planned_import
+  Sr4ExplainReceiptProvider: seed
+claim_allowed:
+  preview: true
+  production_grade: false
+  reason: This package is a rule authority seed plus extraction pipeline, not completed
+    provider implementation.

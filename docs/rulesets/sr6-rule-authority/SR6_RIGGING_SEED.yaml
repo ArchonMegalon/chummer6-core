@@ -1,0 +1,42 @@
+version: sr6-rigging-seed-v1
+source_ref: sr6_core_2019:p196-201
+core:
+  vehicle_control_modes:
+  - manual driving
+  - remote control
+  - jumped-in control
+  single_controller: true
+  remote_noise_penalties_apply: true
+  rigging_vr:
+    cold_sim_initiative_dice: 3D6
+    hot_sim_initiative_dice: 4D6
+  vehicle_attack_rating: driver Piloting + vehicle Sensor
+  vehicle_defense_rating: driver Piloting + vehicle Armor
+control_rig:
+  required_for_jumped_in: true
+  bonus: +rating dice on tests operating jumped-in device
+  attribute_conversion:
+    Body: Willpower
+    Strength: Charisma
+    Agility: Logic
+    Reaction: Intuition
+rcc:
+  slaved_drones_cap: Rating * 3
+  command_many_drones_action: Major Action
+  autosoft_share_count: Data Processing rating
+  noise_reduction: Device Rating
+vehicles:
+  handling_as_threshold: true
+  distance_per_round: start_speed ± 0.5 * acceleration_delta
+  speed_interval_penalty: each passed interval adds cumulative -1 to handling-related
+    tests and attacks
+  condition_monitor: ceil(Body / 2) + 8
+  handling_increases_per_three_damage_boxes: 1
+drones:
+  autonomous_initiative_rank: Pilot * 2
+  autonomous_initiative_dice: 4D6
+  device_rating: Sensor
+  weapon_mounts: floor(unaugmented Body / 3)
+  autopilot_attack_pool: Targeting autosoft + Sensor; if missing autosoft use Sensor
+    - 1
+  jumped_in_attack_pool: Engineering + Logic

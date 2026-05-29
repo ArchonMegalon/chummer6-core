@@ -1,0 +1,131 @@
+version: sr4-core-mechanics-seed-v1
+copyright_policy: implementation_facts_only_no_prose
+dice:
+  rulefacts:
+  - id: sr4.dice.type
+    source_ref: sr4a_core_2009:p60
+    provider: Sr4DiceProvider
+    fact:
+      die: d6
+  - id: sr4.dice.hit_faces
+    source_ref: sr4a_core_2009:p60-62
+    provider: Sr4DiceProvider
+    fact:
+      hit_faces:
+      - 5
+      - 6
+      target_number: 5
+  - id: sr4.dice.rule_of_six
+    source_ref: sr4a_core_2009:p62,p74
+    provider: Sr4DiceProvider
+    fact:
+      exploding_sixes_default: false
+      enabled_by:
+      - pre_roll_edge
+      - post_roll_edge_extra_dice
+      - optional_cinematic_rule
+  - id: sr4.dice.glitch
+    source_ref: sr4a_core_2009:p62
+    provider: Sr4DiceProvider
+    fact:
+      glitch_when_ones_at_least_half_pool: true
+  - id: sr4.dice.critical_glitch
+    source_ref: sr4a_core_2009:p62
+    provider: Sr4DiceProvider
+    fact:
+      critical_glitch_when: glitch_and_zero_hits
+  - id: sr4.dice.buy_hits
+    source_ref: sr4a_core_2009:p62
+    provider: Sr4TestProvider
+    fact:
+      hits: floor(dice_pool / 4)
+      gm_approval_required: true
+  - id: sr4.dice.long_shot
+    source_ref: sr4a_core_2009:p61,p74
+    provider: Sr4EdgeProvider
+    fact:
+      when_pool_zero_or_less: true
+      requires_spend_edge: true
+      roll_only_edge_dice: true
+      rule_of_six: false
+tests:
+  success_test:
+    source_ref: sr4a_core_2009:p63
+    success: hits >= threshold
+    default_threshold_if_omitted: 1
+  opposed_test:
+    source_ref: sr4a_core_2009:p63
+    success: acting_hits > opposing_hits
+    tie_policy_general: stalemate_or_gm_policy
+    tie_policy_combat: defender_wins
+  extended_test:
+    source_ref: sr4a_core_2009:p64
+    success: cumulative_hits >= threshold
+    interval_required: true
+    pool_decay_default: 0
+  teamwork_test:
+    source_ref: sr4a_core_2009:p65
+    helpers_roll_first: true
+    helper_hits_add_dice_to_primary: true
+    max_bonus: primary_skill_rating
+    helper_critical_glitch_threshold_delta: 1
+    helper_critical_glitch_extended_threshold_delta: 3
+  trying_again:
+    source_ref: sr4a_core_2009:p65
+    cumulative_retry_penalty: -2
+    reset_after_rest: 5 minutes to 1 hour by GM
+    combat_exempt: true
+  critical_success:
+    source_ref: sr4a_core_2009:p65
+    net_hits_required: 4
+attributes:
+  physical:
+  - Body
+  - Agility
+  - Reaction
+  - Strength
+  mental:
+  - Charisma
+  - Intuition
+  - Logic
+  - Willpower
+  special:
+  - Edge
+  - Essence
+  - Magic
+  - Resonance
+  augmented_max: floor(natural_max * 1.5)
+  essence_start: 6
+  edge_max:
+    default: 6
+    human: 7
+  magic_max: 6 + initiation_grade
+  resonance_max: 6 + submersion_grade
+  source_ref: sr4a_core_2009:p67-70
+derived_stats:
+  physical_damage_track: 8 + ceil(Body / 2)
+  stun_damage_track: 8 + ceil(Willpower / 2)
+  initiative_attribute: Reaction + Intuition
+  initiative_score: initiative_attribute + initiative_test_hits
+  initiative_passes_default: 1
+  initiative_passes_max_basic: 4
+  initiative_passes_max_record_sheet: 5
+  wound_modifier: -1 per full 3 boxes on any damage track
+  source_ref: sr4a_core_2009:p71,p144-145,p376
+edge:
+  spend_options:
+  - pre_roll_add_edge_attribute_dice_all_dice_explode
+  - post_roll_add_edge_attribute_dice_edge_dice_explode
+  - reroll_non_hits_on_single_test
+  - long_shot_test
+  - go_first_in_initiative_pass
+  - gain_one_extra_initiative_pass_for_combat_turn
+  - negate_one_glitch_or_critical_glitch
+  - dead_mans_trigger
+  one_point_per_specific_test_or_action: true
+  spend_only_on_own_actions_except_teamwork: true
+  regain_by_gm_refresh: true
+  burn_options:
+  - automatic_critical_success
+  - hand_of_god_survive_certain_death
+  source_ref: sr4a_core_2009:p74-75

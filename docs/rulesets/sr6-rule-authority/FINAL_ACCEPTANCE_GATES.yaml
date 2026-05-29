@@ -1,0 +1,27 @@
+final_verdict_required: SR6_RULE_AUTHORITY_READY
+must_pass:
+- No sourcebook prose or art committed
+- RuleFact registry exists and validates
+- Core dice/test/edge providers pass
+- Character creation priority/metatype/skill providers pass
+- Derived stat provider passes
+- Combat and status providers pass
+- Matrix provider passes
+- Magic provider passes
+- Rigging provider passes
+- Gear/spell/vehicle table imports are safe and reviewed or explicitly deferred
+- Golden fixtures pass
+- Explain receipts are public-safe
+- Human review passes
+- Errata profile is either applied or explicitly marked pending with no production-grade
+  claim
+not_ready_if:
+- Codex guessed a rule from memory
+- Rulebook prose appears in repo
+- Public answers quote long book passages
+- Any required provider is missing
+- Any P0 RuleFact is missing
+- Gear/spell tables are hand-waved
+- Explain receipts missing
+- Human review missing
+- Final verdict claims production-grade while errata remains unreviewed

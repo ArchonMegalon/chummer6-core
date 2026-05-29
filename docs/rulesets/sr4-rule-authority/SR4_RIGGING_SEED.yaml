@@ -1,0 +1,45 @@
+version: sr4-rigging-seed-v1
+source_ref: sr4a_core_2009:p244-247,p167-171,p348
+core:
+  drones_are_devices: true
+  drones_have_matrix_nodes: true
+  drones_only_no_passengers: true
+  drone_rigger_adaptation_integral: true
+  passenger_vehicle_rigger_adaptation_optional: true
+control_modes:
+  autonomous:
+    driver: Pilot program
+    skills: autosofts
+    order_comprehension: Pilot test vs threshold
+  remote_control:
+    program: Command
+    subscription_required: true
+    control_one_drone_at_time: true
+    attribute_substitution: use Command rating in place of attribute except drone
+      Sensor for Perception
+    action_cost: Complex Action even when underlying drone task would be Simple
+  jumped_in:
+    requires_full_vr: true
+    subscription_required: true
+    action_to_jump_in: Simple Action
+    control_rig_bonus: implant bonuses on vehicle/drone tests; exact modifiers extracted
+      from gear/provider
+    damage_risk: dumpshock on forced ejection
+electronic_warfare:
+  signal_range: required for direct safe links
+  scan_sniffer: needed to locate devices and traffic
+  ecm_eccm: extract jamming and counter-jamming details
+vehicle_rules:
+  condition_monitor: 8 + ceil(Body / 2)
+  ar_driving_bonus: +1 dice to Vehicle Tests
+  vr_driving_threshold_modifier: -1
+  vehicle_tests_use: Reaction + vehicle skill +/- Handling; exact cases imported
+  chase_combat: abstract vehicle-only subsystem; implement after tactical vehicle
+    tests
+required_imports:
+- drone table
+- vehicle table
+- autosoft list
+- sensor rules
+- rigger adaptation stats
+- control rig stats

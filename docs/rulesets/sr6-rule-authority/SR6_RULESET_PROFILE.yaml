@@ -1,0 +1,34 @@
+version: sr6-ruleset-profile-v1
+ruleset: sr6
+book_profile: sr6_core_2019
+source: user_uploaded_private_pdf
+public_copy_policy: no rulebook prose
+errata_profile:
+  status: pending
+  required_before_gold: true
+  notes: Add official errata or selected table corrections before production-grade
+    claim.
+provider_status:
+  Sr6DiceProvider: seed
+  Sr6TestProvider: seed
+  Sr6EdgeProvider: seed
+  Sr6ActionEconomyProvider: seed
+  Sr6CharacterCreationProvider: seed
+  Sr6CombatProvider: seed
+  Sr6MatrixProvider: seed
+  Sr6MagicProvider: seed
+  Sr6RiggingProvider: seed
+  Sr6GearProvider: seed
+  Sr6MetatypeProvider: seed
+  Sr6SkillProvider: seed
+  Sr6QualityProvider: seed
+  Sr6DerivedStatsProvider: seed
+  Sr6StatusProvider: seed
+  Sr6AdvancementProvider: seed
+  Sr6ExplainReceiptProvider: seed
+  Sr6TableImportProvider: private_pdf_line_hash_import
+claim_allowed:
+  preview: true
+  production_grade: false
+  reason: This package is a rule authority seed plus extraction pipeline, not completed
+    provider implementation.

@@ -1,0 +1,89 @@
+version: sr4-rule-authority-workpackages-v1
+workpackages:
+- id: SR4-P0-001
+  title: Add copyright-safe SR4 rule authority canon
+  owner_repos:
+  - chummer6-design
+  - chummer6-core
+  priority: P0
+  verification:
+  - python3 scripts/verify_sr4_copyright_boundary.py
+- id: SR4-P0-002
+  title: Implement RuleFact registry schema and loader
+  owner_repos:
+  - chummer6-core
+  priority: P0
+  verification:
+  - dotnet test --filter Sr4RuleFactRegistryTests
+- id: SR4-P0-003
+  title: Implement Dice/Test/Edge providers
+  owner_repos:
+  - chummer6-core
+  priority: P0
+  verification:
+  - dotnet test --filter Sr4DiceProviderTests
+- id: SR4-P0-004
+  title: Implement BP character creation, metatype, attributes, skills
+  owner_repos:
+  - chummer6-core
+  - chummer6-ui
+  priority: P0
+  verification:
+  - dotnet test --filter Sr4CharacterCreationProviderTests
+- id: SR4-P0-005
+  title: Implement derived stats, Essence, condition monitors
+  owner_repos:
+  - chummer6-core
+  priority: P0
+  verification:
+  - dotnet test --filter Sr4DerivedStatsProviderTests
+- id: SR4-P0-006
+  title: Implement combat/action/damage providers
+  owner_repos:
+  - chummer6-core
+  priority: P0
+  verification:
+  - dotnet test --filter Sr4CombatProviderTests
+- id: SR4-P1-001
+  title: Implement magic provider
+  owner_repos:
+  - chummer6-core
+  priority: P1
+  verification:
+  - dotnet test --filter Sr4MagicProviderTests
+- id: SR4-P1-002
+  title: Implement Matrix provider
+  owner_repos:
+  - chummer6-core
+  priority: P1
+  verification:
+  - dotnet test --filter Sr4MatrixProviderTests
+- id: SR4-P1-003
+  title: Implement rigging provider
+  owner_repos:
+  - chummer6-core
+  priority: P1
+  verification:
+  - dotnet test --filter Sr4RiggingProviderTests
+- id: SR4-P1-004
+  title: Import gear/spell/quality/program/vehicle tables safely
+  owner_repos:
+  - chummer6-core
+  priority: P1
+  verification:
+  - python3 scripts/verify_sr4_table_imports.py
+- id: SR4-P0-007
+  title: Create golden fixtures and explain receipts
+  owner_repos:
+  - chummer6-core
+  - fleet
+  priority: P0
+  verification:
+  - python3 scripts/verify_sr4_golden_fixtures.py
+- id: SR4-P0-008
+  title: Final SR4 rule authority verdict
+  owner_repos:
+  - fleet
+  priority: P0
+  verification:
+  - python3 scripts/final_sr4_rule_authority_verdict.py

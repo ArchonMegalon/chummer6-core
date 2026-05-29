@@ -1,0 +1,38 @@
+version: sr6-rulefact-schema-v1
+RuleFact:
+  id: sr6.edge.gain.attack_defense_rating_delta
+  ruleset: sr6
+  book_profile: sr6_core_2019
+  category: edge
+  subsystem: combat
+  source_ref:
+    book: sr6_core_2019
+    page: 45
+    anchor: gaining_edge_ar_dr
+  fact_type: formula|enum|table|procedure|constraint|data_row
+  implementation:
+    provider: Sr6EdgeProvider
+    method: AwardAttackDefenseRatingEdge
+    test_refs:
+    - Sr6EdgeProviderTests.AttackDefenseDeltaAwardsOneEdge
+  safe_summary: Award one Edge to the side whose attack/defense rating advantage is
+    at least four, respecting per-round Edge limits.
+  public_explain_allowed: true
+  quote_allowed: false
+  status: seed|implemented|verified|deferred|disputed
+  human_review:
+    required: true
+    status: pending|pass|fail
+    reviewer: ''
+ExplainReceipt:
+  id: receipt_id
+  ruleset: sr6
+  provider: provider_name
+  input_hash: sha256
+  steps:
+  - rulefact_id: string
+    summary: short non-prose explanation
+    value: any
+  source_refs:
+  - sr6_core_2019:p45
+  public_safe: true

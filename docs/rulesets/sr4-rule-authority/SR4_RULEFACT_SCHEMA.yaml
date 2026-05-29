@@ -1,0 +1,37 @@
+version: sr4-rulefact-schema-v1
+RuleFact:
+  id: sr4.dice.hit_faces
+  ruleset: sr4
+  book_profile: sr4a_core_2009
+  category: dice
+  subsystem: core
+  source_ref:
+    book: sr4a_core_2009
+    page: 60
+    anchor: target_number_and_hits
+  fact_type: formula|enum|table|procedure|constraint|data_row
+  implementation:
+    provider: Sr4DiceProvider
+    method: CountHits
+    test_refs:
+    - Sr4DiceProviderTests.CountsFiveAndSixAsHits
+  safe_summary: Count each 5 or 6 on a d6 as one hit.
+  public_explain_allowed: true
+  quote_allowed: false
+  status: seed|implemented|verified|deferred|disputed
+  human_review:
+    required: true
+    status: pending|pass|fail
+    reviewer: ''
+ExplainReceipt:
+  id: receipt_id
+  ruleset: sr4
+  provider: provider_name
+  input_hash: sha256
+  steps:
+  - rulefact_id: string
+    summary: short non-prose explanation
+    value: any
+  source_refs:
+  - sr4a_core_2009:p60
+  public_safe: true

@@ -1,0 +1,88 @@
+version: sr4-combat-seed-v1
+source_ref: sr4a_core_2009:p144-171
+turn_structure:
+  combat_turn_seconds: 3
+  initiative_attribute: Reaction + Intuition
+  initiative_score: initiative_attribute + hits_on_initiative_test
+  initiative_order: descending initiative_score
+  same_score: simultaneous unless order needed; compare Edge, Initiative, Reaction
+  initiative_score_static_for_turn: true
+  reroll_each_turn: true
+  max_initiative_passes_basic_rules: 4
+  wound_modifiers_apply_to_initiative_score: true
+  if_initiative_score_zero_or_less_no_actions: true
+action_economy:
+  action_phase:
+    options:
+    - one_complex_action
+    - two_simple_actions
+    free_actions: one free action per initiative pass where character acts
+    free_can_replace_simple: true
+  free_actions_examples:
+  - Change Linked Device Mode
+  - Drop Object
+  - Drop Prone
+  - Eject Smartgun Clip
+  - Gesture
+  - Intercept
+  - Run
+  - Speak/Text Phrase
+  simple_actions_examples:
+  - Change Gun Mode
+  - Fire Weapon SS/SA/BF
+  - Insert Clip
+  - Observe in Detail
+  - Ready Weapon
+  - Remove Clip
+  - Take Aim
+  - Take Cover
+  complex_actions_examples:
+  - Fire Full-Auto
+  - Fire Mounted or Vehicle Weapon
+  - Full Defense
+  - Melee or Unarmed Attack
+  - Reload Firearm no clip
+  - Use Complex Object
+  - Use Skill
+  interrupt_actions:
+  - Full Defense and other explicitly allowed interrupt rules
+combat_sequence:
+- step: 1
+  id: declare_attack
+  summary: attacker declares attack; defender declares defense method
+- step: 2
+  id: apply_modifiers
+  summary: apply attacker and defender dice pool modifiers
+- step: 3
+  id: opposed_test
+  summary: attacker rolls attack skill + attribute; defender rolls defense pool; defender
+    wins ties
+- step: 4
+  id: compare_armor
+  summary: use modified damage and armor to decide Physical vs Stun for applicable
+    attacks
+- step: 5
+  id: damage_resistance
+  summary: defender rolls Body plus applicable armor/resistance modifiers
+- step: 6
+  id: apply_damage
+  summary: subtract soak hits and apply remaining boxes to monitor
+damage:
+  melee_damage_base: ceil(Strength / 2) plus weapon modifier
+  unarmed_damage: ceil(Strength / 2) Stun
+  wound_modifier: -1 per full 3 boxes on any one damage track, cumulative across tracks
+  physical_overflow: extra physical damage beyond physical track uses overflow rules
+  stun_overflow: remaining stun after stun track fills converts to physical
+armor:
+  ballistic: used against firearms/projectiles and similar
+  impact: used against melee, falling, explosions, etc.
+  vehicle_armor_rule: if modified DV does not exceed modified vehicle Armor, attack
+    fails
+vehicles:
+  vehicle_condition_monitor: 8 + ceil(Body / 2)
+  vehicle_pilot_as_attribute: true
+  vehicle_sensors_as_intuition: true
+  ar_driving_bonus: +1 dice to Vehicle Tests
+  vr_driving_threshold_modifier: -1
+  driver_defense_against_ranged: Reaction +/- Handling
+  drone_defense_against_ranged: Pilot +/- Handling

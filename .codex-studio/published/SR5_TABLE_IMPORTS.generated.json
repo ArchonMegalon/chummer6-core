@@ -1,0 +1,456 @@
+{
+  "acceptance_proof": "/docker/chummercomplete/chummer-core-engine/.codex-studio/published/SR5_ACCEPTANCE_PROOF.generated.json",
+  "coverage_threshold": "production_grade",
+  "file_count": 42,
+  "files": [
+    {
+      "container_counts": {
+        "actions": 260,
+        "version": 0
+      },
+      "file": "actions.xml",
+      "root": "chummer",
+      "row_count": 260,
+      "sha256": "050f129b3e8cd84d5c8c8ce5cabc3aecdd90d2185f193a501915664748cf37b5"
+    },
+    {
+      "container_counts": {
+        "armors": 202,
+        "categories": 5,
+        "modcategories": 12,
+        "mods": 70
+      },
+      "file": "armor.xml",
+      "root": "chummer",
+      "row_count": 289,
+      "sha256": "833d359f235515c5087a59501149dcbd3772ddbb562c784ad4ba272daa5f98c7"
+    },
+    {
+      "container_counts": {
+        "biowares": 213,
+        "categories": 16,
+        "grades": 9
+      },
+      "file": "bioware.xml",
+      "root": "chummer",
+      "row_count": 238,
+      "sha256": "9139c0c726c960a6d51ad60539acb8ec3e59433945b65aaeaf8e37a60da73cdd"
+    },
+    {
+      "container_counts": {
+        "books": 63
+      },
+      "file": "books.xml",
+      "root": "chummer",
+      "row_count": 63,
+      "sha256": "d54c4ff10dccdfc8b9bd1bfd425d3693d11f5d1f9d6ffb57ec710bf408a28c26"
+    },
+    {
+      "container_counts": {
+        "complexforms": 38
+      },
+      "file": "complexforms.xml",
+      "root": "chummer",
+      "row_count": 38,
+      "sha256": "188bfcb28c7d00097ee9946b0f4b1726bb286092b0560e26d519a26193edabf2"
+    },
+    {
+      "container_counts": {
+        "ages": 4,
+        "contacts": 75,
+        "genders": 3,
+        "hobbiesvices": 33,
+        "personallives": 7,
+        "preferredpayments": 10,
+        "types": 6
+      },
+      "file": "contacts.xml",
+      "root": "chummer",
+      "row_count": 138,
+      "sha256": "b37ecdc7a8efadc5fddadea962b713bcfed736ca3e79887400afd149a7ff5e42"
+    },
+    {
+      "container_counts": {
+        "categories": 9,
+        "powers": 291
+      },
+      "file": "critterpowers.xml",
+      "root": "chummer",
+      "row_count": 300,
+      "sha256": "d483fcb75ef6b6b835bf8ee07ad809d5c8c79e0c8762016b26499b4b4e4c8c3e"
+    },
+    {
+      "container_counts": {
+        "categories": 18,
+        "metatypes": 269
+      },
+      "file": "critters.xml",
+      "root": "chummer",
+      "row_count": 287,
+      "sha256": "fd33121d7ebcefc3db853ad58c89062568c4c6bd224d65813140460ea7cff823"
+    },
+    {
+      "container_counts": {
+        "categories": 16,
+        "cyberwares": 362,
+        "grades": 19
+      },
+      "file": "cyberware.xml",
+      "root": "chummer",
+      "row_count": 397,
+      "sha256": "8843bcec100e15cd01a01826a1fbe40205853a05adc98c50c82f568662db4fd3"
+    },
+    {
+      "container_counts": {
+        "categories": 3,
+        "drugcomponents": 22,
+        "drugs": 71,
+        "grades": 4
+      },
+      "file": "drugcomponents.xml",
+      "root": "chummer",
+      "row_count": 100,
+      "sha256": "6c13869d5419ae65b402ee3d91b36bc1cf71c792c2e2cdacf914dbf5e3af1425"
+    },
+    {
+      "container_counts": {
+        "echoes": 29
+      },
+      "file": "echoes.xml",
+      "root": "chummer",
+      "row_count": 29,
+      "sha256": "4f637df653972d0506a350b2ac7ed35a6ec2150e2dc60d0ed8421f5a0ff8fc9d"
+    },
+    {
+      "container_counts": {
+        "categories": 76,
+        "gears": 1598
+      },
+      "file": "gear.xml",
+      "root": "chummer",
+      "row_count": 1674,
+      "sha256": "563013781d3fd57b67048caa13bef634897a52dae4817785cfce76b050a39787"
+    },
+    {
+      "container_counts": {
+        "improvements": 88,
+        "movementcategories": 3
+      },
+      "file": "improvements.xml",
+      "root": "chummer",
+      "row_count": 91,
+      "sha256": "7438c1e9b2762fa483019982284998ca53f922f9b9a2f34871e7d1589971a00c"
+    },
+    {
+      "container_counts": {
+        "licenses": 36
+      },
+      "file": "licenses.xml",
+      "root": "chummer",
+      "row_count": 36,
+      "sha256": "a3018b06d70f972797eaf8739d4ee9a6d8d08148903418fe35dcf2e383a2250d"
+    },
+    {
+      "container_counts": {
+        "modules": 165,
+        "stages": 5,
+        "storybuilder": 1
+      },
+      "file": "lifemodules.xml",
+      "root": "chummer",
+      "row_count": 171,
+      "sha256": "e70a1484e29fb991a3b82ec7215770f1203dc3a065e7294e9f45140604904a66"
+    },
+    {
+      "container_counts": {
+        "categories": 6,
+        "cities": 18,
+        "comforts": 9,
+        "lifestyles": 12,
+        "neighborhoods": 9,
+        "qualities": 112,
+        "securities": 9
+      },
+      "file": "lifestyles.xml",
+      "root": "chummer",
+      "row_count": 175,
+      "sha256": "a850a75f67868c50204f3c20ab695d844090a252c6d93cfe22b4034604d842b1"
+    },
+    {
+      "container_counts": {
+        "martialarts": 53,
+        "techniques": 79
+      },
+      "file": "martialarts.xml",
+      "root": "chummer",
+      "row_count": 132,
+      "sha256": "99c654a312873a8799e99dfa5bd0379c287fda06356a791fe251e65f01a24fe7"
+    },
+    {
+      "container_counts": {
+        "mentors": 81
+      },
+      "file": "mentors.xml",
+      "root": "chummer",
+      "row_count": 81,
+      "sha256": "99f159aa78fa3a3244de3ef7ffeebc3b09de97a26a668417e5d990760da19f8e"
+    },
+    {
+      "container_counts": {
+        "arts": 18,
+        "metamagics": 63
+      },
+      "file": "metamagic.xml",
+      "root": "chummer",
+      "row_count": 81,
+      "sha256": "f9b88371def529206338989973ff6e67503dde8b142b0e5f8dc34f291fb983d2"
+    },
+    {
+      "container_counts": {
+        "categories": 4,
+        "metatypes": 21
+      },
+      "file": "metatypes.xml",
+      "root": "chummer",
+      "row_count": 25,
+      "sha256": "ccee5dfabb8d0e193aa980e9905822a0f94fb9bb8093c162f5b694a974946425"
+    },
+    {
+      "container_counts": {
+        "availmap": 5,
+        "blackmarketpipelinecategories": 11,
+        "limbcounts": 4,
+        "pdfarguments": 6
+      },
+      "file": "options.xml",
+      "root": "chummer",
+      "row_count": 26,
+      "sha256": "3fe4c040841150fdc924b5cbcd6754baa9ae73116d022629a8f8c9e513b735ba"
+    },
+    {
+      "container_counts": {
+        "categories": 12,
+        "packs": 80
+      },
+      "file": "packs.xml",
+      "root": "chummer",
+      "row_count": 92,
+      "sha256": "59b9ca0a0745fca3f7cc5b31d387ce9b4fd83044c5ccd72a06f3c5b009c7f95b"
+    },
+    {
+      "container_counts": {
+        "categories": 1,
+        "mentors": 9
+      },
+      "file": "paragons.xml",
+      "root": "chummer",
+      "row_count": 10,
+      "sha256": "f11acdd67b921f49b2a4417181397174dbd654694264cbaf37c6058c98fcad01"
+    },
+    {
+      "container_counts": {
+        "enhancements": 11,
+        "powers": 109
+      },
+      "file": "powers.xml",
+      "root": "chummer",
+      "row_count": 120,
+      "sha256": "28ead2b4a9ca1bbbf3d92f461281dd467bcc58a10f992dad43b90c1a971c0856"
+    },
+    {
+      "container_counts": {
+        "categories": 5,
+        "priorities": 45,
+        "version": 0
+      },
+      "file": "priorities.xml",
+      "root": "chummer",
+      "row_count": 50,
+      "sha256": "71727231e19e2a912d972ebdd538b701c82d62c8127c0042ac5ed788b8a50ffa"
+    },
+    {
+      "container_counts": {
+        "categories": 5,
+        "programs": 71
+      },
+      "file": "programs.xml",
+      "root": "chummer",
+      "row_count": 76,
+      "sha256": "58d863361629aa4f6914f42bdc45b23605c54605a2d65c57ded3b89253329700"
+    },
+    {
+      "container_counts": {
+        "categories": 2,
+        "qualities": 803,
+        "xpathqueries": 7
+      },
+      "file": "qualities.xml",
+      "root": "chummer",
+      "row_count": 812,
+      "sha256": "b56aa93651c06170cf338afb1b8d3ebc8adde49430ed9a7ece13f074a9127fcc"
+    },
+    {
+      "container_counts": {
+        "qualitygroups": 1
+      },
+      "file": "qualitylevels.xml",
+      "root": "chummer",
+      "row_count": 1,
+      "sha256": "87355b909abfb192db89dac0e59f3aa72a2672b4fe7f2f4b26fb2b37ff56916f"
+    },
+    {
+      "container_counts": {
+        "modifiers": 4,
+        "ranges": 31
+      },
+      "file": "ranges.xml",
+      "root": "chummer",
+      "row_count": 35,
+      "sha256": "7bcfacc259344f1eecbe983535791bc3aa5cb1a10e7d9d9e9455bbe916304241"
+    },
+    {
+      "container_counts": {
+        "rules": 921
+      },
+      "file": "references.xml",
+      "root": "chummer",
+      "row_count": 921,
+      "sha256": "c4f524aae30557fde19b184086167e4a77449b7699bcd1155a84e3a8486ca02c"
+    },
+    {
+      "container_counts": {
+        "settings": 34
+      },
+      "file": "settings.xml",
+      "root": "chummer",
+      "row_count": 34,
+      "sha256": "fcc5551d18e571b6519b79b909ac953710dde4dafd79697911f239e1819b573c"
+    },
+    {
+      "container_counts": {
+        "sheets": 20
+      },
+      "file": "sheets.xml",
+      "root": "chummer",
+      "row_count": 120,
+      "sha256": "a3d610d12b81e2a704b69eeb90bfbbe406cb3e1e0571e7d5ac1b0c8e183d4cc2"
+    },
+    {
+      "container_counts": {
+        "categories": 13,
+        "knowledgeskills": 195,
+        "skillgroups": 15,
+        "skills": 76
+      },
+      "file": "skills.xml",
+      "root": "chummer",
+      "row_count": 299,
+      "sha256": "8425a4800fb8309e60ee3fa7e96ed8510f1dced0b578f95b9d43fc93e019fc84"
+    },
+    {
+      "container_counts": {
+        "categories": 7,
+        "spells": 363
+      },
+      "file": "spells.xml",
+      "root": "chummer",
+      "row_count": 370,
+      "sha256": "771c08bfe8687e8a6f40210a69533726871ad235fce97a24127e0e24af6f0ffd"
+    },
+    {
+      "container_counts": {
+        "powers": 85
+      },
+      "file": "spiritpowers.xml",
+      "root": "chummer",
+      "row_count": 85,
+      "sha256": "83ccecca07d40efb7be160fd3814e3f7eb36a7d9c13a59d87c02114cbe336e2a"
+    },
+    {
+      "container_counts": {
+        "spirits": 7,
+        "traditions": 1
+      },
+      "file": "streams.xml",
+      "root": "chummer",
+      "row_count": 8,
+      "sha256": "488ce2f8e03d50307179a5343b396d153f4733be8dee0747fedfb417c180f2a4"
+    },
+    {
+      "container_counts": {
+        "elements": 7,
+        "immunities": 2,
+        "matrixattributes": 4,
+        "spiritcategories": 5
+      },
+      "file": "strings.xml",
+      "root": "chummer",
+      "row_count": 18,
+      "sha256": "dd988d8c528eeaa7e4942f2257b694010c21e7b280db824cc72e9ac0fa014d1b"
+    },
+    {
+      "container_counts": {
+        "tips": 16
+      },
+      "file": "tips.xml",
+      "root": "chummer",
+      "row_count": 16,
+      "sha256": "88b9710d17ba157e0a16677523993c1db99d4042f8bae57bbea29a6aae1cf8f6"
+    },
+    {
+      "container_counts": {
+        "drainattributes": 5,
+        "spirits": 57,
+        "traditions": 74
+      },
+      "file": "traditions.xml",
+      "root": "chummer",
+      "row_count": 136,
+      "sha256": "66e396cf43f859d4add96c42d74857a047048429a9d3707df3c3103c9342c641"
+    },
+    {
+      "container_counts": {
+        "categories": 19,
+        "modcategories": 7,
+        "mods": 197,
+        "vehicles": 380,
+        "weaponmountcategories": 1,
+        "weaponmountmods": 5,
+        "weaponmounts": 29
+      },
+      "file": "vehicles.xml",
+      "root": "chummer",
+      "row_count": 638,
+      "sha256": "4acc9846f5f339df017a480b153dfb940152d3155a6477b924cd1c31b451a827"
+    },
+    {
+      "container_counts": {
+        "categories": 1,
+        "metatypes": 9
+      },
+      "file": "vessels.xml",
+      "root": "chummer",
+      "row_count": 10,
+      "sha256": "a847cac5f39ac793a23219a9b15ee366d08b26eafa806b081cb6a641ab505693"
+    },
+    {
+      "container_counts": {
+        "accessories": 152,
+        "categories": 31,
+        "weapons": 632
+      },
+      "file": "weapons.xml",
+      "root": "chummer",
+      "row_count": 815,
+      "sha256": "ebc06a11bbc259413b94361ace937b0438bc67145e7d949e99d442c65a76871b"
+    }
+  ],
+  "generated_at_utc": "2026-05-29T13:41:32+00:00",
+  "public_copy_policy": "metadata only: file names, hashes, XML container names, and counts; no sourcebook prose, art, page images, item descriptions, or stat rows",
+  "remaining_gate": "none under current SR5 acceptance proof",
+  "row_count": 9297,
+  "ruleset": "sr5",
+  "source_kind": "legacy_chummer_structured_xml",
+  "source_path": "/docker/chummer5a/Chummer/data",
+  "status": "accepted_sr5_structured_data_indexed"
+}

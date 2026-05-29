@@ -1,0 +1,32 @@
+final_verdict_required: SR4_RULE_AUTHORITY_READY
+must_pass:
+- No sourcebook prose, fiction, art, or page images committed
+- SR4 RuleFact registry validates
+- Dice/Test/Edge providers pass
+- Build Point character creation provider passes
+- Metatype/attribute/skill/quality constraints pass
+- Derived stat/Essence/condition monitor provider passes
+- Combat/action/damage providers pass
+- Magic provider passes
+- Matrix provider passes
+- Rigging provider passes
+- Gear/spell/quality/program/vehicle table imports are safe and reviewed or explicitly
+  deferred
+- Golden fixtures pass
+- Explain receipts are public-safe
+- SR4/SR6 separation tests pass
+- Human review passes
+- Errata profile is either applied or explicitly marked pending with no production-grade
+  claim
+not_ready_if:
+- Codex guessed a rule from memory
+- Sourcebook prose appears in repo
+- Full fiction/sample character text appears in repo
+- Public answers quote long book passages
+- Any required provider is missing
+- Any P0 RuleFact is missing
+- SR4 rules are confused with SR5/SR6
+- Gear/spell/Matrix tables are hand-waved
+- Explain receipts missing
+- Human review missing
+- Final verdict claims production-grade while errata remains unreviewed

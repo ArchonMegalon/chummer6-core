@@ -1,0 +1,61 @@
+version: sr6-combat-seed-v1
+source_ref: sr6_core_2019:p104-125
+process:
+- step: 1
+  id: grab_dice
+  attacker_pool: appropriate_weapon_skill + Agility except vehicle weapons use Engineering
+    + Logic
+  defender_pool: Reaction + Intuition modified by status/surprise/etc
+- step: 2
+  id: distribute_edge
+  rule: compare Attack Rating vs Defense Rating; delta >= 4 awards Edge to higher
+    value; also check environment/gear/qualities
+- step: 3
+  id: roll_and_spend_edge
+  rule: count hits; ties in attack tests go to attacker; net hits add to damage
+- step: 4
+  id: soak_damage
+  rule: defender rolls Body; each hit reduces modified damage
+- step: 5
+  id: apply_damage
+  rule: remaining damage fills matching monitor; secondary effects require at least
+    1 damage
+initiative:
+  roll: initiative_rank + sum(initiative_dice)
+  reroll_between_rounds: false
+  tie_breaker:
+  - Edge
+  - Reaction
+  - Intuition
+  - coin_flip
+surprise:
+  test: Reaction + Intuition
+  threshold: 3
+  fail_effect: cannot act or spend Edge in first combat round; still defend/soak
+ranges_meters:
+  close: 0-3
+  near: 4-50
+  medium: 51-250
+  far: 251-500
+  extreme: 500+
+firing_modes:
+  SS:
+    rounds: 1
+    ar_delta: 0
+    dv_delta: 0
+  SA:
+    rounds: 2
+    ar_delta: -2
+    dv_delta: 1
+  BF_narrow:
+    rounds: 4
+    ar_delta: -4
+    dv_delta: 2
+  BF_wide:
+    rounds: 4
+    effect: split pool between two targets; treat each as SA-mode shot
+  FA:
+    rounds: 10
+    ar_delta: -6
+    effect: multiple attacks without Multiple Attack minor action
+vehicle_weapon_exception: Vehicle-mounted weapon attacks use Engineering + Logic.

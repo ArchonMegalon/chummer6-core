@@ -1,0 +1,49 @@
+{
+  "claim_allowed": {
+    "preview": true,
+    "production_grade": false,
+    "reason": "This package is a rule authority seed plus extraction pipeline, not completed provider implementation."
+  },
+  "copyright_boundary": {
+    "implementation_facts_only": true,
+    "quote_allowed_false": true,
+    "risk_pattern_mentions_are_boundary_context": {
+      "copy(?:ing|ied)? rulebook prose": false,
+      "page image": true,
+      "sourcebook prose": true
+    }
+  },
+  "final_verdict": "NOT_READY",
+  "implemented_provider_count": 18,
+  "implemented_providers": [
+    "Sr6DiceProvider",
+    "Sr6TestProvider",
+    "Sr6EdgeProvider",
+    "Sr6ActionEconomyProvider",
+    "Sr6CharacterCreationProvider",
+    "Sr6MetatypeProvider",
+    "Sr6SkillProvider",
+    "Sr6QualityProvider",
+    "Sr6DerivedStatsProvider",
+    "Sr6CombatProvider",
+    "Sr6StatusProvider",
+    "Sr6MagicProvider",
+    "Sr6MatrixProvider",
+    "Sr6RiggingProvider",
+    "Sr6GearProvider",
+    "Sr6TableImportProvider",
+    "Sr6AdvancementProvider",
+    "Sr6ExplainReceiptProvider"
+  ],
+  "missing_implemented_providers": [],
+  "missing_profile_status": [],
+  "provider_status_count": 18,
+  "readiness_token_allowed": false,
+  "required_file_count": 19,
+  "rulefact_count": 5,
+  "ruleset": "sr6",
+  "seed_root": "/docker/chummercomplete/chummer-core-engine/docs/rulesets/sr6-rule-authority",
+  "source_ref_count": 15,
+  "status": "pass",
+  "workpackage_count": 11
+}

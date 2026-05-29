@@ -1,0 +1,168 @@
+{
+  "candidate_table_line_count": 5213,
+  "category_line_counts": {
+    "armor": 272,
+    "cyberware_bioware": 491,
+    "gear": 306,
+    "magic_spells": 904,
+    "matrix": 1618,
+    "priority_metatype": 153,
+    "qualities": 215,
+    "rigging_vehicles_drones": 215,
+    "skills": 654,
+    "weapons": 571
+  },
+  "category_table_candidate_counts": {
+    "armor": 1069,
+    "cyberware_bioware": 1362,
+    "gear": 1464,
+    "magic_spells": 1001,
+    "matrix": 1827,
+    "priority_metatype": 800,
+    "qualities": 720,
+    "rigging_vehicles_drones": 707,
+    "skills": 1526,
+    "uncategorized": 1291,
+    "weapons": 1482
+  },
+  "generated_at_utc": "2026-05-29T13:41:32+00:00",
+  "nonempty_line_count": 127140,
+  "private_registry": "/docker/chummercomplete/_completion/sr6_rule_authority/private/SR6_TABLE_ROW_HASH_REGISTRY.private.generated.json",
+  "public_copy_policy": "metadata only: hashes, positions, categories, and counts; no sourcebook prose, art, page images, examples, item descriptions, or table cell text",
+  "remaining_gate": "human review must map hashed candidate rows into normalized data records before SR6_RULE_AUTHORITY_READY",
+  "ruleset": "sr6",
+  "source_kind": "private_local_sourcebook_pdf_line_hashes",
+  "sourcebook_count": 4,
+  "sources": [
+    {
+      "bytes": 42867088,
+      "candidate_table_line_count": 2169,
+      "category_line_counts": {
+        "armor": 237,
+        "cyberware_bioware": 130,
+        "gear": 263,
+        "magic_spells": 365,
+        "matrix": 558,
+        "priority_metatype": 57,
+        "qualities": 144,
+        "rigging_vehicles_drones": 139,
+        "skills": 547,
+        "weapons": 455
+      },
+      "category_table_candidate_counts": {
+        "armor": 993,
+        "cyberware_bioware": 658,
+        "gear": 1385,
+        "magic_spells": 748,
+        "matrix": 843,
+        "priority_metatype": 448,
+        "qualities": 653,
+        "rigging_vehicles_drones": 542,
+        "skills": 1339,
+        "uncategorized": 60,
+        "weapons": 1309
+      },
+      "file": "Shadowrun Sixth World.pdf",
+      "nonempty_line_count": 30171,
+      "page_count": 322,
+      "source_path": "/mnt/pcloud/personal/Roleplay/sr/Shadowrun Sixth World.pdf",
+      "source_sha256": "74ac2d4be4298c79200d9cfebaab235ae2526f45a11c6db1e11cf307a56f76e2"
+    },
+    {
+      "bytes": 182091868,
+      "candidate_table_line_count": 2567,
+      "category_line_counts": {
+        "armor": 2,
+        "cyberware_bioware": 350,
+        "gear": 14,
+        "magic_spells": 42,
+        "matrix": 1029,
+        "priority_metatype": 86,
+        "rigging_vehicles_drones": 60,
+        "weapons": 2
+      },
+      "category_table_candidate_counts": {
+        "armor": 9,
+        "cyberware_bioware": 680,
+        "gear": 11,
+        "magic_spells": 14,
+        "matrix": 953,
+        "priority_metatype": 335,
+        "rigging_vehicles_drones": 131,
+        "uncategorized": 1159
+      },
+      "file": "Shadowrun_6_Downloadversion_2024.pdf",
+      "nonempty_line_count": 79649,
+      "page_count": 354,
+      "source_path": "/mnt/pcloud/personal/Roleplay/sr/Shadowrun_6_Downloadversion_2024.pdf",
+      "source_sha256": "104dd5cc0f167232c3bc0f6453b389d9114dd7df483345e5b1211fda667bf023"
+    },
+    {
+      "bytes": 18946141,
+      "candidate_table_line_count": 346,
+      "category_line_counts": {
+        "armor": 13,
+        "cyberware_bioware": 11,
+        "gear": 14,
+        "magic_spells": 491,
+        "matrix": 21,
+        "priority_metatype": 9,
+        "qualities": 66,
+        "rigging_vehicles_drones": 7,
+        "skills": 102,
+        "weapons": 75
+      },
+      "category_table_candidate_counts": {
+        "armor": 22,
+        "cyberware_bioware": 24,
+        "gear": 36,
+        "magic_spells": 231,
+        "matrix": 10,
+        "priority_metatype": 15,
+        "qualities": 38,
+        "rigging_vehicles_drones": 18,
+        "skills": 174,
+        "uncategorized": 61,
+        "weapons": 105
+      },
+      "file": "Shadowrun_Street_Wyrd_(Core_Magic_Rulebook).pdf",
+      "nonempty_line_count": 15793,
+      "page_count": 170,
+      "source_path": "/mnt/pcloud/personal/Roleplay/sr/Shadowrun_Street_Wyrd_(Core_Magic_Rulebook).pdf",
+      "source_sha256": "84b0f67bb9347cb8477f636e331d477bea00302ecd50ff98f6e03cef778282c8"
+    },
+    {
+      "bytes": 2217536,
+      "candidate_table_line_count": 131,
+      "category_line_counts": {
+        "armor": 20,
+        "gear": 15,
+        "magic_spells": 6,
+        "matrix": 10,
+        "priority_metatype": 1,
+        "qualities": 5,
+        "rigging_vehicles_drones": 9,
+        "skills": 5,
+        "weapons": 39
+      },
+      "category_table_candidate_counts": {
+        "armor": 45,
+        "gear": 32,
+        "magic_spells": 8,
+        "matrix": 21,
+        "priority_metatype": 2,
+        "qualities": 29,
+        "rigging_vehicles_drones": 16,
+        "skills": 13,
+        "uncategorized": 11,
+        "weapons": 68
+      },
+      "file": "Shadowrun - 6e - Krime Katalog.pdf",
+      "nonempty_line_count": 1527,
+      "page_count": 41,
+      "source_path": "/mnt/pcloud/personal/Roleplay/sr/Shadowrun - 6e - Krime Katalog.pdf",
+      "source_sha256": "17f50a8bd69219e654641a9b91cbb05329020f240c62342199d3f29690aa673f"
+    }
+  ],
+  "status": "private_pdf_line_hash_import_indexed_pending_review"
+}

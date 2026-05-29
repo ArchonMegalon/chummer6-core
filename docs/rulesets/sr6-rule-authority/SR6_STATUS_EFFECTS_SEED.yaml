@@ -1,0 +1,87 @@
+version: sr6-status-effects-seed-v1
+source_ref: sr6_core_2019:p51-54
+statuses:
+- id: blinded
+  levels:
+  - 1
+  - 2
+  - 3
+  effect: 'level 1-2: visibility test penalty -3 per level; level 3: auto-fail visibility
+    tests'
+- id: burning
+  parameter: damage_amount
+  effect: resist listed Physical damage each round; removable by action/test or water;
+    canceled by Wet/Chilled
+- id: chilled
+  effect: initiative score -4 and -1 dice pool except damage resistance; cancels/canceled
+    by Burning
+- id: confused
+  parameter: penalty
+  effect: listed dice pool penalty to actions
+- id: corrosive
+  parameter: damage_amount
+  effect: resist listed Physical damage each round until neutralized/removed
+- id: cover
+  levels:
+  - 1
+  - 2
+  - 3
+  - 4
+  effect: +level to Defense Rating and Defense tests; attacking from cover has constraints;
+    cannot gain Edge while attacking from cover
+- id: dazed
+  effect: initiative score -4; cannot gain/spend Edge except burning
+- id: deafened
+  levels:
+  - 1
+  - 2
+  - 3
+  effect: 'level 1-2: hearing test penalty -3 per level; level 3: auto-fail hearing
+    tests'
+- id: fatigued
+  levels:
+  - 1
+  - 2
+  - 3
+  effect: -2 per level to dice pools except damage resistance; movement reduced
+- id: frightened
+  effect: -4 to tests directed to or defending against source
+- id: hazed
+  effect: cannot move between astral and physical; may still astrally perceive
+- id: hobbled
+  effect: on-foot movement from Move/Sprint/Avoid Incoming is halved rounded up
+- id: immobilized
+  effect: cannot move; attack rating -3; attacks -3 dice; no Reaction on defense tests
+- id: invisible
+  parameter: perception_threshold
+  effect: living/sentient observers need threshold hits; cameras see normally
+- id: invisible_improved
+  parameter: perception_threshold
+  effect: as Invisible but affects technological vision too
+- id: nauseated
+  effect: start of combat round Body + Willpower threshold 2; fail means no action;
+    success means lose a minor action
+- id: panicked
+  effect: cannot act except to avoid causing condition
+- id: petrified
+  effect: cannot act; +10 Armor Rating; cancels damaging statuses
+- id: poisoned
+  parameter: damage_code
+  effect: end of each round resist listed damage with Body; damage decreases by 1
+    each round
+- id: prone
+  effect: movement 2m, no Sprint, +2 Defense vs ranged Medium+, -2 defense vs Close/Near,
+    -4 melee/bow attacks, firearm/projectile AR +2
+- id: silent
+  parameter: hearing_threshold
+  effect: listeners need threshold hits; microphones hear normally
+- id: silent_improved
+  parameter: hearing_threshold
+  effect: as Silent but affects microphones/technology too
+- id: stilled
+  effect: cannot move; DR -10 minimum 0; no defense tests; only perception/mental
+    comms; halts ongoing effects
+- id: wet
+  effect: -6 dice pool to damage resistance against cold/electricity; cancels Burning
+- id: zapped
+  effect: initiative -2, cannot Sprint, -1 dice pool all actions

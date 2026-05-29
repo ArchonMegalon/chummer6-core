@@ -1,0 +1,31 @@
+version: sr6-golden-fixture-plan-v1
+required_fixtures:
+- id: sr6_basic_dice_and_edge
+  purpose: validate hits, glitch, edge boost, edge gain caps
+  status: required
+- id: sr6_priority_human_street_sam
+  purpose: validate priority system, attributes, skills, resources, derived stats
+  status: required
+- id: sr6_priority_elf_mage
+  purpose: validate magic priority, spells count, drain profile, derived stats
+  status: required
+- id: sr6_firearms_attack
+  purpose: validate attack process, AR/DR Edge, net hits, Body soak, condition monitor
+  status: required
+- id: sr6_direct_spell
+  purpose: validate direct combat spell opposed test and unresisted net-hit damage
+  status: required
+- id: sr6_indirect_spell_fireball
+  purpose: validate indirect spell damage, Body soak, status application, drain
+  status: required
+- id: sr6_matrix_illegal_action_os
+  purpose: validate illegal matrix pool, AR/DR Edge, OS accumulation, convergence
+    threshold
+  status: required
+- id: sr6_rigging_drone_attack
+  purpose: validate drone initiative, targeting autosoft, jumped-in attack pool
+  status: required
+fixture_policy:
+  may_use_archetypes_as_private_validation: true
+  do_not_publish_archetype_full_text: true
+  expected_values_must_be_human_reviewed: true

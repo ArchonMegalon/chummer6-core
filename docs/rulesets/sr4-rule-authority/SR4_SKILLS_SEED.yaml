@@ -1,0 +1,37 @@
+version: sr4-skills-seed-v1
+source_ref: sr4a_core_2009:p118-138
+skill_model:
+  base_skill_rating_range:
+  - 1
+  - 6
+  professional_competency: 3
+  natural_max: 6
+  natural_max_with_aptitude: 7
+  modified_max: floor(natural_rating * 1.5)
+  modified_max_normal: 9
+  modified_max_with_aptitude: 10
+  specialization_bonus_dice: 2
+  one_specialization_per_skill: true
+skill_families:
+- combat_active
+- magical_active
+- physical_active
+- resonance_active
+- social_active
+- technical_active
+- vehicle_active
+- special_active
+- knowledge
+- language
+required_imports:
+- active_skill_list
+- skill_group_list
+- linked_attribute_map
+- defaulting_allowed_map
+- specialization_catalog
+provider_rules:
+  defaulting:
+    pool: linked_attribute - 1
+    disallowed_when_skill_unavailable_or_unaware: true
+  knowledge_skill_starting_points: (Logic + Intuition) * 3
+  language_skill_handling: import table and defaults from skills chapter

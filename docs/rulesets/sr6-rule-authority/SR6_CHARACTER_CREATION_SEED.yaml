@@ -1,0 +1,349 @@
+version: sr6-character-creation-seed-v1
+source_ref: sr6_core_2019:p58-79
+priority_table:
+  A:
+    metatype:
+      options:
+      - Dwarf
+      - Ork
+      - Troll
+      adjustment_points: 13
+    attributes: 24
+    skills: 32
+    magic_resonance:
+      full: 4
+      aspected: 5
+      mystic_adept: 4
+      adept: 4
+      technomancer: 4
+    resources_nuyen: 450000
+  B:
+    metatype:
+      options:
+      - Dwarf
+      - Elf
+      - Ork
+      - Troll
+      adjustment_points: 11
+    attributes: 16
+    skills: 24
+    magic_resonance:
+      full: 3
+      aspected: 4
+      mystic_adept: 3
+      adept: 3
+      technomancer: 3
+    resources_nuyen: 275000
+  C:
+    metatype:
+      options:
+      - Dwarf
+      - Elf
+      - Human
+      - Ork
+      - Troll
+      adjustment_points: 9
+    attributes: 12
+    skills: 20
+    magic_resonance:
+      full: 2
+      aspected: 3
+      mystic_adept: 2
+      adept: 2
+      technomancer: 2
+    resources_nuyen: 150000
+  D:
+    metatype:
+      options:
+      - Dwarf
+      - Elf
+      - Human
+      - Ork
+      - Troll
+      adjustment_points: 4
+    attributes: 8
+    skills: 16
+    magic_resonance:
+      full: 1
+      aspected: 2
+      mystic_adept: 1
+      adept: 1
+      technomancer: 1
+    resources_nuyen: 50000
+  E:
+    metatype:
+      options:
+      - Dwarf
+      - Elf
+      - Human
+      - Ork
+      - Troll
+      adjustment_points: 1
+    attributes: 2
+    skills: 10
+    magic_resonance:
+      mundane: true
+    resources_nuyen: 8000
+metatype_attribute_ranges:
+  Human:
+    Body:
+    - 1
+    - 6
+    Agility:
+    - 1
+    - 6
+    Reaction:
+    - 1
+    - 6
+    Strength:
+    - 1
+    - 6
+    Willpower:
+    - 1
+    - 6
+    Logic:
+    - 1
+    - 6
+    Intuition:
+    - 1
+    - 6
+    Charisma:
+    - 1
+    - 6
+    Edge:
+    - 1
+    - 7
+    racial_qualities: []
+  Dwarf:
+    Body:
+    - 1
+    - 7
+    Agility:
+    - 1
+    - 6
+    Reaction:
+    - 1
+    - 5
+    Strength:
+    - 1
+    - 8
+    Willpower:
+    - 1
+    - 7
+    Logic:
+    - 1
+    - 6
+    Intuition:
+    - 1
+    - 6
+    Charisma:
+    - 1
+    - 6
+    Edge:
+    - 1
+    - 6
+    racial_qualities:
+    - Toxin Resistance
+    - Thermographic Vision
+  Elf:
+    Body:
+    - 1
+    - 6
+    Agility:
+    - 1
+    - 7
+    Reaction:
+    - 1
+    - 6
+    Strength:
+    - 1
+    - 6
+    Willpower:
+    - 1
+    - 6
+    Logic:
+    - 1
+    - 6
+    Intuition:
+    - 1
+    - 6
+    Charisma:
+    - 1
+    - 8
+    Edge:
+    - 1
+    - 6
+    racial_qualities:
+    - Low-Light Vision
+  Ork:
+    Body:
+    - 1
+    - 8
+    Agility:
+    - 1
+    - 6
+    Reaction:
+    - 1
+    - 6
+    Strength:
+    - 1
+    - 8
+    Willpower:
+    - 1
+    - 6
+    Logic:
+    - 1
+    - 6
+    Intuition:
+    - 1
+    - 6
+    Charisma:
+    - 1
+    - 5
+    Edge:
+    - 1
+    - 6
+    racial_qualities:
+    - Low-Light Vision
+    - Built Tough 1
+  Troll:
+    Body:
+    - 1
+    - 9
+    Agility:
+    - 1
+    - 5
+    Reaction:
+    - 1
+    - 6
+    Strength:
+    - 1
+    - 9
+    Willpower:
+    - 1
+    - 6
+    Logic:
+    - 1
+    - 6
+    Intuition:
+    - 1
+    - 6
+    Charisma:
+    - 1
+    - 5
+    Edge:
+    - 1
+    - 6
+    racial_qualities:
+    - Dermal Deposits
+    - Thermographic Vision
+    - Built Tough 2
+creation_constraints:
+  one_attribute_at_metatype_max_at_creation: true
+  skills_starting_max: 6
+  skills_starting_max_with_aptitude: 7
+  skills_gameplay_max: 9
+  skills_gameplay_max_with_aptitude: 10
+  max_quality_count_at_creation: 6
+  max_net_bonus_karma_from_qualities: 20
+  customization_karma: 50
+  prime_runner_customization_karma: 100
+  karma_to_nuyen: 2000
+  karma_to_nuyen_with_in_debt: 5000
+  max_starting_nuyen_after_creation: 5000
+  gear_purchase_illegal_availability_limit: cannot buy illegal gear with rating 7+
+    at character creation
+skills:
+- id: astral
+  primary_attribute: Intuition
+  secondary:
+  - Willpower for astral combat
+  untrained: false
+- id: athletics
+  primary_attribute: Agility
+  secondary:
+  - Strength situational
+  untrained: true
+- id: biotech
+  primary_attribute: Logic
+  secondary:
+  - Intuition rare
+  untrained: false
+- id: close_combat
+  primary_attribute: Agility
+  untrained: true
+- id: con
+  primary_attribute: Charisma
+  untrained: true
+- id: conjuring
+  primary_attribute: Magic
+  untrained: false
+- id: cracking
+  primary_attribute: Logic
+  untrained: false
+- id: electronics
+  primary_attribute: Logic
+  secondary:
+  - Intuition for kludge
+  untrained: true
+- id: enchanting
+  primary_attribute: Magic
+  untrained: false
+- id: engineering
+  primary_attribute: Logic
+  secondary:
+  - Intuition juryrigging
+  - Agility lockpicking
+  untrained: true
+- id: exotic_weapons
+  primary_attribute: Agility
+  untrained: false
+- id: firearms
+  primary_attribute: Agility
+  untrained: true
+- id: influence
+  primary_attribute: Charisma
+  secondary:
+  - Logic for clear argument
+  untrained: true
+- id: outdoors
+  primary_attribute: Intuition
+  untrained: true
+- id: perception
+  primary_attribute: Intuition
+  secondary:
+  - Logic for pattern recognition
+  untrained: true
+- id: piloting
+  primary_attribute: Reaction
+  untrained: true
+- id: sorcery
+  primary_attribute: Magic
+  untrained: false
+- id: stealth
+  primary_attribute: Agility
+  untrained: true
+- id: tasking
+  primary_attribute: Resonance
+  untrained: false
+contacts:
+  creation_points: Charisma * 6
+  ratings:
+  - Connection
+  - Loyalty
+  rating_range:
+  - 1
+  - 12
+  creation_rating_cap: character Charisma
+advancement:
+  attribute_cost: 5 * new_rank
+  active_skill_cost: 5 * new_rank
+  specialization_cost: 5
+  expertise_cost: 5
+  knowledge_skill_cost: 3
+  positive_quality_after_creation_cost: 2 * normal_cost
+  eliminate_negative_quality_cost: 2 * normal_bonus
+  new_spell_cost: 5
+  new_complex_form_cost: 5
+  initiation_cost: 10 + new_initiate_grade
+  submersion_cost: 10 + new_submersion_level

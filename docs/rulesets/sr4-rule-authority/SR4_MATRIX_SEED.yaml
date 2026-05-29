@@ -1,0 +1,69 @@
+version: sr4-matrix-seed-v1
+source_ref: sr4a_core_2009:p216-247
+core:
+  world_model:
+  - nodes
+  - icons
+  - personas
+  - programs
+  - devices
+  - subscriptions
+  matrix_attributes:
+  - Firewall
+  - Response
+  - Signal
+  - System
+  hardware_attributes:
+  - Response
+  - Signal
+  software_attributes:
+  - Firewall
+  - System
+  device_rating_default: all Matrix attributes equal Device rating unless customized
+  subscription_limit: System * 2
+  system_limits_program_rating: true
+  system_limited_by_base_response: true
+initiative:
+  matrix_initiative: Response + Intuition
+  matrix_condition_monitor: 8 + ceil(System / 2)
+  vr_ip: extract exact cold/hot sim initiative passes from Matrix chapter
+  provider: Sr4MatrixProvider
+program_model:
+  common_use_programs: import table
+  hacking_programs: import table
+  running_too_many_programs: Response degradation rules need table extraction
+  active_program_limits: Response/System-dependent extraction required
+actions:
+  required_imports:
+  - Analyze
+  - Browse
+  - Command
+  - Edit
+  - Encrypt
+  - Exploit
+  - Medic
+  - Scan
+  - Sniffer
+  - Spoof
+  - Trace
+  - Black Hammer
+  - Attack
+  - Armor
+  - Stealth
+  - Decrypt
+  - Defuse
+  matrix_action_list_source: sr4a_core_2009:p228-232
+hacking:
+  hacking_on_the_fly: extract exact Exploit + Hacking vs Firewall model
+  probing_target: extract extended test model
+  spoofing_requires_access_id: true
+  alerts: extract restricted/security alert response
+  cybercombat: extract attack/defense/damage model
+technomancy:
+  living_persona: derived from attributes; extract exact mapping
+  complex_forms: import table
+  sprites: import table
+  fading_resistance: Willpower + Resonance
+  threading_fading: DV equals hits used for rating points; Physical if final rating
+    exceeds Resonance
+  sprite_fading: DV equals twice sprite hits; Physical if sprite rating exceeds Resonance

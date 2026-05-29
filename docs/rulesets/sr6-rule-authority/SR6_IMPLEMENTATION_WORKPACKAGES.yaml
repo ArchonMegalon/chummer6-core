@@ -1,0 +1,82 @@
+version: sr6-rule-authority-workpackages-v1
+workpackages:
+- id: SR6-P0-001
+  title: Add copyright-safe SR6 rule authority canon
+  owner_repos:
+  - chummer6-design
+  - chummer6-core
+  priority: P0
+  verification:
+  - python3 scripts/verify_sr6_copyright_boundary.py
+- id: SR6-P0-002
+  title: Implement RuleFact registry schema and loader
+  owner_repos:
+  - chummer6-core
+  priority: P0
+  verification:
+  - dotnet test --filter Sr6RuleFactRegistryTests
+- id: SR6-P0-003
+  title: Implement Dice/Test/Edge providers
+  owner_repos:
+  - chummer6-core
+  priority: P0
+  verification:
+  - dotnet test --filter Sr6DiceProviderTests
+- id: SR6-P0-004
+  title: Implement Character Creation and Derived Stats providers
+  owner_repos:
+  - chummer6-core
+  - chummer6-ui
+  priority: P0
+  verification:
+  - dotnet test --filter Sr6CharacterCreationProviderTests
+- id: SR6-P0-005
+  title: Implement Combat and Status providers
+  owner_repos:
+  - chummer6-core
+  priority: P0
+  verification:
+  - dotnet test --filter Sr6CombatProviderTests
+- id: SR6-P1-001
+  title: Implement Matrix provider
+  owner_repos:
+  - chummer6-core
+  priority: P1
+  verification:
+  - dotnet test --filter Sr6MatrixProviderTests
+- id: SR6-P1-002
+  title: Implement Magic provider
+  owner_repos:
+  - chummer6-core
+  priority: P1
+  verification:
+  - dotnet test --filter Sr6MagicProviderTests
+- id: SR6-P1-003
+  title: Implement Rigging provider
+  owner_repos:
+  - chummer6-core
+  priority: P1
+  verification:
+  - dotnet test --filter Sr6RiggingProviderTests
+- id: SR6-P1-004
+  title: Import gear/spell/matrix/vehicle data tables safely
+  owner_repos:
+  - chummer6-core
+  priority: P1
+  verification:
+  - python3 scripts/verify_sr6_table_imports.py
+- id: SR6-P0-006
+  title: Create golden fixtures and explain receipts
+  owner_repos:
+  - chummer6-core
+  - fleet
+  priority: P0
+  verification:
+  - python3 scripts/verify_sr6_golden_fixtures.py
+- id: SR6-P0-007
+  title: Final SR6 rule authority verdict
+  owner_repos:
+  - fleet
+  priority: P0
+  verification:
+  - python3 scripts/final_sr6_rule_authority_verdict.py

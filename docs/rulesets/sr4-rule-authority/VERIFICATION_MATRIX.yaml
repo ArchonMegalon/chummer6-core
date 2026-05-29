@@ -1,0 +1,44 @@
+version: sr4-rule-authority-verification-v1
+gates:
+- id: SR4-G001
+  title: Copyright boundary
+  command: python3 scripts/verify_sr4_copyright_boundary.py
+- id: SR4-G002
+  title: RuleFact registry
+  command: dotnet test --filter Sr4RuleFactRegistryTests
+- id: SR4-G003
+  title: Dice/Test/Edge
+  command: dotnet test --filter 'Sr4DiceProviderTests|Sr4TestProviderTests|Sr4EdgeProviderTests'
+- id: SR4-G004
+  title: Character creation
+  command: dotnet test --filter Sr4CharacterCreationProviderTests
+- id: SR4-G005
+  title: Derived stats
+  command: dotnet test --filter Sr4DerivedStatsProviderTests
+- id: SR4-G006
+  title: Combat/damage
+  command: dotnet test --filter 'Sr4CombatProviderTests|Sr4DamageProviderTests'
+- id: SR4-G007
+  title: Magic
+  command: dotnet test --filter Sr4MagicProviderTests
+- id: SR4-G008
+  title: Matrix
+  command: dotnet test --filter Sr4MatrixProviderTests
+- id: SR4-G009
+  title: Rigging
+  command: dotnet test --filter Sr4RiggingProviderTests
+- id: SR4-G010
+  title: Table imports
+  command: python3 scripts/verify_sr4_table_imports.py
+- id: SR4-G011
+  title: Golden fixtures
+  command: python3 scripts/verify_sr4_golden_fixtures.py
+- id: SR4-G012
+  title: Explain receipts
+  command: python3 scripts/verify_sr4_explain_receipts.py
+- id: SR4-G013
+  title: Human review
+  command: test -f _completion/sr4_rule_authority/SR4_HUMAN_RULE_REVIEW.md
+- id: SR4-G014
+  title: Final verdict
+  command: python3 scripts/final_sr4_rule_authority_verdict.py

@@ -1,0 +1,81 @@
+version: sr4a-core-source-map-v1
+book:
+  id: sr4a_core_2009
+  title: Shadowrun Fourth Edition 20th Anniversary Core Rulebook
+  source_file: (SR4) Shadowrun 4e Core Rules.pdf
+  commit_policy: Do not commit PDF, page images, or full extracted text.
+chapters:
+- id: welcome
+  title: Welcome to the Shadows
+  pages: 14-19
+  implementation_priority: P3 background only
+- id: history
+  title: A History Lesson for the Reality Impaired
+  pages: 24-35
+  implementation_priority: P3 background only
+- id: life_on_edge
+  title: Life on the Edge
+  pages: 40-55
+  implementation_priority: P3 background only
+- id: game_concepts
+  title: Game Concepts
+  pages: 60-75
+  implementation_priority: P0
+- id: character_creation
+  title: Creating a Shadowrunner
+  pages: 80-97
+  implementation_priority: P0
+- id: sample_characters
+  title: Sample Characters
+  pages: 98-113
+  implementation_priority: P2 fixtures only
+- id: skills
+  title: Skills
+  pages: 118-138
+  implementation_priority: P0
+- id: combat
+  title: Combat
+  pages: 144-171
+  implementation_priority: P0
+- id: magic
+  title: The Awakened World
+  pages: 176-211
+  implementation_priority: P1
+- id: matrix
+  title: The Wireless World
+  pages: 216-247
+  implementation_priority: P1
+- id: running
+  title: Running the Shadows
+  pages: 252-275
+  implementation_priority: P1
+- id: friends_foes
+  title: Friends and Foes
+  pages: 280-303
+  implementation_priority: P2
+- id: street_gear
+  title: Street Gear
+  pages: 310-349
+  implementation_priority: P1 data import
+- id: master_index
+  title: Master Index
+  pages: 352-372
+  implementation_priority: P3
+- id: master_tables
+  title: Master Tables
+  pages: 373-378
+  implementation_priority: P2 validation
+initial_seed_coverage:
+- dice/tests/glitches
+- Edge spend/burn
+- Build Point character creation
+- metatype attribute ranges
+- attributes/skills/qualities constraints
+- condition monitors
+- initiative/passes
+- actions and combat sequence
+- damage and armor model
+- magic drain/spell force seed
+- Matrix attributes and nodes seed
+- rigging/drones seed
+- gear import plan

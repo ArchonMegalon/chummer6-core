@@ -1,0 +1,179 @@
+version: sr6-core-mechanics-seed-v1
+copyright_policy: implementation_facts_only_no_prose
+dice:
+  rulefacts:
+  - id: sr6.dice.hit_faces
+    source_ref: sr6_core_2019:p35
+    provider: Sr6DiceProvider
+    fact:
+      die: d6
+      hit_faces:
+      - 5
+      - 6
+      higher_is_better: true
+  - id: sr6.dice.glitch
+    source_ref: sr6_core_2019:p44
+    provider: Sr6DiceProvider
+    fact:
+      glitch_when_ones_exceed_half_pool: true
+  - id: sr6.dice.critical_glitch
+    source_ref: sr6_core_2019:p44
+    provider: Sr6DiceProvider
+    fact:
+      critical_glitch_when: glitch_and_zero_hits
+  - id: sr6.dice.buy_hits
+    source_ref: sr6_core_2019:p36
+    provider: Sr6TestProvider
+    fact:
+      hits: floor(dice_pool / 4)
+      edge_allowed: false
+      requires_gm_approval: true
+  - id: sr6.dice.wild_die
+    source_ref: sr6_core_2019:p48
+    provider: Sr6DiceProvider
+    fact:
+      wild_5_or_6_counts_as_hits: 3
+      wild_1_cancels_regular_5s: true
+      wild_2_3_4_no_effect: true
+tests:
+  simple:
+    roll: dice_pool
+    success: hits >= threshold
+    source_ref: sr6_core_2019:p35
+  opposed:
+    success: acting_hits > opposing_hits
+    ties: usually_aggressor
+    source_ref: sr6_core_2019:p35
+  extended:
+    success: cumulative_hits >= threshold
+    dice_pool_decay_per_roll: -1
+    source_ref: sr6_core_2019:p36
+  teamwork:
+    helper_hits_add_to_leader_pool: true
+    cap: leader_skill_or_higher_attribute
+    source_ref: sr6_core_2019:p36
+  retry:
+    cumulative_penalty_per_unchanged_retry: -2
+    combat_exempt: true
+    source_ref: sr6_core_2019:p36-37
+attributes:
+  physical:
+  - Body
+  - Agility
+  - Reaction
+  - Strength
+  mental:
+  - Willpower
+  - Logic
+  - Intuition
+  - Charisma
+  special:
+  - Edge
+  - Magic
+  - Resonance
+  - Essence
+  augmented_cap_delta: 4
+  source_ref: sr6_core_2019:p37-40
+derived_stats:
+  physical_condition_monitor: ceil(Body / 2) + 8
+  stun_condition_monitor: ceil(Willpower / 2) + 8
+  initiative_rank: Reaction + Intuition
+  initiative_score: initiative_rank + sum(initiative_dice)
+  initiative_dice_default: 1D6
+  initiative_dice_max: 5D6
+  defense_rating: Body + armor_rating + effects
+  unarmed_attack_rating_close: Strength + Reaction
+  source_ref: sr6_core_2019:p38-40
+action_economy:
+  combat_round_seconds: 3
+  base_actions_per_round:
+    major: 1
+    minor: 1
+  extra_minor_actions: one additional minor action per initiative die
+  major_can_be_minor: true
+  four_minor_to_major: true
+  max_minor_actions_at_turn_start: 5
+  actions_do_not_carry_between_rounds_unless_rule_says: true
+  source_ref: sr6_core_2019:p40-45,p107-108
+edge:
+  start_session_points: Edge attribute
+  max_edge_points: 7
+  max_bonus_edge_gain_per_round: 2
+  one_expenditure_per_round: true
+  bonus_edge_expires_after_confrontation: true
+  attack_defense_rating_delta_for_edge: 4
+  source_ref: sr6_core_2019:p44-48
+edge_boosts:
+- cost: 1
+  id: reroll_one_die
+  timing: post
+- cost: 1
+  id: add_3_initiative
+  timing: any
+- cost: 2
+  id: add_1_to_single_die
+  timing: any
+- cost: 2
+  id: give_ally_1_edge
+  timing: any
+- cost: 2
+  id: negate_foe_1_edge
+  timing: pre
+- cost: 3
+  id: buy_one_automatic_hit
+  timing: any
+- cost: 3
+  id: heal_one_stun_box
+  timing: any
+- cost: 4
+  id: add_edge_attribute_to_pool_exploding_sixes
+  timing: pre
+- cost: 4
+  id: heal_one_physical_box
+  timing: any
+- cost: 4
+  id: reroll_all_failed_dice
+  timing: post
+- cost: 5
+  id: twos_count_for_target_glitches
+  timing: pre
+- cost: 5
+  id: create_special_effect
+  timing: any
+edge_actions:
+- id: anticipation
+  cost: 4
+  linked_action: Multiple Attacks + Ranged Attack
+- id: big_speech
+  cost: 4
+  linked_action: Use Skill Influence
+- id: bring_the_drama
+  cost: 2
+  linked_action: Use Skill Con
+- id: called_shot_disarm
+  cost: 5
+  linked_action: any attack
+- id: called_shot_vitals
+  cost: 5
+  linked_action: any attack
+- id: fire_from_cover
+  cost: 2
+  linked_action: Ranged Attack in Cover IV
+- id: knockout_blow
+  cost: 2
+  linked_action: Melee Attack
+- id: shank
+  cost: 1
+  linked_action: Melee Attack with blade
+- id: sudden_insight
+  cost: 1
+  linked_action: Any
+- id: tactical_roll
+  cost: 1
+  linked_action: Hit the Dirt
+- id: tumble
+  cost: 1
+  linked_action: Melee Attack
+- id: wrest
+  cost: 2
+  linked_action: Block

@@ -1,0 +1,36 @@
+version: sr4-golden-fixture-plan-v1
+required_fixtures:
+- id: sr4_basic_dice_edge
+  purpose: validate hit counting, glitches, Rule of Six, Long Shot, Edge spend/burn
+  status: required
+- id: sr4_bp_human_street_sam
+  purpose: validate 400 BP creation, attributes, skills, resources, Essence, condition
+    monitors
+  status: required
+- id: sr4_bp_elf_mage
+  purpose: validate Magician quality, Magic, spells, drain attribute, foci/bound spirit
+    rules
+  status: required
+- id: sr4_bp_dwarf_hacker
+  purpose: validate Matrix attributes, commlink/programs, hacking pools, Matrix initiative
+  status: required
+- id: sr4_firearms_attack
+  purpose: validate ranged opposed attack, armor, damage resistance, wound modifiers
+  status: required
+- id: sr4_melee_attack
+  purpose: validate Strength-derived melee damage, Impact armor, full defense
+  status: required
+- id: sr4_summoning_spirit
+  purpose: validate Summoning + Magic vs Force, services, Drain
+  status: required
+- id: sr4_matrix_hacking_on_fly
+  purpose: validate node access, exploit/hacking, alert model, Matrix condition monitor
+  status: required
+- id: sr4_rigging_drone_remote_control
+  purpose: validate Command program attribute substitution, drone subscription, action
+    cost
+  status: required
+fixture_policy:
+  may_use_sample_characters_as_private_validation: true
+  do_not_publish_sample_character_full_text: true
+  expected_values_must_be_human_reviewed: true

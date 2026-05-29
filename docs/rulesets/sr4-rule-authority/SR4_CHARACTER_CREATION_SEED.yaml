@@ -1,0 +1,267 @@
+version: sr4-character-creation-seed-v1
+source_ref: sr4a_core_2009:p80-97
+creation_model:
+  standard_build_points: 400
+  low_power_example: 300
+  high_power_example: 500
+  system: Build Points
+metatype_attribute_table:
+  Human:
+    bp_cost: 0
+    attributes:
+      Body:
+      - 1
+      - 6
+      - 9
+      Agility:
+      - 1
+      - 6
+      - 9
+      Reaction:
+      - 1
+      - 6
+      - 9
+      Strength:
+      - 1
+      - 6
+      - 9
+      Charisma:
+      - 1
+      - 6
+      - 9
+      Intuition:
+      - 1
+      - 6
+      - 9
+      Logic:
+      - 1
+      - 6
+      - 9
+      Willpower:
+      - 1
+      - 6
+      - 9
+      Initiative:
+      - 2
+      - 12
+      - 18
+    abilities:
+    - +1 Edge
+  Ork:
+    bp_cost: 20
+    attributes:
+      Body:
+      - 4
+      - 9
+      - 13
+      Agility:
+      - 1
+      - 6
+      - 9
+      Reaction:
+      - 1
+      - 6
+      - 9
+      Strength:
+      - 3
+      - 8
+      - 12
+      Charisma:
+      - 1
+      - 5
+      - 7
+      Intuition:
+      - 1
+      - 6
+      - 9
+      Logic:
+      - 1
+      - 5
+      - 7
+      Willpower:
+      - 1
+      - 6
+      - 9
+      Initiative:
+      - 2
+      - 12
+      - 18
+    abilities:
+    - Low-Light Vision
+  Dwarf:
+    bp_cost: 25
+    attributes:
+      Body:
+      - 2
+      - 7
+      - 10
+      Agility:
+      - 1
+      - 6
+      - 9
+      Reaction:
+      - 1
+      - 5
+      - 7
+      Strength:
+      - 3
+      - 8
+      - 12
+      Charisma:
+      - 1
+      - 6
+      - 9
+      Intuition:
+      - 1
+      - 6
+      - 9
+      Logic:
+      - 1
+      - 6
+      - 9
+      Willpower:
+      - 2
+      - 7
+      - 10
+      Initiative:
+      - 2
+      - 11
+      - 16
+    abilities:
+    - Thermographic Vision
+    - +2 dice for Body tests to resist pathogens and toxins
+  Elf:
+    bp_cost: 30
+    attributes:
+      Body:
+      - 1
+      - 6
+      - 9
+      Agility:
+      - 2
+      - 7
+      - 10
+      Reaction:
+      - 1
+      - 6
+      - 9
+      Strength:
+      - 1
+      - 6
+      - 9
+      Charisma:
+      - 3
+      - 8
+      - 12
+      Intuition:
+      - 1
+      - 6
+      - 9
+      Logic:
+      - 1
+      - 6
+      - 9
+      Willpower:
+      - 1
+      - 6
+      - 9
+      Initiative:
+      - 2
+      - 12
+      - 18
+    abilities:
+    - Low-Light Vision
+  Troll:
+    bp_cost: 40
+    attributes:
+      Body:
+      - 5
+      - 10
+      - 15
+      Agility:
+      - 1
+      - 5
+      - 7
+      Reaction:
+      - 1
+      - 6
+      - 9
+      Strength:
+      - 5
+      - 10
+      - 15
+      Charisma:
+      - 1
+      - 4
+      - 6
+      Intuition:
+      - 1
+      - 5
+      - 7
+      Logic:
+      - 1
+      - 5
+      - 7
+      Willpower:
+      - 1
+      - 6
+      - 9
+      Initiative:
+      - 2
+      - 11
+      - 16
+    abilities:
+    - Thermographic Vision
+    - +1 Reach
+    - +1 natural armor cumulative with worn armor
+attribute_costs:
+  physical_mental_cost_per_point: 10
+  physical_mental_final_point_to_natural_max: 25
+  physical_mental_bp_cap_fraction: 0.5
+  standard_400_bp_physical_mental_cap: 200
+  only_one_attribute_at_natural_max: true
+  edge_cost_per_point: 10
+  edge_final_point_to_natural_max: 25
+  magic_resonance_cost_per_point: 10
+  magic_resonance_sixth_point_cost: 25
+  essence_start: 6
+quality_constraints:
+  positive_quality_bp_cap: 35
+  negative_quality_bp_cap: 35
+  adept_quality_cost: 5
+  magician_quality_cost: 15
+  mystic_adept_quality_cost: 10
+  technomancer_quality_cost: 5
+skill_costs:
+  active_skill: 4 BP per rating point
+  knowledge_skill: 2 BP per rating point
+  skill_group: 10 BP per rating point
+  active_specialization: 2
+  knowledge_specialization: 1
+  starting_knowledge_skill_points: (Logic + Intuition) * 3
+  starting_active_skill_max: one skill at 6 or two skills at 5; all others 4 or less
+  starting_skill_group_max: 4
+resources:
+  gear: 1 BP per 5000 nuyen
+  gear_bp_cap: 50
+  magical_resources:
+    spells: 3 BP per spell
+    max_spells: 2 * max(Spellcasting, Ritual Spellcasting)
+    bound_spirit_bp_cost: services_owed
+    bound_spirit_services_cap: Summoning skill or Conjuring group
+    bound_spirit_force: Magic attribute
+    max_bound_spirits: Charisma
+    bonded_focus_bp_cost: Force
+    total_bonded_foci_force_cap: 5 * Magic
+    foci_count_cap: Magic
+  technomancer_resources:
+    complex_form_cost: 1 BP per rating point
+    complex_form_count_cap: Logic * 2
+    registered_sprite_bp_cost: tasks_owed
+    registered_sprite_task_cap: Compiling skill
+    registered_sprite_rating: Resonance
+condition_monitors:
+  physical: 8 + ceil(Body / 2)
+  stun: 8 + ceil(Willpower / 2)
+  use_augmented_attributes: true
+  cyberlimb_bonus_physical_boxes: one per cyberlimb
