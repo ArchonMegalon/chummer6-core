@@ -1,0 +1,30 @@
+{
+  "final_verdict": "NOT_READY",
+  "implemented_provider_count": 18,
+  "implemented_providers": [
+    "Sr6DiceProvider",
+    "Sr6TestProvider",
+    "Sr6EdgeProvider",
+    "Sr6ActionEconomyProvider",
+    "Sr6CharacterCreationProvider",
+    "Sr6MetatypeProvider",
+    "Sr6SkillProvider",
+    "Sr6QualityProvider",
+    "Sr6DerivedStatsProvider",
+    "Sr6CombatProvider",
+    "Sr6StatusProvider",
+    "Sr6MagicProvider",
+    "Sr6MatrixProvider",
+    "Sr6RiggingProvider",
+    "Sr6GearProvider",
+    "Sr6TableImportProvider",
+    "Sr6AdvancementProvider",
+    "Sr6ExplainReceiptProvider"
+  ],
+  "missing_implemented_providers": [],
+  "missing_profile_status": [],
+  "provider_status_count": 18,
+  "readiness_token_allowed": false,
+  "ruleset": "sr6",
+  "status": "provider_classes_covered_not_authority_ready"
+}

@@ -1,0 +1,72 @@
+{
+  "blockers": [
+    {
+      "blocked_token": "SR4_RULE_AUTHORITY_READY",
+      "errata_status": "pending",
+      "machine_closed": {
+        "golden_fixture_status": "seed_fixtures_passed",
+        "missing_implemented_providers": [],
+        "missing_profile_status": [],
+        "provider_status": "pass",
+        "table_import_status": "structured_legacy_data_indexed_pending_human_review"
+      },
+      "readiness_token_allowed": false,
+      "remaining_gates": [
+        "human-reviewed row-level mapping from indexed table evidence into normalized records",
+        "errata profile applied and reviewed",
+        "complete authority golden fixture corpus, beyond seed fixtures",
+        "human rule review signoff"
+      ],
+      "ruleset": "sr4"
+    },
+    {
+      "blocked_token": "SR6_RULE_AUTHORITY_READY",
+      "errata_status": "pending",
+      "machine_closed": {
+        "golden_fixture_status": "seed_fixtures_passed",
+        "missing_implemented_providers": [],
+        "missing_profile_status": [],
+        "provider_status": "provider_classes_covered_not_authority_ready",
+        "table_import_status": "private_pdf_line_hash_import_indexed_pending_review"
+      },
+      "readiness_token_allowed": false,
+      "remaining_gates": [
+        "human-reviewed mapping of private PDF line-hash candidates into normalized public-safe records",
+        "errata profile applied and reviewed",
+        "complete authority golden fixture corpus, beyond seed fixtures",
+        "full provider-backed explain receipt corpus",
+        "human rule review signoff"
+      ],
+      "ruleset": "sr6"
+    }
+  ],
+  "contract_name": "chummer.full_product_rule_authority_completion",
+  "copyright_boundary": {
+    "public_safe": true,
+    "ready_tokens_withheld_until_human_review": true,
+    "sourcebook_prose_copied": false
+  },
+  "final_verdict": "NOT_READY",
+  "readiness_token_allowed": false,
+  "rulesets": {
+    "sr4": {
+      "final_verdict": "NOT_READY",
+      "implemented_provider_count": 14,
+      "provider_coverage_status": "pass",
+      "rule_authority_ready": false
+    },
+    "sr5": {
+      "acceptance_claim": "allowed",
+      "acceptance_status": "pass",
+      "depth_claim": "bounded_partial",
+      "rule_authority_ready": true
+    },
+    "sr6": {
+      "final_verdict": "NOT_READY",
+      "implemented_provider_count": 18,
+      "provider_coverage_status": "provider_classes_covered_not_authority_ready",
+      "rule_authority_ready": false
+    }
+  },
+  "status": "blocked"
+}

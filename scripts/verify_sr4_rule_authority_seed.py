@@ -183,6 +183,18 @@ def main() -> int:
         "workpackage_count": len(workpackages.get("workpackages", [])),
     }
 
+    provider_coverage = {
+        "status": "pass" if not missing_implemented_providers and not missing_profile_status else "incomplete",
+        "ruleset": "sr4",
+        "implemented_provider_count": len(implemented_providers),
+        "implemented_providers": implemented_providers,
+        "missing_implemented_providers": missing_implemented_providers,
+        "missing_profile_status": missing_profile_status,
+        "provider_status_count": len(provider_status),
+        "final_verdict": final_verdict,
+        "readiness_token_allowed": readiness_token_allowed,
+    }
+
     OUT_ROOT.mkdir(parents=True, exist_ok=True)
     (OUT_ROOT / "SR4_RULEFACT_REGISTRY.generated.json").write_text(
         json.dumps(registry, indent=2, sort_keys=True) + "\n",
@@ -190,6 +202,10 @@ def main() -> int:
     )
     (OUT_ROOT / "SR4_RULE_AUTHORITY_INTEGRATION.generated.json").write_text(
         json.dumps(report, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    (OUT_ROOT / "SR4_PROVIDER_COVERAGE.generated.json").write_text(
+        json.dumps(provider_coverage, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
 
