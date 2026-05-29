@@ -11,20 +11,15 @@ Unlike SR4, there is no named `chummer5a`-style legacy oracle in this repo for S
 | Runtime registration | demoted from the default runtime path | `docs/MIGRATION_BACKLOG.md`, `Chummer.Infrastructure/DependencyInjection/ServiceCollectionExtensions.cs` | SR6 no longer ships as a default-registered experimental host; SR6 stays opt-in until parity proof lands. |
 | Plugin shell/catalogs | present | `Chummer.Rulesets.Sr6/Sr6ShellCatalogs.cs` | workbench seams exist, so engine work can land without inventing new UI contracts. |
 | Workspace codec | partial | `Chummer.Rulesets.Sr6/Sr6WorkspaceCodec.cs` | import/export shape exists, but most section projections still need real parsing. |
-| Rule/script execution | not implemented | `Chummer.Rulesets.Sr6/Sr6RulesetPlugin.cs` | deterministic SR6 capability providers do not exist yet. |
+| Rule/script execution | bounded deterministic host plus SR6 authority seed | `Chummer.Rulesets.Sr6/Sr6RulesetPlugin.cs`, `docs/rulesets/sr6-rule-authority`, `.codex-studio/published/SR6_RULEFACT_REGISTRY.generated.json` | minimal deterministic capabilities exist, but the full SR6 provider set remains not ready. |
 | Fixture anchors | partially present | `Chummer.CoreEngine.Tests/Program.cs`, `Chummer.Tests/BuildKitRegistryServiceTests.cs`, `Chummer.Tests/ActiveRuntimeStatusServiceTests.cs` | the repo already has curated SR6 starter/runtime expectations that can seed a parity corpus. |
 
 ## Current mismatch
 
-SR6 is no longer default-registered, and its plugin still returns explicit experimental failures:
+SR6 now has a copyright-safe authority seed imported from `/home/tibor/sr6_rule_authority_extraction_package_20260529.zip`.
+The seed is stored under `docs/rulesets/sr6-rule-authority` and converted into `.codex-studio/published/SR6_RULEFACT_REGISTRY.generated.json`.
 
-- `SR6 rules engine is not implemented; this ruleset remains experimental.`
-- script execution also fails with an explicit not-implemented diagnostic.
-
-The runtime mismatch is now explicit and bounded. The lane still needs:
-
-1. real deterministic SR6 providers, or
-2. continued SR6 opt-in posture until those providers exist.
+The runtime mismatch is still explicit and bounded. The lane has a deterministic host for narrow capability seams, but the generated SR6 authority receipt keeps the final verdict at `NOT_READY` until the required provider set, reviewed table imports, fixtures, explain receipts, errata profile, and human review exist.
 
 ## Available SR6 parity anchors
 
@@ -35,6 +30,7 @@ The runtime mismatch is now explicit and bounded. The lane still needs:
 | Curated NPC preview packets | `neon-razor-biker`, `hex-lantern-mage` in `Chummer.CoreEngine.Tests/Program.cs` | seed real SR6 content examples and validation targets | SR6 NPC/content fixture corpus |
 | Workspace/document shape | `sr6/chum6-xml`, `.chum6` output, codec section parsing in `Chummer.Rulesets.Sr6/Sr6WorkspaceCodec.cs` | define the native import/export surface and fixture format | `Chummer.Rulesets.Sr6/Sr6WorkspaceCodec.cs` |
 | Shell/workbench seams | `Sr6ShellCatalogs.cs` and ruleset seam tests | keep UI seams stable while mechanics arrive | `Chummer.Rulesets.Sr6` plugin and contracts tests |
+| SR6 authority seed | `docs/rulesets/sr6-rule-authority`, `SR6_RULEFACT_REGISTRY.generated.json` | copyright-safe implementation facts and provider workpackages | `Chummer.Rulesets.Sr6/Sr6RuleFactRegistry.cs`, `scripts/verify_sr6_rule_authority_seed.py` |
 
 ## Execution rules
 
