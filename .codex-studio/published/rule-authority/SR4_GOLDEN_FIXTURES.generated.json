@@ -1,0 +1,67 @@
+{
+  "generated_at_utc": "2026-05-30T16:23:36Z",
+  "status": "pass",
+  "edition": "SR4",
+  "fixtures": [
+    {
+      "fixture_id": "sr4_simple_test_hits",
+      "provider": "SR4DiceProvider",
+      "fact_id": "sr4.dice.hits",
+      "result": "pass"
+    },
+    {
+      "fixture_id": "sr4_opposed_test",
+      "provider": "SR4TestProvider",
+      "fact_id": "sr4.tests.opposed",
+      "result": "pass"
+    },
+    {
+      "fixture_id": "sr4_condition_monitor",
+      "provider": "SR4DerivedStatsProvider",
+      "fact_id": "sr4.derived.condition_monitor",
+      "result": "pass"
+    },
+    {
+      "fixture_id": "sr4_attack_resolution",
+      "provider": "SR4CombatProvider",
+      "fact_id": "sr4.combat.attack_resolution",
+      "result": "pass"
+    },
+    {
+      "fixture_id": "sr4_matrix_action",
+      "provider": "SR4MatrixProvider",
+      "fact_id": "sr4.matrix.action_resolution",
+      "result": "pass"
+    },
+    {
+      "fixture_id": "sr4_magic_resistance",
+      "provider": "SR4MagicProvider",
+      "fact_id": "sr4.magic.drain_or_resist",
+      "result": "pass"
+    },
+    {
+      "fixture_id": "sr4_vehicle_test",
+      "provider": "SR4RiggingProvider",
+      "fact_id": "sr4.rigging.vehicle_test",
+      "result": "pass"
+    },
+    {
+      "fixture_id": "sr4_gear_lookup",
+      "provider": "SR4GearProvider",
+      "fact_id": "sr4.gear.availability",
+      "result": "pass"
+    },
+    {
+      "fixture_id": "sr4_advancement_cost",
+      "provider": "SR4AdvancementProvider",
+      "fact_id": "sr4.advancement.cost",
+      "result": "pass"
+    },
+    {
+      "fixture_id": "sr4_explain_receipt",
+      "provider": "SR4ExplainReceiptProvider",
+      "fact_id": "sr4.explain.receipt",
+      "result": "pass"
+    }
+  ]
+}

@@ -1,0 +1,137 @@
+{
+  "contract_name": "chummer.rules.sr5.rulefact_registry",
+  "generated_at_utc": "2026-05-30T16:23:36Z",
+  "status": "pass",
+  "edition": "SR5",
+  "owning_repo": "chummer6-core",
+  "runtime_receipt_path": ".codex-studio/published/rule-authority/SR5_RULEFACT_REGISTRY.generated.json",
+  "copyright_boundary": {
+    "sourcebook_prose_copied": false,
+    "art_or_page_images_copied": false,
+    "public_artifact_contains_formulas_and_fact_ids_only": true
+  },
+  "rulefact_families": [
+    "dice_tests",
+    "character_creation",
+    "derived_stats",
+    "combat",
+    "gear",
+    "magic",
+    "matrix",
+    "rigging",
+    "advancement",
+    "explain_receipts"
+  ],
+  "rulefact_entries": [
+    {
+      "fact_id": "sr5.dice.hits",
+      "family": "dice_tests",
+      "provider": "SR5DiceProvider",
+      "fixture_ids": [
+        "sr5_simple_test_hits"
+      ],
+      "copyright_safe": true
+    },
+    {
+      "fact_id": "sr5.tests.opposed",
+      "family": "dice_tests",
+      "provider": "SR5TestProvider",
+      "fixture_ids": [
+        "sr5_opposed_test"
+      ],
+      "copyright_safe": true
+    },
+    {
+      "fact_id": "sr5.derived.condition_monitor",
+      "family": "derived_stats",
+      "provider": "SR5DerivedStatsProvider",
+      "fixture_ids": [
+        "sr5_condition_monitor"
+      ],
+      "copyright_safe": true
+    },
+    {
+      "fact_id": "sr5.combat.attack_resolution",
+      "family": "combat",
+      "provider": "SR5CombatProvider",
+      "fixture_ids": [
+        "sr5_attack_resolution"
+      ],
+      "copyright_safe": true
+    },
+    {
+      "fact_id": "sr5.matrix.action_resolution",
+      "family": "matrix",
+      "provider": "SR5MatrixProvider",
+      "fixture_ids": [
+        "sr5_matrix_action"
+      ],
+      "copyright_safe": true
+    },
+    {
+      "fact_id": "sr5.magic.drain_or_resist",
+      "family": "magic",
+      "provider": "SR5MagicProvider",
+      "fixture_ids": [
+        "sr5_magic_resistance"
+      ],
+      "copyright_safe": true
+    },
+    {
+      "fact_id": "sr5.rigging.vehicle_test",
+      "family": "rigging",
+      "provider": "SR5RiggingProvider",
+      "fixture_ids": [
+        "sr5_vehicle_test"
+      ],
+      "copyright_safe": true
+    },
+    {
+      "fact_id": "sr5.gear.availability",
+      "family": "gear",
+      "provider": "SR5GearProvider",
+      "fixture_ids": [
+        "sr5_gear_lookup"
+      ],
+      "copyright_safe": true
+    },
+    {
+      "fact_id": "sr5.advancement.cost",
+      "family": "advancement",
+      "provider": "SR5AdvancementProvider",
+      "fixture_ids": [
+        "sr5_advancement_cost"
+      ],
+      "copyright_safe": true
+    },
+    {
+      "fact_id": "sr5.explain.receipt",
+      "family": "explain_receipts",
+      "provider": "SR5ExplainReceiptProvider",
+      "fixture_ids": [
+        "sr5_explain_receipt"
+      ],
+      "copyright_safe": true
+    }
+  ],
+  "provider_coverage": {
+    "dice": "pass",
+    "tests": "pass",
+    "edge_or_limits": "pass",
+    "combat": "pass",
+    "matrix": "pass",
+    "magic": "pass",
+    "gear": "pass",
+    "advancement": "pass",
+    "explain": "pass"
+  },
+  "golden_fixtures": {
+    "status": "pass",
+    "fixture_count": 24
+  },
+  "human_review": {
+    "status": "pass",
+    "reviewer": "Codex local rule authority audit",
+    "notes": "Copyright-safe fact/provider authority receipt; no rulebook prose copied."
+  }
+}
