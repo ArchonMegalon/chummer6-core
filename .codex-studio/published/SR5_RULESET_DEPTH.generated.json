@@ -1,7 +1,7 @@
 {
   "contract_name": "chummer-core.sr5_ruleset_depth",
   "status": "pass",
-  "generated_at": "2026-05-30T16:38:54.592789Z",
+  "generated_at": "2026-05-30T17:56:41.245072Z",
   "ruleset_id": "sr5",
   "display_name": "Shadowrun 5",
   "claim_ceiling": "full_rule_authority",
