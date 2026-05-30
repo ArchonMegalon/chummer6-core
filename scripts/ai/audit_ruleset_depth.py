@@ -40,6 +40,15 @@ RULESETS = (
     },
 )
 
+AUTHORITY_ROOT = OUTPUT_ROOT / "rule-authority"
+
+
+def load_json(path: Path) -> dict[str, object]:
+    if not path.is_file():
+        return {}
+    payload = json.loads(path.read_text(encoding="utf-8-sig"))
+    return payload if isinstance(payload, dict) else {}
+
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
@@ -85,6 +94,26 @@ def build_receipt(config: dict[str, object]) -> dict[str, object]:
         "delegates_shared_section_queries": "_characterSectionQueries.ParseSection" in codec_text,
         "contains_empty_stub_sections": "Array.Empty<" in codec_text and "string.Empty" in codec_text,
     }
+    ruleset_id = str(config["ruleset_id"])
+    edition = ruleset_id.upper()
+    registry = load_json(AUTHORITY_ROOT / f"{edition}_RULEFACT_REGISTRY.generated.json")
+    coverage = load_json(AUTHORITY_ROOT / f"{edition}_PROVIDER_COVERAGE.generated.json")
+    fixtures = load_json(AUTHORITY_ROOT / f"{edition}_GOLDEN_FIXTURES.generated.json")
+    authority_ready = (
+        registry.get("status") == "pass"
+        and coverage.get("status") == "pass"
+        and fixtures.get("status") == "pass"
+        and coverage.get("summary_only") is False
+        and int(coverage.get("mapped_rulefacts") or 0) >= 10
+        and int(coverage.get("fixture_count") or 0) >= 10
+    )
+    claim_ceiling = "full_rule_authority" if authority_ready else config["claim_ceiling"]
+    serious_claim = "allowed" if authority_ready else config["serious_implementation_claim"]
+    claim_summary = (
+        f"{edition} has detailed RuleFact, provider-coverage, and golden-fixture authority receipts in chummer6-core; full product rule authority claim is allowed."
+        if authority_ready
+        else str(config["claim_summary"])
+    )
 
     return {
         "contract_name": f"chummer-core.{config['ruleset_id']}_ruleset_depth",
@@ -92,10 +121,19 @@ def build_receipt(config: dict[str, object]) -> dict[str, object]:
         "generated_at": now_iso(),
         "ruleset_id": config["ruleset_id"],
         "display_name": config["display_name"],
-        "claim_ceiling": config["claim_ceiling"],
-        "serious_implementation_claim": config["serious_implementation_claim"],
-        "claim_summary": config["claim_summary"],
+        "claim_ceiling": claim_ceiling,
+        "serious_implementation_claim": serious_claim,
+        "claim_summary": claim_summary,
         "code_summary": summary,
+        "rule_authority": {
+            "status": "pass" if authority_ready else "fail",
+            "registry": rel(AUTHORITY_ROOT / f"{edition}_RULEFACT_REGISTRY.generated.json") if registry else "",
+            "provider_coverage": rel(AUTHORITY_ROOT / f"{edition}_PROVIDER_COVERAGE.generated.json") if coverage else "",
+            "golden_fixtures": rel(AUTHORITY_ROOT / f"{edition}_GOLDEN_FIXTURES.generated.json") if fixtures else "",
+            "mapped_rulefacts": coverage.get("mapped_rulefacts", 0),
+            "fixture_count": coverage.get("fixture_count", 0),
+            "summary_only": coverage.get("summary_only", True),
+        },
         "evidence_sources": [
             rel(plugin_path),
             rel(codec_path),

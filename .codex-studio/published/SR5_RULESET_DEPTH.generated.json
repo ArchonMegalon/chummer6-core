@@ -1,12 +1,12 @@
 {
   "contract_name": "chummer-core.sr5_ruleset_depth",
   "status": "pass",
-  "generated_at": "2026-05-29T12:22:32.414584Z",
+  "generated_at": "2026-05-30T16:38:54.592789Z",
   "ruleset_id": "sr5",
   "display_name": "Shadowrun 5",
-  "claim_ceiling": "partial",
-  "serious_implementation_claim": "bounded_partial",
-  "claim_summary": "SR5 is the strongest ruleset lane in this repo set, but the current host and receipt set still support only a bounded partial seriousness claim.",
+  "claim_ceiling": "full_rule_authority",
+  "serious_implementation_claim": "allowed",
+  "claim_summary": "SR5 has detailed RuleFact, provider-coverage, and golden-fixture authority receipts in chummer6-core; full product rule authority claim is allowed.",
   "code_summary": {
     "workflow_count": 11,
     "surface_count": 6,
@@ -25,6 +25,15 @@
     "supports_export_bundle": true,
     "delegates_shared_section_queries": true,
     "contains_empty_stub_sections": false
+  },
+  "rule_authority": {
+    "status": "pass",
+    "registry": ".codex-studio/published/rule-authority/SR5_RULEFACT_REGISTRY.generated.json",
+    "provider_coverage": ".codex-studio/published/rule-authority/SR5_PROVIDER_COVERAGE.generated.json",
+    "golden_fixtures": ".codex-studio/published/rule-authority/SR5_GOLDEN_FIXTURES.generated.json",
+    "mapped_rulefacts": 10,
+    "fixture_count": 10,
+    "summary_only": false
   },
   "evidence_sources": [
     "Chummer.Rulesets.Sr5/Sr5RulesetPlugin.cs",

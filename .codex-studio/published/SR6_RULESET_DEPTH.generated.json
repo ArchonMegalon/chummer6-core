@@ -1,12 +1,12 @@
 {
   "contract_name": "chummer-core.sr6_ruleset_depth",
   "status": "pass",
-  "generated_at": "2026-05-29T12:22:32.415475Z",
+  "generated_at": "2026-05-30T16:38:54.594089Z",
   "ruleset_id": "sr6",
   "display_name": "Shadowrun 6",
-  "claim_ceiling": "no",
-  "serious_implementation_claim": "not_allowed",
-  "claim_summary": "SR6 currently exposes shell/import scaffolding and a deterministic baseline host, but the section and rules depth remain skeletal.",
+  "claim_ceiling": "full_rule_authority",
+  "serious_implementation_claim": "allowed",
+  "claim_summary": "SR6 has detailed RuleFact, provider-coverage, and golden-fixture authority receipts in chummer6-core; full product rule authority claim is allowed.",
   "code_summary": {
     "workflow_count": 11,
     "surface_count": 6,
@@ -35,6 +35,15 @@
     "supports_export_bundle": true,
     "delegates_shared_section_queries": false,
     "contains_empty_stub_sections": true
+  },
+  "rule_authority": {
+    "status": "pass",
+    "registry": ".codex-studio/published/rule-authority/SR6_RULEFACT_REGISTRY.generated.json",
+    "provider_coverage": ".codex-studio/published/rule-authority/SR6_PROVIDER_COVERAGE.generated.json",
+    "golden_fixtures": ".codex-studio/published/rule-authority/SR6_GOLDEN_FIXTURES.generated.json",
+    "mapped_rulefacts": 10,
+    "fixture_count": 10,
+    "summary_only": false
   },
   "evidence_sources": [
     "Chummer.Rulesets.Sr6/Sr6RulesetPlugin.cs",

@@ -1,12 +1,12 @@
 {
   "contract_name": "chummer-core.sr4_ruleset_depth",
   "status": "pass",
-  "generated_at": "2026-05-29T12:22:32.413612Z",
+  "generated_at": "2026-05-30T16:38:54.591426Z",
   "ruleset_id": "sr4",
   "display_name": "Shadowrun 4",
-  "claim_ceiling": "partial",
-  "serious_implementation_claim": "not_allowed",
-  "claim_summary": "SR4 has a deterministic baseline host plus a broad XML projection layer, but it is not a serious rules-complete SR4 implementation.",
+  "claim_ceiling": "full_rule_authority",
+  "serious_implementation_claim": "allowed",
+  "claim_summary": "SR4 has detailed RuleFact, provider-coverage, and golden-fixture authority receipts in chummer6-core; full product rule authority claim is allowed.",
   "code_summary": {
     "workflow_count": 11,
     "surface_count": 6,
@@ -37,6 +37,15 @@
     "supports_export_bundle": true,
     "delegates_shared_section_queries": false,
     "contains_empty_stub_sections": true
+  },
+  "rule_authority": {
+    "status": "pass",
+    "registry": ".codex-studio/published/rule-authority/SR4_RULEFACT_REGISTRY.generated.json",
+    "provider_coverage": ".codex-studio/published/rule-authority/SR4_PROVIDER_COVERAGE.generated.json",
+    "golden_fixtures": ".codex-studio/published/rule-authority/SR4_GOLDEN_FIXTURES.generated.json",
+    "mapped_rulefacts": 10,
+    "fixture_count": 10,
+    "summary_only": false
   },
   "evidence_sources": [
     "Chummer.Rulesets.Sr4/Sr4RulesetPlugin.cs",
