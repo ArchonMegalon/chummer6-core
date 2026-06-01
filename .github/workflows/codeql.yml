@@ -12,6 +12,7 @@
 name: "CodeQL"
 
 on:
+  workflow_dispatch:
   push:
     branches: [ "main" ]
     # Only run on the following paths / file type changes
@@ -21,6 +22,9 @@ on:
         - "**.cs"
         - "**.cshtml"
         - "**.xaml"
+        - "**.py"
+        - "logs/telemetry/landed/**"
+        - ".github/workflows/codeql.yml"
         - "**.yml" # Include this to have the action rerun on yml changes
 
   pull_request:
@@ -33,6 +37,9 @@ on:
         - "**.cs"
         - "**.cshtml"
         - "**.xaml"
+        - "**.py"
+        - "logs/telemetry/landed/**"
+        - ".github/workflows/codeql.yml"
         - "**.yml" # Include this to have the action rerun on yml changes
   schedule:
     - cron: '20 15 * * 1'
