@@ -88,7 +88,7 @@ REQUIRED_SNIPPETS = {
     ],
     "repo_verify": [
         "test -f docs/NEXT90_M114_RULE_ENVIRONMENT_STUDIO_CONTRACTS.md",
-        "CHUMMER_CORE_ENGINE_TEST_FILTER=rule-environment-studio dotnet run --project Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj -m:1 -p:UseSharedCompilation=false",
+        "CHUMMER_CORE_ENGINE_TEST_FILTER=rule-environment-studio dotnet run --project Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj -c Release -m:1 -p:UseSharedCompilation=false",
         "python3 tests/test_next90_m114_rule_environment_studio.py",
         "python3 scripts/verify-next90-m114-rule-environment-studio.py --repo-root . --out .codex-studio/published/NEXT90_M114_RULE_ENVIRONMENT_STUDIO.generated.json --check",
     ],
@@ -98,7 +98,7 @@ REQUIRED_SNIPPETS = {
         "explain-receipt lifecycle and diff-state fields so support and UI flows can cite promotion posture without rejoining the surrounding projection locally",
         "matching no-warning runtimes collapse explain requirements to the mechanical-result plus source-anchor floor",
         "`scripts/ai/verify.sh` now runs the focused rule-environment contract lane",
-        "CHUMMER_CORE_ENGINE_TEST_FILTER=rule-environment-studio dotnet run --project Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj -m:1 -p:UseSharedCompilation=false",
+        "CHUMMER_CORE_ENGINE_TEST_FILTER=rule-environment-studio dotnet run --project Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj -c Release -m:1 -p:UseSharedCompilation=false",
         "python3 tests/test_next90_m114_rule_environment_studio.py",
         "python3 scripts/verify-next90-m114-rule-environment-studio.py --repo-root . --out .codex-studio/published/NEXT90_M114_RULE_ENVIRONMENT_STUDIO.generated.json",
     ],
@@ -211,7 +211,7 @@ def build_payload(repo_root: Path, out_path: Path) -> dict[str, Any]:
         "proof_files": [status.to_json() for status in proof_files],
         "authority_files": [status.to_json() for status in authority_files],
         "verification_commands": [
-            "CHUMMER_CORE_ENGINE_TEST_FILTER=rule-environment-studio dotnet run --project Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj -m:1 -p:UseSharedCompilation=false",
+            "CHUMMER_CORE_ENGINE_TEST_FILTER=rule-environment-studio dotnet run --project Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj -c Release -m:1 -p:UseSharedCompilation=false",
             "python3 tests/test_next90_m114_rule_environment_studio.py",
             "python3 scripts/verify-next90-m114-rule-environment-studio.py --repo-root . --out .codex-studio/published/NEXT90_M114_RULE_ENVIRONMENT_STUDIO.generated.json",
         ],

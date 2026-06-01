@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-05-17T18:49:02Z",
+  "generated_at": "2026-06-01T17:21:03Z",
   "status": "passed",
   "package_id": "next90-m115-core-exchange-contracts",
   "frontier_id": 2537363316,
@@ -52,7 +52,7 @@
       "key": "workspace_tests",
       "path": "/docker/chummercomplete/chummer-core-engine/Chummer.Tests/WorkspaceServiceTests.cs",
       "exists": true,
-      "digest": "sha256:a5f27ebc8c9f7f5323a9bfab04c6b1c31b6abcfed42c73f522437ca4f7983bd2",
+      "digest": "sha256:082a1aa51a94eb6b992e777204baf2c45b3370ce783a7a924839e73aa6c08c3f",
       "missing_snippets": [],
       "status": "passed"
     },
@@ -60,7 +60,7 @@
       "key": "repo_verify",
       "path": "/docker/chummercomplete/chummer-core-engine/scripts/ai/verify.sh",
       "exists": true,
-      "digest": "sha256:5912bc1df8bf2ece7f70f918b53124d78637d9fe573f986bf227926e3283eee8",
+      "digest": "sha256:932763c77048ffc325cc43945ab74285e22d2988b34e4648e852bbd59b161922",
       "missing_snippets": [],
       "status": "passed"
     },
@@ -68,7 +68,7 @@
       "key": "docs",
       "path": "/docker/chummercomplete/chummer-core-engine/docs/NEXT90_M115_CORE_EXCHANGE_CONTRACTS.md",
       "exists": true,
-      "digest": "sha256:ad49271a02702204a076d5251119f382e450c7b88fa23fa7e05afe453d303bde",
+      "digest": "sha256:032088b95342bc925b0654c8983df217e2f65fe2c08f4da04ce7cac95e61ebaf",
       "missing_snippets": [],
       "status": "passed"
     },
@@ -84,7 +84,7 @@
       "key": "receipt_verifier",
       "path": "/docker/chummercomplete/chummer-core-engine/scripts/verify-next90-m115-core-exchange-contracts.py",
       "exists": true,
-      "digest": "sha256:0240b93cc20a3745758892c3caab52be926940943a681c622304108935977f80",
+      "digest": "sha256:561aa1ef8fd88e9b098ecf1cabf02831a3da5da714cfdaeacd7988fb693e2548",
       "missing_snippets": [],
       "status": "passed"
     }
@@ -94,7 +94,7 @@
       "key": "successor_registry",
       "path": "/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml",
       "exists": true,
-      "digest": "sha256:729540d98a517a298fd38fa9e4448e1f4ca56e72a21726a650edd5c289e44b43",
+      "digest": "sha256:bc7190c20a0358e09cdef0ca63d7a09ff20a1a9011e2b433efd0866fd24f75c4",
       "missing_snippets": [],
       "status": "passed"
     },
@@ -102,7 +102,7 @@
       "key": "successor_queue",
       "path": "/docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml",
       "exists": true,
-      "digest": "sha256:4cd877009355dda3c453d5622786403dbeae36ac664951ec20020054948fdb5e",
+      "digest": "sha256:f6c30d70ae0dc97068dc37587a63b330a4dfc8212f610af7907734cbcae69656",
       "missing_snippets": [],
       "status": "passed"
     },
@@ -110,13 +110,13 @@
       "key": "design_successor_queue",
       "path": "/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_QUEUE_STAGING.generated.yaml",
       "exists": true,
-      "digest": "sha256:797a7bf15503da99a3bd4fb767c0e15aca5667b0913de01d2bcd55a9d453f393",
+      "digest": "sha256:f6c30d70ae0dc97068dc37587a63b330a4dfc8212f610af7907734cbcae69656",
       "missing_snippets": [],
       "status": "passed"
     }
   ],
   "verification_commands": [
-    "CHUMMER_CORE_ENGINE_TEST_FILTER=core-exchange-contracts dotnet run --project Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj -m:1 -p:UseSharedCompilation=false",
+    "CHUMMER_CORE_ENGINE_TEST_FILTER=core-exchange-contracts dotnet run --project Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj -c Release -m:1 -p:UseSharedCompilation=false",
     "python3 tests/test_next90_m115_core_exchange_contracts.py",
     "python3 scripts/verify-next90-m115-core-exchange-contracts.py --repo-root . --out .codex-studio/published/NEXT90_M115_CORE_EXCHANGE_CONTRACTS.generated.json"
   ],

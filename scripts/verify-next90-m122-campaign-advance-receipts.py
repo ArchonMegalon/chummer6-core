@@ -100,7 +100,7 @@ REQUIRED_SNIPPETS = {
         "test -f docs/NEXT90_M122_CAMPAIGN_ADVANCE_RECEIPTS.md",
         "test -f scripts/verify-next90-m122-campaign-advance-receipts.py",
         "test -f tests/test_next90_m122_campaign_advance_receipts.py",
-        "CHUMMER_CORE_ENGINE_TEST_FILTER=next90-m122-campaign-advance-receipts dotnet run --project Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj -m:1 -p:UseSharedCompilation=false",
+        "CHUMMER_CORE_ENGINE_TEST_FILTER=next90-m122-campaign-advance-receipts dotnet run --project Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj -c Release -m:1 -p:UseSharedCompilation=false",
         "python3 tests/test_next90_m122_campaign_advance_receipts.py",
         "python3 scripts/verify-next90-m122-campaign-advance-receipts.py --repo-root . --out .codex-studio/published/NEXT90_M122_CAMPAIGN_ADVANCE_RECEIPTS.generated.json --check",
     ],
@@ -112,7 +112,7 @@ REQUIRED_SNIPPETS = {
         "review-required adoption",
         "world-tick",
         "player-safe news item",
-        "CHUMMER_CORE_ENGINE_TEST_FILTER=next90-m122-campaign-advance-receipts dotnet run --project Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj -m:1 -p:UseSharedCompilation=false",
+        "CHUMMER_CORE_ENGINE_TEST_FILTER=next90-m122-campaign-advance-receipts dotnet run --project Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj -c Release -m:1 -p:UseSharedCompilation=false",
     ],
 }
 
@@ -334,7 +334,7 @@ def build_payload(repo_root: Path, out_path: Path) -> dict[str, Any]:
         "authority_files": [status.to_json() for status in authority_files],
         "authority_row_counts": authority_row_counts,
         "verification_commands": [
-            "CHUMMER_CORE_ENGINE_TEST_FILTER=next90-m122-campaign-advance-receipts dotnet run --project Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj -m:1 -p:UseSharedCompilation=false",
+            "CHUMMER_CORE_ENGINE_TEST_FILTER=next90-m122-campaign-advance-receipts dotnet run --project Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj -c Release -m:1 -p:UseSharedCompilation=false",
             "python3 tests/test_next90_m122_campaign_advance_receipts.py",
             "python3 scripts/verify-next90-m122-campaign-advance-receipts.py --repo-root . --out .codex-studio/published/NEXT90_M122_CAMPAIGN_ADVANCE_RECEIPTS.generated.json",
         ],

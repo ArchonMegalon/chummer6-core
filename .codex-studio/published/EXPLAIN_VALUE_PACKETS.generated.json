@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-05-29T18:59:20Z",
+  "generated_at": "2026-06-01T17:17:44Z",
   "status": "passed",
   "package_id": "next90-m145-core-explain-every-value-packets",
   "frontier_id": 1451045101,
@@ -77,7 +77,7 @@
       "key": "successor_registry",
       "path": "/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml",
       "exists": true,
-      "digest": "sha256:6b91d86d226f6c4edbb01a735cf4a2288f0c68d529e6f36a146984bd75c60ef6",
+      "digest": "sha256:bc7190c20a0358e09cdef0ca63d7a09ff20a1a9011e2b433efd0866fd24f75c4",
       "missing_snippets": [],
       "status": "passed"
     },
@@ -85,7 +85,7 @@
       "key": "successor_queue",
       "path": "/docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml",
       "exists": true,
-      "digest": "sha256:ab055ffe4f5bb30d014134888f9618a6598bb7fb003fb268a1215aa97d82c331",
+      "digest": "sha256:f6c30d70ae0dc97068dc37587a63b330a4dfc8212f610af7907734cbcae69656",
       "missing_snippets": [],
       "status": "passed"
     }

@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-05-17T19:18:10Z",
+  "generated_at": "2026-06-01T17:21:45Z",
   "status": "passed",
   "package_id": "next90-m121-core-implement-actionbudgetresult-actionaffordance-turnledger",
   "frontier_id": 1122632660,
@@ -67,7 +67,7 @@
       "key": "repo_verify",
       "path": "/docker/chummercomplete/chummer-core-engine/scripts/ai/verify.sh",
       "exists": true,
-      "digest": "sha256:5912bc1df8bf2ece7f70f918b53124d78637d9fe573f986bf227926e3283eee8",
+      "digest": "sha256:932763c77048ffc325cc43945ab74285e22d2988b34e4648e852bbd59b161922",
       "missing_snippets": [],
       "status": "passed"
     },
@@ -75,7 +75,7 @@
       "key": "docs",
       "path": "/docker/chummercomplete/chummer-core-engine/docs/NEXT90_M121_ACTION_ECONOMY_CONTRACTS.md",
       "exists": true,
-      "digest": "sha256:863dc01306a273a1d0aecdbf308d78b78a2b92e2516c99d5638f9f5c3248bd53",
+      "digest": "sha256:d9b8505348e472e57df4f9488cf18e5f80f7df67abadd0281c5192919681ab73",
       "missing_snippets": [],
       "status": "passed"
     }
@@ -85,7 +85,7 @@
       "key": "successor_registry",
       "path": "/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml",
       "exists": true,
-      "digest": "sha256:729540d98a517a298fd38fa9e4448e1f4ca56e72a21726a650edd5c289e44b43",
+      "digest": "sha256:bc7190c20a0358e09cdef0ca63d7a09ff20a1a9011e2b433efd0866fd24f75c4",
       "missing_snippets": [],
       "status": "passed"
     },
@@ -93,7 +93,7 @@
       "key": "successor_queue",
       "path": "/docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml",
       "exists": true,
-      "digest": "sha256:4cd877009355dda3c453d5622786403dbeae36ac664951ec20020054948fdb5e",
+      "digest": "sha256:f6c30d70ae0dc97068dc37587a63b330a4dfc8212f610af7907734cbcae69656",
       "missing_snippets": [],
       "status": "passed"
     },
@@ -101,13 +101,13 @@
       "key": "design_successor_queue",
       "path": "/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_QUEUE_STAGING.generated.yaml",
       "exists": true,
-      "digest": "sha256:797a7bf15503da99a3bd4fb767c0e15aca5667b0913de01d2bcd55a9d453f393",
+      "digest": "sha256:f6c30d70ae0dc97068dc37587a63b330a4dfc8212f610af7907734cbcae69656",
       "missing_snippets": [],
       "status": "passed"
     }
   ],
   "verification_commands": [
-    "CHUMMER_CORE_ENGINE_TEST_FILTER=next90-m121-action-economy dotnet run --project Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj -m:1 -p:UseSharedCompilation=false",
+    "CHUMMER_CORE_ENGINE_TEST_FILTER=next90-m121-action-economy dotnet run --project Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj -c Release -m:1 -p:UseSharedCompilation=false",
     "python3 tests/test_next90_m121_action_economy.py",
     "python3 scripts/verify-next90-m121-action-economy.py --repo-root . --out .codex-studio/published/NEXT90_M121_ACTION_ECONOMY.generated.json"
   ],

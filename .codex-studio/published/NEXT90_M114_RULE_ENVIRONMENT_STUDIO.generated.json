@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-05-17T18:49:02Z",
+  "generated_at": "2026-06-01T17:19:58Z",
   "status": "passed",
   "package_id": "next90-m114-core-rule-environment-studio",
   "frontier_id": 1542103988,
@@ -67,7 +67,7 @@
       "key": "repo_verify",
       "path": "/docker/chummercomplete/chummer-core-engine/scripts/ai/verify.sh",
       "exists": true,
-      "digest": "sha256:5912bc1df8bf2ece7f70f918b53124d78637d9fe573f986bf227926e3283eee8",
+      "digest": "sha256:932763c77048ffc325cc43945ab74285e22d2988b34e4648e852bbd59b161922",
       "missing_snippets": [],
       "status": "passed"
     },
@@ -75,7 +75,7 @@
       "key": "docs",
       "path": "/docker/chummercomplete/chummer-core-engine/docs/NEXT90_M114_RULE_ENVIRONMENT_STUDIO_CONTRACTS.md",
       "exists": true,
-      "digest": "sha256:fe29e259c3423571763684ca51509c901b4b7c27ce358d062d465a00edc3f8ad",
+      "digest": "sha256:71ca937c9798f697d7dcec151590c3eeb162f9715cb7dbee00cc2b94c0b0f7dc",
       "missing_snippets": [],
       "status": "passed"
     }
@@ -85,7 +85,7 @@
       "key": "successor_registry",
       "path": "/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml",
       "exists": true,
-      "digest": "sha256:729540d98a517a298fd38fa9e4448e1f4ca56e72a21726a650edd5c289e44b43",
+      "digest": "sha256:bc7190c20a0358e09cdef0ca63d7a09ff20a1a9011e2b433efd0866fd24f75c4",
       "missing_snippets": [],
       "status": "passed"
     },
@@ -93,13 +93,13 @@
       "key": "successor_queue",
       "path": "/docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml",
       "exists": true,
-      "digest": "sha256:4cd877009355dda3c453d5622786403dbeae36ac664951ec20020054948fdb5e",
+      "digest": "sha256:f6c30d70ae0dc97068dc37587a63b330a4dfc8212f610af7907734cbcae69656",
       "missing_snippets": [],
       "status": "passed"
     }
   ],
   "verification_commands": [
-    "CHUMMER_CORE_ENGINE_TEST_FILTER=rule-environment-studio dotnet run --project Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj -m:1 -p:UseSharedCompilation=false",
+    "CHUMMER_CORE_ENGINE_TEST_FILTER=rule-environment-studio dotnet run --project Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj -c Release -m:1 -p:UseSharedCompilation=false",
     "python3 tests/test_next90_m114_rule_environment_studio.py",
     "python3 scripts/verify-next90-m114-rule-environment-studio.py --repo-root . --out .codex-studio/published/NEXT90_M114_RULE_ENVIRONMENT_STUDIO.generated.json"
   ],

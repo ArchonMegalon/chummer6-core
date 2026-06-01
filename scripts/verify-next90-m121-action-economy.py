@@ -83,7 +83,7 @@ REQUIRED_SNIPPETS = {
         "test -f docs/NEXT90_M121_ACTION_ECONOMY_CONTRACTS.md",
         "test -f scripts/verify-next90-m121-action-economy.py",
         "test -f tests/test_next90_m121_action_economy.py",
-        "CHUMMER_CORE_ENGINE_TEST_FILTER=next90-m121-action-economy dotnet run --project Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj -m:1 -p:UseSharedCompilation=false",
+        "CHUMMER_CORE_ENGINE_TEST_FILTER=next90-m121-action-economy dotnet run --project Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj -c Release -m:1 -p:UseSharedCompilation=false",
         "python3 tests/test_next90_m121_action_economy.py",
         "python3 scripts/verify-next90-m121-action-economy.py --repo-root . --out .codex-studio/published/NEXT90_M121_ACTION_ECONOMY.generated.json --check",
     ],
@@ -93,7 +93,7 @@ REQUIRED_SNIPPETS = {
         "turnLedgerDeltaIds",
         "sourceAnchorReceiptCount",
         "convert-four-minor-to-anytime-major",
-        "CHUMMER_CORE_ENGINE_TEST_FILTER=next90-m121-action-economy dotnet run --project Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj -m:1 -p:UseSharedCompilation=false",
+        "CHUMMER_CORE_ENGINE_TEST_FILTER=next90-m121-action-economy dotnet run --project Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj -c Release -m:1 -p:UseSharedCompilation=false",
     ],
 }
 
@@ -216,7 +216,7 @@ def build_payload(repo_root: Path, out_path: Path) -> dict[str, Any]:
         "proof_files": [status.to_json() for status in proof_files],
         "authority_files": [status.to_json() for status in authority_files],
         "verification_commands": [
-            "CHUMMER_CORE_ENGINE_TEST_FILTER=next90-m121-action-economy dotnet run --project Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj -m:1 -p:UseSharedCompilation=false",
+            "CHUMMER_CORE_ENGINE_TEST_FILTER=next90-m121-action-economy dotnet run --project Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj -c Release -m:1 -p:UseSharedCompilation=false",
             "python3 tests/test_next90_m121_action_economy.py",
             "python3 scripts/verify-next90-m121-action-economy.py --repo-root . --out .codex-studio/published/NEXT90_M121_ACTION_ECONOMY.generated.json",
         ],

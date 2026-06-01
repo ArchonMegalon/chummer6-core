@@ -106,7 +106,7 @@ REQUIRED_SNIPPETS = {
     "repo_verify": [
         "test -f docs/NEXT90_M115_CORE_EXCHANGE_CONTRACTS.md",
         "test -f scripts/verify-next90-m115-core-exchange-contracts.py",
-        'CHUMMER_CORE_ENGINE_TEST_FILTER=core-exchange-contracts dotnet run --project Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj -m:1 -p:UseSharedCompilation=false',
+        'CHUMMER_CORE_ENGINE_TEST_FILTER=core-exchange-contracts dotnet run --project Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj -c Release -m:1 -p:UseSharedCompilation=false',
         "python3 tests/test_next90_m115_core_exchange_contracts.py",
         "python3 scripts/verify-next90-m115-core-exchange-contracts.py --repo-root . --out .codex-studio/published/NEXT90_M115_CORE_EXCHANGE_CONTRACTS.generated.json --check",
     ],
@@ -263,7 +263,7 @@ def build_payload(repo_root: Path, out_path: Path) -> dict[str, Any]:
         "proof_files": [status.to_json() for status in proof_files],
         "authority_files": [status.to_json() for status in authority_files],
         "verification_commands": [
-            "CHUMMER_CORE_ENGINE_TEST_FILTER=core-exchange-contracts dotnet run --project Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj -m:1 -p:UseSharedCompilation=false",
+            "CHUMMER_CORE_ENGINE_TEST_FILTER=core-exchange-contracts dotnet run --project Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj -c Release -m:1 -p:UseSharedCompilation=false",
             "python3 tests/test_next90_m115_core_exchange_contracts.py",
             "python3 scripts/verify-next90-m115-core-exchange-contracts.py --repo-root . --out .codex-studio/published/NEXT90_M115_CORE_EXCHANGE_CONTRACTS.generated.json",
         ],
