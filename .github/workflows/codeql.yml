@@ -101,20 +101,35 @@ jobs:
         ref: fleet/hub-registry
         path: g
 
+    - name: Checkout media-factory compatibility tree
+      uses: actions/checkout@v4
+      with:
+        repository: ArchonMegalon/chummer6-media-factory
+        ref: fleet/media-factory
+        path: m
+
     - name: Prepare compatibility tree aliases (Windows)
       if: ${{ runner.os == 'Windows' }}
       shell: powershell
       run: |
+        $compatRoot = Split-Path -Parent $env:GITHUB_WORKSPACE
+        New-Item -ItemType Junction -Path "${env:GITHUB_WORKSPACE}\\chummer-core-engine" -Target "${env:GITHUB_WORKSPACE}\\r" | Out-Null
         New-Item -ItemType Junction -Path "${env:GITHUB_WORKSPACE}\\chummer.run-services" -Target "${env:GITHUB_WORKSPACE}\\h" | Out-Null
         New-Item -ItemType Junction -Path "${env:GITHUB_WORKSPACE}\\chummer-hub-registry" -Target "${env:GITHUB_WORKSPACE}\\g" | Out-Null
+        New-Item -ItemType Directory -Path (Join-Path $compatRoot "fleet\\repos") -Force | Out-Null
+        New-Item -ItemType Junction -Path (Join-Path $compatRoot "fleet\\repos\\chummer-media-factory") -Target "${env:GITHUB_WORKSPACE}\\m" | Out-Null
 
     - name: Prepare compatibility tree aliases (POSIX)
       if: ${{ runner.os != 'Windows' }}
       shell: bash
       run: |
         set -euo pipefail
+        compat_root="$(cd "$GITHUB_WORKSPACE/.." && pwd)"
+        ln -sfn "$GITHUB_WORKSPACE/r" "$GITHUB_WORKSPACE/chummer-core-engine"
         ln -sfn "$GITHUB_WORKSPACE/h" "$GITHUB_WORKSPACE/chummer.run-services"
         ln -sfn "$GITHUB_WORKSPACE/g" "$GITHUB_WORKSPACE/chummer-hub-registry"
+        mkdir -p "$compat_root/fleet/repos"
+        ln -sfn "$GITHUB_WORKSPACE/m" "$compat_root/fleet/repos/chummer-media-factory"
 
     - name: Setup .NET
       uses: actions/setup-dotnet@v4
