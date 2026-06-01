@@ -103,8 +103,8 @@ jobs:
 
     - run: |
         echo "Run, Build Application using script"
-        dotnet restore ./Chummer.sln
-        dotnet build ./Chummer.sln --configuration Release --no-restore
+        dotnet restore ./Chummer.sln --property:Configuration=Release --disable-parallel
+        dotnet build ./Chummer.sln --configuration Release --no-restore --no-incremental --maxcpucount:1 --property:UseSharedCompilation=false --property:BuildInParallel=false --property:NodeReuse=false
 
     - name: Perform CodeQL Analysis
       uses: github/codeql-action/analyze@v3
