@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-06-01T17:21:03Z",
+  "generated_at": "2026-06-01T20:05:23Z",
   "status": "passed",
   "package_id": "next90-m115-core-exchange-contracts",
   "frontier_id": 2537363316,
@@ -60,7 +60,7 @@
       "key": "repo_verify",
       "path": "/docker/chummercomplete/chummer-core-engine/scripts/ai/verify.sh",
       "exists": true,
-      "digest": "sha256:932763c77048ffc325cc43945ab74285e22d2988b34e4648e852bbd59b161922",
+      "digest": "sha256:573f72cbcf4e68cb4e0a086b760b39c4fe9cb43ebba4a4a7c69cbe4406b72054",
       "missing_snippets": [],
       "status": "passed"
     },

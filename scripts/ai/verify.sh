@@ -4,6 +4,8 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$repo_root"
 
+python3 scripts/verify-windows-checkout-paths.py --repo-root .
+
 test -f docs/CONTRACT_BOUNDARY_MAP.md
 test -f docs/EXPLAIN_AND_RUNTIME_CANON.md
 test -f docs/AI_PROVIDER_TRANSPORT_BOUNDARY.md
