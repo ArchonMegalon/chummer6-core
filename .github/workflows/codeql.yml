@@ -62,6 +62,9 @@ jobs:
       actions: read
       contents: read
       security-events: write
+    defaults:
+      run:
+        working-directory: r
 
     strategy:
       fail-fast: false
@@ -75,6 +78,48 @@ jobs:
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
+      with:
+        path: r
+
+    - name: Enable Windows long paths for compatibility checkouts
+      if: ${{ runner.os == 'Windows' }}
+      shell: powershell
+      run: |
+        git config --system core.longpaths true
+
+    - name: Checkout run-services compatibility tree
+      uses: actions/checkout@v4
+      with:
+        repository: ArchonMegalon/chummer6-hub
+        ref: main
+        path: h
+
+    - name: Checkout hub-registry compatibility tree
+      uses: actions/checkout@v4
+      with:
+        repository: ArchonMegalon/chummer6-hub-registry
+        ref: fleet/hub-registry
+        path: g
+
+    - name: Prepare compatibility tree aliases (Windows)
+      if: ${{ runner.os == 'Windows' }}
+      shell: powershell
+      run: |
+        New-Item -ItemType Junction -Path "${env:GITHUB_WORKSPACE}\\chummer.run-services" -Target "${env:GITHUB_WORKSPACE}\\h" | Out-Null
+        New-Item -ItemType Junction -Path "${env:GITHUB_WORKSPACE}\\chummer-hub-registry" -Target "${env:GITHUB_WORKSPACE}\\g" | Out-Null
+
+    - name: Prepare compatibility tree aliases (POSIX)
+      if: ${{ runner.os != 'Windows' }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        ln -sfn "$GITHUB_WORKSPACE/h" "$GITHUB_WORKSPACE/chummer.run-services"
+        ln -sfn "$GITHUB_WORKSPACE/g" "$GITHUB_WORKSPACE/chummer-hub-registry"
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '10.0.x'
 
     # Initializes the CodeQL tools for scanning.
     - name: Initialize CodeQL
@@ -101,10 +146,16 @@ jobs:
     #   If the Autobuild fails above, remove it and uncomment the following three lines.
     #   modify them (or add more) to build your code if your project, please refer to the EXAMPLE below for guidance.
 
-    - run: |
+    - name: Build with compatibility package plane
+      shell: bash
+      run: |
+        set -euo pipefail
         echo "Run, Build Application using script"
-        dotnet restore ./Chummer.sln --property:Configuration=Release --disable-parallel
-        dotnet build ./Chummer.sln --configuration Release --no-restore --no-incremental --maxcpucount:1 --property:UseSharedCompilation=false --property:BuildInParallel=false --property:NodeReuse=false
+        bash scripts/ai/bootstrap-contracts-feed.sh
+        dotnet build ../chummer-hub-registry/Chummer.Hub.Registry.Contracts/Chummer.Hub.Registry.Contracts.csproj --configuration Release --nologo -m:1 -p:UseSharedCompilation=false
+        dotnet build ../chummer.run-services/Chummer.Run.Contracts/Chummer.Run.Contracts.csproj --configuration Release --nologo -m:1 -p:UseSharedCompilation=false
+        dotnet restore ./Chummer.CoreEngine.sln --property:Configuration=Release --property:ChummerEngineContractsPackageVersion=0.0.0-local --disable-parallel
+        dotnet build ./Chummer.CoreEngine.sln --configuration Release --no-restore --no-incremental --maxcpucount:1 --property:ChummerEngineContractsPackageVersion=0.0.0-local --property:UseSharedCompilation=false --property:BuildInParallel=false --property:NodeReuse=false
 
     - name: Perform CodeQL Analysis
       uses: github/codeql-action/analyze@v3
