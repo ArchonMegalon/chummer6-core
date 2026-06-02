@@ -59,9 +59,12 @@ Run:
 
 ```bash
 bash scripts/ai/verify.sh
+bash scripts/ai/test-ruleset-depth.sh
 bash scripts/ai/coverage.sh Chummer.Tests/Chummer.Tests.csproj
 bash scripts/ai/test-matrix.sh Chummer.Tests/Chummer.Tests.csproj
 ```
+
+`scripts/ai/test-ruleset-depth.sh` is the fastest explicit ruleset-depth gate. It pins `Chummer.Tests` to Linux `net10.0`, covers the SR4/SR5/SR6 ruleset seam slice, runs the core executable audit, and writes `.codex-studio/published/RULESET_DEPTH_LINUX_GATE.generated.json`.
 
 `scripts/ai/test-matrix.sh` is the host-aware entrypoint for the current engine matrix:
 
@@ -70,6 +73,8 @@ bash scripts/ai/test-matrix.sh Chummer.Tests/Chummer.Tests.csproj
 - only attempts Windows desktop execution when `Microsoft.WindowsDesktop.App 10.x` is available on the host
 
 So from Linux you get truthful source/build coverage for the Windows target, while native Windows host execution remains an explicit final certification step instead of a hidden assumption.
+
+Do not use a bare Linux `dotnet test Chummer.Tests/Chummer.Tests.csproj` as a release signal. That project is intentionally multi-targeted (`net10.0;net10.0-windows`), so Linux ruleset verification must either use `scripts/ai/test-ruleset-depth.sh`, `scripts/ai/test-matrix.sh`, or explicitly pass `-f net10.0`.
 
 For final native-host certification use:
 

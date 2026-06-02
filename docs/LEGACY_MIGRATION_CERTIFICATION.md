@@ -24,6 +24,7 @@ Purpose: keep the core share of `F2` explicit and executable.
 Run from the repo root:
 
 ```bash
+bash scripts/ai/test-ruleset-depth.sh
 bash scripts/migration-loop.sh 1
 bash scripts/audit-compliance.sh
 docker compose --profile test run --build --rm chummer-tests \

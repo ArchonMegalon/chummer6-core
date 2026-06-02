@@ -1,0 +1,28 @@
+{
+  "generated_at_utc": "2026-06-02T13:32:31Z",
+  "started_at_utc": "2026-06-02T13:31:52Z",
+  "status": "pass",
+  "contract_name": "chummer-core.ruleset-depth-linux-gate",
+  "linux_vstest": {
+    "status": "pass",
+    "framework": "net10.0",
+    "configuration": "Release",
+    "command": "dotnet test Chummer.Tests/Chummer.Tests.csproj -c Release -f net10.0 -m:1 -p:UseSharedCompilation=false --no-restore --filter FullyQualifiedName~Sr4|FullyQualifiedName~Sr5|FullyQualifiedName~Sr6|FullyQualifiedName~LifeModules|FullyQualifiedName~DeterministicRulesetCapabilityHostTests|FullyQualifiedName~RulesetShellCatalogResolverTests -v minimal",
+    "filter": "SR4/SR5/SR6/LifeModules/deterministic-host/ruleset-shell depth slice"
+  },
+  "core_executable_audit": {
+    "status": "pass",
+    "configuration": "Release",
+    "command": "dotnet run --project Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj -c Release -m:1 -p:UseSharedCompilation=false --no-restore",
+    "required_evidence": "core-engine-tests: ok"
+  },
+  "windows_desktop_execution": {
+    "status": "skipped_host_missing_windowsdesktop",
+    "requirement": "Run scripts/ai/test-native-host-matrix.sh on a WindowsDesktop-capable host for native desktop execution certification.",
+    "linux_host_blocker": false
+  },
+  "bare_multitarget_linux_dotnet_test_policy": {
+    "status": "blocked_by_command_guidance",
+    "reason": "Chummer.Tests targets net10.0 and net10.0-windows; Linux ruleset gates must pin -f net10.0 or use scripts/ai/test-matrix.sh."
+  }
+}

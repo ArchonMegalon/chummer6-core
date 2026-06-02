@@ -54,6 +54,8 @@ rg -n 'require_support_recovery_path_contract|continuity_and_conflict_recovery_g
 rg -n 'WL-108\.1|WL-108\.2|WL-108\.3|WL-108\.4|WL-108\.5|WL-111|WL-112' WORKLIST.md docs/HELPER_TOOLING_RESIDUAL_BACKLOG.md >/dev/null
 rg -n 'AddSingleton<IAiProviderCredentialCatalog, EmptyAiProviderCredentialCatalog>\(\)|AddSingleton<IAiProviderTransportOptionsCatalog, EmptyAiProviderTransportOptionsCatalog>\(\)|AddSingleton<IAiProviderTransportClient>\(_ => new NotImplementedAiProviderTransportClient\(\)\)|AddLegacyEnvironmentAiTransportCompatibility|AddSingleton<IAiProviderCredentialCatalog, EnvironmentAiProviderCredentialCatalog>\(\)|AddSingleton<IAiProviderTransportOptionsCatalog, EnvironmentAiProviderTransportOptionsCatalog>\(\)|new HttpAiProviderTransportClient\(provider.GetRequiredService<IAiProviderCredentialCatalog>\(\)\)' Chummer.Infrastructure/DependencyInjection/ServiceCollectionExtensions.cs >/dev/null
 
+bash scripts/ai/test-ruleset-depth.sh
+
 if rg -n 'Plugins\\(ChummerHub\.Client|SamplePlugin)\\.*\.csproj' Chummer.CoreEngine.sln Chummer.sln >/dev/null 2>&1; then
   echo "active solutions must not include legacy plugin projects" >&2
   exit 1

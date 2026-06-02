@@ -25,7 +25,7 @@ The SR6 runtime-reconciliation and parity execution order is now published in `d
 
 1. `bash scripts/migration-loop.sh 1`
 2. `bash scripts/audit-ui-parity.sh`
-3. `dotnet test Chummer.Tests/Chummer.Tests.csproj --filter "FullyQualifiedName~ArchitectureGuardrailTests|FullyQualifiedName~MigrationComplianceTests|FullyQualifiedName~DualHeadAcceptanceTests"`
+3. `dotnet test Chummer.Tests/Chummer.Tests.csproj -f net10.0 -p:TargetFramework=net10.0 --filter "FullyQualifiedName~ArchitectureGuardrailTests|FullyQualifiedName~MigrationComplianceTests|FullyQualifiedName~DualHeadAcceptanceTests"`
 
 ## Backlog
 
