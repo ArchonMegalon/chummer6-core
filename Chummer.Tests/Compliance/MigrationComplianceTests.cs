@@ -4141,7 +4141,7 @@ public class MigrationComplianceTests
         StringAssert.Contains(infrastructureDiText, "services.AddSr5Ruleset();");
         Assert.IsFalse(infrastructureDiText.Contains("services.AddSr6Ruleset();", StringComparison.Ordinal));
         StringAssert.Contains(desktopRuntimeDiText, "services.AddRulesetInfrastructure();");
-        Assert.IsFalse(desktopRuntimeDiText.Contains("services.AddSr4Ruleset();", StringComparison.Ordinal));
+        StringAssert.Contains(desktopRuntimeDiText, "services.AddSr4Ruleset();");
         StringAssert.Contains(desktopRuntimeDiText, "services.AddSr5Ruleset();");
         StringAssert.Contains(desktopRuntimeDiText, "services.AddSr6Ruleset();");
         StringAssert.Contains(blazorProgramText, "builder.Services.AddRulesetInfrastructure();");

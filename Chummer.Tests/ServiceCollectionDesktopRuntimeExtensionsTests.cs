@@ -44,9 +44,9 @@ public class ServiceCollectionDesktopRuntimeExtensionsTests
                     Assert.IsInstanceOfType<InProcessChummerClient>(client);
                     Assert.IsInstanceOfType<InProcessSessionClient>(sessionClient);
                     Assert.AreEqual(OwnerScope.LocalSingleUser.NormalizedValue, ownerContextAccessor.Current.NormalizedValue);
-                    Assert.IsFalse(plugins.Any(plugin => string.Equals(plugin.Id.NormalizedValue, RulesetDefaults.Sr4, StringComparison.Ordinal)));
+                    Assert.IsTrue(plugins.Any(plugin => string.Equals(plugin.Id.NormalizedValue, RulesetDefaults.Sr4, StringComparison.Ordinal)));
                     Assert.IsTrue(plugins.Any(plugin => string.Equals(plugin.Id.NormalizedValue, RulesetDefaults.Sr5, StringComparison.Ordinal)));
-                    Assert.IsFalse(plugins.Any(plugin => string.Equals(plugin.Id.NormalizedValue, RulesetDefaults.Sr6, StringComparison.Ordinal)));
+                    Assert.IsTrue(plugins.Any(plugin => string.Equals(plugin.Id.NormalizedValue, RulesetDefaults.Sr6, StringComparison.Ordinal)));
                 });
             }
             finally
@@ -113,9 +113,9 @@ public class ServiceCollectionDesktopRuntimeExtensionsTests
                     Assert.IsNotNull(httpClient.BaseAddress);
                     Assert.AreEqual("https://api.example.invalid/", httpClient.BaseAddress!.ToString());
                     Assert.IsTrue(httpClient.DefaultRequestHeaders.Contains("X-Api-Key"));
-                    Assert.IsFalse(plugins.Any(plugin => string.Equals(plugin.Id.NormalizedValue, RulesetDefaults.Sr4, StringComparison.Ordinal)));
+                    Assert.IsTrue(plugins.Any(plugin => string.Equals(plugin.Id.NormalizedValue, RulesetDefaults.Sr4, StringComparison.Ordinal)));
                     Assert.IsTrue(plugins.Any(plugin => string.Equals(plugin.Id.NormalizedValue, RulesetDefaults.Sr5, StringComparison.Ordinal)));
-                    Assert.IsFalse(plugins.Any(plugin => string.Equals(plugin.Id.NormalizedValue, RulesetDefaults.Sr6, StringComparison.Ordinal)));
+                    Assert.IsTrue(plugins.Any(plugin => string.Equals(plugin.Id.NormalizedValue, RulesetDefaults.Sr6, StringComparison.Ordinal)));
                     string[] expectedApiKeyValues = ["test-key"];
                     CollectionAssert.AreEqual(
                         expectedApiKeyValues,
@@ -152,9 +152,9 @@ public class ServiceCollectionDesktopRuntimeExtensionsTests
                     Assert.IsInstanceOfType<HttpSessionClient>(sessionClient);
                     Assert.IsNotNull(httpClient.BaseAddress);
                     Assert.AreEqual("https://legacy.example.invalid/", httpClient.BaseAddress!.ToString());
-                    Assert.IsFalse(plugins.Any(plugin => string.Equals(plugin.Id.NormalizedValue, RulesetDefaults.Sr4, StringComparison.Ordinal)));
+                    Assert.IsTrue(plugins.Any(plugin => string.Equals(plugin.Id.NormalizedValue, RulesetDefaults.Sr4, StringComparison.Ordinal)));
                     Assert.IsTrue(plugins.Any(plugin => string.Equals(plugin.Id.NormalizedValue, RulesetDefaults.Sr5, StringComparison.Ordinal)));
-                    Assert.IsFalse(plugins.Any(plugin => string.Equals(plugin.Id.NormalizedValue, RulesetDefaults.Sr6, StringComparison.Ordinal)));
+                    Assert.IsTrue(plugins.Any(plugin => string.Equals(plugin.Id.NormalizedValue, RulesetDefaults.Sr6, StringComparison.Ordinal)));
                 });
             }
             finally
@@ -200,7 +200,41 @@ public class ServiceCollectionDesktopRuntimeExtensionsTests
     }
 
     [TestMethod]
-    public void Default_ruleset_environment_variable_fails_when_ruleset_is_not_registered()
+    public void Default_ruleset_environment_variable_supports_sr4_when_registered()
+    {
+        lock (EnvironmentLock)
+        {
+            string root = CreateTempDirectory();
+            try
+            {
+                ApplyEnvironment(mode: null, baseUrl: null, apiKey: null, action: () =>
+                {
+                    var services = new ServiceCollection();
+                    services.AddChummerLocalRuntimeClient(root, root);
+
+                    using ServiceProvider provider = services.BuildServiceProvider();
+                    IRulesetSelectionPolicy selectionPolicy = provider.GetRequiredService<IRulesetSelectionPolicy>();
+                    IRulesetShellCatalogResolver shellCatalogResolver = provider.GetRequiredService<IRulesetShellCatalogResolver>();
+
+                    Assert.AreEqual(RulesetDefaults.Sr4, selectionPolicy.GetDefaultRulesetId());
+                    IReadOnlyList<AppCommandDefinition> commands = shellCatalogResolver.ResolveCommands(null);
+                    IReadOnlyList<NavigationTabDefinition> tabs = shellCatalogResolver.ResolveNavigationTabs(null);
+
+                    Assert.IsNotEmpty(commands, "Expected SR4 to expose shell commands.");
+                    Assert.IsNotEmpty(tabs, "Expected SR4 to expose navigation tabs.");
+                    Assert.IsTrue(commands.All(command => string.Equals(command.RulesetId, RulesetDefaults.Sr4, StringComparison.Ordinal)));
+                    Assert.IsTrue(tabs.All(tab => string.Equals(tab.RulesetId, RulesetDefaults.Sr4, StringComparison.Ordinal)));
+                }, defaultRulesetId: RulesetDefaults.Sr4);
+            }
+            finally
+            {
+                DeleteTempDirectory(root);
+            }
+        }
+    }
+
+    [TestMethod]
+    public void Default_ruleset_environment_variable_fails_when_ruleset_is_unknown()
     {
         lock (EnvironmentLock)
         {
@@ -221,11 +255,11 @@ public class ServiceCollectionDesktopRuntimeExtensionsTests
                     InvalidOperationException shellCatalogEx = Assert.ThrowsExactly<InvalidOperationException>(() =>
                         shellCatalogResolver.ResolveCommands(null));
 
-                    StringAssert.Contains(selectionPolicyEx.Message, "Configured default ruleset 'sr4'");
+                    StringAssert.Contains(selectionPolicyEx.Message, "Configured default ruleset 'sr0'");
                     StringAssert.Contains(selectionPolicyEx.Message, $"environment:{DefaultRulesetEnvironmentVariable}");
-                    StringAssert.Contains(shellCatalogEx.Message, "Configured default ruleset 'sr4'");
+                    StringAssert.Contains(shellCatalogEx.Message, "Configured default ruleset 'sr0'");
                     StringAssert.Contains(shellCatalogEx.Message, $"environment:{DefaultRulesetEnvironmentVariable}");
-                }, defaultRulesetId: RulesetDefaults.Sr4);
+                }, defaultRulesetId: "sr0");
             }
             finally
             {

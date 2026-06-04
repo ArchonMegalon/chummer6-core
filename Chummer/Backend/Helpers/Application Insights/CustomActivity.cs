@@ -39,6 +39,9 @@ namespace Chummer
         [CLSCompliant(false)]
         public RequestTelemetry MyRequestTelemetry { get; private set; }
 
+        [CLSCompliant(false)]
+        public PageViewTelemetry MyPageViewTelemetry { get; private set; }
+
         public string MyTelemetryTarget { get; private set; }
 
         public enum OperationType
@@ -78,8 +81,18 @@ namespace Chummer
                         MyRequestTelemetry.Url = uriResult;
                     break;
 
-                default:
-                    throw new NotImplementedException("Implement OperationType " + operationType);
+                case OperationType.PageViewOperation:
+                    MyPageViewTelemetry = new PageViewTelemetry(operationName)
+                    {
+                        Id = Guid.NewGuid().ToString(),
+                        Name = operationName,
+                        Timestamp = DateTimeOffset.UtcNow
+                    };
+                    MyPageViewTelemetry.Context.Operation.Id = Id;
+                    MyTelemetryClient.Context.Operation.Id = MyPageViewTelemetry.Context.Operation.Id;
+                    if (!string.IsNullOrEmpty(MyTelemetryTarget) && Uri.TryCreate(MyTelemetryTarget, UriKind.Absolute, out Uri uriResult))
+                        MyPageViewTelemetry.Url = uriResult;
+                    break;
             }
         }
 
@@ -105,8 +118,17 @@ namespace Chummer
                             MyRequestTelemetry.Url = uriResult;
                         break;
 
-                    default:
-                        throw new NotImplementedException("Implement OperationType " + parentActivity.MyOperationType);
+                    case OperationType.PageViewOperation:
+                        MyPageViewTelemetry = new PageViewTelemetry(operationName)
+                        {
+                            Id = Guid.NewGuid().ToString(),
+                            Name = operationName,
+                            Timestamp = DateTimeOffset.UtcNow
+                        };
+                        MyPageViewTelemetry.Context.Operation.ParentId = ParentId;
+                        if (!string.IsNullOrEmpty(MyTelemetryTarget) && Uri.TryCreate(MyTelemetryTarget, UriKind.Absolute, out Uri uriResult))
+                            MyPageViewTelemetry.Url = uriResult;
+                        break;
                 }
             }
             else
@@ -127,6 +149,8 @@ namespace Chummer
                 MyDependencyTelemetry.Success = success;
             if (MyRequestTelemetry != null)
                 MyRequestTelemetry.Success = success;
+            if (MyPageViewTelemetry != null)
+                MyPageViewTelemetry.Properties["Success"] = success.ToString();
         }
 
         private int _intIsDisposed;
@@ -156,8 +180,10 @@ namespace Chummer
                     MyTelemetryClient.TrackRequest(MyRequestTelemetry);
                     break;
 
-                default:
-                    throw new NotImplementedException("Implement OperationType " + OperationName);
+                case OperationType.PageViewOperation:
+                    MyPageViewTelemetry.Duration = DateTimeOffset.UtcNow - MyPageViewTelemetry.Timestamp;
+                    MyTelemetryClient.TrackPageView(MyPageViewTelemetry);
+                    break;
             }
         }
     }

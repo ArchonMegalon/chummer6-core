@@ -1,7 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Debuggable Release|AnyCPU'">
     <DebugSymbols>true</DebugSymbols>
-    <OutputPath>bin\$(Configuration)\</OutputPath>
     <Optimize>false</Optimize>
     <NoWarn>VSTHRD003;VSTHRD100;VSTHRD103;VSTHRD200</NoWarn>
   </PropertyGroup>
@@ -27,6 +26,7 @@
     <RestoreNoWarn>$(RestoreNoWarn);NU1701</RestoreNoWarn>
     <EmbeddedResourceUseDependentUponConvention>true</EmbeddedResourceUseDependentUponConvention>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <OutputPath>bin\$(Configuration)\$(TargetFramework)\</OutputPath>
     <AssemblyVersion>5.225.0.0</AssemblyVersion>
     <FileVersion>5.225.0.0</FileVersion>
     <InformationalVersion>5.225.0.0</InformationalVersion>
@@ -224,4 +224,15 @@
     <PackageReference Include="System.Configuration.ConfigurationManager" Version="10.0.0" />
     <PackageReference Include="XMLUnit.Core" Version="2.11.1" />
   </ItemGroup>
+  <Target Name="DeleteLegacyFlatTestOutputs" AfterTargets="Build">
+    <ItemGroup>
+      <LegacyFlatOutputArtifacts Include="$(MSBuildProjectDirectory)\bin\$(Configuration)\Chummer.Tests.deps.json" />
+      <LegacyFlatOutputArtifacts Include="$(MSBuildProjectDirectory)\bin\$(Configuration)\Chummer.Tests.dll" />
+      <LegacyFlatOutputArtifacts Include="$(MSBuildProjectDirectory)\bin\$(Configuration)\Chummer.Tests.dll.config" />
+      <LegacyFlatOutputArtifacts Include="$(MSBuildProjectDirectory)\bin\$(Configuration)\Chummer.Tests.exe" />
+      <LegacyFlatOutputArtifacts Include="$(MSBuildProjectDirectory)\bin\$(Configuration)\Chummer.Tests.pdb" />
+      <LegacyFlatOutputArtifacts Include="$(MSBuildProjectDirectory)\bin\$(Configuration)\Chummer.Tests.runtimeconfig.json" />
+    </ItemGroup>
+    <Delete Files="@(LegacyFlatOutputArtifacts)" />
+  </Target>
 </Project>

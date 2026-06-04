@@ -1073,25 +1073,63 @@ public sealed class XmlToolCatalogService : IToolCatalogService
 
     private static string? TryResolveOnlineStorageEvidenceRoot(string baseDataPath)
     {
-        if (string.IsNullOrWhiteSpace(baseDataPath))
+        foreach (string candidateRoot in EnumerateEvidenceCandidateRoots(baseDataPath))
         {
-            return null;
-        }
-
-        DirectoryInfo? current = new(Path.GetFullPath(baseDataPath));
-        while (current is not null)
-        {
-            bool hasHubProofPath = Directory.Exists(Path.Combine(current.FullName, "chummer.run-services", ".codex-studio", "published"));
-            bool hasMobileProofPath = Directory.Exists(Path.Combine(current.FullName, "chummer-play", ".codex-studio", "published"));
+            bool hasHubProofPath = Directory.Exists(Path.Combine(candidateRoot, "chummer.run-services", ".codex-studio", "published"));
+            bool hasMobileProofPath = Directory.Exists(Path.Combine(candidateRoot, "chummer-play", ".codex-studio", "published"));
             if (hasHubProofPath || hasMobileProofPath)
             {
-                return current.FullName;
-            }
-
-            current = current.Parent;
+                return candidateRoot;
+            }    
         }
 
         return null;
+    }
+
+    private static IEnumerable<string> EnumerateEvidenceCandidateRoots(string? baseDataPath)
+    {
+        HashSet<string> seen = new(StringComparer.Ordinal);
+
+        foreach (string? seed in new[] { baseDataPath, Directory.GetCurrentDirectory(), AppContext.BaseDirectory })
+        {
+            if (string.IsNullOrWhiteSpace(seed))
+            {
+                continue;
+            }
+
+            DirectoryInfo? current = new(Path.GetFullPath(seed));
+            while (current is not null)
+            {
+                if (seen.Add(current.FullName))
+                {
+                    yield return current.FullName;
+                }
+
+                current = current.Parent;
+            }
+        }
+
+        string? repoRoot = Environment.GetEnvironmentVariable("CHUMMER_REPO_ROOT");
+        if (!string.IsNullOrWhiteSpace(repoRoot))
+        {
+            string normalized = Path.GetFullPath(repoRoot);
+            if (seen.Add(normalized))
+            {
+                yield return normalized;
+            }
+        }
+
+        const string workspaceRoot = "/docker/chummercomplete";
+        if (Directory.Exists(workspaceRoot) && seen.Add(workspaceRoot))
+        {
+            yield return workspaceRoot;
+        }
+
+        const string coreEngineRoot = "/docker/chummercomplete/chummer-core-engine";
+        if (Directory.Exists(coreEngineRoot) && seen.Add(coreEngineRoot))
+        {
+            yield return coreEngineRoot;
+        }
     }
 
     private static ImportOracleSummary BuildImportOracleSummary(string baseDataPath)
@@ -1368,20 +1406,12 @@ public sealed class XmlToolCatalogService : IToolCatalogService
 
     private static string? TryResolveEngineProofRoot(string baseDataPath)
     {
-        if (string.IsNullOrWhiteSpace(baseDataPath))
+        foreach (string candidateRoot in EnumerateEvidenceCandidateRoots(baseDataPath))
         {
-            return null;
-        }
-
-        DirectoryInfo? current = new(Path.GetFullPath(baseDataPath));
-        while (current is not null)
-        {
-            if (Directory.Exists(Path.Combine(current.FullName, ".codex-studio", "published")))
+            if (Directory.Exists(Path.Combine(candidateRoot, ".codex-studio", "published")))
             {
-                return current.FullName;
-            }
-
-            current = current.Parent;
+                return candidateRoot;
+            }    
         }
 
         return null;
@@ -1389,22 +1419,14 @@ public sealed class XmlToolCatalogService : IToolCatalogService
 
     private static string? TryResolveImportOracleRoot(string baseDataPath)
     {
-        if (string.IsNullOrWhiteSpace(baseDataPath))
+        foreach (string candidateRoot in EnumerateEvidenceCandidateRoots(baseDataPath))
         {
-            return null;
-        }
-
-        DirectoryInfo? current = new(Path.GetFullPath(baseDataPath));
-        while (current is not null)
-        {
-            bool hasChummer5Fixtures = Directory.Exists(Path.Combine(current.FullName, "Chummer.Tests", "TestFiles"));
-            bool hasChummer4Fixtures = Directory.Exists(Path.Combine(current.FullName, "Chummer.CoreEngine.Tests", "Fixtures", "Sr4"));
+            bool hasChummer5Fixtures = Directory.Exists(Path.Combine(candidateRoot, "Chummer.Tests", "TestFiles"));
+            bool hasChummer4Fixtures = Directory.Exists(Path.Combine(candidateRoot, "Chummer.CoreEngine.Tests", "Fixtures", "Sr4"));
             if (hasChummer5Fixtures || hasChummer4Fixtures)
             {
-                return current.FullName;
+                return candidateRoot;
             }
-
-            current = current.Parent;
         }
 
         return null;

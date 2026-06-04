@@ -347,10 +347,9 @@ public class ArchitectureGuardrailTests
 
     private static string FindPath(params string[] parts)
     {
-        string? canonicalOwnerPath = TryResolveCanonicalOwnerPath(parts);
-        if (!string.IsNullOrWhiteSpace(canonicalOwnerPath))
+        if (parts.Length > 0 && TryResolveProjectOrNestedPath(parts, requireDirectory: false) is { } resolvedPath)
         {
-            return canonicalOwnerPath;
+            return resolvedPath;
         }
 
         foreach (string? root in CandidateRoots())
@@ -404,10 +403,9 @@ public class ArchitectureGuardrailTests
 
     private static string FindDirectory(params string[] parts)
     {
-        string? canonicalOwnerDirectory = TryResolveCanonicalOwnerDirectory(parts);
-        if (!string.IsNullOrWhiteSpace(canonicalOwnerDirectory))
+        if (parts.Length > 0 && TryResolveProjectOrNestedPath(parts, requireDirectory: true) is { } resolvedPath)
         {
-            return canonicalOwnerDirectory;
+            return resolvedPath;
         }
 
         foreach (string? root in CandidateRoots())
@@ -434,10 +432,9 @@ public class ArchitectureGuardrailTests
 
     private static string? TryFindDirectory(params string[] parts)
     {
-        string? canonicalOwnerDirectory = TryResolveCanonicalOwnerDirectory(parts);
-        if (!string.IsNullOrWhiteSpace(canonicalOwnerDirectory))
+        if (parts.Length > 0 && TryResolveProjectOrNestedPath(parts, requireDirectory: true) is { } resolvedPath)
         {
-            return canonicalOwnerDirectory;
+            return resolvedPath;
         }
 
         foreach (string? root in CandidateRoots())
@@ -466,9 +463,38 @@ public class ArchitectureGuardrailTests
     {
         yield return Environment.GetEnvironmentVariable("CHUMMER_REPO_ROOT");
         yield return "/docker/chummercomplete";
+        yield return "/docker/chummercomplete/chummer-core-engine";
+        yield return "/docker/chummercomplete/chummer-presentation";
+        yield return "/docker/chummercomplete/chummer.run-services";
+        yield return "/docker/chummercomplete/chummer-hub-registry";
         yield return Directory.GetCurrentDirectory();
         yield return AppContext.BaseDirectory;
         yield return "/src";
+    }
+
+    private static string? TryResolveProjectOrNestedPath(IReadOnlyList<string> parts, bool requireDirectory)
+    {
+        string projectName = parts[0];
+
+        foreach (string root in CandidateRoots().Where(static root => !string.IsNullOrWhiteSpace(root)).Distinct(StringComparer.Ordinal)!)
+        {
+            if (!Directory.Exists(root))
+            {
+                continue;
+            }
+
+            foreach (string projectDirectory in Directory.EnumerateDirectories(root, projectName, SearchOption.AllDirectories))
+            {
+                string candidate = Path.Combine(new[] { projectDirectory }.Concat(parts.Skip(1)).ToArray());
+                bool exists = requireDirectory ? Directory.Exists(candidate) : File.Exists(candidate);
+                if (exists)
+                {
+                    return candidate;
+                }
+            }
+        }
+
+        return null;
     }
 
     private static string ResolveProjectReferenceName(string include)
