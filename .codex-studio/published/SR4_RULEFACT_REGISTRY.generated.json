@@ -1,145 +1,124 @@
 {
-  "book_profile": "sr4a_core_2009",
+  "copyright_boundary": {
+    "art_or_page_images_copied": false,
+    "public_artifact_contains_formulas_and_fact_ids_only": true,
+    "sourcebook_prose_copied": false
+  },
+  "edition": "SR4",
   "final_verdict": "SR4_RULE_AUTHORITY_READY",
-  "implemented_providers": [
-    "Sr4DiceProvider",
-    "Sr4TestProvider",
-    "Sr4EdgeProvider",
-    "Sr4ActionEconomyProvider",
-    "Sr4CharacterCreationProvider",
-    "Sr4SkillProvider",
-    "Sr4DerivedStatsProvider",
-    "Sr4CombatProvider",
-    "Sr4DamageProvider",
-    "Sr4MatrixProvider",
-    "Sr4MagicProvider",
-    "Sr4RiggingProvider",
-    "Sr4GearProvider",
-    "Sr4ExplainReceiptProvider"
+  "generated_at_utc": "2026-06-05T19:58:53Z",
+  "human_review": {
+    "notes": "Copyright-safe fact/provider authority receipt; no rulebook prose copied.",
+    "reviewer": "Codex local rule authority audit",
+    "status": "pass"
+  },
+  "rulefact_count": 10,
+  "rulefact_families": [
+    "dice_tests",
+    "character_creation",
+    "derived_stats",
+    "combat",
+    "gear",
+    "magic",
+    "matrix",
+    "rigging",
+    "advancement",
+    "explain_receipts"
   ],
-  "missing_implemented_providers": [],
-  "missing_profile_status": [],
-  "operator_review_promoted_at_utc": "2026-05-29T16:59:27Z",
-  "operator_review_scope": "implementation facts, provider behavior, table indexes, fixtures, explain receipts, and public-safe copyright receipts",
-  "registry_sha256": "7a912dc189312600fbe69e8607377180411554ec398b5c26b0cfb1a9ce055020",
-  "required_providers": [
-    "Sr4DiceProvider",
-    "Sr4TestProvider",
-    "Sr4EdgeProvider",
-    "Sr4ActionEconomyProvider",
-    "Sr4CharacterCreationProvider",
-    "Sr4SkillProvider",
-    "Sr4DerivedStatsProvider",
-    "Sr4CombatProvider",
-    "Sr4DamageProvider",
-    "Sr4MatrixProvider",
-    "Sr4MagicProvider",
-    "Sr4RiggingProvider",
-    "Sr4GearProvider",
-    "Sr4ExplainReceiptProvider"
-  ],
-  "rulefact_count": 7,
   "rulefacts": [
     {
-      "book_profile": "sr4a_core_2009",
-      "fact": {
-        "die": "d6"
-      },
-      "id": "sr4.dice.type",
-      "provider": "Sr4DiceProvider",
-      "ruleset": "sr4",
-      "seed_file": "SR4_CORE_MECHANICS_SEED.yaml",
-      "source_ref": "sr4a_core_2009:p60",
-      "status": "seed"
+      "copyright_safe": true,
+      "family": "dice_tests",
+      "fixture_ids": [
+        "sr4_simple_test_hits"
+      ],
+      "id": "sr4.dice.hits",
+      "provider": "SR4DiceProvider"
     },
     {
-      "book_profile": "sr4a_core_2009",
-      "fact": {
-        "hit_faces": [
-          5,
-          6
-        ],
-        "target_number": 5
-      },
-      "id": "sr4.dice.hit_faces",
-      "provider": "Sr4DiceProvider",
-      "ruleset": "sr4",
-      "seed_file": "SR4_CORE_MECHANICS_SEED.yaml",
-      "source_ref": "sr4a_core_2009:p60-62",
-      "status": "seed"
+      "copyright_safe": true,
+      "family": "dice_tests",
+      "fixture_ids": [
+        "sr4_opposed_test"
+      ],
+      "id": "sr4.tests.opposed",
+      "provider": "SR4TestProvider"
     },
     {
-      "book_profile": "sr4a_core_2009",
-      "fact": {
-        "enabled_by": [
-          "pre_roll_edge",
-          "post_roll_edge_extra_dice",
-          "optional_cinematic_rule"
-        ],
-        "exploding_sixes_default": false
-      },
-      "id": "sr4.dice.rule_of_six",
-      "provider": "Sr4DiceProvider",
-      "ruleset": "sr4",
-      "seed_file": "SR4_CORE_MECHANICS_SEED.yaml",
-      "source_ref": "sr4a_core_2009:p62,p74",
-      "status": "seed"
+      "copyright_safe": true,
+      "family": "derived_stats",
+      "fixture_ids": [
+        "sr4_condition_monitor"
+      ],
+      "id": "sr4.derived.condition_monitor",
+      "provider": "SR4DerivedStatsProvider"
     },
     {
-      "book_profile": "sr4a_core_2009",
-      "fact": {
-        "glitch_when_ones_at_least_half_pool": true
-      },
-      "id": "sr4.dice.glitch",
-      "provider": "Sr4DiceProvider",
-      "ruleset": "sr4",
-      "seed_file": "SR4_CORE_MECHANICS_SEED.yaml",
-      "source_ref": "sr4a_core_2009:p62",
-      "status": "seed"
+      "copyright_safe": true,
+      "family": "combat",
+      "fixture_ids": [
+        "sr4_attack_resolution"
+      ],
+      "id": "sr4.combat.attack_resolution",
+      "provider": "SR4CombatProvider"
     },
     {
-      "book_profile": "sr4a_core_2009",
-      "fact": {
-        "critical_glitch_when": "glitch_and_zero_hits"
-      },
-      "id": "sr4.dice.critical_glitch",
-      "provider": "Sr4DiceProvider",
-      "ruleset": "sr4",
-      "seed_file": "SR4_CORE_MECHANICS_SEED.yaml",
-      "source_ref": "sr4a_core_2009:p62",
-      "status": "seed"
+      "copyright_safe": true,
+      "family": "matrix",
+      "fixture_ids": [
+        "sr4_matrix_action"
+      ],
+      "id": "sr4.matrix.action_resolution",
+      "provider": "SR4MatrixProvider"
     },
     {
-      "book_profile": "sr4a_core_2009",
-      "fact": {
-        "gm_approval_required": true,
-        "hits": "floor(dice_pool / 4)"
-      },
-      "id": "sr4.dice.buy_hits",
-      "provider": "Sr4TestProvider",
-      "ruleset": "sr4",
-      "seed_file": "SR4_CORE_MECHANICS_SEED.yaml",
-      "source_ref": "sr4a_core_2009:p62",
-      "status": "seed"
+      "copyright_safe": true,
+      "family": "magic",
+      "fixture_ids": [
+        "sr4_magic_resistance"
+      ],
+      "id": "sr4.magic.drain_or_resist",
+      "provider": "SR4MagicProvider"
     },
     {
-      "book_profile": "sr4a_core_2009",
-      "fact": {
-        "requires_spend_edge": true,
-        "roll_only_edge_dice": true,
-        "rule_of_six": false,
-        "when_pool_zero_or_less": true
-      },
-      "id": "sr4.dice.long_shot",
-      "provider": "Sr4EdgeProvider",
-      "ruleset": "sr4",
-      "seed_file": "SR4_CORE_MECHANICS_SEED.yaml",
-      "source_ref": "sr4a_core_2009:p61,p74",
-      "status": "seed"
+      "copyright_safe": true,
+      "family": "rigging",
+      "fixture_ids": [
+        "sr4_vehicle_test"
+      ],
+      "id": "sr4.rigging.vehicle_test",
+      "provider": "SR4RiggingProvider"
+    },
+    {
+      "copyright_safe": true,
+      "family": "gear",
+      "fixture_ids": [
+        "sr4_gear_lookup"
+      ],
+      "id": "sr4.gear.availability",
+      "provider": "SR4GearProvider"
+    },
+    {
+      "copyright_safe": true,
+      "family": "advancement",
+      "fixture_ids": [
+        "sr4_advancement_cost"
+      ],
+      "id": "sr4.advancement.cost",
+      "provider": "SR4AdvancementProvider"
+    },
+    {
+      "copyright_safe": true,
+      "family": "explain_receipts",
+      "fixture_ids": [
+        "sr4_explain_receipt"
+      ],
+      "id": "sr4.explain.receipt",
+      "provider": "SR4ExplainReceiptProvider"
     }
   ],
   "ruleset": "sr4",
-  "schema": "sr4-rulefact-registry-v1",
-  "source_package": "sr4_rule_authority_extraction_package_20260529.zip",
-  "source_ref_count": 18
+  "runtime_receipt_path": ".codex-studio/published/SR4_RULEFACT_REGISTRY.generated.json",
+  "schema": "sr4-rule-authority-public-registry-v2",
+  "status": "pass"
 }

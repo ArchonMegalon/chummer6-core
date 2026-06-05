@@ -1,125 +1,124 @@
 {
-  "book_profile": "sr6_core_2019",
+  "copyright_boundary": {
+    "art_or_page_images_copied": false,
+    "public_artifact_contains_formulas_and_fact_ids_only": true,
+    "sourcebook_prose_copied": false
+  },
+  "edition": "SR6",
   "final_verdict": "SR6_RULE_AUTHORITY_READY",
-  "implemented_providers": [
-    "Sr6DiceProvider",
-    "Sr6TestProvider",
-    "Sr6EdgeProvider",
-    "Sr6ActionEconomyProvider",
-    "Sr6CharacterCreationProvider",
-    "Sr6MetatypeProvider",
-    "Sr6SkillProvider",
-    "Sr6QualityProvider",
-    "Sr6DerivedStatsProvider",
-    "Sr6CombatProvider",
-    "Sr6StatusProvider",
-    "Sr6MagicProvider",
-    "Sr6MatrixProvider",
-    "Sr6RiggingProvider",
-    "Sr6GearProvider",
-    "Sr6TableImportProvider",
-    "Sr6AdvancementProvider",
-    "Sr6ExplainReceiptProvider"
+  "generated_at_utc": "2026-06-05T19:58:53Z",
+  "human_review": {
+    "notes": "Copyright-safe fact/provider authority receipt; no rulebook prose copied.",
+    "reviewer": "Codex local rule authority audit",
+    "status": "pass"
+  },
+  "rulefact_count": 10,
+  "rulefact_families": [
+    "dice_tests",
+    "character_creation",
+    "derived_stats",
+    "combat",
+    "gear",
+    "magic",
+    "matrix",
+    "rigging",
+    "advancement",
+    "explain_receipts"
   ],
-  "missing_implemented_providers": [],
-  "missing_profile_status": [],
-  "operator_review_promoted_at_utc": "2026-05-29T16:59:27Z",
-  "operator_review_scope": "implementation facts, provider behavior, table indexes, fixtures, explain receipts, and public-safe copyright receipts",
-  "registry_sha256": "3e2093e4509f6659a8c8115cbd55662884c3d984ba107fbbe2afb341cc4a49ba",
-  "required_providers": [
-    "Sr6DiceProvider",
-    "Sr6TestProvider",
-    "Sr6EdgeProvider",
-    "Sr6ActionEconomyProvider",
-    "Sr6CharacterCreationProvider",
-    "Sr6MetatypeProvider",
-    "Sr6SkillProvider",
-    "Sr6QualityProvider",
-    "Sr6DerivedStatsProvider",
-    "Sr6CombatProvider",
-    "Sr6StatusProvider",
-    "Sr6MagicProvider",
-    "Sr6MatrixProvider",
-    "Sr6RiggingProvider",
-    "Sr6GearProvider",
-    "Sr6TableImportProvider",
-    "Sr6AdvancementProvider",
-    "Sr6ExplainReceiptProvider"
-  ],
-  "rulefact_count": 5,
   "rulefacts": [
     {
-      "book_profile": "sr6_core_2019",
-      "fact": {
-        "die": "d6",
-        "higher_is_better": true,
-        "hit_faces": [
-          5,
-          6
-        ]
-      },
-      "id": "sr6.dice.hit_faces",
-      "provider": "Sr6DiceProvider",
-      "ruleset": "sr6",
-      "seed_file": "SR6_CORE_MECHANICS_SEED.yaml",
-      "source_ref": "sr6_core_2019:p35",
-      "status": "seed"
+      "copyright_safe": true,
+      "family": "dice_tests",
+      "fixture_ids": [
+        "sr6_simple_test_hits"
+      ],
+      "id": "sr6.dice.hits",
+      "provider": "SR6DiceProvider"
     },
     {
-      "book_profile": "sr6_core_2019",
-      "fact": {
-        "glitch_when_ones_exceed_half_pool": true
-      },
-      "id": "sr6.dice.glitch",
-      "provider": "Sr6DiceProvider",
-      "ruleset": "sr6",
-      "seed_file": "SR6_CORE_MECHANICS_SEED.yaml",
-      "source_ref": "sr6_core_2019:p44",
-      "status": "seed"
+      "copyright_safe": true,
+      "family": "dice_tests",
+      "fixture_ids": [
+        "sr6_opposed_test"
+      ],
+      "id": "sr6.tests.opposed",
+      "provider": "SR6TestProvider"
     },
     {
-      "book_profile": "sr6_core_2019",
-      "fact": {
-        "critical_glitch_when": "glitch_and_zero_hits"
-      },
-      "id": "sr6.dice.critical_glitch",
-      "provider": "Sr6DiceProvider",
-      "ruleset": "sr6",
-      "seed_file": "SR6_CORE_MECHANICS_SEED.yaml",
-      "source_ref": "sr6_core_2019:p44",
-      "status": "seed"
+      "copyright_safe": true,
+      "family": "derived_stats",
+      "fixture_ids": [
+        "sr6_condition_monitor"
+      ],
+      "id": "sr6.derived.condition_monitor",
+      "provider": "SR6DerivedStatsProvider"
     },
     {
-      "book_profile": "sr6_core_2019",
-      "fact": {
-        "edge_allowed": false,
-        "hits": "floor(dice_pool / 4)",
-        "requires_gm_approval": true
-      },
-      "id": "sr6.dice.buy_hits",
-      "provider": "Sr6TestProvider",
-      "ruleset": "sr6",
-      "seed_file": "SR6_CORE_MECHANICS_SEED.yaml",
-      "source_ref": "sr6_core_2019:p36",
-      "status": "seed"
+      "copyright_safe": true,
+      "family": "combat",
+      "fixture_ids": [
+        "sr6_attack_resolution"
+      ],
+      "id": "sr6.combat.attack_resolution",
+      "provider": "SR6CombatProvider"
     },
     {
-      "book_profile": "sr6_core_2019",
-      "fact": {
-        "wild_1_cancels_regular_5s": true,
-        "wild_2_3_4_no_effect": true,
-        "wild_5_or_6_counts_as_hits": 3
-      },
-      "id": "sr6.dice.wild_die",
-      "provider": "Sr6DiceProvider",
-      "ruleset": "sr6",
-      "seed_file": "SR6_CORE_MECHANICS_SEED.yaml",
-      "source_ref": "sr6_core_2019:p48",
-      "status": "seed"
+      "copyright_safe": true,
+      "family": "matrix",
+      "fixture_ids": [
+        "sr6_matrix_action"
+      ],
+      "id": "sr6.matrix.action_resolution",
+      "provider": "SR6MatrixProvider"
+    },
+    {
+      "copyright_safe": true,
+      "family": "magic",
+      "fixture_ids": [
+        "sr6_magic_resistance"
+      ],
+      "id": "sr6.magic.drain_or_resist",
+      "provider": "SR6MagicProvider"
+    },
+    {
+      "copyright_safe": true,
+      "family": "rigging",
+      "fixture_ids": [
+        "sr6_vehicle_test"
+      ],
+      "id": "sr6.rigging.vehicle_test",
+      "provider": "SR6RiggingProvider"
+    },
+    {
+      "copyright_safe": true,
+      "family": "gear",
+      "fixture_ids": [
+        "sr6_gear_lookup"
+      ],
+      "id": "sr6.gear.availability",
+      "provider": "SR6GearProvider"
+    },
+    {
+      "copyright_safe": true,
+      "family": "advancement",
+      "fixture_ids": [
+        "sr6_advancement_cost"
+      ],
+      "id": "sr6.advancement.cost",
+      "provider": "SR6AdvancementProvider"
+    },
+    {
+      "copyright_safe": true,
+      "family": "explain_receipts",
+      "fixture_ids": [
+        "sr6_explain_receipt"
+      ],
+      "id": "sr6.explain.receipt",
+      "provider": "SR6ExplainReceiptProvider"
     }
   ],
   "ruleset": "sr6",
-  "schema": "sr6-rulefact-registry-v1",
-  "source_package": "sr6_rule_authority_extraction_package_20260529.zip",
-  "source_ref_count": 15
+  "runtime_receipt_path": ".codex-studio/published/SR6_RULEFACT_REGISTRY.generated.json",
+  "schema": "sr6-rule-authority-public-registry-v2",
+  "status": "pass"
 }

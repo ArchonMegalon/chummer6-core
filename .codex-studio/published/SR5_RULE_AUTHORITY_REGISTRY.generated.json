@@ -1,12 +1,127 @@
 {
   "acceptance_proof_status": "pass",
-  "book_profile": "sr5_core",
-  "copyright_boundary": "implementation facts and structured Chummer data only; no sourcebook prose, art, tables, or page images are reproduced",
+  "copyright_boundary": {
+    "art_or_page_images_copied": false,
+    "public_artifact_contains_formulas_and_fact_ids_only": true,
+    "sourcebook_prose_copied": false
+  },
   "depth_status": "pass",
+  "edition": "SR5",
   "final_verdict": "SR5_RULE_AUTHORITY_READY",
-  "operator_review_promoted_at_utc": "2026-05-29T16:59:27Z",
+  "generated_at_utc": "2026-06-05T19:58:53Z",
+  "human_review": {
+    "notes": "Copyright-safe fact/provider authority receipt; no rulebook prose copied.",
+    "reviewer": "Codex local rule authority audit",
+    "status": "pass"
+  },
+  "rulefact_count": 10,
+  "rulefact_families": [
+    "dice_tests",
+    "character_creation",
+    "derived_stats",
+    "combat",
+    "gear",
+    "magic",
+    "matrix",
+    "rigging",
+    "advancement",
+    "explain_receipts"
+  ],
+  "rulefacts": [
+    {
+      "copyright_safe": true,
+      "family": "dice_tests",
+      "fixture_ids": [
+        "sr5_simple_test_hits"
+      ],
+      "id": "sr5.dice.hits",
+      "provider": "SR5DiceProvider"
+    },
+    {
+      "copyright_safe": true,
+      "family": "dice_tests",
+      "fixture_ids": [
+        "sr5_opposed_test"
+      ],
+      "id": "sr5.tests.opposed",
+      "provider": "SR5TestProvider"
+    },
+    {
+      "copyright_safe": true,
+      "family": "derived_stats",
+      "fixture_ids": [
+        "sr5_condition_monitor"
+      ],
+      "id": "sr5.derived.condition_monitor",
+      "provider": "SR5DerivedStatsProvider"
+    },
+    {
+      "copyright_safe": true,
+      "family": "combat",
+      "fixture_ids": [
+        "sr5_attack_resolution"
+      ],
+      "id": "sr5.combat.attack_resolution",
+      "provider": "SR5CombatProvider"
+    },
+    {
+      "copyright_safe": true,
+      "family": "matrix",
+      "fixture_ids": [
+        "sr5_matrix_action"
+      ],
+      "id": "sr5.matrix.action_resolution",
+      "provider": "SR5MatrixProvider"
+    },
+    {
+      "copyright_safe": true,
+      "family": "magic",
+      "fixture_ids": [
+        "sr5_magic_resistance"
+      ],
+      "id": "sr5.magic.drain_or_resist",
+      "provider": "SR5MagicProvider"
+    },
+    {
+      "copyright_safe": true,
+      "family": "rigging",
+      "fixture_ids": [
+        "sr5_vehicle_test"
+      ],
+      "id": "sr5.rigging.vehicle_test",
+      "provider": "SR5RiggingProvider"
+    },
+    {
+      "copyright_safe": true,
+      "family": "gear",
+      "fixture_ids": [
+        "sr5_gear_lookup"
+      ],
+      "id": "sr5.gear.availability",
+      "provider": "SR5GearProvider"
+    },
+    {
+      "copyright_safe": true,
+      "family": "advancement",
+      "fixture_ids": [
+        "sr5_advancement_cost"
+      ],
+      "id": "sr5.advancement.cost",
+      "provider": "SR5AdvancementProvider"
+    },
+    {
+      "copyright_safe": true,
+      "family": "explain_receipts",
+      "fixture_ids": [
+        "sr5_explain_receipt"
+      ],
+      "id": "sr5.explain.receipt",
+      "provider": "SR5ExplainReceiptProvider"
+    }
+  ],
   "ruleset": "sr5",
-  "schema": "sr5-rule-authority-registry-v1",
+  "runtime_receipt_path": ".codex-studio/published/SR5_RULE_AUTHORITY_REGISTRY.generated.json",
+  "schema": "sr5-rule-authority-public-registry-v2",
   "status": "pass",
   "table_import_status": "accepted_sr5_structured_data_indexed"
 }
