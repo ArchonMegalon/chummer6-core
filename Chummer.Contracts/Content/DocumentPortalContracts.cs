@@ -26,6 +26,12 @@ public static class FlipLinkPublicationStatuses
     public const string Deleted = "deleted";
 }
 
+public static class DocumentPortalReadinessPostures
+{
+    public const string OperatorManagedRouteReady = "operator_managed_route_ready";
+    public const string OperatorManagedViewerOptional = "operator_managed_viewer_optional";
+}
+
 public sealed record ChummerDocument(
     string Id,
     string Slug,
