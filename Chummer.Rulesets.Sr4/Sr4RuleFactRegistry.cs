@@ -94,6 +94,26 @@ public sealed record Sr4RuleFactRegistry(
             throw new InvalidOperationException($"SR4 RuleFacts without providers: {string.Join(", ", missingProviders)}.");
         }
 
+        string[] mismatchedRulesets = RuleFacts
+            .Where(fact => !string.IsNullOrWhiteSpace(fact.Ruleset)
+                && !string.Equals(fact.Ruleset, Ruleset, StringComparison.Ordinal))
+            .Select(fact => fact.Id)
+            .ToArray();
+        if (mismatchedRulesets.Length > 0)
+        {
+            throw new InvalidOperationException($"SR4 RuleFacts with mismatched rulesets: {string.Join(", ", mismatchedRulesets)}.");
+        }
+
+        string[] mismatchedBookProfiles = RuleFacts
+            .Where(fact => !string.IsNullOrWhiteSpace(fact.BookProfile)
+                && !string.Equals(fact.BookProfile, BookProfile, StringComparison.Ordinal))
+            .Select(fact => fact.Id)
+            .ToArray();
+        if (mismatchedBookProfiles.Length > 0)
+        {
+            throw new InvalidOperationException($"SR4 RuleFacts with mismatched book profiles: {string.Join(", ", mismatchedBookProfiles)}.");
+        }
+
         string[] missingSourceRefs = RuleFacts
             .Where(fact => string.IsNullOrWhiteSpace(fact.SourceRef))
             .Select(fact => fact.Id)

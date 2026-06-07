@@ -3,6 +3,7 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Text.Json.Nodes;
 using Chummer.Rulesets.Sr6;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -41,6 +42,49 @@ public sealed class Sr6RuleFactRegistryTests
         string receiptJson = File.ReadAllText(FindRepoPath(".codex-studio", "published", "OPERATOR_PROMOTED_RULE_AUTHORITY_GOLD.generated.json"));
         StringAssert.Contains(receiptJson, "\"final_verdict\": \"FULL_RULE_AUTHORITY_READY\"");
         StringAssert.Contains(receiptJson, "\"sourcebook_text_committed\": false");
+    }
+
+    [TestMethod]
+    public void Generated_registry_rejects_rulefacts_with_mismatched_ruleset()
+    {
+        string json = File.ReadAllText(FindRepoPath(".codex-studio", "published", "SR6_RULEFACT_REGISTRY.generated.json"));
+        JsonObject registry = JsonNode.Parse(json)!.AsObject();
+        JsonArray ruleFacts = registry["rulefacts"]!.AsArray();
+        JsonObject firstFact = ruleFacts[0]!.AsObject();
+
+        firstFact["ruleset"] = "sr4";
+
+        InvalidOperationException ex = CaptureLoadFailure(registry);
+        StringAssert.Contains(ex.Message, "mismatched rulesets");
+    }
+
+    [TestMethod]
+    public void Generated_registry_rejects_rulefacts_with_mismatched_book_profile()
+    {
+        string json = File.ReadAllText(FindRepoPath(".codex-studio", "published", "SR6_RULEFACT_REGISTRY.generated.json"));
+        JsonObject registry = JsonNode.Parse(json)!.AsObject();
+        JsonArray ruleFacts = registry["rulefacts"]!.AsArray();
+        JsonObject firstFact = ruleFacts[0]!.AsObject();
+
+        registry["book_profile"] = "core";
+        firstFact["book_profile"] = "runnerhub";
+
+        InvalidOperationException ex = CaptureLoadFailure(registry);
+        StringAssert.Contains(ex.Message, "mismatched book profiles");
+    }
+
+    private static InvalidOperationException CaptureLoadFailure(JsonObject registry)
+    {
+        try
+        {
+            Sr6RuleFactRegistry.Load(registry.ToJsonString());
+        }
+        catch (InvalidOperationException ex)
+        {
+            return ex;
+        }
+
+        throw new AssertFailedException("Expected Sr6RuleFactRegistry.Load to reject the malformed registry.");
     }
 
     private static string FindRepoPath(params string[] segments)
