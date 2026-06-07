@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-06-03T01:19:20Z",
+  "generated_at": "2026-06-07T18:37:33Z",
   "status": "passed",
   "package_id": "next90-m141-core-bind-import-oracle-custom-data-and-amend-package-flows-to-deterministic",
   "frontier_id": 4304178368,
@@ -37,7 +37,7 @@
       "key": "tool_catalog_service",
       "path": "/docker/chummercomplete/chummer-core-engine/Chummer.Infrastructure/Xml/XmlToolCatalogService.cs",
       "exists": true,
-      "digest": "sha256:708a5b856acdd5403ac96982c1f86309b3ce2957d1747e0bea61048ab6ee2c49",
+      "digest": "sha256:01fc0762743250393127b8ca1e149b9b015c624ca9a43e3806806b7a66254277",
       "digest_scope": "full-file",
       "missing_snippets": [],
       "status": "passed"
@@ -91,7 +91,7 @@
       "key": "repo_verify",
       "path": "/docker/chummercomplete/chummer-core-engine/scripts/ai/verify.sh",
       "exists": true,
-      "digest": "sha256:ed2719e6cc2ea1d58abe8c43f7e7778a5c61e3dc95750d78bcfc5f4eee11d147",
+      "digest": "sha256:b03205274c48aa09376d2f37e46fdc1ac6a89abc336fc81f3a69b3b7d1e1e31c",
       "digest_scope": "full-file",
       "missing_snippets": [],
       "status": "passed"

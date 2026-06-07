@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-06-01T20:06:00Z",
+  "generated_at": "2026-06-07T18:40:22Z",
   "status": "passed",
   "package_id": "next90-m121-core-implement-actionbudgetresult-actionaffordance-turnledger",
   "frontier_id": 1122632660,
@@ -67,7 +67,7 @@
       "key": "repo_verify",
       "path": "/docker/chummercomplete/chummer-core-engine/scripts/ai/verify.sh",
       "exists": true,
-      "digest": "sha256:573f72cbcf4e68cb4e0a086b760b39c4fe9cb43ebba4a4a7c69cbe4406b72054",
+      "digest": "sha256:b03205274c48aa09376d2f37e46fdc1ac6a89abc336fc81f3a69b3b7d1e1e31c",
       "missing_snippets": [],
       "status": "passed"
     },
@@ -85,7 +85,7 @@
       "key": "successor_registry",
       "path": "/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml",
       "exists": true,
-      "digest": "sha256:bc7190c20a0358e09cdef0ca63d7a09ff20a1a9011e2b433efd0866fd24f75c4",
+      "digest": "sha256:f7a7052667fb62adf4d4556e2e35f28dc9488f41c579d9af0802cdd92f0b0959",
       "missing_snippets": [],
       "status": "passed"
     },

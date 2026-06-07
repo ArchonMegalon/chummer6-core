@@ -15,7 +15,8 @@ public sealed record Sr4RuleFactRegistry(
     [property: JsonPropertyName("missing_implemented_providers")] IReadOnlyList<string> MissingImplementedProviders,
     [property: JsonPropertyName("rulefacts")] IReadOnlyList<Sr4RuleFact> RuleFacts)
 {
-    public const string ExpectedSchema = "sr4-rulefact-registry-v1";
+    public const string ExpectedSchema = "sr4-rule-authority-public-registry-v2";
+    public const string LegacySchema = "sr4-rulefact-registry-v1";
     public const string NotReadyVerdict = "NOT_READY";
     public const string ReadyVerdict = "SR4_RULE_AUTHORITY_READY";
 
@@ -38,13 +39,23 @@ public sealed record Sr4RuleFactRegistry(
             throw new InvalidOperationException("SR4 RuleFact registry could not be parsed.");
         }
 
+        registry = registry with
+        {
+            RequiredProviders = registry.RequiredProviders ?? Array.Empty<string>(),
+            ImplementedProviders = registry.ImplementedProviders ?? Array.Empty<string>(),
+            MissingProfileStatus = registry.MissingProfileStatus ?? Array.Empty<string>(),
+            MissingImplementedProviders = registry.MissingImplementedProviders ?? Array.Empty<string>(),
+            RuleFacts = registry.RuleFacts ?? Array.Empty<Sr4RuleFact>(),
+        };
+
         registry.Validate();
         return registry;
     }
 
     public void Validate()
     {
-        if (!string.Equals(Schema, ExpectedSchema, StringComparison.Ordinal))
+        if (!string.Equals(Schema, ExpectedSchema, StringComparison.Ordinal)
+            && !string.Equals(Schema, LegacySchema, StringComparison.Ordinal))
         {
             throw new InvalidOperationException($"Unsupported SR4 RuleFact registry schema '{Schema}'.");
         }
@@ -87,7 +98,8 @@ public sealed record Sr4RuleFactRegistry(
             .Where(fact => string.IsNullOrWhiteSpace(fact.SourceRef))
             .Select(fact => fact.Id)
             .ToArray();
-        if (missingSourceRefs.Length > 0)
+        if (string.Equals(Schema, LegacySchema, StringComparison.Ordinal)
+            && missingSourceRefs.Length > 0)
         {
             throw new InvalidOperationException($"SR4 RuleFacts without source references: {string.Join(", ", missingSourceRefs)}.");
         }

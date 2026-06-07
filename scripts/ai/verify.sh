@@ -4,6 +4,10 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$repo_root"
 
+# Avoid intermittent deps.json file locks across successive dotnet runs in the same verifier session.
+export MSBUILDDISABLENODEREUSE=1
+export DOTNET_CLI_USE_MSBUILDNOINPROCNODE=1
+
 python3 scripts/verify-windows-checkout-paths.py --repo-root .
 
 test -f docs/CONTRACT_BOUNDARY_MAP.md

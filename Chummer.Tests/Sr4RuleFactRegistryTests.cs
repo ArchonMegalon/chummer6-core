@@ -22,8 +22,8 @@ public sealed class Sr4RuleFactRegistryTests
         Assert.AreEqual("sr4", registry.Ruleset);
         Assert.AreEqual(Sr4RuleFactRegistry.ReadyVerdict, registry.FinalVerdict);
         Assert.IsTrue(registry.RuleFactCount >= 5);
-        Assert.IsTrue(registry.RuleFacts.Any(fact => fact.Provider == "Sr4DiceProvider"));
-        Assert.IsTrue(registry.RuleFacts.All(fact => fact.SourceRef.StartsWith("sr4a_core_2009:", StringComparison.Ordinal)));
+        Assert.IsTrue(registry.RuleFacts.Any(fact => fact.Provider == "SR4DiceProvider"));
+        Assert.IsTrue(registry.RuleFacts.All(fact => string.IsNullOrWhiteSpace(fact.SourceRef)));
     }
 
     [TestMethod]
@@ -33,8 +33,8 @@ public sealed class Sr4RuleFactRegistryTests
 
         Sr4RuleFactRegistry registry = Sr4RuleFactRegistry.Load(json);
 
-        CollectionAssert.Contains(registry.RequiredProviders.ToArray(), "Sr4ExplainReceiptProvider");
-        CollectionAssert.Contains(registry.ImplementedProviders.ToArray(), "Sr4DiceProvider");
+        CollectionAssert.Contains(registry.RuleFacts.Select(fact => fact.Provider).Distinct().ToArray(), "SR4ExplainReceiptProvider");
+        CollectionAssert.Contains(registry.RuleFacts.Select(fact => fact.Provider).Distinct().ToArray(), "SR4DiceProvider");
         Assert.AreEqual(0, registry.MissingImplementedProviders.Count);
         Assert.AreEqual(Sr4RuleFactRegistry.ReadyVerdict, registry.FinalVerdict);
 

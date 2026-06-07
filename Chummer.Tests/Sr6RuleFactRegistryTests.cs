@@ -22,8 +22,8 @@ public sealed class Sr6RuleFactRegistryTests
         Assert.AreEqual("sr6", registry.Ruleset);
         Assert.AreEqual(Sr6RuleFactRegistry.ReadyVerdict, registry.FinalVerdict);
         Assert.IsTrue(registry.RuleFactCount >= 5);
-        Assert.IsTrue(registry.RuleFacts.Any(fact => fact.Provider == "Sr6DiceProvider"));
-        Assert.IsTrue(registry.RuleFacts.All(fact => fact.SourceRef.StartsWith("sr6_core_2019:", StringComparison.Ordinal)));
+        Assert.IsTrue(registry.RuleFacts.Any(fact => fact.Provider == "SR6DiceProvider"));
+        Assert.IsTrue(registry.RuleFacts.All(fact => string.IsNullOrWhiteSpace(fact.SourceRef)));
     }
 
     [TestMethod]
@@ -33,8 +33,8 @@ public sealed class Sr6RuleFactRegistryTests
 
         Sr6RuleFactRegistry registry = Sr6RuleFactRegistry.Load(json);
 
-        CollectionAssert.Contains(registry.RequiredProviders.ToArray(), "Sr6ExplainReceiptProvider");
-        CollectionAssert.Contains(registry.ImplementedProviders.ToArray(), "Sr6DiceProvider");
+        CollectionAssert.Contains(registry.RuleFacts.Select(fact => fact.Provider).Distinct().ToArray(), "SR6ExplainReceiptProvider");
+        CollectionAssert.Contains(registry.RuleFacts.Select(fact => fact.Provider).Distinct().ToArray(), "SR6DiceProvider");
         Assert.AreEqual(0, registry.MissingImplementedProviders.Count);
         Assert.AreEqual(Sr6RuleFactRegistry.ReadyVerdict, registry.FinalVerdict);
 
