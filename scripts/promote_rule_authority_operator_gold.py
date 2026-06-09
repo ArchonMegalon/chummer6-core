@@ -26,6 +26,7 @@ EXPECTED_SHA256 = {
     "sr5": "b6769553a7348286e6396b49e364960c71bba5436412b88c5672e4f522ad52d5",
     "sr6": "104dd5cc0f167232c3bc0f6453b389d9114dd7df483345e5b1211fda667bf023",
 }
+MIN_RULEFACT_COUNT = 100
 
 
 def now() -> str:
@@ -133,8 +134,8 @@ def sr4_or_sr6_gate(ruleset: str) -> dict[str, Any]:
         failures.append("table evidence is not indexed")
     authority_source = authority_registry if authority_registry else registry
     authority_rulefact_count = len(list(authority_source.get("rulefact_entries") or authority_source.get("rulefacts") or []))
-    if authority_rulefact_count <= 0:
-        failures.append("rulefact registry is empty")
+    if authority_rulefact_count < MIN_RULEFACT_COUNT:
+        failures.append(f"rulefact registry has {authority_rulefact_count} facts; minimum is {MIN_RULEFACT_COUNT}")
 
     ready = not failures
     token = f"{upper}_RULE_AUTHORITY_READY"
@@ -194,12 +195,15 @@ def sr5_gate() -> dict[str, Any]:
     tables = load_json(PUBLISHED / "SR5_TABLE_IMPORTS.generated.json")
     authority_registry = load_json(AUTHORITY_ROOT / "SR5_RULEFACT_REGISTRY.generated.json")
     failures: list[str] = []
+    authority_rulefact_count = len(list(authority_registry.get("rulefact_entries") or authority_registry.get("rulefacts") or []))
     if acceptance.get("status") != "pass":
         failures.append("SR5 acceptance proof failed")
     if depth.get("status") != "pass":
         failures.append("SR5 depth proof failed")
     if "indexed" not in str(tables.get("status", "")):
         failures.append("SR5 table imports are not indexed")
+    if authority_rulefact_count < MIN_RULEFACT_COUNT:
+        failures.append(f"SR5 rulefact registry has {authority_rulefact_count} facts; minimum is {MIN_RULEFACT_COUNT}")
 
     ready = not failures
     registry = normalize_public_rulefact_registry(
