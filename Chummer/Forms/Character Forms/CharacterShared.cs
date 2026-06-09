@@ -8964,13 +8964,8 @@ namespace Chummer
                                     // Read the stream.
                                     objStream.Position = 0;
 
-                                    using (StreamReader objReader = new StreamReader(objStream, Encoding.UTF8, true))
-                                    using (XmlReader objXmlReader =
-                                           XmlReader.Create(objReader, GlobalSettings.SafeXmlReaderSettings))
-                                        // Put the stream into an XmlDocument
-                                        await TaskExtensions
-                                            .RunWithoutEC(() => objCharacterXml.Load(objXmlReader), GenericToken)
-                                            .ConfigureAwait(false);
+                                    // Put the stream into an XmlDocument
+                                    await objCharacterXml.LoadStandardAsync(objStream, token: GenericToken).ConfigureAwait(false);
                                 }
 
                                 await GlobalSettings
@@ -9027,13 +9022,8 @@ namespace Chummer
                                     // Read the stream.
                                     objStream.Position = 0;
 
-                                    using (StreamReader objReader = new StreamReader(objStream, Encoding.UTF8, true))
-                                    using (XmlReader objXmlReader =
-                                           XmlReader.Create(objReader, GlobalSettings.SafeXmlReaderSettings))
-                                        // Put the stream into an XmlDocument
-                                        await TaskExtensions
-                                            .RunWithoutEC(() => objCharacterXml.Load(objXmlReader), GenericToken)
-                                            .ConfigureAwait(false);
+                                    // Put the stream into an XmlDocument
+                                    await objCharacterXml.LoadStandardAsync(objStream, token: GenericToken).ConfigureAwait(false);
                                 }
 
                                 await GlobalSettings
@@ -9106,13 +9096,8 @@ namespace Chummer
                                     // Read the stream.
                                     objStream.Position = 0;
 
-                                    using (StreamReader objReader = new StreamReader(objStream, Encoding.UTF8, true))
-                                    using (XmlReader objXmlReader =
-                                           XmlReader.Create(objReader, GlobalSettings.SafeXmlReaderSettings))
-                                        // Put the stream into an XmlDocument
-                                        await TaskExtensions
-                                            .RunWithoutEC(() => objCharacterXml.Load(objXmlReader), GenericToken)
-                                            .ConfigureAwait(false);
+                                    // Put the stream into an XmlDocument
+                                    await objCharacterXml.LoadStandardAsync(objStream, token: GenericToken).ConfigureAwait(false);
                                 }
 
                                 await GlobalSettings
@@ -9168,13 +9153,8 @@ namespace Chummer
                                     // Read the stream.
                                     objStream.Position = 0;
 
-                                    using (StreamReader objReader = new StreamReader(objStream, Encoding.UTF8, true))
-                                    using (XmlReader objXmlReader =
-                                           XmlReader.Create(objReader, GlobalSettings.SafeXmlReaderSettings))
-                                        // Put the stream into an XmlDocument
-                                        await TaskExtensions
-                                            .RunWithoutEC(() => objCharacterXml.Load(objXmlReader), GenericToken)
-                                            .ConfigureAwait(false);
+                                    // Put the stream into an XmlDocument
+                                    await objCharacterXml.LoadStandardAsync(objStream, token: GenericToken).ConfigureAwait(false);
                                 }
 
                                 await GlobalSettings
@@ -9212,14 +9192,8 @@ namespace Chummer
                                         // Read the stream.
                                         objStream.Position = 0;
 
-                                        using (StreamReader objReader =
-                                               new StreamReader(objStream, Encoding.UTF8, true))
-                                        using (XmlReader objXmlReader =
-                                               XmlReader.Create(objReader, GlobalSettings.SafeXmlReaderSettings))
-                                            // Put the stream into an XmlDocument
-                                            await TaskExtensions
-                                                .RunWithoutEC(() => objCharacterXml.Load(objXmlReader), GenericToken)
-                                                .ConfigureAwait(false);
+                                        // Put the stream into an XmlDocument
+                                        await objCharacterXml.LoadStandardAsync(objStream, token: GenericToken).ConfigureAwait(false);
                                     }
                                 }
 
@@ -9259,13 +9233,8 @@ namespace Chummer
                                     // Read the stream.
                                     objStream.Position = 0;
 
-                                    using (StreamReader objReader = new StreamReader(objStream, Encoding.UTF8, true))
-                                    using (XmlReader objXmlReader =
-                                           XmlReader.Create(objReader, GlobalSettings.SafeXmlReaderSettings))
-                                        // Put the stream into an XmlDocument
-                                        await TaskExtensions
-                                            .RunWithoutEC(() => objCharacterXml.Load(objXmlReader), GenericToken)
-                                            .ConfigureAwait(false);
+                                    // Put the stream into an XmlDocument
+                                    await objCharacterXml.LoadStandardAsync(objStream, token: GenericToken).ConfigureAwait(false);
                                 }
 
                                 await GlobalSettings
@@ -9308,13 +9277,8 @@ namespace Chummer
                                     // Read the stream.
                                     objStream.Position = 0;
 
-                                    using (StreamReader objReader = new StreamReader(objStream, Encoding.UTF8, true))
-                                    using (XmlReader objXmlReader =
-                                           XmlReader.Create(objReader, GlobalSettings.SafeXmlReaderSettings))
-                                        // Put the stream into an XmlDocument
-                                        await TaskExtensions
-                                            .RunWithoutEC(() => objCharacterXml.Load(objXmlReader), GenericToken)
-                                            .ConfigureAwait(false);
+                                    // Put the stream into an XmlDocument
+                                    await objCharacterXml.LoadStandardAsync(objStream, token: GenericToken).ConfigureAwait(false);
                                 }
 
                                 await GlobalSettings
@@ -9356,13 +9320,8 @@ namespace Chummer
                                     // Read the stream.
                                     objStream.Position = 0;
 
-                                    using (StreamReader objReader = new StreamReader(objStream, Encoding.UTF8, true))
-                                    using (XmlReader objXmlReader =
-                                           XmlReader.Create(objReader, GlobalSettings.SafeXmlReaderSettings))
-                                        // Put the stream into an XmlDocument
-                                        await TaskExtensions
-                                            .RunWithoutEC(() => objCharacterXml.Load(objXmlReader), GenericToken)
-                                            .ConfigureAwait(false);
+                                    // Put the stream into an XmlDocument
+                                    await objCharacterXml.LoadStandardAsync(objStream, token: GenericToken).ConfigureAwait(false);
                                 }
 
                                 await GlobalSettings
