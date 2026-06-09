@@ -1,67 +1,277 @@
 {
-  "generated_at_utc": "2026-05-31T04:41:37Z",
-  "status": "pass",
   "edition": "SR5",
   "fixtures": [
     {
-      "fixture_id": "sr5_simple_test_hits",
-      "provider": "SR5DiceProvider",
-      "fact_id": "sr5.dice.hits",
-      "result": "pass"
-    },
-    {
-      "fixture_id": "sr5_opposed_test",
-      "provider": "SR5TestProvider",
-      "fact_id": "sr5.tests.opposed",
-      "result": "pass"
-    },
-    {
-      "fixture_id": "sr5_condition_monitor",
+      "fact_id": "sr5.parity.capability.derive_stat",
+      "fixture_id": "sr5_parity_derive_stat",
       "provider": "SR5DerivedStatsProvider",
-      "fact_id": "sr5.derived.condition_monitor",
       "result": "pass"
     },
     {
-      "fixture_id": "sr5_attack_resolution",
-      "provider": "SR5CombatProvider",
-      "fact_id": "sr5.combat.attack_resolution",
+      "fact_id": "sr5.parity.capability.derive_initiative",
+      "fixture_id": "sr5_parity_derive_initiative",
+      "provider": "SR5DerivedStatsProvider",
       "result": "pass"
     },
     {
-      "fixture_id": "sr5_matrix_action",
-      "provider": "SR5MatrixProvider",
-      "fact_id": "sr5.matrix.action_resolution",
-      "result": "pass"
-    },
-    {
-      "fixture_id": "sr5_magic_resistance",
-      "provider": "SR5MagicProvider",
-      "fact_id": "sr5.magic.drain_or_resist",
-      "result": "pass"
-    },
-    {
-      "fixture_id": "sr5_vehicle_test",
-      "provider": "SR5RiggingProvider",
-      "fact_id": "sr5.rigging.vehicle_test",
-      "result": "pass"
-    },
-    {
-      "fixture_id": "sr5_gear_lookup",
-      "provider": "SR5GearProvider",
-      "fact_id": "sr5.gear.availability",
-      "result": "pass"
-    },
-    {
-      "fixture_id": "sr5_advancement_cost",
+      "fact_id": "sr5.parity.capability.session_quick_actions",
+      "fixture_id": "sr5_parity_session_quick_actions",
       "provider": "SR5AdvancementProvider",
-      "fact_id": "sr5.advancement.cost",
       "result": "pass"
     },
     {
-      "fixture_id": "sr5_explain_receipt",
-      "provider": "SR5ExplainReceiptProvider",
-      "fact_id": "sr5.explain.receipt",
+      "fact_id": "sr5.table_import.file.actions_xml",
+      "fixture_id": "sr5_table_import_actions_xml",
+      "provider": "SR5TableImportProvider",
+      "result": "pass"
+    },
+    {
+      "fact_id": "sr5.table_import.file.armor_xml",
+      "fixture_id": "sr5_table_import_armor_xml",
+      "provider": "SR5TableImportProvider",
+      "result": "pass"
+    },
+    {
+      "fact_id": "sr5.table_import.file.bioware_xml",
+      "fixture_id": "sr5_table_import_bioware_xml",
+      "provider": "SR5TableImportProvider",
+      "result": "pass"
+    },
+    {
+      "fact_id": "sr5.table_import.file.books_xml",
+      "fixture_id": "sr5_table_import_books_xml",
+      "provider": "SR5TableImportProvider",
+      "result": "pass"
+    },
+    {
+      "fact_id": "sr5.table_import.file.complexforms_xml",
+      "fixture_id": "sr5_table_import_complexforms_xml",
+      "provider": "SR5TableImportProvider",
+      "result": "pass"
+    },
+    {
+      "fact_id": "sr5.table_import.file.contacts_xml",
+      "fixture_id": "sr5_table_import_contacts_xml",
+      "provider": "SR5TableImportProvider",
+      "result": "pass"
+    },
+    {
+      "fact_id": "sr5.table_import.file.critterpowers_xml",
+      "fixture_id": "sr5_table_import_critterpowers_xml",
+      "provider": "SR5TableImportProvider",
+      "result": "pass"
+    },
+    {
+      "fact_id": "sr5.table_import.file.critters_xml",
+      "fixture_id": "sr5_table_import_critters_xml",
+      "provider": "SR5TableImportProvider",
+      "result": "pass"
+    },
+    {
+      "fact_id": "sr5.table_import.file.cyberware_xml",
+      "fixture_id": "sr5_table_import_cyberware_xml",
+      "provider": "SR5TableImportProvider",
+      "result": "pass"
+    },
+    {
+      "fact_id": "sr5.table_import.file.drugcomponents_xml",
+      "fixture_id": "sr5_table_import_drugcomponents_xml",
+      "provider": "SR5TableImportProvider",
+      "result": "pass"
+    },
+    {
+      "fact_id": "sr5.table_import.file.echoes_xml",
+      "fixture_id": "sr5_table_import_echoes_xml",
+      "provider": "SR5TableImportProvider",
+      "result": "pass"
+    },
+    {
+      "fact_id": "sr5.table_import.file.gear_xml",
+      "fixture_id": "sr5_table_import_gear_xml",
+      "provider": "SR5TableImportProvider",
+      "result": "pass"
+    },
+    {
+      "fact_id": "sr5.table_import.file.improvements_xml",
+      "fixture_id": "sr5_table_import_improvements_xml",
+      "provider": "SR5TableImportProvider",
+      "result": "pass"
+    },
+    {
+      "fact_id": "sr5.table_import.file.licenses_xml",
+      "fixture_id": "sr5_table_import_licenses_xml",
+      "provider": "SR5TableImportProvider",
+      "result": "pass"
+    },
+    {
+      "fact_id": "sr5.table_import.file.lifemodules_xml",
+      "fixture_id": "sr5_table_import_lifemodules_xml",
+      "provider": "SR5TableImportProvider",
+      "result": "pass"
+    },
+    {
+      "fact_id": "sr5.table_import.file.lifestyles_xml",
+      "fixture_id": "sr5_table_import_lifestyles_xml",
+      "provider": "SR5TableImportProvider",
+      "result": "pass"
+    },
+    {
+      "fact_id": "sr5.table_import.file.martialarts_xml",
+      "fixture_id": "sr5_table_import_martialarts_xml",
+      "provider": "SR5TableImportProvider",
+      "result": "pass"
+    },
+    {
+      "fact_id": "sr5.table_import.file.mentors_xml",
+      "fixture_id": "sr5_table_import_mentors_xml",
+      "provider": "SR5TableImportProvider",
+      "result": "pass"
+    },
+    {
+      "fact_id": "sr5.table_import.file.metamagic_xml",
+      "fixture_id": "sr5_table_import_metamagic_xml",
+      "provider": "SR5TableImportProvider",
+      "result": "pass"
+    },
+    {
+      "fact_id": "sr5.table_import.file.metatypes_xml",
+      "fixture_id": "sr5_table_import_metatypes_xml",
+      "provider": "SR5TableImportProvider",
+      "result": "pass"
+    },
+    {
+      "fact_id": "sr5.table_import.file.options_xml",
+      "fixture_id": "sr5_table_import_options_xml",
+      "provider": "SR5TableImportProvider",
+      "result": "pass"
+    },
+    {
+      "fact_id": "sr5.table_import.file.packs_xml",
+      "fixture_id": "sr5_table_import_packs_xml",
+      "provider": "SR5TableImportProvider",
+      "result": "pass"
+    },
+    {
+      "fact_id": "sr5.table_import.file.paragons_xml",
+      "fixture_id": "sr5_table_import_paragons_xml",
+      "provider": "SR5TableImportProvider",
+      "result": "pass"
+    },
+    {
+      "fact_id": "sr5.table_import.file.powers_xml",
+      "fixture_id": "sr5_table_import_powers_xml",
+      "provider": "SR5TableImportProvider",
+      "result": "pass"
+    },
+    {
+      "fact_id": "sr5.table_import.file.priorities_xml",
+      "fixture_id": "sr5_table_import_priorities_xml",
+      "provider": "SR5TableImportProvider",
+      "result": "pass"
+    },
+    {
+      "fact_id": "sr5.table_import.file.programs_xml",
+      "fixture_id": "sr5_table_import_programs_xml",
+      "provider": "SR5TableImportProvider",
+      "result": "pass"
+    },
+    {
+      "fact_id": "sr5.table_import.file.qualities_xml",
+      "fixture_id": "sr5_table_import_qualities_xml",
+      "provider": "SR5TableImportProvider",
+      "result": "pass"
+    },
+    {
+      "fact_id": "sr5.table_import.file.qualitylevels_xml",
+      "fixture_id": "sr5_table_import_qualitylevels_xml",
+      "provider": "SR5TableImportProvider",
+      "result": "pass"
+    },
+    {
+      "fact_id": "sr5.table_import.file.ranges_xml",
+      "fixture_id": "sr5_table_import_ranges_xml",
+      "provider": "SR5TableImportProvider",
+      "result": "pass"
+    },
+    {
+      "fact_id": "sr5.table_import.file.references_xml",
+      "fixture_id": "sr5_table_import_references_xml",
+      "provider": "SR5TableImportProvider",
+      "result": "pass"
+    },
+    {
+      "fact_id": "sr5.table_import.file.settings_xml",
+      "fixture_id": "sr5_table_import_settings_xml",
+      "provider": "SR5TableImportProvider",
+      "result": "pass"
+    },
+    {
+      "fact_id": "sr5.table_import.file.sheets_xml",
+      "fixture_id": "sr5_table_import_sheets_xml",
+      "provider": "SR5TableImportProvider",
+      "result": "pass"
+    },
+    {
+      "fact_id": "sr5.table_import.file.skills_xml",
+      "fixture_id": "sr5_table_import_skills_xml",
+      "provider": "SR5TableImportProvider",
+      "result": "pass"
+    },
+    {
+      "fact_id": "sr5.table_import.file.spells_xml",
+      "fixture_id": "sr5_table_import_spells_xml",
+      "provider": "SR5TableImportProvider",
+      "result": "pass"
+    },
+    {
+      "fact_id": "sr5.table_import.file.spiritpowers_xml",
+      "fixture_id": "sr5_table_import_spiritpowers_xml",
+      "provider": "SR5TableImportProvider",
+      "result": "pass"
+    },
+    {
+      "fact_id": "sr5.table_import.file.streams_xml",
+      "fixture_id": "sr5_table_import_streams_xml",
+      "provider": "SR5TableImportProvider",
+      "result": "pass"
+    },
+    {
+      "fact_id": "sr5.table_import.file.strings_xml",
+      "fixture_id": "sr5_table_import_strings_xml",
+      "provider": "SR5TableImportProvider",
+      "result": "pass"
+    },
+    {
+      "fact_id": "sr5.table_import.file.tips_xml",
+      "fixture_id": "sr5_table_import_tips_xml",
+      "provider": "SR5TableImportProvider",
+      "result": "pass"
+    },
+    {
+      "fact_id": "sr5.table_import.file.traditions_xml",
+      "fixture_id": "sr5_table_import_traditions_xml",
+      "provider": "SR5TableImportProvider",
+      "result": "pass"
+    },
+    {
+      "fact_id": "sr5.table_import.file.vehicles_xml",
+      "fixture_id": "sr5_table_import_vehicles_xml",
+      "provider": "SR5TableImportProvider",
+      "result": "pass"
+    },
+    {
+      "fact_id": "sr5.table_import.file.vessels_xml",
+      "fixture_id": "sr5_table_import_vessels_xml",
+      "provider": "SR5TableImportProvider",
+      "result": "pass"
+    },
+    {
+      "fact_id": "sr5.table_import.file.weapons_xml",
+      "fixture_id": "sr5_table_import_weapons_xml",
+      "provider": "SR5TableImportProvider",
       "result": "pass"
     }
-  ]
+  ],
+  "generated_at_utc": "2026-06-09T12:56:24Z",
+  "status": "pass"
 }

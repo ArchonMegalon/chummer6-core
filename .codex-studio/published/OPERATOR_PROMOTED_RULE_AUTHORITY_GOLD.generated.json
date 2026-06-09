@@ -7,11 +7,10 @@
   },
   "failures": [
     "sr4: seed authority verdict is not ready",
-    "sr5: SR5 rulefact registry has 10 facts; minimum is 100",
     "sr6: seed authority verdict is not ready"
   ],
   "final_verdict": "NOT_READY",
-  "generated_at_utc": "2026-06-09T12:24:50Z",
+  "generated_at_utc": "2026-06-09T12:56:31Z",
   "rulesets": [
     {
       "failures": [
@@ -26,12 +25,10 @@
       "verdict": "NOT_READY"
     },
     {
-      "failures": [
-        "SR5 rulefact registry has 10 facts; minimum is 100"
-      ],
+      "failures": [],
       "ruleset": "sr5",
-      "status": "fail",
-      "verdict": "NOT_READY"
+      "status": "pass",
+      "verdict": "SR5_RULE_AUTHORITY_READY"
     },
     {
       "failures": [

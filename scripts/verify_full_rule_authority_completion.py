@@ -36,12 +36,16 @@ def main() -> int:
     sr6_errata = load_json(sr6_root / "SR6_ERRATA_PROFILE.generated.json")
     sr5_acceptance = load_json(PUBLISHED_ROOT / "SR5_ACCEPTANCE_PROOF.generated.json")
     sr5_depth = load_json(PUBLISHED_ROOT / "SR5_RULESET_DEPTH.generated.json")
+    sr5_registry = load_json(PUBLISHED_ROOT / "SR5_RULE_AUTHORITY_REGISTRY.generated.json")
 
     sr4_ready = bool(sr4_integration.get("readiness_token_allowed"))
     sr6_ready = bool(sr6_integration.get("readiness_token_allowed"))
     sr5_ready = (
         sr5_acceptance.get("status") == "pass"
         and sr5_acceptance.get("serious_implementation_claim") == "allowed"
+        and sr5_depth.get("serious_implementation_claim") == "allowed"
+        and sr5_registry.get("final_verdict") == "SR5_RULE_AUTHORITY_READY"
+        and int(sr5_registry.get("rulefact_count") or 0) >= 100
     )
     blockers = []
     if not sr4_ready:
@@ -103,6 +107,8 @@ def main() -> int:
                 "acceptance_status": sr5_acceptance.get("status"),
                 "acceptance_claim": sr5_acceptance.get("serious_implementation_claim"),
                 "depth_claim": sr5_depth.get("serious_implementation_claim"),
+                "final_verdict": sr5_registry.get("final_verdict"),
+                "rulefact_count": sr5_registry.get("rulefact_count"),
             },
             "sr6": {
                 "rule_authority_ready": sr6_ready,

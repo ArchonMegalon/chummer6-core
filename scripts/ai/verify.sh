@@ -9,6 +9,10 @@ export MSBUILDDISABLENODEREUSE=1
 export DOTNET_CLI_USE_MSBUILDNOINPROCNODE=1
 
 python3 scripts/verify-windows-checkout-paths.py --repo-root .
+python3 scripts/verify_sr4_rule_authority_seed.py
+python3 scripts/verify_sr5_rule_authority_seed.py
+python3 scripts/verify_sr6_rule_authority_seed.py
+python3 tests/test_sr5_rule_authority_seed.py
 
 test -f docs/CONTRACT_BOUNDARY_MAP.md
 test -f docs/EXPLAIN_AND_RUNTIME_CANON.md

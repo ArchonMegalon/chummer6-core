@@ -59,7 +59,9 @@
       "acceptance_claim": "allowed",
       "acceptance_status": "pass",
       "depth_claim": "allowed",
-      "rule_authority_ready": true
+      "final_verdict": "SR5_RULE_AUTHORITY_READY",
+      "rule_authority_ready": true,
+      "rulefact_count": 375
     },
     "sr6": {
       "final_verdict": "NOT_READY",

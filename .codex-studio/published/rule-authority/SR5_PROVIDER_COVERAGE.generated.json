@@ -1,7 +1,8 @@
 {
-  "generated_at_utc": "2026-05-31T04:41:37Z",
-  "status": "pass",
   "edition": "SR5",
+  "fixture_count": 45,
+  "generated_at_utc": "2026-06-09T12:56:24Z",
+  "mapped_rulefacts": 375,
   "providers": [
     "SR5AdvancementProvider",
     "SR5CombatProvider",
@@ -12,9 +13,12 @@
     "SR5MagicProvider",
     "SR5MatrixProvider",
     "SR5RiggingProvider",
-    "SR5TestProvider"
+    "SR5TestProvider",
+    "SR5ShellCatalogProvider",
+    "SR5WorkspaceCodecProvider",
+    "SR5TableImportProvider",
+    "SR5CapabilityHostProvider"
   ],
-  "mapped_rulefacts": 10,
-  "fixture_count": 10,
+  "status": "pass",
   "summary_only": false
 }

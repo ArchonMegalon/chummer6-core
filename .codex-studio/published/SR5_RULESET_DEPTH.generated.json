@@ -1,42 +1,42 @@
 {
-  "contract_name": "chummer-core.sr5_ruleset_depth",
-  "status": "pass",
-  "generated_at": "2026-05-31T04:27:58.486393Z",
-  "ruleset_id": "sr5",
-  "display_name": "Shadowrun 5",
   "claim_ceiling": "full_rule_authority",
-  "serious_implementation_claim": "allowed",
-  "claim_summary": "SR5 has detailed RuleFact, provider-coverage, and golden-fixture authority receipts in chummer6-core; full product rule authority claim is allowed.",
+  "claim_summary": "SR5 has implementation-backed RuleFact, provider-coverage, table-import, and parity-fixture authority receipts in chummer6-core; full product rule authority claim is allowed.",
   "code_summary": {
-    "workflow_count": 11,
-    "surface_count": 6,
     "capability_ids": [
       "derive.stat",
       "derive.initiative",
       "session.quick-actions"
     ],
+    "contains_empty_stub_sections": false,
+    "delegates_shared_section_queries": true,
     "section_ids": [],
-    "supports_wrap_import": true,
-    "supports_parse_summary": true,
-    "supports_parse_section": true,
-    "supports_validate": true,
-    "supports_update_metadata": true,
     "supports_build_download": true,
     "supports_export_bundle": true,
-    "delegates_shared_section_queries": true,
-    "contains_empty_stub_sections": false
+    "supports_parse_section": true,
+    "supports_parse_summary": true,
+    "supports_update_metadata": true,
+    "supports_validate": true,
+    "supports_wrap_import": true,
+    "surface_count": 6,
+    "workflow_count": 11
   },
-  "rule_authority": {
-    "status": "pass",
-    "registry": ".codex-studio/published/rule-authority/SR5_RULEFACT_REGISTRY.generated.json",
-    "provider_coverage": ".codex-studio/published/rule-authority/SR5_PROVIDER_COVERAGE.generated.json",
-    "golden_fixtures": ".codex-studio/published/rule-authority/SR5_GOLDEN_FIXTURES.generated.json",
-    "mapped_rulefacts": 10,
-    "fixture_count": 10,
-    "summary_only": false
-  },
+  "contract_name": "chummer-core.sr5_ruleset_depth",
+  "display_name": "Shadowrun 5",
   "evidence_sources": [
     "Chummer.Rulesets.Sr5/Sr5RulesetPlugin.cs",
     "Chummer.Rulesets.Sr5/Sr5WorkspaceCodec.cs"
-  ]
+  ],
+  "generated_at": "2026-06-09T12:56:24Z",
+  "rule_authority": {
+    "fixture_count": 45,
+    "golden_fixtures": ".codex-studio/published/rule-authority/SR5_GOLDEN_FIXTURES.generated.json",
+    "mapped_rulefacts": 375,
+    "provider_coverage": ".codex-studio/published/rule-authority/SR5_PROVIDER_COVERAGE.generated.json",
+    "registry": ".codex-studio/published/rule-authority/SR5_RULEFACT_REGISTRY.generated.json",
+    "status": "pass",
+    "summary_only": false
+  },
+  "ruleset_id": "sr5",
+  "serious_implementation_claim": "allowed",
+  "status": "pass"
 }
