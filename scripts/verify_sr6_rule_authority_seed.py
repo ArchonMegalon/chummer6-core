@@ -13,6 +13,7 @@ import yaml
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SEED_ROOT = REPO_ROOT / "docs" / "rulesets" / "sr6-rule-authority"
 OUT_ROOT = REPO_ROOT / ".codex-studio" / "published"
+AUTHORITY_OUT_ROOT = OUT_ROOT / "rule-authority"
 
 REQUIRED_FILES = [
     "COPYRIGHT_SAFE_BOUNDARY.md",
@@ -97,6 +98,154 @@ def collect_source_refs(node: Any) -> set[str]:
     return refs
 
 
+def slug(value: Any) -> str:
+    text = str(value).strip().lower()
+    text = re.sub(r"[^a-z0-9]+", "_", text)
+    return text.strip("_")
+
+
+def append_fact(
+    facts: list[dict[str, Any]],
+    seen_ids: set[str],
+    *,
+    fact_id: str,
+    provider: str,
+    source_ref: str,
+    fact: dict[str, Any],
+    seed_file: str,
+    ruleset: str = "sr6",
+    book_profile: str = "sr6_core_2019",
+) -> None:
+    if fact_id in seen_ids:
+        return
+    seen_ids.add(fact_id)
+    facts.append(
+        {
+            "id": fact_id,
+            "source_ref": source_ref,
+            "provider": provider,
+            "fact": fact,
+            "seed_file": seed_file,
+            "ruleset": ruleset,
+            "book_profile": book_profile,
+            "status": "seed",
+        }
+    )
+
+
+def add_structured_seed_facts(rulefacts: list[dict[str, Any]], seen_ids: set[str]) -> None:
+    def add_character_creation(path: Path) -> None:
+        payload = load_yaml(path)
+        source_ref = payload.get("source_ref", "sr6_core_2019:p58-79")
+        for priority, bundle in (payload.get("priority_table") or {}).items():
+            for key, value in (bundle or {}).items():
+                if isinstance(value, dict):
+                    for nested_key, nested_value in value.items():
+                        append_fact(rulefacts, seen_ids, fact_id=f"sr6.character_creation.priority.{slug(priority)}.{slug(key)}.{slug(nested_key)}", provider="Sr6CharacterCreationProvider", source_ref=source_ref, fact={nested_key: nested_value}, seed_file=path.name)
+                else:
+                    append_fact(rulefacts, seen_ids, fact_id=f"sr6.character_creation.priority.{slug(priority)}.{slug(key)}", provider="Sr6CharacterCreationProvider", source_ref=source_ref, fact={key: value}, seed_file=path.name)
+        for metatype, attrs in (payload.get("metatype_attribute_ranges") or {}).items():
+            for key, value in (attrs or {}).items():
+                if key == "racial_qualities":
+                    for quality in value or []:
+                        append_fact(rulefacts, seen_ids, fact_id=f"sr6.character_creation.metatype.{slug(metatype)}.quality.{slug(quality)}", provider="Sr6MetatypeProvider", source_ref=source_ref, fact={"metatype": metatype, "quality": quality}, seed_file=path.name)
+                else:
+                    append_fact(rulefacts, seen_ids, fact_id=f"sr6.character_creation.metatype.{slug(metatype)}.{slug(key)}", provider="Sr6MetatypeProvider", source_ref=source_ref, fact={"metatype": metatype, "attribute": key, "range": value}, seed_file=path.name)
+
+    def add_combat(path: Path) -> None:
+        payload = load_yaml(path)
+        source_ref = payload.get("source_ref", "sr6_core_2019:p104-125")
+        for step in payload.get("process") or []:
+            append_fact(rulefacts, seen_ids, fact_id=f"sr6.combat.process.{slug(step.get('id'))}", provider="Sr6CombatProvider", source_ref=source_ref, fact=step, seed_file=path.name)
+        for section_name in ("initiative", "surprise", "ranges_meters"):
+            for key, value in (payload.get(section_name) or {}).items():
+                append_fact(rulefacts, seen_ids, fact_id=f"sr6.combat.{slug(section_name)}.{slug(key)}", provider="Sr6CombatProvider", source_ref=source_ref, fact={key: value}, seed_file=path.name)
+        for mode, details in (payload.get("firing_modes") or {}).items():
+            for key, value in (details or {}).items():
+                append_fact(rulefacts, seen_ids, fact_id=f"sr6.combat.firing_mode.{slug(mode)}.{slug(key)}", provider="Sr6CombatProvider", source_ref=source_ref, fact={key: value}, seed_file=path.name)
+        append_fact(rulefacts, seen_ids, fact_id="sr6.combat.vehicle_weapon_exception", provider="Sr6CombatProvider", source_ref=source_ref, fact={"vehicle_weapon_exception": payload.get("vehicle_weapon_exception")}, seed_file=path.name)
+
+    def add_magic(path: Path) -> None:
+        payload = load_yaml(path)
+        source_ref = payload.get("source_ref", "sr6_core_2019:p126-169")
+        for section_name in ("drain", "combat_spells"):
+            for key, value in (payload.get(section_name) or {}).items():
+                if isinstance(value, dict):
+                    for nested_key, nested_value in value.items():
+                        append_fact(rulefacts, seen_ids, fact_id=f"sr6.magic.{slug(section_name)}.{slug(key)}.{slug(nested_key)}", provider="Sr6MagicProvider", source_ref=source_ref, fact={nested_key: nested_value}, seed_file=path.name)
+                else:
+                    append_fact(rulefacts, seen_ids, fact_id=f"sr6.magic.{slug(section_name)}.{slug(key)}", provider="Sr6MagicProvider", source_ref=source_ref, fact={key: value}, seed_file=path.name)
+        spellcasting = payload.get("spellcasting") or {}
+        for key, value in spellcasting.items():
+            if key in {"steps", "spell_categories", "range_types", "duration_types", "type_values"}:
+                for entry in value or []:
+                    append_fact(rulefacts, seen_ids, fact_id=f"sr6.magic.spellcasting.{slug(key)}.{slug(entry)}", provider="Sr6MagicProvider", source_ref=source_ref, fact={key.rstrip('s'): entry}, seed_file=path.name)
+            elif key == "adjustments" and isinstance(value, dict):
+                for adjustment, adjustment_payload in value.items():
+                    for nested_key, nested_value in (adjustment_payload or {}).items():
+                        append_fact(rulefacts, seen_ids, fact_id=f"sr6.magic.spellcasting.adjustment.{slug(adjustment)}.{slug(nested_key)}", provider="Sr6MagicProvider", source_ref=source_ref, fact={nested_key: nested_value}, seed_file=path.name)
+            else:
+                append_fact(rulefacts, seen_ids, fact_id=f"sr6.magic.spellcasting.{slug(key)}", provider="Sr6MagicProvider", source_ref=source_ref, fact={key: value}, seed_file=path.name)
+        for section_name in ("ritual_spellcasting", "summoning", "banishing"):
+            for key, value in (payload.get(section_name) or {}).items():
+                if isinstance(value, list):
+                    for entry in value:
+                        append_fact(rulefacts, seen_ids, fact_id=f"sr6.magic.{slug(section_name)}.{slug(key)}.{slug(entry)}", provider="Sr6MagicProvider", source_ref=source_ref, fact={key.rstrip('s'): entry}, seed_file=path.name)
+                else:
+                    append_fact(rulefacts, seen_ids, fact_id=f"sr6.magic.{slug(section_name)}.{slug(key)}", provider="Sr6MagicProvider", source_ref=source_ref, fact={key: value}, seed_file=path.name)
+        append_fact(rulefacts, seen_ids, fact_id="sr6.magic.sustained_spell_penalty", provider="Sr6MagicProvider", source_ref=source_ref, fact={"sustained_spell_penalty": payload.get("sustained_spell_penalty")}, seed_file=path.name)
+
+    def add_matrix(path: Path) -> None:
+        payload = load_yaml(path)
+        source_ref = payload.get("source_ref", "sr6_core_2019:p170-195")
+        for section_name in ("matrix_test_process", "bonus_edge_expires_when", "matrix_edge_actions"):
+            for entry in payload.get(section_name) or []:
+                fact_key = section_name[:-1] if section_name.endswith("s") else section_name
+                fact_id_suffix = slug(entry.get("id")) if isinstance(entry, dict) and entry.get("id") else slug(entry)
+                append_fact(rulefacts, seen_ids, fact_id=f"sr6.matrix.{slug(section_name)}.{fact_id_suffix}", provider="Sr6MatrixProvider", source_ref=source_ref, fact={fact_key: entry}, seed_file=path.name)
+        for section_name in ("dice_pools", "matrix_edge_compare", "overwatch_score", "dumpshock"):
+            for key, value in (payload.get(section_name) or {}).items():
+                append_fact(rulefacts, seen_ids, fact_id=f"sr6.matrix.{slug(section_name)}.{slug(key)}", provider="Sr6MatrixProvider", source_ref=source_ref, fact={key: value}, seed_file=path.name)
+        noise = payload.get("noise") or {}
+        for key, value in noise.items():
+            if key == "distance":
+                for row in value or []:
+                    append_fact(rulefacts, seen_ids, fact_id=f"sr6.matrix.noise.distance.{slug(row.get('range'))}", provider="Sr6MatrixProvider", source_ref=source_ref, fact=row, seed_file=path.name)
+            else:
+                append_fact(rulefacts, seen_ids, fact_id=f"sr6.matrix.noise.{slug(key)}", provider="Sr6MatrixProvider", source_ref=source_ref, fact={key: value}, seed_file=path.name)
+
+    def add_rigging(path: Path) -> None:
+        payload = load_yaml(path)
+        source_ref = payload.get("source_ref", "sr6_core_2019:p196-201")
+        for section_name in ("core", "control_rig", "rcc", "vehicles", "drones"):
+            for key, value in (payload.get(section_name) or {}).items():
+                if isinstance(value, dict):
+                    for nested_key, nested_value in value.items():
+                        append_fact(rulefacts, seen_ids, fact_id=f"sr6.rigging.{slug(section_name)}.{slug(key)}.{slug(nested_key)}", provider="Sr6RiggingProvider", source_ref=source_ref, fact={nested_key: nested_value}, seed_file=path.name)
+                elif isinstance(value, list):
+                    for entry in value:
+                        append_fact(rulefacts, seen_ids, fact_id=f"sr6.rigging.{slug(section_name)}.{slug(key)}.{slug(entry)}", provider="Sr6RiggingProvider", source_ref=source_ref, fact={key.rstrip('s'): entry}, seed_file=path.name)
+                else:
+                    append_fact(rulefacts, seen_ids, fact_id=f"sr6.rigging.{slug(section_name)}.{slug(key)}", provider="Sr6RiggingProvider", source_ref=source_ref, fact={key: value}, seed_file=path.name)
+
+    def add_status_effects(path: Path) -> None:
+        payload = load_yaml(path)
+        source_ref = payload.get("source_ref", "sr6_core_2019:p51-54")
+        for status in payload.get("statuses") or []:
+            status_id = str(status.get("id"))
+            for key, value in status.items():
+                if key == "id":
+                    continue
+                append_fact(rulefacts, seen_ids, fact_id=f"sr6.status.{slug(status_id)}.{slug(key)}", provider="Sr6StatusProvider", source_ref=source_ref, fact={key: value}, seed_file=path.name)
+
+    add_character_creation(SEED_ROOT / "SR6_CHARACTER_CREATION_SEED.yaml")
+    add_combat(SEED_ROOT / "SR6_COMBAT_SEED.yaml")
+    add_magic(SEED_ROOT / "SR6_MAGIC_SEED.yaml")
+    add_matrix(SEED_ROOT / "SR6_MATRIX_SEED.yaml")
+    add_rigging(SEED_ROOT / "SR6_RIGGING_SEED.yaml")
+    add_status_effects(SEED_ROOT / "SR6_STATUS_EFFECTS_SEED.yaml")
+
+
 def main() -> int:
     missing = [name for name in REQUIRED_FILES if not (SEED_ROOT / name).is_file()]
     if missing:
@@ -110,6 +259,7 @@ def main() -> int:
     seed_files = sorted(SEED_ROOT.glob("SR6_*_SEED.yaml"))
     seed_payloads = {path.name: load_yaml(path) for path in seed_files}
     rulefacts: list[dict[str, Any]] = []
+    seen_ids: set[str] = set()
     source_refs: set[str] = set()
     for file_name, payload in seed_payloads.items():
         for fact in walk_rulefacts(payload):
@@ -118,8 +268,12 @@ def main() -> int:
             normalized.setdefault("book_profile", "sr6_core_2019")
             normalized.setdefault("status", "seed")
             normalized["seed_file"] = file_name
-            rulefacts.append(normalized)
+            fact_id = str(normalized.get("id") or normalized.get("fact_id") or "")
+            if fact_id and fact_id not in seen_ids:
+                seen_ids.add(fact_id)
+                rulefacts.append(normalized)
         source_refs.update(collect_source_refs(payload))
+    add_structured_seed_facts(rulefacts, seen_ids)
 
     provider_status = profile.get("provider_status", {})
     provider_source = "\n".join(
@@ -211,7 +365,8 @@ def main() -> int:
     }
 
     OUT_ROOT.mkdir(parents=True, exist_ok=True)
-    (OUT_ROOT / "SR6_RULEFACT_REGISTRY.generated.json").write_text(
+    AUTHORITY_OUT_ROOT.mkdir(parents=True, exist_ok=True)
+    (AUTHORITY_OUT_ROOT / "SR6_RULEFACT_REGISTRY.generated.json").write_text(
         json.dumps(registry, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )

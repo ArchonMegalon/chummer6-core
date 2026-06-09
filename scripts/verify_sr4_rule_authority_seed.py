@@ -13,6 +13,7 @@ import yaml
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SEED_ROOT = REPO_ROOT / "docs" / "rulesets" / "sr4-rule-authority"
 OUT_ROOT = REPO_ROOT / ".codex-studio" / "published"
+AUTHORITY_OUT_ROOT = OUT_ROOT / "rule-authority"
 
 REQUIRED_FILES = [
     "COPYRIGHT_SAFE_BOUNDARY.md",
@@ -87,6 +88,151 @@ def collect_source_refs(node: Any) -> set[str]:
     return refs
 
 
+def slug(value: Any) -> str:
+    text = str(value).strip().lower()
+    text = re.sub(r"[^a-z0-9]+", "_", text)
+    return text.strip("_")
+
+
+def append_fact(
+    facts: list[dict[str, Any]],
+    seen_ids: set[str],
+    *,
+    fact_id: str,
+    provider: str,
+    source_ref: str,
+    fact: dict[str, Any],
+    seed_file: str,
+    ruleset: str = "sr4",
+    book_profile: str = "sr4a_core_2009",
+) -> None:
+    if fact_id in seen_ids:
+        return
+    seen_ids.add(fact_id)
+    facts.append(
+        {
+            "id": fact_id,
+            "source_ref": source_ref,
+            "provider": provider,
+            "fact": fact,
+            "seed_file": seed_file,
+            "ruleset": ruleset,
+            "book_profile": book_profile,
+            "status": "seed",
+        }
+    )
+
+
+def add_structured_seed_facts(rulefacts: list[dict[str, Any]], seen_ids: set[str]) -> None:
+    def add_character_creation(path: Path) -> None:
+        payload = load_yaml(path)
+        source_ref = payload.get("source_ref", "sr4a_core_2009:p80-97")
+        model = payload.get("creation_model", {})
+        for key, value in model.items():
+            append_fact(rulefacts, seen_ids, fact_id=f"sr4.character_creation.model.{slug(key)}", provider="Sr4CharacterCreationProvider", source_ref=source_ref, fact={key: value}, seed_file=path.name)
+        metatypes = payload.get("metatype_attribute_table", {})
+        for metatype, data in metatypes.items():
+            append_fact(rulefacts, seen_ids, fact_id=f"sr4.character_creation.metatype.{slug(metatype)}.bp_cost", provider="Sr4CharacterCreationProvider", source_ref=source_ref, fact={"metatype": metatype, "bp_cost": data.get("bp_cost")}, seed_file=path.name)
+            for attribute, values in (data.get("attributes") or {}).items():
+                append_fact(rulefacts, seen_ids, fact_id=f"sr4.character_creation.metatype.{slug(metatype)}.attribute.{slug(attribute)}", provider="Sr4CharacterCreationProvider", source_ref=source_ref, fact={"metatype": metatype, "attribute": attribute, "minimum": values[0], "natural_max": values[1], "augmented_cap": values[2]}, seed_file=path.name)
+            for ability in data.get("abilities") or []:
+                append_fact(rulefacts, seen_ids, fact_id=f"sr4.character_creation.metatype.{slug(metatype)}.ability.{slug(ability)}", provider="Sr4CharacterCreationProvider", source_ref=source_ref, fact={"metatype": metatype, "ability": ability}, seed_file=path.name)
+        for key, value in (payload.get("attribute_costs") or {}).items():
+            append_fact(rulefacts, seen_ids, fact_id=f"sr4.character_creation.attribute_cost.{slug(key)}", provider="Sr4CharacterCreationProvider", source_ref=source_ref, fact={key: value}, seed_file=path.name)
+
+    def add_combat(path: Path) -> None:
+        payload = load_yaml(path)
+        source_ref = payload.get("source_ref", "sr4a_core_2009:p144-171")
+        for key, value in (payload.get("turn_structure") or {}).items():
+            append_fact(rulefacts, seen_ids, fact_id=f"sr4.combat.turn_structure.{slug(key)}", provider="Sr4CombatProvider", source_ref=source_ref, fact={key: value}, seed_file=path.name)
+        action_economy = payload.get("action_economy") or {}
+        phase = action_economy.get("action_phase") or {}
+        for key, value in phase.items():
+            append_fact(rulefacts, seen_ids, fact_id=f"sr4.combat.action_phase.{slug(key)}", provider="Sr4ActionEconomyProvider", source_ref=source_ref, fact={key: value}, seed_file=path.name)
+        for bucket in ("free_actions_examples", "simple_actions_examples", "complex_actions_examples", "interrupt_actions"):
+            for entry in action_economy.get(bucket) or []:
+                append_fact(rulefacts, seen_ids, fact_id=f"sr4.combat.{slug(bucket)}.{slug(entry)}", provider="Sr4ActionEconomyProvider", source_ref=source_ref, fact={"bucket": bucket, "entry": entry}, seed_file=path.name)
+        for step in payload.get("combat_sequence") or []:
+            append_fact(rulefacts, seen_ids, fact_id=f"sr4.combat.sequence.{slug(step.get('id'))}", provider="Sr4CombatProvider", source_ref=source_ref, fact=step, seed_file=path.name)
+        for section_name, provider in (("damage", "Sr4DamageProvider"), ("armor", "Sr4CombatProvider"), ("vehicles", "Sr4RiggingProvider")):
+            for key, value in (payload.get(section_name) or {}).items():
+                append_fact(rulefacts, seen_ids, fact_id=f"sr4.combat.{slug(section_name)}.{slug(key)}", provider=provider, source_ref=source_ref, fact={key: value}, seed_file=path.name)
+
+    def add_magic(path: Path) -> None:
+        payload = load_yaml(path)
+        source_ref = payload.get("source_ref", "sr4a_core_2009:p176-211")
+        for section_name in ("core", "drain", "traditions", "sorcery", "adepts"):
+            for key, value in (payload.get(section_name) or {}).items():
+                append_fact(rulefacts, seen_ids, fact_id=f"sr4.magic.{slug(section_name)}.{slug(key)}", provider="Sr4MagicProvider", source_ref=source_ref, fact={key: value}, seed_file=path.name)
+        for conjuring_mode, mode_payload in (payload.get("conjuring") or {}).items():
+            if isinstance(mode_payload, dict):
+                for key, value in mode_payload.items():
+                    append_fact(rulefacts, seen_ids, fact_id=f"sr4.magic.conjuring.{slug(conjuring_mode)}.{slug(key)}", provider="Sr4MagicProvider", source_ref=source_ref, fact={key: value}, seed_file=path.name)
+            else:
+                append_fact(rulefacts, seen_ids, fact_id=f"sr4.magic.conjuring.{slug(conjuring_mode)}", provider="Sr4MagicProvider", source_ref=source_ref, fact={conjuring_mode: mode_payload}, seed_file=path.name)
+        for entry in payload.get("table_imports_required") or []:
+            append_fact(rulefacts, seen_ids, fact_id=f"sr4.magic.table_import.{slug(entry)}", provider="Sr4MagicProvider", source_ref=source_ref, fact={"table_import": entry}, seed_file=path.name)
+
+    def add_matrix(path: Path) -> None:
+        payload = load_yaml(path)
+        source_ref = payload.get("source_ref", "sr4a_core_2009:p216-247")
+        core = payload.get("core") or {}
+        for key, value in core.items():
+            if isinstance(value, list):
+                for entry in value:
+                    append_fact(rulefacts, seen_ids, fact_id=f"sr4.matrix.core.{slug(key)}.{slug(entry)}", provider="Sr4MatrixProvider", source_ref=source_ref, fact={key: entry}, seed_file=path.name)
+            else:
+                append_fact(rulefacts, seen_ids, fact_id=f"sr4.matrix.core.{slug(key)}", provider="Sr4MatrixProvider", source_ref=source_ref, fact={key: value}, seed_file=path.name)
+        for section_name in ("initiative", "program_model", "hacking", "technomancy"):
+            for key, value in (payload.get(section_name) or {}).items():
+                append_fact(rulefacts, seen_ids, fact_id=f"sr4.matrix.{slug(section_name)}.{slug(key)}", provider="Sr4MatrixProvider", source_ref=source_ref, fact={key: value}, seed_file=path.name)
+        actions = payload.get("actions") or {}
+        for action in actions.get("required_imports") or []:
+            append_fact(rulefacts, seen_ids, fact_id=f"sr4.matrix.action_import.{slug(action)}", provider="Sr4MatrixProvider", source_ref=source_ref, fact={"action": action}, seed_file=path.name)
+        for key, value in actions.items():
+            if key == "required_imports":
+                continue
+            append_fact(rulefacts, seen_ids, fact_id=f"sr4.matrix.actions.{slug(key)}", provider="Sr4MatrixProvider", source_ref=source_ref, fact={key: value}, seed_file=path.name)
+
+    def add_rigging(path: Path) -> None:
+        payload = load_yaml(path)
+        source_ref = payload.get("source_ref", "sr4a_core_2009:p244-247,p167-171,p348")
+        for key, value in (payload.get("core") or {}).items():
+            append_fact(rulefacts, seen_ids, fact_id=f"sr4.rigging.core.{slug(key)}", provider="Sr4RiggingProvider", source_ref=source_ref, fact={key: value}, seed_file=path.name)
+        for mode, details in (payload.get("control_modes") or {}).items():
+            for key, value in (details or {}).items():
+                append_fact(rulefacts, seen_ids, fact_id=f"sr4.rigging.control_mode.{slug(mode)}.{slug(key)}", provider="Sr4RiggingProvider", source_ref=source_ref, fact={key: value}, seed_file=path.name)
+        for section_name in ("electronic_warfare", "vehicle_rules"):
+            for key, value in (payload.get(section_name) or {}).items():
+                append_fact(rulefacts, seen_ids, fact_id=f"sr4.rigging.{slug(section_name)}.{slug(key)}", provider="Sr4RiggingProvider", source_ref=source_ref, fact={key: value}, seed_file=path.name)
+        for entry in payload.get("required_imports") or []:
+            append_fact(rulefacts, seen_ids, fact_id=f"sr4.rigging.import.{slug(entry)}", provider="Sr4RiggingProvider", source_ref=source_ref, fact={"import": entry}, seed_file=path.name)
+
+    def add_skills(path: Path) -> None:
+        payload = load_yaml(path)
+        source_ref = payload.get("source_ref", "sr4a_core_2009:p118-138")
+        for key, value in (payload.get("skill_model") or {}).items():
+            append_fact(rulefacts, seen_ids, fact_id=f"sr4.skills.model.{slug(key)}", provider="Sr4SkillProvider", source_ref=source_ref, fact={key: value}, seed_file=path.name)
+        for entry in payload.get("skill_families") or []:
+            append_fact(rulefacts, seen_ids, fact_id=f"sr4.skills.family.{slug(entry)}", provider="Sr4SkillProvider", source_ref=source_ref, fact={"family": entry}, seed_file=path.name)
+        for entry in payload.get("required_imports") or []:
+            append_fact(rulefacts, seen_ids, fact_id=f"sr4.skills.import.{slug(entry)}", provider="Sr4SkillProvider", source_ref=source_ref, fact={"import": entry}, seed_file=path.name)
+        provider_rules = payload.get("provider_rules") or {}
+        for section_name, value in provider_rules.items():
+            if isinstance(value, dict):
+                for nested_key, nested_value in value.items():
+                    append_fact(rulefacts, seen_ids, fact_id=f"sr4.skills.provider_rule.{slug(section_name)}.{slug(nested_key)}", provider="Sr4SkillProvider", source_ref=source_ref, fact={nested_key: nested_value}, seed_file=path.name)
+            else:
+                append_fact(rulefacts, seen_ids, fact_id=f"sr4.skills.provider_rule.{slug(section_name)}", provider="Sr4SkillProvider", source_ref=source_ref, fact={section_name: value}, seed_file=path.name)
+
+    add_character_creation(SEED_ROOT / "SR4_CHARACTER_CREATION_SEED.yaml")
+    add_combat(SEED_ROOT / "SR4_COMBAT_SEED.yaml")
+    add_magic(SEED_ROOT / "SR4_MAGIC_SEED.yaml")
+    add_matrix(SEED_ROOT / "SR4_MATRIX_SEED.yaml")
+    add_rigging(SEED_ROOT / "SR4_RIGGING_SEED.yaml")
+    add_skills(SEED_ROOT / "SR4_SKILLS_SEED.yaml")
+
+
 def main() -> int:
     missing = [name for name in REQUIRED_FILES if not (SEED_ROOT / name).is_file()]
     if missing:
@@ -98,6 +244,7 @@ def main() -> int:
     workpackages = load_yaml(SEED_ROOT / "SR4_IMPLEMENTATION_WORKPACKAGES.yaml")
 
     rulefacts: list[dict[str, Any]] = []
+    seen_ids: set[str] = set()
     source_refs: set[str] = set()
     for path in sorted(SEED_ROOT.glob("SR4_*_SEED.yaml")):
         payload = load_yaml(path)
@@ -107,8 +254,12 @@ def main() -> int:
             normalized.setdefault("book_profile", "sr4a_core_2009")
             normalized.setdefault("status", "seed")
             normalized["seed_file"] = path.name
-            rulefacts.append(normalized)
+            fact_id = str(normalized.get("id") or normalized.get("fact_id") or "")
+            if fact_id and fact_id not in seen_ids:
+                seen_ids.add(fact_id)
+                rulefacts.append(normalized)
         source_refs.update(collect_source_refs(payload))
+    add_structured_seed_facts(rulefacts, seen_ids)
 
     provider_status = profile.get("provider_status", {})
     provider_source = "\n".join(
@@ -196,7 +347,8 @@ def main() -> int:
     }
 
     OUT_ROOT.mkdir(parents=True, exist_ok=True)
-    (OUT_ROOT / "SR4_RULEFACT_REGISTRY.generated.json").write_text(
+    AUTHORITY_OUT_ROOT.mkdir(parents=True, exist_ok=True)
+    (AUTHORITY_OUT_ROOT / "SR4_RULEFACT_REGISTRY.generated.json").write_text(
         json.dumps(registry, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )

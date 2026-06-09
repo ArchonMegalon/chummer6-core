@@ -1,5 +1,5 @@
 {
-  "final_verdict": "SR6_RULE_AUTHORITY_READY",
+  "final_verdict": "NOT_READY",
   "implemented_provider_count": 18,
   "implemented_providers": [
     "Sr6DiceProvider",
@@ -24,7 +24,7 @@
   "missing_implemented_providers": [],
   "missing_profile_status": [],
   "provider_status_count": 18,
-  "readiness_token_allowed": true,
+  "readiness_token_allowed": false,
   "ruleset": "sr6",
   "status": "pass"
 }

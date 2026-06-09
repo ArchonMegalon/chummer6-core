@@ -1,124 +1,3718 @@
 {
-  "copyright_boundary": {
-    "art_or_page_images_copied": false,
-    "public_artifact_contains_formulas_and_fact_ids_only": true,
-    "sourcebook_prose_copied": false
-  },
+  "book_profile": "sr4a_core_2009",
+  "copyright_boundary": {},
   "edition": "SR4",
-  "final_verdict": "SR4_RULE_AUTHORITY_READY",
-  "generated_at_utc": "2026-06-05T19:58:53Z",
-  "human_review": {
-    "notes": "Copyright-safe fact/provider authority receipt; no rulebook prose copied.",
-    "reviewer": "Codex local rule authority audit",
-    "status": "pass"
-  },
-  "rulefact_count": 10,
-  "rulefact_families": [
-    "dice_tests",
-    "character_creation",
-    "derived_stats",
-    "combat",
-    "gear",
-    "magic",
-    "matrix",
-    "rigging",
-    "advancement",
-    "explain_receipts"
+  "final_verdict": "NOT_READY",
+  "generated_at_utc": "2026-06-09T12:24:50Z",
+  "human_review": {},
+  "implemented_providers": [
+    "Sr4DiceProvider",
+    "Sr4TestProvider",
+    "Sr4EdgeProvider",
+    "Sr4ActionEconomyProvider",
+    "Sr4CharacterCreationProvider",
+    "Sr4SkillProvider",
+    "Sr4DerivedStatsProvider",
+    "Sr4CombatProvider",
+    "Sr4DamageProvider",
+    "Sr4MatrixProvider",
+    "Sr4MagicProvider",
+    "Sr4RiggingProvider",
+    "Sr4GearProvider",
+    "Sr4ExplainReceiptProvider"
   ],
+  "missing_implemented_providers": [],
+  "missing_profile_status": [],
+  "required_providers": [
+    "Sr4DiceProvider",
+    "Sr4TestProvider",
+    "Sr4EdgeProvider",
+    "Sr4ActionEconomyProvider",
+    "Sr4CharacterCreationProvider",
+    "Sr4SkillProvider",
+    "Sr4DerivedStatsProvider",
+    "Sr4CombatProvider",
+    "Sr4DamageProvider",
+    "Sr4MatrixProvider",
+    "Sr4MagicProvider",
+    "Sr4RiggingProvider",
+    "Sr4GearProvider",
+    "Sr4ExplainReceiptProvider"
+  ],
+  "rulefact_count": 285,
+  "rulefact_families": [],
   "rulefacts": [
     {
-      "copyright_safe": true,
-      "family": "dice_tests",
-      "fixture_ids": [
-        "sr4_simple_test_hits"
-      ],
-      "id": "sr4.dice.hits",
-      "provider": "SR4DiceProvider"
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "die": "d6"
+      },
+      "id": "sr4.dice.type",
+      "provider": "Sr4DiceProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p60",
+      "status": "seed"
     },
     {
-      "copyright_safe": true,
-      "family": "dice_tests",
-      "fixture_ids": [
-        "sr4_opposed_test"
-      ],
-      "id": "sr4.tests.opposed",
-      "provider": "SR4TestProvider"
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "hit_faces": [
+          5,
+          6
+        ],
+        "target_number": 5
+      },
+      "id": "sr4.dice.hit_faces",
+      "provider": "Sr4DiceProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p60-62",
+      "status": "seed"
     },
     {
-      "copyright_safe": true,
-      "family": "derived_stats",
-      "fixture_ids": [
-        "sr4_condition_monitor"
-      ],
-      "id": "sr4.derived.condition_monitor",
-      "provider": "SR4DerivedStatsProvider"
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "enabled_by": [
+          "pre_roll_edge",
+          "post_roll_edge_extra_dice",
+          "optional_cinematic_rule"
+        ],
+        "exploding_sixes_default": false
+      },
+      "id": "sr4.dice.rule_of_six",
+      "provider": "Sr4DiceProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p62,p74",
+      "status": "seed"
     },
     {
-      "copyright_safe": true,
-      "family": "combat",
-      "fixture_ids": [
-        "sr4_attack_resolution"
-      ],
-      "id": "sr4.combat.attack_resolution",
-      "provider": "SR4CombatProvider"
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "glitch_when_ones_at_least_half_pool": true
+      },
+      "id": "sr4.dice.glitch",
+      "provider": "Sr4DiceProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p62",
+      "status": "seed"
     },
     {
-      "copyright_safe": true,
-      "family": "matrix",
-      "fixture_ids": [
-        "sr4_matrix_action"
-      ],
-      "id": "sr4.matrix.action_resolution",
-      "provider": "SR4MatrixProvider"
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "critical_glitch_when": "glitch_and_zero_hits"
+      },
+      "id": "sr4.dice.critical_glitch",
+      "provider": "Sr4DiceProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p62",
+      "status": "seed"
     },
     {
-      "copyright_safe": true,
-      "family": "magic",
-      "fixture_ids": [
-        "sr4_magic_resistance"
-      ],
-      "id": "sr4.magic.drain_or_resist",
-      "provider": "SR4MagicProvider"
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "gm_approval_required": true,
+        "hits": "floor(dice_pool / 4)"
+      },
+      "id": "sr4.dice.buy_hits",
+      "provider": "Sr4TestProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p62",
+      "status": "seed"
     },
     {
-      "copyright_safe": true,
-      "family": "rigging",
-      "fixture_ids": [
-        "sr4_vehicle_test"
-      ],
-      "id": "sr4.rigging.vehicle_test",
-      "provider": "SR4RiggingProvider"
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "requires_spend_edge": true,
+        "roll_only_edge_dice": true,
+        "rule_of_six": false,
+        "when_pool_zero_or_less": true
+      },
+      "id": "sr4.dice.long_shot",
+      "provider": "Sr4EdgeProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p61,p74",
+      "status": "seed"
     },
     {
-      "copyright_safe": true,
-      "family": "gear",
-      "fixture_ids": [
-        "sr4_gear_lookup"
-      ],
-      "id": "sr4.gear.availability",
-      "provider": "SR4GearProvider"
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "standard_build_points": 400
+      },
+      "id": "sr4.character_creation.model.standard_build_points",
+      "provider": "Sr4CharacterCreationProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
     },
     {
-      "copyright_safe": true,
-      "family": "advancement",
-      "fixture_ids": [
-        "sr4_advancement_cost"
-      ],
-      "id": "sr4.advancement.cost",
-      "provider": "SR4AdvancementProvider"
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "low_power_example": 300
+      },
+      "id": "sr4.character_creation.model.low_power_example",
+      "provider": "Sr4CharacterCreationProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
     },
     {
-      "copyright_safe": true,
-      "family": "explain_receipts",
-      "fixture_ids": [
-        "sr4_explain_receipt"
-      ],
-      "id": "sr4.explain.receipt",
-      "provider": "SR4ExplainReceiptProvider"
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "high_power_example": 500
+      },
+      "id": "sr4.character_creation.model.high_power_example",
+      "provider": "Sr4CharacterCreationProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "system": "Build Points"
+      },
+      "id": "sr4.character_creation.model.system",
+      "provider": "Sr4CharacterCreationProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "bp_cost": 0,
+        "metatype": "Human"
+      },
+      "id": "sr4.character_creation.metatype.human.bp_cost",
+      "provider": "Sr4CharacterCreationProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "attribute": "Body",
+        "augmented_cap": 9,
+        "metatype": "Human",
+        "minimum": 1,
+        "natural_max": 6
+      },
+      "id": "sr4.character_creation.metatype.human.attribute.body",
+      "provider": "Sr4CharacterCreationProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "attribute": "Agility",
+        "augmented_cap": 9,
+        "metatype": "Human",
+        "minimum": 1,
+        "natural_max": 6
+      },
+      "id": "sr4.character_creation.metatype.human.attribute.agility",
+      "provider": "Sr4CharacterCreationProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "attribute": "Reaction",
+        "augmented_cap": 9,
+        "metatype": "Human",
+        "minimum": 1,
+        "natural_max": 6
+      },
+      "id": "sr4.character_creation.metatype.human.attribute.reaction",
+      "provider": "Sr4CharacterCreationProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "attribute": "Strength",
+        "augmented_cap": 9,
+        "metatype": "Human",
+        "minimum": 1,
+        "natural_max": 6
+      },
+      "id": "sr4.character_creation.metatype.human.attribute.strength",
+      "provider": "Sr4CharacterCreationProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "attribute": "Charisma",
+        "augmented_cap": 9,
+        "metatype": "Human",
+        "minimum": 1,
+        "natural_max": 6
+      },
+      "id": "sr4.character_creation.metatype.human.attribute.charisma",
+      "provider": "Sr4CharacterCreationProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "attribute": "Intuition",
+        "augmented_cap": 9,
+        "metatype": "Human",
+        "minimum": 1,
+        "natural_max": 6
+      },
+      "id": "sr4.character_creation.metatype.human.attribute.intuition",
+      "provider": "Sr4CharacterCreationProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "attribute": "Logic",
+        "augmented_cap": 9,
+        "metatype": "Human",
+        "minimum": 1,
+        "natural_max": 6
+      },
+      "id": "sr4.character_creation.metatype.human.attribute.logic",
+      "provider": "Sr4CharacterCreationProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "attribute": "Willpower",
+        "augmented_cap": 9,
+        "metatype": "Human",
+        "minimum": 1,
+        "natural_max": 6
+      },
+      "id": "sr4.character_creation.metatype.human.attribute.willpower",
+      "provider": "Sr4CharacterCreationProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "attribute": "Initiative",
+        "augmented_cap": 18,
+        "metatype": "Human",
+        "minimum": 2,
+        "natural_max": 12
+      },
+      "id": "sr4.character_creation.metatype.human.attribute.initiative",
+      "provider": "Sr4CharacterCreationProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "ability": "+1 Edge",
+        "metatype": "Human"
+      },
+      "id": "sr4.character_creation.metatype.human.ability.1_edge",
+      "provider": "Sr4CharacterCreationProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "bp_cost": 20,
+        "metatype": "Ork"
+      },
+      "id": "sr4.character_creation.metatype.ork.bp_cost",
+      "provider": "Sr4CharacterCreationProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "attribute": "Body",
+        "augmented_cap": 13,
+        "metatype": "Ork",
+        "minimum": 4,
+        "natural_max": 9
+      },
+      "id": "sr4.character_creation.metatype.ork.attribute.body",
+      "provider": "Sr4CharacterCreationProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "attribute": "Agility",
+        "augmented_cap": 9,
+        "metatype": "Ork",
+        "minimum": 1,
+        "natural_max": 6
+      },
+      "id": "sr4.character_creation.metatype.ork.attribute.agility",
+      "provider": "Sr4CharacterCreationProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "attribute": "Reaction",
+        "augmented_cap": 9,
+        "metatype": "Ork",
+        "minimum": 1,
+        "natural_max": 6
+      },
+      "id": "sr4.character_creation.metatype.ork.attribute.reaction",
+      "provider": "Sr4CharacterCreationProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "attribute": "Strength",
+        "augmented_cap": 12,
+        "metatype": "Ork",
+        "minimum": 3,
+        "natural_max": 8
+      },
+      "id": "sr4.character_creation.metatype.ork.attribute.strength",
+      "provider": "Sr4CharacterCreationProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "attribute": "Charisma",
+        "augmented_cap": 7,
+        "metatype": "Ork",
+        "minimum": 1,
+        "natural_max": 5
+      },
+      "id": "sr4.character_creation.metatype.ork.attribute.charisma",
+      "provider": "Sr4CharacterCreationProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "attribute": "Intuition",
+        "augmented_cap": 9,
+        "metatype": "Ork",
+        "minimum": 1,
+        "natural_max": 6
+      },
+      "id": "sr4.character_creation.metatype.ork.attribute.intuition",
+      "provider": "Sr4CharacterCreationProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "attribute": "Logic",
+        "augmented_cap": 7,
+        "metatype": "Ork",
+        "minimum": 1,
+        "natural_max": 5
+      },
+      "id": "sr4.character_creation.metatype.ork.attribute.logic",
+      "provider": "Sr4CharacterCreationProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "attribute": "Willpower",
+        "augmented_cap": 9,
+        "metatype": "Ork",
+        "minimum": 1,
+        "natural_max": 6
+      },
+      "id": "sr4.character_creation.metatype.ork.attribute.willpower",
+      "provider": "Sr4CharacterCreationProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "attribute": "Initiative",
+        "augmented_cap": 18,
+        "metatype": "Ork",
+        "minimum": 2,
+        "natural_max": 12
+      },
+      "id": "sr4.character_creation.metatype.ork.attribute.initiative",
+      "provider": "Sr4CharacterCreationProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "ability": "Low-Light Vision",
+        "metatype": "Ork"
+      },
+      "id": "sr4.character_creation.metatype.ork.ability.low_light_vision",
+      "provider": "Sr4CharacterCreationProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "bp_cost": 25,
+        "metatype": "Dwarf"
+      },
+      "id": "sr4.character_creation.metatype.dwarf.bp_cost",
+      "provider": "Sr4CharacterCreationProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "attribute": "Body",
+        "augmented_cap": 10,
+        "metatype": "Dwarf",
+        "minimum": 2,
+        "natural_max": 7
+      },
+      "id": "sr4.character_creation.metatype.dwarf.attribute.body",
+      "provider": "Sr4CharacterCreationProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "attribute": "Agility",
+        "augmented_cap": 9,
+        "metatype": "Dwarf",
+        "minimum": 1,
+        "natural_max": 6
+      },
+      "id": "sr4.character_creation.metatype.dwarf.attribute.agility",
+      "provider": "Sr4CharacterCreationProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "attribute": "Reaction",
+        "augmented_cap": 7,
+        "metatype": "Dwarf",
+        "minimum": 1,
+        "natural_max": 5
+      },
+      "id": "sr4.character_creation.metatype.dwarf.attribute.reaction",
+      "provider": "Sr4CharacterCreationProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "attribute": "Strength",
+        "augmented_cap": 12,
+        "metatype": "Dwarf",
+        "minimum": 3,
+        "natural_max": 8
+      },
+      "id": "sr4.character_creation.metatype.dwarf.attribute.strength",
+      "provider": "Sr4CharacterCreationProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "attribute": "Charisma",
+        "augmented_cap": 9,
+        "metatype": "Dwarf",
+        "minimum": 1,
+        "natural_max": 6
+      },
+      "id": "sr4.character_creation.metatype.dwarf.attribute.charisma",
+      "provider": "Sr4CharacterCreationProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "attribute": "Intuition",
+        "augmented_cap": 9,
+        "metatype": "Dwarf",
+        "minimum": 1,
+        "natural_max": 6
+      },
+      "id": "sr4.character_creation.metatype.dwarf.attribute.intuition",
+      "provider": "Sr4CharacterCreationProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "attribute": "Logic",
+        "augmented_cap": 9,
+        "metatype": "Dwarf",
+        "minimum": 1,
+        "natural_max": 6
+      },
+      "id": "sr4.character_creation.metatype.dwarf.attribute.logic",
+      "provider": "Sr4CharacterCreationProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "attribute": "Willpower",
+        "augmented_cap": 10,
+        "metatype": "Dwarf",
+        "minimum": 2,
+        "natural_max": 7
+      },
+      "id": "sr4.character_creation.metatype.dwarf.attribute.willpower",
+      "provider": "Sr4CharacterCreationProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "attribute": "Initiative",
+        "augmented_cap": 16,
+        "metatype": "Dwarf",
+        "minimum": 2,
+        "natural_max": 11
+      },
+      "id": "sr4.character_creation.metatype.dwarf.attribute.initiative",
+      "provider": "Sr4CharacterCreationProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "ability": "Thermographic Vision",
+        "metatype": "Dwarf"
+      },
+      "id": "sr4.character_creation.metatype.dwarf.ability.thermographic_vision",
+      "provider": "Sr4CharacterCreationProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "ability": "+2 dice for Body tests to resist pathogens and toxins",
+        "metatype": "Dwarf"
+      },
+      "id": "sr4.character_creation.metatype.dwarf.ability.2_dice_for_body_tests_to_resist_pathogens_and_toxins",
+      "provider": "Sr4CharacterCreationProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "bp_cost": 30,
+        "metatype": "Elf"
+      },
+      "id": "sr4.character_creation.metatype.elf.bp_cost",
+      "provider": "Sr4CharacterCreationProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "attribute": "Body",
+        "augmented_cap": 9,
+        "metatype": "Elf",
+        "minimum": 1,
+        "natural_max": 6
+      },
+      "id": "sr4.character_creation.metatype.elf.attribute.body",
+      "provider": "Sr4CharacterCreationProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "attribute": "Agility",
+        "augmented_cap": 10,
+        "metatype": "Elf",
+        "minimum": 2,
+        "natural_max": 7
+      },
+      "id": "sr4.character_creation.metatype.elf.attribute.agility",
+      "provider": "Sr4CharacterCreationProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "attribute": "Reaction",
+        "augmented_cap": 9,
+        "metatype": "Elf",
+        "minimum": 1,
+        "natural_max": 6
+      },
+      "id": "sr4.character_creation.metatype.elf.attribute.reaction",
+      "provider": "Sr4CharacterCreationProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "attribute": "Strength",
+        "augmented_cap": 9,
+        "metatype": "Elf",
+        "minimum": 1,
+        "natural_max": 6
+      },
+      "id": "sr4.character_creation.metatype.elf.attribute.strength",
+      "provider": "Sr4CharacterCreationProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "attribute": "Charisma",
+        "augmented_cap": 12,
+        "metatype": "Elf",
+        "minimum": 3,
+        "natural_max": 8
+      },
+      "id": "sr4.character_creation.metatype.elf.attribute.charisma",
+      "provider": "Sr4CharacterCreationProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "attribute": "Intuition",
+        "augmented_cap": 9,
+        "metatype": "Elf",
+        "minimum": 1,
+        "natural_max": 6
+      },
+      "id": "sr4.character_creation.metatype.elf.attribute.intuition",
+      "provider": "Sr4CharacterCreationProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "attribute": "Logic",
+        "augmented_cap": 9,
+        "metatype": "Elf",
+        "minimum": 1,
+        "natural_max": 6
+      },
+      "id": "sr4.character_creation.metatype.elf.attribute.logic",
+      "provider": "Sr4CharacterCreationProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "attribute": "Willpower",
+        "augmented_cap": 9,
+        "metatype": "Elf",
+        "minimum": 1,
+        "natural_max": 6
+      },
+      "id": "sr4.character_creation.metatype.elf.attribute.willpower",
+      "provider": "Sr4CharacterCreationProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "attribute": "Initiative",
+        "augmented_cap": 18,
+        "metatype": "Elf",
+        "minimum": 2,
+        "natural_max": 12
+      },
+      "id": "sr4.character_creation.metatype.elf.attribute.initiative",
+      "provider": "Sr4CharacterCreationProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "ability": "Low-Light Vision",
+        "metatype": "Elf"
+      },
+      "id": "sr4.character_creation.metatype.elf.ability.low_light_vision",
+      "provider": "Sr4CharacterCreationProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "bp_cost": 40,
+        "metatype": "Troll"
+      },
+      "id": "sr4.character_creation.metatype.troll.bp_cost",
+      "provider": "Sr4CharacterCreationProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "attribute": "Body",
+        "augmented_cap": 15,
+        "metatype": "Troll",
+        "minimum": 5,
+        "natural_max": 10
+      },
+      "id": "sr4.character_creation.metatype.troll.attribute.body",
+      "provider": "Sr4CharacterCreationProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "attribute": "Agility",
+        "augmented_cap": 7,
+        "metatype": "Troll",
+        "minimum": 1,
+        "natural_max": 5
+      },
+      "id": "sr4.character_creation.metatype.troll.attribute.agility",
+      "provider": "Sr4CharacterCreationProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "attribute": "Reaction",
+        "augmented_cap": 9,
+        "metatype": "Troll",
+        "minimum": 1,
+        "natural_max": 6
+      },
+      "id": "sr4.character_creation.metatype.troll.attribute.reaction",
+      "provider": "Sr4CharacterCreationProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "attribute": "Strength",
+        "augmented_cap": 15,
+        "metatype": "Troll",
+        "minimum": 5,
+        "natural_max": 10
+      },
+      "id": "sr4.character_creation.metatype.troll.attribute.strength",
+      "provider": "Sr4CharacterCreationProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "attribute": "Charisma",
+        "augmented_cap": 6,
+        "metatype": "Troll",
+        "minimum": 1,
+        "natural_max": 4
+      },
+      "id": "sr4.character_creation.metatype.troll.attribute.charisma",
+      "provider": "Sr4CharacterCreationProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "attribute": "Intuition",
+        "augmented_cap": 7,
+        "metatype": "Troll",
+        "minimum": 1,
+        "natural_max": 5
+      },
+      "id": "sr4.character_creation.metatype.troll.attribute.intuition",
+      "provider": "Sr4CharacterCreationProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "attribute": "Logic",
+        "augmented_cap": 7,
+        "metatype": "Troll",
+        "minimum": 1,
+        "natural_max": 5
+      },
+      "id": "sr4.character_creation.metatype.troll.attribute.logic",
+      "provider": "Sr4CharacterCreationProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "attribute": "Willpower",
+        "augmented_cap": 9,
+        "metatype": "Troll",
+        "minimum": 1,
+        "natural_max": 6
+      },
+      "id": "sr4.character_creation.metatype.troll.attribute.willpower",
+      "provider": "Sr4CharacterCreationProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "attribute": "Initiative",
+        "augmented_cap": 16,
+        "metatype": "Troll",
+        "minimum": 2,
+        "natural_max": 11
+      },
+      "id": "sr4.character_creation.metatype.troll.attribute.initiative",
+      "provider": "Sr4CharacterCreationProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "ability": "Thermographic Vision",
+        "metatype": "Troll"
+      },
+      "id": "sr4.character_creation.metatype.troll.ability.thermographic_vision",
+      "provider": "Sr4CharacterCreationProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "ability": "+1 Reach",
+        "metatype": "Troll"
+      },
+      "id": "sr4.character_creation.metatype.troll.ability.1_reach",
+      "provider": "Sr4CharacterCreationProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "ability": "+1 natural armor cumulative with worn armor",
+        "metatype": "Troll"
+      },
+      "id": "sr4.character_creation.metatype.troll.ability.1_natural_armor_cumulative_with_worn_armor",
+      "provider": "Sr4CharacterCreationProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "physical_mental_cost_per_point": 10
+      },
+      "id": "sr4.character_creation.attribute_cost.physical_mental_cost_per_point",
+      "provider": "Sr4CharacterCreationProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "physical_mental_final_point_to_natural_max": 25
+      },
+      "id": "sr4.character_creation.attribute_cost.physical_mental_final_point_to_natural_max",
+      "provider": "Sr4CharacterCreationProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "physical_mental_bp_cap_fraction": 0.5
+      },
+      "id": "sr4.character_creation.attribute_cost.physical_mental_bp_cap_fraction",
+      "provider": "Sr4CharacterCreationProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "standard_400_bp_physical_mental_cap": 200
+      },
+      "id": "sr4.character_creation.attribute_cost.standard_400_bp_physical_mental_cap",
+      "provider": "Sr4CharacterCreationProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "only_one_attribute_at_natural_max": true
+      },
+      "id": "sr4.character_creation.attribute_cost.only_one_attribute_at_natural_max",
+      "provider": "Sr4CharacterCreationProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "edge_cost_per_point": 10
+      },
+      "id": "sr4.character_creation.attribute_cost.edge_cost_per_point",
+      "provider": "Sr4CharacterCreationProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "edge_final_point_to_natural_max": 25
+      },
+      "id": "sr4.character_creation.attribute_cost.edge_final_point_to_natural_max",
+      "provider": "Sr4CharacterCreationProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "magic_resonance_cost_per_point": 10
+      },
+      "id": "sr4.character_creation.attribute_cost.magic_resonance_cost_per_point",
+      "provider": "Sr4CharacterCreationProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "magic_resonance_sixth_point_cost": 25
+      },
+      "id": "sr4.character_creation.attribute_cost.magic_resonance_sixth_point_cost",
+      "provider": "Sr4CharacterCreationProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "essence_start": 6
+      },
+      "id": "sr4.character_creation.attribute_cost.essence_start",
+      "provider": "Sr4CharacterCreationProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "combat_turn_seconds": 3
+      },
+      "id": "sr4.combat.turn_structure.combat_turn_seconds",
+      "provider": "Sr4CombatProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_COMBAT_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p144-171",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "initiative_attribute": "Reaction + Intuition"
+      },
+      "id": "sr4.combat.turn_structure.initiative_attribute",
+      "provider": "Sr4CombatProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_COMBAT_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p144-171",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "initiative_score": "initiative_attribute + hits_on_initiative_test"
+      },
+      "id": "sr4.combat.turn_structure.initiative_score",
+      "provider": "Sr4CombatProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_COMBAT_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p144-171",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "initiative_order": "descending initiative_score"
+      },
+      "id": "sr4.combat.turn_structure.initiative_order",
+      "provider": "Sr4CombatProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_COMBAT_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p144-171",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "same_score": "simultaneous unless order needed; compare Edge, Initiative, Reaction"
+      },
+      "id": "sr4.combat.turn_structure.same_score",
+      "provider": "Sr4CombatProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_COMBAT_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p144-171",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "initiative_score_static_for_turn": true
+      },
+      "id": "sr4.combat.turn_structure.initiative_score_static_for_turn",
+      "provider": "Sr4CombatProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_COMBAT_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p144-171",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "reroll_each_turn": true
+      },
+      "id": "sr4.combat.turn_structure.reroll_each_turn",
+      "provider": "Sr4CombatProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_COMBAT_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p144-171",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "max_initiative_passes_basic_rules": 4
+      },
+      "id": "sr4.combat.turn_structure.max_initiative_passes_basic_rules",
+      "provider": "Sr4CombatProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_COMBAT_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p144-171",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "wound_modifiers_apply_to_initiative_score": true
+      },
+      "id": "sr4.combat.turn_structure.wound_modifiers_apply_to_initiative_score",
+      "provider": "Sr4CombatProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_COMBAT_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p144-171",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "if_initiative_score_zero_or_less_no_actions": true
+      },
+      "id": "sr4.combat.turn_structure.if_initiative_score_zero_or_less_no_actions",
+      "provider": "Sr4CombatProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_COMBAT_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p144-171",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "options": [
+          "one_complex_action",
+          "two_simple_actions"
+        ]
+      },
+      "id": "sr4.combat.action_phase.options",
+      "provider": "Sr4ActionEconomyProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_COMBAT_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p144-171",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "free_actions": "one free action per initiative pass where character acts"
+      },
+      "id": "sr4.combat.action_phase.free_actions",
+      "provider": "Sr4ActionEconomyProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_COMBAT_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p144-171",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "free_can_replace_simple": true
+      },
+      "id": "sr4.combat.action_phase.free_can_replace_simple",
+      "provider": "Sr4ActionEconomyProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_COMBAT_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p144-171",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "bucket": "free_actions_examples",
+        "entry": "Change Linked Device Mode"
+      },
+      "id": "sr4.combat.free_actions_examples.change_linked_device_mode",
+      "provider": "Sr4ActionEconomyProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_COMBAT_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p144-171",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "bucket": "free_actions_examples",
+        "entry": "Drop Object"
+      },
+      "id": "sr4.combat.free_actions_examples.drop_object",
+      "provider": "Sr4ActionEconomyProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_COMBAT_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p144-171",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "bucket": "free_actions_examples",
+        "entry": "Drop Prone"
+      },
+      "id": "sr4.combat.free_actions_examples.drop_prone",
+      "provider": "Sr4ActionEconomyProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_COMBAT_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p144-171",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "bucket": "free_actions_examples",
+        "entry": "Eject Smartgun Clip"
+      },
+      "id": "sr4.combat.free_actions_examples.eject_smartgun_clip",
+      "provider": "Sr4ActionEconomyProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_COMBAT_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p144-171",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "bucket": "free_actions_examples",
+        "entry": "Gesture"
+      },
+      "id": "sr4.combat.free_actions_examples.gesture",
+      "provider": "Sr4ActionEconomyProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_COMBAT_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p144-171",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "bucket": "free_actions_examples",
+        "entry": "Intercept"
+      },
+      "id": "sr4.combat.free_actions_examples.intercept",
+      "provider": "Sr4ActionEconomyProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_COMBAT_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p144-171",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "bucket": "free_actions_examples",
+        "entry": "Run"
+      },
+      "id": "sr4.combat.free_actions_examples.run",
+      "provider": "Sr4ActionEconomyProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_COMBAT_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p144-171",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "bucket": "free_actions_examples",
+        "entry": "Speak/Text Phrase"
+      },
+      "id": "sr4.combat.free_actions_examples.speak_text_phrase",
+      "provider": "Sr4ActionEconomyProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_COMBAT_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p144-171",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "bucket": "simple_actions_examples",
+        "entry": "Change Gun Mode"
+      },
+      "id": "sr4.combat.simple_actions_examples.change_gun_mode",
+      "provider": "Sr4ActionEconomyProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_COMBAT_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p144-171",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "bucket": "simple_actions_examples",
+        "entry": "Fire Weapon SS/SA/BF"
+      },
+      "id": "sr4.combat.simple_actions_examples.fire_weapon_ss_sa_bf",
+      "provider": "Sr4ActionEconomyProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_COMBAT_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p144-171",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "bucket": "simple_actions_examples",
+        "entry": "Insert Clip"
+      },
+      "id": "sr4.combat.simple_actions_examples.insert_clip",
+      "provider": "Sr4ActionEconomyProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_COMBAT_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p144-171",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "bucket": "simple_actions_examples",
+        "entry": "Observe in Detail"
+      },
+      "id": "sr4.combat.simple_actions_examples.observe_in_detail",
+      "provider": "Sr4ActionEconomyProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_COMBAT_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p144-171",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "bucket": "simple_actions_examples",
+        "entry": "Ready Weapon"
+      },
+      "id": "sr4.combat.simple_actions_examples.ready_weapon",
+      "provider": "Sr4ActionEconomyProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_COMBAT_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p144-171",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "bucket": "simple_actions_examples",
+        "entry": "Remove Clip"
+      },
+      "id": "sr4.combat.simple_actions_examples.remove_clip",
+      "provider": "Sr4ActionEconomyProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_COMBAT_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p144-171",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "bucket": "simple_actions_examples",
+        "entry": "Take Aim"
+      },
+      "id": "sr4.combat.simple_actions_examples.take_aim",
+      "provider": "Sr4ActionEconomyProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_COMBAT_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p144-171",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "bucket": "simple_actions_examples",
+        "entry": "Take Cover"
+      },
+      "id": "sr4.combat.simple_actions_examples.take_cover",
+      "provider": "Sr4ActionEconomyProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_COMBAT_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p144-171",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "bucket": "complex_actions_examples",
+        "entry": "Fire Full-Auto"
+      },
+      "id": "sr4.combat.complex_actions_examples.fire_full_auto",
+      "provider": "Sr4ActionEconomyProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_COMBAT_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p144-171",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "bucket": "complex_actions_examples",
+        "entry": "Fire Mounted or Vehicle Weapon"
+      },
+      "id": "sr4.combat.complex_actions_examples.fire_mounted_or_vehicle_weapon",
+      "provider": "Sr4ActionEconomyProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_COMBAT_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p144-171",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "bucket": "complex_actions_examples",
+        "entry": "Full Defense"
+      },
+      "id": "sr4.combat.complex_actions_examples.full_defense",
+      "provider": "Sr4ActionEconomyProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_COMBAT_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p144-171",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "bucket": "complex_actions_examples",
+        "entry": "Melee or Unarmed Attack"
+      },
+      "id": "sr4.combat.complex_actions_examples.melee_or_unarmed_attack",
+      "provider": "Sr4ActionEconomyProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_COMBAT_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p144-171",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "bucket": "complex_actions_examples",
+        "entry": "Reload Firearm no clip"
+      },
+      "id": "sr4.combat.complex_actions_examples.reload_firearm_no_clip",
+      "provider": "Sr4ActionEconomyProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_COMBAT_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p144-171",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "bucket": "complex_actions_examples",
+        "entry": "Use Complex Object"
+      },
+      "id": "sr4.combat.complex_actions_examples.use_complex_object",
+      "provider": "Sr4ActionEconomyProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_COMBAT_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p144-171",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "bucket": "complex_actions_examples",
+        "entry": "Use Skill"
+      },
+      "id": "sr4.combat.complex_actions_examples.use_skill",
+      "provider": "Sr4ActionEconomyProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_COMBAT_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p144-171",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "bucket": "interrupt_actions",
+        "entry": "Full Defense and other explicitly allowed interrupt rules"
+      },
+      "id": "sr4.combat.interrupt_actions.full_defense_and_other_explicitly_allowed_interrupt_rules",
+      "provider": "Sr4ActionEconomyProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_COMBAT_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p144-171",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "id": "declare_attack",
+        "step": 1,
+        "summary": "attacker declares attack; defender declares defense method"
+      },
+      "id": "sr4.combat.sequence.declare_attack",
+      "provider": "Sr4CombatProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_COMBAT_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p144-171",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "id": "apply_modifiers",
+        "step": 2,
+        "summary": "apply attacker and defender dice pool modifiers"
+      },
+      "id": "sr4.combat.sequence.apply_modifiers",
+      "provider": "Sr4CombatProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_COMBAT_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p144-171",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "id": "opposed_test",
+        "step": 3,
+        "summary": "attacker rolls attack skill + attribute; defender rolls defense pool; defender wins ties"
+      },
+      "id": "sr4.combat.sequence.opposed_test",
+      "provider": "Sr4CombatProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_COMBAT_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p144-171",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "id": "compare_armor",
+        "step": 4,
+        "summary": "use modified damage and armor to decide Physical vs Stun for applicable attacks"
+      },
+      "id": "sr4.combat.sequence.compare_armor",
+      "provider": "Sr4CombatProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_COMBAT_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p144-171",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "id": "damage_resistance",
+        "step": 5,
+        "summary": "defender rolls Body plus applicable armor/resistance modifiers"
+      },
+      "id": "sr4.combat.sequence.damage_resistance",
+      "provider": "Sr4CombatProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_COMBAT_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p144-171",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "id": "apply_damage",
+        "step": 6,
+        "summary": "subtract soak hits and apply remaining boxes to monitor"
+      },
+      "id": "sr4.combat.sequence.apply_damage",
+      "provider": "Sr4CombatProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_COMBAT_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p144-171",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "melee_damage_base": "ceil(Strength / 2) plus weapon modifier"
+      },
+      "id": "sr4.combat.damage.melee_damage_base",
+      "provider": "Sr4DamageProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_COMBAT_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p144-171",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "unarmed_damage": "ceil(Strength / 2) Stun"
+      },
+      "id": "sr4.combat.damage.unarmed_damage",
+      "provider": "Sr4DamageProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_COMBAT_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p144-171",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "wound_modifier": "-1 per full 3 boxes on any one damage track, cumulative across tracks"
+      },
+      "id": "sr4.combat.damage.wound_modifier",
+      "provider": "Sr4DamageProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_COMBAT_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p144-171",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "physical_overflow": "extra physical damage beyond physical track uses overflow rules"
+      },
+      "id": "sr4.combat.damage.physical_overflow",
+      "provider": "Sr4DamageProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_COMBAT_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p144-171",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "stun_overflow": "remaining stun after stun track fills converts to physical"
+      },
+      "id": "sr4.combat.damage.stun_overflow",
+      "provider": "Sr4DamageProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_COMBAT_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p144-171",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "ballistic": "used against firearms/projectiles and similar"
+      },
+      "id": "sr4.combat.armor.ballistic",
+      "provider": "Sr4CombatProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_COMBAT_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p144-171",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "impact": "used against melee, falling, explosions, etc."
+      },
+      "id": "sr4.combat.armor.impact",
+      "provider": "Sr4CombatProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_COMBAT_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p144-171",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "vehicle_armor_rule": "if modified DV does not exceed modified vehicle Armor, attack fails"
+      },
+      "id": "sr4.combat.armor.vehicle_armor_rule",
+      "provider": "Sr4CombatProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_COMBAT_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p144-171",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "vehicle_condition_monitor": "8 + ceil(Body / 2)"
+      },
+      "id": "sr4.combat.vehicles.vehicle_condition_monitor",
+      "provider": "Sr4RiggingProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_COMBAT_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p144-171",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "vehicle_pilot_as_attribute": true
+      },
+      "id": "sr4.combat.vehicles.vehicle_pilot_as_attribute",
+      "provider": "Sr4RiggingProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_COMBAT_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p144-171",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "vehicle_sensors_as_intuition": true
+      },
+      "id": "sr4.combat.vehicles.vehicle_sensors_as_intuition",
+      "provider": "Sr4RiggingProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_COMBAT_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p144-171",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "ar_driving_bonus": "+1 dice to Vehicle Tests"
+      },
+      "id": "sr4.combat.vehicles.ar_driving_bonus",
+      "provider": "Sr4RiggingProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_COMBAT_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p144-171",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "vr_driving_threshold_modifier": -1
+      },
+      "id": "sr4.combat.vehicles.vr_driving_threshold_modifier",
+      "provider": "Sr4RiggingProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_COMBAT_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p144-171",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "driver_defense_against_ranged": "Reaction +/- Handling"
+      },
+      "id": "sr4.combat.vehicles.driver_defense_against_ranged",
+      "provider": "Sr4RiggingProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_COMBAT_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p144-171",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "drone_defense_against_ranged": "Pilot +/- Handling"
+      },
+      "id": "sr4.combat.vehicles.drone_defense_against_ranged",
+      "provider": "Sr4RiggingProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_COMBAT_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p144-171",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "magic_attribute": "used by Awakened characters"
+      },
+      "id": "sr4.magic.core.magic_attribute",
+      "provider": "Sr4MagicProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_MAGIC_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p176-211",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "force_attribute": "used by spirits, spells, and magical items"
+      },
+      "id": "sr4.magic.core.force_attribute",
+      "provider": "Sr4MagicProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_MAGIC_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p176-211",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "magic_and_resonance_mutually_exclusive": true
+      },
+      "id": "sr4.magic.core.magic_and_resonance_mutually_exclusive",
+      "provider": "Sr4MagicProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_MAGIC_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p176-211",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "magic_loss_from_essence": "for each point or fraction below Essence 6, lose 1 Magic/Resonance and reduce maximum by 1"
+      },
+      "id": "sr4.magic.core.magic_loss_from_essence",
+      "provider": "Sr4MagicProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_MAGIC_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p176-211",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "resist_pool": "Willpower + tradition_drain_attribute"
+      },
+      "id": "sr4.magic.drain.resist_pool",
+      "provider": "Sr4MagicProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_MAGIC_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p176-211",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "spellcasting_drain_value": "spell listed DV plus adjustments such as net hits where applicable"
+      },
+      "id": "sr4.magic.drain.spellcasting_drain_value",
+      "provider": "Sr4MagicProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_MAGIC_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p176-211",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "summoning_binding_drain": "twice the hits generated by spirit on opposed test"
+      },
+      "id": "sr4.magic.drain.summoning_binding_drain",
+      "provider": "Sr4MagicProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_MAGIC_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p176-211",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "damage_type": "Stun unless rule indicates Physical"
+      },
+      "id": "sr4.magic.drain.damage_type",
+      "provider": "Sr4MagicProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_MAGIC_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p176-211",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "provider": "Sr4MagicProvider"
+      },
+      "id": "sr4.magic.drain.provider",
+      "provider": "Sr4MagicProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_MAGIC_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p176-211",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "hermetic_drain_attribute": "Logic"
+      },
+      "id": "sr4.magic.traditions.hermetic_drain_attribute",
+      "provider": "Sr4MagicProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_MAGIC_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p176-211",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "shamanic_drain_attribute": "Charisma"
+      },
+      "id": "sr4.magic.traditions.shamanic_drain_attribute",
+      "provider": "Sr4MagicProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_MAGIC_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p176-211",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "all_traditions_use": "Willpower + tradition mental attribute"
+      },
+      "id": "sr4.magic.traditions.all_traditions_use",
+      "provider": "Sr4MagicProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_MAGIC_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p176-211",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "spellcasting_test": "Spellcasting + Magic"
+      },
+      "id": "sr4.magic.sorcery.spellcasting_test",
+      "provider": "Sr4MagicProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_MAGIC_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p176-211",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "ritual_spellcasting": "extended/ritual process with team bonus, time, and seal requirements"
+      },
+      "id": "sr4.magic.sorcery.ritual_spellcasting",
+      "provider": "Sr4MagicProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_MAGIC_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p176-211",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "counterspelling_spell_defense": "add Counterspelling dice to protected defender pools"
+      },
+      "id": "sr4.magic.sorcery.counterspelling_spell_defense",
+      "provider": "Sr4MagicProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_MAGIC_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p176-211",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "dispelling": "Counterspelling + Magic opposed by spell Force + caster Magic; net hits reduce original spell hits"
+      },
+      "id": "sr4.magic.sorcery.dispelling",
+      "provider": "Sr4MagicProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_MAGIC_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p176-211",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "noticing_magic_threshold": "6 - Force, with situational modifiers"
+      },
+      "id": "sr4.magic.sorcery.noticing_magic_threshold",
+      "provider": "Sr4MagicProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_MAGIC_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p176-211",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "power_points": "Magic attribute"
+      },
+      "id": "sr4.magic.adepts.power_points",
+      "provider": "Sr4MagicProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_MAGIC_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p176-211",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "source_ref": "sr4a_core_2009:p195"
+      },
+      "id": "sr4.magic.adepts.source_ref",
+      "provider": "Sr4MagicProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_MAGIC_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p176-211",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "test": "Summoning + Magic vs spirit Force"
+      },
+      "id": "sr4.magic.conjuring.summoning.test",
+      "provider": "Sr4MagicProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_MAGIC_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p176-211",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "services": "net_hits"
+      },
+      "id": "sr4.magic.conjuring.summoning.services",
+      "provider": "Sr4MagicProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_MAGIC_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p176-211",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "duration": "until sunrise or sunset unless bound"
+      },
+      "id": "sr4.magic.conjuring.summoning.duration",
+      "provider": "Sr4MagicProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_MAGIC_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p176-211",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "action": "Complex"
+      },
+      "id": "sr4.magic.conjuring.summoning.action",
+      "provider": "Sr4MagicProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_MAGIC_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p176-211",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "test": "Banishing + Magic vs spirit Force or Force + summoner Magic for bound"
+      },
+      "id": "sr4.magic.conjuring.banishing.test",
+      "provider": "Sr4MagicProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_MAGIC_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p176-211",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "effect": "hits reduce owed services"
+      },
+      "id": "sr4.magic.conjuring.banishing.effect",
+      "provider": "Sr4MagicProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_MAGIC_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p176-211",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "status": "extract detailed table/procedure from pages 188-189"
+      },
+      "id": "sr4.magic.conjuring.binding.status",
+      "provider": "Sr4MagicProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_MAGIC_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p176-211",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "table_import": "spell_list"
+      },
+      "id": "sr4.magic.table_import.spell_list",
+      "provider": "Sr4MagicProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_MAGIC_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p176-211",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "table_import": "spell_drain_values"
+      },
+      "id": "sr4.magic.table_import.spell_drain_values",
+      "provider": "Sr4MagicProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_MAGIC_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p176-211",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "table_import": "spell_type_range_duration"
+      },
+      "id": "sr4.magic.table_import.spell_type_range_duration",
+      "provider": "Sr4MagicProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_MAGIC_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p176-211",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "table_import": "adept_powers"
+      },
+      "id": "sr4.magic.table_import.adept_powers",
+      "provider": "Sr4MagicProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_MAGIC_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p176-211",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "table_import": "spirit_stats"
+      },
+      "id": "sr4.magic.table_import.spirit_stats",
+      "provider": "Sr4MagicProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_MAGIC_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p176-211",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "table_import": "mentor_spirits"
+      },
+      "id": "sr4.magic.table_import.mentor_spirits",
+      "provider": "Sr4MagicProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_MAGIC_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p176-211",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "table_import": "foci"
+      },
+      "id": "sr4.magic.table_import.foci",
+      "provider": "Sr4MagicProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_MAGIC_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p176-211",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "world_model": "nodes"
+      },
+      "id": "sr4.matrix.core.world_model.nodes",
+      "provider": "Sr4MatrixProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_MATRIX_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p216-247",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "world_model": "icons"
+      },
+      "id": "sr4.matrix.core.world_model.icons",
+      "provider": "Sr4MatrixProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_MATRIX_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p216-247",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "world_model": "personas"
+      },
+      "id": "sr4.matrix.core.world_model.personas",
+      "provider": "Sr4MatrixProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_MATRIX_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p216-247",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "world_model": "programs"
+      },
+      "id": "sr4.matrix.core.world_model.programs",
+      "provider": "Sr4MatrixProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_MATRIX_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p216-247",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "world_model": "devices"
+      },
+      "id": "sr4.matrix.core.world_model.devices",
+      "provider": "Sr4MatrixProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_MATRIX_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p216-247",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "world_model": "subscriptions"
+      },
+      "id": "sr4.matrix.core.world_model.subscriptions",
+      "provider": "Sr4MatrixProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_MATRIX_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p216-247",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "matrix_attributes": "Firewall"
+      },
+      "id": "sr4.matrix.core.matrix_attributes.firewall",
+      "provider": "Sr4MatrixProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_MATRIX_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p216-247",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "matrix_attributes": "Response"
+      },
+      "id": "sr4.matrix.core.matrix_attributes.response",
+      "provider": "Sr4MatrixProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_MATRIX_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p216-247",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "matrix_attributes": "Signal"
+      },
+      "id": "sr4.matrix.core.matrix_attributes.signal",
+      "provider": "Sr4MatrixProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_MATRIX_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p216-247",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "matrix_attributes": "System"
+      },
+      "id": "sr4.matrix.core.matrix_attributes.system",
+      "provider": "Sr4MatrixProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_MATRIX_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p216-247",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "hardware_attributes": "Response"
+      },
+      "id": "sr4.matrix.core.hardware_attributes.response",
+      "provider": "Sr4MatrixProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_MATRIX_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p216-247",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "hardware_attributes": "Signal"
+      },
+      "id": "sr4.matrix.core.hardware_attributes.signal",
+      "provider": "Sr4MatrixProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_MATRIX_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p216-247",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "software_attributes": "Firewall"
+      },
+      "id": "sr4.matrix.core.software_attributes.firewall",
+      "provider": "Sr4MatrixProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_MATRIX_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p216-247",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "software_attributes": "System"
+      },
+      "id": "sr4.matrix.core.software_attributes.system",
+      "provider": "Sr4MatrixProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_MATRIX_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p216-247",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "device_rating_default": "all Matrix attributes equal Device rating unless customized"
+      },
+      "id": "sr4.matrix.core.device_rating_default",
+      "provider": "Sr4MatrixProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_MATRIX_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p216-247",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "subscription_limit": "System * 2"
+      },
+      "id": "sr4.matrix.core.subscription_limit",
+      "provider": "Sr4MatrixProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_MATRIX_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p216-247",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "system_limits_program_rating": true
+      },
+      "id": "sr4.matrix.core.system_limits_program_rating",
+      "provider": "Sr4MatrixProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_MATRIX_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p216-247",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "system_limited_by_base_response": true
+      },
+      "id": "sr4.matrix.core.system_limited_by_base_response",
+      "provider": "Sr4MatrixProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_MATRIX_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p216-247",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "matrix_initiative": "Response + Intuition"
+      },
+      "id": "sr4.matrix.initiative.matrix_initiative",
+      "provider": "Sr4MatrixProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_MATRIX_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p216-247",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "matrix_condition_monitor": "8 + ceil(System / 2)"
+      },
+      "id": "sr4.matrix.initiative.matrix_condition_monitor",
+      "provider": "Sr4MatrixProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_MATRIX_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p216-247",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "vr_ip": "extract exact cold/hot sim initiative passes from Matrix chapter"
+      },
+      "id": "sr4.matrix.initiative.vr_ip",
+      "provider": "Sr4MatrixProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_MATRIX_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p216-247",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "provider": "Sr4MatrixProvider"
+      },
+      "id": "sr4.matrix.initiative.provider",
+      "provider": "Sr4MatrixProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_MATRIX_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p216-247",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "common_use_programs": "import table"
+      },
+      "id": "sr4.matrix.program_model.common_use_programs",
+      "provider": "Sr4MatrixProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_MATRIX_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p216-247",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "hacking_programs": "import table"
+      },
+      "id": "sr4.matrix.program_model.hacking_programs",
+      "provider": "Sr4MatrixProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_MATRIX_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p216-247",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "running_too_many_programs": "Response degradation rules need table extraction"
+      },
+      "id": "sr4.matrix.program_model.running_too_many_programs",
+      "provider": "Sr4MatrixProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_MATRIX_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p216-247",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "active_program_limits": "Response/System-dependent extraction required"
+      },
+      "id": "sr4.matrix.program_model.active_program_limits",
+      "provider": "Sr4MatrixProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_MATRIX_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p216-247",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "hacking_on_the_fly": "extract exact Exploit + Hacking vs Firewall model"
+      },
+      "id": "sr4.matrix.hacking.hacking_on_the_fly",
+      "provider": "Sr4MatrixProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_MATRIX_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p216-247",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "probing_target": "extract extended test model"
+      },
+      "id": "sr4.matrix.hacking.probing_target",
+      "provider": "Sr4MatrixProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_MATRIX_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p216-247",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "spoofing_requires_access_id": true
+      },
+      "id": "sr4.matrix.hacking.spoofing_requires_access_id",
+      "provider": "Sr4MatrixProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_MATRIX_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p216-247",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "alerts": "extract restricted/security alert response"
+      },
+      "id": "sr4.matrix.hacking.alerts",
+      "provider": "Sr4MatrixProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_MATRIX_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p216-247",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "cybercombat": "extract attack/defense/damage model"
+      },
+      "id": "sr4.matrix.hacking.cybercombat",
+      "provider": "Sr4MatrixProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_MATRIX_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p216-247",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "living_persona": "derived from attributes; extract exact mapping"
+      },
+      "id": "sr4.matrix.technomancy.living_persona",
+      "provider": "Sr4MatrixProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_MATRIX_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p216-247",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "complex_forms": "import table"
+      },
+      "id": "sr4.matrix.technomancy.complex_forms",
+      "provider": "Sr4MatrixProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_MATRIX_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p216-247",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "sprites": "import table"
+      },
+      "id": "sr4.matrix.technomancy.sprites",
+      "provider": "Sr4MatrixProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_MATRIX_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p216-247",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "fading_resistance": "Willpower + Resonance"
+      },
+      "id": "sr4.matrix.technomancy.fading_resistance",
+      "provider": "Sr4MatrixProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_MATRIX_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p216-247",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "threading_fading": "DV equals hits used for rating points; Physical if final rating exceeds Resonance"
+      },
+      "id": "sr4.matrix.technomancy.threading_fading",
+      "provider": "Sr4MatrixProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_MATRIX_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p216-247",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "sprite_fading": "DV equals twice sprite hits; Physical if sprite rating exceeds Resonance"
+      },
+      "id": "sr4.matrix.technomancy.sprite_fading",
+      "provider": "Sr4MatrixProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_MATRIX_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p216-247",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "action": "Analyze"
+      },
+      "id": "sr4.matrix.action_import.analyze",
+      "provider": "Sr4MatrixProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_MATRIX_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p216-247",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "action": "Browse"
+      },
+      "id": "sr4.matrix.action_import.browse",
+      "provider": "Sr4MatrixProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_MATRIX_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p216-247",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "action": "Command"
+      },
+      "id": "sr4.matrix.action_import.command",
+      "provider": "Sr4MatrixProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_MATRIX_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p216-247",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "action": "Edit"
+      },
+      "id": "sr4.matrix.action_import.edit",
+      "provider": "Sr4MatrixProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_MATRIX_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p216-247",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "action": "Encrypt"
+      },
+      "id": "sr4.matrix.action_import.encrypt",
+      "provider": "Sr4MatrixProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_MATRIX_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p216-247",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "action": "Exploit"
+      },
+      "id": "sr4.matrix.action_import.exploit",
+      "provider": "Sr4MatrixProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_MATRIX_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p216-247",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "action": "Medic"
+      },
+      "id": "sr4.matrix.action_import.medic",
+      "provider": "Sr4MatrixProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_MATRIX_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p216-247",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "action": "Scan"
+      },
+      "id": "sr4.matrix.action_import.scan",
+      "provider": "Sr4MatrixProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_MATRIX_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p216-247",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "action": "Sniffer"
+      },
+      "id": "sr4.matrix.action_import.sniffer",
+      "provider": "Sr4MatrixProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_MATRIX_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p216-247",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "action": "Spoof"
+      },
+      "id": "sr4.matrix.action_import.spoof",
+      "provider": "Sr4MatrixProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_MATRIX_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p216-247",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "action": "Trace"
+      },
+      "id": "sr4.matrix.action_import.trace",
+      "provider": "Sr4MatrixProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_MATRIX_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p216-247",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "action": "Black Hammer"
+      },
+      "id": "sr4.matrix.action_import.black_hammer",
+      "provider": "Sr4MatrixProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_MATRIX_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p216-247",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "action": "Attack"
+      },
+      "id": "sr4.matrix.action_import.attack",
+      "provider": "Sr4MatrixProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_MATRIX_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p216-247",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "action": "Armor"
+      },
+      "id": "sr4.matrix.action_import.armor",
+      "provider": "Sr4MatrixProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_MATRIX_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p216-247",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "action": "Stealth"
+      },
+      "id": "sr4.matrix.action_import.stealth",
+      "provider": "Sr4MatrixProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_MATRIX_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p216-247",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "action": "Decrypt"
+      },
+      "id": "sr4.matrix.action_import.decrypt",
+      "provider": "Sr4MatrixProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_MATRIX_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p216-247",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "action": "Defuse"
+      },
+      "id": "sr4.matrix.action_import.defuse",
+      "provider": "Sr4MatrixProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_MATRIX_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p216-247",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "matrix_action_list_source": "sr4a_core_2009:p228-232"
+      },
+      "id": "sr4.matrix.actions.matrix_action_list_source",
+      "provider": "Sr4MatrixProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_MATRIX_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p216-247",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "drones_are_devices": true
+      },
+      "id": "sr4.rigging.core.drones_are_devices",
+      "provider": "Sr4RiggingProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_RIGGING_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p244-247,p167-171,p348",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "drones_have_matrix_nodes": true
+      },
+      "id": "sr4.rigging.core.drones_have_matrix_nodes",
+      "provider": "Sr4RiggingProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_RIGGING_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p244-247,p167-171,p348",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "drones_only_no_passengers": true
+      },
+      "id": "sr4.rigging.core.drones_only_no_passengers",
+      "provider": "Sr4RiggingProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_RIGGING_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p244-247,p167-171,p348",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "drone_rigger_adaptation_integral": true
+      },
+      "id": "sr4.rigging.core.drone_rigger_adaptation_integral",
+      "provider": "Sr4RiggingProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_RIGGING_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p244-247,p167-171,p348",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "passenger_vehicle_rigger_adaptation_optional": true
+      },
+      "id": "sr4.rigging.core.passenger_vehicle_rigger_adaptation_optional",
+      "provider": "Sr4RiggingProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_RIGGING_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p244-247,p167-171,p348",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "driver": "Pilot program"
+      },
+      "id": "sr4.rigging.control_mode.autonomous.driver",
+      "provider": "Sr4RiggingProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_RIGGING_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p244-247,p167-171,p348",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "skills": "autosofts"
+      },
+      "id": "sr4.rigging.control_mode.autonomous.skills",
+      "provider": "Sr4RiggingProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_RIGGING_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p244-247,p167-171,p348",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "order_comprehension": "Pilot test vs threshold"
+      },
+      "id": "sr4.rigging.control_mode.autonomous.order_comprehension",
+      "provider": "Sr4RiggingProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_RIGGING_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p244-247,p167-171,p348",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "program": "Command"
+      },
+      "id": "sr4.rigging.control_mode.remote_control.program",
+      "provider": "Sr4RiggingProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_RIGGING_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p244-247,p167-171,p348",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "subscription_required": true
+      },
+      "id": "sr4.rigging.control_mode.remote_control.subscription_required",
+      "provider": "Sr4RiggingProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_RIGGING_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p244-247,p167-171,p348",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "control_one_drone_at_time": true
+      },
+      "id": "sr4.rigging.control_mode.remote_control.control_one_drone_at_time",
+      "provider": "Sr4RiggingProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_RIGGING_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p244-247,p167-171,p348",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "attribute_substitution": "use Command rating in place of attribute except drone Sensor for Perception"
+      },
+      "id": "sr4.rigging.control_mode.remote_control.attribute_substitution",
+      "provider": "Sr4RiggingProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_RIGGING_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p244-247,p167-171,p348",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "action_cost": "Complex Action even when underlying drone task would be Simple"
+      },
+      "id": "sr4.rigging.control_mode.remote_control.action_cost",
+      "provider": "Sr4RiggingProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_RIGGING_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p244-247,p167-171,p348",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "requires_full_vr": true
+      },
+      "id": "sr4.rigging.control_mode.jumped_in.requires_full_vr",
+      "provider": "Sr4RiggingProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_RIGGING_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p244-247,p167-171,p348",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "subscription_required": true
+      },
+      "id": "sr4.rigging.control_mode.jumped_in.subscription_required",
+      "provider": "Sr4RiggingProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_RIGGING_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p244-247,p167-171,p348",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "action_to_jump_in": "Simple Action"
+      },
+      "id": "sr4.rigging.control_mode.jumped_in.action_to_jump_in",
+      "provider": "Sr4RiggingProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_RIGGING_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p244-247,p167-171,p348",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "control_rig_bonus": "implant bonuses on vehicle/drone tests; exact modifiers extracted from gear/provider"
+      },
+      "id": "sr4.rigging.control_mode.jumped_in.control_rig_bonus",
+      "provider": "Sr4RiggingProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_RIGGING_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p244-247,p167-171,p348",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "damage_risk": "dumpshock on forced ejection"
+      },
+      "id": "sr4.rigging.control_mode.jumped_in.damage_risk",
+      "provider": "Sr4RiggingProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_RIGGING_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p244-247,p167-171,p348",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "signal_range": "required for direct safe links"
+      },
+      "id": "sr4.rigging.electronic_warfare.signal_range",
+      "provider": "Sr4RiggingProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_RIGGING_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p244-247,p167-171,p348",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "scan_sniffer": "needed to locate devices and traffic"
+      },
+      "id": "sr4.rigging.electronic_warfare.scan_sniffer",
+      "provider": "Sr4RiggingProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_RIGGING_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p244-247,p167-171,p348",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "ecm_eccm": "extract jamming and counter-jamming details"
+      },
+      "id": "sr4.rigging.electronic_warfare.ecm_eccm",
+      "provider": "Sr4RiggingProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_RIGGING_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p244-247,p167-171,p348",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "condition_monitor": "8 + ceil(Body / 2)"
+      },
+      "id": "sr4.rigging.vehicle_rules.condition_monitor",
+      "provider": "Sr4RiggingProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_RIGGING_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p244-247,p167-171,p348",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "ar_driving_bonus": "+1 dice to Vehicle Tests"
+      },
+      "id": "sr4.rigging.vehicle_rules.ar_driving_bonus",
+      "provider": "Sr4RiggingProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_RIGGING_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p244-247,p167-171,p348",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "vr_driving_threshold_modifier": -1
+      },
+      "id": "sr4.rigging.vehicle_rules.vr_driving_threshold_modifier",
+      "provider": "Sr4RiggingProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_RIGGING_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p244-247,p167-171,p348",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "vehicle_tests_use": "Reaction + vehicle skill +/- Handling; exact cases imported"
+      },
+      "id": "sr4.rigging.vehicle_rules.vehicle_tests_use",
+      "provider": "Sr4RiggingProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_RIGGING_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p244-247,p167-171,p348",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "chase_combat": "abstract vehicle-only subsystem; implement after tactical vehicle tests"
+      },
+      "id": "sr4.rigging.vehicle_rules.chase_combat",
+      "provider": "Sr4RiggingProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_RIGGING_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p244-247,p167-171,p348",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "import": "drone table"
+      },
+      "id": "sr4.rigging.import.drone_table",
+      "provider": "Sr4RiggingProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_RIGGING_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p244-247,p167-171,p348",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "import": "vehicle table"
+      },
+      "id": "sr4.rigging.import.vehicle_table",
+      "provider": "Sr4RiggingProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_RIGGING_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p244-247,p167-171,p348",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "import": "autosoft list"
+      },
+      "id": "sr4.rigging.import.autosoft_list",
+      "provider": "Sr4RiggingProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_RIGGING_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p244-247,p167-171,p348",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "import": "sensor rules"
+      },
+      "id": "sr4.rigging.import.sensor_rules",
+      "provider": "Sr4RiggingProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_RIGGING_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p244-247,p167-171,p348",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "import": "rigger adaptation stats"
+      },
+      "id": "sr4.rigging.import.rigger_adaptation_stats",
+      "provider": "Sr4RiggingProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_RIGGING_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p244-247,p167-171,p348",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "import": "control rig stats"
+      },
+      "id": "sr4.rigging.import.control_rig_stats",
+      "provider": "Sr4RiggingProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_RIGGING_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p244-247,p167-171,p348",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "base_skill_rating_range": [
+          1,
+          6
+        ]
+      },
+      "id": "sr4.skills.model.base_skill_rating_range",
+      "provider": "Sr4SkillProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_SKILLS_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p118-138",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "professional_competency": 3
+      },
+      "id": "sr4.skills.model.professional_competency",
+      "provider": "Sr4SkillProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_SKILLS_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p118-138",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "natural_max": 6
+      },
+      "id": "sr4.skills.model.natural_max",
+      "provider": "Sr4SkillProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_SKILLS_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p118-138",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "natural_max_with_aptitude": 7
+      },
+      "id": "sr4.skills.model.natural_max_with_aptitude",
+      "provider": "Sr4SkillProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_SKILLS_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p118-138",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "modified_max": "floor(natural_rating * 1.5)"
+      },
+      "id": "sr4.skills.model.modified_max",
+      "provider": "Sr4SkillProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_SKILLS_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p118-138",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "modified_max_normal": 9
+      },
+      "id": "sr4.skills.model.modified_max_normal",
+      "provider": "Sr4SkillProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_SKILLS_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p118-138",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "modified_max_with_aptitude": 10
+      },
+      "id": "sr4.skills.model.modified_max_with_aptitude",
+      "provider": "Sr4SkillProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_SKILLS_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p118-138",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "specialization_bonus_dice": 2
+      },
+      "id": "sr4.skills.model.specialization_bonus_dice",
+      "provider": "Sr4SkillProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_SKILLS_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p118-138",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "one_specialization_per_skill": true
+      },
+      "id": "sr4.skills.model.one_specialization_per_skill",
+      "provider": "Sr4SkillProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_SKILLS_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p118-138",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "family": "combat_active"
+      },
+      "id": "sr4.skills.family.combat_active",
+      "provider": "Sr4SkillProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_SKILLS_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p118-138",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "family": "magical_active"
+      },
+      "id": "sr4.skills.family.magical_active",
+      "provider": "Sr4SkillProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_SKILLS_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p118-138",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "family": "physical_active"
+      },
+      "id": "sr4.skills.family.physical_active",
+      "provider": "Sr4SkillProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_SKILLS_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p118-138",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "family": "resonance_active"
+      },
+      "id": "sr4.skills.family.resonance_active",
+      "provider": "Sr4SkillProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_SKILLS_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p118-138",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "family": "social_active"
+      },
+      "id": "sr4.skills.family.social_active",
+      "provider": "Sr4SkillProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_SKILLS_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p118-138",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "family": "technical_active"
+      },
+      "id": "sr4.skills.family.technical_active",
+      "provider": "Sr4SkillProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_SKILLS_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p118-138",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "family": "vehicle_active"
+      },
+      "id": "sr4.skills.family.vehicle_active",
+      "provider": "Sr4SkillProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_SKILLS_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p118-138",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "family": "special_active"
+      },
+      "id": "sr4.skills.family.special_active",
+      "provider": "Sr4SkillProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_SKILLS_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p118-138",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "family": "knowledge"
+      },
+      "id": "sr4.skills.family.knowledge",
+      "provider": "Sr4SkillProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_SKILLS_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p118-138",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "family": "language"
+      },
+      "id": "sr4.skills.family.language",
+      "provider": "Sr4SkillProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_SKILLS_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p118-138",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "import": "active_skill_list"
+      },
+      "id": "sr4.skills.import.active_skill_list",
+      "provider": "Sr4SkillProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_SKILLS_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p118-138",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "import": "skill_group_list"
+      },
+      "id": "sr4.skills.import.skill_group_list",
+      "provider": "Sr4SkillProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_SKILLS_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p118-138",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "import": "linked_attribute_map"
+      },
+      "id": "sr4.skills.import.linked_attribute_map",
+      "provider": "Sr4SkillProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_SKILLS_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p118-138",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "import": "defaulting_allowed_map"
+      },
+      "id": "sr4.skills.import.defaulting_allowed_map",
+      "provider": "Sr4SkillProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_SKILLS_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p118-138",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "import": "specialization_catalog"
+      },
+      "id": "sr4.skills.import.specialization_catalog",
+      "provider": "Sr4SkillProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_SKILLS_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p118-138",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "pool": "linked_attribute - 1"
+      },
+      "id": "sr4.skills.provider_rule.defaulting.pool",
+      "provider": "Sr4SkillProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_SKILLS_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p118-138",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "disallowed_when_skill_unavailable_or_unaware": true
+      },
+      "id": "sr4.skills.provider_rule.defaulting.disallowed_when_skill_unavailable_or_unaware",
+      "provider": "Sr4SkillProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_SKILLS_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p118-138",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "knowledge_skill_starting_points": "(Logic + Intuition) * 3"
+      },
+      "id": "sr4.skills.provider_rule.knowledge_skill_starting_points",
+      "provider": "Sr4SkillProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_SKILLS_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p118-138",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "language_skill_handling": "import table and defaults from skills chapter"
+      },
+      "id": "sr4.skills.provider_rule.language_skill_handling",
+      "provider": "Sr4SkillProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_SKILLS_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p118-138",
+      "status": "seed"
     }
   ],
   "ruleset": "sr4",
   "runtime_receipt_path": ".codex-studio/published/SR4_RULEFACT_REGISTRY.generated.json",
   "schema": "sr4-rule-authority-public-registry-v2",
-  "status": "pass"
+  "status": "fail"
 }

@@ -62,28 +62,59 @@ def normalize_public_rulefact_registry(
     final_verdict: str,
     status: str,
 ) -> dict[str, Any]:
-    entries = list(authority_registry.get("rulefact_entries") or [])
+    entries = list(authority_registry.get("rulefact_entries") or authority_registry.get("rulefacts") or [])
+    default_book_profile = authority_registry.get("book_profile") or (
+        "sr4a_core_2009" if ruleset == "sr4" else "sr6_core_2019" if ruleset == "sr6" else ""
+    )
+    public_rulefacts: list[dict[str, Any]] = []
+    for entry in entries:
+        if "fact" in entry or "source_ref" in entry or "seed_file" in entry:
+            public_rulefacts.append(
+                {
+                    "id": entry.get("id") or entry.get("fact_id"),
+                    "ruleset": entry.get("ruleset") or ruleset,
+                    "book_profile": entry.get("book_profile") or default_book_profile,
+                    "provider": entry.get("provider"),
+                    "source_ref": entry.get("source_ref", ""),
+                    "status": entry.get("status", "seed"),
+                    "seed_file": entry.get("seed_file", ""),
+                    "fact": entry.get("fact") or {},
+                }
+            )
+        else:
+            public_rulefacts.append(
+                {
+                    "id": entry.get("fact_id") or entry.get("id"),
+                    "ruleset": ruleset,
+                    "book_profile": default_book_profile,
+                    "provider": entry.get("provider"),
+                    "source_ref": "",
+                    "status": "seed",
+                    "seed_file": "",
+                    "fact": {
+                        "family": entry.get("family"),
+                        "fixture_ids": entry.get("fixture_ids", []),
+                        "copyright_safe": entry.get("copyright_safe", False),
+                    },
+                }
+            )
     return {
         "schema": f"{ruleset}-rule-authority-public-registry-v2",
         "ruleset": ruleset,
         "edition": authority_registry.get("edition", ruleset.upper()),
+        "book_profile": default_book_profile,
         "status": status,
         "final_verdict": final_verdict,
         "generated_at_utc": GENERATED_AT,
         "runtime_receipt_path": f".codex-studio/published/{ruleset.upper()}_RULEFACT_REGISTRY.generated.json",
         "copyright_boundary": authority_registry.get("copyright_boundary", {}),
         "rulefact_families": authority_registry.get("rulefact_families", []),
-        "rulefact_count": len(entries),
-        "rulefacts": [
-            {
-                "id": entry.get("fact_id"),
-                "family": entry.get("family"),
-                "provider": entry.get("provider"),
-                "fixture_ids": entry.get("fixture_ids", []),
-                "copyright_safe": entry.get("copyright_safe", False),
-            }
-            for entry in entries
-        ],
+        "rulefact_count": len(public_rulefacts),
+        "required_providers": authority_registry.get("required_providers", []),
+        "implemented_providers": authority_registry.get("implemented_providers", []),
+        "missing_profile_status": authority_registry.get("missing_profile_status", []),
+        "missing_implemented_providers": authority_registry.get("missing_implemented_providers", []),
+        "rulefacts": public_rulefacts,
         "human_review": authority_registry.get("human_review", {}),
     }
 
@@ -133,12 +164,14 @@ def sr4_or_sr6_gate(ruleset: str) -> dict[str, Any]:
     if not table_indexed:
         failures.append("table evidence is not indexed")
     authority_source = authority_registry if authority_registry else registry
+    token = f"{upper}_RULE_AUTHORITY_READY"
     authority_rulefact_count = len(list(authority_source.get("rulefact_entries") or authority_source.get("rulefacts") or []))
     if authority_rulefact_count < MIN_RULEFACT_COUNT:
         failures.append(f"rulefact registry has {authority_rulefact_count} facts; minimum is {MIN_RULEFACT_COUNT}")
+    if authority_source.get("final_verdict") != token:
+        failures.append("seed authority verdict is not ready")
 
     ready = not failures
-    token = f"{upper}_RULE_AUTHORITY_READY"
     normalized_registry = normalize_public_rulefact_registry(
         ruleset,
         authority_source,
