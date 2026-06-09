@@ -1,0 +1,18 @@
+{
+  "contract_name": "chummer.sr4.row_level_authority_mapping",
+  "evidence_strength": "substantial_machine_indexed",
+  "generated_at_utc": "2026-06-09T13:34:17Z",
+  "indexed_structured_rows": 6989,
+  "machine_observations": {
+    "has_nonempty_index": true,
+    "requires_review_marker": true,
+    "table_status": "structured_legacy_data_indexed_pending_human_review"
+  },
+  "public_safe": true,
+  "ready_for_gold": false,
+  "registry_rulefact_count": 285,
+  "remaining_gate": "human review must confirm licenses, edition fit, errata, and row-level mappings before READY",
+  "ruleset": "sr4",
+  "source_kind": "legacy_chummer_structured_xml",
+  "status": "pending_human_review"
+}

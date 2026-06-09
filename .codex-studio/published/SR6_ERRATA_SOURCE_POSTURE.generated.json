@@ -1,0 +1,33 @@
+{
+  "contract_name": "chummer.sr6.errata_source_posture",
+  "generated_at_utc": "2026-06-09T13:34:17Z",
+  "machine_observations": {
+    "has_committed_source_metadata": true,
+    "profile_status": "pending",
+    "source_count": 3
+  },
+  "production_claim_allowed": false,
+  "ready_for_gold": false,
+  "required_before_gold": true,
+  "ruleset": "sr6",
+  "sources": [
+    {
+      "id": "sr6_aug_2019",
+      "observed_page_count": 10,
+      "observed_sha256": "84a488965df544eb5661def7188baeef2a8d38d1fb006f00b5537e1850b6b5db",
+      "url": "https://shadowrunsixthworld.com/wp-content/uploads/sites/5/2019/08/SR6-Core-Rulebook-Errata-Aug-2019.pdf"
+    },
+    {
+      "id": "sr6_feb_2020",
+      "observed_page_count": 6,
+      "observed_sha256": null,
+      "url": "https://shadowrunsixthworld.com/wp-content/uploads/sites/5/2020/03/SR6-Core-Rulebook-Errata-Feb-2020.pdf"
+    },
+    {
+      "id": "sr6_city_edition_notice",
+      "observed_fact": "official notice says City Edition: Seattle includes latest errata and updates",
+      "url": "https://shadowrunsixthworld.com/2021/09/15/hit-the-streets-with-shadowrun-sixth-world-city-edition-and-improved-dice-roller-app/"
+    }
+  ],
+  "status": "pending_reviewed_application"
+}

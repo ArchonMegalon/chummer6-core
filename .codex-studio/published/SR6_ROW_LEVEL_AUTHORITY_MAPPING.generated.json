@@ -1,0 +1,18 @@
+{
+  "contract_name": "chummer.sr6.row_level_authority_mapping",
+  "evidence_strength": "substantial_machine_indexed",
+  "generated_at_utc": "2026-06-09T13:34:17Z",
+  "indexed_candidate_lines": 5213,
+  "machine_observations": {
+    "has_nonempty_index": true,
+    "requires_review_marker": true,
+    "table_status": "private_pdf_line_hash_import_indexed_pending_review"
+  },
+  "public_safe": true,
+  "ready_for_gold": false,
+  "registry_rulefact_count": 301,
+  "remaining_gate": "human review must map hashed candidate rows into normalized data records before SR6_RULE_AUTHORITY_READY",
+  "ruleset": "sr6",
+  "source_kind": "private_local_sourcebook_pdf_line_hashes",
+  "status": "pending_human_review"
+}

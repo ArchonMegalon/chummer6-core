@@ -1,0 +1,15 @@
+{
+  "contract_name": "chummer.sr4.errata_source_posture",
+  "generated_at_utc": "2026-06-09T13:34:17Z",
+  "machine_observations": {
+    "has_committed_source_metadata": false,
+    "profile_status": "pending",
+    "source_count": 0
+  },
+  "production_claim_allowed": false,
+  "ready_for_gold": false,
+  "required_before_gold": true,
+  "ruleset": "sr4",
+  "sources": [],
+  "status": "pending_reviewed_application"
+}

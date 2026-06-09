@@ -29,11 +29,15 @@ def main() -> int:
     sr4_tables = load_json(sr4_root / "SR4_TABLE_IMPORTS.generated.json")
     sr4_golden = load_json(sr4_root / "SR4_GOLDEN_FIXTURES.generated.json")
     sr4_errata = load_json(sr4_root / "SR4_ERRATA_PROFILE.generated.json")
+    sr4_row_level = load_json(sr4_root / "SR4_ROW_LEVEL_AUTHORITY_MAPPING.generated.json")
+    sr4_errata_posture = load_json(sr4_root / "SR4_ERRATA_SOURCE_POSTURE.generated.json")
     sr6_integration = load_json(sr6_root / "SR6_RULE_AUTHORITY_INTEGRATION.generated.json")
     sr6_provider = load_json(sr6_root / "SR6_PROVIDER_COVERAGE.generated.json")
     sr6_tables = load_json(sr6_root / "SR6_TABLE_IMPORTS.generated.json")
     sr6_golden = load_json(sr6_root / "SR6_GOLDEN_FIXTURES.generated.json")
     sr6_errata = load_json(sr6_root / "SR6_ERRATA_PROFILE.generated.json")
+    sr6_row_level = load_json(sr6_root / "SR6_ROW_LEVEL_AUTHORITY_MAPPING.generated.json")
+    sr6_errata_posture = load_json(sr6_root / "SR6_ERRATA_SOURCE_POSTURE.generated.json")
     sr5_acceptance = load_json(PUBLISHED_ROOT / "SR5_ACCEPTANCE_PROOF.generated.json")
     sr5_depth = load_json(PUBLISHED_ROOT / "SR5_RULESET_DEPTH.generated.json")
     sr5_registry = load_json(PUBLISHED_ROOT / "SR5_RULE_AUTHORITY_REGISTRY.generated.json")
@@ -66,6 +70,12 @@ def main() -> int:
                 "human rule review signoff",
             ],
             "errata_status": sr4_errata.get("status"),
+            "blocker_receipts": {
+                "row_level_mapping": str(sr4_root / "SR4_ROW_LEVEL_AUTHORITY_MAPPING.generated.json"),
+                "errata_posture": str(sr4_root / "SR4_ERRATA_SOURCE_POSTURE.generated.json"),
+            },
+            "row_level_mapping_status": sr4_row_level.get("status"),
+            "errata_posture_status": sr4_errata_posture.get("status"),
             "readiness_token_allowed": sr4_ready,
         })
     if not sr6_ready:
@@ -87,6 +97,12 @@ def main() -> int:
                 "human rule review signoff",
             ],
             "errata_status": sr6_errata.get("status"),
+            "blocker_receipts": {
+                "row_level_mapping": str(sr6_root / "SR6_ROW_LEVEL_AUTHORITY_MAPPING.generated.json"),
+                "errata_posture": str(sr6_root / "SR6_ERRATA_SOURCE_POSTURE.generated.json"),
+            },
+            "row_level_mapping_status": sr6_row_level.get("status"),
+            "errata_posture_status": sr6_errata_posture.get("status"),
             "readiness_token_allowed": sr6_ready,
         })
 

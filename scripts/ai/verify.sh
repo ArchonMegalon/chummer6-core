@@ -12,8 +12,10 @@ python3 scripts/verify-windows-checkout-paths.py --repo-root .
 python3 scripts/verify_sr4_rule_authority_seed.py
 python3 scripts/verify_sr5_rule_authority_seed.py
 python3 scripts/verify_sr6_rule_authority_seed.py
+python3 scripts/materialize_rule_authority_blocker_receipts.py
 python3 tests/test_sr5_rule_authority_seed.py
 python3 tests/test_rule_authority_operator_review.py
+python3 tests/test_rule_authority_blocker_receipts.py
 
 test -f docs/CONTRACT_BOUNDARY_MAP.md
 test -f docs/EXPLAIN_AND_RUNTIME_CANON.md
