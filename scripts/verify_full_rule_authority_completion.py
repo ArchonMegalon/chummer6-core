@@ -2,7 +2,12 @@
 from __future__ import annotations
 
 import json
+import sys
+from datetime import UTC, datetime
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from verify_rule_authority_human_review import validate_review
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -21,6 +26,10 @@ def write_json(path: Path, payload: dict) -> None:
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
+def now_iso() -> str:
+    return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
 def main() -> int:
     sr4_root = COMPLETION_ROOT / "sr4_rule_authority"
     sr6_root = COMPLETION_ROOT / "sr6_rule_authority"
@@ -31,6 +40,7 @@ def main() -> int:
     sr4_errata = load_json(sr4_root / "SR4_ERRATA_PROFILE.generated.json")
     sr4_row_level = load_json(sr4_root / "SR4_ROW_LEVEL_AUTHORITY_MAPPING.generated.json")
     sr4_errata_posture = load_json(sr4_root / "SR4_ERRATA_SOURCE_POSTURE.generated.json")
+    sr4_matrix = load_json(sr4_root / "SR4_VERIFICATION_MATRIX_RUN.generated.json")
     sr6_integration = load_json(sr6_root / "SR6_RULE_AUTHORITY_INTEGRATION.generated.json")
     sr6_provider = load_json(sr6_root / "SR6_PROVIDER_COVERAGE.generated.json")
     sr6_tables = load_json(sr6_root / "SR6_TABLE_IMPORTS.generated.json")
@@ -38,6 +48,9 @@ def main() -> int:
     sr6_errata = load_json(sr6_root / "SR6_ERRATA_PROFILE.generated.json")
     sr6_row_level = load_json(sr6_root / "SR6_ROW_LEVEL_AUTHORITY_MAPPING.generated.json")
     sr6_errata_posture = load_json(sr6_root / "SR6_ERRATA_SOURCE_POSTURE.generated.json")
+    sr6_matrix = load_json(sr6_root / "SR6_VERIFICATION_MATRIX_RUN.generated.json")
+    sr4_human_review = validate_review("sr4")
+    sr6_human_review = validate_review("sr6")
     sr5_acceptance = load_json(PUBLISHED_ROOT / "SR5_ACCEPTANCE_PROOF.generated.json")
     sr5_depth = load_json(PUBLISHED_ROOT / "SR5_RULESET_DEPTH.generated.json")
     sr5_registry = load_json(PUBLISHED_ROOT / "SR5_RULE_AUTHORITY_REGISTRY.generated.json")
@@ -62,6 +75,8 @@ def main() -> int:
                 "missing_profile_status": sr4_provider.get("missing_profile_status"),
                 "golden_fixture_status": sr4_golden.get("status"),
                 "table_import_status": sr4_tables.get("status"),
+                "verification_matrix_status": sr4_matrix.get("status"),
+                "verification_matrix_unexpected_failed_gates": sr4_matrix.get("unexpected_failed_gates", []),
             },
             "remaining_gates": [
                 "human-reviewed row-level mapping from indexed table evidence into normalized records",
@@ -73,9 +88,17 @@ def main() -> int:
             "blocker_receipts": {
                 "row_level_mapping": str(sr4_root / "SR4_ROW_LEVEL_AUTHORITY_MAPPING.generated.json"),
                 "errata_posture": str(sr4_root / "SR4_ERRATA_SOURCE_POSTURE.generated.json"),
+                "review_handoff": str(sr4_root / "SR4_RULE_AUTHORITY_REVIEW_HANDOFF.md"),
+                "human_review": str(sr4_root / "SR4_HUMAN_RULE_REVIEW.md"),
+                "verification_matrix_run": str(sr4_root / "SR4_VERIFICATION_MATRIX_RUN.generated.json"),
             },
             "row_level_mapping_status": sr4_row_level.get("status"),
             "errata_posture_status": sr4_errata_posture.get("status"),
+            "human_review_status": sr4_human_review,
+            "verification_matrix_status": sr4_matrix.get("status"),
+            "verification_matrix_failed_gates": sr4_matrix.get("failed_gates", []),
+            "verification_matrix_unexpected_failed_gates": sr4_matrix.get("unexpected_failed_gates", []),
+            "verification_matrix_expected_ready_blockers": sr4_matrix.get("expected_ready_blockers", []),
             "readiness_token_allowed": sr4_ready,
         })
     if not sr6_ready:
@@ -88,9 +111,12 @@ def main() -> int:
                 "missing_profile_status": sr6_provider.get("missing_profile_status"),
                 "golden_fixture_status": sr6_golden.get("status"),
                 "table_import_status": sr6_tables.get("status"),
+                "verification_matrix_status": sr6_matrix.get("status"),
+                "verification_matrix_unexpected_failed_gates": sr6_matrix.get("unexpected_failed_gates", []),
             },
             "remaining_gates": [
                 "human-reviewed mapping of private PDF line-hash candidates into normalized public-safe records",
+                "human-selected SR6 source baseline across indexed 2019/2024/supplement sources",
                 "errata profile applied and reviewed",
                 "complete authority golden fixture corpus, beyond seed fixtures",
                 "full provider-backed explain receipt corpus",
@@ -100,14 +126,23 @@ def main() -> int:
             "blocker_receipts": {
                 "row_level_mapping": str(sr6_root / "SR6_ROW_LEVEL_AUTHORITY_MAPPING.generated.json"),
                 "errata_posture": str(sr6_root / "SR6_ERRATA_SOURCE_POSTURE.generated.json"),
+                "review_handoff": str(sr6_root / "SR6_RULE_AUTHORITY_REVIEW_HANDOFF.md"),
+                "human_review": str(sr6_root / "SR6_HUMAN_RULE_REVIEW.md"),
+                "verification_matrix_run": str(sr6_root / "SR6_VERIFICATION_MATRIX_RUN.generated.json"),
             },
             "row_level_mapping_status": sr6_row_level.get("status"),
             "errata_posture_status": sr6_errata_posture.get("status"),
+            "human_review_status": sr6_human_review,
+            "verification_matrix_status": sr6_matrix.get("status"),
+            "verification_matrix_failed_gates": sr6_matrix.get("failed_gates", []),
+            "verification_matrix_unexpected_failed_gates": sr6_matrix.get("unexpected_failed_gates", []),
+            "verification_matrix_expected_ready_blockers": sr6_matrix.get("expected_ready_blockers", []),
             "readiness_token_allowed": sr6_ready,
         })
 
     payload = {
         "contract_name": "chummer.full_product_rule_authority_completion",
+        "generated_at_utc": now_iso(),
         "status": "blocked" if blockers else "pass",
         "final_verdict": "NOT_READY" if blockers else "FULL_RULE_AUTHORITY_READY",
         "readiness_token_allowed": not blockers,
@@ -117,6 +152,9 @@ def main() -> int:
                 "provider_coverage_status": sr4_provider.get("status"),
                 "implemented_provider_count": sr4_provider.get("implemented_provider_count"),
                 "final_verdict": sr4_integration.get("final_verdict"),
+                "human_review": sr4_human_review,
+                "verification_matrix_status": sr4_matrix.get("status"),
+                "verification_matrix_unexpected_failed_gates": sr4_matrix.get("unexpected_failed_gates", []),
             },
             "sr5": {
                 "rule_authority_ready": sr5_ready,
@@ -131,6 +169,9 @@ def main() -> int:
                 "provider_coverage_status": sr6_provider.get("status"),
                 "implemented_provider_count": sr6_provider.get("implemented_provider_count"),
                 "final_verdict": sr6_integration.get("final_verdict"),
+                "human_review": sr6_human_review,
+                "verification_matrix_status": sr6_matrix.get("status"),
+                "verification_matrix_unexpected_failed_gates": sr6_matrix.get("unexpected_failed_gates", []),
             },
         },
         "blockers": blockers,

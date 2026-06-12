@@ -608,6 +608,7 @@ public sealed class Sr6GearProvider
 public sealed class Sr6TableImportProvider
 {
     public const string RequiredStatus = "private_pdf_line_hash_import_indexed_pending_review";
+    public const string ReviewedStatus = "reviewed";
     public const string RequiredSourceKind = "private_local_sourcebook_pdf_line_hashes";
 
     public Sr6TableImportReceipt LoadReceipt(string path)
@@ -639,13 +640,17 @@ public sealed class Sr6TableImportProvider
     }
 
     public bool IsCompliantIndexedImport(Sr6TableImportReceipt receipt)
-        => receipt.Status == RequiredStatus
+        => IsAllowedStatus(receipt.Status)
             && receipt.Ruleset.Equals("sr6", StringComparison.OrdinalIgnoreCase)
             && receipt.SourceKind == RequiredSourceKind
             && receipt.SourcebookCount > 0
             && receipt.NonemptyLineCount > 0
             && receipt.CandidateTableLineCount > 0
             && receipt.PublicCopySafe;
+
+    private static bool IsAllowedStatus(string status)
+        => string.Equals(status, RequiredStatus, StringComparison.Ordinal)
+            || string.Equals(status, ReviewedStatus, StringComparison.Ordinal);
 
     private static string ReadString(System.Text.Json.JsonElement root, string property)
         => root.TryGetProperty(property, out System.Text.Json.JsonElement element)

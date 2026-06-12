@@ -14,6 +14,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 SEED_ROOT = REPO_ROOT / "docs" / "rulesets" / "sr6-rule-authority"
 OUT_ROOT = REPO_ROOT / ".codex-studio" / "published"
 AUTHORITY_OUT_ROOT = OUT_ROOT / "rule-authority"
+COMPLETION_ROOT = Path("/docker/chummercomplete/_completion/sr6_rule_authority")
 
 REQUIRED_FILES = [
     "COPYRIGHT_SAFE_BOUNDARY.md",
@@ -310,7 +311,7 @@ def main() -> int:
     )
 
     registry = {
-        "schema": "sr6-rulefact-registry-v1",
+        "schema": "sr6-rule-authority-public-registry-v2",
         "ruleset": "sr6",
         "book_profile": "sr6_core_2019",
         "source_package": "sr6_rule_authority_extraction_package_20260529.zip",
@@ -366,18 +367,24 @@ def main() -> int:
 
     OUT_ROOT.mkdir(parents=True, exist_ok=True)
     AUTHORITY_OUT_ROOT.mkdir(parents=True, exist_ok=True)
+    COMPLETION_ROOT.mkdir(parents=True, exist_ok=True)
     (AUTHORITY_OUT_ROOT / "SR6_RULEFACT_REGISTRY.generated.json").write_text(
         json.dumps(registry, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
-    (OUT_ROOT / "SR6_RULE_AUTHORITY_INTEGRATION.generated.json").write_text(
-        json.dumps(report, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
-    (OUT_ROOT / "SR6_PROVIDER_COVERAGE.generated.json").write_text(
-        json.dumps(provider_coverage, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
+    for directory in (OUT_ROOT, COMPLETION_ROOT):
+        (directory / "SR6_RULE_AUTHORITY_INTEGRATION.generated.json").write_text(
+            json.dumps(report, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        (directory / "SR6_PROVIDER_COVERAGE.generated.json").write_text(
+            json.dumps(provider_coverage, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        (directory / "SR6_RULEFACT_REGISTRY.generated.json").write_text(
+            json.dumps(registry, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
 
     print(json.dumps(report, indent=2, sort_keys=True))
     return 0 if report["status"] == "pass" else 1

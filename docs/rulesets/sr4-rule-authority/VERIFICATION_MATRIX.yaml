@@ -5,28 +5,28 @@ gates:
   command: python3 scripts/verify_sr4_copyright_boundary.py
 - id: SR4-G002
   title: RuleFact registry
-  command: dotnet test --filter Sr4RuleFactRegistryTests
+  command: dotnet test Chummer.Tests/Chummer.Tests.csproj --framework net10.0 --no-restore --filter Sr4RuleFactRegistryTests
 - id: SR4-G003
   title: Dice/Test/Edge
-  command: dotnet test --filter 'Sr4DiceProviderTests|Sr4TestProviderTests|Sr4EdgeProviderTests'
+  command: dotnet test Chummer.Tests/Chummer.Tests.csproj --framework net10.0 --no-restore --filter 'Sr4DiceProviderTests|Sr4TestAndEdgeProviderTests'
 - id: SR4-G004
   title: Character creation
-  command: dotnet test --filter Sr4CharacterCreationProviderTests
+  command: dotnet test Chummer.Tests/Chummer.Tests.csproj --framework net10.0 --no-restore --filter Sr4CharacterAndDerivedProviderTests
 - id: SR4-G005
   title: Derived stats
-  command: dotnet test --filter Sr4DerivedStatsProviderTests
+  command: dotnet test Chummer.Tests/Chummer.Tests.csproj --framework net10.0 --no-restore --filter Sr4CharacterAndDerivedProviderTests
 - id: SR4-G006
   title: Combat/damage
-  command: dotnet test --filter 'Sr4CombatProviderTests|Sr4DamageProviderTests'
+  command: dotnet test Chummer.Tests/Chummer.Tests.csproj --framework net10.0 --no-restore --filter Sr4CombatMagicMatrixRiggingProviderTests
 - id: SR4-G007
   title: Magic
-  command: dotnet test --filter Sr4MagicProviderTests
+  command: dotnet test Chummer.Tests/Chummer.Tests.csproj --framework net10.0 --no-restore --filter Sr4CombatMagicMatrixRiggingProviderTests
 - id: SR4-G008
   title: Matrix
-  command: dotnet test --filter Sr4MatrixProviderTests
+  command: dotnet test Chummer.Tests/Chummer.Tests.csproj --framework net10.0 --no-restore --filter Sr4CombatMagicMatrixRiggingProviderTests
 - id: SR4-G009
   title: Rigging
-  command: dotnet test --filter Sr4RiggingProviderTests
+  command: dotnet test Chummer.Tests/Chummer.Tests.csproj --framework net10.0 --no-restore --filter Sr4CombatMagicMatrixRiggingProviderTests
 - id: SR4-G010
   title: Table imports
   command: python3 scripts/verify_sr4_table_imports.py
@@ -38,7 +38,7 @@ gates:
   command: python3 scripts/verify_sr4_explain_receipts.py
 - id: SR4-G013
   title: Human review
-  command: test -f _completion/sr4_rule_authority/SR4_HUMAN_RULE_REVIEW.md
+  command: python3 scripts/verify_rule_authority_human_review.py --require-ready sr4
 - id: SR4-G014
   title: Final verdict
   command: python3 scripts/final_sr4_rule_authority_verdict.py

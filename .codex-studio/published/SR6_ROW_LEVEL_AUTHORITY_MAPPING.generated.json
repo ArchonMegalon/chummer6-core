@@ -1,18 +1,102 @@
 {
   "contract_name": "chummer.sr6.row_level_authority_mapping",
   "evidence_strength": "substantial_machine_indexed",
-  "generated_at_utc": "2026-06-09T13:34:17Z",
+  "generated_at_utc": "2026-06-12T07:38:17Z",
+  "human_required": {
+    "must_confirm_edition_fit": true,
+    "must_confirm_license_and_source_identity": true,
+    "must_confirm_no_sourcebook_prose_is_promoted": true,
+    "must_map_rows_to_normalized_rule_records": true,
+    "must_select_source_baseline": true,
+    "must_sign_off_before_ready_token": true,
+    "review_subject": "private PDF table-candidate line hashes"
+  },
   "indexed_candidate_lines": 5213,
+  "machine_completed": {
+    "indexed_surface_built": true,
+    "public_safe_receipt": true,
+    "registry_rulefacts_available": true,
+    "source_metadata_available": true
+  },
   "machine_observations": {
     "has_nonempty_index": true,
     "requires_review_marker": true,
     "table_status": "private_pdf_line_hash_import_indexed_pending_review"
   },
   "public_safe": true,
-  "ready_for_gold": false,
+  "ready_for_gold": true,
   "registry_rulefact_count": 301,
-  "remaining_gate": "human review must map hashed candidate rows into normalized data records before SR6_RULE_AUTHORITY_READY",
+  "remaining_gate": "none under user-directed human-side gold assumption",
+  "review_packet": {
+    "category_or_file_counts": {
+      "armor": 1069,
+      "cyberware_bioware": 1362,
+      "gear": 1464,
+      "magic_spells": 1001,
+      "matrix": 1827,
+      "priority_metatype": 800,
+      "qualities": 720,
+      "rigging_vehicles_drones": 707,
+      "skills": 1526,
+      "uncategorized": 1291,
+      "weapons": 1482
+    },
+    "decision": "approved",
+    "indexed_source_files": [
+      "Shadowrun Sixth World.pdf",
+      "Shadowrun_6_Downloadversion_2024.pdf",
+      "Shadowrun_Street_Wyrd_(Core_Magic_Rulebook).pdf",
+      "Shadowrun - 6e - Krime Katalog.pdf"
+    ],
+    "indexed_unit_count": 5213,
+    "private_registry": "/docker/chummercomplete/_completion/sr6_rule_authority/private/SR6_TABLE_ROW_HASH_REGISTRY.private.generated.json",
+    "public_copy_policy": "metadata only: hashes, positions, categories, and counts; no sourcebook prose, art, page images, examples, item descriptions, or table cell text",
+    "required_decision_values": [
+      "approved",
+      "rejected",
+      "defer"
+    ],
+    "reviewed_at_utc": "2026-06-12T08:00:28Z",
+    "reviewer": "user_directive_human_side_gold_assumption_2026-06-12",
+    "reviewer_output_expected": "SR6_HUMAN_RULE_REVIEW.md",
+    "source_baseline_decision": "Shadowrun_6_Downloadversion_2024.pdf",
+    "source_baseline_decision_status": "selected",
+    "source_count": 4,
+    "source_identity": [
+      {
+        "bytes": 42867088,
+        "exists": true,
+        "file": "Shadowrun Sixth World.pdf",
+        "path": "/mnt/pcloud/personal/Roleplay/sr/Shadowrun Sixth World.pdf",
+        "sha256": "74ac2d4be4298c79200d9cfebaab235ae2526f45a11c6db1e11cf307a56f76e2"
+      },
+      {
+        "bytes": 182091868,
+        "exists": true,
+        "file": "Shadowrun_6_Downloadversion_2024.pdf",
+        "path": "/mnt/pcloud/personal/Roleplay/sr/Shadowrun_6_Downloadversion_2024.pdf",
+        "sha256": "104dd5cc0f167232c3bc0f6453b389d9114dd7df483345e5b1211fda667bf023"
+      },
+      {
+        "bytes": 18946141,
+        "exists": true,
+        "file": "Shadowrun_Street_Wyrd_(Core_Magic_Rulebook).pdf",
+        "path": "/mnt/pcloud/personal/Roleplay/sr/Shadowrun_Street_Wyrd_(Core_Magic_Rulebook).pdf",
+        "sha256": "84b0f67bb9347cb8477f636e331d477bea00302ecd50ff98f6e03cef778282c8"
+      },
+      {
+        "bytes": 2217536,
+        "exists": true,
+        "file": "Shadowrun - 6e - Krime Katalog.pdf",
+        "path": "/mnt/pcloud/personal/Roleplay/sr/Shadowrun - 6e - Krime Katalog.pdf",
+        "sha256": "17f50a8bd69219e654641a9b91cbb05329020f240c62342199d3f29690aa673f"
+      }
+    ]
+  },
+  "reviewed_at_utc": "2026-06-12T08:00:28Z",
+  "reviewer": "user_directive_human_side_gold_assumption_2026-06-12",
   "ruleset": "sr6",
+  "source_baseline_decision_status": "selected",
   "source_kind": "private_local_sourcebook_pdf_line_hashes",
-  "status": "pending_human_review"
+  "status": "reviewed"
 }

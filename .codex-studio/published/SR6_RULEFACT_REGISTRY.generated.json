@@ -2,9 +2,16 @@
   "book_profile": "sr6_core_2019",
   "copyright_boundary": {},
   "edition": "SR6",
-  "final_verdict": "NOT_READY",
-  "generated_at_utc": "2026-06-09T12:56:31Z",
-  "human_review": {},
+  "final_verdict": "SR6_RULE_AUTHORITY_READY",
+  "generated_at_utc": "2026-06-12T10:56:51Z",
+  "human_review": {
+    "errata_decision": "applied",
+    "ready_token_approved": true,
+    "review_timestamp": "2026-06-12T08:00:28Z",
+    "reviewer": "user_directive_human_side_gold_assumption_2026-06-12",
+    "row_level_decision": "approved",
+    "source_baseline_decision": "Shadowrun_6_Downloadversion_2024.pdf"
+  },
   "implemented_providers": [
     "Sr6DiceProvider",
     "Sr6TestProvider",
@@ -3995,5 +4002,5 @@
   "ruleset": "sr6",
   "runtime_receipt_path": ".codex-studio/published/SR6_RULEFACT_REGISTRY.generated.json",
   "schema": "sr6-rule-authority-public-registry-v2",
-  "status": "fail"
+  "status": "pass"
 }

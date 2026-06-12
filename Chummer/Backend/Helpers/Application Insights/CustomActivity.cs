@@ -77,8 +77,8 @@ namespace Chummer
                     MyRequestTelemetry = new RequestTelemetry(operationName, DateTimeOffset.UtcNow, TimeSpan.Zero, "not disposed", true);
                     MyRequestTelemetry.Context.Operation.Id = Id;
                     MyTelemetryClient.Context.Operation.Id = MyRequestTelemetry.Context.Operation.Id;
-                    if (!string.IsNullOrEmpty(MyTelemetryTarget) && Uri.TryCreate(MyTelemetryTarget, UriKind.Absolute, out Uri uriResult))
-                        MyRequestTelemetry.Url = uriResult;
+                    if (!string.IsNullOrEmpty(MyTelemetryTarget) && Uri.TryCreate(MyTelemetryTarget, UriKind.Absolute, out Uri requestUriResult))
+                        MyRequestTelemetry.Url = requestUriResult;
                     break;
 
                 case OperationType.PageViewOperation:
@@ -90,8 +90,8 @@ namespace Chummer
                     };
                     MyPageViewTelemetry.Context.Operation.Id = Id;
                     MyTelemetryClient.Context.Operation.Id = MyPageViewTelemetry.Context.Operation.Id;
-                    if (!string.IsNullOrEmpty(MyTelemetryTarget) && Uri.TryCreate(MyTelemetryTarget, UriKind.Absolute, out Uri uriResult))
-                        MyPageViewTelemetry.Url = uriResult;
+                    if (!string.IsNullOrEmpty(MyTelemetryTarget) && Uri.TryCreate(MyTelemetryTarget, UriKind.Absolute, out Uri pageViewUriResult))
+                        MyPageViewTelemetry.Url = pageViewUriResult;
                     break;
             }
         }
@@ -114,8 +114,8 @@ namespace Chummer
                     case OperationType.RequestOperation:
                         MyRequestTelemetry = new RequestTelemetry(operationName, DateTimeOffset.UtcNow, TimeSpan.Zero, "not disposed", true);
                         MyRequestTelemetry.Context.Operation.ParentId = ParentId;
-                        if (!string.IsNullOrEmpty(MyTelemetryTarget) && Uri.TryCreate(MyTelemetryTarget, UriKind.Absolute, out Uri uriResult))
-                            MyRequestTelemetry.Url = uriResult;
+                        if (!string.IsNullOrEmpty(MyTelemetryTarget) && Uri.TryCreate(MyTelemetryTarget, UriKind.Absolute, out Uri childRequestUriResult))
+                            MyRequestTelemetry.Url = childRequestUriResult;
                         break;
 
                     case OperationType.PageViewOperation:
@@ -126,8 +126,8 @@ namespace Chummer
                             Timestamp = DateTimeOffset.UtcNow
                         };
                         MyPageViewTelemetry.Context.Operation.ParentId = ParentId;
-                        if (!string.IsNullOrEmpty(MyTelemetryTarget) && Uri.TryCreate(MyTelemetryTarget, UriKind.Absolute, out Uri uriResult))
-                            MyPageViewTelemetry.Url = uriResult;
+                        if (!string.IsNullOrEmpty(MyTelemetryTarget) && Uri.TryCreate(MyTelemetryTarget, UriKind.Absolute, out Uri childPageViewUriResult))
+                            MyPageViewTelemetry.Url = childPageViewUriResult;
                         break;
                 }
             }

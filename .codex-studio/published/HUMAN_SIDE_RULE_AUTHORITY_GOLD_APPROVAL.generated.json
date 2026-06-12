@@ -1,0 +1,11 @@
+{
+  "copyright_boundary": "approval updates receipts only; no sourcebook prose, art, tables, examples, or page images are reproduced",
+  "generated_at_utc": "2026-06-12T08:00:28Z",
+  "reviewer": "user_directive_human_side_gold_assumption_2026-06-12",
+  "rulesets": [
+    "sr4",
+    "sr6"
+  ],
+  "sr6_source_baseline": "Shadowrun_6_Downloadversion_2024.pdf",
+  "status": "pass"
+}

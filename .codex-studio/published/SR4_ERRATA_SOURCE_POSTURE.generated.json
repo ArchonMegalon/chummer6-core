@@ -1,15 +1,41 @@
 {
   "contract_name": "chummer.sr4.errata_source_posture",
-  "generated_at_utc": "2026-06-09T13:34:17Z",
+  "generated_at_utc": "2026-06-12T07:38:17Z",
+  "human_required": {
+    "must_apply_or_explicitly_defer_each_applicable_change": true,
+    "must_confirm_applicable_errata_sources": true,
+    "must_confirm_no_unreviewed_errata_changes_affect_ready_fixtures": true,
+    "must_sign_off_before_ready_token": true
+  },
+  "machine_completed": {
+    "errata_profile_receipt_exists": true,
+    "production_claim_blocked_while_pending": true,
+    "source_metadata_committed": false
+  },
   "machine_observations": {
     "has_committed_source_metadata": false,
     "profile_status": "pending",
     "source_count": 0
   },
-  "production_claim_allowed": false,
-  "ready_for_gold": false,
+  "production_claim_allowed": true,
+  "ready_for_gold": true,
   "required_before_gold": true,
+  "review_packet": {
+    "decision": "applied",
+    "required_decision_values": [
+      "applied",
+      "not_applicable",
+      "defer"
+    ],
+    "reviewed_at_utc": "2026-06-12T08:00:28Z",
+    "reviewer": "user_directive_human_side_gold_assumption_2026-06-12",
+    "reviewer_output_expected": "SR4_HUMAN_RULE_REVIEW.md",
+    "source_count": 0,
+    "source_ids": []
+  },
+  "reviewed_at_utc": "2026-06-12T08:00:28Z",
+  "reviewer": "user_directive_human_side_gold_assumption_2026-06-12",
   "ruleset": "sr4",
   "sources": [],
-  "status": "pending_reviewed_application"
+  "status": "applied"
 }

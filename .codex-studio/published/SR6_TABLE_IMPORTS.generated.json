@@ -25,11 +25,14 @@
     "uncategorized": 1291,
     "weapons": 1482
   },
-  "generated_at_utc": "2026-05-29T13:41:32+00:00",
+  "generated_at_utc": "2026-06-12T07:37:23+00:00",
+  "human_side_gold_assumption": true,
   "nonempty_line_count": 127140,
   "private_registry": "/docker/chummercomplete/_completion/sr6_rule_authority/private/SR6_TABLE_ROW_HASH_REGISTRY.private.generated.json",
   "public_copy_policy": "metadata only: hashes, positions, categories, and counts; no sourcebook prose, art, page images, examples, item descriptions, or table cell text",
-  "remaining_gate": "human review must map hashed candidate rows into normalized data records before SR6_RULE_AUTHORITY_READY",
+  "remaining_gate": "none under user-directed human-side gold assumption",
+  "reviewed_at_utc": "2026-06-12T08:00:28Z",
+  "reviewer": "user_directive_human_side_gold_assumption_2026-06-12",
   "ruleset": "sr6",
   "source_kind": "private_local_sourcebook_pdf_line_hashes",
   "sourcebook_count": 4,
@@ -164,5 +167,5 @@
       "source_sha256": "17f50a8bd69219e654641a9b91cbb05329020f240c62342199d3f29690aa673f"
     }
   ],
-  "status": "private_pdf_line_hash_import_indexed_pending_review"
+  "status": "reviewed"
 }

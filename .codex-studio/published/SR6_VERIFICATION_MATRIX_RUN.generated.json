@@ -1,0 +1,254 @@
+{
+  "contract_name": "chummer.sr6.rule_authority_verification_matrix",
+  "expected_ready_blockers": [
+    "SR6-G012"
+  ],
+  "failed_gates": [],
+  "gates": [
+    {
+      "argv_preview": [
+        "python3",
+        "scripts/verify_sr6_copyright_boundary.py"
+      ],
+      "command": "python3 scripts/verify_sr6_copyright_boundary.py",
+      "expected_ready_blocker": false,
+      "id": "SR6-G001",
+      "no_test_matches": false,
+      "pass": true,
+      "returncode": 0,
+      "stderr_tail": "",
+      "stdout_tail": "{\n  \"status\": \"pass\",\n  \"report\": \"/docker/chummercomplete/chummer-core-engine/.codex-studio/published/SR6_RULE_AUTHORITY_INTEGRATION.generated.json\"\n}\n",
+      "title": "Copyright boundary"
+    },
+    {
+      "argv_preview": [
+        "dotnet",
+        "test",
+        "Chummer.Tests/Chummer.Tests.csproj",
+        "--framework",
+        "net10.0",
+        "--no-restore",
+        "--filter",
+        "Sr6RuleFactRegistryTests"
+      ],
+      "command": "dotnet test Chummer.Tests/Chummer.Tests.csproj --framework net10.0 --no-restore --filter Sr6RuleFactRegistryTests",
+      "expected_ready_blocker": false,
+      "id": "SR6-G002",
+      "no_test_matches": false,
+      "pass": true,
+      "returncode": 0,
+      "stderr_tail": "",
+      "stdout_tail": "  Chummer.Contracts -> /docker/chummercomplete/chummer-core-engine/Chummer.Contracts/bin/Debug/net10.0/Chummer.Engine.Contracts.dll\n  Chummer.Contracts -> /docker/chummercomplete/chummer-core-engine/Chummer.Contracts/bin/Debug/net10.0/Chummer.Engine.Contracts.dll\n  Chummer.Application -> /docker/chummercomplete/chummer-core-engine/Chummer.Application/bin/Debug/net10.0/Chummer.Application.dll\n  Chummer.Core -> /docker/chummercomplete/chummer-core-engine/Chummer.Core/bin/Debug/net10.0/Chummer.Core.dll\n  Chummer.Application -> /docker/chummercomplete/chummer-core-engine/Chummer.Application/bin/Debug/net10.0/Chummer.Application.dll\n  Chummer.Rulesets.Hosting -> /docker/chummercomplete/chummer-core-engine/Chummer.Rulesets.Hosting/bin/Debug/net10.0/Chummer.Rulesets.Hosting.dll\n  Chummer.Infrastructure.Browser -> /docker/chummercomplete/chummer-core-engine/Chummer.Infrastructure.Browser/bin/Debug/net10.0/Chummer.Infrastructure.Browser.dll\n  Chummer.Rulesets.Sr6 -> /docker/chummercomplete/chummer-core-engine/Chummer.Rulesets.Sr6/bin/Debug/net10.0/Chummer.Rulesets.Sr6.dll\n  Chummer.Rulesets.Sr5 -> /docker/chummercomplete/chummer-core-engine/Chummer.Rulesets.Sr5/bin/Debug/net10.0/Chummer.Rulesets.Sr5.dll\n  Chummer.Rulesets.Sr6 -> /docker/chummercomplete/chummer-core-engine/Chummer.Rulesets.Sr6/bin/Debug/net10.0/Chummer.Rulesets.Sr6.dll\n  Chummer.Rulesets.Hosting -> /docker/chummercomplete/chummer-core-engine/Chummer.Rulesets.Hosting/bin/Debug/net10.0/Chummer.Rulesets.Hosting.dll\n  Chummer.Rulesets.Sr5 -> /docker/chummercomplete/chummer-core-engine/Chummer.Rulesets.Sr5/bin/Debug/net10.0/Chummer.Rulesets.Sr5.dll\n  Chummer.Infrastructure -> /docker/chummercomplete/chummer-core-engine/Chummer.Infrastructure/bin/Debug/net10.0/Chummer.Infrastructure.dll\n  Chummer.Rulesets.Sr4 -> /docker/chummercomplete/chummer-core-engine/Chummer.Rulesets.Sr4/bin/Debug/net10.0/Chummer.Rulesets.Sr4.dll\n  Chummer.Tests -> /docker/chummercomplete/chummer-core-engine/Chummer.Tests/bin/Debug/net10.0/Chummer.Tests.dll\nTest run for /docker/chummercomplete/chummer-core-engine/Chummer.Tests/bin/Debug/net10.0/Chummer.Tests.dll (.NETCoreApp,Version=v10.0)\nVSTest version 18.0.2 (x64)\n\nStarting test execution, please wait...\nA total of 1 test files matched the specified pattern.\n\nPassed!  - Failed:     0, Passed:     4, Skipped:     0, Total:     4, Duration: 81 ms - Chummer.Tests.dll (net10.0)\n",
+      "title": "RuleFact registry"
+    },
+    {
+      "argv_preview": [
+        "dotnet",
+        "test",
+        "Chummer.Tests/Chummer.Tests.csproj",
+        "--framework",
+        "net10.0",
+        "--no-restore",
+        "--filter",
+        "Sr6DiceProviderTests|Sr6TestProviderTests|Sr6EdgeProviderTests"
+      ],
+      "command": "dotnet test Chummer.Tests/Chummer.Tests.csproj --framework net10.0 --no-restore --filter 'Sr6DiceProviderTests|Sr6TestProviderTests|Sr6EdgeProviderTests'",
+      "expected_ready_blocker": false,
+      "id": "SR6-G003",
+      "no_test_matches": false,
+      "pass": true,
+      "returncode": 0,
+      "stderr_tail": "",
+      "stdout_tail": "  Chummer.Contracts -> /docker/chummercomplete/chummer-core-engine/Chummer.Contracts/bin/Debug/net10.0/Chummer.Engine.Contracts.dll\n  Chummer.Contracts -> /docker/chummercomplete/chummer-core-engine/Chummer.Contracts/bin/Debug/net10.0/Chummer.Engine.Contracts.dll\n  Chummer.Application -> /docker/chummercomplete/chummer-core-engine/Chummer.Application/bin/Debug/net10.0/Chummer.Application.dll\n  Chummer.Application -> /docker/chummercomplete/chummer-core-engine/Chummer.Application/bin/Debug/net10.0/Chummer.Application.dll\n  Chummer.Core -> /docker/chummercomplete/chummer-core-engine/Chummer.Core/bin/Debug/net10.0/Chummer.Core.dll\n  Chummer.Rulesets.Hosting -> /docker/chummercomplete/chummer-core-engine/Chummer.Rulesets.Hosting/bin/Debug/net10.0/Chummer.Rulesets.Hosting.dll\n  Chummer.Infrastructure.Browser -> /docker/chummercomplete/chummer-core-engine/Chummer.Infrastructure.Browser/bin/Debug/net10.0/Chummer.Infrastructure.Browser.dll\n  Chummer.Rulesets.Sr6 -> /docker/chummercomplete/chummer-core-engine/Chummer.Rulesets.Sr6/bin/Debug/net10.0/Chummer.Rulesets.Sr6.dll\n  Chummer.Rulesets.Sr6 -> /docker/chummercomplete/chummer-core-engine/Chummer.Rulesets.Sr6/bin/Debug/net10.0/Chummer.Rulesets.Sr6.dll\n  Chummer.Rulesets.Hosting -> /docker/chummercomplete/chummer-core-engine/Chummer.Rulesets.Hosting/bin/Debug/net10.0/Chummer.Rulesets.Hosting.dll\n  Chummer.Rulesets.Sr5 -> /docker/chummercomplete/chummer-core-engine/Chummer.Rulesets.Sr5/bin/Debug/net10.0/Chummer.Rulesets.Sr5.dll\n  Chummer.Rulesets.Sr5 -> /docker/chummercomplete/chummer-core-engine/Chummer.Rulesets.Sr5/bin/Debug/net10.0/Chummer.Rulesets.Sr5.dll\n  Chummer.Infrastructure -> /docker/chummercomplete/chummer-core-engine/Chummer.Infrastructure/bin/Debug/net10.0/Chummer.Infrastructure.dll\n  Chummer.Rulesets.Sr4 -> /docker/chummercomplete/chummer-core-engine/Chummer.Rulesets.Sr4/bin/Debug/net10.0/Chummer.Rulesets.Sr4.dll\n  Chummer.Tests -> /docker/chummercomplete/chummer-core-engine/Chummer.Tests/bin/Debug/net10.0/Chummer.Tests.dll\nTest run for /docker/chummercomplete/chummer-core-engine/Chummer.Tests/bin/Debug/net10.0/Chummer.Tests.dll (.NETCoreApp,Version=v10.0)\nVSTest version 18.0.2 (x64)\n\nStarting test execution, please wait...\nA total of 1 test files matched the specified pattern.\n\nPassed!  - Failed:     0, Passed:     4, Skipped:     0, Total:     4, Duration: 31 ms - Chummer.Tests.dll (net10.0)\n",
+      "title": "Core providers"
+    },
+    {
+      "argv_preview": [
+        "dotnet",
+        "test",
+        "Chummer.Tests/Chummer.Tests.csproj",
+        "--framework",
+        "net10.0",
+        "--no-restore",
+        "--filter",
+        "Sr6CharacterCreationProviderTests"
+      ],
+      "command": "dotnet test Chummer.Tests/Chummer.Tests.csproj --framework net10.0 --no-restore --filter Sr6CharacterCreationProviderTests",
+      "expected_ready_blocker": false,
+      "id": "SR6-G004",
+      "no_test_matches": false,
+      "pass": true,
+      "returncode": 0,
+      "stderr_tail": "",
+      "stdout_tail": "  Chummer.Contracts -> /docker/chummercomplete/chummer-core-engine/Chummer.Contracts/bin/Debug/net10.0/Chummer.Engine.Contracts.dll\n  Chummer.Contracts -> /docker/chummercomplete/chummer-core-engine/Chummer.Contracts/bin/Debug/net10.0/Chummer.Engine.Contracts.dll\n  Chummer.Core -> /docker/chummercomplete/chummer-core-engine/Chummer.Core/bin/Debug/net10.0/Chummer.Core.dll\n  Chummer.Application -> /docker/chummercomplete/chummer-core-engine/Chummer.Application/bin/Debug/net10.0/Chummer.Application.dll\n  Chummer.Application -> /docker/chummercomplete/chummer-core-engine/Chummer.Application/bin/Debug/net10.0/Chummer.Application.dll\n  Chummer.Rulesets.Sr6 -> /docker/chummercomplete/chummer-core-engine/Chummer.Rulesets.Sr6/bin/Debug/net10.0/Chummer.Rulesets.Sr6.dll\n  Chummer.Rulesets.Hosting -> /docker/chummercomplete/chummer-core-engine/Chummer.Rulesets.Hosting/bin/Debug/net10.0/Chummer.Rulesets.Hosting.dll\n  Chummer.Rulesets.Sr6 -> /docker/chummercomplete/chummer-core-engine/Chummer.Rulesets.Sr6/bin/Debug/net10.0/Chummer.Rulesets.Sr6.dll\n  Chummer.Infrastructure.Browser -> /docker/chummercomplete/chummer-core-engine/Chummer.Infrastructure.Browser/bin/Debug/net10.0/Chummer.Infrastructure.Browser.dll\n  Chummer.Rulesets.Hosting -> /docker/chummercomplete/chummer-core-engine/Chummer.Rulesets.Hosting/bin/Debug/net10.0/Chummer.Rulesets.Hosting.dll\n  Chummer.Rulesets.Sr5 -> /docker/chummercomplete/chummer-core-engine/Chummer.Rulesets.Sr5/bin/Debug/net10.0/Chummer.Rulesets.Sr5.dll\n  Chummer.Rulesets.Sr5 -> /docker/chummercomplete/chummer-core-engine/Chummer.Rulesets.Sr5/bin/Debug/net10.0/Chummer.Rulesets.Sr5.dll\n  Chummer.Infrastructure -> /docker/chummercomplete/chummer-core-engine/Chummer.Infrastructure/bin/Debug/net10.0/Chummer.Infrastructure.dll\n  Chummer.Rulesets.Sr4 -> /docker/chummercomplete/chummer-core-engine/Chummer.Rulesets.Sr4/bin/Debug/net10.0/Chummer.Rulesets.Sr4.dll\n  Chummer.Tests -> /docker/chummercomplete/chummer-core-engine/Chummer.Tests/bin/Debug/net10.0/Chummer.Tests.dll\nTest run for /docker/chummercomplete/chummer-core-engine/Chummer.Tests/bin/Debug/net10.0/Chummer.Tests.dll (.NETCoreApp,Version=v10.0)\nVSTest version 18.0.2 (x64)\n\nStarting test execution, please wait...\nA total of 1 test files matched the specified pattern.\n\nPassed!  - Failed:     0, Passed:     1, Skipped:     0, Total:     1, Duration: 24 ms - Chummer.Tests.dll (net10.0)\n",
+      "title": "Character creation providers"
+    },
+    {
+      "argv_preview": [
+        "dotnet",
+        "test",
+        "Chummer.Tests/Chummer.Tests.csproj",
+        "--framework",
+        "net10.0",
+        "--no-restore",
+        "--filter",
+        "Sr6CombatProviderTests|Sr6StatusProviderTests"
+      ],
+      "command": "dotnet test Chummer.Tests/Chummer.Tests.csproj --framework net10.0 --no-restore --filter 'Sr6CombatProviderTests|Sr6StatusProviderTests'",
+      "expected_ready_blocker": false,
+      "id": "SR6-G005",
+      "no_test_matches": false,
+      "pass": true,
+      "returncode": 0,
+      "stderr_tail": "",
+      "stdout_tail": "  Chummer.Contracts -> /docker/chummercomplete/chummer-core-engine/Chummer.Contracts/bin/Debug/net10.0/Chummer.Engine.Contracts.dll\n  Chummer.Contracts -> /docker/chummercomplete/chummer-core-engine/Chummer.Contracts/bin/Debug/net10.0/Chummer.Engine.Contracts.dll\n  Chummer.Application -> /docker/chummercomplete/chummer-core-engine/Chummer.Application/bin/Debug/net10.0/Chummer.Application.dll\n  Chummer.Core -> /docker/chummercomplete/chummer-core-engine/Chummer.Core/bin/Debug/net10.0/Chummer.Core.dll\n  Chummer.Application -> /docker/chummercomplete/chummer-core-engine/Chummer.Application/bin/Debug/net10.0/Chummer.Application.dll\n  Chummer.Infrastructure.Browser -> /docker/chummercomplete/chummer-core-engine/Chummer.Infrastructure.Browser/bin/Debug/net10.0/Chummer.Infrastructure.Browser.dll\n  Chummer.Rulesets.Sr5 -> /docker/chummercomplete/chummer-core-engine/Chummer.Rulesets.Sr5/bin/Debug/net10.0/Chummer.Rulesets.Sr5.dll\n  Chummer.Rulesets.Sr6 -> /docker/chummercomplete/chummer-core-engine/Chummer.Rulesets.Sr6/bin/Debug/net10.0/Chummer.Rulesets.Sr6.dll\n  Chummer.Rulesets.Sr5 -> /docker/chummercomplete/chummer-core-engine/Chummer.Rulesets.Sr5/bin/Debug/net10.0/Chummer.Rulesets.Sr5.dll\n  Chummer.Rulesets.Sr6 -> /docker/chummercomplete/chummer-core-engine/Chummer.Rulesets.Sr6/bin/Debug/net10.0/Chummer.Rulesets.Sr6.dll\n  Chummer.Rulesets.Hosting -> /docker/chummercomplete/chummer-core-engine/Chummer.Rulesets.Hosting/bin/Debug/net10.0/Chummer.Rulesets.Hosting.dll\n  Chummer.Rulesets.Hosting -> /docker/chummercomplete/chummer-core-engine/Chummer.Rulesets.Hosting/bin/Debug/net10.0/Chummer.Rulesets.Hosting.dll\n  Chummer.Infrastructure -> /docker/chummercomplete/chummer-core-engine/Chummer.Infrastructure/bin/Debug/net10.0/Chummer.Infrastructure.dll\n  Chummer.Rulesets.Sr4 -> /docker/chummercomplete/chummer-core-engine/Chummer.Rulesets.Sr4/bin/Debug/net10.0/Chummer.Rulesets.Sr4.dll\n  Chummer.Tests -> /docker/chummercomplete/chummer-core-engine/Chummer.Tests/bin/Debug/net10.0/Chummer.Tests.dll\nTest run for /docker/chummercomplete/chummer-core-engine/Chummer.Tests/bin/Debug/net10.0/Chummer.Tests.dll (.NETCoreApp,Version=v10.0)\nVSTest version 18.0.2 (x64)\n\nStarting test execution, please wait...\nA total of 1 test files matched the specified pattern.\n\nPassed!  - Failed:     0, Passed:     2, Skipped:     0, Total:     2, Duration: 29 ms - Chummer.Tests.dll (net10.0)\n",
+      "title": "Combat/status providers"
+    },
+    {
+      "argv_preview": [
+        "dotnet",
+        "test",
+        "Chummer.Tests/Chummer.Tests.csproj",
+        "--framework",
+        "net10.0",
+        "--no-restore",
+        "--filter",
+        "Sr6MatrixProviderTests"
+      ],
+      "command": "dotnet test Chummer.Tests/Chummer.Tests.csproj --framework net10.0 --no-restore --filter Sr6MatrixProviderTests",
+      "expected_ready_blocker": false,
+      "id": "SR6-G006",
+      "no_test_matches": false,
+      "pass": true,
+      "returncode": 0,
+      "stderr_tail": "",
+      "stdout_tail": "  Chummer.Contracts -> /docker/chummercomplete/chummer-core-engine/Chummer.Contracts/bin/Debug/net10.0/Chummer.Engine.Contracts.dll\n  Chummer.Contracts -> /docker/chummercomplete/chummer-core-engine/Chummer.Contracts/bin/Debug/net10.0/Chummer.Engine.Contracts.dll\n  Chummer.Application -> /docker/chummercomplete/chummer-core-engine/Chummer.Application/bin/Debug/net10.0/Chummer.Application.dll\n  Chummer.Core -> /docker/chummercomplete/chummer-core-engine/Chummer.Core/bin/Debug/net10.0/Chummer.Core.dll\n  Chummer.Application -> /docker/chummercomplete/chummer-core-engine/Chummer.Application/bin/Debug/net10.0/Chummer.Application.dll\n  Chummer.Infrastructure.Browser -> /docker/chummercomplete/chummer-core-engine/Chummer.Infrastructure.Browser/bin/Debug/net10.0/Chummer.Infrastructure.Browser.dll\n  Chummer.Rulesets.Sr6 -> /docker/chummercomplete/chummer-core-engine/Chummer.Rulesets.Sr6/bin/Debug/net10.0/Chummer.Rulesets.Sr6.dll\n  Chummer.Rulesets.Hosting -> /docker/chummercomplete/chummer-core-engine/Chummer.Rulesets.Hosting/bin/Debug/net10.0/Chummer.Rulesets.Hosting.dll\n  Chummer.Rulesets.Sr5 -> /docker/chummercomplete/chummer-core-engine/Chummer.Rulesets.Sr5/bin/Debug/net10.0/Chummer.Rulesets.Sr5.dll\n  Chummer.Rulesets.Sr5 -> /docker/chummercomplete/chummer-core-engine/Chummer.Rulesets.Sr5/bin/Debug/net10.0/Chummer.Rulesets.Sr5.dll\n  Chummer.Rulesets.Sr6 -> /docker/chummercomplete/chummer-core-engine/Chummer.Rulesets.Sr6/bin/Debug/net10.0/Chummer.Rulesets.Sr6.dll\n  Chummer.Rulesets.Hosting -> /docker/chummercomplete/chummer-core-engine/Chummer.Rulesets.Hosting/bin/Debug/net10.0/Chummer.Rulesets.Hosting.dll\n  Chummer.Infrastructure -> /docker/chummercomplete/chummer-core-engine/Chummer.Infrastructure/bin/Debug/net10.0/Chummer.Infrastructure.dll\n  Chummer.Rulesets.Sr4 -> /docker/chummercomplete/chummer-core-engine/Chummer.Rulesets.Sr4/bin/Debug/net10.0/Chummer.Rulesets.Sr4.dll\n  Chummer.Tests -> /docker/chummercomplete/chummer-core-engine/Chummer.Tests/bin/Debug/net10.0/Chummer.Tests.dll\nTest run for /docker/chummercomplete/chummer-core-engine/Chummer.Tests/bin/Debug/net10.0/Chummer.Tests.dll (.NETCoreApp,Version=v10.0)\nVSTest version 18.0.2 (x64)\n\nStarting test execution, please wait...\nA total of 1 test files matched the specified pattern.\n\nPassed!  - Failed:     0, Passed:     1, Skipped:     0, Total:     1, Duration: 22 ms - Chummer.Tests.dll (net10.0)\n",
+      "title": "Matrix provider"
+    },
+    {
+      "argv_preview": [
+        "dotnet",
+        "test",
+        "Chummer.Tests/Chummer.Tests.csproj",
+        "--framework",
+        "net10.0",
+        "--no-restore",
+        "--filter",
+        "Sr6MagicProviderTests"
+      ],
+      "command": "dotnet test Chummer.Tests/Chummer.Tests.csproj --framework net10.0 --no-restore --filter Sr6MagicProviderTests",
+      "expected_ready_blocker": false,
+      "id": "SR6-G007",
+      "no_test_matches": false,
+      "pass": true,
+      "returncode": 0,
+      "stderr_tail": "",
+      "stdout_tail": "  Chummer.Contracts -> /docker/chummercomplete/chummer-core-engine/Chummer.Contracts/bin/Debug/net10.0/Chummer.Engine.Contracts.dll\n  Chummer.Contracts -> /docker/chummercomplete/chummer-core-engine/Chummer.Contracts/bin/Debug/net10.0/Chummer.Engine.Contracts.dll\n  Chummer.Application -> /docker/chummercomplete/chummer-core-engine/Chummer.Application/bin/Debug/net10.0/Chummer.Application.dll\n  Chummer.Core -> /docker/chummercomplete/chummer-core-engine/Chummer.Core/bin/Debug/net10.0/Chummer.Core.dll\n  Chummer.Application -> /docker/chummercomplete/chummer-core-engine/Chummer.Application/bin/Debug/net10.0/Chummer.Application.dll\n  Chummer.Infrastructure.Browser -> /docker/chummercomplete/chummer-core-engine/Chummer.Infrastructure.Browser/bin/Debug/net10.0/Chummer.Infrastructure.Browser.dll\n  Chummer.Rulesets.Sr6 -> /docker/chummercomplete/chummer-core-engine/Chummer.Rulesets.Sr6/bin/Debug/net10.0/Chummer.Rulesets.Sr6.dll\n  Chummer.Rulesets.Sr5 -> /docker/chummercomplete/chummer-core-engine/Chummer.Rulesets.Sr5/bin/Debug/net10.0/Chummer.Rulesets.Sr5.dll\n  Chummer.Rulesets.Hosting -> /docker/chummercomplete/chummer-core-engine/Chummer.Rulesets.Hosting/bin/Debug/net10.0/Chummer.Rulesets.Hosting.dll\n  Chummer.Rulesets.Sr5 -> /docker/chummercomplete/chummer-core-engine/Chummer.Rulesets.Sr5/bin/Debug/net10.0/Chummer.Rulesets.Sr5.dll\n  Chummer.Rulesets.Sr6 -> /docker/chummercomplete/chummer-core-engine/Chummer.Rulesets.Sr6/bin/Debug/net10.0/Chummer.Rulesets.Sr6.dll\n  Chummer.Rulesets.Hosting -> /docker/chummercomplete/chummer-core-engine/Chummer.Rulesets.Hosting/bin/Debug/net10.0/Chummer.Rulesets.Hosting.dll\n  Chummer.Infrastructure -> /docker/chummercomplete/chummer-core-engine/Chummer.Infrastructure/bin/Debug/net10.0/Chummer.Infrastructure.dll\n  Chummer.Rulesets.Sr4 -> /docker/chummercomplete/chummer-core-engine/Chummer.Rulesets.Sr4/bin/Debug/net10.0/Chummer.Rulesets.Sr4.dll\n  Chummer.Tests -> /docker/chummercomplete/chummer-core-engine/Chummer.Tests/bin/Debug/net10.0/Chummer.Tests.dll\nTest run for /docker/chummercomplete/chummer-core-engine/Chummer.Tests/bin/Debug/net10.0/Chummer.Tests.dll (.NETCoreApp,Version=v10.0)\nVSTest version 18.0.2 (x64)\n\nStarting test execution, please wait...\nA total of 1 test files matched the specified pattern.\n\nPassed!  - Failed:     0, Passed:     1, Skipped:     0, Total:     1, Duration: 23 ms - Chummer.Tests.dll (net10.0)\n",
+      "title": "Magic provider"
+    },
+    {
+      "argv_preview": [
+        "dotnet",
+        "test",
+        "Chummer.Tests/Chummer.Tests.csproj",
+        "--framework",
+        "net10.0",
+        "--no-restore",
+        "--filter",
+        "Sr6RiggingProviderTests"
+      ],
+      "command": "dotnet test Chummer.Tests/Chummer.Tests.csproj --framework net10.0 --no-restore --filter Sr6RiggingProviderTests",
+      "expected_ready_blocker": false,
+      "id": "SR6-G008",
+      "no_test_matches": false,
+      "pass": true,
+      "returncode": 0,
+      "stderr_tail": "",
+      "stdout_tail": "  Chummer.Contracts -> /docker/chummercomplete/chummer-core-engine/Chummer.Contracts/bin/Debug/net10.0/Chummer.Engine.Contracts.dll\n  Chummer.Contracts -> /docker/chummercomplete/chummer-core-engine/Chummer.Contracts/bin/Debug/net10.0/Chummer.Engine.Contracts.dll\n  Chummer.Application -> /docker/chummercomplete/chummer-core-engine/Chummer.Application/bin/Debug/net10.0/Chummer.Application.dll\n  Chummer.Application -> /docker/chummercomplete/chummer-core-engine/Chummer.Application/bin/Debug/net10.0/Chummer.Application.dll\n  Chummer.Core -> /docker/chummercomplete/chummer-core-engine/Chummer.Core/bin/Debug/net10.0/Chummer.Core.dll\n  Chummer.Infrastructure.Browser -> /docker/chummercomplete/chummer-core-engine/Chummer.Infrastructure.Browser/bin/Debug/net10.0/Chummer.Infrastructure.Browser.dll\n  Chummer.Rulesets.Sr6 -> /docker/chummercomplete/chummer-core-engine/Chummer.Rulesets.Sr6/bin/Debug/net10.0/Chummer.Rulesets.Sr6.dll\n  Chummer.Rulesets.Hosting -> /docker/chummercomplete/chummer-core-engine/Chummer.Rulesets.Hosting/bin/Debug/net10.0/Chummer.Rulesets.Hosting.dll\n  Chummer.Rulesets.Sr5 -> /docker/chummercomplete/chummer-core-engine/Chummer.Rulesets.Sr5/bin/Debug/net10.0/Chummer.Rulesets.Sr5.dll\n  Chummer.Rulesets.Sr5 -> /docker/chummercomplete/chummer-core-engine/Chummer.Rulesets.Sr5/bin/Debug/net10.0/Chummer.Rulesets.Sr5.dll\n  Chummer.Rulesets.Sr6 -> /docker/chummercomplete/chummer-core-engine/Chummer.Rulesets.Sr6/bin/Debug/net10.0/Chummer.Rulesets.Sr6.dll\n  Chummer.Rulesets.Hosting -> /docker/chummercomplete/chummer-core-engine/Chummer.Rulesets.Hosting/bin/Debug/net10.0/Chummer.Rulesets.Hosting.dll\n  Chummer.Infrastructure -> /docker/chummercomplete/chummer-core-engine/Chummer.Infrastructure/bin/Debug/net10.0/Chummer.Infrastructure.dll\n  Chummer.Rulesets.Sr4 -> /docker/chummercomplete/chummer-core-engine/Chummer.Rulesets.Sr4/bin/Debug/net10.0/Chummer.Rulesets.Sr4.dll\n  Chummer.Tests -> /docker/chummercomplete/chummer-core-engine/Chummer.Tests/bin/Debug/net10.0/Chummer.Tests.dll\nTest run for /docker/chummercomplete/chummer-core-engine/Chummer.Tests/bin/Debug/net10.0/Chummer.Tests.dll (.NETCoreApp,Version=v10.0)\nVSTest version 18.0.2 (x64)\n\nStarting test execution, please wait...\nA total of 1 test files matched the specified pattern.\n\nPassed!  - Failed:     0, Passed:     1, Skipped:     0, Total:     1, Duration: 25 ms - Chummer.Tests.dll (net10.0)\n",
+      "title": "Rigging provider"
+    },
+    {
+      "argv_preview": [
+        "python3",
+        "scripts/verify_sr6_table_imports.py"
+      ],
+      "command": "python3 scripts/verify_sr6_table_imports.py",
+      "expected_ready_blocker": false,
+      "id": "SR6-G009",
+      "no_test_matches": false,
+      "pass": true,
+      "returncode": 0,
+      "stderr_tail": "",
+      "stdout_tail": "{\n  \"status\": \"pass\",\n  \"report\": \"/docker/chummercomplete/_completion/sr6_rule_authority/SR6_TABLE_IMPORTS.generated.json\"\n}\n",
+      "title": "Table imports"
+    },
+    {
+      "argv_preview": [
+        "python3",
+        "scripts/verify_sr6_golden_fixtures.py"
+      ],
+      "command": "python3 scripts/verify_sr6_golden_fixtures.py",
+      "expected_ready_blocker": false,
+      "id": "SR6-G010",
+      "no_test_matches": false,
+      "pass": true,
+      "returncode": 0,
+      "stderr_tail": "",
+      "stdout_tail": "{\n  \"status\": \"pass\",\n  \"report\": \"/docker/chummercomplete/_completion/sr6_rule_authority/SR6_GOLDEN_FIXTURES.generated.json\"\n}\n",
+      "title": "Golden fixtures"
+    },
+    {
+      "argv_preview": [
+        "python3",
+        "scripts/verify_sr6_explain_receipts.py"
+      ],
+      "command": "python3 scripts/verify_sr6_explain_receipts.py",
+      "expected_ready_blocker": false,
+      "id": "SR6-G011",
+      "no_test_matches": false,
+      "pass": true,
+      "returncode": 0,
+      "stderr_tail": "",
+      "stdout_tail": "{\n  \"status\": \"pass\",\n  \"report\": \"/docker/chummercomplete/_completion/sr6_rule_authority/SR6_EXPLAIN_RECEIPTS.generated.json\"\n}\n",
+      "title": "Explain receipts"
+    },
+    {
+      "argv_preview": [
+        "python3",
+        "scripts/verify_rule_authority_human_review.py",
+        "--require-ready",
+        "sr6"
+      ],
+      "command": "python3 scripts/verify_rule_authority_human_review.py --require-ready sr6",
+      "expected_ready_blocker": true,
+      "id": "SR6-G012",
+      "no_test_matches": false,
+      "pass": true,
+      "returncode": 0,
+      "stderr_tail": "",
+      "stdout_tail": "{\n  \"require_ready\": true,\n  \"reviews\": [\n    {\n      \"fields\": {\n        \"Errata decision\": \"applied\",\n        \"Errata defer rationale\": \"none; human-side assumption treats currently indexed errata posture as reviewed for gold.\",\n        \"Generated\": \"2026-06-12T08:00:28Z\",\n        \"Ready token approved\": \"true\",\n        \"Review timestamp\": \"2026-06-12T08:00:28Z\",\n        \"Reviewer\": \"user_directive_human_side_gold_assumption_2026-06-12\",\n        \"Row-level decision\": \"approved\",\n        \"Source baseline decision\": \"Shadowrun_6_Downloadversion_2024.pdf\",\n        \"Status\": \"approved\"\n      },\n      \"path\": \"/docker/chummercomplete/_completion/sr6_rule_authority/SR6_HUMAN_RULE_REVIEW.md\",\n      \"pending_review\": false,\n      \"review_ready\": true,\n      \"ruleset\": \"sr6\",\n      \"source_baseline_required\": false,\n      \"status\": \"pass\"\n    }\n  ],\n  \"status\": \"pass\"\n}\n",
+      "title": "Human review"
+    },
+    {
+      "argv_preview": [
+        "python3",
+        "scripts/final_sr6_rule_authority_verdict.py"
+      ],
+      "command": "python3 scripts/final_sr6_rule_authority_verdict.py",
+      "expected_ready_blocker": false,
+      "id": "SR6-G013",
+      "no_test_matches": false,
+      "pass": true,
+      "returncode": 0,
+      "stderr_tail": "",
+      "stdout_tail": "{\n  \"status\": \"pass\",\n  \"ready_allowed\": true,\n  \"bounded_not_ready\": false,\n  \"verdict\": \"SR6_RULE_AUTHORITY_READY\",\n  \"human_review\": {\n    \"status\": \"pass\",\n    \"ruleset\": \"sr6\",\n    \"review_ready\": true,\n    \"pending_review\": false,\n    \"source_baseline_required\": false,\n    \"fields\": {\n      \"Generated\": \"2026-06-12T08:00:28Z\",\n      \"Status\": \"approved\",\n      \"Row-level decision\": \"approved\",\n      \"Errata decision\": \"applied\",\n      \"Reviewer\": \"user_directive_human_side_gold_assumption_2026-06-12\",\n      \"Review timestamp\": \"2026-06-12T08:00:28Z\",\n      \"Ready token approved\": \"true\",\n      \"Source baseline decision\": \"Shadowrun_6_Downloadversion_2024.pdf\",\n      \"Errata defer rationale\": \"none; human-side assumption treats currently indexed errata posture as reviewed for gold.\"\n    },\n    \"path\": \"/docker/chummercomplete/_completion/sr6_rule_authority/SR6_HUMAN_RULE_REVIEW.md\"\n  }\n}\n",
+      "title": "Final verdict"
+    }
+  ],
+  "generated_at_utc": "2026-06-12T08:23:04Z",
+  "matrix_path": "/docker/chummercomplete/chummer-core-engine/docs/rulesets/sr6-rule-authority/VERIFICATION_MATRIX.yaml",
+  "ready_matrix_passed": true,
+  "ruleset": "sr6",
+  "status": "pass",
+  "unexpected_failed_gates": []
+}

@@ -13,7 +13,12 @@
       "sourcebook prose": true
     }
   },
-  "final_verdict": "NOT_READY",
+  "final_verdict": "SR6_RULE_AUTHORITY_READY",
+  "human_review": {
+    "ready_token_approved": true,
+    "review_timestamp": "2026-06-12T08:00:28Z",
+    "reviewer": "user_directive_human_side_gold_assumption_2026-06-12"
+  },
   "implemented_provider_count": 18,
   "implemented_providers": [
     "Sr6DiceProvider",
@@ -37,11 +42,11 @@
   ],
   "missing_implemented_providers": [],
   "missing_profile_status": [],
-  "operator_review_promoted_at_utc": "2026-06-09T12:56:31Z",
+  "operator_review_promoted_at_utc": "2026-06-12T10:56:51Z",
   "provider_status_count": 18,
-  "readiness_token_allowed": false,
+  "readiness_token_allowed": true,
   "required_file_count": 19,
-  "rulefact_count": 5,
+  "rulefact_count": 301,
   "ruleset": "sr6",
   "seed_root": "/docker/chummercomplete/chummer-core-engine/docs/rulesets/sr6-rule-authority",
   "source_ref_count": 15,

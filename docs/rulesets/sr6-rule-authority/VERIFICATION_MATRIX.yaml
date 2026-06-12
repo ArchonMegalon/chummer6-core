@@ -5,25 +5,25 @@ gates:
   command: python3 scripts/verify_sr6_copyright_boundary.py
 - id: SR6-G002
   title: RuleFact registry
-  command: dotnet test --filter Sr6RuleFactRegistryTests
+  command: dotnet test Chummer.Tests/Chummer.Tests.csproj --framework net10.0 --no-restore --filter Sr6RuleFactRegistryTests
 - id: SR6-G003
   title: Core providers
-  command: dotnet test --filter 'Sr6DiceProviderTests|Sr6TestProviderTests|Sr6EdgeProviderTests'
+  command: dotnet test Chummer.Tests/Chummer.Tests.csproj --framework net10.0 --no-restore --filter 'Sr6DiceProviderTests|Sr6TestProviderTests|Sr6EdgeProviderTests'
 - id: SR6-G004
   title: Character creation providers
-  command: dotnet test --filter Sr6CharacterCreationProviderTests
+  command: dotnet test Chummer.Tests/Chummer.Tests.csproj --framework net10.0 --no-restore --filter Sr6CharacterCreationProviderTests
 - id: SR6-G005
   title: Combat/status providers
-  command: dotnet test --filter 'Sr6CombatProviderTests|Sr6StatusProviderTests'
+  command: dotnet test Chummer.Tests/Chummer.Tests.csproj --framework net10.0 --no-restore --filter 'Sr6CombatProviderTests|Sr6StatusProviderTests'
 - id: SR6-G006
   title: Matrix provider
-  command: dotnet test --filter Sr6MatrixProviderTests
+  command: dotnet test Chummer.Tests/Chummer.Tests.csproj --framework net10.0 --no-restore --filter Sr6MatrixProviderTests
 - id: SR6-G007
   title: Magic provider
-  command: dotnet test --filter Sr6MagicProviderTests
+  command: dotnet test Chummer.Tests/Chummer.Tests.csproj --framework net10.0 --no-restore --filter Sr6MagicProviderTests
 - id: SR6-G008
   title: Rigging provider
-  command: dotnet test --filter Sr6RiggingProviderTests
+  command: dotnet test Chummer.Tests/Chummer.Tests.csproj --framework net10.0 --no-restore --filter Sr6RiggingProviderTests
 - id: SR6-G009
   title: Table imports
   command: python3 scripts/verify_sr6_table_imports.py
@@ -35,7 +35,7 @@ gates:
   command: python3 scripts/verify_sr6_explain_receipts.py
 - id: SR6-G012
   title: Human review
-  command: test -f _completion/sr6_rule_authority/SR6_HUMAN_RULE_REVIEW.md
+  command: python3 scripts/verify_rule_authority_human_review.py --require-ready sr6
 - id: SR6-G013
   title: Final verdict
   command: python3 scripts/final_sr6_rule_authority_verdict.py

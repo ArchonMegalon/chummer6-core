@@ -61,20 +61,30 @@ public sealed class Sr4CharacterAndDerivedProviderTests
     public void Character_creation_and_derived_stats_match_seed_formulas()
     {
         Sr4CharacterCreationProvider creation = new();
+        Sr4MetatypeProvider metatypes = new();
+        Sr4AttributeProvider attributes = new();
         Sr4SkillProvider skills = new();
+        Sr4QualityProvider qualities = new();
         Sr4DerivedStatsProvider derived = new();
 
         Sr4MetatypeProfile troll = creation.GetMetatypeProfile("Troll");
+        Sr4MetatypeProfile ork = metatypes.GetProfile("Ork");
         Assert.AreEqual(400, Sr4CharacterCreationProvider.StandardBuildPoints);
         Assert.AreEqual(40, troll.BuildPointCost);
         Assert.AreEqual(5, troll.BodyMinimum);
         Assert.AreEqual(15, troll.BodyAugmentedMaximum);
+        Assert.AreEqual(20, ork.BuildPointCost);
         Assert.AreEqual(35, creation.AttributeCost(currentValue: 4, targetValue: 6, naturalMaximum: 6));
+        Assert.AreEqual(35, attributes.AttributeCost(currentValue: 4, targetValue: 6, naturalMaximum: 6));
+        Assert.IsTrue(attributes.IsWithinNaturalRange(value: 5, minimum: 1, naturalMaximum: 6));
+        Assert.IsFalse(attributes.IsWithinNaturalRange(value: 7, minimum: 1, naturalMaximum: 6));
         Assert.IsTrue(skills.IsValidNaturalRating(6));
         Assert.IsFalse(skills.IsValidNaturalRating(7));
         Assert.IsTrue(skills.IsValidNaturalRating(7, aptitude: true));
         Assert.AreEqual(3, skills.DefaultingPool(linkedAttribute: 4));
         Assert.AreEqual(21, skills.KnowledgeSkillStartingPoints(logic: 3, intuition: 4));
+        Assert.IsTrue(qualities.IsWithinBuildPointLimit(positiveQualityBuildPoints: 35, negativeQualityBuildPoints: 35));
+        Assert.IsFalse(qualities.IsWithinBuildPointLimit(positiveQualityBuildPoints: 36, negativeQualityBuildPoints: 0));
 
         Assert.AreEqual(11, derived.PhysicalDamageTrack(body: 5));
         Assert.AreEqual(10, derived.StunDamageTrack(willpower: 4));
@@ -99,7 +109,9 @@ public sealed class Sr4CombatMagicMatrixRiggingProviderTests
         Sr4MagicProvider magic = new();
         Sr4MatrixProvider matrix = new();
         Sr4RiggingProvider rigging = new();
+        Sr4VehicleProvider vehicles = new();
         Sr4GearProvider gear = new();
+        Sr4AdvancementProvider advancement = new();
         Sr4ExplainReceiptProvider receipts = new();
 
         Sr4ActionAllotment allotment = actions.GetInitiativePassActions(initiativePasses: 5);
@@ -126,7 +138,11 @@ public sealed class Sr4CombatMagicMatrixRiggingProviderTests
 
         Assert.IsTrue(rigging.DroneHasMatrixNode());
         Assert.AreEqual(7, rigging.JumpedInControlPool(vehicleSkill: 4, response: 3));
+        Assert.AreEqual(12, vehicles.VehicleConditionMonitor(body: 7));
+        Assert.IsTrue(vehicles.VehicleCanHostNode());
         Assert.IsTrue(gear.TableImportDeferred);
+        Assert.AreEqual(15, advancement.AttributeKarmaCost(targetRating: 5));
+        Assert.AreEqual(10, advancement.SkillKarmaCost(targetRating: 5));
         Assert.IsTrue(receipts.Build("sr4.dice.hit_faces", "Sr4DiceProvider", "sr4a_core_2009:p60-62").PublicSafe);
     }
 }

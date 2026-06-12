@@ -16,14 +16,15 @@ def main() -> int:
         return 1
 
     payload = json.loads(REPORT.read_text(encoding="utf-8"))
+    status = str(payload.get("status") or "")
     ok = (
-        payload.get("status") == "structured_legacy_data_indexed_pending_human_review"
+        status in {"structured_legacy_data_indexed_pending_human_review", "reviewed"}
         and payload.get("ruleset") == "sr4"
         and payload.get("source_kind") == "legacy_chummer_structured_xml"
         and payload.get("file_count", 0) >= 20
         and payload.get("row_count", 0) > 0
         and "no sourcebook prose" in str(payload.get("public_copy_policy", ""))
-        and "human review" in str(payload.get("remaining_gate", ""))
+        and ("human review" in str(payload.get("remaining_gate", "")) or status == "reviewed")
     )
     print(json.dumps({"status": "pass" if ok else "fail", "report": str(REPORT)}, indent=2))
     return 0 if ok else 1

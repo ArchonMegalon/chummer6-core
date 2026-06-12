@@ -13,14 +13,19 @@ provider_status:
   Sr4EdgeProvider: seed
   Sr4ActionEconomyProvider: seed
   Sr4CharacterCreationProvider: seed
+  Sr4MetatypeProvider: seed
+  Sr4AttributeProvider: seed
   Sr4SkillProvider: seed
+  Sr4QualityProvider: seed
   Sr4DerivedStatsProvider: seed
   Sr4CombatProvider: seed
   Sr4DamageProvider: seed
+  Sr4VehicleProvider: seed
   Sr4MatrixProvider: seed
   Sr4MagicProvider: seed
   Sr4RiggingProvider: seed
   Sr4GearProvider: planned_import
+  Sr4AdvancementProvider: seed
   Sr4ExplainReceiptProvider: seed
 claim_allowed:
   preview: true

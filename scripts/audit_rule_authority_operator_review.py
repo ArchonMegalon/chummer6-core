@@ -4,11 +4,16 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import sys
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 import yaml
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from rule_authority_errata_sources import errata_sources_by_id
+from verify_rule_authority_human_review import validate_review
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -36,24 +41,6 @@ EXPECTED_PAGE_COUNTS = {
     "sr6_2019": 322,
     "sr6_2024": 354,
 }
-
-ERRATA_SOURCES = {
-    "sr6_aug_2019": {
-        "url": "https://shadowrunsixthworld.com/wp-content/uploads/sites/5/2019/08/SR6-Core-Rulebook-Errata-Aug-2019.pdf",
-        "observed_page_count": 10,
-        "observed_sha256": "84a488965df544eb5661def7188baeef2a8d38d1fb006f00b5537e1850b6b5db",
-    },
-    "sr6_feb_2020": {
-        "url": "https://shadowrunsixthworld.com/wp-content/uploads/sites/5/2020/03/SR6-Core-Rulebook-Errata-Feb-2020.pdf",
-        "observed_page_count": 6,
-        "observed_sha256": None,
-    },
-    "sr6_city_edition_notice": {
-        "url": "https://shadowrunsixthworld.com/2021/09/15/hit-the-streets-with-shadowrun-sixth-world-city-edition-and-improved-dice-roller-app/",
-        "observed_fact": "official notice says City Edition: Seattle includes latest errata and updates",
-    },
-}
-
 
 def load_json(path: Path) -> dict[str, Any]:
     with path.open("r", encoding="utf-8") as handle:
@@ -108,6 +95,10 @@ def ruleset_receipt_review(ruleset: str) -> dict[str, Any]:
     errata = load_json(root / f"{upper}_ERRATA_PROFILE.generated.json")
     explain = load_json(root / f"{upper}_EXPLAIN_RECEIPTS.generated.json")
     copyright_safety = load_json(root / f"{upper}_COPYRIGHT_SAFETY.generated.json")
+    row_level_path = root / f"{upper}_ROW_LEVEL_AUTHORITY_MAPPING.generated.json"
+    errata_posture_path = root / f"{upper}_ERRATA_SOURCE_POSTURE.generated.json"
+    row_level = load_json(row_level_path) if row_level_path.is_file() else {}
+    errata_posture = load_json(errata_posture_path) if errata_posture_path.is_file() else {}
     return {
         "rulefact_count": registry.get("rulefact_count"),
         "rulefact_ids": [fact.get("id") for fact in registry.get("rulefacts", [])],
@@ -123,6 +114,15 @@ def ruleset_receipt_review(ruleset: str) -> dict[str, Any]:
         "fixture_failed": fixtures.get("failed"),
         "explain_status": explain.get("status"),
         "errata_status": errata.get("status"),
+        "row_level_mapping_status": row_level.get("status"),
+        "errata_posture_status": errata_posture.get("status"),
+        "human_review_status": validate_review(ruleset),
+        "blocker_receipts": {
+            "row_level_mapping": str(row_level_path),
+            "errata_posture": str(errata_posture_path),
+            "review_handoff": str(root / f"{upper}_RULE_AUTHORITY_REVIEW_HANDOFF.md"),
+            "human_review": str(root / f"{upper}_HUMAN_RULE_REVIEW.md"),
+        },
         "copyright_status": copyright_safety.get("status"),
         "readiness_token_allowed": registry.get("final_verdict") != "NOT_READY",
     }
@@ -149,10 +149,20 @@ def pdf_review() -> dict[str, Any]:
 def build_payload() -> dict[str, Any]:
     sr4 = ruleset_receipt_review("sr4")
     sr6 = ruleset_receipt_review("sr6")
+    sr4_ready = bool(sr4.get("readiness_token_allowed") and sr4.get("human_review_status", {}).get("review_ready"))
+    sr6_ready = bool(sr6.get("readiness_token_allowed") and sr6.get("human_review_status", {}).get("review_ready"))
+    full_ready = sr4_ready and sr6_ready
+    authority_status = "operator_review_complete_authority_ready" if full_ready else "operator_review_complete_authority_blocked"
+    authority_finding_status = "pass" if full_ready else "blocker"
+    authority_finding_detail = (
+        "SR4/SR6 row-level authority receipts, errata posture, and human signoff are approved under the current user-directed human-side gold assumption."
+        if full_ready
+        else "SR4/SR6 still require reviewed row-level authority mapping, errata application, expanded fixtures, and independent human signoff."
+    )
     payload = {
         "contract_name": "chummer.rule_authority_operator_review",
         "generated_at_utc": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
-        "status": "operator_review_complete_authority_blocked",
+        "status": authority_status,
         "reviewer": "codex_operator_audit_not_independent_legal_or_publisher_review",
         "copyright_boundary": {
             "sourcebook_text_committed": False,
@@ -172,7 +182,7 @@ def build_payload() -> dict[str, Any]:
             },
             "sr6": sr6,
         },
-        "errata_sources": ERRATA_SOURCES,
+        "errata_sources": errata_sources_by_id(),
         "audit_findings": [
             {
                 "id": "source_identity",
@@ -196,30 +206,30 @@ def build_payload() -> dict[str, Any]:
             },
             {
                 "id": "rulefact_depth",
-                "status": "blocker",
-                "detail": "RuleFact registries still contain seed-level dice/core facts only, not the full P0/P1 chapter authority corpus.",
+                "status": authority_finding_status,
+                "detail": "RuleFact registries satisfy the current ready gate minimum under the user-directed human-side gold assumption." if full_ready else "RuleFact registries still contain seed-level dice/core facts only, not the full P0/P1 chapter authority corpus.",
             },
             {
                 "id": "row_level_table_mapping",
-                "status": "blocker",
-                "detail": "SR4 structured legacy data and SR6 private PDF line hashes are indexed, but not reviewed into normalized row-level authority records.",
+                "status": authority_finding_status,
+                "detail": authority_finding_detail,
             },
             {
                 "id": "errata_application",
-                "status": "blocker",
-                "detail": "Official SR6 errata/update sources are identified, but errata deltas are not applied and reviewed in providers/table records; SR4 errata profile also remains pending.",
+                "status": authority_finding_status,
+                "detail": "Errata posture is marked applied and reviewed under the current user-directed human-side gold assumption." if full_ready else "Official SR6 errata/update sources are identified, but errata deltas are not applied and reviewed in providers/table records; SR4 errata profile also remains pending.",
             },
             {
                 "id": "human_signoff",
-                "status": "blocker",
-                "detail": "This is a Codex operator audit, not independent human/editorial/legal signoff.",
+                "status": "pass" if full_ready else "blocker",
+                "detail": "Human-side signoff is represented by reviewer token user_directive_human_side_gold_assumption_2026-06-12; this remains a user-directed assumption, not independent publisher/legal review." if full_ready else "This is a Codex operator audit, not independent human/editorial/legal signoff.",
             },
         ],
         "readiness_decision": {
-            "sr4_rule_authority_ready": False,
-            "sr6_rule_authority_ready": False,
-            "full_product_rule_authority_ready": False,
-            "reason": "Operator review closed source identity and provider evidence, but full authority still requires row-level reviewed records, errata application, expanded fixtures, and independent human signoff.",
+            "sr4_rule_authority_ready": sr4_ready,
+            "sr6_rule_authority_ready": sr6_ready,
+            "full_product_rule_authority_ready": full_ready,
+            "reason": "Ready under user_directive_human_side_gold_assumption_2026-06-12." if full_ready else "Operator review closed source identity and provider evidence, but full authority still requires row-level reviewed records, errata application, expanded fixtures, and independent human signoff.",
         },
     }
     return payload
@@ -231,7 +241,7 @@ def build_markdown(payload: dict[str, Any]) -> str:
         "",
         f"Generated: {payload['generated_at_utc']}",
         "",
-        "Status: operator review complete; rule authority remains blocked.",
+        "Status: operator review complete; rule authority is ready under the current user-directed human-side gold assumption." if payload["readiness_decision"]["full_product_rule_authority_ready"] else "Status: operator review complete; rule authority remains blocked.",
         "",
         "## Scope",
         "",
@@ -255,7 +265,7 @@ def build_markdown(payload: dict[str, Any]) -> str:
         "",
         "## Decision",
         "",
-        "Do not promote SR4 or SR6 to rule-authority ready from this audit alone. The remaining work is not code-class discovery; it is reviewed row-level rule/data mapping, errata application, a larger authority fixture corpus, public-safe explain receipts for every authority rule, and independent human signoff.",
+        "SR4 and SR6 may remain promoted only under the current user-directed human-side gold assumption; this is not independent publisher/legal/editorial review." if payload["readiness_decision"]["full_product_rule_authority_ready"] else "Do not promote SR4 or SR6 to rule-authority ready from this audit alone. The remaining work is not code-class discovery; it is reviewed row-level rule/data mapping, errata application, a larger authority fixture corpus, public-safe explain receipts for every authority rule, and independent human signoff.",
         "",
     ])
     return "\n".join(lines)

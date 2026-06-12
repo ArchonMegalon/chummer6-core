@@ -138,7 +138,7 @@ public sealed class Sr4ActionEconomyProvider
 
 public sealed class Sr4CharacterCreationProvider
 {
-    private static readonly IReadOnlyDictionary<string, Sr4MetatypeProfile> Metatypes =
+    internal static readonly IReadOnlyDictionary<string, Sr4MetatypeProfile> Metatypes =
         new Dictionary<string, Sr4MetatypeProfile>(StringComparer.OrdinalIgnoreCase)
         {
             ["Human"] = new("Human", 0, 1, 6, 9),
@@ -179,6 +179,38 @@ public sealed class Sr4CharacterCreationProvider
     }
 }
 
+public sealed class Sr4MetatypeProvider
+{
+    public Sr4MetatypeProfile GetProfile(string metatype)
+    {
+        if (!Sr4CharacterCreationProvider.Metatypes.TryGetValue(metatype, out Sr4MetatypeProfile? profile))
+        {
+            throw new ArgumentOutOfRangeException(nameof(metatype), "Unknown SR4 metatype.");
+        }
+
+        return profile;
+    }
+}
+
+public sealed class Sr4AttributeProvider
+{
+    public const int AttributePointCost = Sr4CharacterCreationProvider.AttributePointCost;
+    public const int FinalNaturalMaximumPointCost = Sr4CharacterCreationProvider.FinalNaturalMaximumPointCost;
+
+    public int AttributeCost(int currentValue, int targetValue, int naturalMaximum)
+        => new Sr4CharacterCreationProvider().AttributeCost(currentValue, targetValue, naturalMaximum);
+
+    public bool IsWithinNaturalRange(int value, int minimum, int naturalMaximum)
+    {
+        if (minimum < 0 || naturalMaximum < minimum)
+        {
+            throw new ArgumentOutOfRangeException(nameof(naturalMaximum), "Invalid SR4 natural attribute range.");
+        }
+
+        return value >= minimum && value <= naturalMaximum;
+    }
+}
+
 public sealed class Sr4SkillProvider
 {
     public const int NaturalMaximum = 6;
@@ -215,6 +247,23 @@ public sealed class Sr4SkillProvider
         }
 
         return (logic + intuition) * 3;
+    }
+}
+
+public sealed class Sr4QualityProvider
+{
+    public const int PositiveQualityBuildPointLimit = 35;
+    public const int NegativeQualityBuildPointLimit = 35;
+
+    public bool IsWithinBuildPointLimit(int positiveQualityBuildPoints, int negativeQualityBuildPoints)
+    {
+        if (positiveQualityBuildPoints < 0 || negativeQualityBuildPoints < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(positiveQualityBuildPoints), "SR4 quality build point totals cannot be negative.");
+        }
+
+        return positiveQualityBuildPoints <= PositiveQualityBuildPointLimit
+            && negativeQualityBuildPoints <= NegativeQualityBuildPointLimit;
     }
 }
 
@@ -387,9 +436,47 @@ public sealed class Sr4RiggingProvider
     }
 }
 
+public sealed class Sr4VehicleProvider
+{
+    public int VehicleConditionMonitor(int body)
+    {
+        if (body < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(body), "SR4 vehicle Body cannot be negative.");
+        }
+
+        return 8 + ((body + 1) / 2);
+    }
+
+    public bool VehicleCanHostNode() => true;
+}
+
 public sealed class Sr4GearProvider
 {
     public bool TableImportDeferred => true;
+}
+
+public sealed class Sr4AdvancementProvider
+{
+    public int AttributeKarmaCost(int targetRating)
+    {
+        if (targetRating < 1)
+        {
+            throw new ArgumentOutOfRangeException(nameof(targetRating), "SR4 target rating must be positive.");
+        }
+
+        return targetRating * 3;
+    }
+
+    public int SkillKarmaCost(int targetRating)
+    {
+        if (targetRating < 1)
+        {
+            throw new ArgumentOutOfRangeException(nameof(targetRating), "SR4 target rating must be positive.");
+        }
+
+        return targetRating * 2;
+    }
 }
 
 public sealed class Sr4ExplainReceiptProvider

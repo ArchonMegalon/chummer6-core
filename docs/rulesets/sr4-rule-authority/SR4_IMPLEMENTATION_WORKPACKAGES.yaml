@@ -14,14 +14,14 @@ workpackages:
   - chummer6-core
   priority: P0
   verification:
-  - dotnet test --filter Sr4RuleFactRegistryTests
+  - dotnet test Chummer.Tests/Chummer.Tests.csproj --framework net10.0 --no-restore --filter Sr4RuleFactRegistryTests
 - id: SR4-P0-003
   title: Implement Dice/Test/Edge providers
   owner_repos:
   - chummer6-core
   priority: P0
   verification:
-  - dotnet test --filter Sr4DiceProviderTests
+  - dotnet test Chummer.Tests/Chummer.Tests.csproj --framework net10.0 --no-restore --filter Sr4DiceProviderTests
 - id: SR4-P0-004
   title: Implement BP character creation, metatype, attributes, skills
   owner_repos:
@@ -29,42 +29,42 @@ workpackages:
   - chummer6-ui
   priority: P0
   verification:
-  - dotnet test --filter Sr4CharacterCreationProviderTests
+  - dotnet test Chummer.Tests/Chummer.Tests.csproj --framework net10.0 --no-restore --filter Sr4CharacterAndDerivedProviderTests
 - id: SR4-P0-005
   title: Implement derived stats, Essence, condition monitors
   owner_repos:
   - chummer6-core
   priority: P0
   verification:
-  - dotnet test --filter Sr4DerivedStatsProviderTests
+  - dotnet test Chummer.Tests/Chummer.Tests.csproj --framework net10.0 --no-restore --filter Sr4CharacterAndDerivedProviderTests
 - id: SR4-P0-006
   title: Implement combat/action/damage providers
   owner_repos:
   - chummer6-core
   priority: P0
   verification:
-  - dotnet test --filter Sr4CombatProviderTests
+  - dotnet test Chummer.Tests/Chummer.Tests.csproj --framework net10.0 --no-restore --filter Sr4CombatMagicMatrixRiggingProviderTests
 - id: SR4-P1-001
   title: Implement magic provider
   owner_repos:
   - chummer6-core
   priority: P1
   verification:
-  - dotnet test --filter Sr4MagicProviderTests
+  - dotnet test Chummer.Tests/Chummer.Tests.csproj --framework net10.0 --no-restore --filter Sr4CombatMagicMatrixRiggingProviderTests
 - id: SR4-P1-002
   title: Implement Matrix provider
   owner_repos:
   - chummer6-core
   priority: P1
   verification:
-  - dotnet test --filter Sr4MatrixProviderTests
+  - dotnet test Chummer.Tests/Chummer.Tests.csproj --framework net10.0 --no-restore --filter Sr4CombatMagicMatrixRiggingProviderTests
 - id: SR4-P1-003
   title: Implement rigging provider
   owner_repos:
   - chummer6-core
   priority: P1
   verification:
-  - dotnet test --filter Sr4RiggingProviderTests
+  - dotnet test Chummer.Tests/Chummer.Tests.csproj --framework net10.0 --no-restore --filter Sr4CombatMagicMatrixRiggingProviderTests
 - id: SR4-P1-004
   title: Import gear/spell/quality/program/vehicle tables safely
   owner_repos:

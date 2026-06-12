@@ -160,7 +160,12 @@ def sr4_or_sr6_gate(ruleset: str) -> dict[str, Any]:
     if not explain.get("public_safe", False):
         failures.append("explain receipts are not public-safe")
     table_status = str(tables.get("status", ""))
-    table_indexed = "indexed" in table_status or int(tables.get("row_count") or 0) > 0
+    table_indexed = (
+        "indexed" in table_status
+        or table_status == "reviewed"
+        or int(tables.get("row_count") or 0) > 0
+        or int(tables.get("sourcebook_count") or 0) > 0
+    )
     if not table_indexed:
         failures.append("table evidence is not indexed")
     authority_source = authority_registry if authority_registry else registry
@@ -292,15 +297,6 @@ def main() -> int:
     }
     write_json(OUT / "OPERATOR_PROMOTED_RULE_AUTHORITY_GOLD.generated.json", payload)
     write_json(PUBLISHED / "OPERATOR_PROMOTED_RULE_AUTHORITY_GOLD.generated.json", payload)
-    write_json(PUBLISHED / "FULL_PRODUCT_RULE_AUTHORITY_COMPLETION.generated.json", {
-        "contract_name": "chummer.full_product_rule_authority_completion",
-        "status": payload["status"],
-        "final_verdict": payload["final_verdict"],
-        "readiness_token_allowed": not failures,
-        "rulesets": {gate["ruleset"]: gate for gate in ruleset_gates},
-        "copyright_boundary": payload["copyright_boundary"],
-        "source_identity_status": source_gate["status"],
-    })
     print(json.dumps(payload, indent=2, sort_keys=True))
     return 0 if not failures else 1
 

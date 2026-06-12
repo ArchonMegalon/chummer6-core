@@ -9,7 +9,7 @@
   "depth_status": "pass",
   "edition": "SR5",
   "final_verdict": "SR5_RULE_AUTHORITY_READY",
-  "generated_at_utc": "2026-06-09T12:56:31Z",
+  "generated_at_utc": "2026-06-12T10:56:51Z",
   "human_review": {
     "notes": "Registry synthesized from implementation catalogs, deterministic parity fixtures, and structured table-import coverage without reproducing sourcebook prose.",
     "reviewer": "Codex SR5 rule authority synthesis",
@@ -33,7 +33,7 @@
   ],
   "missing_implemented_providers": [],
   "missing_profile_status": [],
-  "operator_review_promoted_at_utc": "2026-06-09T12:56:31Z",
+  "operator_review_promoted_at_utc": "2026-06-12T10:56:51Z",
   "required_providers": [
     "SR5AdvancementProvider",
     "SR5CombatProvider",

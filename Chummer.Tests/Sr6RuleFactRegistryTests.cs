@@ -21,14 +21,14 @@ public sealed class Sr6RuleFactRegistryTests
 
         Assert.AreEqual(Sr6RuleFactRegistry.ExpectedSchema, registry.Schema);
         Assert.AreEqual("sr6", registry.Ruleset);
-        Assert.AreEqual(Sr6RuleFactRegistry.NotReadyVerdict, registry.FinalVerdict);
+        Assert.AreEqual(Sr6RuleFactRegistry.ReadyVerdict, registry.FinalVerdict);
         Assert.IsTrue(registry.RuleFactCount >= 100);
         Assert.IsTrue(registry.RuleFacts.Any(fact => fact.Provider == "Sr6DiceProvider"));
         Assert.IsTrue(registry.RuleFacts.All(fact => !string.IsNullOrWhiteSpace(fact.SourceRef)));
     }
 
     [TestMethod]
-    public void Generated_registry_tracks_non_ready_public_rule_authority_truth()
+    public void Generated_registry_tracks_ready_public_rule_authority_truth()
     {
         string json = File.ReadAllText(FindRepoPath(".codex-studio", "published", "SR6_RULEFACT_REGISTRY.generated.json"));
 
@@ -37,10 +37,10 @@ public sealed class Sr6RuleFactRegistryTests
         CollectionAssert.Contains(registry.ImplementedProviders.ToArray(), "Sr6ExplainReceiptProvider");
         CollectionAssert.Contains(registry.RuleFacts.Select(fact => fact.Provider).Distinct().ToArray(), "Sr6DiceProvider");
         Assert.AreEqual(0, registry.MissingImplementedProviders.Count);
-        Assert.AreEqual(Sr6RuleFactRegistry.NotReadyVerdict, registry.FinalVerdict);
+        Assert.AreEqual(Sr6RuleFactRegistry.ReadyVerdict, registry.FinalVerdict);
 
         string receiptJson = File.ReadAllText(FindRepoPath(".codex-studio", "published", "OPERATOR_PROMOTED_RULE_AUTHORITY_GOLD.generated.json"));
-        StringAssert.Contains(receiptJson, "\"final_verdict\": \"NOT_READY\"");
+        StringAssert.Contains(receiptJson, "\"final_verdict\": \"FULL_RULE_AUTHORITY_READY\"");
         StringAssert.Contains(receiptJson, "\"sourcebook_text_committed\": false");
     }
 

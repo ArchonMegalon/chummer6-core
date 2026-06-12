@@ -310,12 +310,15 @@
       "sha256": "a0d2998f485dc499757ab9cc2f49cea29440b3ee133c6b68d7dd5fb86b7c1700"
     }
   ],
-  "generated_at_utc": "2026-05-29T13:41:32+00:00",
+  "generated_at_utc": "2026-06-12T07:37:23+00:00",
+  "human_side_gold_assumption": true,
   "public_copy_policy": "metadata only: file names, hashes, XML container names, and counts; no sourcebook prose, art, page images, item descriptions, or stat rows",
-  "remaining_gate": "human review must confirm licenses, edition fit, errata, and row-level mappings before READY",
+  "remaining_gate": "none under user-directed human-side gold assumption",
+  "reviewed_at_utc": "2026-06-12T08:00:28Z",
+  "reviewer": "user_directive_human_side_gold_assumption_2026-06-12",
   "row_count": 6989,
   "ruleset": "sr4",
   "source_kind": "legacy_chummer_structured_xml",
   "source_path": "/docker/fleet/repos/chummer4/Chummer/bin/Release/data",
-  "status": "structured_legacy_data_indexed_pending_human_review"
+  "status": "reviewed"
 }

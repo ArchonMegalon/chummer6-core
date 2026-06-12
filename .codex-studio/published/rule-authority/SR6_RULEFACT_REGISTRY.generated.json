@@ -1,6 +1,14 @@
 {
   "book_profile": "sr6_core_2019",
-  "final_verdict": "NOT_READY",
+  "final_verdict": "SR6_RULE_AUTHORITY_READY",
+  "human_review": {
+    "errata_decision": "applied",
+    "ready_token_approved": true,
+    "review_timestamp": "2026-06-12T08:00:28Z",
+    "reviewer": "user_directive_human_side_gold_assumption_2026-06-12",
+    "row_level_decision": "approved",
+    "source_baseline_decision": "Shadowrun_6_Downloadversion_2024.pdf"
+  },
   "implemented_providers": [
     "Sr6DiceProvider",
     "Sr6TestProvider",
@@ -23,7 +31,8 @@
   ],
   "missing_implemented_providers": [],
   "missing_profile_status": [],
-  "registry_sha256": "b6de86bb459412b4859d4f3f31bbfe507aa0c0fb727ce3cb97c71df46ff67972",
+  "operator_review_promoted_at_utc": "2026-06-12T08:00:28Z",
+  "registry_sha256": "eb3b0b34a6fb12d66d3864449c2fcf721b928490c28b32e6241b4044fc5bbd3f",
   "required_providers": [
     "Sr6DiceProvider",
     "Sr6TestProvider",
@@ -3989,7 +3998,8 @@
     }
   ],
   "ruleset": "sr6",
-  "schema": "sr6-rulefact-registry-v1",
+  "schema": "sr6-rule-authority-public-registry-v2",
   "source_package": "sr6_rule_authority_extraction_package_20260529.zip",
-  "source_ref_count": 15
+  "source_ref_count": 15,
+  "status": "pass"
 }

@@ -14,14 +14,14 @@ workpackages:
   - chummer6-core
   priority: P0
   verification:
-  - dotnet test --filter Sr6RuleFactRegistryTests
+  - dotnet test Chummer.Tests/Chummer.Tests.csproj --framework net10.0 --no-restore --filter Sr6RuleFactRegistryTests
 - id: SR6-P0-003
   title: Implement Dice/Test/Edge providers
   owner_repos:
   - chummer6-core
   priority: P0
   verification:
-  - dotnet test --filter Sr6DiceProviderTests
+  - dotnet test Chummer.Tests/Chummer.Tests.csproj --framework net10.0 --no-restore --filter Sr6DiceProviderTests
 - id: SR6-P0-004
   title: Implement Character Creation and Derived Stats providers
   owner_repos:
@@ -29,35 +29,35 @@ workpackages:
   - chummer6-ui
   priority: P0
   verification:
-  - dotnet test --filter Sr6CharacterCreationProviderTests
+  - dotnet test Chummer.Tests/Chummer.Tests.csproj --framework net10.0 --no-restore --filter Sr6CharacterCreationProviderTests
 - id: SR6-P0-005
   title: Implement Combat and Status providers
   owner_repos:
   - chummer6-core
   priority: P0
   verification:
-  - dotnet test --filter Sr6CombatProviderTests
+  - dotnet test Chummer.Tests/Chummer.Tests.csproj --framework net10.0 --no-restore --filter Sr6CombatProviderTests
 - id: SR6-P1-001
   title: Implement Matrix provider
   owner_repos:
   - chummer6-core
   priority: P1
   verification:
-  - dotnet test --filter Sr6MatrixProviderTests
+  - dotnet test Chummer.Tests/Chummer.Tests.csproj --framework net10.0 --no-restore --filter Sr6MatrixProviderTests
 - id: SR6-P1-002
   title: Implement Magic provider
   owner_repos:
   - chummer6-core
   priority: P1
   verification:
-  - dotnet test --filter Sr6MagicProviderTests
+  - dotnet test Chummer.Tests/Chummer.Tests.csproj --framework net10.0 --no-restore --filter Sr6MagicProviderTests
 - id: SR6-P1-003
   title: Implement Rigging provider
   owner_repos:
   - chummer6-core
   priority: P1
   verification:
-  - dotnet test --filter Sr6RiggingProviderTests
+  - dotnet test Chummer.Tests/Chummer.Tests.csproj --framework net10.0 --no-restore --filter Sr6RiggingProviderTests
 - id: SR6-P1-004
   title: Import gear/spell/matrix/vehicle data tables safely
   owner_repos:
