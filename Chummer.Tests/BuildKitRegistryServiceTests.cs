@@ -25,6 +25,20 @@ public class BuildKitRegistryServiceTests
     }
 
     [TestMethod]
+    public void Default_buildkit_registry_service_returns_curated_preview_paths_for_sr4()
+    {
+        DefaultBuildKitRegistryService service = new();
+
+        var entries = service.List(OwnerScope.LocalSingleUser, RulesetDefaults.Sr4);
+
+        Assert.IsTrue(entries.Count >= 2);
+        Assert.IsTrue(entries.Any(entry => entry.Manifest.BuildKitId == "sr4-street-sam-bp"));
+        Assert.IsTrue(entries.Any(entry => entry.Manifest.BuildKitId == "sr4-matrix-infiltrator-bp"));
+        Assert.IsTrue(entries.All(entry => entry.Manifest.Targets.Contains(RulesetDefaults.Sr4)));
+        Assert.IsTrue(entries.All(entry => entry.Manifest.RuntimeRequirements.All(requirement => requirement.RulesetId == RulesetDefaults.Sr4)));
+    }
+
+    [TestMethod]
     public void Default_buildkit_registry_service_returns_multiple_preview_paths_for_sr6()
     {
         DefaultBuildKitRegistryService service = new();

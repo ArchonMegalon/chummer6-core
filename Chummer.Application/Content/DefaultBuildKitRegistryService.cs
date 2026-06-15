@@ -10,6 +10,98 @@ public sealed class DefaultBuildKitRegistryService : IBuildKitRegistryService
     [
         new(
             Manifest: new BuildKitManifest(
+                BuildKitId: "sr4-street-sam-bp",
+                Version: "1.0.0",
+                Title: "SR4 Street Sam BP Starter",
+                Description: "Curated SR4 preview starter that stays honest about the BP-first creation lane before the guided build handoff.",
+                Targets: [RulesetDefaults.Sr4],
+                RuntimeRequirements:
+                [
+                    new BuildKitRuntimeRequirement(
+                        RulesetId: RulesetDefaults.Sr4,
+                        RequiredRuntimeFingerprints: ["sr4.preview.bp.v1"],
+                        RequiredRulePacks: [new ArtifactVersionReference("sr4-core", "1.0.0")])
+                ],
+                Prompts:
+                [
+                    new BuildKitPromptDescriptor(
+                        PromptId: "sr4-combat-lane",
+                        Kind: BuildKitPromptKinds.Choice,
+                        Label: "Combat lane",
+                        Options:
+                        [
+                            new BuildKitPromptOption("street-sam", "Street Sam", "Grounded firearms-first BP starter path."),
+                            new BuildKitPromptOption("combat-adept", "Combat Adept", "Awakened melee and initiative pressure with the same preview posture.")
+                        ],
+                        Required: true)
+                ],
+                Actions:
+                [
+                    new BuildKitActionDescriptor(
+                        ActionId: "sr4-bp-bundle",
+                        Kind: BuildKitActionKinds.AddBundle,
+                        TargetId: "sr4.street-sam.bundle"),
+                    new BuildKitActionDescriptor(
+                        ActionId: "sr4-build-lane",
+                        Kind: BuildKitActionKinds.SetMetadata,
+                        TargetId: "sr4.build-lane",
+                        PromptId: "sr4-combat-lane",
+                        Notes: "Stamp the selected SR4 BP preview lane into the build receipt before the guided desktop handoff.")
+                ],
+                Visibility: ArtifactVisibilityModes.Public,
+                TrustTier: ArtifactTrustTiers.Curated),
+            Owner: new OwnerScope("system"),
+            Visibility: ArtifactVisibilityModes.Public,
+            PublicationStatus: BuildKitPublicationStatuses.Published,
+            UpdatedAtUtc: DateTimeOffset.Parse("2026-06-15T10:15:00+00:00")),
+        new(
+            Manifest: new BuildKitManifest(
+                BuildKitId: "sr4-matrix-infiltrator-bp",
+                Version: "1.0.0",
+                Title: "SR4 Matrix Infiltrator BP Starter",
+                Description: "Curated SR4 matrix preview starter that keeps decker and technomancer entry paths explicit before the BP workflow handoff.",
+                Targets: [RulesetDefaults.Sr4],
+                RuntimeRequirements:
+                [
+                    new BuildKitRuntimeRequirement(
+                        RulesetId: RulesetDefaults.Sr4,
+                        RequiredRuntimeFingerprints: ["sr4.preview.bp.v1"],
+                        RequiredRulePacks: [new ArtifactVersionReference("sr4-core", "1.0.0")])
+                ],
+                Prompts:
+                [
+                    new BuildKitPromptDescriptor(
+                        PromptId: "sr4-matrix-role",
+                        Kind: BuildKitPromptKinds.Choice,
+                        Label: "Matrix role",
+                        Options:
+                        [
+                            new BuildKitPromptOption("decker", "Decker", "Cybercombat and intrusion path with stricter gear review."),
+                            new BuildKitPromptOption("technomancer", "Technomancer", "Resonance-first BP entry with a lighter hardware footprint.")
+                        ],
+                        Required: true)
+                ],
+                Actions:
+                [
+                    new BuildKitActionDescriptor(
+                        ActionId: "sr4-matrix-bundle",
+                        Kind: BuildKitActionKinds.AddBundle,
+                        TargetId: "sr4.matrix-operator.bundle"),
+                    new BuildKitActionDescriptor(
+                        ActionId: "sr4-career-queue",
+                        Kind: BuildKitActionKinds.QueueCareerUpdate,
+                        TargetId: "career.sr4.matrix-infiltrator",
+                        PromptId: "sr4-matrix-role",
+                        Notes: "Queue the selected SR4 matrix lane into the next grounded progression receipt.")
+                ],
+                Visibility: ArtifactVisibilityModes.Public,
+                TrustTier: ArtifactTrustTiers.Curated),
+            Owner: new OwnerScope("system"),
+            Visibility: ArtifactVisibilityModes.Public,
+            PublicationStatus: BuildKitPublicationStatuses.Published,
+            UpdatedAtUtc: DateTimeOffset.Parse("2026-06-15T10:20:00+00:00")),
+        new(
+            Manifest: new BuildKitManifest(
                 BuildKitId: "street-sam-starter",
                 Version: "1.0.0",
                 Title: "Street Sam Starter",
