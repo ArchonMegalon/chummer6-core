@@ -459,6 +459,15 @@ def build_row_level_mapping_receipt(ruleset: str, table_imports: dict[str, Any],
     remaining_gate = str(table_imports.get("remaining_gate") or "")
     if "review" not in remaining_gate.lower():
         remaining_gate = "human review of indexed row-level authority mapping"
+    selected_source_sha = None
+    source_identity = [source for source in pdf_source_identity(ruleset) if source["file"] in set(policy.get("selected_core_source_files", []))] or pdf_source_identity(ruleset)
+    if source_identity:
+        selected_source_sha = source_identity[0].get("sha256")
+    spot_check_plan = (
+        build_sr4_spot_check_plan(table_imports)
+        if ruleset == "sr4"
+        else build_sr6_spot_check_plan(table_imports, str(selected_source_sha) if selected_source_sha else None)
+    )
 
     return {
         "contract_name": f"chummer.{ruleset}.row_level_authority_mapping",
@@ -498,16 +507,18 @@ def build_row_level_mapping_receipt(ruleset: str, table_imports: dict[str, Any],
             "required_decision_values": ["approved", "rejected", "defer"],
             "indexed_unit_count": indexed_units,
             "category_or_file_counts": category_counts,
+            "spot_check_plan": spot_check_plan,
             "private_registry": table_imports.get("private_registry"),
             "source_count": source_count,
             "indexed_source_files": indexed_sources,
-            "source_identity": [source for source in pdf_source_identity(ruleset) if source["file"] in set(policy.get("selected_core_source_files", []))] or pdf_source_identity(ruleset),
+            "source_identity": source_identity,
             "source_baseline_decision_status": source_baseline_status,
             "selected_core_baseline": policy["selected_core_baseline"],
             "selected_core_source_files": policy.get("selected_core_source_files", []),
             "excluded_source_files": policy.get("excluded_source_files", []),
             "supplements_in_scope": policy["supplements_in_scope"],
             "public_copy_policy": table_imports.get("public_copy_policy"),
+            "recommended_decision": "approved if bounded spot checks do not reveal contradictions",
             "reviewer_output_expected": f"{ruleset.upper()}_HUMAN_RULE_REVIEW.md",
         },
     }
@@ -549,6 +560,16 @@ def build_errata_receipt(ruleset: str, errata_profile: dict[str, Any]) -> dict[s
             "source_ids": [str(source.get("id")) for source in sources if isinstance(source, dict)],
             "errata_policy": policy["errata_policy"],
             "selected_core_baseline": policy["selected_core_baseline"],
+            "recommended_decision": "not_applicable" if no_sources_in_scope else ("applied" if ruleset == "sr6" else "pending"),
+            "recommended_rationale": (
+                "no official errata sources are in scope for the selected SR4 core-only baseline"
+                if no_sources_in_scope
+                else (
+                    "selected 2024 core baseline is the authority target; prefer applied if it is accepted as the consolidated official source"
+                    if ruleset == "sr6"
+                    else "official errata or official web notices only"
+                )
+            ),
             "reviewer_output_expected": f"{ruleset.upper()}_HUMAN_RULE_REVIEW.md",
         },
     }

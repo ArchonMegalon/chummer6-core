@@ -1,6 +1,6 @@
 {
   "contract_name": "chummer.sr4.errata_source_posture",
-  "generated_at_utc": "2026-06-16T09:20:35Z",
+  "generated_at_utc": "2026-06-16T09:46:03Z",
   "human_required": {
     "must_apply_or_explicitly_defer_each_applicable_change": true,
     "must_confirm_applicable_errata_sources": true,
@@ -23,6 +23,8 @@
   "review_packet": {
     "decision": "not_applicable",
     "errata_policy": "official errata or official web notices only",
+    "recommended_decision": "not_applicable",
+    "recommended_rationale": "no official errata sources are in scope for the selected SR4 core-only baseline",
     "required_decision_values": [
       "applied",
       "not_applicable",

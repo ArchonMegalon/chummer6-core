@@ -1,7 +1,7 @@
 {
   "contract_name": "chummer.sr4.row_level_authority_mapping",
   "evidence_strength": "substantial_machine_indexed",
-  "generated_at_utc": "2026-06-16T09:20:34Z",
+  "generated_at_utc": "2026-06-16T09:46:03Z",
   "human_required": {
     "must_confirm_edition_fit": true,
     "must_confirm_license_and_source_identity": true,
@@ -91,6 +91,7 @@
     "indexed_unit_count": 6989,
     "private_registry": null,
     "public_copy_policy": "metadata only: file names, hashes, XML container names, and counts; no sourcebook prose, art, page images, item descriptions, or stat rows",
+    "recommended_decision": "approved if bounded spot checks do not reveal contradictions",
     "required_decision_values": [
       "approved",
       "rejected",
@@ -110,6 +111,122 @@
         "file": "(SR4) Shadowrun 4e Core Rules.pdf",
         "path": "/mnt/pcloud/personal/Roleplay/sr/(SR4) Shadowrun 4e Core Rules.pdf",
         "sha256": "28da9d6dfd8eba79a2ae46dc41e2ec825d16067d288e6f20e23c65767616d41d"
+      }
+    ],
+    "spot_check_plan": [
+      {
+        "focus": "gear.xml",
+        "row_count": 1704,
+        "sha256": "0ccdf61d8e50619e10b47341f6f4d767d78f566930d21329cc2e11c472bdd799",
+        "top_containers": [
+          {
+            "count": 1591,
+            "name": "gears"
+          },
+          {
+            "count": 113,
+            "name": "categories"
+          },
+          {
+            "count": 0,
+            "name": "version"
+          }
+        ]
+      },
+      {
+        "focus": "weapons.xml",
+        "row_count": 955,
+        "sha256": "a0d2998f485dc499757ab9cc2f49cea29440b3ee133c6b68d7dd5fb86b7c1700",
+        "top_containers": [
+          {
+            "count": 743,
+            "name": "weapons"
+          },
+          {
+            "count": 99,
+            "name": "mods"
+          },
+          {
+            "count": 83,
+            "name": "accessories"
+          }
+        ]
+      },
+      {
+        "focus": "vehicles.xml",
+        "row_count": 839,
+        "sha256": "7396cc6d342853dad3faa1c004d2fa7196cec3e87d69311ba274a472a22d28ee",
+        "top_containers": [
+          {
+            "count": 483,
+            "name": "vehicles"
+          },
+          {
+            "count": 321,
+            "name": "mods"
+          },
+          {
+            "count": 19,
+            "name": "categories"
+          }
+        ]
+      },
+      {
+        "focus": "qualities.xml",
+        "row_count": 485,
+        "sha256": "d5fa2a1aeb6ff47fa984f6b8b9da1a706c1e987f88308ccbfa1ea48cc316e06f",
+        "top_containers": [
+          {
+            "count": 483,
+            "name": "qualities"
+          },
+          {
+            "count": 2,
+            "name": "categories"
+          },
+          {
+            "count": 0,
+            "name": "version"
+          }
+        ]
+      },
+      {
+        "focus": "cyberware.xml",
+        "row_count": 344,
+        "sha256": "5179e29b4c9758d936f6da2269def14f2b85b610502888581e5b1bb0dde179ee",
+        "top_containers": [
+          {
+            "count": 275,
+            "name": "cyberwares"
+          },
+          {
+            "count": 44,
+            "name": "suites"
+          },
+          {
+            "count": 13,
+            "name": "categories"
+          }
+        ]
+      },
+      {
+        "focus": "spells.xml",
+        "row_count": 259,
+        "sha256": "e7e5f9f611bd0106f9f01d50029cd588003c229781fc0d5b73e8f51153c65664",
+        "top_containers": [
+          {
+            "count": 253,
+            "name": "spells"
+          },
+          {
+            "count": 6,
+            "name": "categories"
+          },
+          {
+            "count": 0,
+            "name": "version"
+          }
+        ]
       }
     ],
     "supplements_in_scope": false

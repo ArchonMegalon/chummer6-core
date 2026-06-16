@@ -28,6 +28,8 @@ class RuleAuthorityBlockerReceiptTests(unittest.TestCase):
             self.assertIn("review_packet", row_level)
             self.assertEqual("pending", row_level["review_packet"]["decision"])
             self.assertGreater(row_level["review_packet"]["indexed_unit_count"], 0)
+            self.assertTrue(row_level["review_packet"]["spot_check_plan"])
+            self.assertEqual("approved if bounded spot checks do not reveal contradictions", row_level["review_packet"]["recommended_decision"])
             self.assertIn("human_required", row_level)
             self.assertTrue(row_level["human_required"]["must_sign_off_before_ready_token"])
             self.assertIn("selected_core_baseline", row_level["review_packet"])
@@ -51,6 +53,7 @@ class RuleAuthorityBlockerReceiptTests(unittest.TestCase):
                 self.assertEqual("not_applicable", errata["review_packet"]["decision"])
             else:
                 self.assertEqual("pending", errata["review_packet"]["decision"])
+                self.assertEqual("applied", errata["review_packet"]["recommended_decision"])
             self.assertEqual("official errata or official web notices only", errata["review_packet"]["errata_policy"])
             self.assertIn("human_required", errata)
             self.assertTrue(errata["human_required"]["must_sign_off_before_ready_token"])

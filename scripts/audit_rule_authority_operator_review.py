@@ -162,6 +162,23 @@ def ruleset_receipt_review(ruleset: str) -> dict[str, Any]:
             "reviewer_decision_packet": str(root / f"{upper}_REVIEWER_DECISION_PACKET.generated.json"),
             "human_review": str(root / f"{upper}_HUMAN_RULE_REVIEW.md"),
         },
+        "preferred_signoff_path": (
+            [
+                "spot-check the listed high-volume XML files first",
+                "approve row-level mapping if no contradiction is found",
+                "keep errata not_applicable",
+                "approve the human review file and rerun the ready checks",
+            ]
+            if ruleset == "sr4"
+            else [
+                "spot-check the listed 2024-core line-hash candidates first",
+                "approve row-level mapping if no contradiction is found",
+                "prefer errata applied if the 2024 baseline is accepted as the consolidated core source",
+                "approve the human review file and rerun the ready checks",
+            ]
+        ),
+        "spot_check_plan": row_level.get("review_packet", {}).get("spot_check_plan", []),
+        "suggested_errata_decision": errata_posture.get("review_packet", {}).get("recommended_decision"),
         "copyright_status": copyright_safety.get("status"),
         "readiness_token_allowed": registry.get("final_verdict") != "NOT_READY",
     }

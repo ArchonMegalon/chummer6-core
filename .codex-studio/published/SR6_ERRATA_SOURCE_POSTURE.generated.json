@@ -1,6 +1,6 @@
 {
   "contract_name": "chummer.sr6.errata_source_posture",
-  "generated_at_utc": "2026-06-16T09:20:35Z",
+  "generated_at_utc": "2026-06-16T09:46:04Z",
   "human_required": {
     "must_apply_or_explicitly_defer_each_applicable_change": true,
     "must_confirm_applicable_errata_sources": true,
@@ -23,6 +23,8 @@
   "review_packet": {
     "decision": "pending",
     "errata_policy": "official errata or official web notices only",
+    "recommended_decision": "applied",
+    "recommended_rationale": "selected 2024 core baseline is the authority target; prefer applied if it is accepted as the consolidated official source",
     "required_decision_values": [
       "applied",
       "not_applicable",
