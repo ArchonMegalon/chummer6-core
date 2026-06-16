@@ -5,6 +5,20 @@
     "errata decision is applied/not_applicable/defer with rationale"
   ],
   "contract_name": "chummer.sr6.reviewer_decision_packet",
+  "decision_table": [
+    {
+      "decision": "approve + applied",
+      "when_to_use": "spot checks align and the 2024 core baseline is accepted as the consolidated official source"
+    },
+    {
+      "decision": "approve + defer",
+      "when_to_use": "row-level mapping is sound but one specific official errata source cannot be reconciled to the selected 2024 baseline"
+    },
+    {
+      "decision": "reject",
+      "when_to_use": "a concrete contradiction is found in the normalized row-level mapping"
+    }
+  ],
   "errata": {
     "policy": "official errata or official web notices only",
     "recommended_decision": "applied",
@@ -36,6 +50,7 @@
     ],
     "status": "pending_reviewed_application"
   },
+  "estimated_review_time_minutes": 30,
   "exact_edit_contract": {
     "Errata decision": "applied | not_applicable | defer",
     "Errata defer rationale": "<required when Errata decision is defer>",
@@ -66,6 +81,7 @@
     "review_required": false,
     "status": "core_seed_receipt_pack_available"
   },
+  "fast_path_summary": "Approve SR6 if bounded 2024-core spot checks align and no unreconciled official errata source forces defer.",
   "fixtures": {
     "alignment_status": "pass",
     "failed": 0,
@@ -84,7 +100,7 @@
     "review_expected_values_required": false,
     "status": "core_seed_fixture_pack_passed"
   },
-  "generated_at_utc": "2026-06-16T09:46:04Z",
+  "generated_at_utc": "2026-06-16T11:23:03Z",
   "human_review_file": "/docker/chummercomplete/_completion/sr6_rule_authority/SR6_HUMAN_RULE_REVIEW.md",
   "pass_criteria": [
     "selected source identity exists and matches the recorded sha256",

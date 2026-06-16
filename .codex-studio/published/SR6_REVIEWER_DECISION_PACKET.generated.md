@@ -1,8 +1,14 @@
 # SR6 Reviewer Decision Packet
 
-Generated: 2026-06-16T09:46:04Z
+Generated: 2026-06-16T11:23:03Z
 
 Status: awaiting_human_decision
+
+Estimated review time: ~30 minutes
+
+## Fast Path
+
+Approve SR6 if bounded 2024-core spot checks align and no unreconciled official errata source forces defer.
 
 ## Baseline
 
@@ -51,6 +57,12 @@ Status: awaiting_human_decision
 - Row-level decision: `approved if bounded spot checks do not reveal contradictions`
 - Errata decision: `applied unless a specific official errata source remains unreconciled to the selected 2024 core baseline`
 - Errata rationale: `selected 2024 core baseline is the authority target; prefer applied if it is accepted as the consolidated official source`
+
+## Decision Table
+
+- `approve + applied`: spot checks align and the 2024 core baseline is accepted as the consolidated official source
+- `approve + defer`: row-level mapping is sound but one specific official errata source cannot be reconciled to the selected 2024 baseline
+- `reject`: a concrete contradiction is found in the normalized row-level mapping
 
 
 ## Review Inputs

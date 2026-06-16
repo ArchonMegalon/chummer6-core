@@ -106,6 +106,18 @@ def build_packet(ruleset: str) -> dict[str, Any]:
             "fixture and explain alignment already pass",
             "review burden is limited to row-level spot checks and final signoff",
         ]
+        estimated_review_time_minutes = 20
+        fast_path_summary = "Approve SR4 if bounded XML spot checks do not reveal contradictions. No separate errata call is required."
+        decision_table = [
+            {
+                "decision": "approve",
+                "when_to_use": "spot checks align and no contradiction is found",
+            },
+            {
+                "decision": "reject",
+                "when_to_use": "a concrete contradiction is found in the normalized row-level mapping",
+            },
+        ]
     else:
         pass_criteria.append("official errata decision is recorded against the selected 2024 core baseline")
         why_this_should_pass = [
@@ -113,12 +125,30 @@ def build_packet(ruleset: str) -> dict[str, Any]:
             "fixture and explain alignment already pass",
             "review burden is limited to bounded line-hash spot checks, one errata decision, and final signoff",
         ]
+        estimated_review_time_minutes = 30
+        fast_path_summary = "Approve SR6 if bounded 2024-core spot checks align and no unreconciled official errata source forces defer."
+        decision_table = [
+            {
+                "decision": "approve + applied",
+                "when_to_use": "spot checks align and the 2024 core baseline is accepted as the consolidated official source",
+            },
+            {
+                "decision": "approve + defer",
+                "when_to_use": "row-level mapping is sound but one specific official errata source cannot be reconciled to the selected 2024 baseline",
+            },
+            {
+                "decision": "reject",
+                "when_to_use": "a concrete contradiction is found in the normalized row-level mapping",
+            },
+        ]
 
     return {
         "contract_name": f"chummer.{ruleset}.reviewer_decision_packet",
         "generated_at_utc": now_iso(),
         "ruleset": ruleset,
         "status": "awaiting_human_decision",
+        "estimated_review_time_minutes": estimated_review_time_minutes,
+        "fast_path_summary": fast_path_summary,
         "selected_core_baseline": row_packet.get("selected_core_baseline"),
         "supplements_in_scope": row_packet.get("supplements_in_scope"),
         "human_review_file": str(human_review_path),
@@ -180,6 +210,7 @@ def build_packet(ruleset: str) -> dict[str, Any]:
                 else "selected 2024 core baseline is the authority target; prefer applied if it is accepted as the consolidated official source"
             ),
         },
+        "decision_table": decision_table,
         "exact_edit_contract": exact_edit_contract,
         "rerun_commands": rerun_commands,
         "can_change_recommendation_to_sign_off_allowed_when": [
@@ -199,6 +230,12 @@ def build_markdown(packet: dict[str, Any]) -> str:
         f"Generated: {packet['generated_at_utc']}",
         "",
         f"Status: {packet['status']}",
+        "",
+        f"Estimated review time: ~{packet['estimated_review_time_minutes']} minutes",
+        "",
+        "## Fast Path",
+        "",
+        packet["fast_path_summary"],
         "",
         "## Baseline",
         "",
@@ -237,6 +274,13 @@ def build_markdown(packet: dict[str, Any]) -> str:
         f"- Row-level decision: `{packet['suggested_default_decisions']['row_level_decision']}`",
         f"- Errata decision: `{packet['suggested_default_decisions']['errata_decision']}`",
         f"- Errata rationale: `{packet['suggested_default_decisions']['errata_rationale']}`",
+        "",
+        "## Decision Table",
+        "",
+        *[
+            f"- `{row['decision']}`: {row['when_to_use']}"
+            for row in packet["decision_table"]
+        ],
         "",
         "",
         "## Review Inputs",

@@ -1,8 +1,14 @@
 # SR4 Reviewer Decision Packet
 
-Generated: 2026-06-16T09:46:04Z
+Generated: 2026-06-16T11:23:03Z
 
 Status: awaiting_human_decision
+
+Estimated review time: ~20 minutes
+
+## Fast Path
+
+Approve SR4 if bounded XML spot checks do not reveal contradictions. No separate errata call is required.
 
 ## Baseline
 
@@ -49,6 +55,11 @@ Status: awaiting_human_decision
 - Row-level decision: `approved if bounded spot checks do not reveal contradictions`
 - Errata decision: `not_applicable`
 - Errata rationale: `no official errata sources are in scope for the selected SR4 core-only baseline`
+
+## Decision Table
+
+- `approve`: spot checks align and no contradiction is found
+- `reject`: a concrete contradiction is found in the normalized row-level mapping
 
 
 ## Review Inputs

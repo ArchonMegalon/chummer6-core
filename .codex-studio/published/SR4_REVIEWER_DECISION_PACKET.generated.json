@@ -4,6 +4,16 @@
     "human review file is approved with ready token approved true"
   ],
   "contract_name": "chummer.sr4.reviewer_decision_packet",
+  "decision_table": [
+    {
+      "decision": "approve",
+      "when_to_use": "spot checks align and no contradiction is found"
+    },
+    {
+      "decision": "reject",
+      "when_to_use": "a concrete contradiction is found in the normalized row-level mapping"
+    }
+  ],
   "errata": {
     "policy": "official errata or official web notices only",
     "recommended_decision": "not_applicable",
@@ -13,6 +23,7 @@
     "sources": [],
     "status": "not_applicable_by_policy"
   },
+  "estimated_review_time_minutes": 20,
   "exact_edit_contract": {
     "Errata decision": "not_applicable",
     "Ready token approved": "true",
@@ -41,6 +52,7 @@
     "review_required": false,
     "status": "core_seed_receipt_pack_available"
   },
+  "fast_path_summary": "Approve SR4 if bounded XML spot checks do not reveal contradictions. No separate errata call is required.",
   "fixtures": {
     "alignment_status": "pass",
     "failed": 0,
@@ -60,7 +72,7 @@
     "review_expected_values_required": false,
     "status": "core_seed_fixture_pack_passed"
   },
-  "generated_at_utc": "2026-06-16T09:46:04Z",
+  "generated_at_utc": "2026-06-16T11:23:03Z",
   "human_review_file": "/docker/chummercomplete/_completion/sr4_rule_authority/SR4_HUMAN_RULE_REVIEW.md",
   "pass_criteria": [
     "selected source identity exists and matches the recorded sha256",
