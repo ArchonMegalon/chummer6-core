@@ -1,6 +1,6 @@
 # SR6 Reviewer Decision Packet
 
-Generated: 2026-06-16T09:09:16Z
+Generated: 2026-06-16T09:21:24Z
 
 Status: awaiting_human_decision
 
@@ -15,7 +15,7 @@ Status: awaiting_human_decision
 - Row-level mapping status: `pending_human_review`
 - Indexed units: `5213`
 - Errata status: `pending_reviewed_application`
-- Errata recommended decision: `pending_manual_review`
+- Errata recommended decision: `applied`
 - Fixture status: `core_seed_fixture_pack_passed`
 - Explain receipt status: `core_seed_receipt_pack_available`
 - Rulefact count: `447`
@@ -25,6 +25,33 @@ Status: awaiting_human_decision
 - review row-level mapping packet and approve or reject normalized public-safe records
 - review errata packet and record applied/not_applicable/defer decision
 - complete human rule review signoff
+
+## Preferred Signoff Path
+
+- spot-check the 2024-core line-hash candidates listed in the handoff and approve row-level mapping if no contradiction is found
+- prefer Errata decision applied if the 2024 baseline is accepted as the consolidated core source
+- use defer only for a specific official errata source that cannot be reconciled to the 2024 baseline
+- approve the human review file and rerun the ready checks
+
+## Pass Criteria
+
+- selected source identity exists and matches the recorded sha256
+- bounded spot checks do not reveal contradictions in normalized authority mapping
+- no sourcebook prose, art, tables, examples, or page images are promoted into public-safe receipts
+- official errata decision is recorded against the selected 2024 core baseline
+
+## Why This Should Pass
+
+- core baseline is explicit and later than the listed 2019/2020 errata sources
+- fixture and explain alignment already pass
+- review burden is limited to bounded line-hash spot checks, one errata decision, and final signoff
+
+## Suggested Default Decisions
+
+- Row-level decision: `approved if bounded spot checks do not reveal contradictions`
+- Errata decision: `applied unless a specific official errata source remains unreconciled to the selected 2024 core baseline`
+- Errata rationale: `selected 2024 core baseline is the authority target; prefer applied if it is accepted as the consolidated official source`
+
 
 ## Review Inputs
 

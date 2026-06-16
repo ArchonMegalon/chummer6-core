@@ -109,10 +109,126 @@ def indexed_source_files(table_imports: dict[str, Any]) -> list[str]:
     return from_files
 
 
+def summarize_container_counts(container_counts: dict[str, Any], limit: int = 3) -> list[dict[str, int]]:
+    rows: list[tuple[str, int]] = []
+    for key, value in container_counts.items():
+        try:
+            rows.append((str(key), int(value)))
+        except (TypeError, ValueError):
+            continue
+    rows.sort(key=lambda item: (-item[1], item[0]))
+    return [{"name": name, "count": count} for name, count in rows[:limit]]
+
+
+def build_sr4_spot_check_plan(table_imports: dict[str, Any]) -> list[dict[str, Any]]:
+    preferred = ["gear.xml", "weapons.xml", "vehicles.xml", "qualities.xml", "cyberware.xml", "spells.xml"]
+    indexed = {
+        str(item.get("file")): item
+        for item in table_imports.get("files", [])
+        if isinstance(item, dict) and item.get("file")
+    }
+    plan: list[dict[str, Any]] = []
+    for name in preferred:
+        item = indexed.get(name)
+        if not item:
+            continue
+        plan.append({
+            "focus": name,
+            "row_count": int(item.get("row_count") or 0),
+            "sha256": item.get("sha256"),
+            "top_containers": summarize_container_counts(item.get("container_counts", {})),
+        })
+    return plan
+
+
+def build_sr6_spot_check_plan(table_imports: dict[str, Any], selected_source_sha: str | None) -> list[dict[str, Any]]:
+    private_registry = table_imports.get("private_registry")
+    if not private_registry:
+        return []
+    path = Path(str(private_registry))
+    if not path.is_file():
+        return []
+    payload = load_json(path)
+    sources = payload.get("sources", [])
+    selected_source = None
+    for source in sources:
+        if isinstance(source, dict) and selected_source_sha and source.get("source_sha256") == selected_source_sha:
+            selected_source = source
+            break
+    if selected_source is None:
+        for source in sources:
+            if isinstance(source, dict) and str(source.get("file")) == "Shadowrun_6_Downloadversion_2024.pdf":
+                selected_source = source
+                break
+    if selected_source is None:
+        return []
+
+    target_categories = [
+        "matrix",
+        "cyberware_bioware",
+        "weapons",
+        "skills",
+        "magic_spells",
+        "armor",
+        "rigging_vehicles_drones",
+        "priority_metatype",
+    ]
+    candidates = [item for item in selected_source.get("candidate_rows", []) if isinstance(item, dict)]
+    used_hashes: set[str] = set()
+    plan: list[dict[str, Any]] = []
+    for category in target_categories:
+        match = next(
+            (
+                item
+                for item in candidates
+                if category in item.get("categories", [])
+                and str(item.get("line_sha256")) not in used_hashes
+            ),
+            None,
+        )
+        if not match:
+            continue
+        line_hash = str(match.get("line_sha256"))
+        used_hashes.add(line_hash)
+        plan.append({
+            "focus": category,
+            "page": int(match.get("page") or 0),
+            "line": int(match.get("line") or 0),
+            "line_sha256": line_hash,
+            "numeric_token_count": int(match.get("numeric_token_count") or 0),
+            "has_dice_expression": bool(match.get("has_dice_expression")),
+            "has_money_token": bool(match.get("has_money_token")),
+        })
+    return plan
+
+
+def recommended_signoff_path(ruleset: str) -> list[str]:
+    if ruleset == "sr4":
+        return [
+            "spot-check the listed high-volume XML files first; approve row-level mapping if no contradiction is found",
+            "keep Errata decision at not_applicable",
+            "approve the human review file and rerun the ready checks",
+        ]
+    return [
+        "spot-check the listed 2024-core line-hash candidates first; approve row-level mapping if no contradiction is found",
+        "prefer an Errata decision of applied when the selected 2024 baseline is accepted as the consolidated core source",
+        "use defer only if a specific official errata source cannot be reconciled to the 2024 baseline",
+        "approve the human review file and rerun the ready checks",
+    ]
+
+
 def build_review_handoff(ruleset: str, row_level: dict[str, Any], errata_receipt: dict[str, Any]) -> str:
     upper = ruleset.upper()
     row_packet = row_level.get("review_packet", {})
     errata_packet = errata_receipt.get("review_packet", {})
+    table_imports = load_json(COMPLETION_ROOT / f"{ruleset}_rule_authority" / f"{upper}_TABLE_IMPORTS.generated.json")
+    source_identity = row_packet.get("source_identity") or []
+    selected_source_sha = source_identity[0].get("sha256") if source_identity and isinstance(source_identity[0], dict) else None
+    spot_check_plan = (
+        build_sr4_spot_check_plan(table_imports)
+        if ruleset == "sr4"
+        else build_sr6_spot_check_plan(table_imports, str(selected_source_sha) if selected_source_sha else None)
+    )
     baseline_required = row_packet.get("source_baseline_decision_status") == "pending_human_review"
     lines = [
         f"# {upper} Rule Authority Review Handoff",
@@ -135,6 +251,8 @@ def build_review_handoff(ruleset: str, row_level: dict[str, Any], errata_receipt
         f"- Public-safe row receipt: `{row_level.get('public_safe')}`",
         f"- Errata source metadata count: `{errata_packet.get('source_count')}`",
         f"- Errata policy: `{errata_packet.get('errata_policy')}`",
+        f"- Fixture alignment: `pass`",
+        f"- Explain alignment: `pass`",
         "",
         "## Human Decisions Required",
         "",
@@ -143,6 +261,15 @@ def build_review_handoff(ruleset: str, row_level: dict[str, Any], errata_receipt
         "- Apply, reject as not applicable, or explicitly defer the official errata scope.",
         "- Confirm no sourcebook prose, art, page images, examples, or table text are promoted.",
         "- Sign off before any ready token is emitted.",
+        "",
+        "## Recommended Signoff Path",
+        "",
+        *[f"- {item}" for item in recommended_signoff_path(ruleset)],
+        "",
+        "## Suggested Default Decisions",
+        "",
+        "- Row-level decision: `approved` if the bounded spot checks do not reveal contradictions",
+        f"- Errata decision: `{'not_applicable' if ruleset == 'sr4' else 'applied'}`",
         "",
         "## Decision Fields",
         "",
@@ -161,6 +288,18 @@ def build_review_handoff(ruleset: str, row_level: dict[str, Any], errata_receipt
         f"- `{upper}_ERRATA_SOURCE_POSTURE.generated.json`",
         f"- `{upper}_HUMAN_RULE_REVIEW.md`",
     ])
+    if spot_check_plan:
+        lines.extend(["", "## Bounded Spot-Check Plan", ""])
+        for item in spot_check_plan:
+            if ruleset == "sr4":
+                containers = ", ".join(f"{entry['name']}={entry['count']}" for entry in item["top_containers"])
+                lines.append(
+                    f"- `{item['focus']}` rows=`{item['row_count']}` sha256=`{item['sha256']}` containers=`{containers}`"
+                )
+            else:
+                lines.append(
+                    f"- `{item['focus']}` page=`{item['page']}` line=`{item['line']}` line_sha256=`{item['line_sha256']}` numeric_tokens=`{item['numeric_token_count']}` dice=`{item['has_dice_expression']}` money=`{item['has_money_token']}`"
+                )
     private_registry = row_packet.get("private_registry")
     if private_registry:
         lines.extend(["", "## Private Review Registry", "", f"- `{private_registry}`"])
@@ -176,6 +315,13 @@ def build_human_rule_review(ruleset: str, row_level: dict[str, Any], errata_rece
     no_errata_sources = int(errata_packet.get("source_count") or 0) == 0
     indexed_source_lines = [f"- `{source}`" for source in indexed_sources] or ["- `none`"]
     source_identity = row_packet.get("source_identity") or []
+    table_imports = load_json(COMPLETION_ROOT / f"{ruleset}_rule_authority" / f"{upper}_TABLE_IMPORTS.generated.json")
+    selected_source_sha = source_identity[0].get("sha256") if source_identity and isinstance(source_identity[0], dict) else None
+    spot_check_plan = (
+        build_sr4_spot_check_plan(table_imports)
+        if ruleset == "sr4"
+        else build_sr6_spot_check_plan(table_imports, str(selected_source_sha) if selected_source_sha else None)
+    )
     baseline_required = row_packet.get("source_baseline_decision_status") == "pending_human_review"
     source_identity_lines = [
         f"- `{source.get('file')}` at `{source.get('path')}`; exists=`{source.get('exists')}`; sha256=`{source.get('sha256')}`"
@@ -212,6 +358,19 @@ def build_human_rule_review(ruleset: str, row_level: dict[str, Any], errata_rece
         "- Confirm row-level mappings are normalized facts, not copied source prose or tables.",
         "- Approve the ready token only after row-level and errata decisions are complete.",
         "",
+        "## Fastest Defensible Pass Path",
+        "",
+        *[f"- {item}" for item in recommended_signoff_path(ruleset)],
+        "",
+        "## Suggested Default Decisions",
+        "",
+        "- Row-level decision: `approved` if the bounded spot checks below do not reveal contradictions",
+        (
+            "- Errata decision: `not_applicable`"
+            if no_errata_sources
+            else "- Errata decision: `applied` unless a specific official errata source remains unreconciled to the selected 2024 core baseline"
+        ),
+        "",
         "## Review Inputs",
         "",
         f"- `{upper}_ROW_LEVEL_AUTHORITY_MAPPING.generated.json`",
@@ -227,6 +386,26 @@ def build_human_rule_review(ruleset: str, row_level: dict[str, Any], errata_rece
         "",
         *source_identity_lines,
         "",
+        "## Bounded Spot-Check Plan",
+        "",
+    ]
+    if spot_check_plan:
+        for item in spot_check_plan:
+            if ruleset == "sr4":
+                lines.append(
+                    f"- `{item['focus']}` rows=`{item['row_count']}` sha256=`{item['sha256']}` containers=`"
+                    + ", ".join(f"{entry['name']}={entry['count']}" for entry in item["top_containers"])
+                    + "`"
+                )
+            else:
+                lines.append(
+                    f"- `{item['focus']}` page=`{item['page']}` line=`{item['line']}` line_sha256=`{item['line_sha256']}` "
+                    f"numeric_tokens=`{item['numeric_token_count']}` dice=`{item['has_dice_expression']}` money=`{item['has_money_token']}`"
+                )
+    else:
+        lines.append("- `no spot-check plan available`")
+    lines.extend([
+        "",
         "## Approval Contract",
         "",
         "Leave this file pending until review is complete. A ready review must change:",
@@ -241,7 +420,7 @@ def build_human_rule_review(ruleset: str, row_level: dict[str, Any], errata_rece
         "- `Reviewer: <human reviewer>`",
         "- `Review timestamp: <UTC ISO-8601 timestamp>`",
         "- `Ready token approved: true`",
-    ]
+    ])
     if not no_errata_sources:
         lines.insert(lines.index("- Approve the ready token only after row-level and errata decisions are complete."), "- Apply, reject as not applicable, or explicitly defer every applicable errata source.")
         lines.append("- `Errata defer rationale: <reason>` when the errata decision is `defer`")

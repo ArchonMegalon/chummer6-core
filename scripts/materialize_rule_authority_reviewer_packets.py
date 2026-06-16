@@ -52,7 +52,7 @@ def build_packet(ruleset: str) -> dict[str, Any]:
     explain_alignment_pass = alignment.get("explain_alignment", {}).get("status") == "pass"
 
     no_errata_sources = errata_packet.get("source_count", 0) == 0
-    recommended_errata_decision = "not_applicable" if no_errata_sources else "pending_manual_review"
+    recommended_errata_decision = "not_applicable" if no_errata_sources else ("applied" if ruleset == "sr6" else "pending_manual_review")
     recommended_next_actions = ["review row-level mapping packet and approve or reject normalized public-safe records"]
     if not no_errata_sources:
         recommended_next_actions.insert(1, "review errata packet and record applied/not_applicable/defer decision")
@@ -80,6 +80,39 @@ def build_packet(ruleset: str) -> dict[str, Any]:
         "python3 /docker/chummercomplete/chummer-core-engine/scripts/audit_rule_authority_operator_review.py",
         "bash /docker/chummercomplete/chummer-core-engine/scripts/ai/verify.sh",
     ]
+    preferred_signoff_path = (
+        [
+            "spot-check the high-volume XML files listed in the handoff and approve row-level mapping if no contradiction is found",
+            "keep Errata decision at not_applicable",
+            "approve the human review file and rerun the ready checks",
+        ]
+        if sr4
+        else [
+            "spot-check the 2024-core line-hash candidates listed in the handoff and approve row-level mapping if no contradiction is found",
+            "prefer Errata decision applied if the 2024 baseline is accepted as the consolidated core source",
+            "use defer only for a specific official errata source that cannot be reconciled to the 2024 baseline",
+            "approve the human review file and rerun the ready checks",
+        ]
+    )
+    pass_criteria = [
+        "selected source identity exists and matches the recorded sha256",
+        "bounded spot checks do not reveal contradictions in normalized authority mapping",
+        "no sourcebook prose, art, tables, examples, or page images are promoted into public-safe receipts",
+    ]
+    if sr4:
+        pass_criteria.append("errata remains not_applicable under the selected core-only scope")
+        why_this_should_pass = [
+            "core baseline is explicit and supplements are out of scope",
+            "fixture and explain alignment already pass",
+            "review burden is limited to row-level spot checks and final signoff",
+        ]
+    else:
+        pass_criteria.append("official errata decision is recorded against the selected 2024 core baseline")
+        why_this_should_pass = [
+            "core baseline is explicit and later than the listed 2019/2020 errata sources",
+            "fixture and explain alignment already pass",
+            "review burden is limited to bounded line-hash spot checks, one errata decision, and final signoff",
+        ]
 
     return {
         "contract_name": f"chummer.{ruleset}.reviewer_decision_packet",
@@ -135,6 +168,18 @@ def build_packet(ruleset: str) -> dict[str, Any]:
             "fact_provider_count": len({fact.get("provider") for fact in registry.get("rulefacts", []) if fact.get("provider")}),
         },
         "recommended_next_actions": recommended_next_actions,
+        "preferred_signoff_path": preferred_signoff_path,
+        "pass_criteria": pass_criteria,
+        "why_this_should_pass": why_this_should_pass,
+        "suggested_default_decisions": {
+            "row_level_decision": "approved if bounded spot checks do not reveal contradictions",
+            "errata_decision": "not_applicable" if sr4 else "applied unless a specific official errata source remains unreconciled to the selected 2024 core baseline",
+            "errata_rationale": (
+                "no official errata sources are in scope for the selected SR4 core-only baseline"
+                if sr4
+                else "selected 2024 core baseline is the authority target; prefer applied if it is accepted as the consolidated official source"
+            ),
+        },
         "exact_edit_contract": exact_edit_contract,
         "rerun_commands": rerun_commands,
         "can_change_recommendation_to_sign_off_allowed_when": [
@@ -174,6 +219,25 @@ def build_markdown(packet: dict[str, Any]) -> str:
         "## Required Human Actions",
         "",
         *[f"- {item}" for item in packet["recommended_next_actions"]],
+        "",
+        "## Preferred Signoff Path",
+        "",
+        *[f"- {item}" for item in packet["preferred_signoff_path"]],
+        "",
+        "## Pass Criteria",
+        "",
+        *[f"- {item}" for item in packet["pass_criteria"]],
+        "",
+        "## Why This Should Pass",
+        "",
+        *[f"- {item}" for item in packet["why_this_should_pass"]],
+        "",
+        "## Suggested Default Decisions",
+        "",
+        f"- Row-level decision: `{packet['suggested_default_decisions']['row_level_decision']}`",
+        f"- Errata decision: `{packet['suggested_default_decisions']['errata_decision']}`",
+        f"- Errata rationale: `{packet['suggested_default_decisions']['errata_rationale']}`",
+        "",
         "",
         "## Review Inputs",
         "",

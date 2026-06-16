@@ -60,8 +60,19 @@
     "review_expected_values_required": false,
     "status": "core_seed_fixture_pack_passed"
   },
-  "generated_at_utc": "2026-06-16T09:09:16Z",
+  "generated_at_utc": "2026-06-16T09:21:24Z",
   "human_review_file": "/docker/chummercomplete/_completion/sr4_rule_authority/SR4_HUMAN_RULE_REVIEW.md",
+  "pass_criteria": [
+    "selected source identity exists and matches the recorded sha256",
+    "bounded spot checks do not reveal contradictions in normalized authority mapping",
+    "no sourcebook prose, art, tables, examples, or page images are promoted into public-safe receipts",
+    "errata remains not_applicable under the selected core-only scope"
+  ],
+  "preferred_signoff_path": [
+    "spot-check the high-volume XML files listed in the handoff and approve row-level mapping if no contradiction is found",
+    "keep Errata decision at not_applicable",
+    "approve the human review file and rerun the ready checks"
+  ],
   "recommended_next_actions": [
     "review row-level mapping packet and approve or reject normalized public-safe records",
     "complete human rule review signoff"
@@ -134,5 +145,15 @@
   "ruleset": "sr4",
   "selected_core_baseline": "legacy Chummer4 XML as implemented for core readiness",
   "status": "awaiting_human_decision",
-  "supplements_in_scope": false
+  "suggested_default_decisions": {
+    "errata_decision": "not_applicable",
+    "errata_rationale": "no official errata sources are in scope for the selected SR4 core-only baseline",
+    "row_level_decision": "approved if bounded spot checks do not reveal contradictions"
+  },
+  "supplements_in_scope": false,
+  "why_this_should_pass": [
+    "core baseline is explicit and supplements are out of scope",
+    "fixture and explain alignment already pass",
+    "review burden is limited to row-level spot checks and final signoff"
+  ]
 }

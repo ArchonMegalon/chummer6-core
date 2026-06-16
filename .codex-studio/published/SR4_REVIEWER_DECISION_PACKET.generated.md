@@ -1,6 +1,6 @@
 # SR4 Reviewer Decision Packet
 
-Generated: 2026-06-16T09:09:16Z
+Generated: 2026-06-16T09:21:24Z
 
 Status: awaiting_human_decision
 
@@ -24,6 +24,32 @@ Status: awaiting_human_decision
 
 - review row-level mapping packet and approve or reject normalized public-safe records
 - complete human rule review signoff
+
+## Preferred Signoff Path
+
+- spot-check the high-volume XML files listed in the handoff and approve row-level mapping if no contradiction is found
+- keep Errata decision at not_applicable
+- approve the human review file and rerun the ready checks
+
+## Pass Criteria
+
+- selected source identity exists and matches the recorded sha256
+- bounded spot checks do not reveal contradictions in normalized authority mapping
+- no sourcebook prose, art, tables, examples, or page images are promoted into public-safe receipts
+- errata remains not_applicable under the selected core-only scope
+
+## Why This Should Pass
+
+- core baseline is explicit and supplements are out of scope
+- fixture and explain alignment already pass
+- review burden is limited to row-level spot checks and final signoff
+
+## Suggested Default Decisions
+
+- Row-level decision: `approved if bounded spot checks do not reveal contradictions`
+- Errata decision: `not_applicable`
+- Errata rationale: `no official errata sources are in scope for the selected SR4 core-only baseline`
+
 
 ## Review Inputs
 

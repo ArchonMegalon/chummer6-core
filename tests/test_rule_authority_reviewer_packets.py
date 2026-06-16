@@ -35,6 +35,11 @@ class RuleAuthorityReviewerPacketTests(unittest.TestCase):
         self.assertEqual("approved", sr4["exact_edit_contract"]["Status"])
         self.assertEqual("not_applicable", sr4["exact_edit_contract"]["Errata decision"])
         self.assertGreaterEqual(len(sr4["rerun_commands"]), 4)
+        self.assertIn("preferred_signoff_path", sr4)
+        self.assertEqual("not_applicable", sr4["suggested_default_decisions"]["errata_decision"])
+        self.assertIn("pass_criteria", sr4)
+        self.assertIn("why_this_should_pass", sr4)
+        self.assertIn("core-only baseline", sr4["suggested_default_decisions"]["errata_rationale"])
         self.assertEqual(
             [
                 "review row-level mapping packet and approve or reject normalized public-safe records",
@@ -45,12 +50,14 @@ class RuleAuthorityReviewerPacketTests(unittest.TestCase):
 
         self.assertEqual("awaiting_human_decision", sr6["status"])
         self.assertEqual("Shadowrun_6_Downloadversion_2024.pdf", sr6["selected_core_baseline"])
-        self.assertEqual("pending_manual_review", sr6["errata"]["recommended_decision"])
+        self.assertEqual("applied", sr6["errata"]["recommended_decision"])
         self.assertFalse(sr6["fixtures"]["review_expected_values_required"])
         self.assertFalse(sr6["explain_receipts"]["review_required"])
         self.assertEqual("applied | not_applicable | defer", sr6["exact_edit_contract"]["Errata decision"])
         self.assertIn("Errata defer rationale", sr6["exact_edit_contract"])
         self.assertEqual(3, len(sr6["errata"]["sources"]))
+        self.assertIn("2024 core baseline", sr6["suggested_default_decisions"]["errata_decision"])
+        self.assertIn("consolidated official source", sr6["suggested_default_decisions"]["errata_rationale"])
 
     def test_published_packets_exist(self) -> None:
         for ruleset in ("SR4", "SR6"):
