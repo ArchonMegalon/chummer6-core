@@ -1,5 +1,6 @@
 using Chummer.Contracts.AI;
 using Chummer.Contracts.Owners;
+using Chummer.Contracts.Receipts;
 
 namespace Chummer.Application.AI;
 
@@ -22,5 +23,14 @@ public sealed class NotImplementedAiApprovalOrchestrator : IAiApprovalOrchestrat
             Error: "ai_not_implemented",
             Operation: operation,
             Message: "The Chummer AI approval surface is not implemented yet.",
-            OwnerId: owner.NormalizedValue);
+            OwnerId: owner.NormalizedValue,
+            Envelope: BuildEnvelope(owner, operation));
+
+    private static ReceiptEnvelope BuildEnvelope(OwnerScope owner, string operation)
+        => ReceiptEnvelopeFactory.Runtime(
+            receiptKind: "ai_boundary",
+            ownerScope: owner.IsLocalSingleUser ? "ai.local_single_user" : "ai.owner_scoped",
+            exposureClass: ReceiptExposureClasses.SignedIn,
+            evidenceRef: operation,
+            reviewState: "not_implemented");
 }

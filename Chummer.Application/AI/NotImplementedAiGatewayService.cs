@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Chummer.Contracts.AI;
 using Chummer.Contracts.Owners;
+using Chummer.Contracts.Receipts;
 
 namespace Chummer.Application.AI;
 
@@ -521,7 +522,8 @@ public sealed class NotImplementedAiGatewayService : IAiGatewayService
                 Message: "The Chummer AI gateway is not implemented yet.",
                 ConversationId: string.IsNullOrWhiteSpace(conversationId) ? null : conversationId,
                 RouteType: routeType,
-                OwnerId: owner.NormalizedValue));
+                OwnerId: owner.NormalizedValue,
+                Envelope: BuildBoundaryEnvelope(owner, operation, routeType, "not_implemented")));
 
     private static AiApiResult<T> QuotaExceeded<T>(
         OwnerScope owner,
@@ -548,6 +550,15 @@ public sealed class NotImplementedAiGatewayService : IAiGatewayService
                 LimitKind: limitKind,
                 ConversationId: string.IsNullOrWhiteSpace(conversationId) ? null : conversationId,
                 RouteType: routeType,
-                OwnerId: owner.NormalizedValue));
+                OwnerId: owner.NormalizedValue,
+                Envelope: BuildBoundaryEnvelope(owner, operation, routeType, "quota_exceeded")));
     }
+
+    private static ReceiptEnvelope BuildBoundaryEnvelope(OwnerScope owner, string operation, string? routeType, string reviewState)
+        => ReceiptEnvelopeFactory.Runtime(
+            receiptKind: "ai_gateway_boundary",
+            ownerScope: owner.IsLocalSingleUser ? "ai.local_single_user" : "ai.owner_scoped",
+            exposureClass: ReceiptExposureClasses.SignedIn,
+            evidenceRef: string.IsNullOrWhiteSpace(routeType) ? operation : $"{operation}:{routeType}",
+            reviewState: reviewState);
 }

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using Chummer.Contracts.AI;
 using Chummer.Contracts.Owners;
+using Chummer.Contracts.Receipts;
 
 namespace Chummer.Application.AI;
 
@@ -78,7 +79,13 @@ public sealed class DefaultAiMediaQueueService : IAiMediaQueueService
             Risks: BuildRisks(runtimeSummary.RuntimeFingerprint, characterDigest.RuntimeFingerprint, downstream),
             ApprovalRequired: downstream.Payload?.ApprovalRequired ?? true,
             UnderlyingOperation: ResolveUnderlyingOperation(normalizedJobType),
-            UnderlyingState: downstream.Payload?.State);
+            UnderlyingState: downstream.Payload?.State,
+            Envelope: ReceiptEnvelopeFactory.Runtime(
+                receiptKind: "ai_media_queue",
+                ownerScope: owner.IsLocalSingleUser ? "ai.local_single_user" : "ai.owner_scoped",
+                exposureClass: ReceiptExposureClasses.SignedIn,
+                evidenceRef: queueId,
+                reviewState: state));
     }
 
     private string BuildPrompt(

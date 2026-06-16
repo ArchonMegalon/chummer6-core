@@ -64,6 +64,10 @@ public sealed class AiActionPreviewServiceTests
         Assert.AreEqual("Official SR5 Core", karmaPreview.ProfileTitle);
         Assert.AreEqual("ws-stealth", karmaPreview.WorkspaceId);
         Assert.IsTrue(karmaPreview.Evidence.Any(entry => entry.ReferenceId == "ws-stealth"));
+        Assert.IsNotNull(karmaPreview.Envelope);
+        Assert.AreEqual(ReceiptProvenanceClasses.Runtime, karmaPreview.Envelope!.ProvenanceClass);
+        Assert.AreEqual(ReceiptExposureClasses.SignedIn, karmaPreview.Envelope.ExposureClass);
+        Assert.AreEqual("scaffolded", karmaPreview.Envelope.ReviewState);
 
         Assert.IsNotNull(nuyenPreview);
         Assert.AreEqual(AiActionPreviewApiOperations.PreviewNuyenSpend, nuyenPreview.Operation);
@@ -71,6 +75,7 @@ public sealed class AiActionPreviewServiceTests
         Assert.AreEqual(12000m, nuyenPreview.TotalRequested);
         Assert.AreEqual("nuyen", nuyenPreview.Unit);
         Assert.AreEqual("ws-stealth", nuyenPreview.WorkspaceId);
+        Assert.IsNotNull(nuyenPreview.Envelope);
 
         Assert.IsNotNull(applyPreview);
         Assert.AreEqual(AiActionPreviewApiOperations.CreateApplyPreview, applyPreview.Operation);
@@ -79,6 +84,7 @@ public sealed class AiActionPreviewServiceTests
         Assert.IsGreaterThanOrEqualTo(2, applyPreview.PreparedEffects.Count);
         Assert.IsGreaterThanOrEqualTo(1, applyPreview.Risks.Count);
         Assert.AreEqual("ws-stealth", applyPreview.WorkspaceId);
+        Assert.IsNotNull(applyPreview.Envelope);
     }
 
     [TestMethod]

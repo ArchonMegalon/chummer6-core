@@ -34,9 +34,12 @@ public sealed class AiApprovalOrchestratorTests
 
         Assert.IsFalse(list.IsImplemented);
         Assert.AreEqual(AiApprovalApiOperations.ListApprovals, list.NotImplemented?.Operation);
+        Assert.IsNotNull(list.NotImplemented?.Envelope);
         Assert.IsFalse(submit.IsImplemented);
         Assert.AreEqual(AiApprovalApiOperations.SubmitApproval, submit.NotImplemented?.Operation);
+        Assert.IsNotNull(submit.NotImplemented?.Envelope);
         Assert.IsFalse(resolve.IsImplemented);
         Assert.AreEqual(AiApprovalApiOperations.ResolveApproval, resolve.NotImplemented?.Operation);
+        Assert.IsNotNull(resolve.NotImplemented?.Envelope);
     }
 }

@@ -4,6 +4,7 @@ using System.Globalization;
 using System.Linq;
 using Chummer.Contracts.AI;
 using Chummer.Contracts.Owners;
+using Chummer.Contracts.Receipts;
 
 namespace Chummer.Application.AI;
 
@@ -70,7 +71,8 @@ public sealed class DefaultAiActionPreviewService : IAiActionPreviewService
             RequiresConfirmation: request.ActionDraft.RequiresConfirmation,
             ProfileId: sessionDigest?.ProfileId,
             ProfileTitle: sessionDigest?.ProfileTitle,
-            WorkspaceId: workspaceId);
+            WorkspaceId: workspaceId,
+            Envelope: BuildEnvelope("ai_action_preview", owner, characterDigest.CharacterId, runtimeSummary.RuntimeFingerprint));
     }
 
     private AiActionPreviewReceipt? CreateSpendPreview(
@@ -132,7 +134,8 @@ public sealed class DefaultAiActionPreviewService : IAiActionPreviewService
             RequiresConfirmation: true,
             ProfileId: sessionDigest?.ProfileId,
             ProfileTitle: sessionDigest?.ProfileTitle,
-            WorkspaceId: workspaceId);
+            WorkspaceId: workspaceId,
+            Envelope: BuildEnvelope("ai_action_preview", owner, characterDigest.CharacterId, runtimeSummary.RuntimeFingerprint));
     }
 
     private static IReadOnlyList<AiEvidenceEntry> BuildEvidence(
@@ -204,4 +207,12 @@ public sealed class DefaultAiActionPreviewService : IAiActionPreviewService
         => string.IsNullOrWhiteSpace(workspaceId)
             ? $"{previewKind}:{characterId}:{runtimeFingerprint}"
             : $"{previewKind}:{characterId}:{runtimeFingerprint}:{workspaceId}";
+
+    private static ReceiptEnvelope BuildEnvelope(string receiptKind, OwnerScope owner, string characterId, string runtimeFingerprint)
+        => ReceiptEnvelopeFactory.Runtime(
+            receiptKind: receiptKind,
+            ownerScope: owner.IsLocalSingleUser ? "ai.local_single_user" : "ai.owner_scoped",
+            exposureClass: ReceiptExposureClasses.SignedIn,
+            evidenceRef: $"{characterId}:{runtimeFingerprint}",
+            reviewState: "scaffolded");
 }

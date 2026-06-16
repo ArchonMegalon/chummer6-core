@@ -43,6 +43,10 @@ public sealed class AiMediaQueueServiceTests
         Assert.AreEqual("neo-noir", receipt.Options["stylePackId"]);
         Assert.IsGreaterThanOrEqualTo(2, receipt.Evidence.Count);
         Assert.IsGreaterThanOrEqualTo(2, receipt.Risks.Count);
+        Assert.IsNotNull(receipt.Envelope);
+        Assert.AreEqual(ReceiptProvenanceClasses.Runtime, receipt.Envelope!.ProvenanceClass);
+        Assert.AreEqual(ReceiptExposureClasses.SignedIn, receipt.Envelope.ExposureClass);
+        Assert.AreEqual("scaffolded", receipt.Envelope.ReviewState);
     }
 
     [TestMethod]

@@ -27,8 +27,11 @@ public sealed class AiTranscriptAndRecapDraftServiceTests
 
         Assert.IsFalse(submit.IsImplemented);
         Assert.AreEqual(AiTranscriptApiOperations.SubmitTranscript, submit.NotImplemented?.Operation);
+        Assert.IsNotNull(submit.NotImplemented?.Envelope);
+        Assert.AreEqual(ReceiptProvenanceClasses.Runtime, submit.NotImplemented!.Envelope!.ProvenanceClass);
         Assert.IsFalse(detail.IsImplemented);
         Assert.AreEqual(AiTranscriptApiOperations.GetTranscript, detail.NotImplemented?.Operation);
+        Assert.IsNotNull(detail.NotImplemented?.Envelope);
     }
 
     [TestMethod]
@@ -49,7 +52,9 @@ public sealed class AiTranscriptAndRecapDraftServiceTests
 
         Assert.IsFalse(list.IsImplemented);
         Assert.AreEqual(AiRecapDraftApiOperations.ListRecapDrafts, list.NotImplemented?.Operation);
+        Assert.IsNotNull(list.NotImplemented?.Envelope);
         Assert.IsFalse(create.IsImplemented);
         Assert.AreEqual(AiRecapDraftApiOperations.CreateRecapDraft, create.NotImplemented?.Operation);
+        Assert.IsNotNull(create.NotImplemented?.Envelope);
     }
 }
