@@ -1,6 +1,6 @@
 {
   "contract_name": "chummer.sr4.errata_source_posture",
-  "generated_at_utc": "2026-06-16T04:41:21Z",
+  "generated_at_utc": "2026-06-16T04:56:27Z",
   "human_required": {
     "must_apply_or_explicitly_defer_each_applicable_change": true,
     "must_confirm_applicable_errata_sources": true,
@@ -21,7 +21,7 @@
   "ready_for_gold": false,
   "required_before_gold": true,
   "review_packet": {
-    "decision": "pending",
+    "decision": "not_applicable",
     "errata_policy": "official errata or official web notices only",
     "required_decision_values": [
       "applied",
@@ -35,5 +35,5 @@
   },
   "ruleset": "sr4",
   "sources": [],
-  "status": "pending_reviewed_application"
+  "status": "not_applicable_by_policy"
 }

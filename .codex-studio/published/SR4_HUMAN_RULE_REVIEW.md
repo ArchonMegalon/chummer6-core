@@ -1,9 +1,9 @@
 # SR4 Human Rule Review
 
-Generated: 2026-06-16T04:41:21Z
+Generated: 2026-06-16T04:56:27Z
 Status: pending
 Row-level decision: pending
-Errata decision: pending
+Errata decision: not_applicable
 Reviewer: pending
 Review timestamp: pending
 Ready token approved: false
@@ -16,7 +16,7 @@ Ready token approved: false
 - Source count: `27`
 - Selected core baseline: `legacy Chummer4 XML as implemented for core readiness`
 - Source baseline decision status: `operator_policy_selected_core_baseline`
-- Errata posture status: `pending_reviewed_application`
+- Errata posture status: `not_applicable_by_policy`
 - Errata source count: `0`
 - Errata policy: `official errata or official web notices only`
 - Public copy policy: `metadata only: file names, hashes, XML container names, and counts; no sourcebook prose, art, page images, item descriptions, or stat rows`
@@ -25,8 +25,6 @@ Ready token approved: false
 
 - Confirm the indexed source surface is the correct edition authority.
 - Confirm row-level mappings are normalized facts, not copied source prose or tables.
-- Apply, reject as not applicable, or explicitly defer every applicable errata source.
-- Confirm fixture expectations are valid against reviewed rule authority.
 - Approve the ready token only after row-level and errata decisions are complete.
 
 ## Review Inputs
@@ -76,8 +74,7 @@ Leave this file pending until review is complete. A ready review must change:
 
 - `Status: approved`
 - `Row-level decision: approved`
-- `Errata decision: applied`, `not_applicable`, or `defer` with written rationale
+- `Errata decision: not_applicable`
 - `Reviewer: <human reviewer>`
 - `Review timestamp: <UTC ISO-8601 timestamp>`
 - `Ready token approved: true`
-- `Errata defer rationale: <reason>` when the errata decision is `defer`

@@ -10,12 +10,12 @@
         "row_level_mapping": "/docker/chummercomplete/_completion/sr4_rule_authority/SR4_ROW_LEVEL_AUTHORITY_MAPPING.generated.json",
         "verification_matrix_run": "/docker/chummercomplete/_completion/sr4_rule_authority/SR4_VERIFICATION_MATRIX_RUN.generated.json"
       },
-      "errata_posture_status": "pending_reviewed_application",
+      "errata_posture_status": "not_applicable_by_policy",
       "errata_status": "applied",
       "human_review_status": {
         "fields": {
-          "Errata decision": "pending",
-          "Generated": "2026-06-16T04:41:21Z",
+          "Errata decision": "not_applicable",
+          "Generated": "2026-06-16T04:56:27Z",
           "Ready token approved": "false",
           "Review timestamp": "pending",
           "Reviewer": "pending",
@@ -41,8 +41,6 @@
       "readiness_token_allowed": false,
       "remaining_gates": [
         "human-reviewed row-level mapping from indexed table evidence into normalized records",
-        "official errata posture reviewed against the selected core baseline",
-        "fixture expectations reviewed against approved row-level authority",
         "human rule review signoff"
       ],
       "row_level_mapping_status": "pending_human_review",
@@ -69,7 +67,7 @@
       "human_review_status": {
         "fields": {
           "Errata decision": "pending",
-          "Generated": "2026-06-16T04:41:21Z",
+          "Generated": "2026-06-16T04:56:27Z",
           "Ready token approved": "false",
           "Review timestamp": "pending",
           "Reviewer": "pending",
@@ -96,8 +94,6 @@
       "remaining_gates": [
         "human-reviewed mapping of 2024-core PDF line-hash candidates into normalized public-safe records",
         "official errata posture reviewed against the selected 2024 core baseline",
-        "fixture expectations reviewed against approved row-level authority",
-        "provider-backed explain corpus reviewed against approved row-level authority",
         "human rule review signoff"
       ],
       "row_level_mapping_status": "pending_human_review",
@@ -117,15 +113,15 @@
     "sourcebook_prose_copied": false
   },
   "final_verdict": "NOT_READY",
-  "generated_at_utc": "2026-06-16T04:41:24Z",
+  "generated_at_utc": "2026-06-16T04:56:30Z",
   "readiness_token_allowed": false,
   "rulesets": {
     "sr4": {
       "final_verdict": "NOT_READY",
       "human_review": {
         "fields": {
-          "Errata decision": "pending",
-          "Generated": "2026-06-16T04:41:21Z",
+          "Errata decision": "not_applicable",
+          "Generated": "2026-06-16T04:56:27Z",
           "Ready token approved": "false",
           "Review timestamp": "pending",
           "Reviewer": "pending",
@@ -158,7 +154,7 @@
       "human_review": {
         "fields": {
           "Errata decision": "pending",
-          "Generated": "2026-06-16T04:41:21Z",
+          "Generated": "2026-06-16T04:56:27Z",
           "Ready token approved": "false",
           "Review timestamp": "pending",
           "Reviewer": "pending",

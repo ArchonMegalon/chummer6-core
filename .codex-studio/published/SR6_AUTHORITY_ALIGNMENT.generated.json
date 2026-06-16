@@ -1,0 +1,66 @@
+{
+  "contract_name": "chummer.sr6.authority_alignment",
+  "explain_alignment": {
+    "coverage_domains": [
+      "dice",
+      "tests",
+      "edge",
+      "action_economy",
+      "priority_creation",
+      "metatype_ranges",
+      "skills",
+      "derived_stats",
+      "combat",
+      "magic",
+      "matrix",
+      "rigging",
+      "status_effects"
+    ],
+    "provider": "Sr6ExplainReceiptProvider",
+    "rulefact_provider_count": 16,
+    "rulefact_providers": [
+      "Sr6ActionEconomyProvider",
+      "Sr6AdvancementProvider",
+      "Sr6CharacterCreationProvider",
+      "Sr6CombatProvider",
+      "Sr6DerivedStatsProvider",
+      "Sr6DiceProvider",
+      "Sr6EdgeProvider",
+      "Sr6GearProvider",
+      "Sr6MagicProvider",
+      "Sr6MatrixProvider",
+      "Sr6MetatypeProvider",
+      "Sr6QualityProvider",
+      "Sr6RiggingProvider",
+      "Sr6SkillProvider",
+      "Sr6StatusProvider",
+      "Sr6TestProvider"
+    ],
+    "status": "pass",
+    "supports_row_level_review": true
+  },
+  "fixture_alignment": {
+    "failed": 0,
+    "passed": 37,
+    "required_fixture_count": 8,
+    "required_fixture_ids": [
+      "sr6_basic_dice_and_edge",
+      "sr6_priority_human_street_sam",
+      "sr6_priority_elf_mage",
+      "sr6_firearms_attack",
+      "sr6_direct_spell",
+      "sr6_indirect_spell_fireball",
+      "sr6_matrix_illegal_action_os",
+      "sr6_rigging_drone_attack"
+    ],
+    "status": "pass",
+    "supports_row_level_review": true
+  },
+  "generated_at_utc": "2026-06-16T04:56:27Z",
+  "remaining_human_dependence": [
+    "alignment receipts support human review but do not replace row-level authority approval"
+  ],
+  "ruleset": "sr6",
+  "selected_core_baseline": "Shadowrun_6_Downloadversion_2024.pdf",
+  "status": "pass"
+}

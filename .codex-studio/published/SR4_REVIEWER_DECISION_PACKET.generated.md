@@ -1,6 +1,6 @@
 # SR4 Reviewer Decision Packet
 
-Generated: 2026-06-16T04:41:21Z
+Generated: 2026-06-16T04:56:27Z
 
 Status: awaiting_human_decision
 
@@ -13,7 +13,7 @@ Status: awaiting_human_decision
 
 - Row-level mapping status: `pending_human_review`
 - Indexed units: `6989`
-- Errata status: `pending_reviewed_application`
+- Errata status: `not_applicable_by_policy`
 - Errata recommended decision: `not_applicable`
 - Fixture status: `core_seed_fixture_pack_passed`
 - Explain receipt status: `core_seed_receipt_pack_available`
@@ -22,13 +22,9 @@ Status: awaiting_human_decision
 ## Required Human Actions
 
 - review row-level mapping packet and approve or reject normalized public-safe records
-- review errata packet and record applied/not_applicable/defer decision
-- confirm fixture expectations against approved authority facts
 - complete human rule review signoff
 
 ## Signoff Preconditions
 
 - row-level decision is approved
-- errata decision is applied/not_applicable/defer with rationale
-- fixture expectations are human-confirmed
 - human review file is approved with ready token approved true

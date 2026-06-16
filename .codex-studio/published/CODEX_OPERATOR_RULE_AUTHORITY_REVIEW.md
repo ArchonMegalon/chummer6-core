@@ -1,6 +1,6 @@
 # Codex Operator Rule Authority Review
 
-Generated: 2026-06-16T04:41:21.788285Z
+Generated: 2026-06-16T04:56:27.763699Z
 
 Status: operator review complete; rule authority remains blocked.
 
@@ -34,8 +34,8 @@ This audit checks local source identity, edition fit, receipt consistency, provi
 - explain_status: core_seed_receipt_pack_available
 - errata_status: applied
 - row_level_mapping_status: pending_human_review
-- errata_posture_status: pending_reviewed_application
-- human_review_status: {'status': 'pass', 'ruleset': 'sr4', 'review_ready': False, 'pending_review': True, 'source_baseline_required': False, 'fields': {'Generated': '2026-06-16T04:41:21Z', 'Status': 'pending', 'Row-level decision': 'pending', 'Errata decision': 'pending', 'Reviewer': 'pending', 'Review timestamp': 'pending', 'Ready token approved': 'false'}, 'path': '/docker/chummercomplete/_completion/sr4_rule_authority/SR4_HUMAN_RULE_REVIEW.md'}
+- errata_posture_status: not_applicable_by_policy
+- human_review_status: {'status': 'pass', 'ruleset': 'sr4', 'review_ready': False, 'pending_review': True, 'source_baseline_required': False, 'fields': {'Generated': '2026-06-16T04:56:27Z', 'Status': 'pending', 'Row-level decision': 'pending', 'Errata decision': 'not_applicable', 'Reviewer': 'pending', 'Review timestamp': 'pending', 'Ready token approved': 'false'}, 'path': '/docker/chummercomplete/_completion/sr4_rule_authority/SR4_HUMAN_RULE_REVIEW.md'}
 - blocker_receipts: {'row_level_mapping': '/docker/chummercomplete/_completion/sr4_rule_authority/SR4_ROW_LEVEL_AUTHORITY_MAPPING.generated.json', 'errata_posture': '/docker/chummercomplete/_completion/sr4_rule_authority/SR4_ERRATA_SOURCE_POSTURE.generated.json', 'review_handoff': '/docker/chummercomplete/_completion/sr4_rule_authority/SR4_RULE_AUTHORITY_REVIEW_HANDOFF.md', 'reviewer_decision_packet': '/docker/chummercomplete/_completion/sr4_rule_authority/SR4_REVIEWER_DECISION_PACKET.generated.json', 'human_review': '/docker/chummercomplete/_completion/sr4_rule_authority/SR4_HUMAN_RULE_REVIEW.md'}
 - copyright_status: pass
 - readiness_token_allowed: False
@@ -62,7 +62,7 @@ This audit checks local source identity, edition fit, receipt consistency, provi
 - errata_status: applied
 - row_level_mapping_status: pending_human_review
 - errata_posture_status: pending_reviewed_application
-- human_review_status: {'status': 'pass', 'ruleset': 'sr6', 'review_ready': False, 'pending_review': True, 'source_baseline_required': False, 'fields': {'Generated': '2026-06-16T04:41:21Z', 'Status': 'pending', 'Row-level decision': 'pending', 'Errata decision': 'pending', 'Reviewer': 'pending', 'Review timestamp': 'pending', 'Ready token approved': 'false'}, 'path': '/docker/chummercomplete/_completion/sr6_rule_authority/SR6_HUMAN_RULE_REVIEW.md'}
+- human_review_status: {'status': 'pass', 'ruleset': 'sr6', 'review_ready': False, 'pending_review': True, 'source_baseline_required': False, 'fields': {'Generated': '2026-06-16T04:56:27Z', 'Status': 'pending', 'Row-level decision': 'pending', 'Errata decision': 'pending', 'Reviewer': 'pending', 'Review timestamp': 'pending', 'Ready token approved': 'false'}, 'path': '/docker/chummercomplete/_completion/sr6_rule_authority/SR6_HUMAN_RULE_REVIEW.md'}
 - blocker_receipts: {'row_level_mapping': '/docker/chummercomplete/_completion/sr6_rule_authority/SR6_ROW_LEVEL_AUTHORITY_MAPPING.generated.json', 'errata_posture': '/docker/chummercomplete/_completion/sr6_rule_authority/SR6_ERRATA_SOURCE_POSTURE.generated.json', 'review_handoff': '/docker/chummercomplete/_completion/sr6_rule_authority/SR6_RULE_AUTHORITY_REVIEW_HANDOFF.md', 'reviewer_decision_packet': '/docker/chummercomplete/_completion/sr6_rule_authority/SR6_REVIEWER_DECISION_PACKET.generated.json', 'human_review': '/docker/chummercomplete/_completion/sr6_rule_authority/SR6_HUMAN_RULE_REVIEW.md'}
 - copyright_status: pass
 - readiness_token_allowed: False
@@ -74,13 +74,13 @@ This audit checks local source identity, edition fit, receipt consistency, provi
 - provider_class_coverage: pass - SR4 and SR6 required provider classes are present with no missing implementation/profile entries.
 - seed_fixture_execution: pass - Focused SR4/SR6 seed fixture receipts report zero failures.
 - rulefact_depth: pass - RuleFact registries now cover the intended core SR4/SR6 provider families for core readiness.
-- row_level_table_mapping: blocker - SR4/SR6 still require reviewed row-level authority mapping, errata application, expanded fixtures, and independent human signoff.
-- errata_application: blocker - Official errata/web-notice sources are now bounded to the chosen scope, but the remaining deltas still need reviewed application against approved row-level authority.
+- row_level_table_mapping: blocker - SR4/SR6 still require reviewed row-level authority mapping, any remaining in-scope errata application, and independent human signoff.
+- errata_application: blocker - Official errata/web-notice sources are bounded to the chosen scope; SR4 is policy-bounded to not-applicable while SR6 still needs reviewed application against approved row-level authority.
 - human_signoff: blocker - This is a Codex operator audit, not independent human/editorial/legal signoff.
 
 ## Decision
 
-Do not promote SR4 or SR6 to rule-authority ready from this audit alone. The remaining work is not code-class discovery; it is reviewed row-level rule/data mapping, errata application, a larger authority fixture corpus, public-safe explain receipts for every authority rule, and independent human signoff.
+Do not promote SR4 or SR6 to rule-authority ready from this audit alone. The remaining work is not code-class discovery; it is reviewed row-level rule/data mapping, any remaining in-scope errata application, and independent human signoff.
 
 ## Recommendation
 
@@ -88,4 +88,4 @@ Do not promote SR4 or SR6 to rule-authority ready from this audit alone. The rem
 - sr4: do_not_sign_off
 - sr6: do_not_sign_off
 - embarrassment_risk: high_if_overridden_without_review
-- reason: Do not sign off while row-level review, errata review, fixture expectation review, explain-corpus review, or human signoff remain pending.
+- reason: Do not sign off while row-level review, any remaining in-scope errata review, or human signoff remain pending.

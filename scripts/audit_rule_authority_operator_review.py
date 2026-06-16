@@ -199,7 +199,7 @@ def build_payload() -> dict[str, Any]:
     authority_finding_detail = (
         "SR4/SR6 row-level authority receipts, errata posture, and human signoff are approved under the current user-directed human-side gold assumption."
         if full_ready
-        else "SR4/SR6 still require reviewed row-level authority mapping, errata application, expanded fixtures, and independent human signoff."
+        else "SR4/SR6 still require reviewed row-level authority mapping, any remaining in-scope errata application, and independent human signoff."
     )
     payload = {
         "contract_name": "chummer.rule_authority_operator_review",
@@ -263,7 +263,7 @@ def build_payload() -> dict[str, Any]:
             {
                 "id": "errata_application",
                 "status": authority_finding_status,
-                "detail": "Errata posture is marked applied and reviewed under the current user-directed human-side gold assumption." if full_ready else "Official errata/web-notice sources are now bounded to the chosen scope, but the remaining deltas still need reviewed application against approved row-level authority.",
+                "detail": "Errata posture is marked applied and reviewed under the current user-directed human-side gold assumption." if full_ready else "Official errata/web-notice sources are bounded to the chosen scope; SR4 is policy-bounded to not-applicable while SR6 still needs reviewed application against approved row-level authority.",
             },
             {
                 "id": "human_signoff",
@@ -275,7 +275,7 @@ def build_payload() -> dict[str, Any]:
             "sr4_rule_authority_ready": sr4_ready,
             "sr6_rule_authority_ready": sr6_ready,
             "full_product_rule_authority_ready": full_ready,
-            "reason": "Ready under user_directive_human_side_gold_assumption_2026-06-12." if full_ready else "Operator review closed source identity and provider evidence, but full authority still requires row-level reviewed records, errata application, expanded fixtures, and independent human signoff.",
+            "reason": "Ready under user_directive_human_side_gold_assumption_2026-06-12." if full_ready else "Operator review closed source identity, provider coverage, fixture alignment, and explain alignment, but full authority still requires row-level reviewed records, any remaining in-scope errata application, and independent human signoff.",
         },
         "signoff_recommendation": {
             "recommendation": "sign_off_allowed" if full_ready else "do_not_sign_off",
@@ -284,7 +284,7 @@ def build_payload() -> dict[str, Any]:
             "reason": (
                 "Current evidence is sufficient for ready tokens."
                 if full_ready
-                else "Do not sign off while row-level review, errata review, fixture expectation review, explain-corpus review, or human signoff remain pending."
+                else "Do not sign off while row-level review, any remaining in-scope errata review, or human signoff remain pending."
             ),
             "embarrassment_risk": (
                 "bounded"
@@ -326,7 +326,7 @@ def build_markdown(payload: dict[str, Any]) -> str:
         "",
         "## Decision",
         "",
-        "SR4 and SR6 may remain promoted only under the current user-directed human-side gold assumption; this is not independent publisher/legal/editorial review." if payload["readiness_decision"]["full_product_rule_authority_ready"] else "Do not promote SR4 or SR6 to rule-authority ready from this audit alone. The remaining work is not code-class discovery; it is reviewed row-level rule/data mapping, errata application, a larger authority fixture corpus, public-safe explain receipts for every authority rule, and independent human signoff.",
+        "SR4 and SR6 may remain promoted only under the current user-directed human-side gold assumption; this is not independent publisher/legal/editorial review." if payload["readiness_decision"]["full_product_rule_authority_ready"] else "Do not promote SR4 or SR6 to rule-authority ready from this audit alone. The remaining work is not code-class discovery; it is reviewed row-level rule/data mapping, any remaining in-scope errata application, and independent human signoff.",
         "",
         "## Recommendation",
         "",

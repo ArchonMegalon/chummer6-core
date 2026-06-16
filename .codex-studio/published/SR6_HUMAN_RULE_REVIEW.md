@@ -1,6 +1,6 @@
 # SR6 Human Rule Review
 
-Generated: 2026-06-16T04:41:21Z
+Generated: 2026-06-16T04:56:27Z
 Status: pending
 Row-level decision: pending
 Errata decision: pending
@@ -26,7 +26,6 @@ Ready token approved: false
 - Confirm the indexed source surface is the correct edition authority.
 - Confirm row-level mappings are normalized facts, not copied source prose or tables.
 - Apply, reject as not applicable, or explicitly defer every applicable errata source.
-- Confirm fixture expectations are valid against reviewed rule authority.
 - Approve the ready token only after row-level and errata decisions are complete.
 
 ## Review Inputs

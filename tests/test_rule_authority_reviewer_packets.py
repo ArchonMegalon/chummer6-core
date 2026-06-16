@@ -27,12 +27,22 @@ class RuleAuthorityReviewerPacketTests(unittest.TestCase):
         self.assertEqual("awaiting_human_decision", sr4["status"])
         self.assertEqual("legacy Chummer4 XML as implemented for core readiness", sr4["selected_core_baseline"])
         self.assertEqual("not_applicable", sr4["errata"]["recommended_decision"])
+        self.assertFalse(sr4["errata"]["review_decision_required"])
+        self.assertFalse(sr4["fixtures"]["review_expected_values_required"])
         self.assertGreater(sr4["registry"]["rulefact_count"], 0)
+        self.assertEqual(
+            [
+                "review row-level mapping packet and approve or reject normalized public-safe records",
+                "complete human rule review signoff",
+            ],
+            sr4["recommended_next_actions"],
+        )
 
         self.assertEqual("awaiting_human_decision", sr6["status"])
         self.assertEqual("Shadowrun_6_Downloadversion_2024.pdf", sr6["selected_core_baseline"])
         self.assertEqual("pending_manual_review", sr6["errata"]["recommended_decision"])
-        self.assertTrue(sr6["explain_receipts"]["review_required"])
+        self.assertFalse(sr6["fixtures"]["review_expected_values_required"])
+        self.assertFalse(sr6["explain_receipts"]["review_required"])
 
     def test_published_packets_exist(self) -> None:
         for ruleset in ("SR4", "SR6"):

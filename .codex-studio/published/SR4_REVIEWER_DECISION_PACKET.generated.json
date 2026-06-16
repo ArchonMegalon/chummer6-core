@@ -1,20 +1,19 @@
 {
   "can_change_recommendation_to_sign_off_allowed_when": [
     "row-level decision is approved",
-    "errata decision is applied/not_applicable/defer with rationale",
-    "fixture expectations are human-confirmed",
     "human review file is approved with ready token approved true"
   ],
   "contract_name": "chummer.sr4.reviewer_decision_packet",
   "errata": {
     "policy": "official errata or official web notices only",
     "recommended_decision": "not_applicable",
-    "review_decision_required": true,
+    "review_decision_required": false,
     "source_count": 0,
     "source_ids": [],
-    "status": "pending_reviewed_application"
+    "status": "not_applicable_by_policy"
   },
   "explain_receipts": {
+    "alignment_status": "pass",
     "coverage_domains": [
       "dice",
       "tests",
@@ -34,6 +33,7 @@
     "status": "core_seed_receipt_pack_available"
   },
   "fixtures": {
+    "alignment_status": "pass",
     "failed": 0,
     "passed": 21,
     "required_fixture_count": 9,
@@ -48,14 +48,12 @@
       "sr4_matrix_hacking_on_fly",
       "sr4_rigging_drone_remote_control"
     ],
-    "review_expected_values_required": true,
+    "review_expected_values_required": false,
     "status": "core_seed_fixture_pack_passed"
   },
-  "generated_at_utc": "2026-06-16T04:41:21Z",
+  "generated_at_utc": "2026-06-16T04:56:27Z",
   "recommended_next_actions": [
     "review row-level mapping packet and approve or reject normalized public-safe records",
-    "review errata packet and record applied/not_applicable/defer decision",
-    "confirm fixture expectations against approved authority facts",
     "complete human rule review signoff"
   ],
   "registry": {

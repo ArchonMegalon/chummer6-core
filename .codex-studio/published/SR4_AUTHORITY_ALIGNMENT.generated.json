@@ -1,0 +1,67 @@
+{
+  "contract_name": "chummer.sr4.authority_alignment",
+  "explain_alignment": {
+    "coverage_domains": [
+      "dice",
+      "tests",
+      "build_points",
+      "metatype_ranges",
+      "attributes",
+      "skills",
+      "qualities",
+      "derived_stats",
+      "combat",
+      "magic",
+      "matrix",
+      "rigging"
+    ],
+    "provider": "Sr4ExplainReceiptProvider",
+    "rulefact_provider_count": 17,
+    "rulefact_providers": [
+      "Sr4ActionEconomyProvider",
+      "Sr4AdvancementProvider",
+      "Sr4AttributeProvider",
+      "Sr4CharacterCreationProvider",
+      "Sr4CombatProvider",
+      "Sr4DamageProvider",
+      "Sr4DerivedStatsProvider",
+      "Sr4DiceProvider",
+      "Sr4EdgeProvider",
+      "Sr4GearProvider",
+      "Sr4MagicProvider",
+      "Sr4MatrixProvider",
+      "Sr4MetatypeProvider",
+      "Sr4QualityProvider",
+      "Sr4RiggingProvider",
+      "Sr4SkillProvider",
+      "Sr4TestProvider"
+    ],
+    "status": "pass",
+    "supports_row_level_review": true
+  },
+  "fixture_alignment": {
+    "failed": 0,
+    "passed": 21,
+    "required_fixture_count": 9,
+    "required_fixture_ids": [
+      "sr4_basic_dice_edge",
+      "sr4_bp_human_street_sam",
+      "sr4_bp_elf_mage",
+      "sr4_bp_dwarf_hacker",
+      "sr4_firearms_attack",
+      "sr4_melee_attack",
+      "sr4_summoning_spirit",
+      "sr4_matrix_hacking_on_fly",
+      "sr4_rigging_drone_remote_control"
+    ],
+    "status": "pass",
+    "supports_row_level_review": true
+  },
+  "generated_at_utc": "2026-06-16T04:56:27Z",
+  "remaining_human_dependence": [
+    "alignment receipts support human review but do not replace row-level authority approval"
+  ],
+  "ruleset": "sr4",
+  "selected_core_baseline": "legacy Chummer4 XML as implemented for core readiness",
+  "status": "pass"
+}

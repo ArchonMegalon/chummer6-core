@@ -41,6 +41,7 @@ def main() -> int:
     sr4_row_level = load_json(sr4_root / "SR4_ROW_LEVEL_AUTHORITY_MAPPING.generated.json")
     sr4_errata_posture = load_json(sr4_root / "SR4_ERRATA_SOURCE_POSTURE.generated.json")
     sr4_matrix = load_json(sr4_root / "SR4_VERIFICATION_MATRIX_RUN.generated.json")
+    sr4_alignment = load_json(sr4_root / "SR4_AUTHORITY_ALIGNMENT.generated.json")
     sr6_integration = load_json(sr6_root / "SR6_RULE_AUTHORITY_INTEGRATION.generated.json")
     sr6_provider = load_json(sr6_root / "SR6_PROVIDER_COVERAGE.generated.json")
     sr6_tables = load_json(sr6_root / "SR6_TABLE_IMPORTS.generated.json")
@@ -49,6 +50,7 @@ def main() -> int:
     sr6_row_level = load_json(sr6_root / "SR6_ROW_LEVEL_AUTHORITY_MAPPING.generated.json")
     sr6_errata_posture = load_json(sr6_root / "SR6_ERRATA_SOURCE_POSTURE.generated.json")
     sr6_matrix = load_json(sr6_root / "SR6_VERIFICATION_MATRIX_RUN.generated.json")
+    sr6_alignment = load_json(sr6_root / "SR6_AUTHORITY_ALIGNMENT.generated.json")
     sr4_human_review = validate_review("sr4")
     sr6_human_review = validate_review("sr6")
     sr5_acceptance = load_json(PUBLISHED_ROOT / "SR5_ACCEPTANCE_PROOF.generated.json")
@@ -80,8 +82,7 @@ def main() -> int:
             },
             "remaining_gates": [
                 "human-reviewed row-level mapping from indexed table evidence into normalized records",
-                "official errata posture reviewed against the selected core baseline",
-                "fixture expectations reviewed against approved row-level authority",
+                *([] if sr4_alignment.get("fixture_alignment", {}).get("status") == "pass" else ["fixture expectations reviewed against approved row-level authority"]),
                 "human rule review signoff",
             ],
             "errata_status": sr4_errata.get("status"),
@@ -118,8 +119,8 @@ def main() -> int:
             "remaining_gates": [
                 "human-reviewed mapping of 2024-core PDF line-hash candidates into normalized public-safe records",
                 "official errata posture reviewed against the selected 2024 core baseline",
-                "fixture expectations reviewed against approved row-level authority",
-                "provider-backed explain corpus reviewed against approved row-level authority",
+                *([] if sr6_alignment.get("fixture_alignment", {}).get("status") == "pass" else ["fixture expectations reviewed against approved row-level authority"]),
+                *([] if sr6_alignment.get("explain_alignment", {}).get("status") == "pass" else ["provider-backed explain corpus reviewed against approved row-level authority"]),
                 "human rule review signoff",
             ],
             "errata_status": sr6_errata.get("status"),

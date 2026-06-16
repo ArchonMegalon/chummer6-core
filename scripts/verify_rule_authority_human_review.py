@@ -30,6 +30,11 @@ def row_mapping_path(ruleset: str) -> Path:
     return COMPLETION_ROOT / f"{ruleset}_rule_authority" / f"{upper}_ROW_LEVEL_AUTHORITY_MAPPING.generated.json"
 
 
+def errata_posture_path(ruleset: str) -> Path:
+    upper = ruleset.upper()
+    return COMPLETION_ROOT / f"{ruleset}_rule_authority" / f"{upper}_ERRATA_SOURCE_POSTURE.generated.json"
+
+
 def source_baseline_required(ruleset: str) -> bool:
     path = row_mapping_path(ruleset)
     if not path.is_file():
@@ -39,6 +44,18 @@ def source_baseline_required(ruleset: str) -> bool:
     except json.JSONDecodeError:
         return False
     return payload.get("source_baseline_decision_status") == "pending_human_review"
+
+
+def no_errata_sources_in_scope(ruleset: str) -> bool:
+    path = errata_posture_path(ruleset)
+    if not path.is_file():
+        return False
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return False
+    review_packet = payload.get("review_packet", {})
+    return int(review_packet.get("source_count") or 0) == 0
 
 
 def parse_fields(text: str) -> dict[str, str]:
@@ -60,7 +77,13 @@ def timestamp_is_utc_iso(value: str) -> bool:
     return True
 
 
-def validate_fields(ruleset: str, fields: dict[str, str], path: Path | None = None, source_baseline_required: bool = False) -> dict[str, object]:
+def validate_fields(
+    ruleset: str,
+    fields: dict[str, str],
+    path: Path | None = None,
+    source_baseline_required: bool = False,
+    no_errata_sources_in_scope: bool = False,
+) -> dict[str, object]:
     missing = sorted(REQUIRED_FIELDS - set(fields))
     if missing:
         return {"status": "fail", "ruleset": ruleset, "reason": "missing required fields", "missing": missing, "path": str(path) if path else ""}
@@ -76,7 +99,7 @@ def validate_fields(ruleset: str, fields: dict[str, str], path: Path | None = No
     pending_ok = (
         status == "pending"
         and row_decision == "pending"
-        and errata_decision == "pending"
+        and errata_decision in ({"pending", "not_applicable"} if no_errata_sources_in_scope else {"pending"})
         and reviewer.lower() == "pending"
         and timestamp.lower() == "pending"
         and ready_approved == "false"
@@ -124,7 +147,13 @@ def validate_review(ruleset: str) -> dict[str, object]:
         return {"status": "fail", "ruleset": ruleset, "reason": "missing human review", "path": str(path)}
 
     text = path.read_text(encoding="utf-8")
-    return validate_fields(ruleset, parse_fields(text), path, source_baseline_required(ruleset))
+    return validate_fields(
+        ruleset,
+        parse_fields(text),
+        path,
+        source_baseline_required(ruleset),
+        no_errata_sources_in_scope(ruleset),
+    )
 
 
 def main(argv: list[str] | None = None) -> int:

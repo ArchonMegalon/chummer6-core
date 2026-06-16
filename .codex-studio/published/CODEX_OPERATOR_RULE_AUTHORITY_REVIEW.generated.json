@@ -26,12 +26,12 @@
       "status": "pass"
     },
     {
-      "detail": "SR4/SR6 still require reviewed row-level authority mapping, errata application, expanded fixtures, and independent human signoff.",
+      "detail": "SR4/SR6 still require reviewed row-level authority mapping, any remaining in-scope errata application, and independent human signoff.",
       "id": "row_level_table_mapping",
       "status": "blocker"
     },
     {
-      "detail": "Official errata/web-notice sources are now bounded to the chosen scope, but the remaining deltas still need reviewed application against approved row-level authority.",
+      "detail": "Official errata/web-notice sources are bounded to the chosen scope; SR4 is policy-bounded to not-applicable while SR6 still needs reviewed application against approved row-level authority.",
       "id": "errata_application",
       "status": "blocker"
     },
@@ -63,10 +63,10 @@
       "url": "https://shadowrunsixthworld.com/wp-content/uploads/sites/5/2020/03/SR6-Core-Rulebook-Errata-Feb-2020.pdf"
     }
   },
-  "generated_at_utc": "2026-06-16T04:41:21.788285Z",
+  "generated_at_utc": "2026-06-16T04:56:27.763699Z",
   "readiness_decision": {
     "full_product_rule_authority_ready": false,
-    "reason": "Operator review closed source identity and provider evidence, but full authority still requires row-level reviewed records, errata application, expanded fixtures, and independent human signoff.",
+    "reason": "Operator review closed source identity, provider coverage, fixture alignment, and explain alignment, but full authority still requires row-level reviewed records, any remaining in-scope errata application, and independent human signoff.",
     "sr4_rule_authority_ready": false,
     "sr6_rule_authority_ready": false
   },
@@ -81,7 +81,7 @@
         "row_level_mapping": "/docker/chummercomplete/_completion/sr4_rule_authority/SR4_ROW_LEVEL_AUTHORITY_MAPPING.generated.json"
       },
       "copyright_status": "pass",
-      "errata_posture_status": "pending_reviewed_application",
+      "errata_posture_status": "not_applicable_by_policy",
       "errata_status": "applied",
       "explain_status": "core_seed_receipt_pack_available",
       "fixture_failed": 0,
@@ -89,8 +89,8 @@
       "fixture_status": "core_seed_fixture_pack_passed",
       "human_review_status": {
         "fields": {
-          "Errata decision": "pending",
-          "Generated": "2026-06-16T04:41:21Z",
+          "Errata decision": "not_applicable",
+          "Generated": "2026-06-16T04:56:27Z",
           "Ready token approved": "false",
           "Review timestamp": "pending",
           "Reviewer": "pending",
@@ -607,7 +607,7 @@
       "human_review_status": {
         "fields": {
           "Errata decision": "pending",
-          "Generated": "2026-06-16T04:41:21Z",
+          "Generated": "2026-06-16T04:56:27Z",
           "Ready token approved": "false",
           "Review timestamp": "pending",
           "Reviewer": "pending",
@@ -1102,7 +1102,7 @@
   },
   "signoff_recommendation": {
     "embarrassment_risk": "high_if_overridden_without_review",
-    "reason": "Do not sign off while row-level review, errata review, fixture expectation review, explain-corpus review, or human signoff remain pending.",
+    "reason": "Do not sign off while row-level review, any remaining in-scope errata review, or human signoff remain pending.",
     "recommendation": "do_not_sign_off",
     "sr4": "do_not_sign_off",
     "sr6": "do_not_sign_off"

@@ -173,6 +173,7 @@ def build_human_rule_review(ruleset: str, row_level: dict[str, Any], errata_rece
     errata_packet = errata_receipt.get("review_packet", {})
     private_registry = row_packet.get("private_registry") or "none"
     indexed_sources = row_packet.get("indexed_source_files") or []
+    no_errata_sources = int(errata_packet.get("source_count") or 0) == 0
     indexed_source_lines = [f"- `{source}`" for source in indexed_sources] or ["- `none`"]
     source_identity = row_packet.get("source_identity") or []
     baseline_required = row_packet.get("source_baseline_decision_status") == "pending_human_review"
@@ -187,7 +188,7 @@ def build_human_rule_review(ruleset: str, row_level: dict[str, Any], errata_rece
         f"Generated: {now()}",
         "Status: pending",
         "Row-level decision: pending",
-        "Errata decision: pending",
+        f"Errata decision: {'not_applicable' if no_errata_sources else 'pending'}",
         "Reviewer: pending",
         "Review timestamp: pending",
         "Ready token approved: false",
@@ -209,8 +210,6 @@ def build_human_rule_review(ruleset: str, row_level: dict[str, Any], errata_rece
         "",
         "- Confirm the indexed source surface is the correct edition authority.",
         "- Confirm row-level mappings are normalized facts, not copied source prose or tables.",
-        "- Apply, reject as not applicable, or explicitly defer every applicable errata source.",
-        "- Confirm fixture expectations are valid against reviewed rule authority.",
         "- Approve the ready token only after row-level and errata decisions are complete.",
         "",
         "## Review Inputs",
@@ -234,12 +233,18 @@ def build_human_rule_review(ruleset: str, row_level: dict[str, Any], errata_rece
         "",
         "- `Status: approved`",
         "- `Row-level decision: approved`",
-        "- `Errata decision: applied`, `not_applicable`, or `defer` with written rationale",
+        (
+            "- `Errata decision: not_applicable`"
+            if no_errata_sources
+            else "- `Errata decision: applied`, `not_applicable`, or `defer` with written rationale"
+        ),
         "- `Reviewer: <human reviewer>`",
         "- `Review timestamp: <UTC ISO-8601 timestamp>`",
         "- `Ready token approved: true`",
-        "- `Errata defer rationale: <reason>` when the errata decision is `defer`",
     ]
+    if not no_errata_sources:
+        lines.insert(lines.index("- Approve the ready token only after row-level and errata decisions are complete."), "- Apply, reject as not applicable, or explicitly defer every applicable errata source.")
+        lines.append("- `Errata defer rationale: <reason>` when the errata decision is `defer`")
     if baseline_required:
         lines.insert(lines.index("- Confirm row-level mappings are normalized facts, not copied source prose or tables."), "- Select or reject the edition/source baseline when multiple books are indexed.")
         lines.append("- `Source baseline decision: <selected baseline>` when multiple source files are indexed")
@@ -332,11 +337,12 @@ def build_row_level_mapping_receipt(ruleset: str, table_imports: dict[str, Any],
 def build_errata_receipt(ruleset: str, errata_profile: dict[str, Any]) -> dict[str, Any]:
     sources = errata_sources_for_ruleset(ruleset)
     policy = RULE_AUTHORITY_POLICY[ruleset]
+    no_sources_in_scope = len(sources) == 0
     return {
         "contract_name": f"chummer.{ruleset}.errata_source_posture",
         "generated_at_utc": now(),
         "ruleset": ruleset,
-        "status": "pending_reviewed_application",
+        "status": "not_applicable_by_policy" if no_sources_in_scope else "pending_reviewed_application",
         "required_before_gold": bool(errata_profile.get("required_before_gold")),
         "production_claim_allowed": bool(errata_profile.get("production_claim_allowed", False)),
         "sources": sources,
@@ -358,7 +364,7 @@ def build_errata_receipt(ruleset: str, errata_profile: dict[str, Any]) -> dict[s
             "must_sign_off_before_ready_token": True,
         },
         "review_packet": {
-            "decision": "pending",
+            "decision": "not_applicable" if no_sources_in_scope else "pending",
             "required_decision_values": ["applied", "not_applicable", "defer"],
             "source_count": len(sources),
             "source_ids": [str(source.get("id")) for source in sources if isinstance(source, dict)],

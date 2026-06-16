@@ -1,12 +1,12 @@
 # SR4 Rule Authority Review Handoff
 
-Generated: 2026-06-16T04:41:21Z
+Generated: 2026-06-16T04:56:27Z
 
 ## Current Verdict
 
 - Ready token: withheld
 - Row-level mapping: `pending_human_review`
-- Errata posture: `pending_reviewed_application`
+- Errata posture: `not_applicable_by_policy`
 - Ready for gold: `False`
 
 ## Machine-Completed Evidence

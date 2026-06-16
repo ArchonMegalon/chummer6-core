@@ -14,12 +14,14 @@ python3 scripts/verify_sr5_rule_authority_seed.py
 python3 scripts/verify_sr6_rule_authority_seed.py
 python3 scripts/materialize_rule_authority_support_receipts.py
 python3 scripts/materialize_rule_authority_blocker_receipts.py
+python3 scripts/materialize_rule_authority_alignment_receipts.py
 python3 scripts/materialize_rule_authority_reviewer_packets.py
 python3 scripts/audit_rule_authority_operator_review.py >/dev/null
 python3 tests/test_sr5_rule_authority_seed.py
 python3 tests/test_rule_authority_operator_review.py
 python3 tests/test_rule_authority_blocker_receipts.py
 python3 tests/test_rule_authority_support_receipts.py
+python3 tests/test_rule_authority_alignment_receipts.py
 python3 tests/test_rule_authority_reviewer_packets.py
 
 test -f docs/CONTRACT_BOUNDARY_MAP.md

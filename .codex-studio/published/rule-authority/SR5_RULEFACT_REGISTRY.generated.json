@@ -9,7 +9,7 @@
   },
   "depth_status": "pass",
   "edition": "SR5",
-  "generated_at_utc": "2026-06-16T04:41:20Z",
+  "generated_at_utc": "2026-06-16T04:56:26Z",
   "golden_fixtures": {
     "fixture_count": 45,
     "status": "pass"
@@ -60,7 +60,7 @@
     "status": "pass",
     "summary_only": false
   },
-  "registry_sha256": "3c18e7a8bd42f0e1a8e5b0283b9ecf096bf6fbd9a6e011329ec5e5d2c6b2d667",
+  "registry_sha256": "effbb359da827b0cc78b7f3d6d9faa9b0aef2a33ec1d9cf1228ade076e5e9a73",
   "required_providers": [
     "SR5AdvancementProvider",
     "SR5CombatProvider",

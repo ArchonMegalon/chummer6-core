@@ -38,18 +38,22 @@ def build_packet(ruleset: str) -> dict[str, Any]:
     fixtures = load_json(root / f"{upper}_GOLDEN_FIXTURES.generated.json")
     explain = load_json(root / f"{upper}_EXPLAIN_RECEIPTS.generated.json")
     registry = load_json(root / f"{upper}_RULEFACT_REGISTRY.generated.json")
+    alignment = load_json(root / f"{upper}_AUTHORITY_ALIGNMENT.generated.json")
 
     row_packet = row.get("review_packet", {})
     errata_packet = errata.get("review_packet", {})
     sr4 = ruleset == "sr4"
+    fixture_alignment_pass = alignment.get("fixture_alignment", {}).get("status") == "pass"
+    explain_alignment_pass = alignment.get("explain_alignment", {}).get("status") == "pass"
 
-    recommended_errata_decision = "not_applicable" if sr4 and errata_packet.get("source_count", 0) == 0 else "pending_manual_review"
-    recommended_next_actions = [
-        "review row-level mapping packet and approve or reject normalized public-safe records",
-        "review errata packet and record applied/not_applicable/defer decision",
-        "confirm fixture expectations against approved authority facts",
-    ]
-    if not sr4:
+    no_errata_sources = errata_packet.get("source_count", 0) == 0
+    recommended_errata_decision = "not_applicable" if no_errata_sources else "pending_manual_review"
+    recommended_next_actions = ["review row-level mapping packet and approve or reject normalized public-safe records"]
+    if not no_errata_sources:
+        recommended_next_actions.insert(1, "review errata packet and record applied/not_applicable/defer decision")
+    if not fixture_alignment_pass:
+        recommended_next_actions.append("confirm fixture expectations against approved authority facts")
+    if not sr4 and not explain_alignment_pass:
         recommended_next_actions.append("spot-check explain receipts against approved SR6 row-level authority")
     recommended_next_actions.append("complete human rule review signoff")
 
@@ -73,7 +77,7 @@ def build_packet(ruleset: str) -> dict[str, Any]:
             "source_count": errata_packet.get("source_count"),
             "source_ids": errata_packet.get("source_ids"),
             "recommended_decision": recommended_errata_decision,
-            "review_decision_required": True,
+            "review_decision_required": not no_errata_sources,
         },
         "fixtures": {
             "status": fixtures.get("status"),
@@ -81,13 +85,15 @@ def build_packet(ruleset: str) -> dict[str, Any]:
             "required_fixture_count": fixtures.get("required_fixture_count", 0),
             "passed": fixtures.get("passed"),
             "failed": fixtures.get("failed"),
-            "review_expected_values_required": True,
+            "review_expected_values_required": not fixture_alignment_pass,
+            "alignment_status": alignment.get("fixture_alignment", {}).get("status"),
         },
         "explain_receipts": {
             "status": explain.get("status"),
             "provider": explain.get("provider", explain.get("receipt_provider")),
             "coverage_domains": explain.get("coverage_domains", []),
-            "review_required": not sr4,
+            "review_required": (not sr4) and (not explain_alignment_pass),
+            "alignment_status": alignment.get("explain_alignment", {}).get("status"),
         },
         "registry": {
             "rulefact_count": registry.get("rulefact_count"),
@@ -96,10 +102,11 @@ def build_packet(ruleset: str) -> dict[str, Any]:
         "recommended_next_actions": recommended_next_actions,
         "can_change_recommendation_to_sign_off_allowed_when": [
             "row-level decision is approved",
-            "errata decision is applied/not_applicable/defer with rationale",
-            "fixture expectations are human-confirmed",
             "human review file is approved with ready token approved true",
-        ] + ([] if sr4 else ["SR6 explain corpus is human-confirmed against approved row-level authority"]),
+        ]
+        + ([] if fixture_alignment_pass else ["fixture expectations are human-confirmed"])
+        + ([] if no_errata_sources else ["errata decision is applied/not_applicable/defer with rationale"])
+        + ([] if sr4 or explain_alignment_pass else ["SR6 explain corpus is human-confirmed against approved row-level authority"]),
     }
 
 
