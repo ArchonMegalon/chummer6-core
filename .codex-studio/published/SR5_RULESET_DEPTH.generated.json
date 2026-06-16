@@ -26,7 +26,7 @@
     "Chummer.Rulesets.Sr5/Sr5RulesetPlugin.cs",
     "Chummer.Rulesets.Sr5/Sr5WorkspaceCodec.cs"
   ],
-  "generated_at": "2026-06-16T04:30:38Z",
+  "generated_at": "2026-06-16T04:41:20Z",
   "rule_authority": {
     "fixture_count": 45,
     "golden_fixtures": ".codex-studio/published/rule-authority/SR5_GOLDEN_FIXTURES.generated.json",

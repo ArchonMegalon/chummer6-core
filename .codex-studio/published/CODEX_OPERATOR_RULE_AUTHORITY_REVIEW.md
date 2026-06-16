@@ -1,6 +1,6 @@
 # Codex Operator Rule Authority Review
 
-Generated: 2026-06-16T04:33:09.423633Z
+Generated: 2026-06-16T04:41:21.788285Z
 
 Status: operator review complete; rule authority remains blocked.
 
@@ -35,8 +35,8 @@ This audit checks local source identity, edition fit, receipt consistency, provi
 - errata_status: applied
 - row_level_mapping_status: pending_human_review
 - errata_posture_status: pending_reviewed_application
-- human_review_status: {'status': 'pass', 'ruleset': 'sr4', 'review_ready': False, 'pending_review': True, 'source_baseline_required': False, 'fields': {'Generated': '2026-06-16T04:30:38Z', 'Status': 'pending', 'Row-level decision': 'pending', 'Errata decision': 'pending', 'Reviewer': 'pending', 'Review timestamp': 'pending', 'Ready token approved': 'false'}, 'path': '/docker/chummercomplete/_completion/sr4_rule_authority/SR4_HUMAN_RULE_REVIEW.md'}
-- blocker_receipts: {'row_level_mapping': '/docker/chummercomplete/_completion/sr4_rule_authority/SR4_ROW_LEVEL_AUTHORITY_MAPPING.generated.json', 'errata_posture': '/docker/chummercomplete/_completion/sr4_rule_authority/SR4_ERRATA_SOURCE_POSTURE.generated.json', 'review_handoff': '/docker/chummercomplete/_completion/sr4_rule_authority/SR4_RULE_AUTHORITY_REVIEW_HANDOFF.md', 'human_review': '/docker/chummercomplete/_completion/sr4_rule_authority/SR4_HUMAN_RULE_REVIEW.md'}
+- human_review_status: {'status': 'pass', 'ruleset': 'sr4', 'review_ready': False, 'pending_review': True, 'source_baseline_required': False, 'fields': {'Generated': '2026-06-16T04:41:21Z', 'Status': 'pending', 'Row-level decision': 'pending', 'Errata decision': 'pending', 'Reviewer': 'pending', 'Review timestamp': 'pending', 'Ready token approved': 'false'}, 'path': '/docker/chummercomplete/_completion/sr4_rule_authority/SR4_HUMAN_RULE_REVIEW.md'}
+- blocker_receipts: {'row_level_mapping': '/docker/chummercomplete/_completion/sr4_rule_authority/SR4_ROW_LEVEL_AUTHORITY_MAPPING.generated.json', 'errata_posture': '/docker/chummercomplete/_completion/sr4_rule_authority/SR4_ERRATA_SOURCE_POSTURE.generated.json', 'review_handoff': '/docker/chummercomplete/_completion/sr4_rule_authority/SR4_RULE_AUTHORITY_REVIEW_HANDOFF.md', 'reviewer_decision_packet': '/docker/chummercomplete/_completion/sr4_rule_authority/SR4_REVIEWER_DECISION_PACKET.generated.json', 'human_review': '/docker/chummercomplete/_completion/sr4_rule_authority/SR4_HUMAN_RULE_REVIEW.md'}
 - copyright_status: pass
 - readiness_token_allowed: False
 
@@ -62,8 +62,8 @@ This audit checks local source identity, edition fit, receipt consistency, provi
 - errata_status: applied
 - row_level_mapping_status: pending_human_review
 - errata_posture_status: pending_reviewed_application
-- human_review_status: {'status': 'pass', 'ruleset': 'sr6', 'review_ready': False, 'pending_review': True, 'source_baseline_required': False, 'fields': {'Generated': '2026-06-16T04:30:39Z', 'Status': 'pending', 'Row-level decision': 'pending', 'Errata decision': 'pending', 'Reviewer': 'pending', 'Review timestamp': 'pending', 'Ready token approved': 'false'}, 'path': '/docker/chummercomplete/_completion/sr6_rule_authority/SR6_HUMAN_RULE_REVIEW.md'}
-- blocker_receipts: {'row_level_mapping': '/docker/chummercomplete/_completion/sr6_rule_authority/SR6_ROW_LEVEL_AUTHORITY_MAPPING.generated.json', 'errata_posture': '/docker/chummercomplete/_completion/sr6_rule_authority/SR6_ERRATA_SOURCE_POSTURE.generated.json', 'review_handoff': '/docker/chummercomplete/_completion/sr6_rule_authority/SR6_RULE_AUTHORITY_REVIEW_HANDOFF.md', 'human_review': '/docker/chummercomplete/_completion/sr6_rule_authority/SR6_HUMAN_RULE_REVIEW.md'}
+- human_review_status: {'status': 'pass', 'ruleset': 'sr6', 'review_ready': False, 'pending_review': True, 'source_baseline_required': False, 'fields': {'Generated': '2026-06-16T04:41:21Z', 'Status': 'pending', 'Row-level decision': 'pending', 'Errata decision': 'pending', 'Reviewer': 'pending', 'Review timestamp': 'pending', 'Ready token approved': 'false'}, 'path': '/docker/chummercomplete/_completion/sr6_rule_authority/SR6_HUMAN_RULE_REVIEW.md'}
+- blocker_receipts: {'row_level_mapping': '/docker/chummercomplete/_completion/sr6_rule_authority/SR6_ROW_LEVEL_AUTHORITY_MAPPING.generated.json', 'errata_posture': '/docker/chummercomplete/_completion/sr6_rule_authority/SR6_ERRATA_SOURCE_POSTURE.generated.json', 'review_handoff': '/docker/chummercomplete/_completion/sr6_rule_authority/SR6_RULE_AUTHORITY_REVIEW_HANDOFF.md', 'reviewer_decision_packet': '/docker/chummercomplete/_completion/sr6_rule_authority/SR6_REVIEWER_DECISION_PACKET.generated.json', 'human_review': '/docker/chummercomplete/_completion/sr6_rule_authority/SR6_HUMAN_RULE_REVIEW.md'}
 - copyright_status: pass
 - readiness_token_allowed: False
 

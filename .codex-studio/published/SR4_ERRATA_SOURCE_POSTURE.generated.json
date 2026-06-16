@@ -1,6 +1,6 @@
 {
   "contract_name": "chummer.sr4.errata_source_posture",
-  "generated_at_utc": "2026-06-16T04:30:38Z",
+  "generated_at_utc": "2026-06-16T04:41:21Z",
   "human_required": {
     "must_apply_or_explicitly_defer_each_applicable_change": true,
     "must_confirm_applicable_errata_sources": true,

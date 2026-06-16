@@ -6,6 +6,7 @@
         "errata_posture": "/docker/chummercomplete/_completion/sr4_rule_authority/SR4_ERRATA_SOURCE_POSTURE.generated.json",
         "human_review": "/docker/chummercomplete/_completion/sr4_rule_authority/SR4_HUMAN_RULE_REVIEW.md",
         "review_handoff": "/docker/chummercomplete/_completion/sr4_rule_authority/SR4_RULE_AUTHORITY_REVIEW_HANDOFF.md",
+        "reviewer_decision_packet": "/docker/chummercomplete/_completion/sr4_rule_authority/SR4_REVIEWER_DECISION_PACKET.generated.json",
         "row_level_mapping": "/docker/chummercomplete/_completion/sr4_rule_authority/SR4_ROW_LEVEL_AUTHORITY_MAPPING.generated.json",
         "verification_matrix_run": "/docker/chummercomplete/_completion/sr4_rule_authority/SR4_VERIFICATION_MATRIX_RUN.generated.json"
       },
@@ -14,7 +15,7 @@
       "human_review_status": {
         "fields": {
           "Errata decision": "pending",
-          "Generated": "2026-06-16T04:30:38Z",
+          "Generated": "2026-06-16T04:41:21Z",
           "Ready token approved": "false",
           "Review timestamp": "pending",
           "Reviewer": "pending",
@@ -59,6 +60,7 @@
         "errata_posture": "/docker/chummercomplete/_completion/sr6_rule_authority/SR6_ERRATA_SOURCE_POSTURE.generated.json",
         "human_review": "/docker/chummercomplete/_completion/sr6_rule_authority/SR6_HUMAN_RULE_REVIEW.md",
         "review_handoff": "/docker/chummercomplete/_completion/sr6_rule_authority/SR6_RULE_AUTHORITY_REVIEW_HANDOFF.md",
+        "reviewer_decision_packet": "/docker/chummercomplete/_completion/sr6_rule_authority/SR6_REVIEWER_DECISION_PACKET.generated.json",
         "row_level_mapping": "/docker/chummercomplete/_completion/sr6_rule_authority/SR6_ROW_LEVEL_AUTHORITY_MAPPING.generated.json",
         "verification_matrix_run": "/docker/chummercomplete/_completion/sr6_rule_authority/SR6_VERIFICATION_MATRIX_RUN.generated.json"
       },
@@ -67,7 +69,7 @@
       "human_review_status": {
         "fields": {
           "Errata decision": "pending",
-          "Generated": "2026-06-16T04:30:39Z",
+          "Generated": "2026-06-16T04:41:21Z",
           "Ready token approved": "false",
           "Review timestamp": "pending",
           "Reviewer": "pending",
@@ -115,7 +117,7 @@
     "sourcebook_prose_copied": false
   },
   "final_verdict": "NOT_READY",
-  "generated_at_utc": "2026-06-16T04:33:11Z",
+  "generated_at_utc": "2026-06-16T04:41:24Z",
   "readiness_token_allowed": false,
   "rulesets": {
     "sr4": {
@@ -123,7 +125,7 @@
       "human_review": {
         "fields": {
           "Errata decision": "pending",
-          "Generated": "2026-06-16T04:30:38Z",
+          "Generated": "2026-06-16T04:41:21Z",
           "Ready token approved": "false",
           "Review timestamp": "pending",
           "Reviewer": "pending",
@@ -156,7 +158,7 @@
       "human_review": {
         "fields": {
           "Errata decision": "pending",
-          "Generated": "2026-06-16T04:30:39Z",
+          "Generated": "2026-06-16T04:41:21Z",
           "Ready token approved": "false",
           "Review timestamp": "pending",
           "Reviewer": "pending",

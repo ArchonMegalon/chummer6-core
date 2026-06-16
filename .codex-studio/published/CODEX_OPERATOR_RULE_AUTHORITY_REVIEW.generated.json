@@ -63,7 +63,7 @@
       "url": "https://shadowrunsixthworld.com/wp-content/uploads/sites/5/2020/03/SR6-Core-Rulebook-Errata-Feb-2020.pdf"
     }
   },
-  "generated_at_utc": "2026-06-16T04:33:09.423633Z",
+  "generated_at_utc": "2026-06-16T04:41:21.788285Z",
   "readiness_decision": {
     "full_product_rule_authority_ready": false,
     "reason": "Operator review closed source identity and provider evidence, but full authority still requires row-level reviewed records, errata application, expanded fixtures, and independent human signoff.",
@@ -77,6 +77,7 @@
         "errata_posture": "/docker/chummercomplete/_completion/sr4_rule_authority/SR4_ERRATA_SOURCE_POSTURE.generated.json",
         "human_review": "/docker/chummercomplete/_completion/sr4_rule_authority/SR4_HUMAN_RULE_REVIEW.md",
         "review_handoff": "/docker/chummercomplete/_completion/sr4_rule_authority/SR4_RULE_AUTHORITY_REVIEW_HANDOFF.md",
+        "reviewer_decision_packet": "/docker/chummercomplete/_completion/sr4_rule_authority/SR4_REVIEWER_DECISION_PACKET.generated.json",
         "row_level_mapping": "/docker/chummercomplete/_completion/sr4_rule_authority/SR4_ROW_LEVEL_AUTHORITY_MAPPING.generated.json"
       },
       "copyright_status": "pass",
@@ -89,7 +90,7 @@
       "human_review_status": {
         "fields": {
           "Errata decision": "pending",
-          "Generated": "2026-06-16T04:30:38Z",
+          "Generated": "2026-06-16T04:41:21Z",
           "Ready token approved": "false",
           "Review timestamp": "pending",
           "Reviewer": "pending",
@@ -593,6 +594,7 @@
         "errata_posture": "/docker/chummercomplete/_completion/sr6_rule_authority/SR6_ERRATA_SOURCE_POSTURE.generated.json",
         "human_review": "/docker/chummercomplete/_completion/sr6_rule_authority/SR6_HUMAN_RULE_REVIEW.md",
         "review_handoff": "/docker/chummercomplete/_completion/sr6_rule_authority/SR6_RULE_AUTHORITY_REVIEW_HANDOFF.md",
+        "reviewer_decision_packet": "/docker/chummercomplete/_completion/sr6_rule_authority/SR6_REVIEWER_DECISION_PACKET.generated.json",
         "row_level_mapping": "/docker/chummercomplete/_completion/sr6_rule_authority/SR6_ROW_LEVEL_AUTHORITY_MAPPING.generated.json"
       },
       "copyright_status": "pass",
@@ -605,7 +607,7 @@
       "human_review_status": {
         "fields": {
           "Errata decision": "pending",
-          "Generated": "2026-06-16T04:30:39Z",
+          "Generated": "2026-06-16T04:41:21Z",
           "Ready token approved": "false",
           "Review timestamp": "pending",
           "Reviewer": "pending",

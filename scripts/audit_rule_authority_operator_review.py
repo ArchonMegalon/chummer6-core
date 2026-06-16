@@ -159,6 +159,7 @@ def ruleset_receipt_review(ruleset: str) -> dict[str, Any]:
             "row_level_mapping": str(row_level_path),
             "errata_posture": str(errata_posture_path),
             "review_handoff": str(root / f"{upper}_RULE_AUTHORITY_REVIEW_HANDOFF.md"),
+            "reviewer_decision_packet": str(root / f"{upper}_REVIEWER_DECISION_PACKET.generated.json"),
             "human_review": str(root / f"{upper}_HUMAN_RULE_REVIEW.md"),
         },
         "copyright_status": copyright_safety.get("status"),

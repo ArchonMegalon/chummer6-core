@@ -1,0 +1,104 @@
+{
+  "can_change_recommendation_to_sign_off_allowed_when": [
+    "row-level decision is approved",
+    "errata decision is applied/not_applicable/defer with rationale",
+    "fixture expectations are human-confirmed",
+    "human review file is approved with ready token approved true"
+  ],
+  "contract_name": "chummer.sr4.reviewer_decision_packet",
+  "errata": {
+    "policy": "official errata or official web notices only",
+    "recommended_decision": "not_applicable",
+    "review_decision_required": true,
+    "source_count": 0,
+    "source_ids": [],
+    "status": "pending_reviewed_application"
+  },
+  "explain_receipts": {
+    "coverage_domains": [
+      "dice",
+      "tests",
+      "build_points",
+      "metatype_ranges",
+      "attributes",
+      "skills",
+      "qualities",
+      "derived_stats",
+      "combat",
+      "magic",
+      "matrix",
+      "rigging"
+    ],
+    "provider": "Sr4ExplainReceiptProvider",
+    "review_required": false,
+    "status": "core_seed_receipt_pack_available"
+  },
+  "fixtures": {
+    "failed": 0,
+    "passed": 21,
+    "required_fixture_count": 9,
+    "required_fixture_ids": [
+      "sr4_basic_dice_edge",
+      "sr4_bp_human_street_sam",
+      "sr4_bp_elf_mage",
+      "sr4_bp_dwarf_hacker",
+      "sr4_firearms_attack",
+      "sr4_melee_attack",
+      "sr4_summoning_spirit",
+      "sr4_matrix_hacking_on_fly",
+      "sr4_rigging_drone_remote_control"
+    ],
+    "review_expected_values_required": true,
+    "status": "core_seed_fixture_pack_passed"
+  },
+  "generated_at_utc": "2026-06-16T04:41:21Z",
+  "recommended_next_actions": [
+    "review row-level mapping packet and approve or reject normalized public-safe records",
+    "review errata packet and record applied/not_applicable/defer decision",
+    "confirm fixture expectations against approved authority facts",
+    "complete human rule review signoff"
+  ],
+  "registry": {
+    "fact_provider_count": 17,
+    "rulefact_count": 449
+  },
+  "row_level_mapping": {
+    "indexed_source_files": [
+      "/docker/fleet/repos/chummer4/Chummer/bin/Release/data/armor.xml",
+      "/docker/fleet/repos/chummer4/Chummer/bin/Release/data/bioware.xml",
+      "/docker/fleet/repos/chummer4/Chummer/bin/Release/data/books.xml",
+      "/docker/fleet/repos/chummer4/Chummer/bin/Release/data/critterpowers.xml",
+      "/docker/fleet/repos/chummer4/Chummer/bin/Release/data/critters.xml",
+      "/docker/fleet/repos/chummer4/Chummer/bin/Release/data/cyberware.xml",
+      "/docker/fleet/repos/chummer4/Chummer/bin/Release/data/echoes.xml",
+      "/docker/fleet/repos/chummer4/Chummer/bin/Release/data/gear.xml",
+      "/docker/fleet/repos/chummer4/Chummer/bin/Release/data/improvements.xml",
+      "/docker/fleet/repos/chummer4/Chummer/bin/Release/data/lifestyles.xml",
+      "/docker/fleet/repos/chummer4/Chummer/bin/Release/data/martialarts.xml",
+      "/docker/fleet/repos/chummer4/Chummer/bin/Release/data/mentors.xml",
+      "/docker/fleet/repos/chummer4/Chummer/bin/Release/data/metamagic.xml",
+      "/docker/fleet/repos/chummer4/Chummer/bin/Release/data/metatypes.xml",
+      "/docker/fleet/repos/chummer4/Chummer/bin/Release/data/packs.xml",
+      "/docker/fleet/repos/chummer4/Chummer/bin/Release/data/paragons.xml",
+      "/docker/fleet/repos/chummer4/Chummer/bin/Release/data/powers.xml",
+      "/docker/fleet/repos/chummer4/Chummer/bin/Release/data/programs.xml",
+      "/docker/fleet/repos/chummer4/Chummer/bin/Release/data/qualities.xml",
+      "/docker/fleet/repos/chummer4/Chummer/bin/Release/data/ranges.xml",
+      "/docker/fleet/repos/chummer4/Chummer/bin/Release/data/skills.xml",
+      "/docker/fleet/repos/chummer4/Chummer/bin/Release/data/spells.xml",
+      "/docker/fleet/repos/chummer4/Chummer/bin/Release/data/streams.xml",
+      "/docker/fleet/repos/chummer4/Chummer/bin/Release/data/traditions.xml",
+      "/docker/fleet/repos/chummer4/Chummer/bin/Release/data/vehicles.xml",
+      "/docker/fleet/repos/chummer4/Chummer/bin/Release/data/vessels.xml",
+      "/docker/fleet/repos/chummer4/Chummer/bin/Release/data/weapons.xml"
+    ],
+    "indexed_unit_count": 6989,
+    "public_copy_policy": "metadata only: file names, hashes, XML container names, and counts; no sourcebook prose, art, page images, item descriptions, or stat rows",
+    "review_decision_required": true,
+    "status": "pending_human_review"
+  },
+  "ruleset": "sr4",
+  "selected_core_baseline": "legacy Chummer4 XML as implemented for core readiness",
+  "status": "awaiting_human_decision",
+  "supplements_in_scope": false
+}
