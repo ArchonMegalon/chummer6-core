@@ -1,7 +1,7 @@
 {
   "contract_name": "chummer.sr6.row_level_authority_mapping",
   "evidence_strength": "substantial_machine_indexed",
-  "generated_at_utc": "2026-06-16T02:47:14Z",
+  "generated_at_utc": "2026-06-16T03:28:47Z",
   "human_required": {
     "must_confirm_edition_fit": true,
     "must_confirm_license_and_source_identity": true,
