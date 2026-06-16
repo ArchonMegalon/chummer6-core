@@ -36,6 +36,10 @@ public sealed class Sr6RuleFactRegistryTests
 
         CollectionAssert.Contains(registry.ImplementedProviders.ToArray(), "Sr6ExplainReceiptProvider");
         CollectionAssert.Contains(registry.RuleFacts.Select(fact => fact.Provider).Distinct().ToArray(), "Sr6DiceProvider");
+        CollectionAssert.Contains(registry.RuleFacts.Select(fact => fact.Provider).Distinct().ToArray(), "Sr6EdgeProvider");
+        CollectionAssert.Contains(registry.RuleFacts.Select(fact => fact.Provider).Distinct().ToArray(), "Sr6ActionEconomyProvider");
+        CollectionAssert.Contains(registry.RuleFacts.Select(fact => fact.Provider).Distinct().ToArray(), "Sr6SkillProvider");
+        CollectionAssert.Contains(registry.RuleFacts.Select(fact => fact.Provider).Distinct().ToArray(), "Sr6AdvancementProvider");
         Assert.AreEqual(0, registry.MissingImplementedProviders.Count);
         Assert.AreEqual("NOT_READY", registry.FinalVerdict);
 

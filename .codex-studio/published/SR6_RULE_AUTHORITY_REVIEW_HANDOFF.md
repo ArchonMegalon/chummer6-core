@@ -1,6 +1,6 @@
 # SR6 Rule Authority Review Handoff
 
-Generated: 2026-06-16T03:52:14Z
+Generated: 2026-06-16T04:30:39Z
 
 ## Current Verdict
 
@@ -12,16 +12,18 @@ Generated: 2026-06-16T03:52:14Z
 ## Machine-Completed Evidence
 
 - Indexed units: `5213`
-- Source count: `4`
-- Registry rulefacts: `301`
+- Source count: `1`
+- Selected core baseline: `Shadowrun_6_Downloadversion_2024.pdf`
+- Registry rulefacts: `447`
 - Public-safe row receipt: `True`
 - Errata source metadata count: `3`
+- Errata policy: `official errata or official web notices only`
 
 ## Human Decisions Required
 
 - Confirm source identity, license posture, and edition fit.
 - Map indexed rows or line hashes into normalized public-safe rule records.
-- Apply, reject as not applicable, or explicitly defer errata sources.
+- Apply, reject as not applicable, or explicitly defer the official errata scope.
 - Confirm no sourcebook prose, art, page images, examples, or table text are promoted.
 - Sign off before any ready token is emitted.
 

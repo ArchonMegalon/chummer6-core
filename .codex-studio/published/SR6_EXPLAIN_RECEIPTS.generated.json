@@ -1,0 +1,52 @@
+{
+  "core_baseline": "Shadowrun_6_Downloadversion_2024.pdf",
+  "coverage_domains": [
+    "dice",
+    "tests",
+    "edge",
+    "action_economy",
+    "priority_creation",
+    "metatype_ranges",
+    "skills",
+    "derived_stats",
+    "combat",
+    "magic",
+    "matrix",
+    "rigging",
+    "status_effects"
+  ],
+  "generated_at_utc": "2026-06-16T04:30:38Z",
+  "implemented_provider_count": 18,
+  "provider": "Sr6ExplainReceiptProvider",
+  "provider_coverage_status": "provider_classes_covered_not_authority_ready",
+  "providers_with_rulefacts": [
+    "Sr6ActionEconomyProvider",
+    "Sr6AdvancementProvider",
+    "Sr6CharacterCreationProvider",
+    "Sr6CombatProvider",
+    "Sr6DerivedStatsProvider",
+    "Sr6DiceProvider",
+    "Sr6EdgeProvider",
+    "Sr6GearProvider",
+    "Sr6MagicProvider",
+    "Sr6MatrixProvider",
+    "Sr6MetatypeProvider",
+    "Sr6QualityProvider",
+    "Sr6RiggingProvider",
+    "Sr6SkillProvider",
+    "Sr6StatusProvider",
+    "Sr6TestProvider"
+  ],
+  "public_safe": true,
+  "ready_for_gold": false,
+  "reason": "Public-safe explain receipt provider exists for seed-level receipts; full provider-backed explain corpus remains required.",
+  "receipt_kind": "public_safe_seed_explain_receipts",
+  "remaining_gates": [
+    "reviewed row-level authority mapping for cited facts",
+    "human-confirmed explain corpus against approved baseline and errata posture"
+  ],
+  "ruleset": "sr6",
+  "scope": "core_readiness_only",
+  "status": "core_seed_receipt_pack_available",
+  "supplements_in_scope": false
+}

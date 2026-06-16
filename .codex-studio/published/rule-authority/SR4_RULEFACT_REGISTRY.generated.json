@@ -24,7 +24,7 @@
   ],
   "missing_implemented_providers": [],
   "missing_profile_status": [],
-  "registry_sha256": "ea61e799fcb7a870d0e41e432bfbc4457cb34dfb665231d7a2c34088f31c02f4",
+  "registry_sha256": "ff1c680ed8971d914531dfb9fbfc8a5148f6d07fd56e8ff6cac46c4fa94362a9",
   "required_providers": [
     "Sr4DiceProvider",
     "Sr4TestProvider",
@@ -46,7 +46,7 @@
     "Sr4AdvancementProvider",
     "Sr4ExplainReceiptProvider"
   ],
-  "rulefact_count": 285,
+  "rulefact_count": 449,
   "rulefacts": [
     {
       "book_profile": "sr4a_core_2009",
@@ -148,6 +148,750 @@
     {
       "book_profile": "sr4a_core_2009",
       "fact": {
+        "source_ref": "sr4a_core_2009:p63"
+      },
+      "id": "sr4.tests.success_test.source_ref",
+      "provider": "Sr4TestProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p60-75",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "success": "hits >= threshold"
+      },
+      "id": "sr4.tests.success_test.success",
+      "provider": "Sr4TestProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p60-75",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "default_threshold_if_omitted": 1
+      },
+      "id": "sr4.tests.success_test.default_threshold_if_omitted",
+      "provider": "Sr4TestProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p60-75",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "source_ref": "sr4a_core_2009:p63"
+      },
+      "id": "sr4.tests.opposed_test.source_ref",
+      "provider": "Sr4TestProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p60-75",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "success": "acting_hits > opposing_hits"
+      },
+      "id": "sr4.tests.opposed_test.success",
+      "provider": "Sr4TestProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p60-75",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "tie_policy_general": "stalemate_or_gm_policy"
+      },
+      "id": "sr4.tests.opposed_test.tie_policy_general",
+      "provider": "Sr4TestProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p60-75",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "tie_policy_combat": "defender_wins"
+      },
+      "id": "sr4.tests.opposed_test.tie_policy_combat",
+      "provider": "Sr4TestProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p60-75",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "source_ref": "sr4a_core_2009:p64"
+      },
+      "id": "sr4.tests.extended_test.source_ref",
+      "provider": "Sr4TestProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p60-75",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "success": "cumulative_hits >= threshold"
+      },
+      "id": "sr4.tests.extended_test.success",
+      "provider": "Sr4TestProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p60-75",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "interval_required": true
+      },
+      "id": "sr4.tests.extended_test.interval_required",
+      "provider": "Sr4TestProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p60-75",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "pool_decay_default": 0
+      },
+      "id": "sr4.tests.extended_test.pool_decay_default",
+      "provider": "Sr4TestProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p60-75",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "source_ref": "sr4a_core_2009:p65"
+      },
+      "id": "sr4.tests.teamwork_test.source_ref",
+      "provider": "Sr4TestProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p60-75",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "helpers_roll_first": true
+      },
+      "id": "sr4.tests.teamwork_test.helpers_roll_first",
+      "provider": "Sr4TestProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p60-75",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "helper_hits_add_dice_to_primary": true
+      },
+      "id": "sr4.tests.teamwork_test.helper_hits_add_dice_to_primary",
+      "provider": "Sr4TestProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p60-75",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "max_bonus": "primary_skill_rating"
+      },
+      "id": "sr4.tests.teamwork_test.max_bonus",
+      "provider": "Sr4TestProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p60-75",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "helper_critical_glitch_threshold_delta": 1
+      },
+      "id": "sr4.tests.teamwork_test.helper_critical_glitch_threshold_delta",
+      "provider": "Sr4TestProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p60-75",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "helper_critical_glitch_extended_threshold_delta": 3
+      },
+      "id": "sr4.tests.teamwork_test.helper_critical_glitch_extended_threshold_delta",
+      "provider": "Sr4TestProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p60-75",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "source_ref": "sr4a_core_2009:p65"
+      },
+      "id": "sr4.tests.trying_again.source_ref",
+      "provider": "Sr4TestProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p60-75",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "cumulative_retry_penalty": -2
+      },
+      "id": "sr4.tests.trying_again.cumulative_retry_penalty",
+      "provider": "Sr4TestProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p60-75",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "reset_after_rest": "5 minutes to 1 hour by GM"
+      },
+      "id": "sr4.tests.trying_again.reset_after_rest",
+      "provider": "Sr4TestProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p60-75",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "combat_exempt": true
+      },
+      "id": "sr4.tests.trying_again.combat_exempt",
+      "provider": "Sr4TestProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p60-75",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "source_ref": "sr4a_core_2009:p65"
+      },
+      "id": "sr4.tests.critical_success.source_ref",
+      "provider": "Sr4TestProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p60-75",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "net_hits_required": 4
+      },
+      "id": "sr4.tests.critical_success.net_hits_required",
+      "provider": "Sr4TestProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p60-75",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "physical": "Body"
+      },
+      "id": "sr4.attributes.physical.body",
+      "provider": "Sr4AttributeProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p67-70",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "physical": "Agility"
+      },
+      "id": "sr4.attributes.physical.agility",
+      "provider": "Sr4AttributeProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p67-70",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "physical": "Reaction"
+      },
+      "id": "sr4.attributes.physical.reaction",
+      "provider": "Sr4AttributeProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p67-70",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "physical": "Strength"
+      },
+      "id": "sr4.attributes.physical.strength",
+      "provider": "Sr4AttributeProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p67-70",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "mental": "Charisma"
+      },
+      "id": "sr4.attributes.mental.charisma",
+      "provider": "Sr4AttributeProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p67-70",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "mental": "Intuition"
+      },
+      "id": "sr4.attributes.mental.intuition",
+      "provider": "Sr4AttributeProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p67-70",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "mental": "Logic"
+      },
+      "id": "sr4.attributes.mental.logic",
+      "provider": "Sr4AttributeProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p67-70",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "mental": "Willpower"
+      },
+      "id": "sr4.attributes.mental.willpower",
+      "provider": "Sr4AttributeProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p67-70",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "special": "Edge"
+      },
+      "id": "sr4.attributes.special.edge",
+      "provider": "Sr4AttributeProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p67-70",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "special": "Essence"
+      },
+      "id": "sr4.attributes.special.essence",
+      "provider": "Sr4AttributeProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p67-70",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "special": "Magic"
+      },
+      "id": "sr4.attributes.special.magic",
+      "provider": "Sr4AttributeProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p67-70",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "special": "Resonance"
+      },
+      "id": "sr4.attributes.special.resonance",
+      "provider": "Sr4AttributeProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p67-70",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "augmented_max": "floor(natural_max * 1.5)"
+      },
+      "id": "sr4.attributes.augmented_max",
+      "provider": "Sr4AttributeProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p67-70",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "essence_start": 6
+      },
+      "id": "sr4.attributes.essence_start",
+      "provider": "Sr4AttributeProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p67-70",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "default": 6
+      },
+      "id": "sr4.attributes.edge_max.default",
+      "provider": "Sr4AttributeProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p67-70",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "human": 7
+      },
+      "id": "sr4.attributes.edge_max.human",
+      "provider": "Sr4AttributeProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p67-70",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "magic_max": "6 + initiation_grade"
+      },
+      "id": "sr4.attributes.magic_max",
+      "provider": "Sr4AttributeProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p67-70",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "resonance_max": "6 + submersion_grade"
+      },
+      "id": "sr4.attributes.resonance_max",
+      "provider": "Sr4AttributeProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p67-70",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "physical_damage_track": "8 + ceil(Body / 2)"
+      },
+      "id": "sr4.derived_stats.physical_damage_track",
+      "provider": "Sr4DerivedStatsProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p71,p144-145,p376",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "stun_damage_track": "8 + ceil(Willpower / 2)"
+      },
+      "id": "sr4.derived_stats.stun_damage_track",
+      "provider": "Sr4DerivedStatsProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p71,p144-145,p376",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "initiative_attribute": "Reaction + Intuition"
+      },
+      "id": "sr4.derived_stats.initiative_attribute",
+      "provider": "Sr4DerivedStatsProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p71,p144-145,p376",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "initiative_score": "initiative_attribute + initiative_test_hits"
+      },
+      "id": "sr4.derived_stats.initiative_score",
+      "provider": "Sr4DerivedStatsProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p71,p144-145,p376",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "initiative_passes_default": 1
+      },
+      "id": "sr4.derived_stats.initiative_passes_default",
+      "provider": "Sr4DerivedStatsProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p71,p144-145,p376",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "initiative_passes_max_basic": 4
+      },
+      "id": "sr4.derived_stats.initiative_passes_max_basic",
+      "provider": "Sr4DerivedStatsProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p71,p144-145,p376",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "initiative_passes_max_record_sheet": 5
+      },
+      "id": "sr4.derived_stats.initiative_passes_max_record_sheet",
+      "provider": "Sr4DerivedStatsProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p71,p144-145,p376",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "wound_modifier": "-1 per full 3 boxes on any damage track"
+      },
+      "id": "sr4.derived_stats.wound_modifier",
+      "provider": "Sr4DerivedStatsProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p71,p144-145,p376",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "spend_option": "pre_roll_add_edge_attribute_dice_all_dice_explode"
+      },
+      "id": "sr4.edge.spend_options.pre_roll_add_edge_attribute_dice_all_dice_explode",
+      "provider": "Sr4EdgeProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p74-75",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "spend_option": "post_roll_add_edge_attribute_dice_edge_dice_explode"
+      },
+      "id": "sr4.edge.spend_options.post_roll_add_edge_attribute_dice_edge_dice_explode",
+      "provider": "Sr4EdgeProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p74-75",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "spend_option": "reroll_non_hits_on_single_test"
+      },
+      "id": "sr4.edge.spend_options.reroll_non_hits_on_single_test",
+      "provider": "Sr4EdgeProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p74-75",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "spend_option": "long_shot_test"
+      },
+      "id": "sr4.edge.spend_options.long_shot_test",
+      "provider": "Sr4EdgeProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p74-75",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "spend_option": "go_first_in_initiative_pass"
+      },
+      "id": "sr4.edge.spend_options.go_first_in_initiative_pass",
+      "provider": "Sr4EdgeProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p74-75",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "spend_option": "gain_one_extra_initiative_pass_for_combat_turn"
+      },
+      "id": "sr4.edge.spend_options.gain_one_extra_initiative_pass_for_combat_turn",
+      "provider": "Sr4EdgeProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p74-75",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "spend_option": "negate_one_glitch_or_critical_glitch"
+      },
+      "id": "sr4.edge.spend_options.negate_one_glitch_or_critical_glitch",
+      "provider": "Sr4EdgeProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p74-75",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "spend_option": "dead_mans_trigger"
+      },
+      "id": "sr4.edge.spend_options.dead_mans_trigger",
+      "provider": "Sr4EdgeProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p74-75",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "one_point_per_specific_test_or_action": true
+      },
+      "id": "sr4.edge.one_point_per_specific_test_or_action",
+      "provider": "Sr4EdgeProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p74-75",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "spend_only_on_own_actions_except_teamwork": true
+      },
+      "id": "sr4.edge.spend_only_on_own_actions_except_teamwork",
+      "provider": "Sr4EdgeProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p74-75",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "regain_by_gm_refresh": true
+      },
+      "id": "sr4.edge.regain_by_gm_refresh",
+      "provider": "Sr4EdgeProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p74-75",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "burn_option": "automatic_critical_success"
+      },
+      "id": "sr4.edge.burn_options.automatic_critical_success",
+      "provider": "Sr4EdgeProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p74-75",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "burn_option": "hand_of_god_survive_certain_death"
+      },
+      "id": "sr4.edge.burn_options.hand_of_god_survive_certain_death",
+      "provider": "Sr4EdgeProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p74-75",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
         "standard_build_points": 400
       },
       "id": "sr4.character_creation.model.standard_build_points",
@@ -209,6 +953,19 @@
     {
       "book_profile": "sr4a_core_2009",
       "fact": {
+        "bp_cost": 0,
+        "metatype": "Human"
+      },
+      "id": "sr4.metatype.human.bp_cost",
+      "provider": "Sr4MetatypeProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
         "attribute": "Body",
         "augmented_cap": 9,
         "metatype": "Human",
@@ -217,6 +974,22 @@
       },
       "id": "sr4.character_creation.metatype.human.attribute.body",
       "provider": "Sr4CharacterCreationProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "attribute": "Body",
+        "augmented_cap": 9,
+        "metatype": "Human",
+        "minimum": 1,
+        "natural_max": 6
+      },
+      "id": "sr4.metatype.human.attribute.body",
+      "provider": "Sr4MetatypeProvider",
       "ruleset": "sr4",
       "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
       "source_ref": "sr4a_core_2009:p80-97",
@@ -241,6 +1014,22 @@
     {
       "book_profile": "sr4a_core_2009",
       "fact": {
+        "attribute": "Agility",
+        "augmented_cap": 9,
+        "metatype": "Human",
+        "minimum": 1,
+        "natural_max": 6
+      },
+      "id": "sr4.metatype.human.attribute.agility",
+      "provider": "Sr4MetatypeProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
         "attribute": "Reaction",
         "augmented_cap": 9,
         "metatype": "Human",
@@ -249,6 +1038,22 @@
       },
       "id": "sr4.character_creation.metatype.human.attribute.reaction",
       "provider": "Sr4CharacterCreationProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "attribute": "Reaction",
+        "augmented_cap": 9,
+        "metatype": "Human",
+        "minimum": 1,
+        "natural_max": 6
+      },
+      "id": "sr4.metatype.human.attribute.reaction",
+      "provider": "Sr4MetatypeProvider",
       "ruleset": "sr4",
       "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
       "source_ref": "sr4a_core_2009:p80-97",
@@ -273,6 +1078,22 @@
     {
       "book_profile": "sr4a_core_2009",
       "fact": {
+        "attribute": "Strength",
+        "augmented_cap": 9,
+        "metatype": "Human",
+        "minimum": 1,
+        "natural_max": 6
+      },
+      "id": "sr4.metatype.human.attribute.strength",
+      "provider": "Sr4MetatypeProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
         "attribute": "Charisma",
         "augmented_cap": 9,
         "metatype": "Human",
@@ -281,6 +1102,22 @@
       },
       "id": "sr4.character_creation.metatype.human.attribute.charisma",
       "provider": "Sr4CharacterCreationProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "attribute": "Charisma",
+        "augmented_cap": 9,
+        "metatype": "Human",
+        "minimum": 1,
+        "natural_max": 6
+      },
+      "id": "sr4.metatype.human.attribute.charisma",
+      "provider": "Sr4MetatypeProvider",
       "ruleset": "sr4",
       "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
       "source_ref": "sr4a_core_2009:p80-97",
@@ -305,6 +1142,22 @@
     {
       "book_profile": "sr4a_core_2009",
       "fact": {
+        "attribute": "Intuition",
+        "augmented_cap": 9,
+        "metatype": "Human",
+        "minimum": 1,
+        "natural_max": 6
+      },
+      "id": "sr4.metatype.human.attribute.intuition",
+      "provider": "Sr4MetatypeProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
         "attribute": "Logic",
         "augmented_cap": 9,
         "metatype": "Human",
@@ -313,6 +1166,22 @@
       },
       "id": "sr4.character_creation.metatype.human.attribute.logic",
       "provider": "Sr4CharacterCreationProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "attribute": "Logic",
+        "augmented_cap": 9,
+        "metatype": "Human",
+        "minimum": 1,
+        "natural_max": 6
+      },
+      "id": "sr4.metatype.human.attribute.logic",
+      "provider": "Sr4MetatypeProvider",
       "ruleset": "sr4",
       "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
       "source_ref": "sr4a_core_2009:p80-97",
@@ -337,6 +1206,22 @@
     {
       "book_profile": "sr4a_core_2009",
       "fact": {
+        "attribute": "Willpower",
+        "augmented_cap": 9,
+        "metatype": "Human",
+        "minimum": 1,
+        "natural_max": 6
+      },
+      "id": "sr4.metatype.human.attribute.willpower",
+      "provider": "Sr4MetatypeProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
         "attribute": "Initiative",
         "augmented_cap": 18,
         "metatype": "Human",
@@ -345,6 +1230,22 @@
       },
       "id": "sr4.character_creation.metatype.human.attribute.initiative",
       "provider": "Sr4CharacterCreationProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "attribute": "Initiative",
+        "augmented_cap": 18,
+        "metatype": "Human",
+        "minimum": 2,
+        "natural_max": 12
+      },
+      "id": "sr4.metatype.human.attribute.initiative",
+      "provider": "Sr4MetatypeProvider",
       "ruleset": "sr4",
       "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
       "source_ref": "sr4a_core_2009:p80-97",
@@ -366,11 +1267,37 @@
     {
       "book_profile": "sr4a_core_2009",
       "fact": {
+        "ability": "+1 Edge",
+        "metatype": "Human"
+      },
+      "id": "sr4.metatype.human.ability.1_edge",
+      "provider": "Sr4MetatypeProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
         "bp_cost": 20,
         "metatype": "Ork"
       },
       "id": "sr4.character_creation.metatype.ork.bp_cost",
       "provider": "Sr4CharacterCreationProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "bp_cost": 20,
+        "metatype": "Ork"
+      },
+      "id": "sr4.metatype.ork.bp_cost",
+      "provider": "Sr4MetatypeProvider",
       "ruleset": "sr4",
       "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
       "source_ref": "sr4a_core_2009:p80-97",
@@ -395,6 +1322,22 @@
     {
       "book_profile": "sr4a_core_2009",
       "fact": {
+        "attribute": "Body",
+        "augmented_cap": 13,
+        "metatype": "Ork",
+        "minimum": 4,
+        "natural_max": 9
+      },
+      "id": "sr4.metatype.ork.attribute.body",
+      "provider": "Sr4MetatypeProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
         "attribute": "Agility",
         "augmented_cap": 9,
         "metatype": "Ork",
@@ -403,6 +1346,22 @@
       },
       "id": "sr4.character_creation.metatype.ork.attribute.agility",
       "provider": "Sr4CharacterCreationProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "attribute": "Agility",
+        "augmented_cap": 9,
+        "metatype": "Ork",
+        "minimum": 1,
+        "natural_max": 6
+      },
+      "id": "sr4.metatype.ork.attribute.agility",
+      "provider": "Sr4MetatypeProvider",
       "ruleset": "sr4",
       "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
       "source_ref": "sr4a_core_2009:p80-97",
@@ -427,6 +1386,22 @@
     {
       "book_profile": "sr4a_core_2009",
       "fact": {
+        "attribute": "Reaction",
+        "augmented_cap": 9,
+        "metatype": "Ork",
+        "minimum": 1,
+        "natural_max": 6
+      },
+      "id": "sr4.metatype.ork.attribute.reaction",
+      "provider": "Sr4MetatypeProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
         "attribute": "Strength",
         "augmented_cap": 12,
         "metatype": "Ork",
@@ -435,6 +1410,22 @@
       },
       "id": "sr4.character_creation.metatype.ork.attribute.strength",
       "provider": "Sr4CharacterCreationProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "attribute": "Strength",
+        "augmented_cap": 12,
+        "metatype": "Ork",
+        "minimum": 3,
+        "natural_max": 8
+      },
+      "id": "sr4.metatype.ork.attribute.strength",
+      "provider": "Sr4MetatypeProvider",
       "ruleset": "sr4",
       "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
       "source_ref": "sr4a_core_2009:p80-97",
@@ -459,6 +1450,22 @@
     {
       "book_profile": "sr4a_core_2009",
       "fact": {
+        "attribute": "Charisma",
+        "augmented_cap": 7,
+        "metatype": "Ork",
+        "minimum": 1,
+        "natural_max": 5
+      },
+      "id": "sr4.metatype.ork.attribute.charisma",
+      "provider": "Sr4MetatypeProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
         "attribute": "Intuition",
         "augmented_cap": 9,
         "metatype": "Ork",
@@ -467,6 +1474,22 @@
       },
       "id": "sr4.character_creation.metatype.ork.attribute.intuition",
       "provider": "Sr4CharacterCreationProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "attribute": "Intuition",
+        "augmented_cap": 9,
+        "metatype": "Ork",
+        "minimum": 1,
+        "natural_max": 6
+      },
+      "id": "sr4.metatype.ork.attribute.intuition",
+      "provider": "Sr4MetatypeProvider",
       "ruleset": "sr4",
       "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
       "source_ref": "sr4a_core_2009:p80-97",
@@ -491,6 +1514,22 @@
     {
       "book_profile": "sr4a_core_2009",
       "fact": {
+        "attribute": "Logic",
+        "augmented_cap": 7,
+        "metatype": "Ork",
+        "minimum": 1,
+        "natural_max": 5
+      },
+      "id": "sr4.metatype.ork.attribute.logic",
+      "provider": "Sr4MetatypeProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
         "attribute": "Willpower",
         "augmented_cap": 9,
         "metatype": "Ork",
@@ -499,6 +1538,22 @@
       },
       "id": "sr4.character_creation.metatype.ork.attribute.willpower",
       "provider": "Sr4CharacterCreationProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "attribute": "Willpower",
+        "augmented_cap": 9,
+        "metatype": "Ork",
+        "minimum": 1,
+        "natural_max": 6
+      },
+      "id": "sr4.metatype.ork.attribute.willpower",
+      "provider": "Sr4MetatypeProvider",
       "ruleset": "sr4",
       "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
       "source_ref": "sr4a_core_2009:p80-97",
@@ -523,6 +1578,22 @@
     {
       "book_profile": "sr4a_core_2009",
       "fact": {
+        "attribute": "Initiative",
+        "augmented_cap": 18,
+        "metatype": "Ork",
+        "minimum": 2,
+        "natural_max": 12
+      },
+      "id": "sr4.metatype.ork.attribute.initiative",
+      "provider": "Sr4MetatypeProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
         "ability": "Low-Light Vision",
         "metatype": "Ork"
       },
@@ -536,11 +1607,37 @@
     {
       "book_profile": "sr4a_core_2009",
       "fact": {
+        "ability": "Low-Light Vision",
+        "metatype": "Ork"
+      },
+      "id": "sr4.metatype.ork.ability.low_light_vision",
+      "provider": "Sr4MetatypeProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
         "bp_cost": 25,
         "metatype": "Dwarf"
       },
       "id": "sr4.character_creation.metatype.dwarf.bp_cost",
       "provider": "Sr4CharacterCreationProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "bp_cost": 25,
+        "metatype": "Dwarf"
+      },
+      "id": "sr4.metatype.dwarf.bp_cost",
+      "provider": "Sr4MetatypeProvider",
       "ruleset": "sr4",
       "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
       "source_ref": "sr4a_core_2009:p80-97",
@@ -565,6 +1662,22 @@
     {
       "book_profile": "sr4a_core_2009",
       "fact": {
+        "attribute": "Body",
+        "augmented_cap": 10,
+        "metatype": "Dwarf",
+        "minimum": 2,
+        "natural_max": 7
+      },
+      "id": "sr4.metatype.dwarf.attribute.body",
+      "provider": "Sr4MetatypeProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
         "attribute": "Agility",
         "augmented_cap": 9,
         "metatype": "Dwarf",
@@ -573,6 +1686,22 @@
       },
       "id": "sr4.character_creation.metatype.dwarf.attribute.agility",
       "provider": "Sr4CharacterCreationProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "attribute": "Agility",
+        "augmented_cap": 9,
+        "metatype": "Dwarf",
+        "minimum": 1,
+        "natural_max": 6
+      },
+      "id": "sr4.metatype.dwarf.attribute.agility",
+      "provider": "Sr4MetatypeProvider",
       "ruleset": "sr4",
       "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
       "source_ref": "sr4a_core_2009:p80-97",
@@ -597,6 +1726,22 @@
     {
       "book_profile": "sr4a_core_2009",
       "fact": {
+        "attribute": "Reaction",
+        "augmented_cap": 7,
+        "metatype": "Dwarf",
+        "minimum": 1,
+        "natural_max": 5
+      },
+      "id": "sr4.metatype.dwarf.attribute.reaction",
+      "provider": "Sr4MetatypeProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
         "attribute": "Strength",
         "augmented_cap": 12,
         "metatype": "Dwarf",
@@ -605,6 +1750,22 @@
       },
       "id": "sr4.character_creation.metatype.dwarf.attribute.strength",
       "provider": "Sr4CharacterCreationProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "attribute": "Strength",
+        "augmented_cap": 12,
+        "metatype": "Dwarf",
+        "minimum": 3,
+        "natural_max": 8
+      },
+      "id": "sr4.metatype.dwarf.attribute.strength",
+      "provider": "Sr4MetatypeProvider",
       "ruleset": "sr4",
       "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
       "source_ref": "sr4a_core_2009:p80-97",
@@ -629,6 +1790,22 @@
     {
       "book_profile": "sr4a_core_2009",
       "fact": {
+        "attribute": "Charisma",
+        "augmented_cap": 9,
+        "metatype": "Dwarf",
+        "minimum": 1,
+        "natural_max": 6
+      },
+      "id": "sr4.metatype.dwarf.attribute.charisma",
+      "provider": "Sr4MetatypeProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
         "attribute": "Intuition",
         "augmented_cap": 9,
         "metatype": "Dwarf",
@@ -637,6 +1814,22 @@
       },
       "id": "sr4.character_creation.metatype.dwarf.attribute.intuition",
       "provider": "Sr4CharacterCreationProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "attribute": "Intuition",
+        "augmented_cap": 9,
+        "metatype": "Dwarf",
+        "minimum": 1,
+        "natural_max": 6
+      },
+      "id": "sr4.metatype.dwarf.attribute.intuition",
+      "provider": "Sr4MetatypeProvider",
       "ruleset": "sr4",
       "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
       "source_ref": "sr4a_core_2009:p80-97",
@@ -661,6 +1854,22 @@
     {
       "book_profile": "sr4a_core_2009",
       "fact": {
+        "attribute": "Logic",
+        "augmented_cap": 9,
+        "metatype": "Dwarf",
+        "minimum": 1,
+        "natural_max": 6
+      },
+      "id": "sr4.metatype.dwarf.attribute.logic",
+      "provider": "Sr4MetatypeProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
         "attribute": "Willpower",
         "augmented_cap": 10,
         "metatype": "Dwarf",
@@ -669,6 +1878,22 @@
       },
       "id": "sr4.character_creation.metatype.dwarf.attribute.willpower",
       "provider": "Sr4CharacterCreationProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "attribute": "Willpower",
+        "augmented_cap": 10,
+        "metatype": "Dwarf",
+        "minimum": 2,
+        "natural_max": 7
+      },
+      "id": "sr4.metatype.dwarf.attribute.willpower",
+      "provider": "Sr4MetatypeProvider",
       "ruleset": "sr4",
       "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
       "source_ref": "sr4a_core_2009:p80-97",
@@ -693,11 +1918,40 @@
     {
       "book_profile": "sr4a_core_2009",
       "fact": {
+        "attribute": "Initiative",
+        "augmented_cap": 16,
+        "metatype": "Dwarf",
+        "minimum": 2,
+        "natural_max": 11
+      },
+      "id": "sr4.metatype.dwarf.attribute.initiative",
+      "provider": "Sr4MetatypeProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
         "ability": "Thermographic Vision",
         "metatype": "Dwarf"
       },
       "id": "sr4.character_creation.metatype.dwarf.ability.thermographic_vision",
       "provider": "Sr4CharacterCreationProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "ability": "Thermographic Vision",
+        "metatype": "Dwarf"
+      },
+      "id": "sr4.metatype.dwarf.ability.thermographic_vision",
+      "provider": "Sr4MetatypeProvider",
       "ruleset": "sr4",
       "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
       "source_ref": "sr4a_core_2009:p80-97",
@@ -719,11 +1973,37 @@
     {
       "book_profile": "sr4a_core_2009",
       "fact": {
+        "ability": "+2 dice for Body tests to resist pathogens and toxins",
+        "metatype": "Dwarf"
+      },
+      "id": "sr4.metatype.dwarf.ability.2_dice_for_body_tests_to_resist_pathogens_and_toxins",
+      "provider": "Sr4MetatypeProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
         "bp_cost": 30,
         "metatype": "Elf"
       },
       "id": "sr4.character_creation.metatype.elf.bp_cost",
       "provider": "Sr4CharacterCreationProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "bp_cost": 30,
+        "metatype": "Elf"
+      },
+      "id": "sr4.metatype.elf.bp_cost",
+      "provider": "Sr4MetatypeProvider",
       "ruleset": "sr4",
       "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
       "source_ref": "sr4a_core_2009:p80-97",
@@ -748,6 +2028,22 @@
     {
       "book_profile": "sr4a_core_2009",
       "fact": {
+        "attribute": "Body",
+        "augmented_cap": 9,
+        "metatype": "Elf",
+        "minimum": 1,
+        "natural_max": 6
+      },
+      "id": "sr4.metatype.elf.attribute.body",
+      "provider": "Sr4MetatypeProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
         "attribute": "Agility",
         "augmented_cap": 10,
         "metatype": "Elf",
@@ -756,6 +2052,22 @@
       },
       "id": "sr4.character_creation.metatype.elf.attribute.agility",
       "provider": "Sr4CharacterCreationProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "attribute": "Agility",
+        "augmented_cap": 10,
+        "metatype": "Elf",
+        "minimum": 2,
+        "natural_max": 7
+      },
+      "id": "sr4.metatype.elf.attribute.agility",
+      "provider": "Sr4MetatypeProvider",
       "ruleset": "sr4",
       "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
       "source_ref": "sr4a_core_2009:p80-97",
@@ -780,6 +2092,22 @@
     {
       "book_profile": "sr4a_core_2009",
       "fact": {
+        "attribute": "Reaction",
+        "augmented_cap": 9,
+        "metatype": "Elf",
+        "minimum": 1,
+        "natural_max": 6
+      },
+      "id": "sr4.metatype.elf.attribute.reaction",
+      "provider": "Sr4MetatypeProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
         "attribute": "Strength",
         "augmented_cap": 9,
         "metatype": "Elf",
@@ -788,6 +2116,22 @@
       },
       "id": "sr4.character_creation.metatype.elf.attribute.strength",
       "provider": "Sr4CharacterCreationProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "attribute": "Strength",
+        "augmented_cap": 9,
+        "metatype": "Elf",
+        "minimum": 1,
+        "natural_max": 6
+      },
+      "id": "sr4.metatype.elf.attribute.strength",
+      "provider": "Sr4MetatypeProvider",
       "ruleset": "sr4",
       "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
       "source_ref": "sr4a_core_2009:p80-97",
@@ -812,6 +2156,22 @@
     {
       "book_profile": "sr4a_core_2009",
       "fact": {
+        "attribute": "Charisma",
+        "augmented_cap": 12,
+        "metatype": "Elf",
+        "minimum": 3,
+        "natural_max": 8
+      },
+      "id": "sr4.metatype.elf.attribute.charisma",
+      "provider": "Sr4MetatypeProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
         "attribute": "Intuition",
         "augmented_cap": 9,
         "metatype": "Elf",
@@ -820,6 +2180,22 @@
       },
       "id": "sr4.character_creation.metatype.elf.attribute.intuition",
       "provider": "Sr4CharacterCreationProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "attribute": "Intuition",
+        "augmented_cap": 9,
+        "metatype": "Elf",
+        "minimum": 1,
+        "natural_max": 6
+      },
+      "id": "sr4.metatype.elf.attribute.intuition",
+      "provider": "Sr4MetatypeProvider",
       "ruleset": "sr4",
       "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
       "source_ref": "sr4a_core_2009:p80-97",
@@ -844,6 +2220,22 @@
     {
       "book_profile": "sr4a_core_2009",
       "fact": {
+        "attribute": "Logic",
+        "augmented_cap": 9,
+        "metatype": "Elf",
+        "minimum": 1,
+        "natural_max": 6
+      },
+      "id": "sr4.metatype.elf.attribute.logic",
+      "provider": "Sr4MetatypeProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
         "attribute": "Willpower",
         "augmented_cap": 9,
         "metatype": "Elf",
@@ -852,6 +2244,22 @@
       },
       "id": "sr4.character_creation.metatype.elf.attribute.willpower",
       "provider": "Sr4CharacterCreationProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "attribute": "Willpower",
+        "augmented_cap": 9,
+        "metatype": "Elf",
+        "minimum": 1,
+        "natural_max": 6
+      },
+      "id": "sr4.metatype.elf.attribute.willpower",
+      "provider": "Sr4MetatypeProvider",
       "ruleset": "sr4",
       "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
       "source_ref": "sr4a_core_2009:p80-97",
@@ -876,6 +2284,22 @@
     {
       "book_profile": "sr4a_core_2009",
       "fact": {
+        "attribute": "Initiative",
+        "augmented_cap": 18,
+        "metatype": "Elf",
+        "minimum": 2,
+        "natural_max": 12
+      },
+      "id": "sr4.metatype.elf.attribute.initiative",
+      "provider": "Sr4MetatypeProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
         "ability": "Low-Light Vision",
         "metatype": "Elf"
       },
@@ -889,11 +2313,37 @@
     {
       "book_profile": "sr4a_core_2009",
       "fact": {
+        "ability": "Low-Light Vision",
+        "metatype": "Elf"
+      },
+      "id": "sr4.metatype.elf.ability.low_light_vision",
+      "provider": "Sr4MetatypeProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
         "bp_cost": 40,
         "metatype": "Troll"
       },
       "id": "sr4.character_creation.metatype.troll.bp_cost",
       "provider": "Sr4CharacterCreationProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "bp_cost": 40,
+        "metatype": "Troll"
+      },
+      "id": "sr4.metatype.troll.bp_cost",
+      "provider": "Sr4MetatypeProvider",
       "ruleset": "sr4",
       "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
       "source_ref": "sr4a_core_2009:p80-97",
@@ -918,6 +2368,22 @@
     {
       "book_profile": "sr4a_core_2009",
       "fact": {
+        "attribute": "Body",
+        "augmented_cap": 15,
+        "metatype": "Troll",
+        "minimum": 5,
+        "natural_max": 10
+      },
+      "id": "sr4.metatype.troll.attribute.body",
+      "provider": "Sr4MetatypeProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
         "attribute": "Agility",
         "augmented_cap": 7,
         "metatype": "Troll",
@@ -926,6 +2392,22 @@
       },
       "id": "sr4.character_creation.metatype.troll.attribute.agility",
       "provider": "Sr4CharacterCreationProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "attribute": "Agility",
+        "augmented_cap": 7,
+        "metatype": "Troll",
+        "minimum": 1,
+        "natural_max": 5
+      },
+      "id": "sr4.metatype.troll.attribute.agility",
+      "provider": "Sr4MetatypeProvider",
       "ruleset": "sr4",
       "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
       "source_ref": "sr4a_core_2009:p80-97",
@@ -950,6 +2432,22 @@
     {
       "book_profile": "sr4a_core_2009",
       "fact": {
+        "attribute": "Reaction",
+        "augmented_cap": 9,
+        "metatype": "Troll",
+        "minimum": 1,
+        "natural_max": 6
+      },
+      "id": "sr4.metatype.troll.attribute.reaction",
+      "provider": "Sr4MetatypeProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
         "attribute": "Strength",
         "augmented_cap": 15,
         "metatype": "Troll",
@@ -958,6 +2456,22 @@
       },
       "id": "sr4.character_creation.metatype.troll.attribute.strength",
       "provider": "Sr4CharacterCreationProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "attribute": "Strength",
+        "augmented_cap": 15,
+        "metatype": "Troll",
+        "minimum": 5,
+        "natural_max": 10
+      },
+      "id": "sr4.metatype.troll.attribute.strength",
+      "provider": "Sr4MetatypeProvider",
       "ruleset": "sr4",
       "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
       "source_ref": "sr4a_core_2009:p80-97",
@@ -982,6 +2496,22 @@
     {
       "book_profile": "sr4a_core_2009",
       "fact": {
+        "attribute": "Charisma",
+        "augmented_cap": 6,
+        "metatype": "Troll",
+        "minimum": 1,
+        "natural_max": 4
+      },
+      "id": "sr4.metatype.troll.attribute.charisma",
+      "provider": "Sr4MetatypeProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
         "attribute": "Intuition",
         "augmented_cap": 7,
         "metatype": "Troll",
@@ -990,6 +2520,22 @@
       },
       "id": "sr4.character_creation.metatype.troll.attribute.intuition",
       "provider": "Sr4CharacterCreationProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "attribute": "Intuition",
+        "augmented_cap": 7,
+        "metatype": "Troll",
+        "minimum": 1,
+        "natural_max": 5
+      },
+      "id": "sr4.metatype.troll.attribute.intuition",
+      "provider": "Sr4MetatypeProvider",
       "ruleset": "sr4",
       "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
       "source_ref": "sr4a_core_2009:p80-97",
@@ -1014,6 +2560,22 @@
     {
       "book_profile": "sr4a_core_2009",
       "fact": {
+        "attribute": "Logic",
+        "augmented_cap": 7,
+        "metatype": "Troll",
+        "minimum": 1,
+        "natural_max": 5
+      },
+      "id": "sr4.metatype.troll.attribute.logic",
+      "provider": "Sr4MetatypeProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
         "attribute": "Willpower",
         "augmented_cap": 9,
         "metatype": "Troll",
@@ -1022,6 +2584,22 @@
       },
       "id": "sr4.character_creation.metatype.troll.attribute.willpower",
       "provider": "Sr4CharacterCreationProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "attribute": "Willpower",
+        "augmented_cap": 9,
+        "metatype": "Troll",
+        "minimum": 1,
+        "natural_max": 6
+      },
+      "id": "sr4.metatype.troll.attribute.willpower",
+      "provider": "Sr4MetatypeProvider",
       "ruleset": "sr4",
       "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
       "source_ref": "sr4a_core_2009:p80-97",
@@ -1046,11 +2624,40 @@
     {
       "book_profile": "sr4a_core_2009",
       "fact": {
+        "attribute": "Initiative",
+        "augmented_cap": 16,
+        "metatype": "Troll",
+        "minimum": 2,
+        "natural_max": 11
+      },
+      "id": "sr4.metatype.troll.attribute.initiative",
+      "provider": "Sr4MetatypeProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
         "ability": "Thermographic Vision",
         "metatype": "Troll"
       },
       "id": "sr4.character_creation.metatype.troll.ability.thermographic_vision",
       "provider": "Sr4CharacterCreationProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "ability": "Thermographic Vision",
+        "metatype": "Troll"
+      },
+      "id": "sr4.metatype.troll.ability.thermographic_vision",
+      "provider": "Sr4MetatypeProvider",
       "ruleset": "sr4",
       "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
       "source_ref": "sr4a_core_2009:p80-97",
@@ -1072,11 +2679,37 @@
     {
       "book_profile": "sr4a_core_2009",
       "fact": {
+        "ability": "+1 Reach",
+        "metatype": "Troll"
+      },
+      "id": "sr4.metatype.troll.ability.1_reach",
+      "provider": "Sr4MetatypeProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
         "ability": "+1 natural armor cumulative with worn armor",
         "metatype": "Troll"
       },
       "id": "sr4.character_creation.metatype.troll.ability.1_natural_armor_cumulative_with_worn_armor",
       "provider": "Sr4CharacterCreationProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "ability": "+1 natural armor cumulative with worn armor",
+        "metatype": "Troll"
+      },
+      "id": "sr4.metatype.troll.ability.1_natural_armor_cumulative_with_worn_armor",
+      "provider": "Sr4MetatypeProvider",
       "ruleset": "sr4",
       "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
       "source_ref": "sr4a_core_2009:p80-97",
@@ -1097,10 +2730,34 @@
     {
       "book_profile": "sr4a_core_2009",
       "fact": {
+        "physical_mental_cost_per_point": 10
+      },
+      "id": "sr4.attributes.cost.physical_mental_cost_per_point",
+      "provider": "Sr4AttributeProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
         "physical_mental_final_point_to_natural_max": 25
       },
       "id": "sr4.character_creation.attribute_cost.physical_mental_final_point_to_natural_max",
       "provider": "Sr4CharacterCreationProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "physical_mental_final_point_to_natural_max": 25
+      },
+      "id": "sr4.attributes.cost.physical_mental_final_point_to_natural_max",
+      "provider": "Sr4AttributeProvider",
       "ruleset": "sr4",
       "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
       "source_ref": "sr4a_core_2009:p80-97",
@@ -1121,10 +2778,34 @@
     {
       "book_profile": "sr4a_core_2009",
       "fact": {
+        "physical_mental_bp_cap_fraction": 0.5
+      },
+      "id": "sr4.attributes.cost.physical_mental_bp_cap_fraction",
+      "provider": "Sr4AttributeProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
         "standard_400_bp_physical_mental_cap": 200
       },
       "id": "sr4.character_creation.attribute_cost.standard_400_bp_physical_mental_cap",
       "provider": "Sr4CharacterCreationProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "standard_400_bp_physical_mental_cap": 200
+      },
+      "id": "sr4.attributes.cost.standard_400_bp_physical_mental_cap",
+      "provider": "Sr4AttributeProvider",
       "ruleset": "sr4",
       "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
       "source_ref": "sr4a_core_2009:p80-97",
@@ -1145,10 +2826,34 @@
     {
       "book_profile": "sr4a_core_2009",
       "fact": {
+        "only_one_attribute_at_natural_max": true
+      },
+      "id": "sr4.attributes.cost.only_one_attribute_at_natural_max",
+      "provider": "Sr4AttributeProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
         "edge_cost_per_point": 10
       },
       "id": "sr4.character_creation.attribute_cost.edge_cost_per_point",
       "provider": "Sr4CharacterCreationProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "edge_cost_per_point": 10
+      },
+      "id": "sr4.attributes.cost.edge_cost_per_point",
+      "provider": "Sr4AttributeProvider",
       "ruleset": "sr4",
       "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
       "source_ref": "sr4a_core_2009:p80-97",
@@ -1169,10 +2874,34 @@
     {
       "book_profile": "sr4a_core_2009",
       "fact": {
+        "edge_final_point_to_natural_max": 25
+      },
+      "id": "sr4.attributes.cost.edge_final_point_to_natural_max",
+      "provider": "Sr4AttributeProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
         "magic_resonance_cost_per_point": 10
       },
       "id": "sr4.character_creation.attribute_cost.magic_resonance_cost_per_point",
       "provider": "Sr4CharacterCreationProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "magic_resonance_cost_per_point": 10
+      },
+      "id": "sr4.attributes.cost.magic_resonance_cost_per_point",
+      "provider": "Sr4AttributeProvider",
       "ruleset": "sr4",
       "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
       "source_ref": "sr4a_core_2009:p80-97",
@@ -1193,10 +2922,442 @@
     {
       "book_profile": "sr4a_core_2009",
       "fact": {
+        "magic_resonance_sixth_point_cost": 25
+      },
+      "id": "sr4.attributes.cost.magic_resonance_sixth_point_cost",
+      "provider": "Sr4AttributeProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
         "essence_start": 6
       },
       "id": "sr4.character_creation.attribute_cost.essence_start",
       "provider": "Sr4CharacterCreationProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "essence_start": 6
+      },
+      "id": "sr4.attributes.cost.essence_start",
+      "provider": "Sr4AttributeProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "positive_quality_bp_cap": 35
+      },
+      "id": "sr4.quality.constraint.positive_quality_bp_cap",
+      "provider": "Sr4QualityProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "negative_quality_bp_cap": 35
+      },
+      "id": "sr4.quality.constraint.negative_quality_bp_cap",
+      "provider": "Sr4QualityProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "adept_quality_cost": 5
+      },
+      "id": "sr4.quality.constraint.adept_quality_cost",
+      "provider": "Sr4QualityProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "magician_quality_cost": 15
+      },
+      "id": "sr4.quality.constraint.magician_quality_cost",
+      "provider": "Sr4QualityProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "mystic_adept_quality_cost": 10
+      },
+      "id": "sr4.quality.constraint.mystic_adept_quality_cost",
+      "provider": "Sr4QualityProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "technomancer_quality_cost": 5
+      },
+      "id": "sr4.quality.constraint.technomancer_quality_cost",
+      "provider": "Sr4QualityProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "active_skill": "4 BP per rating point"
+      },
+      "id": "sr4.advancement.skill_cost.active_skill",
+      "provider": "Sr4AdvancementProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "knowledge_skill": "2 BP per rating point"
+      },
+      "id": "sr4.advancement.skill_cost.knowledge_skill",
+      "provider": "Sr4AdvancementProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "skill_group": "10 BP per rating point"
+      },
+      "id": "sr4.advancement.skill_cost.skill_group",
+      "provider": "Sr4AdvancementProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "active_specialization": 2
+      },
+      "id": "sr4.advancement.skill_cost.active_specialization",
+      "provider": "Sr4AdvancementProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "knowledge_specialization": 1
+      },
+      "id": "sr4.advancement.skill_cost.knowledge_specialization",
+      "provider": "Sr4AdvancementProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "starting_knowledge_skill_points": "(Logic + Intuition) * 3"
+      },
+      "id": "sr4.advancement.skill_cost.starting_knowledge_skill_points",
+      "provider": "Sr4AdvancementProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "starting_active_skill_max": "one skill at 6 or two skills at 5; all others 4 or less"
+      },
+      "id": "sr4.advancement.skill_cost.starting_active_skill_max",
+      "provider": "Sr4AdvancementProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "starting_skill_group_max": 4
+      },
+      "id": "sr4.advancement.skill_cost.starting_skill_group_max",
+      "provider": "Sr4AdvancementProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "gear": "1 BP per 5000 nuyen"
+      },
+      "id": "sr4.resources.gear",
+      "provider": "Sr4GearProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "gear_bp_cap": 50
+      },
+      "id": "sr4.resources.gear_bp_cap",
+      "provider": "Sr4GearProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "spells": "3 BP per spell"
+      },
+      "id": "sr4.resources.magical_resources.spells",
+      "provider": "Sr4MagicProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "max_spells": "2 * max(Spellcasting, Ritual Spellcasting)"
+      },
+      "id": "sr4.resources.magical_resources.max_spells",
+      "provider": "Sr4MagicProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "bound_spirit_bp_cost": "services_owed"
+      },
+      "id": "sr4.resources.magical_resources.bound_spirit_bp_cost",
+      "provider": "Sr4MagicProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "bound_spirit_services_cap": "Summoning skill or Conjuring group"
+      },
+      "id": "sr4.resources.magical_resources.bound_spirit_services_cap",
+      "provider": "Sr4MagicProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "bound_spirit_force": "Magic attribute"
+      },
+      "id": "sr4.resources.magical_resources.bound_spirit_force",
+      "provider": "Sr4MagicProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "max_bound_spirits": "Charisma"
+      },
+      "id": "sr4.resources.magical_resources.max_bound_spirits",
+      "provider": "Sr4MagicProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "bonded_focus_bp_cost": "Force"
+      },
+      "id": "sr4.resources.magical_resources.bonded_focus_bp_cost",
+      "provider": "Sr4MagicProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "total_bonded_foci_force_cap": "5 * Magic"
+      },
+      "id": "sr4.resources.magical_resources.total_bonded_foci_force_cap",
+      "provider": "Sr4MagicProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "foci_count_cap": "Magic"
+      },
+      "id": "sr4.resources.magical_resources.foci_count_cap",
+      "provider": "Sr4MagicProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "complex_form_cost": "1 BP per rating point"
+      },
+      "id": "sr4.resources.technomancer_resources.complex_form_cost",
+      "provider": "Sr4MatrixProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "complex_form_count_cap": "Logic * 2"
+      },
+      "id": "sr4.resources.technomancer_resources.complex_form_count_cap",
+      "provider": "Sr4MatrixProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "registered_sprite_bp_cost": "tasks_owed"
+      },
+      "id": "sr4.resources.technomancer_resources.registered_sprite_bp_cost",
+      "provider": "Sr4MatrixProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "registered_sprite_task_cap": "Compiling skill"
+      },
+      "id": "sr4.resources.technomancer_resources.registered_sprite_task_cap",
+      "provider": "Sr4MatrixProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "registered_sprite_rating": "Resonance"
+      },
+      "id": "sr4.resources.technomancer_resources.registered_sprite_rating",
+      "provider": "Sr4MatrixProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "physical": "8 + ceil(Body / 2)"
+      },
+      "id": "sr4.derived_stats.creation.physical",
+      "provider": "Sr4DerivedStatsProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "stun": "8 + ceil(Willpower / 2)"
+      },
+      "id": "sr4.derived_stats.creation.stun",
+      "provider": "Sr4DerivedStatsProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "use_augmented_attributes": true
+      },
+      "id": "sr4.derived_stats.creation.use_augmented_attributes",
+      "provider": "Sr4DerivedStatsProvider",
+      "ruleset": "sr4",
+      "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr4a_core_2009:p80-97",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr4a_core_2009",
+      "fact": {
+        "cyberlimb_bonus_physical_boxes": "one per cyberlimb"
+      },
+      "id": "sr4.derived_stats.creation.cyberlimb_bonus_physical_boxes",
+      "provider": "Sr4DerivedStatsProvider",
       "ruleset": "sr4",
       "seed_file": "SR4_CHARACTER_CREATION_SEED.yaml",
       "source_ref": "sr4a_core_2009:p80-97",

@@ -4,6 +4,7 @@ book:
   title: Shadowrun Fourth Edition 20th Anniversary Core Rulebook
   source_file: (SR4) Shadowrun 4e Core Rules.pdf
   commit_policy: Do not commit PDF, page images, or full extracted text.
+selected_core_readiness_baseline: legacy Chummer4 XML as implemented
 chapters:
 - id: welcome
   title: Welcome to the Shadows

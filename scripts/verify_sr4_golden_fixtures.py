@@ -15,7 +15,12 @@ def main() -> int:
         return 1
 
     payload = json.loads(REPORT.read_text(encoding="utf-8"))
-    ok = payload.get("status") == "seed_fixtures_passed" and payload.get("failed") == 0 and payload.get("passed", 0) > 0
+    ok = (
+        payload.get("status") in {"seed_fixtures_passed", "core_seed_fixture_pack_passed"}
+        and payload.get("failed") == 0
+        and payload.get("passed", 0) > 0
+        and len(payload.get("required_fixture_ids", [])) > 0
+    )
     print(json.dumps({"status": "pass" if ok else "fail", "report": str(REPORT)}, indent=2))
     return 0 if ok else 1
 

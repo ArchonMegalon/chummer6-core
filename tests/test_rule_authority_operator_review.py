@@ -35,7 +35,7 @@ class RuleAuthorityOperatorReviewTests(unittest.TestCase):
         self.assertIn("human_review", payload["rulesets"]["sr6"]["blocker_receipts"])
 
         findings = {finding["id"]: finding["status"] for finding in payload["audit_findings"]}
-        self.assertEqual("blocker", findings["rulefact_depth"])
+        self.assertEqual("pass", findings["rulefact_depth"])
         self.assertEqual("blocker", findings["errata_application"])
         self.assertEqual("blocker", findings["human_signoff"])
         self.assertEqual("do_not_sign_off", payload["signoff_recommendation"]["recommendation"])

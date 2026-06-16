@@ -36,6 +36,9 @@ public sealed class Sr4RuleFactRegistryTests
 
         CollectionAssert.Contains(registry.ImplementedProviders.ToArray(), "Sr4ExplainReceiptProvider");
         CollectionAssert.Contains(registry.RuleFacts.Select(fact => fact.Provider).Distinct().ToArray(), "Sr4DiceProvider");
+        CollectionAssert.Contains(registry.RuleFacts.Select(fact => fact.Provider).Distinct().ToArray(), "Sr4DerivedStatsProvider");
+        CollectionAssert.Contains(registry.RuleFacts.Select(fact => fact.Provider).Distinct().ToArray(), "Sr4MetatypeProvider");
+        CollectionAssert.Contains(registry.RuleFacts.Select(fact => fact.Provider).Distinct().ToArray(), "Sr4QualityProvider");
         Assert.AreEqual(0, registry.MissingImplementedProviders.Count);
         Assert.AreEqual("NOT_READY", registry.FinalVerdict);
 

@@ -2,7 +2,7 @@
 
 ## Decision
 
-Build SR4/SR4A support through a private RuleFact registry and deterministic provider layer.
+Build SR4/SR4A support through a private RuleFact registry and deterministic provider layer, using the legacy Chummer4 XML implementation as the core-readiness baseline and the private PDF only for source identity and reviewer anchoring.
 
 ```text
 Private SR4 PDF
@@ -25,6 +25,7 @@ Private SR4 PDF
 2_errata_profile:
   role: corrections and versioning
   status: pending
+  scope: official errata or official web notices only
 
 3_rulefact_registry:
   role: normalized implementation facts
@@ -94,3 +95,4 @@ SR4 is not ready until:
 - golden fixtures pass;
 - copyright safety passes;
 - human review passes.
+- supplements remain out of scope unless explicitly promoted later.

@@ -2,7 +2,7 @@
 
 ## Decision
 
-Build SR6 support through a private RuleFact registry and deterministic provider layer.
+Build SR6 support through a private RuleFact registry and deterministic provider layer, using `Shadowrun_6_Downloadversion_2024.pdf` as the selected core baseline for current signoff scope.
 
 ```text
 Source PDF
@@ -25,6 +25,7 @@ Source PDF
 2_errata_profile:
   role: corrections and versioning
   status: pending
+  scope: official errata or official web notices only
 
 3_rulefact_registry:
   role: normalized implementation facts
@@ -76,3 +77,4 @@ SR6 is not ready until:
 - explain receipts exist;
 - fixtures pass;
 - human review passes.
+- supplements remain out of scope unless explicitly promoted later.

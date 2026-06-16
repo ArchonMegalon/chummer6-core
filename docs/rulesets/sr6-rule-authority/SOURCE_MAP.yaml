@@ -1,9 +1,12 @@
-version: sr6-core-source-map-v1
+version: sr6-core-source-map-v2
 book:
-  id: sr6_core_2019
-  title: Shadowrun Sixth World Core Rulebook
-  source_file: Shadowrun Sixth World.pdf
+  id: sr6_core_2024_selected_baseline
+  title: Shadowrun Sixth World Core Rulebook selected 2024 baseline
+  source_file: Shadowrun_6_Downloadversion_2024.pdf
   commit_policy: Do not commit PDF or full extracted text.
+scope:
+  supplements_in_scope: false
+  signoff_target: core_readiness_only
 chapters:
 - id: game_concepts
   title: Game Concepts

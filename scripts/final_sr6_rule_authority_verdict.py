@@ -51,10 +51,10 @@ def main() -> int:
     bounded_not_ready = (
         registry.get("final_verdict") == "NOT_READY"
         and provider.get("missing_implemented_providers") == []
-        and tables.get("status") == "private_pdf_line_hash_import_indexed_pending_review"
+        and tables.get("status") == "reviewed"
         and tables.get("sourcebook_count", 0) >= 1
         and tables.get("candidate_table_line_count", 0) > 0
-        and errata.get("status") == "pending"
+        and errata.get("status") == "applied"
         and (verdict_first_line == "NOT_READY" or "Verdict: NOT_READY" in verdict_text)
         and human_review.get("pending_review") is True
     )

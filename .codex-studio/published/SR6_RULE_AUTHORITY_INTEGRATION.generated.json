@@ -40,7 +40,7 @@
   "provider_status_count": 18,
   "readiness_token_allowed": false,
   "required_file_count": 19,
-  "rulefact_count": 301,
+  "rulefact_count": 447,
   "ruleset": "sr6",
   "seed_root": "/docker/chummercomplete/chummer-core-engine/docs/rulesets/sr6-rule-authority",
   "source_ref_count": 15,

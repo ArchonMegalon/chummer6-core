@@ -1,13 +1,13 @@
-version: sr6-ruleset-profile-v1
+version: sr6-ruleset-profile-v2
 ruleset: sr6
-book_profile: sr6_core_2019
-source: user_uploaded_private_pdf
+book_profile: sr6_core_2024_selected_baseline
+selected_core_baseline: Shadowrun_6_Downloadversion_2024.pdf
+source: selected_private_pdf_core_baseline
 public_copy_policy: no rulebook prose
 errata_profile:
   status: pending
   required_before_gold: true
-  notes: Add official errata or selected table corrections before production-grade
-    claim.
+  notes: Official errata/web notices only; supplements are out of scope for current signoff.
 provider_status:
   Sr6DiceProvider: seed
   Sr6TestProvider: seed
@@ -32,3 +32,6 @@ claim_allowed:
   production_grade: false
   reason: This package is a rule authority seed plus extraction pipeline, not completed
     provider implementation.
+scope:
+  supplements_in_scope: false
+  signoff_target: core_readiness_only

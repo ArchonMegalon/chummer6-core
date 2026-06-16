@@ -53,7 +53,7 @@ def main() -> int:
         and tables.get("status") == "structured_legacy_data_indexed_pending_human_review"
         and tables.get("file_count", 0) >= 20
         and tables.get("row_count", 0) > 0
-        and errata.get("status") == "pending"
+        and errata.get("status") == "applied"
         and (verdict_first_line == "NOT_READY" or "Verdict: NOT_READY" in verdict_text)
         and human_review.get("pending_review") is True
     )

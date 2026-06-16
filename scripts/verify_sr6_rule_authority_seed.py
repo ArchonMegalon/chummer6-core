@@ -135,6 +135,52 @@ def append_fact(
 
 
 def add_structured_seed_facts(rulefacts: list[dict[str, Any]], seen_ids: set[str]) -> None:
+    def add_core_mechanics(path: Path) -> None:
+        payload = load_yaml(path)
+        source_ref = payload.get("source_ref", "sr6_core_2019:p35-48")
+        for section_name, provider in (
+            ("tests", "Sr6TestProvider"),
+            ("derived_stats", "Sr6DerivedStatsProvider"),
+            ("action_economy", "Sr6ActionEconomyProvider"),
+            ("edge", "Sr6EdgeProvider"),
+        ):
+            section = payload.get(section_name) or {}
+            if isinstance(section, dict):
+                for key, value in section.items():
+                    if isinstance(value, dict):
+                        for nested_key, nested_value in value.items():
+                            append_fact(
+                                rulefacts,
+                                seen_ids,
+                                fact_id=f"sr6.{slug(section_name)}.{slug(key)}.{slug(nested_key)}",
+                                provider=provider,
+                                source_ref=source_ref,
+                                fact={nested_key: nested_value},
+                                seed_file=path.name,
+                            )
+                    else:
+                        append_fact(
+                            rulefacts,
+                            seen_ids,
+                            fact_id=f"sr6.{slug(section_name)}.{slug(key)}",
+                            provider=provider,
+                            source_ref=source_ref,
+                            fact={key: value},
+                            seed_file=path.name,
+                        )
+        for bucket in ("edge_boosts", "edge_actions"):
+            for entry in payload.get(bucket) or []:
+                fact_id = entry.get("id") if isinstance(entry, dict) else entry
+                append_fact(
+                    rulefacts,
+                    seen_ids,
+                    fact_id=f"sr6.edge.{slug(bucket)}.{slug(fact_id)}",
+                    provider="Sr6EdgeProvider",
+                    source_ref=source_ref,
+                    fact=entry if isinstance(entry, dict) else {bucket.rstrip('s'): entry},
+                    seed_file=path.name,
+                )
+
     def add_character_creation(path: Path) -> None:
         payload = load_yaml(path)
         source_ref = payload.get("source_ref", "sr6_core_2019:p58-79")
@@ -150,8 +196,35 @@ def add_structured_seed_facts(rulefacts: list[dict[str, Any]], seen_ids: set[str
                 if key == "racial_qualities":
                     for quality in value or []:
                         append_fact(rulefacts, seen_ids, fact_id=f"sr6.character_creation.metatype.{slug(metatype)}.quality.{slug(quality)}", provider="Sr6MetatypeProvider", source_ref=source_ref, fact={"metatype": metatype, "quality": quality}, seed_file=path.name)
+                        append_fact(rulefacts, seen_ids, fact_id=f"sr6.quality.metatype.{slug(metatype)}.{slug(quality)}", provider="Sr6QualityProvider", source_ref=source_ref, fact={"metatype": metatype, "quality": quality}, seed_file=path.name)
                 else:
                     append_fact(rulefacts, seen_ids, fact_id=f"sr6.character_creation.metatype.{slug(metatype)}.{slug(key)}", provider="Sr6MetatypeProvider", source_ref=source_ref, fact={"metatype": metatype, "attribute": key, "range": value}, seed_file=path.name)
+        for key, value in (payload.get("creation_constraints") or {}).items():
+            target_provider = "Sr6CharacterCreationProvider"
+            if "quality" in key:
+                target_provider = "Sr6QualityProvider"
+            elif "gear_purchase" in key or "nuyen" in key:
+                target_provider = "Sr6GearProvider"
+            append_fact(rulefacts, seen_ids, fact_id=f"sr6.creation.constraint.{slug(key)}", provider=target_provider, source_ref=source_ref, fact={key: value}, seed_file=path.name)
+        for skill in payload.get("skills") or []:
+            skill_id = skill.get("id")
+            if not skill_id:
+                continue
+            for key, value in skill.items():
+                if key == "id":
+                    continue
+                if isinstance(value, list):
+                    for entry in value:
+                        append_fact(rulefacts, seen_ids, fact_id=f"sr6.skill.{slug(skill_id)}.{slug(key)}.{slug(entry)}", provider="Sr6SkillProvider", source_ref=source_ref, fact={"skill": skill_id, key.rstrip('s'): entry}, seed_file=path.name)
+                else:
+                    append_fact(rulefacts, seen_ids, fact_id=f"sr6.skill.{slug(skill_id)}.{slug(key)}", provider="Sr6SkillProvider", source_ref=source_ref, fact={"skill": skill_id, key: value}, seed_file=path.name)
+        for key, value in (payload.get("contacts") or {}).items():
+            append_fact(rulefacts, seen_ids, fact_id=f"sr6.contacts.{slug(key)}", provider="Sr6CharacterCreationProvider", source_ref=source_ref, fact={key: value}, seed_file=path.name)
+        for key, value in (payload.get("advancement") or {}).items():
+            target_provider = "Sr6AdvancementProvider"
+            if "quality" in key:
+                target_provider = "Sr6QualityProvider"
+            append_fact(rulefacts, seen_ids, fact_id=f"sr6.advancement.{slug(key)}", provider=target_provider, source_ref=source_ref, fact={key: value}, seed_file=path.name)
 
     def add_combat(path: Path) -> None:
         payload = load_yaml(path)
@@ -239,6 +312,7 @@ def add_structured_seed_facts(rulefacts: list[dict[str, Any]], seen_ids: set[str
                     continue
                 append_fact(rulefacts, seen_ids, fact_id=f"sr6.status.{slug(status_id)}.{slug(key)}", provider="Sr6StatusProvider", source_ref=source_ref, fact={key: value}, seed_file=path.name)
 
+    add_core_mechanics(SEED_ROOT / "SR6_CORE_MECHANICS_SEED.yaml")
     add_character_creation(SEED_ROOT / "SR6_CHARACTER_CREATION_SEED.yaml")
     add_combat(SEED_ROOT / "SR6_COMBAT_SEED.yaml")
     add_magic(SEED_ROOT / "SR6_MAGIC_SEED.yaml")

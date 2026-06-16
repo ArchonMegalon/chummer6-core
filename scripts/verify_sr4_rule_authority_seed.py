@@ -130,6 +130,53 @@ def append_fact(
 
 
 def add_structured_seed_facts(rulefacts: list[dict[str, Any]], seen_ids: set[str]) -> None:
+    def add_core_mechanics(path: Path) -> None:
+        payload = load_yaml(path)
+        for section_name, provider in (
+            ("tests", "Sr4TestProvider"),
+            ("attributes", "Sr4AttributeProvider"),
+            ("derived_stats", "Sr4DerivedStatsProvider"),
+            ("edge", "Sr4EdgeProvider"),
+        ):
+            section = payload.get(section_name) or {}
+            source_ref = section.get("source_ref", payload.get("source_ref", "sr4a_core_2009:p60-75")) if isinstance(section, dict) else payload.get("source_ref", "sr4a_core_2009:p60-75")
+            if isinstance(section, dict):
+                for key, value in section.items():
+                    if key == "source_ref":
+                        continue
+                    if isinstance(value, dict):
+                        for nested_key, nested_value in value.items():
+                            append_fact(
+                                rulefacts,
+                                seen_ids,
+                                fact_id=f"sr4.{slug(section_name)}.{slug(key)}.{slug(nested_key)}",
+                                provider=provider,
+                                source_ref=source_ref,
+                                fact={nested_key: nested_value},
+                                seed_file=path.name,
+                            )
+                    elif isinstance(value, list):
+                        for entry in value:
+                            append_fact(
+                                rulefacts,
+                                seen_ids,
+                                fact_id=f"sr4.{slug(section_name)}.{slug(key)}.{slug(entry)}",
+                                provider=provider,
+                                source_ref=source_ref,
+                                fact={key.rstrip('s'): entry},
+                                seed_file=path.name,
+                            )
+                    else:
+                        append_fact(
+                            rulefacts,
+                            seen_ids,
+                            fact_id=f"sr4.{slug(section_name)}.{slug(key)}",
+                            provider=provider,
+                            source_ref=source_ref,
+                            fact={key: value},
+                            seed_file=path.name,
+                        )
+
     def add_character_creation(path: Path) -> None:
         payload = load_yaml(path)
         source_ref = payload.get("source_ref", "sr4a_core_2009:p80-97")
@@ -139,12 +186,38 @@ def add_structured_seed_facts(rulefacts: list[dict[str, Any]], seen_ids: set[str
         metatypes = payload.get("metatype_attribute_table", {})
         for metatype, data in metatypes.items():
             append_fact(rulefacts, seen_ids, fact_id=f"sr4.character_creation.metatype.{slug(metatype)}.bp_cost", provider="Sr4CharacterCreationProvider", source_ref=source_ref, fact={"metatype": metatype, "bp_cost": data.get("bp_cost")}, seed_file=path.name)
+            append_fact(rulefacts, seen_ids, fact_id=f"sr4.metatype.{slug(metatype)}.bp_cost", provider="Sr4MetatypeProvider", source_ref=source_ref, fact={"metatype": metatype, "bp_cost": data.get("bp_cost")}, seed_file=path.name)
             for attribute, values in (data.get("attributes") or {}).items():
                 append_fact(rulefacts, seen_ids, fact_id=f"sr4.character_creation.metatype.{slug(metatype)}.attribute.{slug(attribute)}", provider="Sr4CharacterCreationProvider", source_ref=source_ref, fact={"metatype": metatype, "attribute": attribute, "minimum": values[0], "natural_max": values[1], "augmented_cap": values[2]}, seed_file=path.name)
+                append_fact(rulefacts, seen_ids, fact_id=f"sr4.metatype.{slug(metatype)}.attribute.{slug(attribute)}", provider="Sr4MetatypeProvider", source_ref=source_ref, fact={"metatype": metatype, "attribute": attribute, "minimum": values[0], "natural_max": values[1], "augmented_cap": values[2]}, seed_file=path.name)
             for ability in data.get("abilities") or []:
                 append_fact(rulefacts, seen_ids, fact_id=f"sr4.character_creation.metatype.{slug(metatype)}.ability.{slug(ability)}", provider="Sr4CharacterCreationProvider", source_ref=source_ref, fact={"metatype": metatype, "ability": ability}, seed_file=path.name)
+                append_fact(rulefacts, seen_ids, fact_id=f"sr4.metatype.{slug(metatype)}.ability.{slug(ability)}", provider="Sr4MetatypeProvider", source_ref=source_ref, fact={"metatype": metatype, "ability": ability}, seed_file=path.name)
         for key, value in (payload.get("attribute_costs") or {}).items():
             append_fact(rulefacts, seen_ids, fact_id=f"sr4.character_creation.attribute_cost.{slug(key)}", provider="Sr4CharacterCreationProvider", source_ref=source_ref, fact={key: value}, seed_file=path.name)
+            append_fact(rulefacts, seen_ids, fact_id=f"sr4.attributes.cost.{slug(key)}", provider="Sr4AttributeProvider", source_ref=source_ref, fact={key: value}, seed_file=path.name)
+        for key, value in (payload.get("quality_constraints") or {}).items():
+            append_fact(rulefacts, seen_ids, fact_id=f"sr4.quality.constraint.{slug(key)}", provider="Sr4QualityProvider", source_ref=source_ref, fact={key: value}, seed_file=path.name)
+        for key, value in (payload.get("skill_costs") or {}).items():
+            append_fact(rulefacts, seen_ids, fact_id=f"sr4.advancement.skill_cost.{slug(key)}", provider="Sr4AdvancementProvider", source_ref=source_ref, fact={key: value}, seed_file=path.name)
+        resources = payload.get("resources") or {}
+        for key, value in resources.items():
+            target_provider = "Sr4GearProvider"
+            if key in {"magical_resources"}:
+                target_provider = "Sr4MagicProvider"
+            elif key in {"technomancer_resources"}:
+                target_provider = "Sr4MatrixProvider"
+            if isinstance(value, dict):
+                for nested_key, nested_value in value.items():
+                    if isinstance(nested_value, dict):
+                        for leaf_key, leaf_value in nested_value.items():
+                            append_fact(rulefacts, seen_ids, fact_id=f"sr4.resources.{slug(key)}.{slug(nested_key)}.{slug(leaf_key)}", provider=target_provider, source_ref=source_ref, fact={leaf_key: leaf_value}, seed_file=path.name)
+                    else:
+                        append_fact(rulefacts, seen_ids, fact_id=f"sr4.resources.{slug(key)}.{slug(nested_key)}", provider=target_provider, source_ref=source_ref, fact={nested_key: nested_value}, seed_file=path.name)
+            else:
+                append_fact(rulefacts, seen_ids, fact_id=f"sr4.resources.{slug(key)}", provider=target_provider, source_ref=source_ref, fact={key: value}, seed_file=path.name)
+        for key, value in (payload.get("condition_monitors") or {}).items():
+            append_fact(rulefacts, seen_ids, fact_id=f"sr4.derived_stats.creation.{slug(key)}", provider="Sr4DerivedStatsProvider", source_ref=source_ref, fact={key: value}, seed_file=path.name)
 
     def add_combat(path: Path) -> None:
         payload = load_yaml(path)
@@ -231,6 +304,7 @@ def add_structured_seed_facts(rulefacts: list[dict[str, Any]], seen_ids: set[str
             else:
                 append_fact(rulefacts, seen_ids, fact_id=f"sr4.skills.provider_rule.{slug(section_name)}", provider="Sr4SkillProvider", source_ref=source_ref, fact={section_name: value}, seed_file=path.name)
 
+    add_core_mechanics(SEED_ROOT / "SR4_CORE_MECHANICS_SEED.yaml")
     add_character_creation(SEED_ROOT / "SR4_CHARACTER_CREATION_SEED.yaml")
     add_combat(SEED_ROOT / "SR4_COMBAT_SEED.yaml")
     add_magic(SEED_ROOT / "SR4_MAGIC_SEED.yaml")

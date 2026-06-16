@@ -16,10 +16,11 @@ def main() -> int:
 
     payload = json.loads(REPORT.read_text(encoding="utf-8"))
     ok = (
-        payload.get("status") == "seed_receipts_available"
+        payload.get("status") in {"seed_receipts_available", "core_seed_receipt_pack_available"}
         and payload.get("ruleset") == "sr4"
         and payload.get("public_safe") is True
-        and payload.get("receipt_provider") == "Sr4ExplainReceiptProvider"
+        and payload.get("provider", payload.get("receipt_provider")) == "Sr4ExplainReceiptProvider"
+        and len(payload.get("coverage_domains", [])) > 0
     )
     print(json.dumps({"status": "pass" if ok else "fail", "report": str(REPORT)}, indent=2))
     return 0 if ok else 1

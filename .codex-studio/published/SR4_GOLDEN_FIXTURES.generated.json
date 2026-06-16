@@ -1,0 +1,61 @@
+{
+  "core_baseline": "legacy Chummer4 XML as implemented for core readiness",
+  "core_domains": [
+    "dice",
+    "tests",
+    "build_points",
+    "metatype_ranges",
+    "attributes",
+    "skills",
+    "qualities",
+    "derived_stats",
+    "combat",
+    "magic",
+    "matrix",
+    "rigging"
+  ],
+  "failed": 0,
+  "fixture_policy": {
+    "do_not_publish_sample_character_full_text": true,
+    "expected_values_must_be_human_reviewed": true,
+    "may_use_sample_characters_as_private_validation": true
+  },
+  "generated_at_utc": "2026-06-16T04:30:38Z",
+  "passed": 21,
+  "ready_for_gold": false,
+  "remaining_gates": [
+    "human-reviewed expected values against approved row-level authority",
+    "human signoff before ready token"
+  ],
+  "required_fixture_count": 9,
+  "required_fixture_ids": [
+    "sr4_basic_dice_edge",
+    "sr4_bp_human_street_sam",
+    "sr4_bp_elf_mage",
+    "sr4_bp_dwarf_hacker",
+    "sr4_firearms_attack",
+    "sr4_melee_attack",
+    "sr4_summoning_spirit",
+    "sr4_matrix_hacking_on_fly",
+    "sr4_rigging_drone_remote_control"
+  ],
+  "required_fixture_purposes": {
+    "sr4_basic_dice_edge": "validate hit counting, glitches, Rule of Six, Long Shot, Edge spend/burn",
+    "sr4_bp_dwarf_hacker": "validate Matrix attributes, commlink/programs, hacking pools, Matrix initiative",
+    "sr4_bp_elf_mage": "validate Magician quality, Magic, spells, drain attribute, foci/bound spirit rules",
+    "sr4_bp_human_street_sam": "validate 400 BP creation, attributes, skills, resources, Essence, condition monitors",
+    "sr4_firearms_attack": "validate ranged opposed attack, armor, damage resistance, wound modifiers",
+    "sr4_matrix_hacking_on_fly": "validate node access, exploit/hacking, alert model, Matrix condition monitor",
+    "sr4_melee_attack": "validate Strength-derived melee damage, Impact armor, full defense",
+    "sr4_rigging_drone_remote_control": "validate Command program attribute substitution, drone subscription, action cost",
+    "sr4_summoning_spirit": "validate Summoning + Magic vs Force, services, Drain"
+  },
+  "rulefact_count": 449,
+  "ruleset": "sr4",
+  "scope": "core_readiness_only",
+  "skipped": 0,
+  "status": "core_seed_fixture_pack_passed",
+  "supplements_in_scope": false,
+  "test_filter": "FullyQualifiedName~Sr4",
+  "total": 21
+}

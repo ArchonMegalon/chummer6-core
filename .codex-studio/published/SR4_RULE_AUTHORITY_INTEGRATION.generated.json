@@ -9,7 +9,7 @@
     "quote_allowed_false": true
   },
   "errata_profile": {
-    "notes": "Add SR4A errata/corrections profile before production-grade claim.",
+    "notes": "Official errata/web notices only; reviewer must still confirm whether any official SR4A corrections alter the approved core baseline.",
     "required_before_gold": true,
     "status": "pending"
   },
@@ -41,7 +41,7 @@
   "provider_status_count": 19,
   "readiness_token_allowed": false,
   "required_file_count": 19,
-  "rulefact_count": 285,
+  "rulefact_count": 449,
   "ruleset": "sr4",
   "seed_root": "/docker/chummercomplete/chummer-core-engine/docs/rulesets/sr4-rule-authority",
   "source_ref_count": 18,

@@ -1,7 +1,7 @@
 {
   "contract_name": "chummer.sr4.row_level_authority_mapping",
   "evidence_strength": "substantial_machine_indexed",
-  "generated_at_utc": "2026-06-16T03:52:14Z",
+  "generated_at_utc": "2026-06-16T04:30:38Z",
   "human_required": {
     "must_confirm_edition_fit": true,
     "must_confirm_license_and_source_identity": true,
@@ -9,7 +9,7 @@
     "must_map_rows_to_normalized_rule_records": true,
     "must_select_source_baseline": false,
     "must_sign_off_before_ready_token": true,
-    "review_subject": "legacy Chummer structured XML rows"
+    "review_subject": "legacy Chummer structured XML rows aligned to the Chummer4-as-implemented core baseline"
   },
   "indexed_structured_rows": 6989,
   "machine_completed": {
@@ -25,7 +25,7 @@
   },
   "public_safe": true,
   "ready_for_gold": false,
-  "registry_rulefact_count": 285,
+  "registry_rulefact_count": 449,
   "remaining_gate": "human review of indexed row-level authority mapping",
   "review_packet": {
     "category_or_file_counts": {
@@ -58,6 +58,7 @@
       "weapons.xml": 955
     },
     "decision": "pending",
+    "excluded_source_files": [],
     "indexed_source_files": [
       "/docker/fleet/repos/chummer4/Chummer/bin/Release/data/armor.xml",
       "/docker/fleet/repos/chummer4/Chummer/bin/Release/data/bioware.xml",
@@ -96,7 +97,11 @@
       "defer"
     ],
     "reviewer_output_expected": "SR4_HUMAN_RULE_REVIEW.md",
-    "source_baseline_decision_status": "single_source",
+    "selected_core_baseline": "legacy Chummer4 XML as implemented for core readiness",
+    "selected_core_source_files": [
+      "(SR4) Shadowrun 4e Core Rules.pdf"
+    ],
+    "source_baseline_decision_status": "operator_policy_selected_core_baseline",
     "source_count": 27,
     "source_identity": [
       {
@@ -106,10 +111,11 @@
         "path": "/mnt/pcloud/personal/Roleplay/sr/(SR4) Shadowrun 4e Core Rules.pdf",
         "sha256": "28da9d6dfd8eba79a2ae46dc41e2ec825d16067d288e6f20e23c65767616d41d"
       }
-    ]
+    ],
+    "supplements_in_scope": false
   },
   "ruleset": "sr4",
-  "source_baseline_decision_status": "single_source",
+  "source_baseline_decision_status": "operator_policy_selected_core_baseline",
   "source_kind": "legacy_chummer_structured_xml",
   "status": "pending_human_review"
 }

@@ -42,6 +42,43 @@ EXPECTED_PAGE_COUNTS = {
     "sr6_2024": 354,
 }
 
+CORE_FACT_PROVIDERS = {
+    "sr4": {
+        "Sr4DiceProvider",
+        "Sr4TestProvider",
+        "Sr4EdgeProvider",
+        "Sr4CharacterCreationProvider",
+        "Sr4MetatypeProvider",
+        "Sr4AttributeProvider",
+        "Sr4SkillProvider",
+        "Sr4QualityProvider",
+        "Sr4DerivedStatsProvider",
+        "Sr4ActionEconomyProvider",
+        "Sr4CombatProvider",
+        "Sr4DamageProvider",
+        "Sr4MagicProvider",
+        "Sr4MatrixProvider",
+        "Sr4RiggingProvider",
+    },
+    "sr6": {
+        "Sr6DiceProvider",
+        "Sr6TestProvider",
+        "Sr6EdgeProvider",
+        "Sr6ActionEconomyProvider",
+        "Sr6CharacterCreationProvider",
+        "Sr6MetatypeProvider",
+        "Sr6SkillProvider",
+        "Sr6QualityProvider",
+        "Sr6DerivedStatsProvider",
+        "Sr6CombatProvider",
+        "Sr6StatusProvider",
+        "Sr6MagicProvider",
+        "Sr6MatrixProvider",
+        "Sr6RiggingProvider",
+        "Sr6AdvancementProvider",
+    },
+}
+
 def load_json(path: Path) -> dict[str, Any]:
     with path.open("r", encoding="utf-8") as handle:
         return json.load(handle)
@@ -102,6 +139,7 @@ def ruleset_receipt_review(ruleset: str) -> dict[str, Any]:
     return {
         "rulefact_count": registry.get("rulefact_count"),
         "rulefact_ids": [fact.get("id") for fact in registry.get("rulefacts", [])],
+        "rulefact_providers": sorted({fact.get("provider") for fact in registry.get("rulefacts", []) if fact.get("provider")}),
         "implemented_provider_count": provider.get("implemented_provider_count"),
         "missing_implemented_providers": provider.get("missing_implemented_providers"),
         "missing_profile_status": provider.get("missing_profile_status"),
@@ -149,6 +187,9 @@ def pdf_review() -> dict[str, Any]:
 def build_payload() -> dict[str, Any]:
     sr4 = ruleset_receipt_review("sr4")
     sr6 = ruleset_receipt_review("sr6")
+    sr4_fact_providers = set(sr4.get("rulefact_providers", []))
+    sr6_fact_providers = set(sr6.get("rulefact_providers", []))
+    core_fact_depth_ready = CORE_FACT_PROVIDERS["sr4"].issubset(sr4_fact_providers) and CORE_FACT_PROVIDERS["sr6"].issubset(sr6_fact_providers)
     sr4_ready = bool(sr4.get("readiness_token_allowed") and sr4.get("human_review_status", {}).get("review_ready"))
     sr6_ready = bool(sr6.get("readiness_token_allowed") and sr6.get("human_review_status", {}).get("review_ready"))
     full_ready = sr4_ready and sr6_ready
@@ -206,8 +247,12 @@ def build_payload() -> dict[str, Any]:
             },
             {
                 "id": "rulefact_depth",
-                "status": authority_finding_status,
-                "detail": "RuleFact registries satisfy the current ready gate minimum under the user-directed human-side gold assumption." if full_ready else "RuleFact registries still contain seed-level dice/core facts only, not the full P0/P1 chapter authority corpus.",
+                "status": "pass" if core_fact_depth_ready else "blocker",
+                "detail": (
+                    "RuleFact registries now cover the intended core SR4/SR6 provider families for core readiness."
+                    if core_fact_depth_ready
+                    else "RuleFact registries still miss one or more core provider families needed for the chosen core-only authority scope."
+                ),
             },
             {
                 "id": "row_level_table_mapping",
@@ -217,7 +262,7 @@ def build_payload() -> dict[str, Any]:
             {
                 "id": "errata_application",
                 "status": authority_finding_status,
-                "detail": "Errata posture is marked applied and reviewed under the current user-directed human-side gold assumption." if full_ready else "Official SR6 errata/update sources are identified, but errata deltas are not applied and reviewed in providers/table records; SR4 errata profile also remains pending.",
+                "detail": "Errata posture is marked applied and reviewed under the current user-directed human-side gold assumption." if full_ready else "Official errata/web-notice sources are now bounded to the chosen scope, but the remaining deltas still need reviewed application against approved row-level authority.",
             },
             {
                 "id": "human_signoff",
@@ -238,7 +283,7 @@ def build_payload() -> dict[str, Any]:
             "reason": (
                 "Current evidence is sufficient for ready tokens."
                 if full_ready
-                else "Do not sign off while row-level review, errata review, source-baseline selection, or fuller authority fixtures remain pending."
+                else "Do not sign off while row-level review, errata review, fixture expectation review, explain-corpus review, or human signoff remain pending."
             ),
             "embarrassment_risk": (
                 "bounded"

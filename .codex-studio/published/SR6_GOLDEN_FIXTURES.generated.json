@@ -1,0 +1,60 @@
+{
+  "core_baseline": "Shadowrun_6_Downloadversion_2024.pdf",
+  "core_domains": [
+    "dice",
+    "tests",
+    "edge",
+    "action_economy",
+    "priority_creation",
+    "metatype_ranges",
+    "skills",
+    "derived_stats",
+    "combat",
+    "magic",
+    "matrix",
+    "rigging",
+    "status_effects"
+  ],
+  "failed": 0,
+  "fixture_policy": {
+    "do_not_publish_archetype_full_text": true,
+    "expected_values_must_be_human_reviewed": true,
+    "may_use_archetypes_as_private_validation": true
+  },
+  "generated_at_utc": "2026-06-16T04:30:38Z",
+  "passed": 37,
+  "ready_for_gold": false,
+  "remaining_gates": [
+    "human-reviewed expected values against approved row-level authority",
+    "human signoff before ready token"
+  ],
+  "required_fixture_count": 8,
+  "required_fixture_ids": [
+    "sr6_basic_dice_and_edge",
+    "sr6_priority_human_street_sam",
+    "sr6_priority_elf_mage",
+    "sr6_firearms_attack",
+    "sr6_direct_spell",
+    "sr6_indirect_spell_fireball",
+    "sr6_matrix_illegal_action_os",
+    "sr6_rigging_drone_attack"
+  ],
+  "required_fixture_purposes": {
+    "sr6_basic_dice_and_edge": "validate hits, glitch, edge boost, edge gain caps",
+    "sr6_direct_spell": "validate direct combat spell opposed test and unresisted net-hit damage",
+    "sr6_firearms_attack": "validate attack process, AR/DR Edge, net hits, Body soak, condition monitor",
+    "sr6_indirect_spell_fireball": "validate indirect spell damage, Body soak, status application, drain",
+    "sr6_matrix_illegal_action_os": "validate illegal matrix pool, AR/DR Edge, OS accumulation, convergence threshold",
+    "sr6_priority_elf_mage": "validate magic priority, spells count, drain profile, derived stats",
+    "sr6_priority_human_street_sam": "validate priority system, attributes, skills, resources, derived stats",
+    "sr6_rigging_drone_attack": "validate drone initiative, targeting autosoft, jumped-in attack pool"
+  },
+  "rulefact_count": 447,
+  "ruleset": "sr6",
+  "scope": "core_readiness_only",
+  "skipped": 0,
+  "status": "core_seed_fixture_pack_passed",
+  "supplements_in_scope": false,
+  "test_filter": "FullyQualifiedName~Sr6",
+  "total": 37
+}

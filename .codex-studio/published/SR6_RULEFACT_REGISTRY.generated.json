@@ -23,7 +23,7 @@
   ],
   "missing_implemented_providers": [],
   "missing_profile_status": [],
-  "registry_sha256": "eb3b0b34a6fb12d66d3864449c2fcf721b928490c28b32e6241b4044fc5bbd3f",
+  "registry_sha256": "a2b7778646e9c9274874fa7779d666d8e5e943385ff2e3ab74e8ed3a6f3dc149",
   "required_providers": [
     "Sr6DiceProvider",
     "Sr6TestProvider",
@@ -44,7 +44,7 @@
     "Sr6AdvancementProvider",
     "Sr6ExplainReceiptProvider"
   ],
-  "rulefact_count": 301,
+  "rulefact_count": 447,
   "rulefacts": [
     {
       "book_profile": "sr6_core_2019",
@@ -113,6 +113,822 @@
       "ruleset": "sr6",
       "seed_file": "SR6_CORE_MECHANICS_SEED.yaml",
       "source_ref": "sr6_core_2019:p48",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "roll": "dice_pool"
+      },
+      "id": "sr6.tests.simple.roll",
+      "provider": "Sr6TestProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr6_core_2019:p35-48",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "success": "hits >= threshold"
+      },
+      "id": "sr6.tests.simple.success",
+      "provider": "Sr6TestProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr6_core_2019:p35-48",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "source_ref": "sr6_core_2019:p35"
+      },
+      "id": "sr6.tests.simple.source_ref",
+      "provider": "Sr6TestProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr6_core_2019:p35-48",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "success": "acting_hits > opposing_hits"
+      },
+      "id": "sr6.tests.opposed.success",
+      "provider": "Sr6TestProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr6_core_2019:p35-48",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "ties": "usually_aggressor"
+      },
+      "id": "sr6.tests.opposed.ties",
+      "provider": "Sr6TestProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr6_core_2019:p35-48",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "source_ref": "sr6_core_2019:p35"
+      },
+      "id": "sr6.tests.opposed.source_ref",
+      "provider": "Sr6TestProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr6_core_2019:p35-48",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "success": "cumulative_hits >= threshold"
+      },
+      "id": "sr6.tests.extended.success",
+      "provider": "Sr6TestProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr6_core_2019:p35-48",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "dice_pool_decay_per_roll": -1
+      },
+      "id": "sr6.tests.extended.dice_pool_decay_per_roll",
+      "provider": "Sr6TestProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr6_core_2019:p35-48",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "source_ref": "sr6_core_2019:p36"
+      },
+      "id": "sr6.tests.extended.source_ref",
+      "provider": "Sr6TestProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr6_core_2019:p35-48",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "helper_hits_add_to_leader_pool": true
+      },
+      "id": "sr6.tests.teamwork.helper_hits_add_to_leader_pool",
+      "provider": "Sr6TestProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr6_core_2019:p35-48",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "cap": "leader_skill_or_higher_attribute"
+      },
+      "id": "sr6.tests.teamwork.cap",
+      "provider": "Sr6TestProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr6_core_2019:p35-48",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "source_ref": "sr6_core_2019:p36"
+      },
+      "id": "sr6.tests.teamwork.source_ref",
+      "provider": "Sr6TestProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr6_core_2019:p35-48",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "cumulative_penalty_per_unchanged_retry": -2
+      },
+      "id": "sr6.tests.retry.cumulative_penalty_per_unchanged_retry",
+      "provider": "Sr6TestProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr6_core_2019:p35-48",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "combat_exempt": true
+      },
+      "id": "sr6.tests.retry.combat_exempt",
+      "provider": "Sr6TestProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr6_core_2019:p35-48",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "source_ref": "sr6_core_2019:p36-37"
+      },
+      "id": "sr6.tests.retry.source_ref",
+      "provider": "Sr6TestProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr6_core_2019:p35-48",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "physical_condition_monitor": "ceil(Body / 2) + 8"
+      },
+      "id": "sr6.derived_stats.physical_condition_monitor",
+      "provider": "Sr6DerivedStatsProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr6_core_2019:p35-48",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "stun_condition_monitor": "ceil(Willpower / 2) + 8"
+      },
+      "id": "sr6.derived_stats.stun_condition_monitor",
+      "provider": "Sr6DerivedStatsProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr6_core_2019:p35-48",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "initiative_rank": "Reaction + Intuition"
+      },
+      "id": "sr6.derived_stats.initiative_rank",
+      "provider": "Sr6DerivedStatsProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr6_core_2019:p35-48",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "initiative_score": "initiative_rank + sum(initiative_dice)"
+      },
+      "id": "sr6.derived_stats.initiative_score",
+      "provider": "Sr6DerivedStatsProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr6_core_2019:p35-48",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "initiative_dice_default": "1D6"
+      },
+      "id": "sr6.derived_stats.initiative_dice_default",
+      "provider": "Sr6DerivedStatsProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr6_core_2019:p35-48",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "initiative_dice_max": "5D6"
+      },
+      "id": "sr6.derived_stats.initiative_dice_max",
+      "provider": "Sr6DerivedStatsProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr6_core_2019:p35-48",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "defense_rating": "Body + armor_rating + effects"
+      },
+      "id": "sr6.derived_stats.defense_rating",
+      "provider": "Sr6DerivedStatsProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr6_core_2019:p35-48",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "unarmed_attack_rating_close": "Strength + Reaction"
+      },
+      "id": "sr6.derived_stats.unarmed_attack_rating_close",
+      "provider": "Sr6DerivedStatsProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr6_core_2019:p35-48",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "source_ref": "sr6_core_2019:p38-40"
+      },
+      "id": "sr6.derived_stats.source_ref",
+      "provider": "Sr6DerivedStatsProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr6_core_2019:p35-48",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "combat_round_seconds": 3
+      },
+      "id": "sr6.action_economy.combat_round_seconds",
+      "provider": "Sr6ActionEconomyProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr6_core_2019:p35-48",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "major": 1
+      },
+      "id": "sr6.action_economy.base_actions_per_round.major",
+      "provider": "Sr6ActionEconomyProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr6_core_2019:p35-48",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "minor": 1
+      },
+      "id": "sr6.action_economy.base_actions_per_round.minor",
+      "provider": "Sr6ActionEconomyProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr6_core_2019:p35-48",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "extra_minor_actions": "one additional minor action per initiative die"
+      },
+      "id": "sr6.action_economy.extra_minor_actions",
+      "provider": "Sr6ActionEconomyProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr6_core_2019:p35-48",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "major_can_be_minor": true
+      },
+      "id": "sr6.action_economy.major_can_be_minor",
+      "provider": "Sr6ActionEconomyProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr6_core_2019:p35-48",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "four_minor_to_major": true
+      },
+      "id": "sr6.action_economy.four_minor_to_major",
+      "provider": "Sr6ActionEconomyProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr6_core_2019:p35-48",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "max_minor_actions_at_turn_start": 5
+      },
+      "id": "sr6.action_economy.max_minor_actions_at_turn_start",
+      "provider": "Sr6ActionEconomyProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr6_core_2019:p35-48",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "actions_do_not_carry_between_rounds_unless_rule_says": true
+      },
+      "id": "sr6.action_economy.actions_do_not_carry_between_rounds_unless_rule_says",
+      "provider": "Sr6ActionEconomyProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr6_core_2019:p35-48",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "source_ref": "sr6_core_2019:p40-45,p107-108"
+      },
+      "id": "sr6.action_economy.source_ref",
+      "provider": "Sr6ActionEconomyProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr6_core_2019:p35-48",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "start_session_points": "Edge attribute"
+      },
+      "id": "sr6.edge.start_session_points",
+      "provider": "Sr6EdgeProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr6_core_2019:p35-48",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "max_edge_points": 7
+      },
+      "id": "sr6.edge.max_edge_points",
+      "provider": "Sr6EdgeProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr6_core_2019:p35-48",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "max_bonus_edge_gain_per_round": 2
+      },
+      "id": "sr6.edge.max_bonus_edge_gain_per_round",
+      "provider": "Sr6EdgeProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr6_core_2019:p35-48",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "one_expenditure_per_round": true
+      },
+      "id": "sr6.edge.one_expenditure_per_round",
+      "provider": "Sr6EdgeProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr6_core_2019:p35-48",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "bonus_edge_expires_after_confrontation": true
+      },
+      "id": "sr6.edge.bonus_edge_expires_after_confrontation",
+      "provider": "Sr6EdgeProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr6_core_2019:p35-48",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "attack_defense_rating_delta_for_edge": 4
+      },
+      "id": "sr6.edge.attack_defense_rating_delta_for_edge",
+      "provider": "Sr6EdgeProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr6_core_2019:p35-48",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "source_ref": "sr6_core_2019:p44-48"
+      },
+      "id": "sr6.edge.source_ref",
+      "provider": "Sr6EdgeProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr6_core_2019:p35-48",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "cost": 1,
+        "id": "reroll_one_die",
+        "timing": "post"
+      },
+      "id": "sr6.edge.edge_boosts.reroll_one_die",
+      "provider": "Sr6EdgeProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr6_core_2019:p35-48",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "cost": 1,
+        "id": "add_3_initiative",
+        "timing": "any"
+      },
+      "id": "sr6.edge.edge_boosts.add_3_initiative",
+      "provider": "Sr6EdgeProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr6_core_2019:p35-48",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "cost": 2,
+        "id": "add_1_to_single_die",
+        "timing": "any"
+      },
+      "id": "sr6.edge.edge_boosts.add_1_to_single_die",
+      "provider": "Sr6EdgeProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr6_core_2019:p35-48",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "cost": 2,
+        "id": "give_ally_1_edge",
+        "timing": "any"
+      },
+      "id": "sr6.edge.edge_boosts.give_ally_1_edge",
+      "provider": "Sr6EdgeProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr6_core_2019:p35-48",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "cost": 2,
+        "id": "negate_foe_1_edge",
+        "timing": "pre"
+      },
+      "id": "sr6.edge.edge_boosts.negate_foe_1_edge",
+      "provider": "Sr6EdgeProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr6_core_2019:p35-48",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "cost": 3,
+        "id": "buy_one_automatic_hit",
+        "timing": "any"
+      },
+      "id": "sr6.edge.edge_boosts.buy_one_automatic_hit",
+      "provider": "Sr6EdgeProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr6_core_2019:p35-48",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "cost": 3,
+        "id": "heal_one_stun_box",
+        "timing": "any"
+      },
+      "id": "sr6.edge.edge_boosts.heal_one_stun_box",
+      "provider": "Sr6EdgeProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr6_core_2019:p35-48",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "cost": 4,
+        "id": "add_edge_attribute_to_pool_exploding_sixes",
+        "timing": "pre"
+      },
+      "id": "sr6.edge.edge_boosts.add_edge_attribute_to_pool_exploding_sixes",
+      "provider": "Sr6EdgeProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr6_core_2019:p35-48",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "cost": 4,
+        "id": "heal_one_physical_box",
+        "timing": "any"
+      },
+      "id": "sr6.edge.edge_boosts.heal_one_physical_box",
+      "provider": "Sr6EdgeProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr6_core_2019:p35-48",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "cost": 4,
+        "id": "reroll_all_failed_dice",
+        "timing": "post"
+      },
+      "id": "sr6.edge.edge_boosts.reroll_all_failed_dice",
+      "provider": "Sr6EdgeProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr6_core_2019:p35-48",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "cost": 5,
+        "id": "twos_count_for_target_glitches",
+        "timing": "pre"
+      },
+      "id": "sr6.edge.edge_boosts.twos_count_for_target_glitches",
+      "provider": "Sr6EdgeProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr6_core_2019:p35-48",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "cost": 5,
+        "id": "create_special_effect",
+        "timing": "any"
+      },
+      "id": "sr6.edge.edge_boosts.create_special_effect",
+      "provider": "Sr6EdgeProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr6_core_2019:p35-48",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "cost": 4,
+        "id": "anticipation",
+        "linked_action": "Multiple Attacks + Ranged Attack"
+      },
+      "id": "sr6.edge.edge_actions.anticipation",
+      "provider": "Sr6EdgeProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr6_core_2019:p35-48",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "cost": 4,
+        "id": "big_speech",
+        "linked_action": "Use Skill Influence"
+      },
+      "id": "sr6.edge.edge_actions.big_speech",
+      "provider": "Sr6EdgeProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr6_core_2019:p35-48",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "cost": 2,
+        "id": "bring_the_drama",
+        "linked_action": "Use Skill Con"
+      },
+      "id": "sr6.edge.edge_actions.bring_the_drama",
+      "provider": "Sr6EdgeProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr6_core_2019:p35-48",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "cost": 5,
+        "id": "called_shot_disarm",
+        "linked_action": "any attack"
+      },
+      "id": "sr6.edge.edge_actions.called_shot_disarm",
+      "provider": "Sr6EdgeProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr6_core_2019:p35-48",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "cost": 5,
+        "id": "called_shot_vitals",
+        "linked_action": "any attack"
+      },
+      "id": "sr6.edge.edge_actions.called_shot_vitals",
+      "provider": "Sr6EdgeProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr6_core_2019:p35-48",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "cost": 2,
+        "id": "fire_from_cover",
+        "linked_action": "Ranged Attack in Cover IV"
+      },
+      "id": "sr6.edge.edge_actions.fire_from_cover",
+      "provider": "Sr6EdgeProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr6_core_2019:p35-48",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "cost": 2,
+        "id": "knockout_blow",
+        "linked_action": "Melee Attack"
+      },
+      "id": "sr6.edge.edge_actions.knockout_blow",
+      "provider": "Sr6EdgeProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr6_core_2019:p35-48",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "cost": 1,
+        "id": "shank",
+        "linked_action": "Melee Attack with blade"
+      },
+      "id": "sr6.edge.edge_actions.shank",
+      "provider": "Sr6EdgeProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr6_core_2019:p35-48",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "cost": 1,
+        "id": "sudden_insight",
+        "linked_action": "Any"
+      },
+      "id": "sr6.edge.edge_actions.sudden_insight",
+      "provider": "Sr6EdgeProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr6_core_2019:p35-48",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "cost": 1,
+        "id": "tactical_roll",
+        "linked_action": "Hit the Dirt"
+      },
+      "id": "sr6.edge.edge_actions.tactical_roll",
+      "provider": "Sr6EdgeProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr6_core_2019:p35-48",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "cost": 1,
+        "id": "tumble",
+        "linked_action": "Melee Attack"
+      },
+      "id": "sr6.edge.edge_actions.tumble",
+      "provider": "Sr6EdgeProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr6_core_2019:p35-48",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "cost": 2,
+        "id": "wrest",
+        "linked_action": "Block"
+      },
+      "id": "sr6.edge.edge_actions.wrest",
+      "provider": "Sr6EdgeProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CORE_MECHANICS_SEED.yaml",
+      "source_ref": "sr6_core_2019:p35-48",
       "status": "seed"
     },
     {
@@ -1017,10 +1833,36 @@
       "book_profile": "sr6_core_2019",
       "fact": {
         "metatype": "Dwarf",
+        "quality": "Toxin Resistance"
+      },
+      "id": "sr6.quality.metatype.dwarf.toxin_resistance",
+      "provider": "Sr6QualityProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr6_core_2019:p58-79",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "metatype": "Dwarf",
         "quality": "Thermographic Vision"
       },
       "id": "sr6.character_creation.metatype.dwarf.quality.thermographic_vision",
       "provider": "Sr6MetatypeProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr6_core_2019:p58-79",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "metatype": "Dwarf",
+        "quality": "Thermographic Vision"
+      },
+      "id": "sr6.quality.metatype.dwarf.thermographic_vision",
+      "provider": "Sr6QualityProvider",
       "ruleset": "sr6",
       "seed_file": "SR6_CHARACTER_CREATION_SEED.yaml",
       "source_ref": "sr6_core_2019:p58-79",
@@ -1187,6 +2029,19 @@
       },
       "id": "sr6.character_creation.metatype.elf.quality.low_light_vision",
       "provider": "Sr6MetatypeProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr6_core_2019:p58-79",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "metatype": "Elf",
+        "quality": "Low-Light Vision"
+      },
+      "id": "sr6.quality.metatype.elf.low_light_vision",
+      "provider": "Sr6QualityProvider",
       "ruleset": "sr6",
       "seed_file": "SR6_CHARACTER_CREATION_SEED.yaml",
       "source_ref": "sr6_core_2019:p58-79",
@@ -1362,10 +2217,36 @@
       "book_profile": "sr6_core_2019",
       "fact": {
         "metatype": "Ork",
+        "quality": "Low-Light Vision"
+      },
+      "id": "sr6.quality.metatype.ork.low_light_vision",
+      "provider": "Sr6QualityProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr6_core_2019:p58-79",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "metatype": "Ork",
         "quality": "Built Tough 1"
       },
       "id": "sr6.character_creation.metatype.ork.quality.built_tough_1",
       "provider": "Sr6MetatypeProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr6_core_2019:p58-79",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "metatype": "Ork",
+        "quality": "Built Tough 1"
+      },
+      "id": "sr6.quality.metatype.ork.built_tough_1",
+      "provider": "Sr6QualityProvider",
       "ruleset": "sr6",
       "seed_file": "SR6_CHARACTER_CREATION_SEED.yaml",
       "source_ref": "sr6_core_2019:p58-79",
@@ -1541,6 +2422,19 @@
       "book_profile": "sr6_core_2019",
       "fact": {
         "metatype": "Troll",
+        "quality": "Dermal Deposits"
+      },
+      "id": "sr6.quality.metatype.troll.dermal_deposits",
+      "provider": "Sr6QualityProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr6_core_2019:p58-79",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "metatype": "Troll",
         "quality": "Thermographic Vision"
       },
       "id": "sr6.character_creation.metatype.troll.quality.thermographic_vision",
@@ -1554,10 +2448,976 @@
       "book_profile": "sr6_core_2019",
       "fact": {
         "metatype": "Troll",
+        "quality": "Thermographic Vision"
+      },
+      "id": "sr6.quality.metatype.troll.thermographic_vision",
+      "provider": "Sr6QualityProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr6_core_2019:p58-79",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "metatype": "Troll",
         "quality": "Built Tough 2"
       },
       "id": "sr6.character_creation.metatype.troll.quality.built_tough_2",
       "provider": "Sr6MetatypeProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr6_core_2019:p58-79",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "metatype": "Troll",
+        "quality": "Built Tough 2"
+      },
+      "id": "sr6.quality.metatype.troll.built_tough_2",
+      "provider": "Sr6QualityProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr6_core_2019:p58-79",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "one_attribute_at_metatype_max_at_creation": true
+      },
+      "id": "sr6.creation.constraint.one_attribute_at_metatype_max_at_creation",
+      "provider": "Sr6CharacterCreationProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr6_core_2019:p58-79",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "skills_starting_max": 6
+      },
+      "id": "sr6.creation.constraint.skills_starting_max",
+      "provider": "Sr6CharacterCreationProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr6_core_2019:p58-79",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "skills_starting_max_with_aptitude": 7
+      },
+      "id": "sr6.creation.constraint.skills_starting_max_with_aptitude",
+      "provider": "Sr6CharacterCreationProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr6_core_2019:p58-79",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "skills_gameplay_max": 9
+      },
+      "id": "sr6.creation.constraint.skills_gameplay_max",
+      "provider": "Sr6CharacterCreationProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr6_core_2019:p58-79",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "skills_gameplay_max_with_aptitude": 10
+      },
+      "id": "sr6.creation.constraint.skills_gameplay_max_with_aptitude",
+      "provider": "Sr6CharacterCreationProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr6_core_2019:p58-79",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "max_quality_count_at_creation": 6
+      },
+      "id": "sr6.creation.constraint.max_quality_count_at_creation",
+      "provider": "Sr6QualityProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr6_core_2019:p58-79",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "max_net_bonus_karma_from_qualities": 20
+      },
+      "id": "sr6.creation.constraint.max_net_bonus_karma_from_qualities",
+      "provider": "Sr6CharacterCreationProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr6_core_2019:p58-79",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "customization_karma": 50
+      },
+      "id": "sr6.creation.constraint.customization_karma",
+      "provider": "Sr6CharacterCreationProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr6_core_2019:p58-79",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "prime_runner_customization_karma": 100
+      },
+      "id": "sr6.creation.constraint.prime_runner_customization_karma",
+      "provider": "Sr6CharacterCreationProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr6_core_2019:p58-79",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "karma_to_nuyen": 2000
+      },
+      "id": "sr6.creation.constraint.karma_to_nuyen",
+      "provider": "Sr6GearProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr6_core_2019:p58-79",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "karma_to_nuyen_with_in_debt": 5000
+      },
+      "id": "sr6.creation.constraint.karma_to_nuyen_with_in_debt",
+      "provider": "Sr6GearProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr6_core_2019:p58-79",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "max_starting_nuyen_after_creation": 5000
+      },
+      "id": "sr6.creation.constraint.max_starting_nuyen_after_creation",
+      "provider": "Sr6GearProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr6_core_2019:p58-79",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "gear_purchase_illegal_availability_limit": "cannot buy illegal gear with rating 7+ at character creation"
+      },
+      "id": "sr6.creation.constraint.gear_purchase_illegal_availability_limit",
+      "provider": "Sr6GearProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr6_core_2019:p58-79",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "primary_attribute": "Intuition",
+        "skill": "astral"
+      },
+      "id": "sr6.skill.astral.primary_attribute",
+      "provider": "Sr6SkillProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr6_core_2019:p58-79",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "secondary": "Willpower for astral combat",
+        "skill": "astral"
+      },
+      "id": "sr6.skill.astral.secondary.willpower_for_astral_combat",
+      "provider": "Sr6SkillProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr6_core_2019:p58-79",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "skill": "astral",
+        "untrained": false
+      },
+      "id": "sr6.skill.astral.untrained",
+      "provider": "Sr6SkillProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr6_core_2019:p58-79",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "primary_attribute": "Agility",
+        "skill": "athletics"
+      },
+      "id": "sr6.skill.athletics.primary_attribute",
+      "provider": "Sr6SkillProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr6_core_2019:p58-79",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "secondary": "Strength situational",
+        "skill": "athletics"
+      },
+      "id": "sr6.skill.athletics.secondary.strength_situational",
+      "provider": "Sr6SkillProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr6_core_2019:p58-79",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "skill": "athletics",
+        "untrained": true
+      },
+      "id": "sr6.skill.athletics.untrained",
+      "provider": "Sr6SkillProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr6_core_2019:p58-79",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "primary_attribute": "Logic",
+        "skill": "biotech"
+      },
+      "id": "sr6.skill.biotech.primary_attribute",
+      "provider": "Sr6SkillProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr6_core_2019:p58-79",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "secondary": "Intuition rare",
+        "skill": "biotech"
+      },
+      "id": "sr6.skill.biotech.secondary.intuition_rare",
+      "provider": "Sr6SkillProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr6_core_2019:p58-79",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "skill": "biotech",
+        "untrained": false
+      },
+      "id": "sr6.skill.biotech.untrained",
+      "provider": "Sr6SkillProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr6_core_2019:p58-79",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "primary_attribute": "Agility",
+        "skill": "close_combat"
+      },
+      "id": "sr6.skill.close_combat.primary_attribute",
+      "provider": "Sr6SkillProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr6_core_2019:p58-79",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "skill": "close_combat",
+        "untrained": true
+      },
+      "id": "sr6.skill.close_combat.untrained",
+      "provider": "Sr6SkillProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr6_core_2019:p58-79",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "primary_attribute": "Charisma",
+        "skill": "con"
+      },
+      "id": "sr6.skill.con.primary_attribute",
+      "provider": "Sr6SkillProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr6_core_2019:p58-79",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "skill": "con",
+        "untrained": true
+      },
+      "id": "sr6.skill.con.untrained",
+      "provider": "Sr6SkillProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr6_core_2019:p58-79",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "primary_attribute": "Magic",
+        "skill": "conjuring"
+      },
+      "id": "sr6.skill.conjuring.primary_attribute",
+      "provider": "Sr6SkillProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr6_core_2019:p58-79",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "skill": "conjuring",
+        "untrained": false
+      },
+      "id": "sr6.skill.conjuring.untrained",
+      "provider": "Sr6SkillProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr6_core_2019:p58-79",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "primary_attribute": "Logic",
+        "skill": "cracking"
+      },
+      "id": "sr6.skill.cracking.primary_attribute",
+      "provider": "Sr6SkillProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr6_core_2019:p58-79",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "skill": "cracking",
+        "untrained": false
+      },
+      "id": "sr6.skill.cracking.untrained",
+      "provider": "Sr6SkillProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr6_core_2019:p58-79",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "primary_attribute": "Logic",
+        "skill": "electronics"
+      },
+      "id": "sr6.skill.electronics.primary_attribute",
+      "provider": "Sr6SkillProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr6_core_2019:p58-79",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "secondary": "Intuition for kludge",
+        "skill": "electronics"
+      },
+      "id": "sr6.skill.electronics.secondary.intuition_for_kludge",
+      "provider": "Sr6SkillProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr6_core_2019:p58-79",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "skill": "electronics",
+        "untrained": true
+      },
+      "id": "sr6.skill.electronics.untrained",
+      "provider": "Sr6SkillProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr6_core_2019:p58-79",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "primary_attribute": "Magic",
+        "skill": "enchanting"
+      },
+      "id": "sr6.skill.enchanting.primary_attribute",
+      "provider": "Sr6SkillProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr6_core_2019:p58-79",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "skill": "enchanting",
+        "untrained": false
+      },
+      "id": "sr6.skill.enchanting.untrained",
+      "provider": "Sr6SkillProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr6_core_2019:p58-79",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "primary_attribute": "Logic",
+        "skill": "engineering"
+      },
+      "id": "sr6.skill.engineering.primary_attribute",
+      "provider": "Sr6SkillProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr6_core_2019:p58-79",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "secondary": "Intuition juryrigging",
+        "skill": "engineering"
+      },
+      "id": "sr6.skill.engineering.secondary.intuition_juryrigging",
+      "provider": "Sr6SkillProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr6_core_2019:p58-79",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "secondary": "Agility lockpicking",
+        "skill": "engineering"
+      },
+      "id": "sr6.skill.engineering.secondary.agility_lockpicking",
+      "provider": "Sr6SkillProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr6_core_2019:p58-79",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "skill": "engineering",
+        "untrained": true
+      },
+      "id": "sr6.skill.engineering.untrained",
+      "provider": "Sr6SkillProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr6_core_2019:p58-79",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "primary_attribute": "Agility",
+        "skill": "exotic_weapons"
+      },
+      "id": "sr6.skill.exotic_weapons.primary_attribute",
+      "provider": "Sr6SkillProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr6_core_2019:p58-79",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "skill": "exotic_weapons",
+        "untrained": false
+      },
+      "id": "sr6.skill.exotic_weapons.untrained",
+      "provider": "Sr6SkillProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr6_core_2019:p58-79",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "primary_attribute": "Agility",
+        "skill": "firearms"
+      },
+      "id": "sr6.skill.firearms.primary_attribute",
+      "provider": "Sr6SkillProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr6_core_2019:p58-79",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "skill": "firearms",
+        "untrained": true
+      },
+      "id": "sr6.skill.firearms.untrained",
+      "provider": "Sr6SkillProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr6_core_2019:p58-79",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "primary_attribute": "Charisma",
+        "skill": "influence"
+      },
+      "id": "sr6.skill.influence.primary_attribute",
+      "provider": "Sr6SkillProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr6_core_2019:p58-79",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "secondary": "Logic for clear argument",
+        "skill": "influence"
+      },
+      "id": "sr6.skill.influence.secondary.logic_for_clear_argument",
+      "provider": "Sr6SkillProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr6_core_2019:p58-79",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "skill": "influence",
+        "untrained": true
+      },
+      "id": "sr6.skill.influence.untrained",
+      "provider": "Sr6SkillProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr6_core_2019:p58-79",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "primary_attribute": "Intuition",
+        "skill": "outdoors"
+      },
+      "id": "sr6.skill.outdoors.primary_attribute",
+      "provider": "Sr6SkillProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr6_core_2019:p58-79",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "skill": "outdoors",
+        "untrained": true
+      },
+      "id": "sr6.skill.outdoors.untrained",
+      "provider": "Sr6SkillProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr6_core_2019:p58-79",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "primary_attribute": "Intuition",
+        "skill": "perception"
+      },
+      "id": "sr6.skill.perception.primary_attribute",
+      "provider": "Sr6SkillProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr6_core_2019:p58-79",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "secondary": "Logic for pattern recognition",
+        "skill": "perception"
+      },
+      "id": "sr6.skill.perception.secondary.logic_for_pattern_recognition",
+      "provider": "Sr6SkillProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr6_core_2019:p58-79",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "skill": "perception",
+        "untrained": true
+      },
+      "id": "sr6.skill.perception.untrained",
+      "provider": "Sr6SkillProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr6_core_2019:p58-79",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "primary_attribute": "Reaction",
+        "skill": "piloting"
+      },
+      "id": "sr6.skill.piloting.primary_attribute",
+      "provider": "Sr6SkillProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr6_core_2019:p58-79",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "skill": "piloting",
+        "untrained": true
+      },
+      "id": "sr6.skill.piloting.untrained",
+      "provider": "Sr6SkillProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr6_core_2019:p58-79",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "primary_attribute": "Magic",
+        "skill": "sorcery"
+      },
+      "id": "sr6.skill.sorcery.primary_attribute",
+      "provider": "Sr6SkillProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr6_core_2019:p58-79",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "skill": "sorcery",
+        "untrained": false
+      },
+      "id": "sr6.skill.sorcery.untrained",
+      "provider": "Sr6SkillProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr6_core_2019:p58-79",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "primary_attribute": "Agility",
+        "skill": "stealth"
+      },
+      "id": "sr6.skill.stealth.primary_attribute",
+      "provider": "Sr6SkillProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr6_core_2019:p58-79",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "skill": "stealth",
+        "untrained": true
+      },
+      "id": "sr6.skill.stealth.untrained",
+      "provider": "Sr6SkillProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr6_core_2019:p58-79",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "primary_attribute": "Resonance",
+        "skill": "tasking"
+      },
+      "id": "sr6.skill.tasking.primary_attribute",
+      "provider": "Sr6SkillProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr6_core_2019:p58-79",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "skill": "tasking",
+        "untrained": false
+      },
+      "id": "sr6.skill.tasking.untrained",
+      "provider": "Sr6SkillProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr6_core_2019:p58-79",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "creation_points": "Charisma * 6"
+      },
+      "id": "sr6.contacts.creation_points",
+      "provider": "Sr6CharacterCreationProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr6_core_2019:p58-79",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "ratings": [
+          "Connection",
+          "Loyalty"
+        ]
+      },
+      "id": "sr6.contacts.ratings",
+      "provider": "Sr6CharacterCreationProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr6_core_2019:p58-79",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "rating_range": [
+          1,
+          12
+        ]
+      },
+      "id": "sr6.contacts.rating_range",
+      "provider": "Sr6CharacterCreationProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr6_core_2019:p58-79",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "creation_rating_cap": "character Charisma"
+      },
+      "id": "sr6.contacts.creation_rating_cap",
+      "provider": "Sr6CharacterCreationProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr6_core_2019:p58-79",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "attribute_cost": "5 * new_rank"
+      },
+      "id": "sr6.advancement.attribute_cost",
+      "provider": "Sr6AdvancementProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr6_core_2019:p58-79",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "active_skill_cost": "5 * new_rank"
+      },
+      "id": "sr6.advancement.active_skill_cost",
+      "provider": "Sr6AdvancementProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr6_core_2019:p58-79",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "specialization_cost": 5
+      },
+      "id": "sr6.advancement.specialization_cost",
+      "provider": "Sr6AdvancementProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr6_core_2019:p58-79",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "expertise_cost": 5
+      },
+      "id": "sr6.advancement.expertise_cost",
+      "provider": "Sr6AdvancementProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr6_core_2019:p58-79",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "knowledge_skill_cost": 3
+      },
+      "id": "sr6.advancement.knowledge_skill_cost",
+      "provider": "Sr6AdvancementProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr6_core_2019:p58-79",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "positive_quality_after_creation_cost": "2 * normal_cost"
+      },
+      "id": "sr6.advancement.positive_quality_after_creation_cost",
+      "provider": "Sr6QualityProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr6_core_2019:p58-79",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "eliminate_negative_quality_cost": "2 * normal_bonus"
+      },
+      "id": "sr6.advancement.eliminate_negative_quality_cost",
+      "provider": "Sr6QualityProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr6_core_2019:p58-79",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "new_spell_cost": 5
+      },
+      "id": "sr6.advancement.new_spell_cost",
+      "provider": "Sr6AdvancementProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr6_core_2019:p58-79",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "new_complex_form_cost": 5
+      },
+      "id": "sr6.advancement.new_complex_form_cost",
+      "provider": "Sr6AdvancementProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr6_core_2019:p58-79",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "initiation_cost": "10 + new_initiate_grade"
+      },
+      "id": "sr6.advancement.initiation_cost",
+      "provider": "Sr6AdvancementProvider",
+      "ruleset": "sr6",
+      "seed_file": "SR6_CHARACTER_CREATION_SEED.yaml",
+      "source_ref": "sr6_core_2019:p58-79",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr6_core_2019",
+      "fact": {
+        "submersion_cost": "10 + new_submersion_level"
+      },
+      "id": "sr6.advancement.submersion_cost",
+      "provider": "Sr6AdvancementProvider",
       "ruleset": "sr6",
       "seed_file": "SR6_CHARACTER_CREATION_SEED.yaml",
       "source_ref": "sr6_core_2019:p58-79",

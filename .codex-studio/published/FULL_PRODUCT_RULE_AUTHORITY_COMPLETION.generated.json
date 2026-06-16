@@ -14,7 +14,7 @@
       "human_review_status": {
         "fields": {
           "Errata decision": "pending",
-          "Generated": "2026-06-16T03:52:14Z",
+          "Generated": "2026-06-16T04:30:38Z",
           "Ready token approved": "false",
           "Review timestamp": "pending",
           "Reviewer": "pending",
@@ -29,7 +29,7 @@
         "status": "pass"
       },
       "machine_closed": {
-        "golden_fixture_status": "seed_fixtures_passed",
+        "golden_fixture_status": "core_seed_fixture_pack_passed",
         "missing_implemented_providers": [],
         "missing_profile_status": [],
         "provider_status": "pass",
@@ -40,8 +40,8 @@
       "readiness_token_allowed": false,
       "remaining_gates": [
         "human-reviewed row-level mapping from indexed table evidence into normalized records",
-        "errata profile applied and reviewed",
-        "complete authority golden fixture corpus, beyond seed fixtures",
+        "official errata posture reviewed against the selected core baseline",
+        "fixture expectations reviewed against approved row-level authority",
         "human rule review signoff"
       ],
       "row_level_mapping_status": "pending_human_review",
@@ -67,7 +67,7 @@
       "human_review_status": {
         "fields": {
           "Errata decision": "pending",
-          "Generated": "2026-06-16T03:52:14Z",
+          "Generated": "2026-06-16T04:30:39Z",
           "Ready token approved": "false",
           "Review timestamp": "pending",
           "Reviewer": "pending",
@@ -78,11 +78,11 @@
         "pending_review": true,
         "review_ready": false,
         "ruleset": "sr6",
-        "source_baseline_required": true,
+        "source_baseline_required": false,
         "status": "pass"
       },
       "machine_closed": {
-        "golden_fixture_status": "seed_fixtures_passed",
+        "golden_fixture_status": "core_seed_fixture_pack_passed",
         "missing_implemented_providers": [],
         "missing_profile_status": [],
         "provider_status": "provider_classes_covered_not_authority_ready",
@@ -92,11 +92,10 @@
       },
       "readiness_token_allowed": false,
       "remaining_gates": [
-        "human-reviewed mapping of private PDF line-hash candidates into normalized public-safe records",
-        "human-selected SR6 source baseline across indexed 2019/2024/supplement sources",
-        "errata profile applied and reviewed",
-        "complete authority golden fixture corpus, beyond seed fixtures",
-        "full provider-backed explain receipt corpus",
+        "human-reviewed mapping of 2024-core PDF line-hash candidates into normalized public-safe records",
+        "official errata posture reviewed against the selected 2024 core baseline",
+        "fixture expectations reviewed against approved row-level authority",
+        "provider-backed explain corpus reviewed against approved row-level authority",
         "human rule review signoff"
       ],
       "row_level_mapping_status": "pending_human_review",
@@ -116,7 +115,7 @@
     "sourcebook_prose_copied": false
   },
   "final_verdict": "NOT_READY",
-  "generated_at_utc": "2026-06-16T03:52:17Z",
+  "generated_at_utc": "2026-06-16T04:33:11Z",
   "readiness_token_allowed": false,
   "rulesets": {
     "sr4": {
@@ -124,7 +123,7 @@
       "human_review": {
         "fields": {
           "Errata decision": "pending",
-          "Generated": "2026-06-16T03:52:14Z",
+          "Generated": "2026-06-16T04:30:38Z",
           "Ready token approved": "false",
           "Review timestamp": "pending",
           "Reviewer": "pending",
@@ -157,7 +156,7 @@
       "human_review": {
         "fields": {
           "Errata decision": "pending",
-          "Generated": "2026-06-16T03:52:14Z",
+          "Generated": "2026-06-16T04:30:39Z",
           "Ready token approved": "false",
           "Review timestamp": "pending",
           "Reviewer": "pending",
@@ -168,7 +167,7 @@
         "pending_review": true,
         "review_ready": false,
         "ruleset": "sr6",
-        "source_baseline_required": true,
+        "source_baseline_required": false,
         "status": "pass"
       },
       "implemented_provider_count": 18,

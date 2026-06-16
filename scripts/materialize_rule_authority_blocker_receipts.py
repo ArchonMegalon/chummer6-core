@@ -24,6 +24,28 @@ PDF_SOURCE_IDENTITY = {
         Path("/mnt/pcloud/personal/Roleplay/sr/Shadowrun - 6e - Krime Katalog.pdf"),
     ],
 }
+RULE_AUTHORITY_POLICY = {
+    "sr4": {
+        "selected_core_baseline": "legacy Chummer4 XML as implemented for core readiness",
+        "selected_core_source_files": ["(SR4) Shadowrun 4e Core Rules.pdf"],
+        "excluded_source_files": [],
+        "supplements_in_scope": False,
+        "errata_policy": "official errata or official web notices only",
+        "review_subject": "legacy Chummer structured XML rows aligned to the Chummer4-as-implemented core baseline",
+    },
+    "sr6": {
+        "selected_core_baseline": "Shadowrun_6_Downloadversion_2024.pdf",
+        "selected_core_source_files": ["Shadowrun_6_Downloadversion_2024.pdf"],
+        "excluded_source_files": [
+            "Shadowrun Sixth World.pdf",
+            "Shadowrun_Street_Wyrd_(Core_Magic_Rulebook).pdf",
+            "Shadowrun - 6e - Krime Katalog.pdf",
+        ],
+        "supplements_in_scope": False,
+        "errata_policy": "official errata or official web notices only",
+        "review_subject": "private PDF table-candidate line hashes from the selected 2024 SR6 core baseline",
+    },
+}
 
 
 def now() -> str:
@@ -91,6 +113,7 @@ def build_review_handoff(ruleset: str, row_level: dict[str, Any], errata_receipt
     upper = ruleset.upper()
     row_packet = row_level.get("review_packet", {})
     errata_packet = errata_receipt.get("review_packet", {})
+    baseline_required = row_packet.get("source_baseline_decision_status") == "pending_human_review"
     lines = [
         f"# {upper} Rule Authority Review Handoff",
         "",
@@ -107,15 +130,17 @@ def build_review_handoff(ruleset: str, row_level: dict[str, Any], errata_receipt
         "",
         f"- Indexed units: `{row_packet.get('indexed_unit_count')}`",
         f"- Source count: `{row_packet.get('source_count')}`",
+        f"- Selected core baseline: `{row_packet.get('selected_core_baseline')}`",
         f"- Registry rulefacts: `{row_level.get('registry_rulefact_count')}`",
         f"- Public-safe row receipt: `{row_level.get('public_safe')}`",
         f"- Errata source metadata count: `{errata_packet.get('source_count')}`",
+        f"- Errata policy: `{errata_packet.get('errata_policy')}`",
         "",
         "## Human Decisions Required",
         "",
         "- Confirm source identity, license posture, and edition fit.",
         "- Map indexed rows or line hashes into normalized public-safe rule records.",
-        "- Apply, reject as not applicable, or explicitly defer errata sources.",
+        "- Apply, reject as not applicable, or explicitly defer the official errata scope.",
         "- Confirm no sourcebook prose, art, page images, examples, or table text are promoted.",
         "- Sign off before any ready token is emitted.",
         "",
@@ -125,13 +150,17 @@ def build_review_handoff(ruleset: str, row_level: dict[str, Any], errata_receipt
         "- Errata decision: `pending | applied | not_applicable | defer`",
         "- Final reviewer: `pending`",
         "- Final review timestamp: `pending`",
+    ]
+    if baseline_required:
+        lines.append("- Source baseline decision: `pending | <selected baseline>`")
+    lines.extend([
         "",
         "## Blocking Receipts",
         "",
         f"- `{upper}_ROW_LEVEL_AUTHORITY_MAPPING.generated.json`",
         f"- `{upper}_ERRATA_SOURCE_POSTURE.generated.json`",
         f"- `{upper}_HUMAN_RULE_REVIEW.md`",
-    ]
+    ])
     private_registry = row_packet.get("private_registry")
     if private_registry:
         lines.extend(["", "## Private Review Registry", "", f"- `{private_registry}`"])
@@ -146,6 +175,7 @@ def build_human_rule_review(ruleset: str, row_level: dict[str, Any], errata_rece
     indexed_sources = row_packet.get("indexed_source_files") or []
     indexed_source_lines = [f"- `{source}`" for source in indexed_sources] or ["- `none`"]
     source_identity = row_packet.get("source_identity") or []
+    baseline_required = row_packet.get("source_baseline_decision_status") == "pending_human_review"
     source_identity_lines = [
         f"- `{source.get('file')}` at `{source.get('path')}`; exists=`{source.get('exists')}`; sha256=`{source.get('sha256')}`"
         for source in source_identity
@@ -168,15 +198,16 @@ def build_human_rule_review(ruleset: str, row_level: dict[str, Any], errata_rece
         f"- Row-level mapping status: `{row_level.get('status')}`",
         f"- Indexed unit count: `{row_packet.get('indexed_unit_count')}`",
         f"- Source count: `{row_packet.get('source_count')}`",
+        f"- Selected core baseline: `{row_packet.get('selected_core_baseline')}`",
         f"- Source baseline decision status: `{row_packet.get('source_baseline_decision_status')}`",
         f"- Errata posture status: `{errata_receipt.get('status')}`",
         f"- Errata source count: `{errata_packet.get('source_count')}`",
+        f"- Errata policy: `{errata_packet.get('errata_policy')}`",
         f"- Public copy policy: `{row_packet.get('public_copy_policy')}`",
         "",
         "## Required Human Decisions",
         "",
         "- Confirm the indexed source surface is the correct edition authority.",
-        "- Select or reject the edition/source baseline when multiple books are indexed.",
         "- Confirm row-level mappings are normalized facts, not copied source prose or tables.",
         "- Apply, reject as not applicable, or explicitly defer every applicable errata source.",
         "- Confirm fixture expectations are valid against reviewed rule authority.",
@@ -208,18 +239,21 @@ def build_human_rule_review(ruleset: str, row_level: dict[str, Any], errata_rece
         "- `Review timestamp: <UTC ISO-8601 timestamp>`",
         "- `Ready token approved: true`",
         "- `Errata defer rationale: <reason>` when the errata decision is `defer`",
-        "- `Source baseline decision: <selected baseline>` when multiple source files are indexed",
     ]
+    if baseline_required:
+        lines.insert(lines.index("- Confirm row-level mappings are normalized facts, not copied source prose or tables."), "- Select or reject the edition/source baseline when multiple books are indexed.")
+        lines.append("- `Source baseline decision: <selected baseline>` when multiple source files are indexed")
     return "\n".join(lines)
 
 
 def build_row_level_mapping_receipt(ruleset: str, table_imports: dict[str, Any], registry: dict[str, Any]) -> dict[str, Any]:
+    policy = RULE_AUTHORITY_POLICY[ruleset]
     source_kind = str(table_imports.get("source_kind", ""))
     if ruleset == "sr4":
         indexed_units = int(table_imports.get("row_count") or 0)
         indexed_label = "indexed_structured_rows"
         minimum = 1000
-        review_subject = "legacy Chummer structured XML rows"
+        review_subject = policy["review_subject"]
         category_counts = {
             str(item.get("file")): int(item.get("row_count") or 0)
             for item in table_imports.get("files", [])
@@ -229,12 +263,15 @@ def build_row_level_mapping_receipt(ruleset: str, table_imports: dict[str, Any],
         indexed_units = int(table_imports.get("candidate_table_line_count") or 0)
         indexed_label = "indexed_candidate_lines"
         minimum = 1000
-        review_subject = "private PDF table-candidate line hashes"
+        review_subject = policy["review_subject"]
         category_counts = table_imports.get("category_table_candidate_counts", {})
     indexed_sources = indexed_source_files(table_imports)
-    source_count = int(table_imports.get("sourcebook_count") or table_imports.get("file_count") or 0)
-    source_baseline_required = ruleset == "sr6" and len(indexed_sources) > 1
-    source_baseline_status = "pending_human_review" if source_baseline_required else "single_source"
+    if ruleset == "sr6" and policy.get("selected_core_source_files"):
+        selected = set(policy["selected_core_source_files"])
+        indexed_sources = [source for source in indexed_sources if Path(source).name in selected]
+    source_count = len(indexed_sources) if indexed_sources else int(table_imports.get("sourcebook_count") or table_imports.get("file_count") or 0)
+    source_baseline_required = False
+    source_baseline_status = "operator_policy_selected_core_baseline"
     remaining_gate = str(table_imports.get("remaining_gate") or "")
     if "review" not in remaining_gate.lower():
         remaining_gate = "human review of indexed row-level authority mapping"
@@ -280,8 +317,12 @@ def build_row_level_mapping_receipt(ruleset: str, table_imports: dict[str, Any],
             "private_registry": table_imports.get("private_registry"),
             "source_count": source_count,
             "indexed_source_files": indexed_sources,
-            "source_identity": pdf_source_identity(ruleset),
+            "source_identity": [source for source in pdf_source_identity(ruleset) if source["file"] in set(policy.get("selected_core_source_files", []))] or pdf_source_identity(ruleset),
             "source_baseline_decision_status": source_baseline_status,
+            "selected_core_baseline": policy["selected_core_baseline"],
+            "selected_core_source_files": policy.get("selected_core_source_files", []),
+            "excluded_source_files": policy.get("excluded_source_files", []),
+            "supplements_in_scope": policy["supplements_in_scope"],
             "public_copy_policy": table_imports.get("public_copy_policy"),
             "reviewer_output_expected": f"{ruleset.upper()}_HUMAN_RULE_REVIEW.md",
         },
@@ -290,6 +331,7 @@ def build_row_level_mapping_receipt(ruleset: str, table_imports: dict[str, Any],
 
 def build_errata_receipt(ruleset: str, errata_profile: dict[str, Any]) -> dict[str, Any]:
     sources = errata_sources_for_ruleset(ruleset)
+    policy = RULE_AUTHORITY_POLICY[ruleset]
     return {
         "contract_name": f"chummer.{ruleset}.errata_source_posture",
         "generated_at_utc": now(),
@@ -320,6 +362,8 @@ def build_errata_receipt(ruleset: str, errata_profile: dict[str, Any]) -> dict[s
             "required_decision_values": ["applied", "not_applicable", "defer"],
             "source_count": len(sources),
             "source_ids": [str(source.get("id")) for source in sources if isinstance(source, dict)],
+            "errata_policy": policy["errata_policy"],
+            "selected_core_baseline": policy["selected_core_baseline"],
             "reviewer_output_expected": f"{ruleset.upper()}_HUMAN_RULE_REVIEW.md",
         },
     }

@@ -1,0 +1,52 @@
+{
+  "core_baseline": "legacy Chummer4 XML as implemented for core readiness",
+  "coverage_domains": [
+    "dice",
+    "tests",
+    "build_points",
+    "metatype_ranges",
+    "attributes",
+    "skills",
+    "qualities",
+    "derived_stats",
+    "combat",
+    "magic",
+    "matrix",
+    "rigging"
+  ],
+  "generated_at_utc": "2026-06-16T04:30:38Z",
+  "implemented_provider_count": 19,
+  "provider": "Sr4ExplainReceiptProvider",
+  "provider_coverage_status": "pass",
+  "providers_with_rulefacts": [
+    "Sr4ActionEconomyProvider",
+    "Sr4AdvancementProvider",
+    "Sr4AttributeProvider",
+    "Sr4CharacterCreationProvider",
+    "Sr4CombatProvider",
+    "Sr4DamageProvider",
+    "Sr4DerivedStatsProvider",
+    "Sr4DiceProvider",
+    "Sr4EdgeProvider",
+    "Sr4GearProvider",
+    "Sr4MagicProvider",
+    "Sr4MatrixProvider",
+    "Sr4MetatypeProvider",
+    "Sr4QualityProvider",
+    "Sr4RiggingProvider",
+    "Sr4SkillProvider",
+    "Sr4TestProvider"
+  ],
+  "public_safe": true,
+  "ready_for_gold": false,
+  "reason": "Seed-level public-safe explain receipts exist for the core-only authority scope; reviewed row-level mappings remain required before a ready token.",
+  "receipt_kind": "public_safe_seed_explain_receipts",
+  "remaining_gates": [
+    "reviewed row-level authority mapping for cited facts",
+    "human-confirmed explain corpus against approved baseline and errata posture"
+  ],
+  "ruleset": "sr4",
+  "scope": "core_readiness_only",
+  "status": "core_seed_receipt_pack_available",
+  "supplements_in_scope": false
+}

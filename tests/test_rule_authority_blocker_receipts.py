@@ -30,12 +30,14 @@ class RuleAuthorityBlockerReceiptTests(unittest.TestCase):
             self.assertGreater(row_level["review_packet"]["indexed_unit_count"], 0)
             self.assertIn("human_required", row_level)
             self.assertTrue(row_level["human_required"]["must_sign_off_before_ready_token"])
+            self.assertIn("selected_core_baseline", row_level["review_packet"])
             if ruleset == "sr6":
-                self.assertEqual("pending_human_review", row_level["source_baseline_decision_status"])
-                self.assertTrue(row_level["human_required"]["must_select_source_baseline"])
-                self.assertIn("Shadowrun_6_Downloadversion_2024.pdf", row_level["review_packet"]["indexed_source_files"])
+                self.assertEqual("operator_policy_selected_core_baseline", row_level["source_baseline_decision_status"])
+                self.assertFalse(row_level["human_required"]["must_select_source_baseline"])
+                self.assertEqual(["Shadowrun_6_Downloadversion_2024.pdf"], row_level["review_packet"]["indexed_source_files"])
+                self.assertEqual("Shadowrun_6_Downloadversion_2024.pdf", row_level["review_packet"]["selected_core_baseline"])
             if ruleset == "sr4":
-                self.assertEqual("single_source", row_level["source_baseline_decision_status"])
+                self.assertEqual("operator_policy_selected_core_baseline", row_level["source_baseline_decision_status"])
                 self.assertFalse(row_level["human_required"]["must_select_source_baseline"])
                 self.assertTrue(row_level["review_packet"]["indexed_source_files"])
                 self.assertNotEqual(["none"], row_level["review_packet"]["indexed_source_files"])
@@ -46,6 +48,7 @@ class RuleAuthorityBlockerReceiptTests(unittest.TestCase):
             self.assertTrue(errata["required_before_gold"])
             self.assertIn("review_packet", errata)
             self.assertEqual("pending", errata["review_packet"]["decision"])
+            self.assertEqual("official errata or official web notices only", errata["review_packet"]["errata_policy"])
             self.assertIn("human_required", errata)
             self.assertTrue(errata["human_required"]["must_sign_off_before_ready_token"])
             review = module.build_human_rule_review(ruleset, row_level, errata)
@@ -56,8 +59,8 @@ class RuleAuthorityBlockerReceiptTests(unittest.TestCase):
             self.assertIn(f"{ruleset.upper()}_ROW_LEVEL_AUTHORITY_MAPPING.generated.json", review)
             self.assertIn(f"{ruleset.upper()}_ERRATA_SOURCE_POSTURE.generated.json", review)
             if ruleset == "sr6":
-                self.assertIn("Source baseline decision status: `pending_human_review`", review)
-                self.assertIn("Source baseline decision: <selected baseline>", review)
+                self.assertIn("Source baseline decision status: `operator_policy_selected_core_baseline`", review)
+                self.assertNotIn("Source baseline decision: <selected baseline>", review)
             if ruleset == "sr4":
                 self.assertIn("Source Identity Evidence", review)
                 self.assertIn("(SR4) Shadowrun 4e Core Rules.pdf", review)
