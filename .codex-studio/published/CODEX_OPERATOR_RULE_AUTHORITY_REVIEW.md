@@ -1,8 +1,8 @@
 # Codex Operator Rule Authority Review
 
-Generated: 2026-06-12T08:04:38.293262Z
+Generated: 2026-06-16T03:52:14.635512Z
 
-Status: operator review complete; rule authority is ready under the current user-directed human-side gold assumption.
+Status: operator review complete; rule authority remains blocked.
 
 ## Scope
 
@@ -32,12 +32,12 @@ This audit checks local source identity, edition fit, receipt consistency, provi
 - fixture_failed: 0
 - explain_status: seed_receipts_available
 - errata_status: applied
-- row_level_mapping_status: reviewed
-- errata_posture_status: applied
-- human_review_status: {'status': 'pass', 'ruleset': 'sr4', 'review_ready': True, 'pending_review': False, 'source_baseline_required': False, 'fields': {'Generated': '2026-06-12T08:00:28Z', 'Status': 'approved', 'Row-level decision': 'approved', 'Errata decision': 'applied', 'Reviewer': 'user_directive_human_side_gold_assumption_2026-06-12', 'Review timestamp': '2026-06-12T08:00:28Z', 'Ready token approved': 'true', 'Source baseline decision': 'single_source', 'Errata defer rationale': 'none; human-side assumption treats currently indexed errata posture as reviewed for gold.'}, 'path': '/docker/chummercomplete/_completion/sr4_rule_authority/SR4_HUMAN_RULE_REVIEW.md'}
+- row_level_mapping_status: pending_human_review
+- errata_posture_status: pending_reviewed_application
+- human_review_status: {'status': 'pass', 'ruleset': 'sr4', 'review_ready': False, 'pending_review': True, 'source_baseline_required': False, 'fields': {'Generated': '2026-06-16T03:52:14Z', 'Status': 'pending', 'Row-level decision': 'pending', 'Errata decision': 'pending', 'Reviewer': 'pending', 'Review timestamp': 'pending', 'Ready token approved': 'false'}, 'path': '/docker/chummercomplete/_completion/sr4_rule_authority/SR4_HUMAN_RULE_REVIEW.md'}
 - blocker_receipts: {'row_level_mapping': '/docker/chummercomplete/_completion/sr4_rule_authority/SR4_ROW_LEVEL_AUTHORITY_MAPPING.generated.json', 'errata_posture': '/docker/chummercomplete/_completion/sr4_rule_authority/SR4_ERRATA_SOURCE_POSTURE.generated.json', 'review_handoff': '/docker/chummercomplete/_completion/sr4_rule_authority/SR4_RULE_AUTHORITY_REVIEW_HANDOFF.md', 'human_review': '/docker/chummercomplete/_completion/sr4_rule_authority/SR4_HUMAN_RULE_REVIEW.md'}
 - copyright_status: pass
-- readiness_token_allowed: True
+- readiness_token_allowed: False
 
 ### SR5
 - acceptance_proof_status: pass
@@ -49,7 +49,7 @@ This audit checks local source identity, edition fit, receipt consistency, provi
 - implemented_provider_count: 18
 - missing_implemented_providers: []
 - missing_profile_status: []
-- provider_status: pass
+- provider_status: provider_classes_covered_not_authority_ready
 - table_import_status: reviewed
 - table_row_count: None
 - table_file_count: None
@@ -58,12 +58,12 @@ This audit checks local source identity, edition fit, receipt consistency, provi
 - fixture_failed: 0
 - explain_status: seeded
 - errata_status: applied
-- row_level_mapping_status: reviewed
-- errata_posture_status: applied
-- human_review_status: {'status': 'pass', 'ruleset': 'sr6', 'review_ready': True, 'pending_review': False, 'source_baseline_required': False, 'fields': {'Generated': '2026-06-12T08:00:28Z', 'Status': 'approved', 'Row-level decision': 'approved', 'Errata decision': 'applied', 'Reviewer': 'user_directive_human_side_gold_assumption_2026-06-12', 'Review timestamp': '2026-06-12T08:00:28Z', 'Ready token approved': 'true', 'Source baseline decision': 'Shadowrun_6_Downloadversion_2024.pdf', 'Errata defer rationale': 'none; human-side assumption treats currently indexed errata posture as reviewed for gold.'}, 'path': '/docker/chummercomplete/_completion/sr6_rule_authority/SR6_HUMAN_RULE_REVIEW.md'}
+- row_level_mapping_status: pending_human_review
+- errata_posture_status: pending_reviewed_application
+- human_review_status: {'status': 'pass', 'ruleset': 'sr6', 'review_ready': False, 'pending_review': True, 'source_baseline_required': True, 'fields': {'Generated': '2026-06-16T03:52:14Z', 'Status': 'pending', 'Row-level decision': 'pending', 'Errata decision': 'pending', 'Reviewer': 'pending', 'Review timestamp': 'pending', 'Ready token approved': 'false'}, 'path': '/docker/chummercomplete/_completion/sr6_rule_authority/SR6_HUMAN_RULE_REVIEW.md'}
 - blocker_receipts: {'row_level_mapping': '/docker/chummercomplete/_completion/sr6_rule_authority/SR6_ROW_LEVEL_AUTHORITY_MAPPING.generated.json', 'errata_posture': '/docker/chummercomplete/_completion/sr6_rule_authority/SR6_ERRATA_SOURCE_POSTURE.generated.json', 'review_handoff': '/docker/chummercomplete/_completion/sr6_rule_authority/SR6_RULE_AUTHORITY_REVIEW_HANDOFF.md', 'human_review': '/docker/chummercomplete/_completion/sr6_rule_authority/SR6_HUMAN_RULE_REVIEW.md'}
 - copyright_status: pass
-- readiness_token_allowed: True
+- readiness_token_allowed: False
 
 ## Findings
 
@@ -71,11 +71,19 @@ This audit checks local source identity, edition fit, receipt consistency, provi
 - copyright_boundary: pass - No review artifact commits sourcebook prose, page images, fiction, or art.
 - provider_class_coverage: pass - SR4 and SR6 required provider classes are present with no missing implementation/profile entries.
 - seed_fixture_execution: pass - Focused SR4/SR6 seed fixture receipts report zero failures.
-- rulefact_depth: pass - RuleFact registries satisfy the current ready gate minimum under the user-directed human-side gold assumption.
-- row_level_table_mapping: pass - SR4/SR6 row-level authority receipts, errata posture, and human signoff are approved under the current user-directed human-side gold assumption.
-- errata_application: pass - Errata posture is marked applied and reviewed under the current user-directed human-side gold assumption.
-- human_signoff: pass - Human-side signoff is represented by reviewer token user_directive_human_side_gold_assumption_2026-06-12; this remains a user-directed assumption, not independent publisher/legal review.
+- rulefact_depth: blocker - RuleFact registries still contain seed-level dice/core facts only, not the full P0/P1 chapter authority corpus.
+- row_level_table_mapping: blocker - SR4/SR6 still require reviewed row-level authority mapping, errata application, expanded fixtures, and independent human signoff.
+- errata_application: blocker - Official SR6 errata/update sources are identified, but errata deltas are not applied and reviewed in providers/table records; SR4 errata profile also remains pending.
+- human_signoff: blocker - This is a Codex operator audit, not independent human/editorial/legal signoff.
 
 ## Decision
 
-SR4 and SR6 may remain promoted only under the current user-directed human-side gold assumption; this is not independent publisher/legal/editorial review.
+Do not promote SR4 or SR6 to rule-authority ready from this audit alone. The remaining work is not code-class discovery; it is reviewed row-level rule/data mapping, errata application, a larger authority fixture corpus, public-safe explain receipts for every authority rule, and independent human signoff.
+
+## Recommendation
+
+- overall: do_not_sign_off
+- sr4: do_not_sign_off
+- sr6: do_not_sign_off
+- embarrassment_risk: high_if_overridden_without_review
+- reason: Do not sign off while row-level review, errata review, source-baseline selection, or fuller authority fixtures remain pending.

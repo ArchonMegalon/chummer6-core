@@ -38,6 +38,21 @@ class RuleAuthorityOperatorReviewTests(unittest.TestCase):
         self.assertEqual("blocker", findings["rulefact_depth"])
         self.assertEqual("blocker", findings["errata_application"])
         self.assertEqual("blocker", findings["human_signoff"])
+        self.assertEqual("do_not_sign_off", payload["signoff_recommendation"]["recommendation"])
+        self.assertEqual("do_not_sign_off", payload["signoff_recommendation"]["sr4"])
+        self.assertEqual("do_not_sign_off", payload["signoff_recommendation"]["sr6"])
+
+    def test_published_operator_review_artifact_matches_blocked_posture(self) -> None:
+        import json
+
+        payload = json.loads(
+            (REPO_ROOT / ".codex-studio" / "published" / "CODEX_OPERATOR_RULE_AUTHORITY_REVIEW.generated.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        self.assertEqual("operator_review_complete_authority_blocked", payload["status"])
+        self.assertFalse(payload["readiness_decision"]["full_product_rule_authority_ready"])
+        self.assertEqual("do_not_sign_off", payload["signoff_recommendation"]["recommendation"])
 
     def test_full_completion_reports_blockers(self) -> None:
         import importlib.util

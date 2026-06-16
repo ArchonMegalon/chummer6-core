@@ -231,6 +231,21 @@ def build_payload() -> dict[str, Any]:
             "full_product_rule_authority_ready": full_ready,
             "reason": "Ready under user_directive_human_side_gold_assumption_2026-06-12." if full_ready else "Operator review closed source identity and provider evidence, but full authority still requires row-level reviewed records, errata application, expanded fixtures, and independent human signoff.",
         },
+        "signoff_recommendation": {
+            "recommendation": "sign_off_allowed" if full_ready else "do_not_sign_off",
+            "sr4": "sign_off_allowed" if sr4_ready else "do_not_sign_off",
+            "sr6": "sign_off_allowed" if sr6_ready else "do_not_sign_off",
+            "reason": (
+                "Current evidence is sufficient for ready tokens."
+                if full_ready
+                else "Do not sign off while row-level review, errata review, source-baseline selection, or fuller authority fixtures remain pending."
+            ),
+            "embarrassment_risk": (
+                "bounded"
+                if full_ready
+                else "high_if_overridden_without_review"
+            ),
+        },
     }
     return payload
 
@@ -266,6 +281,14 @@ def build_markdown(payload: dict[str, Any]) -> str:
         "## Decision",
         "",
         "SR4 and SR6 may remain promoted only under the current user-directed human-side gold assumption; this is not independent publisher/legal/editorial review." if payload["readiness_decision"]["full_product_rule_authority_ready"] else "Do not promote SR4 or SR6 to rule-authority ready from this audit alone. The remaining work is not code-class discovery; it is reviewed row-level rule/data mapping, errata application, a larger authority fixture corpus, public-safe explain receipts for every authority rule, and independent human signoff.",
+        "",
+        "## Recommendation",
+        "",
+        f"- overall: {payload['signoff_recommendation']['recommendation']}",
+        f"- sr4: {payload['signoff_recommendation']['sr4']}",
+        f"- sr6: {payload['signoff_recommendation']['sr6']}",
+        f"- embarrassment_risk: {payload['signoff_recommendation']['embarrassment_risk']}",
+        f"- reason: {payload['signoff_recommendation']['reason']}",
         "",
     ])
     return "\n".join(lines)

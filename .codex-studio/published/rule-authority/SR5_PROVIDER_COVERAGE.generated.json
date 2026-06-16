@@ -1,7 +1,7 @@
 {
   "edition": "SR5",
   "fixture_count": 45,
-  "generated_at_utc": "2026-06-16T03:28:47Z",
+  "generated_at_utc": "2026-06-16T03:52:13Z",
   "mapped_rulefacts": 375,
   "providers": [
     "SR5AdvancementProvider",
