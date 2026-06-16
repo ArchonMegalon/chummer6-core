@@ -30,6 +30,11 @@ class RuleAuthorityReviewerPacketTests(unittest.TestCase):
         self.assertFalse(sr4["errata"]["review_decision_required"])
         self.assertFalse(sr4["fixtures"]["review_expected_values_required"])
         self.assertGreater(sr4["registry"]["rulefact_count"], 0)
+        self.assertTrue(sr4["human_review_file"].endswith("SR4_HUMAN_RULE_REVIEW.md"))
+        self.assertIn("row_level_mapping", sr4["review_inputs"])
+        self.assertEqual("approved", sr4["exact_edit_contract"]["Status"])
+        self.assertEqual("not_applicable", sr4["exact_edit_contract"]["Errata decision"])
+        self.assertGreaterEqual(len(sr4["rerun_commands"]), 4)
         self.assertEqual(
             [
                 "review row-level mapping packet and approve or reject normalized public-safe records",
@@ -43,6 +48,9 @@ class RuleAuthorityReviewerPacketTests(unittest.TestCase):
         self.assertEqual("pending_manual_review", sr6["errata"]["recommended_decision"])
         self.assertFalse(sr6["fixtures"]["review_expected_values_required"])
         self.assertFalse(sr6["explain_receipts"]["review_required"])
+        self.assertEqual("applied | not_applicable | defer", sr6["exact_edit_contract"]["Errata decision"])
+        self.assertIn("Errata defer rationale", sr6["exact_edit_contract"])
+        self.assertEqual(3, len(sr6["errata"]["sources"]))
 
     def test_published_packets_exist(self) -> None:
         for ruleset in ("SR4", "SR6"):

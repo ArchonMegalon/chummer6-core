@@ -1,6 +1,6 @@
 # SR4 Reviewer Decision Packet
 
-Generated: 2026-06-16T04:56:27Z
+Generated: 2026-06-16T09:09:16Z
 
 Status: awaiting_human_decision
 
@@ -8,6 +8,7 @@ Status: awaiting_human_decision
 
 - Selected core baseline: `legacy Chummer4 XML as implemented for core readiness`
 - Supplements in scope: `False`
+- Human review file: `/docker/chummercomplete/_completion/sr4_rule_authority/SR4_HUMAN_RULE_REVIEW.md`
 
 ## Review Checklist
 
@@ -23,6 +24,30 @@ Status: awaiting_human_decision
 
 - review row-level mapping packet and approve or reject normalized public-safe records
 - complete human rule review signoff
+
+## Review Inputs
+
+- Row-level mapping: `/docker/chummercomplete/_completion/sr4_rule_authority/SR4_ROW_LEVEL_AUTHORITY_MAPPING.generated.json`
+- Errata posture: `/docker/chummercomplete/_completion/sr4_rule_authority/SR4_ERRATA_SOURCE_POSTURE.generated.json`
+- Review handoff: `/docker/chummercomplete/_completion/sr4_rule_authority/SR4_RULE_AUTHORITY_REVIEW_HANDOFF.md`
+- Private registry: `none`
+
+## Exact File Edits
+
+- `Status: approved`
+- `Row-level decision: approved`
+- `Errata decision: not_applicable`
+- `Reviewer: <human reviewer>`
+- `Review timestamp: <UTC ISO-8601 timestamp>`
+- `Ready token approved: true`
+
+## Rerun Commands
+
+- `python3 /docker/chummercomplete/chummer-core-engine/scripts/verify_rule_authority_human_review.py sr4 --require-ready`
+- `python3 /docker/chummercomplete/chummer-core-engine/scripts/materialize_rule_authority_reviewer_packets.py`
+- `python3 /docker/chummercomplete/chummer-core-engine/scripts/materialize_rule_authority_blocker_receipts.py`
+- `python3 /docker/chummercomplete/chummer-core-engine/scripts/audit_rule_authority_operator_review.py`
+- `bash /docker/chummercomplete/chummer-core-engine/scripts/ai/verify.sh`
 
 ## Signoff Preconditions
 

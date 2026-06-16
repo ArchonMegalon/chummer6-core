@@ -21,15 +21,24 @@ def load_module():
 
 
 class RuleAuthorityHumanReviewTests(unittest.TestCase):
-    def test_current_reviews_are_structured_approved_and_ready(self) -> None:
+    def test_current_reviews_are_structured_pending_and_handoff_ready(self) -> None:
         module = load_module()
-        for ruleset in ("sr4", "sr6"):
-            result = module.validate_review(ruleset)
-            self.assertEqual("pass", result["status"])
-            self.assertFalse(result["pending_review"])
-            self.assertTrue(result["review_ready"])
-            self.assertEqual("true", result["fields"]["Ready token approved"])
-            self.assertEqual("user_directive_human_side_gold_assumption_2026-06-12", result["fields"]["Reviewer"])
+        sr4 = module.validate_review("sr4")
+        sr6 = module.validate_review("sr6")
+
+        self.assertEqual("pass", sr4["status"])
+        self.assertTrue(sr4["pending_review"])
+        self.assertFalse(sr4["review_ready"])
+        self.assertEqual("pending", sr4["fields"]["Reviewer"])
+        self.assertEqual("not_applicable", sr4["fields"]["Errata decision"])
+        self.assertEqual("false", sr4["fields"]["Ready token approved"])
+
+        self.assertEqual("pass", sr6["status"])
+        self.assertTrue(sr6["pending_review"])
+        self.assertFalse(sr6["review_ready"])
+        self.assertEqual("pending", sr6["fields"]["Reviewer"])
+        self.assertEqual("pending", sr6["fields"]["Errata decision"])
+        self.assertEqual("false", sr6["fields"]["Ready token approved"])
 
     def test_approved_review_requires_utc_timestamp(self) -> None:
         module = load_module()
@@ -90,7 +99,7 @@ class RuleAuthorityHumanReviewTests(unittest.TestCase):
         self.assertEqual("pass", with_required_baseline["status"])
         self.assertTrue(with_required_baseline["review_ready"])
 
-    def test_cli_require_ready_accepts_current_approved_reviews(self) -> None:
+    def test_cli_require_ready_rejects_current_pending_reviews(self) -> None:
         module = load_module()
         stdout = io.StringIO()
 
@@ -98,10 +107,11 @@ class RuleAuthorityHumanReviewTests(unittest.TestCase):
             status = module.main(["--require-ready", "sr4", "sr6"])
 
         payload = json.loads(stdout.getvalue())
-        self.assertEqual(0, status)
+        self.assertEqual(1, status)
         self.assertTrue(payload["require_ready"])
-        self.assertEqual("pass", payload["status"])
-        self.assertTrue(all(review["review_ready"] for review in payload["reviews"]))
+        self.assertEqual("fail", payload["status"])
+        self.assertTrue(all(review["status"] == "fail" for review in payload["reviews"]))
+        self.assertTrue(all(review["review_ready"] is False for review in payload["reviews"]))
 
     def test_cli_default_accepts_structured_pending_reviews(self) -> None:
         module = load_module()

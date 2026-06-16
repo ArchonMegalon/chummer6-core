@@ -33,6 +33,11 @@ def write_text(path: Path, text: str) -> None:
 def build_packet(ruleset: str) -> dict[str, Any]:
     upper = ruleset.upper()
     root = COMPLETION_ROOT / f"{ruleset}_rule_authority"
+    human_review_path = root / f"{upper}_HUMAN_RULE_REVIEW.md"
+    row_path = root / f"{upper}_ROW_LEVEL_AUTHORITY_MAPPING.generated.json"
+    errata_path = root / f"{upper}_ERRATA_SOURCE_POSTURE.generated.json"
+    handoff_path = root / f"{upper}_RULE_AUTHORITY_REVIEW_HANDOFF.md"
+    reviewer_decision_path = root / f"{upper}_REVIEWER_DECISION_PACKET.generated.json"
     row = load_json(root / f"{upper}_ROW_LEVEL_AUTHORITY_MAPPING.generated.json")
     errata = load_json(root / f"{upper}_ERRATA_SOURCE_POSTURE.generated.json")
     fixtures = load_json(root / f"{upper}_GOLDEN_FIXTURES.generated.json")
@@ -57,6 +62,25 @@ def build_packet(ruleset: str) -> dict[str, Any]:
         recommended_next_actions.append("spot-check explain receipts against approved SR6 row-level authority")
     recommended_next_actions.append("complete human rule review signoff")
 
+    exact_edit_contract = {
+        "Status": "approved",
+        "Row-level decision": "approved",
+        "Errata decision": "not_applicable" if no_errata_sources else "applied | not_applicable | defer",
+        "Reviewer": "<human reviewer>",
+        "Review timestamp": "<UTC ISO-8601 timestamp>",
+        "Ready token approved": "true",
+    }
+    if not no_errata_sources:
+        exact_edit_contract["Errata defer rationale"] = "<required when Errata decision is defer>"
+
+    rerun_commands = [
+        f"python3 /docker/chummercomplete/chummer-core-engine/scripts/verify_rule_authority_human_review.py {ruleset} --require-ready",
+        "python3 /docker/chummercomplete/chummer-core-engine/scripts/materialize_rule_authority_reviewer_packets.py",
+        "python3 /docker/chummercomplete/chummer-core-engine/scripts/materialize_rule_authority_blocker_receipts.py",
+        "python3 /docker/chummercomplete/chummer-core-engine/scripts/audit_rule_authority_operator_review.py",
+        "bash /docker/chummercomplete/chummer-core-engine/scripts/ai/verify.sh",
+    ]
+
     return {
         "contract_name": f"chummer.{ruleset}.reviewer_decision_packet",
         "generated_at_utc": now_iso(),
@@ -64,10 +88,20 @@ def build_packet(ruleset: str) -> dict[str, Any]:
         "status": "awaiting_human_decision",
         "selected_core_baseline": row_packet.get("selected_core_baseline"),
         "supplements_in_scope": row_packet.get("supplements_in_scope"),
+        "human_review_file": str(human_review_path),
+        "review_inputs": {
+            "row_level_mapping": str(row_path),
+            "errata_source_posture": str(errata_path),
+            "review_handoff": str(handoff_path),
+            "reviewer_decision_packet": str(reviewer_decision_path),
+            "private_registry": row_packet.get("private_registry"),
+        },
         "row_level_mapping": {
             "status": row.get("status"),
             "indexed_unit_count": row_packet.get("indexed_unit_count"),
             "indexed_source_files": row_packet.get("indexed_source_files"),
+            "selected_core_source_files": row_packet.get("selected_core_source_files"),
+            "source_identity": row_packet.get("source_identity"),
             "public_copy_policy": row_packet.get("public_copy_policy"),
             "review_decision_required": True,
         },
@@ -76,6 +110,7 @@ def build_packet(ruleset: str) -> dict[str, Any]:
             "policy": errata_packet.get("errata_policy"),
             "source_count": errata_packet.get("source_count"),
             "source_ids": errata_packet.get("source_ids"),
+            "sources": errata.get("sources", []),
             "recommended_decision": recommended_errata_decision,
             "review_decision_required": not no_errata_sources,
         },
@@ -100,6 +135,8 @@ def build_packet(ruleset: str) -> dict[str, Any]:
             "fact_provider_count": len({fact.get("provider") for fact in registry.get("rulefacts", []) if fact.get("provider")}),
         },
         "recommended_next_actions": recommended_next_actions,
+        "exact_edit_contract": exact_edit_contract,
+        "rerun_commands": rerun_commands,
         "can_change_recommendation_to_sign_off_allowed_when": [
             "row-level decision is approved",
             "human review file is approved with ready token approved true",
@@ -122,6 +159,7 @@ def build_markdown(packet: dict[str, Any]) -> str:
         "",
         f"- Selected core baseline: `{packet['selected_core_baseline']}`",
         f"- Supplements in scope: `{packet['supplements_in_scope']}`",
+        f"- Human review file: `{packet['human_review_file']}`",
         "",
         "## Review Checklist",
         "",
@@ -136,6 +174,21 @@ def build_markdown(packet: dict[str, Any]) -> str:
         "## Required Human Actions",
         "",
         *[f"- {item}" for item in packet["recommended_next_actions"]],
+        "",
+        "## Review Inputs",
+        "",
+        f"- Row-level mapping: `{packet['review_inputs']['row_level_mapping']}`",
+        f"- Errata posture: `{packet['review_inputs']['errata_source_posture']}`",
+        f"- Review handoff: `{packet['review_inputs']['review_handoff']}`",
+        f"- Private registry: `{packet['review_inputs']['private_registry'] or 'none'}`",
+        "",
+        "## Exact File Edits",
+        "",
+        *[f"- `{key}: {value}`" for key, value in packet["exact_edit_contract"].items()],
+        "",
+        "## Rerun Commands",
+        "",
+        *[f"- `{command}`" for command in packet["rerun_commands"]],
         "",
         "## Signoff Preconditions",
         "",

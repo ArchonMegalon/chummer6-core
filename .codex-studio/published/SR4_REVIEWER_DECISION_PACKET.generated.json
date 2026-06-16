@@ -10,7 +10,16 @@
     "review_decision_required": false,
     "source_count": 0,
     "source_ids": [],
+    "sources": [],
     "status": "not_applicable_by_policy"
+  },
+  "exact_edit_contract": {
+    "Errata decision": "not_applicable",
+    "Ready token approved": "true",
+    "Review timestamp": "<UTC ISO-8601 timestamp>",
+    "Reviewer": "<human reviewer>",
+    "Row-level decision": "approved",
+    "Status": "approved"
   },
   "explain_receipts": {
     "alignment_status": "pass",
@@ -51,7 +60,8 @@
     "review_expected_values_required": false,
     "status": "core_seed_fixture_pack_passed"
   },
-  "generated_at_utc": "2026-06-16T04:56:27Z",
+  "generated_at_utc": "2026-06-16T09:09:16Z",
+  "human_review_file": "/docker/chummercomplete/_completion/sr4_rule_authority/SR4_HUMAN_RULE_REVIEW.md",
   "recommended_next_actions": [
     "review row-level mapping packet and approve or reject normalized public-safe records",
     "complete human rule review signoff"
@@ -59,6 +69,20 @@
   "registry": {
     "fact_provider_count": 17,
     "rulefact_count": 449
+  },
+  "rerun_commands": [
+    "python3 /docker/chummercomplete/chummer-core-engine/scripts/verify_rule_authority_human_review.py sr4 --require-ready",
+    "python3 /docker/chummercomplete/chummer-core-engine/scripts/materialize_rule_authority_reviewer_packets.py",
+    "python3 /docker/chummercomplete/chummer-core-engine/scripts/materialize_rule_authority_blocker_receipts.py",
+    "python3 /docker/chummercomplete/chummer-core-engine/scripts/audit_rule_authority_operator_review.py",
+    "bash /docker/chummercomplete/chummer-core-engine/scripts/ai/verify.sh"
+  ],
+  "review_inputs": {
+    "errata_source_posture": "/docker/chummercomplete/_completion/sr4_rule_authority/SR4_ERRATA_SOURCE_POSTURE.generated.json",
+    "private_registry": null,
+    "review_handoff": "/docker/chummercomplete/_completion/sr4_rule_authority/SR4_RULE_AUTHORITY_REVIEW_HANDOFF.md",
+    "reviewer_decision_packet": "/docker/chummercomplete/_completion/sr4_rule_authority/SR4_REVIEWER_DECISION_PACKET.generated.json",
+    "row_level_mapping": "/docker/chummercomplete/_completion/sr4_rule_authority/SR4_ROW_LEVEL_AUTHORITY_MAPPING.generated.json"
   },
   "row_level_mapping": {
     "indexed_source_files": [
@@ -93,6 +117,18 @@
     "indexed_unit_count": 6989,
     "public_copy_policy": "metadata only: file names, hashes, XML container names, and counts; no sourcebook prose, art, page images, item descriptions, or stat rows",
     "review_decision_required": true,
+    "selected_core_source_files": [
+      "(SR4) Shadowrun 4e Core Rules.pdf"
+    ],
+    "source_identity": [
+      {
+        "bytes": 57971222,
+        "exists": true,
+        "file": "(SR4) Shadowrun 4e Core Rules.pdf",
+        "path": "/mnt/pcloud/personal/Roleplay/sr/(SR4) Shadowrun 4e Core Rules.pdf",
+        "sha256": "28da9d6dfd8eba79a2ae46dc41e2ec825d16067d288e6f20e23c65767616d41d"
+      }
+    ],
     "status": "pending_human_review"
   },
   "ruleset": "sr4",

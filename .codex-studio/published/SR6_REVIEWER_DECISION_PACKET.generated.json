@@ -15,7 +15,35 @@
       "sr6_feb_2020",
       "sr6_city_edition_notice"
     ],
+    "sources": [
+      {
+        "id": "sr6_aug_2019",
+        "observed_page_count": 10,
+        "observed_sha256": "84a488965df544eb5661def7188baeef2a8d38d1fb006f00b5537e1850b6b5db",
+        "url": "https://shadowrunsixthworld.com/wp-content/uploads/sites/5/2019/08/SR6-Core-Rulebook-Errata-Aug-2019.pdf"
+      },
+      {
+        "id": "sr6_feb_2020",
+        "observed_page_count": 6,
+        "observed_sha256": null,
+        "url": "https://shadowrunsixthworld.com/wp-content/uploads/sites/5/2020/03/SR6-Core-Rulebook-Errata-Feb-2020.pdf"
+      },
+      {
+        "id": "sr6_city_edition_notice",
+        "observed_fact": "official notice says City Edition: Seattle includes latest errata and updates",
+        "url": "https://shadowrunsixthworld.com/2021/09/15/hit-the-streets-with-shadowrun-sixth-world-city-edition-and-improved-dice-roller-app/"
+      }
+    ],
     "status": "pending_reviewed_application"
+  },
+  "exact_edit_contract": {
+    "Errata decision": "applied | not_applicable | defer",
+    "Errata defer rationale": "<required when Errata decision is defer>",
+    "Ready token approved": "true",
+    "Review timestamp": "<UTC ISO-8601 timestamp>",
+    "Reviewer": "<human reviewer>",
+    "Row-level decision": "approved",
+    "Status": "approved"
   },
   "explain_receipts": {
     "alignment_status": "pass",
@@ -56,7 +84,8 @@
     "review_expected_values_required": false,
     "status": "core_seed_fixture_pack_passed"
   },
-  "generated_at_utc": "2026-06-16T04:56:27Z",
+  "generated_at_utc": "2026-06-16T09:09:16Z",
+  "human_review_file": "/docker/chummercomplete/_completion/sr6_rule_authority/SR6_HUMAN_RULE_REVIEW.md",
   "recommended_next_actions": [
     "review row-level mapping packet and approve or reject normalized public-safe records",
     "review errata packet and record applied/not_applicable/defer decision",
@@ -66,6 +95,20 @@
     "fact_provider_count": 16,
     "rulefact_count": 447
   },
+  "rerun_commands": [
+    "python3 /docker/chummercomplete/chummer-core-engine/scripts/verify_rule_authority_human_review.py sr6 --require-ready",
+    "python3 /docker/chummercomplete/chummer-core-engine/scripts/materialize_rule_authority_reviewer_packets.py",
+    "python3 /docker/chummercomplete/chummer-core-engine/scripts/materialize_rule_authority_blocker_receipts.py",
+    "python3 /docker/chummercomplete/chummer-core-engine/scripts/audit_rule_authority_operator_review.py",
+    "bash /docker/chummercomplete/chummer-core-engine/scripts/ai/verify.sh"
+  ],
+  "review_inputs": {
+    "errata_source_posture": "/docker/chummercomplete/_completion/sr6_rule_authority/SR6_ERRATA_SOURCE_POSTURE.generated.json",
+    "private_registry": "/docker/chummercomplete/_completion/sr6_rule_authority/private/SR6_TABLE_ROW_HASH_REGISTRY.private.generated.json",
+    "review_handoff": "/docker/chummercomplete/_completion/sr6_rule_authority/SR6_RULE_AUTHORITY_REVIEW_HANDOFF.md",
+    "reviewer_decision_packet": "/docker/chummercomplete/_completion/sr6_rule_authority/SR6_REVIEWER_DECISION_PACKET.generated.json",
+    "row_level_mapping": "/docker/chummercomplete/_completion/sr6_rule_authority/SR6_ROW_LEVEL_AUTHORITY_MAPPING.generated.json"
+  },
   "row_level_mapping": {
     "indexed_source_files": [
       "Shadowrun_6_Downloadversion_2024.pdf"
@@ -73,6 +116,18 @@
     "indexed_unit_count": 5213,
     "public_copy_policy": "metadata only: hashes, positions, categories, and counts; no sourcebook prose, art, page images, examples, item descriptions, or table cell text",
     "review_decision_required": true,
+    "selected_core_source_files": [
+      "Shadowrun_6_Downloadversion_2024.pdf"
+    ],
+    "source_identity": [
+      {
+        "bytes": 182091868,
+        "exists": true,
+        "file": "Shadowrun_6_Downloadversion_2024.pdf",
+        "path": "/mnt/pcloud/personal/Roleplay/sr/Shadowrun_6_Downloadversion_2024.pdf",
+        "sha256": "104dd5cc0f167232c3bc0f6453b389d9114dd7df483345e5b1211fda667bf023"
+      }
+    ],
     "status": "pending_human_review"
   },
   "ruleset": "sr6",
