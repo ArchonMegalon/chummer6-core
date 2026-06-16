@@ -2,6 +2,7 @@ using Chummer.Application.Content;
 using Chummer.Contracts.Content;
 using Chummer.Contracts.Hub;
 using Chummer.Contracts.Owners;
+using Chummer.Contracts.Receipts;
 using Chummer.Contracts.Rulesets;
 
 namespace Chummer.Application.Hub;
@@ -89,7 +90,8 @@ public sealed class DefaultHubInstallPreviewService : IHubInstallPreviewService
             Changes: preview.Changes.Select(change => new HubProjectInstallPreviewChange(change.Kind, change.Summary, change.SubjectId ?? itemId, change.RequiresConfirmation)).ToArray(),
             Diagnostics: diagnostics,
             RuntimeFingerprint: preview.RuntimeLock.RuntimeFingerprint,
-            RequiresConfirmation: requiresConfirmation);
+            RequiresConfirmation: requiresConfirmation,
+            Envelope: BuildPreviewEnvelope(owner, HubCatalogItemKinds.RuleProfile, itemId, HubProjectInstallPreviewStates.Ready));
     }
 
     private HubProjectInstallPreviewReceipt? PreviewRuntimeLock(OwnerScope owner, string itemId, RuleProfileApplyTarget target, string? rulesetId)
@@ -126,7 +128,8 @@ public sealed class DefaultHubInstallPreviewService : IHubInstallPreviewService
             Changes: changes,
             Diagnostics: diagnostics,
             RuntimeFingerprint: preview.RuntimeLock.RuntimeFingerprint,
-            RequiresConfirmation: requiresConfirmation);
+            RequiresConfirmation: requiresConfirmation,
+            Envelope: BuildPreviewEnvelope(owner, HubCatalogItemKinds.RuntimeLock, itemId, HubProjectInstallPreviewStates.Ready));
     }
 
     private HubProjectInstallPreviewReceipt? PreviewRulePack(OwnerScope owner, string itemId, RuleProfileApplyTarget target, string? rulesetId)
@@ -163,7 +166,8 @@ public sealed class DefaultHubInstallPreviewService : IHubInstallPreviewService
                     RequiresConfirmation: change.RequiresConfirmation))
                 .ToArray(),
             Diagnostics: diagnostics,
-            RequiresConfirmation: requiresConfirmation);
+            RequiresConfirmation: requiresConfirmation,
+            Envelope: BuildPreviewEnvelope(owner, HubCatalogItemKinds.RulePack, itemId, HubProjectInstallPreviewStates.Ready));
     }
 
     private HubProjectInstallPreviewReceipt? PreviewBuildKit(OwnerScope owner, string itemId, RuleProfileApplyTarget target, string? rulesetId)
@@ -183,6 +187,7 @@ public sealed class DefaultHubInstallPreviewService : IHubInstallPreviewService
                 && !entry.Manifest.Targets.Any(targetRulesetId => string.Equals(targetRulesetId, normalizedRulesetId, StringComparison.Ordinal)))
             {
                 return CreateDeferredReceipt(
+                    owner,
                     HubCatalogItemKinds.BuildKit,
                     itemId,
                     target,
@@ -275,7 +280,8 @@ public sealed class DefaultHubInstallPreviewService : IHubInstallPreviewService
                 RequiresConfirmation: requiresConfirmation,
                 RuntimeCompatibilitySummary: compatibilityReceipt.RuntimeCompatibilitySummary,
                 CampaignReturnSummary: compatibilityReceipt.CampaignReturnSummary,
-                SupportClosureSummary: compatibilityReceipt.SupportClosureSummary);
+                SupportClosureSummary: compatibilityReceipt.SupportClosureSummary,
+                Envelope: BuildPreviewEnvelope(owner, HubCatalogItemKinds.BuildKit, itemId, HubProjectInstallPreviewStates.Ready));
         }
 
         if (normalizedRulesetId is not null)
@@ -288,6 +294,7 @@ public sealed class DefaultHubInstallPreviewService : IHubInstallPreviewService
             if (incompatibleEntry is not null)
             {
                 return CreateDeferredReceipt(
+                    owner,
                     HubCatalogItemKinds.BuildKit,
                     itemId,
                     target,
@@ -312,6 +319,7 @@ public sealed class DefaultHubInstallPreviewService : IHubInstallPreviewService
             if (!entry.Manifest.SessionReady || !entry.Manifest.GmBoardReady)
             {
                 return CreateDeferredReceipt(
+                    owner,
                     HubCatalogItemKinds.NpcEntry,
                     itemId,
                     target,
@@ -343,7 +351,8 @@ public sealed class DefaultHubInstallPreviewService : IHubInstallPreviewService
                 RuntimeFingerprint: entry.Manifest.RuntimeFingerprint,
                 RuntimeCompatibilitySummary: DescribeNpcEntryRuntimeSummary(entry),
                 CampaignReturnSummary: $"Campaign return can reopen through the {targetLane} once {entry.Manifest.Title} is staged with the same governed prep packet.",
-                SupportClosureSummary: $"Support closure can cite {entry.Manifest.Title}, threat tier {entry.Manifest.ThreatTier}, and the same prep packet as the governed opposition receipt.");
+                SupportClosureSummary: $"Support closure can cite {entry.Manifest.Title}, threat tier {entry.Manifest.ThreatTier}, and the same prep packet as the governed opposition receipt.",
+                Envelope: BuildPreviewEnvelope(owner, HubCatalogItemKinds.NpcEntry, itemId, HubProjectInstallPreviewStates.Ready));
         }
 
         return null;
@@ -362,6 +371,7 @@ public sealed class DefaultHubInstallPreviewService : IHubInstallPreviewService
             if (!entry.Manifest.SessionReady || !entry.Manifest.GmBoardReady)
             {
                 return CreateDeferredReceipt(
+                    owner,
                     HubCatalogItemKinds.NpcPack,
                     itemId,
                     target,
@@ -393,7 +403,8 @@ public sealed class DefaultHubInstallPreviewService : IHubInstallPreviewService
                 ],
                 RuntimeCompatibilitySummary: DescribeNpcPackRuntimeSummary(entry),
                 CampaignReturnSummary: $"Campaign return can reopen through the {targetLane} with {entry.Manifest.Title} because its governed opposition roster is already preserved.",
-                SupportClosureSummary: $"Support closure can cite {entry.Manifest.Title} and its {totalSeatCount} prepared opposition seat(s) as the reusable prep receipt.");
+                SupportClosureSummary: $"Support closure can cite {entry.Manifest.Title} and its {totalSeatCount} prepared opposition seat(s) as the reusable prep receipt.",
+                Envelope: BuildPreviewEnvelope(owner, HubCatalogItemKinds.NpcPack, itemId, HubProjectInstallPreviewStates.Ready));
         }
 
         return null;
@@ -412,6 +423,7 @@ public sealed class DefaultHubInstallPreviewService : IHubInstallPreviewService
             if (!entry.Manifest.SessionReady || !entry.Manifest.GmBoardReady)
             {
                 return CreateDeferredReceipt(
+                    owner,
                     HubCatalogItemKinds.EncounterPack,
                     itemId,
                     target,
@@ -448,7 +460,8 @@ public sealed class DefaultHubInstallPreviewService : IHubInstallPreviewService
                 ],
                 RuntimeCompatibilitySummary: DescribeEncounterPackRuntimeSummary(entry),
                 CampaignReturnSummary: $"Campaign return can reopen through the {targetLane} with {entry.Manifest.Title} because its governed encounter packet is already staged.",
-                SupportClosureSummary: $"Support closure can cite {entry.Manifest.Title}, its {roleCount} explicit role lane(s), and the same encounter packet as the reusable GM prep receipt.");
+                SupportClosureSummary: $"Support closure can cite {entry.Manifest.Title}, its {roleCount} explicit role lane(s), and the same encounter packet as the reusable GM prep receipt.",
+                Envelope: BuildPreviewEnvelope(owner, HubCatalogItemKinds.EncounterPack, itemId, HubProjectInstallPreviewStates.Ready));
         }
 
         return null;
@@ -508,6 +521,7 @@ public sealed class DefaultHubInstallPreviewService : IHubInstallPreviewService
     }
 
     private static HubProjectInstallPreviewReceipt CreateDeferredReceipt(
+        OwnerScope owner,
         string kind,
         string itemId,
         RuleProfileApplyTarget target,
@@ -534,8 +548,17 @@ public sealed class DefaultHubInstallPreviewService : IHubInstallPreviewService
                     Message: message,
                     SubjectId: itemId)
             ],
-            DeferredReason: deferredReason);
+            DeferredReason: deferredReason,
+            Envelope: BuildPreviewEnvelope(owner, kind, itemId, HubProjectInstallPreviewStates.Deferred));
     }
+
+    private static ReceiptEnvelope BuildPreviewEnvelope(OwnerScope owner, string kind, string itemId, string state)
+        => ReceiptEnvelopeFactory.Runtime(
+            receiptKind: "hub_install_preview",
+            ownerScope: owner.IsLocalSingleUser ? "hub.local_single_user" : "hub.owner_scoped",
+            exposureClass: ReceiptExposureClasses.SignedIn,
+            evidenceRef: $"{kind}:{itemId}",
+            reviewState: state);
 
     private static HubProjectInstallPreviewDiagnostic CreateInstallStateDiagnostic(ArtifactInstallState install, string itemId)
     {

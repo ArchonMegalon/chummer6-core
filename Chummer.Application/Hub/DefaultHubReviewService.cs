@@ -1,5 +1,6 @@
 using Chummer.Contracts.Hub;
 using Chummer.Contracts.Owners;
+using Chummer.Contracts.Receipts;
 using Chummer.Contracts.Rulesets;
 
 namespace Chummer.Application.Hub;
@@ -17,7 +18,7 @@ public sealed class DefaultHubReviewService : IHubReviewService
     {
         HubReviewReceipt[] items = _reviewStore.List(owner, HubCatalogItemKinds.NormalizeOptional(kind), NormalizeOptional(itemId), RulesetDefaults.NormalizeOptional(rulesetId))
             .OrderByDescending(record => record.UpdatedAtUtc)
-            .Select(ToReceipt)
+            .Select(record => ToReceipt(owner, record))
             .ToArray();
         return HubPublicationResult<HubReviewCatalog>.Implemented(new HubReviewCatalog(items));
     }
@@ -76,10 +77,10 @@ public sealed class DefaultHubReviewService : IHubReviewService
                 Stars: request.Stars,
                 ReviewText: NormalizeOptional(request.ReviewText),
                 UsedAtTable: request.UsedAtTable));
-        return HubPublicationResult<HubReviewReceipt>.Implemented(ToReceipt(persisted));
+        return HubPublicationResult<HubReviewReceipt>.Implemented(ToReceipt(owner, persisted));
     }
 
-    private static HubReviewReceipt ToReceipt(HubReviewRecord record)
+    private static HubReviewReceipt ToReceipt(OwnerScope owner, HubReviewRecord record)
         => new(
             ReviewId: record.ReviewId,
             ProjectKind: record.ProjectKind,
@@ -91,7 +92,13 @@ public sealed class DefaultHubReviewService : IHubReviewService
             UpdatedAtUtc: record.UpdatedAtUtc,
             Stars: record.Stars,
             ReviewText: record.ReviewText,
-            UsedAtTable: record.UsedAtTable);
+            UsedAtTable: record.UsedAtTable,
+            Envelope: ReceiptEnvelopeFactory.Runtime(
+                receiptKind: "hub_review",
+                ownerScope: owner.IsLocalSingleUser ? "hub.local_single_user" : "hub.owner_scoped",
+                exposureClass: ReceiptExposureClasses.SignedIn,
+                evidenceRef: record.ReviewId,
+                reviewState: record.RecommendationState));
 
     private static string NormalizeItemId(string value)
     {

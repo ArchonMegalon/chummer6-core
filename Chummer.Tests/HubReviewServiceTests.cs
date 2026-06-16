@@ -37,6 +37,11 @@ public sealed class HubReviewServiceTests
         Assert.AreEqual(5, review.Stars);
         Assert.AreEqual("Great pack", review.ReviewText);
         Assert.IsTrue(review.UsedAtTable);
+        Assert.IsNotNull(review.Envelope);
+        Assert.AreEqual("hub_review", review.Envelope!.ReceiptKind);
+        Assert.AreEqual("hub.owner_scoped", review.Envelope.OwnerScope);
+        Assert.AreEqual(review.ReviewId, review.Envelope.EvidenceRef);
+        Assert.AreEqual(HubRecommendationStates.Recommended, review.Envelope.ReviewState);
         Assert.HasCount(1, catalog.Items);
         Assert.AreEqual(review.ReviewId, catalog.Items[0].ReviewId);
     }

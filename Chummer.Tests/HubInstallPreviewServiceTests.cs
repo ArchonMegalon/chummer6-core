@@ -98,6 +98,9 @@ public class HubInstallPreviewServiceTests
         Assert.AreEqual(RuntimeInspectorWarningKinds.Trust, preview.Diagnostics[0].Kind);
         Assert.IsTrue(preview.Diagnostics.Any(diagnostic => diagnostic.Kind == HubProjectInstallPreviewDiagnosticKinds.InstallState));
         Assert.IsTrue(preview.RequiresConfirmation);
+        Assert.IsNotNull(preview.Envelope);
+        Assert.AreEqual("hub_install_preview", preview.Envelope!.ReceiptKind);
+        Assert.AreEqual(HubProjectInstallPreviewStates.Ready, preview.Envelope.ReviewState);
     }
 
     [TestMethod]
@@ -172,6 +175,8 @@ public class HubInstallPreviewServiceTests
         Assert.AreEqual(HubProjectInstallPreviewChangeKinds.RuntimeLockPinned, preview.Changes[0].Kind);
         Assert.IsTrue(preview.Diagnostics.Any(diagnostic => diagnostic.Kind == HubProjectInstallPreviewDiagnosticKinds.InstallState));
         Assert.IsTrue(preview.RequiresConfirmation);
+        Assert.IsNotNull(preview.Envelope);
+        Assert.AreEqual("hub_install_preview", preview.Envelope!.ReceiptKind);
     }
 
     [TestMethod]
@@ -218,6 +223,8 @@ public class HubInstallPreviewServiceTests
         Assert.IsNull(preview.RuntimeFingerprint);
         Assert.AreEqual(HubProjectInstallPreviewChangeKinds.InstallStateChanged, preview.Changes[0].Kind);
         Assert.IsTrue(preview.Changes[0].Summary.Contains("Apply this build path in the workbench", StringComparison.Ordinal));
+        Assert.IsNotNull(preview.Envelope);
+        Assert.AreEqual(HubProjectInstallPreviewStates.Ready, preview.Envelope!.ReviewState);
         Assert.IsTrue(preview.Changes[0].Summary.Contains("selected workspace", StringComparison.Ordinal));
         Assert.IsFalse(preview.RequiresConfirmation);
         Assert.IsTrue(preview.Diagnostics.Any(diagnostic => diagnostic.Kind == HubProjectInstallPreviewDiagnosticKinds.Installability));
