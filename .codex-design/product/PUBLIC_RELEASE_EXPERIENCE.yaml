@@ -3,21 +3,27 @@ surface: chummer.run
 version: 1
 guest_readable_channels:
   - stable
+  - public_stable
   - preview
 release_notes_summary: The current preview centers one clear public download, a visible proof trail, and help that matches the posted shelf you can actually use today without letting artifact explainers or fallback routes masquerade as the main route.
 download_authority_summary: chummer.run is the only official client download source. GitHub is source and development evidence only, never a public binary release shelf for installers, archives, update payloads, or preview clients.
-proof_scope_summary: Public proof language is scoped to the files, named flows, and recent checks posted on the current shelf that a person can inspect today; it is not a blanket flagship-grade claim.
+proof_scope_summary: Public proof language is scoped to the files, named flows, and recent checks posted on the current public release page that a person can inspect today; it is not a blanket flagship-grade claim.
 flagship_claim_summary: Flagship wording is reserved for surfaces that currently satisfy FLAGSHIP_RELEASE_ACCEPTANCE.yaml; preview artifacts, proof cards, captions, packet siblings, artifact-factory explainers, and fallback routes do not earn that claim by proximity.
 flagship_grade_summary: A public release is only truly ready when downloads, install/update help, recovery, support, and the product surfaces behind them feel like one premium, honest product rather than a technically functional preview bundle.
 flagship_acceptance_source: FLAGSHIP_RELEASE_ACCEPTANCE.yaml
 desktop_platform_matrix_source: DESKTOP_PLATFORM_ACCEPTANCE_MATRIX.yaml
 desktop_gold_acceptance_source: FLAGSHIP_RELEASE_ACCEPTANCE.yaml
+known_issue_status_language_source: KNOWN_ISSUE_AND_FIX_STATUS_LANGUAGE.md
+onboarding_and_empty_state_source: ONBOARDING_AND_EMPTY_STATE_JOURNEY_CONTRACT.md
+long_running_action_safety_source: LONG_RUNNING_ACTION_SAFETY_CONTRACT.md
+campaign_operability_rubric_source: CAMPAIGN_OPERABILITY_SCORING_RUBRIC.yaml
 release_label_resolver_rules:
   - Public labels must resolve from registry-backed release truth before any shelf, help, status, or packet copy is generated.
   - The strongest allowed public label is bounded by the weakest proof-bearing surface in the same route family.
   - A fallback, preview, account-gated, or setup-script lane must keep that weaker label even when adjacent proof artifacts look more complete.
   - Gold or flagship wording is forbidden unless the current platform route, support posture, and desktop-head proof all satisfy FLAGSHIP_RELEASE_ACCEPTANCE.yaml.
   - If platform bytes, startup-smoke proof, support posture, and release-copy posture disagree, the resolver must fail closed to preview wording.
+  - Known-issue and fix words must resolve from KNOWN_ISSUE_AND_FIX_STATUS_LANGUAGE.md before public help, status, or support copy is emitted.
 desktop_flagship_head: Chummer.Avalonia
 desktop_fallback_head: Chummer.Blazor.Desktop
 desktop_cut_summary: The current desktop wave treats Avalonia as the primary desktop preview head, keeps Blazor Desktop as the bounded compatibility fallback only while Avalonia remains the promoted primary route, and reserves flagship wording for lanes that independently satisfy flagship acceptance.
@@ -45,6 +51,7 @@ flagship_release_rules:
   - Public proof shelf wording must also stay subordinate to the recommended install route when artifact-factory packets, captions, previews, or packet-detail pages are visible on the same public surface.
   - Any public concierge widget on release, downloads, or help-entry surfaces must stay in preview-overlay posture and must not become release authority.
   - Fixed route, fallback route, and recovery route language must remain distinct on public surfaces; warm concierge copy may not blur them.
+  - First-run, no-data, and recovery copy on public release-adjacent surfaces must stay aligned with ONBOARDING_AND_EMPTY_STATE_JOURNEY_CONTRACT.md.
   - The flagship release path starts with a guided Chummer product installer path first and opens the real workbench or restore continuation flow on first launch.
   - The happy path must not send the user to a browser to copy or paste a claim code by hand.
   - Public release claims must stay within the surfaces that currently pass FLAGSHIP_RELEASE_ACCEPTANCE.yaml or carry a bounded preview explanation.
@@ -55,7 +62,7 @@ flagship_release_rules:
   - Flagship desktop quality requires polished install, update, crash-recovery, and support flows in addition to build/startup proof.
   - Claim and restore guidance must not imply that a recovered workspace is safe when required rule packs or amend packages are missing locally.
 default_public_channel_label: Preview channel
-unpublished_build_label: Current preview build
+unpublished_build_label: Current release build
 build_label_prefix: Build
 public_channel_labels:
   - id: stable
