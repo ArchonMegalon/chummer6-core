@@ -6,6 +6,7 @@ using System.IO;
 using System.Linq;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using Chummer.Contracts.Hub;
 using Chummer.Contracts.Presentation;
 using Chummer.Presentation.Overview;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -880,7 +881,7 @@ public class MigrationComplianceTests
         StringAssert.Contains(hubInstallPreviewServiceText, "HubProjectInstallPreviewStates.Deferred");
         StringAssert.Contains(hubInstallPreviewServiceText, "entry.Install.State");
         StringAssert.Contains(hubInstallPreviewServiceText, "HubProjectInstallPreviewDiagnosticKinds.InstallState");
-        StringAssert.Contains(hubInstallPreviewContractsText, "public sealed record HubProjectInstallPreviewReceipt");
+        Assert.IsNotNull(typeof(HubProjectInstallPreviewReceipt).GetProperty("Envelope"));
         StringAssert.Contains(serviceRegistrationText, "AddSingleton<IHubInstallPreviewService, DefaultHubInstallPreviewService>()");
         StringAssert.Contains(readmeText, "/api/hub/projects/*/install-preview");
     }
@@ -1118,7 +1119,7 @@ public class MigrationComplianceTests
         StringAssert.Contains(hubReviewServiceText, "HubRecommendationStates.Recommended");
         StringAssert.Contains(hubReviewContractsText, "public static class HubRecommendationStates");
         StringAssert.Contains(hubReviewContractsText, "public sealed record HubUpsertReviewRequest");
-        StringAssert.Contains(hubReviewContractsText, "public sealed record HubReviewReceipt");
+        Assert.IsNotNull(typeof(HubReviewReceipt).GetProperty("Envelope"));
         StringAssert.Contains(hubReviewContractsText, "public sealed record HubReviewCatalog");
         StringAssert.Contains(hubReviewContractsText, "public sealed record HubReviewAggregateSummary");
         StringAssert.Contains(hubReviewContractsText, "public sealed record HubReviewRecord");
@@ -2109,7 +2110,7 @@ public class MigrationComplianceTests
         StringAssert.Contains(hubInstallPreviewContractsText, "public static class HubProjectInstallPreviewDiagnosticSeverityLevels");
         StringAssert.Contains(hubInstallPreviewContractsText, "public sealed record HubProjectInstallPreviewChange");
         StringAssert.Contains(hubInstallPreviewContractsText, "public sealed record HubProjectInstallPreviewDiagnostic");
-        StringAssert.Contains(hubInstallPreviewContractsText, "public sealed record HubProjectInstallPreviewReceipt");
+        Assert.IsNotNull(typeof(HubProjectInstallPreviewReceipt).GetProperty("Envelope"));
         StringAssert.Contains(hubInstallPreviewContractsText, "RuleProfileApplyTarget Target");
         StringAssert.Contains(hubInstallPreviewContractsText, "string? RuntimeFingerprint");
         StringAssert.Contains(hubInstallPreviewContractsText, "string? DeferredReason = null");
