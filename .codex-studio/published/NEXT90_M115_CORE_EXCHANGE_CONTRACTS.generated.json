@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-06-12T08:21:27Z",
+  "generated_at": "2026-06-16T02:47:05Z",
   "status": "passed",
   "package_id": "next90-m115-core-exchange-contracts",
   "frontier_id": 2537363316,
@@ -94,7 +94,7 @@
       "key": "successor_registry",
       "path": "/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml",
       "exists": true,
-      "digest": "sha256:c016ad635628164eabbb9cb814155439e7846f55fe8f65f4e4dbae68979bc3d7",
+      "digest": "sha256:301e97f53d00b1e7c7ee9bffe8f6301da4ae6ec36e0fa6999217bb599a8c7429",
       "missing_snippets": [],
       "status": "passed"
     },
@@ -102,7 +102,7 @@
       "key": "successor_queue",
       "path": "/docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml",
       "exists": true,
-      "digest": "sha256:f6c30d70ae0dc97068dc37587a63b330a4dfc8212f610af7907734cbcae69656",
+      "digest": "sha256:e00c5a23c089900f2f607af1f6ba3fcb3d46061142dee44cde7a912094a5dec3",
       "missing_snippets": [],
       "status": "passed"
     },
@@ -110,7 +110,7 @@
       "key": "design_successor_queue",
       "path": "/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_QUEUE_STAGING.generated.yaml",
       "exists": true,
-      "digest": "sha256:f6c30d70ae0dc97068dc37587a63b330a4dfc8212f610af7907734cbcae69656",
+      "digest": "sha256:e00c5a23c089900f2f607af1f6ba3fcb3d46061142dee44cde7a912094a5dec3",
       "missing_snippets": [],
       "status": "passed"
     }

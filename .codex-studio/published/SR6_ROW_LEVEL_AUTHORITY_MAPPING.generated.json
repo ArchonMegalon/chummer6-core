@@ -1,7 +1,7 @@
 {
   "contract_name": "chummer.sr6.row_level_authority_mapping",
   "evidence_strength": "substantial_machine_indexed",
-  "generated_at_utc": "2026-06-12T07:38:17Z",
+  "generated_at_utc": "2026-06-16T02:47:14Z",
   "human_required": {
     "must_confirm_edition_fit": true,
     "must_confirm_license_and_source_identity": true,
@@ -21,12 +21,12 @@
   "machine_observations": {
     "has_nonempty_index": true,
     "requires_review_marker": true,
-    "table_status": "private_pdf_line_hash_import_indexed_pending_review"
+    "table_status": "reviewed"
   },
   "public_safe": true,
-  "ready_for_gold": true,
+  "ready_for_gold": false,
   "registry_rulefact_count": 301,
-  "remaining_gate": "none under user-directed human-side gold assumption",
+  "remaining_gate": "human review of indexed row-level authority mapping",
   "review_packet": {
     "category_or_file_counts": {
       "armor": 1069,
@@ -41,7 +41,7 @@
       "uncategorized": 1291,
       "weapons": 1482
     },
-    "decision": "approved",
+    "decision": "pending",
     "indexed_source_files": [
       "Shadowrun Sixth World.pdf",
       "Shadowrun_6_Downloadversion_2024.pdf",
@@ -56,11 +56,8 @@
       "rejected",
       "defer"
     ],
-    "reviewed_at_utc": "2026-06-12T08:00:28Z",
-    "reviewer": "user_directive_human_side_gold_assumption_2026-06-12",
     "reviewer_output_expected": "SR6_HUMAN_RULE_REVIEW.md",
-    "source_baseline_decision": "Shadowrun_6_Downloadversion_2024.pdf",
-    "source_baseline_decision_status": "selected",
+    "source_baseline_decision_status": "pending_human_review",
     "source_count": 4,
     "source_identity": [
       {
@@ -93,10 +90,8 @@
       }
     ]
   },
-  "reviewed_at_utc": "2026-06-12T08:00:28Z",
-  "reviewer": "user_directive_human_side_gold_assumption_2026-06-12",
   "ruleset": "sr6",
-  "source_baseline_decision_status": "selected",
+  "source_baseline_decision_status": "pending_human_review",
   "source_kind": "private_local_sourcebook_pdf_line_hashes",
-  "status": "reviewed"
+  "status": "pending_human_review"
 }

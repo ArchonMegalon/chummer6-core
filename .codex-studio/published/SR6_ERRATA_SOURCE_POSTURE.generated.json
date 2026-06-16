@@ -1,6 +1,6 @@
 {
   "contract_name": "chummer.sr6.errata_source_posture",
-  "generated_at_utc": "2026-06-12T07:38:18Z",
+  "generated_at_utc": "2026-06-16T02:47:15Z",
   "human_required": {
     "must_apply_or_explicitly_defer_each_applicable_change": true,
     "must_confirm_applicable_errata_sources": true,
@@ -14,21 +14,19 @@
   },
   "machine_observations": {
     "has_committed_source_metadata": true,
-    "profile_status": "pending",
+    "profile_status": "applied",
     "source_count": 3
   },
   "production_claim_allowed": true,
-  "ready_for_gold": true,
+  "ready_for_gold": false,
   "required_before_gold": true,
   "review_packet": {
-    "decision": "applied",
+    "decision": "pending",
     "required_decision_values": [
       "applied",
       "not_applicable",
       "defer"
     ],
-    "reviewed_at_utc": "2026-06-12T08:00:28Z",
-    "reviewer": "user_directive_human_side_gold_assumption_2026-06-12",
     "reviewer_output_expected": "SR6_HUMAN_RULE_REVIEW.md",
     "source_count": 3,
     "source_ids": [
@@ -37,8 +35,6 @@
       "sr6_city_edition_notice"
     ]
   },
-  "reviewed_at_utc": "2026-06-12T08:00:28Z",
-  "reviewer": "user_directive_human_side_gold_assumption_2026-06-12",
   "ruleset": "sr6",
   "sources": [
     {
@@ -59,5 +55,5 @@
       "url": "https://shadowrunsixthworld.com/2021/09/15/hit-the-streets-with-shadowrun-sixth-world-city-edition-and-improved-dice-roller-app/"
     }
   ],
-  "status": "applied"
+  "status": "pending_reviewed_application"
 }

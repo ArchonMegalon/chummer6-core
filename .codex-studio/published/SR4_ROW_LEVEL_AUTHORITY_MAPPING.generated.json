@@ -1,7 +1,7 @@
 {
   "contract_name": "chummer.sr4.row_level_authority_mapping",
   "evidence_strength": "substantial_machine_indexed",
-  "generated_at_utc": "2026-06-12T07:38:17Z",
+  "generated_at_utc": "2026-06-16T02:47:14Z",
   "human_required": {
     "must_confirm_edition_fit": true,
     "must_confirm_license_and_source_identity": true,
@@ -21,12 +21,12 @@
   "machine_observations": {
     "has_nonempty_index": true,
     "requires_review_marker": true,
-    "table_status": "structured_legacy_data_indexed_pending_human_review"
+    "table_status": "reviewed"
   },
   "public_safe": true,
-  "ready_for_gold": true,
+  "ready_for_gold": false,
   "registry_rulefact_count": 285,
-  "remaining_gate": "none under user-directed human-side gold assumption",
+  "remaining_gate": "human review of indexed row-level authority mapping",
   "review_packet": {
     "category_or_file_counts": {
       "armor.xml": 261,
@@ -57,7 +57,7 @@
       "vessels.xml": 4,
       "weapons.xml": 955
     },
-    "decision": "approved",
+    "decision": "pending",
     "indexed_source_files": [
       "/docker/fleet/repos/chummer4/Chummer/bin/Release/data/armor.xml",
       "/docker/fleet/repos/chummer4/Chummer/bin/Release/data/bioware.xml",
@@ -95,8 +95,6 @@
       "rejected",
       "defer"
     ],
-    "reviewed_at_utc": "2026-06-12T08:00:28Z",
-    "reviewer": "user_directive_human_side_gold_assumption_2026-06-12",
     "reviewer_output_expected": "SR4_HUMAN_RULE_REVIEW.md",
     "source_baseline_decision_status": "single_source",
     "source_count": 27,
@@ -110,10 +108,8 @@
       }
     ]
   },
-  "reviewed_at_utc": "2026-06-12T08:00:28Z",
-  "reviewer": "user_directive_human_side_gold_assumption_2026-06-12",
   "ruleset": "sr4",
   "source_baseline_decision_status": "single_source",
   "source_kind": "legacy_chummer_structured_xml",
-  "status": "reviewed"
+  "status": "pending_human_review"
 }

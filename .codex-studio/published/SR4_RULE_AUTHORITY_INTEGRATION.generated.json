@@ -10,16 +10,10 @@
   },
   "errata_profile": {
     "notes": "Add SR4A errata/corrections profile before production-grade claim.",
-    "production_claim_allowed": true,
     "required_before_gold": true,
-    "status": "applied"
+    "status": "pending"
   },
-  "final_verdict": "SR4_RULE_AUTHORITY_READY",
-  "human_review": {
-    "ready_token_approved": true,
-    "review_timestamp": "2026-06-12T08:00:28Z",
-    "reviewer": "user_directive_human_side_gold_assumption_2026-06-12"
-  },
+  "final_verdict": "NOT_READY",
   "implemented_provider_count": 19,
   "implemented_providers": [
     "Sr4DiceProvider",
@@ -44,9 +38,8 @@
   ],
   "missing_implemented_providers": [],
   "missing_profile_status": [],
-  "operator_review_promoted_at_utc": "2026-06-12T10:56:51Z",
   "provider_status_count": 19,
-  "readiness_token_allowed": true,
+  "readiness_token_allowed": false,
   "required_file_count": 19,
   "rulefact_count": 285,
   "ruleset": "sr4",

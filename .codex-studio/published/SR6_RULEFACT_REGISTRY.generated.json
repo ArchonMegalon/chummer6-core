@@ -1,17 +1,6 @@
 {
   "book_profile": "sr6_core_2019",
-  "copyright_boundary": {},
-  "edition": "SR6",
-  "final_verdict": "SR6_RULE_AUTHORITY_READY",
-  "generated_at_utc": "2026-06-12T10:56:51Z",
-  "human_review": {
-    "errata_decision": "applied",
-    "ready_token_approved": true,
-    "review_timestamp": "2026-06-12T08:00:28Z",
-    "reviewer": "user_directive_human_side_gold_assumption_2026-06-12",
-    "row_level_decision": "approved",
-    "source_baseline_decision": "Shadowrun_6_Downloadversion_2024.pdf"
-  },
+  "final_verdict": "NOT_READY",
   "implemented_providers": [
     "Sr6DiceProvider",
     "Sr6TestProvider",
@@ -34,6 +23,7 @@
   ],
   "missing_implemented_providers": [],
   "missing_profile_status": [],
+  "registry_sha256": "eb3b0b34a6fb12d66d3864449c2fcf721b928490c28b32e6241b4044fc5bbd3f",
   "required_providers": [
     "Sr6DiceProvider",
     "Sr6TestProvider",
@@ -55,7 +45,6 @@
     "Sr6ExplainReceiptProvider"
   ],
   "rulefact_count": 301,
-  "rulefact_families": [],
   "rulefacts": [
     {
       "book_profile": "sr6_core_2019",
@@ -4000,7 +3989,7 @@
     }
   ],
   "ruleset": "sr6",
-  "runtime_receipt_path": ".codex-studio/published/SR6_RULEFACT_REGISTRY.generated.json",
   "schema": "sr6-rule-authority-public-registry-v2",
-  "status": "pass"
+  "source_package": "sr6_rule_authority_extraction_package_20260529.zip",
+  "source_ref_count": 15
 }

@@ -1,16 +1,15 @@
 # SR4 Human Rule Review
 
-Generated: 2026-06-12T08:00:28Z
-Status: approved
-Row-level decision: approved
-Errata decision: applied
-Reviewer: user_directive_human_side_gold_assumption_2026-06-12
-Review timestamp: 2026-06-12T08:00:28Z
-Ready token approved: true
-Source baseline decision: single_source
-Errata defer rationale: none; human-side assumption treats currently indexed errata posture as reviewed for gold.
+Generated: 2026-06-16T02:47:14Z
+Status: pending
+Row-level decision: pending
+Errata decision: pending
+Reviewer: pending
+Review timestamp: pending
+Ready token approved: false
 
 ## Machine Evidence
+
 - Rulefacts indexed: `285`
 - Row-level mapping status: `pending_human_review`
 - Indexed unit count: `6989`

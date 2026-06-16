@@ -1,39 +1,146 @@
 {
-  "blockers": [],
+  "blockers": [
+    {
+      "blocked_token": "SR4_RULE_AUTHORITY_READY",
+      "blocker_receipts": {
+        "errata_posture": "/docker/chummercomplete/_completion/sr4_rule_authority/SR4_ERRATA_SOURCE_POSTURE.generated.json",
+        "human_review": "/docker/chummercomplete/_completion/sr4_rule_authority/SR4_HUMAN_RULE_REVIEW.md",
+        "review_handoff": "/docker/chummercomplete/_completion/sr4_rule_authority/SR4_RULE_AUTHORITY_REVIEW_HANDOFF.md",
+        "row_level_mapping": "/docker/chummercomplete/_completion/sr4_rule_authority/SR4_ROW_LEVEL_AUTHORITY_MAPPING.generated.json",
+        "verification_matrix_run": "/docker/chummercomplete/_completion/sr4_rule_authority/SR4_VERIFICATION_MATRIX_RUN.generated.json"
+      },
+      "errata_posture_status": "pending_reviewed_application",
+      "errata_status": "applied",
+      "human_review_status": {
+        "fields": {
+          "Errata decision": "pending",
+          "Generated": "2026-06-16T02:47:14Z",
+          "Ready token approved": "false",
+          "Review timestamp": "pending",
+          "Reviewer": "pending",
+          "Row-level decision": "pending",
+          "Status": "pending"
+        },
+        "path": "/docker/chummercomplete/_completion/sr4_rule_authority/SR4_HUMAN_RULE_REVIEW.md",
+        "pending_review": true,
+        "review_ready": false,
+        "ruleset": "sr4",
+        "source_baseline_required": false,
+        "status": "pass"
+      },
+      "machine_closed": {
+        "golden_fixture_status": "seed_fixtures_passed",
+        "missing_implemented_providers": [],
+        "missing_profile_status": [],
+        "provider_status": "pass",
+        "table_import_status": "reviewed",
+        "verification_matrix_status": "pass",
+        "verification_matrix_unexpected_failed_gates": []
+      },
+      "readiness_token_allowed": false,
+      "remaining_gates": [
+        "human-reviewed row-level mapping from indexed table evidence into normalized records",
+        "errata profile applied and reviewed",
+        "complete authority golden fixture corpus, beyond seed fixtures",
+        "human rule review signoff"
+      ],
+      "row_level_mapping_status": "pending_human_review",
+      "ruleset": "sr4",
+      "verification_matrix_expected_ready_blockers": [
+        "SR4-G013"
+      ],
+      "verification_matrix_failed_gates": [],
+      "verification_matrix_status": "pass",
+      "verification_matrix_unexpected_failed_gates": []
+    },
+    {
+      "blocked_token": "SR6_RULE_AUTHORITY_READY",
+      "blocker_receipts": {
+        "errata_posture": "/docker/chummercomplete/_completion/sr6_rule_authority/SR6_ERRATA_SOURCE_POSTURE.generated.json",
+        "human_review": "/docker/chummercomplete/_completion/sr6_rule_authority/SR6_HUMAN_RULE_REVIEW.md",
+        "review_handoff": "/docker/chummercomplete/_completion/sr6_rule_authority/SR6_RULE_AUTHORITY_REVIEW_HANDOFF.md",
+        "row_level_mapping": "/docker/chummercomplete/_completion/sr6_rule_authority/SR6_ROW_LEVEL_AUTHORITY_MAPPING.generated.json",
+        "verification_matrix_run": "/docker/chummercomplete/_completion/sr6_rule_authority/SR6_VERIFICATION_MATRIX_RUN.generated.json"
+      },
+      "errata_posture_status": "pending_reviewed_application",
+      "errata_status": "applied",
+      "human_review_status": {
+        "fields": {
+          "Errata decision": "pending",
+          "Generated": "2026-06-16T02:47:15Z",
+          "Ready token approved": "false",
+          "Review timestamp": "pending",
+          "Reviewer": "pending",
+          "Row-level decision": "pending",
+          "Status": "pending"
+        },
+        "path": "/docker/chummercomplete/_completion/sr6_rule_authority/SR6_HUMAN_RULE_REVIEW.md",
+        "pending_review": true,
+        "review_ready": false,
+        "ruleset": "sr6",
+        "source_baseline_required": true,
+        "status": "pass"
+      },
+      "machine_closed": {
+        "golden_fixture_status": "seed_fixtures_passed",
+        "missing_implemented_providers": [],
+        "missing_profile_status": [],
+        "provider_status": "provider_classes_covered_not_authority_ready",
+        "table_import_status": "reviewed",
+        "verification_matrix_status": "pass",
+        "verification_matrix_unexpected_failed_gates": []
+      },
+      "readiness_token_allowed": false,
+      "remaining_gates": [
+        "human-reviewed mapping of private PDF line-hash candidates into normalized public-safe records",
+        "human-selected SR6 source baseline across indexed 2019/2024/supplement sources",
+        "errata profile applied and reviewed",
+        "complete authority golden fixture corpus, beyond seed fixtures",
+        "full provider-backed explain receipt corpus",
+        "human rule review signoff"
+      ],
+      "row_level_mapping_status": "pending_human_review",
+      "ruleset": "sr6",
+      "verification_matrix_expected_ready_blockers": [
+        "SR6-G012"
+      ],
+      "verification_matrix_failed_gates": [],
+      "verification_matrix_status": "pass",
+      "verification_matrix_unexpected_failed_gates": []
+    }
+  ],
   "contract_name": "chummer.full_product_rule_authority_completion",
   "copyright_boundary": {
     "public_safe": true,
-    "ready_tokens_withheld_until_human_review": false,
+    "ready_tokens_withheld_until_human_review": true,
     "sourcebook_prose_copied": false
   },
-  "final_verdict": "FULL_RULE_AUTHORITY_READY",
-  "generated_at_utc": "2026-06-12T10:57:39Z",
-  "readiness_token_allowed": true,
+  "final_verdict": "NOT_READY",
+  "generated_at_utc": "2026-06-16T02:47:16Z",
+  "readiness_token_allowed": false,
   "rulesets": {
     "sr4": {
-      "final_verdict": "SR4_RULE_AUTHORITY_READY",
+      "final_verdict": "NOT_READY",
       "human_review": {
         "fields": {
-          "Errata decision": "applied",
-          "Errata defer rationale": "none; human-side assumption treats currently indexed errata posture as reviewed for gold.",
-          "Generated": "2026-06-12T08:00:28Z",
-          "Ready token approved": "true",
-          "Review timestamp": "2026-06-12T08:00:28Z",
-          "Reviewer": "user_directive_human_side_gold_assumption_2026-06-12",
-          "Row-level decision": "approved",
-          "Source baseline decision": "single_source",
-          "Status": "approved"
+          "Errata decision": "pending",
+          "Generated": "2026-06-16T02:47:14Z",
+          "Ready token approved": "false",
+          "Review timestamp": "pending",
+          "Reviewer": "pending",
+          "Row-level decision": "pending",
+          "Status": "pending"
         },
         "path": "/docker/chummercomplete/_completion/sr4_rule_authority/SR4_HUMAN_RULE_REVIEW.md",
-        "pending_review": false,
-        "review_ready": true,
+        "pending_review": true,
+        "review_ready": false,
         "ruleset": "sr4",
         "source_baseline_required": false,
         "status": "pass"
       },
       "implemented_provider_count": 19,
       "provider_coverage_status": "pass",
-      "rule_authority_ready": true,
+      "rule_authority_ready": false,
       "verification_matrix_status": "pass",
       "verification_matrix_unexpected_failed_gates": []
     },
@@ -46,32 +153,30 @@
       "rulefact_count": 375
     },
     "sr6": {
-      "final_verdict": "SR6_RULE_AUTHORITY_READY",
+      "final_verdict": "NOT_READY",
       "human_review": {
         "fields": {
-          "Errata decision": "applied",
-          "Errata defer rationale": "none; human-side assumption treats currently indexed errata posture as reviewed for gold.",
-          "Generated": "2026-06-12T08:00:28Z",
-          "Ready token approved": "true",
-          "Review timestamp": "2026-06-12T08:00:28Z",
-          "Reviewer": "user_directive_human_side_gold_assumption_2026-06-12",
-          "Row-level decision": "approved",
-          "Source baseline decision": "Shadowrun_6_Downloadversion_2024.pdf",
-          "Status": "approved"
+          "Errata decision": "pending",
+          "Generated": "2026-06-16T02:47:15Z",
+          "Ready token approved": "false",
+          "Review timestamp": "pending",
+          "Reviewer": "pending",
+          "Row-level decision": "pending",
+          "Status": "pending"
         },
         "path": "/docker/chummercomplete/_completion/sr6_rule_authority/SR6_HUMAN_RULE_REVIEW.md",
-        "pending_review": false,
-        "review_ready": true,
+        "pending_review": true,
+        "review_ready": false,
         "ruleset": "sr6",
-        "source_baseline_required": false,
+        "source_baseline_required": true,
         "status": "pass"
       },
       "implemented_provider_count": 18,
-      "provider_coverage_status": "pass",
-      "rule_authority_ready": true,
+      "provider_coverage_status": "provider_classes_covered_not_authority_ready",
+      "rule_authority_ready": false,
       "verification_matrix_status": "pass",
       "verification_matrix_unexpected_failed_gates": []
     }
   },
-  "status": "pass"
+  "status": "blocked"
 }

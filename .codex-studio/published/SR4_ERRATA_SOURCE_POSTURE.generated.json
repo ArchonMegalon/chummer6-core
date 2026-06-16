@@ -1,6 +1,6 @@
 {
   "contract_name": "chummer.sr4.errata_source_posture",
-  "generated_at_utc": "2026-06-12T07:38:17Z",
+  "generated_at_utc": "2026-06-16T02:47:14Z",
   "human_required": {
     "must_apply_or_explicitly_defer_each_applicable_change": true,
     "must_confirm_applicable_errata_sources": true,
@@ -14,28 +14,24 @@
   },
   "machine_observations": {
     "has_committed_source_metadata": false,
-    "profile_status": "pending",
+    "profile_status": "applied",
     "source_count": 0
   },
   "production_claim_allowed": true,
-  "ready_for_gold": true,
+  "ready_for_gold": false,
   "required_before_gold": true,
   "review_packet": {
-    "decision": "applied",
+    "decision": "pending",
     "required_decision_values": [
       "applied",
       "not_applicable",
       "defer"
     ],
-    "reviewed_at_utc": "2026-06-12T08:00:28Z",
-    "reviewer": "user_directive_human_side_gold_assumption_2026-06-12",
     "reviewer_output_expected": "SR4_HUMAN_RULE_REVIEW.md",
     "source_count": 0,
     "source_ids": []
   },
-  "reviewed_at_utc": "2026-06-12T08:00:28Z",
-  "reviewer": "user_directive_human_side_gold_assumption_2026-06-12",
   "ruleset": "sr4",
   "sources": [],
-  "status": "applied"
+  "status": "pending_reviewed_application"
 }

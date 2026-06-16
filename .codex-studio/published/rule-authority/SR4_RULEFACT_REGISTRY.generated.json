@@ -1,14 +1,6 @@
 {
   "book_profile": "sr4a_core_2009",
-  "final_verdict": "SR4_RULE_AUTHORITY_READY",
-  "human_review": {
-    "errata_decision": "applied",
-    "ready_token_approved": true,
-    "review_timestamp": "2026-06-12T08:00:28Z",
-    "reviewer": "user_directive_human_side_gold_assumption_2026-06-12",
-    "row_level_decision": "approved",
-    "source_baseline_decision": "single_source"
-  },
+  "final_verdict": "NOT_READY",
   "implemented_providers": [
     "Sr4DiceProvider",
     "Sr4TestProvider",
@@ -32,7 +24,6 @@
   ],
   "missing_implemented_providers": [],
   "missing_profile_status": [],
-  "operator_review_promoted_at_utc": "2026-06-12T08:00:28Z",
   "registry_sha256": "ea61e799fcb7a870d0e41e432bfbc4457cb34dfb665231d7a2c34088f31c02f4",
   "required_providers": [
     "Sr4DiceProvider",
@@ -3729,6 +3720,5 @@
   "ruleset": "sr4",
   "schema": "sr4-rule-authority-public-registry-v2",
   "source_package": "sr4_rule_authority_extraction_package_20260529.zip",
-  "source_ref_count": 18,
-  "status": "pass"
+  "source_ref_count": 18
 }
