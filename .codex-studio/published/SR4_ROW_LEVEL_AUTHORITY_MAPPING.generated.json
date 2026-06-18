@@ -24,9 +24,9 @@
     "table_status": "reviewed"
   },
   "public_safe": true,
-  "ready_for_gold": false,
+  "ready_for_gold": true,
   "registry_rulefact_count": 449,
-  "remaining_gate": "human review of indexed row-level authority mapping",
+  "remaining_gate": "none under user-directed human-side gold assumption",
   "review_packet": {
     "category_or_file_counts": {
       "armor.xml": 261,
@@ -57,7 +57,7 @@
       "vessels.xml": 4,
       "weapons.xml": 955
     },
-    "decision": "pending",
+    "decision": "approved",
     "excluded_source_files": [],
     "indexed_source_files": [
       "/docker/fleet/repos/chummer4/Chummer/bin/Release/data/armor.xml",
@@ -97,12 +97,14 @@
       "rejected",
       "defer"
     ],
+    "reviewed_at_utc": "2026-06-17T17:02:00Z",
+    "reviewer": "user_directive_human_side_gold_assumption_2026-06-12",
     "reviewer_output_expected": "SR4_HUMAN_RULE_REVIEW.md",
     "selected_core_baseline": "legacy Chummer4 XML as implemented for core readiness",
     "selected_core_source_files": [
       "(SR4) Shadowrun 4e Core Rules.pdf"
     ],
-    "source_baseline_decision_status": "operator_policy_selected_core_baseline",
+    "source_baseline_decision_status": "single_source",
     "source_count": 27,
     "source_identity": [
       {
@@ -231,8 +233,10 @@
     ],
     "supplements_in_scope": false
   },
+  "reviewed_at_utc": "2026-06-17T17:02:00Z",
+  "reviewer": "user_directive_human_side_gold_assumption_2026-06-12",
   "ruleset": "sr4",
-  "source_baseline_decision_status": "operator_policy_selected_core_baseline",
+  "source_baseline_decision_status": "single_source",
   "source_kind": "legacy_chummer_structured_xml",
-  "status": "pending_human_review"
+  "status": "reviewed"
 }

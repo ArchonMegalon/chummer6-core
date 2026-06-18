@@ -31,7 +31,7 @@
   "private_registry": "/docker/chummercomplete/_completion/sr6_rule_authority/private/SR6_TABLE_ROW_HASH_REGISTRY.private.generated.json",
   "public_copy_policy": "metadata only: hashes, positions, categories, and counts; no sourcebook prose, art, page images, examples, item descriptions, or table cell text",
   "remaining_gate": "none under user-directed human-side gold assumption",
-  "reviewed_at_utc": "2026-06-12T08:00:28Z",
+  "reviewed_at_utc": "2026-06-17T17:02:00Z",
   "reviewer": "user_directive_human_side_gold_assumption_2026-06-12",
   "ruleset": "sr6",
   "source_kind": "private_local_sourcebook_pdf_line_hashes",

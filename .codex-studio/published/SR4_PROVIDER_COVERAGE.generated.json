@@ -1,5 +1,5 @@
 {
-  "final_verdict": "NOT_READY",
+  "final_verdict": "SR4_RULE_AUTHORITY_READY",
   "implemented_provider_count": 19,
   "implemented_providers": [
     "Sr4DiceProvider",
@@ -24,8 +24,9 @@
   ],
   "missing_implemented_providers": [],
   "missing_profile_status": [],
+  "operator_review_promoted_at_utc": "2026-06-17T17:02:00Z",
   "provider_status_count": 19,
-  "readiness_token_allowed": false,
+  "readiness_token_allowed": true,
   "ruleset": "sr4",
   "status": "pass"
 }

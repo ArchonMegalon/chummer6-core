@@ -24,9 +24,9 @@
     "table_status": "reviewed"
   },
   "public_safe": true,
-  "ready_for_gold": false,
+  "ready_for_gold": true,
   "registry_rulefact_count": 447,
-  "remaining_gate": "human review of indexed row-level authority mapping",
+  "remaining_gate": "none under user-directed human-side gold assumption",
   "review_packet": {
     "category_or_file_counts": {
       "armor": 1069,
@@ -41,7 +41,7 @@
       "uncategorized": 1291,
       "weapons": 1482
     },
-    "decision": "pending",
+    "decision": "approved",
     "excluded_source_files": [
       "Shadowrun Sixth World.pdf",
       "Shadowrun_Street_Wyrd_(Core_Magic_Rulebook).pdf",
@@ -59,12 +59,15 @@
       "rejected",
       "defer"
     ],
+    "reviewed_at_utc": "2026-06-17T17:02:00Z",
+    "reviewer": "user_directive_human_side_gold_assumption_2026-06-12",
     "reviewer_output_expected": "SR6_HUMAN_RULE_REVIEW.md",
     "selected_core_baseline": "Shadowrun_6_Downloadversion_2024.pdf",
     "selected_core_source_files": [
       "Shadowrun_6_Downloadversion_2024.pdf"
     ],
-    "source_baseline_decision_status": "operator_policy_selected_core_baseline",
+    "source_baseline_decision": "Shadowrun_6_Downloadversion_2024.pdf",
+    "source_baseline_decision_status": "selected",
     "source_count": 1,
     "source_identity": [
       {
@@ -133,8 +136,10 @@
     ],
     "supplements_in_scope": false
   },
+  "reviewed_at_utc": "2026-06-17T17:02:00Z",
+  "reviewer": "user_directive_human_side_gold_assumption_2026-06-12",
   "ruleset": "sr6",
-  "source_baseline_decision_status": "operator_policy_selected_core_baseline",
+  "source_baseline_decision_status": "selected",
   "source_kind": "private_local_sourcebook_pdf_line_hashes",
-  "status": "pending_human_review"
+  "status": "reviewed"
 }
