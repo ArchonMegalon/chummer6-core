@@ -22,6 +22,7 @@ public sealed class ProductSpineCatalogTests
             targets.Select(static target => target.Id).ToArray());
         Assert.IsTrue(entries.Any(static entry => entry.Id == "alice" && entry.NativeActions!.Any(static action => action.Id == "ready_for_tonight")));
         Assert.IsTrue(entries.Any(static entry => entry.Id == "runbook_press" && entry.NativeActions!.Any(static action => action.Id == "publication")));
+        Assert.IsFalse(entries.Any(static entry => entry.Id == "onramp"), "Onramp is a starter lane, not a Horizon catalog entry.");
     }
 
     [TestMethod]

@@ -39,7 +39,13 @@ internal static class Sr6NavigationTabCatalog
         Sr6("tab-info", "Info", "profile", "character", true, true),
         Sr6("tab-attributes", "Attributes", "attributes", "character", true, true),
         Sr6("tab-skills", "Skills", "skills", "character", true, true),
+        Sr6("tab-qualities", "Qualities", "qualities", "character", true, true),
+        Sr6("tab-magician", "Magician", "spells", "character", true, true),
+        Sr6("tab-combat", "Combat", "weapons", "character", true, true),
         Sr6("tab-gear", "Gear", "inventory", "character", true, true),
+        Sr6("tab-cyberware", "Cyberware", "cyberwares", "character", true, true),
+        Sr6("tab-adept", "Adept", "powers", "character", true, true),
+        Sr6("tab-contacts", "Contacts", "contacts", "character", true, true),
         Sr6("tab-rules", "Rules", "rules", "character", true, true)
     ];
 
@@ -64,7 +70,21 @@ internal static class Sr6WorkspaceSurfaceActionCatalog
         Sr6("tab-info.profile", "Profile", "tab-info", WorkspaceSurfaceActionKind.Section, "profile", true, true),
         Sr6("tab-attributes.attributes", "Attributes", "tab-attributes", WorkspaceSurfaceActionKind.Section, "attributes", true, true),
         Sr6("tab-skills.skills", "Skills", "tab-skills", WorkspaceSurfaceActionKind.Section, "skills", true, true),
+        Sr6("tab-qualities.qualities", "Qualities", "tab-qualities", WorkspaceSurfaceActionKind.Section, "qualities", true, true),
+        Sr6("tab-magician.spells", "Spells", "tab-magician", WorkspaceSurfaceActionKind.Section, "spells", true, true),
+        Sr6("tab-magician.spirits", "Spirits", "tab-magician", WorkspaceSurfaceActionKind.Section, "spirits", true, true),
+        Sr6("tab-magician.critterpowers", "Critter Powers", "tab-magician", WorkspaceSurfaceActionKind.Section, "critterpowers", true, true),
+        Sr6("tab-combat.weapons", "Weapons", "tab-combat", WorkspaceSurfaceActionKind.Section, "weapons", true, true),
+        Sr6("tab-combat.armors", "Armor", "tab-combat", WorkspaceSurfaceActionKind.Section, "armors", true, true),
         Sr6("tab-gear.inventory", "Inventory", "tab-gear", WorkspaceSurfaceActionKind.Section, "inventory", true, true),
+        Sr6("tab-gear.drugs", "Drugs", "tab-gear", WorkspaceSurfaceActionKind.Section, "drugs", true, true),
+        Sr6("tab-gear.vehicles", "Vehicles", "tab-gear", WorkspaceSurfaceActionKind.Section, "vehicles", true, true),
+        Sr6("tab-cyberware.cyberwares", "Cyberware", "tab-cyberware", WorkspaceSurfaceActionKind.Section, "cyberwares", true, true),
+        Sr6("tab-adept.powers", "Adept Powers", "tab-adept", WorkspaceSurfaceActionKind.Section, "powers", true, true),
+        Sr6("tab-adept.complexforms", "Complex Forms", "tab-adept", WorkspaceSurfaceActionKind.Section, "complexforms", true, true),
+        Sr6("tab-adept.aiprograms", "Programs", "tab-adept", WorkspaceSurfaceActionKind.Section, "aiprograms", true, true),
+        Sr6("tab-adept.initiationgrades", "Initiation/Submersion", "tab-adept", WorkspaceSurfaceActionKind.Section, "initiationgrades", true, true),
+        Sr6("tab-contacts.contacts", "Contacts", "tab-contacts", WorkspaceSurfaceActionKind.Section, "contacts", true, true),
         Sr6("tab-rules.rules", "Rules", "tab-rules", WorkspaceSurfaceActionKind.Section, "rules", true, true)
     ];
 

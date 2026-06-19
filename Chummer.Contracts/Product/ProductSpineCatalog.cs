@@ -41,13 +41,6 @@ public static class ProductSpineCatalog
             new DesktopHorizonRouteOption("ready_account", "Open return lane", "/account/runsites/open", "Open the signed-in return lane for the next safe action."),
             new DesktopHorizonRouteOption("ready_mobile", "Open mobile rail", "/mobile", "Open the mobile and PWA participation rail.")),
         new(
-            "onramp",
-            "Onramp",
-            "Open the guided starter lane, starter workspace handoff, and mobile participation bridge from the same desktop shelf.",
-            new DesktopHorizonRouteOption("onramp_public", "Open Onramp", "/onramp", "Open the public Onramp route."),
-            new DesktopHorizonRouteOption("onramp_account", "Open starter desk", "/account/runsites/open", "Open the signed-in starter workspace lane."),
-            new DesktopHorizonRouteOption("onramp_mobile", "Open mobile rail", "/mobile", "Open the mobile and PWA rail for no-desktop participation.")),
-        new(
             "jackpoint",
             "Jackpoint",
             "Open dossiers, publication benches, and signed-in briefing routes.",
@@ -135,7 +128,7 @@ public static class ProductSpineCatalog
         new(
             "ghostwire",
             "Ghostwire",
-            "Open replay and after-action follow-through directly from the horizon shelf.",
+            "Open replay and after-action follow-through directly from the workbench hub.",
             new DesktopHorizonRouteOption("ghostwire_public", "Open Ghostwire", "/ghostwire", "Open the public Ghostwire route."),
             new DesktopHorizonRouteOption("ghostwire_replay", "After action", "/ghostwire/after-action/replay_timeline.md", "Open the replay timeline packet."),
             new DesktopHorizonRouteOption("ghostwire_report", "Consequence chain", "/ghostwire/after-action/consequence_chain.md", "Open the consequence chain packet.")),

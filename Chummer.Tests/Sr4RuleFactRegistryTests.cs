@@ -21,7 +21,7 @@ public sealed class Sr4RuleFactRegistryTests
 
         Assert.AreEqual(Sr4RuleFactRegistry.ExpectedSchema, registry.Schema);
         Assert.AreEqual("sr4", registry.Ruleset);
-        Assert.AreEqual("NOT_READY", registry.FinalVerdict);
+        Assert.AreEqual(Sr4RuleFactRegistry.ReadyVerdict, registry.FinalVerdict);
         Assert.IsTrue(registry.RuleFactCount >= 100);
         Assert.IsTrue(registry.RuleFacts.Any(fact => fact.Provider == "Sr4DiceProvider"));
         Assert.IsTrue(registry.RuleFacts.All(fact => !string.IsNullOrWhiteSpace(fact.SourceRef)));
@@ -40,7 +40,7 @@ public sealed class Sr4RuleFactRegistryTests
         CollectionAssert.Contains(registry.RuleFacts.Select(fact => fact.Provider).Distinct().ToArray(), "Sr4MetatypeProvider");
         CollectionAssert.Contains(registry.RuleFacts.Select(fact => fact.Provider).Distinct().ToArray(), "Sr4QualityProvider");
         Assert.AreEqual(0, registry.MissingImplementedProviders.Count);
-        Assert.AreEqual("NOT_READY", registry.FinalVerdict);
+        Assert.AreEqual(Sr4RuleFactRegistry.ReadyVerdict, registry.FinalVerdict);
 
         string receiptJson = File.ReadAllText(FindRepoPath(".codex-studio", "published", "OPERATOR_PROMOTED_RULE_AUTHORITY_GOLD.generated.json"));
         StringAssert.Contains(receiptJson, "\"final_verdict\": \"FULL_RULE_AUTHORITY_READY\"");
