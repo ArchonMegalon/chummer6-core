@@ -77,6 +77,29 @@ CORE_FACT_PROVIDERS = {
         "Sr6RiggingProvider",
         "Sr6AdvancementProvider",
     },
+    "sr5": {
+        "SR5DiceProvider",
+        "SR5TestProvider",
+        "SR5CharacterCreationProvider",
+        "SR5CombatProvider",
+        "SR5MagicProvider",
+        "SR5MatrixProvider",
+        "SR5RiggingProvider",
+        "SR5GearProvider",
+        "SR5AdvancementProvider",
+    },
+}
+
+SR5_PROVIDER_SPOT_CHECKS = {
+    "SR5CharacterCreationProvider": "SR5 character creation",
+    "SR5CombatProvider": "SR5 combat",
+    "SR5MagicProvider": "SR5 magic",
+    "SR5MatrixProvider": "SR5 matrix",
+    "SR5RiggingProvider": "SR5 rigging",
+    "SR5GearProvider": "SR5 gear",
+    "SR5DiceProvider": "SR5 dice",
+    "SR5TestProvider": "SR5 tests",
+    "SR5ExplainReceiptProvider": "SR5 explain receipts",
 }
 
 def load_json(path: Path) -> dict[str, Any]:
@@ -184,6 +207,48 @@ def ruleset_receipt_review(ruleset: str) -> dict[str, Any]:
     }
 
 
+def sr5_receipt_review() -> dict[str, Any]:
+    acceptance = load_json(PUBLISHED_ROOT / "SR5_ACCEPTANCE_PROOF.generated.json")
+    depth = load_json(PUBLISHED_ROOT / "SR5_RULESET_DEPTH.generated.json")
+    registry = load_json(PUBLISHED_ROOT / "SR5_RULE_AUTHORITY_REGISTRY.generated.json")
+    missing_providers = list(registry.get("missing_implemented_providers") or [])
+    missing_spot_checks = [
+        SR5_PROVIDER_SPOT_CHECKS.get(provider, provider)
+        for provider in missing_providers
+    ]
+    remaining_gates = (
+        [
+            "implementation-backed SR5 mechanical provider RuleFacts",
+            "SR5 missing provider coverage: " + ", ".join(missing_spot_checks),
+        ]
+        if missing_providers
+        else []
+    )
+    return {
+        "acceptance_proof_status": acceptance.get("status"),
+        "serious_implementation_claim": acceptance.get("serious_implementation_claim"),
+        "depth_status": depth.get("status"),
+        "depth_claim": depth.get("serious_implementation_claim"),
+        "final_verdict": registry.get("final_verdict"),
+        "rulefact_count": registry.get("rulefact_count"),
+        "implemented_providers": registry.get("implemented_providers", []),
+        "missing_implemented_providers": missing_providers,
+        "provider_fact_counts": registry.get("provider_fact_counts", {}),
+        "blocker_receipts": {
+            "registry": str(PUBLISHED_ROOT / "SR5_RULE_AUTHORITY_REGISTRY.generated.json"),
+            "authority_registry": str(PUBLISHED_ROOT / "rule-authority" / "SR5_RULEFACT_REGISTRY.generated.json"),
+            "provider_coverage": str(PUBLISHED_ROOT / "rule-authority" / "SR5_PROVIDER_COVERAGE.generated.json"),
+        },
+        "remaining_gates": remaining_gates,
+        "spot_check_plan": missing_spot_checks,
+        "readiness_token_allowed": (
+            registry.get("final_verdict") == "SR5_RULE_AUTHORITY_READY"
+            and int(registry.get("rulefact_count") or 0) >= 100
+            and not missing_providers
+        ),
+    }
+
+
 def pdf_review() -> dict[str, Any]:
     result: dict[str, Any] = {}
     for key, path in PDF_SOURCES.items():
@@ -204,19 +269,26 @@ def pdf_review() -> dict[str, Any]:
 
 def build_payload() -> dict[str, Any]:
     sr4 = ruleset_receipt_review("sr4")
+    sr5 = sr5_receipt_review()
     sr6 = ruleset_receipt_review("sr6")
     sr4_fact_providers = set(sr4.get("rulefact_providers", []))
+    sr5_fact_providers = set(sr5.get("implemented_providers", []))
     sr6_fact_providers = set(sr6.get("rulefact_providers", []))
-    core_fact_depth_ready = CORE_FACT_PROVIDERS["sr4"].issubset(sr4_fact_providers) and CORE_FACT_PROVIDERS["sr6"].issubset(sr6_fact_providers)
+    core_fact_depth_ready = (
+        CORE_FACT_PROVIDERS["sr4"].issubset(sr4_fact_providers)
+        and CORE_FACT_PROVIDERS["sr5"].issubset(sr5_fact_providers)
+        and CORE_FACT_PROVIDERS["sr6"].issubset(sr6_fact_providers)
+    )
     sr4_ready = bool(sr4.get("readiness_token_allowed") and sr4.get("human_review_status", {}).get("review_ready"))
+    sr5_ready = bool(sr5.get("readiness_token_allowed"))
     sr6_ready = bool(sr6.get("readiness_token_allowed") and sr6.get("human_review_status", {}).get("review_ready"))
-    full_ready = sr4_ready and sr6_ready
+    full_ready = sr4_ready and sr5_ready and sr6_ready
     authority_status = "operator_review_complete_authority_ready" if full_ready else "operator_review_complete_authority_blocked"
     authority_finding_status = "pass" if full_ready else "blocker"
     authority_finding_detail = (
-        "SR4/SR6 row-level authority receipts, errata posture, and human signoff are approved under the current user-directed human-side gold assumption."
+        "SR4/SR5/SR6 authority receipts, errata posture, and human signoff are approved under the current user-directed human-side gold assumption."
         if full_ready
-        else "SR4/SR6 still require reviewed row-level authority mapping, any remaining in-scope errata application, and independent human signoff."
+        else "At least one edition still lacks complete rule-authority evidence. SR4/SR6 can be ready under the current human-side assumption, but SR5 must not be promoted until its mechanical provider RuleFacts are mapped."
     )
     payload = {
         "contract_name": "chummer.rule_authority_operator_review",
@@ -235,10 +307,7 @@ def build_payload() -> dict[str, Any]:
         },
         "rulesets": {
             "sr4": sr4,
-            "sr5": {
-                "acceptance_proof_status": load_json(PUBLISHED_ROOT / "SR5_ACCEPTANCE_PROOF.generated.json").get("status"),
-                "serious_implementation_claim": load_json(PUBLISHED_ROOT / "SR5_ACCEPTANCE_PROOF.generated.json").get("serious_implementation_claim"),
-            },
+            "sr5": sr5,
             "sr6": sr6,
         },
         "errata_sources": errata_sources_by_id(),
@@ -255,19 +324,23 @@ def build_payload() -> dict[str, Any]:
             },
             {
                 "id": "provider_class_coverage",
-                "status": "pass",
-                "detail": "SR4 and SR6 required provider classes are present with no missing implementation/profile entries.",
+                "status": "pass" if sr5_ready else "blocker",
+                "detail": (
+                    "SR4/SR5/SR6 required provider classes are present with mapped implementation facts."
+                    if sr5_ready
+                    else "SR5 still declares required mechanical provider groups without mapped RuleFacts."
+                ),
             },
             {
                 "id": "seed_fixture_execution",
                 "status": "pass",
-                "detail": "Focused SR4/SR6 seed fixture receipts report zero failures.",
+                "detail": "Focused SR4/SR5/SR6 seed fixture receipts report zero failures.",
             },
             {
                 "id": "rulefact_depth",
                 "status": "pass" if core_fact_depth_ready else "blocker",
                 "detail": (
-                    "RuleFact registries now cover the intended core SR4/SR6 provider families for core readiness."
+                    "RuleFact registries now cover the intended core SR4/SR5/SR6 provider families for core readiness."
                     if core_fact_depth_ready
                     else "RuleFact registries still miss one or more core provider families needed for the chosen core-only authority scope."
                 ),
@@ -290,18 +363,20 @@ def build_payload() -> dict[str, Any]:
         ],
         "readiness_decision": {
             "sr4_rule_authority_ready": sr4_ready,
+            "sr5_rule_authority_ready": sr5_ready,
             "sr6_rule_authority_ready": sr6_ready,
             "full_product_rule_authority_ready": full_ready,
-            "reason": "Ready under user_directive_human_side_gold_assumption_2026-06-12." if full_ready else "Operator review closed source identity, provider coverage, fixture alignment, and explain alignment, but full authority still requires row-level reviewed records, any remaining in-scope errata application, and independent human signoff.",
+            "reason": "Ready under user_directive_human_side_gold_assumption_2026-06-12." if full_ready else "Operator review cannot sign off while SR5 still lacks mapped mechanical provider RuleFacts.",
         },
         "signoff_recommendation": {
             "recommendation": "sign_off_allowed" if full_ready else "do_not_sign_off",
             "sr4": "sign_off_allowed" if sr4_ready else "do_not_sign_off",
+            "sr5": "sign_off_allowed" if sr5_ready else "do_not_sign_off",
             "sr6": "sign_off_allowed" if sr6_ready else "do_not_sign_off",
             "reason": (
                 "Current evidence is sufficient for ready tokens."
                 if full_ready
-                else "Do not sign off while row-level review, any remaining in-scope errata review, or human signoff remain pending."
+                else "Do not sign off while SR5 mechanical provider coverage remains incomplete."
             ),
             "embarrassment_risk": (
                 "bounded"
@@ -343,7 +418,7 @@ def build_markdown(payload: dict[str, Any]) -> str:
         "",
         "## Decision",
         "",
-        "SR4 and SR6 may remain promoted only under the current user-directed human-side gold assumption; this is not independent publisher/legal/editorial review." if payload["readiness_decision"]["full_product_rule_authority_ready"] else "Do not promote SR4 or SR6 to rule-authority ready from this audit alone. The remaining work is not code-class discovery; it is reviewed row-level rule/data mapping, any remaining in-scope errata application, and independent human signoff.",
+        "SR4, SR5, and SR6 may remain promoted only under the current user-directed human-side gold assumption; this is not independent publisher/legal/editorial review." if payload["readiness_decision"]["full_product_rule_authority_ready"] else "Do not promote SR4 or SR6 to rule-authority ready from this audit alone. The remaining work is not code-class discovery; it is reviewed row-level rule/data mapping, any remaining in-scope errata application, and independent human signoff.",
         "",
         "## Recommendation",
         "",

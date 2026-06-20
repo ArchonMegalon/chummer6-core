@@ -9,7 +9,7 @@
   "depth_status": "pass",
   "edition": "SR5",
   "final_verdict": "SR5_RULE_AUTHORITY_READY",
-  "generated_at_utc": "2026-06-12T10:56:51Z",
+  "generated_at_utc": "2026-06-19T23:15:10Z",
   "human_review": {
     "notes": "Registry synthesized from implementation catalogs, deterministic parity fixtures, and structured table-import coverage without reproducing sourcebook prose.",
     "reviewer": "Codex SR5 rule authority synthesis",
@@ -17,6 +17,7 @@
   },
   "implemented_providers": [
     "SR5AdvancementProvider",
+    "SR5CharacterCreationProvider",
     "SR5CombatProvider",
     "SR5DerivedStatsProvider",
     "SR5DiceProvider",
@@ -33,9 +34,10 @@
   ],
   "missing_implemented_providers": [],
   "missing_profile_status": [],
-  "operator_review_promoted_at_utc": "2026-06-12T10:56:51Z",
+  "operator_review_promoted_at_utc": "2026-06-19T23:15:10Z",
   "required_providers": [
     "SR5AdvancementProvider",
+    "SR5CharacterCreationProvider",
     "SR5CombatProvider",
     "SR5DerivedStatsProvider",
     "SR5DiceProvider",
@@ -50,13 +52,14 @@
     "SR5TableImportProvider",
     "SR5CapabilityHostProvider"
   ],
-  "rulefact_count": 375,
+  "rulefact_count": 473,
   "rulefact_families": [
     "shell_commands",
     "navigation_tabs",
     "workspace_actions",
     "workflow_definitions",
     "workflow_surfaces",
+    "core_mechanical_providers",
     "workspace_codec",
     "parity_corpus",
     "table_import_files",
@@ -2790,6 +2793,217 @@
     {
       "book_profile": "sr5_core_2013",
       "fact": {
+        "hit_faces": [
+          5,
+          6
+        ]
+      },
+      "id": "sr5.dice.hit_faces",
+      "provider": "SR5DiceProvider",
+      "ruleset": "sr5",
+      "seed_file": "Sr5CoreProviders.cs",
+      "source_ref": "implementation:Chummer.Rulesets.Sr5/Sr5CoreProviders.cs#SR5DiceProvider",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr5_core_2013",
+      "fact": {
+        "glitch_when_ones_at_least_half_pool": true
+      },
+      "id": "sr5.dice.glitch",
+      "provider": "SR5DiceProvider",
+      "ruleset": "sr5",
+      "seed_file": "Sr5CoreProviders.cs",
+      "source_ref": "implementation:Chummer.Rulesets.Sr5/Sr5CoreProviders.cs#SR5DiceProvider",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr5_core_2013",
+      "fact": {
+        "critical_glitch_when_glitch_and_zero_hits": true
+      },
+      "id": "sr5.dice.critical_glitch",
+      "provider": "SR5DiceProvider",
+      "ruleset": "sr5",
+      "seed_file": "Sr5CoreProviders.cs",
+      "source_ref": "implementation:Chummer.Rulesets.Sr5/Sr5CoreProviders.cs#SR5DiceProvider",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr5_core_2013",
+      "fact": {
+        "hits": "floor(dice_pool / 4)"
+      },
+      "id": "sr5.tests.buy_hits",
+      "provider": "SR5TestProvider",
+      "ruleset": "sr5",
+      "seed_file": "Sr5CoreProviders.cs",
+      "source_ref": "implementation:Chummer.Rulesets.Sr5/Sr5CoreProviders.cs#SR5TestProvider",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr5_core_2013",
+      "fact": {
+        "success": "hits >= threshold"
+      },
+      "id": "sr5.tests.success_test",
+      "provider": "SR5TestProvider",
+      "ruleset": "sr5",
+      "seed_file": "Sr5CoreProviders.cs",
+      "source_ref": "implementation:Chummer.Rulesets.Sr5/Sr5CoreProviders.cs#SR5TestProvider",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr5_core_2013",
+      "fact": {
+        "net_hits": "acting_hits - opposing_hits"
+      },
+      "id": "sr5.tests.opposed_test",
+      "provider": "SR5TestProvider",
+      "ruleset": "sr5",
+      "seed_file": "Sr5CoreProviders.cs",
+      "source_ref": "implementation:Chummer.Rulesets.Sr5/Sr5CoreProviders.cs#SR5TestProvider",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr5_core_2013",
+      "fact": {
+        "penalty": "-2 per unchanged retry"
+      },
+      "id": "sr5.tests.retry_penalty",
+      "provider": "SR5TestProvider",
+      "ruleset": "sr5",
+      "seed_file": "Sr5CoreProviders.cs",
+      "source_ref": "implementation:Chummer.Rulesets.Sr5/Sr5CoreProviders.cs#SR5TestProvider",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr5_core_2013",
+      "fact": {
+        "public_safe": true,
+        "requires_provider_rulefact_and_source_ref": true
+      },
+      "id": "sr5.explain.public_safe_receipt",
+      "provider": "SR5ExplainReceiptProvider",
+      "ruleset": "sr5",
+      "seed_file": "Sr5CoreProviders.cs",
+      "source_ref": "implementation:Chummer.Rulesets.Sr5/Sr5CoreProviders.cs#SR5ExplainReceiptProvider",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr5_core_2013",
+      "fact": {
+        "does_not_claim_full_legality": true,
+        "public_safe_metadata_only": true,
+        "structured_index_required": [
+          "armor.xml",
+          "bioware.xml",
+          "cyberware.xml",
+          "gear.xml",
+          "vehicles.xml",
+          "weapons.xml"
+        ]
+      },
+      "id": "sr5.gear.index.public_safe_metadata_only",
+      "provider": "SR5GearProvider",
+      "ruleset": "sr5",
+      "seed_file": "Sr5CoreProviders.cs",
+      "source_ref": "implementation:Chummer.Rulesets.Sr5/Sr5CoreProviders.cs#SR5GearProvider",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr5_core_2013",
+      "fact": {
+        "does_not_claim_full_character_creation_legality": true,
+        "public_safe_metadata_only": true,
+        "structured_index_required": [
+          "metatypes.xml",
+          "priorities.xml",
+          "qualities.xml",
+          "skills.xml"
+        ]
+      },
+      "id": "sr5.character_creation.index.public_safe_metadata_only",
+      "provider": "SR5CharacterCreationProvider",
+      "ruleset": "sr5",
+      "seed_file": "Sr5CoreProviders.cs",
+      "source_ref": "implementation:Chummer.Rulesets.Sr5/Sr5CoreProviders.cs#SR5CharacterCreationProvider",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr5_core_2013",
+      "fact": {
+        "does_not_claim_full_combat_resolution": true,
+        "public_safe_metadata_only": true,
+        "structured_index_required": [
+          "actions.xml",
+          "armor.xml",
+          "weapons.xml"
+        ]
+      },
+      "id": "sr5.combat.index.public_safe_metadata_only",
+      "provider": "SR5CombatProvider",
+      "ruleset": "sr5",
+      "seed_file": "Sr5CoreProviders.cs",
+      "source_ref": "implementation:Chummer.Rulesets.Sr5/Sr5CoreProviders.cs#SR5CombatProvider",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr5_core_2013",
+      "fact": {
+        "does_not_claim_full_spellcasting_or_spirit_rules": true,
+        "public_safe_metadata_only": true,
+        "structured_index_required": [
+          "mentors.xml",
+          "spells.xml",
+          "traditions.xml"
+        ]
+      },
+      "id": "sr5.magic.index.public_safe_metadata_only",
+      "provider": "SR5MagicProvider",
+      "ruleset": "sr5",
+      "seed_file": "Sr5CoreProviders.cs",
+      "source_ref": "implementation:Chummer.Rulesets.Sr5/Sr5CoreProviders.cs#SR5MagicProvider",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr5_core_2013",
+      "fact": {
+        "does_not_claim_full_matrix_action_resolution": true,
+        "public_safe_metadata_only": true,
+        "structured_index_required": [
+          "complexforms.xml",
+          "paragons.xml",
+          "programs.xml"
+        ]
+      },
+      "id": "sr5.matrix.index.public_safe_metadata_only",
+      "provider": "SR5MatrixProvider",
+      "ruleset": "sr5",
+      "seed_file": "Sr5CoreProviders.cs",
+      "source_ref": "implementation:Chummer.Rulesets.Sr5/Sr5CoreProviders.cs#SR5MatrixProvider",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr5_core_2013",
+      "fact": {
+        "does_not_claim_full_vehicle_or_drone_resolution": true,
+        "public_safe_metadata_only": true,
+        "structured_index_required": [
+          "programs.xml",
+          "vehicles.xml"
+        ]
+      },
+      "id": "sr5.rigging.index.public_safe_metadata_only",
+      "provider": "SR5RiggingProvider",
+      "ruleset": "sr5",
+      "seed_file": "Sr5CoreProviders.cs",
+      "source_ref": "implementation:Chummer.Rulesets.Sr5/Sr5CoreProviders.cs#SR5RiggingProvider",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr5_core_2013",
+      "fact": {
         "supports_wrap_import": true
       },
       "id": "sr5.workspace_codec.support.supports_wrap_import",
@@ -3793,12 +4007,58 @@
     {
       "book_profile": "sr5_core_2013",
       "fact": {
+        "container": "actions",
+        "file": "actions.xml",
+        "public_safe_metadata_only": true,
+        "row_count": 260
+      },
+      "id": "sr5.combat.table_import.file.actions_xml.container.actions",
+      "provider": "SR5CombatProvider",
+      "ruleset": "sr5",
+      "seed_file": "SR5_TABLE_IMPORTS.generated.json",
+      "source_ref": "structured-data:SR5_TABLE_IMPORTS.generated.json",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr5_core_2013",
+      "fact": {
         "container": "version",
         "file": "actions.xml",
         "row_count": 0
       },
       "id": "sr5.table_import.file.actions_xml.container.version",
       "provider": "SR5TableImportProvider",
+      "ruleset": "sr5",
+      "seed_file": "SR5_TABLE_IMPORTS.generated.json",
+      "source_ref": "structured-data:SR5_TABLE_IMPORTS.generated.json",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr5_core_2013",
+      "fact": {
+        "container": "version",
+        "file": "actions.xml",
+        "public_safe_metadata_only": true,
+        "row_count": 0
+      },
+      "id": "sr5.combat.table_import.file.actions_xml.container.version",
+      "provider": "SR5CombatProvider",
+      "ruleset": "sr5",
+      "seed_file": "SR5_TABLE_IMPORTS.generated.json",
+      "source_ref": "structured-data:SR5_TABLE_IMPORTS.generated.json",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr5_core_2013",
+      "fact": {
+        "file": "actions.xml",
+        "public_safe_metadata_only": true,
+        "root": "chummer",
+        "row_count": 260,
+        "sha256": "050f129b3e8cd84d5c8c8ce5cabc3aecdd90d2185f193a501915664748cf37b5"
+      },
+      "id": "sr5.combat.table_import.file.actions_xml",
+      "provider": "SR5CombatProvider",
       "ruleset": "sr5",
       "seed_file": "SR5_TABLE_IMPORTS.generated.json",
       "source_ref": "structured-data:SR5_TABLE_IMPORTS.generated.json",
@@ -3836,12 +4096,72 @@
     {
       "book_profile": "sr5_core_2013",
       "fact": {
+        "container": "armors",
+        "file": "armor.xml",
+        "public_safe_metadata_only": true,
+        "row_count": 202
+      },
+      "id": "sr5.gear.table_import.file.armor_xml.container.armors",
+      "provider": "SR5GearProvider",
+      "ruleset": "sr5",
+      "seed_file": "SR5_TABLE_IMPORTS.generated.json",
+      "source_ref": "structured-data:SR5_TABLE_IMPORTS.generated.json",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr5_core_2013",
+      "fact": {
+        "container": "armors",
+        "file": "armor.xml",
+        "public_safe_metadata_only": true,
+        "row_count": 202
+      },
+      "id": "sr5.combat.table_import.file.armor_xml.container.armors",
+      "provider": "SR5CombatProvider",
+      "ruleset": "sr5",
+      "seed_file": "SR5_TABLE_IMPORTS.generated.json",
+      "source_ref": "structured-data:SR5_TABLE_IMPORTS.generated.json",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr5_core_2013",
+      "fact": {
         "container": "categories",
         "file": "armor.xml",
         "row_count": 5
       },
       "id": "sr5.table_import.file.armor_xml.container.categories",
       "provider": "SR5TableImportProvider",
+      "ruleset": "sr5",
+      "seed_file": "SR5_TABLE_IMPORTS.generated.json",
+      "source_ref": "structured-data:SR5_TABLE_IMPORTS.generated.json",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr5_core_2013",
+      "fact": {
+        "container": "categories",
+        "file": "armor.xml",
+        "public_safe_metadata_only": true,
+        "row_count": 5
+      },
+      "id": "sr5.gear.table_import.file.armor_xml.container.categories",
+      "provider": "SR5GearProvider",
+      "ruleset": "sr5",
+      "seed_file": "SR5_TABLE_IMPORTS.generated.json",
+      "source_ref": "structured-data:SR5_TABLE_IMPORTS.generated.json",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr5_core_2013",
+      "fact": {
+        "container": "categories",
+        "file": "armor.xml",
+        "public_safe_metadata_only": true,
+        "row_count": 5
+      },
+      "id": "sr5.combat.table_import.file.armor_xml.container.categories",
+      "provider": "SR5CombatProvider",
       "ruleset": "sr5",
       "seed_file": "SR5_TABLE_IMPORTS.generated.json",
       "source_ref": "structured-data:SR5_TABLE_IMPORTS.generated.json",
@@ -3864,12 +4184,104 @@
     {
       "book_profile": "sr5_core_2013",
       "fact": {
+        "container": "modcategories",
+        "file": "armor.xml",
+        "public_safe_metadata_only": true,
+        "row_count": 12
+      },
+      "id": "sr5.gear.table_import.file.armor_xml.container.modcategories",
+      "provider": "SR5GearProvider",
+      "ruleset": "sr5",
+      "seed_file": "SR5_TABLE_IMPORTS.generated.json",
+      "source_ref": "structured-data:SR5_TABLE_IMPORTS.generated.json",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr5_core_2013",
+      "fact": {
+        "container": "modcategories",
+        "file": "armor.xml",
+        "public_safe_metadata_only": true,
+        "row_count": 12
+      },
+      "id": "sr5.combat.table_import.file.armor_xml.container.modcategories",
+      "provider": "SR5CombatProvider",
+      "ruleset": "sr5",
+      "seed_file": "SR5_TABLE_IMPORTS.generated.json",
+      "source_ref": "structured-data:SR5_TABLE_IMPORTS.generated.json",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr5_core_2013",
+      "fact": {
         "container": "mods",
         "file": "armor.xml",
         "row_count": 70
       },
       "id": "sr5.table_import.file.armor_xml.container.mods",
       "provider": "SR5TableImportProvider",
+      "ruleset": "sr5",
+      "seed_file": "SR5_TABLE_IMPORTS.generated.json",
+      "source_ref": "structured-data:SR5_TABLE_IMPORTS.generated.json",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr5_core_2013",
+      "fact": {
+        "container": "mods",
+        "file": "armor.xml",
+        "public_safe_metadata_only": true,
+        "row_count": 70
+      },
+      "id": "sr5.gear.table_import.file.armor_xml.container.mods",
+      "provider": "SR5GearProvider",
+      "ruleset": "sr5",
+      "seed_file": "SR5_TABLE_IMPORTS.generated.json",
+      "source_ref": "structured-data:SR5_TABLE_IMPORTS.generated.json",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr5_core_2013",
+      "fact": {
+        "container": "mods",
+        "file": "armor.xml",
+        "public_safe_metadata_only": true,
+        "row_count": 70
+      },
+      "id": "sr5.combat.table_import.file.armor_xml.container.mods",
+      "provider": "SR5CombatProvider",
+      "ruleset": "sr5",
+      "seed_file": "SR5_TABLE_IMPORTS.generated.json",
+      "source_ref": "structured-data:SR5_TABLE_IMPORTS.generated.json",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr5_core_2013",
+      "fact": {
+        "file": "armor.xml",
+        "public_safe_metadata_only": true,
+        "root": "chummer",
+        "row_count": 289,
+        "sha256": "833d359f235515c5087a59501149dcbd3772ddbb562c784ad4ba272daa5f98c7"
+      },
+      "id": "sr5.gear.table_import.file.armor_xml",
+      "provider": "SR5GearProvider",
+      "ruleset": "sr5",
+      "seed_file": "SR5_TABLE_IMPORTS.generated.json",
+      "source_ref": "structured-data:SR5_TABLE_IMPORTS.generated.json",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr5_core_2013",
+      "fact": {
+        "file": "armor.xml",
+        "public_safe_metadata_only": true,
+        "root": "chummer",
+        "row_count": 289,
+        "sha256": "833d359f235515c5087a59501149dcbd3772ddbb562c784ad4ba272daa5f98c7"
+      },
+      "id": "sr5.combat.table_import.file.armor_xml",
+      "provider": "SR5CombatProvider",
       "ruleset": "sr5",
       "seed_file": "SR5_TABLE_IMPORTS.generated.json",
       "source_ref": "structured-data:SR5_TABLE_IMPORTS.generated.json",
@@ -3907,6 +4319,21 @@
     {
       "book_profile": "sr5_core_2013",
       "fact": {
+        "container": "biowares",
+        "file": "bioware.xml",
+        "public_safe_metadata_only": true,
+        "row_count": 213
+      },
+      "id": "sr5.gear.table_import.file.bioware_xml.container.biowares",
+      "provider": "SR5GearProvider",
+      "ruleset": "sr5",
+      "seed_file": "SR5_TABLE_IMPORTS.generated.json",
+      "source_ref": "structured-data:SR5_TABLE_IMPORTS.generated.json",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr5_core_2013",
+      "fact": {
         "container": "categories",
         "file": "bioware.xml",
         "row_count": 16
@@ -3921,12 +4348,58 @@
     {
       "book_profile": "sr5_core_2013",
       "fact": {
+        "container": "categories",
+        "file": "bioware.xml",
+        "public_safe_metadata_only": true,
+        "row_count": 16
+      },
+      "id": "sr5.gear.table_import.file.bioware_xml.container.categories",
+      "provider": "SR5GearProvider",
+      "ruleset": "sr5",
+      "seed_file": "SR5_TABLE_IMPORTS.generated.json",
+      "source_ref": "structured-data:SR5_TABLE_IMPORTS.generated.json",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr5_core_2013",
+      "fact": {
         "container": "grades",
         "file": "bioware.xml",
         "row_count": 9
       },
       "id": "sr5.table_import.file.bioware_xml.container.grades",
       "provider": "SR5TableImportProvider",
+      "ruleset": "sr5",
+      "seed_file": "SR5_TABLE_IMPORTS.generated.json",
+      "source_ref": "structured-data:SR5_TABLE_IMPORTS.generated.json",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr5_core_2013",
+      "fact": {
+        "container": "grades",
+        "file": "bioware.xml",
+        "public_safe_metadata_only": true,
+        "row_count": 9
+      },
+      "id": "sr5.gear.table_import.file.bioware_xml.container.grades",
+      "provider": "SR5GearProvider",
+      "ruleset": "sr5",
+      "seed_file": "SR5_TABLE_IMPORTS.generated.json",
+      "source_ref": "structured-data:SR5_TABLE_IMPORTS.generated.json",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr5_core_2013",
+      "fact": {
+        "file": "bioware.xml",
+        "public_safe_metadata_only": true,
+        "root": "chummer",
+        "row_count": 238,
+        "sha256": "9139c0c726c960a6d51ad60539acb8ec3e59433945b65aaeaf8e37a60da73cdd"
+      },
+      "id": "sr5.gear.table_import.file.bioware_xml",
+      "provider": "SR5GearProvider",
       "ruleset": "sr5",
       "seed_file": "SR5_TABLE_IMPORTS.generated.json",
       "source_ref": "structured-data:SR5_TABLE_IMPORTS.generated.json",
@@ -3985,6 +4458,37 @@
       },
       "id": "sr5.table_import.file.complexforms_xml.container.complexforms",
       "provider": "SR5TableImportProvider",
+      "ruleset": "sr5",
+      "seed_file": "SR5_TABLE_IMPORTS.generated.json",
+      "source_ref": "structured-data:SR5_TABLE_IMPORTS.generated.json",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr5_core_2013",
+      "fact": {
+        "container": "complexforms",
+        "file": "complexforms.xml",
+        "public_safe_metadata_only": true,
+        "row_count": 38
+      },
+      "id": "sr5.matrix.table_import.file.complexforms_xml.container.complexforms",
+      "provider": "SR5MatrixProvider",
+      "ruleset": "sr5",
+      "seed_file": "SR5_TABLE_IMPORTS.generated.json",
+      "source_ref": "structured-data:SR5_TABLE_IMPORTS.generated.json",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr5_core_2013",
+      "fact": {
+        "file": "complexforms.xml",
+        "public_safe_metadata_only": true,
+        "root": "chummer",
+        "row_count": 38,
+        "sha256": "188bfcb28c7d00097ee9946b0f4b1726bb286092b0560e26d519a26193edabf2"
+      },
+      "id": "sr5.matrix.table_import.file.complexforms_xml",
+      "provider": "SR5MatrixProvider",
       "ruleset": "sr5",
       "seed_file": "SR5_TABLE_IMPORTS.generated.json",
       "source_ref": "structured-data:SR5_TABLE_IMPORTS.generated.json",
@@ -4221,6 +4725,21 @@
     {
       "book_profile": "sr5_core_2013",
       "fact": {
+        "container": "categories",
+        "file": "cyberware.xml",
+        "public_safe_metadata_only": true,
+        "row_count": 16
+      },
+      "id": "sr5.gear.table_import.file.cyberware_xml.container.categories",
+      "provider": "SR5GearProvider",
+      "ruleset": "sr5",
+      "seed_file": "SR5_TABLE_IMPORTS.generated.json",
+      "source_ref": "structured-data:SR5_TABLE_IMPORTS.generated.json",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr5_core_2013",
+      "fact": {
         "container": "cyberwares",
         "file": "cyberware.xml",
         "row_count": 362
@@ -4235,12 +4754,58 @@
     {
       "book_profile": "sr5_core_2013",
       "fact": {
+        "container": "cyberwares",
+        "file": "cyberware.xml",
+        "public_safe_metadata_only": true,
+        "row_count": 362
+      },
+      "id": "sr5.gear.table_import.file.cyberware_xml.container.cyberwares",
+      "provider": "SR5GearProvider",
+      "ruleset": "sr5",
+      "seed_file": "SR5_TABLE_IMPORTS.generated.json",
+      "source_ref": "structured-data:SR5_TABLE_IMPORTS.generated.json",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr5_core_2013",
+      "fact": {
         "container": "grades",
         "file": "cyberware.xml",
         "row_count": 19
       },
       "id": "sr5.table_import.file.cyberware_xml.container.grades",
       "provider": "SR5TableImportProvider",
+      "ruleset": "sr5",
+      "seed_file": "SR5_TABLE_IMPORTS.generated.json",
+      "source_ref": "structured-data:SR5_TABLE_IMPORTS.generated.json",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr5_core_2013",
+      "fact": {
+        "container": "grades",
+        "file": "cyberware.xml",
+        "public_safe_metadata_only": true,
+        "row_count": 19
+      },
+      "id": "sr5.gear.table_import.file.cyberware_xml.container.grades",
+      "provider": "SR5GearProvider",
+      "ruleset": "sr5",
+      "seed_file": "SR5_TABLE_IMPORTS.generated.json",
+      "source_ref": "structured-data:SR5_TABLE_IMPORTS.generated.json",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr5_core_2013",
+      "fact": {
+        "file": "cyberware.xml",
+        "public_safe_metadata_only": true,
+        "root": "chummer",
+        "row_count": 397,
+        "sha256": "8843bcec100e15cd01a01826a1fbe40205853a05adc98c50c82f568662db4fd3"
+      },
+      "id": "sr5.gear.table_import.file.cyberware_xml",
+      "provider": "SR5GearProvider",
       "ruleset": "sr5",
       "seed_file": "SR5_TABLE_IMPORTS.generated.json",
       "source_ref": "structured-data:SR5_TABLE_IMPORTS.generated.json",
@@ -4378,12 +4943,58 @@
     {
       "book_profile": "sr5_core_2013",
       "fact": {
+        "container": "categories",
+        "file": "gear.xml",
+        "public_safe_metadata_only": true,
+        "row_count": 76
+      },
+      "id": "sr5.gear.table_import.file.gear_xml.container.categories",
+      "provider": "SR5GearProvider",
+      "ruleset": "sr5",
+      "seed_file": "SR5_TABLE_IMPORTS.generated.json",
+      "source_ref": "structured-data:SR5_TABLE_IMPORTS.generated.json",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr5_core_2013",
+      "fact": {
         "container": "gears",
         "file": "gear.xml",
         "row_count": 1598
       },
       "id": "sr5.table_import.file.gear_xml.container.gears",
       "provider": "SR5TableImportProvider",
+      "ruleset": "sr5",
+      "seed_file": "SR5_TABLE_IMPORTS.generated.json",
+      "source_ref": "structured-data:SR5_TABLE_IMPORTS.generated.json",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr5_core_2013",
+      "fact": {
+        "container": "gears",
+        "file": "gear.xml",
+        "public_safe_metadata_only": true,
+        "row_count": 1598
+      },
+      "id": "sr5.gear.table_import.file.gear_xml.container.gears",
+      "provider": "SR5GearProvider",
+      "ruleset": "sr5",
+      "seed_file": "SR5_TABLE_IMPORTS.generated.json",
+      "source_ref": "structured-data:SR5_TABLE_IMPORTS.generated.json",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr5_core_2013",
+      "fact": {
+        "file": "gear.xml",
+        "public_safe_metadata_only": true,
+        "root": "chummer",
+        "row_count": 1674,
+        "sha256": "563013781d3fd57b67048caa13bef634897a52dae4817785cfce76b050a39787"
+      },
+      "id": "sr5.gear.table_import.file.gear_xml",
+      "provider": "SR5GearProvider",
       "ruleset": "sr5",
       "seed_file": "SR5_TABLE_IMPORTS.generated.json",
       "source_ref": "structured-data:SR5_TABLE_IMPORTS.generated.json",
@@ -4706,6 +5317,37 @@
     {
       "book_profile": "sr5_core_2013",
       "fact": {
+        "container": "mentors",
+        "file": "mentors.xml",
+        "public_safe_metadata_only": true,
+        "row_count": 81
+      },
+      "id": "sr5.magic.table_import.file.mentors_xml.container.mentors",
+      "provider": "SR5MagicProvider",
+      "ruleset": "sr5",
+      "seed_file": "SR5_TABLE_IMPORTS.generated.json",
+      "source_ref": "structured-data:SR5_TABLE_IMPORTS.generated.json",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr5_core_2013",
+      "fact": {
+        "file": "mentors.xml",
+        "public_safe_metadata_only": true,
+        "root": "chummer",
+        "row_count": 81,
+        "sha256": "99f159aa78fa3a3244de3ef7ffeebc3b09de97a26a668417e5d990760da19f8e"
+      },
+      "id": "sr5.magic.table_import.file.mentors_xml",
+      "provider": "SR5MagicProvider",
+      "ruleset": "sr5",
+      "seed_file": "SR5_TABLE_IMPORTS.generated.json",
+      "source_ref": "structured-data:SR5_TABLE_IMPORTS.generated.json",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr5_core_2013",
+      "fact": {
         "file": "metamagic.xml",
         "root": "chummer",
         "row_count": 81,
@@ -4778,12 +5420,58 @@
     {
       "book_profile": "sr5_core_2013",
       "fact": {
+        "container": "categories",
+        "file": "metatypes.xml",
+        "public_safe_metadata_only": true,
+        "row_count": 4
+      },
+      "id": "sr5.character_creation.table_import.file.metatypes_xml.container.categories",
+      "provider": "SR5CharacterCreationProvider",
+      "ruleset": "sr5",
+      "seed_file": "SR5_TABLE_IMPORTS.generated.json",
+      "source_ref": "structured-data:SR5_TABLE_IMPORTS.generated.json",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr5_core_2013",
+      "fact": {
         "container": "metatypes",
         "file": "metatypes.xml",
         "row_count": 21
       },
       "id": "sr5.table_import.file.metatypes_xml.container.metatypes",
       "provider": "SR5TableImportProvider",
+      "ruleset": "sr5",
+      "seed_file": "SR5_TABLE_IMPORTS.generated.json",
+      "source_ref": "structured-data:SR5_TABLE_IMPORTS.generated.json",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr5_core_2013",
+      "fact": {
+        "container": "metatypes",
+        "file": "metatypes.xml",
+        "public_safe_metadata_only": true,
+        "row_count": 21
+      },
+      "id": "sr5.character_creation.table_import.file.metatypes_xml.container.metatypes",
+      "provider": "SR5CharacterCreationProvider",
+      "ruleset": "sr5",
+      "seed_file": "SR5_TABLE_IMPORTS.generated.json",
+      "source_ref": "structured-data:SR5_TABLE_IMPORTS.generated.json",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr5_core_2013",
+      "fact": {
+        "file": "metatypes.xml",
+        "public_safe_metadata_only": true,
+        "root": "chummer",
+        "row_count": 25,
+        "sha256": "ccee5dfabb8d0e193aa980e9905822a0f94fb9bb8093c162f5b694a974946425"
+      },
+      "id": "sr5.character_creation.table_import.file.metatypes_xml",
+      "provider": "SR5CharacterCreationProvider",
       "ruleset": "sr5",
       "seed_file": "SR5_TABLE_IMPORTS.generated.json",
       "source_ref": "structured-data:SR5_TABLE_IMPORTS.generated.json",
@@ -4935,12 +5623,58 @@
     {
       "book_profile": "sr5_core_2013",
       "fact": {
+        "container": "categories",
+        "file": "paragons.xml",
+        "public_safe_metadata_only": true,
+        "row_count": 1
+      },
+      "id": "sr5.matrix.table_import.file.paragons_xml.container.categories",
+      "provider": "SR5MatrixProvider",
+      "ruleset": "sr5",
+      "seed_file": "SR5_TABLE_IMPORTS.generated.json",
+      "source_ref": "structured-data:SR5_TABLE_IMPORTS.generated.json",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr5_core_2013",
+      "fact": {
         "container": "mentors",
         "file": "paragons.xml",
         "row_count": 9
       },
       "id": "sr5.table_import.file.paragons_xml.container.mentors",
       "provider": "SR5TableImportProvider",
+      "ruleset": "sr5",
+      "seed_file": "SR5_TABLE_IMPORTS.generated.json",
+      "source_ref": "structured-data:SR5_TABLE_IMPORTS.generated.json",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr5_core_2013",
+      "fact": {
+        "container": "mentors",
+        "file": "paragons.xml",
+        "public_safe_metadata_only": true,
+        "row_count": 9
+      },
+      "id": "sr5.matrix.table_import.file.paragons_xml.container.mentors",
+      "provider": "SR5MatrixProvider",
+      "ruleset": "sr5",
+      "seed_file": "SR5_TABLE_IMPORTS.generated.json",
+      "source_ref": "structured-data:SR5_TABLE_IMPORTS.generated.json",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr5_core_2013",
+      "fact": {
+        "file": "paragons.xml",
+        "public_safe_metadata_only": true,
+        "root": "chummer",
+        "row_count": 10,
+        "sha256": "f11acdd67b921f49b2a4417181397174dbd654694264cbaf37c6058c98fcad01"
+      },
+      "id": "sr5.matrix.table_import.file.paragons_xml",
+      "provider": "SR5MatrixProvider",
       "ruleset": "sr5",
       "seed_file": "SR5_TABLE_IMPORTS.generated.json",
       "source_ref": "structured-data:SR5_TABLE_IMPORTS.generated.json",
@@ -5021,6 +5755,21 @@
     {
       "book_profile": "sr5_core_2013",
       "fact": {
+        "container": "categories",
+        "file": "priorities.xml",
+        "public_safe_metadata_only": true,
+        "row_count": 5
+      },
+      "id": "sr5.character_creation.table_import.file.priorities_xml.container.categories",
+      "provider": "SR5CharacterCreationProvider",
+      "ruleset": "sr5",
+      "seed_file": "SR5_TABLE_IMPORTS.generated.json",
+      "source_ref": "structured-data:SR5_TABLE_IMPORTS.generated.json",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr5_core_2013",
+      "fact": {
         "container": "priorities",
         "file": "priorities.xml",
         "row_count": 45
@@ -5035,12 +5784,58 @@
     {
       "book_profile": "sr5_core_2013",
       "fact": {
+        "container": "priorities",
+        "file": "priorities.xml",
+        "public_safe_metadata_only": true,
+        "row_count": 45
+      },
+      "id": "sr5.character_creation.table_import.file.priorities_xml.container.priorities",
+      "provider": "SR5CharacterCreationProvider",
+      "ruleset": "sr5",
+      "seed_file": "SR5_TABLE_IMPORTS.generated.json",
+      "source_ref": "structured-data:SR5_TABLE_IMPORTS.generated.json",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr5_core_2013",
+      "fact": {
         "container": "version",
         "file": "priorities.xml",
         "row_count": 0
       },
       "id": "sr5.table_import.file.priorities_xml.container.version",
       "provider": "SR5TableImportProvider",
+      "ruleset": "sr5",
+      "seed_file": "SR5_TABLE_IMPORTS.generated.json",
+      "source_ref": "structured-data:SR5_TABLE_IMPORTS.generated.json",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr5_core_2013",
+      "fact": {
+        "container": "version",
+        "file": "priorities.xml",
+        "public_safe_metadata_only": true,
+        "row_count": 0
+      },
+      "id": "sr5.character_creation.table_import.file.priorities_xml.container.version",
+      "provider": "SR5CharacterCreationProvider",
+      "ruleset": "sr5",
+      "seed_file": "SR5_TABLE_IMPORTS.generated.json",
+      "source_ref": "structured-data:SR5_TABLE_IMPORTS.generated.json",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr5_core_2013",
+      "fact": {
+        "file": "priorities.xml",
+        "public_safe_metadata_only": true,
+        "root": "chummer",
+        "row_count": 50,
+        "sha256": "71727231e19e2a912d972ebdd538b701c82d62c8127c0042ac5ed788b8a50ffa"
+      },
+      "id": "sr5.character_creation.table_import.file.priorities_xml",
+      "provider": "SR5CharacterCreationProvider",
       "ruleset": "sr5",
       "seed_file": "SR5_TABLE_IMPORTS.generated.json",
       "source_ref": "structured-data:SR5_TABLE_IMPORTS.generated.json",
@@ -5078,12 +5873,104 @@
     {
       "book_profile": "sr5_core_2013",
       "fact": {
+        "container": "categories",
+        "file": "programs.xml",
+        "public_safe_metadata_only": true,
+        "row_count": 5
+      },
+      "id": "sr5.matrix.table_import.file.programs_xml.container.categories",
+      "provider": "SR5MatrixProvider",
+      "ruleset": "sr5",
+      "seed_file": "SR5_TABLE_IMPORTS.generated.json",
+      "source_ref": "structured-data:SR5_TABLE_IMPORTS.generated.json",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr5_core_2013",
+      "fact": {
+        "container": "categories",
+        "file": "programs.xml",
+        "public_safe_metadata_only": true,
+        "row_count": 5
+      },
+      "id": "sr5.rigging.table_import.file.programs_xml.container.categories",
+      "provider": "SR5RiggingProvider",
+      "ruleset": "sr5",
+      "seed_file": "SR5_TABLE_IMPORTS.generated.json",
+      "source_ref": "structured-data:SR5_TABLE_IMPORTS.generated.json",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr5_core_2013",
+      "fact": {
         "container": "programs",
         "file": "programs.xml",
         "row_count": 71
       },
       "id": "sr5.table_import.file.programs_xml.container.programs",
       "provider": "SR5TableImportProvider",
+      "ruleset": "sr5",
+      "seed_file": "SR5_TABLE_IMPORTS.generated.json",
+      "source_ref": "structured-data:SR5_TABLE_IMPORTS.generated.json",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr5_core_2013",
+      "fact": {
+        "container": "programs",
+        "file": "programs.xml",
+        "public_safe_metadata_only": true,
+        "row_count": 71
+      },
+      "id": "sr5.matrix.table_import.file.programs_xml.container.programs",
+      "provider": "SR5MatrixProvider",
+      "ruleset": "sr5",
+      "seed_file": "SR5_TABLE_IMPORTS.generated.json",
+      "source_ref": "structured-data:SR5_TABLE_IMPORTS.generated.json",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr5_core_2013",
+      "fact": {
+        "container": "programs",
+        "file": "programs.xml",
+        "public_safe_metadata_only": true,
+        "row_count": 71
+      },
+      "id": "sr5.rigging.table_import.file.programs_xml.container.programs",
+      "provider": "SR5RiggingProvider",
+      "ruleset": "sr5",
+      "seed_file": "SR5_TABLE_IMPORTS.generated.json",
+      "source_ref": "structured-data:SR5_TABLE_IMPORTS.generated.json",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr5_core_2013",
+      "fact": {
+        "file": "programs.xml",
+        "public_safe_metadata_only": true,
+        "root": "chummer",
+        "row_count": 76,
+        "sha256": "58d863361629aa4f6914f42bdc45b23605c54605a2d65c57ded3b89253329700"
+      },
+      "id": "sr5.matrix.table_import.file.programs_xml",
+      "provider": "SR5MatrixProvider",
+      "ruleset": "sr5",
+      "seed_file": "SR5_TABLE_IMPORTS.generated.json",
+      "source_ref": "structured-data:SR5_TABLE_IMPORTS.generated.json",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr5_core_2013",
+      "fact": {
+        "file": "programs.xml",
+        "public_safe_metadata_only": true,
+        "root": "chummer",
+        "row_count": 76,
+        "sha256": "58d863361629aa4f6914f42bdc45b23605c54605a2d65c57ded3b89253329700"
+      },
+      "id": "sr5.rigging.table_import.file.programs_xml",
+      "provider": "SR5RiggingProvider",
       "ruleset": "sr5",
       "seed_file": "SR5_TABLE_IMPORTS.generated.json",
       "source_ref": "structured-data:SR5_TABLE_IMPORTS.generated.json",
@@ -5121,6 +6008,21 @@
     {
       "book_profile": "sr5_core_2013",
       "fact": {
+        "container": "categories",
+        "file": "qualities.xml",
+        "public_safe_metadata_only": true,
+        "row_count": 2
+      },
+      "id": "sr5.character_creation.table_import.file.qualities_xml.container.categories",
+      "provider": "SR5CharacterCreationProvider",
+      "ruleset": "sr5",
+      "seed_file": "SR5_TABLE_IMPORTS.generated.json",
+      "source_ref": "structured-data:SR5_TABLE_IMPORTS.generated.json",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr5_core_2013",
+      "fact": {
         "container": "qualities",
         "file": "qualities.xml",
         "row_count": 803
@@ -5135,12 +6037,58 @@
     {
       "book_profile": "sr5_core_2013",
       "fact": {
+        "container": "qualities",
+        "file": "qualities.xml",
+        "public_safe_metadata_only": true,
+        "row_count": 803
+      },
+      "id": "sr5.character_creation.table_import.file.qualities_xml.container.qualities",
+      "provider": "SR5CharacterCreationProvider",
+      "ruleset": "sr5",
+      "seed_file": "SR5_TABLE_IMPORTS.generated.json",
+      "source_ref": "structured-data:SR5_TABLE_IMPORTS.generated.json",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr5_core_2013",
+      "fact": {
         "container": "xpathqueries",
         "file": "qualities.xml",
         "row_count": 7
       },
       "id": "sr5.table_import.file.qualities_xml.container.xpathqueries",
       "provider": "SR5TableImportProvider",
+      "ruleset": "sr5",
+      "seed_file": "SR5_TABLE_IMPORTS.generated.json",
+      "source_ref": "structured-data:SR5_TABLE_IMPORTS.generated.json",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr5_core_2013",
+      "fact": {
+        "container": "xpathqueries",
+        "file": "qualities.xml",
+        "public_safe_metadata_only": true,
+        "row_count": 7
+      },
+      "id": "sr5.character_creation.table_import.file.qualities_xml.container.xpathqueries",
+      "provider": "SR5CharacterCreationProvider",
+      "ruleset": "sr5",
+      "seed_file": "SR5_TABLE_IMPORTS.generated.json",
+      "source_ref": "structured-data:SR5_TABLE_IMPORTS.generated.json",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr5_core_2013",
+      "fact": {
+        "file": "qualities.xml",
+        "public_safe_metadata_only": true,
+        "root": "chummer",
+        "row_count": 812,
+        "sha256": "b56aa93651c06170cf338afb1b8d3ebc8adde49430ed9a7ece13f074a9127fcc"
+      },
+      "id": "sr5.character_creation.table_import.file.qualities_xml",
+      "provider": "SR5CharacterCreationProvider",
       "ruleset": "sr5",
       "seed_file": "SR5_TABLE_IMPORTS.generated.json",
       "source_ref": "structured-data:SR5_TABLE_IMPORTS.generated.json",
@@ -5337,12 +6285,42 @@
     {
       "book_profile": "sr5_core_2013",
       "fact": {
+        "container": "categories",
+        "file": "skills.xml",
+        "public_safe_metadata_only": true,
+        "row_count": 13
+      },
+      "id": "sr5.character_creation.table_import.file.skills_xml.container.categories",
+      "provider": "SR5CharacterCreationProvider",
+      "ruleset": "sr5",
+      "seed_file": "SR5_TABLE_IMPORTS.generated.json",
+      "source_ref": "structured-data:SR5_TABLE_IMPORTS.generated.json",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr5_core_2013",
+      "fact": {
         "container": "knowledgeskills",
         "file": "skills.xml",
         "row_count": 195
       },
       "id": "sr5.table_import.file.skills_xml.container.knowledgeskills",
       "provider": "SR5TableImportProvider",
+      "ruleset": "sr5",
+      "seed_file": "SR5_TABLE_IMPORTS.generated.json",
+      "source_ref": "structured-data:SR5_TABLE_IMPORTS.generated.json",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr5_core_2013",
+      "fact": {
+        "container": "knowledgeskills",
+        "file": "skills.xml",
+        "public_safe_metadata_only": true,
+        "row_count": 195
+      },
+      "id": "sr5.character_creation.table_import.file.skills_xml.container.knowledgeskills",
+      "provider": "SR5CharacterCreationProvider",
       "ruleset": "sr5",
       "seed_file": "SR5_TABLE_IMPORTS.generated.json",
       "source_ref": "structured-data:SR5_TABLE_IMPORTS.generated.json",
@@ -5365,12 +6343,58 @@
     {
       "book_profile": "sr5_core_2013",
       "fact": {
+        "container": "skillgroups",
+        "file": "skills.xml",
+        "public_safe_metadata_only": true,
+        "row_count": 15
+      },
+      "id": "sr5.character_creation.table_import.file.skills_xml.container.skillgroups",
+      "provider": "SR5CharacterCreationProvider",
+      "ruleset": "sr5",
+      "seed_file": "SR5_TABLE_IMPORTS.generated.json",
+      "source_ref": "structured-data:SR5_TABLE_IMPORTS.generated.json",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr5_core_2013",
+      "fact": {
         "container": "skills",
         "file": "skills.xml",
         "row_count": 76
       },
       "id": "sr5.table_import.file.skills_xml.container.skills",
       "provider": "SR5TableImportProvider",
+      "ruleset": "sr5",
+      "seed_file": "SR5_TABLE_IMPORTS.generated.json",
+      "source_ref": "structured-data:SR5_TABLE_IMPORTS.generated.json",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr5_core_2013",
+      "fact": {
+        "container": "skills",
+        "file": "skills.xml",
+        "public_safe_metadata_only": true,
+        "row_count": 76
+      },
+      "id": "sr5.character_creation.table_import.file.skills_xml.container.skills",
+      "provider": "SR5CharacterCreationProvider",
+      "ruleset": "sr5",
+      "seed_file": "SR5_TABLE_IMPORTS.generated.json",
+      "source_ref": "structured-data:SR5_TABLE_IMPORTS.generated.json",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr5_core_2013",
+      "fact": {
+        "file": "skills.xml",
+        "public_safe_metadata_only": true,
+        "root": "chummer",
+        "row_count": 299,
+        "sha256": "8425a4800fb8309e60ee3fa7e96ed8510f1dced0b578f95b9d43fc93e019fc84"
+      },
+      "id": "sr5.character_creation.table_import.file.skills_xml",
+      "provider": "SR5CharacterCreationProvider",
       "ruleset": "sr5",
       "seed_file": "SR5_TABLE_IMPORTS.generated.json",
       "source_ref": "structured-data:SR5_TABLE_IMPORTS.generated.json",
@@ -5408,12 +6432,58 @@
     {
       "book_profile": "sr5_core_2013",
       "fact": {
+        "container": "categories",
+        "file": "spells.xml",
+        "public_safe_metadata_only": true,
+        "row_count": 7
+      },
+      "id": "sr5.magic.table_import.file.spells_xml.container.categories",
+      "provider": "SR5MagicProvider",
+      "ruleset": "sr5",
+      "seed_file": "SR5_TABLE_IMPORTS.generated.json",
+      "source_ref": "structured-data:SR5_TABLE_IMPORTS.generated.json",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr5_core_2013",
+      "fact": {
         "container": "spells",
         "file": "spells.xml",
         "row_count": 363
       },
       "id": "sr5.table_import.file.spells_xml.container.spells",
       "provider": "SR5TableImportProvider",
+      "ruleset": "sr5",
+      "seed_file": "SR5_TABLE_IMPORTS.generated.json",
+      "source_ref": "structured-data:SR5_TABLE_IMPORTS.generated.json",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr5_core_2013",
+      "fact": {
+        "container": "spells",
+        "file": "spells.xml",
+        "public_safe_metadata_only": true,
+        "row_count": 363
+      },
+      "id": "sr5.magic.table_import.file.spells_xml.container.spells",
+      "provider": "SR5MagicProvider",
+      "ruleset": "sr5",
+      "seed_file": "SR5_TABLE_IMPORTS.generated.json",
+      "source_ref": "structured-data:SR5_TABLE_IMPORTS.generated.json",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr5_core_2013",
+      "fact": {
+        "file": "spells.xml",
+        "public_safe_metadata_only": true,
+        "root": "chummer",
+        "row_count": 370,
+        "sha256": "771c08bfe8687e8a6f40210a69533726871ad235fce97a24127e0e24af6f0ffd"
+      },
+      "id": "sr5.magic.table_import.file.spells_xml",
+      "provider": "SR5MagicProvider",
       "ruleset": "sr5",
       "seed_file": "SR5_TABLE_IMPORTS.generated.json",
       "source_ref": "structured-data:SR5_TABLE_IMPORTS.generated.json",
@@ -5623,6 +6693,21 @@
     {
       "book_profile": "sr5_core_2013",
       "fact": {
+        "container": "drainattributes",
+        "file": "traditions.xml",
+        "public_safe_metadata_only": true,
+        "row_count": 5
+      },
+      "id": "sr5.magic.table_import.file.traditions_xml.container.drainattributes",
+      "provider": "SR5MagicProvider",
+      "ruleset": "sr5",
+      "seed_file": "SR5_TABLE_IMPORTS.generated.json",
+      "source_ref": "structured-data:SR5_TABLE_IMPORTS.generated.json",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr5_core_2013",
+      "fact": {
         "container": "spirits",
         "file": "traditions.xml",
         "row_count": 57
@@ -5637,12 +6722,58 @@
     {
       "book_profile": "sr5_core_2013",
       "fact": {
+        "container": "spirits",
+        "file": "traditions.xml",
+        "public_safe_metadata_only": true,
+        "row_count": 57
+      },
+      "id": "sr5.magic.table_import.file.traditions_xml.container.spirits",
+      "provider": "SR5MagicProvider",
+      "ruleset": "sr5",
+      "seed_file": "SR5_TABLE_IMPORTS.generated.json",
+      "source_ref": "structured-data:SR5_TABLE_IMPORTS.generated.json",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr5_core_2013",
+      "fact": {
         "container": "traditions",
         "file": "traditions.xml",
         "row_count": 74
       },
       "id": "sr5.table_import.file.traditions_xml.container.traditions",
       "provider": "SR5TableImportProvider",
+      "ruleset": "sr5",
+      "seed_file": "SR5_TABLE_IMPORTS.generated.json",
+      "source_ref": "structured-data:SR5_TABLE_IMPORTS.generated.json",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr5_core_2013",
+      "fact": {
+        "container": "traditions",
+        "file": "traditions.xml",
+        "public_safe_metadata_only": true,
+        "row_count": 74
+      },
+      "id": "sr5.magic.table_import.file.traditions_xml.container.traditions",
+      "provider": "SR5MagicProvider",
+      "ruleset": "sr5",
+      "seed_file": "SR5_TABLE_IMPORTS.generated.json",
+      "source_ref": "structured-data:SR5_TABLE_IMPORTS.generated.json",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr5_core_2013",
+      "fact": {
+        "file": "traditions.xml",
+        "public_safe_metadata_only": true,
+        "root": "chummer",
+        "row_count": 136,
+        "sha256": "66e396cf43f859d4add96c42d74857a047048429a9d3707df3c3103c9342c641"
+      },
+      "id": "sr5.magic.table_import.file.traditions_xml",
+      "provider": "SR5MagicProvider",
       "ruleset": "sr5",
       "seed_file": "SR5_TABLE_IMPORTS.generated.json",
       "source_ref": "structured-data:SR5_TABLE_IMPORTS.generated.json",
@@ -5680,12 +6811,72 @@
     {
       "book_profile": "sr5_core_2013",
       "fact": {
+        "container": "categories",
+        "file": "vehicles.xml",
+        "public_safe_metadata_only": true,
+        "row_count": 19
+      },
+      "id": "sr5.gear.table_import.file.vehicles_xml.container.categories",
+      "provider": "SR5GearProvider",
+      "ruleset": "sr5",
+      "seed_file": "SR5_TABLE_IMPORTS.generated.json",
+      "source_ref": "structured-data:SR5_TABLE_IMPORTS.generated.json",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr5_core_2013",
+      "fact": {
+        "container": "categories",
+        "file": "vehicles.xml",
+        "public_safe_metadata_only": true,
+        "row_count": 19
+      },
+      "id": "sr5.rigging.table_import.file.vehicles_xml.container.categories",
+      "provider": "SR5RiggingProvider",
+      "ruleset": "sr5",
+      "seed_file": "SR5_TABLE_IMPORTS.generated.json",
+      "source_ref": "structured-data:SR5_TABLE_IMPORTS.generated.json",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr5_core_2013",
+      "fact": {
         "container": "modcategories",
         "file": "vehicles.xml",
         "row_count": 7
       },
       "id": "sr5.table_import.file.vehicles_xml.container.modcategories",
       "provider": "SR5TableImportProvider",
+      "ruleset": "sr5",
+      "seed_file": "SR5_TABLE_IMPORTS.generated.json",
+      "source_ref": "structured-data:SR5_TABLE_IMPORTS.generated.json",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr5_core_2013",
+      "fact": {
+        "container": "modcategories",
+        "file": "vehicles.xml",
+        "public_safe_metadata_only": true,
+        "row_count": 7
+      },
+      "id": "sr5.gear.table_import.file.vehicles_xml.container.modcategories",
+      "provider": "SR5GearProvider",
+      "ruleset": "sr5",
+      "seed_file": "SR5_TABLE_IMPORTS.generated.json",
+      "source_ref": "structured-data:SR5_TABLE_IMPORTS.generated.json",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr5_core_2013",
+      "fact": {
+        "container": "modcategories",
+        "file": "vehicles.xml",
+        "public_safe_metadata_only": true,
+        "row_count": 7
+      },
+      "id": "sr5.rigging.table_import.file.vehicles_xml.container.modcategories",
+      "provider": "SR5RiggingProvider",
       "ruleset": "sr5",
       "seed_file": "SR5_TABLE_IMPORTS.generated.json",
       "source_ref": "structured-data:SR5_TABLE_IMPORTS.generated.json",
@@ -5708,12 +6899,72 @@
     {
       "book_profile": "sr5_core_2013",
       "fact": {
+        "container": "mods",
+        "file": "vehicles.xml",
+        "public_safe_metadata_only": true,
+        "row_count": 197
+      },
+      "id": "sr5.gear.table_import.file.vehicles_xml.container.mods",
+      "provider": "SR5GearProvider",
+      "ruleset": "sr5",
+      "seed_file": "SR5_TABLE_IMPORTS.generated.json",
+      "source_ref": "structured-data:SR5_TABLE_IMPORTS.generated.json",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr5_core_2013",
+      "fact": {
+        "container": "mods",
+        "file": "vehicles.xml",
+        "public_safe_metadata_only": true,
+        "row_count": 197
+      },
+      "id": "sr5.rigging.table_import.file.vehicles_xml.container.mods",
+      "provider": "SR5RiggingProvider",
+      "ruleset": "sr5",
+      "seed_file": "SR5_TABLE_IMPORTS.generated.json",
+      "source_ref": "structured-data:SR5_TABLE_IMPORTS.generated.json",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr5_core_2013",
+      "fact": {
         "container": "vehicles",
         "file": "vehicles.xml",
         "row_count": 380
       },
       "id": "sr5.table_import.file.vehicles_xml.container.vehicles",
       "provider": "SR5TableImportProvider",
+      "ruleset": "sr5",
+      "seed_file": "SR5_TABLE_IMPORTS.generated.json",
+      "source_ref": "structured-data:SR5_TABLE_IMPORTS.generated.json",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr5_core_2013",
+      "fact": {
+        "container": "vehicles",
+        "file": "vehicles.xml",
+        "public_safe_metadata_only": true,
+        "row_count": 380
+      },
+      "id": "sr5.gear.table_import.file.vehicles_xml.container.vehicles",
+      "provider": "SR5GearProvider",
+      "ruleset": "sr5",
+      "seed_file": "SR5_TABLE_IMPORTS.generated.json",
+      "source_ref": "structured-data:SR5_TABLE_IMPORTS.generated.json",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr5_core_2013",
+      "fact": {
+        "container": "vehicles",
+        "file": "vehicles.xml",
+        "public_safe_metadata_only": true,
+        "row_count": 380
+      },
+      "id": "sr5.rigging.table_import.file.vehicles_xml.container.vehicles",
+      "provider": "SR5RiggingProvider",
       "ruleset": "sr5",
       "seed_file": "SR5_TABLE_IMPORTS.generated.json",
       "source_ref": "structured-data:SR5_TABLE_IMPORTS.generated.json",
@@ -5736,6 +6987,36 @@
     {
       "book_profile": "sr5_core_2013",
       "fact": {
+        "container": "weaponmountcategories",
+        "file": "vehicles.xml",
+        "public_safe_metadata_only": true,
+        "row_count": 1
+      },
+      "id": "sr5.gear.table_import.file.vehicles_xml.container.weaponmountcategories",
+      "provider": "SR5GearProvider",
+      "ruleset": "sr5",
+      "seed_file": "SR5_TABLE_IMPORTS.generated.json",
+      "source_ref": "structured-data:SR5_TABLE_IMPORTS.generated.json",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr5_core_2013",
+      "fact": {
+        "container": "weaponmountcategories",
+        "file": "vehicles.xml",
+        "public_safe_metadata_only": true,
+        "row_count": 1
+      },
+      "id": "sr5.rigging.table_import.file.vehicles_xml.container.weaponmountcategories",
+      "provider": "SR5RiggingProvider",
+      "ruleset": "sr5",
+      "seed_file": "SR5_TABLE_IMPORTS.generated.json",
+      "source_ref": "structured-data:SR5_TABLE_IMPORTS.generated.json",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr5_core_2013",
+      "fact": {
         "container": "weaponmountmods",
         "file": "vehicles.xml",
         "row_count": 5
@@ -5750,12 +7031,104 @@
     {
       "book_profile": "sr5_core_2013",
       "fact": {
+        "container": "weaponmountmods",
+        "file": "vehicles.xml",
+        "public_safe_metadata_only": true,
+        "row_count": 5
+      },
+      "id": "sr5.gear.table_import.file.vehicles_xml.container.weaponmountmods",
+      "provider": "SR5GearProvider",
+      "ruleset": "sr5",
+      "seed_file": "SR5_TABLE_IMPORTS.generated.json",
+      "source_ref": "structured-data:SR5_TABLE_IMPORTS.generated.json",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr5_core_2013",
+      "fact": {
+        "container": "weaponmountmods",
+        "file": "vehicles.xml",
+        "public_safe_metadata_only": true,
+        "row_count": 5
+      },
+      "id": "sr5.rigging.table_import.file.vehicles_xml.container.weaponmountmods",
+      "provider": "SR5RiggingProvider",
+      "ruleset": "sr5",
+      "seed_file": "SR5_TABLE_IMPORTS.generated.json",
+      "source_ref": "structured-data:SR5_TABLE_IMPORTS.generated.json",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr5_core_2013",
+      "fact": {
         "container": "weaponmounts",
         "file": "vehicles.xml",
         "row_count": 29
       },
       "id": "sr5.table_import.file.vehicles_xml.container.weaponmounts",
       "provider": "SR5TableImportProvider",
+      "ruleset": "sr5",
+      "seed_file": "SR5_TABLE_IMPORTS.generated.json",
+      "source_ref": "structured-data:SR5_TABLE_IMPORTS.generated.json",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr5_core_2013",
+      "fact": {
+        "container": "weaponmounts",
+        "file": "vehicles.xml",
+        "public_safe_metadata_only": true,
+        "row_count": 29
+      },
+      "id": "sr5.gear.table_import.file.vehicles_xml.container.weaponmounts",
+      "provider": "SR5GearProvider",
+      "ruleset": "sr5",
+      "seed_file": "SR5_TABLE_IMPORTS.generated.json",
+      "source_ref": "structured-data:SR5_TABLE_IMPORTS.generated.json",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr5_core_2013",
+      "fact": {
+        "container": "weaponmounts",
+        "file": "vehicles.xml",
+        "public_safe_metadata_only": true,
+        "row_count": 29
+      },
+      "id": "sr5.rigging.table_import.file.vehicles_xml.container.weaponmounts",
+      "provider": "SR5RiggingProvider",
+      "ruleset": "sr5",
+      "seed_file": "SR5_TABLE_IMPORTS.generated.json",
+      "source_ref": "structured-data:SR5_TABLE_IMPORTS.generated.json",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr5_core_2013",
+      "fact": {
+        "file": "vehicles.xml",
+        "public_safe_metadata_only": true,
+        "root": "chummer",
+        "row_count": 638,
+        "sha256": "4acc9846f5f339df017a480b153dfb940152d3155a6477b924cd1c31b451a827"
+      },
+      "id": "sr5.gear.table_import.file.vehicles_xml",
+      "provider": "SR5GearProvider",
+      "ruleset": "sr5",
+      "seed_file": "SR5_TABLE_IMPORTS.generated.json",
+      "source_ref": "structured-data:SR5_TABLE_IMPORTS.generated.json",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr5_core_2013",
+      "fact": {
+        "file": "vehicles.xml",
+        "public_safe_metadata_only": true,
+        "root": "chummer",
+        "row_count": 638,
+        "sha256": "4acc9846f5f339df017a480b153dfb940152d3155a6477b924cd1c31b451a827"
+      },
+      "id": "sr5.rigging.table_import.file.vehicles_xml",
+      "provider": "SR5RiggingProvider",
       "ruleset": "sr5",
       "seed_file": "SR5_TABLE_IMPORTS.generated.json",
       "source_ref": "structured-data:SR5_TABLE_IMPORTS.generated.json",
@@ -5836,6 +7209,36 @@
     {
       "book_profile": "sr5_core_2013",
       "fact": {
+        "container": "accessories",
+        "file": "weapons.xml",
+        "public_safe_metadata_only": true,
+        "row_count": 152
+      },
+      "id": "sr5.gear.table_import.file.weapons_xml.container.accessories",
+      "provider": "SR5GearProvider",
+      "ruleset": "sr5",
+      "seed_file": "SR5_TABLE_IMPORTS.generated.json",
+      "source_ref": "structured-data:SR5_TABLE_IMPORTS.generated.json",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr5_core_2013",
+      "fact": {
+        "container": "accessories",
+        "file": "weapons.xml",
+        "public_safe_metadata_only": true,
+        "row_count": 152
+      },
+      "id": "sr5.combat.table_import.file.weapons_xml.container.accessories",
+      "provider": "SR5CombatProvider",
+      "ruleset": "sr5",
+      "seed_file": "SR5_TABLE_IMPORTS.generated.json",
+      "source_ref": "structured-data:SR5_TABLE_IMPORTS.generated.json",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr5_core_2013",
+      "fact": {
         "container": "categories",
         "file": "weapons.xml",
         "row_count": 31
@@ -5850,12 +7253,104 @@
     {
       "book_profile": "sr5_core_2013",
       "fact": {
+        "container": "categories",
+        "file": "weapons.xml",
+        "public_safe_metadata_only": true,
+        "row_count": 31
+      },
+      "id": "sr5.gear.table_import.file.weapons_xml.container.categories",
+      "provider": "SR5GearProvider",
+      "ruleset": "sr5",
+      "seed_file": "SR5_TABLE_IMPORTS.generated.json",
+      "source_ref": "structured-data:SR5_TABLE_IMPORTS.generated.json",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr5_core_2013",
+      "fact": {
+        "container": "categories",
+        "file": "weapons.xml",
+        "public_safe_metadata_only": true,
+        "row_count": 31
+      },
+      "id": "sr5.combat.table_import.file.weapons_xml.container.categories",
+      "provider": "SR5CombatProvider",
+      "ruleset": "sr5",
+      "seed_file": "SR5_TABLE_IMPORTS.generated.json",
+      "source_ref": "structured-data:SR5_TABLE_IMPORTS.generated.json",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr5_core_2013",
+      "fact": {
         "container": "weapons",
         "file": "weapons.xml",
         "row_count": 632
       },
       "id": "sr5.table_import.file.weapons_xml.container.weapons",
       "provider": "SR5TableImportProvider",
+      "ruleset": "sr5",
+      "seed_file": "SR5_TABLE_IMPORTS.generated.json",
+      "source_ref": "structured-data:SR5_TABLE_IMPORTS.generated.json",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr5_core_2013",
+      "fact": {
+        "container": "weapons",
+        "file": "weapons.xml",
+        "public_safe_metadata_only": true,
+        "row_count": 632
+      },
+      "id": "sr5.gear.table_import.file.weapons_xml.container.weapons",
+      "provider": "SR5GearProvider",
+      "ruleset": "sr5",
+      "seed_file": "SR5_TABLE_IMPORTS.generated.json",
+      "source_ref": "structured-data:SR5_TABLE_IMPORTS.generated.json",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr5_core_2013",
+      "fact": {
+        "container": "weapons",
+        "file": "weapons.xml",
+        "public_safe_metadata_only": true,
+        "row_count": 632
+      },
+      "id": "sr5.combat.table_import.file.weapons_xml.container.weapons",
+      "provider": "SR5CombatProvider",
+      "ruleset": "sr5",
+      "seed_file": "SR5_TABLE_IMPORTS.generated.json",
+      "source_ref": "structured-data:SR5_TABLE_IMPORTS.generated.json",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr5_core_2013",
+      "fact": {
+        "file": "weapons.xml",
+        "public_safe_metadata_only": true,
+        "root": "chummer",
+        "row_count": 815,
+        "sha256": "ebc06a11bbc259413b94361ace937b0438bc67145e7d949e99d442c65a76871b"
+      },
+      "id": "sr5.gear.table_import.file.weapons_xml",
+      "provider": "SR5GearProvider",
+      "ruleset": "sr5",
+      "seed_file": "SR5_TABLE_IMPORTS.generated.json",
+      "source_ref": "structured-data:SR5_TABLE_IMPORTS.generated.json",
+      "status": "seed"
+    },
+    {
+      "book_profile": "sr5_core_2013",
+      "fact": {
+        "file": "weapons.xml",
+        "public_safe_metadata_only": true,
+        "root": "chummer",
+        "row_count": 815,
+        "sha256": "ebc06a11bbc259413b94361ace937b0438bc67145e7d949e99d442c65a76871b"
+      },
+      "id": "sr5.combat.table_import.file.weapons_xml",
+      "provider": "SR5CombatProvider",
       "ruleset": "sr5",
       "seed_file": "SR5_TABLE_IMPORTS.generated.json",
       "source_ref": "structured-data:SR5_TABLE_IMPORTS.generated.json",

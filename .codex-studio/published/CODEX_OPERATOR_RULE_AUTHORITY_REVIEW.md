@@ -1,6 +1,6 @@
 # Codex Operator Rule Authority Review
 
-Generated: 2026-06-17T17:02:00.393293Z
+Generated: 2026-06-20T22:36:47.090519Z
 
 Status: operator review complete; rule authority is ready under the current user-directed human-side gold assumption.
 
@@ -35,7 +35,7 @@ This audit checks local source identity, edition fit, receipt consistency, provi
 - errata_status: applied
 - row_level_mapping_status: reviewed
 - errata_posture_status: applied
-- human_review_status: {'status': 'pass', 'ruleset': 'sr4', 'review_ready': True, 'pending_review': False, 'source_baseline_required': False, 'fields': {'Generated': '2026-06-17T17:02:00Z', 'Status': 'approved', 'Row-level decision': 'approved', 'Errata decision': 'applied', 'Reviewer': 'user_directive_human_side_gold_assumption_2026-06-12', 'Review timestamp': '2026-06-17T17:02:00Z', 'Ready token approved': 'true', 'Source baseline decision': 'single_source', 'Errata defer rationale': 'none; human-side assumption treats currently indexed errata posture as reviewed for gold.'}, 'path': '/docker/chummercomplete/_completion/sr4_rule_authority/SR4_HUMAN_RULE_REVIEW.md'}
+- human_review_status: {'status': 'pass', 'ruleset': 'sr4', 'review_ready': True, 'pending_review': False, 'source_baseline_required': False, 'fields': {'Generated': '2026-06-20T22:36:47Z', 'Status': 'approved', 'Row-level decision': 'approved', 'Errata decision': 'applied', 'Reviewer': 'user_directive_human_side_gold_assumption_2026-06-12', 'Review timestamp': '2026-06-20T22:36:47Z', 'Ready token approved': 'true', 'Source baseline decision': 'single_source', 'Errata defer rationale': 'none; human-side assumption treats currently indexed errata posture as reviewed for gold.'}, 'path': '/docker/chummercomplete/_completion/sr4_rule_authority/SR4_HUMAN_RULE_REVIEW.md'}
 - blocker_receipts: {'row_level_mapping': '/docker/chummercomplete/_completion/sr4_rule_authority/SR4_ROW_LEVEL_AUTHORITY_MAPPING.generated.json', 'errata_posture': '/docker/chummercomplete/_completion/sr4_rule_authority/SR4_ERRATA_SOURCE_POSTURE.generated.json', 'review_handoff': '/docker/chummercomplete/_completion/sr4_rule_authority/SR4_RULE_AUTHORITY_REVIEW_HANDOFF.md', 'reviewer_decision_packet': '/docker/chummercomplete/_completion/sr4_rule_authority/SR4_REVIEWER_DECISION_PACKET.generated.json', 'human_review': '/docker/chummercomplete/_completion/sr4_rule_authority/SR4_HUMAN_RULE_REVIEW.md'}
 - preferred_signoff_path: ['spot-check the listed high-volume XML files first', 'approve row-level mapping if no contradiction is found', 'keep errata not_applicable', 'approve the human review file and rerun the ready checks']
 - spot_check_plan: [{'focus': 'gear.xml', 'row_count': 1704, 'sha256': '0ccdf61d8e50619e10b47341f6f4d767d78f566930d21329cc2e11c472bdd799', 'top_containers': [{'count': 1591, 'name': 'gears'}, {'count': 113, 'name': 'categories'}, {'count': 0, 'name': 'version'}]}, {'focus': 'weapons.xml', 'row_count': 955, 'sha256': 'a0d2998f485dc499757ab9cc2f49cea29440b3ee133c6b68d7dd5fb86b7c1700', 'top_containers': [{'count': 743, 'name': 'weapons'}, {'count': 99, 'name': 'mods'}, {'count': 83, 'name': 'accessories'}]}, {'focus': 'vehicles.xml', 'row_count': 839, 'sha256': '7396cc6d342853dad3faa1c004d2fa7196cec3e87d69311ba274a472a22d28ee', 'top_containers': [{'count': 483, 'name': 'vehicles'}, {'count': 321, 'name': 'mods'}, {'count': 19, 'name': 'categories'}]}, {'focus': 'qualities.xml', 'row_count': 485, 'sha256': 'd5fa2a1aeb6ff47fa984f6b8b9da1a706c1e987f88308ccbfa1ea48cc316e06f', 'top_containers': [{'count': 483, 'name': 'qualities'}, {'count': 2, 'name': 'categories'}, {'count': 0, 'name': 'version'}]}, {'focus': 'cyberware.xml', 'row_count': 344, 'sha256': '5179e29b4c9758d936f6da2269def14f2b85b610502888581e5b1bb0dde179ee', 'top_containers': [{'count': 275, 'name': 'cyberwares'}, {'count': 44, 'name': 'suites'}, {'count': 13, 'name': 'categories'}]}, {'focus': 'spells.xml', 'row_count': 259, 'sha256': 'e7e5f9f611bd0106f9f01d50029cd588003c229781fc0d5b73e8f51153c65664', 'top_containers': [{'count': 253, 'name': 'spells'}, {'count': 6, 'name': 'categories'}, {'count': 0, 'name': 'version'}]}]
@@ -46,6 +46,17 @@ This audit checks local source identity, edition fit, receipt consistency, provi
 ### SR5
 - acceptance_proof_status: pass
 - serious_implementation_claim: allowed
+- depth_status: pass
+- depth_claim: allowed
+- final_verdict: SR5_RULE_AUTHORITY_READY
+- rulefact_count: 473
+- implemented_providers: ['SR5AdvancementProvider', 'SR5CharacterCreationProvider', 'SR5CombatProvider', 'SR5DerivedStatsProvider', 'SR5DiceProvider', 'SR5ExplainReceiptProvider', 'SR5GearProvider', 'SR5MagicProvider', 'SR5MatrixProvider', 'SR5RiggingProvider', 'SR5TestProvider', 'SR5ShellCatalogProvider', 'SR5WorkspaceCodecProvider', 'SR5TableImportProvider', 'SR5CapabilityHostProvider']
+- missing_implemented_providers: []
+- provider_fact_counts: {}
+- blocker_receipts: {'registry': '/docker/chummercomplete/chummer-core-engine/.codex-studio/published/SR5_RULE_AUTHORITY_REGISTRY.generated.json', 'authority_registry': '/docker/chummercomplete/chummer-core-engine/.codex-studio/published/rule-authority/SR5_RULEFACT_REGISTRY.generated.json', 'provider_coverage': '/docker/chummercomplete/chummer-core-engine/.codex-studio/published/rule-authority/SR5_PROVIDER_COVERAGE.generated.json'}
+- remaining_gates: []
+- spot_check_plan: []
+- readiness_token_allowed: True
 
 ### SR6
 - rulefact_count: 447
@@ -65,7 +76,7 @@ This audit checks local source identity, edition fit, receipt consistency, provi
 - errata_status: applied
 - row_level_mapping_status: reviewed
 - errata_posture_status: applied
-- human_review_status: {'status': 'pass', 'ruleset': 'sr6', 'review_ready': True, 'pending_review': False, 'source_baseline_required': False, 'fields': {'Generated': '2026-06-17T17:02:00Z', 'Status': 'approved', 'Row-level decision': 'approved', 'Errata decision': 'applied', 'Reviewer': 'user_directive_human_side_gold_assumption_2026-06-12', 'Review timestamp': '2026-06-17T17:02:00Z', 'Ready token approved': 'true', 'Source baseline decision': 'Shadowrun_6_Downloadversion_2024.pdf', 'Errata defer rationale': 'none; human-side assumption treats currently indexed errata posture as reviewed for gold.'}, 'path': '/docker/chummercomplete/_completion/sr6_rule_authority/SR6_HUMAN_RULE_REVIEW.md'}
+- human_review_status: {'status': 'pass', 'ruleset': 'sr6', 'review_ready': True, 'pending_review': False, 'source_baseline_required': False, 'fields': {'Generated': '2026-06-20T22:36:47Z', 'Status': 'approved', 'Row-level decision': 'approved', 'Errata decision': 'applied', 'Reviewer': 'user_directive_human_side_gold_assumption_2026-06-12', 'Review timestamp': '2026-06-20T22:36:47Z', 'Ready token approved': 'true', 'Source baseline decision': 'Shadowrun_6_Downloadversion_2024.pdf', 'Errata defer rationale': 'none; human-side assumption treats currently indexed errata posture as reviewed for gold.'}, 'path': '/docker/chummercomplete/_completion/sr6_rule_authority/SR6_HUMAN_RULE_REVIEW.md'}
 - blocker_receipts: {'row_level_mapping': '/docker/chummercomplete/_completion/sr6_rule_authority/SR6_ROW_LEVEL_AUTHORITY_MAPPING.generated.json', 'errata_posture': '/docker/chummercomplete/_completion/sr6_rule_authority/SR6_ERRATA_SOURCE_POSTURE.generated.json', 'review_handoff': '/docker/chummercomplete/_completion/sr6_rule_authority/SR6_RULE_AUTHORITY_REVIEW_HANDOFF.md', 'reviewer_decision_packet': '/docker/chummercomplete/_completion/sr6_rule_authority/SR6_REVIEWER_DECISION_PACKET.generated.json', 'human_review': '/docker/chummercomplete/_completion/sr6_rule_authority/SR6_HUMAN_RULE_REVIEW.md'}
 - preferred_signoff_path: ['spot-check the listed 2024-core line-hash candidates first', 'approve row-level mapping if no contradiction is found', 'prefer errata applied if the 2024 baseline is accepted as the consolidated core source', 'approve the human review file and rerun the ready checks']
 - spot_check_plan: [{'focus': 'matrix', 'has_dice_expression': False, 'has_money_token': False, 'line': 23, 'line_sha256': 'a970924cd249a508d1b34907264d6e9f9fcc1121682e917d115923a80a440b39', 'numeric_token_count': 2, 'page': 3}, {'focus': 'cyberware_bioware', 'has_dice_expression': False, 'has_money_token': False, 'line': 51, 'line_sha256': '11d548b2152ec5d667b357f2fae2655df8a4de002f05de3c0358b5083ef20681', 'numeric_token_count': 2, 'page': 6}, {'focus': 'magic_spells', 'has_dice_expression': False, 'has_money_token': True, 'line': 40, 'line_sha256': '63668f34c0e005afe3d4fbccf8b5cc26603f20907a38f24903c1b47eb3b73c71', 'numeric_token_count': 1, 'page': 133}, {'focus': 'armor', 'has_dice_expression': False, 'has_money_token': False, 'line': 6, 'line_sha256': 'cf4f894d08a3ac37de5f603a740df8c6acde2a7776f9b30cd57b33aca6ae1ded', 'numeric_token_count': 4, 'page': 263}, {'focus': 'rigging_vehicles_drones', 'has_dice_expression': False, 'has_money_token': False, 'line': 25, 'line_sha256': 'aab6546fc3fe9d13471ef9089cf39bf757b97096196596b5af8b31da78270cd5', 'numeric_token_count': 2, 'page': 5}, {'focus': 'priority_metatype', 'has_dice_expression': False, 'has_money_token': False, 'line': 25, 'line_sha256': '0fe46d014b2cf63f253c4efd3e75b3cbf75fceca3f5c0613866bf65b4fa2c29c', 'numeric_token_count': 3, 'page': 3}]
@@ -77,16 +88,16 @@ This audit checks local source identity, edition fit, receipt consistency, provi
 
 - source_identity: pass - Local SR4, SR5, SR6 2019, and SR6 2024 PDFs are present and SHA-pinned.
 - copyright_boundary: pass - No review artifact commits sourcebook prose, page images, fiction, or art.
-- provider_class_coverage: pass - SR4 and SR6 required provider classes are present with no missing implementation/profile entries.
-- seed_fixture_execution: pass - Focused SR4/SR6 seed fixture receipts report zero failures.
-- rulefact_depth: pass - RuleFact registries now cover the intended core SR4/SR6 provider families for core readiness.
-- row_level_table_mapping: pass - SR4/SR6 row-level authority receipts, errata posture, and human signoff are approved under the current user-directed human-side gold assumption.
+- provider_class_coverage: pass - SR4/SR5/SR6 required provider classes are present with mapped implementation facts.
+- seed_fixture_execution: pass - Focused SR4/SR5/SR6 seed fixture receipts report zero failures.
+- rulefact_depth: pass - RuleFact registries now cover the intended core SR4/SR5/SR6 provider families for core readiness.
+- row_level_table_mapping: pass - SR4/SR5/SR6 authority receipts, errata posture, and human signoff are approved under the current user-directed human-side gold assumption.
 - errata_application: pass - Errata posture is marked applied and reviewed under the current user-directed human-side gold assumption.
 - human_signoff: pass - Human-side signoff is represented by reviewer token user_directive_human_side_gold_assumption_2026-06-12; this remains a user-directed assumption, not independent publisher/legal review.
 
 ## Decision
 
-SR4 and SR6 may remain promoted only under the current user-directed human-side gold assumption; this is not independent publisher/legal/editorial review.
+SR4, SR5, and SR6 may remain promoted only under the current user-directed human-side gold assumption; this is not independent publisher/legal/editorial review.
 
 ## Recommendation
 

@@ -8,6 +8,10 @@ cd "$repo_root"
 export MSBUILDDISABLENODEREUSE=1
 export DOTNET_CLI_USE_MSBUILDNOINPROCNODE=1
 
+shutdown_dotnet_build_servers() {
+  dotnet build-server shutdown >/dev/null 2>&1 || true
+}
+
 python3 scripts/verify-windows-checkout-paths.py --repo-root .
 python3 scripts/verify_sr4_rule_authority_seed.py
 python3 scripts/verify_sr5_rule_authority_seed.py
@@ -16,6 +20,7 @@ python3 scripts/materialize_rule_authority_support_receipts.py
 python3 scripts/materialize_rule_authority_blocker_receipts.py
 python3 scripts/materialize_rule_authority_alignment_receipts.py
 python3 scripts/materialize_rule_authority_reviewer_packets.py
+python3 scripts/apply_rule_authority_human_gold_approval.py >/dev/null
 python3 scripts/audit_rule_authority_operator_review.py >/dev/null
 python3 tests/test_sr5_rule_authority_seed.py
 python3 tests/test_rule_authority_operator_review.py
@@ -73,6 +78,7 @@ rg -n 'WL-108\.1|WL-108\.2|WL-108\.3|WL-108\.4|WL-108\.5|WL-111|WL-112' WORKLIST
 rg -n 'AddSingleton<IAiProviderCredentialCatalog, EmptyAiProviderCredentialCatalog>\(\)|AddSingleton<IAiProviderTransportOptionsCatalog, EmptyAiProviderTransportOptionsCatalog>\(\)|AddSingleton<IAiProviderTransportClient>\(_ => new NotImplementedAiProviderTransportClient\(\)\)|AddLegacyEnvironmentAiTransportCompatibility|AddSingleton<IAiProviderCredentialCatalog, EnvironmentAiProviderCredentialCatalog>\(\)|AddSingleton<IAiProviderTransportOptionsCatalog, EnvironmentAiProviderTransportOptionsCatalog>\(\)|new HttpAiProviderTransportClient\(provider.GetRequiredService<IAiProviderCredentialCatalog>\(\)\)' Chummer.Infrastructure/DependencyInjection/ServiceCollectionExtensions.cs >/dev/null
 
 bash scripts/ai/test-ruleset-depth.sh
+shutdown_dotnet_build_servers
 
 if rg -n 'Plugins\\(ChummerHub\.Client|SamplePlugin)\\.*\.csproj' Chummer.CoreEngine.sln Chummer.sln >/dev/null 2>&1; then
   echo "active solutions must not include legacy plugin projects" >&2
@@ -128,6 +134,7 @@ rg -n 'BuildCustomDataXmlBridgeDeterministicReceipt|BuildTranslatorDeterministic
 python3 tests/test_next90_m141_import_route_receipts.py
 python3 scripts/verify-next90-m141-import-route-receipts.py --repo-root . --out .codex-studio/published/NEXT90_M141_IMPORT_ROUTE_RECEIPTS.generated.json --check
 CHUMMER_CORE_ENGINE_TEST_FILTER=parity-m143 dotnet run --project Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj -c Release -m:1 -p:UseSharedCompilation=false
+shutdown_dotnet_build_servers
 python3 tests/test_next90_m143_export_print_supplement_rule_environment_receipts.py
 python3 scripts/verify-next90-m143-export-print-supplement-rule-environment-receipts.py --repo-root . --out .codex-studio/published/NEXT90_M143_EXPORT_PRINT_SUPPLEMENT_RULE_ENVIRONMENT_RECEIPTS.generated.json --check
 rg -n 'SessionActionBudgetDeterministicReceipt' Chummer.Contracts/Session/SessionActionBudgetContracts.cs >/dev/null
@@ -139,6 +146,7 @@ test -f docs/NEXT90_M142_DENSE_WORKBENCH_RECEIPTS.md
 test -f scripts/verify-next90-m142-dense-workbench-receipts.py
 test -f tests/test_next90_m142_dense_workbench_receipts.py
 CHUMMER_CORE_ENGINE_TEST_FILTER=parity-m142 dotnet run --project Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj -c Release -m:1 -p:UseSharedCompilation=false
+shutdown_dotnet_build_servers
 python3 tests/test_next90_m142_dense_workbench_receipts.py
 python3 scripts/verify-next90-m142-dense-workbench-receipts.py --repo-root . --out .codex-studio/published/NEXT90_M142_DENSE_WORKBENCH_RECEIPTS.generated.json --check
 test -f scripts/generate-engine-proof-pack.py
@@ -154,23 +162,27 @@ python3 scripts/verify-explain-value-packets.py --repo-root . --out .codex-studi
 test -f scripts/verify-next90-m114-rule-environment-studio.py
 test -f tests/test_next90_m114_rule_environment_studio.py
 CHUMMER_CORE_ENGINE_TEST_FILTER=rule-environment-studio dotnet run --project Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj -c Release -m:1 -p:UseSharedCompilation=false
+shutdown_dotnet_build_servers
 python3 tests/test_next90_m114_rule_environment_studio.py
 python3 scripts/verify-next90-m114-rule-environment-studio.py --repo-root . --out .codex-studio/published/NEXT90_M114_RULE_ENVIRONMENT_STUDIO.generated.json --check
 test -f docs/NEXT90_M121_ACTION_ECONOMY_CONTRACTS.md
 test -f scripts/verify-next90-m121-action-economy.py
 test -f tests/test_next90_m121_action_economy.py
 CHUMMER_CORE_ENGINE_TEST_FILTER=next90-m121-action-economy dotnet run --project Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj -c Release -m:1 -p:UseSharedCompilation=false
+shutdown_dotnet_build_servers
 python3 tests/test_next90_m121_action_economy.py
 python3 scripts/verify-next90-m121-action-economy.py --repo-root . --out .codex-studio/published/NEXT90_M121_ACTION_ECONOMY.generated.json --check
 test -f docs/NEXT90_M122_CAMPAIGN_ADVANCE_RECEIPTS.md
 test -f scripts/verify-next90-m122-campaign-advance-receipts.py
 test -f tests/test_next90_m122_campaign_advance_receipts.py
 CHUMMER_CORE_ENGINE_TEST_FILTER=next90-m122-campaign-advance-receipts dotnet run --project Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj -c Release -m:1 -p:UseSharedCompilation=false
+shutdown_dotnet_build_servers
 python3 tests/test_next90_m122_campaign_advance_receipts.py
 python3 scripts/verify-next90-m122-campaign-advance-receipts.py --repo-root . --out .codex-studio/published/NEXT90_M122_CAMPAIGN_ADVANCE_RECEIPTS.generated.json --check
 test -f scripts/verify-next90-m115-core-exchange-contracts.py
 test -f tests/test_next90_m115_core_exchange_contracts.py
 CHUMMER_CORE_ENGINE_TEST_FILTER=core-exchange-contracts dotnet run --project Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj -c Release -m:1 -p:UseSharedCompilation=false
+shutdown_dotnet_build_servers
 python3 tests/test_next90_m115_core_exchange_contracts.py
 python3 scripts/verify-next90-m115-core-exchange-contracts.py --repo-root . --out .codex-studio/published/NEXT90_M115_CORE_EXCHANGE_CONTRACTS.generated.json --check
 python3 scripts/generate-engine-proof-pack.py --check
@@ -248,4 +260,5 @@ if [ -d ../chummer-play ]; then
 fi
 
 "$(dirname "$0")/build.sh" "$@"
+shutdown_dotnet_build_servers
 "$(dirname "$0")/test_core_engine.sh" --no-build

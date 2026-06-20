@@ -72,7 +72,7 @@
     "review_expected_values_required": false,
     "status": "core_seed_fixture_pack_passed"
   },
-  "generated_at_utc": "2026-06-16T11:23:03Z",
+  "generated_at_utc": "2026-06-20T22:36:47Z",
   "human_review_file": "/docker/chummercomplete/_completion/sr4_rule_authority/SR4_HUMAN_RULE_REVIEW.md",
   "pass_criteria": [
     "selected source identity exists and matches the recorded sha256",

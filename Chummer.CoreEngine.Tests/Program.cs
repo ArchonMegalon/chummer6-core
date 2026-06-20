@@ -139,9 +139,17 @@ internal static class CoreEngineTests
                 return 0;
             }
 
+            if (string.Equals(filter, "sr5-core-providers", StringComparison.OrdinalIgnoreCase))
+            {
+                Sr5CoreProvidersExecuteSeededDiceTestAndExplainRules();
+                Console.WriteLine("core-engine-tests: ok");
+                return 0;
+            }
+
             CapabilityDescriptorsEmitLocalizationKeys();
             Sr4RulesetExecutesDeterministicCapabilities();
             Sr5RulesetExecutesDeterministicCapabilities();
+            Sr5CoreProvidersExecuteSeededDiceTestAndExplainRules();
             Sr6RulesetExecutesDeterministicCapabilities();
             SessionReplayDiagnosticsStayKeyed();
             SelectionAndFilterDisabledReasonsStayKeyed();
@@ -380,6 +388,85 @@ internal static class CoreEngineTests
         AssertEx.True(adaptedScriptResult.Success, "SR5 script adapter calls should execute through the deterministic capability host.");
         AssertEx.True(adaptedScriptResult.Outputs.Count > 0, "SR5 script adapter calls should emit deterministic outputs.");
         AssertEx.True(string.IsNullOrWhiteSpace(adaptedScriptResult.Error), "SR5 script adapter calls should not emit deterministic-host errors.");
+    }
+
+    private static void Sr5CoreProvidersExecuteSeededDiceTestAndExplainRules()
+    {
+        SR5DiceRollResult roll = new SR5DiceProvider().Evaluate([1, 1, 1, 5, 6]);
+        AssertEx.Equal(5, roll.DicePool, "SR5 dice provider should preserve the dice pool.");
+        AssertEx.Equal(2, roll.Hits, "SR5 dice provider should count 5s and 6s as hits.");
+        AssertEx.True(roll.Glitch, "SR5 dice provider should identify half-or-more ones as a glitch.");
+        AssertEx.True(!roll.CriticalGlitch, "SR5 dice provider should require zero hits for a critical glitch.");
+
+        SR5TestProvider tests = new();
+        AssertEx.Equal(3, tests.BuyHits(13), "SR5 buy-hits should floor dice pool divided by four.");
+        AssertEx.True(tests.SuccessTestSucceeds(3, 2), "SR5 success tests should pass when hits meet threshold.");
+        AssertEx.Equal(2, tests.EvaluateOpposed(5, 3).NetHits, "SR5 opposed tests should expose net hits.");
+        AssertEx.Equal(-4, tests.RetryPenalty(2), "SR5 retry penalties should remain deterministic.");
+
+        SR5ExplainReceipt receipt = new SR5ExplainReceiptProvider().Create(
+            "SR5DiceProvider",
+            "sr5.dice.hit_faces",
+            "implementation:Chummer.Rulesets.Sr5/Sr5CoreProviders.cs#SR5DiceProvider");
+        AssertEx.True(receipt.PublicSafe, "SR5 explain receipts should be public-safe by default.");
+        AssertEx.Equal("sr5.dice.hit_faces", receipt.RuleFactId, "SR5 explain receipts should retain the RuleFact id.");
+
+        SR5StructuredProviderIndexReceipt gearReceipt = new SR5GearProvider().CreateStructuredIndexReceipt(
+        [
+            new SR5StructuredSourceFile("armor.xml", "sha256-armor", 289, new Dictionary<string, int> { ["armors"] = 202 }),
+            new SR5StructuredSourceFile("bioware.xml", "sha256-bioware", 238, new Dictionary<string, int> { ["biowares"] = 213 }),
+            new SR5StructuredSourceFile("cyberware.xml", "sha256-cyberware", 397, new Dictionary<string, int> { ["cyberwares"] = 362 }),
+            new SR5StructuredSourceFile("gear.xml", "sha256-gear", 1674, new Dictionary<string, int> { ["gears"] = 1598 }),
+            new SR5StructuredSourceFile("vehicles.xml", "sha256-vehicles", 638, new Dictionary<string, int> { ["vehicles"] = 380 }),
+            new SR5StructuredSourceFile("weapons.xml", "sha256-weapons", 815, new Dictionary<string, int> { ["weapons"] = 632 })
+        ]);
+        AssertEx.True(gearReceipt.Valid, "SR5 gear provider should accept a complete structured equipment index.");
+        AssertEx.True(gearReceipt.PublicSafeMetadataOnly, "SR5 gear index receipts should expose metadata only.");
+        AssertEx.Equal(6, gearReceipt.Files.Count, "SR5 gear index should retain all accepted equipment files.");
+        AssertEx.Equal(3_387, gearReceipt.RecordCount, "SR5 gear index should total container-level equipment records.");
+
+        SR5StructuredProviderIndexReceipt characterCreationReceipt = new SR5CharacterCreationProvider().CreateStructuredIndexReceipt(
+        [
+            new SR5StructuredSourceFile("metatypes.xml", "sha256-metatypes", 25, new Dictionary<string, int> { ["metatypes"] = 21 }),
+            new SR5StructuredSourceFile("priorities.xml", "sha256-priorities", 50, new Dictionary<string, int> { ["priorities"] = 45 }),
+            new SR5StructuredSourceFile("qualities.xml", "sha256-qualities", 812, new Dictionary<string, int> { ["qualities"] = 803 }),
+            new SR5StructuredSourceFile("skills.xml", "sha256-skills", 299, new Dictionary<string, int> { ["skills"] = 76, ["skillgroups"] = 15 })
+        ]);
+        AssertEx.True(characterCreationReceipt.Valid, "SR5 character creation provider should accept a complete structured creation index.");
+        AssertEx.True(characterCreationReceipt.PublicSafeMetadataOnly, "SR5 character creation receipts should expose metadata only.");
+        AssertEx.Equal(4, characterCreationReceipt.Files.Count, "SR5 character creation index should retain all accepted source files.");
+        AssertEx.Equal(960, characterCreationReceipt.RecordCount, "SR5 character creation index should total container-level records.");
+
+        SR5StructuredProviderIndexReceipt combatReceipt = new SR5CombatProvider().CreateStructuredIndexReceipt(
+        [
+            new SR5StructuredSourceFile("actions.xml", "sha256-actions", 260, new Dictionary<string, int> { ["actions"] = 260 }),
+            new SR5StructuredSourceFile("armor.xml", "sha256-armor", 289, new Dictionary<string, int> { ["armors"] = 202 }),
+            new SR5StructuredSourceFile("weapons.xml", "sha256-weapons", 815, new Dictionary<string, int> { ["weapons"] = 632 })
+        ]);
+        AssertEx.True(combatReceipt.Valid, "SR5 combat provider should accept actions, armor, and weapons indexes.");
+
+        SR5StructuredProviderIndexReceipt magicReceipt = new SR5MagicProvider().CreateStructuredIndexReceipt(
+        [
+            new SR5StructuredSourceFile("mentors.xml", "sha256-mentors", 81, new Dictionary<string, int> { ["mentors"] = 81 }),
+            new SR5StructuredSourceFile("spells.xml", "sha256-spells", 370, new Dictionary<string, int> { ["spells"] = 363 }),
+            new SR5StructuredSourceFile("traditions.xml", "sha256-traditions", 136, new Dictionary<string, int> { ["traditions"] = 74, ["spirits"] = 57 })
+        ]);
+        AssertEx.True(magicReceipt.Valid, "SR5 magic provider should accept mentors, spells, and traditions indexes.");
+
+        SR5StructuredProviderIndexReceipt matrixReceipt = new SR5MatrixProvider().CreateStructuredIndexReceipt(
+        [
+            new SR5StructuredSourceFile("complexforms.xml", "sha256-complexforms", 38, new Dictionary<string, int> { ["complexforms"] = 38 }),
+            new SR5StructuredSourceFile("paragons.xml", "sha256-paragons", 10, new Dictionary<string, int> { ["mentors"] = 9 }),
+            new SR5StructuredSourceFile("programs.xml", "sha256-programs", 76, new Dictionary<string, int> { ["programs"] = 71 })
+        ]);
+        AssertEx.True(matrixReceipt.Valid, "SR5 matrix provider should accept complex form, paragon, and program indexes.");
+
+        SR5StructuredProviderIndexReceipt riggingReceipt = new SR5RiggingProvider().CreateStructuredIndexReceipt(
+        [
+            new SR5StructuredSourceFile("programs.xml", "sha256-programs", 76, new Dictionary<string, int> { ["programs"] = 71 }),
+            new SR5StructuredSourceFile("vehicles.xml", "sha256-vehicles", 638, new Dictionary<string, int> { ["vehicles"] = 380, ["mods"] = 197 })
+        ]);
+        AssertEx.True(riggingReceipt.Valid, "SR5 rigging provider should accept vehicle and program indexes.");
     }
 
     private static void Sr6RulesetExecutesDeterministicCapabilities()

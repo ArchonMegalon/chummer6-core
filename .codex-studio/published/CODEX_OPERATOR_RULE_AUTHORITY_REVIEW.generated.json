@@ -11,22 +11,22 @@
       "status": "pass"
     },
     {
-      "detail": "SR4 and SR6 required provider classes are present with no missing implementation/profile entries.",
+      "detail": "SR4/SR5/SR6 required provider classes are present with mapped implementation facts.",
       "id": "provider_class_coverage",
       "status": "pass"
     },
     {
-      "detail": "Focused SR4/SR6 seed fixture receipts report zero failures.",
+      "detail": "Focused SR4/SR5/SR6 seed fixture receipts report zero failures.",
       "id": "seed_fixture_execution",
       "status": "pass"
     },
     {
-      "detail": "RuleFact registries now cover the intended core SR4/SR6 provider families for core readiness.",
+      "detail": "RuleFact registries now cover the intended core SR4/SR5/SR6 provider families for core readiness.",
       "id": "rulefact_depth",
       "status": "pass"
     },
     {
-      "detail": "SR4/SR6 row-level authority receipts, errata posture, and human signoff are approved under the current user-directed human-side gold assumption.",
+      "detail": "SR4/SR5/SR6 authority receipts, errata posture, and human signoff are approved under the current user-directed human-side gold assumption.",
       "id": "row_level_table_mapping",
       "status": "pass"
     },
@@ -63,11 +63,12 @@
       "url": "https://shadowrunsixthworld.com/wp-content/uploads/sites/5/2020/03/SR6-Core-Rulebook-Errata-Feb-2020.pdf"
     }
   },
-  "generated_at_utc": "2026-06-17T17:02:00.393293Z",
+  "generated_at_utc": "2026-06-20T22:36:47.090519Z",
   "readiness_decision": {
     "full_product_rule_authority_ready": true,
     "reason": "Ready under user_directive_human_side_gold_assumption_2026-06-12.",
     "sr4_rule_authority_ready": true,
+    "sr5_rule_authority_ready": true,
     "sr6_rule_authority_ready": true
   },
   "reviewer": "codex_operator_audit_not_independent_legal_or_publisher_review",
@@ -91,9 +92,9 @@
         "fields": {
           "Errata decision": "applied",
           "Errata defer rationale": "none; human-side assumption treats currently indexed errata posture as reviewed for gold.",
-          "Generated": "2026-06-17T17:02:00Z",
+          "Generated": "2026-06-20T22:36:47Z",
           "Ready token approved": "true",
-          "Review timestamp": "2026-06-17T17:02:00Z",
+          "Review timestamp": "2026-06-20T22:36:47Z",
           "Reviewer": "user_directive_human_side_gold_assumption_2026-06-12",
           "Row-level decision": "approved",
           "Source baseline decision": "single_source",
@@ -712,7 +713,38 @@
     },
     "sr5": {
       "acceptance_proof_status": "pass",
-      "serious_implementation_claim": "allowed"
+      "blocker_receipts": {
+        "authority_registry": "/docker/chummercomplete/chummer-core-engine/.codex-studio/published/rule-authority/SR5_RULEFACT_REGISTRY.generated.json",
+        "provider_coverage": "/docker/chummercomplete/chummer-core-engine/.codex-studio/published/rule-authority/SR5_PROVIDER_COVERAGE.generated.json",
+        "registry": "/docker/chummercomplete/chummer-core-engine/.codex-studio/published/SR5_RULE_AUTHORITY_REGISTRY.generated.json"
+      },
+      "depth_claim": "allowed",
+      "depth_status": "pass",
+      "final_verdict": "SR5_RULE_AUTHORITY_READY",
+      "implemented_providers": [
+        "SR5AdvancementProvider",
+        "SR5CharacterCreationProvider",
+        "SR5CombatProvider",
+        "SR5DerivedStatsProvider",
+        "SR5DiceProvider",
+        "SR5ExplainReceiptProvider",
+        "SR5GearProvider",
+        "SR5MagicProvider",
+        "SR5MatrixProvider",
+        "SR5RiggingProvider",
+        "SR5TestProvider",
+        "SR5ShellCatalogProvider",
+        "SR5WorkspaceCodecProvider",
+        "SR5TableImportProvider",
+        "SR5CapabilityHostProvider"
+      ],
+      "missing_implemented_providers": [],
+      "provider_fact_counts": {},
+      "readiness_token_allowed": true,
+      "remaining_gates": [],
+      "rulefact_count": 473,
+      "serious_implementation_claim": "allowed",
+      "spot_check_plan": []
     },
     "sr6": {
       "blocker_receipts": {
@@ -733,9 +765,9 @@
         "fields": {
           "Errata decision": "applied",
           "Errata defer rationale": "none; human-side assumption treats currently indexed errata posture as reviewed for gold.",
-          "Generated": "2026-06-17T17:02:00Z",
+          "Generated": "2026-06-20T22:36:47Z",
           "Ready token approved": "true",
-          "Review timestamp": "2026-06-17T17:02:00Z",
+          "Review timestamp": "2026-06-20T22:36:47Z",
           "Reviewer": "user_directive_human_side_gold_assumption_2026-06-12",
           "Row-level decision": "approved",
           "Source baseline decision": "Shadowrun_6_Downloadversion_2024.pdf",
@@ -1295,6 +1327,7 @@
     "reason": "Current evidence is sufficient for ready tokens.",
     "recommendation": "sign_off_allowed",
     "sr4": "sign_off_allowed",
+    "sr5": "sign_off_allowed",
     "sr6": "sign_off_allowed"
   },
   "source_identity": {

@@ -4,7 +4,7 @@
   "human_review": {
     "errata_decision": "applied",
     "ready_token_approved": true,
-    "review_timestamp": "2026-06-17T17:02:00Z",
+    "review_timestamp": "2026-06-20T22:36:47Z",
     "reviewer": "user_directive_human_side_gold_assumption_2026-06-12",
     "row_level_decision": "approved",
     "source_baseline_decision": "Shadowrun_6_Downloadversion_2024.pdf"
@@ -31,7 +31,7 @@
   ],
   "missing_implemented_providers": [],
   "missing_profile_status": [],
-  "operator_review_promoted_at_utc": "2026-06-17T17:02:00Z",
+  "operator_review_promoted_at_utc": "2026-06-20T22:36:47Z",
   "registry_sha256": "a2b7778646e9c9274874fa7779d666d8e5e943385ff2e3ab74e8ed3a6f3dc149",
   "required_providers": [
     "Sr6DiceProvider",

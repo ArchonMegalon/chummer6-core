@@ -4,22 +4,22 @@ Do not read the repo like a manual. Pick the situation that matches you and take
 
 ## I want to try it
 
-Start with `Chummer6/DOWNLOAD.md`, then check `Chummer6/STATUS.md` if you want to know what is available today.
+Start with [Download](DOWNLOAD.md), then check [Status](STATUS.md) if you want to know what is available today.
 
 ## I am new, rusty, or coming back from Chummer5a
 
-Start with `Chummer6/ONRAMP.md`, then use `Chummer6/HELP.md` when install, update, or account return gets in the way.
+Start with the [first session guide](ONRAMP.md), then use [Help](HELP.md) when install, update, or account return gets in the way.
 
-If you already know Chummer5a and care about migration, read `Chummer6/FROM_CHUMMER5A_TO_CHUMMER6.md`.
+If you already know Chummer5a and care about migration, read [From Chummer5a to Chummer6](FROM_CHUMMER5A_TO_CHUMMER6.md).
 
 ## I want to understand the product
 
-Open `Chummer6/WHAT_CHUMMER6_IS.md`. This is starter help, not another grand product shelf. It exists for the finger-count problem: too many names, too many paths, and one tired reader who only needs the next good click.
+Open [What Chummer6 Is](WHAT_CHUMMER6_IS.md). This is starter help, not another grand product shelf. It exists for the finger-count problem: too many names, too many paths, and one tired reader who only needs the next good click.
 
 ## I care about campaign play
 
-Start with `Chummer6/RUNNER_PASSPORT.md`, `Chummer6/LIVING_WORLD.md`, and the campaign tools guide generated from `chummer-design/products/chummer/horizons/README.md`.
+Start with [Runner Passport](RUNNER_PASSPORT.md), [Living World](LIVING_WORLD.md), and [Campaign tools](HORIZONS/README.md).
 
 ## Something is blocking me
 
-Open `Chummer6/HELP.md` first. Use the contact path from the public guide if the problem is private, account-bound, or still unresolved.
+Open [Help](HELP.md) first. Use [Contact](CONTACT.md) if the problem is private, account-bound, or still unresolved.

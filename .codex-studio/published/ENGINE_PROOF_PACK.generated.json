@@ -1,7 +1,7 @@
 {
   "contract_name": "chummer6-core.engine_proof_pack",
   "schema_version": 1,
-  "generated_at": "2026-06-16T02:47:06Z",
+  "generated_at": "2026-06-20T22:36:41Z",
   "status": "passed",
   "proof_kind": "release_bound_engine_proof",
   "milestone_id": 104,
@@ -1338,14 +1338,13 @@
     "status": "passed",
     "source_receipt_path": "/docker/chummercomplete/chummer-hub-registry/.codex-studio/published/RELEASE_CHANNEL.generated.json",
     "channel_id": "public_stable",
-    "version": "run-20260612-121055",
+    "version": "run-258",
     "release_channel_status": "published",
     "rollout_state": "public_stable",
     "release_proof_status": "passed",
     "desktop_tuple_coverage_complete": true,
     "required_promoted_desktop_tuples": [
       "avalonia:linux:linux-x64",
-      "avalonia:macos:osx-arm64",
       "avalonia:windows:win-x64"
     ],
     "promoted_primary_tuples": [
@@ -1355,15 +1354,6 @@
         "platform": "linux",
         "rid": "linux-x64",
         "artifact_id": "avalonia-linux-x64-installer",
-        "status": "passed",
-        "unresolved": []
-      },
-      {
-        "tuple_id": "avalonia:macos:osx-arm64",
-        "head": "avalonia",
-        "platform": "macos",
-        "rid": "osx-arm64",
-        "artifact_id": "avalonia-osx-arm64-installer",
         "status": "passed",
         "unresolved": []
       },

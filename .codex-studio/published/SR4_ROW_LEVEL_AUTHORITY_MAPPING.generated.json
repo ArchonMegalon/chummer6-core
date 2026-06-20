@@ -1,7 +1,7 @@
 {
   "contract_name": "chummer.sr4.row_level_authority_mapping",
   "evidence_strength": "substantial_machine_indexed",
-  "generated_at_utc": "2026-06-16T09:46:03Z",
+  "generated_at_utc": "2026-06-20T22:36:46Z",
   "human_required": {
     "must_confirm_edition_fit": true,
     "must_confirm_license_and_source_identity": true,
@@ -97,7 +97,7 @@
       "rejected",
       "defer"
     ],
-    "reviewed_at_utc": "2026-06-17T17:02:00Z",
+    "reviewed_at_utc": "2026-06-20T22:36:47Z",
     "reviewer": "user_directive_human_side_gold_assumption_2026-06-12",
     "reviewer_output_expected": "SR4_HUMAN_RULE_REVIEW.md",
     "selected_core_baseline": "legacy Chummer4 XML as implemented for core readiness",
@@ -233,7 +233,7 @@
     ],
     "supplements_in_scope": false
   },
-  "reviewed_at_utc": "2026-06-17T17:02:00Z",
+  "reviewed_at_utc": "2026-06-20T22:36:47Z",
   "reviewer": "user_directive_human_side_gold_assumption_2026-06-12",
   "ruleset": "sr4",
   "source_baseline_decision_status": "single_source",

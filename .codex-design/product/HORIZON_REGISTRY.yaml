@@ -113,8 +113,8 @@ horizons:
     order: 25
     group: core_product
   pain_label: A runner can start as math before they feel like a person.
-  wow_promise: The player gets an accepted origin story, portraits, narration, and later Alice context without letting backstory prose rewrite the sheet.
-  table_scene: A player drafts a troll decker, the GM adds a clinic-favor constraint, and Chummer turns the approved origin into a dossier bundle that Alice can use later.
+  wow_promise: The player gets an accepted origin story, portraits, narration, and later ALICE context without letting backstory prose rewrite the sheet.
+  table_scene: A player drafts a troll decker, the GM adds a clinic-favor constraint, and Chummer turns the approved origin into a dossier bundle that ALICE can use later.
   build_path:
     intent: eventual_product_lane
     current_state: shipped_mvp
@@ -131,7 +131,7 @@ horizons:
   - alice_followup_context
   - player_scoped_origin_audiobook
   proof_gate: Origin Dossier packets must prove approved canon, bundle lineage, GM/player approval, media provenance, scoped audiobook access, and non-mutating mechanics posture before any public claim widens.
-  public_claim_posture: Public copy may describe Origin Dossier as a shipped desktop Alice lane for approved origin canon, dossier-media packets, and optional player-scoped origin-story audiobooks; it must not claim mechanical mutation, automatic legality, provider-owned character truth, or broad Audiobookshelf access.
+  public_claim_posture: Public copy may describe Origin Dossier as a shipped desktop ALICE lane for approved origin canon, dossier-media packets, and optional player-scoped origin-story audiobooks; it must not claim mechanical mutation, automatic legality, provider-owned character truth, or broad Audiobookshelf access.
   stop_condition: Stop promotion if approved canon can mutate sheet mechanics, if GM steer becomes automatic entitlement, if media output loses source and approval lineage, or if the desktop can reach a global Audiobookshelf library instead of a scoped EA reference.
   milestone_family: H3
   release_blocking: false
@@ -153,7 +153,7 @@ horizons:
   - Blank-state and active-runner origin drafts can become approved canon without hidden sheet mutation.
   - GM allowances and hard requirements remain advisory until normal character editing commits matching mechanics.
   - Dossier media packets preserve source hashes, approval state, selected assets, narration posture, and render receipts.
-  - Later Alice answers can reference approved origin canon while still citing Chummer-owned mechanics truth for rules claims.
+  - Later ALICE answers can reference approved origin canon while still citing Chummer-owned mechanics truth for rules claims.
   artifact_types:
   - approved origin canon
   - origin dossier bundle
@@ -168,7 +168,7 @@ horizons:
   access_posture: booster_first
   resource_burden: medium
   booster_nudge: Origin canon, portrait, narration, audiobook, and video packets need review and media effort, so broad automated rendering should wait behind approved bundle lineage.
-  free_later_intent: Long-run intent is broad access after bundle approval, provider retention, media lineage, scoped audiobook access, and non-mutating Alice follow-up prove stable.
+  free_later_intent: Long-run intent is broad access after bundle approval, provider retention, media lineage, scoped audiobook access, and non-mutating ALICE follow-up prove stable.
   recognition_eligible: true
   owner_handoff_gate: Origin Dossier must remain downstream of runner dossier identity and upstream of media packets, while core mechanics truth stays in Chummer-owned engine receipts.
 - id: karma-forge

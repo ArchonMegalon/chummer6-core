@@ -15,7 +15,7 @@
     "rigging",
     "status_effects"
   ],
-  "generated_at_utc": "2026-06-16T04:56:27Z",
+  "generated_at_utc": "2026-06-20T22:36:46Z",
   "implemented_provider_count": 18,
   "provider": "Sr6ExplainReceiptProvider",
   "provider_coverage_status": "provider_classes_covered_not_authority_ready",

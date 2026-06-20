@@ -21,7 +21,7 @@
     "expected_values_must_be_human_reviewed": true,
     "may_use_archetypes_as_private_validation": true
   },
-  "generated_at_utc": "2026-06-16T04:56:27Z",
+  "generated_at_utc": "2026-06-20T22:36:46Z",
   "passed": 37,
   "ready_for_gold": false,
   "remaining_gates": [

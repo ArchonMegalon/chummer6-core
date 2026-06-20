@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from collections import Counter
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -17,6 +18,7 @@ AUTHORITY_ROOT = PUBLISHED_ROOT / "rule-authority"
 SHELL_CATALOG_PATH = RULESET_ROOT / "Sr5ShellCatalogs.cs"
 PLUGIN_PATH = RULESET_ROOT / "Sr5RulesetPlugin.cs"
 CODEC_PATH = RULESET_ROOT / "Sr5WorkspaceCodec.cs"
+CORE_PROVIDER_PATH = RULESET_ROOT / "Sr5CoreProviders.cs"
 PARITY_CORPUS_PATH = REPO_ROOT / "Chummer.CoreEngine.Tests" / "Fixtures" / "Contracts" / "sr5-parity-corpus.golden.json"
 TABLE_IMPORTS_PATH = PUBLISHED_ROOT / "SR5_TABLE_IMPORTS.generated.json"
 RULESET_DEPTH_PATH = PUBLISHED_ROOT / "SR5_RULESET_DEPTH.generated.json"
@@ -26,6 +28,7 @@ REQUIRED_PATHS = [
     SHELL_CATALOG_PATH,
     PLUGIN_PATH,
     CODEC_PATH,
+    CORE_PROVIDER_PATH,
     PARITY_CORPUS_PATH,
     TABLE_IMPORTS_PATH,
     RULESET_DEPTH_PATH,
@@ -34,6 +37,7 @@ REQUIRED_PATHS = [
 
 REQUIRED_PROVIDERS = [
     "SR5AdvancementProvider",
+    "SR5CharacterCreationProvider",
     "SR5CombatProvider",
     "SR5DerivedStatsProvider",
     "SR5DiceProvider",
@@ -50,6 +54,45 @@ REQUIRED_PROVIDERS = [
 ]
 
 SR5_BOOK_PROFILE = "sr5_core_2013"
+
+SR5_GEAR_PROVIDER_FILES = {
+    "armor.xml",
+    "bioware.xml",
+    "cyberware.xml",
+    "gear.xml",
+    "vehicles.xml",
+    "weapons.xml",
+}
+
+SR5_CHARACTER_CREATION_PROVIDER_FILES = {
+    "metatypes.xml",
+    "priorities.xml",
+    "qualities.xml",
+    "skills.xml",
+}
+
+SR5_COMBAT_PROVIDER_FILES = {
+    "actions.xml",
+    "armor.xml",
+    "weapons.xml",
+}
+
+SR5_MAGIC_PROVIDER_FILES = {
+    "mentors.xml",
+    "spells.xml",
+    "traditions.xml",
+}
+
+SR5_MATRIX_PROVIDER_FILES = {
+    "complexforms.xml",
+    "paragons.xml",
+    "programs.xml",
+}
+
+SR5_RIGGING_PROVIDER_FILES = {
+    "programs.xml",
+    "vehicles.xml",
+}
 
 
 def now() -> str:
@@ -98,6 +141,15 @@ def append_fact(
             "fact": fact,
         }
     )
+
+
+def provider_fact_counts(rulefacts: list[dict[str, Any]]) -> dict[str, int]:
+    counts: Counter[str] = Counter()
+    for rulefact in rulefacts:
+        provider = str(rulefact.get("provider") or "").strip()
+        if provider:
+            counts[provider] += 1
+    return dict(sorted(counts.items()))
 
 
 def slice_between(text: str, start_marker: str, end_marker: str | None = None) -> str:
@@ -233,6 +285,98 @@ def extract_plugin_facts(rulefacts: list[dict[str, Any]], seen_ids: set[str], pl
             fact={"capability_id": capability_id},
             seed_file=PLUGIN_PATH.name,
         )
+
+
+def extract_core_provider_facts(rulefacts: list[dict[str, Any]], seen_ids: set[str], core_text: str) -> None:
+    required_markers = {
+        "SR5DiceProvider": [
+            ("sr5.dice.hit_faces", {"hit_faces": [5, 6]}),
+            ("sr5.dice.glitch", {"glitch_when_ones_at_least_half_pool": True}),
+            ("sr5.dice.critical_glitch", {"critical_glitch_when_glitch_and_zero_hits": True}),
+        ],
+        "SR5TestProvider": [
+            ("sr5.tests.buy_hits", {"hits": "floor(dice_pool / 4)"}),
+            ("sr5.tests.success_test", {"success": "hits >= threshold"}),
+            ("sr5.tests.opposed_test", {"net_hits": "acting_hits - opposing_hits"}),
+            ("sr5.tests.retry_penalty", {"penalty": "-2 per unchanged retry"}),
+        ],
+        "SR5ExplainReceiptProvider": [
+            ("sr5.explain.public_safe_receipt", {"requires_provider_rulefact_and_source_ref": True, "public_safe": True}),
+        ],
+        "SR5GearProvider": [
+            (
+                "sr5.gear.index.public_safe_metadata_only",
+                {
+                    "structured_index_required": sorted(SR5_GEAR_PROVIDER_FILES),
+                    "public_safe_metadata_only": True,
+                    "does_not_claim_full_legality": True,
+                },
+            ),
+        ],
+        "SR5CharacterCreationProvider": [
+            (
+                "sr5.character_creation.index.public_safe_metadata_only",
+                {
+                    "structured_index_required": sorted(SR5_CHARACTER_CREATION_PROVIDER_FILES),
+                    "public_safe_metadata_only": True,
+                    "does_not_claim_full_character_creation_legality": True,
+                },
+            ),
+        ],
+        "SR5CombatProvider": [
+            (
+                "sr5.combat.index.public_safe_metadata_only",
+                {
+                    "structured_index_required": sorted(SR5_COMBAT_PROVIDER_FILES),
+                    "public_safe_metadata_only": True,
+                    "does_not_claim_full_combat_resolution": True,
+                },
+            ),
+        ],
+        "SR5MagicProvider": [
+            (
+                "sr5.magic.index.public_safe_metadata_only",
+                {
+                    "structured_index_required": sorted(SR5_MAGIC_PROVIDER_FILES),
+                    "public_safe_metadata_only": True,
+                    "does_not_claim_full_spellcasting_or_spirit_rules": True,
+                },
+            ),
+        ],
+        "SR5MatrixProvider": [
+            (
+                "sr5.matrix.index.public_safe_metadata_only",
+                {
+                    "structured_index_required": sorted(SR5_MATRIX_PROVIDER_FILES),
+                    "public_safe_metadata_only": True,
+                    "does_not_claim_full_matrix_action_resolution": True,
+                },
+            ),
+        ],
+        "SR5RiggingProvider": [
+            (
+                "sr5.rigging.index.public_safe_metadata_only",
+                {
+                    "structured_index_required": sorted(SR5_RIGGING_PROVIDER_FILES),
+                    "public_safe_metadata_only": True,
+                    "does_not_claim_full_vehicle_or_drone_resolution": True,
+                },
+            ),
+        ],
+    }
+    for provider, facts in required_markers.items():
+        if f"class {provider}" not in core_text:
+            continue
+        for fact_id, fact in facts:
+            append_fact(
+                rulefacts,
+                seen_ids,
+                fact_id=fact_id,
+                provider=provider,
+                source_ref=f"implementation:Chummer.Rulesets.Sr5/Sr5CoreProviders.cs#{provider}",
+                fact=fact,
+                seed_file=CORE_PROVIDER_PATH.name,
+            )
 
 
 def extract_codec_facts(rulefacts: list[dict[str, Any]], seen_ids: set[str], codec_text: str, depth: dict[str, Any]) -> None:
@@ -411,6 +555,192 @@ def extract_table_import_facts(rulefacts: list[dict[str, Any]], seen_ids: set[st
                 },
                 seed_file=TABLE_IMPORTS_PATH.name,
             )
+            if file_name in SR5_GEAR_PROVIDER_FILES:
+                append_fact(
+                    rulefacts,
+                    seen_ids,
+                    fact_id=f"sr5.gear.table_import.file.{slug(file_name)}.container.{slug(container_name)}",
+                    provider="SR5GearProvider",
+                    source_ref="structured-data:SR5_TABLE_IMPORTS.generated.json",
+                    fact={
+                        "file": file_name,
+                        "container": container_name,
+                        "row_count": container_count,
+                        "public_safe_metadata_only": True,
+                    },
+                    seed_file=TABLE_IMPORTS_PATH.name,
+                )
+            if file_name in SR5_CHARACTER_CREATION_PROVIDER_FILES:
+                append_fact(
+                    rulefacts,
+                    seen_ids,
+                    fact_id=f"sr5.character_creation.table_import.file.{slug(file_name)}.container.{slug(container_name)}",
+                    provider="SR5CharacterCreationProvider",
+                    source_ref="structured-data:SR5_TABLE_IMPORTS.generated.json",
+                    fact={
+                        "file": file_name,
+                        "container": container_name,
+                        "row_count": container_count,
+                        "public_safe_metadata_only": True,
+                    },
+                    seed_file=TABLE_IMPORTS_PATH.name,
+                )
+            if file_name in SR5_COMBAT_PROVIDER_FILES:
+                append_fact(
+                    rulefacts,
+                    seen_ids,
+                    fact_id=f"sr5.combat.table_import.file.{slug(file_name)}.container.{slug(container_name)}",
+                    provider="SR5CombatProvider",
+                    source_ref="structured-data:SR5_TABLE_IMPORTS.generated.json",
+                    fact={
+                        "file": file_name,
+                        "container": container_name,
+                        "row_count": container_count,
+                        "public_safe_metadata_only": True,
+                    },
+                    seed_file=TABLE_IMPORTS_PATH.name,
+                )
+            if file_name in SR5_MAGIC_PROVIDER_FILES:
+                append_fact(
+                    rulefacts,
+                    seen_ids,
+                    fact_id=f"sr5.magic.table_import.file.{slug(file_name)}.container.{slug(container_name)}",
+                    provider="SR5MagicProvider",
+                    source_ref="structured-data:SR5_TABLE_IMPORTS.generated.json",
+                    fact={
+                        "file": file_name,
+                        "container": container_name,
+                        "row_count": container_count,
+                        "public_safe_metadata_only": True,
+                    },
+                    seed_file=TABLE_IMPORTS_PATH.name,
+                )
+            if file_name in SR5_MATRIX_PROVIDER_FILES:
+                append_fact(
+                    rulefacts,
+                    seen_ids,
+                    fact_id=f"sr5.matrix.table_import.file.{slug(file_name)}.container.{slug(container_name)}",
+                    provider="SR5MatrixProvider",
+                    source_ref="structured-data:SR5_TABLE_IMPORTS.generated.json",
+                    fact={
+                        "file": file_name,
+                        "container": container_name,
+                        "row_count": container_count,
+                        "public_safe_metadata_only": True,
+                    },
+                    seed_file=TABLE_IMPORTS_PATH.name,
+                )
+            if file_name in SR5_RIGGING_PROVIDER_FILES:
+                append_fact(
+                    rulefacts,
+                    seen_ids,
+                    fact_id=f"sr5.rigging.table_import.file.{slug(file_name)}.container.{slug(container_name)}",
+                    provider="SR5RiggingProvider",
+                    source_ref="structured-data:SR5_TABLE_IMPORTS.generated.json",
+                    fact={
+                        "file": file_name,
+                        "container": container_name,
+                        "row_count": container_count,
+                        "public_safe_metadata_only": True,
+                    },
+                    seed_file=TABLE_IMPORTS_PATH.name,
+                )
+        if file_name in SR5_GEAR_PROVIDER_FILES:
+            append_fact(
+                rulefacts,
+                seen_ids,
+                fact_id=f"sr5.gear.table_import.file.{slug(file_name)}",
+                provider="SR5GearProvider",
+                source_ref="structured-data:SR5_TABLE_IMPORTS.generated.json",
+                fact={
+                    "file": file_name,
+                    "root": file_entry.get("root"),
+                    "row_count": file_entry.get("row_count"),
+                    "sha256": file_entry.get("sha256"),
+                    "public_safe_metadata_only": True,
+                },
+                seed_file=TABLE_IMPORTS_PATH.name,
+            )
+        if file_name in SR5_CHARACTER_CREATION_PROVIDER_FILES:
+            append_fact(
+                rulefacts,
+                seen_ids,
+                fact_id=f"sr5.character_creation.table_import.file.{slug(file_name)}",
+                provider="SR5CharacterCreationProvider",
+                source_ref="structured-data:SR5_TABLE_IMPORTS.generated.json",
+                fact={
+                    "file": file_name,
+                    "root": file_entry.get("root"),
+                    "row_count": file_entry.get("row_count"),
+                    "sha256": file_entry.get("sha256"),
+                    "public_safe_metadata_only": True,
+                },
+                seed_file=TABLE_IMPORTS_PATH.name,
+            )
+        if file_name in SR5_COMBAT_PROVIDER_FILES:
+            append_fact(
+                rulefacts,
+                seen_ids,
+                fact_id=f"sr5.combat.table_import.file.{slug(file_name)}",
+                provider="SR5CombatProvider",
+                source_ref="structured-data:SR5_TABLE_IMPORTS.generated.json",
+                fact={
+                    "file": file_name,
+                    "root": file_entry.get("root"),
+                    "row_count": file_entry.get("row_count"),
+                    "sha256": file_entry.get("sha256"),
+                    "public_safe_metadata_only": True,
+                },
+                seed_file=TABLE_IMPORTS_PATH.name,
+            )
+        if file_name in SR5_MAGIC_PROVIDER_FILES:
+            append_fact(
+                rulefacts,
+                seen_ids,
+                fact_id=f"sr5.magic.table_import.file.{slug(file_name)}",
+                provider="SR5MagicProvider",
+                source_ref="structured-data:SR5_TABLE_IMPORTS.generated.json",
+                fact={
+                    "file": file_name,
+                    "root": file_entry.get("root"),
+                    "row_count": file_entry.get("row_count"),
+                    "sha256": file_entry.get("sha256"),
+                    "public_safe_metadata_only": True,
+                },
+                seed_file=TABLE_IMPORTS_PATH.name,
+            )
+        if file_name in SR5_MATRIX_PROVIDER_FILES:
+            append_fact(
+                rulefacts,
+                seen_ids,
+                fact_id=f"sr5.matrix.table_import.file.{slug(file_name)}",
+                provider="SR5MatrixProvider",
+                source_ref="structured-data:SR5_TABLE_IMPORTS.generated.json",
+                fact={
+                    "file": file_name,
+                    "root": file_entry.get("root"),
+                    "row_count": file_entry.get("row_count"),
+                    "sha256": file_entry.get("sha256"),
+                    "public_safe_metadata_only": True,
+                },
+                seed_file=TABLE_IMPORTS_PATH.name,
+            )
+        if file_name in SR5_RIGGING_PROVIDER_FILES:
+            append_fact(
+                rulefacts,
+                seen_ids,
+                fact_id=f"sr5.rigging.table_import.file.{slug(file_name)}",
+                provider="SR5RiggingProvider",
+                source_ref="structured-data:SR5_TABLE_IMPORTS.generated.json",
+                fact={
+                    "file": file_name,
+                    "root": file_entry.get("root"),
+                    "row_count": file_entry.get("row_count"),
+                    "sha256": file_entry.get("sha256"),
+                    "public_safe_metadata_only": True,
+                },
+                seed_file=TABLE_IMPORTS_PATH.name,
+            )
     return fixtures
 
 
@@ -423,6 +753,7 @@ def build_registry() -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], di
     shell_text = SHELL_CATALOG_PATH.read_text(encoding="utf-8")
     plugin_text = PLUGIN_PATH.read_text(encoding="utf-8")
     codec_text = CODEC_PATH.read_text(encoding="utf-8")
+    core_text = CORE_PROVIDER_PATH.read_text(encoding="utf-8")
     parity_corpus = load_json(PARITY_CORPUS_PATH)
     table_imports = load_json(TABLE_IMPORTS_PATH)
     ruleset_depth = load_json(RULESET_DEPTH_PATH)
@@ -434,15 +765,19 @@ def build_registry() -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], di
 
     extract_shell_catalog_facts(rulefacts, seen_ids, shell_text)
     extract_plugin_facts(rulefacts, seen_ids, plugin_text)
+    extract_core_provider_facts(rulefacts, seen_ids, core_text)
     extract_codec_facts(rulefacts, seen_ids, codec_text, ruleset_depth)
     fixtures.extend(extract_parity_facts(rulefacts, seen_ids, parity_corpus))
     fixtures.extend(extract_table_import_facts(rulefacts, seen_ids, table_imports))
 
-    implemented_providers = REQUIRED_PROVIDERS[:]
+    fact_counts = provider_fact_counts(rulefacts)
+    implemented_providers = [provider for provider in REQUIRED_PROVIDERS if fact_counts.get(provider, 0) > 0]
+    missing_implemented_providers = [provider for provider in REQUIRED_PROVIDERS if provider not in implemented_providers]
+    registry_status = "pass" if not missing_implemented_providers else "fail"
     registry = {
         "contract_name": "chummer.rules.sr5.rulefact_registry",
         "generated_at_utc": generated_at,
-        "status": "pass",
+        "status": registry_status,
         "edition": "SR5",
         "book_profile": SR5_BOOK_PROFILE,
         "owning_repo": "chummer6-core",
@@ -458,6 +793,7 @@ def build_registry() -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], di
             "workspace_actions",
             "workflow_definitions",
             "workflow_surfaces",
+            "core_mechanical_providers",
             "workspace_codec",
             "parity_corpus",
             "table_import_files",
@@ -466,12 +802,16 @@ def build_registry() -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], di
         "required_providers": REQUIRED_PROVIDERS,
         "implemented_providers": implemented_providers,
         "missing_profile_status": [],
-        "missing_implemented_providers": [],
+        "missing_implemented_providers": missing_implemented_providers,
         "rulefacts": rulefacts,
         "rulefact_count": len(rulefacts),
+        "provider_fact_counts": fact_counts,
         "provider_coverage": {
-            "status": "pass",
+            "status": registry_status,
             "providers": implemented_providers,
+            "required_providers": REQUIRED_PROVIDERS,
+            "missing_providers": missing_implemented_providers,
+            "provider_fact_counts": fact_counts,
             "mapped_rulefacts": len(rulefacts),
             "fixture_count": len(fixtures),
             "summary_only": False,
@@ -494,9 +834,12 @@ def build_registry() -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], di
 
     provider_coverage = {
         "generated_at_utc": generated_at,
-        "status": "pass",
+        "status": registry_status,
         "edition": "SR5",
         "providers": implemented_providers,
+        "required_providers": REQUIRED_PROVIDERS,
+        "missing_providers": missing_implemented_providers,
+        "provider_fact_counts": fact_counts,
         "mapped_rulefacts": len(rulefacts),
         "fixture_count": len(fixtures),
         "summary_only": False,
@@ -513,19 +856,23 @@ def build_registry() -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], di
     rule_authority = dict(refreshed_depth.get("rule_authority") or {})
     rule_authority.update(
         {
-            "status": "pass",
+            "status": registry_status,
             "registry": ".codex-studio/published/rule-authority/SR5_RULEFACT_REGISTRY.generated.json",
             "provider_coverage": ".codex-studio/published/rule-authority/SR5_PROVIDER_COVERAGE.generated.json",
             "golden_fixtures": ".codex-studio/published/rule-authority/SR5_GOLDEN_FIXTURES.generated.json",
             "mapped_rulefacts": len(rulefacts),
             "fixture_count": len(fixtures),
+            "missing_implemented_providers": missing_implemented_providers,
             "summary_only": False,
         }
     )
     refreshed_depth["rule_authority"] = rule_authority
     refreshed_depth["generated_at"] = generated_at
     refreshed_depth["claim_summary"] = (
-        "SR5 has implementation-backed RuleFact, provider-coverage, table-import, and parity-fixture authority receipts "
+        "SR5 has partial implementation-backed RuleFact, table-import, workspace-codec, and parity-fixture authority receipts "
+        "in chummer6-core; full product rule authority remains blocked until every required mechanical provider has mapped RuleFacts."
+        if missing_implemented_providers
+        else "SR5 has implementation-backed RuleFact, provider-coverage, table-import, and parity-fixture authority receipts "
         "in chummer6-core; full product rule authority claim is allowed."
     )
 
@@ -542,16 +889,17 @@ def main() -> int:
     print(
         json.dumps(
             {
-                "status": "pass",
+                "status": registry["status"],
                 "rulefact_count": registry["rulefact_count"],
                 "provider_count": len(provider_coverage["providers"]),
+                "missing_provider_count": len(provider_coverage["missing_providers"]),
                 "fixture_count": golden_fixtures["generated_at_utc"] and len(golden_fixtures["fixtures"]),
             },
             indent=2,
             sort_keys=True,
         )
     )
-    return 0
+    return 0 if registry["status"] == "pass" else 1
 
 
 if __name__ == "__main__":

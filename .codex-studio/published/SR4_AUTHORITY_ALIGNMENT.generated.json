@@ -57,7 +57,7 @@
     "status": "pass",
     "supports_row_level_review": true
   },
-  "generated_at_utc": "2026-06-16T04:56:27Z",
+  "generated_at_utc": "2026-06-20T22:36:46Z",
   "remaining_human_dependence": [
     "alignment receipts support human review but do not replace row-level authority approval"
   ],

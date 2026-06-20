@@ -242,6 +242,9 @@ def sr5_gate() -> dict[str, Any]:
         failures.append("SR5 table imports are not indexed")
     if authority_rulefact_count < MIN_RULEFACT_COUNT:
         failures.append(f"SR5 rulefact registry has {authority_rulefact_count} facts; minimum is {MIN_RULEFACT_COUNT}")
+    missing_providers = list(authority_registry.get("missing_implemented_providers") or [])
+    if missing_providers:
+        failures.append(f"SR5 missing implemented providers: {', '.join(str(provider) for provider in missing_providers)}")
 
     ready = not failures
     registry = normalize_public_rulefact_registry(

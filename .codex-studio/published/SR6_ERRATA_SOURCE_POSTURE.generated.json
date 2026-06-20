@@ -1,6 +1,6 @@
 {
   "contract_name": "chummer.sr6.errata_source_posture",
-  "generated_at_utc": "2026-06-16T09:46:04Z",
+  "generated_at_utc": "2026-06-20T22:36:46Z",
   "human_required": {
     "must_apply_or_explicitly_defer_each_applicable_change": true,
     "must_confirm_applicable_errata_sources": true,
@@ -30,7 +30,7 @@
       "not_applicable",
       "defer"
     ],
-    "reviewed_at_utc": "2026-06-17T17:02:00Z",
+    "reviewed_at_utc": "2026-06-20T22:36:47Z",
     "reviewer": "user_directive_human_side_gold_assumption_2026-06-12",
     "reviewer_output_expected": "SR6_HUMAN_RULE_REVIEW.md",
     "selected_core_baseline": "Shadowrun_6_Downloadversion_2024.pdf",
@@ -41,7 +41,7 @@
       "sr6_city_edition_notice"
     ]
   },
-  "reviewed_at_utc": "2026-06-17T17:02:00Z",
+  "reviewed_at_utc": "2026-06-20T22:36:47Z",
   "reviewer": "user_directive_human_side_gold_assumption_2026-06-12",
   "ruleset": "sr6",
   "sources": [

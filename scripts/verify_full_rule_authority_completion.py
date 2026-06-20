@@ -15,6 +15,18 @@ PUBLISHED_ROOT = REPO_ROOT / ".codex-studio" / "published"
 COMPLETION_ROOT = Path("/docker/chummercomplete/_completion")
 OUT_ROOT = COMPLETION_ROOT / "full_product_rule_authority"
 
+SR5_PROVIDER_SPOT_CHECKS = {
+    "SR5CharacterCreationProvider": "SR5 character creation",
+    "SR5CombatProvider": "SR5 combat",
+    "SR5MagicProvider": "SR5 magic",
+    "SR5MatrixProvider": "SR5 matrix",
+    "SR5RiggingProvider": "SR5 rigging",
+    "SR5GearProvider": "SR5 gear",
+    "SR5DiceProvider": "SR5 dice",
+    "SR5TestProvider": "SR5 tests",
+    "SR5ExplainReceiptProvider": "SR5 explain receipts",
+}
+
 
 def load_json(path: Path) -> dict:
     with path.open("r", encoding="utf-8") as handle:
@@ -59,12 +71,14 @@ def main() -> int:
 
     sr4_ready = bool(sr4_integration.get("readiness_token_allowed"))
     sr6_ready = bool(sr6_integration.get("readiness_token_allowed"))
+    sr5_missing_providers = list(sr5_registry.get("missing_implemented_providers") or [])
     sr5_ready = (
         sr5_acceptance.get("status") == "pass"
         and sr5_acceptance.get("serious_implementation_claim") == "allowed"
         and sr5_depth.get("serious_implementation_claim") == "allowed"
         and sr5_registry.get("final_verdict") == "SR5_RULE_AUTHORITY_READY"
         and int(sr5_registry.get("rulefact_count") or 0) >= 100
+        and not sr5_missing_providers
     )
     blockers = []
     if not sr4_ready:
@@ -157,6 +171,41 @@ def main() -> int:
             "verification_matrix_expected_ready_blockers": sr6_matrix.get("expected_ready_blockers", []),
             "readiness_token_allowed": sr6_ready,
         })
+    if not sr5_ready:
+        sr5_missing_spot_checks = [
+            SR5_PROVIDER_SPOT_CHECKS.get(provider, provider)
+            for provider in sr5_missing_providers
+        ]
+        blockers.append({
+            "ruleset": "sr5",
+            "blocked_token": "SR5_RULE_AUTHORITY_READY",
+            "machine_closed": {
+                "acceptance_status": sr5_acceptance.get("status"),
+                "acceptance_claim": sr5_acceptance.get("serious_implementation_claim"),
+                "depth_status": sr5_depth.get("status"),
+                "depth_claim": sr5_depth.get("serious_implementation_claim"),
+                "final_verdict": sr5_registry.get("final_verdict"),
+                "rulefact_count": sr5_registry.get("rulefact_count"),
+                "missing_implemented_providers": sr5_missing_providers,
+            },
+            "remaining_gates": [
+                "implementation-backed SR5 mechanical provider RuleFacts",
+                "SR5 missing provider coverage: " + ", ".join(sr5_missing_spot_checks),
+            ],
+            "preferred_signoff_path": [
+                "implement or bind SR5 mechanical providers to public-safe RuleFacts",
+                "rerun scripts/verify_sr5_rule_authority_seed.py",
+                "rerun scripts/promote_rule_authority_operator_gold.py",
+                "rerun scripts/verify_full_rule_authority_completion.py",
+            ],
+            "spot_check_plan": sr5_missing_spot_checks,
+            "blocker_receipts": {
+                "registry": str(PUBLISHED_ROOT / "SR5_RULE_AUTHORITY_REGISTRY.generated.json"),
+                "authority_registry": str(PUBLISHED_ROOT / "rule-authority" / "SR5_RULEFACT_REGISTRY.generated.json"),
+                "provider_coverage": str(PUBLISHED_ROOT / "rule-authority" / "SR5_PROVIDER_COVERAGE.generated.json"),
+            },
+            "readiness_token_allowed": sr5_ready,
+        })
 
     payload = {
         "contract_name": "chummer.full_product_rule_authority_completion",
@@ -181,6 +230,7 @@ def main() -> int:
                 "depth_claim": sr5_depth.get("serious_implementation_claim"),
                 "final_verdict": sr5_registry.get("final_verdict"),
                 "rulefact_count": sr5_registry.get("rulefact_count"),
+                "missing_implemented_providers": sr5_missing_providers,
             },
             "sr6": {
                 "rule_authority_ready": sr6_ready,

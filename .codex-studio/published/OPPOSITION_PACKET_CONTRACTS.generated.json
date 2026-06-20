@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-06-16T04:58:26Z",
+  "generated_at": "2026-06-20T22:27:29Z",
   "status": "passed",
   "package_id": "next90-m113-core-opposition-packet-contracts",
   "frontier_id": 2325506990,
@@ -60,7 +60,7 @@
       "key": "test_program",
       "path": "Chummer.CoreEngine.Tests/Program.cs",
       "exists": true,
-      "digest": "sha256:0f1fe7451fcb9fb31ffc0fdc6f07f664113886864022c8047a0c25faab17464c",
+      "digest": "sha256:f57e124f8e61332419367c42d4e9a2c73d464da35311f21fd47e10473af337f2",
       "missing_snippets": [],
       "status": "passed"
     },
