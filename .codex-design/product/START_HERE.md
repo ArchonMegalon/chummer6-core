@@ -14,7 +14,7 @@ If you already know Chummer5a and care about migration, read [From Chummer5a to 
 
 ## I want to understand the product
 
-Open [What Chummer6 Is](WHAT_CHUMMER6_IS.md). This is starter help, not another grand product shelf. It exists for the finger-count problem: too many names, too many paths, and one tired reader who only needs the next good click.
+Open [What Chummer6 Is](WHAT_CHUMMER6_IS.md). This is starter help, not another grand product shelf. It exists for the overloaded-reader problem: too many names, too many paths, and one tired reader who only needs the next good click.
 
 ## I care about campaign play
 
