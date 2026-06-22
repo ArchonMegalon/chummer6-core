@@ -165,10 +165,8 @@ public class MigrationComplianceTests
     }
 
     [TestMethod]
-    public void Migration_workspace_benchmarks_are_budgeted_in_ci()
+    public void Migration_workspace_benchmarks_are_budgeted_by_repo_owned_runner()
     {
-        string workflowPath = FindPath(".github", "workflows", "benchmark-guardrails.yml");
-        string workflowText = File.ReadAllText(workflowPath);
         string benchmarkProjectPath = FindPath("Chummer.Benchmarks", "Chummer.Benchmarks.csproj");
         string benchmarkProjectText = File.ReadAllText(benchmarkProjectPath);
         string benchmarkProgramPath = FindPath("Chummer.Benchmarks", "Program.cs");
@@ -179,15 +177,15 @@ public class MigrationComplianceTests
         string budgetText = File.ReadAllText(budgetPath);
         string backlogPath = FindPath("docs", "MIGRATION_BACKLOG.md");
         string backlogText = File.ReadAllText(backlogPath);
+        string closeoutPath = FindPath("docs", "NEXT90_M104_CORE_PROOF_PACK_CLOSEOUT.md");
+        string closeoutText = File.ReadAllText(closeoutPath);
 
-        StringAssert.Contains(workflowText, "dotnet run --project Chummer.Benchmarks/Chummer.Benchmarks.csproj -c Release --");
-        StringAssert.Contains(workflowText, "--budget-check");
-        StringAssert.Contains(workflowText, "Chummer.Benchmarks/workspace-benchmark-budgets.json");
-        StringAssert.Contains(workflowText, "migration-workspace-benchmark-results.json");
         StringAssert.Contains(benchmarkProjectText, "<TargetFramework>net10.0</TargetFramework>");
         StringAssert.Contains(benchmarkProjectText, @"..\Chummer.Application\Chummer.Application.csproj");
         StringAssert.Contains(benchmarkProjectText, @"..\Chummer.Infrastructure\Chummer.Infrastructure.csproj");
         StringAssert.Contains(benchmarkProgramText, "BenchmarkBudgetRunner.MeasureAndOptionallyCheck");
+        StringAssert.Contains(benchmarkProgramText, "--budget-check");
+        StringAssert.Contains(benchmarkProgramText, "workspace-benchmark-budgets.json");
         StringAssert.Contains(benchmarkWorkloadText, "workspace.import.bastion");
         StringAssert.Contains(benchmarkWorkloadText, "workspace.section.skills.bastion");
         StringAssert.Contains(benchmarkWorkloadText, "workspace.save.bastion");
@@ -195,6 +193,7 @@ public class MigrationComplianceTests
         StringAssert.Contains(budgetText, "workspace.section.skills.bastion");
         StringAssert.Contains(budgetText, "workspace.save.bastion");
         StringAssert.Contains(backlogText, "MIG-095");
+        StringAssert.Contains(closeoutText, "dotnet run --project Chummer.Benchmarks/Chummer.Benchmarks.csproj -c Release -- --budget-check --budget-file Chummer.Benchmarks/workspace-benchmark-budgets.json");
     }
 
     [TestMethod]
@@ -3525,48 +3524,12 @@ public class MigrationComplianceTests
     [TestMethod]
     public void Desktop_download_matrix_includes_avalonia_and_blazor_desktop_artifacts()
     {
-        string workflowPath = FindPath(".github", "workflows", "desktop-downloads-matrix.yml");
-        string workflowText = File.ReadAllText(workflowPath);
         string manifestScriptPath = FindPath("scripts", "generate-releases-manifest.sh");
         string manifestScriptText = File.ReadAllText(manifestScriptPath);
         string verifyScriptPath = FindPath("scripts", "verify-releases-manifest.sh");
         string verifyScriptText = File.ReadAllText(verifyScriptPath);
-
-        StringAssert.Contains(workflowText, "project: Chummer.Avalonia/Chummer.Avalonia.csproj");
-        StringAssert.Contains(workflowText, "project: Chummer.Blazor.Desktop/Chummer.Blazor.Desktop.csproj");
-        StringAssert.Contains(
-            workflowText,
-            "app: avalonia\n            project: Chummer.Avalonia/Chummer.Avalonia.csproj\n            os: macos-latest\n            rid: osx-x64");
-        StringAssert.Contains(
-            workflowText,
-            "app: blazor-desktop\n            project: Chummer.Blazor.Desktop/Chummer.Blazor.Desktop.csproj\n            os: macos-latest\n            rid: osx-x64");
-        StringAssert.Contains(workflowText, "bash scripts/generate-releases-manifest.sh");
-        StringAssert.Contains(workflowText, "Chummer.Application/**");
-        StringAssert.Contains(workflowText, "Chummer.Core/**");
-        StringAssert.Contains(workflowText, "Chummer.Desktop.Runtime/**");
-        StringAssert.Contains(workflowText, "Chummer.Infrastructure/**");
-        StringAssert.Contains(workflowText, "Chummer.Portal/**");
-        StringAssert.Contains(workflowText, "scripts/generate-releases-manifest.sh");
-        StringAssert.Contains(workflowText, "scripts/publish-download-bundle.sh");
-        StringAssert.Contains(workflowText, "scripts/publish-download-bundle-s3.sh");
-        StringAssert.Contains(workflowText, "deploy_portal_downloads");
-        StringAssert.Contains(workflowText, "deploy-downloads");
-        StringAssert.Contains(workflowText, "deploy-downloads-object-storage");
-        StringAssert.Contains(workflowText, "CHUMMER_PORTAL_DOWNLOADS_VERIFY_URL");
-        StringAssert.Contains(workflowText, "CHUMMER_PORTAL_DOWNLOADS_VERIFY_LINKS");
-        StringAssert.Contains(workflowText, "CHUMMER_PORTAL_DOWNLOADS_DEPLOY_ENABLED");
-        StringAssert.Contains(workflowText, "CHUMMER_PORTAL_DOWNLOADS_REQUIRE_PUBLISHED_VERSION");
-        StringAssert.Contains(workflowText, "CHUMMER_PORTAL_DOWNLOADS_S3_URI");
-        StringAssert.Contains(workflowText, "CHUMMER_PORTAL_DOWNLOADS_AWS_ACCESS_KEY_ID");
-        StringAssert.Contains(workflowText, "Validate live verify URL");
-        StringAssert.Contains(workflowText, "Set CHUMMER_PORTAL_DOWNLOADS_VERIFY_URL to verify the live portal manifest after deployment.");
-        StringAssert.Contains(workflowText, "Verify deployed manifest has artifacts");
-        StringAssert.Contains(workflowText, "bash scripts/verify-releases-manifest.sh \"$CHUMMER_PORTAL_DOWNLOADS_DEPLOY_DIR\"");
-        StringAssert.Contains(workflowText, "Verify deployed portal manifest has artifacts");
-        Assert.IsFalse(
-            workflowText.Contains("if: ${{ vars.CHUMMER_PORTAL_DOWNLOADS_VERIFY_URL != '' }}", StringComparison.Ordinal),
-            "Live portal manifest verification should be mandatory when deployment is enabled.");
-        StringAssert.Contains(workflowText, "scripts/verify-releases-manifest.sh");
+        string runbookPath = FindPath("scripts", "runbook.sh");
+        string runbookText = File.ReadAllText(runbookPath);
 
         StringAssert.Contains(manifestScriptText, "chummer-(?P<app>avalonia|blazor-desktop)-(?P<rid>[^.]+)\\.(?P<ext>zip|tar\\.gz)");
         StringAssert.Contains(manifestScriptText, "\"osx-x64\": \"macOS x64\"");
@@ -3577,6 +3540,10 @@ public class MigrationComplianceTests
         StringAssert.Contains(verifyScriptText, "failed artifact verification");
         StringAssert.Contains(verifyScriptText, "Verified artifact links/files");
         StringAssert.Contains(verifyScriptText, "version.lower() == \"unpublished\"");
+        StringAssert.Contains(runbookText, "RUNBOOK_MODE\" == \"downloads-manifest\"");
+        StringAssert.Contains(runbookText, "bash scripts/generate-releases-manifest.sh");
+        StringAssert.Contains(runbookText, "RUNBOOK_MODE\" == \"downloads-sync\"");
+        StringAssert.Contains(runbookText, "RUNBOOK_MODE\" == \"downloads-sync-s3\"");
     }
 
     [TestMethod]
@@ -4678,17 +4645,13 @@ public class MigrationComplianceTests
     [TestMethod]
     public void Amend_manifest_checksum_policy_is_enforced_in_ci()
     {
-        string desktopWorkflowPath = FindPath(".github", "workflows", "desktop-downloads-matrix.yml");
-        string desktopWorkflowText = File.ReadAllText(desktopWorkflowPath);
-        string guardrailsWorkflowPath = FindPath(".github", "workflows", "docker-architecture-guardrails.yml");
-        string guardrailsWorkflowText = File.ReadAllText(guardrailsWorkflowPath);
+        string runbookPath = FindPath("scripts", "runbook.sh");
+        string runbookText = File.ReadAllText(runbookPath);
         string manifestPath = FindPath("Docker", "Amends", "manifest.json");
         string manifestText = File.ReadAllText(manifestPath);
 
-        StringAssert.Contains(desktopWorkflowText, "scripts/validate-amend-manifests.sh");
-        StringAssert.Contains(desktopWorkflowText, "Validate amend manifests checksums");
-        StringAssert.Contains(guardrailsWorkflowText, "amend-manifest-checksums");
-        StringAssert.Contains(guardrailsWorkflowText, "bash scripts/validate-amend-manifests.sh");
+        StringAssert.Contains(runbookText, "RUNBOOK_MODE\" == \"amend-checksums\"");
+        StringAssert.Contains(runbookText, "bash scripts/validate-amend-manifests.sh");
 
         StringAssert.Contains(manifestText, "\"checksums\"");
         StringAssert.Contains(manifestText, "\"data/qualities.test-amend.xml\"");
@@ -4696,26 +4659,20 @@ public class MigrationComplianceTests
     }
 
     [TestMethod]
-    public void Docker_architecture_guardrails_workflow_validates_compose_and_portal_formatting()
+    public void Docker_architecture_guardrails_are_local_script_backed()
     {
-        string guardrailsWorkflowPath = FindPath(".github", "workflows", "docker-architecture-guardrails.yml");
-        string guardrailsWorkflowText = File.ReadAllText(guardrailsWorkflowPath);
+        string runbookPath = FindPath("scripts", "runbook.sh");
+        string runbookText = File.ReadAllText(runbookPath);
+        string strictGatesPath = FindPath("scripts", "runbook-strict-host-gates.sh");
+        string strictGatesText = File.ReadAllText(strictGatesPath);
 
-        StringAssert.Contains(guardrailsWorkflowText, "compose-config-validation");
-        StringAssert.Contains(guardrailsWorkflowText, "docker compose config > /tmp/chummer-compose-config.out");
-        StringAssert.Contains(guardrailsWorkflowText, "portal-format-guardrail");
-        StringAssert.Contains(guardrailsWorkflowText, "dotnet restore Chummer.Portal/Chummer.Portal.csproj");
-        StringAssert.Contains(guardrailsWorkflowText, "dotnet format style Chummer.Portal/Chummer.Portal.csproj --verify-no-changes --no-restore --include Chummer.Portal/Program.cs");
-        StringAssert.Contains(guardrailsWorkflowText, "parity-checklist-sync");
-        StringAssert.Contains(guardrailsWorkflowText, "RUNBOOK_MODE=parity-checklist bash scripts/runbook.sh");
-        StringAssert.Contains(guardrailsWorkflowText, "downloads-smoke-runbook");
-        StringAssert.Contains(guardrailsWorkflowText, "RUNBOOK_MODE=downloads-smoke bash scripts/runbook.sh");
-        StringAssert.Contains(guardrailsWorkflowText, "fresh-state-local-runbook");
-        StringAssert.Contains(guardrailsWorkflowText, "RUNBOOK_LOG_DIR=\"$PWD/.tmp/runbook-logs\"");
-        StringAssert.Contains(guardrailsWorkflowText, "RUNBOOK_STATE_DIR=\"$PWD/.tmp/runbook-state\"");
-        StringAssert.Contains(guardrailsWorkflowText, "TEST_NUGET_SOFT_FAIL=0");
-        StringAssert.Contains(guardrailsWorkflowText, "bash scripts/runbook.sh local-tests net10.0 \"FullyQualifiedName~MigrationComplianceTests\"");
-        StringAssert.Contains(guardrailsWorkflowText, "git diff --exit-code -- docs/PARITY_CHECKLIST.md");
+        StringAssert.Contains(runbookText, "RUNBOOK_MODE\" == \"desktop-gate\"");
+        StringAssert.Contains(runbookText, "RUNBOOK_MODE\" == \"parity-checklist\"");
+        StringAssert.Contains(runbookText, "bash scripts/generate-parity-checklist.sh");
+        StringAssert.Contains(strictGatesText, "DOCKER_TESTS_SOFT_FAIL=0");
+        StringAssert.Contains(strictGatesText, "TEST_NUGET_SOFT_FAIL=0");
+        StringAssert.Contains(strictGatesText, "RUNBOOK_MODE=docker-tests");
+        StringAssert.Contains(strictGatesText, "RUNBOOK_MODE=local-tests");
     }
 
     [TestMethod]
