@@ -31,9 +31,9 @@ The SR6 runtime-reconciliation and parity execution order is now published in `d
 
 ### Phase 0: Freeze the seam
 
-- [ ] `MIG-001` CI: make `scripts/migration-loop.sh 1` a required PR check.
-Acceptance criteria: CI blocks merge on loop failure; required status check is enforced in branch protection.
-Progress: workflow job `linux-migration-loop` added in `.github/workflows/docker-architecture-guardrails.yml`; branch protection enforcement still requires GitHub repo settings update and is now the only remaining external/non-repo blocker for the migration parity phases.
+- [ ] `MIG-001` Automation: make `scripts/migration-loop.sh 1` a required merge check.
+Acceptance criteria: merge is blocked on loop failure; required status enforcement is configured outside the repository.
+Progress: `linux-migration-loop` exists as a local/self-hosted automation entrypoint; external enforcement is the remaining non-repo blocker for the migration parity phases.
 
 - [x] `MIG-002` Guardrails: extend architecture tests to fail when UI heads reference `Chummer.Application`, `Chummer.Core`, or `Chummer.Infrastructure`.
 Acceptance criteria: new/updated tests fail on forbidden project references and pass on current allowed topology.
