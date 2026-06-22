@@ -24,10 +24,10 @@ Repository variables:
 1. `CHUMMER_PORTAL_DOWNLOADS_DEPLOY_DIR`
 2. `CHUMMER_PORTAL_DOWNLOADS_VERIFY_URL`
 
-Workflow path:
-1. Run workflow `Desktop Downloads Matrix` with `deploy_portal_downloads=true`.
-2. Deploy job `deploy-downloads` syncs bundle using `scripts/publish-download-bundle.sh`.
-3. Job verifies local deployed manifest and live manifest URL.
+Local release path:
+1. Build the release bundle on the controlled release host.
+2. Run `RUNBOOK_MODE=downloads-sync` to deploy the bundle with `scripts/publish-download-bundle.sh`.
+3. The runbook verifies the local deployed manifest and live manifest URL.
 
 Manual path:
 1. `RUNBOOK_MODE=downloads-sync DOWNLOAD_BUNDLE_DIR=<bundleDir> DOWNLOAD_DEPLOY_DIR=<deployDir> DOWNLOADS_SYNC_DEPLOY_MODE=1 DOWNLOADS_SYNC_VERIFY_TARGET=<portalBaseOrManifestUrl> bash scripts/runbook.sh`
@@ -48,10 +48,10 @@ Repository secrets:
 2. `CHUMMER_PORTAL_DOWNLOADS_AWS_SECRET_ACCESS_KEY`
 3. `CHUMMER_PORTAL_DOWNLOADS_AWS_SESSION_TOKEN` (optional)
 
-Workflow path:
-1. Run workflow `Desktop Downloads Matrix` with `deploy_portal_downloads=true`.
-2. Deploy job `deploy-downloads-object-storage` syncs bundle using `scripts/publish-download-bundle-s3.sh`.
-3. Job verifies live manifest URL.
+Local release path:
+1. Build the release bundle on the controlled release host.
+2. Run `RUNBOOK_MODE=downloads-sync-s3` to deploy the bundle with `scripts/publish-download-bundle-s3.sh`.
+3. The runbook verifies the live manifest URL.
 
 Manual path:
 1. `RUNBOOK_MODE=downloads-sync-s3 DOWNLOAD_BUNDLE_DIR=<bundleDir> CHUMMER_PORTAL_DOWNLOADS_S3_URI=<s3://bucket/path> CHUMMER_PORTAL_DOWNLOADS_VERIFY_URL=<portalBaseOrManifestUrl> [CHUMMER_PORTAL_DOWNLOADS_S3_ENDPOINT_URL=<endpoint>] bash scripts/runbook.sh`
