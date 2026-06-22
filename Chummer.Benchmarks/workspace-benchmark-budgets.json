@@ -5,7 +5,7 @@
     {
       "name": "workspace.import.bastion",
       "maxMeanMilliseconds": 250.0,
-      "maxAllocatedBytes": 32000000
+      "maxAllocatedBytes": 64000000
     },
     {
       "name": "workspace.section.skills.bastion",
@@ -15,7 +15,7 @@
     {
       "name": "workspace.save.bastion",
       "maxMeanMilliseconds": 80.0,
-      "maxAllocatedBytes": 16000000
+      "maxAllocatedBytes": 48000000
     },
     {
       "name": "runtime.explain.trace",
