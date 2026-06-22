@@ -1,8 +1,8 @@
 {
   "edition": "SR5",
   "fixture_count": 45,
-  "generated_at_utc": "2026-06-20T22:36:46Z",
-  "mapped_rulefacts": 473,
+  "generated_at_utc": "2026-06-22T06:20:58Z",
+  "mapped_rulefacts": 330,
   "missing_providers": [],
   "provider_fact_counts": {
     "SR5AdvancementProvider": 6,
@@ -16,7 +16,6 @@
     "SR5MagicProvider": 10,
     "SR5MatrixProvider": 9,
     "SR5RiggingProvider": 12,
-    "SR5ShellCatalogProvider": 143,
     "SR5TableImportProvider": 147,
     "SR5TestProvider": 4,
     "SR5WorkspaceCodecProvider": 53
@@ -33,7 +32,6 @@
     "SR5MatrixProvider",
     "SR5RiggingProvider",
     "SR5TestProvider",
-    "SR5ShellCatalogProvider",
     "SR5WorkspaceCodecProvider",
     "SR5TableImportProvider",
     "SR5CapabilityHostProvider"
@@ -50,7 +48,6 @@
     "SR5MatrixProvider",
     "SR5RiggingProvider",
     "SR5TestProvider",
-    "SR5ShellCatalogProvider",
     "SR5WorkspaceCodecProvider",
     "SR5TableImportProvider",
     "SR5CapabilityHostProvider"

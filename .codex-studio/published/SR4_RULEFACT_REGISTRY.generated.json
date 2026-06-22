@@ -1,6 +1,9 @@
 {
   "book_profile": "sr4a_core_2009",
+  "copyright_boundary": {},
+  "edition": "SR4",
   "final_verdict": "SR4_RULE_AUTHORITY_READY",
+  "generated_at_utc": "2026-06-22T06:21:24Z",
   "human_review": {
     "errata_decision": "applied",
     "ready_token_approved": true,
@@ -32,8 +35,6 @@
   ],
   "missing_implemented_providers": [],
   "missing_profile_status": [],
-  "operator_review_promoted_at_utc": "2026-06-20T22:36:47Z",
-  "registry_sha256": "ff1c680ed8971d914531dfb9fbfc8a5148f6d07fd56e8ff6cac46c4fa94362a9",
   "required_providers": [
     "Sr4DiceProvider",
     "Sr4TestProvider",
@@ -56,6 +57,7 @@
     "Sr4ExplainReceiptProvider"
   ],
   "rulefact_count": 449,
+  "rulefact_families": [],
   "rulefacts": [
     {
       "book_profile": "sr4a_core_2009",
@@ -5888,8 +5890,7 @@
     }
   ],
   "ruleset": "sr4",
+  "runtime_receipt_path": ".codex-studio/published/SR4_RULEFACT_REGISTRY.generated.json",
   "schema": "sr4-rule-authority-public-registry-v2",
-  "source_package": "sr4_rule_authority_extraction_package_20260529.zip",
-  "source_ref_count": 18,
   "status": "pass"
 }

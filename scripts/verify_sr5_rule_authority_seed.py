@@ -15,7 +15,6 @@ RULESET_ROOT = REPO_ROOT / "Chummer.Rulesets.Sr5"
 PUBLISHED_ROOT = REPO_ROOT / ".codex-studio" / "published"
 AUTHORITY_ROOT = PUBLISHED_ROOT / "rule-authority"
 
-SHELL_CATALOG_PATH = RULESET_ROOT / "Sr5ShellCatalogs.cs"
 PLUGIN_PATH = RULESET_ROOT / "Sr5RulesetPlugin.cs"
 CODEC_PATH = RULESET_ROOT / "Sr5WorkspaceCodec.cs"
 CORE_PROVIDER_PATH = RULESET_ROOT / "Sr5CoreProviders.cs"
@@ -25,7 +24,6 @@ RULESET_DEPTH_PATH = PUBLISHED_ROOT / "SR5_RULESET_DEPTH.generated.json"
 ACCEPTANCE_PROOF_PATH = PUBLISHED_ROOT / "SR5_ACCEPTANCE_PROOF.generated.json"
 
 REQUIRED_PATHS = [
-    SHELL_CATALOG_PATH,
     PLUGIN_PATH,
     CODEC_PATH,
     CORE_PROVIDER_PATH,
@@ -47,7 +45,6 @@ REQUIRED_PROVIDERS = [
     "SR5MatrixProvider",
     "SR5RiggingProvider",
     "SR5TestProvider",
-    "SR5ShellCatalogProvider",
     "SR5WorkspaceCodecProvider",
     "SR5TableImportProvider",
     "SR5CapabilityHostProvider",
@@ -156,77 +153,6 @@ def slice_between(text: str, start_marker: str, end_marker: str | None = None) -
     start = text.index(start_marker)
     end = text.index(end_marker, start) if end_marker else len(text)
     return text[start:end]
-
-
-def extract_shell_catalog_facts(rulefacts: list[dict[str, Any]], seen_ids: set[str], shell_text: str) -> None:
-    app_section = slice_between(shell_text, "internal static class Sr5AppCommandCatalog", "internal static class Sr5NavigationTabCatalog")
-    for match in re.finditer(
-        r'Sr5\("(?P<id>[^"]+)",\s*"(?P<label>[^"]+)",\s*"(?P<group>[^"]+)",\s*(?P<requires>true|false),\s*(?P<enabled>true|false)\)',
-        app_section,
-    ):
-        command_id = match.group("id")
-        append_fact(
-            rulefacts,
-            seen_ids,
-            fact_id=f"sr5.shell.command.{slug(command_id)}",
-            provider="SR5ShellCatalogProvider",
-            source_ref="implementation:Chummer.Rulesets.Sr5/Sr5ShellCatalogs.cs#Sr5AppCommandCatalog",
-            fact={
-                "command_id": command_id,
-                "label_key": match.group("label"),
-                "group": match.group("group"),
-                "requires_open_character": match.group("requires") == "true",
-                "enabled_by_default": match.group("enabled") == "true",
-            },
-            seed_file=SHELL_CATALOG_PATH.name,
-        )
-
-    nav_section = slice_between(shell_text, "internal static class Sr5NavigationTabCatalog", "internal static class Sr5WorkspaceSurfaceActionCatalog")
-    for match in re.finditer(
-        r'Sr5\("(?P<id>[^"]+)",\s*"(?P<label>[^"]+)",\s*"(?P<section>[^"]+)",\s*"(?P<group>[^"]+)",\s*(?P<requires>true|false),\s*(?P<enabled>true|false)\)',
-        nav_section,
-    ):
-        tab_id = match.group("id")
-        append_fact(
-            rulefacts,
-            seen_ids,
-            fact_id=f"sr5.navigation.tab.{slug(tab_id)}",
-            provider="SR5ShellCatalogProvider",
-            source_ref="implementation:Chummer.Rulesets.Sr5/Sr5ShellCatalogs.cs#Sr5NavigationTabCatalog",
-            fact={
-                "tab_id": tab_id,
-                "label": match.group("label"),
-                "section_id": match.group("section"),
-                "group": match.group("group"),
-                "requires_open_character": match.group("requires") == "true",
-                "enabled_by_default": match.group("enabled") == "true",
-            },
-            seed_file=SHELL_CATALOG_PATH.name,
-        )
-
-    workspace_section = slice_between(shell_text, "internal static class Sr5WorkspaceSurfaceActionCatalog")
-    for match in re.finditer(
-        r'Sr5\("(?P<id>[^"]+)",\s*"(?P<label>[^"]+)",\s*"(?P<tab>[^"]+)",\s*WorkspaceSurfaceActionKind\.(?P<kind>[A-Za-z]+),\s*"(?P<section>[^"]+)",\s*(?P<requires>true|false),\s*(?P<enabled>true|false)\)',
-        workspace_section,
-    ):
-        action_id = match.group("id")
-        append_fact(
-            rulefacts,
-            seen_ids,
-            fact_id=f"sr5.workspace_action.{slug(action_id)}",
-            provider="SR5ShellCatalogProvider",
-            source_ref="implementation:Chummer.Rulesets.Sr5/Sr5ShellCatalogs.cs#Sr5WorkspaceSurfaceActionCatalog",
-            fact={
-                "action_id": action_id,
-                "label": match.group("label"),
-                "tab_id": match.group("tab"),
-                "kind": match.group("kind"),
-                "section_id": match.group("section"),
-                "requires_open_character": match.group("requires") == "true",
-                "enabled_by_default": match.group("enabled") == "true",
-            },
-            seed_file=SHELL_CATALOG_PATH.name,
-        )
 
 
 def extract_plugin_facts(rulefacts: list[dict[str, Any]], seen_ids: set[str], plugin_text: str) -> None:
@@ -750,7 +676,6 @@ def build_registry() -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], di
         raise FileNotFoundError(f"missing SR5 authority inputs: {missing}")
 
     generated_at = now()
-    shell_text = SHELL_CATALOG_PATH.read_text(encoding="utf-8")
     plugin_text = PLUGIN_PATH.read_text(encoding="utf-8")
     codec_text = CODEC_PATH.read_text(encoding="utf-8")
     core_text = CORE_PROVIDER_PATH.read_text(encoding="utf-8")
@@ -763,7 +688,6 @@ def build_registry() -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], di
     seen_ids: set[str] = set()
     fixtures: list[dict[str, Any]] = []
 
-    extract_shell_catalog_facts(rulefacts, seen_ids, shell_text)
     extract_plugin_facts(rulefacts, seen_ids, plugin_text)
     extract_core_provider_facts(rulefacts, seen_ids, core_text)
     extract_codec_facts(rulefacts, seen_ids, codec_text, ruleset_depth)
@@ -787,10 +711,13 @@ def build_registry() -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], di
             "art_or_page_images_copied": False,
             "public_artifact_contains_implementation_and_structured_data_facts_only": True,
         },
+        "excluded_inputs": [
+            {
+                "path": "Chummer.Rulesets.Sr5/Sr5ShellCatalogs.cs",
+                "reason": "Shell catalogs are UI/workbench metadata, not SR5 mechanical rule authority.",
+            }
+        ],
         "rulefact_families": [
-            "shell_commands",
-            "navigation_tabs",
-            "workspace_actions",
             "workflow_definitions",
             "workflow_surfaces",
             "core_mechanical_providers",
