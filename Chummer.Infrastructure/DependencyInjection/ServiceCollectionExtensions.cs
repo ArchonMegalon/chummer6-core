@@ -55,9 +55,9 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IAiProviderCredentialSelector, RoundRobinAiProviderCredentialSelector>();
         services.AddSingleton<IAiProviderRouter, DefaultAiProviderRouter>();
         services.AddSingleton<IAiRouteBudgetPolicyCatalog, EnvironmentAiRouteBudgetPolicyCatalog>();
-        services.AddSingleton<IAiUsageLedgerStore>(_ => new FileAiUsageLedgerStore(stateDirectory));
-        services.AddSingleton<IAiResponseCacheStore>(_ => new FileAiResponseCacheStore(stateDirectory));
-        services.AddSingleton<IAiProviderHealthStore>(_ => new FileAiProviderHealthStore(stateDirectory));
+        services.AddStateDirectorySingleton<IAiUsageLedgerStore, FileAiUsageLedgerStore>(stateDirectory);
+        services.AddStateDirectorySingleton<IAiResponseCacheStore, FileAiResponseCacheStore>(stateDirectory);
+        services.AddStateDirectorySingleton<IAiProviderHealthStore, FileAiProviderHealthStore>(stateDirectory);
         services.AddSingleton<IAiBudgetService, DefaultAiBudgetService>();
         services.AddSingleton<IBuildIdeaCardCatalogService, DefaultBuildIdeaCardCatalogService>();
         services.AddSingleton<IAestheticDigestService, DefaultAestheticDigestService>();
@@ -74,7 +74,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IRetrievalService, DefaultRetrievalService>();
         services.AddSingleton<IAiPromptRegistryService, DefaultAiPromptRegistryService>();
         services.AddSingleton<IPromptAssembler, DefaultPromptAssembler>();
-        services.AddSingleton<IConversationStore>(_ => new FileAiConversationStore(stateDirectory));
+        services.AddStateDirectorySingleton<IConversationStore, FileAiConversationStore>(stateDirectory);
         services.AddSingleton<IAiGatewayService, NotImplementedAiGatewayService>();
         services.AddSingleton<IAiMediaJobService, NotImplementedAiMediaJobService>();
         services.AddSingleton<IAiMediaAssetCatalogService, NotImplementedAiMediaAssetCatalogService>();
@@ -105,37 +105,37 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<INpcVaultRegistryService, DefaultNpcVaultRegistryService>();
         services.AddSingleton<IOppositionPacketContractService, DefaultOppositionPacketContractService>();
         services.AddSingleton<ICampaignAdvanceReceiptService, DefaultCampaignAdvanceReceiptService>();
-        services.AddSingleton<IRulePackManifestStore>(_ => new FileRulePackManifestStore(stateDirectory));
-        services.AddSingleton<IRulePackInstallHistoryStore>(_ => new FileRulePackInstallHistoryStore(stateDirectory));
-        services.AddSingleton<IRulePackInstallStateStore>(_ => new FileRulePackInstallStateStore(stateDirectory));
-        services.AddSingleton<IRulePackPublicationStore>(_ => new FileRulePackPublicationStore(stateDirectory));
+        services.AddStateDirectorySingleton<IRulePackManifestStore, FileRulePackManifestStore>(stateDirectory);
+        services.AddStateDirectorySingleton<IRulePackInstallHistoryStore, FileRulePackInstallHistoryStore>(stateDirectory);
+        services.AddStateDirectorySingleton<IRulePackInstallStateStore, FileRulePackInstallStateStore>(stateDirectory);
+        services.AddStateDirectorySingleton<IRulePackPublicationStore, FileRulePackPublicationStore>(stateDirectory);
         services.AddSingleton<IRulePackRegistryService, OverlayRulePackRegistryService>();
         services.AddSingleton<IRulePackInstallService, DefaultRulePackInstallService>();
         services.AddSingleton<IRuntimeFingerprintService, DefaultRuntimeFingerprintService>();
-        services.AddSingleton<IRuleProfileManifestStore>(_ => new FileRuleProfileManifestStore(stateDirectory));
-        services.AddSingleton<IRuleProfileInstallHistoryStore>(_ => new FileRuleProfileInstallHistoryStore(stateDirectory));
-        services.AddSingleton<IRuleProfileInstallStateStore>(_ => new FileRuleProfileInstallStateStore(stateDirectory));
-        services.AddSingleton<IRuleProfilePublicationStore>(_ => new FileRuleProfilePublicationStore(stateDirectory));
+        services.AddStateDirectorySingleton<IRuleProfileManifestStore, FileRuleProfileManifestStore>(stateDirectory);
+        services.AddStateDirectorySingleton<IRuleProfileInstallHistoryStore, FileRuleProfileInstallHistoryStore>(stateDirectory);
+        services.AddStateDirectorySingleton<IRuleProfileInstallStateStore, FileRuleProfileInstallStateStore>(stateDirectory);
+        services.AddStateDirectorySingleton<IRuleProfilePublicationStore, FileRuleProfilePublicationStore>(stateDirectory);
         services.AddSingleton<IRuleProfileRegistryService, DefaultRuleProfileRegistryService>();
         services.AddSingleton<IRuleProfileApplicationService, DefaultRuleProfileApplicationService>();
         services.AddSingleton<IRuntimeInspectorService, DefaultRuntimeInspectorService>();
         services.AddSingleton<IRuntimeLockDiffService, DefaultRuntimeLockDiffService>();
         services.AddSingleton<IRuleEnvironmentStudioService, DefaultRuleEnvironmentStudioService>();
         services.AddSingleton<IActiveRuntimeStatusService, DefaultActiveRuntimeStatusService>();
-        services.AddSingleton<IRuntimeLockInstallHistoryStore>(_ => new FileRuntimeLockInstallHistoryStore(stateDirectory));
-        services.AddSingleton<IRuntimeLockStore>(_ => new FileRuntimeLockStore(stateDirectory));
+        services.AddStateDirectorySingleton<IRuntimeLockInstallHistoryStore, FileRuntimeLockInstallHistoryStore>(stateDirectory);
+        services.AddStateDirectorySingleton<IRuntimeLockStore, FileRuntimeLockStore>(stateDirectory);
         services.AddSingleton<IRuntimeLockRegistryService, OwnerScopedRuntimeLockRegistryService>();
         services.AddSingleton<IRuntimeLockInstallService, DefaultRuntimeLockInstallService>();
         services.AddSingleton<IHubCatalogService, DefaultHubCatalogService>();
         services.AddSingleton<IAiHubProjectSearchService, DefaultAiHubProjectSearchService>();
         services.AddSingleton<IHubInstallPreviewService, DefaultHubInstallPreviewService>();
         services.AddSingleton<IHubProjectCompatibilityService, DefaultHubProjectCompatibilityService>();
-        services.AddSingleton<IHubPublisherStore>(_ => new FileHubPublisherStore(stateDirectory));
+        services.AddStateDirectorySingleton<IHubPublisherStore, FileHubPublisherStore>(stateDirectory);
         services.AddSingleton<IHubPublisherService, DefaultHubPublisherService>();
-        services.AddSingleton<IHubReviewStore>(_ => new FileHubReviewStore(stateDirectory));
+        services.AddStateDirectorySingleton<IHubReviewStore, FileHubReviewStore>(stateDirectory);
         services.AddSingleton<IHubReviewService, DefaultHubReviewService>();
-        services.AddSingleton<IHubDraftStore>(_ => new FileHubDraftStore(stateDirectory));
-        services.AddSingleton<IHubModerationCaseStore>(_ => new FileHubModerationCaseStore(stateDirectory));
+        services.AddStateDirectorySingleton<IHubDraftStore, FileHubDraftStore>(stateDirectory);
+        services.AddStateDirectorySingleton<IHubModerationCaseStore, FileHubModerationCaseStore>(stateDirectory);
         services.AddSingleton<IHubPublicationService, DefaultHubPublicationService>();
         services.AddSingleton<IHubModerationService, DefaultHubModerationService>();
 
@@ -149,17 +149,17 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IDataExportService, DataExportService>();
         services.AddSingleton<IToolCatalogService>(provider =>
             new XmlToolCatalogService(provider.GetRequiredService<IContentOverlayCatalogService>()));
-        services.AddSingleton<ISettingsStore>(_ => new FileSettingsStore(stateDirectory));
+        services.AddStateDirectorySingleton<ISettingsStore, FileSettingsStore>(stateDirectory);
         services.AddSingleton<IOwnerContextAccessor, LocalOwnerContextAccessor>();
         services.AddSingleton<IShellPreferencesStore, SettingsShellPreferencesStore>();
         services.AddSingleton<IShellPreferencesService, ShellPreferencesService>();
         services.AddSingleton<IShellSessionStore, SettingsShellSessionStore>();
         services.AddSingleton<IShellSessionService, ShellSessionService>();
-        services.AddSingleton<ISessionProfileSelectionStore>(_ => new FileSessionProfileSelectionStore(stateDirectory));
-        services.AddSingleton<ISessionRuntimeBundleStore>(_ => new FileSessionRuntimeBundleStore(stateDirectory));
+        services.AddStateDirectorySingleton<ISessionProfileSelectionStore, FileSessionProfileSelectionStore>(stateDirectory);
+        services.AddStateDirectorySingleton<ISessionRuntimeBundleStore, FileSessionRuntimeBundleStore>(stateDirectory);
         services.AddSingleton<ISessionService, OwnerScopedSessionService>();
         services.AddSingleton<ISessionActionBudgetService, DefaultSessionActionBudgetService>();
-        services.AddSingleton<IRosterStore>(_ => new FileRosterStore(stateDirectory));
+        services.AddStateDirectorySingleton<IRosterStore, FileRosterStore>(stateDirectory);
         services.AddSingleton<IWorkspaceStore>(_ =>
         {
             string? workspaceDirectory = Environment.GetEnvironmentVariable(WorkspaceStorePathEnvironmentVariable);
@@ -244,6 +244,28 @@ public static class ServiceCollectionExtensions
     {
         string? raw = Environment.GetEnvironmentVariable(variableName);
         return bool.TryParse(raw, out bool parsed) && parsed;
+    }
+
+    private static IServiceCollection AddStateDirectorySingleton<TService, TImplementation>(
+        this IServiceCollection services,
+        string stateDirectory)
+        where TService : class
+        where TImplementation : class, TService
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        ArgumentException.ThrowIfNullOrWhiteSpace(stateDirectory);
+
+        services.AddSingleton<TService>(_ => CreateStateDirectorySingleton<TImplementation>(stateDirectory));
+        return services;
+    }
+
+    private static TImplementation CreateStateDirectorySingleton<TImplementation>(string stateDirectory)
+        where TImplementation : class
+    {
+        object? instance = Activator.CreateInstance(typeof(TImplementation), stateDirectory);
+        return instance as TImplementation
+            ?? throw new InvalidOperationException(
+                $"Could not create state-directory singleton '{typeof(TImplementation).FullName}'.");
     }
 
     private static IReadOnlyList<IAiProvider> CreateConfiguredAiProviders(
