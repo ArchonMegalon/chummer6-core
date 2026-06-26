@@ -42,9 +42,7 @@ public sealed class Sr4RuleFactRegistryTests
         Assert.AreEqual(0, registry.MissingImplementedProviders.Count);
         Assert.AreEqual(Sr4RuleFactRegistry.ReadyVerdict, registry.FinalVerdict);
 
-        string receiptJson = File.ReadAllText(FindRepoPath(".codex-studio", "published", "OPERATOR_PROMOTED_RULE_AUTHORITY_GOLD.generated.json"));
-        StringAssert.Contains(receiptJson, "\"final_verdict\": \"FULL_RULE_AUTHORITY_READY\"");
-        StringAssert.Contains(receiptJson, "\"sourcebook_text_committed\": false");
+        AssertPromotedAuthorityReceipt("sr4", Sr4RuleFactRegistry.ReadyVerdict);
     }
 
     [TestMethod]
@@ -88,6 +86,36 @@ public sealed class Sr4RuleFactRegistryTests
         }
 
         throw new AssertFailedException("Expected Sr4RuleFactRegistry.Load to reject the malformed registry.");
+    }
+
+    private static void AssertPromotedAuthorityReceipt(string ruleset, string expectedVerdict)
+    {
+        string receiptJson = File.ReadAllText(FindRepoPath(".codex-studio", "published", "OPERATOR_PROMOTED_RULE_AUTHORITY_GOLD.generated.json"));
+        JsonObject receipt = JsonNode.Parse(receiptJson)!.AsObject();
+
+        Assert.AreEqual("pass", receipt["status"]?.GetValue<string>());
+        Assert.AreEqual("FULL_RULE_AUTHORITY_READY", receipt["final_verdict"]?.GetValue<string>());
+        Assert.AreEqual(0, receipt["failures"]!.AsArray().Count);
+
+        JsonObject copyright = receipt["copyright_boundary"]!.AsObject();
+        Assert.AreEqual(false, copyright["sourcebook_text_committed"]?.GetValue<bool>());
+        Assert.AreEqual(false, copyright["sourcebook_art_committed"]?.GetValue<bool>());
+        Assert.AreEqual(true, copyright["verdict_uses_public_safe_facts_and_receipts"]?.GetValue<bool>());
+
+        JsonObject sourceIdentity = receipt["source_identity"]!.AsObject();
+        Assert.AreEqual("pass", sourceIdentity["status"]?.GetValue<string>());
+        Assert.AreEqual(0, sourceIdentity["failures"]!.AsArray().Count);
+        JsonObject source = sourceIdentity["sources"]![ruleset]!.AsObject();
+        Assert.AreEqual(true, source["exists"]?.GetValue<bool>());
+        Assert.AreEqual(true, source["sha256_matches_expected"]?.GetValue<bool>());
+
+        JsonObject rulesetReceipt = receipt["rulesets"]!
+            .AsArray()
+            .Select(static item => item!.AsObject())
+            .Single(item => string.Equals(item["ruleset"]?.GetValue<string>(), ruleset, StringComparison.Ordinal));
+        Assert.AreEqual("pass", rulesetReceipt["status"]?.GetValue<string>());
+        Assert.AreEqual(expectedVerdict, rulesetReceipt["verdict"]?.GetValue<string>());
+        Assert.AreEqual(0, rulesetReceipt["failures"]!.AsArray().Count);
     }
 
     private static string FindRepoPath(params string[] segments)
