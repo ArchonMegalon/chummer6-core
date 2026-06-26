@@ -4,6 +4,8 @@ using System;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
+using System.Text.Json.Nodes;
+using Chummer.Rulesets.Sr5;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace Chummer.Tests;
@@ -14,32 +16,84 @@ public sealed class Sr5RuleAuthorityRegistryTests
     [TestMethod]
     public void Generated_registry_excludes_shell_catalog_metadata_from_rule_authority()
     {
-        using JsonDocument registry = JsonDocument.Parse(File.ReadAllText(FindRepoPath(
+        string json = File.ReadAllText(FindRepoPath(
             ".codex-studio",
             "published",
-            "SR5_RULE_AUTHORITY_REGISTRY.generated.json")));
+            "SR5_RULE_AUTHORITY_REGISTRY.generated.json"));
 
-        Assert.AreEqual("SR5_RULE_AUTHORITY_READY", registry.RootElement.GetProperty("final_verdict").GetString());
-        Assert.IsTrue(registry.RootElement.GetProperty("rulefact_count").GetInt32() >= 100);
+        Sr5RuleFactRegistry loaded = Sr5RuleFactRegistry.Load(json);
+        using JsonDocument registry = JsonDocument.Parse(json);
+
+        Assert.AreEqual(Sr5RuleFactRegistry.ReadyVerdict, loaded.FinalVerdict);
+        Assert.AreEqual("sr5", loaded.Ruleset);
+        Assert.IsTrue(loaded.RuleFactCount >= 100);
+        Assert.IsTrue(loaded.RuleFacts.Any(fact => fact.Provider == "SR5DiceProvider"));
+        Assert.IsTrue(loaded.RuleFacts.All(fact => !string.IsNullOrWhiteSpace(fact.SourceRef)));
         AssertExcludedShellCatalog(registry.RootElement);
     }
 
     [TestMethod]
     public void Runtime_rulefact_registry_excludes_shell_catalog_metadata_from_rule_authority()
     {
-        using JsonDocument registry = JsonDocument.Parse(File.ReadAllText(FindRepoPath(
+        string json = File.ReadAllText(FindRepoPath(
             ".codex-studio",
             "published",
             "rule-authority",
-            "SR5_RULEFACT_REGISTRY.generated.json")));
+            "SR5_RULEFACT_REGISTRY.generated.json"));
+
+        Sr5RuleFactRegistry loaded = Sr5RuleFactRegistry.Load(json);
+        using JsonDocument registry = JsonDocument.Parse(json);
 
         Assert.AreEqual("pass", registry.RootElement.GetProperty("status").GetString());
-        Assert.IsTrue(registry.RootElement.GetProperty("rulefact_count").GetInt32() >= 100);
+        Assert.IsTrue(loaded.RuleFactCount >= 100);
         AssertExcludedShellCatalog(registry.RootElement);
 
         JsonElement excluded = registry.RootElement.GetProperty("excluded_inputs").EnumerateArray().Single();
         Assert.AreEqual("Chummer.Rulesets.Sr5/Sr5ShellCatalogs.cs", excluded.GetProperty("path").GetString());
         StringAssert.Contains(excluded.GetProperty("reason").GetString(), "UI/workbench metadata");
+    }
+
+    [TestMethod]
+    public void Generated_registry_rejects_rulefacts_with_mismatched_ruleset()
+    {
+        string json = File.ReadAllText(FindRepoPath(".codex-studio", "published", "SR5_RULE_AUTHORITY_REGISTRY.generated.json"));
+        JsonObject registry = JsonNode.Parse(json)!.AsObject();
+        JsonArray ruleFacts = registry["rulefacts"]!.AsArray();
+        JsonObject firstFact = ruleFacts[0]!.AsObject();
+
+        firstFact["ruleset"] = "sr6";
+
+        InvalidOperationException ex = CaptureLoadFailure(registry);
+        StringAssert.Contains(ex.Message, "mismatched rulesets");
+    }
+
+    [TestMethod]
+    public void Generated_registry_rejects_rulefacts_with_mismatched_book_profile()
+    {
+        string json = File.ReadAllText(FindRepoPath(".codex-studio", "published", "SR5_RULE_AUTHORITY_REGISTRY.generated.json"));
+        JsonObject registry = JsonNode.Parse(json)!.AsObject();
+        JsonArray ruleFacts = registry["rulefacts"]!.AsArray();
+        JsonObject firstFact = ruleFacts[0]!.AsObject();
+
+        registry["book_profile"] = "core";
+        firstFact["book_profile"] = "runnerhub";
+
+        InvalidOperationException ex = CaptureLoadFailure(registry);
+        StringAssert.Contains(ex.Message, "mismatched book profiles");
+    }
+
+    private static InvalidOperationException CaptureLoadFailure(JsonObject registry)
+    {
+        try
+        {
+            Sr5RuleFactRegistry.Load(registry.ToJsonString());
+        }
+        catch (InvalidOperationException ex)
+        {
+            return ex;
+        }
+
+        throw new AssertFailedException("Expected Sr5RuleFactRegistry.Load to reject the malformed registry.");
     }
 
     private static void AssertExcludedShellCatalog(JsonElement registry)
