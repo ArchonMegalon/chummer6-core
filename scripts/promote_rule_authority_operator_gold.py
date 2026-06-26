@@ -271,7 +271,13 @@ def sr5_gate() -> dict[str, Any]:
     )
     write_text(V14 / "FINAL_SR5_RULE_AUTHORITY_VERDICT.md", verdict_md)
     write_text(COMPLETION / "sr5_rule_authority" / "FINAL_SR5_RULE_AUTHORITY_VERDICT.md", verdict_md)
-    return {"ruleset": "sr5", "status": "pass" if ready else "fail", "verdict": registry["final_verdict"], "failures": failures}
+    return {
+        "ruleset": "sr5",
+        "status": "pass" if ready else "fail",
+        "verdict": registry["final_verdict"],
+        "failures": failures,
+        "rulefact_count": registry.get("rulefact_count"),
+    }
 
 
 GENERATED_AT = now()

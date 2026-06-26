@@ -21,6 +21,7 @@
     },
     {
       "failures": [],
+      "rulefact_count": 330,
       "ruleset": "sr5",
       "status": "pass",
       "verdict": "SR5_RULE_AUTHORITY_READY"

@@ -115,6 +115,7 @@ public sealed class Sr4RuleFactRegistryTests
             .Single(item => string.Equals(item["ruleset"]?.GetValue<string>(), ruleset, StringComparison.Ordinal));
         Assert.AreEqual("pass", rulesetReceipt["status"]?.GetValue<string>());
         Assert.AreEqual(expectedVerdict, rulesetReceipt["verdict"]?.GetValue<string>());
+        Assert.IsTrue(rulesetReceipt["rulefact_count"]?.GetValue<int>() >= 100);
         Assert.AreEqual(0, rulesetReceipt["failures"]!.AsArray().Count);
     }
 
