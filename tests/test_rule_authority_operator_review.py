@@ -87,6 +87,43 @@ class RuleAuthorityOperatorReviewTests(unittest.TestCase):
         self.assertTrue(payload["rulesets"]["sr6"]["rule_authority_ready"])
         self.assertTrue(payload["rulesets"]["sr4"]["human_review"]["review_ready"])
         self.assertTrue(payload["rulesets"]["sr6"]["human_review"]["review_ready"])
+        self.assertEqual("pass", payload["promoted_operator_receipt"]["status"])
+        self.assertEqual(330, payload["promoted_operator_receipt"]["rulesets"]["sr5"]["rulefact_count"])
+
+    def test_full_completion_rejects_promoted_receipt_without_rulefact_counts(self) -> None:
+        import importlib.util
+
+        script_path = REPO_ROOT / "scripts" / "verify_full_rule_authority_completion.py"
+        spec = importlib.util.spec_from_file_location("verify_full_rule_authority_completion", script_path)
+        module = importlib.util.module_from_spec(spec)
+        assert spec and spec.loader
+        spec.loader.exec_module(module)
+
+        receipt = {
+            "status": "pass",
+            "final_verdict": "FULL_RULE_AUTHORITY_READY",
+            "rulesets": [
+                {"ruleset": "sr4", "status": "pass", "verdict": "SR4_RULE_AUTHORITY_READY", "rulefact_count": 449},
+                {"ruleset": "sr5", "status": "pass", "verdict": "SR5_RULE_AUTHORITY_READY"},
+                {"ruleset": "sr6", "status": "pass", "verdict": "SR6_RULE_AUTHORITY_READY", "rulefact_count": 447},
+            ],
+        }
+
+        validation = module.validate_promoted_operator_receipt(
+            receipt,
+            {
+                "sr4": 449,
+                "sr5": 330,
+                "sr6": 447,
+            },
+        )
+
+        self.assertEqual("fail", validation["status"])
+        self.assertIn(
+            "promoted operator receipt sr5 rulefact_count is missing or not numeric",
+            validation["failures"],
+        )
+        self.assertEqual(330, validation["rulesets"]["sr5"]["expected_rulefact_count"])
 
 
 if __name__ == "__main__":

@@ -5,6 +5,7 @@ import json
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from verify_rule_authority_human_review import validate_review
@@ -26,6 +27,7 @@ SR5_PROVIDER_SPOT_CHECKS = {
     "SR5TestProvider": "SR5 tests",
     "SR5ExplainReceiptProvider": "SR5 explain receipts",
 }
+MIN_RULEFACT_COUNT = 100
 
 
 def load_json(path: Path) -> dict:
@@ -40,6 +42,68 @@ def write_json(path: Path, payload: dict) -> None:
 
 def now_iso() -> str:
     return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def validate_promoted_operator_receipt(
+    receipt: dict[str, Any],
+    expected_rulefact_counts: dict[str, int],
+) -> dict[str, Any]:
+    failures: list[str] = []
+    rulesets_by_id: dict[str, dict[str, Any]] = {}
+    for row in receipt.get("rulesets") or []:
+        ruleset = str(row.get("ruleset") or "").lower()
+        if ruleset:
+            rulesets_by_id[ruleset] = row
+
+    if receipt.get("final_verdict") != "FULL_RULE_AUTHORITY_READY":
+        failures.append("promoted operator receipt is not FULL_RULE_AUTHORITY_READY")
+    if receipt.get("status") != "pass":
+        failures.append("promoted operator receipt status is not pass")
+
+    normalized_rulesets: dict[str, dict[str, Any]] = {}
+    for ruleset, expected_count in expected_rulefact_counts.items():
+        row = rulesets_by_id.get(ruleset)
+        if row is None:
+            failures.append(f"promoted operator receipt is missing {ruleset}")
+            normalized_rulesets[ruleset] = {
+                "present": False,
+                "rulefact_count": None,
+                "expected_rulefact_count": expected_count,
+            }
+            continue
+
+        try:
+            rulefact_count = int(row.get("rulefact_count"))
+        except (TypeError, ValueError):
+            failures.append(f"promoted operator receipt {ruleset} rulefact_count is missing or not numeric")
+            normalized_rulesets[ruleset] = {
+                "present": True,
+                "rulefact_count": row.get("rulefact_count"),
+                "expected_rulefact_count": expected_count,
+            }
+            continue
+
+        if rulefact_count < MIN_RULEFACT_COUNT:
+            failures.append(
+                f"promoted operator receipt {ruleset} rulefact_count {rulefact_count} is below {MIN_RULEFACT_COUNT}"
+            )
+        if rulefact_count != expected_count:
+            failures.append(
+                f"promoted operator receipt {ruleset} rulefact_count {rulefact_count} does not match registry {expected_count}"
+            )
+        normalized_rulesets[ruleset] = {
+            "present": True,
+            "rulefact_count": rulefact_count,
+            "expected_rulefact_count": expected_count,
+            "verdict": row.get("verdict"),
+            "status": row.get("status"),
+        }
+
+    return {
+        "status": "pass" if not failures else "fail",
+        "rulesets": normalized_rulesets,
+        "failures": failures,
+    }
 
 
 def main() -> int:
@@ -68,6 +132,13 @@ def main() -> int:
     sr5_acceptance = load_json(PUBLISHED_ROOT / "SR5_ACCEPTANCE_PROOF.generated.json")
     sr5_depth = load_json(PUBLISHED_ROOT / "SR5_RULESET_DEPTH.generated.json")
     sr5_registry = load_json(PUBLISHED_ROOT / "SR5_RULE_AUTHORITY_REGISTRY.generated.json")
+    promoted_receipt = load_json(PUBLISHED_ROOT / "OPERATOR_PROMOTED_RULE_AUTHORITY_GOLD.generated.json")
+    expected_rulefact_counts = {
+        "sr4": int(sr4_integration.get("rulefact_count") or 0),
+        "sr5": int(sr5_registry.get("rulefact_count") or 0),
+        "sr6": int(sr6_integration.get("rulefact_count") or 0),
+    }
+    promoted_receipt_validation = validate_promoted_operator_receipt(promoted_receipt, expected_rulefact_counts)
 
     sr4_ready = bool(sr4_integration.get("readiness_token_allowed"))
     sr6_ready = bool(sr6_integration.get("readiness_token_allowed"))
@@ -206,6 +277,23 @@ def main() -> int:
             },
             "readiness_token_allowed": sr5_ready,
         })
+    if promoted_receipt_validation["status"] != "pass":
+        blockers.append({
+            "ruleset": "full_product",
+            "blocked_token": "FULL_RULE_AUTHORITY_READY",
+            "machine_closed": {
+                "promoted_operator_receipt_status": promoted_receipt_validation["status"],
+                "promoted_operator_receipt_failures": promoted_receipt_validation["failures"],
+            },
+            "remaining_gates": [
+                "regenerate the promoted operator rule-authority receipt from current structured registries",
+                "ensure every promoted ruleset row carries rulefact_count and matches the registry count",
+            ],
+            "blocker_receipts": {
+                "promoted_operator_receipt": str(PUBLISHED_ROOT / "OPERATOR_PROMOTED_RULE_AUTHORITY_GOLD.generated.json"),
+            },
+            "readiness_token_allowed": False,
+        })
 
     payload = {
         "contract_name": "chummer.full_product_rule_authority_completion",
@@ -242,6 +330,7 @@ def main() -> int:
                 "verification_matrix_unexpected_failed_gates": sr6_matrix.get("unexpected_failed_gates", []),
             },
         },
+        "promoted_operator_receipt": promoted_receipt_validation,
         "blockers": blockers,
         "copyright_boundary": {
             "public_safe": True,
