@@ -33,14 +33,17 @@ public static class NavigationTabCatalog
             Sr5("tab-adept", "Adept", "powers", "character", true, true),
             Sr5("tab-technomancer", "Technomancer", "complexforms", "character", true, true),
             Sr5("tab-combat", "Combat", "weapons", "character", true, true),
+            Sr5("tab-streetgear", "Street Gear", "gear", "character", true, true),
             Sr5("tab-gear", "Gear", "gear", "character", true, true),
             Sr5("tab-armor", "Armor", "armors", "character", true, true),
             Sr5("tab-cyberware", "Cyberware/Bioware", "cyberwares", "character", true, true),
             Sr5("tab-vehicles", "Vehicles", "vehicles", "character", true, true),
             Sr5("tab-lifestyle", "Lifestyle", "lifestyles", "character", true, true),
+            Sr5("tab-relationships", "Relationships", "relationships", "character", true, true),
             Sr5("tab-contacts", "Contacts", "contacts", "character", true, true),
             Sr5("tab-rules", "Rules", "rules", "character", true, true),
             Sr5("tab-notes", "Notes", "profile", "character", true, true),
+            Sr5("tab-karma", "Karma & Nuyen", "karmasummary", "character", true, true),
             Sr5("tab-calendar", "Calendar", "calendar", "character", true, true),
             Sr5("tab-improvements", "Improvements", "improvements", "character", true, true)
         ];

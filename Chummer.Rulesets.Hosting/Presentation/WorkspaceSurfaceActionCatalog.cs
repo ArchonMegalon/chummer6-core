@@ -53,6 +53,7 @@ public static class WorkspaceSurfaceActionCatalog
             Sr5("tab-info.build", "Build", "tab-info", WorkspaceSurfaceActionKind.Section, "build", true, true),
             Sr5("tab-info.movement", "Movement", "tab-info", WorkspaceSurfaceActionKind.Section, "movement", true, true),
             Sr5("tab-info.awakening", "Awakening", "tab-info", WorkspaceSurfaceActionKind.Section, "awakening", true, true),
+            Sr5("tab-info.spelldefense", "Spell Defense", "tab-info", WorkspaceSurfaceActionKind.Section, "spelldefense", true, true),
             Sr5("tab-info.attributes", "Attributes", "tab-info", WorkspaceSurfaceActionKind.Section, "attributes", true, true),
             Sr5("tab-info.attributedetails", "Attribute Details", "tab-info", WorkspaceSurfaceActionKind.Section, "attributedetails", true, true),
             Sr5("tab-info.skills", "Skills", "tab-info", WorkspaceSurfaceActionKind.Section, "skills", true, true),
@@ -109,12 +110,20 @@ public static class WorkspaceSurfaceActionCatalog
             Sr5("tab-adept.initiationgrades", "Initiation/Submersion", "tab-adept", WorkspaceSurfaceActionKind.Section, "initiationgrades", true, true),
 
             Sr5("tab-technomancer.complexforms", "Complex Forms", "tab-technomancer", WorkspaceSurfaceActionKind.Section, "complexforms", true, true),
+            Sr5("tab-technomancer.sprites", "Sprites", "tab-technomancer", WorkspaceSurfaceActionKind.Section, "sprites", true, true),
             Sr5("tab-technomancer.aiprograms", "Advanced Programs", "tab-technomancer", WorkspaceSurfaceActionKind.Section, "aiprograms", true, true),
 
             Sr5("tab-combat.weapons", "Weapons", "tab-combat", WorkspaceSurfaceActionKind.Section, "weapons", true, true),
             Sr5("tab-combat.armors", "Armor", "tab-combat", WorkspaceSurfaceActionKind.Section, "armors", true, true),
             Sr5("tab-combat.drugs", "Drugs", "tab-combat", WorkspaceSurfaceActionKind.Section, "drugs", true, true),
             Sr5("tab-combat.movement", "Movement", "tab-combat", WorkspaceSurfaceActionKind.Section, "movement", true, true),
+            Sr5("tab-combat.conditionmonitor", "Condition Monitor", "tab-combat", WorkspaceSurfaceActionKind.Section, "conditionmonitor", true, true),
+
+            Sr5("tab-streetgear.gear", "Gear", "tab-streetgear", WorkspaceSurfaceActionKind.Section, "gear", true, true),
+            Sr5("tab-streetgear.armors", "Armor", "tab-streetgear", WorkspaceSurfaceActionKind.Section, "armors", true, true),
+            Sr5("tab-streetgear.weapons", "Weapons", "tab-streetgear", WorkspaceSurfaceActionKind.Section, "weapons", true, true),
+            Sr5("tab-streetgear.drugs", "Drugs", "tab-streetgear", WorkspaceSurfaceActionKind.Section, "drugs", true, true),
+            Sr5("tab-streetgear.lifestyles", "Lifestyles", "tab-streetgear", WorkspaceSurfaceActionKind.Section, "lifestyles", true, true),
 
             Sr5("tab-armor.armors", "Armor Items", "tab-armor", WorkspaceSurfaceActionKind.Section, "armors", true, true),
             Sr5("tab-armor.armormods", "Armor Mods", "tab-armor", WorkspaceSurfaceActionKind.Section, "armormods", true, true),
@@ -131,11 +140,21 @@ public static class WorkspaceSurfaceActionCatalog
             Sr5("tab-lifestyle.expenses", "Expenses", "tab-lifestyle", WorkspaceSurfaceActionKind.Section, "expenses", true, true),
             Sr5("tab-lifestyle.sources", "Sources", "tab-lifestyle", WorkspaceSurfaceActionKind.Section, "sources", true, true),
 
+            Sr5("tab-relationships.relationships", "Relationships", "tab-relationships", WorkspaceSurfaceActionKind.Section, "relationships", true, true),
+            Sr5("tab-relationships.contacts", "Contacts", "tab-relationships", WorkspaceSurfaceActionKind.Section, "contacts", true, true),
+            Sr5("tab-relationships.enemies", "Enemies", "tab-relationships", WorkspaceSurfaceActionKind.Section, "enemies", true, true),
+            Sr5("tab-relationships.pets", "Pets & Cohorts", "tab-relationships", WorkspaceSurfaceActionKind.Section, "pets", true, true),
+
             Sr5("tab-contacts.contacts", "Contacts", "tab-contacts", WorkspaceSurfaceActionKind.Section, "contacts", true, true),
             Sr5("tab-contacts.mentorspirits", "Mentors/Spirits", "tab-contacts", WorkspaceSurfaceActionKind.Section, "mentorspirits", true, true),
 
             Sr5("tab-notes.metadata", "Save Notes", "tab-notes", WorkspaceSurfaceActionKind.Metadata, "metadata", true, true),
             Sr5("tab-notes.data_exporter", "Export Notes Snapshot", "tab-notes", WorkspaceSurfaceActionKind.Command, "data_exporter", true, true),
+
+            Sr5("tab-karma.summary", "Karma Summary", "tab-karma", WorkspaceSurfaceActionKind.Section, "karmasummary", true, true),
+            Sr5("tab-karma.expenses", "Expenses", "tab-karma", WorkspaceSurfaceActionKind.Section, "expenses", true, true),
+            Sr5("tab-karma.calendar", "Calendar", "tab-karma", WorkspaceSurfaceActionKind.Section, "calendar", true, true),
+            Sr5("tab-karma.progress", "Progress", "tab-karma", WorkspaceSurfaceActionKind.Section, "progress", true, true),
 
             Sr5("tab-calendar.calendar", "Calendar Entries", "tab-calendar", WorkspaceSurfaceActionKind.Section, "calendar", true, true),
             Sr5("tab-calendar.expenses", "Expense Timeline", "tab-calendar", WorkspaceSurfaceActionKind.Section, "expenses", true, true),
