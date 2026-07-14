@@ -2663,6 +2663,13 @@ namespace Chummer
                         case Improvement.ImprovementType.SpellCategory:
                             if (objImprovement.ImprovedName == Category)
                             {
+                                if (!string.IsNullOrEmpty(objImprovement.Condition)
+                                    && !await ImprovementManager.EvaluateImprovementConditionAsync(objImprovement, this, token)
+                                        .ConfigureAwait(false))
+                                {
+                                    break;
+                                }
+
                                 Improvement objCategoryImprovement =
                                     await ResolveSpellCategoryImprovementAsync(objImprovement, token)
                                         .ConfigureAwait(false);

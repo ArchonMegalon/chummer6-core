@@ -45805,9 +45805,7 @@ namespace Chummer
                     }
                     else if (objImprovement.ImproveType == Improvement.ImprovementType.Seeker
                              && objImprovement.Enabled
-                             && (string.IsNullOrEmpty(objImprovement.Condition)
-                                 || (objImprovement.Condition == "career") == blnCreated
-                                 || (objImprovement.Condition == "create") != blnCreated))
+                             && ImprovementManager.EvaluateImprovementCondition(objImprovement, this))
                     {
                         string strImprovedName = objImprovement.ImprovedName;
                         if (strImprovedName == "BOX" || AttributeSection.AttributeStrings.Contains(strImprovedName))
@@ -45937,9 +45935,7 @@ namespace Chummer
                     }
                     else if (objImprovement.ImproveType == Improvement.ImprovementType.Seeker
                              && objImprovement.Enabled
-                             && (string.IsNullOrEmpty(objImprovement.Condition)
-                                 || (objImprovement.Condition == "career") == blnCreated
-                                 || (objImprovement.Condition == "create") != blnCreated))
+                             && ImprovementManager.EvaluateImprovementCondition(objImprovement, this))
                     {
                         string strImprovedName = objImprovement.ImprovedName;
                         if (strImprovedName == "BOX" || AttributeSection.AttributeStrings.Contains(strImprovedName))
