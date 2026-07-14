@@ -350,6 +350,7 @@ namespace Chummer
             ActionDicePool,
             SpecialModificationLimit,
             AddSpirit,
+            AddSpiritSkill,
             ContactKarmaDiscount,
             ContactKarmaMinimum,
             GenetechEssMultiplier,
@@ -1659,7 +1660,13 @@ namespace Chummer
                 }
                     break;
 
+                case ImprovementType.AddSpirit:
                 case ImprovementType.AddSprite:
+                    {
+                        // Used by SpiritControl to rebuild summonable type dropdowns.
+                        yield return new ValueTuple<INotifyMultiplePropertiesChangedAsync, string>(_objCharacter,
+                            nameof(Character.SpiritTypeListChanged));
+                    }
                     break;
 
                 case ImprovementType.BlackMarketDiscount:
@@ -2355,6 +2362,7 @@ namespace Chummer
                     break;
 
                 case ImprovementType.FreeSpellsSkill:
+                case ImprovementType.AddSpiritSkill:
                     break;
 
                 case ImprovementType.DisableSpecializationEffects:
@@ -3737,7 +3745,13 @@ namespace Chummer
                     }
                     break;
 
+                case ImprovementType.AddSpirit:
                 case ImprovementType.AddSprite:
+                    {
+                        // Used by SpiritControl to rebuild summonable type dropdowns.
+                        lstReturn.Add(new ValueTuple<INotifyMultiplePropertiesChangedAsync, string>(_objCharacter,
+                            nameof(Character.SpiritTypeListChanged)));
+                    }
                     break;
 
                 case ImprovementType.BlackMarketDiscount:
@@ -4397,6 +4411,7 @@ namespace Chummer
                     break;
 
                 case ImprovementType.FreeSpellsSkill:
+                case ImprovementType.AddSpiritSkill:
                     break;
 
                 case ImprovementType.DisableSpecializationEffects:
