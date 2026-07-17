@@ -10,10 +10,13 @@ public interface ICharacterSectionService
     CharacterInventorySection ParseInventory(string xml);
     CharacterProfileSection ParseProfile(string xml);
     CharacterProgressSection ParseProgress(string xml);
+    CharacterProgressSection ParseKarmaSummary(string xml);
+    CharacterConditionMonitorSection ParseConditionMonitor(string xml);
     CharacterRulesSection ParseRules(string xml);
     CharacterBuildSection ParseBuild(string xml);
     CharacterMovementSection ParseMovement(string xml);
     CharacterAwakeningSection ParseAwakening(string xml);
+    CharacterSpellDefenseSection ParseSpellDefense(string xml);
     CharacterGearSection ParseGear(string xml);
     CharacterWeaponsSection ParseWeapons(string xml);
     CharacterWeaponAccessoriesSection ParseWeaponAccessories(string xml);
@@ -28,6 +31,9 @@ public interface ICharacterSectionService
     CharacterQualitiesSection ParseQualities(string xml);
 
     CharacterContactsSection ParseContacts(string xml);
+    CharacterContactsSection ParseRelationships(string xml);
+    CharacterContactsSection ParseEnemies(string xml);
+    CharacterContactsSection ParsePets(string xml);
 
     CharacterSpellsSection ParseSpells(string xml);
 

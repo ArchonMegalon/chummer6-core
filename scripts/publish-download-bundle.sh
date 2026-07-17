@@ -19,6 +19,18 @@ to_bool() {
   [[ "$value" == "1" || "$value" == "true" || "$value" == "yes" || "$value" == "on" ]]
 }
 
+assert_legacy_release_shelf_target() {
+  local target_dir="$1"
+  local layout_marker="$target_dir/.release-shelf-layout-v1"
+  local active_pointer="$target_dir/current.json"
+
+  if [[ -e "$layout_marker" || -L "$layout_marker" || -e "$active_pointer" || -L "$active_pointer" ]]; then
+    echo "Refusing legacy fixed-path release publication into $target_dir: immutable release shelf layout v1 is active." >&2
+    echo "Use the generation-aware publisher; this writer must not mutate paths behind current.json." >&2
+    return 1
+  fi
+}
+
 if [[ -z "$PORTAL_MANIFEST_PATH" ]]; then
   if [[ "$(realpath "$DEPLOY_DIR")" == "$(realpath "$REPO_ROOT/Docker/Downloads")" ]]; then
     PORTAL_MANIFEST_PATH="$REPO_ROOT/Chummer.Portal/downloads/releases.json"
@@ -29,6 +41,11 @@ fi
 
 if [[ -z "$PORTAL_DOWNLOADS_DIR" ]]; then
   PORTAL_DOWNLOADS_DIR="$(dirname "$PORTAL_MANIFEST_PATH")"
+fi
+
+assert_legacy_release_shelf_target "$DEPLOY_DIR"
+if [[ "$(realpath -m "$PORTAL_DOWNLOADS_DIR")" != "$(realpath -m "$DEPLOY_DIR")" ]]; then
+  assert_legacy_release_shelf_target "$PORTAL_DOWNLOADS_DIR"
 fi
 
 if [[ ! -d "$BUNDLE_DIR" ]]; then
@@ -52,6 +69,10 @@ if [[ "${#artifacts[@]}" -eq 0 ]]; then
   exit 1
 fi
 
+assert_legacy_release_shelf_target "$DEPLOY_DIR"
+if [[ "$(realpath -m "$PORTAL_DOWNLOADS_DIR")" != "$(realpath -m "$DEPLOY_DIR")" ]]; then
+  assert_legacy_release_shelf_target "$PORTAL_DOWNLOADS_DIR"
+fi
 mkdir -p "$DEPLOY_DIR/files"
 find "$DEPLOY_DIR/files" -maxdepth 1 -type f \
   \( -name "chummer-avalonia-*.zip" -o -name "chummer-avalonia-*.tar.gz" -o \

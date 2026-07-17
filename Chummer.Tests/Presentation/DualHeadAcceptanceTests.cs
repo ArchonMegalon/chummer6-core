@@ -666,6 +666,7 @@ public class DualHeadAcceptanceTests
             "tab-magician.metamagics",
             "tab-adept.powers",
             "tab-technomancer.complexforms",
+            "tab-technomancer.sprites",
             "tab-technomancer.aiprograms"
         ];
 
@@ -675,6 +676,7 @@ public class DualHeadAcceptanceTests
             ["tab-magician.metamagics"] = "metamagics",
             ["tab-adept.powers"] = "powers",
             ["tab-technomancer.complexforms"] = "complexforms",
+            ["tab-technomancer.sprites"] = "sprites",
             ["tab-technomancer.aiprograms"] = "aiprograms"
         };
 

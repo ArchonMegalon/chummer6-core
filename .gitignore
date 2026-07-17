@@ -243,6 +243,7 @@ WORK_QUEUE.md
 .tmp/
 .local/
 .artifacts/
+/.vexp/
 audit.md
 skillsneeded.txt
 day1.prompt.txt
@@ -277,3 +278,4 @@ Chummer/Resources/source/upscaling/4x_FireAlpha.pth
 !/.codex-studio/published/
 !/.codex-studio/published/QUEUE.generated.yaml
 !/.codex-studio/published/WORKPACKAGES.generated.yaml
+/NEXT_SESSION_HANDOFF.md

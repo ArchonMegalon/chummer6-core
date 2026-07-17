@@ -160,7 +160,7 @@ internal static class LegacyRulesParityAudit
             [
                 new Sr4WorkspaceCodec(fileQueries, sectionQueries, metadataCommands),
                 new Sr5WorkspaceCodec(fileQueries, sectionQueries, metadataCommands),
-                new Sr6WorkspaceCodec()
+                new Sr6WorkspaceCodec(fileQueries, sectionQueries, metadataCommands)
             ]),
             new WorkspaceImportRulesetDetector());
     }

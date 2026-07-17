@@ -1,6 +1,7 @@
 using System.Text;
 using System.Xml.Linq;
 using Chummer.Application.BuildLab;
+using Chummer.Application.Characters;
 using Chummer.Application.Workspaces;
 using Chummer.Contracts.Api;
 using Chummer.Contracts.Characters;
@@ -13,6 +14,74 @@ public sealed class Sr6WorkspaceCodec : IRulesetWorkspaceCodec
 {
     public const int SchemaVersion = 1;
     public const string Sr6PayloadKind = "sr6/chum6-xml";
+    private static readonly HashSet<string> SharedSectionIds = new(StringComparer.Ordinal)
+    {
+        "profile",
+        "progress",
+        "karmasummary",
+        "conditionmonitor",
+        "rules",
+        "build",
+        "movement",
+        "awakening",
+        "skills",
+        "attributes",
+        "attributedetails",
+        "limitmodifiers",
+        "inventory",
+        "gear",
+        "weapons",
+        "weaponaccessories",
+        "armors",
+        "armormods",
+        "cyberwares",
+        "vehicles",
+        "vehiclemods",
+        "gearlocations",
+        "armorlocations",
+        "weaponlocations",
+        "vehiclelocations",
+        "drugs",
+        "spells",
+        "powers",
+        "complexforms",
+        "spirits",
+        "sprites",
+        "foci",
+        "aiprograms",
+        "martialarts",
+        "metamagics",
+        "arts",
+        "initiationgrades",
+        "critterpowers",
+        "mentorspirits",
+        "qualities",
+        "contacts",
+        "relationships",
+        "enemies",
+        "pets",
+        "lifestyles",
+        "sources",
+        "expenses",
+        "calendar",
+        "improvements",
+        "customdatadirectorynames",
+        "spelldefense"
+    };
+
+    private readonly ICharacterFileQueries _characterFileQueries;
+    private readonly ICharacterSectionQueries _sectionQueries;
+    private readonly ICharacterMetadataCommands _metadataCommands;
+
+    public Sr6WorkspaceCodec(
+        ICharacterFileQueries characterFileQueries,
+        ICharacterSectionQueries sectionQueries,
+        ICharacterMetadataCommands metadataCommands)
+    {
+        _characterFileQueries = characterFileQueries;
+        _sectionQueries = sectionQueries;
+        _metadataCommands = metadataCommands;
+    }
 
     public string RulesetId => RulesetDefaults.Sr6;
 
@@ -32,186 +101,48 @@ public sealed class Sr6WorkspaceCodec : IRulesetWorkspaceCodec
     }
 
     public CharacterFileSummary ParseSummary(WorkspacePayloadEnvelope envelope)
-    {
-        XElement root = ParseRoot(envelope.Payload);
-        return new CharacterFileSummary(
-            Name: ElementValue(root, "name"),
-            Alias: ElementValue(root, "alias"),
-            Metatype: ElementValue(root, "metatype"),
-            BuildMethod: ElementValue(root, "buildmethod"),
-            CreatedVersion: ElementValue(root, "createdversion"),
-            AppVersion: ElementValue(root, "appversion"),
-            Karma: DecimalValue(root, "karma"),
-            Nuyen: DecimalValue(root, "nuyen"),
-            Created: BoolValue(root, "created"));
-    }
+        => _characterFileQueries.ParseSummary(new CharacterDocument(ToXmlContent(envelope.Payload, WorkspaceDocumentFormat.NativeXml)));
 
     public object ParseSection(string sectionId, WorkspacePayloadEnvelope envelope)
     {
-        CharacterFileSummary summary = ParseSummary(envelope);
-        return sectionId switch
+        string xml = ToXmlContent(envelope.Payload, WorkspaceDocumentFormat.NativeXml);
+        CharacterDocument document = new(xml);
+        string normalizedSectionId = NormalizeSectionId(sectionId);
+
+        return normalizedSectionId switch
         {
-            "profile" => new CharacterProfileSection(
-                Name: summary.Name,
-                Alias: summary.Alias,
-                PlayerName: string.Empty,
-                Metatype: summary.Metatype,
-                Metavariant: string.Empty,
-                Sex: string.Empty,
-                Age: string.Empty,
-                Height: string.Empty,
-                Weight: string.Empty,
-                Hair: string.Empty,
-                Eyes: string.Empty,
-                Skin: string.Empty,
-                Concept: string.Empty,
-                Description: string.Empty,
-                Background: string.Empty,
-                CreatedVersion: summary.CreatedVersion,
-                AppVersion: summary.AppVersion,
-                BuildMethod: summary.BuildMethod,
-                GameplayOption: string.Empty,
-                Created: summary.Created,
-                Adept: false,
-                Magician: false,
-                Technomancer: false,
-                AI: false,
-                MainMugshotIndex: -1,
-                MugshotCount: 0),
-            "progress" => new CharacterProgressSection(
-                Karma: summary.Karma,
-                Nuyen: summary.Nuyen,
-                StartingNuyen: 0m,
-                StreetCred: 0,
-                Notoriety: 0,
-                PublicAwareness: 0,
-                BurntStreetCred: 0,
-                BuildKarma: 0,
-                TotalAttributes: 0,
-                TotalSpecial: 0,
-                PhysicalCmFilled: 0,
-                StunCmFilled: 0,
-                TotalEssence: 0m,
-                InitiateGrade: 0,
-                SubmersionGrade: 0,
-                MagEnabled: false,
-                ResEnabled: false,
-                DepEnabled: false),
-            "attributes" => new CharacterAttributesSection(0, Array.Empty<CharacterAttributeSummary>()),
-            "skills" => new CharacterSkillsSection(0, 0, Array.Empty<CharacterSkillSummary>()),
-            "inventory" => new CharacterInventorySection(
-                GearCount: 0,
-                WeaponCount: 0,
-                ArmorCount: 0,
-                CyberwareCount: 0,
-                VehicleCount: 0,
-                GearNames: Array.Empty<string>(),
-                WeaponNames: Array.Empty<string>(),
-                ArmorNames: Array.Empty<string>(),
-                CyberwareNames: Array.Empty<string>(),
-                VehicleNames: Array.Empty<string>()),
-            "qualities" => new CharacterQualitiesSection(0, Array.Empty<CharacterQualitySummary>()),
-            "contacts" => new CharacterContactsSection(0, Array.Empty<CharacterContactSummary>()),
-            "rules" => new CharacterRulesSection(
-                GameEdition: "SR6",
-                Settings: string.Empty,
-                GameplayOption: string.Empty,
-                GameplayOptionQualityLimit: 0,
-                MaxNuyen: 0,
-                MaxKarma: 0,
-                ContactMultiplier: 0,
-                BannedWareGrades: Array.Empty<string>()),
-            "build" => new CharacterBuildSection(
-                BuildMethod: summary.BuildMethod,
-                PriorityMetatype: string.Empty,
-                PriorityAttributes: string.Empty,
-                PrioritySpecial: string.Empty,
-                PrioritySkills: string.Empty,
-                PriorityResources: string.Empty,
-                PriorityTalent: string.Empty,
-                SumToTen: 0,
-                Special: 0,
-                TotalSpecial: 0,
-                TotalAttributes: 0,
-                ContactPoints: 0,
-                ContactPointsUsed: 0),
-            "movement" => new CharacterMovementSection(
-                Walk: string.Empty,
-                Run: string.Empty,
-                Sprint: string.Empty,
-                WalkAlt: string.Empty,
-                RunAlt: string.Empty,
-                SprintAlt: string.Empty,
-                PhysicalCmFilled: 0,
-                StunCmFilled: 0),
-            "awakening" => new CharacterAwakeningSection(
-                MagEnabled: false,
-                ResEnabled: false,
-                DepEnabled: false,
-                Adept: false,
-                Magician: false,
-                Technomancer: false,
-                AI: false,
-                InitiateGrade: 0,
-                SubmersionGrade: 0,
-                Tradition: string.Empty,
-                TraditionName: string.Empty,
-                TraditionDrain: string.Empty,
-                SpiritCombat: string.Empty,
-                SpiritDetection: string.Empty,
-                SpiritHealth: string.Empty,
-                SpiritIllusion: string.Empty,
-                SpiritManipulation: string.Empty,
-                Stream: string.Empty,
-                StreamDrain: string.Empty,
-                CurrentCounterspellingDice: 0,
-                SpellLimit: 0,
-                CfpLimit: 0,
-                AiNormalProgramLimit: 0,
-                AiAdvancedProgramLimit: 0),
             "build-lab" => BuildLabWorkspaceProjectionFactory.Create(
-                profile: (CharacterProfileSection)ParseSection("profile", envelope),
-                progress: (CharacterProgressSection)ParseSection("progress", envelope),
-                rules: (CharacterRulesSection)ParseSection("rules", envelope),
-                build: (CharacterBuildSection)ParseSection("build", envelope),
-                skills: (CharacterSkillsSection)ParseSection("skills", envelope),
-                awakening: (CharacterAwakeningSection)ParseSection("awakening", envelope),
+                profile: ParseRequiredSection<CharacterProfileSection>("profile", document),
+                progress: ParseRequiredSection<CharacterProgressSection>("progress", document),
+                rules: ParseRequiredSection<CharacterRulesSection>("rules", document),
+                build: ParseRequiredSection<CharacterBuildSection>("build", document),
+                skills: ParseRequiredSection<CharacterSkillsSection>("skills", document),
+                awakening: ParseRequiredSection<CharacterAwakeningSection>("awakening", document),
                 rulesetId: RulesetDefaults.Sr6),
-            _ => new Dictionary<string, object?>(StringComparer.Ordinal)
-            {
-                ["sectionId"] = sectionId,
-                ["rulesetId"] = RulesetDefaults.Sr6
-            }
+            _ => SharedSectionIds.Contains(normalizedSectionId)
+                ? _sectionQueries.ParseSection(normalizedSectionId, document)
+                : CreateFallbackSection(sectionId)
         };
     }
 
     public CharacterValidationResult Validate(WorkspacePayloadEnvelope envelope)
-    {
-        try
-        {
-            ParseRoot(envelope.Payload);
-            return new CharacterValidationResult(true, Array.Empty<CharacterValidationIssue>());
-        }
-        catch (Exception ex)
-        {
-            return new CharacterValidationResult(
-                false,
-                [new CharacterValidationIssue("error", "sr6.invalid_xml", ex.Message, "/character")]);
-        }
-    }
+        => _characterFileQueries.Validate(new CharacterDocument(ToXmlContent(envelope.Payload, WorkspaceDocumentFormat.NativeXml)));
 
     public WorkspacePayloadEnvelope UpdateMetadata(WorkspacePayloadEnvelope envelope, UpdateWorkspaceMetadata command)
     {
-        XElement root = ParseRoot(envelope.Payload);
-        SetElementValue(root, "name", command.Name);
-        SetElementValue(root, "alias", command.Alias);
-        SetElementValue(root, "notes", command.Notes);
+        string normalizedXml = EnsureMetadataContractFields(ToXmlContent(envelope.Payload, WorkspaceDocumentFormat.NativeXml));
+        UpdateCharacterMetadataResult result = _metadataCommands.UpdateMetadata(new UpdateCharacterMetadataCommand(
+            Document: new CharacterDocument(normalizedXml),
+            Update: new CharacterMetadataUpdate(
+                Name: command.Name?.Trim() ?? string.Empty,
+                Alias: command.Alias?.Trim() ?? string.Empty,
+                Notes: command.Notes?.Trim() ?? string.Empty)));
 
         return envelope with
         {
             SchemaVersion = envelope.SchemaVersion > 0 ? envelope.SchemaVersion : SchemaVersion,
             PayloadKind = string.IsNullOrWhiteSpace(envelope.PayloadKind) ? PayloadKind : envelope.PayloadKind,
-            Payload = root.ToString(SaveOptions.DisableFormatting)
+            Payload = result.UpdatedDocument.Content
         };
     }
 
@@ -242,51 +173,80 @@ public sealed class Sr6WorkspaceCodec : IRulesetWorkspaceCodec
     {
         return new DataExportBundle(
             Summary: ParseSummary(envelope),
-            Profile: ParseSection("profile", envelope) as CharacterProfileSection,
-            Progress: ParseSection("progress", envelope) as CharacterProgressSection,
-            Attributes: ParseSection("attributes", envelope) as CharacterAttributesSection,
-            Skills: ParseSection("skills", envelope) as CharacterSkillsSection,
-            Inventory: ParseSection("inventory", envelope) as CharacterInventorySection,
-            Qualities: ParseSection("qualities", envelope) as CharacterQualitiesSection,
-            Contacts: ParseSection("contacts", envelope) as CharacterContactsSection,
-            Lifestyles: ParseSection("lifestyles", envelope) as CharacterLifestylesSection);
+            Profile: TryParseExportSection<CharacterProfileSection>("profile", envelope),
+            Progress: TryParseExportSection<CharacterProgressSection>("progress", envelope),
+            Attributes: TryParseExportSection<CharacterAttributesSection>("attributes", envelope),
+            Skills: TryParseExportSection<CharacterSkillsSection>("skills", envelope),
+            Inventory: TryParseExportSection<CharacterInventorySection>("inventory", envelope),
+            Qualities: TryParseExportSection<CharacterQualitiesSection>("qualities", envelope),
+            Contacts: TryParseExportSection<CharacterContactsSection>("contacts", envelope),
+            Lifestyles: TryParseExportSection<CharacterLifestylesSection>("lifestyles", envelope));
     }
 
-    private static XElement ParseRoot(string payload)
+    private TSection? TryParseExportSection<TSection>(string sectionId, WorkspacePayloadEnvelope envelope)
+        where TSection : class
     {
-        string xml = string.IsNullOrWhiteSpace(payload)
-            ? "<character />"
-            : payload;
-        return XElement.Parse(xml, LoadOptions.PreserveWhitespace);
+        try
+        {
+            return ParseSection(sectionId, envelope) as TSection;
+        }
+        catch
+        {
+            return null;
+        }
     }
 
-    private static string ElementValue(XElement root, string name)
+    private TSection ParseRequiredSection<TSection>(string sectionId, CharacterDocument document)
+        where TSection : class
+        => _sectionQueries.ParseSection(sectionId, document) as TSection
+           ?? throw new InvalidOperationException($"SR6 section '{sectionId}' did not project '{typeof(TSection).Name}'.");
+
+    private static Dictionary<string, object?> CreateFallbackSection(string sectionId)
+        => new(StringComparer.Ordinal)
+        {
+            ["sectionId"] = sectionId,
+            ["rulesetId"] = RulesetDefaults.Sr6
+        };
+
+    private static string NormalizeSectionId(string? sectionId)
+        => (sectionId ?? string.Empty).Trim().ToLowerInvariant();
+
+    private static string EnsureMetadataContractFields(string xml)
     {
-        return root.Element(name)?.Value?.Trim() ?? string.Empty;
+        XDocument document = XDocument.Parse(xml, LoadOptions.PreserveWhitespace);
+        XElement root = document.Root
+            ?? throw new InvalidOperationException("Root node must be <character>.");
+        if (!string.Equals(root.Name.LocalName, "character", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException("Root node must be <character>.");
+        }
+
+        EnsureElement(root, "name", string.Empty);
+        EnsureElement(root, "alias", string.Empty);
+        EnsureElement(root, "metatype", string.Empty);
+        EnsureElement(root, "buildmethod", string.Empty);
+        EnsureElement(root, "createdversion", string.Empty);
+        EnsureElement(root, "appversion", string.Empty);
+        EnsureElement(root, "karma", "0");
+        EnsureElement(root, "nuyen", "0");
+        EnsureElement(root, "created", "False");
+
+        return document.ToString(SaveOptions.DisableFormatting);
     }
 
-    private static decimal DecimalValue(XElement root, string name)
-    {
-        return decimal.TryParse(ElementValue(root, name), out decimal value)
-            ? value
-            : 0m;
-    }
-
-    private static bool BoolValue(XElement root, string name)
-    {
-        return bool.TryParse(ElementValue(root, name), out bool value) && value;
-    }
-
-    private static void SetElementValue(XElement root, string name, string? value)
+    private static void EnsureElement(XElement root, string name, string fallbackValue)
     {
         XElement? element = root.Element(name);
         if (element is null)
         {
-            element = new XElement(name);
-            root.Add(element);
+            root.Add(new XElement(name, fallbackValue));
+            return;
         }
 
-        element.Value = value?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(element.Value))
+        {
+            element.Value = fallbackValue;
+        }
     }
 
     private static string ToXmlContent(string content, WorkspaceDocumentFormat format)

@@ -1,0 +1,52 @@
+{
+  "status": "published",
+  "rolloutState": "public_stable",
+  "channelId": "public_stable",
+  "version": "run-258",
+  "releaseProof": {
+    "status": "passed"
+  },
+  "artifacts": [
+    {
+      "artifactId": "avalonia-linux-x64-installer"
+    },
+    {
+      "artifactId": "avalonia-win-x64-installer"
+    }
+  ],
+  "desktopTupleCoverage": {
+    "complete": true,
+    "requiredDesktopPlatformHeadRidTuples": [
+      "avalonia:linux-x64:linux",
+      "avalonia:win-x64:windows"
+    ],
+    "desktopRouteTruth": [
+      {
+        "tupleId": "avalonia:linux:linux-x64",
+        "head": "avalonia",
+        "platform": "linux",
+        "rid": "linux-x64",
+        "artifactId": "avalonia-linux-x64-installer",
+        "routeRole": "primary",
+        "promotionState": "promoted",
+        "parityPosture": "flagship_primary",
+        "updateEligibility": "eligible",
+        "revokeState": "not_revoked",
+        "installPosture": "installer_first"
+      },
+      {
+        "tupleId": "avalonia:windows:win-x64",
+        "head": "avalonia",
+        "platform": "windows",
+        "rid": "win-x64",
+        "artifactId": "avalonia-win-x64-installer",
+        "routeRole": "primary",
+        "promotionState": "promoted",
+        "parityPosture": "flagship_primary",
+        "updateEligibility": "eligible",
+        "revokeState": "not_revoked",
+        "installPosture": "installer_first"
+      }
+    ]
+  }
+}

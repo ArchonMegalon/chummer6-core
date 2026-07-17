@@ -12,6 +12,16 @@ S3_LATEST_URI="${CHUMMER_PORTAL_DOWNLOADS_S3_LATEST_URI:-}"
 S3_ENDPOINT_URL="${CHUMMER_PORTAL_DOWNLOADS_S3_ENDPOINT_URL:-}"
 VERIFY_URL="${CHUMMER_PORTAL_DOWNLOADS_VERIFY_URL:-}"
 
+assert_legacy_release_shelf_target() {
+  local target_uri="${1:-object-storage target}"
+  printf 'Refusing legacy fixed-key object-storage publication to %s: this writer cannot safely probe %s and %s or atomically activate a generation.\n' \
+    "$target_uri" '.release-shelf-layout-v1' 'current.json' >&2
+  printf 'Use the generation-aware release shelf publisher in chummer.run-services.\n' >&2
+  return 78
+}
+
+assert_legacy_release_shelf_target "${S3_TARGET_URI:-object-storage target}"
+
 if [[ ! -f "$MANIFEST_SOURCE" || ! -d "$FILES_SOURCE" ]]; then
   echo "Expected desktop-download-bundle layout: releases.json + files/chummer-*" >&2
   exit 1

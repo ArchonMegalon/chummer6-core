@@ -42,6 +42,20 @@ public class CharacterFileServiceTests
     }
 
     [TestMethod]
+    public void ParseSummaryFromXml_defaults_missing_numeric_and_created_fields_for_minimal_imports()
+    {
+        const string xml = "<character><name>Minimal Runner</name></character>";
+        var service = new CharacterFileService();
+
+        CharacterFileSummary summary = service.ParseSummaryFromXml(xml);
+
+        Assert.AreEqual("Minimal Runner", summary.Name);
+        Assert.AreEqual(0m, summary.Karma);
+        Assert.AreEqual(0m, summary.Nuyen);
+        Assert.IsFalse(summary.Created);
+    }
+
+    [TestMethod]
     public void ApplyMetadataUpdate_updates_name_alias_and_notes_nodes()
     {
         string xml = File.ReadAllText(FindTestFilePath("Apex Predator.chum5"));
