@@ -22,7 +22,7 @@
 	<Configurations>Debug;Release;Debuggable Release</Configurations>
 	<AnalysisLevel>none</AnalysisLevel>
 	<NeutralLanguage>en-US</NeutralLanguage>
-    <NoWarn>$(NoWarn);NU1701;CS8632;CS9124;MSTEST0037;VSTHRD003;VSTHRD100;VSTHRD103;VSTHRD200</NoWarn>
+    <NoWarn>$(NoWarn);NU1701;CS0618;CS8632;CS9124;MSTEST0037;VSTHRD003;VSTHRD100;VSTHRD103;VSTHRD200</NoWarn>
     <RestoreNoWarn>$(RestoreNoWarn);NU1701</RestoreNoWarn>
     <EmbeddedResourceUseDependentUponConvention>true</EmbeddedResourceUseDependentUponConvention>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
@@ -187,6 +187,7 @@
     <Compile Remove="ServiceCollectionDesktopRuntimeExtensionsTests.cs" />
   </ItemGroup>
   <ItemGroup>
+    <ProjectReference Include="..\Chummer.WorkspaceStore.TestHost\Chummer.WorkspaceStore.TestHost.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\Chummer.Application\Chummer.Application.csproj" />
     <ProjectReference Include="..\Chummer.Contracts\Chummer.Contracts.csproj" />
     <ProjectReference Include="..\Chummer.Core\Chummer.Core.csproj" />
@@ -234,5 +235,10 @@
       <LegacyFlatOutputArtifacts Include="$(MSBuildProjectDirectory)\bin\$(Configuration)\Chummer.Tests.runtimeconfig.json" />
     </ItemGroup>
     <Delete Files="@(LegacyFlatOutputArtifacts)" />
+  </Target>
+  <Target Name="RejectWorkspaceStoreTestHostFromTestOutput" AfterTargets="Build">
+    <Error
+      Condition="Exists('$(TargetDir)Chummer.WorkspaceStore.TestHost.dll')"
+      Text="The workspace-store process test host must not be copied into test or release output." />
   </Target>
 </Project>

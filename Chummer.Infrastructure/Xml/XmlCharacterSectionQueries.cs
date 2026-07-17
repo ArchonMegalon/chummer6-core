@@ -1,6 +1,8 @@
-using Chummer.Application.Characters;
 using Chummer.Application.BuildLab;
+using Chummer.Application.Characters;
 using Chummer.Contracts.Characters;
+using System.Globalization;
+using System.Xml.Linq;
 
 namespace Chummer.Infrastructure.Xml;
 
@@ -49,10 +51,13 @@ public sealed class XmlCharacterSectionQueries : ICharacterSectionQueries
         {
             "profile" => _overviewQueries.ParseProfile(document),
             "progress" => _overviewQueries.ParseProgress(document),
+            "karmasummary" => _overviewQueries.ParseKarmaSummary(document),
+            "conditionmonitor" => _overviewQueries.ParseConditionMonitor(document),
             "rules" => _overviewQueries.ParseRules(document),
             "build" => _overviewQueries.ParseBuild(document),
             "movement" => _overviewQueries.ParseMovement(document),
             "awakening" => _overviewQueries.ParseAwakening(document),
+            "spelldefense" => _overviewQueries.ParseSpellDefense(document),
             "build-lab" => BuildLabWorkspaceProjectionFactory.Create(
                 profile: _overviewQueries.ParseProfile(document),
                 progress: _overviewQueries.ParseProgress(document),
@@ -86,6 +91,7 @@ public sealed class XmlCharacterSectionQueries : ICharacterSectionQueries
             "powers" => _magicResonanceQueries.ParsePowers(document),
             "complexforms" => _magicResonanceQueries.ParseComplexForms(document),
             "spirits" => _magicResonanceQueries.ParseSpirits(document),
+            "sprites" => _magicResonanceQueries.ParseSpirits(document),
             "foci" => _magicResonanceQueries.ParseFoci(document),
             "aiprograms" => _magicResonanceQueries.ParseAiPrograms(document),
             "martialarts" => _magicResonanceQueries.ParseMartialArts(document),
@@ -97,6 +103,9 @@ public sealed class XmlCharacterSectionQueries : ICharacterSectionQueries
 
             "qualities" => _socialNarrativeQueries.ParseQualities(document),
             "contacts" => _socialNarrativeQueries.ParseContacts(document),
+            "relationships" => _socialNarrativeQueries.ParseRelationships(document),
+            "enemies" => _socialNarrativeQueries.ParseEnemies(document),
+            "pets" => _socialNarrativeQueries.ParsePets(document),
             "lifestyles" => _socialNarrativeQueries.ParseLifestyles(document),
             "sources" => _socialNarrativeQueries.ParseSources(document),
             "expenses" => _socialNarrativeQueries.ParseExpenses(document),

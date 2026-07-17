@@ -41,10 +41,17 @@ public sealed class WorkspaceService : IWorkspaceService
 
     public WorkspaceImportResult Import(WorkspaceImportDocument document)
     {
-        return Import(OwnerScope.LocalSingleUser, document);
+        return ImportCore(LocalStoreAccess(), document);
     }
 
     public WorkspaceImportResult Import(OwnerScope owner, WorkspaceImportDocument document)
+    {
+        return ImportCore(ScopedStoreAccess(owner), document);
+    }
+
+    private WorkspaceImportResult ImportCore(
+        WorkspaceStoreAccess access,
+        WorkspaceImportDocument document)
     {
         string? rulesetId = RulesetDefaults.NormalizeOptional(document.RulesetId)
             ?? _workspaceImportRulesetDetector.Detect(document);
@@ -54,46 +61,65 @@ public sealed class WorkspaceService : IWorkspaceService
         IRulesetWorkspaceCodec codec = _workspaceCodecResolver.Resolve(rulesetId);
         WorkspacePayloadEnvelope envelope = codec.WrapImport(rulesetId, document);
         CharacterFileSummary summary = codec.ParseSummary(envelope);
-
-        CharacterWorkspaceId id = _workspaceStore.Create(owner, new WorkspaceDocument(
-            PayloadEnvelope: envelope,
-            Format: document.Format));
+        DataExportBundle bundle = codec.BuildExportBundle(envelope);
+        CharacterWorkspaceId id = new(Guid.NewGuid().ToString("N"));
         DateTimeOffset importedAtUtc = DateTimeOffset.UtcNow;
         string payloadSha256 = ComputeSha256(Encoding.UTF8.GetBytes(document.Content));
         string importReceiptId = BuildReceiptId("import", id.Value, payloadSha256);
-        DataExportBundle bundle = codec.BuildExportBundle(envelope);
+        WorkspacePortabilityReceipt portability = BuildImportPortabilityReceipt(
+            id,
+            document,
+            envelope.RulesetId,
+            summary,
+            importedAtUtc,
+            payloadSha256);
+        WorkspaceWorkflowDeterministicReceipt workflowReceipt = BuildWorkflowDeterministicReceipt(
+            importReceiptId,
+            id,
+            envelope.RulesetId,
+            bundle,
+            envelope.Payload);
+
+        WorkspaceStoreMutationResult created = access.CreateWorkspaceDocument(
+            id,
+            new WorkspaceDocument(
+                PayloadEnvelope: envelope,
+                Format: document.Format));
+        if (!created.Success || created.Entry is not WorkspaceStoreEntry createdEntry)
+        {
+            throw new InvalidOperationException(created.Error ?? "Workspace could not be created.");
+        }
+
         return new WorkspaceImportResult(
             Id: id,
             Summary: summary,
             RulesetId: envelope.RulesetId,
             ImportReceiptId: importReceiptId,
             ImportedAtUtc: importedAtUtc,
-            Portability: BuildImportPortabilityReceipt(
-                id,
-                document,
-                envelope.RulesetId,
-                summary,
-                importedAtUtc,
-                payloadSha256),
-            WorkflowDeterministicReceipt: BuildWorkflowDeterministicReceipt(
-                importReceiptId,
-                id,
-                envelope.RulesetId,
-                bundle,
-                envelope.Payload));
+            Portability: portability,
+            WorkflowDeterministicReceipt: workflowReceipt,
+            ContentRevision: createdEntry.ContentRevision,
+            SavedRevision: createdEntry.SavedRevision);
     }
 
     public IReadOnlyList<WorkspaceListItem> List(int? maxCount = null)
     {
-        return List(OwnerScope.LocalSingleUser, maxCount);
+        return ListCore(LocalStoreAccess(), maxCount);
     }
 
     public IReadOnlyList<WorkspaceListItem> List(OwnerScope owner, int? maxCount = null)
     {
+        return ListCore(ScopedStoreAccess(owner), maxCount);
+    }
+
+    private IReadOnlyList<WorkspaceListItem> ListCore(
+        WorkspaceStoreAccess access,
+        int? maxCount)
+    {
         List<WorkspaceListItem> workspaces = [];
         int? normalizedMaxCount = maxCount is > 0 ? maxCount : null;
 
-        foreach (WorkspaceStoreEntry entry in _workspaceStore.List(owner))
+        foreach (WorkspaceStoreEntry entry in access.List())
         {
             if (normalizedMaxCount is not null && workspaces.Count >= normalizedMaxCount.Value)
             {
@@ -101,10 +127,13 @@ public sealed class WorkspaceService : IWorkspaceService
             }
 
             CharacterWorkspaceId id = entry.Id;
-            if (!_workspaceStore.TryGet(owner, id, out WorkspaceDocument document))
+            WorkspaceStoreReadResult read = access.Get(id);
+            if (!read.Success || read.Value is not WorkspaceStoredDocument stored)
             {
                 continue;
             }
+
+            WorkspaceDocument document = stored.Document;
 
             WorkspacePayloadEnvelope envelope = ResolveEnvelope(document);
             CharacterFileSummary summary;
@@ -130,31 +159,144 @@ public sealed class WorkspaceService : IWorkspaceService
             workspaces.Add(new WorkspaceListItem(
                 Id: id,
                 Summary: summary,
-                LastUpdatedUtc: entry.LastUpdatedUtc,
-                RulesetId: envelope.RulesetId));
+                LastUpdatedUtc: stored.LastUpdatedUtc,
+                RulesetId: envelope.RulesetId,
+                HasSavedWorkspace: stored.SavedRevision > 0,
+                ContentRevision: stored.ContentRevision,
+                SavedRevision: stored.SavedRevision));
         }
 
         return workspaces;
     }
 
-    public bool Close(CharacterWorkspaceId id)
+    public CommandResult<WorkspaceDocumentSnapshot> GetWorkspace(CharacterWorkspaceId id)
     {
-        return Close(OwnerScope.LocalSingleUser, id);
+        return GetWorkspaceCore(LocalStoreAccess(), id);
     }
 
+    public CommandResult<WorkspaceDocumentSnapshot> GetWorkspace(OwnerScope owner, CharacterWorkspaceId id)
+    {
+        return GetWorkspaceCore(ScopedStoreAccess(owner), id);
+    }
+
+    private static CommandResult<WorkspaceDocumentSnapshot> GetWorkspaceCore(
+        WorkspaceStoreAccess access,
+        CharacterWorkspaceId id)
+    {
+        WorkspaceStoreReadResult read = access.Get(id);
+        if (!read.Success || read.Value is not WorkspaceStoredDocument stored)
+        {
+            return StoreFailure<WorkspaceDocumentSnapshot>(read);
+        }
+
+        return new CommandResult<WorkspaceDocumentSnapshot>(
+            Success: true,
+            Value: new WorkspaceDocumentSnapshot(
+                Id: id,
+                Document: stored.Document,
+                LastUpdatedUtc: stored.LastUpdatedUtc,
+                ContentRevision: stored.ContentRevision,
+                SavedRevision: stored.SavedRevision),
+            Error: null,
+            OperationOutcome: WorkspaceOperationOutcome.Success);
+    }
+
+    [Obsolete("Compatibility close reads once and performs one CAS delete. Pass expectedContentRevision; removal is queued for Stage C.")]
+    public bool Close(CharacterWorkspaceId id)
+    {
+        return CloseCompatibility(LocalStoreAccess(), id);
+    }
+
+    [Obsolete("Compatibility close reads once and performs one CAS delete. Pass expectedContentRevision; removal is queued for Stage C.")]
     public bool Close(OwnerScope owner, CharacterWorkspaceId id)
     {
-        return _workspaceStore.Delete(owner, id);
+        return CloseCompatibility(ScopedStoreAccess(owner), id);
+    }
+
+    private static bool CloseCompatibility(WorkspaceStoreAccess access, CharacterWorkspaceId id)
+    {
+        WorkspaceStoreReadResult read = access.Get(id);
+        if (!read.Success || read.Value is not WorkspaceStoredDocument current)
+        {
+            return false;
+        }
+
+        return access.Delete(id, current.ContentRevision).Success;
+    }
+
+    public CommandResult<WorkspaceRevisionReceipt> Close(
+        CharacterWorkspaceId id,
+        long expectedContentRevision)
+    {
+        return CloseCore(LocalStoreAccess(), id, expectedContentRevision);
+    }
+
+    public CommandResult<WorkspaceRevisionReceipt> Close(
+        OwnerScope owner,
+        CharacterWorkspaceId id,
+        long expectedContentRevision)
+    {
+        return CloseCore(ScopedStoreAccess(owner), id, expectedContentRevision);
+    }
+
+    private static CommandResult<WorkspaceRevisionReceipt> CloseCore(
+        WorkspaceStoreAccess access,
+        CharacterWorkspaceId id,
+        long expectedContentRevision)
+    {
+        WorkspaceStoreReadResult read = access.Get(id);
+        if (!read.Success || read.Value is not WorkspaceStoredDocument current)
+        {
+            return StoreFailure<WorkspaceRevisionReceipt>(read);
+        }
+
+        return CloseCurrent(access, id, current, expectedContentRevision);
+    }
+
+    private static CommandResult<WorkspaceRevisionReceipt> CloseCurrent(
+        WorkspaceStoreAccess access,
+        CharacterWorkspaceId id,
+        WorkspaceStoredDocument current,
+        long expectedContentRevision)
+    {
+        if (current.ContentRevision != expectedContentRevision)
+        {
+            return ConflictFailure<WorkspaceRevisionReceipt>();
+        }
+
+        WorkspaceRevisionReceipt receipt = new(
+            id,
+            current.ContentRevision,
+            current.SavedRevision);
+        WorkspaceStoreMutationResult deleted = access.Delete(id, expectedContentRevision);
+        if (!deleted.Success)
+        {
+            return StoreFailure<WorkspaceRevisionReceipt>(deleted);
+        }
+
+        return new CommandResult<WorkspaceRevisionReceipt>(
+            Success: true,
+            Value: receipt,
+            Error: null,
+            OperationOutcome: WorkspaceOperationOutcome.Success);
     }
 
     public object? GetSection(CharacterWorkspaceId id, string sectionId)
     {
-        return GetSection(OwnerScope.LocalSingleUser, id, sectionId);
+        return GetSectionCore(LocalStoreAccess(), id, sectionId);
     }
 
     public object? GetSection(OwnerScope owner, CharacterWorkspaceId id, string sectionId)
     {
-        if (!TryResolveEnvelope(owner, id, out WorkspacePayloadEnvelope envelope))
+        return GetSectionCore(ScopedStoreAccess(owner), id, sectionId);
+    }
+
+    private object? GetSectionCore(
+        WorkspaceStoreAccess access,
+        CharacterWorkspaceId id,
+        string sectionId)
+    {
+        if (!TryResolveEnvelope(access, id, out WorkspacePayloadEnvelope envelope))
         {
             return null;
         }
@@ -168,12 +310,19 @@ public sealed class WorkspaceService : IWorkspaceService
 
     public CharacterFileSummary? GetSummary(CharacterWorkspaceId id)
     {
-        return GetSummary(OwnerScope.LocalSingleUser, id);
+        return GetSummaryCore(LocalStoreAccess(), id);
     }
 
     public CharacterFileSummary? GetSummary(OwnerScope owner, CharacterWorkspaceId id)
     {
-        if (!TryResolveEnvelope(owner, id, out WorkspacePayloadEnvelope envelope))
+        return GetSummaryCore(ScopedStoreAccess(owner), id);
+    }
+
+    private CharacterFileSummary? GetSummaryCore(
+        WorkspaceStoreAccess access,
+        CharacterWorkspaceId id)
+    {
+        if (!TryResolveEnvelope(access, id, out WorkspacePayloadEnvelope envelope))
         {
             return null;
         }
@@ -184,177 +333,471 @@ public sealed class WorkspaceService : IWorkspaceService
 
     public CharacterValidationResult? Validate(CharacterWorkspaceId id)
     {
-        return Validate(OwnerScope.LocalSingleUser, id);
+        return ValidateCore(LocalStoreAccess(), id);
     }
 
     public CharacterValidationResult? Validate(OwnerScope owner, CharacterWorkspaceId id)
     {
-        if (!TryResolveEnvelope(owner, id, out WorkspacePayloadEnvelope envelope))
+        return ValidateCore(ScopedStoreAccess(owner), id);
+    }
+
+    private CharacterValidationResult? ValidateCore(
+        WorkspaceStoreAccess access,
+        CharacterWorkspaceId id)
+    {
+        WorkspaceStoreReadResult read = access.Get(id);
+        if (!read.Success || read.Value is not WorkspaceStoredDocument stored)
         {
             return null;
         }
 
-        IRulesetWorkspaceCodec codec = _workspaceCodecResolver.Resolve(envelope.RulesetId);
-        return codec.Validate(envelope);
+        WorkspaceDocument document = stored.Document;
+        try
+        {
+            if (document.State is null || !Enum.IsDefined(document.Format))
+            {
+                return InvalidDocument("workspace_envelope", "Workspace document envelope is not canonical.");
+            }
+
+            WorkspacePayloadEnvelope envelope = ResolveEnvelope(document);
+            IRulesetWorkspaceCodec codec = _workspaceCodecResolver.Resolve(envelope.RulesetId);
+            if (!string.Equals(envelope.RulesetId, codec.RulesetId, StringComparison.Ordinal)
+                || envelope.SchemaVersion != codec.SchemaVersion
+                || !string.Equals(envelope.PayloadKind, codec.PayloadKind, StringComparison.Ordinal))
+            {
+                return InvalidDocument(
+                    "workspace_codec_contract",
+                    "Workspace ruleset, schema, or payload kind does not match the canonical codec contract.");
+            }
+
+            // Exercise the same ruleset parser, schema validator, and download
+            // materializer used by real open/export flows. A payload which is
+            // merely well-formed text is not an acceptable recovery document.
+            _ = codec.ParseSummary(envelope);
+            CharacterValidationResult validation = codec.Validate(envelope);
+            if (!validation.IsValid)
+                return validation;
+
+            _ = codec.BuildDownload(id, envelope, document.Format);
+            return validation;
+        }
+        catch (Exception ex) when (ex is ArgumentException
+            or FormatException
+            or InvalidDataException
+            or InvalidOperationException
+            or JsonException)
+        {
+            return InvalidDocument("workspace_canonical_validation", "Workspace document cannot be opened by its canonical ruleset codec.");
+        }
     }
+
+    private static CharacterValidationResult InvalidDocument(string code, string message)
+        => new(
+            IsValid: false,
+            Issues:
+            [
+                new CharacterValidationIssue(
+                    Severity: "error",
+                    Code: code,
+                    Message: message,
+                    Path: "workspace")
+            ]);
 
     public CharacterProfileSection? GetProfile(CharacterWorkspaceId id)
     {
-        return GetProfile(OwnerScope.LocalSingleUser, id);
+        return TryParseSection<CharacterProfileSection>(LocalStoreAccess(), id, "profile");
     }
 
     public CharacterProfileSection? GetProfile(OwnerScope owner, CharacterWorkspaceId id)
     {
-        return TryParseSection<CharacterProfileSection>(owner, id, "profile");
+        return TryParseSection<CharacterProfileSection>(ScopedStoreAccess(owner), id, "profile");
     }
 
     public CharacterProgressSection? GetProgress(CharacterWorkspaceId id)
     {
-        return GetProgress(OwnerScope.LocalSingleUser, id);
+        return TryParseSection<CharacterProgressSection>(LocalStoreAccess(), id, "progress");
     }
 
     public CharacterProgressSection? GetProgress(OwnerScope owner, CharacterWorkspaceId id)
     {
-        return TryParseSection<CharacterProgressSection>(owner, id, "progress");
+        return TryParseSection<CharacterProgressSection>(ScopedStoreAccess(owner), id, "progress");
     }
 
     public CharacterSkillsSection? GetSkills(CharacterWorkspaceId id)
     {
-        return GetSkills(OwnerScope.LocalSingleUser, id);
+        return TryParseSection<CharacterSkillsSection>(LocalStoreAccess(), id, "skills");
     }
 
     public CharacterSkillsSection? GetSkills(OwnerScope owner, CharacterWorkspaceId id)
     {
-        return TryParseSection<CharacterSkillsSection>(owner, id, "skills");
+        return TryParseSection<CharacterSkillsSection>(ScopedStoreAccess(owner), id, "skills");
     }
 
     public CharacterRulesSection? GetRules(CharacterWorkspaceId id)
     {
-        return GetRules(OwnerScope.LocalSingleUser, id);
+        return TryParseSection<CharacterRulesSection>(LocalStoreAccess(), id, "rules");
     }
 
     public CharacterRulesSection? GetRules(OwnerScope owner, CharacterWorkspaceId id)
     {
-        return TryParseSection<CharacterRulesSection>(owner, id, "rules");
+        return TryParseSection<CharacterRulesSection>(ScopedStoreAccess(owner), id, "rules");
     }
 
     public CharacterBuildSection? GetBuild(CharacterWorkspaceId id)
     {
-        return GetBuild(OwnerScope.LocalSingleUser, id);
+        return TryParseSection<CharacterBuildSection>(LocalStoreAccess(), id, "build");
     }
 
     public CharacterBuildSection? GetBuild(OwnerScope owner, CharacterWorkspaceId id)
     {
-        return TryParseSection<CharacterBuildSection>(owner, id, "build");
+        return TryParseSection<CharacterBuildSection>(ScopedStoreAccess(owner), id, "build");
     }
 
     public CharacterMovementSection? GetMovement(CharacterWorkspaceId id)
     {
-        return GetMovement(OwnerScope.LocalSingleUser, id);
+        return TryParseSection<CharacterMovementSection>(LocalStoreAccess(), id, "movement");
     }
 
     public CharacterMovementSection? GetMovement(OwnerScope owner, CharacterWorkspaceId id)
     {
-        return TryParseSection<CharacterMovementSection>(owner, id, "movement");
+        return TryParseSection<CharacterMovementSection>(ScopedStoreAccess(owner), id, "movement");
     }
 
     public CharacterAwakeningSection? GetAwakening(CharacterWorkspaceId id)
     {
-        return GetAwakening(OwnerScope.LocalSingleUser, id);
+        return TryParseSection<CharacterAwakeningSection>(LocalStoreAccess(), id, "awakening");
     }
 
     public CharacterAwakeningSection? GetAwakening(OwnerScope owner, CharacterWorkspaceId id)
     {
-        return TryParseSection<CharacterAwakeningSection>(owner, id, "awakening");
+        return TryParseSection<CharacterAwakeningSection>(ScopedStoreAccess(owner), id, "awakening");
     }
 
+    [Obsolete("Compatibility metadata update reads once and performs one CAS replace. Pass expectedContentRevision.")]
     public CommandResult<CharacterProfileSection> UpdateMetadata(CharacterWorkspaceId id, UpdateWorkspaceMetadata command)
     {
-        return UpdateMetadata(OwnerScope.LocalSingleUser, id, command);
+        return UpdateMetadataCompatibility(LocalStoreAccess(), id, command);
     }
 
+    [Obsolete("Compatibility metadata update reads once and performs one CAS replace. Pass expectedContentRevision.")]
     public CommandResult<CharacterProfileSection> UpdateMetadata(OwnerScope owner, CharacterWorkspaceId id, UpdateWorkspaceMetadata command)
     {
-        if (!_workspaceStore.TryGet(owner, id, out WorkspaceDocument document))
+        return UpdateMetadataCompatibility(ScopedStoreAccess(owner), id, command);
+    }
+
+    private CommandResult<CharacterProfileSection> UpdateMetadataCompatibility(
+        WorkspaceStoreAccess access,
+        CharacterWorkspaceId id,
+        UpdateWorkspaceMetadata command)
+    {
+        WorkspaceStoreReadResult read = access.Get(id);
+        if (!read.Success || read.Value is not WorkspaceStoredDocument current)
         {
             return new CommandResult<CharacterProfileSection>(
                 Success: false,
                 Value: null,
-                Error: "Workspace not found.");
+                Error: read.Error,
+                OperationOutcome: read.Outcome);
         }
 
+        CommandResult<WorkspaceMetadataResult> result = UpdateMetadataCore(
+            access,
+            id,
+            current,
+            current.ContentRevision,
+            command);
+        return new CommandResult<CharacterProfileSection>(
+            result.Success,
+            result.Value?.Profile,
+            result.Error,
+            result.Outcome);
+    }
+
+    public CommandResult<WorkspaceMetadataResult> UpdateMetadata(
+        CharacterWorkspaceId id,
+        long expectedContentRevision,
+        UpdateWorkspaceMetadata command)
+    {
+        return UpdateMetadataCore(LocalStoreAccess(), id, expectedContentRevision, command);
+    }
+
+    public CommandResult<WorkspaceMetadataResult> UpdateMetadata(
+        OwnerScope owner,
+        CharacterWorkspaceId id,
+        long expectedContentRevision,
+        UpdateWorkspaceMetadata command)
+    {
+        return UpdateMetadataCore(
+            ScopedStoreAccess(owner),
+            id,
+            expectedContentRevision,
+            command);
+    }
+
+    private CommandResult<WorkspaceMetadataResult> UpdateMetadataCore(
+        WorkspaceStoreAccess access,
+        CharacterWorkspaceId id,
+        long expectedContentRevision,
+        UpdateWorkspaceMetadata command)
+    {
+        WorkspaceStoreReadResult read = access.Get(id);
+        if (!read.Success || read.Value is not WorkspaceStoredDocument current)
+        {
+            return StoreFailure<WorkspaceMetadataResult>(read);
+        }
+
+        return UpdateMetadataCore(access, id, current, expectedContentRevision, command);
+    }
+
+    private CommandResult<WorkspaceMetadataResult> UpdateMetadataCore(
+        WorkspaceStoreAccess access,
+        CharacterWorkspaceId id,
+        WorkspaceStoredDocument current,
+        long expectedContentRevision,
+        UpdateWorkspaceMetadata command)
+    {
+        if (current.ContentRevision != expectedContentRevision)
+        {
+            return ConflictFailure<WorkspaceMetadataResult>();
+        }
+
+        WorkspaceDocument document = current.Document;
         WorkspacePayloadEnvelope envelope = ResolveEnvelope(document);
         IRulesetWorkspaceCodec codec = _workspaceCodecResolver.Resolve(envelope.RulesetId);
         WorkspacePayloadEnvelope updatedEnvelope = codec.UpdateMetadata(envelope, command);
 
-        _workspaceStore.Save(owner, id, CreateUpdatedDocument(document, updatedEnvelope));
-
+        // Complete every pluggable/data-dependent projection before the CAS. A codec that
+        // returns an unusable updated payload must not commit bytes and then report failure.
+        _ = codec.ParseSummary(updatedEnvelope);
+        _ = codec.Validate(updatedEnvelope);
         CharacterProfileSection? profile = codec.ParseSection("profile", updatedEnvelope) as CharacterProfileSection;
         if (profile is null)
         {
-            return new CommandResult<CharacterProfileSection>(
+            return new CommandResult<WorkspaceMetadataResult>(
                 Success: false,
                 Value: null,
-                Error: "Profile section was not available after metadata update.");
+                Error: "Profile section was not available after metadata update.",
+                OperationOutcome: WorkspaceOperationOutcome.Corrupt);
         }
 
-        return new CommandResult<CharacterProfileSection>(
+        WorkspaceStoreMutationResult replaced = access.ReplaceWorkspaceDocument(
+            id,
+            expectedContentRevision,
+            CreateUpdatedDocument(document, updatedEnvelope));
+        if (!replaced.Success || replaced.Entry is not WorkspaceStoreEntry entry)
+        {
+            return StoreFailure<WorkspaceMetadataResult>(replaced);
+        }
+
+        return new CommandResult<WorkspaceMetadataResult>(
             Success: true,
-            Value: profile,
-            Error: null);
+            Value: new WorkspaceMetadataResult(
+                profile,
+                entry.ContentRevision,
+                entry.SavedRevision),
+            Error: null,
+            OperationOutcome: WorkspaceOperationOutcome.Success);
     }
 
+    public CommandResult<WorkspaceRevisionReceipt> ReplaceWorkspaceDocument(
+        CharacterWorkspaceId id,
+        long expectedContentRevision,
+        WorkspaceDocument document)
+    {
+        return ReplaceWorkspaceDocumentCore(
+            LocalStoreAccess(),
+            id,
+            expectedContentRevision,
+            document);
+    }
+
+    public CommandResult<WorkspaceRevisionReceipt> ReplaceWorkspaceDocument(
+        OwnerScope owner,
+        CharacterWorkspaceId id,
+        long expectedContentRevision,
+        WorkspaceDocument document)
+    {
+        return ReplaceWorkspaceDocumentCore(
+            ScopedStoreAccess(owner),
+            id,
+            expectedContentRevision,
+            document);
+    }
+
+    private CommandResult<WorkspaceRevisionReceipt> ReplaceWorkspaceDocumentCore(
+        WorkspaceStoreAccess access,
+        CharacterWorkspaceId id,
+        long expectedContentRevision,
+        WorkspaceDocument document)
+    {
+        try
+        {
+            if (document.State is null
+                || !Enum.IsDefined(document.Format)
+                || string.IsNullOrWhiteSpace(document.RulesetId)
+                || document.SchemaVersion <= 0
+                || string.IsNullOrWhiteSpace(document.PayloadKind))
+            {
+                return CorruptFailure<WorkspaceRevisionReceipt>();
+            }
+
+            WorkspacePayloadEnvelope envelope = ResolveEnvelope(document);
+            IRulesetWorkspaceCodec codec = _workspaceCodecResolver.Resolve(envelope.RulesetId);
+            _ = codec.ParseSummary(envelope);
+            _ = codec.Validate(envelope);
+        }
+        catch (Exception ex) when (ex is ArgumentException
+                                   or InvalidDataException
+                                   or InvalidOperationException
+                                   or JsonException
+                                   or System.Xml.XmlException)
+        {
+            return CorruptFailure<WorkspaceRevisionReceipt>();
+        }
+
+        WorkspaceStoreMutationResult replaced = access.ReplaceWorkspaceDocument(
+            id,
+            expectedContentRevision,
+            document);
+        if (!replaced.Success || replaced.Entry is not WorkspaceStoreEntry entry)
+        {
+            return StoreFailure<WorkspaceRevisionReceipt>(replaced);
+        }
+
+        return new CommandResult<WorkspaceRevisionReceipt>(
+            Success: true,
+            Value: new WorkspaceRevisionReceipt(
+                entry.Id,
+                entry.ContentRevision,
+                entry.SavedRevision),
+            Error: null,
+            OperationOutcome: WorkspaceOperationOutcome.Success);
+    }
+
+    [Obsolete("Compatibility save reads once and performs one CAS checkpoint. Pass expectedContentRevision.")]
     public CommandResult<WorkspaceSaveReceipt> Save(CharacterWorkspaceId id)
     {
-        return Save(OwnerScope.LocalSingleUser, id);
+        return SaveCompatibility(LocalStoreAccess(), id);
     }
 
+    [Obsolete("Compatibility save reads once and performs one CAS checkpoint. Pass expectedContentRevision.")]
     public CommandResult<WorkspaceSaveReceipt> Save(OwnerScope owner, CharacterWorkspaceId id)
     {
-        if (!_workspaceStore.TryGet(owner, id, out WorkspaceDocument document))
+        return SaveCompatibility(ScopedStoreAccess(owner), id);
+    }
+
+    private CommandResult<WorkspaceSaveReceipt> SaveCompatibility(
+        WorkspaceStoreAccess access,
+        CharacterWorkspaceId id)
+    {
+        WorkspaceStoreReadResult read = access.Get(id);
+        if (!read.Success || read.Value is not WorkspaceStoredDocument current)
         {
-            return new CommandResult<WorkspaceSaveReceipt>(
-                Success: false,
-                Value: null,
-                Error: "Workspace not found.");
+            return StoreFailure<WorkspaceSaveReceipt>(read);
         }
 
+        return SaveCore(access, id, current, current.ContentRevision);
+    }
+
+    public CommandResult<WorkspaceSaveReceipt> Save(
+        CharacterWorkspaceId id,
+        long expectedContentRevision)
+    {
+        return SaveCore(LocalStoreAccess(), id, expectedContentRevision);
+    }
+
+    public CommandResult<WorkspaceSaveReceipt> Save(
+        OwnerScope owner,
+        CharacterWorkspaceId id,
+        long expectedContentRevision)
+    {
+        return SaveCore(ScopedStoreAccess(owner), id, expectedContentRevision);
+    }
+
+    private CommandResult<WorkspaceSaveReceipt> SaveCore(
+        WorkspaceStoreAccess access,
+        CharacterWorkspaceId id,
+        long expectedContentRevision)
+    {
+        WorkspaceStoreReadResult read = access.Get(id);
+        if (!read.Success || read.Value is not WorkspaceStoredDocument current)
+        {
+            return StoreFailure<WorkspaceSaveReceipt>(read);
+        }
+
+        return SaveCore(access, id, current, expectedContentRevision);
+    }
+
+    private CommandResult<WorkspaceSaveReceipt> SaveCore(
+        WorkspaceStoreAccess access,
+        CharacterWorkspaceId id,
+        WorkspaceStoredDocument current,
+        long expectedContentRevision)
+    {
+        if (current.ContentRevision != expectedContentRevision)
+        {
+            return ConflictFailure<WorkspaceSaveReceipt>();
+        }
+
+        WorkspaceDocument document = current.Document;
         WorkspacePayloadEnvelope envelope = ResolveEnvelope(document);
         IRulesetWorkspaceCodec codec = _workspaceCodecResolver.Resolve(envelope.RulesetId);
         DataExportBundle bundle = codec.BuildExportBundle(envelope);
         string payloadSha256 = ComputeSha256(Encoding.UTF8.GetBytes(envelope.Payload));
         string receiptId = BuildReceiptId("save", id.Value, payloadSha256);
+        WorkspaceSaveReceipt receipt = new(
+            Id: id,
+            DocumentLength: envelope.Payload.Length,
+            RulesetId: envelope.RulesetId,
+            ReceiptId: receiptId,
+            WorkflowDeterministicReceipt: BuildWorkflowDeterministicReceipt(
+                receiptId,
+                id,
+                envelope.RulesetId,
+                bundle,
+                envelope.Payload),
+            ContentRevision: current.ContentRevision,
+            SavedRevision: current.ContentRevision);
+        WorkspaceStoreMutationResult checkpoint = access.SaveCheckpoint(
+            id,
+            expectedContentRevision);
+        if (!checkpoint.Success || checkpoint.Entry is not WorkspaceStoreEntry checkpointEntry)
+        {
+            return StoreFailure<WorkspaceSaveReceipt>(checkpoint);
+        }
+
         return new CommandResult<WorkspaceSaveReceipt>(
                 Success: true,
-                Value: new WorkspaceSaveReceipt(
-                    Id: id,
-                    DocumentLength: envelope.Payload.Length,
-                    RulesetId: envelope.RulesetId,
-                    ReceiptId: receiptId,
-                    WorkflowDeterministicReceipt: BuildWorkflowDeterministicReceipt(
-                        receiptId,
-                        id,
-                        envelope.RulesetId,
-                        bundle,
-                        envelope.Payload)),
-                Error: null);
+                Value: receipt with
+                {
+                    ContentRevision = checkpointEntry.ContentRevision,
+                    SavedRevision = checkpointEntry.SavedRevision
+                },
+                Error: null,
+                OperationOutcome: WorkspaceOperationOutcome.Success);
     }
 
     public CommandResult<WorkspaceDownloadReceipt> Download(CharacterWorkspaceId id)
     {
-        return Download(OwnerScope.LocalSingleUser, id);
+        return DownloadCore(LocalStoreAccess(), id);
     }
 
     public CommandResult<WorkspaceDownloadReceipt> Download(OwnerScope owner, CharacterWorkspaceId id)
     {
-        if (!_workspaceStore.TryGet(owner, id, out WorkspaceDocument document))
+        return DownloadCore(ScopedStoreAccess(owner), id);
+    }
+
+    private CommandResult<WorkspaceDownloadReceipt> DownloadCore(
+        WorkspaceStoreAccess access,
+        CharacterWorkspaceId id)
+    {
+        WorkspaceStoreReadResult read = access.Get(id);
+        if (!read.Success || read.Value is not WorkspaceStoredDocument stored)
         {
-            return new CommandResult<WorkspaceDownloadReceipt>(
-                Success: false,
-                Value: null,
-                Error: "Workspace not found.");
+            return StoreFailure<WorkspaceDownloadReceipt>(read);
         }
 
+        WorkspaceDocument document = stored.Document;
         WorkspacePayloadEnvelope envelope = ResolveEnvelope(document);
         IRulesetWorkspaceCodec codec = _workspaceCodecResolver.Resolve(envelope.RulesetId);
         DataExportBundle bundle = codec.BuildExportBundle(envelope);
@@ -374,24 +817,31 @@ public sealed class WorkspaceService : IWorkspaceService
         return new CommandResult<WorkspaceDownloadReceipt>(
             Success: true,
             Value: receipt,
-                Error: null);
+            Error: null,
+            OperationOutcome: WorkspaceOperationOutcome.Success);
     }
 
     public CommandResult<WorkspaceExportReceipt> Export(CharacterWorkspaceId id)
     {
-        return Export(OwnerScope.LocalSingleUser, id);
+        return ExportCore(LocalStoreAccess(), id);
     }
 
     public CommandResult<WorkspaceExportReceipt> Export(OwnerScope owner, CharacterWorkspaceId id)
     {
-        if (!_workspaceStore.TryGet(owner, id, out WorkspaceDocument document))
+        return ExportCore(ScopedStoreAccess(owner), id);
+    }
+
+    private CommandResult<WorkspaceExportReceipt> ExportCore(
+        WorkspaceStoreAccess access,
+        CharacterWorkspaceId id)
+    {
+        WorkspaceStoreReadResult read = access.Get(id);
+        if (!read.Success || read.Value is not WorkspaceStoredDocument stored)
         {
-            return new CommandResult<WorkspaceExportReceipt>(
-                Success: false,
-                Value: null,
-                Error: "Workspace not found.");
+            return StoreFailure<WorkspaceExportReceipt>(read);
         }
 
+        WorkspaceDocument document = stored.Document;
         WorkspacePayloadEnvelope envelope = ResolveEnvelope(document);
         IRulesetWorkspaceCodec codec = _workspaceCodecResolver.Resolve(envelope.RulesetId);
         DataExportBundle bundle = codec.BuildExportBundle(envelope);
@@ -401,24 +851,31 @@ public sealed class WorkspaceService : IWorkspaceService
         return new CommandResult<WorkspaceExportReceipt>(
             Success: true,
             Value: receipt,
-                Error: null);
+            Error: null,
+            OperationOutcome: WorkspaceOperationOutcome.Success);
     }
 
     public CommandResult<WorkspacePrintReceipt> Print(CharacterWorkspaceId id)
     {
-        return Print(OwnerScope.LocalSingleUser, id);
+        return PrintCore(LocalStoreAccess(), id);
     }
 
     public CommandResult<WorkspacePrintReceipt> Print(OwnerScope owner, CharacterWorkspaceId id)
     {
-        if (!_workspaceStore.TryGet(owner, id, out WorkspaceDocument document))
+        return PrintCore(ScopedStoreAccess(owner), id);
+    }
+
+    private CommandResult<WorkspacePrintReceipt> PrintCore(
+        WorkspaceStoreAccess access,
+        CharacterWorkspaceId id)
+    {
+        WorkspaceStoreReadResult read = access.Get(id);
+        if (!read.Success || read.Value is not WorkspaceStoredDocument stored)
         {
-            return new CommandResult<WorkspacePrintReceipt>(
-                Success: false,
-                Value: null,
-                Error: "Workspace not found.");
+            return StoreFailure<WorkspacePrintReceipt>(read);
         }
 
+        WorkspaceDocument document = stored.Document;
         WorkspacePayloadEnvelope envelope = ResolveEnvelope(document);
         IRulesetWorkspaceCodec codec = _workspaceCodecResolver.Resolve(envelope.RulesetId);
         DataExportBundle bundle = codec.BuildExportBundle(envelope);
@@ -428,13 +885,17 @@ public sealed class WorkspaceService : IWorkspaceService
         return new CommandResult<WorkspacePrintReceipt>(
             Success: true,
             Value: receipt,
-                Error: null);
+            Error: null,
+            OperationOutcome: WorkspaceOperationOutcome.Success);
     }
 
-    private TSection? TryParseSection<TSection>(OwnerScope owner, CharacterWorkspaceId id, string sectionId)
+    private TSection? TryParseSection<TSection>(
+        WorkspaceStoreAccess access,
+        CharacterWorkspaceId id,
+        string sectionId)
         where TSection : class
     {
-        return GetSection(owner, id, sectionId) as TSection;
+        return GetSectionCore(access, id, sectionId) as TSection;
     }
 
     private static WorkspaceExportReceipt BuildExportReceipt(
@@ -1431,16 +1892,128 @@ public sealed class WorkspaceService : IWorkspaceService
         string GameEdition,
         IReadOnlyList<string> BannedWareGrades);
 
-    private bool TryResolveEnvelope(OwnerScope owner, CharacterWorkspaceId id, out WorkspacePayloadEnvelope envelope)
+    private static CommandResult<T> StoreFailure<T>(WorkspaceStoreReadResult result)
+        where T : class
     {
-        if (!_workspaceStore.TryGet(owner, id, out WorkspaceDocument document))
+        return new CommandResult<T>(
+            Success: false,
+            Value: null,
+            Error: result.Error ?? DescribeOutcome(result.Outcome),
+            OperationOutcome: result.Outcome);
+    }
+
+    private static CommandResult<T> StoreFailure<T>(WorkspaceStoreMutationResult result)
+        where T : class
+    {
+        return new CommandResult<T>(
+            Success: false,
+            Value: null,
+            Error: result.Error ?? DescribeOutcome(result.Outcome),
+            OperationOutcome: result.Outcome);
+    }
+
+    private static CommandResult<T> ConflictFailure<T>()
+        where T : class
+    {
+        return new CommandResult<T>(
+            Success: false,
+            Value: null,
+            Error: DescribeOutcome(WorkspaceOperationOutcome.Conflict),
+            OperationOutcome: WorkspaceOperationOutcome.Conflict);
+    }
+
+    private static CommandResult<T> CorruptFailure<T>()
+        where T : class
+    {
+        return new CommandResult<T>(
+            Success: false,
+            Value: null,
+            Error: DescribeOutcome(WorkspaceOperationOutcome.Corrupt),
+            OperationOutcome: WorkspaceOperationOutcome.Corrupt);
+    }
+
+    private static string DescribeOutcome(WorkspaceOperationOutcome outcome)
+    {
+        return outcome switch
+        {
+            WorkspaceOperationOutcome.Missing => "Workspace not found.",
+            WorkspaceOperationOutcome.Conflict => "Workspace changed since the expected revision.",
+            WorkspaceOperationOutcome.Corrupt => "Workspace data is corrupt.",
+            WorkspaceOperationOutcome.Unavailable => "Workspace storage is unavailable.",
+            _ => "Workspace operation failed."
+        };
+    }
+
+    private bool TryResolveEnvelope(
+        WorkspaceStoreAccess access,
+        CharacterWorkspaceId id,
+        out WorkspacePayloadEnvelope envelope)
+    {
+        WorkspaceStoreReadResult read = access.Get(id);
+        if (!read.Success || read.Value is not WorkspaceStoredDocument stored)
         {
             envelope = default!;
             return false;
         }
 
-        envelope = ResolveEnvelope(document);
+        envelope = ResolveEnvelope(stored.Document);
         return true;
+    }
+
+    private WorkspaceStoreAccess LocalStoreAccess()
+    {
+        return new WorkspaceStoreAccess(_workspaceStore, OwnerScope.LocalSingleUser, IsLocal: true);
+    }
+
+    private WorkspaceStoreAccess ScopedStoreAccess(OwnerScope owner)
+    {
+        return new WorkspaceStoreAccess(_workspaceStore, owner, IsLocal: false);
+    }
+
+    private readonly record struct WorkspaceStoreAccess(
+        IWorkspaceStore Store,
+        OwnerScope Owner,
+        bool IsLocal)
+    {
+        public WorkspaceStoreMutationResult CreateWorkspaceDocument(WorkspaceDocument document)
+            => IsLocal
+                ? Store.CreateWorkspaceDocument(document)
+                : Store.CreateWorkspaceDocument(Owner, document);
+
+        public WorkspaceStoreMutationResult CreateWorkspaceDocument(
+            CharacterWorkspaceId id,
+            WorkspaceDocument document)
+            => IsLocal
+                ? Store.CreateWorkspaceDocument(id, document)
+                : Store.CreateWorkspaceDocument(Owner, id, document);
+
+        public IReadOnlyList<WorkspaceStoreEntry> List()
+            => IsLocal ? Store.List() : Store.List(Owner);
+
+        public WorkspaceStoreReadResult Get(CharacterWorkspaceId id)
+            => IsLocal ? Store.Get(id) : Store.Get(Owner, id);
+
+        public WorkspaceStoreMutationResult ReplaceWorkspaceDocument(
+            CharacterWorkspaceId id,
+            long expectedContentRevision,
+            WorkspaceDocument document)
+            => IsLocal
+                ? Store.ReplaceWorkspaceDocument(id, expectedContentRevision, document)
+                : Store.ReplaceWorkspaceDocument(Owner, id, expectedContentRevision, document);
+
+        public WorkspaceStoreMutationResult SaveCheckpoint(
+            CharacterWorkspaceId id,
+            long expectedContentRevision)
+            => IsLocal
+                ? Store.SaveCheckpoint(id, expectedContentRevision)
+                : Store.SaveCheckpoint(Owner, id, expectedContentRevision);
+
+        public WorkspaceStoreMutationResult Delete(
+            CharacterWorkspaceId id,
+            long expectedContentRevision)
+            => IsLocal
+                ? Store.Delete(id, expectedContentRevision)
+                : Store.Delete(Owner, id, expectedContentRevision);
     }
 
     private WorkspacePayloadEnvelope ResolveEnvelope(WorkspaceDocument document)

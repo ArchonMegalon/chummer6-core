@@ -5,22 +5,65 @@ namespace Chummer.Rulesets.Sr6;
 
 internal static class Sr6AppCommandCatalog
 {
-    public static readonly IReadOnlyList<AppCommandDefinition> All =
-    [
-        Sr6("file", "command.file", "menu", false, true),
-        Sr6("tools", "command.tools", "menu", false, true),
-        Sr6("help", "command.help", "menu", false, true),
-        Sr6("new_character", "command.new_character", "file", false, true),
-        Sr6("open_character", "command.open_character", "file", false, true),
-        Sr6("save_character", "command.save_character", "file", true, true),
-        Sr6("save_character_as", "command.save_character_as", "file", true, true),
-        Sr6("print_character", "command.print_character", "file", true, true),
-        Sr6("export_character", "command.export_character", "file", true, true),
-        Sr6("switch_ruleset", "command.switch_ruleset", "tools", false, true),
-        Sr6(AppCommandIds.RuntimeInspector, "command.runtime_inspector", "tools", false, true),
-        Sr6("character_settings", "command.character_settings", "tools", true, true),
-        Sr6("about", "command.about", "help", false, true)
-    ];
+    public static readonly IReadOnlyList<AppCommandDefinition> All = CreateCatalog();
+
+    private static IReadOnlyList<AppCommandDefinition> CreateCatalog()
+    {
+        return
+        [
+            Sr6("file", "command.file", "menu", false, true),
+            Sr6("edit", "command.edit", "menu", false, true),
+            Sr6("special", "command.special", "menu", false, true),
+            Sr6("tools", "command.tools", "menu", false, true),
+            Sr6("windows", "command.windows", "menu", false, true),
+            Sr6("help", "command.help", "menu", false, true),
+            Sr6("new_character", "command.new_character", "file", false, true),
+            Sr6("new_critter", "command.new_critter", "file", false, true),
+            Sr6("open_character", "command.open_character", "file", false, true),
+            Sr6("open_for_printing", "command.open_for_printing", "file", false, true),
+            Sr6("open_for_export", "command.open_for_export", "file", false, true),
+            Sr6("save_character", "command.save_character", "file", true, true),
+            Sr6("save_character_as", "command.save_character_as", "file", true, true),
+            Sr6("print_character", "command.print_character", "file", true, true),
+            Sr6("print_multiple", "command.print_multiple", "file", false, true),
+            Sr6("print_setup", "command.print_setup", "file", false, true),
+            Sr6("export_character", "command.export_character", "file", true, true),
+            Sr6("exit", "command.exit", "file", false, true),
+            Sr6("copy", "command.copy", "edit", true, true),
+            Sr6("paste", "command.paste", "edit", true, true),
+            Sr6("dice_roller", "command.dice_roller", "tools", false, true),
+            Sr6("auto_alice", "command.auto_alice", "tools", false, true),
+            Sr6("new_character_origin", "command.new_character_origin", "tools", false, true),
+            Sr6("global_settings", "command.global_settings", "tools", false, true),
+            Sr6("switch_ruleset", "command.switch_ruleset", "special", false, true),
+            Sr6(AppCommandIds.RuntimeInspector, "command.runtime_inspector", "tools", false, true),
+            Sr6("character_settings", "command.character_settings", "tools", true, true),
+            Sr6("translator", "command.translator", "tools", false, true),
+            Sr6("hero_lab_importer", "command.hero_lab_importer", "tools", false, true),
+            Sr6("xml_editor", "command.xml_editor", "tools", false, true),
+            Sr6("open_sourcebooks", "command.open_sourcebooks", "tools", false, true),
+            Sr6("open_errata", "command.open_errata", "tools", false, true),
+            Sr6("open_custom_data", "command.open_custom_data", "tools", false, true),
+            Sr6("update_data_packs", "command.update_data_packs", "tools", false, true),
+            Sr6("validate_data_scope", "command.validate_data_scope", "tools", false, true),
+            Sr6("open_data_folder", "command.open_data_folder", "tools", false, true),
+            Sr6("master_index", "command.master_index", "tools", false, true),
+            Sr6("character_roster", "command.character_roster", "tools", false, true),
+            Sr6("data_exporter", "command.data_exporter", "tools", true, true),
+            Sr6("report_bug", "command.report_bug", "help", false, true),
+            Sr6("new_window", "command.new_window", "windows", false, true),
+            Sr6("close_window", "command.close_window", "windows", false, true),
+            Sr6("close_all", "command.close_all", "windows", false, true),
+            Sr6("wiki", "command.wiki", "help", false, true),
+            Sr6("discord", "command.discord", "help", false, true),
+            Sr6("show_login_video", "command.show_login_video", "help", false, true),
+            Sr6("revision_history", "command.revision_history", "help", false, true),
+            Sr6("dumpshock", "command.dumpshock", "help", false, true),
+            Sr6("about", "command.about", "help", false, true),
+            Sr6("update", "command.update", "help", false, true),
+            Sr6("restart", "command.restart", "help", false, true)
+        ];
+    }
 
     private static AppCommandDefinition Sr6(
         string id,
@@ -33,21 +76,36 @@ internal static class Sr6AppCommandCatalog
 
 internal static class Sr6NavigationTabCatalog
 {
-    public static readonly IReadOnlyList<NavigationTabDefinition> All =
-    [
-        Sr6("tab-create", "Create", "build-lab", "character", true, true),
-        Sr6("tab-info", "Info", "profile", "character", true, true),
-        Sr6("tab-attributes", "Attributes", "attributes", "character", true, true),
-        Sr6("tab-skills", "Skills", "skills", "character", true, true),
-        Sr6("tab-qualities", "Qualities", "qualities", "character", true, true),
-        Sr6("tab-magician", "Magician", "spells", "character", true, true),
-        Sr6("tab-combat", "Combat", "weapons", "character", true, true),
-        Sr6("tab-gear", "Gear", "inventory", "character", true, true),
-        Sr6("tab-cyberware", "Cyberware", "cyberwares", "character", true, true),
-        Sr6("tab-adept", "Adept", "powers", "character", true, true),
-        Sr6("tab-contacts", "Contacts", "contacts", "character", true, true),
-        Sr6("tab-rules", "Rules", "rules", "character", true, true)
-    ];
+    public static readonly IReadOnlyList<NavigationTabDefinition> All = CreateCatalog();
+
+    private static IReadOnlyList<NavigationTabDefinition> CreateCatalog()
+    {
+        return
+        [
+            Sr6("tab-create", "Create", "build-lab", "character", true, true),
+            Sr6("tab-info", "Info", "profile", "character", true, true),
+            Sr6("tab-attributes", "Attributes", "attributes", "character", true, true),
+            Sr6("tab-skills", "Skills", "skills", "character", true, true),
+            Sr6("tab-qualities", "Qualities", "qualities", "character", true, true),
+            Sr6("tab-magician", "Magician", "spells", "character", true, true),
+            Sr6("tab-adept", "Adept", "powers", "character", true, true),
+            Sr6("tab-technomancer", "Technomancer", "complexforms", "character", true, true),
+            Sr6("tab-combat", "Combat", "weapons", "character", true, true),
+            Sr6("tab-streetgear", "Street Gear", "gear", "character", true, true),
+            Sr6("tab-gear", "Gear", "gear", "character", true, true),
+            Sr6("tab-armor", "Armor", "armors", "character", true, true),
+            Sr6("tab-cyberware", "Cyberware/Bioware", "cyberwares", "character", true, true),
+            Sr6("tab-vehicles", "Vehicles", "vehicles", "character", true, true),
+            Sr6("tab-lifestyle", "Lifestyle", "lifestyles", "character", true, true),
+            Sr6("tab-relationships", "Relationships", "relationships", "character", true, true),
+            Sr6("tab-contacts", "Contacts", "contacts", "character", true, true),
+            Sr6("tab-rules", "Rules", "rules", "character", true, true),
+            Sr6("tab-notes", "Notes", "profile", "character", true, true),
+            Sr6("tab-karma", "Karma & Nuyen", "karmasummary", "character", true, true),
+            Sr6("tab-calendar", "Calendar", "calendar", "character", true, true),
+            Sr6("tab-improvements", "Improvements", "improvements", "character", true, true)
+        ];
+    }
 
     private static NavigationTabDefinition Sr6(
         string id,
@@ -61,32 +119,133 @@ internal static class Sr6NavigationTabCatalog
 
 internal static class Sr6WorkspaceSurfaceActionCatalog
 {
-    public static readonly IReadOnlyList<WorkspaceSurfaceActionDefinition> All =
-    [
-        Sr6("tab-create.intake", "Build Lab", "tab-create", WorkspaceSurfaceActionKind.Section, "build-lab", true, true),
-        Sr6("tab-info.summary", "Summary", "tab-info", WorkspaceSurfaceActionKind.Summary, "summary", true, true),
-        Sr6("tab-info.validate", "Validate", "tab-info", WorkspaceSurfaceActionKind.Validate, "validate", true, true),
-        Sr6("tab-info.metadata", "Apply Metadata", "tab-info", WorkspaceSurfaceActionKind.Metadata, "metadata", true, true),
-        Sr6("tab-info.profile", "Profile", "tab-info", WorkspaceSurfaceActionKind.Section, "profile", true, true),
-        Sr6("tab-attributes.attributes", "Attributes", "tab-attributes", WorkspaceSurfaceActionKind.Section, "attributes", true, true),
-        Sr6("tab-skills.skills", "Skills", "tab-skills", WorkspaceSurfaceActionKind.Section, "skills", true, true),
-        Sr6("tab-qualities.qualities", "Qualities", "tab-qualities", WorkspaceSurfaceActionKind.Section, "qualities", true, true),
-        Sr6("tab-magician.spells", "Spells", "tab-magician", WorkspaceSurfaceActionKind.Section, "spells", true, true),
-        Sr6("tab-magician.spirits", "Spirits", "tab-magician", WorkspaceSurfaceActionKind.Section, "spirits", true, true),
-        Sr6("tab-magician.critterpowers", "Critter Powers", "tab-magician", WorkspaceSurfaceActionKind.Section, "critterpowers", true, true),
-        Sr6("tab-combat.weapons", "Weapons", "tab-combat", WorkspaceSurfaceActionKind.Section, "weapons", true, true),
-        Sr6("tab-combat.armors", "Armor", "tab-combat", WorkspaceSurfaceActionKind.Section, "armors", true, true),
-        Sr6("tab-gear.inventory", "Inventory", "tab-gear", WorkspaceSurfaceActionKind.Section, "inventory", true, true),
-        Sr6("tab-gear.drugs", "Drugs", "tab-gear", WorkspaceSurfaceActionKind.Section, "drugs", true, true),
-        Sr6("tab-gear.vehicles", "Vehicles", "tab-gear", WorkspaceSurfaceActionKind.Section, "vehicles", true, true),
-        Sr6("tab-cyberware.cyberwares", "Cyberware", "tab-cyberware", WorkspaceSurfaceActionKind.Section, "cyberwares", true, true),
-        Sr6("tab-adept.powers", "Adept Powers", "tab-adept", WorkspaceSurfaceActionKind.Section, "powers", true, true),
-        Sr6("tab-adept.complexforms", "Complex Forms", "tab-adept", WorkspaceSurfaceActionKind.Section, "complexforms", true, true),
-        Sr6("tab-adept.aiprograms", "Programs", "tab-adept", WorkspaceSurfaceActionKind.Section, "aiprograms", true, true),
-        Sr6("tab-adept.initiationgrades", "Initiation/Submersion", "tab-adept", WorkspaceSurfaceActionKind.Section, "initiationgrades", true, true),
-        Sr6("tab-contacts.contacts", "Contacts", "tab-contacts", WorkspaceSurfaceActionKind.Section, "contacts", true, true),
-        Sr6("tab-rules.rules", "Rules", "tab-rules", WorkspaceSurfaceActionKind.Section, "rules", true, true)
-    ];
+    public static readonly IReadOnlyList<WorkspaceSurfaceActionDefinition> All = CreateCatalog();
+
+    private static IReadOnlyList<WorkspaceSurfaceActionDefinition> CreateCatalog()
+    {
+        return
+        [
+            Sr6("tab-create.intake", "Build Lab", "tab-create", WorkspaceSurfaceActionKind.Section, "build-lab", true, true),
+            Sr6("tab-info.summary", "Summary", "tab-info", WorkspaceSurfaceActionKind.Summary, "summary", true, true),
+            Sr6("tab-info.validate", "Validate", "tab-info", WorkspaceSurfaceActionKind.Validate, "validate", true, true),
+            Sr6("tab-info.metadata", "Apply Metadata", "tab-info", WorkspaceSurfaceActionKind.Metadata, "metadata", true, true),
+            Sr6("tab-info.profile", "Profile", "tab-info", WorkspaceSurfaceActionKind.Section, "profile", true, true),
+            Sr6("tab-info.progress", "Progress", "tab-info", WorkspaceSurfaceActionKind.Section, "progress", true, true),
+            Sr6("tab-info.rules", "Rules", "tab-info", WorkspaceSurfaceActionKind.Section, "rules", true, true),
+            Sr6("tab-info.build", "Build", "tab-info", WorkspaceSurfaceActionKind.Section, "build", true, true),
+            Sr6("tab-info.movement", "Movement", "tab-info", WorkspaceSurfaceActionKind.Section, "movement", true, true),
+            Sr6("tab-info.awakening", "Awakening", "tab-info", WorkspaceSurfaceActionKind.Section, "awakening", true, true),
+            Sr6("tab-info.spelldefense", "Spell Defense", "tab-info", WorkspaceSurfaceActionKind.Section, "spelldefense", true, true),
+            Sr6("tab-info.attributes", "Attributes", "tab-info", WorkspaceSurfaceActionKind.Section, "attributes", true, true),
+            Sr6("tab-info.attributedetails", "Attribute Details", "tab-info", WorkspaceSurfaceActionKind.Section, "attributedetails", true, true),
+            Sr6("tab-info.skills", "Skills", "tab-info", WorkspaceSurfaceActionKind.Section, "skills", true, true),
+            Sr6("tab-info.qualities", "Qualities", "tab-info", WorkspaceSurfaceActionKind.Section, "qualities", true, true),
+            Sr6("tab-info.contacts", "Contacts", "tab-info", WorkspaceSurfaceActionKind.Section, "contacts", true, true),
+            Sr6("tab-info.spells", "Spells", "tab-info", WorkspaceSurfaceActionKind.Section, "spells", true, true),
+            Sr6("tab-info.powers", "Powers", "tab-info", WorkspaceSurfaceActionKind.Section, "powers", true, true),
+            Sr6("tab-info.complexforms", "Complex Forms", "tab-info", WorkspaceSurfaceActionKind.Section, "complexforms", true, true),
+            Sr6("tab-info.martialarts", "Martial Arts", "tab-info", WorkspaceSurfaceActionKind.Section, "martialarts", true, true),
+
+            Sr6("tab-gear.inventory", "Inventory", "tab-gear", WorkspaceSurfaceActionKind.Section, "inventory", true, true),
+            Sr6("tab-gear.gear", "Gear", "tab-gear", WorkspaceSurfaceActionKind.Section, "gear", true, true),
+            Sr6("tab-gear.gearlocations", "Gear Locations", "tab-gear", WorkspaceSurfaceActionKind.Section, "gearlocations", true, true),
+            Sr6("tab-gear.weapons", "Weapons", "tab-gear", WorkspaceSurfaceActionKind.Section, "weapons", true, true),
+            Sr6("tab-gear.weaponaccessories", "Weapon Accessories", "tab-gear", WorkspaceSurfaceActionKind.Section, "weaponaccessories", true, true),
+            Sr6("tab-gear.weaponlocations", "Weapon Locations", "tab-gear", WorkspaceSurfaceActionKind.Section, "weaponlocations", true, true),
+            Sr6("tab-gear.armors", "Armors", "tab-gear", WorkspaceSurfaceActionKind.Section, "armors", true, true),
+            Sr6("tab-gear.armormods", "Armor Mods", "tab-gear", WorkspaceSurfaceActionKind.Section, "armormods", true, true),
+            Sr6("tab-gear.armorlocations", "Armor Locations", "tab-gear", WorkspaceSurfaceActionKind.Section, "armorlocations", true, true),
+            Sr6("tab-gear.cyberwares", "Cyberwares", "tab-gear", WorkspaceSurfaceActionKind.Section, "cyberwares", true, true),
+            Sr6("tab-gear.drugs", "Drugs", "tab-gear", WorkspaceSurfaceActionKind.Section, "drugs", true, true),
+            Sr6("tab-gear.lifestyles", "Lifestyles", "tab-gear", WorkspaceSurfaceActionKind.Section, "lifestyles", true, true),
+            Sr6("tab-gear.vehicles", "Vehicles", "tab-gear", WorkspaceSurfaceActionKind.Section, "vehicles", true, true),
+            Sr6("tab-gear.vehiclemods", "Vehicle Mods", "tab-gear", WorkspaceSurfaceActionKind.Section, "vehiclemods", true, true),
+            Sr6("tab-gear.vehiclelocations", "Vehicle Locations", "tab-gear", WorkspaceSurfaceActionKind.Section, "vehiclelocations", true, true),
+            Sr6("tab-gear.sources", "Sources", "tab-gear", WorkspaceSurfaceActionKind.Section, "sources", true, true),
+            Sr6("tab-gear.customdatadirectorynames", "Custom Data Dirs", "tab-gear", WorkspaceSurfaceActionKind.Section, "customdatadirectorynames", true, true),
+
+            Sr6("tab-magician.spirits", "Spirits", "tab-magician", WorkspaceSurfaceActionKind.Section, "spirits", true, true),
+            Sr6("tab-magician.foci", "Foci", "tab-magician", WorkspaceSurfaceActionKind.Section, "foci", true, true),
+            Sr6("tab-magician.aiprograms", "AI Programs", "tab-magician", WorkspaceSurfaceActionKind.Section, "aiprograms", true, true),
+            Sr6("tab-magician.limitmodifiers", "Limit Modifiers", "tab-magician", WorkspaceSurfaceActionKind.Section, "limitmodifiers", true, true),
+            Sr6("tab-magician.metamagics", "Metamagics", "tab-magician", WorkspaceSurfaceActionKind.Section, "metamagics", true, true),
+            Sr6("tab-magician.arts", "Arts", "tab-magician", WorkspaceSurfaceActionKind.Section, "arts", true, true),
+            Sr6("tab-magician.initiationgrades", "Initiation Grades", "tab-magician", WorkspaceSurfaceActionKind.Section, "initiationgrades", true, true),
+            Sr6("tab-magician.critterpowers", "Critter Powers", "tab-magician", WorkspaceSurfaceActionKind.Section, "critterpowers", true, true),
+            Sr6("tab-magician.mentorspirits", "Mentor Spirits", "tab-magician", WorkspaceSurfaceActionKind.Section, "mentorspirits", true, true),
+            Sr6("tab-magician.expenses", "Expenses", "tab-magician", WorkspaceSurfaceActionKind.Section, "expenses", true, true),
+            Sr6("tab-magician.calendar", "Calendar", "tab-magician", WorkspaceSurfaceActionKind.Section, "calendar", true, true),
+            Sr6("tab-magician.improvements", "Improvements", "tab-magician", WorkspaceSurfaceActionKind.Section, "improvements", true, true),
+
+            Sr6("tab-attributes.attributes", "Attributes Summary", "tab-attributes", WorkspaceSurfaceActionKind.Section, "attributes", true, true),
+            Sr6("tab-attributes.attributedetails", "Attribute Details", "tab-attributes", WorkspaceSurfaceActionKind.Section, "attributedetails", true, true),
+            Sr6("tab-attributes.limitmodifiers", "Limit Modifiers", "tab-attributes", WorkspaceSurfaceActionKind.Section, "limitmodifiers", true, true),
+
+            Sr6("tab-skills.skills", "Skills", "tab-skills", WorkspaceSurfaceActionKind.Section, "skills", true, true),
+            Sr6("tab-skills.martialarts", "Martial Arts", "tab-skills", WorkspaceSurfaceActionKind.Section, "martialarts", true, true),
+
+            Sr6("tab-qualities.qualities", "Qualities", "tab-qualities", WorkspaceSurfaceActionKind.Section, "qualities", true, true),
+            Sr6("tab-qualities.improvements", "Improvements", "tab-qualities", WorkspaceSurfaceActionKind.Section, "improvements", true, true),
+
+            Sr6("tab-adept.powers", "Adept Powers", "tab-adept", WorkspaceSurfaceActionKind.Section, "powers", true, true),
+            Sr6("tab-adept.metamagics", "Metamagics", "tab-adept", WorkspaceSurfaceActionKind.Section, "metamagics", true, true),
+            Sr6("tab-adept.initiationgrades", "Initiation/Submersion", "tab-adept", WorkspaceSurfaceActionKind.Section, "initiationgrades", true, true),
+
+            Sr6("tab-technomancer.complexforms", "Complex Forms", "tab-technomancer", WorkspaceSurfaceActionKind.Section, "complexforms", true, true),
+            Sr6("tab-technomancer.sprites", "Sprites", "tab-technomancer", WorkspaceSurfaceActionKind.Section, "sprites", true, true),
+            Sr6("tab-technomancer.aiprograms", "Advanced Programs", "tab-technomancer", WorkspaceSurfaceActionKind.Section, "aiprograms", true, true),
+
+            Sr6("tab-combat.weapons", "Weapons", "tab-combat", WorkspaceSurfaceActionKind.Section, "weapons", true, true),
+            Sr6("tab-combat.armors", "Armor", "tab-combat", WorkspaceSurfaceActionKind.Section, "armors", true, true),
+            Sr6("tab-combat.drugs", "Drugs", "tab-combat", WorkspaceSurfaceActionKind.Section, "drugs", true, true),
+            Sr6("tab-combat.movement", "Movement", "tab-combat", WorkspaceSurfaceActionKind.Section, "movement", true, true),
+            Sr6("tab-combat.conditionmonitor", "Condition Monitor", "tab-combat", WorkspaceSurfaceActionKind.Section, "conditionmonitor", true, true),
+
+            Sr6("tab-streetgear.gear", "Gear", "tab-streetgear", WorkspaceSurfaceActionKind.Section, "gear", true, true),
+            Sr6("tab-streetgear.armors", "Armor", "tab-streetgear", WorkspaceSurfaceActionKind.Section, "armors", true, true),
+            Sr6("tab-streetgear.weapons", "Weapons", "tab-streetgear", WorkspaceSurfaceActionKind.Section, "weapons", true, true),
+            Sr6("tab-streetgear.drugs", "Drugs", "tab-streetgear", WorkspaceSurfaceActionKind.Section, "drugs", true, true),
+            Sr6("tab-streetgear.lifestyles", "Lifestyles", "tab-streetgear", WorkspaceSurfaceActionKind.Section, "lifestyles", true, true),
+
+            Sr6("tab-armor.armors", "Armor Items", "tab-armor", WorkspaceSurfaceActionKind.Section, "armors", true, true),
+            Sr6("tab-armor.armormods", "Armor Mods", "tab-armor", WorkspaceSurfaceActionKind.Section, "armormods", true, true),
+            Sr6("tab-armor.armorlocations", "Armor Locations", "tab-armor", WorkspaceSurfaceActionKind.Section, "armorlocations", true, true),
+
+            Sr6("tab-cyberware.cyberwares", "Cyberware/Bioware", "tab-cyberware", WorkspaceSurfaceActionKind.Section, "cyberwares", true, true),
+            Sr6("tab-cyberware.foci", "Foci", "tab-cyberware", WorkspaceSurfaceActionKind.Section, "foci", true, true),
+
+            Sr6("tab-vehicles.vehicles", "Vehicles", "tab-vehicles", WorkspaceSurfaceActionKind.Section, "vehicles", true, true),
+            Sr6("tab-vehicles.vehiclemods", "Vehicle Mods", "tab-vehicles", WorkspaceSurfaceActionKind.Section, "vehiclemods", true, true),
+            Sr6("tab-vehicles.vehiclelocations", "Vehicle Locations", "tab-vehicles", WorkspaceSurfaceActionKind.Section, "vehiclelocations", true, true),
+
+            Sr6("tab-lifestyle.lifestyles", "Lifestyles", "tab-lifestyle", WorkspaceSurfaceActionKind.Section, "lifestyles", true, true),
+            Sr6("tab-lifestyle.expenses", "Expenses", "tab-lifestyle", WorkspaceSurfaceActionKind.Section, "expenses", true, true),
+            Sr6("tab-lifestyle.sources", "Sources", "tab-lifestyle", WorkspaceSurfaceActionKind.Section, "sources", true, true),
+
+            Sr6("tab-relationships.relationships", "Relationships", "tab-relationships", WorkspaceSurfaceActionKind.Section, "relationships", true, true),
+            Sr6("tab-relationships.contacts", "Contacts", "tab-relationships", WorkspaceSurfaceActionKind.Section, "contacts", true, true),
+            Sr6("tab-relationships.enemies", "Enemies", "tab-relationships", WorkspaceSurfaceActionKind.Section, "enemies", true, true),
+            Sr6("tab-relationships.pets", "Pets & Cohorts", "tab-relationships", WorkspaceSurfaceActionKind.Section, "pets", true, true),
+
+            Sr6("tab-contacts.contacts", "Contacts", "tab-contacts", WorkspaceSurfaceActionKind.Section, "contacts", true, true),
+            Sr6("tab-contacts.mentorspirits", "Mentors/Spirits", "tab-contacts", WorkspaceSurfaceActionKind.Section, "mentorspirits", true, true),
+
+            Sr6("tab-notes.metadata", "Save Notes", "tab-notes", WorkspaceSurfaceActionKind.Metadata, "metadata", true, true),
+            Sr6("tab-notes.data_exporter", "Export Notes Snapshot", "tab-notes", WorkspaceSurfaceActionKind.Command, "data_exporter", true, true),
+
+            Sr6("tab-karma.summary", "Karma Summary", "tab-karma", WorkspaceSurfaceActionKind.Section, "karmasummary", true, true),
+            Sr6("tab-karma.expenses", "Expenses", "tab-karma", WorkspaceSurfaceActionKind.Section, "expenses", true, true),
+            Sr6("tab-karma.calendar", "Calendar", "tab-karma", WorkspaceSurfaceActionKind.Section, "calendar", true, true),
+            Sr6("tab-karma.progress", "Progress", "tab-karma", WorkspaceSurfaceActionKind.Section, "progress", true, true),
+
+            Sr6("tab-calendar.calendar", "Calendar Entries", "tab-calendar", WorkspaceSurfaceActionKind.Section, "calendar", true, true),
+            Sr6("tab-calendar.expenses", "Expense Timeline", "tab-calendar", WorkspaceSurfaceActionKind.Section, "expenses", true, true),
+
+            Sr6("tab-improvements.improvements", "Improvements", "tab-improvements", WorkspaceSurfaceActionKind.Section, "improvements", true, true),
+            Sr6("tab-improvements.build", "Build Snapshot", "tab-improvements", WorkspaceSurfaceActionKind.Section, "build", true, true),
+            Sr6("tab-improvements.progress", "Career Progress", "tab-improvements", WorkspaceSurfaceActionKind.Section, "progress", true, true)
+        ];
+    }
 
     private static WorkspaceSurfaceActionDefinition Sr6(
         string id,

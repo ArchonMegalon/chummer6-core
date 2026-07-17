@@ -305,7 +305,7 @@ public class ArchitectureGuardrailTests
             ["Chummer.Infrastructure.Browser"] = new HashSet<string>(StringComparer.Ordinal) { "Chummer.Application", "Chummer.Contracts" },
             ["Chummer.Api"] = new HashSet<string>(StringComparer.Ordinal) { "Chummer.Application", "Chummer.Contracts", "Chummer.Desktop.Runtime", "Chummer.Infrastructure", "Chummer.Presentation", "Chummer.Run.Contracts", "Chummer.Rulesets.Sr4", "Chummer.Rulesets.Sr6" },
             ["Chummer.Blazor"] = new HashSet<string>(StringComparer.Ordinal) { "Chummer.Campaign.Contracts", "Chummer.Contracts", "Chummer.Desktop.Runtime", "Chummer.Presentation", "Chummer.Run.Contracts" },
-            ["Chummer.Desktop.Runtime"] = new HashSet<string>(StringComparer.Ordinal) { "Chummer.Application", "Chummer.Campaign.Contracts", "Chummer.Contracts", "Chummer.Hub.Registry.Contracts", "Chummer.Infrastructure", "Chummer.Presentation", "Chummer.Run.Contracts", "Chummer.Rulesets.Hosting", "Chummer.Rulesets.Sr5", "Chummer.Rulesets.Sr6" },
+            ["Chummer.Desktop.Runtime"] = new HashSet<string>(StringComparer.Ordinal) { "Chummer.Application", "Chummer.Campaign.Contracts", "Chummer.Contracts", "Chummer.Hub.Registry.Contracts", "Chummer.Infrastructure", "Chummer.Presentation", "Chummer.Run.Contracts", "Chummer.Rulesets.Hosting", "Chummer.Rulesets.Sr4", "Chummer.Rulesets.Sr5", "Chummer.Rulesets.Sr6" },
             ["Chummer.Blazor.Desktop"] = new HashSet<string>(StringComparer.Ordinal) { "Chummer.Blazor", "Chummer.Contracts", "Chummer.Desktop.Runtime", "Chummer.Presentation", "Chummer.Run.Contracts" },
             ["Chummer.Avalonia"] = new HashSet<string>(StringComparer.Ordinal) { "Chummer.Application", "Chummer.Campaign.Contracts", "Chummer.Contracts", "Chummer.Desktop.Runtime", "Chummer.Presentation", "Chummer.Run.Contracts" },
             ["Chummer.Avalonia.Browser"] = new HashSet<string>(StringComparer.Ordinal)
@@ -475,6 +475,13 @@ public class ArchitectureGuardrailTests
     private static string? TryResolveProjectOrNestedPath(IReadOnlyList<string> parts, bool requireDirectory)
     {
         string projectName = parts[0];
+        EnumerationOptions traversalOptions = new()
+        {
+            RecurseSubdirectories = true,
+            IgnoreInaccessible = true,
+            ReturnSpecialDirectories = false,
+            AttributesToSkip = FileAttributes.ReparsePoint,
+        };
 
         foreach (string root in CandidateRoots().Where(static root => !string.IsNullOrWhiteSpace(root)).Distinct(StringComparer.Ordinal)!)
         {
@@ -483,7 +490,7 @@ public class ArchitectureGuardrailTests
                 continue;
             }
 
-            foreach (string projectDirectory in Directory.EnumerateDirectories(root, projectName, SearchOption.AllDirectories))
+            foreach (string projectDirectory in Directory.EnumerateDirectories(root, projectName, traversalOptions))
             {
                 string candidate = Path.Combine(new[] { projectDirectory }.Concat(parts.Skip(1)).ToArray());
                 bool exists = requireDirectory ? Directory.Exists(candidate) : File.Exists(candidate);

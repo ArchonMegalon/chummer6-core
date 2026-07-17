@@ -2826,7 +2826,10 @@ public class RulesetSeamContractsTests
                 new XmlCharacterFileQueries(new CharacterFileService()),
                 new XmlCharacterSectionQueries(new CharacterSectionService()),
                 new XmlCharacterMetadataCommands(new CharacterFileService())),
-            new Sr6WorkspaceCodec()
+            new Sr6WorkspaceCodec(
+                new XmlCharacterFileQueries(new CharacterFileService()),
+                new XmlCharacterSectionQueries(new CharacterSectionService()),
+                new XmlCharacterMetadataCommands(new CharacterFileService()))
         ];
 
         foreach (IRulesetWorkspaceCodec codec in codecs)
@@ -2950,7 +2953,9 @@ public class RulesetSeamContractsTests
 
         WorkspacePayloadEnvelope wrapped = codec.WrapImport(
             RulesetDefaults.Sr6,
-            new WorkspaceImportDocument("<character><name>Switchback</name><alias>Ghost</alias></character>", RulesetDefaults.Sr6));
+            new WorkspaceImportDocument(
+                "<character><name>Switchback</name><alias>Ghost</alias><metatype>Human</metatype><buildmethod>Priority</buildmethod><createdversion>1.0</createdversion><appversion>1.0</appversion><karma>0</karma><nuyen>0</nuyen><created>true</created></character>",
+                RulesetDefaults.Sr6));
         CharacterFileSummary summary = codec.ParseSummary(wrapped);
 
         Assert.AreEqual(RulesetDefaults.Sr6, wrapped.RulesetId);

@@ -1,5 +1,6 @@
 #nullable enable annotations
 
+using System;
 using System.Linq;
 using Chummer.Contracts.Content;
 using Chummer.Application.Seeds;
@@ -7,6 +8,7 @@ using Chummer.Application.Workspaces;
 using Chummer.Contracts.Presentation;
 using Chummer.Contracts.Rulesets;
 using Chummer.Rulesets.Sr5;
+using Chummer.Rulesets.Sr6;
 using Chummer.Rulesets.Hosting.Presentation;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -112,7 +114,10 @@ public sealed class ShellCatalogAndRulesetDetectionTests
         Assert.IsTrue(tabs.All(tab => tab.RulesetId == RulesetDefaults.Sr5));
         Assert.IsTrue(tabs.Any(tab => tab.Id == "tab-create" && tab.SectionId == "build-lab" && tab.Group == "character"));
         Assert.IsTrue(tabs.Any(tab => tab.Id == "tab-magician" && tab.SectionId == "spells"));
+        Assert.IsTrue(tabs.Any(tab => tab.Id == "tab-streetgear" && tab.SectionId == "gear"));
         Assert.IsTrue(tabs.Any(tab => tab.Id == "tab-gear" && tab.SectionId == "gear"));
+        Assert.IsTrue(tabs.Any(tab => tab.Id == "tab-relationships" && tab.SectionId == "relationships"));
+        Assert.IsTrue(tabs.Any(tab => tab.Id == "tab-karma" && tab.SectionId == "karmasummary"));
         Assert.IsTrue(tabs.Any(tab => tab.Id == "tab-calendar" && tab.SectionId == "calendar"));
     }
 
@@ -127,8 +132,13 @@ public sealed class ShellCatalogAndRulesetDetectionTests
         Assert.IsTrue(actions.Any(action => action.Id == "tab-info.validate" && action.Kind == WorkspaceSurfaceActionKind.Validate));
         Assert.IsTrue(actions.Any(action => action.Id == "tab-info.metadata" && action.Kind == WorkspaceSurfaceActionKind.Metadata));
         Assert.IsTrue(actions.Any(action => action.Id == "tab-notes.data_exporter" && action.Kind == WorkspaceSurfaceActionKind.Command && action.TargetId == "data_exporter"));
+        Assert.IsTrue(actions.Any(action => action.TabId == "tab-streetgear" && action.TargetId == "gear"));
         Assert.IsTrue(actions.Any(action => action.TabId == "tab-gear" && action.TargetId == "gear"));
+        Assert.IsTrue(actions.Any(action => action.TabId == "tab-relationships" && action.TargetId == "relationships"));
+        Assert.IsTrue(actions.Any(action => action.TabId == "tab-karma" && action.TargetId == "karmasummary"));
         Assert.IsTrue(actions.Any(action => action.TabId == "tab-magician" && action.TargetId == "spirits"));
+        Assert.IsTrue(actions.Any(action => action.TabId == "tab-technomancer" && action.TargetId == "sprites"));
+        Assert.IsTrue(actions.Any(action => action.TabId == "tab-combat" && action.TargetId == "conditionmonitor"));
     }
 
     [TestMethod]
@@ -249,6 +259,43 @@ public sealed class ShellCatalogAndRulesetDetectionTests
     }
 
     [TestMethod]
+    public void Sr6_ruleset_plugin_matches_sr5_shell_breadth_and_restores_matrix_support_tabs()
+    {
+        Sr5RulesetPlugin sr5 = new();
+        Sr6RulesetPlugin sr6 = new();
+
+        string[] sr5CommandIds = sr5.ShellDefinitions.GetCommands().Select(static command => command.Id).ToArray();
+        string[] sr6CommandIds = sr6.ShellDefinitions.GetCommands().Select(static command => command.Id).ToArray();
+        string[] sr5TabIds = sr5.ShellDefinitions.GetNavigationTabs().Select(static tab => tab.Id).ToArray();
+        string[] sr6TabIds = sr6.ShellDefinitions.GetNavigationTabs().Select(static tab => tab.Id).ToArray();
+        string[] sr5ActionIds = sr5.Catalogs.GetWorkspaceActions().Select(static action => action.Id).ToArray();
+        string[] sr6ActionIds = sr6.Catalogs.GetWorkspaceActions().Select(static action => action.Id).ToArray();
+
+        CollectionAssert.AreEqual(sr5CommandIds, sr6CommandIds);
+        CollectionAssert.AreEqual(sr5TabIds, sr6TabIds);
+        CollectionAssert.AreEqual(sr5ActionIds, sr6ActionIds);
+        Assert.IsTrue(sr6.ShellDefinitions.GetCommands().All(command => command.RulesetId == RulesetDefaults.Sr6));
+        Assert.IsTrue(sr6.ShellDefinitions.GetNavigationTabs().All(tab => tab.RulesetId == RulesetDefaults.Sr6));
+        Assert.IsTrue(sr6.Catalogs.GetWorkspaceActions().All(action => action.RulesetId == RulesetDefaults.Sr6));
+        Assert.IsTrue(sr6TabIds.Contains("tab-technomancer", StringComparer.Ordinal));
+        Assert.IsTrue(sr6TabIds.Contains("tab-streetgear", StringComparer.Ordinal));
+        Assert.IsTrue(sr6TabIds.Contains("tab-relationships", StringComparer.Ordinal));
+        Assert.IsTrue(sr6TabIds.Contains("tab-karma", StringComparer.Ordinal));
+        Assert.IsTrue(sr6ActionIds.Contains("tab-technomancer.complexforms", StringComparer.Ordinal));
+        Assert.IsTrue(sr6ActionIds.Contains("tab-technomancer.sprites", StringComparer.Ordinal));
+        Assert.IsTrue(sr6ActionIds.Contains("tab-technomancer.aiprograms", StringComparer.Ordinal));
+        Assert.IsTrue(sr6ActionIds.Contains("tab-streetgear.gear", StringComparer.Ordinal));
+        Assert.IsTrue(sr6ActionIds.Contains("tab-relationships.relationships", StringComparer.Ordinal));
+        Assert.IsTrue(sr6ActionIds.Contains("tab-relationships.enemies", StringComparer.Ordinal));
+        Assert.IsTrue(sr6ActionIds.Contains("tab-relationships.pets", StringComparer.Ordinal));
+        Assert.IsTrue(sr6ActionIds.Contains("tab-karma.summary", StringComparer.Ordinal));
+        Assert.IsTrue(sr6ActionIds.Contains("tab-combat.conditionmonitor", StringComparer.Ordinal));
+        Assert.IsTrue(sr6ActionIds.Contains("tab-info.spelldefense", StringComparer.Ordinal));
+        Assert.IsFalse(sr6ActionIds.Contains("tab-adept.complexforms", StringComparer.Ordinal));
+        Assert.IsFalse(sr6ActionIds.Contains("tab-adept.aiprograms", StringComparer.Ordinal));
+    }
+
+    [TestMethod]
     public void Sr5_workspace_surface_action_catalog_materializes_broad_tab_routes()
     {
         var actions = WorkspaceSurfaceActionCatalog.All;
@@ -257,12 +304,21 @@ public sealed class ShellCatalogAndRulesetDetectionTests
         Assert.IsTrue(actions.Any(action => action.Id == "tab-calendar.calendar" && action.TargetId == "calendar"));
         Assert.IsTrue(actions.Any(action => action.Id == "tab-gear.customdatadirectorynames" && action.TargetId == "customdatadirectorynames"));
         Assert.IsTrue(actions.Any(action => action.Id == "tab-magician.spirits" && action.TargetId == "spirits"));
+        Assert.IsTrue(actions.Any(action => action.Id == "tab-technomancer.sprites" && action.TargetId == "sprites"));
         Assert.IsTrue(actions.Any(action => action.Id == "tab-magician.arts" && action.TargetId == "arts"));
         Assert.IsTrue(actions.Any(action => action.Id == "tab-attributes.limitmodifiers" && action.TargetId == "limitmodifiers"));
         Assert.IsTrue(actions.Any(action => action.Id == "tab-combat.drugs" && action.TargetId == "drugs"));
+        Assert.IsTrue(actions.Any(action => action.Id == "tab-streetgear.gear" && action.TargetId == "gear"));
         Assert.IsTrue(actions.Any(action => action.Id == "tab-armor.armormods" && action.TargetId == "armormods"));
+        Assert.IsTrue(actions.Any(action => action.Id == "tab-relationships.relationships" && action.TargetId == "relationships"));
+        Assert.IsTrue(actions.Any(action => action.Id == "tab-relationships.contacts" && action.TargetId == "contacts"));
+        Assert.IsTrue(actions.Any(action => action.Id == "tab-relationships.enemies" && action.TargetId == "enemies"));
+        Assert.IsTrue(actions.Any(action => action.Id == "tab-relationships.pets" && action.TargetId == "pets"));
         Assert.IsTrue(actions.Any(action => action.Id == "tab-vehicles.vehiclelocations" && action.TargetId == "vehiclelocations"));
         Assert.IsTrue(actions.Any(action => action.Id == "tab-lifestyle.sources" && action.TargetId == "sources"));
+        Assert.IsTrue(actions.Any(action => action.Id == "tab-karma.summary" && action.TargetId == "karmasummary"));
+        Assert.IsTrue(actions.Any(action => action.Id == "tab-combat.conditionmonitor" && action.TargetId == "conditionmonitor"));
+        Assert.IsTrue(actions.Any(action => action.Id == "tab-info.spelldefense" && action.TargetId == "spelldefense"));
         Assert.IsTrue(actions.Any(action => action.Id == "tab-improvements.progress" && action.TargetId == "progress"));
     }
 }

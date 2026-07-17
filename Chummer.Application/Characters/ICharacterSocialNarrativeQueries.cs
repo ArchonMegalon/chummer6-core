@@ -8,6 +8,12 @@ public interface ICharacterSocialNarrativeQueries
 
     CharacterContactsSection ParseContacts(CharacterDocument document);
 
+    CharacterContactsSection ParseRelationships(CharacterDocument document);
+
+    CharacterContactsSection ParseEnemies(CharacterDocument document);
+
+    CharacterContactsSection ParsePets(CharacterDocument document);
+
     CharacterLifestylesSection ParseLifestyles(CharacterDocument document);
 
     CharacterSourcesSection ParseSources(CharacterDocument document);

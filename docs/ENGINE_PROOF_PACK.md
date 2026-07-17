@@ -142,7 +142,7 @@ The proof pack must fail closed unless it includes:
 - import-oracle discipline status sourced from `IMPORT_PARITY_CERTIFICATION.generated.json`
 - import-oracle source receipt identity for `contract_name=chummer6-core.import_parity_certification`, `schema_version=1`, and `proof_kind=local_parity_harness`, so a helper summary or non-canonical receipt cannot satisfy oracle discipline by carrying the same status and counts
 - import-oracle aggregate coverage sourced from the canonical receipt `coverage` block, so row-level oracle detail cannot hide a missing, malformed, boolean, fractional, string-encoded, under-100-percent, over-100-percent, zero, undercovered, or adjacent-oracle-omitting source summary
-- release-channel binding sourced from `/docker/chummercomplete/chummer-hub-registry/.codex-studio/published/RELEASE_CHANNEL.generated.json`
+- release-channel binding sourced from the canonical Registry manifest by default, with an explicit path override for hermetic verification
 - release-channel shelf-shape proof that fails closed on malformed artifact rows or desktop route-truth rows instead of silently ignoring blank or non-object release evidence
 - release commands with existing repo-local project and budget inputs
 - evidence anchors that resolve to checked-in files; anchors with `::` must also resolve to a symbol or stable token in that file
@@ -170,7 +170,7 @@ Import and adjacent oracle rows must report `sources_covered == sources_expected
 Import and adjacent oracle name sets are exact release-bound scopes, so unexpected oracle rows fail closed instead of widening the promoted oracle pack by accretion.
 Import and adjacent oracle arrays must not contain anonymous or non-object rows; malformed extra rows fail closed instead of being silently ignored beside the required release-bound oracle set.
 
-The release-channel binding requires the current release shelf to be `published`, `promoted_preview`, release-proof `passed`, and desktop tuple coverage `complete`.
+The release-channel binding requires the current release shelf to be `published`, either `promoted_preview` or `public_stable`, release-proof `passed`, and desktop tuple coverage `complete`.
 Release-channel artifact ids and desktop tuple ids must be unique, so a duplicate shelf item or route-truth row cannot mask a stale or conflicting promoted desktop receipt.
 Release-channel artifact and desktop route-truth rows must be structured objects with non-empty ids; blank or scalar rows fail closed even if the required promoted tuples are otherwise present.
 It also fail-closes unless the promoted primary Avalonia installer tuples resolve for Linux, Windows, and macOS:
@@ -189,6 +189,10 @@ From repo root:
 python3 scripts/generate-engine-proof-pack.py
 ```
 
+Release generation defaults to the sibling Registry checkout at `../chummer-hub-registry/.codex-studio/published/RELEASE_CHANNEL.generated.json`.
+Use `--release-channel <path>` for an explicit authority, or set `CHUMMER_ENGINE_PROOF_RELEASE_CHANNEL` when the authority is mounted elsewhere; the command-line option takes precedence over the environment.
+Hermetic reproducibility checks use the sanitized committed fixture at `tests/fixtures/engine-proof-pack/release-channel.public-stable.sanitized.json`, while the default path remains the explicit release-mode authority.
+
 The generator treats the generated proof pack path as a planned output so a clean first run cannot fail only because `ENGINE_PROOF_PACK.generated.json` does not already exist. Other successor queue proof anchors must resolve on disk.
 Use `python3 scripts/generate-engine-proof-pack.py --check` when verification must prove the checked-in receipt is current without rewriting the artifact.
 Both the Fleet staging queue and the design-owned staging queue must retain the completed `next90-m104-core-proof-pack` row with the same frontier, allowed paths, owned surfaces, landed commit, and proof anchors.
@@ -198,7 +202,7 @@ Each proof list must be duplicate-free before queue authority can pass.
 Every absolute `/docker/chummercomplete/...` proof path in either queue row must resolve inside `/docker/chummercomplete/chummer-core-engine`; commit citations remain textual proof items, while added sibling-repo or missing package-local paths fail queue authority.
 The package-local closeout note must remain listed as a resolved queue proof anchor beside the generated receipt, generator, tests, and this proof-pack contract.
 The generator also validates the closeout note content directly, including package/frontier/owner identity, closed-scope authority, allowed paths, owned surfaces, do-not-reopen posture, verification commands, absence of concrete active-run artifact paths, and absence of active-run telemetry or handoff field labels from closeout proof/evidence lines, including separator-obfuscated variants.
-The checked-in receipt is also treated as a reproducible artifact: `tests/test_engine_proof_pack_generator.py` rebuilds the payload from repo-local evidence and compares it to `.codex-studio/published/ENGINE_PROOF_PACK.generated.json`, ignoring only `generated_at`.
+The checked-in receipt is also treated as a reproducible artifact: `tests/test_engine_proof_pack_generator.py` rebuilds the payload from repo-local evidence and the sanitized release-channel fixture, then compares it to `.codex-studio/published/ENGINE_PROOF_PACK.generated.json`, ignoring `generated_at` and the machine-local release-channel input locator while comparing all authority fields.
 The generator still writes the diagnostic receipt when evidence is missing, but exits nonzero whenever the generated pack status is not `passed`.
 
 ## Verification

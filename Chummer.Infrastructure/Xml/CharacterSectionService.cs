@@ -8,13 +8,12 @@ public sealed class CharacterSectionService : ICharacterSectionService
     public CharacterAttributesSection ParseAttributes(string xml)
     {
         XElement character = LoadCharacterRoot(xml);
+        bool created = ParseBool(ReadValue(character, "created"));
+        int availableKarma = Decimal.ToInt32(decimal.Truncate(ParseDecimal(ReadValue(character, "karma"))));
         IReadOnlyList<CharacterAttributeSummary> attributes = character
             .Element("attributes")?
             .Elements("attribute")
-            .Select(attribute => new CharacterAttributeSummary(
-                Name: ReadValue(attribute, "name"),
-                BaseValue: ParseInt(ReadValue(attribute, "base")),
-                TotalValue: ParseInt(ReadValue(attribute, "totalvalue"))))
+            .Select(attribute => BuildAttributeSummary(attribute, created, availableKarma))
             .ToArray()
             ?? Array.Empty<CharacterAttributeSummary>();
 
@@ -26,24 +25,104 @@ public sealed class CharacterSectionService : ICharacterSectionService
     public CharacterAttributeDetailsSection ParseAttributeDetails(string xml)
     {
         XElement character = LoadCharacterRoot(xml);
+        bool created = ParseBool(ReadValue(character, "created"));
+        int availableKarma = Decimal.ToInt32(decimal.Truncate(ParseDecimal(ReadValue(character, "karma"))));
         IReadOnlyList<CharacterAttributeDetailSummary> attributes = character
             .Element("attributes")?
             .Elements("attribute")
-            .Select(attribute => new CharacterAttributeDetailSummary(
-                Name: ReadValue(attribute, "name"),
-                MetatypeMin: ParseInt(ReadValue(attribute, "metatypemin")),
-                MetatypeMax: ParseInt(ReadValue(attribute, "metatypemax")),
-                MetatypeAugMax: ParseInt(ReadValue(attribute, "metatypeaugmax")),
-                BaseValue: ParseInt(ReadValue(attribute, "base")),
-                KarmaValue: ParseInt(ReadValue(attribute, "karma")),
-                TotalValue: ParseInt(ReadValue(attribute, "totalvalue")),
-                MetatypeCategory: ReadValue(attribute, "metatypecategory")))
+            .Select(attribute => BuildAttributeDetailSummary(attribute, created, availableKarma))
             .ToArray()
             ?? Array.Empty<CharacterAttributeDetailSummary>();
 
         return new CharacterAttributeDetailsSection(
             Count: attributes.Count,
             Attributes: attributes);
+    }
+
+    private static CharacterAttributeSummary BuildAttributeSummary(XElement attribute, bool created, int availableKarma)
+    {
+        string name = ReadValue(attribute, "name");
+        int baseValue = ParseInt(ReadValue(attribute, "base"));
+        int karmaValue = ParseInt(ReadValue(attribute, "karma"));
+        int totalValue = ParseInt(FirstNonBlank(ReadValue(attribute, "totalvalue"), ReadValue(attribute, "value")));
+        if (karmaValue == 0 && totalValue >= baseValue)
+        {
+            karmaValue = totalValue - baseValue;
+        }
+
+        int metatypeMin = ParseInt(ReadValue(attribute, "metatypemin"));
+        int metatypeMax = Math.Max(metatypeMin, ParseInt(ReadValue(attribute, "metatypemax")));
+        int metatypeAugMax = Math.Max(metatypeMax, ParseInt(ReadValue(attribute, "metatypeaugmax")));
+        int priorityMaximum = Math.Max(baseValue, metatypeMax);
+        int karmaMaximum = Math.Max(0, metatypeAugMax - baseValue);
+        int upgradeKarmaCost = ComputeCareerAttributeUpgradeCost(totalValue, metatypeAugMax);
+
+        return new CharacterAttributeSummary(
+            Name: name,
+            BaseValue: baseValue,
+            TotalValue: totalValue)
+        {
+            KarmaValue = karmaValue,
+            MetatypeMin = metatypeMin,
+            MetatypeMax = metatypeMax,
+            MetatypeAugMax = metatypeAugMax,
+            PriorityMaximum = priorityMaximum,
+            KarmaMaximum = karmaMaximum,
+            BaseUnlocked = !created,
+            Created = created,
+            AvailableKarma = availableKarma,
+            UpgradeKarmaCost = upgradeKarmaCost,
+            CanCareerUpgrade = created && upgradeKarmaCost > 0 && availableKarma >= upgradeKarmaCost
+        };
+    }
+
+    private static CharacterAttributeDetailSummary BuildAttributeDetailSummary(XElement attribute, bool created, int availableKarma)
+    {
+        string name = ReadValue(attribute, "name");
+        int metatypeMin = ParseInt(ReadValue(attribute, "metatypemin"));
+        int metatypeMax = Math.Max(metatypeMin, ParseInt(ReadValue(attribute, "metatypemax")));
+        int metatypeAugMax = Math.Max(metatypeMax, ParseInt(ReadValue(attribute, "metatypeaugmax")));
+        int baseValue = ParseInt(ReadValue(attribute, "base"));
+        int karmaValue = ParseInt(ReadValue(attribute, "karma"));
+        int totalValue = ParseInt(ReadValue(attribute, "totalvalue"));
+        if (karmaValue == 0 && totalValue >= baseValue)
+        {
+            karmaValue = totalValue - baseValue;
+        }
+
+        int priorityMaximum = Math.Max(baseValue, metatypeMax);
+        int karmaMaximum = Math.Max(0, metatypeAugMax - baseValue);
+        int upgradeKarmaCost = ComputeCareerAttributeUpgradeCost(totalValue, metatypeAugMax);
+
+        return new CharacterAttributeDetailSummary(
+            Name: name,
+            MetatypeMin: metatypeMin,
+            MetatypeMax: metatypeMax,
+            MetatypeAugMax: metatypeAugMax,
+            BaseValue: baseValue,
+            KarmaValue: karmaValue,
+            TotalValue: totalValue,
+            MetatypeCategory: ReadValue(attribute, "metatypecategory"))
+        {
+            PriorityMaximum = priorityMaximum,
+            KarmaMaximum = karmaMaximum,
+            BaseUnlocked = !created,
+            Created = created,
+            AvailableKarma = availableKarma,
+            UpgradeKarmaCost = upgradeKarmaCost,
+            CanCareerUpgrade = created && upgradeKarmaCost > 0 && availableKarma >= upgradeKarmaCost
+        };
+    }
+
+    private static int ComputeCareerAttributeUpgradeCost(int currentValue, int totalMaximum)
+    {
+        if (currentValue >= totalMaximum)
+        {
+            return -1;
+        }
+
+        int nextRank = Math.Max(1, currentValue + 1);
+        return nextRank * 5;
     }
 
     public CharacterInventorySection ParseInventory(string xml)
@@ -126,6 +205,25 @@ public sealed class CharacterSectionService : ICharacterSectionService
             MagEnabled: ParseBool(ReadValue(character, "magenabled")),
             ResEnabled: ParseBool(ReadValue(character, "resenabled")),
             DepEnabled: ParseBool(ReadValue(character, "depenabled")));
+    }
+
+    public CharacterProgressSection ParseKarmaSummary(string xml) => ParseProgress(xml);
+
+    public CharacterConditionMonitorSection ParseConditionMonitor(string xml)
+    {
+        XElement character = LoadCharacterRoot(xml);
+        return new CharacterConditionMonitorSection(
+            PhysicalTrack: ParseInt(ReadValue(character, "physicalcm")),
+            PhysicalFilled: ParseInt(ReadValue(character, "physicalcmfilled")),
+            PhysicalOverflow: ParseInt(ReadValue(character, "physicalcmoverflow")),
+            PhysicalThresholdOffset: ParseInt(ReadValue(character, "physicalcmthresholdoffset")),
+            PhysicalNaturalRecovery: ReadValue(character, "physicalcmnaturalrecovery"),
+            StunTrack: ParseInt(ReadValue(character, "stuncm")),
+            StunFilled: ParseInt(ReadValue(character, "stuncmfilled")),
+            StunThresholdOffset: ParseInt(ReadValue(character, "stuncmthresholdoffset")),
+            StunNaturalRecovery: ReadValue(character, "stuncmnaturalrecovery"),
+            PhysicalActsAsCore: ParseBool(ReadValue(character, "physicalcmiscorecm")),
+            StunActsAsMatrix: ParseBool(ReadValue(character, "stuncmismatrixcm")));
     }
 
     public CharacterRulesSection ParseRules(string xml)
@@ -211,6 +309,46 @@ public sealed class CharacterSectionService : ICharacterSectionService
             CfpLimit: ParseInt(ReadValue(character, "cfplimit")),
             AiNormalProgramLimit: ParseInt(ReadValue(character, "ainormalprogramlimit")),
             AiAdvancedProgramLimit: ParseInt(ReadValue(character, "aiadvancedprogramlimit")));
+    }
+
+    public CharacterSpellDefenseSection ParseSpellDefense(string xml)
+    {
+        XElement character = LoadCharacterRoot(xml);
+        int counterspellingDice = ParseInt(ReadValue(character, "currentcounterspellingdice"));
+        int bod = ReadAttributeTotalValue(character, "BOD");
+        int agi = ReadAttributeTotalValue(character, "AGI");
+        int rea = ReadAttributeTotalValue(character, "REA");
+        int str = ReadAttributeTotalValue(character, "STR");
+        int cha = ReadAttributeTotalValue(character, "CHA");
+        int inti = ReadAttributeTotalValue(character, "INT");
+        int log = ReadAttributeTotalValue(character, "LOG");
+        int wil = ReadAttributeTotalValue(character, "WIL");
+        int armor = EstimateArmorRating(character);
+        CharacterSpellDefenseMetricSummary[] metrics =
+        [
+            CreateSpellDefenseMetric(character, "indirect-dodge", "Indirect Dodge", "indirectdefenseresist", counterspellingDice, "Dodge", rea + inti),
+            CreateSpellDefenseMetric(character, "indirect-soak", "Indirect Soak", "indirectsoakresist", counterspellingDice, "Body + armor + damage resistance", bod + armor),
+            CreateSpellDefenseMetric(character, "direct-soak-mana", "Direct Soak (Mana)", "directmanaresist", counterspellingDice, "Willpower", wil),
+            CreateSpellDefenseMetric(character, "direct-soak-physical", "Direct Soak (Physical)", "directphysicalresist", counterspellingDice, "Body", bod),
+            CreateSpellDefenseMetric(character, "detection", "Detection", "detectionspellresist", counterspellingDice, "Logic + Willpower", log + wil),
+            CreateSpellDefenseMetric(character, "decrease-bod", "Decrease BOD", "decreasebodresist", counterspellingDice, "Body + Willpower", bod + wil),
+            CreateSpellDefenseMetric(character, "decrease-agi", "Decrease AGI", "decreaseagiresist", counterspellingDice, "Agility + Willpower", agi + wil),
+            CreateSpellDefenseMetric(character, "decrease-rea", "Decrease REA", "decreaserearesist", counterspellingDice, "Reaction + Willpower", rea + wil),
+            CreateSpellDefenseMetric(character, "decrease-str", "Decrease STR", "decreasestrresist", counterspellingDice, "Strength + Willpower", str + wil),
+            CreateSpellDefenseMetric(character, "decrease-cha", "Decrease CHA", "decreasecharesist", counterspellingDice, "Charisma + Willpower", cha + wil),
+            CreateSpellDefenseMetric(character, "decrease-int", "Decrease INT", "decreaseintresist", counterspellingDice, "Intuition + Willpower", inti + wil),
+            CreateSpellDefenseMetric(character, "decrease-log", "Decrease LOG", "decreaselogresist", counterspellingDice, "Logic + Willpower", log + wil),
+            CreateSpellDefenseMetric(character, "decrease-wil", "Decrease WIL", "decreasewilresist", counterspellingDice, "Willpower + Willpower", wil + wil),
+            CreateSpellDefenseMetric(character, "illusion-mana", "Illusion (Mana)", "illusionmanaresist", counterspellingDice, "Logic + Willpower", log + wil),
+            CreateSpellDefenseMetric(character, "illusion-physical", "Illusion (Physical)", "illusionphysicalresist", counterspellingDice, "Logic + Intuition", log + inti),
+            CreateSpellDefenseMetric(character, "manipulation-mental", "Manipulation (Mental)", "manipulationmentalresist", counterspellingDice, "Logic + Willpower", log + wil),
+            CreateSpellDefenseMetric(character, "manipulation-physical", "Manipulation (Physical)", "manipulationphysicalresist", counterspellingDice, "Body + Strength", bod + str)
+        ];
+
+        return new CharacterSpellDefenseSection(
+            Count: metrics.Length,
+            CurrentCounterspellingDice: counterspellingDice,
+            Metrics: metrics);
     }
 
     public CharacterGearSection ParseGear(string xml)
@@ -482,17 +620,25 @@ public sealed class CharacterSectionService : ICharacterSectionService
     }
 
     public CharacterContactsSection ParseContacts(string xml)
+        => ParseContactsByType(xml, static type => type == ContactRecordType.Contact);
+
+    public CharacterContactsSection ParseRelationships(string xml)
+        => ParseContactsByType(xml, static _ => true);
+
+    public CharacterContactsSection ParseEnemies(string xml)
+        => ParseContactsByType(xml, static type => type == ContactRecordType.Enemy);
+
+    public CharacterContactsSection ParsePets(string xml)
+        => ParseContactsByType(xml, static type => type == ContactRecordType.Pet);
+
+    private CharacterContactsSection ParseContactsByType(string xml, Func<ContactRecordType, bool> includeContact)
     {
         XElement character = LoadCharacterRoot(xml);
         IReadOnlyList<CharacterContactSummary> contacts = character
             .Element("contacts")?
             .Elements("contact")
-            .Select(contact => new CharacterContactSummary(
-                Name: ReadValue(contact, "name"),
-                Role: ReadValue(contact, "role"),
-                Location: ReadValue(contact, "location"),
-                Connection: ParseInt(ReadValue(contact, "connection")),
-                Loyalty: ParseInt(ReadValue(contact, "loyalty"))))
+            .Where(contact => includeContact(ParseContactRecordType(ReadValue(contact, "type"))))
+            .Select(ParseContactSummary)
             .ToArray()
             ?? Array.Empty<CharacterContactSummary>();
 
@@ -1032,6 +1178,102 @@ public sealed class CharacterSectionService : ICharacterSectionService
         return (value ?? string.Empty).Trim().ToUpperInvariant();
     }
 
+    private static CharacterSpellDefenseMetricSummary CreateSpellDefenseMetric(
+        XElement character,
+        string id,
+        string label,
+        string nodeName,
+        int counterspellingDice,
+        string formula,
+        int fallbackBaseValue)
+    {
+        int baseValue = TryReadIntValue(character, nodeName, out int parsedValue)
+            ? parsedValue
+            : fallbackBaseValue;
+        return new CharacterSpellDefenseMetricSummary(
+            Id: id,
+            Label: label,
+            BaseValue: baseValue,
+            CounterspellingDice: counterspellingDice,
+            TotalValue: baseValue + counterspellingDice,
+            Formula: formula);
+    }
+
+    private static CharacterContactSummary ParseContactSummary(XElement contact)
+        => new(
+            Name: ReadValue(contact, "name"),
+            Role: ReadValue(contact, "role"),
+            Location: ReadValue(contact, "location"),
+            Connection: ParseInt(ReadValue(contact, "connection")),
+            Loyalty: ParseInt(ReadValue(contact, "loyalty")));
+
+    private static ContactRecordType ParseContactRecordType(string value)
+        => value.Trim().ToUpperInvariant() switch
+        {
+            "PET" => ContactRecordType.Pet,
+            "CONTACT" or "" => ContactRecordType.Contact,
+            _ => ContactRecordType.Enemy
+        };
+
+    private static int ReadAttributeTotalValue(XElement character, string attributeName)
+        => (character.Element("attributes")?.Elements("attribute") ?? Enumerable.Empty<XElement>())
+            .Where(attribute => string.Equals(ReadValue(attribute, "name"), attributeName, StringComparison.OrdinalIgnoreCase))
+            .Select(attribute => ParseInt(ReadValue(attribute, "totalvalue")))
+            .FirstOrDefault();
+
+    private static bool TryReadIntValue(XElement parent, string nodeName, out int value)
+    {
+        XElement? element = parent.Element(nodeName);
+        if (element is null)
+        {
+            value = 0;
+            return false;
+        }
+
+        value = ParseInt(element.Value.Trim());
+        return true;
+    }
+
+    private static int EstimateArmorRating(XElement character)
+    {
+        XElement? armors = character.Element("armors");
+        if (armors is null)
+        {
+            return 0;
+        }
+
+        int highestBaseArmor = 0;
+        int stackedArmorDelta = 0;
+
+        foreach (XElement armor in armors.Elements("armor"))
+        {
+            if (!ParseBool(ReadValue(armor, "equipped")))
+            {
+                continue;
+            }
+
+            string armorValue = ReadValue(armor, "armor");
+            if (string.IsNullOrWhiteSpace(armorValue) || !TryParseSignedInteger(armorValue, out int parsedArmor))
+            {
+                continue;
+            }
+
+            if (armorValue.StartsWith('+') || armorValue.StartsWith('-'))
+            {
+                stackedArmorDelta += parsedArmor;
+            }
+            else
+            {
+                highestBaseArmor = Math.Max(highestBaseArmor, parsedArmor);
+            }
+        }
+
+        return Math.Max(0, highestBaseArmor + stackedArmorDelta);
+    }
+
+    private static bool TryParseSignedInteger(string value, out int parsed)
+        => int.TryParse(value.Trim(), out parsed);
+
     private static XElement LoadCharacterRoot(string xml)
     {
         XDocument document = XDocument.Parse(xml, LoadOptions.PreserveWhitespace);
@@ -1088,5 +1330,12 @@ public sealed class CharacterSectionService : ICharacterSectionService
         return new CharacterLocationsSection(
             Count: locations.Count,
             Locations: locations);
+    }
+
+    private enum ContactRecordType
+    {
+        Contact,
+        Pet,
+        Enemy
     }
 }

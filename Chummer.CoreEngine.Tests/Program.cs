@@ -2899,7 +2899,7 @@ internal static class CoreEngineTests
                 [
                     new Sr5WorkspaceCodec(fileQueries, sectionQueries, metadataCommands),
                     new Sr4WorkspaceCodec(),
-                    new Sr6WorkspaceCodec()
+                    CodecFactory.CreateSr6WorkspaceCodec(fileQueries, sectionQueries, metadataCommands)
                 ]),
                 new WorkspaceImportRulesetDetector());
 
@@ -3026,7 +3026,7 @@ internal static class CoreEngineTests
                 [
                     new Sr4WorkspaceCodec(fileQueries, sectionQueries, metadataCommands),
                     new Sr5WorkspaceCodec(fileQueries, sectionQueries, metadataCommands),
-                    new Sr6WorkspaceCodec()
+                    CodecFactory.CreateSr6WorkspaceCodec(fileQueries, sectionQueries, metadataCommands)
                 ]),
                 new WorkspaceImportRulesetDetector());
 
@@ -3480,7 +3480,7 @@ internal static class CoreEngineTests
             [
                 new Sr5WorkspaceCodec(fileQueries, sectionQueries, metadataCommands),
                 new Sr4WorkspaceCodec(),
-                new Sr6WorkspaceCodec()
+                CodecFactory.CreateSr6WorkspaceCodec(fileQueries, sectionQueries, metadataCommands)
             ]),
             new WorkspaceImportRulesetDetector());
 
@@ -3786,7 +3786,7 @@ internal static class CoreEngineTests
             [
                 new Sr5WorkspaceCodec(fileQueries, sectionQueries, metadataCommands),
                 new Sr4WorkspaceCodec(),
-                new Sr6WorkspaceCodec()
+                CodecFactory.CreateSr6WorkspaceCodec(fileQueries, sectionQueries, metadataCommands)
             ]),
             new WorkspaceImportRulesetDetector());
         WorkspaceImportResult imported = workspaceService.Import(new WorkspaceImportDocument(
@@ -3837,7 +3837,7 @@ internal static class CoreEngineTests
             [
                 new Sr5WorkspaceCodec(fileQueries, sectionQueries, metadataCommands),
                 new Sr4WorkspaceCodec(),
-                new Sr6WorkspaceCodec()
+                CodecFactory.CreateSr6WorkspaceCodec(fileQueries, sectionQueries, metadataCommands)
             ]),
             new WorkspaceImportRulesetDetector());
         WorkspaceImportResult imported = workspaceService.Import(new WorkspaceImportDocument(
@@ -3942,7 +3942,7 @@ internal static class CoreEngineTests
         BuildLabConceptIntakeProjection? sr4Projection = new Sr4WorkspaceCodec().ParseSection(
             "build-lab",
             new WorkspacePayloadEnvelope(RulesetDefaults.Sr4, 1, Sr4WorkspaceCodec.Sr4PayloadKind, xml)) as BuildLabConceptIntakeProjection;
-        BuildLabConceptIntakeProjection? sr6Projection = new Sr6WorkspaceCodec().ParseSection(
+        BuildLabConceptIntakeProjection? sr6Projection = CodecFactory.CreateSr6WorkspaceCodec().ParseSection(
             "build-lab",
             new WorkspacePayloadEnvelope(RulesetDefaults.Sr6, 1, Sr6WorkspaceCodec.Sr6PayloadKind, xml)) as BuildLabConceptIntakeProjection;
 
@@ -8058,61 +8058,132 @@ source_queue_fingerprint: regression-test
 
 internal sealed class RecordingBuildLabWorkspaceStore : IWorkspaceStore
 {
-    private readonly Dictionary<string, WorkspaceDocument> _documents = new(StringComparer.Ordinal);
+    private readonly InMemoryWorkspaceStore _inner = new();
 
     public CharacterWorkspaceId Create(WorkspaceDocument document)
     {
-        return Create(OwnerScope.LocalSingleUser, document);
+        return _inner.Create(document);
     }
 
     public CharacterWorkspaceId Create(OwnerScope owner, WorkspaceDocument document)
     {
-        string id = Guid.NewGuid().ToString("N");
-        _documents[id] = document;
-        return new CharacterWorkspaceId(id);
+        return _inner.Create(owner, document);
+    }
+
+    public WorkspaceStoreMutationResult CreateWorkspaceDocument(WorkspaceDocument document)
+    {
+        return _inner.CreateWorkspaceDocument(document);
+    }
+
+    public WorkspaceStoreMutationResult CreateWorkspaceDocument(OwnerScope owner, WorkspaceDocument document)
+    {
+        return _inner.CreateWorkspaceDocument(owner, document);
+    }
+
+    public WorkspaceStoreMutationResult CreateWorkspaceDocument(CharacterWorkspaceId id, WorkspaceDocument document)
+    {
+        return _inner.CreateWorkspaceDocument(id, document);
+    }
+
+    public WorkspaceStoreMutationResult CreateWorkspaceDocument(
+        OwnerScope owner,
+        CharacterWorkspaceId id,
+        WorkspaceDocument document)
+    {
+        return _inner.CreateWorkspaceDocument(owner, id, document);
     }
 
     public bool TryGet(CharacterWorkspaceId id, out WorkspaceDocument document)
     {
-        return TryGet(OwnerScope.LocalSingleUser, id, out document);
+        return _inner.TryGet(id, out document);
     }
 
     public bool TryGet(OwnerScope owner, CharacterWorkspaceId id, out WorkspaceDocument document)
     {
-        return _documents.TryGetValue(id.Value, out document!);
+        return _inner.TryGet(owner, id, out document);
+    }
+
+    public WorkspaceStoreReadResult Get(CharacterWorkspaceId id)
+    {
+        return _inner.Get(id);
+    }
+
+    public WorkspaceStoreReadResult Get(OwnerScope owner, CharacterWorkspaceId id)
+    {
+        return _inner.Get(owner, id);
     }
 
     public IReadOnlyList<WorkspaceStoreEntry> List()
     {
-        return List(OwnerScope.LocalSingleUser);
+        return _inner.List();
     }
 
     public IReadOnlyList<WorkspaceStoreEntry> List(OwnerScope owner)
     {
-        return _documents.Keys
-            .OrderBy(static key => key, StringComparer.Ordinal)
-            .Select(static key => new WorkspaceStoreEntry(new CharacterWorkspaceId(key), DateTimeOffset.UnixEpoch))
-            .ToArray();
+        return _inner.List(owner);
     }
 
     public void Save(CharacterWorkspaceId id, WorkspaceDocument document)
     {
-        Save(OwnerScope.LocalSingleUser, id, document);
+        _inner.Save(id, document);
     }
 
     public void Save(OwnerScope owner, CharacterWorkspaceId id, WorkspaceDocument document)
     {
-        _documents[id.Value] = document;
+        _inner.Save(owner, id, document);
+    }
+
+    public WorkspaceStoreMutationResult ReplaceWorkspaceDocument(
+        CharacterWorkspaceId id,
+        long expectedContentRevision,
+        WorkspaceDocument document)
+    {
+        return _inner.ReplaceWorkspaceDocument(id, expectedContentRevision, document);
+    }
+
+    public WorkspaceStoreMutationResult ReplaceWorkspaceDocument(
+        OwnerScope owner,
+        CharacterWorkspaceId id,
+        long expectedContentRevision,
+        WorkspaceDocument document)
+    {
+        return _inner.ReplaceWorkspaceDocument(owner, id, expectedContentRevision, document);
+    }
+
+    public WorkspaceStoreMutationResult SaveCheckpoint(CharacterWorkspaceId id, long expectedContentRevision)
+    {
+        return _inner.SaveCheckpoint(id, expectedContentRevision);
+    }
+
+    public WorkspaceStoreMutationResult SaveCheckpoint(
+        OwnerScope owner,
+        CharacterWorkspaceId id,
+        long expectedContentRevision)
+    {
+        return _inner.SaveCheckpoint(owner, id, expectedContentRevision);
+    }
+
+    public WorkspaceStoreMutationResult Delete(CharacterWorkspaceId id, long expectedContentRevision)
+    {
+        return _inner.Delete(id, expectedContentRevision);
+    }
+
+    public WorkspaceStoreMutationResult Delete(
+        OwnerScope owner,
+        CharacterWorkspaceId id,
+        long expectedContentRevision)
+    {
+        return _inner.Delete(owner, id, expectedContentRevision);
     }
 
     public bool Delete(CharacterWorkspaceId id)
     {
-        return Delete(OwnerScope.LocalSingleUser, id);
+        return _inner.Delete(id);
     }
 
     public bool Delete(OwnerScope owner, CharacterWorkspaceId id)
     {
-        return _documents.Remove(id.Value);
+        return _inner.Delete(owner, id);
     }
 }
 
@@ -8219,5 +8290,19 @@ internal static class AssertEx
             throw new InvalidOperationException(
                 $"{message} Expected: [{string.Join(", ", expectedItems)}]. Actual: [{string.Join(", ", actualItems)}].");
         }
+    }
+}
+
+internal static class CodecFactory
+{
+    public static Sr6WorkspaceCodec CreateSr6WorkspaceCodec(
+        ICharacterFileQueries? fileQueries = null,
+        ICharacterSectionQueries? sectionQueries = null,
+        ICharacterMetadataCommands? metadataCommands = null)
+    {
+        fileQueries ??= new XmlCharacterFileQueries(new CharacterFileService());
+        sectionQueries ??= new XmlCharacterSectionQueries(new CharacterSectionService());
+        metadataCommands ??= new XmlCharacterMetadataCommands(new CharacterFileService());
+        return new Sr6WorkspaceCodec(fileQueries, sectionQueries, metadataCommands);
     }
 }
