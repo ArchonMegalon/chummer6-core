@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -14,6 +15,13 @@ from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 GENERATOR_PATH = REPO_ROOT / "scripts" / "generate-engine-proof-pack.py"
+RELEASE_CHANNEL_FIXTURE_PATH = (
+    REPO_ROOT
+    / "tests"
+    / "fixtures"
+    / "engine-proof-pack"
+    / "release-channel.public-stable.sanitized.json"
+)
 
 
 def load_generator() -> Any:
@@ -26,8 +34,11 @@ def load_generator() -> Any:
 
 
 def without_generated_at(payload: dict[str, Any]) -> dict[str, Any]:
-    comparable = dict(payload)
+    comparable = json.loads(json.dumps(payload))
     comparable.pop("generated_at", None)
+    release_channel_binding = comparable.get("release_channel_binding")
+    if isinstance(release_channel_binding, dict):
+        release_channel_binding.pop("source_receipt_path", None)
     return comparable
 
 
@@ -37,7 +48,11 @@ class EngineProofPackReceiptReproducibilityTests(unittest.TestCase):
         receipt_path = REPO_ROOT / ".codex-studio" / "published" / "ENGINE_PROOF_PACK.generated.json"
         checked_in_payload = json.loads(receipt_path.read_text(encoding="utf-8"))
 
-        regenerated_payload = generator.build_payload(REPO_ROOT, receipt_path)
+        regenerated_payload = generator.build_payload(
+            REPO_ROOT,
+            receipt_path,
+            RELEASE_CHANNEL_FIXTURE_PATH,
+        )
 
         self.assertEqual(
             without_generated_at(regenerated_payload),
@@ -56,6 +71,8 @@ class EngineProofPackReceiptReproducibilityTests(unittest.TestCase):
                 str(REPO_ROOT),
                 "--out",
                 str(receipt_path),
+                "--release-channel",
+                str(RELEASE_CHANNEL_FIXTURE_PATH),
                 "--check",
             ],
             stdout=subprocess.PIPE,
@@ -67,6 +84,59 @@ class EngineProofPackReceiptReproducibilityTests(unittest.TestCase):
         self.assertEqual("", result.stderr)
         self.assertEqual(0, result.returncode)
         self.assertIn(str(receipt_path), result.stdout)
+
+
+class EngineProofPackReleaseChannelInputTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.generator = load_generator()
+
+    def test_explicit_release_channel_path_wins_over_environment(self) -> None:
+        environment_path = REPO_ROOT / "tests" / "fixtures" / "environment-release-channel.json"
+        with mock.patch.dict(
+            os.environ,
+            {self.generator.RELEASE_CHANNEL_ENVIRONMENT_VARIABLE: str(environment_path)},
+        ):
+            resolved = self.generator.resolve_release_channel_path(RELEASE_CHANNEL_FIXTURE_PATH)
+
+        self.assertEqual(RELEASE_CHANNEL_FIXTURE_PATH.resolve(), resolved)
+
+    def test_environment_release_channel_path_is_supported(self) -> None:
+        with mock.patch.dict(
+            os.environ,
+            {self.generator.RELEASE_CHANNEL_ENVIRONMENT_VARIABLE: str(RELEASE_CHANNEL_FIXTURE_PATH)},
+        ):
+            resolved = self.generator.resolve_release_channel_path()
+
+        self.assertEqual(RELEASE_CHANNEL_FIXTURE_PATH.resolve(), resolved)
+
+    def test_release_mode_defaults_to_canonical_registry_authority(self) -> None:
+        with mock.patch.dict(
+            os.environ,
+            {self.generator.RELEASE_CHANNEL_ENVIRONMENT_VARIABLE: ""},
+        ):
+            resolved = self.generator.resolve_release_channel_path()
+
+        self.assertEqual(self.generator.RELEASE_CHANNEL_PATH, resolved)
+
+    def test_sanitized_release_mode_fixture_preserves_public_stable_binding(self) -> None:
+        binding, unresolved = self.generator._build_release_channel_binding(
+            RELEASE_CHANNEL_FIXTURE_PATH,
+            REPO_ROOT,
+        )
+
+        self.assertEqual([], unresolved)
+        self.assertEqual("passed", binding["status"])
+        self.assertEqual("public_stable", binding["channel_id"])
+        self.assertEqual("run-258", binding["version"])
+        self.assertEqual("public_stable", binding["rollout_state"])
+        self.assertEqual(
+            "tests/fixtures/engine-proof-pack/release-channel.public-stable.sanitized.json",
+            binding["source_receipt_path"],
+        )
+        self.assertEqual(
+            ["avalonia:linux:linux-x64", "avalonia:windows:win-x64"],
+            binding["required_promoted_desktop_tuples"],
+        )
 
 
 class EngineProofPackGeneratorTests(unittest.TestCase):

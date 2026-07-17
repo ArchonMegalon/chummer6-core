@@ -167,6 +167,10 @@ public static class ServiceCollectionExtensions
                 ? new FileWorkspaceStore(stateDirectory)
                 : new FileWorkspaceStore(workspaceDirectory);
         });
+        services.AddSingleton<IWorkspaceStoreReadinessProbe>(provider =>
+            provider.GetRequiredService<IWorkspaceStore>() as IWorkspaceStoreReadinessProbe
+            ?? throw new InvalidOperationException(
+                "The configured workspace store does not provide a readiness probe."));
         services.AddSingleton<IWorkspaceImportRulesetDetector, WorkspaceImportRulesetDetector>();
         services.AddSingleton<IWorkspaceService, WorkspaceService>();
 

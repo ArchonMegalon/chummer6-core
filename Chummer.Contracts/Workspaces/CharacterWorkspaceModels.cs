@@ -9,6 +9,15 @@ public readonly record struct CharacterWorkspaceId(string Value)
     public override string ToString() => Value;
 }
 
+public enum WorkspaceOperationOutcome
+{
+    Success = 0,
+    Missing = 1,
+    Conflict = 2,
+    Corrupt = 3,
+    Unavailable = 4
+}
+
 public enum WorkspaceDocumentFormat
 {
     NativeXml = 0,
@@ -141,7 +150,9 @@ public sealed record WorkspaceSaveReceipt(
     int DocumentLength,
     string RulesetId,
     string ReceiptId = "",
-    WorkspaceWorkflowDeterministicReceipt? WorkflowDeterministicReceipt = null);
+    WorkspaceWorkflowDeterministicReceipt? WorkflowDeterministicReceipt = null,
+    long ContentRevision = 0,
+    long SavedRevision = 0);
 
 public sealed record WorkspaceDownloadReceipt(
     CharacterWorkspaceId Id,
@@ -183,7 +194,74 @@ public sealed record WorkspaceListItem(
     CharacterFileSummary Summary,
     DateTimeOffset LastUpdatedUtc,
     string RulesetId,
-    bool HasSavedWorkspace = false);
+    bool HasSavedWorkspace = false,
+    long ContentRevision = 0,
+    long SavedRevision = 0);
+
+public sealed record WorkspaceDocumentSnapshot(
+    CharacterWorkspaceId Id,
+    WorkspaceDocument Document,
+    DateTimeOffset LastUpdatedUtc,
+    long ContentRevision,
+    long SavedRevision);
+
+public sealed record WorkspaceRevisionReceipt(
+    CharacterWorkspaceId Id,
+    long ContentRevision,
+    long SavedRevision);
+
+public sealed record WorkspaceMetadataResult(
+    CharacterProfileSection Profile,
+    long ContentRevision,
+    long SavedRevision);
+
+public static class WorkspaceRevisionEtag
+{
+    public static string Format(long contentRevision)
+    {
+        if (contentRevision <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(contentRevision));
+        }
+
+        return $"\"{contentRevision}\"";
+    }
+
+    public static bool TryParseStrong(string? value, out long contentRevision)
+    {
+        contentRevision = 0;
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return false;
+        }
+
+        ReadOnlySpan<char> candidate = value.AsSpan().Trim();
+        if (candidate.Length < 3
+            || candidate[0] != '"'
+            || candidate[^1] != '"'
+            || candidate.Contains(','))
+        {
+            return false;
+        }
+
+        ReadOnlySpan<char> opaqueTag = candidate[1..^1];
+        if (opaqueTag.IsEmpty || opaqueTag[0] == '0')
+        {
+            return false;
+        }
+
+        foreach (char character in opaqueTag)
+        {
+            if (character is < '0' or > '9')
+            {
+                return false;
+            }
+        }
+
+        return long.TryParse(opaqueTag, out contentRevision)
+               && contentRevision > 0;
+    }
+}
 
 public sealed record UpdateWorkspaceMetadata(
     string? Name,
@@ -193,5 +271,10 @@ public sealed record UpdateWorkspaceMetadata(
 public sealed record CommandResult<T>(
     bool Success,
     T? Value,
-    string? Error)
-    where T : class;
+    string? Error,
+    WorkspaceOperationOutcome? OperationOutcome = null)
+    where T : class
+{
+    public WorkspaceOperationOutcome Outcome => OperationOutcome
+        ?? (Success ? WorkspaceOperationOutcome.Success : WorkspaceOperationOutcome.Unavailable);
+}

@@ -309,6 +309,95 @@ public class CharacterSectionServiceTests
     }
 
     [TestMethod]
+    public void ParseRelationship_contact_sections_split_contact_enemy_and_pet_entries()
+    {
+        const string xml = """
+            <character>
+              <contacts>
+                <contact>
+                  <name>Fixer</name>
+                  <role>Broker</role>
+                  <location>Seattle</location>
+                  <connection>4</connection>
+                  <loyalty>3</loyalty>
+                  <type>Contact</type>
+                </contact>
+                <contact>
+                  <name>Nemesis</name>
+                  <role>Detective</role>
+                  <location>Tacoma</location>
+                  <connection>5</connection>
+                  <loyalty>1</loyalty>
+                  <type>Enemy</type>
+                </contact>
+                <contact>
+                  <name>Wolfhound</name>
+                  <role>Guard Dog</role>
+                  <location>Redmond</location>
+                  <connection>2</connection>
+                  <loyalty>5</loyalty>
+                  <type>Pet</type>
+                </contact>
+              </contacts>
+            </character>
+            """;
+        var service = new CharacterSectionService();
+
+        CharacterContactsSection relationships = service.ParseRelationships(xml);
+        CharacterContactsSection contacts = service.ParseContacts(xml);
+        CharacterContactsSection enemies = service.ParseEnemies(xml);
+        CharacterContactsSection pets = service.ParsePets(xml);
+
+        Assert.AreEqual(3, relationships.Count);
+        Assert.AreEqual(1, contacts.Count);
+        Assert.AreEqual(1, enemies.Count);
+        Assert.AreEqual(1, pets.Count);
+        Assert.AreEqual("Fixer", contacts.Contacts[0].Name);
+        Assert.AreEqual("Nemesis", enemies.Contacts[0].Name);
+        Assert.AreEqual("Wolfhound", pets.Contacts[0].Name);
+    }
+
+    [TestMethod]
+    public void ParseSpellDefense_extracts_base_and_counterspelled_metrics()
+    {
+        const string xml = """
+            <character>
+              <currentcounterspellingdice>3</currentcounterspellingdice>
+              <indirectdefenseresist>9</indirectdefenseresist>
+              <indirectsoakresist>12</indirectsoakresist>
+              <directmanaresist>8</directmanaresist>
+              <directphysicalresist>7</directphysicalresist>
+              <detectionspellresist>10</detectionspellresist>
+              <decreasebodresist>11</decreasebodresist>
+              <decreaseagiresist>10</decreaseagiresist>
+              <decreaserearesist>9</decreaserearesist>
+              <decreasestrresist>8</decreasestrresist>
+              <decreasecharesist>7</decreasecharesist>
+              <decreaseintresist>6</decreaseintresist>
+              <decreaselogresist>5</decreaselogresist>
+              <decreasewilresist>4</decreasewilresist>
+              <illusionmanaresist>13</illusionmanaresist>
+              <illusionphysicalresist>12</illusionphysicalresist>
+              <manipulationmentalresist>11</manipulationmentalresist>
+              <manipulationphysicalresist>10</manipulationphysicalresist>
+            </character>
+            """;
+        var service = new CharacterSectionService();
+
+        CharacterSpellDefenseSection section = service.ParseSpellDefense(xml);
+        CharacterSpellDefenseMetricSummary indirectDodge = section.Metrics.Single(metric => string.Equals(metric.Id, "indirect-dodge", StringComparison.Ordinal));
+        CharacterSpellDefenseMetricSummary illusionMana = section.Metrics.Single(metric => string.Equals(metric.Id, "illusion-mana", StringComparison.Ordinal));
+
+        Assert.AreEqual(17, section.Count);
+        Assert.AreEqual(3, section.CurrentCounterspellingDice);
+        Assert.AreEqual(9, indirectDodge.BaseValue);
+        Assert.AreEqual(12, indirectDodge.TotalValue);
+        Assert.AreEqual("Dodge", indirectDodge.Formula);
+        Assert.AreEqual(13, illusionMana.BaseValue);
+        Assert.AreEqual(16, illusionMana.TotalValue);
+    }
+
+    [TestMethod]
     public void ParseSpells_extracts_spell_entries()
     {
         string xml = File.ReadAllText(FindTestFilePath("Munin.chum5"));

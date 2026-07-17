@@ -6,6 +6,7 @@ import datetime as dt
 import html
 import json
 import math
+import os
 from pathlib import Path
 import re
 import subprocess
@@ -74,7 +75,15 @@ REQUIRED_IMPORT_CERT_IDENTITY = {
     "proof_kind": "local_parity_harness",
 }
 
-RELEASE_CHANNEL_PATH = Path("/docker/chummercomplete/chummer-hub-registry/.codex-studio/published/RELEASE_CHANNEL.generated.json")
+REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
+RELEASE_CHANNEL_PATH = (
+    REPOSITORY_ROOT.parent
+    / "chummer-hub-registry"
+    / ".codex-studio"
+    / "published"
+    / "RELEASE_CHANNEL.generated.json"
+)
+RELEASE_CHANNEL_ENVIRONMENT_VARIABLE = "CHUMMER_ENGINE_PROOF_RELEASE_CHANNEL"
 CANONICAL_CHUMMER_ROOT = Path("/docker/chummercomplete")
 CANONICAL_PACKAGE_ROOT = CANONICAL_CHUMMER_ROOT / "chummer-core-engine"
 
@@ -556,10 +565,34 @@ def _load_json(path: Path) -> dict[str, Any]:
     return payload if isinstance(payload, dict) else {}
 
 
-def _without_generated_at(payload: dict[str, Any]) -> dict[str, Any]:
-    comparable = dict(payload)
+def _without_generated_at(
+    payload: dict[str, Any],
+    *,
+    ignore_release_channel_source_path: bool = False,
+) -> dict[str, Any]:
+    comparable = json.loads(json.dumps(payload))
     comparable.pop("generated_at", None)
+    if ignore_release_channel_source_path:
+        release_channel_binding = comparable.get("release_channel_binding")
+        if isinstance(release_channel_binding, dict):
+            # An explicit fixture or mounted authority can have a machine-local
+            # locator while proving the same release-channel bytes and fields.
+            release_channel_binding.pop("source_receipt_path", None)
     return comparable
+
+
+def resolve_release_channel_path(explicit_path: str | Path | None = None) -> Path:
+    if explicit_path is not None:
+        candidate = str(explicit_path).strip()
+        if not candidate:
+            raise ValueError("--release-channel must name a non-empty path")
+        return Path(candidate).expanduser().resolve()
+
+    configured = os.environ.get(RELEASE_CHANNEL_ENVIRONMENT_VARIABLE, "").strip()
+    if configured:
+        return Path(configured).expanduser().resolve()
+
+    return RELEASE_CHANNEL_PATH
 
 
 def _extract_status(payload: dict[str, Any]) -> str:
@@ -1539,7 +1572,10 @@ def _benchmark_workload_is_executable(source: str, workload_name: str) -> bool:
     return benchmark_attribute is not None and budget_factory_row is not None
 
 
-def _build_release_channel_binding(release_channel_path: Path) -> tuple[dict[str, Any], list[str]]:
+def _build_release_channel_binding(
+    release_channel_path: Path,
+    receipt_root: Path | None = None,
+) -> tuple[dict[str, Any], list[str]]:
     payload = _load_json(release_channel_path)
     unresolved: list[str] = []
     if not release_channel_path.is_file():
@@ -1652,7 +1688,11 @@ def _build_release_channel_binding(release_channel_path: Path) -> tuple[dict[str
     return (
         {
             "status": "passed" if not unresolved else "failed",
-            "source_receipt_path": str(release_channel_path),
+            "source_receipt_path": (
+                _to_rel(release_channel_path, receipt_root)
+                if receipt_root is not None
+                else str(release_channel_path)
+            ),
             "channel_id": channel_id,
             "version": version,
             "release_channel_status": status,
@@ -1963,7 +2003,11 @@ def _build_import_discipline(
     )
 
 
-def build_payload(root: Path, generated_output_path: Path | None = None) -> dict[str, Any]:
+def build_payload(
+    root: Path,
+    generated_output_path: Path | None = None,
+    release_channel_path: str | Path | None = None,
+) -> dict[str, Any]:
     import_cert_path = root / ".codex-studio" / "published" / "IMPORT_PARITY_CERTIFICATION.generated.json"
     import_cert = _load_json(import_cert_path)
 
@@ -1975,7 +2019,11 @@ def build_payload(root: Path, generated_output_path: Path | None = None) -> dict
     successor_authority, unresolved_successor_authority_ids = _validate_successor_wave_authority(root, generated_output_path)
     closeout_document, unresolved_closeout_document_ids = _validate_package_closeout(root)
     local_commit_proofs, unresolved_local_commit_ids = _validate_local_commit_proofs(root)
-    release_channel_binding, unresolved_release_channel_ids = _build_release_channel_binding(RELEASE_CHANNEL_PATH)
+    resolved_release_channel_path = resolve_release_channel_path(release_channel_path)
+    release_channel_binding, unresolved_release_channel_ids = _build_release_channel_binding(
+        resolved_release_channel_path,
+        root,
+    )
     import_discipline, unresolved_import_ids = _build_import_discipline(root, import_cert_path, import_cert)
 
     pack_status = (
@@ -2054,6 +2102,14 @@ def parse_args() -> argparse.Namespace:
         default=".codex-studio/published/ENGINE_PROOF_PACK.generated.json",
         help="output path relative to repo root unless absolute",
     )
+    parser.add_argument(
+        "--release-channel",
+        default=None,
+        help=(
+            "release-channel manifest to bind; overrides "
+            f"{RELEASE_CHANNEL_ENVIRONMENT_VARIABLE} and defaults to the canonical Registry checkout"
+        ),
+    )
     return parser.parse_args()
 
 
@@ -2064,7 +2120,12 @@ def main() -> int:
     if not out.is_absolute():
         out = root / out
 
-    payload = build_payload(root, out)
+    release_channel_path = resolve_release_channel_path(args.release_channel)
+    release_channel_override_active = (
+        args.release_channel is not None
+        or bool(os.environ.get(RELEASE_CHANNEL_ENVIRONMENT_VARIABLE, "").strip())
+    )
+    payload = build_payload(root, out, release_channel_path)
     if args.check:
         if payload.get("status") != "passed":
             unresolved = payload.get("unresolved") if isinstance(payload.get("unresolved"), dict) else {}
@@ -2082,7 +2143,13 @@ def main() -> int:
         if not checked_in_payload:
             print(f"ENGINE_PROOF_PACK check failed: missing or invalid checked-in receipt at {out}", file=sys.stderr)
             return 1
-        if _without_generated_at(payload) != _without_generated_at(checked_in_payload):
+        if _without_generated_at(
+            payload,
+            ignore_release_channel_source_path=release_channel_override_active,
+        ) != _without_generated_at(
+            checked_in_payload,
+            ignore_release_channel_source_path=release_channel_override_active,
+        ):
             print(f"ENGINE_PROOF_PACK check failed: checked-in receipt is stale at {out}", file=sys.stderr)
             return 1
         print(str(out))

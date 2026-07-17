@@ -322,6 +322,7 @@ public class WorkspaceServiceTests
             "build",
             "movement",
             "awakening",
+            "spelldefense",
             "skills",
             "attributes",
             "inventory",
@@ -337,6 +338,7 @@ public class WorkspaceServiceTests
             "powers",
             "complexforms",
             "spirits",
+            "sprites",
             "foci",
             "aiprograms",
             "martialarts",
@@ -347,12 +349,17 @@ public class WorkspaceServiceTests
             "mentorspirits",
             "qualities",
             "contacts",
+            "relationships",
+            "enemies",
+            "pets",
             "lifestyles",
             "sources",
             "expenses",
             "calendar",
             "improvements",
             "customdatadirectorynames",
+            "karmasummary",
+            "conditionmonitor",
             "build-lab"
         ];
 
@@ -430,6 +437,7 @@ public class WorkspaceServiceTests
             "build",
             "movement",
             "awakening",
+            "spelldefense",
             "skills",
             "attributes",
             "inventory",
@@ -445,6 +453,7 @@ public class WorkspaceServiceTests
             "powers",
             "complexforms",
             "spirits",
+            "sprites",
             "foci",
             "aiprograms",
             "martialarts",
@@ -455,12 +464,17 @@ public class WorkspaceServiceTests
             "mentorspirits",
             "qualities",
             "contacts",
+            "relationships",
+            "enemies",
+            "pets",
             "lifestyles",
             "sources",
             "expenses",
             "calendar",
             "improvements",
             "customdatadirectorynames",
+            "karmasummary",
+            "conditionmonitor",
             "build-lab"
         ];
 
@@ -807,7 +821,7 @@ public class WorkspaceServiceTests
         WorkspacePayloadEnvelope sr6Envelope = new(RulesetDefaults.Sr6, 1, Sr6WorkspaceCodec.Sr6PayloadKind, xml);
 
         BuildLabConceptIntakeProjection? sr4Projection = new Sr4WorkspaceCodec().ParseSection("build-lab", sr4Envelope) as BuildLabConceptIntakeProjection;
-        BuildLabConceptIntakeProjection? sr6Projection = new Sr6WorkspaceCodec().ParseSection("build-lab", sr6Envelope) as BuildLabConceptIntakeProjection;
+        BuildLabConceptIntakeProjection? sr6Projection = CreateSr6WorkspaceCodec().ParseSection("build-lab", sr6Envelope) as BuildLabConceptIntakeProjection;
 
         Assert.IsNotNull(sr4Projection);
         Assert.IsNotNull(sr6Projection);
@@ -855,6 +869,68 @@ public class WorkspaceServiceTests
         Assert.IsFalse(print.Success);
         Assert.AreEqual("Workspace not found.", print.Error);
         Assert.IsFalse(workspaceService.Close(missingId));
+    }
+
+    [TestMethod]
+    public void Validate_rejects_well_formed_xml_that_the_canonical_ruleset_cannot_open()
+    {
+        InMemoryWorkspaceStore store = new();
+        CharacterWorkspaceId id = store.Create(new WorkspaceDocument(
+            "<character><name>Syntax Only</name></character>",
+            RulesetDefaults.Sr5,
+            WorkspaceDocumentFormat.NativeXml));
+        WorkspaceService workspaceService = CreateWorkspaceService(
+            store,
+            new XmlCharacterFileQueries(new CharacterFileService()),
+            new XmlCharacterSectionQueries(new CharacterSectionService()),
+            new XmlCharacterMetadataCommands(new CharacterFileService()));
+
+        CharacterValidationResult? validation = workspaceService.Validate(id);
+
+        Assert.IsNotNull(validation);
+        Assert.IsFalse(validation.IsValid);
+        Assert.IsGreaterThan(0, validation.Issues.Count);
+    }
+
+    [DataTestMethod]
+    [DataRow("schema")]
+    [DataRow("ruleset")]
+    [DataRow("payload-kind")]
+    public void Validate_rejects_valid_syntax_with_noncanonical_envelope(string invalidField)
+    {
+        WorkspaceDocument baseline = new(
+            "<character><name>Envelope Runner</name><alias>ENVELOPE</alias><metatype>Human</metatype><buildmethod>Priority</buildmethod><createdversion>1.0</createdversion><appversion>1.0</appversion><karma>0</karma><nuyen>0</nuyen><created>True</created></character>",
+            RulesetDefaults.Sr5,
+            WorkspaceDocumentFormat.NativeXml);
+        WorkspaceDocument invalid = invalidField switch
+        {
+            "schema" => baseline with
+            {
+                State = baseline.State with { SchemaVersion = baseline.SchemaVersion + 1 }
+            },
+            "ruleset" => baseline with
+            {
+                State = baseline.State with { RulesetId = "sr999" }
+            },
+            "payload-kind" => baseline with
+            {
+                State = baseline.State with { PayloadKind = "sr5/not-canonical" }
+            },
+            _ => throw new ArgumentOutOfRangeException(nameof(invalidField))
+        };
+        InMemoryWorkspaceStore store = new();
+        CharacterWorkspaceId id = store.Create(invalid);
+        WorkspaceService workspaceService = CreateWorkspaceService(
+            store,
+            new XmlCharacterFileQueries(new CharacterFileService()),
+            new XmlCharacterSectionQueries(new CharacterSectionService()),
+            new XmlCharacterMetadataCommands(new CharacterFileService()));
+
+        CharacterValidationResult? validation = workspaceService.Validate(id);
+
+        Assert.IsNotNull(validation);
+        Assert.IsFalse(validation.IsValid);
+        Assert.IsGreaterThan(0, validation.Issues.Count);
     }
 
     [TestMethod]
@@ -914,61 +990,76 @@ public class WorkspaceServiceTests
 
     private sealed class TrackingWorkspaceStore : IWorkspaceStore
     {
+        private readonly InMemoryWorkspaceStore _inner = new();
+
         public int CreateCallCount { get; private set; }
 
         public OwnerScope? LastCreateOwner { get; private set; }
 
-        public CharacterWorkspaceId Create(WorkspaceDocument document)
+        public WorkspaceStoreMutationResult CreateWorkspaceDocument(WorkspaceDocument document)
         {
-            return Create(OwnerScope.LocalSingleUser, document);
+            CreateCallCount++;
+            LastCreateOwner = null;
+            return _inner.CreateWorkspaceDocument(document);
         }
 
-        public CharacterWorkspaceId Create(OwnerScope owner, WorkspaceDocument document)
+        public WorkspaceStoreMutationResult CreateWorkspaceDocument(OwnerScope owner, WorkspaceDocument document)
         {
             CreateCallCount++;
             LastCreateOwner = owner;
-            return new CharacterWorkspaceId(Guid.NewGuid().ToString("N"));
+            return _inner.CreateWorkspaceDocument(owner, document);
         }
 
-        public bool TryGet(CharacterWorkspaceId id, out WorkspaceDocument document)
+        public WorkspaceStoreMutationResult CreateWorkspaceDocument(
+            CharacterWorkspaceId id,
+            WorkspaceDocument document)
         {
-            return TryGet(OwnerScope.LocalSingleUser, id, out document);
+            CreateCallCount++;
+            LastCreateOwner = null;
+            return _inner.CreateWorkspaceDocument(id, document);
         }
 
-        public bool TryGet(OwnerScope owner, CharacterWorkspaceId id, out WorkspaceDocument document)
+        public WorkspaceStoreMutationResult CreateWorkspaceDocument(
+            OwnerScope owner,
+            CharacterWorkspaceId id,
+            WorkspaceDocument document)
         {
-            document = null!;
-            return false;
+            CreateCallCount++;
+            LastCreateOwner = owner;
+            return _inner.CreateWorkspaceDocument(owner, id, document);
         }
 
         public IReadOnlyList<WorkspaceStoreEntry> List()
         {
-            return List(OwnerScope.LocalSingleUser);
+            return _inner.List();
         }
 
         public IReadOnlyList<WorkspaceStoreEntry> List(OwnerScope owner)
         {
-            return [];
+            return _inner.List(owner);
         }
 
-        public void Save(CharacterWorkspaceId id, WorkspaceDocument document)
-        {
-            Save(OwnerScope.LocalSingleUser, id, document);
-        }
+        public WorkspaceStoreReadResult Get(CharacterWorkspaceId id) => _inner.Get(id);
 
-        public void Save(OwnerScope owner, CharacterWorkspaceId id, WorkspaceDocument document)
-        {
-        }
+        public WorkspaceStoreReadResult Get(OwnerScope owner, CharacterWorkspaceId id) => _inner.Get(owner, id);
 
-        public bool Delete(CharacterWorkspaceId id)
-        {
-            return Delete(OwnerScope.LocalSingleUser, id);
-        }
+        public WorkspaceStoreMutationResult ReplaceWorkspaceDocument(CharacterWorkspaceId id, long expectedContentRevision, WorkspaceDocument document)
+            => _inner.ReplaceWorkspaceDocument(id, expectedContentRevision, document);
 
-        public bool Delete(OwnerScope owner, CharacterWorkspaceId id)
-        {
-            return false;
-        }
+        public WorkspaceStoreMutationResult ReplaceWorkspaceDocument(OwnerScope owner, CharacterWorkspaceId id, long expectedContentRevision, WorkspaceDocument document)
+            => _inner.ReplaceWorkspaceDocument(owner, id, expectedContentRevision, document);
+
+        public WorkspaceStoreMutationResult SaveCheckpoint(CharacterWorkspaceId id, long expectedContentRevision)
+            => _inner.SaveCheckpoint(id, expectedContentRevision);
+
+        public WorkspaceStoreMutationResult SaveCheckpoint(OwnerScope owner, CharacterWorkspaceId id, long expectedContentRevision)
+            => _inner.SaveCheckpoint(owner, id, expectedContentRevision);
+
+        public WorkspaceStoreMutationResult Delete(CharacterWorkspaceId id, long expectedContentRevision)
+            => _inner.Delete(id, expectedContentRevision);
+
+        public WorkspaceStoreMutationResult Delete(OwnerScope owner, CharacterWorkspaceId id, long expectedContentRevision)
+            => _inner.Delete(owner, id, expectedContentRevision);
     }
 
     private sealed class ThrowingCharacterFileQueries : ICharacterFileQueries
@@ -1013,13 +1104,22 @@ public class WorkspaceServiceTests
                 fileQueries,
                 sectionQueries,
                 metadataCommands),
-            new Sr6WorkspaceCodec(),
+            new Sr6WorkspaceCodec(
+                fileQueries,
+                sectionQueries,
+                metadataCommands),
             .. additionalCodecs
         ];
         IRulesetWorkspaceCodecResolver resolver = new RulesetWorkspaceCodecResolver(
             codecs);
         return new WorkspaceService(workspaceStore, resolver, new WorkspaceImportRulesetDetector());
     }
+
+    private static Sr6WorkspaceCodec CreateSr6WorkspaceCodec()
+        => new(
+            new XmlCharacterFileQueries(new CharacterFileService()),
+            new XmlCharacterSectionQueries(new CharacterSectionService()),
+            new XmlCharacterMetadataCommands(new CharacterFileService()));
 
     private sealed class RecordingWorkspaceCodec : IRulesetWorkspaceCodec
     {
@@ -1235,45 +1335,80 @@ public class WorkspaceServiceTests
 
     private sealed class ListWorkspaceStore : IWorkspaceStore
     {
-        private readonly Dictionary<string, WorkspaceDocument> _documents = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, WorkspaceStoredDocument> _documents = new(StringComparer.Ordinal);
         private readonly List<WorkspaceStoreEntry> _entries = [];
 
         public void Seed(CharacterWorkspaceId id, WorkspaceDocument document)
         {
-            _documents[id.Value] = document;
-            _entries.Add(new WorkspaceStoreEntry(id, DateTimeOffset.UtcNow));
+            DateTimeOffset now = DateTimeOffset.UtcNow;
+            _documents[id.Value] = new WorkspaceStoredDocument(id, document, 1, 0, now);
+            _entries.Add(new WorkspaceStoreEntry(id, now, 1, 0));
         }
 
         public void SeedMissing(CharacterWorkspaceId id)
         {
-            _entries.Add(new WorkspaceStoreEntry(id, DateTimeOffset.UtcNow));
+            _entries.Add(new WorkspaceStoreEntry(id, DateTimeOffset.UtcNow, 1, 0));
         }
 
-        public CharacterWorkspaceId Create(WorkspaceDocument document) => Create(OwnerScope.LocalSingleUser, document);
+        public WorkspaceStoreMutationResult CreateWorkspaceDocument(WorkspaceDocument document)
+            => CreateWorkspaceDocument(OwnerScope.LocalSingleUser, document);
 
-        public CharacterWorkspaceId Create(OwnerScope owner, WorkspaceDocument document)
+        public WorkspaceStoreMutationResult CreateWorkspaceDocument(OwnerScope owner, WorkspaceDocument document)
         {
             CharacterWorkspaceId id = new(Guid.NewGuid().ToString("N"));
             Seed(id, document);
-            return id;
+            return new WorkspaceStoreMutationResult(WorkspaceOperationOutcome.Success, _entries[^1]);
+        }
+
+        public WorkspaceStoreMutationResult CreateWorkspaceDocument(
+            CharacterWorkspaceId id,
+            WorkspaceDocument document)
+            => CreateWorkspaceDocument(OwnerScope.LocalSingleUser, id, document);
+
+        public WorkspaceStoreMutationResult CreateWorkspaceDocument(
+            OwnerScope owner,
+            CharacterWorkspaceId id,
+            WorkspaceDocument document)
+        {
+            if (_documents.ContainsKey(id.Value))
+            {
+                return new WorkspaceStoreMutationResult(WorkspaceOperationOutcome.Conflict);
+            }
+
+            Seed(id, document);
+            return new WorkspaceStoreMutationResult(WorkspaceOperationOutcome.Success, _entries[^1]);
         }
 
         public IReadOnlyList<WorkspaceStoreEntry> List() => List(OwnerScope.LocalSingleUser);
 
         public IReadOnlyList<WorkspaceStoreEntry> List(OwnerScope owner) => _entries;
 
-        public bool TryGet(CharacterWorkspaceId id, out WorkspaceDocument document) => TryGet(OwnerScope.LocalSingleUser, id, out document);
+        public WorkspaceStoreReadResult Get(CharacterWorkspaceId id) => Get(OwnerScope.LocalSingleUser, id);
 
-        public bool TryGet(OwnerScope owner, CharacterWorkspaceId id, out WorkspaceDocument document)
-            => _documents.TryGetValue(id.Value, out document!);
+        public WorkspaceStoreReadResult Get(OwnerScope owner, CharacterWorkspaceId id)
+            => _documents.TryGetValue(id.Value, out WorkspaceStoredDocument? document)
+                ? new WorkspaceStoreReadResult(WorkspaceOperationOutcome.Success, document)
+                : new WorkspaceStoreReadResult(WorkspaceOperationOutcome.Missing);
 
-        public void Save(CharacterWorkspaceId id, WorkspaceDocument document) => Save(OwnerScope.LocalSingleUser, id, document);
+        public WorkspaceStoreMutationResult ReplaceWorkspaceDocument(CharacterWorkspaceId id, long expectedContentRevision, WorkspaceDocument document)
+            => UnsupportedMutation();
 
-        public void Save(OwnerScope owner, CharacterWorkspaceId id, WorkspaceDocument document)
-            => _documents[id.Value] = document;
+        public WorkspaceStoreMutationResult ReplaceWorkspaceDocument(OwnerScope owner, CharacterWorkspaceId id, long expectedContentRevision, WorkspaceDocument document)
+            => UnsupportedMutation();
 
-        public bool Delete(CharacterWorkspaceId id) => Delete(OwnerScope.LocalSingleUser, id);
+        public WorkspaceStoreMutationResult SaveCheckpoint(CharacterWorkspaceId id, long expectedContentRevision)
+            => UnsupportedMutation();
 
-        public bool Delete(OwnerScope owner, CharacterWorkspaceId id) => _documents.Remove(id.Value);
+        public WorkspaceStoreMutationResult SaveCheckpoint(OwnerScope owner, CharacterWorkspaceId id, long expectedContentRevision)
+            => UnsupportedMutation();
+
+        public WorkspaceStoreMutationResult Delete(CharacterWorkspaceId id, long expectedContentRevision)
+            => UnsupportedMutation();
+
+        public WorkspaceStoreMutationResult Delete(OwnerScope owner, CharacterWorkspaceId id, long expectedContentRevision)
+            => UnsupportedMutation();
+
+        private static WorkspaceStoreMutationResult UnsupportedMutation()
+            => new(WorkspaceOperationOutcome.Unavailable, Error: "List fixture does not support mutations.");
     }
 }

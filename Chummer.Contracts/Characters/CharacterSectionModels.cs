@@ -3,7 +3,30 @@ namespace Chummer.Contracts.Characters;
 public sealed record CharacterAttributeSummary(
     string Name,
     int BaseValue,
-    int TotalValue);
+    int TotalValue)
+{
+    public int KarmaValue { get; init; }
+
+    public int MetatypeMin { get; init; }
+
+    public int MetatypeMax { get; init; }
+
+    public int MetatypeAugMax { get; init; }
+
+    public int PriorityMaximum { get; init; }
+
+    public int KarmaMaximum { get; init; }
+
+    public bool BaseUnlocked { get; init; } = true;
+
+    public bool Created { get; init; }
+
+    public int AvailableKarma { get; init; }
+
+    public int UpgradeKarmaCost { get; init; } = -1;
+
+    public bool CanCareerUpgrade { get; init; }
+}
 
 public sealed record CharacterAttributesSection(
     int Count,
@@ -17,7 +40,22 @@ public sealed record CharacterAttributeDetailSummary(
     int BaseValue,
     int KarmaValue,
     int TotalValue,
-    string MetatypeCategory);
+    string MetatypeCategory)
+{
+    public int PriorityMaximum { get; init; }
+
+    public int KarmaMaximum { get; init; }
+
+    public bool BaseUnlocked { get; init; } = true;
+
+    public bool Created { get; init; }
+
+    public int AvailableKarma { get; init; }
+
+    public int UpgradeKarmaCost { get; init; } = -1;
+
+    public bool CanCareerUpgrade { get; init; }
+}
 
 public sealed record CharacterAttributeDetailsSection(
     int Count,
@@ -82,6 +120,19 @@ public sealed record CharacterProgressSection(
     bool MagEnabled,
     bool ResEnabled,
     bool DepEnabled);
+
+public sealed record CharacterConditionMonitorSection(
+    int PhysicalTrack,
+    int PhysicalFilled,
+    int PhysicalOverflow,
+    int PhysicalThresholdOffset,
+    string PhysicalNaturalRecovery,
+    int StunTrack,
+    int StunFilled,
+    int StunThresholdOffset,
+    string StunNaturalRecovery,
+    bool PhysicalActsAsCore,
+    bool StunActsAsMatrix);
 
 public sealed record CharacterRulesSection(
     string GameEdition,
@@ -306,6 +357,19 @@ public sealed record CharacterContactSummary(
 public sealed record CharacterContactsSection(
     int Count,
     IReadOnlyList<CharacterContactSummary> Contacts);
+
+public sealed record CharacterSpellDefenseMetricSummary(
+    string Id,
+    string Label,
+    int BaseValue,
+    int CounterspellingDice,
+    int TotalValue,
+    string Formula);
+
+public sealed record CharacterSpellDefenseSection(
+    int Count,
+    int CurrentCounterspellingDice,
+    IReadOnlyList<CharacterSpellDefenseMetricSummary> Metrics);
 
 public sealed record CharacterSpellSummary(
     string Name,

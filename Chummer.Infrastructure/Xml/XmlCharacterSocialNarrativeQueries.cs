@@ -16,6 +16,12 @@ public sealed class XmlCharacterSocialNarrativeQueries : ICharacterSocialNarrati
 
     public CharacterContactsSection ParseContacts(CharacterDocument document) => _characterSectionService.ParseContacts(document.Content);
 
+    public CharacterContactsSection ParseRelationships(CharacterDocument document) => _characterSectionService.ParseRelationships(document.Content);
+
+    public CharacterContactsSection ParseEnemies(CharacterDocument document) => _characterSectionService.ParseEnemies(document.Content);
+
+    public CharacterContactsSection ParsePets(CharacterDocument document) => _characterSectionService.ParsePets(document.Content);
+
     public CharacterLifestylesSection ParseLifestyles(CharacterDocument document) => _characterSectionService.ParseLifestyles(document.Content);
 
     public CharacterSourcesSection ParseSources(CharacterDocument document) => _characterSectionService.ParseSources(document.Content);

@@ -19,9 +19,9 @@ public sealed class CharacterFileService : ICharacterFileService
             BuildMethod: ReadValue(character, "buildmethod"),
             CreatedVersion: ReadValue(character, "createdversion"),
             AppVersion: ReadValue(character, "appversion"),
-            Karma: ParseDecimal(ReadValue(character, "karma"), "karma"),
-            Nuyen: ParseDecimal(ReadValue(character, "nuyen"), "nuyen"),
-            Created: ParseBool(ReadValue(character, "created"), "created"));
+            Karma: ParseDecimalOrDefault(ReadValue(character, "karma"), "karma", 0m),
+            Nuyen: ParseDecimalOrDefault(ReadValue(character, "nuyen"), "nuyen", 0m),
+            Created: ParseBoolOrDefault(ReadValue(character, "created"), "created", false));
     }
 
     public CharacterValidationResult ValidateXml(string xml)
@@ -176,10 +176,26 @@ public sealed class CharacterFileService : ICharacterFileService
         return parsed;
     }
 
+    private static decimal ParseDecimalOrDefault(string value, string nodeName, decimal fallback)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return fallback;
+
+        return ParseDecimal(value, nodeName);
+    }
+
     private static bool ParseBool(string value, string nodeName)
     {
         if (!bool.TryParse(value, out bool parsed))
             throw new FormatException($"Node '{nodeName}' must be 'True' or 'False'.");
         return parsed;
+    }
+
+    private static bool ParseBoolOrDefault(string value, string nodeName, bool fallback)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return fallback;
+
+        return ParseBool(value, nodeName);
     }
 }
