@@ -282,6 +282,19 @@ class PackagePlaneTests(unittest.TestCase):
             MODULE._atomic_write_json(feed / MODULE.INVENTORY_FILE_NAME, inventory)
             MODULE.validate_feed_inventory(feed, lock, lock_sha256)
 
+            unlisted = feed / "Newtonsoft.Json.13.0.3.nupkg"
+            unlisted.write_bytes(b"unlisted package bytes")
+            with self.assertRaisesRegex(MODULE.PackagePlaneError, "exact locked file set"):
+                MODULE.validate_feed_inventory(feed, lock, lock_sha256)
+            unlisted.unlink()
+
+            inventory["unbound_field"] = "must fail closed"
+            MODULE._atomic_write_json(feed / MODULE.INVENTORY_FILE_NAME, inventory)
+            with self.assertRaisesRegex(MODULE.PackagePlaneError, "exact top-level fields"):
+                MODULE.validate_feed_inventory(feed, lock, lock_sha256)
+            inventory.pop("unbound_field")
+            MODULE._atomic_write_json(feed / MODULE.INVENTORY_FILE_NAME, inventory)
+
             target_spec = lock.packages[0]
             write_package(
                 feed / f"{target_spec.package_id}.{lock.package_version}.nupkg",

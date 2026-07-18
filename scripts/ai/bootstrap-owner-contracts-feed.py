@@ -324,6 +324,29 @@ def _inventory_path(feed: Path) -> Path:
     return feed / INVENTORY_FILE_NAME
 
 
+def _expected_feed_entry_names(lock: PackagePlaneLock) -> set[str]:
+    return {
+        INVENTORY_FILE_NAME,
+        *(f"{spec.package_id}.{lock.package_version}.nupkg" for spec in lock.packages),
+    }
+
+
+def _assert_exact_feed_entries(feed: Path, lock: PackagePlaneLock) -> None:
+    expected = _expected_feed_entry_names(lock)
+    observed = {entry.name for entry in feed.iterdir()}
+    if observed != expected:
+        missing = sorted(expected - observed)
+        unexpected = sorted(observed - expected)
+        details: list[str] = []
+        if missing:
+            details.append("missing=" + ",".join(missing))
+        if unexpected:
+            details.append("unexpected=" + ",".join(unexpected))
+        raise PackagePlaneError(
+            "feed must contain the exact locked file set (" + "; ".join(details) + ")"
+        )
+
+
 def _inventory_payload(
     lock: PackagePlaneLock,
     *,
@@ -374,13 +397,22 @@ def validate_feed_inventory(
     lock: PackagePlaneLock,
     lock_sha256: str,
 ) -> str:
+    _assert_exact_feed_entries(feed, lock)
     inventory_path = _inventory_path(feed)
     try:
         inventory_bytes = inventory_path.read_bytes()
         payload = json.loads(inventory_bytes)
     except (OSError, json.JSONDecodeError) as exc:
         raise PackagePlaneError(f"unable to read package inventory {inventory_path}: {exc}") from exc
-    if not isinstance(payload, dict) or payload.get("contract") != INVENTORY_CONTRACT:
+    expected_top_level_keys = {
+        "contract",
+        "package_plane_lock_sha256",
+        "package_version",
+        "packages",
+    }
+    if not isinstance(payload, dict) or set(payload) != expected_top_level_keys:
+        raise PackagePlaneError("package inventory must contain the exact top-level fields")
+    if payload.get("contract") != INVENTORY_CONTRACT:
         raise PackagePlaneError(f"package inventory contract must be {INVENTORY_CONTRACT}")
     if payload.get("package_plane_lock_sha256") != lock_sha256:
         raise PackagePlaneError("package inventory does not bind the exact package-plane lock")
@@ -393,6 +425,20 @@ def validate_feed_inventory(
     for spec, row in zip(lock.packages, rows, strict=True):
         if not isinstance(row, dict):
             raise PackagePlaneError(f"package inventory row for {spec.package_id} must be an object")
+        expected_row_keys = {
+            "id",
+            "version",
+            "repository",
+            "commit",
+            "project",
+            "file_name",
+            "sha256",
+            "size_bytes",
+        }
+        if set(row) != expected_row_keys:
+            raise PackagePlaneError(
+                f"package inventory row for {spec.package_id} must contain the exact fields"
+            )
         expected_file_name = f"{spec.package_id}.{lock.package_version}.nupkg"
         expected_metadata = {
             "id": spec.package_id,
@@ -446,6 +492,15 @@ def _promote_feed(
         for candidate in feed.glob("*.nupkg"):
             if candidate != target and candidate.name.lower() == target.name.lower():
                 candidate.unlink()
+
+    expected_entries = _expected_feed_entry_names(lock)
+    for candidate in feed.iterdir():
+        if candidate.name in expected_entries:
+            continue
+        if candidate.is_file() and candidate.suffix.lower() in {".nupkg", ".snupkg"}:
+            candidate.unlink()
+            continue
+        raise PackagePlaneError(f"unexpected non-package entry in owner-contract feed: {candidate.name}")
 
     # The inventory is the current pointer and is advanced only after every
     # package has been promoted. A partial promotion therefore fails closed.
