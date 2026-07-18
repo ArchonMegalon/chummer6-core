@@ -1967,7 +1967,9 @@ public sealed class WorkspaceService : IWorkspaceService
 
     private WorkspaceStoreAccess ScopedStoreAccess(OwnerScope owner)
     {
-        return new WorkspaceStoreAccess(_workspaceStore, owner, IsLocal: false);
+        return owner.IsLocalSingleUser
+            ? LocalStoreAccess()
+            : new WorkspaceStoreAccess(_workspaceStore, owner, IsLocal: false);
     }
 
     private readonly record struct WorkspaceStoreAccess(
