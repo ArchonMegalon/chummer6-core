@@ -460,7 +460,7 @@ public sealed class InMemoryWorkspaceStore : IWorkspaceStore
 
     private static bool IsInvalidScopedOwner(OwnerScope owner)
     {
-        return string.IsNullOrWhiteSpace(owner.NormalizedValue) || owner.IsLocalSingleUser;
+        return string.IsNullOrWhiteSpace(owner.NormalizedValue) || owner.UsesLocalSingleUserValue;
     }
 
     private static bool IsSupportedWorkspaceId(CharacterWorkspaceId id)

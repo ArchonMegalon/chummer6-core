@@ -596,7 +596,6 @@ public sealed class WorkspaceRevisionStoreTests
             default,
             new OwnerScope(string.Empty),
             new OwnerScope("   "),
-            OwnerScope.LocalSingleUser,
             new OwnerScope(" LOCAL-SINGLE-USER ")
         ];
 
