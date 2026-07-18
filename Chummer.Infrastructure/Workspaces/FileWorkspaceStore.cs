@@ -927,7 +927,7 @@ public sealed class FileWorkspaceStore : IWorkspaceStore, IWorkspaceStoreReadine
 
     private static bool IsInvalidScopedOwner(OwnerScope owner)
     {
-        return string.IsNullOrWhiteSpace(owner.NormalizedValue) || owner.IsLocalSingleUser;
+        return string.IsNullOrWhiteSpace(owner.NormalizedValue) || owner.UsesLocalSingleUserValue;
     }
 
     private string? TryGetPath(OwnerScope owner, CharacterWorkspaceId id)

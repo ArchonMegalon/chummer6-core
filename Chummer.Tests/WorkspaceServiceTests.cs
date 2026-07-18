@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Text.Json;
 using Chummer.Contracts.Api;
 using Chummer.Application.Characters;
 using Chummer.Application.Workspaces;
@@ -99,6 +100,38 @@ public class WorkspaceServiceTests
 
         Assert.AreEqual("Owner scope is invalid.", failure.Message);
         Assert.HasCount(0, workspaceService.List());
+    }
+
+    [TestMethod]
+    public void Raw_local_single_user_owner_value_cannot_enter_the_trusted_local_lane()
+    {
+        WorkspaceService workspaceService = CreateWorkspaceService(
+            new InMemoryWorkspaceStore(),
+            new XmlCharacterFileQueries(new CharacterFileService()),
+            new XmlCharacterSectionQueries(new CharacterSectionService()),
+            new XmlCharacterMetadataCommands(new CharacterFileService()));
+        OwnerScope suppliedOwner = new(" LOCAL-SINGLE-USER ");
+        OwnerScope deserializedOwner = JsonSerializer.Deserialize<OwnerScope>(
+            "{\"Value\":\"local-single-user\"}");
+        WorkspaceImportResult localImport = workspaceService.Import(
+            OwnerScope.LocalSingleUser,
+            CreateScopedImportDocument("Local"));
+
+        Assert.IsTrue(OwnerScope.LocalSingleUser.IsLocalSingleUser);
+        Assert.IsTrue(suppliedOwner.UsesLocalSingleUserValue);
+        Assert.IsFalse(suppliedOwner.IsLocalSingleUser);
+        Assert.IsTrue(deserializedOwner.UsesLocalSingleUserValue);
+        Assert.IsFalse(deserializedOwner.IsLocalSingleUser);
+        InvalidOperationException failure = Assert.ThrowsExactly<InvalidOperationException>(() =>
+            workspaceService.Import(suppliedOwner, CreateScopedImportDocument("Untrusted")));
+
+        Assert.AreEqual("Owner scope is invalid.", failure.Message);
+        CollectionAssert.AreEqual(
+            new[] { localImport.Id.Value },
+            workspaceService.List(OwnerScope.LocalSingleUser)
+                .Select(static workspace => workspace.Id.Value)
+                .ToArray());
+        Assert.HasCount(0, workspaceService.List(suppliedOwner));
     }
 
     [TestMethod]
