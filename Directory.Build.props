@@ -5,6 +5,9 @@
     <DefaultItemExcludes>$(DefaultItemExcludes);**/obj_tmp/**</DefaultItemExcludes>
     <RestorePackagesPath Condition="'$(RestorePackagesPath)' == ''">$(MSBuildThisFileDirectory).tmp/nuget/packages</RestorePackagesPath>
     <ChummerEngineContractsPackageVersion>0.0.0-local</ChummerEngineContractsPackageVersion>
+    <ChummerOwnerContractsPackageVersion Condition="'$(ChummerOwnerContractsPackageVersion)' == ''">0.0.0-packageplane.20260718.1</ChummerOwnerContractsPackageVersion>
+    <ChummerHubRegistryContractsPackageVersion Condition="'$(ChummerHubRegistryContractsPackageVersion)' == ''">$(ChummerOwnerContractsPackageVersion)</ChummerHubRegistryContractsPackageVersion>
+    <ChummerRunContractsPackageVersion Condition="'$(ChummerRunContractsPackageVersion)' == ''">$(ChummerOwnerContractsPackageVersion)</ChummerRunContractsPackageVersion>
     <ChummerDesktopRuntimeIdentifiers Condition="'$(ChummerDesktopRuntimeIdentifiers)' == ''">linux-x64;linux-arm64;win-x64;win-arm64;osx-arm64;osx-x64</ChummerDesktopRuntimeIdentifiers>
     <ChummerLocalContractsProject Condition="'$(ChummerLocalContractsProject)' == '' and Exists('$(MSBuildThisFileDirectory)Chummer.Contracts/Chummer.Contracts.csproj')">$(MSBuildThisFileDirectory)Chummer.Contracts/Chummer.Contracts.csproj</ChummerLocalContractsProject>
     <ChummerEngineContractsLocalFeed>$(MSBuildThisFileDirectory).tmp/ai/local-nuget</ChummerEngineContractsLocalFeed>

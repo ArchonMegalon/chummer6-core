@@ -28,6 +28,7 @@ python3 tests/test_rule_authority_blocker_receipts.py
 python3 tests/test_rule_authority_support_receipts.py
 python3 tests/test_rule_authority_alignment_receipts.py
 python3 tests/test_rule_authority_reviewer_packets.py
+python3 tests/test_package_plane.py
 
 test -f docs/CONTRACT_BOUNDARY_MAP.md
 test -f docs/EXPLAIN_AND_RUNTIME_CANON.md
@@ -128,6 +129,45 @@ done
 
 rg -n '<ChummerEngineContractsPackageVersion>0\.0\.0-local</ChummerEngineContractsPackageVersion>|<ChummerEngineContractsLocalFeed>|RestoreAdditionalProjectSources' Directory.Build.props >/dev/null
 rg -n 'bootstrap-contracts-feed\.sh|ChummerEngineContractsPackageVersion|CHUMMER_ENGINE_CONTRACTS_PACKAGE_VERSION' scripts/ai/build.sh scripts/ai/restore.sh scripts/ai/test_core_engine.sh >/dev/null
+rg -n '<ChummerOwnerContractsPackageVersion[^>]*>0\.0\.0-packageplane\.20260718\.1</ChummerOwnerContractsPackageVersion>|ChummerHubRegistryContractsPackageVersion|ChummerRunContractsPackageVersion' Directory.Build.props >/dev/null
+rg -n 'bootstrap-owner-contracts-feed\.py|package-plane\.lock\.json' scripts/ai/bootstrap-contracts-feed.sh scripts/ai/bootstrap-owner-contracts-feed.py >/dev/null
+
+if rg -n 'HintPath>.*(chummer-hub-registry|chummer\.run-services)' . --glob '*.csproj' --glob '*.props' --glob '*.targets' >/dev/null 2>&1; then
+  echo "owner contracts must not resolve from sibling-repository binary HintPaths" >&2
+  exit 1
+fi
+
+run_contract_consumers=(
+  Chummer.Application/Chummer.Application.csproj
+  Chummer.Infrastructure/Chummer.Infrastructure.csproj
+  Chummer.Rulesets.Hosting/Chummer.Rulesets.Hosting.csproj
+  Chummer.Rulesets.Sr4/Chummer.Rulesets.Sr4.csproj
+  Chummer.Rulesets.Sr5/Chummer.Rulesets.Sr5.csproj
+  Chummer.Rulesets.Sr6/Chummer.Rulesets.Sr6.csproj
+  Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj
+  Chummer.Tests/Chummer.Tests.csproj
+)
+
+registry_contract_consumers=(
+  Chummer.Application/Chummer.Application.csproj
+  Chummer.Infrastructure/Chummer.Infrastructure.csproj
+  Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj
+  Chummer.Tests/Chummer.Tests.csproj
+)
+
+for project_file in "${run_contract_consumers[@]}"; do
+  if ! rg -n 'PackageReference Include="Chummer\.Run\.Contracts" Version="\$\(ChummerRunContractsPackageVersion\)"' "$project_file" >/dev/null 2>&1; then
+    echo "owner-contract consumer ${project_file} must package-reference Chummer.Run.Contracts" >&2
+    exit 1
+  fi
+done
+
+for project_file in "${registry_contract_consumers[@]}"; do
+  if ! rg -n 'PackageReference Include="Chummer\.Hub\.Registry\.Contracts" Version="\$\(ChummerHubRegistryContractsPackageVersion\)"' "$project_file" >/dev/null 2>&1; then
+    echo "owner-contract consumer ${project_file} must package-reference Chummer.Hub.Registry.Contracts" >&2
+    exit 1
+  fi
+done
 rg -n 'CustomDataXmlBridgeDeterministicReceipt|TranslatorLaneDeterministicReceipt|ImportOracleLaneDeterministicReceipt' Chummer.Contracts/Api/ToolCatalogModels.cs >/dev/null
 rg -n 'CustomDataXmlBridgeDeterministicReceipt|TranslatorLaneDeterministicReceipt|ImportOracleLaneDeterministicReceipt|Sr6SuccessorLaneDeterministicReceipt' Chummer.Contracts/Api/ToolCatalogModels.cs >/dev/null
 rg -n 'BuildCustomDataXmlBridgeDeterministicReceipt|BuildTranslatorDeterministicReceipt|BuildImportOracleDeterministicReceipt|BuildSr6SuccessorDeterministicReceipt' Chummer.Infrastructure/Xml/XmlToolCatalogService.cs >/dev/null

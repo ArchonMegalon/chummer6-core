@@ -4,8 +4,9 @@ source "$(dirname "$0")/_env.sh"
 
 contracts_package_version="${CHUMMER_ENGINE_CONTRACTS_PACKAGE_VERSION:-0.0.0-local}"
 contracts_feed_root="${CHUMMER_ENGINE_CONTRACTS_FEED:-$repo_root/.tmp/ai/local-nuget}"
-contracts_cache_root="${NUGET_PACKAGES:-$HOME/.nuget/packages}"
+contracts_cache_root="${NUGET_PACKAGES:-$repo_root/.tmp/ai/.nuget/packages}"
 contracts_cache_path="$contracts_cache_root/chummer.engine.contracts/$contracts_package_version"
+owner_contracts_bootstrap="$repo_root/scripts/ai/bootstrap-owner-contracts-feed.py"
 
 mkdir -p "$contracts_feed_root"
 
@@ -26,3 +27,11 @@ dotnet pack "$repo_root/Chummer.Contracts/Chummer.Contracts.csproj" \
 # The local feed intentionally reuses a stable 0.0.0-local version. Drop the cached
 # package payload so the next restore actually consumes the freshly packed contracts.
 rm -rf "$contracts_cache_path"
+
+owner_contracts_args=(
+  --repo-root "$repo_root" \
+  --feed "$contracts_feed_root" \
+  --workspace "$repo_root/.tmp/ai/package-plane/sources" \
+  --package-root "$repo_root/.tmp/ai/package-plane/nuget-packages"
+)
+python3 "$owner_contracts_bootstrap" "${owner_contracts_args[@]}"
