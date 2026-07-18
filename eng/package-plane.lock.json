@@ -1,0 +1,36 @@
+{
+  "contract": "chummer-core.package-plane-lock/v1",
+  "dotnet_sdk": "10.0.103",
+  "package_version": "0.0.0-packageplane.20260718.1",
+  "approved_remote_source": "https://api.nuget.org/v3/index.json",
+  "packages": [
+    {
+      "id": "Chummer.Engine.Contracts",
+      "repository": "https://github.com/ArchonMegalon/chummer6-core.git",
+      "commit": "7560c65ee968a3c9eb650255f236524bf7d65144",
+      "checkout_directory": "chummer-core-engine",
+      "project": "Chummer.Contracts/Chummer.Contracts.csproj"
+    },
+    {
+      "id": "Chummer.Hub.Registry.Contracts",
+      "repository": "https://github.com/ArchonMegalon/chummer6-hub-registry.git",
+      "commit": "0bc4f99de1df9c262d9495c70419d7b6e76ff6fb",
+      "checkout_directory": "chummer-hub-registry",
+      "project": "Chummer.Hub.Registry.Contracts/Chummer.Hub.Registry.Contracts.csproj"
+    },
+    {
+      "id": "Chummer.Play.Contracts",
+      "repository": "https://github.com/ArchonMegalon/chummer6-hub.git",
+      "commit": "83834daa201c296f47ac79359374c9cb98fc8d5c",
+      "checkout_directory": "chummer.run-services",
+      "project": "Chummer.Play.Contracts/Chummer.Play.Contracts.csproj"
+    },
+    {
+      "id": "Chummer.Run.Contracts",
+      "repository": "https://github.com/ArchonMegalon/chummer6-hub.git",
+      "commit": "83834daa201c296f47ac79359374c9cb98fc8d5c",
+      "checkout_directory": "chummer.run-services",
+      "project": "Chummer.Run.Contracts/Chummer.Run.Contracts.csproj"
+    }
+  ]
+}

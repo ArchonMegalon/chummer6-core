@@ -37,6 +37,7 @@ Current honesty clause:
 - the repo body is still heavier than it should be
 - package canon is already `Chummer.Engine.Contracts`, while source namespaces remain compatibility-first under `Chummer.Contracts.*`
 - hosted package seams such as `Chummer.Run.Contracts` and `Chummer.Hub.Registry.Contracts` are no longer source-owned here
+- hosted package seams restore from the exact source commits in `eng/package-plane.lock.json`; sibling DLL outputs are not an active build input
 - legacy env-driven direct AI provider transport is now compatibility-only rather than part of the active headless-core boundary
 - explain canon, runtime-bundle canon, restore/replay hardening, migration certification, and legacy-root quarantine are materially closed
 
@@ -58,11 +59,14 @@ Legacy root `chummer-core-engine.design*.md` files remain only as compatibility 
 Run:
 
 ```bash
+bash scripts/ai/verify-no-siblings-package-plane.sh
 bash scripts/ai/verify.sh
 bash scripts/ai/test-ruleset-depth.sh
 bash scripts/ai/coverage.sh Chummer.Tests/Chummer.Tests.csproj
 bash scripts/ai/test-matrix.sh Chummer.Tests/Chummer.Tests.csproj
 ```
+
+The no-siblings lane creates an empty consumer checkout and NuGet cache, builds the owner-contract packages from the immutable commits in `eng/package-plane.lock.json`, and restores Core through that generated feed. It does not require or inspect ambient sibling repositories.
 
 `scripts/ai/test-ruleset-depth.sh` is the fastest explicit ruleset-depth gate. It pins `Chummer.Tests` to Linux `net10.0`, covers the SR4/SR5/SR6 ruleset seam slice, runs the core executable audit, and writes `.codex-studio/published/RULESET_DEPTH_LINUX_GATE.generated.json`.
 

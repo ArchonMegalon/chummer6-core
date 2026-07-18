@@ -6,6 +6,7 @@
     "owner": {
       "value": "local-single-user",
       "normalizedValue": "local-single-user",
+      "usesLocalSingleUserValue": true,
       "isLocalSingleUser": true
     },
     "title": "runtime-lock-a title",

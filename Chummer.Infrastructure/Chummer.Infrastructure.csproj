@@ -23,11 +23,7 @@
                       AdditionalProperties="RuntimeIdentifier=$(RuntimeIdentifier);RuntimeIdentifiers=$(RuntimeIdentifiers)" />
     <ProjectReference Include="../Chummer.Rulesets.Sr6/Chummer.Rulesets.Sr6.csproj"
                       AdditionalProperties="RuntimeIdentifier=$(RuntimeIdentifier);RuntimeIdentifiers=$(RuntimeIdentifiers)" />
-    <Reference Include="Chummer.Hub.Registry.Contracts">
-      <HintPath>../../chummer-hub-registry/Chummer.Hub.Registry.Contracts/bin/$(Configuration)/net10.0/Chummer.Hub.Registry.Contracts.dll</HintPath>
-    </Reference>
-    <Reference Include="Chummer.Run.Contracts">
-      <HintPath>../../chummer.run-services/Chummer.Run.Contracts/bin/$(Configuration)/net10.0/Chummer.Run.Contracts.dll</HintPath>
-    </Reference>
+    <PackageReference Include="Chummer.Hub.Registry.Contracts" Version="$(ChummerHubRegistryContractsPackageVersion)" />
+    <PackageReference Include="Chummer.Run.Contracts" Version="$(ChummerRunContractsPackageVersion)" />
   </ItemGroup>
 </Project>

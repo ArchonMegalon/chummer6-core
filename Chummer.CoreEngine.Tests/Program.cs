@@ -7936,7 +7936,8 @@ source_queue_fingerprint: regression-test
         string normalizedPath = path.Replace(Path.AltDirectorySeparatorChar, Path.DirectorySeparatorChar);
         return normalizedPath.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}", StringComparison.Ordinal)
             || normalizedPath.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}", StringComparison.Ordinal)
-            || normalizedPath.Contains($"{Path.DirectorySeparatorChar}.git{Path.DirectorySeparatorChar}", StringComparison.Ordinal);
+            || normalizedPath.Contains($"{Path.DirectorySeparatorChar}.git{Path.DirectorySeparatorChar}", StringComparison.Ordinal)
+            || normalizedPath.Contains($"{Path.DirectorySeparatorChar}.tmp{Path.DirectorySeparatorChar}", StringComparison.Ordinal);
     }
 
     private static string GetLegacyFixtureDirectory()

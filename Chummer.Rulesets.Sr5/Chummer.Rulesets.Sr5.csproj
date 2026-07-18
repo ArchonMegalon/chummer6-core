@@ -8,9 +8,7 @@
   <ItemGroup>
     <ProjectReference Include="../Chummer.Application/Chummer.Application.csproj"
                       AdditionalProperties="RuntimeIdentifier=$(RuntimeIdentifier);RuntimeIdentifiers=$(RuntimeIdentifiers)" />
-    <Reference Include="Chummer.Run.Contracts">
-      <HintPath>../../chummer.run-services/Chummer.Run.Contracts/bin/$(Configuration)/net10.0/Chummer.Run.Contracts.dll</HintPath>
-    </Reference>
+    <PackageReference Include="Chummer.Run.Contracts" Version="$(ChummerRunContractsPackageVersion)" />
   </ItemGroup>
   <ItemGroup Condition="'$(ChummerLocalContractsProject)' != '' and Exists('$(ChummerLocalContractsProject)')">
     <ProjectReference Include="$(ChummerLocalContractsProject)"
