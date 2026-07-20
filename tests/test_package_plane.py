@@ -418,6 +418,33 @@ class PackagePlaneTests(unittest.TestCase):
         self.assertIn("no_sibling_directories", verifier)
         self.assertIn("normal_local_engine_dependency_graph", verifier)
         self.assertIn("package_inventory_sha256", verifier)
+        self.assertIn(
+            'candidate_version_prefix="0.0.0-packageplane.candidate"',
+            verifier,
+        )
+        self.assertIn(
+            'candidate_version="$candidate_version_prefix.sha${candidate_commit:0:12}"',
+            verifier,
+        )
+        self.assertIn("chummer-core.candidate-engine-contract-package-inventory/v1", verifier)
+        self.assertIn('"role": "current_core_candidate"', verifier)
+        self.assertIn('"locked_engine_baseline_not_selected"', verifier)
+        self.assertIn('"locked_owner_dependency"', verifier)
+        self.assertIn(
+            '"-p:ChummerEngineContractsPackageVersion=$candidate_version"',
+            verifier,
+        )
+        candidate_pack = verifier.index(
+            'dotnet pack "$consumer_root/Chummer.Contracts/Chummer.Contracts.csproj"'
+        )
+        isolated_restore = verifier.index(
+            'dotnet restore "$consumer_root/Chummer.CoreEngine.sln"'
+        )
+        self.assertLess(candidate_pack, isolated_restore)
+        self.assertNotIn(
+            '-p:PackageVersion="$locked_version"',
+            verifier[candidate_pack:],
+        )
 
 
 if __name__ == "__main__":
