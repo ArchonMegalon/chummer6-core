@@ -331,6 +331,11 @@ public sealed class DelegatedGmCharacterEditService : IDelegatedGmCharacterEditS
             || !string.Equals(authorization.CharacterId.Value, command.CharacterId.Value, StringComparison.Ordinal)
             || !IsBoundedIdentifier(authorization.DelegationId)
             || !IsBoundedIdentifier(authorization.GrantedByCampaignOwnerId)
+            || !IsBoundedIdentifier(authorization.GrantedByCharacterOwnerId)
+            || !string.Equals(
+                authorization.GrantedByCharacterOwnerId.Trim(),
+                command.CharacterOwner.NormalizedValue,
+                StringComparison.Ordinal)
             || !IsBoundedIdentifier(authorization.AuthorityReceiptId)
             || authorization.AuthorityRevision <= 0
             || authorization.ValidFromUtc.ToUniversalTime() > nowUtc
@@ -402,6 +407,7 @@ public sealed class DelegatedGmCharacterEditService : IDelegatedGmCharacterEditS
             command.CampaignId,
             authorization.DelegationId.Trim(),
             authorization.GrantedByCampaignOwnerId.Trim(),
+            authorization.GrantedByCharacterOwnerId.Trim(),
             authorization.AuthorityReceiptId.Trim(),
             authorization.AuthorityRevision,
             command.ActorId,

@@ -57,6 +57,25 @@ public sealed class DelegatedGmCharacterEditServiceTests
         Assert.AreEqual(1L, store.Get(CharacterOwner, CharacterId).Value?.ContentRevision);
     }
 
+    [TestMethod]
+    public void Campaign_owner_cannot_substitute_for_character_owner_consent()
+    {
+        InMemoryWorkspaceStore store = CreateStoreWithCharacter();
+        RecordingAuthorizer authorizer = new()
+        {
+            GrantedByCharacterOwnerIdOverride = "campaign-owner@example.com"
+        };
+        DelegatedGmCharacterEditService service = CreateService(store, authorizer);
+
+        DelegatedGmCharacterEditResult result = service.Execute(Command());
+
+        Assert.AreEqual(DelegatedGmCharacterEditOutcome.Denied, result.Outcome);
+        Assert.AreEqual("campaign_delegation_denied", result.ErrorCode);
+        WorkspaceStoredDocument current = store.Get(CharacterOwner, CharacterId).Value!;
+        Assert.AreEqual(1L, current.ContentRevision);
+        StringAssert.Contains(current.Document.Content, "Original notes");
+    }
+
     [DataTestMethod]
     [DataRow("/owner/id")]
     [DataRow("/account/email")]
@@ -197,6 +216,7 @@ public sealed class DelegatedGmCharacterEditServiceTests
     [DataRow("duplicate-idempotency-key")]
     [DataRow("duplicate-receipt-id")]
     [DataRow("authority-binding")]
+    [DataRow("character-owner-consent")]
     [DataRow("authority-revision-rollback")]
     [DataRow("applied-time-rollback")]
     public void Persisted_ledger_tampering_blocks_the_entire_workspace_read(string mutation)
@@ -253,6 +273,9 @@ public sealed class DelegatedGmCharacterEditServiceTests
                 case "authority-binding":
                     secondReceipt["CampaignId"] = "campaign-two";
                     break;
+                case "character-owner-consent":
+                    secondReceipt["GrantedByCharacterOwnerId"] = "campaign-owner@example.com";
+                    break;
                 case "authority-revision-rollback":
                     secondReceipt["AuthorityRevision"] = 6;
                     break;
@@ -306,6 +329,24 @@ public sealed class DelegatedGmCharacterEditServiceTests
     }
 
     [TestMethod]
+    public void Revocation_is_rechecked_before_an_idempotent_replay_is_disclosed()
+    {
+        InMemoryWorkspaceStore store = CreateStoreWithCharacter();
+        RecordingAuthorizer authorizer = new();
+        DelegatedGmCharacterEditService service = CreateService(store, authorizer);
+        DelegatedGmCharacterEditCommand command = Command();
+        DelegatedGmCharacterEditResult applied = service.Execute(command);
+        Assert.AreEqual(DelegatedGmCharacterEditOutcome.Applied, applied.Outcome);
+
+        authorizer.Authorized = false;
+        DelegatedGmCharacterEditResult replay = service.Execute(command);
+
+        Assert.AreEqual(DelegatedGmCharacterEditOutcome.Denied, replay.Outcome);
+        Assert.IsNull(replay.Receipt);
+        Assert.AreEqual(2L, store.Get(CharacterOwner, CharacterId).Value?.ContentRevision);
+    }
+
+    [TestMethod]
     public void Audit_receipt_is_complete_bound_and_does_not_duplicate_patch_values()
     {
         InMemoryWorkspaceStore store = CreateStoreWithCharacter();
@@ -322,6 +363,7 @@ public sealed class DelegatedGmCharacterEditServiceTests
         Assert.AreEqual("campaign-one", receipt.CampaignId);
         Assert.AreEqual("delegation-one", receipt.DelegationId);
         Assert.AreEqual("campaign-owner@example.com", receipt.GrantedByCampaignOwnerId);
+        Assert.AreEqual(CharacterOwner.NormalizedValue, receipt.GrantedByCharacterOwnerId);
         Assert.AreEqual("authority-receipt-one", receipt.AuthorityReceiptId);
         Assert.AreEqual(7L, receipt.AuthorityRevision);
         Assert.AreEqual("gm@example.com", receipt.ActorId);
@@ -490,16 +532,20 @@ public sealed class DelegatedGmCharacterEditServiceTests
     {
         public int CallCount { get; private set; }
 
+        public bool Authorized { get; set; } = true;
+
         public string Role { get; init; } = DelegatedGmCharacterEditContract.GameMasterRole;
 
         public string? CampaignIdOverride { get; init; }
+
+        public string? GrantedByCharacterOwnerIdOverride { get; init; }
 
         public CampaignGmCharacterEditAuthorization Authorize(
             CampaignGmCharacterEditAuthorizationRequest request)
         {
             CallCount++;
             return new CampaignGmCharacterEditAuthorization(
-                Authorized: true,
+                Authorized: Authorized,
                 CampaignId: CampaignIdOverride ?? request.CampaignId,
                 ActorId: request.ActorId,
                 Role: Role,
@@ -508,6 +554,8 @@ public sealed class DelegatedGmCharacterEditServiceTests
                 CharacterId: request.CharacterId,
                 DelegationId: "delegation-one",
                 GrantedByCampaignOwnerId: "campaign-owner@example.com",
+                GrantedByCharacterOwnerId: GrantedByCharacterOwnerIdOverride
+                    ?? request.CharacterOwner.NormalizedValue,
                 AuthorityReceiptId: "authority-receipt-one",
                 AuthorityRevision: 7,
                 ValidFromUtc: FixedNow.AddMinutes(-5),

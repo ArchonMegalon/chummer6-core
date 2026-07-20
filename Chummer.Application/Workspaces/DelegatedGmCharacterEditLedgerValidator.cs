@@ -77,7 +77,8 @@ public static class DelegatedGmCharacterEditLedgerValidator
             DelegationBinding delegationBinding = new(
                 receipt.CampaignId,
                 receipt.ActorId,
-                receipt.GrantedByCampaignOwnerId);
+                receipt.GrantedByCampaignOwnerId,
+                receipt.GrantedByCharacterOwnerId);
             if (delegationBindings.TryGetValue(
                     receipt.DelegationId,
                     out DelegationBinding existingDelegationBinding))
@@ -86,6 +87,8 @@ public static class DelegatedGmCharacterEditLedgerValidator
                     || existingDelegationBinding.ActorId != delegationBinding.ActorId
                     || existingDelegationBinding.GrantedByCampaignOwnerId
                     != delegationBinding.GrantedByCampaignOwnerId
+                    || existingDelegationBinding.GrantedByCharacterOwnerId
+                    != delegationBinding.GrantedByCharacterOwnerId
                     || receipt.AuthorityRevision
                     < existingDelegationBinding.LastAuthorityRevision)
                 {
@@ -102,6 +105,7 @@ public static class DelegatedGmCharacterEditLedgerValidator
                 receipt.CampaignId,
                 receipt.DelegationId,
                 receipt.GrantedByCampaignOwnerId,
+                receipt.GrantedByCharacterOwnerId,
                 receipt.ActorId,
                 receipt.AuthorityRevision);
             if (authorityReceiptBindings.TryGetValue(
@@ -163,6 +167,11 @@ public static class DelegatedGmCharacterEditLedgerValidator
             || !IsBounded(receipt.CampaignId, MaximumIdentifierLength)
             || !IsBounded(receipt.DelegationId, MaximumIdentifierLength)
             || !IsBounded(receipt.GrantedByCampaignOwnerId, MaximumIdentifierLength)
+            || !IsBounded(receipt.GrantedByCharacterOwnerId, MaximumIdentifierLength)
+            || !string.Equals(
+                receipt.GrantedByCharacterOwnerId,
+                receipt.CharacterOwnerId,
+                StringComparison.Ordinal)
             || !IsBounded(receipt.AuthorityReceiptId, MaximumIdentifierLength)
             || receipt.AuthorityRevision <= 0
             || !IsBounded(receipt.ActorId, MaximumIdentifierLength)
@@ -250,12 +259,14 @@ public static class DelegatedGmCharacterEditLedgerValidator
         string CampaignId,
         string ActorId,
         string GrantedByCampaignOwnerId,
+        string GrantedByCharacterOwnerId,
         long LastAuthorityRevision = 0);
 
     private readonly record struct AuthorityReceiptBinding(
         string CampaignId,
         string DelegationId,
         string GrantedByCampaignOwnerId,
+        string GrantedByCharacterOwnerId,
         string ActorId,
         long AuthorityRevision);
 }
