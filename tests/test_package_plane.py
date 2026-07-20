@@ -192,6 +192,79 @@ class PackagePlaneTests(unittest.TestCase):
             with self.assertRaisesRegex(MODULE.PackagePlaneError, "dependency drift"):
                 MODULE.validate_package(feed, spec, lock.package_version)
 
+    def test_nupkg_canonicalization_removes_opc_and_zip_nondeterminism(self) -> None:
+        def write_package(
+            path: Path,
+            *,
+            core_token: str,
+            relationship_token: str,
+            timestamp: tuple[int, int, int, int, int, int],
+            reverse: bool,
+        ) -> None:
+            core_name = (
+                f"{MODULE.CORE_PROPERTIES_PREFIX}{core_token}"
+                f"{MODULE.CORE_PROPERTIES_SUFFIX}"
+            )
+            relationships = f"""<?xml version="1.0" encoding="utf-8"?>
+<Relationships xmlns="{MODULE.PACKAGE_RELATIONSHIPS_NAMESPACE}">
+  <Relationship Type="http://schemas.microsoft.com/packaging/2010/07/manifest" Target="/Example.nuspec" Id="RMANIFEST" />
+  <Relationship Type="{MODULE.CORE_PROPERTIES_RELATIONSHIP_TYPE}" Target="/{core_name}" Id="{relationship_token}" />
+</Relationships>""".encode("utf-8")
+            members = [
+                (MODULE.PACKAGE_RELATIONSHIPS_PATH, relationships),
+                ("Example.nuspec", b"<package><metadata><id>Example</id></metadata></package>"),
+                ("lib/net10.0/Example.dll", b"deterministic-assembly"),
+                (core_name, b"<coreProperties><version>1.0.0</version></coreProperties>"),
+                ("[Content_Types].xml", b"<Types />"),
+            ]
+            if reverse:
+                members.reverse()
+            with zipfile.ZipFile(path, "w") as archive:
+                for name, content in members:
+                    info = zipfile.ZipInfo(name, timestamp)
+                    archive.writestr(info, content)
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            first = root / "first.nupkg"
+            second = root / "second.nupkg"
+            write_package(
+                first,
+                core_token="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                relationship_token="RFIRST",
+                timestamp=(2026, 7, 20, 10, 0, 0),
+                reverse=False,
+            )
+            write_package(
+                second,
+                core_token="bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                relationship_token="RSECOND",
+                timestamp=(2026, 7, 20, 10, 1, 0),
+                reverse=True,
+            )
+
+            first_digest = MODULE.canonicalize_nupkg(first)
+            second_digest = MODULE.canonicalize_nupkg(second)
+            self.assertEqual(first_digest, second_digest)
+            self.assertEqual(first.read_bytes(), second.read_bytes())
+            self.assertEqual(first_digest, MODULE.canonicalize_nupkg(first))
+
+            with zipfile.ZipFile(first) as archive:
+                infos = archive.infolist()
+                names = [info.filename for info in infos]
+                self.assertEqual(names, sorted(names, key=lambda value: (value.casefold(), value)))
+                self.assertTrue(
+                    any(
+                        name.startswith(MODULE.CORE_PROPERTIES_PREFIX)
+                        and name.endswith(MODULE.CORE_PROPERTIES_SUFFIX)
+                        and len(Path(name).stem) == 64
+                        for name in names
+                    )
+                )
+                self.assertTrue(
+                    all(info.date_time == MODULE.CANONICAL_ZIP_TIMESTAMP for info in infos)
+                )
+
     def test_exact_head_checkout_is_recreated_when_tracked_or_untracked_bytes_are_dirty(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)

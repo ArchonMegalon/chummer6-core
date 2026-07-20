@@ -13,6 +13,7 @@ import json
 import os
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -54,6 +55,17 @@ VERSION_PATTERN = re.compile(
 HTTPS_GITHUB_PATTERN = re.compile(
     r"^https://github\.com/ArchonMegalon/[A-Za-z0-9._-]+\.git$"
 )
+CORE_PROPERTIES_PREFIX = "package/services/metadata/core-properties/"
+CORE_PROPERTIES_SUFFIX = ".psmdcp"
+PACKAGE_RELATIONSHIPS_PATH = "_rels/.rels"
+PACKAGE_RELATIONSHIPS_NAMESPACE = (
+    "http://schemas.openxmlformats.org/package/2006/relationships"
+)
+CORE_PROPERTIES_RELATIONSHIP_TYPE = (
+    "http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties"
+)
+CANONICAL_ZIP_TIMESTAMP = (1980, 1, 1, 0, 0, 0)
+MAX_PACKAGE_BYTES = 128 * 1024 * 1024
 
 
 class PackagePlaneError(RuntimeError):
@@ -267,6 +279,151 @@ def package_path(feed: Path, package_id: str, version: str) -> Path:
     if len(matches) != 1:
         raise PackagePlaneError(f"feed must contain exactly one {package_id} {version} package")
     return matches[0]
+
+
+def _safe_package_member_name(raw: str) -> str:
+    path = PurePosixPath(raw)
+    if (
+        not raw
+        or raw.endswith("/")
+        or path.is_absolute()
+        or path.as_posix() != raw
+        or any(part in {"", ".", ".."} for part in path.parts)
+        or "\\" in raw
+        or "\x00" in raw
+    ):
+        raise PackagePlaneError(f"package archive contains an unsafe member name: {raw!r}")
+    return raw
+
+
+def _canonical_relationships(
+    raw: bytes,
+    *,
+    old_core_properties_name: str,
+    canonical_core_properties_name: str,
+) -> bytes:
+    try:
+        source = ET.fromstring(raw)
+    except ET.ParseError as exc:
+        raise PackagePlaneError(f"package relationships XML is invalid: {exc}") from exc
+    if _local_name(source.tag) != "Relationships":
+        raise PackagePlaneError("package relationships root is invalid")
+
+    rows: list[tuple[str, str]] = []
+    core_rows = 0
+    for child in source:
+        if _local_name(child.tag) != "Relationship" or set(child.attrib) != {
+            "Type",
+            "Target",
+            "Id",
+        }:
+            raise PackagePlaneError("package relationship shape is invalid")
+        relationship_type = child.attrib["Type"].strip()
+        target = child.attrib["Target"].strip()
+        if not relationship_type or not target:
+            raise PackagePlaneError("package relationship identity is incomplete")
+        if relationship_type == CORE_PROPERTIES_RELATIONSHIP_TYPE:
+            core_rows += 1
+            if target.lstrip("/") != old_core_properties_name:
+                raise PackagePlaneError("core-properties relationship target differs from the archive")
+            target = "/" + canonical_core_properties_name
+        rows.append((relationship_type, target))
+    if core_rows != 1:
+        raise PackagePlaneError("package must contain exactly one core-properties relationship")
+    if len(rows) != len(set(rows)):
+        raise PackagePlaneError("package relationships contain duplicate identities")
+
+    ET.register_namespace("", PACKAGE_RELATIONSHIPS_NAMESPACE)
+    target_root = ET.Element(f"{{{PACKAGE_RELATIONSHIPS_NAMESPACE}}}Relationships")
+    relationship_ids: set[str] = set()
+    for relationship_type, target in sorted(rows):
+        relationship_id = "R" + hashlib.sha256(
+            f"{relationship_type}\0{target}".encode("utf-8")
+        ).hexdigest()[:24].upper()
+        if relationship_id in relationship_ids:
+            raise PackagePlaneError("canonical package relationship id collision")
+        relationship_ids.add(relationship_id)
+        ET.SubElement(
+            target_root,
+            f"{{{PACKAGE_RELATIONSHIPS_NAMESPACE}}}Relationship",
+            {"Type": relationship_type, "Target": target, "Id": relationship_id},
+        )
+    return ET.tostring(target_root, encoding="utf-8", xml_declaration=True)
+
+
+def canonicalize_nupkg(path: Path) -> str:
+    """Normalize NuGet's random OPC metadata and ZIP headers byte-for-byte."""
+
+    try:
+        if path.is_symlink() or not path.is_file() or path.stat().st_size > MAX_PACKAGE_BYTES:
+            raise PackagePlaneError(f"package archive is missing, linked, or oversized: {path}")
+        with zipfile.ZipFile(path) as source:
+            entries: dict[str, bytes] = {}
+            casefolded_names: set[str] = set()
+            total_size = 0
+            for info in source.infolist():
+                name = _safe_package_member_name(info.filename)
+                folded = name.casefold()
+                if name in entries or folded in casefolded_names:
+                    raise PackagePlaneError(f"package archive contains a duplicate member: {name}")
+                content = source.read(info)
+                total_size += len(content)
+                if total_size > MAX_PACKAGE_BYTES:
+                    raise PackagePlaneError(f"expanded package archive is oversized: {path}")
+                entries[name] = content
+                casefolded_names.add(folded)
+    except (OSError, zipfile.BadZipFile) as exc:
+        raise PackagePlaneError(f"unable to canonicalize package archive {path}: {exc}") from exc
+
+    core_names = [
+        name
+        for name in entries
+        if name.startswith(CORE_PROPERTIES_PREFIX) and name.endswith(CORE_PROPERTIES_SUFFIX)
+    ]
+    if len(core_names) != 1:
+        raise PackagePlaneError("package must contain exactly one core-properties document")
+    old_core_name = core_names[0]
+    core_content = entries.pop(old_core_name)
+    canonical_core_name = (
+        CORE_PROPERTIES_PREFIX
+        + hashlib.sha256(core_content).hexdigest()
+        + CORE_PROPERTIES_SUFFIX
+    )
+    if canonical_core_name in entries:
+        raise PackagePlaneError("canonical core-properties member collides with another entry")
+    if PACKAGE_RELATIONSHIPS_PATH not in entries:
+        raise PackagePlaneError("package relationships document is missing")
+    entries[PACKAGE_RELATIONSHIPS_PATH] = _canonical_relationships(
+        entries[PACKAGE_RELATIONSHIPS_PATH],
+        old_core_properties_name=old_core_name,
+        canonical_core_properties_name=canonical_core_name,
+    )
+    entries[canonical_core_name] = core_content
+
+    descriptor, temporary_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    os.close(descriptor)
+    temporary = Path(temporary_name)
+    try:
+        with zipfile.ZipFile(
+            temporary,
+            "w",
+            compression=zipfile.ZIP_DEFLATED,
+            compresslevel=9,
+            strict_timestamps=True,
+        ) as target:
+            for name in sorted(entries, key=lambda value: (value.casefold(), value)):
+                info = zipfile.ZipInfo(name, CANONICAL_ZIP_TIMESTAMP)
+                info.compress_type = zipfile.ZIP_DEFLATED
+                info.create_system = 3
+                info.external_attr = (stat.S_IFREG | 0o644) << 16
+                target.writestr(info, entries[name], compress_type=zipfile.ZIP_DEFLATED, compresslevel=9)
+        with temporary.open("rb") as stream:
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+    finally:
+        if temporary.exists():
+            temporary.unlink()
+    return _sha256(path)
 
 
 def validate_package(feed: Path, spec: PackageSpec, version: str) -> Path:
@@ -567,6 +724,9 @@ def build_feed(
                     cwd=workspace / spec.checkout_directory,
                 )
                 sys.stdout.write(output)
+                canonicalize_nupkg(
+                    package_path(staged_feed, spec.package_id, lock.package_version)
+                )
                 validate_package(staged_feed, spec, lock.package_version)
 
         inventory = _inventory_payload(lock, feed=staged_feed, lock_sha256=lock_sha256)
