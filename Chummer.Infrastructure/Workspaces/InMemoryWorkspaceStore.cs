@@ -10,6 +10,7 @@ public sealed class InMemoryWorkspaceStore : IWorkspaceStore
 {
     private const long InitialContentRevision = 1;
     private const long InitialSavedRevision = 0;
+    private const int MaximumDelegatedEditAuditEntries = 4096;
     private readonly ConcurrentDictionary<string, ConcurrentDictionary<string, WorkspaceEntry>> _documentsByOwner = new(StringComparer.Ordinal);
 
     [Obsolete("Use CreateWorkspaceDocument to receive revision metadata and typed storage outcomes.")]
@@ -111,18 +112,23 @@ public sealed class InMemoryWorkspaceStore : IWorkspaceStore
 
     public IReadOnlyList<WorkspaceStoreEntry> List()
     {
-        return ListCore(GetLocalDocuments());
+        return ListCore(GetLocalDocuments(), OwnerScope.LocalSingleUser);
     }
 
     public IReadOnlyList<WorkspaceStoreEntry> List(OwnerScope owner)
     {
-        return IsInvalidScopedOwner(owner) ? [] : ListCore(GetOwnerDocuments(owner));
+        return IsInvalidScopedOwner(owner) ? [] : ListCore(GetOwnerDocuments(owner), owner);
     }
 
     private static IReadOnlyList<WorkspaceStoreEntry> ListCore(
-        ConcurrentDictionary<string, WorkspaceEntry> documents)
+        ConcurrentDictionary<string, WorkspaceEntry> documents,
+        OwnerScope owner)
     {
         return documents
+            .Where(pair => IsValidWorkspaceEntry(
+                owner,
+                new CharacterWorkspaceId(pair.Key),
+                pair.Value))
             .OrderByDescending(pair => pair.Value.LastUpdatedUtc)
             .Select(pair => ToStoreEntry(new CharacterWorkspaceId(pair.Key), pair.Value))
             .ToArray();
@@ -158,22 +164,28 @@ public sealed class InMemoryWorkspaceStore : IWorkspaceStore
 
     public WorkspaceStoreReadResult Get(CharacterWorkspaceId id)
     {
-        return GetCore(GetLocalDocuments(), id);
+        return GetCore(GetLocalDocuments(), OwnerScope.LocalSingleUser, id);
     }
 
     public WorkspaceStoreReadResult Get(OwnerScope owner, CharacterWorkspaceId id)
     {
         return IsInvalidScopedOwner(owner)
             ? InvalidOwnerRead()
-            : GetCore(GetOwnerDocuments(owner), id);
+            : GetCore(GetOwnerDocuments(owner), owner, id);
     }
 
     private static WorkspaceStoreReadResult GetCore(
         ConcurrentDictionary<string, WorkspaceEntry> documents,
+        OwnerScope owner,
         CharacterWorkspaceId id)
     {
         if (documents.TryGetValue(id.Value, out WorkspaceEntry? entry))
         {
+            if (!IsValidWorkspaceEntry(owner, id, entry))
+            {
+                return CorruptRead();
+            }
+
             return new WorkspaceStoreReadResult(
                 WorkspaceOperationOutcome.Success,
                 new WorkspaceStoredDocument(
@@ -237,6 +249,7 @@ public sealed class InMemoryWorkspaceStore : IWorkspaceStore
     {
         return ReplaceWorkspaceDocumentCore(
             GetLocalDocuments(),
+            OwnerScope.LocalSingleUser,
             id,
             expectedContentRevision,
             document);
@@ -252,6 +265,7 @@ public sealed class InMemoryWorkspaceStore : IWorkspaceStore
             ? InvalidOwnerMutation()
             : ReplaceWorkspaceDocumentCore(
                 GetOwnerDocuments(owner),
+                owner,
                 id,
                 expectedContentRevision,
                 document);
@@ -259,6 +273,7 @@ public sealed class InMemoryWorkspaceStore : IWorkspaceStore
 
     private static WorkspaceStoreMutationResult ReplaceWorkspaceDocumentCore(
         ConcurrentDictionary<string, WorkspaceEntry> documents,
+        OwnerScope owner,
         CharacterWorkspaceId id,
         long expectedContentRevision,
         WorkspaceDocument document)
@@ -269,6 +284,11 @@ public sealed class InMemoryWorkspaceStore : IWorkspaceStore
             if (!documents.TryGetValue(id.Value, out WorkspaceEntry? current))
             {
                 return MissingMutation();
+            }
+
+            if (!IsValidWorkspaceEntry(owner, id, current))
+            {
+                return CorruptMutation();
             }
 
             if (current.ContentRevision != expectedContentRevision)
@@ -300,7 +320,11 @@ public sealed class InMemoryWorkspaceStore : IWorkspaceStore
         CharacterWorkspaceId id,
         long expectedContentRevision)
     {
-        return SaveCheckpointCore(GetLocalDocuments(), id, expectedContentRevision);
+        return SaveCheckpointCore(
+            GetLocalDocuments(),
+            OwnerScope.LocalSingleUser,
+            id,
+            expectedContentRevision);
     }
 
     public WorkspaceStoreMutationResult SaveCheckpoint(
@@ -310,11 +334,12 @@ public sealed class InMemoryWorkspaceStore : IWorkspaceStore
     {
         return IsInvalidScopedOwner(owner)
             ? InvalidOwnerMutation()
-            : SaveCheckpointCore(GetOwnerDocuments(owner), id, expectedContentRevision);
+            : SaveCheckpointCore(GetOwnerDocuments(owner), owner, id, expectedContentRevision);
     }
 
     private static WorkspaceStoreMutationResult SaveCheckpointCore(
         ConcurrentDictionary<string, WorkspaceEntry> documents,
+        OwnerScope owner,
         CharacterWorkspaceId id,
         long expectedContentRevision)
     {
@@ -323,6 +348,11 @@ public sealed class InMemoryWorkspaceStore : IWorkspaceStore
             if (!documents.TryGetValue(id.Value, out WorkspaceEntry? current))
             {
                 return MissingMutation();
+            }
+
+            if (!IsValidWorkspaceEntry(owner, id, current))
+            {
+                return CorruptMutation();
             }
 
             if (current.ContentRevision != expectedContentRevision)
@@ -371,7 +401,11 @@ public sealed class InMemoryWorkspaceStore : IWorkspaceStore
         CharacterWorkspaceId id,
         long expectedContentRevision)
     {
-        return DeleteCore(GetLocalDocuments(), id, expectedContentRevision);
+        return DeleteCore(
+            GetLocalDocuments(),
+            OwnerScope.LocalSingleUser,
+            id,
+            expectedContentRevision);
     }
 
     public WorkspaceStoreMutationResult Delete(
@@ -381,7 +415,7 @@ public sealed class InMemoryWorkspaceStore : IWorkspaceStore
     {
         return IsInvalidScopedOwner(owner)
             ? InvalidOwnerMutation()
-            : DeleteCore(GetOwnerDocuments(owner), id, expectedContentRevision);
+            : DeleteCore(GetOwnerDocuments(owner), owner, id, expectedContentRevision);
     }
 
     public DelegatedGmCharacterEditStoreResult LookupDelegatedGmCharacterEdit(
@@ -404,6 +438,11 @@ public sealed class InMemoryWorkspaceStore : IWorkspaceStore
         {
             return new DelegatedGmCharacterEditStoreResult(
                 DelegatedGmCharacterEditStoreOutcome.WorkspaceMissing);
+        }
+
+        if (!IsValidWorkspaceEntry(owner, id, current))
+        {
+            return DelegatedEditCorrupt(current.ContentRevision);
         }
 
         return ResolveDelegatedEditReplay(
@@ -443,6 +482,11 @@ public sealed class InMemoryWorkspaceStore : IWorkspaceStore
                     DelegatedGmCharacterEditStoreOutcome.WorkspaceMissing);
             }
 
+            if (!IsValidWorkspaceEntry(owner, id, current))
+            {
+                return DelegatedEditCorrupt(current.ContentRevision);
+            }
+
             DelegatedGmCharacterEditStoreResult replay = ResolveDelegatedEditReplay(
                 current,
                 owner,
@@ -463,19 +507,31 @@ public sealed class InMemoryWorkspaceStore : IWorkspaceStore
             }
 
             if (current.ContentRevision == long.MaxValue
+                || current.DelegatedGmCharacterEdits.Length >= MaximumDelegatedEditAuditEntries
                 || !IsValidDelegatedEditLedgerEntry(owner, id, expectedContentRevision, ledgerEntry))
             {
                 return DelegatedEditUnavailable("Delegated GM character-edit commit is invalid.");
             }
 
+            long nextContentRevision = current.ContentRevision + 1;
+            ImmutableArray<DelegatedGmCharacterEditLedgerEntry> updatedLedger =
+                current.DelegatedGmCharacterEdits.Add(ledgerEntry);
+            if (!DelegatedGmCharacterEditLedgerValidator.IsValidLedger(
+                    owner,
+                    id,
+                    nextContentRevision,
+                    updatedLedger))
+            {
+                return DelegatedEditUnavailable(
+                    "Delegated GM character-edit commit would corrupt the immutable audit ledger.");
+            }
+
             WorkspaceEntry replacement = new(
                 document,
                 DateTimeOffset.UtcNow,
-                current.ContentRevision + 1,
+                nextContentRevision,
                 current.SavedRevision,
-                current.DelegatedGmCharacterEdits.Add(
-                    ledgerEntry.IdempotencyKeySha256,
-                    ledgerEntry));
+                updatedLedger);
             if (documents.TryUpdate(id.Value, replacement, current))
             {
                 return new DelegatedGmCharacterEditStoreResult(
@@ -488,6 +544,7 @@ public sealed class InMemoryWorkspaceStore : IWorkspaceStore
 
     private static WorkspaceStoreMutationResult DeleteCore(
         ConcurrentDictionary<string, WorkspaceEntry> documents,
+        OwnerScope owner,
         CharacterWorkspaceId id,
         long expectedContentRevision)
     {
@@ -496,6 +553,11 @@ public sealed class InMemoryWorkspaceStore : IWorkspaceStore
             if (!documents.TryGetValue(id.Value, out WorkspaceEntry? current))
             {
                 return MissingMutation();
+            }
+
+            if (!IsValidWorkspaceEntry(owner, id, current))
+            {
+                return CorruptMutation();
             }
 
             if (current.ContentRevision != expectedContentRevision)
@@ -549,6 +611,20 @@ public sealed class InMemoryWorkspaceStore : IWorkspaceStore
             Error: "Workspace not found.");
     }
 
+    private static WorkspaceStoreReadResult CorruptRead()
+    {
+        return new WorkspaceStoreReadResult(
+            WorkspaceOperationOutcome.Corrupt,
+            Error: "Workspace audit ledger is corrupt.");
+    }
+
+    private static WorkspaceStoreMutationResult CorruptMutation()
+    {
+        return new WorkspaceStoreMutationResult(
+            WorkspaceOperationOutcome.Corrupt,
+            Error: "Workspace audit ledger is corrupt.");
+    }
+
     private static WorkspaceStoreReadResult InvalidOwnerRead()
     {
         return new WorkspaceStoreReadResult(
@@ -575,9 +651,12 @@ public sealed class InMemoryWorkspaceStore : IWorkspaceStore
         string idempotencyKeySha256,
         string commandSha256)
     {
-        if (!current.DelegatedGmCharacterEdits.TryGetValue(
+        DelegatedGmCharacterEditLedgerEntry? existing = current.DelegatedGmCharacterEdits
+            .FirstOrDefault(entry => string.Equals(
+                entry.IdempotencyKeySha256,
                 idempotencyKeySha256,
-                out DelegatedGmCharacterEditLedgerEntry? existing))
+                StringComparison.Ordinal));
+        if (existing is null)
         {
             return new DelegatedGmCharacterEditStoreResult(
                 DelegatedGmCharacterEditStoreOutcome.NotFound,
@@ -632,11 +711,30 @@ public sealed class InMemoryWorkspaceStore : IWorkspaceStore
             Error: error);
     }
 
-    private static ImmutableDictionary<string, DelegatedGmCharacterEditLedgerEntry>
+    private static DelegatedGmCharacterEditStoreResult DelegatedEditCorrupt(long currentRevision)
+    {
+        return new DelegatedGmCharacterEditStoreResult(
+            DelegatedGmCharacterEditStoreOutcome.Corrupt,
+            CurrentRevision: currentRevision,
+            Error: "Delegated GM character-edit audit ledger is corrupt.");
+    }
+
+    private static ImmutableArray<DelegatedGmCharacterEditLedgerEntry>
         EmptyDelegatedEditLedger()
     {
-        return ImmutableDictionary.Create<string, DelegatedGmCharacterEditLedgerEntry>(
-            StringComparer.Ordinal);
+        return ImmutableArray<DelegatedGmCharacterEditLedgerEntry>.Empty;
+    }
+
+    private static bool IsValidWorkspaceEntry(
+        OwnerScope owner,
+        CharacterWorkspaceId id,
+        WorkspaceEntry entry)
+    {
+        return DelegatedGmCharacterEditLedgerValidator.IsValidLedger(
+            owner,
+            id,
+            entry.ContentRevision,
+            entry.DelegatedGmCharacterEdits);
     }
 
     private static bool IsSupportedWorkspaceId(CharacterWorkspaceId id)
@@ -662,7 +760,7 @@ public sealed class InMemoryWorkspaceStore : IWorkspaceStore
         DateTimeOffset LastUpdatedUtc,
         long ContentRevision,
         long SavedRevision,
-        ImmutableDictionary<string, DelegatedGmCharacterEditLedgerEntry> DelegatedGmCharacterEdits);
+        ImmutableArray<DelegatedGmCharacterEditLedgerEntry> DelegatedGmCharacterEdits);
 
     private ConcurrentDictionary<string, WorkspaceEntry> GetLocalDocuments()
     {

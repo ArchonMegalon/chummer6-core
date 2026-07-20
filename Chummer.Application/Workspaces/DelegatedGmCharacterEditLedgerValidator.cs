@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using Chummer.Contracts.Owners;
 using Chummer.Contracts.Workspaces;
 
@@ -13,6 +15,110 @@ public static class DelegatedGmCharacterEditLedgerValidator
     private const int MaximumIdentifierLength = 200;
     private const int MaximumReasonLength = 500;
     private const int MaximumOperationCount = 3;
+
+    /// <summary>
+    /// Validates the complete append-only ledger before any workspace state is
+    /// exposed. Revisions may contain gaps because an owner edit does not add a
+    /// delegated receipt, but delegated receipts must never overlap or move
+    /// backwards through the workspace revision history.
+    /// </summary>
+    public static bool IsValidLedger(
+        OwnerScope owner,
+        CharacterWorkspaceId id,
+        long currentContentRevision,
+        IReadOnlyList<DelegatedGmCharacterEditLedgerEntry>? entries)
+    {
+        if (entries is null
+            || string.IsNullOrWhiteSpace(owner.NormalizedValue)
+            || string.IsNullOrWhiteSpace(id.Value)
+            || currentContentRevision <= 0)
+        {
+            return false;
+        }
+
+        if (entries.Count == 0)
+        {
+            return true;
+        }
+
+        // Delegated campaign authority must never be smuggled into the trusted
+        // process-local owner lane.
+        if (owner.UsesLocalSingleUserValue)
+        {
+            return false;
+        }
+
+        HashSet<string> idempotencyKeys = new(StringComparer.Ordinal);
+        HashSet<string> receiptIds = new(StringComparer.Ordinal);
+        Dictionary<string, DelegationBinding> delegationBindings = new(StringComparer.Ordinal);
+        Dictionary<string, AuthorityReceiptBinding> authorityReceiptBindings = new(StringComparer.Ordinal);
+        long previousDelegatedRevision = 0;
+        DateTimeOffset previousAppliedAtUtc = default;
+
+        foreach (DelegatedGmCharacterEditLedgerEntry? entry in entries)
+        {
+            if (!IsValidPersistedEntry(owner, id, currentContentRevision, entry))
+            {
+                return false;
+            }
+
+            DelegatedGmCharacterEditAuditReceipt receipt = entry!.Receipt;
+            if (!idempotencyKeys.Add(entry.IdempotencyKeySha256)
+                || !receiptIds.Add(receipt.ReceiptId)
+                || !HasExpectedReceiptId(entry)
+                || (previousDelegatedRevision > 0
+                    && receipt.PreviousRevision < previousDelegatedRevision)
+                || (previousAppliedAtUtc != default
+                    && receipt.AppliedAtUtc < previousAppliedAtUtc))
+            {
+                return false;
+            }
+
+            DelegationBinding delegationBinding = new(
+                receipt.CampaignId,
+                receipt.ActorId,
+                receipt.GrantedByCampaignOwnerId);
+            if (delegationBindings.TryGetValue(
+                    receipt.DelegationId,
+                    out DelegationBinding existingDelegationBinding))
+            {
+                if (existingDelegationBinding.CampaignId != delegationBinding.CampaignId
+                    || existingDelegationBinding.ActorId != delegationBinding.ActorId
+                    || existingDelegationBinding.GrantedByCampaignOwnerId
+                    != delegationBinding.GrantedByCampaignOwnerId
+                    || receipt.AuthorityRevision
+                    < existingDelegationBinding.LastAuthorityRevision)
+                {
+                    return false;
+                }
+            }
+
+            delegationBindings[receipt.DelegationId] = delegationBinding with
+            {
+                LastAuthorityRevision = receipt.AuthorityRevision
+            };
+
+            AuthorityReceiptBinding authorityBinding = new(
+                receipt.CampaignId,
+                receipt.DelegationId,
+                receipt.GrantedByCampaignOwnerId,
+                receipt.ActorId,
+                receipt.AuthorityRevision);
+            if (authorityReceiptBindings.TryGetValue(
+                    receipt.AuthorityReceiptId,
+                    out AuthorityReceiptBinding existingAuthorityBinding)
+                && existingAuthorityBinding != authorityBinding)
+            {
+                return false;
+            }
+
+            authorityReceiptBindings[receipt.AuthorityReceiptId] = authorityBinding;
+            previousDelegatedRevision = receipt.NewRevision;
+            previousAppliedAtUtc = receipt.AppliedAtUtc;
+        }
+
+        return true;
+    }
 
     public static bool IsValidForCommit(
         OwnerScope owner,
@@ -94,6 +200,20 @@ public static class DelegatedGmCharacterEditLedgerValidator
         return true;
     }
 
+    private static bool HasExpectedReceiptId(DelegatedGmCharacterEditLedgerEntry entry)
+    {
+        DelegatedGmCharacterEditAuditReceipt receipt = entry.Receipt;
+        string seed = string.Join(
+            "\n",
+            entry.CommandSha256,
+            receipt.DelegationId,
+            receipt.AuthorityReceiptId,
+            entry.IdempotencyKeySha256);
+        string expectedReceiptId = "gm-edit-" + Convert.ToHexString(
+            SHA256.HashData(Encoding.UTF8.GetBytes(seed)))[..24].ToLowerInvariant();
+        return string.Equals(receipt.ReceiptId, expectedReceiptId, StringComparison.Ordinal);
+    }
+
     public static bool IsSha256(string? value)
     {
         return value is { Length: 64 }
@@ -125,4 +245,17 @@ public static class DelegatedGmCharacterEditLedgerValidator
             && !value.Any(static character => char.IsControl(character)
                 && character is not '\r' and not '\n' and not '\t');
     }
+
+    private readonly record struct DelegationBinding(
+        string CampaignId,
+        string ActorId,
+        string GrantedByCampaignOwnerId,
+        long LastAuthorityRevision = 0);
+
+    private readonly record struct AuthorityReceiptBinding(
+        string CampaignId,
+        string DelegationId,
+        string GrantedByCampaignOwnerId,
+        string ActorId,
+        long AuthorityRevision);
 }

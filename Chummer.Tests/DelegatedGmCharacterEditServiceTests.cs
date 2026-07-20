@@ -4,6 +4,7 @@ using System.Collections.Immutable;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Chummer.Application.Characters;
 using Chummer.Application.Workspaces;
 using Chummer.Contracts.Api;
@@ -149,6 +150,134 @@ public sealed class DelegatedGmCharacterEditServiceTests
     }
 
     [TestMethod]
+    public void Delegated_ledger_allows_revision_gaps_created_by_owner_edits()
+    {
+        string stateDirectory = CreateTempStateDirectory();
+        try
+        {
+            FileWorkspaceStore store = new(stateDirectory);
+            WorkspaceStoreMutationResult created = store.CreateWorkspaceDocument(
+                CharacterOwner,
+                CharacterId,
+                Document("Original notes"));
+            Assert.IsTrue(created.Success, created.Error);
+            DelegatedGmCharacterEditService service = CreateService(store, new RecordingAuthorizer());
+            DelegatedGmCharacterEditResult first = service.Execute(Command());
+            Assert.AreEqual(DelegatedGmCharacterEditOutcome.Applied, first.Outcome, first.Error);
+            WorkspaceStoreMutationResult ownerEdit = store.ReplaceWorkspaceDocument(
+                CharacterOwner,
+                CharacterId,
+                expectedContentRevision: 2,
+                Document("Owner revision between delegated edits"));
+            Assert.IsTrue(ownerEdit.Success, ownerEdit.Error);
+
+            DelegatedGmCharacterEditResult second = service.Execute(Command(
+                expectedRevision: 3,
+                idempotencyKey: "edit-key-after-owner-gap",
+                reason: "Correct a note after the owner revision"));
+
+            Assert.AreEqual(DelegatedGmCharacterEditOutcome.Applied, second.Outcome, second.Error);
+            WorkspaceStoreReadResult restarted = new FileWorkspaceStore(stateDirectory)
+                .Get(CharacterOwner, CharacterId);
+            Assert.AreEqual(WorkspaceOperationOutcome.Success, restarted.Outcome, restarted.Error);
+            Assert.AreEqual(4L, restarted.Value?.ContentRevision);
+        }
+        finally
+        {
+            Directory.Delete(stateDirectory, recursive: true);
+        }
+    }
+
+    [DataTestMethod]
+    [DataRow("wrong-owner")]
+    [DataRow("wrong-workspace")]
+    [DataRow("future-revision")]
+    [DataRow("overlapping-revision")]
+    [DataRow("reversed-order")]
+    [DataRow("duplicate-idempotency-key")]
+    [DataRow("duplicate-receipt-id")]
+    [DataRow("authority-binding")]
+    [DataRow("authority-revision-rollback")]
+    [DataRow("applied-time-rollback")]
+    public void Persisted_ledger_tampering_blocks_the_entire_workspace_read(string mutation)
+    {
+        string stateDirectory = CreateTempStateDirectory();
+        try
+        {
+            string workspacePath = CreatePersistedLedgerWithTwoEdits(stateDirectory);
+            JsonObject record = JsonNode.Parse(File.ReadAllText(workspacePath))?.AsObject()
+                ?? throw new AssertFailedException("Persisted workspace record was not valid JSON.");
+            JsonArray ledger = record["DelegatedGmCharacterEdits"]?.AsArray()
+                ?? throw new AssertFailedException("Persisted delegated-edit ledger was missing.");
+            Assert.HasCount(2, ledger);
+            JsonObject first = ledger[0]?.AsObject()
+                ?? throw new AssertFailedException("First persisted ledger entry was missing.");
+            JsonObject second = ledger[1]?.AsObject()
+                ?? throw new AssertFailedException("Second persisted ledger entry was missing.");
+            JsonObject firstReceipt = first["Receipt"]?.AsObject()
+                ?? throw new AssertFailedException("First persisted receipt was missing.");
+            JsonObject secondReceipt = second["Receipt"]?.AsObject()
+                ?? throw new AssertFailedException("Second persisted receipt was missing.");
+
+            switch (mutation)
+            {
+                case "wrong-owner":
+                    secondReceipt["CharacterOwnerId"] = "attacker@example.com";
+                    break;
+                case "wrong-workspace":
+                    secondReceipt["CharacterId"] = new JsonObject { ["Value"] = "runner-two" };
+                    break;
+                case "future-revision":
+                    secondReceipt["PreviousRevision"] = 3;
+                    secondReceipt["NewRevision"] = 4;
+                    break;
+                case "overlapping-revision":
+                    secondReceipt["PreviousRevision"] = 1;
+                    secondReceipt["NewRevision"] = 2;
+                    break;
+                case "reversed-order":
+                    JsonNode firstClone = first.DeepClone();
+                    JsonNode secondClone = second.DeepClone();
+                    ledger.Clear();
+                    ledger.Add(secondClone);
+                    ledger.Add(firstClone);
+                    break;
+                case "duplicate-idempotency-key":
+                    second["IdempotencyKeySha256"] = first["IdempotencyKeySha256"]?.DeepClone();
+                    secondReceipt["IdempotencyKeySha256"] =
+                        firstReceipt["IdempotencyKeySha256"]?.DeepClone();
+                    break;
+                case "duplicate-receipt-id":
+                    secondReceipt["ReceiptId"] = firstReceipt["ReceiptId"]?.DeepClone();
+                    break;
+                case "authority-binding":
+                    secondReceipt["CampaignId"] = "campaign-two";
+                    break;
+                case "authority-revision-rollback":
+                    secondReceipt["AuthorityRevision"] = 6;
+                    break;
+                case "applied-time-rollback":
+                    secondReceipt["AppliedAtUtc"] = FixedNow.AddMinutes(-1);
+                    break;
+                default:
+                    throw new AssertFailedException($"Unknown ledger mutation '{mutation}'.");
+            }
+
+            File.WriteAllText(workspacePath, record.ToJsonString());
+            FileWorkspaceStore restarted = new(stateDirectory);
+
+            WorkspaceStoreReadResult read = restarted.Get(CharacterOwner, CharacterId);
+
+            Assert.AreEqual(WorkspaceOperationOutcome.Corrupt, read.Outcome, mutation);
+            Assert.AreEqual(0, restarted.List(CharacterOwner).Count, mutation);
+        }
+        finally
+        {
+            Directory.Delete(stateDirectory, recursive: true);
+        }
+    }
+
+    [TestMethod]
     public void Reusing_an_idempotency_key_for_a_different_command_is_rejected()
     {
         InMemoryWorkspaceStore store = CreateStoreWithCharacter();
@@ -265,6 +394,30 @@ public sealed class DelegatedGmCharacterEditServiceTests
             Document("Original notes"));
         Assert.IsTrue(created.Success, created.Error);
         return store;
+    }
+
+    private static string CreatePersistedLedgerWithTwoEdits(string stateDirectory)
+    {
+        FileWorkspaceStore store = new(stateDirectory);
+        WorkspaceStoreMutationResult created = store.CreateWorkspaceDocument(
+            CharacterOwner,
+            CharacterId,
+            Document("Original notes"));
+        Assert.IsTrue(created.Success, created.Error);
+        DelegatedGmCharacterEditService service = CreateService(store, new RecordingAuthorizer());
+        DelegatedGmCharacterEditResult first = service.Execute(Command());
+        Assert.AreEqual(DelegatedGmCharacterEditOutcome.Applied, first.Outcome, first.Error);
+        DelegatedGmCharacterEditResult second = service.Execute(Command(
+            expectedRevision: 2,
+            idempotencyKey: "edit-key-two",
+            reason: "Correct a second campaign-visible note"));
+        Assert.AreEqual(DelegatedGmCharacterEditOutcome.Applied, second.Outcome, second.Error);
+
+        return Directory.EnumerateFiles(
+                stateDirectory,
+                $"{CharacterId.Value}.json",
+                SearchOption.AllDirectories)
+            .Single();
     }
 
     private static DelegatedGmCharacterEditService CreateService(

@@ -335,7 +335,7 @@ public sealed class FileWorkspaceStore : IWorkspaceStore, IWorkspaceStoreReadine
             }
 
             using WorkspaceOperationLease operation = AcquireWorkspaceOperation(path);
-            return ReadWorkspaceUnderLease(id, path);
+            return ReadWorkspaceUnderLease(owner, id, path);
         }
         catch (IOException)
         {
@@ -434,6 +434,7 @@ public sealed class FileWorkspaceStore : IWorkspaceStore, IWorkspaceStoreReadine
             EnsureWorkspaceDirectory(owner);
             using WorkspaceOperationLease operation = AcquireWorkspaceOperation(path);
             WorkspaceStoreReadResult read = ReadWorkspaceUnderLease(
+                owner,
                 id,
                 path,
                 out IReadOnlyList<DelegatedGmCharacterEditLedgerEntry> delegatedEditLedger);
@@ -511,6 +512,7 @@ public sealed class FileWorkspaceStore : IWorkspaceStore, IWorkspaceStoreReadine
             EnsureWorkspaceDirectory(owner);
             using WorkspaceOperationLease operation = AcquireWorkspaceOperation(path);
             WorkspaceStoreReadResult read = ReadWorkspaceUnderLease(
+                owner,
                 id,
                 path,
                 out IReadOnlyList<DelegatedGmCharacterEditLedgerEntry> delegatedEditLedger);
@@ -704,6 +706,7 @@ public sealed class FileWorkspaceStore : IWorkspaceStore, IWorkspaceStoreReadine
 
             using WorkspaceOperationLease operation = AcquireWorkspaceOperation(path);
             WorkspaceStoreReadResult read = ReadWorkspaceUnderLease(
+                owner,
                 id,
                 path,
                 out IReadOnlyList<DelegatedGmCharacterEditLedgerEntry> ledger);
@@ -761,6 +764,7 @@ public sealed class FileWorkspaceStore : IWorkspaceStore, IWorkspaceStoreReadine
             EnsureWorkspaceDirectory(owner);
             using WorkspaceOperationLease operation = AcquireWorkspaceOperation(path);
             WorkspaceStoreReadResult read = ReadWorkspaceUnderLease(
+                owner,
                 id,
                 path,
                 out IReadOnlyList<DelegatedGmCharacterEditLedgerEntry> ledger);
@@ -803,6 +807,16 @@ public sealed class FileWorkspaceStore : IWorkspaceStore, IWorkspaceStoreReadine
                 .. ledger,
                 ledgerEntry
             ];
+            if (!DelegatedGmCharacterEditLedgerValidator.IsValidLedger(
+                    owner,
+                    id,
+                    nextContentRevision,
+                    updatedLedger))
+            {
+                return DelegatedEditUnavailable(
+                    "Delegated GM character-edit commit would corrupt the immutable audit ledger.");
+            }
+
             PersistedWorkspaceRecord record = BuildPersistedRecord(
                 document,
                 nextContentRevision,
@@ -846,7 +860,7 @@ public sealed class FileWorkspaceStore : IWorkspaceStore, IWorkspaceStoreReadine
             }
 
             using WorkspaceOperationLease operation = AcquireWorkspaceOperation(path);
-            WorkspaceStoreReadResult read = ReadWorkspaceUnderLease(id, path);
+            WorkspaceStoreReadResult read = ReadWorkspaceUnderLease(owner, id, path);
             if (!read.Success || read.Value is not WorkspaceStoredDocument current)
             {
                 return MutationFromRead(read);
@@ -873,13 +887,15 @@ public sealed class FileWorkspaceStore : IWorkspaceStore, IWorkspaceStoreReadine
     }
 
     private WorkspaceStoreReadResult ReadWorkspaceUnderLease(
+        OwnerScope owner,
         CharacterWorkspaceId id,
         string path)
     {
-        return ReadWorkspaceUnderLease(id, path, out _);
+        return ReadWorkspaceUnderLease(owner, id, path, out _);
     }
 
     private WorkspaceStoreReadResult ReadWorkspaceUnderLease(
+        OwnerScope owner,
         CharacterWorkspaceId id,
         string path,
         out IReadOnlyList<DelegatedGmCharacterEditLedgerEntry> delegatedEditLedger)
@@ -920,6 +936,9 @@ public sealed class FileWorkspaceStore : IWorkspaceStore, IWorkspaceStoreReadine
                 out long savedRevision,
                 out bool requiresLegacyMigration)
             || !TryMaterializeDelegatedEditLedger(
+                owner,
+                id,
+                contentRevision,
                 record.DelegatedGmCharacterEdits,
                 out delegatedEditLedger))
         {
@@ -1029,6 +1048,9 @@ public sealed class FileWorkspaceStore : IWorkspaceStore, IWorkspaceStoreReadine
     }
 
     private static bool TryMaterializeDelegatedEditLedger(
+        OwnerScope owner,
+        CharacterWorkspaceId id,
+        long currentContentRevision,
         DelegatedGmCharacterEditLedgerEntry[]? persisted,
         out IReadOnlyList<DelegatedGmCharacterEditLedgerEntry> ledger)
     {
@@ -1043,15 +1065,13 @@ public sealed class FileWorkspaceStore : IWorkspaceStore, IWorkspaceStoreReadine
             return false;
         }
 
-        HashSet<string> keys = new(StringComparer.Ordinal);
-        foreach (DelegatedGmCharacterEditLedgerEntry? entry in persisted)
+        if (!DelegatedGmCharacterEditLedgerValidator.IsValidLedger(
+                owner,
+                id,
+                currentContentRevision,
+                persisted))
         {
-            if (entry is null
-                || !DelegatedGmCharacterEditLedgerValidator.IsStructurallyValid(entry)
-                || !keys.Add(entry.IdempotencyKeySha256))
-            {
-                return false;
-            }
+            return false;
         }
 
         ledger = persisted;
