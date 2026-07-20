@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Collections.Immutable;
 using Chummer.Application.Workspaces;
 using Chummer.Contracts.Owners;
 using Chummer.Contracts.Workspaces;
@@ -91,7 +92,8 @@ public sealed class InMemoryWorkspaceStore : IWorkspaceStore
                 document,
                 DateTimeOffset.UtcNow,
                 InitialContentRevision,
-                InitialSavedRevision);
+                InitialSavedRevision,
+                EmptyDelegatedEditLedger());
             if (documents.TryAdd(id.Value, entry))
             {
                 return SuccessfulMutation(id, entry);
@@ -285,7 +287,8 @@ public sealed class InMemoryWorkspaceStore : IWorkspaceStore
                 document,
                 DateTimeOffset.UtcNow,
                 current.ContentRevision + 1,
-                current.SavedRevision);
+                current.SavedRevision,
+                current.DelegatedGmCharacterEdits);
             if (documents.TryUpdate(id.Value, replacement, current))
             {
                 return SuccessfulMutation(id, replacement);
@@ -381,6 +384,108 @@ public sealed class InMemoryWorkspaceStore : IWorkspaceStore
             : DeleteCore(GetOwnerDocuments(owner), id, expectedContentRevision);
     }
 
+    public DelegatedGmCharacterEditStoreResult LookupDelegatedGmCharacterEdit(
+        OwnerScope owner,
+        CharacterWorkspaceId id,
+        string idempotencyKeySha256,
+        string commandSha256)
+    {
+        if (IsInvalidScopedOwner(owner))
+        {
+            return DelegatedEditUnavailable("Owner scope is invalid.");
+        }
+
+        if (!IsSha256(idempotencyKeySha256) || !IsSha256(commandSha256))
+        {
+            return DelegatedEditUnavailable("Delegated GM character-edit hashes are invalid.");
+        }
+
+        if (!GetOwnerDocuments(owner).TryGetValue(id.Value, out WorkspaceEntry? current))
+        {
+            return new DelegatedGmCharacterEditStoreResult(
+                DelegatedGmCharacterEditStoreOutcome.WorkspaceMissing);
+        }
+
+        return ResolveDelegatedEditReplay(
+            current,
+            owner,
+            id,
+            idempotencyKeySha256,
+            commandSha256);
+    }
+
+    public DelegatedGmCharacterEditStoreResult ApplyDelegatedGmCharacterEdit(
+        OwnerScope owner,
+        CharacterWorkspaceId id,
+        long expectedContentRevision,
+        WorkspaceDocument document,
+        DelegatedGmCharacterEditLedgerEntry ledgerEntry)
+    {
+        ArgumentNullException.ThrowIfNull(document);
+        ArgumentNullException.ThrowIfNull(ledgerEntry);
+        if (IsInvalidScopedOwner(owner))
+        {
+            return DelegatedEditUnavailable("Owner scope is invalid.");
+        }
+
+        if (!IsSha256(ledgerEntry.IdempotencyKeySha256)
+            || !IsSha256(ledgerEntry.CommandSha256))
+        {
+            return DelegatedEditUnavailable("Delegated GM character-edit hashes are invalid.");
+        }
+
+        ConcurrentDictionary<string, WorkspaceEntry> documents = GetOwnerDocuments(owner);
+        while (true)
+        {
+            if (!documents.TryGetValue(id.Value, out WorkspaceEntry? current))
+            {
+                return new DelegatedGmCharacterEditStoreResult(
+                    DelegatedGmCharacterEditStoreOutcome.WorkspaceMissing);
+            }
+
+            DelegatedGmCharacterEditStoreResult replay = ResolveDelegatedEditReplay(
+                current,
+                owner,
+                id,
+                ledgerEntry.IdempotencyKeySha256,
+                ledgerEntry.CommandSha256);
+            if (replay.Outcome != DelegatedGmCharacterEditStoreOutcome.NotFound)
+            {
+                return replay;
+            }
+
+            if (current.ContentRevision != expectedContentRevision)
+            {
+                return new DelegatedGmCharacterEditStoreResult(
+                    DelegatedGmCharacterEditStoreOutcome.RevisionConflict,
+                    CurrentRevision: current.ContentRevision,
+                    Error: "Workspace content revision does not match the expected revision.");
+            }
+
+            if (current.ContentRevision == long.MaxValue
+                || !IsValidDelegatedEditLedgerEntry(owner, id, expectedContentRevision, ledgerEntry))
+            {
+                return DelegatedEditUnavailable("Delegated GM character-edit commit is invalid.");
+            }
+
+            WorkspaceEntry replacement = new(
+                document,
+                DateTimeOffset.UtcNow,
+                current.ContentRevision + 1,
+                current.SavedRevision,
+                current.DelegatedGmCharacterEdits.Add(
+                    ledgerEntry.IdempotencyKeySha256,
+                    ledgerEntry));
+            if (documents.TryUpdate(id.Value, replacement, current))
+            {
+                return new DelegatedGmCharacterEditStoreResult(
+                    DelegatedGmCharacterEditStoreOutcome.Applied,
+                    ledgerEntry.Receipt,
+                    replacement.ContentRevision);
+            }
+        }
+    }
+
     private static WorkspaceStoreMutationResult DeleteCore(
         ConcurrentDictionary<string, WorkspaceEntry> documents,
         CharacterWorkspaceId id,
@@ -463,6 +568,77 @@ public sealed class InMemoryWorkspaceStore : IWorkspaceStore
         return string.IsNullOrWhiteSpace(owner.NormalizedValue) || owner.UsesLocalSingleUserValue;
     }
 
+    private static DelegatedGmCharacterEditStoreResult ResolveDelegatedEditReplay(
+        WorkspaceEntry current,
+        OwnerScope owner,
+        CharacterWorkspaceId id,
+        string idempotencyKeySha256,
+        string commandSha256)
+    {
+        if (!current.DelegatedGmCharacterEdits.TryGetValue(
+                idempotencyKeySha256,
+                out DelegatedGmCharacterEditLedgerEntry? existing))
+        {
+            return new DelegatedGmCharacterEditStoreResult(
+                DelegatedGmCharacterEditStoreOutcome.NotFound,
+                CurrentRevision: current.ContentRevision);
+        }
+
+        if (!DelegatedGmCharacterEditLedgerValidator.IsValidPersistedEntry(
+                owner,
+                id,
+                current.ContentRevision,
+                existing))
+        {
+            return new DelegatedGmCharacterEditStoreResult(
+                DelegatedGmCharacterEditStoreOutcome.Corrupt,
+                CurrentRevision: current.ContentRevision,
+                Error: "Delegated GM character-edit audit ledger is corrupt.");
+        }
+
+        return string.Equals(existing.CommandSha256, commandSha256, StringComparison.Ordinal)
+            ? new DelegatedGmCharacterEditStoreResult(
+                DelegatedGmCharacterEditStoreOutcome.Replayed,
+                existing.Receipt,
+                current.ContentRevision)
+            : new DelegatedGmCharacterEditStoreResult(
+                DelegatedGmCharacterEditStoreOutcome.IdempotencyConflict,
+                CurrentRevision: current.ContentRevision,
+                Error: "Idempotency key was already used for a different command.");
+    }
+
+    private static bool IsValidDelegatedEditLedgerEntry(
+        OwnerScope owner,
+        CharacterWorkspaceId id,
+        long expectedContentRevision,
+        DelegatedGmCharacterEditLedgerEntry entry)
+    {
+        return DelegatedGmCharacterEditLedgerValidator.IsValidForCommit(
+            owner,
+            id,
+            expectedContentRevision,
+            entry);
+    }
+
+    private static bool IsSha256(string? value)
+    {
+        return DelegatedGmCharacterEditLedgerValidator.IsSha256(value);
+    }
+
+    private static DelegatedGmCharacterEditStoreResult DelegatedEditUnavailable(string error)
+    {
+        return new DelegatedGmCharacterEditStoreResult(
+            DelegatedGmCharacterEditStoreOutcome.Unavailable,
+            Error: error);
+    }
+
+    private static ImmutableDictionary<string, DelegatedGmCharacterEditLedgerEntry>
+        EmptyDelegatedEditLedger()
+    {
+        return ImmutableDictionary.Create<string, DelegatedGmCharacterEditLedgerEntry>(
+            StringComparer.Ordinal);
+    }
+
     private static bool IsSupportedWorkspaceId(CharacterWorkspaceId id)
     {
         if (string.IsNullOrWhiteSpace(id.Value))
@@ -485,7 +661,8 @@ public sealed class InMemoryWorkspaceStore : IWorkspaceStore
         WorkspaceDocument Document,
         DateTimeOffset LastUpdatedUtc,
         long ContentRevision,
-        long SavedRevision);
+        long SavedRevision,
+        ImmutableDictionary<string, DelegatedGmCharacterEditLedgerEntry> DelegatedGmCharacterEdits);
 
     private ConcurrentDictionary<string, WorkspaceEntry> GetLocalDocuments()
     {

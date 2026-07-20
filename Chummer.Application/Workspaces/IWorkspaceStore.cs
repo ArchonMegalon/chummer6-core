@@ -32,6 +32,29 @@ public sealed record WorkspaceStoreMutationResult(
     public bool Success => Outcome == WorkspaceOperationOutcome.Success && Entry is not null;
 }
 
+public sealed record DelegatedGmCharacterEditLedgerEntry(
+    string IdempotencyKeySha256,
+    string CommandSha256,
+    DelegatedGmCharacterEditAuditReceipt Receipt);
+
+public enum DelegatedGmCharacterEditStoreOutcome
+{
+    NotFound = 0,
+    Applied = 1,
+    Replayed = 2,
+    WorkspaceMissing = 3,
+    RevisionConflict = 4,
+    IdempotencyConflict = 5,
+    Corrupt = 6,
+    Unavailable = 7
+}
+
+public sealed record DelegatedGmCharacterEditStoreResult(
+    DelegatedGmCharacterEditStoreOutcome Outcome,
+    DelegatedGmCharacterEditAuditReceipt? Receipt = null,
+    long? CurrentRevision = null,
+    string? Error = null);
+
 public interface IWorkspaceStore
 {
     WorkspaceStoreMutationResult CreateWorkspaceDocument(WorkspaceDocument document);
@@ -89,6 +112,30 @@ public interface IWorkspaceStore
         OwnerScope owner,
         CharacterWorkspaceId id,
         long expectedContentRevision);
+
+    DelegatedGmCharacterEditStoreResult LookupDelegatedGmCharacterEdit(
+        OwnerScope owner,
+        CharacterWorkspaceId id,
+        string idempotencyKeySha256,
+        string commandSha256)
+        => new(
+            DelegatedGmCharacterEditStoreOutcome.Unavailable,
+            Error: "Delegated GM character-edit idempotency is unavailable.");
+
+    /// <summary>
+    /// Atomically applies one owner-scoped CAS replacement and appends its
+    /// immutable idempotency/audit entry. Implementations must check replay
+    /// before ExpectedRevision and must never route this method to local state.
+    /// </summary>
+    DelegatedGmCharacterEditStoreResult ApplyDelegatedGmCharacterEdit(
+        OwnerScope owner,
+        CharacterWorkspaceId id,
+        long expectedContentRevision,
+        WorkspaceDocument document,
+        DelegatedGmCharacterEditLedgerEntry ledgerEntry)
+        => new(
+            DelegatedGmCharacterEditStoreOutcome.Unavailable,
+            Error: "Atomic delegated GM character editing is unavailable.");
 }
 
 /// <summary>

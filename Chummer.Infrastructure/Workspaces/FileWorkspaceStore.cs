@@ -20,6 +20,7 @@ public sealed class FileWorkspaceStore : IWorkspaceStore, IWorkspaceStoreReadine
     private const string LockFileSuffix = ".lock";
     private const string TempFileMarker = ".tmp.";
     private const int FileBufferSize = 16 * 1024;
+    private const int MaximumDelegatedEditAuditEntries = 4096;
     private static readonly TimeSpan DefaultWorkspaceOperationTimeout = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan CrossProcessLeaseRetryDelay = TimeSpan.FromMilliseconds(25);
     private static readonly StringComparer PathComparer = OperatingSystem.IsWindows()
@@ -432,7 +433,10 @@ public sealed class FileWorkspaceStore : IWorkspaceStore, IWorkspaceStoreReadine
         {
             EnsureWorkspaceDirectory(owner);
             using WorkspaceOperationLease operation = AcquireWorkspaceOperation(path);
-            WorkspaceStoreReadResult read = ReadWorkspaceUnderLease(id, path);
+            WorkspaceStoreReadResult read = ReadWorkspaceUnderLease(
+                id,
+                path,
+                out IReadOnlyList<DelegatedGmCharacterEditLedgerEntry> delegatedEditLedger);
             if (!read.Success || read.Value is not WorkspaceStoredDocument current)
             {
                 return MutationFromRead(read);
@@ -452,7 +456,8 @@ public sealed class FileWorkspaceStore : IWorkspaceStore, IWorkspaceStoreReadine
             PersistedWorkspaceRecord record = BuildPersistedRecord(
                 document,
                 nextContentRevision,
-                current.SavedRevision);
+                current.SavedRevision,
+                delegatedEditLedger);
             DateTimeOffset committedAtUtc = WriteRecordAtomically(
                 path,
                 record,
@@ -505,7 +510,10 @@ public sealed class FileWorkspaceStore : IWorkspaceStore, IWorkspaceStoreReadine
         {
             EnsureWorkspaceDirectory(owner);
             using WorkspaceOperationLease operation = AcquireWorkspaceOperation(path);
-            WorkspaceStoreReadResult read = ReadWorkspaceUnderLease(id, path);
+            WorkspaceStoreReadResult read = ReadWorkspaceUnderLease(
+                id,
+                path,
+                out IReadOnlyList<DelegatedGmCharacterEditLedgerEntry> delegatedEditLedger);
             if (!read.Success || read.Value is not WorkspaceStoredDocument current)
             {
                 return MutationFromRead(read);
@@ -522,7 +530,8 @@ public sealed class FileWorkspaceStore : IWorkspaceStore, IWorkspaceStoreReadine
                 PersistedWorkspaceRecord record = BuildPersistedRecord(
                     current.Document,
                     current.ContentRevision,
-                    current.ContentRevision);
+                    current.ContentRevision,
+                    delegatedEditLedger);
                 lastUpdatedUtc = WriteRecordAtomically(
                     path,
                     record,
@@ -664,6 +673,160 @@ public sealed class FileWorkspaceStore : IWorkspaceStore, IWorkspaceStoreReadine
             : DeleteCore(owner, id, expectedContentRevision);
     }
 
+    public DelegatedGmCharacterEditStoreResult LookupDelegatedGmCharacterEdit(
+        OwnerScope owner,
+        CharacterWorkspaceId id,
+        string idempotencyKeySha256,
+        string commandSha256)
+    {
+        if (IsInvalidScopedOwner(owner))
+        {
+            return DelegatedEditUnavailable("Owner scope is invalid.");
+        }
+
+        if (!IsSha256(idempotencyKeySha256) || !IsSha256(commandSha256))
+        {
+            return DelegatedEditUnavailable("Delegated GM character-edit hashes are invalid.");
+        }
+
+        string? path = TryGetPath(owner, id);
+        if (path is null)
+        {
+            return DelegatedEditWorkspaceMissing();
+        }
+
+        try
+        {
+            if (!TrySecureExistingWorkspaceDirectory(owner))
+            {
+                return DelegatedEditWorkspaceMissing();
+            }
+
+            using WorkspaceOperationLease operation = AcquireWorkspaceOperation(path);
+            WorkspaceStoreReadResult read = ReadWorkspaceUnderLease(
+                id,
+                path,
+                out IReadOnlyList<DelegatedGmCharacterEditLedgerEntry> ledger);
+            if (!read.Success || read.Value is not WorkspaceStoredDocument current)
+            {
+                return DelegatedEditFromRead(read);
+            }
+
+            return ResolveDelegatedEditReplay(
+                ledger,
+                owner,
+                id,
+                idempotencyKeySha256,
+                commandSha256,
+                current.ContentRevision);
+        }
+        catch (IOException)
+        {
+            return DelegatedEditUnavailable("Workspace storage is unavailable.");
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return DelegatedEditUnavailable("Workspace storage is unavailable.");
+        }
+    }
+
+    public DelegatedGmCharacterEditStoreResult ApplyDelegatedGmCharacterEdit(
+        OwnerScope owner,
+        CharacterWorkspaceId id,
+        long expectedContentRevision,
+        WorkspaceDocument document,
+        DelegatedGmCharacterEditLedgerEntry ledgerEntry)
+    {
+        ArgumentNullException.ThrowIfNull(document);
+        ArgumentNullException.ThrowIfNull(ledgerEntry);
+        if (IsInvalidScopedOwner(owner))
+        {
+            return DelegatedEditUnavailable("Owner scope is invalid.");
+        }
+
+        if (!IsSha256(ledgerEntry.IdempotencyKeySha256)
+            || !IsSha256(ledgerEntry.CommandSha256))
+        {
+            return DelegatedEditUnavailable("Delegated GM character-edit hashes are invalid.");
+        }
+
+        string? path = TryGetPath(owner, id);
+        if (path is null)
+        {
+            return DelegatedEditWorkspaceMissing();
+        }
+
+        try
+        {
+            EnsureWorkspaceDirectory(owner);
+            using WorkspaceOperationLease operation = AcquireWorkspaceOperation(path);
+            WorkspaceStoreReadResult read = ReadWorkspaceUnderLease(
+                id,
+                path,
+                out IReadOnlyList<DelegatedGmCharacterEditLedgerEntry> ledger);
+            if (!read.Success || read.Value is not WorkspaceStoredDocument current)
+            {
+                return DelegatedEditFromRead(read);
+            }
+
+            DelegatedGmCharacterEditStoreResult replay = ResolveDelegatedEditReplay(
+                ledger,
+                owner,
+                id,
+                ledgerEntry.IdempotencyKeySha256,
+                ledgerEntry.CommandSha256,
+                current.ContentRevision);
+            if (replay.Outcome != DelegatedGmCharacterEditStoreOutcome.NotFound)
+            {
+                return replay;
+            }
+
+            if (current.ContentRevision != expectedContentRevision)
+            {
+                return new DelegatedGmCharacterEditStoreResult(
+                    DelegatedGmCharacterEditStoreOutcome.RevisionConflict,
+                    CurrentRevision: current.ContentRevision,
+                    Error: "Workspace content revision does not match the expected revision.");
+            }
+
+            if (current.ContentRevision == long.MaxValue
+                || ledger.Count >= MaximumDelegatedEditAuditEntries
+                || !IsValidDelegatedEditLedgerEntry(owner, id, expectedContentRevision, ledgerEntry))
+            {
+                return DelegatedEditUnavailable(
+                    "Delegated GM character-edit commit is invalid or its immutable audit ledger is full.");
+            }
+
+            long nextContentRevision = current.ContentRevision + 1;
+            DelegatedGmCharacterEditLedgerEntry[] updatedLedger =
+            [
+                .. ledger,
+                ledgerEntry
+            ];
+            PersistedWorkspaceRecord record = BuildPersistedRecord(
+                document,
+                nextContentRevision,
+                current.SavedRevision,
+                updatedLedger);
+            _ = WriteRecordAtomically(
+                path,
+                record,
+                WorkspaceWriteDisposition.ReplaceExisting);
+            return new DelegatedGmCharacterEditStoreResult(
+                DelegatedGmCharacterEditStoreOutcome.Applied,
+                ledgerEntry.Receipt,
+                nextContentRevision);
+        }
+        catch (IOException)
+        {
+            return DelegatedEditUnavailable("Workspace storage is unavailable.");
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return DelegatedEditUnavailable("Workspace storage is unavailable.");
+        }
+    }
+
     private WorkspaceStoreMutationResult DeleteCore(
         OwnerScope owner,
         CharacterWorkspaceId id,
@@ -713,6 +876,15 @@ public sealed class FileWorkspaceStore : IWorkspaceStore, IWorkspaceStoreReadine
         CharacterWorkspaceId id,
         string path)
     {
+        return ReadWorkspaceUnderLease(id, path, out _);
+    }
+
+    private WorkspaceStoreReadResult ReadWorkspaceUnderLease(
+        CharacterWorkspaceId id,
+        string path,
+        out IReadOnlyList<DelegatedGmCharacterEditLedgerEntry> delegatedEditLedger)
+    {
+        delegatedEditLedger = [];
         ThrowIfLinkOrReparsePoint(path, "workspace target");
         if (!File.Exists(path))
         {
@@ -746,7 +918,10 @@ public sealed class FileWorkspaceStore : IWorkspaceStore, IWorkspaceStoreReadine
                 out WorkspaceDocument document,
                 out long contentRevision,
                 out long savedRevision,
-                out bool requiresLegacyMigration))
+                out bool requiresLegacyMigration)
+            || !TryMaterializeDelegatedEditLedger(
+                record.DelegatedGmCharacterEdits,
+                out delegatedEditLedger))
         {
             return CorruptRead();
         }
@@ -759,7 +934,8 @@ public sealed class FileWorkspaceStore : IWorkspaceStore, IWorkspaceStoreReadine
             PersistedWorkspaceRecord migrated = BuildPersistedRecord(
                 document,
                 LegacyMigratedRevision,
-                LegacyMigratedRevision);
+                LegacyMigratedRevision,
+                delegatedEditLedger);
             migratedAtUtc = WriteRecordAtomically(
                 path,
                 migrated,
@@ -838,14 +1014,48 @@ public sealed class FileWorkspaceStore : IWorkspaceStore, IWorkspaceStoreReadine
     private static PersistedWorkspaceRecord BuildPersistedRecord(
         WorkspaceDocument document,
         long contentRevision,
-        long savedRevision)
+        long savedRevision,
+        IReadOnlyList<DelegatedGmCharacterEditLedgerEntry>? delegatedEditLedger = null)
     {
         return new PersistedWorkspaceRecord(document.Format.ToString())
         {
             Envelope = NormalizeEnvelope(document.State),
             ContentRevision = contentRevision,
-            SavedRevision = savedRevision
+            SavedRevision = savedRevision,
+            DelegatedGmCharacterEdits = delegatedEditLedger is { Count: > 0 }
+                ? delegatedEditLedger.ToArray()
+                : null
         };
+    }
+
+    private static bool TryMaterializeDelegatedEditLedger(
+        DelegatedGmCharacterEditLedgerEntry[]? persisted,
+        out IReadOnlyList<DelegatedGmCharacterEditLedgerEntry> ledger)
+    {
+        ledger = [];
+        if (persisted is null)
+        {
+            return true;
+        }
+
+        if (persisted.Length > MaximumDelegatedEditAuditEntries)
+        {
+            return false;
+        }
+
+        HashSet<string> keys = new(StringComparer.Ordinal);
+        foreach (DelegatedGmCharacterEditLedgerEntry? entry in persisted)
+        {
+            if (entry is null
+                || !DelegatedGmCharacterEditLedgerValidator.IsStructurallyValid(entry)
+                || !keys.Add(entry.IdempotencyKeySha256))
+            {
+                return false;
+            }
+        }
+
+        ledger = persisted;
+        return true;
     }
 
     private static WorkspaceStoreEntry ToEntry(WorkspaceStoredDocument document)
@@ -878,6 +1088,94 @@ public sealed class FileWorkspaceStore : IWorkspaceStore, IWorkspaceStoreReadine
             WorkspaceOperationOutcome.Conflict,
             ToEntry(current),
             "Workspace content revision does not match the expected revision.");
+    }
+
+    private static DelegatedGmCharacterEditStoreResult ResolveDelegatedEditReplay(
+        IReadOnlyList<DelegatedGmCharacterEditLedgerEntry> ledger,
+        OwnerScope owner,
+        CharacterWorkspaceId id,
+        string idempotencyKeySha256,
+        string commandSha256,
+        long currentRevision)
+    {
+        DelegatedGmCharacterEditLedgerEntry? existing = ledger.FirstOrDefault(entry =>
+            string.Equals(
+                entry.IdempotencyKeySha256,
+                idempotencyKeySha256,
+                StringComparison.Ordinal));
+        if (existing is null)
+        {
+            return new DelegatedGmCharacterEditStoreResult(
+                DelegatedGmCharacterEditStoreOutcome.NotFound,
+                CurrentRevision: currentRevision);
+        }
+
+        if (!DelegatedGmCharacterEditLedgerValidator.IsValidPersistedEntry(
+                owner,
+                id,
+                currentRevision,
+                existing))
+        {
+            return new DelegatedGmCharacterEditStoreResult(
+                DelegatedGmCharacterEditStoreOutcome.Corrupt,
+                CurrentRevision: currentRevision,
+                Error: "Delegated GM character-edit audit ledger is corrupt.");
+        }
+
+        return string.Equals(existing.CommandSha256, commandSha256, StringComparison.Ordinal)
+            ? new DelegatedGmCharacterEditStoreResult(
+                DelegatedGmCharacterEditStoreOutcome.Replayed,
+                existing.Receipt,
+                currentRevision)
+            : new DelegatedGmCharacterEditStoreResult(
+                DelegatedGmCharacterEditStoreOutcome.IdempotencyConflict,
+                CurrentRevision: currentRevision,
+                Error: "Idempotency key was already used for a different command.");
+    }
+
+    private static bool IsValidDelegatedEditLedgerEntry(
+        OwnerScope owner,
+        CharacterWorkspaceId id,
+        long expectedContentRevision,
+        DelegatedGmCharacterEditLedgerEntry entry)
+    {
+        return DelegatedGmCharacterEditLedgerValidator.IsValidForCommit(
+            owner,
+            id,
+            expectedContentRevision,
+            entry);
+    }
+
+    private static bool IsSha256(string? value)
+    {
+        return DelegatedGmCharacterEditLedgerValidator.IsSha256(value);
+    }
+
+    private static DelegatedGmCharacterEditStoreResult DelegatedEditFromRead(
+        WorkspaceStoreReadResult read)
+    {
+        return read.Outcome switch
+        {
+            WorkspaceOperationOutcome.Missing => DelegatedEditWorkspaceMissing(),
+            WorkspaceOperationOutcome.Corrupt => new DelegatedGmCharacterEditStoreResult(
+                DelegatedGmCharacterEditStoreOutcome.Corrupt,
+                Error: read.Error),
+            _ => DelegatedEditUnavailable(read.Error ?? "Workspace storage is unavailable.")
+        };
+    }
+
+    private static DelegatedGmCharacterEditStoreResult DelegatedEditWorkspaceMissing()
+    {
+        return new DelegatedGmCharacterEditStoreResult(
+            DelegatedGmCharacterEditStoreOutcome.WorkspaceMissing,
+            Error: "Workspace not found.");
+    }
+
+    private static DelegatedGmCharacterEditStoreResult DelegatedEditUnavailable(string error)
+    {
+        return new DelegatedGmCharacterEditStoreResult(
+            DelegatedGmCharacterEditStoreOutcome.Unavailable,
+            Error: error);
     }
 
     private static WorkspaceStoreMutationResult MutationFromRead(WorkspaceStoreReadResult read)
@@ -1563,6 +1861,9 @@ public sealed class FileWorkspaceStore : IWorkspaceStore, IWorkspaceStoreReadine
         public long? ContentRevision { get; init; }
 
         public long? SavedRevision { get; init; }
+
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public DelegatedGmCharacterEditLedgerEntry[]? DelegatedGmCharacterEdits { get; init; }
 
         // Backward compatibility for older persisted payloads.
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
