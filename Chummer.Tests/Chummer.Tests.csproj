@@ -191,6 +191,7 @@
     <ProjectReference Include="..\Chummer.Application\Chummer.Application.csproj" />
     <ProjectReference Include="..\Chummer.Contracts\Chummer.Contracts.csproj" />
     <ProjectReference Include="..\Chummer.Core\Chummer.Core.csproj" />
+    <ProjectReference Include="..\Chummer.GmCharacterEdits\Chummer.GmCharacterEdits.csproj" />
     <ProjectReference Include="..\Chummer.Infrastructure.Browser\Chummer.Infrastructure.Browser.csproj" />
     <ProjectReference Include="..\Chummer.Infrastructure\Chummer.Infrastructure.csproj" />
     <ProjectReference Include="..\Chummer.Rulesets.Hosting\Chummer.Rulesets.Hosting.csproj" />

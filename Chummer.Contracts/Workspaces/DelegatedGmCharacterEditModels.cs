@@ -67,6 +67,49 @@ public sealed record CampaignGmCharacterEditAuthorization(
     ImmutableArray<string> AllowedPatchPaths,
     string? DenialReason = null);
 
+/// <summary>
+/// The campaign authority callback consumed by the Core application. The
+/// implementation remains owned by the campaign store and must evaluate its
+/// current grant for every read and mutation; serialized caller claims are not
+/// authority.
+/// </summary>
+public interface ICampaignGmCharacterEditAuthorizer
+{
+    CampaignGmCharacterEditAuthorization Authorize(
+        CampaignGmCharacterEditAuthorizationRequest request);
+}
+
+public sealed record DelegatedGmCharacterProfileReadCommand(
+    string CampaignId,
+    string ActorId,
+    OwnerScope CharacterOwner,
+    CharacterWorkspaceId CharacterId);
+
+public sealed record DelegatedGmCharacterProfile(
+    long Revision,
+    string Name,
+    string Alias);
+
+public enum DelegatedGmCharacterProfileReadOutcome
+{
+    Available = 0,
+    Denied = 1,
+    Invalid = 2,
+    Missing = 3,
+    Corrupt = 4,
+    Unavailable = 5
+}
+
+public sealed record DelegatedGmCharacterProfileReadResult(
+    DelegatedGmCharacterProfileReadOutcome Outcome,
+    DelegatedGmCharacterProfile? Profile = null,
+    string? ErrorCode = null,
+    string? Error = null)
+{
+    public bool Success => Outcome == DelegatedGmCharacterProfileReadOutcome.Available
+        && Profile is not null;
+}
+
 public sealed record DelegatedGmCharacterEditAuditOperation(
     DelegatedGmCharacterPatchOperationKind Operation,
     string Path,
@@ -120,4 +163,16 @@ public sealed record DelegatedGmCharacterEditResult(
 {
     public bool Success => Outcome is DelegatedGmCharacterEditOutcome.Applied
         or DelegatedGmCharacterEditOutcome.Replayed;
+}
+
+/// <summary>
+/// Immutable Core application boundary for campaign-authorized character
+/// editing. Reads and writes both re-enter the campaign authority callback.
+/// </summary>
+public interface ICoreGmCharacterEditGateway
+{
+    DelegatedGmCharacterProfileReadResult ReadCurrentProfile(
+        DelegatedGmCharacterProfileReadCommand command);
+
+    DelegatedGmCharacterEditResult Execute(DelegatedGmCharacterEditCommand command);
 }

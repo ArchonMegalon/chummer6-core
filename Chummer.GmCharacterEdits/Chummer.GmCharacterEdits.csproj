@@ -1,0 +1,58 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RuntimeIdentifiers Condition="'$(RuntimeIdentifiers)' == ''">$(ChummerDesktopRuntimeIdentifiers)</RuntimeIdentifiers>
+    <AssemblyName>Chummer.Engine.GmCharacterEdits</AssemblyName>
+    <PackageId>Chummer.Engine.GmCharacterEdits</PackageId>
+    <Version>0.0.0-local</Version>
+    <PackageLicenseExpression>GPL-3.0-only</PackageLicenseExpression>
+    <Description>Store-backed Core application boundary for delegated GM character edits.</Description>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(ChummerLocalContractsProject)' != '' and Exists('$(ChummerLocalContractsProject)')">
+    <ProjectReference Include="$(ChummerLocalContractsProject)"
+                      PrivateAssets="all"
+                      AdditionalProperties="RuntimeIdentifier=$(RuntimeIdentifier);RuntimeIdentifiers=$(RuntimeIdentifiers)" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(ChummerLocalContractsProject)' == '' or !Exists('$(ChummerLocalContractsProject)')">
+    <PackageReference Include="Chummer.Engine.Contracts" Version="$(ChummerEngineContractsPackageVersion)" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Chummer.Application/Chummer.Application.csproj"
+                      PrivateAssets="all"
+                      AdditionalProperties="RuntimeIdentifier=$(RuntimeIdentifier);RuntimeIdentifiers=$(RuntimeIdentifiers)" />
+    <ProjectReference Include="../Chummer.Infrastructure/Chummer.Infrastructure.csproj"
+                      PrivateAssets="all"
+                      AdditionalProperties="RuntimeIdentifier=$(RuntimeIdentifier);RuntimeIdentifiers=$(RuntimeIdentifiers)" />
+    <ProjectReference Include="../Chummer.Rulesets.Hosting/Chummer.Rulesets.Hosting.csproj"
+                      PrivateAssets="all"
+                      AdditionalProperties="RuntimeIdentifier=$(RuntimeIdentifier);RuntimeIdentifiers=$(RuntimeIdentifiers)" />
+    <ProjectReference Include="../Chummer.Rulesets.Sr5/Chummer.Rulesets.Sr5.csproj"
+                      PrivateAssets="all"
+                      AdditionalProperties="RuntimeIdentifier=$(RuntimeIdentifier);RuntimeIdentifiers=$(RuntimeIdentifiers)" />
+    <ProjectReference Include="../Chummer.Rulesets.Sr6/Chummer.Rulesets.Sr6.csproj"
+                      PrivateAssets="all"
+                      AdditionalProperties="RuntimeIdentifier=$(RuntimeIdentifier);RuntimeIdentifiers=$(RuntimeIdentifiers)" />
+    <PackageReference Include="Chummer.Hub.Registry.Contracts" Version="$(ChummerHubRegistryContractsPackageVersion)" />
+    <PackageReference Include="Chummer.Run.Contracts" Version="$(ChummerRunContractsPackageVersion)" />
+  </ItemGroup>
+
+  <Target Name="IncludeCoreGmRuntimeAssemblies"
+          BeforeTargets="_GetBuildOutputFilesWithTfm"
+          DependsOnTargets="BuildOnlySettings;ResolveReferences">
+    <ItemGroup>
+      <_CoreGmRuntimeAssembly Include="@(ReferenceCopyLocalPaths)"
+          Condition="'%(Filename)' == 'Chummer.Application'
+                  or '%(Filename)' == 'Chummer.Infrastructure'
+                  or '%(Filename)' == 'Chummer.Rulesets.Hosting'
+                  or '%(Filename)' == 'Chummer.Rulesets.Sr5'
+                  or '%(Filename)' == 'Chummer.Rulesets.Sr6'" />
+      <BuildOutputInPackage Include="@(_CoreGmRuntimeAssembly)">
+        <TargetPath>%(_CoreGmRuntimeAssembly.Filename)%(_CoreGmRuntimeAssembly.Extension)</TargetPath>
+      </BuildOutputInPackage>
+    </ItemGroup>
+  </Target>
+</Project>

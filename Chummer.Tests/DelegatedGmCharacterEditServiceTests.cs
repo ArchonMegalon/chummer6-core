@@ -12,6 +12,7 @@ using Chummer.Contracts.Characters;
 using Chummer.Contracts.Owners;
 using Chummer.Contracts.Rulesets;
 using Chummer.Contracts.Workspaces;
+using Chummer.Engine.GmCharacterEdits;
 using Chummer.Infrastructure.Workspaces;
 using Chummer.Infrastructure.Xml;
 using Chummer.Rulesets.Sr5;
@@ -26,6 +27,96 @@ public sealed class DelegatedGmCharacterEditServiceTests
         new(2026, 7, 20, 8, 30, 0, TimeSpan.Zero);
     private static readonly OwnerScope CharacterOwner = new("runner-owner@example.com");
     private static readonly CharacterWorkspaceId CharacterId = new("runner-one");
+
+    [TestMethod]
+    public void Canonical_profile_read_reauthorizes_and_returns_store_revision()
+    {
+        InMemoryWorkspaceStore store = CreateStoreWithCharacter();
+        RecordingAuthorizer authorizer = new();
+        DelegatedGmCharacterEditService service = CreateService(store, authorizer);
+
+        DelegatedGmCharacterProfileReadResult result = service.ReadCurrentProfile(
+            new DelegatedGmCharacterProfileReadCommand(
+                "campaign-one",
+                "gm@example.com",
+                CharacterOwner,
+                CharacterId));
+
+        Assert.AreEqual(DelegatedGmCharacterProfileReadOutcome.Available, result.Outcome);
+        Assert.AreEqual(1, authorizer.CallCount);
+        Assert.AreEqual(1L, result.Profile?.Revision);
+        Assert.AreEqual("Runner One", result.Profile?.Name);
+        Assert.AreEqual("One", result.Profile?.Alias);
+    }
+
+    [TestMethod]
+    public void Canonical_profile_read_fails_closed_when_current_grant_is_denied()
+    {
+        InMemoryWorkspaceStore store = CreateStoreWithCharacter();
+        RecordingAuthorizer authorizer = new() { Authorized = false };
+        DelegatedGmCharacterEditService service = CreateService(store, authorizer);
+
+        DelegatedGmCharacterProfileReadResult result = service.ReadCurrentProfile(
+            new DelegatedGmCharacterProfileReadCommand(
+                "campaign-one",
+                "gm@example.com",
+                CharacterOwner,
+                CharacterId));
+
+        Assert.AreEqual(DelegatedGmCharacterProfileReadOutcome.Denied, result.Outcome);
+        Assert.AreEqual("campaign_delegation_denied", result.ErrorCode);
+        Assert.AreEqual(1, authorizer.CallCount);
+    }
+
+    [TestMethod]
+    public void Package_factory_uses_the_explicit_durable_store_and_canonical_readback()
+    {
+        string stateDirectory = CreateTempStateDirectory();
+        try
+        {
+            FileWorkspaceStore store = new(stateDirectory);
+            WorkspaceStoreMutationResult created = store.CreateWorkspaceDocument(
+                CharacterOwner,
+                CharacterId,
+                Document("Owner state"));
+            Assert.IsTrue(created.Success, created.Error);
+            RecordingAuthorizer authorizer = new();
+
+            ICoreGmCharacterEditGateway gateway =
+                CoreGmCharacterEditGatewayFactory.CreateStoreBacked(
+                    stateDirectory,
+                    authorizer,
+                    new FixedTimeProvider(FixedNow));
+            DelegatedGmCharacterProfileReadResult result = gateway.ReadCurrentProfile(
+                new DelegatedGmCharacterProfileReadCommand(
+                    "campaign-one",
+                    "gm@example.com",
+                    CharacterOwner,
+                    CharacterId));
+
+            Assert.AreEqual(DelegatedGmCharacterProfileReadOutcome.Available, result.Outcome);
+            Assert.AreEqual(1L, result.Profile?.Revision);
+            Assert.AreEqual("Runner One", result.Profile?.Name);
+        }
+        finally
+        {
+            Directory.Delete(stateDirectory, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public void Package_factory_rejects_a_missing_or_relative_store_root()
+    {
+        RecordingAuthorizer authorizer = new();
+        Assert.ThrowsExactly<ArgumentException>(() =>
+            CoreGmCharacterEditGatewayFactory.CreateStoreBacked("relative/store", authorizer));
+        string missing = Path.Combine(
+            Path.GetTempPath(),
+            "chummer-missing-gm-store",
+            Guid.NewGuid().ToString("N"));
+        Assert.ThrowsExactly<DirectoryNotFoundException>(() =>
+            CoreGmCharacterEditGatewayFactory.CreateStoreBacked(missing, authorizer));
+    }
 
     [TestMethod]
     public void Player_role_is_denied_without_reading_or_mutating_owner_state()

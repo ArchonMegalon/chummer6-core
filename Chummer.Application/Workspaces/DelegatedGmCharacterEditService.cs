@@ -194,6 +194,123 @@ public sealed class DelegatedGmCharacterEditService : IDelegatedGmCharacterEditS
         return MapCommitResult(committed);
     }
 
+    public DelegatedGmCharacterProfileReadResult ReadCurrentProfile(
+        DelegatedGmCharacterProfileReadCommand command)
+    {
+        ArgumentNullException.ThrowIfNull(command);
+
+        string campaignId = command.CampaignId?.Trim() ?? string.Empty;
+        string actorId = command.ActorId?.Trim() ?? string.Empty;
+        string characterId = command.CharacterId.Value?.Trim() ?? string.Empty;
+        OwnerScope owner = command.CharacterOwner;
+        if (!IsBoundedIdentifier(campaignId)
+            || !IsBoundedIdentifier(actorId)
+            || !IsBoundedIdentifier(characterId)
+            || string.IsNullOrWhiteSpace(owner.NormalizedValue)
+            || owner.UsesLocalSingleUserValue)
+        {
+            return ProfileReadFailure(
+                DelegatedGmCharacterProfileReadOutcome.Invalid,
+                "invalid_authority_binding",
+                "Campaign, actor, owner, and character identifiers must be non-local and bounded.");
+        }
+
+        ImmutableArray<string> requestedPaths =
+        [
+            DelegatedGmCharacterEditContract.ProfileAliasPath,
+            DelegatedGmCharacterEditContract.ProfileNamePath
+        ];
+        CampaignGmCharacterEditAuthorization authorization;
+        try
+        {
+            authorization = _authorizer.Authorize(new CampaignGmCharacterEditAuthorizationRequest(
+                campaignId,
+                actorId,
+                owner,
+                new CharacterWorkspaceId(characterId),
+                requestedPaths));
+        }
+        catch
+        {
+            return ProfileReadFailure(
+                DelegatedGmCharacterProfileReadOutcome.Unavailable,
+                "campaign_authority_unavailable",
+                "Campaign authorization could not be verified.");
+        }
+
+        DateTimeOffset nowUtc = _timeProvider.GetUtcNow().ToUniversalTime();
+        if (!IsValidAuthorizationBinding(
+                campaignId,
+                actorId,
+                owner,
+                new CharacterWorkspaceId(characterId),
+                requestedPaths,
+                authorization,
+                nowUtc))
+        {
+            return ProfileReadFailure(
+                DelegatedGmCharacterProfileReadOutcome.Denied,
+                "campaign_delegation_denied",
+                "An active, campaign-bound Game Master delegation is required.");
+        }
+
+        WorkspaceStoreReadResult read = _workspaceStore.Get(
+            owner,
+            new CharacterWorkspaceId(characterId));
+        if (!read.Success || read.Value is not WorkspaceStoredDocument current)
+        {
+            return read.Outcome switch
+            {
+                WorkspaceOperationOutcome.Missing => ProfileReadFailure(
+                    DelegatedGmCharacterProfileReadOutcome.Missing,
+                    "character_missing",
+                    "Character workspace was not found."),
+                WorkspaceOperationOutcome.Corrupt => ProfileReadFailure(
+                    DelegatedGmCharacterProfileReadOutcome.Corrupt,
+                    "character_document_corrupt",
+                    "Character workspace is corrupt."),
+                _ => ProfileReadFailure(
+                    DelegatedGmCharacterProfileReadOutcome.Unavailable,
+                    "character_store_unavailable",
+                    "Character workspace is unavailable.")
+            };
+        }
+
+        try
+        {
+            WorkspacePayloadEnvelope envelope = current.Document.PayloadEnvelope;
+            IRulesetWorkspaceCodec codec = _workspaceCodecResolver.Resolve(envelope.RulesetId);
+            CharacterValidationResult validation = codec.Validate(envelope);
+            if (!validation.IsValid
+                || codec.ParseSection("profile", envelope) is not CharacterProfileSection profile)
+            {
+                return ProfileReadFailure(
+                    DelegatedGmCharacterProfileReadOutcome.Corrupt,
+                    "character_document_corrupt",
+                    "Character document failed canonical validation.");
+            }
+
+            return new DelegatedGmCharacterProfileReadResult(
+                DelegatedGmCharacterProfileReadOutcome.Available,
+                new DelegatedGmCharacterProfile(
+                    current.ContentRevision,
+                    profile.Name,
+                    profile.Alias));
+        }
+        catch (Exception exception) when (exception is ArgumentException
+                                           or FormatException
+                                           or InvalidDataException
+                                           or InvalidOperationException
+                                           or JsonException
+                                           or XmlException)
+        {
+            return ProfileReadFailure(
+                DelegatedGmCharacterProfileReadOutcome.Corrupt,
+                "character_read_failed",
+                "Character document could not be read by its canonical ruleset codec.");
+        }
+    }
+
     private static bool TryNormalizeCommand(
         DelegatedGmCharacterEditCommand command,
         out NormalizedCommand normalized,
@@ -320,21 +437,40 @@ public sealed class DelegatedGmCharacterEditService : IDelegatedGmCharacterEditS
         CampaignGmCharacterEditAuthorization authorization,
         DateTimeOffset nowUtc)
     {
+        return IsValidAuthorizationBinding(
+            command.CampaignId,
+            command.ActorId,
+            command.CharacterOwner,
+            command.CharacterId,
+            command.Operations.Select(static operation => operation.Path).ToImmutableArray(),
+            authorization,
+            nowUtc);
+    }
+
+    private static bool IsValidAuthorizationBinding(
+        string campaignId,
+        string actorId,
+        OwnerScope characterOwner,
+        CharacterWorkspaceId characterId,
+        ImmutableArray<string> requestedPaths,
+        CampaignGmCharacterEditAuthorization authorization,
+        DateTimeOffset nowUtc)
+    {
         if (authorization is null
             || !authorization.Authorized
-            || !string.Equals(authorization.CampaignId?.Trim(), command.CampaignId, StringComparison.Ordinal)
-            || !string.Equals(authorization.ActorId?.Trim(), command.ActorId, StringComparison.Ordinal)
+            || !string.Equals(authorization.CampaignId?.Trim(), campaignId, StringComparison.Ordinal)
+            || !string.Equals(authorization.ActorId?.Trim(), actorId, StringComparison.Ordinal)
             || !string.Equals(authorization.Role, DelegatedGmCharacterEditContract.GameMasterRole, StringComparison.Ordinal)
             || !string.Equals(authorization.Scope, DelegatedGmCharacterEditContract.CharacterEditScope, StringComparison.Ordinal)
-            || !string.Equals(authorization.CharacterOwner.NormalizedValue, command.CharacterOwner.NormalizedValue, StringComparison.Ordinal)
+            || !string.Equals(authorization.CharacterOwner.NormalizedValue, characterOwner.NormalizedValue, StringComparison.Ordinal)
             || authorization.CharacterOwner.UsesLocalSingleUserValue
-            || !string.Equals(authorization.CharacterId.Value, command.CharacterId.Value, StringComparison.Ordinal)
+            || !string.Equals(authorization.CharacterId.Value, characterId.Value, StringComparison.Ordinal)
             || !IsBoundedIdentifier(authorization.DelegationId)
             || !IsBoundedIdentifier(authorization.GrantedByCampaignOwnerId)
             || !IsBoundedIdentifier(authorization.GrantedByCharacterOwnerId)
             || !string.Equals(
                 authorization.GrantedByCharacterOwnerId.Trim(),
-                command.CharacterOwner.NormalizedValue,
+                characterOwner.NormalizedValue,
                 StringComparison.Ordinal)
             || !IsBoundedIdentifier(authorization.AuthorityReceiptId)
             || authorization.AuthorityRevision <= 0
@@ -350,8 +486,14 @@ public sealed class DelegatedGmCharacterEditService : IDelegatedGmCharacterEditS
             .Select(NormalizePath)
             .Where(AllowedPatchPaths.Contains)
             .ToImmutableHashSet(StringComparer.Ordinal);
-        return command.Operations.All(operation => authorizedPaths.Contains(operation.Path));
+        return requestedPaths.All(path => authorizedPaths.Contains(NormalizePath(path)));
     }
+
+    private static DelegatedGmCharacterProfileReadResult ProfileReadFailure(
+        DelegatedGmCharacterProfileReadOutcome outcome,
+        string errorCode,
+        string error)
+        => new(outcome, ErrorCode: errorCode, Error: error);
 
     private static UpdateWorkspaceMetadata BuildMetadataPatch(
         ImmutableArray<NormalizedPatchOperation> operations)
