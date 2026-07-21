@@ -37,12 +37,14 @@ PACKAGE_CONSUMERS = {
     "Chummer.Hub.Registry.Contracts": (
         "Chummer.Application/Chummer.Application.csproj",
         "Chummer.Infrastructure/Chummer.Infrastructure.csproj",
+        "Chummer.GmCharacterEdits/Chummer.GmCharacterEdits.csproj",
         "Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj",
         "Chummer.Tests/Chummer.Tests.csproj",
     ),
     "Chummer.Run.Contracts": (
         "Chummer.Application/Chummer.Application.csproj",
         "Chummer.Infrastructure/Chummer.Infrastructure.csproj",
+        "Chummer.GmCharacterEdits/Chummer.GmCharacterEdits.csproj",
         "Chummer.Rulesets.Hosting/Chummer.Rulesets.Hosting.csproj",
         "Chummer.Rulesets.Sr4/Chummer.Rulesets.Sr4.csproj",
         "Chummer.Rulesets.Sr5/Chummer.Rulesets.Sr5.csproj",
@@ -138,6 +140,27 @@ class PackagePlaneTests(unittest.TestCase):
             for element in root.iter()
         }
         self.assertEqual("GPL-3.0-only", values["PackageLicenseExpression"])
+
+    def test_gm_edit_runtime_package_is_core_owned_and_store_backed(self) -> None:
+        root = ET.parse(
+            REPO_ROOT / "Chummer.GmCharacterEdits/Chummer.GmCharacterEdits.csproj"
+        ).getroot()
+        values = {
+            local_name(element.tag): (element.text or "").strip()
+            for element in root.iter()
+        }
+        self.assertEqual(
+            "Chummer.Engine.GmCharacterEdits", values["PackageId"]
+        )
+        self.assertEqual("GPL-3.0-only", values["PackageLicenseExpression"])
+        factory = (
+            REPO_ROOT
+            / "Chummer.GmCharacterEdits/CoreGmCharacterEditGatewayFactory.cs"
+        ).read_text(encoding="utf-8")
+        self.assertIn("new FileWorkspaceStore(stateRoot)", factory)
+        self.assertNotIn("InMemoryWorkspaceStore", factory)
+        self.assertIn("Directory.Exists(stateRoot)", factory)
+        self.assertIn("FileAttributes.ReparsePoint", factory)
 
     def test_lock_rejects_branch_or_tag_authority(self) -> None:
         payload = copy.deepcopy(self.payload)

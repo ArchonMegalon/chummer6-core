@@ -9,8 +9,10 @@ bootstrap_script="$repo_root/scripts/ai/bootstrap-owner-contracts-feed.py"
 feed_root="$repo_root/.tmp/ai/local-nuget"
 inventory_name="chummer-owner-contracts.inventory.json"
 candidate_inventory_name="chummer-core-candidate-engine-contract.inventory.json"
+candidate_runtime_inventory_name="chummer-core-candidate-gm-edit-runtime.inventory.json"
 candidate_version_prefix="0.0.0-packageplane.candidate"
 candidate_id="Chummer.Engine.Contracts"
+candidate_runtime_id="Chummer.Engine.GmCharacterEdits"
 candidate_repository="https://github.com/ArchonMegalon/chummer6-core.git"
 receipt_path="${CHUMMER_PACKAGE_PLANE_RECEIPT:-$repo_root/.artifacts/package-plane/no-siblings.generated.json}"
 locked_version="$(python3 "$bootstrap_script" --repo-root "$repo_root" --print-version)"
@@ -141,6 +143,7 @@ export NUGET_PACKAGES="$isolated_packages"
 # or pretending that current source has already been published.
 candidate_commit="$(git -C "$consumer_root" rev-parse HEAD)"
 candidate_version="$candidate_version_prefix.sha${candidate_commit:0:12}"
+missing_local_project="$temporary_root/no-local-contracts-project.csproj"
 candidate_origin="$(git -C "$repo_root" remote get-url origin)"
 if [[ "$candidate_origin" != "$candidate_repository" \
    && "$candidate_origin" != "${candidate_repository%.git}" ]]; then
@@ -232,7 +235,217 @@ print(
 )
 PY
 
-missing_local_project="$temporary_root/no-local-contracts-project.csproj"
+runtime_properties=(
+  "-p:ChummerLocalContractsProject=$missing_local_project"
+  "-p:UseChummerEngineContractsLocalFeed=false"
+  "-p:RestoreAdditionalProjectSources="
+  "-p:ChummerEngineContractsPackageVersion=$candidate_version"
+  "-p:ChummerOwnerContractsPackageVersion=$locked_version"
+  "-p:RuntimeIdentifiers=linux-x64"
+  "-p:UseSharedCompilation=false"
+)
+
+dotnet restore "$consumer_root/Chummer.GmCharacterEdits/Chummer.GmCharacterEdits.csproj" \
+  --configfile "$nuget_config" \
+  --packages "$isolated_packages" \
+  --no-cache \
+  --nologo \
+  -m:1 \
+  "${runtime_properties[@]}"
+
+dotnet pack "$consumer_root/Chummer.GmCharacterEdits/Chummer.GmCharacterEdits.csproj" \
+  --configuration Release \
+  --no-restore \
+  --nologo \
+  -m:1 \
+  -p:PackageVersion="$candidate_version" \
+  -p:Version="$candidate_version" \
+  -p:RepositoryCommit="$candidate_commit" \
+  -p:RepositoryUrl="$candidate_repository" \
+  -p:PublishRepositoryUrl=true \
+  -p:ContinuousIntegrationBuild=true \
+  "${runtime_properties[@]}" \
+  --output "$isolated_feed"
+
+python3 - \
+  "$bootstrap_script" \
+  "$isolated_feed" \
+  "$candidate_runtime_inventory_name" \
+  "$candidate_runtime_id" \
+  "$candidate_version" \
+  "$candidate_repository" \
+  "$candidate_commit" \
+  "$locked_version" <<'PY'
+import hashlib
+import importlib.util
+import json
+import re
+import sys
+import xml.etree.ElementTree as ET
+import zipfile
+from pathlib import Path
+
+(
+    bootstrap_path,
+    feed,
+    inventory_name,
+    package_id,
+    version,
+    repository,
+    commit,
+    locked_version,
+) = sys.argv[1:9]
+bootstrap_path = Path(bootstrap_path)
+feed = Path(feed)
+spec = importlib.util.spec_from_file_location(
+    "candidate_gm_runtime_package_plane",
+    bootstrap_path,
+)
+if spec is None or spec.loader is None:
+    raise SystemExit("unable to load owner-contract package canonicalizer")
+module = importlib.util.module_from_spec(spec)
+sys.modules[spec.name] = module
+spec.loader.exec_module(module)
+
+package_path = feed / f"{package_id}.{version}.nupkg"
+module.canonicalize_nupkg(package_path)
+expected_assemblies = {
+    "lib/net10.0/Chummer.Application.dll",
+    "lib/net10.0/Chummer.Infrastructure.dll",
+    "lib/net10.0/Chummer.Rulesets.Hosting.dll",
+    "lib/net10.0/Chummer.Rulesets.Sr5.dll",
+    "lib/net10.0/Chummer.Rulesets.Sr6.dll",
+    "lib/net10.0/Chummer.Engine.GmCharacterEdits.dll",
+}
+with zipfile.ZipFile(package_path) as archive:
+    names = archive.namelist()
+    if names != sorted(names) or len(names) != len(set(names)):
+        raise SystemExit("candidate GM runtime package layout is not canonical")
+    observed_assemblies = {name for name in names if name.startswith("lib/")}
+    if observed_assemblies != expected_assemblies:
+        raise SystemExit(
+            "candidate GM runtime assembly set mismatch: "
+            + json.dumps(sorted(observed_assemblies))
+        )
+    allowed = {
+        "_rels/.rels",
+        f"{package_id}.nuspec",
+        "[Content_Types].xml",
+        *expected_assemblies,
+    }
+    unexpected = {
+        name for name in names
+        if name not in allowed
+        and re.fullmatch(
+            r"package/services/metadata/core-properties/[0-9a-f]{32}\.psmdcp",
+            name,
+        ) is None
+    }
+    if unexpected:
+        raise SystemExit(
+            "candidate GM runtime contains unapproved payloads: "
+            + json.dumps(sorted(unexpected))
+        )
+    root = ET.fromstring(archive.read(f"{package_id}.nuspec"))
+    local = lambda tag: tag.rsplit("}", 1)[-1]
+    values = {
+        local(element.tag): (element.text or "").strip()
+        for element in root.iter()
+        if local(element.tag) in {"id", "version"}
+    }
+    if values != {"id": package_id, "version": version}:
+        raise SystemExit("candidate GM runtime nuspec identity mismatch")
+    repositories = [
+        element for element in root.iter() if local(element.tag) == "repository"
+    ]
+    if len(repositories) != 1 or (
+        repositories[0].get("url"), repositories[0].get("commit")
+    ) != (repository, commit):
+        raise SystemExit("candidate GM runtime source provenance mismatch")
+    dependencies = {
+        ((element.get("id") or "").strip(), (element.get("version") or "").strip())
+        for element in root.iter()
+        if local(element.tag) == "dependency"
+        and (element.get("id") or "").startswith("Chummer.")
+    }
+    expected_dependencies = {
+        ("Chummer.Engine.Contracts", version),
+        ("Chummer.Hub.Registry.Contracts", locked_version),
+        ("Chummer.Run.Contracts", locked_version),
+    }
+    if dependencies != expected_dependencies:
+        raise SystemExit(
+            "candidate GM runtime dependency mismatch: "
+            + json.dumps(sorted(dependencies))
+        )
+
+package_bytes = package_path.read_bytes()
+inventory = {
+    "contract": "chummer-core.candidate-gm-edit-runtime-package-inventory/v1",
+    "role": "current_core_candidate",
+    "core_commit": commit,
+    "package": {
+        "id": package_id,
+        "version": version,
+        "repository": repository,
+        "commit": commit,
+        "project": "Chummer.GmCharacterEdits/Chummer.GmCharacterEdits.csproj",
+        "file_name": package_path.name,
+        "sha256": hashlib.sha256(package_bytes).hexdigest(),
+        "size_bytes": len(package_bytes),
+        "runtime_assemblies": sorted(expected_assemblies),
+    },
+}
+module._atomic_write_json(feed / inventory_name, inventory)
+print(
+    "candidate-gm-edit-runtime-package: ok "
+    f"({package_id} {version} at {commit}; "
+    f"sha256 {inventory['package']['sha256']})"
+)
+PY
+
+runtime_consumer_root="$temporary_root/gm-runtime-consumer"
+mkdir -p "$runtime_consumer_root"
+cat >"$runtime_consumer_root/GmRuntimeConsumer.csproj" <<EOF
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="$candidate_id" Version="$candidate_version" />
+    <PackageReference Include="$candidate_runtime_id" Version="$candidate_version" />
+  </ItemGroup>
+</Project>
+EOF
+cat >"$runtime_consumer_root/BoundaryProbe.cs" <<'EOF'
+using Chummer.Contracts.Workspaces;
+using Chummer.Engine.GmCharacterEdits;
+
+namespace GmRuntimeConsumer;
+
+public static class BoundaryProbe
+{
+    public static Type ContractType => typeof(ICoreGmCharacterEditGateway);
+
+    public static Type FactoryType => typeof(CoreGmCharacterEditGatewayFactory);
+}
+EOF
+
+dotnet restore "$runtime_consumer_root/GmRuntimeConsumer.csproj" \
+  --configfile "$nuget_config" \
+  --packages "$isolated_packages" \
+  --no-cache \
+  --nologo \
+  -m:1
+dotnet build "$runtime_consumer_root/GmRuntimeConsumer.csproj" \
+  --configuration Release \
+  --no-restore \
+  --nologo \
+  -m:1 \
+  -p:UseSharedCompilation=false
+
 common_properties=(
   "-p:ChummerLocalContractsProject=$missing_local_project"
   "-p:UseChummerEngineContractsLocalFeed=false"
@@ -284,6 +497,8 @@ python3 - \
   "$lock_path" \
   "$isolated_feed/$inventory_name" \
   "$isolated_feed/$candidate_inventory_name" \
+  "$isolated_feed/$candidate_runtime_inventory_name" \
+  "$runtime_consumer_root/obj/project.assets.json" \
   "$isolated_feed" \
   "$receipt_path" <<'PY'
 import hashlib
@@ -299,9 +514,11 @@ from pathlib import Path
     lock_path,
     inventory_path,
     candidate_inventory_path,
+    candidate_runtime_inventory_path,
+    runtime_consumer_assets_path,
     isolated_feed,
     receipt_path,
-) = map(Path, sys.argv[1:8])
+) = map(Path, sys.argv[1:10])
 expected_package_root = package_root.resolve()
 asset_files = sorted(consumer_root.glob("**/obj/project.assets.json"))
 if not asset_files:
@@ -331,6 +548,8 @@ inventory_bytes = inventory_path.read_bytes()
 inventory = json.loads(inventory_bytes)
 candidate_inventory_bytes = candidate_inventory_path.read_bytes()
 candidate_inventory = json.loads(candidate_inventory_bytes)
+candidate_runtime_inventory_bytes = candidate_runtime_inventory_path.read_bytes()
+candidate_runtime_inventory = json.loads(candidate_runtime_inventory_bytes)
 version = lock["package_version"]
 candidate = candidate_inventory["package"]
 commit = subprocess.check_output(
@@ -366,6 +585,54 @@ if len(candidate_bytes) != candidate.get("size_bytes"):
 if hashlib.sha256(candidate_bytes).hexdigest() != candidate.get("sha256"):
     raise SystemExit("candidate Engine Contracts digest does not match its inventory")
 
+runtime_candidate = candidate_runtime_inventory["package"]
+if (
+    candidate_runtime_inventory.get("contract")
+    != "chummer-core.candidate-gm-edit-runtime-package-inventory/v1"
+    or candidate_runtime_inventory.get("role") != "current_core_candidate"
+    or candidate_runtime_inventory.get("core_commit") != commit
+):
+    raise SystemExit("candidate GM edit runtime inventory authority is invalid")
+expected_runtime_metadata = {
+    "id": "Chummer.Engine.GmCharacterEdits",
+    "version": expected_candidate_version,
+    "repository": "https://github.com/ArchonMegalon/chummer6-core.git",
+    "commit": commit,
+    "project": "Chummer.GmCharacterEdits/Chummer.GmCharacterEdits.csproj",
+    "file_name": f"Chummer.Engine.GmCharacterEdits.{expected_candidate_version}.nupkg",
+}
+for key, expected in expected_runtime_metadata.items():
+    if runtime_candidate.get(key) != expected:
+        raise SystemExit(
+            f"candidate GM edit runtime {key} mismatch: {runtime_candidate.get(key)!r}"
+        )
+runtime_candidate_path = isolated_feed / runtime_candidate["file_name"]
+runtime_candidate_bytes = runtime_candidate_path.read_bytes()
+if len(runtime_candidate_bytes) != runtime_candidate.get("size_bytes"):
+    raise SystemExit("candidate GM edit runtime byte size does not match its inventory")
+if hashlib.sha256(runtime_candidate_bytes).hexdigest() != runtime_candidate.get("sha256"):
+    raise SystemExit("candidate GM edit runtime digest does not match its inventory")
+runtime_assets = json.loads(runtime_consumer_assets_path.read_text(encoding="utf-8"))
+runtime_package_folders = list((runtime_assets.get("packageFolders") or {}).keys())
+if (
+    len(runtime_package_folders) != 1
+    or Path(runtime_package_folders[0]).resolve() != expected_package_root
+):
+    raise SystemExit("GM edit runtime consumer used an ambient package cache")
+runtime_libraries = runtime_assets.get("libraries") or {}
+for identity in (
+    f"Chummer.Engine.Contracts/{expected_candidate_version}",
+    f"Chummer.Engine.GmCharacterEdits/{expected_candidate_version}",
+    f"Chummer.Hub.Registry.Contracts/{version}",
+    f"Chummer.Run.Contracts/{version}",
+):
+    metadata = runtime_libraries.get(identity)
+    if not isinstance(metadata, dict) or metadata.get("type") != "package":
+        raise SystemExit(f"GM edit runtime consumer did not use locked package {identity}")
+for log in runtime_assets.get("logs") or []:
+    if log.get("code") == "NU1605" or str(log.get("level", "")).lower() == "error":
+        raise SystemExit(f"GM edit runtime consumer restore error: {log}")
+
 expected_owner_identities = {f"{candidate['id']}/{candidate['version']}"}
 for row in lock["packages"]:
     if row["id"] == "Chummer.Engine.Contracts":
@@ -388,7 +655,10 @@ for identity, observed_types in observed_owner_types.items():
             f"{sorted(str(value) for value in observed_types)}"
         )
 locked_packages = []
-resolved_packages = [dict(candidate, role="current_core_candidate")]
+resolved_packages = [
+    dict(candidate, role="current_core_candidate"),
+    dict(runtime_candidate, role="current_core_candidate"),
+]
 for row in inventory["packages"]:
     is_engine_baseline = row["id"] == "Chummer.Engine.Contracts"
     locked_packages.append(
@@ -423,6 +693,7 @@ receipt = {
     "package_plane_lock_sha256": hashlib.sha256(lock_bytes).hexdigest(),
     "package_inventory_sha256": hashlib.sha256(inventory_bytes).hexdigest(),
     "candidate_package_inventory_sha256": hashlib.sha256(candidate_inventory_bytes).hexdigest(),
+    "candidate_runtime_package_inventory_sha256": hashlib.sha256(candidate_runtime_inventory_bytes).hexdigest(),
     "package_version": version,
     "candidate_package_version": candidate["version"],
     "locked_packages": locked_packages,
@@ -438,6 +709,8 @@ receipt = {
     "package_plane_runtime_test": "pass",
     "local_owner_isolation_tests": "pass",
     "candidate_engine_contract_pack": "pass",
+    "candidate_gm_edit_runtime_pack": "pass",
+    "candidate_gm_edit_runtime_consumer": "pass",
 }
 receipt_path.parent.mkdir(parents=True, exist_ok=True)
 receipt_path.write_text(json.dumps(receipt, indent=2) + "\n", encoding="utf-8")
