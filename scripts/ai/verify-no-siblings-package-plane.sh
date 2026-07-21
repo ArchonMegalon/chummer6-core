@@ -338,7 +338,7 @@ with zipfile.ZipFile(package_path) as archive:
         name for name in names
         if name not in allowed
         and re.fullmatch(
-            r"package/services/metadata/core-properties/[0-9a-f]{32}\.psmdcp",
+            r"package/services/metadata/core-properties/[0-9a-f]{64}\.psmdcp",
             name,
         ) is None
     }
