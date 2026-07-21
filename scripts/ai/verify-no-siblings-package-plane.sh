@@ -319,7 +319,8 @@ expected_assemblies = {
 }
 with zipfile.ZipFile(package_path) as archive:
     names = archive.namelist()
-    if names != sorted(names) or len(names) != len(set(names)):
+    if names != sorted(names, key=lambda value: (value.casefold(), value)) \
+            or len(names) != len(set(names)):
         raise SystemExit("candidate GM runtime package layout is not canonical")
     observed_assemblies = {name for name in names if name.startswith("lib/")}
     if observed_assemblies != expected_assemblies:
