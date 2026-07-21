@@ -16,9 +16,25 @@ jobs:
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
           fetch-depth: 0
-      - name: Install locked .NET SDK
-        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9
-        with:
-          global-json-file: global.json
+      - name: Install the digest-locked private .NET SDK
+        shell: bash
+        run: |
+          core_dotnet_script="${RUNNER_TEMP}/chummer-core-dotnet-install.sh"
+          core_dotnet_root="${RUNNER_TEMP}/chummer-core-dotnet"
+          curl --proto '=https' --tlsv1.2 --fail --location --silent --show-error \
+            https://dot.net/v1/dotnet-install.sh --output "${core_dotnet_script}"
+          echo "082f7685e156738a1b2e2ed8381a621870d4ce8e8c59278034556f05c186eb2e  ${core_dotnet_script}" \
+            | sha256sum --check --strict
+          bash "${core_dotnet_script}" \
+            --version 10.0.103 \
+            --install-dir "${core_dotnet_root}" \
+            --no-path
+          echo "${core_dotnet_root}" >> "${GITHUB_PATH}"
+          echo "DOTNET_ROOT=${core_dotnet_root}" >> "${GITHUB_ENV}"
+          "${core_dotnet_root}/dotnet" --info
+      - name: Assert the package plane uses exact SDK 10.0.103
+        shell: bash
+        run: |
+          test "$(dotnet --version)" = "10.0.103"
       - name: Verify immutable no-siblings package plane
         run: bash scripts/ai/verify-no-siblings-package-plane.sh

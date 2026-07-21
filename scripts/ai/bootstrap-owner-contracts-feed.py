@@ -664,6 +664,30 @@ def _promote_feed(
     _atomic_write_json(_inventory_path(feed), inventory)
 
 
+def _owner_pack_restore_args(
+    lock: PackagePlaneLock,
+    *,
+    staged_feed: Path,
+) -> list[str]:
+    staged_feed_value = str(staged_feed)
+    if any(character in staged_feed_value for character in (";", "\r", "\n")):
+        raise PackagePlaneError("staged owner-contract feed path cannot form an exact restore source")
+    restore_sources = f"{staged_feed_value};{lock.approved_remote_source}"
+    return [
+        f"-p:RestoreSources={restore_sources}",
+        "-p:RestoreAdditionalProjectSources=",
+        "-p:RestoreFallbackFolders=",
+        "-p:RestoreIgnoreFailedSources=false",
+        "-p:RestoreLockedMode=false",
+        "-p:RestorePackagesWithLockFile=true",
+        f"-p:ChummerEngineContractsPackageVersion={lock.package_version}",
+        f"-p:ChummerHubRegistryContractsPackageVersion={lock.package_version}",
+        f"-p:ChummerRunContractsPackageVersion={lock.package_version}",
+        f"-p:ChummerOwnerContractsPackageVersion={lock.package_version}",
+        f"-p:ChummerPackagePlaneVersion={lock.package_version}",
+    ]
+
+
 def build_feed(
     lock: PackagePlaneLock,
     *,
@@ -709,6 +733,7 @@ def build_feed(
                     "-p:ContinuousIntegrationBuild=true",
                     "-p:UseSharedCompilation=false",
                     f"-p:RestorePackagesPath={isolated_package_root}",
+                    *_owner_pack_restore_args(lock, staged_feed=staged_feed),
                 ]
                 expected_license = EXPECTED_LICENSE_EXPRESSIONS.get(spec.package_id)
                 if expected_license is not None:

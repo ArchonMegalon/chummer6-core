@@ -73,6 +73,38 @@ class PackagePlaneTests(unittest.TestCase):
             self.assertRegex(row.commit, r"^[0-9a-f]{40}$")
             self.assertTrue(row.repository.startswith("https://github.com/ArchonMegalon/"))
 
+    def test_owner_pack_restore_uses_staged_feed_and_exact_lock_versions(self) -> None:
+        lock = MODULE.validate_lock_payload(self.payload)
+        staged_feed = Path("/tmp/chummer-owner-contracts-staged")
+        arguments = MODULE._owner_pack_restore_args(lock, staged_feed=staged_feed)
+
+        self.assertEqual(
+            f"-p:RestoreSources={staged_feed};{lock.approved_remote_source}",
+            arguments[0],
+        )
+        self.assertIn("-p:RestoreAdditionalProjectSources=", arguments)
+        self.assertIn("-p:RestoreLockedMode=false", arguments)
+        self.assertIn("-p:RestorePackagesWithLockFile=true", arguments)
+        for property_name in (
+            "ChummerEngineContractsPackageVersion",
+            "ChummerHubRegistryContractsPackageVersion",
+            "ChummerRunContractsPackageVersion",
+            "ChummerOwnerContractsPackageVersion",
+            "ChummerPackagePlaneVersion",
+        ):
+            self.assertIn(
+                f"-p:{property_name}={lock.package_version}",
+                arguments,
+            )
+
+    def test_owner_pack_restore_rejects_ambiguous_staged_feed_path(self) -> None:
+        lock = MODULE.validate_lock_payload(self.payload)
+        with self.assertRaisesRegex(MODULE.PackagePlaneError, "exact restore source"):
+            MODULE._owner_pack_restore_args(
+                lock,
+                staged_feed=Path("/tmp/staged;https://example.invalid/index.json"),
+            )
+
     def test_owner_contract_consumers_use_only_pinned_package_references(self) -> None:
         version_properties = {
             "Chummer.Hub.Registry.Contracts": "$(ChummerHubRegistryContractsPackageVersion)",
