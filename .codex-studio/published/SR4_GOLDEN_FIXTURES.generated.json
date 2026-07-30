@@ -14,14 +14,59 @@
     "matrix",
     "rigging"
   ],
+  "coverage_complete": true,
+  "executed_test_classes": [
+    "Sr4CharacterAndDerivedProviderTests",
+    "Sr4CombatMagicMatrixRiggingProviderTests",
+    "Sr4DiceProviderTests",
+    "Sr4TestAndEdgeProviderTests"
+  ],
+  "expected_test_classes": [
+    "Sr4CharacterAndDerivedProviderTests",
+    "Sr4CombatMagicMatrixRiggingProviderTests",
+    "Sr4DiceProviderTests",
+    "Sr4TestAndEdgeProviderTests"
+  ],
   "failed": 0,
+  "fixture_coverage": {
+    "sr4_basic_dice_edge": [
+      "Sr4DiceProviderTests",
+      "Sr4TestAndEdgeProviderTests"
+    ],
+    "sr4_bp_dwarf_hacker": [
+      "Sr4CharacterAndDerivedProviderTests",
+      "Sr4CombatMagicMatrixRiggingProviderTests"
+    ],
+    "sr4_bp_elf_mage": [
+      "Sr4CharacterAndDerivedProviderTests",
+      "Sr4CombatMagicMatrixRiggingProviderTests"
+    ],
+    "sr4_bp_human_street_sam": [
+      "Sr4CharacterAndDerivedProviderTests"
+    ],
+    "sr4_firearms_attack": [
+      "Sr4CombatMagicMatrixRiggingProviderTests"
+    ],
+    "sr4_matrix_hacking_on_fly": [
+      "Sr4CombatMagicMatrixRiggingProviderTests"
+    ],
+    "sr4_melee_attack": [
+      "Sr4CombatMagicMatrixRiggingProviderTests"
+    ],
+    "sr4_rigging_drone_remote_control": [
+      "Sr4CombatMagicMatrixRiggingProviderTests"
+    ],
+    "sr4_summoning_spirit": [
+      "Sr4CombatMagicMatrixRiggingProviderTests"
+    ]
+  },
   "fixture_policy": {
     "do_not_publish_sample_character_full_text": true,
     "expected_values_must_be_human_reviewed": true,
     "may_use_sample_characters_as_private_validation": true
   },
-  "generated_at_utc": "2026-06-20T22:36:46Z",
-  "passed": 21,
+  "generated_at_utc": "2026-07-29T11:03:22Z",
+  "passed": 4,
   "ready_for_gold": false,
   "remaining_gates": [
     "human-reviewed expected values against approved row-level authority",
@@ -56,6 +101,25 @@
   "skipped": 0,
   "status": "core_seed_fixture_pack_passed",
   "supplements_in_scope": false,
-  "test_filter": "FullyQualifiedName~Sr4",
-  "total": 21
+  "test_command": [
+    "dotnet",
+    "test",
+    "Chummer.Tests/Chummer.Tests.csproj",
+    "--framework",
+    "net10.0",
+    "--no-restore",
+    "--filter",
+    "Sr4DiceProviderTests|Sr4TestAndEdgeProviderTests|Sr4CharacterAndDerivedProviderTests|Sr4CombatMagicMatrixRiggingProviderTests",
+    "--logger",
+    "trx;LogFileName=sr4-fixtures.trx",
+    "--results-directory",
+    "/tmp/chummer-sr4-fixtures-3v8jygxe",
+    "-m:1",
+    "-p:UseSharedCompilation=false"
+  ],
+  "test_filter": "Sr4DiceProviderTests|Sr4TestAndEdgeProviderTests|Sr4CharacterAndDerivedProviderTests|Sr4CombatMagicMatrixRiggingProviderTests",
+  "test_returncode": 0,
+  "test_stderr_tail": "",
+  "test_stdout_tail": "  Chummer.Contracts -> /docker/chummercomplete/chummer-core-engine/Chummer.Contracts/bin/Debug/net10.0/Chummer.Engine.Contracts.dll\n  Chummer.Contracts -> /docker/chummercomplete/chummer-core-engine/Chummer.Contracts/bin/Debug/net10.0/Chummer.Engine.Contracts.dll\n  Chummer.Application -> /docker/chummercomplete/chummer-core-engine/Chummer.Application/bin/Debug/net10.0/Chummer.Application.dll\n  Chummer.Rulesets.Hosting -> /docker/chummercomplete/chummer-core-engine/Chummer.Rulesets.Hosting/bin/Debug/net10.0/Chummer.Rulesets.Hosting.dll\n  Chummer.Rulesets.Sr5 -> /docker/chummercomplete/chummer-core-engine/Chummer.Rulesets.Sr5/bin/Debug/net10.0/Chummer.Rulesets.Sr5.dll\n  Chummer.Rulesets.Sr6 -> /docker/chummercomplete/chummer-core-engine/Chummer.Rulesets.Sr6/bin/Debug/net10.0/Chummer.Rulesets.Sr6.dll\n  Chummer.Infrastructure -> /docker/chummercomplete/chummer-core-engine/Chummer.Infrastructure/bin/Debug/net10.0/Chummer.Infrastructure.dll\n  Chummer.Application -> /docker/chummercomplete/chummer-core-engine/Chummer.Application/bin/Debug/net10.0/Chummer.Application.dll\n  Chummer.Rulesets.Hosting -> /docker/chummercomplete/chummer-core-engine/Chummer.Rulesets.Hosting/bin/Debug/net10.0/Chummer.Rulesets.Hosting.dll\n  Chummer.Rulesets.Sr5 -> /docker/chummercomplete/chummer-core-engine/Chummer.Rulesets.Sr5/bin/Debug/net10.0/Chummer.Rulesets.Sr5.dll\n  Chummer.Rulesets.Sr6 -> /docker/chummercomplete/chummer-core-engine/Chummer.Rulesets.Sr6/bin/Debug/net10.0/Chummer.Rulesets.Sr6.dll\n  Chummer.WorkspaceStore.TestHost -> /docker/chummercomplete/chummer-core-engine/Chummer.WorkspaceStore.TestHost/bin/Debug/net10.0/Chummer.WorkspaceStore.TestHost.dll\n  Chummer.Core -> /docker/chummercomplete/chummer-core-engine/Chummer.Core/bin/Debug/net10.0/Chummer.Core.dll\n  Chummer.Infrastructure.Browser -> /docker/chummercomplete/chummer-core-engine/Chummer.Infrastructure.Browser/bin/Debug/net10.0/Chummer.Infrastructure.Browser.dll\n  Chummer.Rulesets.Sr4 -> /docker/chummercomplete/chummer-core-engine/Chummer.Rulesets.Sr4/bin/Debug/net10.0/Chummer.Rulesets.Sr4.dll\n  Chummer.Tests -> /docker/chummercomplete/chummer-core-engine/Chummer.Tests/bin/Debug/net10.0/Chummer.Tests.dll\nTest run for /docker/chummercomplete/chummer-core-engine/Chummer.Tests/bin/Debug/net10.0/Chummer.Tests.dll (.NETCoreApp,Version=v10.0)\nVSTest version 18.0.2 (x64)\n\nStarting test execution, please wait...\nA total of 1 test files matched the specified pattern.\nResults File: /tmp/chummer-sr4-fixtures-3v8jygxe/sr4-fixtures.trx\n\nPassed!  - Failed:     0, Passed:     4, Skipped:     0, Total:     4, Duration: 33 ms - Chummer.Tests.dll (net10.0)\n",
+  "total": 4
 }

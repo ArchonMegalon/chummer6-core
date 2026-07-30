@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import unittest
+import tempfile
 from pathlib import Path
 
 
@@ -19,6 +20,89 @@ def load_module():
 
 
 class RuleAuthoritySupportReceiptTests(unittest.TestCase):
+    def test_trx_counters_are_parsed_for_executed_fixture_receipts(self) -> None:
+        module = load_module()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "fixtures.trx"
+            path.write_text(
+                """<?xml version="1.0" encoding="utf-8"?>
+<TestRun xmlns="http://microsoft.com/schemas/VisualStudio/TeamTest/2010">
+  <ResultSummary>
+    <Counters total="9" executed="9" passed="9" failed="0" notExecuted="0" />
+  </ResultSummary>
+  <TestDefinitions>
+    <UnitTest>
+      <TestMethod className="Chummer.Tests.Sr4DiceProviderTests" name="Dice_provider_counts_hits" />
+    </UnitTest>
+  </TestDefinitions>
+</TestRun>
+""",
+                encoding="utf-8",
+            )
+
+            self.assertEqual(
+                {"total": 9, "passed": 9, "failed": 0, "skipped": 0},
+                module.parse_trx_counts(path),
+            )
+            self.assertEqual(["Sr4DiceProviderTests"], module.parse_trx_test_classes(path))
+
+    def test_fixture_receipt_uses_current_execution_instead_of_stale_counts(self) -> None:
+        module = load_module()
+        test_classes = module.POLICY["sr4"]["fixture_test_classes"]
+        receipt = module.fixture_receipt(
+            "sr4",
+            {
+                "total": 9,
+                "passed": 9,
+                "failed": 0,
+                "skipped": 0,
+                "test_filter": "FullyQualifiedName~Sr4",
+                "test_returncode": 0,
+                "executed_test_classes": test_classes,
+            },
+        )
+
+        self.assertEqual("core_seed_fixture_pack_passed", receipt["status"])
+        self.assertEqual(9, receipt["passed"])
+        self.assertEqual(0, receipt["failed"])
+        self.assertTrue(receipt["coverage_complete"])
+
+    def test_fixture_receipt_fails_closed_when_test_process_fails(self) -> None:
+        module = load_module()
+        test_classes = module.POLICY["sr4"]["fixture_test_classes"]
+        receipt = module.fixture_receipt(
+            "sr4",
+            {
+                "total": 9,
+                "passed": 9,
+                "failed": 0,
+                "skipped": 0,
+                "test_filter": "FullyQualifiedName~Sr4",
+                "test_returncode": 1,
+                "executed_test_classes": test_classes,
+            },
+        )
+
+        self.assertEqual("fail", receipt["status"])
+
+    def test_fixture_receipt_fails_closed_when_a_mapped_test_class_does_not_execute(self) -> None:
+        module = load_module()
+        test_classes = module.POLICY["sr4"]["fixture_test_classes"]
+        receipt = module.fixture_receipt(
+            "sr4",
+            {
+                "total": 3,
+                "passed": 3,
+                "failed": 0,
+                "skipped": 0,
+                "test_returncode": 0,
+                "executed_test_classes": test_classes[:-1],
+            },
+        )
+
+        self.assertEqual("fail", receipt["status"])
+        self.assertFalse(receipt["coverage_complete"])
+
     def test_materialized_support_receipts_track_core_only_scope(self) -> None:
         module = load_module()
         for ruleset in ("sr4", "sr6"):

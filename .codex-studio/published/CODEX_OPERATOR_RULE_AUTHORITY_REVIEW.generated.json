@@ -63,7 +63,7 @@
       "url": "https://shadowrunsixthworld.com/wp-content/uploads/sites/5/2020/03/SR6-Core-Rulebook-Errata-Feb-2020.pdf"
     }
   },
-  "generated_at_utc": "2026-06-20T22:36:47.090519Z",
+  "generated_at_utc": "2026-07-29T11:04:12.566348Z",
   "readiness_decision": {
     "full_product_rule_authority_ready": true,
     "reason": "Ready under user_directive_human_side_gold_assumption_2026-06-12.",
@@ -83,18 +83,18 @@
       },
       "copyright_status": "pass",
       "errata_posture_status": "applied",
-      "errata_status": "applied",
+      "errata_status": "pending",
       "explain_status": "core_seed_receipt_pack_available",
       "fixture_failed": 0,
-      "fixture_passed": 21,
+      "fixture_passed": 4,
       "fixture_status": "core_seed_fixture_pack_passed",
       "human_review_status": {
         "fields": {
           "Errata decision": "applied",
           "Errata defer rationale": "none; human-side assumption treats currently indexed errata posture as reviewed for gold.",
-          "Generated": "2026-06-20T22:36:47Z",
+          "Generated": "2026-07-29T11:03:28Z",
           "Ready token approved": "true",
-          "Review timestamp": "2026-06-20T22:36:47Z",
+          "Review timestamp": "2026-07-29T11:03:28Z",
           "Reviewer": "user_directive_human_side_gold_assumption_2026-06-12",
           "Row-level decision": "approved",
           "Source baseline decision": "single_source",
@@ -733,7 +733,6 @@
         "SR5MatrixProvider",
         "SR5RiggingProvider",
         "SR5TestProvider",
-        "SR5ShellCatalogProvider",
         "SR5WorkspaceCodecProvider",
         "SR5TableImportProvider",
         "SR5CapabilityHostProvider"
@@ -742,7 +741,7 @@
       "provider_fact_counts": {},
       "readiness_token_allowed": true,
       "remaining_gates": [],
-      "rulefact_count": 473,
+      "rulefact_count": 330,
       "serious_implementation_claim": "allowed",
       "spot_check_plan": []
     },
@@ -756,18 +755,18 @@
       },
       "copyright_status": "pass",
       "errata_posture_status": "applied",
-      "errata_status": "applied",
+      "errata_status": "pending",
       "explain_status": "core_seed_receipt_pack_available",
       "fixture_failed": 0,
-      "fixture_passed": 37,
+      "fixture_passed": 16,
       "fixture_status": "core_seed_fixture_pack_passed",
       "human_review_status": {
         "fields": {
           "Errata decision": "applied",
           "Errata defer rationale": "none; human-side assumption treats currently indexed errata posture as reviewed for gold.",
-          "Generated": "2026-06-20T22:36:47Z",
+          "Generated": "2026-07-29T11:03:28Z",
           "Ready token approved": "true",
-          "Review timestamp": "2026-06-20T22:36:47Z",
+          "Review timestamp": "2026-07-29T11:03:28Z",
           "Reviewer": "user_directive_human_side_gold_assumption_2026-06-12",
           "Row-level decision": "approved",
           "Source baseline decision": "Shadowrun_6_Downloadversion_2024.pdf",

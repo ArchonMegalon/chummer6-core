@@ -134,7 +134,11 @@ class EngineProofPackReleaseChannelInputTests(unittest.TestCase):
             binding["source_receipt_path"],
         )
         self.assertEqual(
-            ["avalonia:linux:linux-x64", "avalonia:windows:win-x64"],
+            [
+                "avalonia:linux:linux-x64",
+                "avalonia:windows:win-x64",
+                "avalonia:macos:osx-arm64",
+            ],
             binding["required_promoted_desktop_tuples"],
         )
 
@@ -846,6 +850,8 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
                 str(self.root),
                 "--out",
                 str(self.output_path),
+                "--release-channel",
+                str(self.generator.RELEASE_CHANNEL_PATH),
                 "--check",
             ],
             stdout=subprocess.PIPE,
@@ -1860,6 +1866,24 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
         self.assertEqual("failed", payload["status"])
         self.assertIn(
             "required_promoted_tuple:avalonia:windows:win-x64",
+            payload["unresolved"]["release_channel_binding"],
+        )
+
+    def test_build_payload_fails_closed_when_release_channel_loses_macos_promoted_tuple(self) -> None:
+        release_path = self.generator.RELEASE_CHANNEL_PATH
+        release_payload = json.loads(release_path.read_text(encoding="utf-8"))
+        release_payload["desktopTupleCoverage"]["desktopRouteTruth"] = [
+            row
+            for row in release_payload["desktopTupleCoverage"]["desktopRouteTruth"]
+            if row["tupleId"] != "avalonia:macos:osx-arm64"
+        ]
+        release_path.write_text(json.dumps(release_payload), encoding="utf-8")
+
+        payload = self.generator.build_payload(self.root, self.output_path)
+
+        self.assertEqual("failed", payload["status"])
+        self.assertIn(
+            "required_promoted_tuple:avalonia:macos:osx-arm64",
             payload["unresolved"]["release_channel_binding"],
         )
 

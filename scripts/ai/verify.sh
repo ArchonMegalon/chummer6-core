@@ -4,6 +4,24 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$repo_root"
 
+engine_proof_verify_mode="${CHUMMER_CORE_ENGINE_VERIFY_MODE:-ci}"
+case "$engine_proof_verify_mode" in
+  ci)
+    engine_proof_release_channel="$repo_root/tests/fixtures/engine-proof-pack/release-channel.public-stable.sanitized.json"
+    ;;
+  release)
+    engine_proof_release_channel="${CHUMMER_ENGINE_PROOF_RELEASE_CHANNEL:-$repo_root/../chummer-hub-registry/.codex-studio/published/RELEASE_CHANNEL.generated.json}"
+    ;;
+  *)
+    echo "CHUMMER_CORE_ENGINE_VERIFY_MODE must be 'ci' or 'release'." >&2
+    exit 1
+    ;;
+esac
+if [ ! -f "$engine_proof_release_channel" ]; then
+  echo "engine proof release-channel authority is missing: $engine_proof_release_channel" >&2
+  exit 1
+fi
+
 # Avoid intermittent deps.json file locks across successive dotnet runs in the same verifier session.
 export MSBUILDDISABLENODEREUSE=1
 export DOTNET_CLI_USE_MSBUILDNOINPROCNODE=1
@@ -16,11 +34,15 @@ python3 scripts/verify-windows-checkout-paths.py --repo-root .
 python3 scripts/verify_sr4_rule_authority_seed.py
 python3 scripts/verify_sr5_rule_authority_seed.py
 python3 scripts/verify_sr6_rule_authority_seed.py
+bash scripts/ai/python-with-rule-authority-deps.sh scripts/generate_sr6_pdf_private_import.py
+python3 scripts/generate_sr456_table_import_coverage.py
+bash scripts/ai/restore.sh Chummer.Tests/Chummer.Tests.csproj -p:TargetFramework=net10.0 >/dev/null
 python3 scripts/materialize_rule_authority_support_receipts.py
 python3 scripts/materialize_rule_authority_blocker_receipts.py
 python3 scripts/materialize_rule_authority_alignment_receipts.py
 python3 scripts/materialize_rule_authority_reviewer_packets.py
 python3 scripts/apply_rule_authority_human_gold_approval.py >/dev/null
+python3 scripts/verify_rule_authority_matrix.py --summary-only
 python3 scripts/audit_rule_authority_operator_review.py >/dev/null
 python3 tests/test_sr5_rule_authority_seed.py
 python3 tests/test_rule_authority_operator_review.py
@@ -28,6 +50,9 @@ python3 tests/test_rule_authority_blocker_receipts.py
 python3 tests/test_rule_authority_support_receipts.py
 python3 tests/test_rule_authority_alignment_receipts.py
 python3 tests/test_rule_authority_reviewer_packets.py
+python3 tests/test_rule_authority_matrix_cli.py
+python3 tests/test_rule_authority_verification_commands.py
+python3 tests/test_local_contract_dependency_bootstrap.py
 
 test -f docs/CONTRACT_BOUNDARY_MAP.md
 test -f docs/EXPLAIN_AND_RUNTIME_CANON.md
@@ -185,7 +210,9 @@ CHUMMER_CORE_ENGINE_TEST_FILTER=core-exchange-contracts dotnet run --project Chu
 shutdown_dotnet_build_servers
 python3 tests/test_next90_m115_core_exchange_contracts.py
 python3 scripts/verify-next90-m115-core-exchange-contracts.py --repo-root . --out .codex-studio/published/NEXT90_M115_CORE_EXCHANGE_CONTRACTS.generated.json --check
-python3 scripts/generate-engine-proof-pack.py --check
+python3 scripts/generate-engine-proof-pack.py \
+  --release-channel "$engine_proof_release_channel" \
+  --check
 python3 scripts/ai/sync_design_mirror.py >/dev/null
 python3 scripts/ai/verify_design_mirror.py
 rg -n '"queue_completion_action": "verify_closed_package_only"|"design_queue_completion_action": "verify_closed_package_only"|"queue_do_not_reopen_reason": "M104 chummer6-core engine proof pack is complete; future shards must verify this receipt, queue row, design queue row, and closeout note instead of reopening the proof-pack package\."|"design_queue_do_not_reopen_reason": "M104 chummer6-core engine proof pack is complete; future shards must verify this receipt, queue row, design queue row, and closeout note instead of reopening the proof-pack package\."|"queue_closure_field_drift": \[\]|"published_import_oracle_names": \[|"published_adjacent_oracle_names": \[|"malformed_import_oracle_rows": \[\]|"malformed_adjacent_oracle_rows": \[\]|"unexpected_import_oracle_names": \[\]|"unexpected_adjacent_oracle_names": \[\]' .codex-studio/published/ENGINE_PROOF_PACK.generated.json >/dev/null

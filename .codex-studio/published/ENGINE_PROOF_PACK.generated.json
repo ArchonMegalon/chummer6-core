@@ -1,7 +1,7 @@
 {
   "contract_name": "chummer6-core.engine_proof_pack",
   "schema_version": 1,
-  "generated_at": "2026-07-17T05:10:57Z",
+  "generated_at": "2026-07-28T16:43:24Z",
   "status": "passed",
   "proof_kind": "release_bound_engine_proof",
   "milestone_id": 104,
@@ -1345,7 +1345,8 @@
     "desktop_tuple_coverage_complete": true,
     "required_promoted_desktop_tuples": [
       "avalonia:linux:linux-x64",
-      "avalonia:windows:win-x64"
+      "avalonia:windows:win-x64",
+      "avalonia:macos:osx-arm64"
     ],
     "promoted_primary_tuples": [
       {
@@ -1363,6 +1364,15 @@
         "platform": "windows",
         "rid": "win-x64",
         "artifact_id": "avalonia-win-x64-installer",
+        "status": "passed",
+        "unresolved": []
+      },
+      {
+        "tuple_id": "avalonia:macos:osx-arm64",
+        "head": "avalonia",
+        "platform": "macos",
+        "rid": "osx-arm64",
+        "artifact_id": "avalonia-osx-arm64-installer",
         "status": "passed",
         "unresolved": []
       }

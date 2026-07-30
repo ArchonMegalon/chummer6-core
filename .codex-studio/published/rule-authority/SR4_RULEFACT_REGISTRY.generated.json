@@ -4,7 +4,7 @@
   "human_review": {
     "errata_decision": "applied",
     "ready_token_approved": true,
-    "review_timestamp": "2026-06-20T22:36:47Z",
+    "review_timestamp": "2026-07-29T11:03:28Z",
     "reviewer": "user_directive_human_side_gold_assumption_2026-06-12",
     "row_level_decision": "approved",
     "source_baseline_decision": "single_source"
@@ -32,7 +32,7 @@
   ],
   "missing_implemented_providers": [],
   "missing_profile_status": [],
-  "operator_review_promoted_at_utc": "2026-06-20T22:36:47Z",
+  "operator_review_promoted_at_utc": "2026-07-29T11:03:28Z",
   "registry_sha256": "ff1c680ed8971d914531dfb9fbfc8a5148f6d07fd56e8ff6cac46c4fa94362a9",
   "required_providers": [
     "Sr4DiceProvider",

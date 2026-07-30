@@ -18,6 +18,36 @@ def load_module():
 
 
 class RuleAuthorityOperatorReviewTests(unittest.TestCase):
+    def test_ruleset_errata_profiles_come_from_authoritative_source_profiles(self) -> None:
+        module = load_module()
+
+        for ruleset in ("sr4", "sr6"):
+            upper = ruleset.upper()
+            expected = module.load_yaml(
+                REPO_ROOT
+                / "docs"
+                / "rulesets"
+                / f"{ruleset}-rule-authority"
+                / f"{upper}_RULESET_PROFILE.yaml"
+            )["errata_profile"]
+
+            self.assertEqual(expected, module.load_ruleset_errata_profile(ruleset))
+            self.assertEqual(
+                {
+                    "status": "pass",
+                    "public_copy_policy": "no rulebook prose",
+                },
+                module.load_ruleset_copyright_safety(ruleset),
+            )
+
+    def test_verify_materializes_rule_authority_matrix_before_operator_audit(self) -> None:
+        verify_script = (REPO_ROOT / "scripts" / "ai" / "verify.sh").read_text(encoding="utf-8")
+
+        matrix_offset = verify_script.index("python3 scripts/verify_rule_authority_matrix.py")
+        audit_offset = verify_script.index("python3 scripts/audit_rule_authority_operator_review.py")
+
+        self.assertLess(matrix_offset, audit_offset)
+
     def test_build_payload_tracks_current_ready_rule_authority_state(self) -> None:
         module = load_module()
         payload = module.build_payload()

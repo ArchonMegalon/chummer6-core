@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-06-20T22:37:49Z",
+  "generated_at": "2026-07-29T11:06:11Z",
   "status": "passed",
   "package_id": "next90-m122-core-add-deterministic-reward-downtime-goal-update-and-conseq",
   "frontier_id": 1771239378,
@@ -54,7 +54,7 @@
       "key": "dependency_injection",
       "path": "/docker/chummercomplete/chummer-core-engine/Chummer.Infrastructure/DependencyInjection/ServiceCollectionExtensions.cs",
       "exists": true,
-      "digest": "sha256:5ab846906746f4d13633230f000a2954403cd2d4d6dfa8a25d793b9455745437",
+      "digest": "sha256:b77665e3578243628e7a3a06d6385c1ed1f9a2a5e29dbd5511b57d2b370a93a2",
       "digest_scope": "full-file",
       "missing_snippets": [],
       "status": "passed"
@@ -63,7 +63,7 @@
       "key": "test_program",
       "path": "/docker/chummercomplete/chummer-core-engine/Chummer.CoreEngine.Tests/Program.cs",
       "exists": true,
-      "digest": "sha256:f57e124f8e61332419367c42d4e9a2c73d464da35311f21fd47e10473af337f2",
+      "digest": "sha256:879b5c883f53a9eb7ff57a607a18e2e8283dbc33581d2274ae8055d087bfb2dc",
       "digest_scope": "full-file",
       "missing_snippets": [],
       "status": "passed"
@@ -81,7 +81,7 @@
       "key": "compliance",
       "path": "/docker/chummercomplete/chummer-core-engine/Chummer.Tests/Compliance/MigrationComplianceTests.cs",
       "exists": true,
-      "digest": "sha256:416c9ebd7b6843af0483d7bb91e8cc84291a37447fdaea47cf4ca8171cf000bc",
+      "digest": "sha256:7a2844ec4df5cfb1c653010777bd6ed3007311ad3aef4cb450ca36d762432e66",
       "digest_scope": "full-file",
       "missing_snippets": [],
       "status": "passed"
@@ -90,7 +90,7 @@
       "key": "repo_verify",
       "path": "/docker/chummercomplete/chummer-core-engine/scripts/ai/verify.sh",
       "exists": true,
-      "digest": "sha256:c010366dd0197ae5c54818c1914d828fa8530f1ec059b0c5a72b9c6d64927dc9",
+      "digest": "sha256:18322e354c613743fb2606dab3c8d119363ebd2cb8fe6c5b094f3310b13eb068",
       "digest_scope": "full-file",
       "missing_snippets": [],
       "status": "passed"

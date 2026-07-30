@@ -39,8 +39,11 @@ def write_json(path: Path, payload: dict[str, Any]) -> None:
 
 
 def default_runner(command: str, timeout_seconds: int) -> dict[str, Any]:
+    executed_command = command
+    if command.startswith("dotnet test ") and " -m:" not in command:
+        executed_command += " -m:1 -p:UseSharedCompilation=false"
     completed = subprocess.run(
-        command,
+        executed_command,
         cwd=REPO_ROOT,
         shell=True,
         capture_output=True,
@@ -49,11 +52,14 @@ def default_runner(command: str, timeout_seconds: int) -> dict[str, Any]:
     )
     returncode = completed.returncode
     no_test_matches = "No test matches the given testcase filter" in completed.stdout
+    if command.startswith("dotnet test ") and "Test run for " not in completed.stdout:
+        no_test_matches = True
     if no_test_matches and returncode == 0:
         returncode = 3
     return {
         "returncode": returncode,
         "no_test_matches": no_test_matches,
+        "executed_command": executed_command,
         "stdout_tail": completed.stdout[-4000:],
         "stderr_tail": completed.stderr[-4000:],
     }
@@ -94,6 +100,7 @@ def build_payload(
                 "id": gate_id,
                 "title": gate.get("title"),
                 "command": command,
+                "executed_command": result.get("executed_command", command),
                 "argv_preview": shlex.split(command),
                 "returncode": result.get("returncode"),
                 "no_test_matches": result.get("no_test_matches", False),
@@ -127,18 +134,50 @@ def materialize(ruleset: str, timeout_seconds: int) -> dict[str, Any]:
     return result
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Run SR4/SR6 rule-authority verification matrices and write fail-closed receipts.")
-    parser.add_argument("rulesets", nargs="*", choices=["sr4", "sr6"], default=["sr4", "sr6"])
+    parser.add_argument("rulesets", nargs="*", choices=["sr4", "sr6"])
     parser.add_argument("--timeout-seconds", type=int, default=120)
-    args = parser.parse_args()
+    parser.add_argument(
+        "--summary-only",
+        action="store_true",
+        help="Print a compact summary with actionable details for failed gates; full receipts are still written.",
+    )
+    args = parser.parse_args(argv)
+    rulesets = args.rulesets or ["sr4", "sr6"]
 
-    results = [materialize(ruleset, args.timeout_seconds) for ruleset in args.rulesets]
+    results = [materialize(ruleset, args.timeout_seconds) for ruleset in rulesets]
     summary = {
         "status": "pass" if all(result["status"] == "pass" for result in results) else "blocked" if all(result["status"] in {"pass", "blocked"} for result in results) else "fail",
         "results": results,
     }
-    print(json.dumps(summary, indent=2, sort_keys=True))
+    console_payload = summary
+    if args.summary_only:
+        console_payload = {
+            "status": summary["status"],
+            "results": [
+                {
+                    "ruleset": result["ruleset"],
+                    "status": result["status"],
+                    "failed_gates": result["failed_gates"],
+                    "unexpected_failed_gates": result["unexpected_failed_gates"],
+                    "failures": [
+                        {
+                            "id": gate["id"],
+                            "title": gate["title"],
+                            "returncode": gate["returncode"],
+                            "no_test_matches": gate["no_test_matches"],
+                            "stdout_tail": gate["stdout_tail"],
+                            "stderr_tail": gate["stderr_tail"],
+                        }
+                        for gate in result["gates"]
+                        if not gate["pass"]
+                    ],
+                }
+                for result in results
+            ],
+        }
+    print(json.dumps(console_payload, indent=2, sort_keys=True))
     return 0 if summary["status"] == "pass" else 2 if summary["status"] == "blocked" else 1
 
 

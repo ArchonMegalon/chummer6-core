@@ -30,6 +30,19 @@ def verification_commands(path: Path) -> list[str]:
 
 
 class RuleAuthorityVerificationCommandTests(unittest.TestCase):
+    def test_legacy_test_project_is_explicitly_executable(self) -> None:
+        project = (REPO_ROOT / "Chummer.Tests" / "Chummer.Tests.csproj").read_text(encoding="utf-8")
+
+        self.assertIn("<IsTestProject>true</IsTestProject>", project)
+        self.assertIn('<PackageReference Include="AngleSharp" Version="1.5.2" />', project)
+
+    def test_core_verify_runs_rule_authority_regression_tests(self) -> None:
+        verifier = (REPO_ROOT / "scripts" / "ai" / "verify.sh").read_text(encoding="utf-8")
+
+        self.assertIn("python3 tests/test_rule_authority_matrix_cli.py", verifier)
+        self.assertIn("python3 tests/test_rule_authority_verification_commands.py", verifier)
+        self.assertIn("python3 scripts/verify_rule_authority_matrix.py --summary-only", verifier)
+
     def test_dotnet_verification_commands_are_project_and_framework_pinned(self) -> None:
         for root in RULESET_ROOTS:
             for path in (root / "VERIFICATION_MATRIX.yaml", root / f"{root.name.split('-')[0].upper()}_IMPLEMENTATION_WORKPACKAGES.yaml"):

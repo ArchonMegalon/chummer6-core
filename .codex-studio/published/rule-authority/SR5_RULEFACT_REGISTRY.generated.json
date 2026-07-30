@@ -15,7 +15,7 @@
       "reason": "Shell catalogs are UI/workbench metadata, not SR5 mechanical rule authority."
     }
   ],
-  "generated_at_utc": "2026-06-22T06:20:58Z",
+  "generated_at_utc": "2026-07-29T11:01:53Z",
   "golden_fixtures": {
     "fixture_count": 45,
     "status": "pass"
@@ -115,7 +115,7 @@
     "SR5TestProvider": 4,
     "SR5WorkspaceCodecProvider": 53
   },
-  "registry_sha256": "4e90e7bd10867bcd64177848d7ffb1371900c61ec99e4c9ac2246a5adf89740f",
+  "registry_sha256": "ec20b1ed110b11bc1032196ed99ac947ff7bb4a486ee5e1c0270561b5de71552",
   "required_providers": [
     "SR5AdvancementProvider",
     "SR5CharacterCreationProvider",

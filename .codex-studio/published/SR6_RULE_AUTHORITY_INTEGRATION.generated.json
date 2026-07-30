@@ -16,7 +16,7 @@
   "final_verdict": "SR6_RULE_AUTHORITY_READY",
   "human_review": {
     "ready_token_approved": true,
-    "review_timestamp": "2026-06-20T22:36:47Z",
+    "review_timestamp": "2026-07-29T11:03:28Z",
     "reviewer": "user_directive_human_side_gold_assumption_2026-06-12"
   },
   "implemented_provider_count": 18,
@@ -42,7 +42,7 @@
   ],
   "missing_implemented_providers": [],
   "missing_profile_status": [],
-  "operator_review_promoted_at_utc": "2026-06-22T06:21:24Z",
+  "operator_review_promoted_at_utc": "2026-07-29T11:03:28Z",
   "provider_status_count": 18,
   "readiness_token_allowed": true,
   "required_file_count": 19,

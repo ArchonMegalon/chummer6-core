@@ -85,7 +85,7 @@
   "fixtures": {
     "alignment_status": "pass",
     "failed": 0,
-    "passed": 37,
+    "passed": 16,
     "required_fixture_count": 8,
     "required_fixture_ids": [
       "sr6_basic_dice_and_edge",
@@ -100,7 +100,7 @@
     "review_expected_values_required": false,
     "status": "core_seed_fixture_pack_passed"
   },
-  "generated_at_utc": "2026-06-20T22:36:47Z",
+  "generated_at_utc": "2026-07-29T11:03:28Z",
   "human_review_file": "/docker/chummercomplete/_completion/sr6_rule_authority/SR6_HUMAN_RULE_REVIEW.md",
   "pass_criteria": [
     "selected source identity exists and matches the recorded sha256",

@@ -7,6 +7,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SCRIPT_PATH = REPO_ROOT / "scripts" / "materialize_rule_authority_blocker_receipts.py"
+VERIFY_PATH = REPO_ROOT / "scripts" / "ai" / "verify.sh"
 
 
 def load_module():
@@ -18,6 +19,29 @@ def load_module():
 
 
 class RuleAuthorityBlockerReceiptTests(unittest.TestCase):
+    def test_local_verify_materializes_table_imports_before_consuming_them(self) -> None:
+        verify = VERIFY_PATH.read_text(encoding="utf-8")
+        sr6_generator = verify.index(
+            "bash scripts/ai/python-with-rule-authority-deps.sh scripts/generate_sr6_pdf_private_import.py"
+        )
+        coverage_generator = verify.index("python3 scripts/generate_sr456_table_import_coverage.py")
+        blocker_materializer = verify.index("python3 scripts/materialize_rule_authority_blocker_receipts.py")
+
+        self.assertLess(sr6_generator, coverage_generator)
+        self.assertLess(coverage_generator, blocker_materializer)
+        self.assertTrue((REPO_ROOT / "scripts" / "ai" / "python-with-rule-authority-deps.sh").is_file())
+        self.assertTrue((REPO_ROOT / "scripts" / "ai" / "rule-authority-requirements.txt").is_file())
+
+    def test_errata_profiles_load_from_authoritative_ruleset_profiles(self) -> None:
+        module = load_module()
+
+        for ruleset in ("sr4", "sr6"):
+            with self.subTest(ruleset=ruleset):
+                profile = module.load_errata_profile(ruleset)
+                self.assertEqual("pending", profile["status"])
+                self.assertTrue(profile["required_before_gold"])
+                self.assertFalse(profile["production_claim_allowed"])
+
     def test_sr4_and_sr6_blocker_receipts_stay_pending_not_ready(self) -> None:
         module = load_module()
         for ruleset in ("sr4", "sr6"):

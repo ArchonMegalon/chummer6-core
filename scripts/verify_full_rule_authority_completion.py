@@ -7,6 +7,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from verify_rule_authority_human_review import validate_review
 
@@ -33,6 +35,24 @@ MIN_RULEFACT_COUNT = 100
 def load_json(path: Path) -> dict:
     with path.open("r", encoding="utf-8") as handle:
         return json.load(handle)
+
+
+def load_ruleset_errata_profile(ruleset: str) -> dict[str, Any]:
+    upper = ruleset.upper()
+    profile_path = (
+        REPO_ROOT
+        / "docs"
+        / "rulesets"
+        / f"{ruleset}-rule-authority"
+        / f"{upper}_RULESET_PROFILE.yaml"
+    )
+    profile = yaml.safe_load(profile_path.read_text(encoding="utf-8")) or {}
+    if not isinstance(profile, dict):
+        raise ValueError(f"ruleset profile must be a mapping: {profile_path}")
+    errata_profile = profile.get("errata_profile") or {}
+    if not isinstance(errata_profile, dict):
+        raise ValueError(f"errata_profile must be a mapping: {profile_path}")
+    return errata_profile
 
 
 def write_json(path: Path, payload: dict) -> None:
@@ -113,7 +133,7 @@ def main() -> int:
     sr4_provider = load_json(sr4_root / "SR4_PROVIDER_COVERAGE.generated.json")
     sr4_tables = load_json(sr4_root / "SR4_TABLE_IMPORTS.generated.json")
     sr4_golden = load_json(sr4_root / "SR4_GOLDEN_FIXTURES.generated.json")
-    sr4_errata = load_json(sr4_root / "SR4_ERRATA_PROFILE.generated.json")
+    sr4_errata = load_ruleset_errata_profile("sr4")
     sr4_row_level = load_json(sr4_root / "SR4_ROW_LEVEL_AUTHORITY_MAPPING.generated.json")
     sr4_errata_posture = load_json(sr4_root / "SR4_ERRATA_SOURCE_POSTURE.generated.json")
     sr4_matrix = load_json(sr4_root / "SR4_VERIFICATION_MATRIX_RUN.generated.json")
@@ -122,7 +142,7 @@ def main() -> int:
     sr6_provider = load_json(sr6_root / "SR6_PROVIDER_COVERAGE.generated.json")
     sr6_tables = load_json(sr6_root / "SR6_TABLE_IMPORTS.generated.json")
     sr6_golden = load_json(sr6_root / "SR6_GOLDEN_FIXTURES.generated.json")
-    sr6_errata = load_json(sr6_root / "SR6_ERRATA_PROFILE.generated.json")
+    sr6_errata = load_ruleset_errata_profile("sr6")
     sr6_row_level = load_json(sr6_root / "SR6_ROW_LEVEL_AUTHORITY_MAPPING.generated.json")
     sr6_errata_posture = load_json(sr6_root / "SR6_ERRATA_SOURCE_POSTURE.generated.json")
     sr6_matrix = load_json(sr6_root / "SR6_VERIFICATION_MATRIX_RUN.generated.json")

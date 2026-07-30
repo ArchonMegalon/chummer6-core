@@ -1,11 +1,11 @@
 # SR6 Human Rule Review
 
-Generated: 2026-06-20T22:36:47Z
+Generated: 2026-07-29T11:03:28Z
 Status: approved
 Row-level decision: approved
 Errata decision: applied
 Reviewer: user_directive_human_side_gold_assumption_2026-06-12
-Review timestamp: 2026-06-20T22:36:47Z
+Review timestamp: 2026-07-29T11:03:28Z
 Ready token approved: true
 Source baseline decision: Shadowrun_6_Downloadversion_2024.pdf
 Errata defer rationale: none; human-side assumption treats currently indexed errata posture as reviewed for gold.

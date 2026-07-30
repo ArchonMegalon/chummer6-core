@@ -2775,13 +2775,15 @@ internal static class CoreEngineTests
     private static void WorkspaceServiceRebindsBuildLabWorkspaceIds()
     {
         RecordingBuildLabWorkspaceStore store = new();
-        CharacterWorkspaceId id = store.Create(new WorkspaceDocument(
+        WorkspaceStoreMutationResult created = store.CreateWorkspaceDocument(new WorkspaceDocument(
             PayloadEnvelope: new WorkspacePayloadEnvelope(
                 RulesetId: RulesetDefaults.Sr5,
                 SchemaVersion: 1,
                 PayloadKind: "test/build-lab",
                 Payload: "{}"),
             Format: WorkspaceDocumentFormat.Json));
+        AssertEx.True(created.Success, "Build Lab workspace setup should create a revisioned workspace.");
+        CharacterWorkspaceId id = created.Entry!.Value.Id;
         WorkspaceService service = new(
             store,
             new RulesetWorkspaceCodecResolver([new RecordingBuildLabWorkspaceCodec()]),
@@ -2924,7 +2926,9 @@ internal static class CoreEngineTests
                 AssertEx.True(section is not null, $"{fileName} should parse section '{sectionId}'.");
             }
 
-            AssertEx.True(workspaceService.Save(imported.Id).Success, $"{fileName} should save after import.");
+            AssertEx.True(
+                workspaceService.Save(imported.Id, imported.ContentRevision).Success,
+                $"{fileName} should save after import.");
 
             CommandResult<WorkspaceDownloadReceipt> download = workspaceService.Download(imported.Id);
             AssertEx.True(download.Success, $"{fileName} should download after import.");
@@ -2936,7 +2940,9 @@ internal static class CoreEngineTests
             AssertEx.True(!string.IsNullOrWhiteSpace(export.Value?.PackageId), $"{fileName} export should produce a portable package id.");
             AssertEx.True(export.Value?.Portability is not null, $"{fileName} export should include portability guidance.");
 
-            AssertEx.True(workspaceService.Close(imported.Id), $"{fileName} should close cleanly after round-trip verification.");
+            AssertEx.True(
+                workspaceService.Close(imported.Id, imported.ContentRevision).Success,
+                $"{fileName} should close cleanly after round-trip verification.");
         }
     }
 
@@ -3111,7 +3117,9 @@ internal static class CoreEngineTests
                     $"{fileName} should expose SR4 ballistic/impact armor values.");
             }
 
-            AssertEx.True(workspaceService.Save(imported.Id).Success, $"{fileName} should save after import.");
+            AssertEx.True(
+                workspaceService.Save(imported.Id, imported.ContentRevision).Success,
+                $"{fileName} should save after import.");
 
             CommandResult<WorkspaceDownloadReceipt> download = workspaceService.Download(imported.Id);
             AssertEx.True(download.Success, $"{fileName} should download after import.");
@@ -3124,7 +3132,9 @@ internal static class CoreEngineTests
             AssertEx.True(!string.IsNullOrWhiteSpace(export.Value?.PackageId), $"{fileName} export should produce a portable package id.");
             AssertEx.True(export.Value?.Portability is not null, $"{fileName} export should include portability guidance.");
 
-            AssertEx.True(workspaceService.Close(imported.Id), $"{fileName} should close cleanly after round-trip verification.");
+            AssertEx.True(
+                workspaceService.Close(imported.Id, imported.ContentRevision).Success,
+                $"{fileName} should close cleanly after round-trip verification.");
         }
     }
 
@@ -3556,7 +3566,7 @@ internal static class CoreEngineTests
             repeatedImport.WorkflowDeterministicReceipt?.ReceiptId,
             "Workflow-state deterministic receipt ids should stay content-addressed instead of drifting with transient workspace ids.");
 
-        CommandResult<WorkspaceSaveReceipt> save = workspaceService.Save(imported.Id);
+        CommandResult<WorkspaceSaveReceipt> save = workspaceService.Save(imported.Id, imported.ContentRevision);
         AssertEx.True(save.Success, "Workspace saves should succeed for the SR5 parity fixture.");
         AssertEx.True(!string.IsNullOrWhiteSpace(save.Value?.ReceiptId), "Workspace saves should emit a deterministic receipt id.");
         AssertEx.NotNull(save.Value?.WorkflowDeterministicReceipt, "Workspace saves should emit workflow-state deterministic receipts.");
@@ -3580,7 +3590,12 @@ internal static class CoreEngineTests
         AssertEx.True(!string.IsNullOrWhiteSpace(print.Value?.ReceiptId), "Workspace print flows should emit a deterministic receipt id.");
         AssertEx.NotNull(print.Value?.WorkflowDeterministicReceipt, "Workspace print flows should emit workflow-state deterministic receipts.");
 
-        AssertEx.True(workspaceService.Close(imported.Id), "The SR5 parity fixture workspace should close cleanly after workflow-state receipt verification.");
+        AssertEx.True(
+            workspaceService.Close(imported.Id, imported.ContentRevision).Success,
+            "The SR5 parity fixture workspace should close cleanly after workflow-state receipt verification.");
+        AssertEx.True(
+            workspaceService.Close(repeatedImport.Id, repeatedImport.ContentRevision).Success,
+            "The repeated SR5 parity fixture workspace should close cleanly after deterministic receipt comparison.");
     }
 
     private static void Sr6CombatRoundActionEconomyPublishesAnchoredTurnLedgerProof()
@@ -3822,7 +3837,9 @@ internal static class CoreEngineTests
             print.Value.ExchangeDeterministicReceipt.BannedWareGrades,
             "Workspace export and print exchange receipts should preserve canonical banned-ware grade ordering.");
 
-        AssertEx.True(workspaceService.Close(imported.Id), "The SR5 parity fixture workspace should close cleanly after export/print rule-environment receipt verification.");
+        AssertEx.True(
+            workspaceService.Close(imported.Id, imported.ContentRevision).Success,
+            "The SR5 parity fixture workspace should close cleanly after export/print rule-environment receipt verification.");
     }
 
     private static void WorkspaceExportPortabilityReceiptsCoverAllGovernedOutputLanes()
@@ -8060,16 +8077,6 @@ internal sealed class RecordingBuildLabWorkspaceStore : IWorkspaceStore
 {
     private readonly InMemoryWorkspaceStore _inner = new();
 
-    public CharacterWorkspaceId Create(WorkspaceDocument document)
-    {
-        return _inner.Create(document);
-    }
-
-    public CharacterWorkspaceId Create(OwnerScope owner, WorkspaceDocument document)
-    {
-        return _inner.Create(owner, document);
-    }
-
     public WorkspaceStoreMutationResult CreateWorkspaceDocument(WorkspaceDocument document)
     {
         return _inner.CreateWorkspaceDocument(document);
@@ -8093,16 +8100,6 @@ internal sealed class RecordingBuildLabWorkspaceStore : IWorkspaceStore
         return _inner.CreateWorkspaceDocument(owner, id, document);
     }
 
-    public bool TryGet(CharacterWorkspaceId id, out WorkspaceDocument document)
-    {
-        return _inner.TryGet(id, out document);
-    }
-
-    public bool TryGet(OwnerScope owner, CharacterWorkspaceId id, out WorkspaceDocument document)
-    {
-        return _inner.TryGet(owner, id, out document);
-    }
-
     public WorkspaceStoreReadResult Get(CharacterWorkspaceId id)
     {
         return _inner.Get(id);
@@ -8121,16 +8118,6 @@ internal sealed class RecordingBuildLabWorkspaceStore : IWorkspaceStore
     public IReadOnlyList<WorkspaceStoreEntry> List(OwnerScope owner)
     {
         return _inner.List(owner);
-    }
-
-    public void Save(CharacterWorkspaceId id, WorkspaceDocument document)
-    {
-        _inner.Save(id, document);
-    }
-
-    public void Save(OwnerScope owner, CharacterWorkspaceId id, WorkspaceDocument document)
-    {
-        _inner.Save(owner, id, document);
     }
 
     public WorkspaceStoreMutationResult ReplaceWorkspaceDocument(
@@ -8176,15 +8163,6 @@ internal sealed class RecordingBuildLabWorkspaceStore : IWorkspaceStore
         return _inner.Delete(owner, id, expectedContentRevision);
     }
 
-    public bool Delete(CharacterWorkspaceId id)
-    {
-        return _inner.Delete(id);
-    }
-
-    public bool Delete(OwnerScope owner, CharacterWorkspaceId id)
-    {
-        return _inner.Delete(owner, id);
-    }
 }
 
 internal sealed class RecordingBuildLabWorkspaceCodec : IRulesetWorkspaceCodec

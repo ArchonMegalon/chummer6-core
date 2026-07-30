@@ -23,6 +23,7 @@ if has_windows_desktop_runtime; then
 fi
 
 echo "[ruleset-depth] restore linux target: Chummer.Tests/Chummer.Tests.csproj (net10.0)"
+bash "$SCRIPT_DIR/build-local-contract-dependencies.sh" Release
 bash "$SCRIPT_DIR/restore.sh" Chummer.Tests/Chummer.Tests.csproj -p:TargetFramework=net10.0
 
 echo "[ruleset-depth] restore core executable audit"

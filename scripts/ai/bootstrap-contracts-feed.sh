@@ -4,7 +4,7 @@ source "$(dirname "$0")/_env.sh"
 
 contracts_package_version="${CHUMMER_ENGINE_CONTRACTS_PACKAGE_VERSION:-0.0.0-local}"
 contracts_feed_root="${CHUMMER_ENGINE_CONTRACTS_FEED:-$repo_root/.tmp/ai/local-nuget}"
-contracts_cache_root="${NUGET_PACKAGES:-$HOME/.nuget/packages}"
+contracts_cache_root="${NUGET_PACKAGES:-$repo_root/.tmp/nuget/packages}"
 contracts_cache_path="$contracts_cache_root/chummer.engine.contracts/$contracts_package_version"
 
 mkdir -p "$contracts_feed_root"

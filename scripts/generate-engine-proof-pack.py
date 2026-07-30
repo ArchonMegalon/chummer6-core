@@ -1723,8 +1723,8 @@ def _resolve_required_promoted_desktop_tuples(
     if not isinstance(required_triplets, list) or not required_triplets:
         return list(REQUIRED_PROMOTED_DESKTOP_TUPLES)
 
-    required_rows: list[tuple[str, str, str, str]] = []
-    seen: set[tuple[str, str, str, str]] = set()
+    required_rows = list(REQUIRED_PROMOTED_DESKTOP_TUPLES)
+    seen = set(required_rows)
     for triplet in required_triplets:
         parts = [str(part).strip() for part in str(triplet or "").split(":")]
         if len(parts) != 3 or not all(parts):

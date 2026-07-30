@@ -112,6 +112,41 @@ def load_yaml(path: Path) -> dict[str, Any]:
         return yaml.safe_load(handle) or {}
 
 
+def load_ruleset_errata_profile(ruleset: str) -> dict[str, Any]:
+    upper = ruleset.upper()
+    profile_path = (
+        REPO_ROOT
+        / "docs"
+        / "rulesets"
+        / f"{ruleset}-rule-authority"
+        / f"{upper}_RULESET_PROFILE.yaml"
+    )
+    profile = load_yaml(profile_path)
+    if not isinstance(profile, dict):
+        raise ValueError(f"ruleset profile must be a mapping: {profile_path}")
+    errata_profile = profile.get("errata_profile") or {}
+    if not isinstance(errata_profile, dict):
+        raise ValueError(f"errata_profile must be a mapping: {profile_path}")
+    return errata_profile
+
+
+def load_ruleset_copyright_safety(ruleset: str) -> dict[str, Any]:
+    upper = ruleset.upper()
+    profile_path = (
+        REPO_ROOT
+        / "docs"
+        / "rulesets"
+        / f"{ruleset}-rule-authority"
+        / f"{upper}_RULESET_PROFILE.yaml"
+    )
+    profile = load_yaml(profile_path)
+    public_copy_policy = str(profile.get("public_copy_policy") or "").strip().lower()
+    return {
+        "status": "pass" if public_copy_policy == "no rulebook prose" else "fail",
+        "public_copy_policy": public_copy_policy,
+    }
+
+
 def sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
@@ -152,9 +187,9 @@ def ruleset_receipt_review(ruleset: str) -> dict[str, Any]:
     provider = load_json(root / f"{upper}_PROVIDER_COVERAGE.generated.json")
     tables = load_json(root / f"{upper}_TABLE_IMPORTS.generated.json")
     fixtures = load_json(root / f"{upper}_GOLDEN_FIXTURES.generated.json")
-    errata = load_json(root / f"{upper}_ERRATA_PROFILE.generated.json")
+    errata = load_ruleset_errata_profile(ruleset)
     explain = load_json(root / f"{upper}_EXPLAIN_RECEIPTS.generated.json")
-    copyright_safety = load_json(root / f"{upper}_COPYRIGHT_SAFETY.generated.json")
+    copyright_safety = load_ruleset_copyright_safety(ruleset)
     row_level_path = root / f"{upper}_ROW_LEVEL_AUTHORITY_MAPPING.generated.json"
     errata_posture_path = root / f"{upper}_ERRATA_SOURCE_POSTURE.generated.json"
     row_level = load_json(row_level_path) if row_level_path.is_file() else {}

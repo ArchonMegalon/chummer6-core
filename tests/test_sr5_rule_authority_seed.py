@@ -68,9 +68,20 @@ class Sr5RuleAuthoritySeedTests(unittest.TestCase):
         self.assertIn("sr5.magic.table_import.file.spells_xml.container.spells", fact_ids)
         self.assertIn("sr5.matrix.table_import.file.programs_xml.container.programs", fact_ids)
         self.assertIn("sr5.rigging.table_import.file.vehicles_xml.container.vehicles", fact_ids)
-        self.assertIn("sr5.shell.command.new_character", fact_ids)
-        self.assertIn("sr5.navigation.tab.tab_create", fact_ids)
-        self.assertIn("sr5.workspace_action.tab_info_summary", fact_ids)
+        self.assertNotIn("sr5.shell.command.new_character", fact_ids)
+        self.assertNotIn("sr5.navigation.tab.tab_create", fact_ids)
+        self.assertNotIn("sr5.workspace_action.tab_info_summary", fact_ids)
+        self.assertIn("sr5.workflow.surface.sr5_shell_toolbar", fact_ids)
+        self.assertIn("sr5.workflow.surface.sr5_career_section", fact_ids)
+        self.assertEqual(
+            [
+                {
+                    "path": "Chummer.Rulesets.Sr5/Sr5ShellCatalogs.cs",
+                    "reason": "Shell catalogs are UI/workbench metadata, not SR5 mechanical rule authority.",
+                }
+            ],
+            registry["excluded_inputs"],
+        )
         self.assertIn("sr5.table_import.file.gear_xml", fact_ids)
         self.assertIn("sr5.parity.capability.derive_stat", fact_ids)
 

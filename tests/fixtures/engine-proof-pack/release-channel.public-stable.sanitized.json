@@ -12,13 +12,17 @@
     },
     {
       "artifactId": "avalonia-win-x64-installer"
+    },
+    {
+      "artifactId": "avalonia-osx-arm64-installer"
     }
   ],
   "desktopTupleCoverage": {
     "complete": true,
     "requiredDesktopPlatformHeadRidTuples": [
       "avalonia:linux-x64:linux",
-      "avalonia:win-x64:windows"
+      "avalonia:win-x64:windows",
+      "avalonia:osx-arm64:macos"
     ],
     "desktopRouteTruth": [
       {
@@ -40,6 +44,19 @@
         "platform": "windows",
         "rid": "win-x64",
         "artifactId": "avalonia-win-x64-installer",
+        "routeRole": "primary",
+        "promotionState": "promoted",
+        "parityPosture": "flagship_primary",
+        "updateEligibility": "eligible",
+        "revokeState": "not_revoked",
+        "installPosture": "installer_first"
+      },
+      {
+        "tupleId": "avalonia:macos:osx-arm64",
+        "head": "avalonia",
+        "platform": "macos",
+        "rid": "osx-arm64",
+        "artifactId": "avalonia-osx-arm64-installer",
         "routeRole": "primary",
         "promotionState": "promoted",
         "parityPosture": "flagship_primary",

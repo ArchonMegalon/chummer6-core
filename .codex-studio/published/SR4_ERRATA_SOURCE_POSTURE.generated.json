@@ -1,6 +1,6 @@
 {
   "contract_name": "chummer.sr4.errata_source_posture",
-  "generated_at_utc": "2026-06-20T22:36:46Z",
+  "generated_at_utc": "2026-07-29T11:03:25Z",
   "human_required": {
     "must_apply_or_explicitly_defer_each_applicable_change": true,
     "must_confirm_applicable_errata_sources": true,
@@ -14,7 +14,7 @@
   },
   "machine_observations": {
     "has_committed_source_metadata": false,
-    "profile_status": "applied",
+    "profile_status": "pending",
     "source_count": 0
   },
   "production_claim_allowed": true,
@@ -30,14 +30,14 @@
       "not_applicable",
       "defer"
     ],
-    "reviewed_at_utc": "2026-06-20T22:36:47Z",
+    "reviewed_at_utc": "2026-07-29T11:03:28Z",
     "reviewer": "user_directive_human_side_gold_assumption_2026-06-12",
     "reviewer_output_expected": "SR4_HUMAN_RULE_REVIEW.md",
     "selected_core_baseline": "legacy Chummer4 XML as implemented for core readiness",
     "source_count": 0,
     "source_ids": []
   },
-  "reviewed_at_utc": "2026-06-20T22:36:47Z",
+  "reviewed_at_utc": "2026-07-29T11:03:28Z",
   "reviewer": "user_directive_human_side_gold_assumption_2026-06-12",
   "ruleset": "sr4",
   "sources": [],

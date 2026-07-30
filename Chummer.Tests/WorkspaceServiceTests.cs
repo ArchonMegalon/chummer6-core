@@ -64,6 +64,28 @@ public class WorkspaceServiceTests
     }
 
     [TestMethod]
+    public void Import_with_local_owner_scope_routes_create_through_local_store()
+    {
+        TrackingWorkspaceStore store = new();
+        WorkspaceService workspaceService = CreateWorkspaceService(
+            store,
+            new XmlCharacterFileQueries(new CharacterFileService()),
+            new XmlCharacterSectionQueries(new CharacterSectionService()),
+            new XmlCharacterMetadataCommands(new CharacterFileService()));
+
+        WorkspaceImportResult imported = workspaceService.Import(
+            OwnerScope.LocalSingleUser,
+            new WorkspaceImportDocument(
+                "<character><name>Local</name><alias>Desktop</alias><metatype>Human</metatype><buildmethod>Priority</buildmethod><createdversion>1.0</createdversion><appversion>1.0</appversion><karma>0</karma><nuyen>0</nuyen><created>True</created></character>",
+                RulesetDefaults.Sr5,
+                WorkspaceDocumentFormat.NativeXml));
+
+        Assert.IsFalse(string.IsNullOrWhiteSpace(imported.Id.Value));
+        Assert.AreEqual(1, store.CreateCallCount);
+        Assert.IsNull(store.LastCreateOwner);
+    }
+
+    [TestMethod]
     public void Import_get_profile_update_and_save_roundtrip()
     {
         const string xml = "<character><name>Neo</name><alias>The One</alias><metatype>Human</metatype><buildmethod>Priority</buildmethod><createdversion>1.0</createdversion><appversion>1.0</appversion><karma>15</karma><nuyen>2500</nuyen><created>True</created><gameedition>SR5</gameedition><settings>default.xml</settings><gameplayoption>Standard</gameplayoption><gameplayoptionqualitylimit>25</gameplayoptionqualitylimit><maxnuyen>10</maxnuyen><maxkarma>25</maxkarma><contactmultiplier>3</contactmultiplier><walk>2/1/0</walk><run>4/0/0</run><sprint>2/1/0</sprint><walkalt>2/1/0</walkalt><runalt>4/0/0</runalt><sprintalt>2/1/0</sprintalt><magenabled>False</magenabled><resenabled>False</resenabled><depenabled>False</depenabled><newskills><skills><skill><guid>s1</guid><suid>suid1</suid><skillcategory>Combat</skillcategory><isknowledge>False</isknowledge><base>6</base><karma>0</karma></skill></skills></newskills></character>";

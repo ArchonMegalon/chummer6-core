@@ -4,18 +4,21 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import yaml
+
 from verify_rule_authority_human_review import validate_review
 
 
+REPO_ROOT = Path(__file__).resolve().parents[1]
 COMPLETION_ROOT = Path("/docker/chummercomplete/_completion/sr4_rule_authority")
+PROFILE_PATH = REPO_ROOT / "docs/rulesets/sr4-rule-authority/SR4_RULESET_PROFILE.yaml"
 REQUIRED = [
     "SR4_RULEFACT_REGISTRY.generated.json",
     "SR4_PROVIDER_COVERAGE.generated.json",
     "SR4_TABLE_IMPORTS.generated.json",
     "SR4_GOLDEN_FIXTURES.generated.json",
     "SR4_EXPLAIN_RECEIPTS.generated.json",
-    "SR4_COPYRIGHT_SAFETY.generated.json",
-    "SR4_ERRATA_PROFILE.generated.json",
+    "SR4_ERRATA_SOURCE_POSTURE.generated.json",
     "SR4_HUMAN_RULE_REVIEW.md",
     "FINAL_SR4_RULE_AUTHORITY_VERDICT.md",
 ]
@@ -34,8 +37,9 @@ def main() -> int:
     registry = load_json("SR4_RULEFACT_REGISTRY.generated.json")
     provider = load_json("SR4_PROVIDER_COVERAGE.generated.json")
     tables = load_json("SR4_TABLE_IMPORTS.generated.json")
-    errata = load_json("SR4_ERRATA_PROFILE.generated.json")
-    copyright_safety = load_json("SR4_COPYRIGHT_SAFETY.generated.json")
+    errata = load_json("SR4_ERRATA_SOURCE_POSTURE.generated.json")
+    profile = yaml.safe_load(PROFILE_PATH.read_text(encoding="utf-8")) or {}
+    copyright_safe = str(profile.get("public_copy_policy") or "").strip().lower() == "no rulebook prose"
     verdict_text = (COMPLETION_ROOT / "FINAL_SR4_RULE_AUTHORITY_VERDICT.md").read_text(encoding="utf-8")
     human_review = validate_review("sr4")
     verdict_first_line = next((line.strip() for line in verdict_text.splitlines() if line.strip()), "")
@@ -44,7 +48,8 @@ def main() -> int:
         and provider.get("missing_implemented_providers") == []
         and tables.get("status") == "reviewed"
         and errata.get("status") == "applied"
-        and copyright_safety.get("status") == "pass"
+        and errata.get("ready_for_gold") is True
+        and copyright_safe
         and human_review.get("review_ready") is True
     )
     bounded_not_ready = (
@@ -54,6 +59,7 @@ def main() -> int:
         and tables.get("file_count", 0) >= 20
         and tables.get("row_count", 0) > 0
         and errata.get("status") == "applied"
+        and copyright_safe
         and (verdict_first_line == "NOT_READY" or "Verdict: NOT_READY" in verdict_text)
         and human_review.get("pending_review") is True
     )

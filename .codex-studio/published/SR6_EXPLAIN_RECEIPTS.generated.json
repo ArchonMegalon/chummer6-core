@@ -15,7 +15,7 @@
     "rigging",
     "status_effects"
   ],
-  "generated_at_utc": "2026-06-20T22:36:46Z",
+  "generated_at_utc": "2026-07-29T11:03:25Z",
   "implemented_provider_count": 18,
   "provider": "Sr6ExplainReceiptProvider",
   "provider_coverage_status": "provider_classes_covered_not_authority_ready",
@@ -39,7 +39,7 @@
   ],
   "public_safe": true,
   "ready_for_gold": false,
-  "reason": "Public-safe explain receipt provider exists for seed-level receipts; full provider-backed explain corpus remains required.",
+  "reason": "Seed-level public-safe explain receipts exist for the core-only authority scope; reviewed row-level mappings remain required before a ready token.",
   "receipt_kind": "public_safe_seed_explain_receipts",
   "remaining_gates": [
     "reviewed row-level authority mapping for cited facts",

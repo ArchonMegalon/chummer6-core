@@ -80,6 +80,20 @@ Redaction baseline:
 * no character names, campaign names, notes, free text, or full custom-data blobs in the default hosted telemetry plane
 * install-linked telemetry is opt-out by default, pseudonymous by default, and must not be repurposed as a marketing profile
 
+### Hosted Build workspaces
+
+Owner: `chummer-presentation`
+
+Retention posture:
+
+* backup and point-in-time-recovery retention is unresolved and has no approved numeric public window
+* tombstone or lineage retention, deletion replay, and whole-account erasure are unresolved
+
+Redaction baseline:
+
+* workspace content remains owner-scoped and public copy must not promise permanent deletion
+* public surfaces must not expose workspace contents, recovery snapshots, or owner-scoped build state
+
 ### Survey and follow-up results
 
 Owner: `chummer6-hub`

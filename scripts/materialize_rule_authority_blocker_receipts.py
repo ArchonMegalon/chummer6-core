@@ -8,6 +8,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from rule_authority_errata_sources import errata_sources_for_ruleset
 
@@ -55,6 +57,30 @@ def now() -> str:
 def load_json(path: Path) -> dict[str, Any]:
     with path.open("r", encoding="utf-8") as handle:
         return json.load(handle)
+
+
+def load_errata_profile(ruleset: str) -> dict[str, Any]:
+    upper = ruleset.upper()
+    profile_path = (
+        REPO_ROOT
+        / "docs"
+        / "rulesets"
+        / f"{ruleset}-rule-authority"
+        / f"{upper}_RULESET_PROFILE.yaml"
+    )
+    profile = yaml.safe_load(profile_path.read_text(encoding="utf-8")) or {}
+    if not isinstance(profile, dict):
+        raise ValueError(f"ruleset profile must be a mapping: {profile_path}")
+    errata_profile = profile.get("errata_profile") or {}
+    if not isinstance(errata_profile, dict):
+        raise ValueError(f"errata_profile must be a mapping: {profile_path}")
+    claim_allowed = profile.get("claim_allowed") or {}
+    if not isinstance(claim_allowed, dict):
+        raise ValueError(f"claim_allowed must be a mapping: {profile_path}")
+    return {
+        **errata_profile,
+        "production_claim_allowed": bool(claim_allowed.get("production_grade", False)),
+    }
 
 
 def write_json(path: Path, payload: dict[str, Any]) -> None:
@@ -579,7 +605,7 @@ def materialize_ruleset(ruleset: str) -> tuple[dict[str, Any], dict[str, Any]]:
     root = COMPLETION_ROOT / f"{ruleset}_rule_authority"
     upper = ruleset.upper()
     table_imports = load_json(root / f"{upper}_TABLE_IMPORTS.generated.json")
-    errata = load_json(root / f"{upper}_ERRATA_PROFILE.generated.json")
+    errata = load_errata_profile(ruleset)
     registry = load_json(PUBLISHED_ROOT / f"{upper}_RULEFACT_REGISTRY.generated.json")
 
     row_level = build_row_level_mapping_receipt(ruleset, table_imports, registry)

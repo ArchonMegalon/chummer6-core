@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-06-20T22:37:16Z",
+  "generated_at": "2026-07-29T11:05:33Z",
   "status": "passed",
   "package_id": "next90-m143-core-keep-export-print-supplement-and-rule-environment-receipts-deterministi",
   "frontier_id": 2778308338,
@@ -36,7 +36,7 @@
       "key": "workspace_contracts",
       "path": "/docker/chummercomplete/chummer-core-engine/Chummer.Contracts/Workspaces/CharacterWorkspaceModels.cs",
       "exists": true,
-      "digest": "sha256:08099b951fccf476edec4942df81b239d19f39e5ec691a30ef709f2c82a34199",
+      "digest": "sha256:31bdb3beb4bee25447516c024a9152b3435cdf6fdb7d4bad316b92dfa245adb5",
       "digest_scope": "full-file",
       "missing_snippets": [],
       "status": "passed"
@@ -54,7 +54,7 @@
       "key": "workspace_service",
       "path": "/docker/chummercomplete/chummer-core-engine/Chummer.Application/Workspaces/WorkspaceService.cs",
       "exists": true,
-      "digest": "sha256:38d20701b00c43dc595e76cb111d019571ec9bc33f248bccc3c968ccfb025f33",
+      "digest": "sha256:ae821e539d5bf9254f2e30103adc658fb5c7ef994be4c959840d6176029b369c",
       "digest_scope": "full-file",
       "missing_snippets": [],
       "status": "passed"
@@ -63,7 +63,7 @@
       "key": "test_program",
       "path": "/docker/chummercomplete/chummer-core-engine/Chummer.CoreEngine.Tests/Program.cs",
       "exists": true,
-      "digest": "sha256:f57e124f8e61332419367c42d4e9a2c73d464da35311f21fd47e10473af337f2",
+      "digest": "sha256:879b5c883f53a9eb7ff57a607a18e2e8283dbc33581d2274ae8055d087bfb2dc",
       "digest_scope": "full-file",
       "missing_snippets": [],
       "status": "passed"
@@ -81,7 +81,7 @@
       "key": "workspace_service_mstest",
       "path": "/docker/chummercomplete/chummer-core-engine/Chummer.Tests/WorkspaceServiceTests.cs",
       "exists": true,
-      "digest": "sha256:082a1aa51a94eb6b992e777204baf2c45b3370ce783a7a924839e73aa6c08c3f",
+      "digest": "sha256:acbd4247954c935ab26c5c2e39daa7a4cced4ae6db69d7db1abfae8c3d1d34c3",
       "digest_scope": "full-file",
       "missing_snippets": [],
       "status": "passed"
@@ -90,7 +90,7 @@
       "key": "api_integration_mstest",
       "path": "/docker/chummercomplete/chummer-core-engine/Chummer.Tests/ApiIntegrationTests.cs",
       "exists": true,
-      "digest": "sha256:991312cccc9bccee6eddcd576ada5e2adc117e2361b0ed2033a91bc8c9cae800",
+      "digest": "sha256:66a57e0be74983405a5f74e126126ac4b9815850792eca7e6f524f849c7c1ba8",
       "digest_scope": "full-file",
       "missing_snippets": [],
       "status": "passed"

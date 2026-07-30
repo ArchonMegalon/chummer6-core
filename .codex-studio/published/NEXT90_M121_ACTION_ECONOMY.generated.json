@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-06-20T22:37:45Z",
+  "generated_at": "2026-07-29T11:06:06Z",
   "status": "passed",
   "package_id": "next90-m121-core-implement-actionbudgetresult-actionaffordance-turnledger",
   "frontier_id": 1122632660,
@@ -51,7 +51,7 @@
       "key": "test_program",
       "path": "/docker/chummercomplete/chummer-core-engine/Chummer.CoreEngine.Tests/Program.cs",
       "exists": true,
-      "digest": "sha256:f57e124f8e61332419367c42d4e9a2c73d464da35311f21fd47e10473af337f2",
+      "digest": "sha256:879b5c883f53a9eb7ff57a607a18e2e8283dbc33581d2274ae8055d087bfb2dc",
       "missing_snippets": [],
       "status": "passed"
     },
@@ -67,7 +67,7 @@
       "key": "repo_verify",
       "path": "/docker/chummercomplete/chummer-core-engine/scripts/ai/verify.sh",
       "exists": true,
-      "digest": "sha256:c010366dd0197ae5c54818c1914d828fa8530f1ec059b0c5a72b9c6d64927dc9",
+      "digest": "sha256:18322e354c613743fb2606dab3c8d119363ebd2cb8fe6c5b094f3310b13eb068",
       "missing_snippets": [],
       "status": "passed"
     },
@@ -85,7 +85,7 @@
       "key": "successor_registry",
       "path": "/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml",
       "exists": true,
-      "digest": "sha256:c5f79da956153f2fb965a9059407b513b20b390645e6085a0af3455c5d70bc7e",
+      "digest": "sha256:bef807ae6bedaf0ee64e1052c75dbe920a214a597dc8a07941388800c2f4eeba",
       "missing_snippets": [],
       "status": "passed"
     },
@@ -93,7 +93,7 @@
       "key": "successor_queue",
       "path": "/docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml",
       "exists": true,
-      "digest": "sha256:6939295be3ce0c610973ec521eef5b725d3f19ca8112453408b1672b27e12140",
+      "digest": "sha256:9ed2805870aab4b98139e0638d9f5829303b6095f3bf747ed33f742c9ea5d37d",
       "missing_snippets": [],
       "status": "passed"
     },
@@ -101,7 +101,7 @@
       "key": "design_successor_queue",
       "path": "/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_QUEUE_STAGING.generated.yaml",
       "exists": true,
-      "digest": "sha256:6939295be3ce0c610973ec521eef5b725d3f19ca8112453408b1672b27e12140",
+      "digest": "sha256:9ed2805870aab4b98139e0638d9f5829303b6095f3bf747ed33f742c9ea5d37d",
       "missing_snippets": [],
       "status": "passed"
     }

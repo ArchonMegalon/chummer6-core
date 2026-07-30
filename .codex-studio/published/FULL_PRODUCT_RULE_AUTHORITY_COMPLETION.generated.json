@@ -7,7 +7,7 @@
     "sourcebook_prose_copied": false
   },
   "final_verdict": "FULL_RULE_AUTHORITY_READY",
-  "generated_at_utc": "2026-06-26T11:28:00Z",
+  "generated_at_utc": "2026-07-29T11:04:25Z",
   "promoted_operator_receipt": {
     "failures": [],
     "rulesets": {
@@ -43,9 +43,9 @@
         "fields": {
           "Errata decision": "applied",
           "Errata defer rationale": "none; human-side assumption treats currently indexed errata posture as reviewed for gold.",
-          "Generated": "2026-06-20T22:36:47Z",
+          "Generated": "2026-07-29T11:03:28Z",
           "Ready token approved": "true",
-          "Review timestamp": "2026-06-20T22:36:47Z",
+          "Review timestamp": "2026-07-29T11:03:28Z",
           "Reviewer": "user_directive_human_side_gold_assumption_2026-06-12",
           "Row-level decision": "approved",
           "Source baseline decision": "single_source",
@@ -79,9 +79,9 @@
         "fields": {
           "Errata decision": "applied",
           "Errata defer rationale": "none; human-side assumption treats currently indexed errata posture as reviewed for gold.",
-          "Generated": "2026-06-20T22:36:47Z",
+          "Generated": "2026-07-29T11:03:28Z",
           "Ready token approved": "true",
-          "Review timestamp": "2026-06-20T22:36:47Z",
+          "Review timestamp": "2026-07-29T11:03:28Z",
           "Reviewer": "user_directive_human_side_gold_assumption_2026-06-12",
           "Row-level decision": "approved",
           "Source baseline decision": "Shadowrun_6_Downloadversion_2024.pdf",

@@ -93,7 +93,9 @@ internal static class LegacyRulesParityAudit
                     $"{fileName} imported {importedAttribute.Name} total drifted from the current SR5 legacy rules parity model ({baselineMode}).");
             }
 
-            AssertEx.True(workspaceService.Close(imported.Id), $"{fileName} should close cleanly after SR5 legacy rules parity audit.");
+            AssertEx.True(
+                workspaceService.Close(imported.Id, imported.ContentRevision).Success,
+                $"{fileName} should close cleanly after SR5 legacy rules parity audit.");
         }
 
         string[] orderedGapIds = actualGapIds.OrderBy(static gapId => gapId, PathComparer).ToArray();
@@ -145,7 +147,9 @@ internal static class LegacyRulesParityAudit
                     $"{fileName} imported SR4 skill '{importedSkill.Suid}' drifted from the legacy saved total.");
             }
 
-            AssertEx.True(workspaceService.Close(imported.Id), $"{fileName} should close cleanly after SR4 legacy skill parity audit.");
+            AssertEx.True(
+                workspaceService.Close(imported.Id, imported.ContentRevision).Success,
+                $"{fileName} should close cleanly after SR4 legacy skill parity audit.");
         }
     }
 

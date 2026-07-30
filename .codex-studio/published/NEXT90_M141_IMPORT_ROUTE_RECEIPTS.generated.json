@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-06-20T22:35:50Z",
+  "generated_at": "2026-07-29T05:45:03Z",
   "status": "passed",
   "package_id": "next90-m141-core-bind-import-oracle-custom-data-and-amend-package-flows-to-deterministic",
   "frontier_id": 4304178368,
@@ -55,7 +55,7 @@
       "key": "api_integration_tests",
       "path": "/docker/chummercomplete/chummer-core-engine/Chummer.Tests/ApiIntegrationTests.cs",
       "exists": true,
-      "digest": "sha256:991312cccc9bccee6eddcd576ada5e2adc117e2361b0ed2033a91bc8c9cae800",
+      "digest": "sha256:66a57e0be74983405a5f74e126126ac4b9815850792eca7e6f524f849c7c1ba8",
       "digest_scope": "full-file",
       "missing_snippets": [],
       "status": "passed"
@@ -64,7 +64,7 @@
       "key": "engine_proof_pack_doc",
       "path": "/docker/chummercomplete/chummer-core-engine/docs/ENGINE_PROOF_PACK.md",
       "exists": true,
-      "digest": "sha256:90784d446d50a8e9fc2fb7e451c95a898b711e92b404cfc4ea2c6fc5f22b649d",
+      "digest": "sha256:2a6789c79fc0a96c29f13e70cb0c94ed3e722e257d85f67cee8bdae889bcb535",
       "digest_scope": "full-file",
       "missing_snippets": [],
       "status": "passed"
@@ -91,7 +91,7 @@
       "key": "repo_verify",
       "path": "/docker/chummercomplete/chummer-core-engine/scripts/ai/verify.sh",
       "exists": true,
-      "digest": "sha256:c010366dd0197ae5c54818c1914d828fa8530f1ec059b0c5a72b9c6d64927dc9",
+      "digest": "sha256:18322e354c613743fb2606dab3c8d119363ebd2cb8fe6c5b094f3310b13eb068",
       "digest_scope": "full-file",
       "missing_snippets": [],
       "status": "passed"
@@ -100,7 +100,7 @@
       "key": "engine_proof_pack_generator",
       "path": "/docker/chummercomplete/chummer-core-engine/scripts/generate-engine-proof-pack.py",
       "exists": true,
-      "digest": "sha256:ff9e45757f1341888e586a7fc1c142c485449f1ba29a8504ec21cc7bfef21f7d",
+      "digest": "sha256:6e3ef6766b60bb687b5fa2f6fce57508edbe9149189b46a8189b874bb570cb20",
       "digest_scope": "full-file",
       "missing_snippets": [],
       "status": "passed"
@@ -109,7 +109,7 @@
       "key": "engine_proof_pack_generator_tests",
       "path": "/docker/chummercomplete/chummer-core-engine/tests/test_engine_proof_pack_generator.py",
       "exists": true,
-      "digest": "sha256:805d377d9c969bbcecc5cbbf57788961ba59aefbaad625defdeaaf437f161d7d",
+      "digest": "sha256:7e29b20f926b3ce08d8b574c7f02eaccbfc8d403653f47ca439dbd2ce3ac7afa",
       "digest_scope": "full-file",
       "missing_snippets": [],
       "status": "passed"

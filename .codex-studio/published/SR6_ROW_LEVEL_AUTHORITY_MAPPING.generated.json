@@ -1,7 +1,7 @@
 {
   "contract_name": "chummer.sr6.row_level_authority_mapping",
   "evidence_strength": "substantial_machine_indexed",
-  "generated_at_utc": "2026-06-20T22:36:46Z",
+  "generated_at_utc": "2026-07-29T11:03:28Z",
   "human_required": {
     "must_confirm_edition_fit": true,
     "must_confirm_license_and_source_identity": true,
@@ -21,7 +21,7 @@
   "machine_observations": {
     "has_nonempty_index": true,
     "requires_review_marker": true,
-    "table_status": "reviewed"
+    "table_status": "private_pdf_line_hash_import_indexed_pending_review"
   },
   "public_safe": true,
   "ready_for_gold": true,
@@ -59,7 +59,7 @@
       "rejected",
       "defer"
     ],
-    "reviewed_at_utc": "2026-06-20T22:36:47Z",
+    "reviewed_at_utc": "2026-07-29T11:03:28Z",
     "reviewer": "user_directive_human_side_gold_assumption_2026-06-12",
     "reviewer_output_expected": "SR6_HUMAN_RULE_REVIEW.md",
     "selected_core_baseline": "Shadowrun_6_Downloadversion_2024.pdf",
@@ -136,7 +136,7 @@
     ],
     "supplements_in_scope": false
   },
-  "reviewed_at_utc": "2026-06-20T22:36:47Z",
+  "reviewed_at_utc": "2026-07-29T11:03:28Z",
   "reviewer": "user_directive_human_side_gold_assumption_2026-06-12",
   "ruleset": "sr6",
   "source_baseline_decision_status": "selected",

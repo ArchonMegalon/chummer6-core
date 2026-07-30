@@ -1,6 +1,6 @@
 # SR6 Rule Authority Review Handoff
 
-Generated: 2026-06-20T22:36:46Z
+Generated: 2026-07-29T11:03:28Z
 
 ## Current Verdict
 

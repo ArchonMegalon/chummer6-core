@@ -191,7 +191,7 @@ python3 scripts/generate-engine-proof-pack.py
 
 Release generation defaults to the sibling Registry checkout at `../chummer-hub-registry/.codex-studio/published/RELEASE_CHANNEL.generated.json`.
 Use `--release-channel <path>` for an explicit authority, or set `CHUMMER_ENGINE_PROOF_RELEASE_CHANNEL` when the authority is mounted elsewhere; the command-line option takes precedence over the environment.
-Hermetic reproducibility checks use the sanitized committed fixture at `tests/fixtures/engine-proof-pack/release-channel.public-stable.sanitized.json`, while the default path remains the explicit release-mode authority.
+Hermetic reproducibility checks use the sanitized committed fixture at `tests/fixtures/engine-proof-pack/release-channel.public-stable.sanitized.json`, while the generator default remains the explicit release-mode authority. `scripts/ai/verify.sh` defaults to hermetic `ci` mode; set `CHUMMER_CORE_ENGINE_VERIFY_MODE=release` to bind that full verifier to the active sibling Registry manifest. `CHUMMER_ENGINE_PROOF_RELEASE_CHANNEL` may override the release-mode authority path.
 
 The generator treats the generated proof pack path as a planned output so a clean first run cannot fail only because `ENGINE_PROOF_PACK.generated.json` does not already exist. Other successor queue proof anchors must resolve on disk.
 Use `python3 scripts/generate-engine-proof-pack.py --check` when verification must prove the checked-in receipt is current without rewriting the artifact.
