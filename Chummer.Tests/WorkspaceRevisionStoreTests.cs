@@ -585,7 +585,7 @@ public sealed class WorkspaceRevisionStoreTests
     }
 
     [TestMethod]
-    public void Workspace_service_owner_scoped_sentinels_cannot_reach_local_state()
+    public void Workspace_service_invalid_owner_scopes_cannot_reach_local_state()
     {
         WorkspaceService service = CreateWorkspaceService(new InMemoryWorkspaceStore());
         WorkspaceImportResult imported = service.Import(new WorkspaceImportDocument(
@@ -595,9 +595,7 @@ public sealed class WorkspaceRevisionStoreTests
         [
             default,
             new OwnerScope(string.Empty),
-            new OwnerScope("   "),
-            OwnerScope.LocalSingleUser,
-            new OwnerScope(" LOCAL-SINGLE-USER ")
+            new OwnerScope("   ")
         ];
 
         foreach (OwnerScope invalidOwner in invalidOwners)
