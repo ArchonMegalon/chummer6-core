@@ -2923,12 +2923,12 @@ namespace Chummer.Backend.Skills
                                 if (objMaxConditionalSpecialization != null)
                                     decLoopMaxValue += objMaxConditionalSpecialization.SpecializationBonus;
                                 decimal decLoop = objImprovement.Value;
-                                
+
                                 // Handle legacy specialization conditions
                                 SkillSpecialization objLoopSpec = GetSpecialization(objImprovement.Condition);
                                 if (objLoopSpec != null)
                                     decLoop += objLoopSpec.SpecializationBonus;
-                                
+
                                 if (decLoop > decLoopMaxValue)
                                 {
                                     decMaxConditionalValue = objImprovement.Value;
@@ -2975,12 +2975,12 @@ namespace Chummer.Backend.Skills
                                 if (objMaxConditionalSpecialization != null)
                                     decLoopMaxValue += await objMaxConditionalSpecialization.GetSpecializationBonusAsync(token).ConfigureAwait(false);
                                 decimal decLoop = objImprovement.Value;
-                                
+
                                 // Handle legacy specialization conditions
                                 SkillSpecialization objLoopSpec = await GetSpecializationAsync(objImprovement.Condition, token).ConfigureAwait(false);
                                 if (objLoopSpec != null)
                                     decLoop += await objLoopSpec.GetSpecializationBonusAsync(token).ConfigureAwait(false);
-                                
+
                                 if (decLoop > decLoopMaxValue)
                                 {
                                     decMaxConditionalValue = objImprovement.Value;
@@ -7971,7 +7971,7 @@ namespace Chummer.Backend.Skills
             token.ThrowIfCancellationRequested();
             if (_intSkipSpecializationRefresh > 0)
                 return;
-            
+
             // Use upgradeable read lock like other collection change handlers in the codebase
             IAsyncDisposable objLocker = await LockObject.EnterUpgradeableReadLockAsync(token).ConfigureAwait(false);
             try

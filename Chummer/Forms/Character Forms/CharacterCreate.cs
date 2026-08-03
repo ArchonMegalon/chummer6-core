@@ -1781,7 +1781,7 @@ namespace Chummer
                                 {
                                     // Directly awaiting here so that we can properly unset the dirty flag after the update
                                     await RequestAndProcessCharacterUpdate(GenericToken).ConfigureAwait(false);
-                                    
+
                                     // Update tradition UI after character loading is complete
                                     Tradition objTradition = await CharacterObject.GetMagicTraditionAsync(GenericToken).ConfigureAwait(false);
                                     if (objTradition != null && objTradition.IsCustomTradition)
@@ -1800,7 +1800,7 @@ namespace Chummer
                                         await cboSpiritIllusion.DoThreadSafeAsync(x => { x.Enabled = true; x.Visible = true; }, GenericToken).ConfigureAwait(false);
                                         await cboSpiritManipulation.DoThreadSafeAsync(x => { x.Enabled = true; x.Visible = true; }, GenericToken).ConfigureAwait(false);
                                     }
-                                    
+
                                     // Clear the Dirty flag which gets set when creating a new Character.
                                     if (!await CharacterObject.GetLoadAsDirtyAsync(GenericToken).ConfigureAwait(false))
                                         IsDirty = false;
@@ -6459,7 +6459,7 @@ namespace Chummer
                 case QualitySource.Improvement:
                 case QualitySource.QualityLevelImprovement:
                     // Orphaned improvement qualities (e.g. from deleted custom drugs after a guid-load bug) can be removed.
-                    // Only prevent this if there still improvements that refer to the quality. 
+                    // Only prevent this if there still improvements that refer to the quality.
                     if (await CharacterObject.Improvements.AnyAsync(
                             x => x.ImproveType == Improvement.ImprovementType.SpecificQuality
                                  && x.ImprovedName == objSelectedQuality.InternalId, token).ConfigureAwait(false))
@@ -19743,7 +19743,7 @@ namespace Chummer
                                                         .ConfigureAwait(false);
                             }
 
-                            if (string.IsNullOrEmpty(objAccessory.Reach)) 
+                            if (string.IsNullOrEmpty(objAccessory.Reach))
                             {
                                 await lblVehicleWeaponReachLabel.DoThreadSafeAsync(x => x.Visible = false, token)
                                                                 .ConfigureAwait(false);

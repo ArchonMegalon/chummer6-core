@@ -6773,7 +6773,7 @@ namespace Chummer
 
                     intOpenParenthesesIndex = condition.IndexOf('(', intCloseParenthesesIndex + 1);
                 }
-                
+
                 if (condition.Contains(" and ", intCloseParenthesesIndex, StringComparison.OrdinalIgnoreCase))
                 {
                     foreach (string part in condition.SplitNoAlloc(" and ", StringSplitOptions.RemoveEmptyEntries, StringComparison.OrdinalIgnoreCase))
