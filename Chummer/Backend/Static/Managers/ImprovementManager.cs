@@ -19,12 +19,14 @@
 
 using Chummer.Backend.Equipment;
 using Chummer.Backend.Skills;
+using Chummer.Backend.Uniques;
 using NLog;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
@@ -6526,6 +6528,884 @@ namespace Chummer
             }
         }
 
+        private static readonly ConcurrentDictionary<Character, byte> s_dicRefreshingAddSpiritSkills
+            = new ConcurrentDictionary<Character, byte>();
+
+        /// <summary>
+        /// When a skill linked by AddSpiritSkill increases, prompt for any newly earned spirit type picks.
+        /// </summary>
+        /// <param name="objCharacter">Character that owns the skill.</param>
+        /// <param name="objSkill">Skill whose rating changed.</param>
+        /// <param name="token">Cancellation token to listen to.</param>
+        public static async Task RefreshAddSpiritSkillSelectionsAsync(Character objCharacter, Skill objSkill,
+            CancellationToken token = default)
+        {
+            token.ThrowIfCancellationRequested();
+            if (objCharacter == null || objSkill == null || Utils.IsUnitTest)
+                return;
+            if (objCharacter.IsLoading || objSkill.IsLoading)
+                return;
+            if (!s_dicRefreshingAddSpiritSkills.TryAdd(objCharacter, 0))
+                return;
+            try
+            {
+                string strSkillName = await objSkill.GetNameAsync(token).ConfigureAwait(false);
+                List<Improvement> lstTrackers = await (await objCharacter.GetImprovementsAsync(token).ConfigureAwait(false))
+                    .ToListAsync(
+                        x => x.ImproveType == Improvement.ImprovementType.AddSpiritSkill
+                             && x.ImprovedName == strSkillName,
+                        token).ConfigureAwait(false);
+                if (lstTrackers.Count == 0)
+                    return;
+
+                int intSkillRating = await objSkill.GetTotalBaseRatingAsync(token).ConfigureAwait(false);
+                foreach (Improvement objTracker in lstTrackers)
+                {
+                    token.ThrowIfCancellationRequested();
+                    int intDivisor = Math.Max(1, objTracker.Rating);
+                    int intEntitlement = intSkillRating / intDivisor;
+                    List<Improvement> lstExisting = await (await objCharacter.GetImprovementsAsync(token).ConfigureAwait(false))
+                        .ToListAsync(
+                            x => x.ImproveType == Improvement.ImprovementType.AddSpirit
+                                 && x.SourceName == objTracker.SourceName,
+                            token).ConfigureAwait(false);
+                    int intNeed = intEntitlement - lstExisting.Count;
+                    if (intNeed <= 0)
+                        continue;
+
+                    string strFriendlyName = string.Empty;
+                    Quality objQuality = await (await objCharacter.GetQualitiesAsync(token).ConfigureAwait(false))
+                        .FirstOrDefaultAsync(x => x.InternalId == objTracker.SourceName, token).ConfigureAwait(false);
+                    if (objQuality != null)
+                        strFriendlyName = await objQuality.GetCurrentDisplayNameShortAsync(token).ConfigureAwait(false);
+
+                    for (int i = 0; i < intNeed; ++i)
+                    {
+                        token.ThrowIfCancellationRequested();
+                        string strSelected = await PromptSelectSpiritTypeAsync(objCharacter, strFriendlyName, token)
+                            .ConfigureAwait(false);
+                        if (string.IsNullOrEmpty(strSelected))
+                            break; // User cancelled; keep any picks already granted this session.
+                        await CreateImprovementAsync(
+                            objCharacter, strSelected, objTracker.ImproveSource, objTracker.SourceName,
+                            Improvement.ImprovementType.AddSpirit, objTracker.UniqueName, token: token).ConfigureAwait(false);
+                    }
+                }
+            }
+            finally
+            {
+                s_dicRefreshingAddSpiritSkills.TryRemove(objCharacter, out _);
+            }
+        }
+
+        /// <summary>
+        /// Collect AddSpirit ImprovedNames keyed by SourceName so reapply can restore picks without Quality.Extra.
+        /// </summary>
+        public static async Task<Dictionary<string, string>> SnapshotAddSpiritForcedValuesBySourceAsync(
+            Character objCharacter, CancellationToken token = default)
+        {
+            token.ThrowIfCancellationRequested();
+            Dictionary<string, string> dicReturn = new Dictionary<string, string>();
+            if (objCharacter == null)
+                return dicReturn;
+            Dictionary<string, List<string>> dicNames = new Dictionary<string, List<string>>();
+            await (await objCharacter.GetImprovementsAsync(token).ConfigureAwait(false)).ForEachAsync(objImprovement =>
+            {
+                if (objImprovement.ImproveType != Improvement.ImprovementType.AddSpirit
+                    || string.IsNullOrEmpty(objImprovement.ImprovedName)
+                    || string.IsNullOrEmpty(objImprovement.SourceName))
+                    return;
+                if (!dicNames.TryGetValue(objImprovement.SourceName, out List<string> lstNames))
+                {
+                    lstNames = new List<string>();
+                    dicNames.Add(objImprovement.SourceName, lstNames);
+                }
+                lstNames.Add(objImprovement.ImprovedName);
+            }, token).ConfigureAwait(false);
+            foreach (KeyValuePair<string, List<string>> kvp in dicNames)
+                dicReturn[kvp.Key] = string.Join(", ", kvp.Value);
+            return dicReturn;
+        }
+
+        private static async Task<string> PromptSelectSpiritTypeAsync(Character objCharacter, string strFriendlyName,
+            CancellationToken token = default)
+        {
+            token.ThrowIfCancellationRequested();
+            using (new FetchSafelyFromSafeObjectPool<List<ListItem>>(Utils.ListItemListPool, out List<ListItem> lstSpirits))
+            {
+                foreach (XPathNavigator xmlSpirit in (await objCharacter.LoadDataXPathAsync("traditions.xml", token: token).ConfigureAwait(false))
+                             .SelectAndCacheExpression("/chummer/spirits/spirit", token))
+                {
+                    string strSpiritName = xmlSpirit.SelectSingleNodeAndCacheExpression("name", token)?.Value;
+                    lstSpirits.Add(new ListItem(strSpiritName,
+                        xmlSpirit.SelectSingleNodeAndCacheExpression("translate", token)?.Value ?? strSpiritName));
+                }
+
+                foreach (XPathNavigator xmlSpirit in (await objCharacter.LoadDataXPathAsync("critters.xml", token: token).ConfigureAwait(false))
+                             .Select("/chummer/critters/critter[category = " + "Spirits".CleanXPath() + "]"))
+                {
+                    string strSpiritName = xmlSpirit.SelectSingleNodeAndCacheExpression("name", token)?.Value;
+                    lstSpirits.Add(new ListItem(strSpiritName,
+                        xmlSpirit.SelectSingleNodeAndCacheExpression("translate", token)?.Value ?? strSpiritName));
+                }
+
+                using (ThreadSafeForm<SelectItem> frmSelect =
+                       await ThreadSafeForm<SelectItem>.GetAsync(() => new SelectItem(), token).ConfigureAwait(false))
+                {
+                    frmSelect.MyForm.SetGeneralItemsMode(lstSpirits);
+                    string strDescription = !string.IsNullOrEmpty(strFriendlyName)
+                        ? string.Format(GlobalSettings.CultureInfo,
+                            await LanguageManager.GetStringAsync("String_Improvement_SelectSpiritType", token: token)
+                                .ConfigureAwait(false),
+                            strFriendlyName)
+                        : await LanguageManager.GetStringAsync("String_Improvement_SelectSpiritTypeGeneric", token: token)
+                            .ConfigureAwait(false);
+                    await frmSelect.MyForm.DoThreadSafeAsync(x => x.Description = strDescription, token).ConfigureAwait(false);
+                    if (await frmSelect.ShowDialogSafeAsync(objCharacter, token).ConfigureAwait(false) == DialogResult.Cancel)
+                        return string.Empty;
+                    return await frmSelect.MyForm.DoThreadSafeFuncAsync(x => x.SelectedItem, token).ConfigureAwait(false);
+                }
+            }
+        }
+
         #endregion Improvement System
+
+        #region Condition Evaluation
+
+        // /type/property [op value], including "contains"
+        private static readonly Regex XPathConditionRegex = new Regex(
+            @"^/(\w+)/(\w+)(?:\s*(!=|!&eq;|&ne;|>=|&gte;|&gt;&eq;|<=|&lte;|&lt;&eq;|=|&eq;|>|&gt;|<|&lt;|contains)\s*(.+))?$",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
+        // @property [op value]
+        private static readonly Regex AtPropertyConditionRegex = new Regex(
+            @"^@(\w+)(?:\s*(!=|!&eq;|&ne;|>=|&gte;|&gt;&eq;|<=|&lte;|&lt;&eq;|=|&eq;|>|&gt;|<|&lt;|contains)\s*(.+))?$",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
+        // Both of the above need to contain those ampersand semicolon forms so that we can read those in through XML safely (XML needs to have characters like < and > escaped)
+
+        private static readonly char[] s_achrParentheses = new[] { '(', ')' };
+
+        /// <summary>
+        /// Evaluates a condition string against a target object using a typed allowlist of known predicates.
+        /// Supports XPath-like syntax (/character/created), @property checks, not/and/or, and legacy career/create/spec conditions.
+        /// </summary>
+        /// <param name="condition">The condition string to evaluate.</param>
+        /// <param name="targetObject">The object to evaluate the condition against.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>True if the condition is met, false otherwise.</returns>
+        public static async Task<bool> EvaluateConditionAsync(string condition, object targetObject, CancellationToken token = default)
+        {
+            token.ThrowIfCancellationRequested();
+            if (string.IsNullOrEmpty(condition) || targetObject == null)
+                return true;
+
+            try
+            {
+                int intConditionLength = condition.Length;
+                // This part handles "not()" operations as well as general-purpose parentheses stuff
+                int intCloseParenthesesIndex = 0;
+                int intOpenParenthesesIndex = condition.IndexOf('(');
+                while (intOpenParenthesesIndex >= 0)
+                {
+                    int intParenthesesLevel = 1;
+                    intCloseParenthesesIndex = intOpenParenthesesIndex + 1;
+                    for (; intCloseParenthesesIndex >= 0 && intCloseParenthesesIndex < intConditionLength; intCloseParenthesesIndex = condition.IndexOfAny(s_achrParentheses, intCloseParenthesesIndex + 1))
+                    {
+                        if (condition[intCloseParenthesesIndex] == '(')
+                            ++intParenthesesLevel;
+                        else
+                        {
+                            --intParenthesesLevel;
+                            if (intParenthesesLevel == 0)
+                                break;
+                        }
+                    }
+                    if (intParenthesesLevel > 0) // Faulty syntax, just break and ignore the parentheses altogether
+                    {
+                        Utils.BreakIfDebug();
+                        break;
+                    }
+                    bool blnInnerResult = await EvaluateConditionAsync(condition.Substring(intOpenParenthesesIndex, intCloseParenthesesIndex - intOpenParenthesesIndex).Trim(), targetObject, token).ConfigureAwait(false);
+                    if (intOpenParenthesesIndex >= 3 && string.Equals(condition.Substring(intOpenParenthesesIndex - 3, 3), "not", StringComparison.OrdinalIgnoreCase))
+                        blnInnerResult = !blnInnerResult;
+
+                    if (intCloseParenthesesIndex + 5 < intConditionLength)
+                    {
+                        string strCut = condition.Substring(intCloseParenthesesIndex + 1, 5);
+                        if (string.Equals(strCut, " and ", StringComparison.OrdinalIgnoreCase))
+                        {
+                            if (!blnInnerResult)
+                                return false;
+                        }
+                        else if (strCut.StartsWith(" or ", StringComparison.OrdinalIgnoreCase))
+                        {
+                            if (blnInnerResult)
+                                return true;
+                        }
+#if DEBUG
+                        else
+                        {
+                            Utils.BreakIfDebug();
+                            return blnInnerResult;
+                        }
+#else
+                        else
+                            return blnInnerResult;
+#endif
+                    }
+                    else if (intCloseParenthesesIndex + 4 < intConditionLength && string.Equals(condition.Substring(intCloseParenthesesIndex + 1, 4), " or ", StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (blnInnerResult)
+                            return true;
+                    }
+#if DEBUG
+                    else if (intCloseParenthesesIndex + 1 < intConditionLength)
+                    {
+                        // If we are here, we somehow have ended our parentheses without a subsequent logical operator, but still some string left to process
+                        // That's not good, something's malformed. Check to see what's wrong.
+                        Utils.BreakIfDebug();
+                        return blnInnerResult;
+                    }
+#endif
+                    else
+                        return blnInnerResult;
+
+                    intOpenParenthesesIndex = condition.IndexOf('(', intCloseParenthesesIndex + 1);
+                }
+
+                if (condition.Contains(" and ", intCloseParenthesesIndex, StringComparison.OrdinalIgnoreCase))
+                {
+                    foreach (string part in condition.SplitNoAlloc(" and ", StringSplitOptions.RemoveEmptyEntries, StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (!await EvaluateConditionAsync(part.Trim(), targetObject, token).ConfigureAwait(false))
+                            return false;
+                    }
+                    return true;
+                }
+
+                if (condition.Contains(" or ", intCloseParenthesesIndex, StringComparison.OrdinalIgnoreCase))
+                {
+                    foreach (string part in condition.SplitNoAlloc(" or ", StringSplitOptions.RemoveEmptyEntries, StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (await EvaluateConditionAsync(part.Trim(), targetObject, token).ConfigureAwait(false))
+                            return true;
+                    }
+                    return false;
+                }
+
+                bool? leaf = await EvaluateConditionLeafAsync(condition, targetObject, token).ConfigureAwait(false);
+                return leaf ?? true;
+            }
+            catch (Exception)
+            {
+                Utils.BreakIfDebug();
+                return true;
+            }
+        }
+
+        /// <summary>
+        /// Synchronous condition evaluation using the same typed allowlist as the async path.
+        /// </summary>
+        /// <param name="condition">The condition string to evaluate.</param>
+        /// <param name="targetObject">The object to evaluate the condition against.</param>
+        /// <returns>True if the condition is met, false otherwise.</returns>
+        public static bool EvaluateCondition(string condition, object targetObject)
+        {
+            if (string.IsNullOrEmpty(condition) || targetObject == null)
+                return true;
+
+            try
+            {
+                int intConditionLength = condition.Length;
+                // This part handles "not()" operations as well as general-purpose parentheses stuff
+                int intCloseParenthesesIndex = 0;
+                int intOpenParenthesesIndex = condition.IndexOf('(');
+                while (intOpenParenthesesIndex >= 0)
+                {
+                    int intParenthesesLevel = 1;
+                    intCloseParenthesesIndex = intOpenParenthesesIndex + 1;
+                    for (; intCloseParenthesesIndex >= 0 && intCloseParenthesesIndex < intConditionLength; intCloseParenthesesIndex = condition.IndexOfAny(s_achrParentheses, intCloseParenthesesIndex + 1))
+                    {
+                        if (condition[intCloseParenthesesIndex] == '(')
+                            ++intParenthesesLevel;
+                        else
+                        {
+                            --intParenthesesLevel;
+                            if (intParenthesesLevel == 0)
+                                break;
+                        }
+                    }
+                    if (intParenthesesLevel > 0) // Faulty syntax, just break and ignore the parentheses altogether
+                    {
+                        Utils.BreakIfDebug();
+                        break;
+                    }
+                    bool blnInnerResult = EvaluateCondition(condition.Substring(intOpenParenthesesIndex, intCloseParenthesesIndex - intOpenParenthesesIndex).Trim(), targetObject);
+                    if (intOpenParenthesesIndex >= 3 && string.Equals(condition.Substring(intOpenParenthesesIndex - 3, 3), "not", StringComparison.OrdinalIgnoreCase))
+                        blnInnerResult = !blnInnerResult;
+
+                    if (intCloseParenthesesIndex + 5 < intConditionLength)
+                    {
+                        string strCut = condition.Substring(intCloseParenthesesIndex + 1, 5);
+                        if (string.Equals(strCut, " and ", StringComparison.OrdinalIgnoreCase))
+                        {
+                            if (!blnInnerResult)
+                                return false;
+                        }
+                        else if (strCut.StartsWith(" or ", StringComparison.OrdinalIgnoreCase))
+                        {
+                            if (blnInnerResult)
+                                return true;
+                        }
+#if DEBUG
+                        else
+                        {
+                            Utils.BreakIfDebug();
+                            return blnInnerResult;
+                        }
+#else
+                        else
+                            return blnInnerResult;
+#endif
+                    }
+                    else if (intCloseParenthesesIndex + 4 < intConditionLength && string.Equals(condition.Substring(intCloseParenthesesIndex + 1, 4), " or ", StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (blnInnerResult)
+                            return true;
+                    }
+#if DEBUG
+                    else if (intCloseParenthesesIndex + 1 < intConditionLength)
+                    {
+                        // If we are here, we somehow have ended our parentheses without a subsequent logical operator, but still some string left to process
+                        // That's not good, something's malformed. Check to see what's wrong.
+                        Utils.BreakIfDebug();
+                        return blnInnerResult;
+                    }
+#endif
+                    else
+                        return blnInnerResult;
+
+                    intOpenParenthesesIndex = condition.IndexOf('(', intCloseParenthesesIndex + 1);
+                }
+
+                if (condition.Contains(" and ", intCloseParenthesesIndex, StringComparison.OrdinalIgnoreCase))
+                {
+                    foreach (string part in condition.SplitNoAlloc(" and ", StringSplitOptions.RemoveEmptyEntries, StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (!EvaluateCondition(part.Trim(), targetObject))
+                            return false;
+                    }
+                    return true;
+                }
+
+                if (condition.Contains(" or ", intCloseParenthesesIndex, StringComparison.OrdinalIgnoreCase))
+                {
+                    foreach (string part in condition.SplitNoAlloc(" or ", StringSplitOptions.RemoveEmptyEntries, StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (EvaluateCondition(part.Trim(), targetObject))
+                            return true;
+                    }
+                    return false;
+                }
+
+                bool? leaf = EvaluateConditionLeaf(condition, targetObject);
+                return leaf ?? true;
+            }
+            catch (Exception)
+            {
+                Utils.BreakIfDebug();
+                return true;
+            }
+        }
+
+        private static async Task<bool?> EvaluateConditionLeafAsync(string condition, object targetObject, CancellationToken token)
+        {
+            token.ThrowIfCancellationRequested();
+
+            Match xpathMatch = XPathConditionRegex.Match(condition);
+            if (xpathMatch.Success)
+            {
+                string objectType = xpathMatch.Groups[1].Value;
+                string propertyName = xpathMatch.Groups[2].Value;
+                string strOperator = xpathMatch.Groups[3].Success ? xpathMatch.Groups[3].Value : null;
+                string expectedValue = xpathMatch.Groups[4].Success
+                    ? xpathMatch.Groups[4].Value.Trim().Trim('"', '\'')
+                    : null;
+
+                (bool found, object value) = await TryGetConditionValueAsync(targetObject, objectType, propertyName, token).ConfigureAwait(false);
+                if (!found)
+                    return false;
+                return ApplyConditionValue(value, strOperator, expectedValue);
+            }
+
+            Match atMatch = AtPropertyConditionRegex.Match(condition);
+            if (atMatch.Success)
+            {
+                string objectType = GetConditionObjectType(targetObject);
+                if (objectType == null)
+                    return false;
+
+                string propertyName = atMatch.Groups[1].Value;
+                string strOperator = atMatch.Groups[2].Success ? atMatch.Groups[2].Value : null;
+                string expectedValue = atMatch.Groups[3].Success
+                    ? atMatch.Groups[3].Value.Trim().Trim('"', '\'')
+                    : null;
+
+                (bool found, object value) = await TryGetConditionValueAsync(targetObject, objectType, propertyName, token).ConfigureAwait(false);
+                if (!found)
+                    return false;
+                return ApplyConditionValue(value, strOperator, expectedValue);
+            }
+
+            return await EvaluateLegacyConditionAsync(condition, targetObject, token).ConfigureAwait(false);
+        }
+
+        private static bool? EvaluateConditionLeaf(string condition, object targetObject)
+        {
+            Match xpathMatch = XPathConditionRegex.Match(condition);
+            if (xpathMatch.Success)
+            {
+                string objectType = xpathMatch.Groups[1].Value;
+                string propertyName = xpathMatch.Groups[2].Value;
+                string strOperator = xpathMatch.Groups[3].Success ? xpathMatch.Groups[3].Value : null;
+                string expectedValue = xpathMatch.Groups[4].Success
+                    ? xpathMatch.Groups[4].Value.Trim().Trim('"', '\'')
+                    : null;
+
+                if (!TryGetConditionValue(targetObject, objectType, propertyName, out object value))
+                    return false;
+                return ApplyConditionValue(value, strOperator, expectedValue);
+            }
+
+            Match atMatch = AtPropertyConditionRegex.Match(condition);
+            if (atMatch.Success)
+            {
+                string objectType = GetConditionObjectType(targetObject);
+                if (objectType == null)
+                    return false;
+
+                string propertyName = atMatch.Groups[1].Value;
+                string strOperator = atMatch.Groups[2].Success ? atMatch.Groups[2].Value : null;
+                string expectedValue = atMatch.Groups[3].Success
+                    ? atMatch.Groups[3].Value.Trim().Trim('"', '\'')
+                    : null;
+
+                if (!TryGetConditionValue(targetObject, objectType, propertyName, out object value))
+                    return false;
+                return ApplyConditionValue(value, strOperator, expectedValue);
+            }
+
+            return EvaluateLegacyCondition(condition, targetObject);
+        }
+
+        private static bool ApplyConditionValue(object propertyValue, string strOperator, string expectedValue)
+        {
+            if (string.IsNullOrEmpty(strOperator) || expectedValue == null)
+                return Convert.ToBoolean(propertyValue);
+
+            return EvaluateComparison(propertyValue, expectedValue, strOperator);
+        }
+
+        /// <summary>
+        /// Maps a target instance to its condition object-type key, or null if unsupported.
+        /// </summary>
+        private static string GetConditionObjectType(object targetObject)
+        {
+            switch (targetObject)
+            {
+                case Character _:
+                    return "character";
+                case Spell _:
+                    return "spell";
+                case Skill _:
+                    return "skill";
+                case SkillGroup _:
+                    return "skillgroup";
+                default:
+                    return null;
+            }
+        }
+
+        /// <summary>
+        /// Typed allowlist: resolve a known condition property without reflection.
+        /// </summary>
+        private static bool TryGetConditionValue(object targetObject, string objectType, string propertyName, out object value)
+        {
+            value = null;
+            if (targetObject == null || string.IsNullOrEmpty(objectType) || string.IsNullOrEmpty(propertyName))
+                return false;
+
+            string typeKey = objectType.ToLowerInvariant();
+            string propKey = propertyName.ToLowerInvariant();
+
+            switch (typeKey)
+            {
+                case "character" when targetObject is Character objCharacter:
+                    switch (propKey)
+                    {
+                        case "created":
+                            value = objCharacter.Created;
+                            return true;
+                        case "name":
+                            value = objCharacter.Name;
+                            return true;
+                        case "metatype":
+                            value = objCharacter.Metatype;
+                            return true;
+                        case "metavariant":
+                            value = objCharacter.Metavariant;
+                            return true;
+                    }
+                    break;
+
+                case "spell" when targetObject is Spell objSpell:
+                    switch (propKey)
+                    {
+                        case "alchemical":
+                            value = objSpell.Alchemical;
+                            return true;
+                        case "name":
+                            value = objSpell.Name;
+                            return true;
+                        case "category":
+                            value = objSpell.Category;
+                            return true;
+                        case "type":
+                            value = objSpell.Type;
+                            return true;
+                        case "range":
+                            value = objSpell.Range;
+                            return true;
+                        case "extended":
+                            value = objSpell.Extended;
+                            return true;
+                        case "limited":
+                            value = objSpell.Limited;
+                            return true;
+                    }
+                    break;
+
+                case "skill" when targetObject is Skill objSkill:
+                    switch (propKey)
+                    {
+                        case "name":
+                            value = objSkill.Name;
+                            return true;
+                        case "category":
+                        case "skillcategory":
+                            value = objSkill.SkillCategory;
+                            return true;
+                        case "attribute":
+                            value = objSkill.Attribute;
+                            return true;
+                        case "rating":
+                            value = objSkill.Rating;
+                            return true;
+                    }
+                    break;
+
+                case "skillgroup" when targetObject is SkillGroup objSkillGroup:
+                    switch (propKey)
+                    {
+                        case "name":
+                            value = objSkillGroup.Name;
+                            return true;
+                        case "rating":
+                            value = objSkillGroup.Rating;
+                            return true;
+                    }
+                    break;
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Async typed allowlist. Prefers typed GetXxxAsync helpers where they exist.
+        /// </summary>
+        private static async Task<(bool Found, object Value)> TryGetConditionValueAsync(
+            object targetObject, string objectType, string propertyName, CancellationToken token)
+        {
+            token.ThrowIfCancellationRequested();
+
+            if (targetObject == null || string.IsNullOrEmpty(objectType) || string.IsNullOrEmpty(propertyName))
+                return (false, null);
+
+            string typeKey = objectType.ToLowerInvariant();
+            string propKey = propertyName.ToLowerInvariant();
+
+            switch (typeKey)
+            {
+                case "character" when targetObject is Character objCharacter:
+                    switch (propKey)
+                    {
+                        case "created":
+                            return (true, await objCharacter.GetCreatedAsync(token).ConfigureAwait(false));
+                        case "name":
+                            return (true, await objCharacter.GetNameAsync(token).ConfigureAwait(false));
+                        case "metatype":
+                            return (true, await objCharacter.GetMetatypeAsync(token).ConfigureAwait(false));
+                        case "metavariant":
+                            return (true, await objCharacter.GetMetavariantAsync(token).ConfigureAwait(false));
+                    }
+                    break;
+
+                case "spell" when targetObject is Spell objSpell:
+                    switch (propKey)
+                    {
+                        case "alchemical":
+                            return (true, objSpell.Alchemical);
+                        case "name":
+                            return (true, await objSpell.GetNameAsync(token).ConfigureAwait(false));
+                        case "category":
+                            return (true, objSpell.Category);
+                        case "type":
+                            return (true, objSpell.Type);
+                        case "range":
+                            return (true, objSpell.Range);
+                        case "extended":
+                            return (true, objSpell.Extended);
+                        case "limited":
+                            return (true, objSpell.Limited);
+                    }
+                    break;
+
+                case "skill" when targetObject is Skill objSkill:
+                    switch (propKey)
+                    {
+                        case "name":
+                            return (true, await objSkill.GetNameAsync(token).ConfigureAwait(false));
+                        case "category":
+                        case "skillcategory":
+                            return (true, objSkill.SkillCategory);
+                        case "attribute":
+                            return (true, await objSkill.GetAttributeAsync(token).ConfigureAwait(false));
+                        case "rating":
+                            return (true, await objSkill.GetRatingAsync(token).ConfigureAwait(false));
+                    }
+                    break;
+
+                case "skillgroup" when targetObject is SkillGroup objSkillGroup:
+                    switch (propKey)
+                    {
+                        case "name":
+                            return (true, await objSkillGroup.GetNameAsync(token).ConfigureAwait(false));
+                        case "rating":
+                            return (true, await objSkillGroup.GetRatingAsync(token).ConfigureAwait(false));
+                    }
+                    break;
+            }
+
+            return (false, null);
+        }
+
+        /// <summary>
+        /// Evaluates legacy conditions that do not use XPath/@ syntax.
+        /// Returns null if the condition is not a legacy condition.
+        /// </summary>
+        private static async Task<bool?> EvaluateLegacyConditionAsync(string condition, object targetObject, CancellationToken token = default)
+        {
+            token.ThrowIfCancellationRequested();
+
+            if (targetObject is Character objCharacter)
+            {
+                if (string.Equals(condition, "career", StringComparison.OrdinalIgnoreCase))
+                    return await objCharacter.GetCreatedAsync(token).ConfigureAwait(false);
+                if (string.Equals(condition, "create", StringComparison.OrdinalIgnoreCase))
+                    return !await objCharacter.GetCreatedAsync(token).ConfigureAwait(false);
+            }
+
+            if (targetObject is Skill objSkill)
+            {
+                if (await objSkill.HasSpecializationAsync(condition, token).ConfigureAwait(false))
+                    return true;
+            }
+            else if (targetObject is SkillGroup objSkillGroup)
+            {
+                foreach (Skill objSkillInGroup in objSkillGroup.SkillList)
+                {
+                    if (await objSkillInGroup.HasSpecializationAsync(condition, token).ConfigureAwait(false))
+                        return true;
+                }
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Synchronous legacy condition evaluation.
+        /// </summary>
+        private static bool? EvaluateLegacyCondition(string condition, object targetObject)
+        {
+            if (targetObject is Character objCharacter)
+            {
+                if (string.Equals(condition, "career", StringComparison.OrdinalIgnoreCase))
+                    return objCharacter.Created;
+                if (string.Equals(condition, "create", StringComparison.OrdinalIgnoreCase))
+                    return !objCharacter.Created;
+            }
+
+            if (targetObject is Skill objSkill)
+            {
+                if (objSkill.HasSpecialization(condition))
+                    return true;
+            }
+            else if (targetObject is SkillGroup objSkillGroup)
+            {
+                foreach (Skill objSkillInGroup in objSkillGroup.SkillList)
+                {
+                    if (objSkillInGroup.HasSpecialization(condition))
+                        return true;
+                }
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Evaluates a comparison between a property value and an expected value.
+        /// </summary>
+        private static bool EvaluateComparison(object propertyValue, string expectedValue, string strOperator)
+        {
+            try
+            {
+                object convertedExpectedValue = ConvertValue(expectedValue, propertyValue.GetType());
+
+                // We need to check for ampersand semicolon forms so that we can safely read conditions in through XML (XML needs to have characters like < and > escaped)
+                switch (strOperator.ToUpperInvariant())
+                {
+                    case "=":
+                    case "==":
+                    case "&EQ;":
+                    default:
+                        {
+                            if (propertyValue is string strPropertyValue && convertedExpectedValue is string strConvertedExpectedValue)
+                                return string.Equals(strPropertyValue, strConvertedExpectedValue, StringComparison.Ordinal);
+                            return Equals(propertyValue, convertedExpectedValue);
+                        }
+                    case "!=":
+                    case "!&EQ;":
+                    case "&NE;":
+                        {
+                            if (propertyValue is string strPropertyValue && convertedExpectedValue is string strConvertedExpectedValue)
+                                return !string.Equals(strPropertyValue, strConvertedExpectedValue, StringComparison.Ordinal);
+                            return !Equals(propertyValue, convertedExpectedValue);
+                        }
+                    case ">":
+                    case "&GT;":
+                        return CompareValues(propertyValue, convertedExpectedValue) > 0;
+                    case "<":
+                    case "&LT;":
+                        return CompareValues(propertyValue, convertedExpectedValue) < 0;
+                    case ">=":
+                    case "&GTE;":
+                    case "&GT;&EQ;":
+                        return CompareValues(propertyValue, convertedExpectedValue) >= 0;
+                    case "<=":
+                    case "&LTE;":
+                    case "&LT;&EQ;":
+                        return CompareValues(propertyValue, convertedExpectedValue) <= 0;
+                    case "CONTAINS":
+                        return propertyValue.ToString().Contains(expectedValue, StringComparison.Ordinal);
+                }
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Compares two values for ordering operations.
+        /// </summary>
+        private static int CompareValues(object value1, object value2)
+        {
+            if (value1 is IComparable comparable1 && value2 is IComparable comparable2)
+                return comparable1.CompareTo(comparable2);
+
+            return string.Compare(value1.ToString(), value2.ToString(), StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// Converts a string value to the target type.
+        /// </summary>
+        private static object ConvertValue(string value, Type targetType)
+        {
+            if (targetType == typeof(string))
+                return value;
+            if (targetType == typeof(bool))
+            {
+                if (bool.TryParse(value, out bool blnReturn))
+                    return blnReturn;
+                return false;
+            }
+            if (targetType == typeof(int))
+            {
+                if (int.TryParse(value, out int intReturn))
+                    return intReturn;
+                return 0;
+            }
+            if (targetType == typeof(decimal))
+            {
+                if (decimal.TryParse(value, out decimal decReturn))
+                    return decReturn;
+                return 0m;
+            }
+            if (targetType == typeof(double))
+            {
+                if (double.TryParse(value, out double dblReturn))
+                    return dblReturn;
+                return 0d;
+            }
+            if (targetType == typeof(float))
+            {
+                if (float.TryParse(value, out float fltReturn))
+                    return fltReturn;
+                return 0f;
+            }
+
+            try
+            {
+                return Convert.ChangeType(value, targetType);
+            }
+            catch
+            {
+                return value;
+            }
+        }
+
+        /// <summary>
+        /// Evaluates an improvement's Condition against a target object (async).
+        /// </summary>
+        /// <param name="improvement">The improvement to evaluate.</param>
+        /// <param name="targetObject">The target object to evaluate against.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>True if the improvement should be applied, false otherwise.</returns>
+        public static async Task<bool> EvaluateImprovementConditionAsync(Improvement improvement, object targetObject, CancellationToken token = default)
+        {
+            token.ThrowIfCancellationRequested();
+            if (improvement == null || string.IsNullOrEmpty(improvement.Condition))
+                return true;
+
+            return await EvaluateConditionAsync(improvement.Condition, targetObject, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Evaluates an improvement's Condition against a target object (sync).
+        /// </summary>
+        /// <param name="improvement">The improvement to evaluate.</param>
+        /// <param name="targetObject">The target object to evaluate against.</param>
+        /// <returns>True if the improvement should be applied, false otherwise.</returns>
+        public static bool EvaluateImprovementCondition(Improvement improvement, object targetObject)
+        {
+            if (improvement == null || string.IsNullOrEmpty(improvement.Condition))
+                return true;
+
+            return EvaluateCondition(improvement.Condition, targetObject);
+        }
+
+        #endregion Condition Evaluation
+
     }
 }

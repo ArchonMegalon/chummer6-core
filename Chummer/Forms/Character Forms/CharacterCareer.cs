@@ -4572,6 +4572,10 @@ namespace Chummer
 
                         try
                         {
+                            Dictionary<string, string> dicAddSpiritForcedBySource
+                                = await ImprovementManager.SnapshotAddSpiritForcedValuesBySourceAsync(
+                                    CharacterObject, token).ConfigureAwait(false);
+
                             // Wipe all improvements that we will reapply, this is mainly to eliminate orphaned improvements caused by certain bugs and also for a performance increase
                             if (lstInternalIdFilter == null)
                                 await ImprovementManager.RemoveImprovementsAsync(
@@ -4642,6 +4646,10 @@ namespace Chummer
                                 if (objNode != null)
                                 {
                                     string strSelected = objQuality.Extra;
+                                    if (string.IsNullOrEmpty(strSelected)
+                                        && dicAddSpiritForcedBySource.TryGetValue(objQuality.InternalId,
+                                            out string strSpiritForced))
+                                        strSelected = strSpiritForced;
                                     objQuality.Bonus = objNode["bonus"];
                                     if (objQuality.Bonus != null)
                                     {
@@ -8966,20 +8974,26 @@ namespace Chummer
                                 .ConfigureAwait(false), MessageBoxButtons.OK,
                             MessageBoxIcon.Information, token: GenericToken).ConfigureAwait(false);
                         return;
-                    // Neither can qualities from Improvements
                     case QualitySource.Improvement:
                     case QualitySource.QualityLevelImprovement:
-                        await Program.ShowScrollableMessageBoxAsync(
-                            this,
-                            string.Format(GlobalSettings.CultureInfo,
-                                await LanguageManager.GetStringAsync("Message_ImprovementQuality", token: GenericToken)
-                                    .ConfigureAwait(false),
-                                await objQuality.DisplaySourceNameAsync(GlobalSettings.Language, GenericToken)
-                                    .ConfigureAwait(false)),
-                            await LanguageManager.GetStringAsync("MessageTitle_MetavariantQuality", token: GenericToken)
-                                .ConfigureAwait(false), MessageBoxButtons.OK,
-                            MessageBoxIcon.Information, token: GenericToken).ConfigureAwait(false);
-                        return;
+                        // Orphaned improvement qualities (e.g. from deleted custom drugs after a guid-load bug) can be removed.
+                        if (await CharacterObject.Improvements.AnyAsync(
+                                x => x.ImproveType == Improvement.ImprovementType.SpecificQuality
+                                     && x.ImprovedName == objQuality.InternalId, GenericToken).ConfigureAwait(false))
+                        {
+                            await Program.ShowScrollableMessageBoxAsync(
+                                this,
+                                string.Format(GlobalSettings.CultureInfo,
+                                    await LanguageManager.GetStringAsync("Message_ImprovementQuality", token: GenericToken)
+                                        .ConfigureAwait(false),
+                                    await objQuality.DisplaySourceNameAsync(GlobalSettings.Language, GenericToken)
+                                        .ConfigureAwait(false)),
+                                await LanguageManager.GetStringAsync("MessageTitle_MetavariantQuality", token: GenericToken)
+                                    .ConfigureAwait(false), MessageBoxButtons.OK,
+                                MessageBoxIcon.Information, token: GenericToken).ConfigureAwait(false);
+                            return;
+                        }
+                        break;
                 }
 
                 XmlNode objXmlQuality;
@@ -9065,18 +9079,25 @@ namespace Chummer
 
                     case QualitySource.Improvement:
                     case QualitySource.QualityLevelImprovement:
-                        await Program.ShowScrollableMessageBoxAsync(
-                            this,
-                            string.Format(GlobalSettings.CultureInfo,
-                                await LanguageManager
-                                    .GetStringAsync("Message_ImprovementQuality", token: token)
-                                    .ConfigureAwait(false),
-                                await objSelectedQuality.DisplaySourceNameAsync(GlobalSettings.Language, token)
-                                    .ConfigureAwait(false)),
-                            await LanguageManager.GetStringAsync("MessageTitle_MetavariantQuality", token: token)
-                                .ConfigureAwait(false), MessageBoxButtons.OK,
-                            MessageBoxIcon.Information, token: GenericToken).ConfigureAwait(false);
-                        return false;
+                        // Orphaned improvement qualities (e.g. from deleted custom drugs after a guid-load bug) can be removed.
+                        if (await CharacterObject.Improvements.AnyAsync(
+                                x => x.ImproveType == Improvement.ImprovementType.SpecificQuality
+                                     && x.ImprovedName == objSelectedQuality.InternalId, token).ConfigureAwait(false))
+                        {
+                            await Program.ShowScrollableMessageBoxAsync(
+                                this,
+                                string.Format(GlobalSettings.CultureInfo,
+                                    await LanguageManager
+                                        .GetStringAsync("Message_ImprovementQuality", token: token)
+                                        .ConfigureAwait(false),
+                                    await objSelectedQuality.DisplaySourceNameAsync(GlobalSettings.Language, token)
+                                        .ConfigureAwait(false)),
+                                await LanguageManager.GetStringAsync("MessageTitle_MetavariantQuality", token: token)
+                                    .ConfigureAwait(false), MessageBoxButtons.OK,
+                                MessageBoxIcon.Information, token: GenericToken).ConfigureAwait(false);
+                            return false;
+                        }
+                        break;
 
                     case QualitySource.MetatypeRemovable:
                     {
@@ -10133,7 +10154,7 @@ namespace Chummer
                                   await LanguageManager.GetStringAsync("Message_DeleteImprovement", token: token)
                                                        .ConfigureAwait(false), token).ConfigureAwait(false))
                         await ImprovementManager.RemoveImprovementsAsync(
-                            CharacterObject, Improvement.ImprovementSource.Custom,
+                            CharacterObject, objImprovement.ImproveSource,
                             objImprovement.SourceName, token).ConfigureAwait(false);
                     break;
 
@@ -12146,6 +12167,7 @@ namespace Chummer
                                 List<Weapon> lstWeapons = new List<Weapon>(1);
 
                                 Gear objGear = new Gear(CharacterObject);
+                                objGear.Parent = objSensor;
                                 await objGear.CreateAsync(objXmlGear, frmPickGear.MyForm.SelectedRating, lstWeapons,
                                     string.Empty,
                                     false, token: GenericToken).ConfigureAwait(false);

@@ -64,6 +64,9 @@
     </Compile>
   </ItemGroup>
   <ItemGroup>
+    <None Include="..\Chummer\data\traditions.xml"
+          Link="TestData\traditions.xml"
+          CopyToOutputDirectory="PreserveNewest" />
     <None Update="Properties\Settings.settings">
       <Generator>SettingsSingleFileGenerator</Generator>
       <LastGenOutput>Settings.Designer.cs</LastGenOutput>

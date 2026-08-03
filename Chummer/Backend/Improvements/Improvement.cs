@@ -350,6 +350,7 @@ namespace Chummer
             ActionDicePool,
             SpecialModificationLimit,
             AddSpirit,
+            AddSpiritSkill,
             ContactKarmaDiscount,
             ContactKarmaMinimum,
             GenetechEssMultiplier,
@@ -1294,6 +1295,10 @@ namespace Chummer
                 {
                     yield return new ValueTuple<INotifyMultiplePropertiesChangedAsync, string>(_objCharacter,
                         nameof(Character.MatrixInitiativeValue));
+                    yield return new ValueTuple<INotifyMultiplePropertiesChangedAsync, string>(_objCharacter,
+                        nameof(Character.MatrixInitiativeColdValue));
+                    yield return new ValueTuple<INotifyMultiplePropertiesChangedAsync, string>(_objCharacter,
+                        nameof(Character.MatrixInitiativeHotValue));
                 }
                     break;
 
@@ -1302,6 +1307,10 @@ namespace Chummer
                 {
                     yield return new ValueTuple<INotifyMultiplePropertiesChangedAsync, string>(_objCharacter,
                         nameof(Character.MatrixInitiativeDice));
+                    yield return new ValueTuple<INotifyMultiplePropertiesChangedAsync, string>(_objCharacter,
+                        nameof(Character.MatrixInitiativeColdDice));
+                    yield return new ValueTuple<INotifyMultiplePropertiesChangedAsync, string>(_objCharacter,
+                        nameof(Character.MatrixInitiativeHotDice));
                 }
                     break;
 
@@ -1651,7 +1660,13 @@ namespace Chummer
                 }
                     break;
 
+                case ImprovementType.AddSpirit:
                 case ImprovementType.AddSprite:
+                    {
+                        // Used by SpiritControl to rebuild summonable type dropdowns.
+                        yield return new ValueTuple<INotifyMultiplePropertiesChangedAsync, string>(_objCharacter,
+                            nameof(Character.SpiritTypeListChanged));
+                    }
                     break;
 
                 case ImprovementType.BlackMarketDiscount:
@@ -2347,6 +2362,7 @@ namespace Chummer
                     break;
 
                 case ImprovementType.FreeSpellsSkill:
+                case ImprovementType.AddSpiritSkill:
                     break;
 
                 case ImprovementType.DisableSpecializationEffects:
@@ -3355,8 +3371,11 @@ namespace Chummer
 
                 case ImprovementType.MatrixInitiative:
                     {
+                        // Hot/Cold VR init values include MatrixInitiative; AR MatrixInitiativeValue does not.
                         lstReturn.Add(new ValueTuple<INotifyMultiplePropertiesChangedAsync, string>(_objCharacter,
-                            nameof(Character.MatrixInitiativeValue)));
+                            nameof(Character.MatrixInitiativeColdValue)));
+                        lstReturn.Add(new ValueTuple<INotifyMultiplePropertiesChangedAsync, string>(_objCharacter,
+                            nameof(Character.MatrixInitiativeHotValue)));
                     }
                     break;
 
@@ -3365,6 +3384,11 @@ namespace Chummer
                     {
                         lstReturn.Add(new ValueTuple<INotifyMultiplePropertiesChangedAsync, string>(_objCharacter,
                             nameof(Character.MatrixInitiativeDice)));
+                        // Non-AI Cold/Hot dice do not depend on MatrixInitiativeDice in the property graph.
+                        lstReturn.Add(new ValueTuple<INotifyMultiplePropertiesChangedAsync, string>(_objCharacter,
+                            nameof(Character.MatrixInitiativeColdDice)));
+                        lstReturn.Add(new ValueTuple<INotifyMultiplePropertiesChangedAsync, string>(_objCharacter,
+                            nameof(Character.MatrixInitiativeHotDice)));
                     }
                     break;
 
@@ -3721,7 +3745,13 @@ namespace Chummer
                     }
                     break;
 
+                case ImprovementType.AddSpirit:
                 case ImprovementType.AddSprite:
+                    {
+                        // Used by SpiritControl to rebuild summonable type dropdowns.
+                        lstReturn.Add(new ValueTuple<INotifyMultiplePropertiesChangedAsync, string>(_objCharacter,
+                            nameof(Character.SpiritTypeListChanged)));
+                    }
                     break;
 
                 case ImprovementType.BlackMarketDiscount:
@@ -4381,6 +4411,7 @@ namespace Chummer
                     break;
 
                 case ImprovementType.FreeSpellsSkill:
+                case ImprovementType.AddSpiritSkill:
                     break;
 
                 case ImprovementType.DisableSpecializationEffects:

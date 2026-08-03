@@ -2916,17 +2916,24 @@ namespace Chummer.Backend.Skills
                             decReturn += objImprovement.Value;
                         else
                         {
-                            decimal decLoopMaxValue = decMaxConditionalValue;
-                            if (objMaxConditionalSpecialization != null)
-                                decLoopMaxValue += objMaxConditionalSpecialization.SpecializationBonus;
-                            decimal decLoop = objImprovement.Value;
-                            SkillSpecialization objLoopSpec = GetSpecialization(objImprovement.Condition);
-                            if (objLoopSpec != null)
-                                decLoop += objLoopSpec.SpecializationBonus;
-                            if (decLoop > decLoopMaxValue)
+                            // Use the generic condition evaluator for both legacy and new conditions
+                            if (ImprovementManager.EvaluateImprovementCondition(objImprovement, this))
                             {
-                                decMaxConditionalValue = objImprovement.Value;
-                                objMaxConditionalSpecialization = objLoopSpec;
+                                decimal decLoopMaxValue = decMaxConditionalValue;
+                                if (objMaxConditionalSpecialization != null)
+                                    decLoopMaxValue += objMaxConditionalSpecialization.SpecializationBonus;
+                                decimal decLoop = objImprovement.Value;
+
+                                // Handle legacy specialization conditions
+                                SkillSpecialization objLoopSpec = GetSpecialization(objImprovement.Condition);
+                                if (objLoopSpec != null)
+                                    decLoop += objLoopSpec.SpecializationBonus;
+
+                                if (decLoop > decLoopMaxValue)
+                                {
+                                    decMaxConditionalValue = objImprovement.Value;
+                                    objMaxConditionalSpecialization = objLoopSpec;
+                                }
                             }
                         }
                     }
@@ -2961,17 +2968,24 @@ namespace Chummer.Backend.Skills
                             decReturn += objImprovement.Value;
                         else
                         {
-                            decimal decLoopMaxValue = decMaxConditionalValue;
-                            if (objMaxConditionalSpecialization != null)
-                                decLoopMaxValue += await objMaxConditionalSpecialization.GetSpecializationBonusAsync(token).ConfigureAwait(false);
-                            decimal decLoop = objImprovement.Value;
-                            SkillSpecialization objLoopSpec = await GetSpecializationAsync(objImprovement.Condition, token).ConfigureAwait(false);
-                            if (objLoopSpec != null)
-                                decLoop += await objLoopSpec.GetSpecializationBonusAsync(token).ConfigureAwait(false);
-                            if (decLoop > decLoopMaxValue)
+                            // Use the generic condition evaluator for both legacy and new conditions
+                            if (await ImprovementManager.EvaluateImprovementConditionAsync(objImprovement, this, token).ConfigureAwait(false))
                             {
-                                decMaxConditionalValue = objImprovement.Value;
-                                objMaxConditionalSpecialization = objLoopSpec;
+                                decimal decLoopMaxValue = decMaxConditionalValue;
+                                if (objMaxConditionalSpecialization != null)
+                                    decLoopMaxValue += await objMaxConditionalSpecialization.GetSpecializationBonusAsync(token).ConfigureAwait(false);
+                                decimal decLoop = objImprovement.Value;
+
+                                // Handle legacy specialization conditions
+                                SkillSpecialization objLoopSpec = await GetSpecializationAsync(objImprovement.Condition, token).ConfigureAwait(false);
+                                if (objLoopSpec != null)
+                                    decLoop += await objLoopSpec.GetSpecializationBonusAsync(token).ConfigureAwait(false);
+
+                                if (decLoop > decLoopMaxValue)
+                                {
+                                    decMaxConditionalValue = objImprovement.Value;
+                                    objMaxConditionalSpecialization = objLoopSpec;
+                                }
                             }
                         }
                     }
@@ -7272,6 +7286,7 @@ namespace Chummer.Backend.Skills
         {
             if (IsLoading)
                 return;
+            bool blnRefreshAddSpiritSkillSelections = false;
             using (LockObject.EnterUpgradeableReadLock())
             {
                 HashSet<string> setNamesOfChangedProperties = null;
@@ -7418,6 +7433,9 @@ namespace Chummer.Backend.Skills
                     if (setNamesOfChangedProperties.Contains(nameof(DefaultAttribute)))
                         RecacheAttribute();
 
+                    if (setNamesOfChangedProperties.Contains(nameof(TotalBaseRating)))
+                        blnRefreshAddSpiritSkillSelections = true;
+
                     if (setNamesOfChangedProperties.Contains(nameof(Enabled))
                         && CharacterObjectSettings.CompensateSkillGroupKarmaDifference && SkillGroupObject != null)
                     {
@@ -7435,6 +7453,14 @@ namespace Chummer.Backend.Skills
                         Utils.StringHashSetPool.Return(ref setNamesOfChangedProperties);
                 }
             }
+
+            if (blnRefreshAddSpiritSkillSelections)
+            {
+                // Dedicated Conjurer et al.: prompt for newly earned spirit types when Summoning (etc.) rises.
+                // Run outside LockObject so SelectItem / CreateImprovement cannot deadlock.
+                Utils.SafelyRunSynchronously(
+                    () => ImprovementManager.RefreshAddSpiritSkillSelectionsAsync(CharacterObject, this));
+            }
         }
 
         public async Task OnMultiplePropertiesChangedAsync(IReadOnlyCollection<string> lstPropertyNames,
@@ -7443,6 +7469,7 @@ namespace Chummer.Backend.Skills
             token.ThrowIfCancellationRequested();
             if (IsLoading)
                 return;
+            bool blnRefreshAddSpiritSkillSelections = false;
             IAsyncDisposable objLocker = await LockObject.EnterUpgradeableReadLockAsync(token).ConfigureAwait(false);
             try
             {
@@ -7597,6 +7624,9 @@ namespace Chummer.Backend.Skills
                     if (setNamesOfChangedProperties.Contains(nameof(DefaultAttribute)))
                         await RecacheAttributeAsync(token).ConfigureAwait(false);
 
+                    if (setNamesOfChangedProperties.Contains(nameof(TotalBaseRating)))
+                        blnRefreshAddSpiritSkillSelections = true;
+
                     if (setNamesOfChangedProperties.Contains(nameof(Enabled)) && CharacterObject != null &&
                         SkillGroupObject != null)
                     {
@@ -7618,6 +7648,14 @@ namespace Chummer.Backend.Skills
             finally
             {
                 await objLocker.DisposeAsync().ConfigureAwait(false);
+            }
+
+            if (blnRefreshAddSpiritSkillSelections)
+            {
+                // Dedicated Conjurer et al.: prompt for newly earned spirit types when Summoning (etc.) rises.
+                // Run outside LockObject so SelectItem / CreateImprovement cannot deadlock.
+                await ImprovementManager.RefreshAddSpiritSkillSelectionsAsync(CharacterObject, this, token)
+                    .ConfigureAwait(false);
             }
         }
 
@@ -7933,7 +7971,7 @@ namespace Chummer.Backend.Skills
             token.ThrowIfCancellationRequested();
             if (_intSkipSpecializationRefresh > 0)
                 return;
-            
+
             // Use upgradeable read lock like other collection change handlers in the codebase
             IAsyncDisposable objLocker = await LockObject.EnterUpgradeableReadLockAsync(token).ConfigureAwait(false);
             try

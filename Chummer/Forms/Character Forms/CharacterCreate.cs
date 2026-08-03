@@ -1781,7 +1781,7 @@ namespace Chummer
                                 {
                                     // Directly awaiting here so that we can properly unset the dirty flag after the update
                                     await RequestAndProcessCharacterUpdate(GenericToken).ConfigureAwait(false);
-                                    
+
                                     // Update tradition UI after character loading is complete
                                     Tradition objTradition = await CharacterObject.GetMagicTraditionAsync(GenericToken).ConfigureAwait(false);
                                     if (objTradition != null && objTradition.IsCustomTradition)
@@ -1800,7 +1800,7 @@ namespace Chummer
                                         await cboSpiritIllusion.DoThreadSafeAsync(x => { x.Enabled = true; x.Visible = true; }, GenericToken).ConfigureAwait(false);
                                         await cboSpiritManipulation.DoThreadSafeAsync(x => { x.Enabled = true; x.Visible = true; }, GenericToken).ConfigureAwait(false);
                                     }
-                                    
+
                                     // Clear the Dirty flag which gets set when creating a new Character.
                                     if (!await CharacterObject.GetLoadAsDirtyAsync(GenericToken).ConfigureAwait(false))
                                         IsDirty = false;
@@ -3704,6 +3704,10 @@ namespace Chummer
 
                         try
                         {
+                            Dictionary<string, string> dicAddSpiritForcedBySource
+                                = await ImprovementManager.SnapshotAddSpiritForcedValuesBySourceAsync(
+                                    CharacterObject, token).ConfigureAwait(false);
+
                             // Wipe all improvements that we will reapply, this is mainly to eliminate orphaned improvements caused by certain bugs and also for a performance increase
                             if (lstInternalIdFilter == null)
                                 await ImprovementManager.RemoveImprovementsAsync(
@@ -3777,6 +3781,10 @@ namespace Chummer
                                 if (objNode != null)
                                 {
                                     string strSelected = objQuality.Extra;
+                                    if (string.IsNullOrEmpty(strSelected)
+                                        && dicAddSpiritForcedBySource.TryGetValue(objQuality.InternalId,
+                                            out string strSpiritForced))
+                                        strSelected = strSpiritForced;
 
                                     objQuality.Bonus = objNode["bonus"];
                                     if (objQuality.Bonus != null)
@@ -6450,16 +6458,24 @@ namespace Chummer
 
                 case QualitySource.Improvement:
                 case QualitySource.QualityLevelImprovement:
-                    await Program.ShowScrollableMessageBoxAsync(
-                        this,
-                        string.Format(GlobalSettings.CultureInfo,
-                            await LanguageManager.GetStringAsync("Message_ImprovementQuality", token: token)
-                                .ConfigureAwait(false),
-                            await objSelectedQuality.DisplaySourceNameAsync(GlobalSettings.Language, token)
-                                .ConfigureAwait(false)),
-                        await LanguageManager.GetStringAsync("MessageTitle_MetavariantQuality", token: token)
-                            .ConfigureAwait(false), MessageBoxButtons.OK, MessageBoxIcon.Information, token: token).ConfigureAwait(false);
-                    return false;
+                    // Orphaned improvement qualities (e.g. from deleted custom drugs after a guid-load bug) can be removed.
+                    // Only prevent this if there still improvements that refer to the quality.
+                    if (await CharacterObject.Improvements.AnyAsync(
+                            x => x.ImproveType == Improvement.ImprovementType.SpecificQuality
+                                 && x.ImprovedName == objSelectedQuality.InternalId, token).ConfigureAwait(false))
+                    {
+                        await Program.ShowScrollableMessageBoxAsync(
+                            this,
+                            string.Format(GlobalSettings.CultureInfo,
+                                await LanguageManager.GetStringAsync("Message_ImprovementQuality", token: token)
+                                    .ConfigureAwait(false),
+                                await objSelectedQuality.DisplaySourceNameAsync(GlobalSettings.Language, token)
+                                    .ConfigureAwait(false)),
+                            await LanguageManager.GetStringAsync("MessageTitle_MetavariantQuality", token: token)
+                                .ConfigureAwait(false), MessageBoxButtons.OK, MessageBoxIcon.Information, token: token).ConfigureAwait(false);
+                        return false;
+                    }
+                    break;
             }
 
             CursorWait objCursorWait = await CursorWait.NewAsync(this, token: token).ConfigureAwait(false);
@@ -8111,6 +8127,7 @@ namespace Chummer
 
                                 // Create the new piece of Gear.
                                 objGear = new Gear(CharacterObject);
+                                objGear.Parent = objSensor;
                                 await objGear.CreateAsync(objXmlGear, frmPickGear.MyForm.SelectedRating, lstWeapons,
                                     string.Empty,
                                     false, token: GenericToken).ConfigureAwait(false);
@@ -9838,6 +9855,7 @@ namespace Chummer
                                 List<Weapon> lstWeapons = new List<Weapon>(1);
 
                                 Gear objGear = new Gear(CharacterObject);
+                                objGear.Parent = objSensor;
                                 await objGear.CreateAsync(objXmlGear, frmPickGear.MyForm.SelectedRating, lstWeapons,
                                     string.Empty,
                                     false, token: GenericToken).ConfigureAwait(false);
@@ -19725,7 +19743,7 @@ namespace Chummer
                                                         .ConfigureAwait(false);
                             }
 
-                            if (string.IsNullOrEmpty(objAccessory.Reach)) 
+                            if (string.IsNullOrEmpty(objAccessory.Reach))
                             {
                                 await lblVehicleWeaponReachLabel.DoThreadSafeAsync(x => x.Visible = false, token)
                                                                 .ConfigureAwait(false);
