@@ -219,10 +219,7 @@ public static class WorkspaceRevisionEtag
 {
     public static string Format(long contentRevision)
     {
-        if (contentRevision <= 0)
-        {
-            throw new ArgumentOutOfRangeException(nameof(contentRevision));
-        }
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(contentRevision);
 
         return $"\"{contentRevision}\"";
     }

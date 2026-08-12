@@ -51,7 +51,7 @@ public sealed record SessionOperationRecoveryContract(
     IReadOnlyList<SessionOperationRecoveryAction> SafeActions,
     SessionOperationObservability? Observability = null)
 {
-    public SessionOperationRecoveryAction? PrimaryAction => SafeActions.FirstOrDefault();
+    public SessionOperationRecoveryAction? PrimaryAction => SafeActions.Count > 0 ? SafeActions[0] : null;
 }
 
 public sealed record SessionOperationThroughputGuardrail(

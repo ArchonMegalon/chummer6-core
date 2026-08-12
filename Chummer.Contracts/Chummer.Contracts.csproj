@@ -1,11 +1,11 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <EnableNETAnalyzers>false</EnableNETAnalyzers>
-    <AnalysisLevel>none</AnalysisLevel>
-    <NoWarn>All</NoWarn>
-    <EnableNETAnalyzers>false</EnableNETAnalyzers>
-    <AnalysisLevel>none</AnalysisLevel>
-    <NoWarn>All</NoWarn>
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <AnalysisLevel>latest-recommended</AnalysisLevel>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <!-- These identifiers and generic factory methods are versioned public contract
+         surface. Renaming them would break serialized payloads and consumers. -->
+    <NoWarn>$(NoWarn);CA1000;CA1720</NoWarn>
     <TargetFramework>net10.0</TargetFramework>
     <RuntimeIdentifiers Condition="'$(RuntimeIdentifiers)' == ''">$(ChummerDesktopRuntimeIdentifiers)</RuntimeIdentifiers>
     <ImplicitUsings>enable</ImplicitUsings>

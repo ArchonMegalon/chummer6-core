@@ -102,7 +102,7 @@ public sealed record SessionEvent(
             envelope.SyncCursor);
     }
 
-    private static IReadOnlyDictionary<string, RulesetCapabilityValue> ParsePayload(string payloadJson)
+    private static Dictionary<string, RulesetCapabilityValue> ParsePayload(string payloadJson)
     {
         if (string.IsNullOrWhiteSpace(payloadJson))
         {

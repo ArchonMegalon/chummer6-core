@@ -205,7 +205,7 @@ public static class RulesetCapabilityBridge
         string? error = result.Success
             ? null
             : result.Diagnostics.FirstOrDefault(static diagnostic => string.Equals(diagnostic.Severity, RulesetCapabilityDiagnosticSeverities.Error, StringComparison.Ordinal))?.Message
-              ?? result.Diagnostics.FirstOrDefault()?.Message
+              ?? (result.Diagnostics.Count > 0 ? result.Diagnostics[0].Message : null)
               ?? "Capability invocation failed.";
 
         return new RulesetScriptExecutionResult(
