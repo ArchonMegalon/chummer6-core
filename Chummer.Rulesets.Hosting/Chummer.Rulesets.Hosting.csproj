@@ -8,6 +8,12 @@
   <ItemGroup>
     <ProjectReference Include="../Chummer.Application/Chummer.Application.csproj"
                       AdditionalProperties="RuntimeIdentifier=$(RuntimeIdentifier);RuntimeIdentifiers=$(RuntimeIdentifiers)" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(ChummerUseLocalCompatibilityTree)' == 'true'">
+    <ProjectReference Include="$(ChummerLocalRunContractsProject)"
+                      AdditionalProperties="RuntimeIdentifier=$(RuntimeIdentifier);RuntimeIdentifiers=$(RuntimeIdentifiers)" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(ChummerUseLocalCompatibilityTree)' != 'true'">
     <PackageReference Include="Chummer.Run.Contracts" Version="$(ChummerRunContractsPackageVersion)" />
   </ItemGroup>
   <ItemGroup Condition="'$(ChummerLocalContractsProject)' != '' and Exists('$(ChummerLocalContractsProject)')">
