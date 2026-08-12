@@ -296,7 +296,17 @@ public class ArchitectureGuardrailTests
             ["Chummer.Contracts"] = new HashSet<string>(StringComparer.Ordinal),
             ["Chummer.Core"] = new HashSet<string>(StringComparer.Ordinal) { "Chummer.Contracts" },
             ["Chummer.Application"] = new HashSet<string>(StringComparer.Ordinal) { "Chummer.Contracts" },
-            ["Chummer.Presentation"] = new HashSet<string>(StringComparer.Ordinal) { "Chummer.Campaign.Contracts", "Chummer.Contracts", "Chummer.Run.Contracts", "Chummer.Rulesets.Hosting" },
+            ["Chummer.Presentation"] = new HashSet<string>(StringComparer.Ordinal)
+            {
+                "Chummer.Campaign.Contracts",
+                "Chummer.Contracts",
+                "Chummer.Infrastructure",
+                "Chummer.Run.Contracts",
+                "Chummer.Rulesets.Hosting",
+                "Chummer.Rulesets.Sr4",
+                "Chummer.Rulesets.Sr5",
+                "Chummer.Rulesets.Sr6"
+            },
             ["Chummer.Rulesets.Hosting"] = new HashSet<string>(StringComparer.Ordinal) { "Chummer.Application", "Chummer.Contracts" },
             ["Chummer.Rulesets.Sr4"] = new HashSet<string>(StringComparer.Ordinal) { "Chummer.Application", "Chummer.Contracts", "Chummer.Infrastructure" },
             ["Chummer.Rulesets.Sr5"] = new HashSet<string>(StringComparer.Ordinal) { "Chummer.Application", "Chummer.Contracts" },
@@ -304,7 +314,7 @@ public class ArchitectureGuardrailTests
             ["Chummer.Infrastructure"] = new HashSet<string>(StringComparer.Ordinal) { "Chummer.Application", "Chummer.Contracts", "Chummer.Rulesets.Hosting", "Chummer.Rulesets.Sr5", "Chummer.Rulesets.Sr6" },
             ["Chummer.Infrastructure.Browser"] = new HashSet<string>(StringComparer.Ordinal) { "Chummer.Application", "Chummer.Contracts" },
             ["Chummer.Api"] = new HashSet<string>(StringComparer.Ordinal) { "Chummer.Application", "Chummer.Contracts", "Chummer.Desktop.Runtime", "Chummer.Infrastructure", "Chummer.Presentation", "Chummer.Run.Contracts", "Chummer.Rulesets.Sr4", "Chummer.Rulesets.Sr6" },
-            ["Chummer.Blazor"] = new HashSet<string>(StringComparer.Ordinal) { "Chummer.Campaign.Contracts", "Chummer.Contracts", "Chummer.Desktop.Runtime", "Chummer.Presentation", "Chummer.Run.Contracts" },
+            ["Chummer.Blazor"] = new HashSet<string>(StringComparer.Ordinal) { "Chummer.Campaign.Contracts", "Chummer.Contracts", "Chummer.Desktop.Runtime", "Chummer.Presentation", "Chummer.Run.Contracts", "Chummer.Workspaces.Postgres" },
             ["Chummer.Desktop.Runtime"] = new HashSet<string>(StringComparer.Ordinal) { "Chummer.Application", "Chummer.Campaign.Contracts", "Chummer.Contracts", "Chummer.Hub.Registry.Contracts", "Chummer.Infrastructure", "Chummer.Presentation", "Chummer.Run.Contracts", "Chummer.Rulesets.Hosting", "Chummer.Rulesets.Sr4", "Chummer.Rulesets.Sr5", "Chummer.Rulesets.Sr6" },
             ["Chummer.Blazor.Desktop"] = new HashSet<string>(StringComparer.Ordinal) { "Chummer.Blazor", "Chummer.Contracts", "Chummer.Desktop.Runtime", "Chummer.Presentation", "Chummer.Run.Contracts" },
             ["Chummer.Avalonia"] = new HashSet<string>(StringComparer.Ordinal) { "Chummer.Application", "Chummer.Campaign.Contracts", "Chummer.Contracts", "Chummer.Desktop.Runtime", "Chummer.Presentation", "Chummer.Run.Contracts" },
