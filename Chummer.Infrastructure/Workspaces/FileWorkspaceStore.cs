@@ -1662,6 +1662,17 @@ public sealed class FileWorkspaceStore : IWorkspaceStore, IWorkspaceStoreReadine
     private static void ValidateStaticAncestorChain(string path)
     {
         string fullPath = Path.GetFullPath(path);
+
+        if (OperatingSystem.IsAndroid())
+        {
+            // Android owns the app-data ancestors and may expose them through storage aliases that
+            // System.IO reports as reparse points. The application cannot replace those ancestors;
+            // its trust boundary starts at the private state root. Keep rejecting a linked state
+            // root here, and keep the existing pre/post link checks for every owned descendant.
+            ThrowIfLinkOrReparsePoint(fullPath, "workspace state root");
+            return;
+        }
+
         string pathRoot = Path.GetPathRoot(fullPath)
             ?? throw new IOException("The workspace state root has no filesystem root.");
         string current = pathRoot;
