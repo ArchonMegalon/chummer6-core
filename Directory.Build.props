@@ -8,6 +8,10 @@
     <ChummerOwnerContractsPackageVersion Condition="'$(ChummerOwnerContractsPackageVersion)' == ''">0.0.0-packageplane.20260721.1</ChummerOwnerContractsPackageVersion>
     <ChummerHubRegistryContractsPackageVersion Condition="'$(ChummerHubRegistryContractsPackageVersion)' == ''">$(ChummerOwnerContractsPackageVersion)</ChummerHubRegistryContractsPackageVersion>
     <ChummerRunContractsPackageVersion Condition="'$(ChummerRunContractsPackageVersion)' == ''">$(ChummerOwnerContractsPackageVersion)</ChummerRunContractsPackageVersion>
+    <ChummerUseLocalCompatibilityTree Condition="'$(ChummerUseLocalCompatibilityTree)' == ''">false</ChummerUseLocalCompatibilityTree>
+    <ChummerCompatibilityRoot Condition="'$(ChummerCompatibilityRoot)' == ''">$(MSBuildThisFileDirectory)../</ChummerCompatibilityRoot>
+    <ChummerLocalRunContractsProject Condition="'$(ChummerUseLocalCompatibilityTree)' == 'true' and '$(ChummerLocalRunContractsProject)' == ''">$(ChummerCompatibilityRoot)chummer.run-services/Chummer.Run.Contracts/Chummer.Run.Contracts.csproj</ChummerLocalRunContractsProject>
+    <ChummerLocalHubRegistryContractsProject Condition="'$(ChummerUseLocalCompatibilityTree)' == 'true' and '$(ChummerLocalHubRegistryContractsProject)' == ''">$(ChummerCompatibilityRoot)chummer-hub-registry/Chummer.Hub.Registry.Contracts/Chummer.Hub.Registry.Contracts.csproj</ChummerLocalHubRegistryContractsProject>
     <ChummerDesktopRuntimeIdentifiers Condition="'$(ChummerDesktopRuntimeIdentifiers)' == ''">linux-x64;linux-arm64;win-x64;win-arm64;osx-arm64;osx-x64</ChummerDesktopRuntimeIdentifiers>
     <ChummerLocalContractsProject Condition="'$(ChummerLocalContractsProject)' == '' and Exists('$(MSBuildThisFileDirectory)Chummer.Contracts/Chummer.Contracts.csproj')">$(MSBuildThisFileDirectory)Chummer.Contracts/Chummer.Contracts.csproj</ChummerLocalContractsProject>
     <ChummerEngineContractsLocalFeed>$(MSBuildThisFileDirectory).tmp/ai/local-nuget</ChummerEngineContractsLocalFeed>
