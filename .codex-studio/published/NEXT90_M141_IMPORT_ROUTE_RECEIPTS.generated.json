@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-06-20T22:35:50Z",
+  "generated_at": "2026-08-13T23:11:24Z",
   "status": "passed",
   "package_id": "next90-m141-core-bind-import-oracle-custom-data-and-amend-package-flows-to-deterministic",
   "frontier_id": 4304178368,
@@ -9,7 +9,7 @@
   "title": "Bind import-oracle, custom-data, and amend-package flows to deterministic receipts that can be cited by parity and workflow gates.",
   "task": "Bind import-oracle, custom-data, and amend-package flows to deterministic receipts that can be cited by parity and workflow gates.",
   "repo": "chummer6-core",
-  "repo_root": "/docker/chummercomplete/chummer-core-engine",
+  "repo_root": ".",
   "owned_surfaces": [
     "bind_import_oracle_custom_data_and_amend_package_flows_t:core"
   ],
@@ -19,14 +19,14 @@
     "docs",
     "scripts"
   ],
-  "published_receipt_path": "/docker/chummercomplete/chummer-core-engine/.codex-studio/published/NEXT90_M141_IMPORT_ROUTE_RECEIPTS.generated.json",
-  "receipt_path": "/docker/chummercomplete/chummer-core-engine/.codex-studio/published/NEXT90_M141_IMPORT_ROUTE_RECEIPTS.generated.json",
+  "published_receipt_path": ".codex-studio/published/NEXT90_M141_IMPORT_ROUTE_RECEIPTS.generated.json",
+  "receipt_path": ".codex-studio/published/NEXT90_M141_IMPORT_ROUTE_RECEIPTS.generated.json",
   "proof_anchor_count": 12,
   "authority_anchor_count": 3,
   "proof_files": [
     {
       "key": "contracts",
-      "path": "/docker/chummercomplete/chummer-core-engine/Chummer.Contracts/Api/ToolCatalogModels.cs",
+      "path": "Chummer.Contracts/Api/ToolCatalogModels.cs",
       "exists": true,
       "digest": "sha256:e1f8dac6daa9b46264dfb7dc44a1f8687ffd1d670bcaea77d9db71586e3566c1",
       "digest_scope": "full-file",
@@ -35,7 +35,7 @@
     },
     {
       "key": "tool_catalog_service",
-      "path": "/docker/chummercomplete/chummer-core-engine/Chummer.Infrastructure/Xml/XmlToolCatalogService.cs",
+      "path": "Chummer.Infrastructure/Xml/XmlToolCatalogService.cs",
       "exists": true,
       "digest": "sha256:01fc0762743250393127b8ca1e149b9b015c624ca9a43e3806806b7a66254277",
       "digest_scope": "full-file",
@@ -44,7 +44,7 @@
     },
     {
       "key": "tool_catalog_tests",
-      "path": "/docker/chummercomplete/chummer-core-engine/Chummer.Tests/ToolCatalogServiceTests.cs",
+      "path": "Chummer.Tests/ToolCatalogServiceTests.cs",
       "exists": true,
       "digest": "sha256:8469ac2c8ea68ff482d702c735f7a2e005ec800fb1341f29952a40d2b1bf253c",
       "digest_scope": "full-file",
@@ -53,25 +53,25 @@
     },
     {
       "key": "api_integration_tests",
-      "path": "/docker/chummercomplete/chummer-core-engine/Chummer.Tests/ApiIntegrationTests.cs",
+      "path": "Chummer.Tests/ApiIntegrationTests.cs",
       "exists": true,
-      "digest": "sha256:991312cccc9bccee6eddcd576ada5e2adc117e2361b0ed2033a91bc8c9cae800",
+      "digest": "sha256:66a57e0be74983405a5f74e126126ac4b9815850792eca7e6f524f849c7c1ba8",
       "digest_scope": "full-file",
       "missing_snippets": [],
       "status": "passed"
     },
     {
       "key": "engine_proof_pack_doc",
-      "path": "/docker/chummercomplete/chummer-core-engine/docs/ENGINE_PROOF_PACK.md",
+      "path": "docs/ENGINE_PROOF_PACK.md",
       "exists": true,
-      "digest": "sha256:90784d446d50a8e9fc2fb7e451c95a898b711e92b404cfc4ea2c6fc5f22b649d",
+      "digest": "sha256:02816a9ac3da557cab55ff290b820e4cc919e289612e640263bbce5b8d7859b6",
       "digest_scope": "full-file",
       "missing_snippets": [],
       "status": "passed"
     },
     {
       "key": "m141_docs",
-      "path": "/docker/chummercomplete/chummer-core-engine/docs/NEXT90_M141_IMPORT_ROUTE_RECEIPTS.md",
+      "path": "docs/NEXT90_M141_IMPORT_ROUTE_RECEIPTS.md",
       "exists": true,
       "digest": "sha256:85188789cdd4678c099edd610e99df6913723d054c2d854b217d1175172b8d18",
       "digest_scope": "full-file",
@@ -80,7 +80,7 @@
     },
     {
       "key": "m141_closeout",
-      "path": "/docker/chummercomplete/chummer-core-engine/docs/NEXT90_M141_IMPORT_ROUTE_CLOSEOUT.md",
+      "path": "docs/NEXT90_M141_IMPORT_ROUTE_CLOSEOUT.md",
       "exists": true,
       "digest": "sha256:199ca72651a049aa47f9000a77c40d157eddfd213ed04611ada1dba9b93b6cf1",
       "digest_scope": "full-file",
@@ -89,34 +89,34 @@
     },
     {
       "key": "repo_verify",
-      "path": "/docker/chummercomplete/chummer-core-engine/scripts/ai/verify.sh",
+      "path": "scripts/ai/verify.sh",
       "exists": true,
-      "digest": "sha256:c010366dd0197ae5c54818c1914d828fa8530f1ec059b0c5a72b9c6d64927dc9",
+      "digest": "sha256:150eb3a7b587aa8c22a42cb72161f676bb8a760da82c50930be94e9faff473fb",
       "digest_scope": "full-file",
       "missing_snippets": [],
       "status": "passed"
     },
     {
       "key": "engine_proof_pack_generator",
-      "path": "/docker/chummercomplete/chummer-core-engine/scripts/generate-engine-proof-pack.py",
+      "path": "scripts/generate-engine-proof-pack.py",
       "exists": true,
-      "digest": "sha256:ff9e45757f1341888e586a7fc1c142c485449f1ba29a8504ec21cc7bfef21f7d",
+      "digest": "sha256:28341ce0644c0dd7b499618c91139eb5e0dadca4bf7c8ad3f0be06e919a9b93b",
       "digest_scope": "full-file",
       "missing_snippets": [],
       "status": "passed"
     },
     {
       "key": "engine_proof_pack_generator_tests",
-      "path": "/docker/chummercomplete/chummer-core-engine/tests/test_engine_proof_pack_generator.py",
+      "path": "tests/test_engine_proof_pack_generator.py",
       "exists": true,
-      "digest": "sha256:805d377d9c969bbcecc5cbbf57788961ba59aefbaad625defdeaaf437f161d7d",
+      "digest": "sha256:23cc332cc94d99d15f6223422cb84343bf0f3d4161933108e7772c28c7a8cf13",
       "digest_scope": "full-file",
       "missing_snippets": [],
       "status": "passed"
     },
     {
       "key": "engine_proof_pack_published",
-      "path": "/docker/chummercomplete/chummer-core-engine/.codex-studio/published/ENGINE_PROOF_PACK.generated.json",
+      "path": ".codex-studio/published/ENGINE_PROOF_PACK.generated.json",
       "exists": true,
       "digest": "sha256:bcec6d2131d27e67060bcda953e56e261478f566ea7e2e7894df77583ad13933",
       "digest_scope": "stable-json-subset",
@@ -125,7 +125,7 @@
     },
     {
       "key": "import_parity_certification",
-      "path": "/docker/chummercomplete/chummer-core-engine/.codex-studio/published/IMPORT_PARITY_CERTIFICATION.generated.json",
+      "path": ".codex-studio/published/IMPORT_PARITY_CERTIFICATION.generated.json",
       "exists": true,
       "digest": "sha256:3c6ad6f0fa07df2152736d3a00a8933e50dec4b6e509f5387ea275184c7e52bf",
       "digest_scope": "stable-json-subset",

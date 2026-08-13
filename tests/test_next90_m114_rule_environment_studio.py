@@ -51,7 +51,7 @@ class Next90M114RuleEnvironmentStudioReceiptTests(unittest.TestCase):
         self.assertEqual(["rule_environment_studio", "explain_receipts:engine"], payload["owned_surfaces"])
         self.assertEqual(["src", "tests", "docs", "scripts"], payload["allowed_paths"])
         self.assertEqual(
-            "/docker/chummercomplete/chummer-core-engine/.codex-studio/published/NEXT90_M114_RULE_ENVIRONMENT_STUDIO.generated.json",
+            ".codex-studio/published/NEXT90_M114_RULE_ENVIRONMENT_STUDIO.generated.json",
             payload["published_receipt_path"],
         )
         self.assertEqual(

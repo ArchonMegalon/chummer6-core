@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-06-20T22:36:40Z",
+  "generated_at": "2026-08-13T23:11:24Z",
   "status": "passed",
   "package_id": "next90-m115-core-exchange-contracts",
   "frontier_id": 2537363316,
@@ -8,7 +8,7 @@
   "title": "Define portable dossier, replay, recap, and exchange contracts",
   "task": "Add lineage, compatibility, loss, provenance, and portability receipts for dossier, campaign, replay, recap, and external exchange outputs.",
   "repo": "chummer6-core",
-  "repo_root": "/docker/chummercomplete/chummer-core-engine",
+  "repo_root": ".",
   "owned_surfaces": [
     "portable_dossier_contracts",
     "replay_recap_exchange_contracts"
@@ -19,14 +19,14 @@
     "docs",
     "scripts"
   ],
-  "published_receipt_path": "/docker/chummercomplete/chummer-core-engine/.codex-studio/published/NEXT90_M115_CORE_EXCHANGE_CONTRACTS.generated.json",
-  "receipt_path": "/docker/chummercomplete/chummer-core-engine/.codex-studio/published/NEXT90_M115_CORE_EXCHANGE_CONTRACTS.generated.json",
+  "published_receipt_path": ".codex-studio/published/NEXT90_M115_CORE_EXCHANGE_CONTRACTS.generated.json",
+  "receipt_path": ".codex-studio/published/NEXT90_M115_CORE_EXCHANGE_CONTRACTS.generated.json",
   "proof_anchor_count": 8,
   "authority_anchor_count": 3,
   "proof_files": [
     {
       "key": "contracts",
-      "path": "/docker/chummercomplete/chummer-core-engine/Chummer.Contracts/Workspaces/WorkspacePortabilityContracts.cs",
+      "path": "Chummer.Contracts/Workspaces/WorkspacePortabilityContracts.cs",
       "exists": true,
       "digest": "sha256:8a07e7d3d4d1e8a3a0de90547378841df899e71265fa0ab8a10b952819e1a53e",
       "missing_snippets": [],
@@ -34,39 +34,39 @@
     },
     {
       "key": "workspace_service",
-      "path": "/docker/chummercomplete/chummer-core-engine/Chummer.Application/Workspaces/WorkspaceService.cs",
+      "path": "Chummer.Application/Workspaces/WorkspaceService.cs",
       "exists": true,
-      "digest": "sha256:38d20701b00c43dc595e76cb111d019571ec9bc33f248bccc3c968ccfb025f33",
+      "digest": "sha256:ae821e539d5bf9254f2e30103adc658fb5c7ef994be4c959840d6176029b369c",
       "missing_snippets": [],
       "status": "passed"
     },
     {
       "key": "core_engine_tests",
-      "path": "/docker/chummercomplete/chummer-core-engine/Chummer.CoreEngine.Tests/Program.cs",
+      "path": "Chummer.CoreEngine.Tests/Program.cs",
       "exists": true,
-      "digest": "sha256:f57e124f8e61332419367c42d4e9a2c73d464da35311f21fd47e10473af337f2",
+      "digest": "sha256:79185a9e84d5140b3b58ed9f6ae1134623f6bfdac815f7b46896061137e9ee9e",
       "missing_snippets": [],
       "status": "passed"
     },
     {
       "key": "workspace_tests",
-      "path": "/docker/chummercomplete/chummer-core-engine/Chummer.Tests/WorkspaceServiceTests.cs",
+      "path": "Chummer.Tests/WorkspaceServiceTests.cs",
       "exists": true,
-      "digest": "sha256:082a1aa51a94eb6b992e777204baf2c45b3370ce783a7a924839e73aa6c08c3f",
+      "digest": "sha256:caddc3d290275e3fa70144275e57ede41043061cd922c25183f5f188f1830d64",
       "missing_snippets": [],
       "status": "passed"
     },
     {
       "key": "repo_verify",
-      "path": "/docker/chummercomplete/chummer-core-engine/scripts/ai/verify.sh",
+      "path": "scripts/ai/verify.sh",
       "exists": true,
-      "digest": "sha256:c010366dd0197ae5c54818c1914d828fa8530f1ec059b0c5a72b9c6d64927dc9",
+      "digest": "sha256:150eb3a7b587aa8c22a42cb72161f676bb8a760da82c50930be94e9faff473fb",
       "missing_snippets": [],
       "status": "passed"
     },
     {
       "key": "docs",
-      "path": "/docker/chummercomplete/chummer-core-engine/docs/NEXT90_M115_CORE_EXCHANGE_CONTRACTS.md",
+      "path": "docs/NEXT90_M115_CORE_EXCHANGE_CONTRACTS.md",
       "exists": true,
       "digest": "sha256:032088b95342bc925b0654c8983df217e2f65fe2c08f4da04ce7cac95e61ebaf",
       "missing_snippets": [],
@@ -74,7 +74,7 @@
     },
     {
       "key": "receipt_test",
-      "path": "/docker/chummercomplete/chummer-core-engine/tests/test_next90_m115_core_exchange_contracts.py",
+      "path": "tests/test_next90_m115_core_exchange_contracts.py",
       "exists": true,
       "digest": "sha256:7b4d7ddec61ef485720500d857cf5a6b43c107933526e4f6044242763183f653",
       "missing_snippets": [],
@@ -82,9 +82,9 @@
     },
     {
       "key": "receipt_verifier",
-      "path": "/docker/chummercomplete/chummer-core-engine/scripts/verify-next90-m115-core-exchange-contracts.py",
+      "path": "scripts/verify-next90-m115-core-exchange-contracts.py",
       "exists": true,
-      "digest": "sha256:561aa1ef8fd88e9b098ecf1cabf02831a3da5da714cfdaeacd7988fb693e2548",
+      "digest": "sha256:1f8ab3166f4b009b100e1147ae4f22ed5b08086b5b15e41a90dad23cf54ac05d",
       "missing_snippets": [],
       "status": "passed"
     }
@@ -94,7 +94,7 @@
       "key": "successor_registry",
       "path": "/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml",
       "exists": true,
-      "digest": "sha256:c5f79da956153f2fb965a9059407b513b20b390645e6085a0af3455c5d70bc7e",
+      "digest": "sha256:bef807ae6bedaf0ee64e1052c75dbe920a214a597dc8a07941388800c2f4eeba",
       "missing_snippets": [],
       "status": "passed"
     },
@@ -102,7 +102,7 @@
       "key": "successor_queue",
       "path": "/docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml",
       "exists": true,
-      "digest": "sha256:6939295be3ce0c610973ec521eef5b725d3f19ca8112453408b1672b27e12140",
+      "digest": "sha256:9ed2805870aab4b98139e0638d9f5829303b6095f3bf747ed33f742c9ea5d37d",
       "missing_snippets": [],
       "status": "passed"
     },
@@ -110,7 +110,7 @@
       "key": "design_successor_queue",
       "path": "/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_QUEUE_STAGING.generated.yaml",
       "exists": true,
-      "digest": "sha256:6939295be3ce0c610973ec521eef5b725d3f19ca8112453408b1672b27e12140",
+      "digest": "sha256:9ed2805870aab4b98139e0638d9f5829303b6095f3bf747ed33f742c9ea5d37d",
       "missing_snippets": [],
       "status": "passed"
     }

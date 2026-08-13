@@ -51,7 +51,7 @@ class ExplainValuePacketReceiptTests(unittest.TestCase):
         self.assertEqual(["explain_every_value_packets", "counterfactual_explain:core"], payload["owned_surfaces"])
         self.assertEqual(["src", "tests", "docs", "scripts"], payload["allowed_paths"])
         self.assertEqual(
-            "/docker/chummercomplete/chummer-core-engine/.codex-studio/published/EXPLAIN_VALUE_PACKETS.generated.json",
+            ".codex-studio/published/EXPLAIN_VALUE_PACKETS.generated.json",
             payload["published_receipt_path"],
         )
         self.assertEqual(6, payload["proof_anchor_count"])

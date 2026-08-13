@@ -89,7 +89,7 @@ class Next90M141ImportRouteReceiptTests(unittest.TestCase):
         self.assertEqual(["bind_import_oracle_custom_data_and_amend_package_flows_t:core"], payload["owned_surfaces"])
         self.assertEqual(["src", "tests", "docs", "scripts"], payload["allowed_paths"])
         self.assertEqual(
-            "/docker/chummercomplete/chummer-core-engine/.codex-studio/published/NEXT90_M141_IMPORT_ROUTE_RECEIPTS.generated.json",
+            ".codex-studio/published/NEXT90_M141_IMPORT_ROUTE_RECEIPTS.generated.json",
             payload["published_receipt_path"],
         )
         self.assertEqual("/api/tools/master-index", payload["master_index_route"])

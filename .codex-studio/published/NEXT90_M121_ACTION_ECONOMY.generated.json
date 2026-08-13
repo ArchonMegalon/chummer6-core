@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-06-20T22:37:45Z",
+  "generated_at": "2026-08-13T23:11:24Z",
   "status": "passed",
   "package_id": "next90-m121-core-implement-actionbudgetresult-actionaffordance-turnledger",
   "frontier_id": 1122632660,
@@ -8,7 +8,7 @@
   "title": "Implement ActionBudgetResult, ActionAffordance, TurnLedgerDelta, and source-anchor receipts for the first SR6 combat-round proof.",
   "task": "Implement ActionBudgetResult, ActionAffordance, TurnLedgerDelta, and source-anchor receipts for the first SR6 combat-round proof.",
   "repo": "chummer6-core",
-  "repo_root": "/docker/chummercomplete/chummer-core-engine",
+  "repo_root": ".",
   "owned_surfaces": [
     "implement_actionbudgetresult_actionaffordance_turnledger:core"
   ],
@@ -18,14 +18,14 @@
     "docs",
     "scripts"
   ],
-  "published_receipt_path": "/docker/chummercomplete/chummer-core-engine/.codex-studio/published/NEXT90_M121_ACTION_ECONOMY.generated.json",
-  "receipt_path": "/docker/chummercomplete/chummer-core-engine/.codex-studio/published/NEXT90_M121_ACTION_ECONOMY.generated.json",
+  "published_receipt_path": ".codex-studio/published/NEXT90_M121_ACTION_ECONOMY.generated.json",
+  "receipt_path": ".codex-studio/published/NEXT90_M121_ACTION_ECONOMY.generated.json",
   "proof_anchor_count": 7,
   "authority_anchor_count": 3,
   "proof_files": [
     {
       "key": "contracts",
-      "path": "/docker/chummercomplete/chummer-core-engine/Chummer.Contracts/Session/SessionActionBudgetContracts.cs",
+      "path": "Chummer.Contracts/Session/SessionActionBudgetContracts.cs",
       "exists": true,
       "digest": "sha256:01ad3d1ed0ae6ab6271f402ddaa6c1444b83859639054749dc4c635a5fddb7d9",
       "missing_snippets": [],
@@ -33,7 +33,7 @@
     },
     {
       "key": "service",
-      "path": "/docker/chummercomplete/chummer-core-engine/Chummer.Application/Session/DefaultSessionActionBudgetService.cs",
+      "path": "Chummer.Application/Session/DefaultSessionActionBudgetService.cs",
       "exists": true,
       "digest": "sha256:33e696f672f90663bfe3080499bd591100ec525c1ce3b29441e2200ecd580c75",
       "missing_snippets": [],
@@ -41,7 +41,7 @@
     },
     {
       "key": "service_interface",
-      "path": "/docker/chummercomplete/chummer-core-engine/Chummer.Application/Session/ISessionActionBudgetService.cs",
+      "path": "Chummer.Application/Session/ISessionActionBudgetService.cs",
       "exists": true,
       "digest": "sha256:7e6c4a2488ca010c99814936be73151d9f2f04f8f265e39df1fa41011f16f0c9",
       "missing_snippets": [],
@@ -49,15 +49,15 @@
     },
     {
       "key": "test_program",
-      "path": "/docker/chummercomplete/chummer-core-engine/Chummer.CoreEngine.Tests/Program.cs",
+      "path": "Chummer.CoreEngine.Tests/Program.cs",
       "exists": true,
-      "digest": "sha256:f57e124f8e61332419367c42d4e9a2c73d464da35311f21fd47e10473af337f2",
+      "digest": "sha256:79185a9e84d5140b3b58ed9f6ae1134623f6bfdac815f7b46896061137e9ee9e",
       "missing_snippets": [],
       "status": "passed"
     },
     {
       "key": "mstest",
-      "path": "/docker/chummercomplete/chummer-core-engine/Chummer.Tests/SessionActionBudgetServiceTests.cs",
+      "path": "Chummer.Tests/SessionActionBudgetServiceTests.cs",
       "exists": true,
       "digest": "sha256:c5974e824f96b114747767425709975e0f91427041a9481ea263b1aa6c57db1d",
       "missing_snippets": [],
@@ -65,15 +65,15 @@
     },
     {
       "key": "repo_verify",
-      "path": "/docker/chummercomplete/chummer-core-engine/scripts/ai/verify.sh",
+      "path": "scripts/ai/verify.sh",
       "exists": true,
-      "digest": "sha256:c010366dd0197ae5c54818c1914d828fa8530f1ec059b0c5a72b9c6d64927dc9",
+      "digest": "sha256:150eb3a7b587aa8c22a42cb72161f676bb8a760da82c50930be94e9faff473fb",
       "missing_snippets": [],
       "status": "passed"
     },
     {
       "key": "docs",
-      "path": "/docker/chummercomplete/chummer-core-engine/docs/NEXT90_M121_ACTION_ECONOMY_CONTRACTS.md",
+      "path": "docs/NEXT90_M121_ACTION_ECONOMY_CONTRACTS.md",
       "exists": true,
       "digest": "sha256:d9b8505348e472e57df4f9488cf18e5f80f7df67abadd0281c5192919681ab73",
       "missing_snippets": [],
@@ -85,7 +85,7 @@
       "key": "successor_registry",
       "path": "/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml",
       "exists": true,
-      "digest": "sha256:c5f79da956153f2fb965a9059407b513b20b390645e6085a0af3455c5d70bc7e",
+      "digest": "sha256:bef807ae6bedaf0ee64e1052c75dbe920a214a597dc8a07941388800c2f4eeba",
       "missing_snippets": [],
       "status": "passed"
     },
@@ -93,7 +93,7 @@
       "key": "successor_queue",
       "path": "/docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml",
       "exists": true,
-      "digest": "sha256:6939295be3ce0c610973ec521eef5b725d3f19ca8112453408b1672b27e12140",
+      "digest": "sha256:9ed2805870aab4b98139e0638d9f5829303b6095f3bf747ed33f742c9ea5d37d",
       "missing_snippets": [],
       "status": "passed"
     },
@@ -101,7 +101,7 @@
       "key": "design_successor_queue",
       "path": "/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_QUEUE_STAGING.generated.yaml",
       "exists": true,
-      "digest": "sha256:6939295be3ce0c610973ec521eef5b725d3f19ca8112453408b1672b27e12140",
+      "digest": "sha256:9ed2805870aab4b98139e0638d9f5829303b6095f3bf747ed33f742c9ea5d37d",
       "missing_snippets": [],
       "status": "passed"
     }

@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-06-20T22:36:40Z",
+  "generated_at": "2026-08-13T23:11:24Z",
   "status": "passed",
   "package_id": "next90-m114-core-rule-environment-studio",
   "frontier_id": 1542103988,
@@ -7,7 +7,7 @@
   "title": "Publish rule-environment studio contracts and explain receipts",
   "task": "Build amend-package lifecycle, promotion, diff, and explain-receipt contracts for downstream UI and support surfaces.",
   "repo": "chummer6-core",
-  "repo_root": "/docker/chummercomplete/chummer-core-engine",
+  "repo_root": ".",
   "owned_surfaces": [
     "rule_environment_studio",
     "explain_receipts:engine"
@@ -18,14 +18,14 @@
     "docs",
     "scripts"
   ],
-  "published_receipt_path": "/docker/chummercomplete/chummer-core-engine/.codex-studio/published/NEXT90_M114_RULE_ENVIRONMENT_STUDIO.generated.json",
-  "receipt_path": "/docker/chummercomplete/chummer-core-engine/.codex-studio/published/NEXT90_M114_RULE_ENVIRONMENT_STUDIO.generated.json",
+  "published_receipt_path": ".codex-studio/published/NEXT90_M114_RULE_ENVIRONMENT_STUDIO.generated.json",
+  "receipt_path": ".codex-studio/published/NEXT90_M114_RULE_ENVIRONMENT_STUDIO.generated.json",
   "proof_anchor_count": 7,
   "authority_anchor_count": 2,
   "proof_files": [
     {
       "key": "contracts",
-      "path": "/docker/chummercomplete/chummer-core-engine/Chummer.Contracts/Content/RuleEnvironmentStudioContracts.cs",
+      "path": "Chummer.Contracts/Content/RuleEnvironmentStudioContracts.cs",
       "exists": true,
       "digest": "sha256:335bfba69f4c36ce5b16696787c8a455fc1b506d8ef63714cc9b1fbb0849cfff",
       "missing_snippets": [],
@@ -33,7 +33,7 @@
     },
     {
       "key": "service",
-      "path": "/docker/chummercomplete/chummer-core-engine/Chummer.Application/Content/DefaultRuleEnvironmentStudioService.cs",
+      "path": "Chummer.Application/Content/DefaultRuleEnvironmentStudioService.cs",
       "exists": true,
       "digest": "sha256:59b6adda6f68c416a9a8e1a8ef10f36ab09d49d34ff7efbab511be65fba4da50",
       "missing_snippets": [],
@@ -41,7 +41,7 @@
     },
     {
       "key": "service_interface",
-      "path": "/docker/chummercomplete/chummer-core-engine/Chummer.Application/Content/IRuleEnvironmentStudioService.cs",
+      "path": "Chummer.Application/Content/IRuleEnvironmentStudioService.cs",
       "exists": true,
       "digest": "sha256:ffd42380bed998fba26696745e1bee091a8be939f3b9855ee3f34f2145564492",
       "missing_snippets": [],
@@ -49,31 +49,31 @@
     },
     {
       "key": "di",
-      "path": "/docker/chummercomplete/chummer-core-engine/Chummer.Infrastructure/DependencyInjection/ServiceCollectionExtensions.cs",
+      "path": "Chummer.Infrastructure/DependencyInjection/ServiceCollectionExtensions.cs",
       "exists": true,
-      "digest": "sha256:5ab846906746f4d13633230f000a2954403cd2d4d6dfa8a25d793b9455745437",
+      "digest": "sha256:b77665e3578243628e7a3a06d6385c1ed1f9a2a5e29dbd5511b57d2b370a93a2",
       "missing_snippets": [],
       "status": "passed"
     },
     {
       "key": "test_program",
-      "path": "/docker/chummercomplete/chummer-core-engine/Chummer.CoreEngine.Tests/Program.cs",
+      "path": "Chummer.CoreEngine.Tests/Program.cs",
       "exists": true,
-      "digest": "sha256:f57e124f8e61332419367c42d4e9a2c73d464da35311f21fd47e10473af337f2",
+      "digest": "sha256:79185a9e84d5140b3b58ed9f6ae1134623f6bfdac815f7b46896061137e9ee9e",
       "missing_snippets": [],
       "status": "passed"
     },
     {
       "key": "repo_verify",
-      "path": "/docker/chummercomplete/chummer-core-engine/scripts/ai/verify.sh",
+      "path": "scripts/ai/verify.sh",
       "exists": true,
-      "digest": "sha256:c010366dd0197ae5c54818c1914d828fa8530f1ec059b0c5a72b9c6d64927dc9",
+      "digest": "sha256:150eb3a7b587aa8c22a42cb72161f676bb8a760da82c50930be94e9faff473fb",
       "missing_snippets": [],
       "status": "passed"
     },
     {
       "key": "docs",
-      "path": "/docker/chummercomplete/chummer-core-engine/docs/NEXT90_M114_RULE_ENVIRONMENT_STUDIO_CONTRACTS.md",
+      "path": "docs/NEXT90_M114_RULE_ENVIRONMENT_STUDIO_CONTRACTS.md",
       "exists": true,
       "digest": "sha256:71ca937c9798f697d7dcec151590c3eeb162f9715cb7dbee00cc2b94c0b0f7dc",
       "missing_snippets": [],
@@ -85,7 +85,7 @@
       "key": "successor_registry",
       "path": "/docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_REGISTRY.yaml",
       "exists": true,
-      "digest": "sha256:c5f79da956153f2fb965a9059407b513b20b390645e6085a0af3455c5d70bc7e",
+      "digest": "sha256:bef807ae6bedaf0ee64e1052c75dbe920a214a597dc8a07941388800c2f4eeba",
       "missing_snippets": [],
       "status": "passed"
     },
@@ -93,7 +93,7 @@
       "key": "successor_queue",
       "path": "/docker/fleet/.codex-studio/published/NEXT_90_DAY_QUEUE_STAGING.generated.yaml",
       "exists": true,
-      "digest": "sha256:6939295be3ce0c610973ec521eef5b725d3f19ca8112453408b1672b27e12140",
+      "digest": "sha256:9ed2805870aab4b98139e0638d9f5829303b6095f3bf747ed33f742c9ea5d37d",
       "missing_snippets": [],
       "status": "passed"
     }
