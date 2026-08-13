@@ -19,7 +19,7 @@ TASK = TITLE
 OWNED_SURFACES = ["keep_export_print_supplement_and_rule_environment_receip:core"]
 ALLOWED_PATHS = ["src", "tests", "docs", "scripts"]
 PACKAGE_REPO = "chummer6-core"
-PUBLISHED_RECEIPT_PATH = "/docker/chummercomplete/chummer-core-engine/.codex-studio/published/NEXT90_M143_EXPORT_PRINT_SUPPLEMENT_RULE_ENVIRONMENT_RECEIPTS.generated.json"
+PUBLISHED_RECEIPT_PATH = ".codex-studio/published/NEXT90_M143_EXPORT_PRINT_SUPPLEMENT_RULE_ENVIRONMENT_RECEIPTS.generated.json"
 DEFAULT_OUTPUT_RELATIVE_PATH = Path(".codex-studio") / "published" / "NEXT90_M143_EXPORT_PRINT_SUPPLEMENT_RULE_ENVIRONMENT_RECEIPTS.generated.json"
 
 REQUIRED_FILES = {
@@ -178,10 +178,10 @@ class ProofFileStatus:
     digest_scope: str
     missing_snippets: list[str]
 
-    def to_json(self) -> dict[str, Any]:
+    def to_json(self, repo_root: Path | None = None) -> dict[str, Any]:
         return {
             "key": self.key,
-            "path": str(self.path),
+            "path": receipt_path_for(self.path, repo_root),
             "exists": self.exists,
             "digest": self.digest,
             "digest_scope": self.digest_scope,
@@ -192,6 +192,16 @@ class ProofFileStatus:
 
 def sha256_digest(text: str) -> str:
     return f"sha256:{hashlib.sha256(text.encode('utf-8')).hexdigest()}"
+
+
+def receipt_path_for(path: Path, repo_root: Path | None) -> str:
+    resolved = path.resolve()
+    if repo_root is None:
+        return str(resolved)
+    try:
+        return resolved.relative_to(repo_root.resolve()).as_posix()
+    except ValueError:
+        return str(resolved)
 
 
 def read_text(path: Path) -> str:
@@ -334,15 +344,15 @@ def build_payload(repo_root: Path, out_path: Path) -> dict[str, Any]:
         "title": TITLE,
         "task": TASK,
         "repo": PACKAGE_REPO,
-        "repo_root": str(repo_root.resolve()),
+        "repo_root": ".",
         "owned_surfaces": OWNED_SURFACES,
         "allowed_paths": ALLOWED_PATHS,
-        "published_receipt_path": str((repo_root / ".codex-studio" / "published" / "NEXT90_M143_EXPORT_PRINT_SUPPLEMENT_RULE_ENVIRONMENT_RECEIPTS.generated.json").resolve()),
-        "receipt_path": str(out_path),
+        "published_receipt_path": PUBLISHED_RECEIPT_PATH,
+        "receipt_path": receipt_path_for(out_path, repo_root),
         "proof_anchor_count": len(proof_files),
         "authority_anchor_count": len(authority_files),
-        "proof_files": [status.to_json() for status in proof_files],
-        "authority_files": [status.to_json() for status in authority_files],
+        "proof_files": [status.to_json(repo_root) for status in proof_files],
+        "authority_files": [status.to_json(repo_root) for status in authority_files],
         "authority_row_counts": authority_row_counts,
         "expected_authority_row_counts": EXPECTED_AUTHORITY_ROW_COUNTS,
         "parity_family_ids": [
