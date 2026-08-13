@@ -18,8 +18,8 @@ TASK = "Emit first-party explanation packets, coverage-registry rows, and determ
 OWNED_SURFACES = ["explain_every_value_packets", "counterfactual_explain:core"]
 ALLOWED_PATHS = ["src", "tests", "docs", "scripts"]
 PACKAGE_REPO = "chummer6-core"
-PACKAGE_REPO_ROOT = "/docker/chummercomplete/chummer-core-engine"
-PUBLISHED_RECEIPT_PATH = "/docker/chummercomplete/chummer-core-engine/.codex-studio/published/EXPLAIN_VALUE_PACKETS.generated.json"
+PACKAGE_REPO_ROOT = "."
+PUBLISHED_RECEIPT_PATH = ".codex-studio/published/EXPLAIN_VALUE_PACKETS.generated.json"
 DEFAULT_OUTPUT_RELATIVE_PATH = Path(".codex-studio") / "published" / "EXPLAIN_VALUE_PACKETS.generated.json"
 
 REQUIRED_FILES = {
@@ -127,10 +127,10 @@ class ProofFileStatus:
     digest: str | None
     missing_snippets: list[str]
 
-    def to_json(self) -> dict[str, Any]:
+    def to_json(self, repo_root: Path | None = None) -> dict[str, Any]:
         return {
             "key": self.key,
-            "path": str(self.relative_path),
+            "path": receipt_path_for(self.relative_path, repo_root),
             "exists": self.exists,
             "digest": self.digest,
             "missing_snippets": self.missing_snippets,
@@ -140,6 +140,18 @@ class ProofFileStatus:
 
 def sha256_digest(text: str) -> str:
     return f"sha256:{hashlib.sha256(text.encode('utf-8')).hexdigest()}"
+
+
+def receipt_path_for(path: Path, repo_root: Path | None) -> str:
+    resolved = path.resolve()
+    if repo_root is None:
+        return str(resolved)
+    try:
+        return resolved.relative_to(repo_root.resolve()).as_posix()
+    except ValueError:
+        return str(resolved)
+
+
 
 
 def read_text(path: Path) -> str:
@@ -188,15 +200,15 @@ def build_payload(repo_root: Path, out_path: Path) -> dict[str, Any]:
         "title": TITLE,
         "task": TASK,
         "repo": PACKAGE_REPO,
-        "repo_root": PACKAGE_REPO_ROOT,
+        "repo_root": ".",
         "owned_surfaces": OWNED_SURFACES,
         "allowed_paths": ALLOWED_PATHS,
         "published_receipt_path": PUBLISHED_RECEIPT_PATH,
-        "receipt_path": str(out_path),
+        "receipt_path": receipt_path_for(out_path, repo_root),
         "proof_anchor_count": len(proof_files),
         "authority_anchor_count": len(authority_files),
-        "proof_files": [status.to_json() for status in proof_files],
-        "authority_files": [status.to_json() for status in authority_files],
+        "proof_files": [status.to_json(repo_root) for status in proof_files],
+        "authority_files": [status.to_json(repo_root) for status in authority_files],
         "verification_commands": [
             "CHUMMER_CORE_ENGINE_TEST_FILTER=explain-value-packets dotnet run --project Chummer.CoreEngine.Tests/Chummer.CoreEngine.Tests.csproj -m:1 -p:UseSharedCompilation=false",
             "python3 tests/test_explain_value_packet_receipt.py",

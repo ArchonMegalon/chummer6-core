@@ -52,7 +52,7 @@ class OppositionPacketContractReceiptTests(unittest.TestCase):
         self.assertEqual(["gm_prep_packets", "opposition_contracts"], payload["owned_surfaces"])
         self.assertEqual(["src", "tests", "docs", "scripts"], payload["allowed_paths"])
         self.assertEqual(
-            "/docker/chummercomplete/chummer-core-engine/.codex-studio/published/OPPOSITION_PACKET_CONTRACTS.generated.json",
+            ".codex-studio/published/OPPOSITION_PACKET_CONTRACTS.generated.json",
             payload["published_receipt_path"],
         )
         self.assertEqual(7, payload["proof_anchor_count"])

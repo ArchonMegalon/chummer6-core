@@ -67,7 +67,7 @@ class Next90M122CampaignAdvanceReceiptTests(unittest.TestCase):
         self.assertEqual(["add_deterministic_reward_downtime_goal:core"], payload["owned_surfaces"])
         self.assertEqual(["src", "tests", "docs", "scripts"], payload["allowed_paths"])
         self.assertEqual(
-            "/docker/chummercomplete/chummer-core-engine/.codex-studio/published/NEXT90_M122_CAMPAIGN_ADVANCE_RECEIPTS.generated.json",
+            ".codex-studio/published/NEXT90_M122_CAMPAIGN_ADVANCE_RECEIPTS.generated.json",
             payload["published_receipt_path"],
         )
         self.assertEqual(

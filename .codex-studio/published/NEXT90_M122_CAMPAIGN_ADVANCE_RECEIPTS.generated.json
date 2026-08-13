@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-06-20T22:37:49Z",
+  "generated_at": "2026-08-13T23:11:24Z",
   "status": "passed",
   "package_id": "next90-m122-core-add-deterministic-reward-downtime-goal-update-and-conseq",
   "frontier_id": 1771239378,
@@ -8,7 +8,7 @@
   "title": "Add deterministic reward, downtime, goal-update, and consequence receipt contracts consumed by adoption and BLACK LEDGER flows.",
   "task": "Add deterministic reward, downtime, goal-update, and consequence receipt contracts consumed by adoption and BLACK LEDGER flows.",
   "repo": "chummer6-core",
-  "repo_root": "/docker/chummercomplete/chummer-core-engine",
+  "repo_root": ".",
   "owned_surfaces": [
     "add_deterministic_reward_downtime_goal:core"
   ],
@@ -18,14 +18,14 @@
     "docs",
     "scripts"
   ],
-  "published_receipt_path": "/docker/chummercomplete/chummer-core-engine/.codex-studio/published/NEXT90_M122_CAMPAIGN_ADVANCE_RECEIPTS.generated.json",
-  "receipt_path": "/docker/chummercomplete/chummer-core-engine/.codex-studio/published/NEXT90_M122_CAMPAIGN_ADVANCE_RECEIPTS.generated.json",
+  "published_receipt_path": ".codex-studio/published/NEXT90_M122_CAMPAIGN_ADVANCE_RECEIPTS.generated.json",
+  "receipt_path": ".codex-studio/published/NEXT90_M122_CAMPAIGN_ADVANCE_RECEIPTS.generated.json",
   "proof_anchor_count": 9,
   "authority_anchor_count": 3,
   "proof_files": [
     {
       "key": "contracts",
-      "path": "/docker/chummercomplete/chummer-core-engine/Chummer.Contracts/Campaign/CampaignAdvanceReceiptContracts.cs",
+      "path": "Chummer.Contracts/Campaign/CampaignAdvanceReceiptContracts.cs",
       "exists": true,
       "digest": "sha256:c25a0a3b3d5297a4b19e84668058f0a794ffd7f899d41469a255b30e2dfa1b4a",
       "digest_scope": "full-file",
@@ -34,7 +34,7 @@
     },
     {
       "key": "service",
-      "path": "/docker/chummercomplete/chummer-core-engine/Chummer.Application/Campaign/DefaultCampaignAdvanceReceiptService.cs",
+      "path": "Chummer.Application/Campaign/DefaultCampaignAdvanceReceiptService.cs",
       "exists": true,
       "digest": "sha256:51f40e412993ed979909d243b7832aede617133b6ca597ef5d3dff12907b2f0b",
       "digest_scope": "full-file",
@@ -43,7 +43,7 @@
     },
     {
       "key": "service_interface",
-      "path": "/docker/chummercomplete/chummer-core-engine/Chummer.Application/Campaign/ICampaignAdvanceReceiptService.cs",
+      "path": "Chummer.Application/Campaign/ICampaignAdvanceReceiptService.cs",
       "exists": true,
       "digest": "sha256:1da382aabcd30cb7fb2213e22f2a9bc9a21fe90a5ee89167607bc0fef7e94032",
       "digest_scope": "full-file",
@@ -52,25 +52,25 @@
     },
     {
       "key": "dependency_injection",
-      "path": "/docker/chummercomplete/chummer-core-engine/Chummer.Infrastructure/DependencyInjection/ServiceCollectionExtensions.cs",
+      "path": "Chummer.Infrastructure/DependencyInjection/ServiceCollectionExtensions.cs",
       "exists": true,
-      "digest": "sha256:5ab846906746f4d13633230f000a2954403cd2d4d6dfa8a25d793b9455745437",
+      "digest": "sha256:b77665e3578243628e7a3a06d6385c1ed1f9a2a5e29dbd5511b57d2b370a93a2",
       "digest_scope": "full-file",
       "missing_snippets": [],
       "status": "passed"
     },
     {
       "key": "test_program",
-      "path": "/docker/chummercomplete/chummer-core-engine/Chummer.CoreEngine.Tests/Program.cs",
+      "path": "Chummer.CoreEngine.Tests/Program.cs",
       "exists": true,
-      "digest": "sha256:f57e124f8e61332419367c42d4e9a2c73d464da35311f21fd47e10473af337f2",
+      "digest": "sha256:79185a9e84d5140b3b58ed9f6ae1134623f6bfdac815f7b46896061137e9ee9e",
       "digest_scope": "full-file",
       "missing_snippets": [],
       "status": "passed"
     },
     {
       "key": "mstest",
-      "path": "/docker/chummercomplete/chummer-core-engine/Chummer.Tests/CampaignAdvanceReceiptServiceTests.cs",
+      "path": "Chummer.Tests/CampaignAdvanceReceiptServiceTests.cs",
       "exists": true,
       "digest": "sha256:f39d61914ba73a4ba38029504b3dbe78508b71f453ebf36f1821930a41ba8d9b",
       "digest_scope": "full-file",
@@ -79,25 +79,25 @@
     },
     {
       "key": "compliance",
-      "path": "/docker/chummercomplete/chummer-core-engine/Chummer.Tests/Compliance/MigrationComplianceTests.cs",
+      "path": "Chummer.Tests/Compliance/MigrationComplianceTests.cs",
       "exists": true,
-      "digest": "sha256:416c9ebd7b6843af0483d7bb91e8cc84291a37447fdaea47cf4ca8171cf000bc",
+      "digest": "sha256:7a2844ec4df5cfb1c653010777bd6ed3007311ad3aef4cb450ca36d762432e66",
       "digest_scope": "full-file",
       "missing_snippets": [],
       "status": "passed"
     },
     {
       "key": "repo_verify",
-      "path": "/docker/chummercomplete/chummer-core-engine/scripts/ai/verify.sh",
+      "path": "scripts/ai/verify.sh",
       "exists": true,
-      "digest": "sha256:c010366dd0197ae5c54818c1914d828fa8530f1ec059b0c5a72b9c6d64927dc9",
+      "digest": "sha256:150eb3a7b587aa8c22a42cb72161f676bb8a760da82c50930be94e9faff473fb",
       "digest_scope": "full-file",
       "missing_snippets": [],
       "status": "passed"
     },
     {
       "key": "docs",
-      "path": "/docker/chummercomplete/chummer-core-engine/docs/NEXT90_M122_CAMPAIGN_ADVANCE_RECEIPTS.md",
+      "path": "docs/NEXT90_M122_CAMPAIGN_ADVANCE_RECEIPTS.md",
       "exists": true,
       "digest": "sha256:98bdf5660955857f24df6f4f82354824c7147b735498eba74be90fc3b64baf60",
       "digest_scope": "full-file",

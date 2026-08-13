@@ -51,9 +51,9 @@ class Next90M121ActionEconomyReceiptTests(unittest.TestCase):
         self.assertEqual("121.1", payload["work_task_id"])
         self.assertEqual(["implement_actionbudgetresult_actionaffordance_turnledger:core"], payload["owned_surfaces"])
         self.assertEqual(["src", "tests", "docs", "scripts"], payload["allowed_paths"])
-        self.assertEqual(str(REPO_ROOT), payload["repo_root"])
+        self.assertEqual(".", payload["repo_root"])
         self.assertEqual(
-            str(REPO_ROOT / ".codex-studio" / "published" / "NEXT90_M121_ACTION_ECONOMY.generated.json"),
+            ".codex-studio/published/NEXT90_M121_ACTION_ECONOMY.generated.json",
             payload["published_receipt_path"],
         )
         self.assertEqual(

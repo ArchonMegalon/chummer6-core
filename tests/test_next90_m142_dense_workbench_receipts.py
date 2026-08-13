@@ -69,7 +69,7 @@ class Next90M142DenseWorkbenchReceiptTests(unittest.TestCase):
         self.assertEqual(["keep_initiative_action_notes_and_workflow_state_receipts:core"], payload["owned_surfaces"])
         self.assertEqual(["src", "tests", "docs", "scripts"], payload["allowed_paths"])
         self.assertEqual(
-            "/docker/chummercomplete/chummer-core-engine/.codex-studio/published/NEXT90_M142_DENSE_WORKBENCH_RECEIPTS.generated.json",
+            ".codex-studio/published/NEXT90_M142_DENSE_WORKBENCH_RECEIPTS.generated.json",
             payload["published_receipt_path"],
         )
         self.assertEqual("family:initiative_action_notes_and_workflow_state", payload["parity_family_id"])
