@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-06-20T22:37:16Z",
+  "generated_at": "2026-08-13T16:28:00Z",
   "status": "passed",
   "package_id": "next90-m143-core-keep-export-print-supplement-and-rule-environment-receipts-deterministi",
   "frontier_id": 2778308338,
@@ -8,7 +8,7 @@
   "title": "Keep export, print, supplement, and rule-environment receipts deterministic enough to prove the workflows rather than just render them.",
   "task": "Keep export, print, supplement, and rule-environment receipts deterministic enough to prove the workflows rather than just render them.",
   "repo": "chummer6-core",
-  "repo_root": "/docker/chummercomplete/chummer-core-engine",
+  "repo_root": ".",
   "owned_surfaces": [
     "keep_export_print_supplement_and_rule_environment_receip:core"
   ],
@@ -18,14 +18,14 @@
     "docs",
     "scripts"
   ],
-  "published_receipt_path": "/docker/chummercomplete/chummer-core-engine/.codex-studio/published/NEXT90_M143_EXPORT_PRINT_SUPPLEMENT_RULE_ENVIRONMENT_RECEIPTS.generated.json",
-  "receipt_path": "/docker/chummercomplete/chummer-core-engine/.codex-studio/published/NEXT90_M143_EXPORT_PRINT_SUPPLEMENT_RULE_ENVIRONMENT_RECEIPTS.generated.json",
+  "published_receipt_path": ".codex-studio/published/NEXT90_M143_EXPORT_PRINT_SUPPLEMENT_RULE_ENVIRONMENT_RECEIPTS.generated.json",
+  "receipt_path": ".codex-studio/published/NEXT90_M143_EXPORT_PRINT_SUPPLEMENT_RULE_ENVIRONMENT_RECEIPTS.generated.json",
   "proof_anchor_count": 10,
   "authority_anchor_count": 3,
   "proof_files": [
     {
       "key": "tool_catalog_contracts",
-      "path": "/docker/chummercomplete/chummer-core-engine/Chummer.Contracts/Api/ToolCatalogModels.cs",
+      "path": "Chummer.Contracts/Api/ToolCatalogModels.cs",
       "exists": true,
       "digest": "sha256:e1f8dac6daa9b46264dfb7dc44a1f8687ffd1d670bcaea77d9db71586e3566c1",
       "digest_scope": "full-file",
@@ -34,16 +34,16 @@
     },
     {
       "key": "workspace_contracts",
-      "path": "/docker/chummercomplete/chummer-core-engine/Chummer.Contracts/Workspaces/CharacterWorkspaceModels.cs",
+      "path": "Chummer.Contracts/Workspaces/CharacterWorkspaceModels.cs",
       "exists": true,
-      "digest": "sha256:08099b951fccf476edec4942df81b239d19f39e5ec691a30ef709f2c82a34199",
+      "digest": "sha256:baffec98acf296f33b199db621e70884c3b60b4596e1600dc56937bc15c4ecec",
       "digest_scope": "full-file",
       "missing_snippets": [],
       "status": "passed"
     },
     {
       "key": "tool_catalog_service",
-      "path": "/docker/chummercomplete/chummer-core-engine/Chummer.Infrastructure/Xml/XmlToolCatalogService.cs",
+      "path": "Chummer.Infrastructure/Xml/XmlToolCatalogService.cs",
       "exists": true,
       "digest": "sha256:01fc0762743250393127b8ca1e149b9b015c624ca9a43e3806806b7a66254277",
       "digest_scope": "full-file",
@@ -52,25 +52,25 @@
     },
     {
       "key": "workspace_service",
-      "path": "/docker/chummercomplete/chummer-core-engine/Chummer.Application/Workspaces/WorkspaceService.cs",
+      "path": "Chummer.Application/Workspaces/WorkspaceService.cs",
       "exists": true,
-      "digest": "sha256:38d20701b00c43dc595e76cb111d019571ec9bc33f248bccc3c968ccfb025f33",
+      "digest": "sha256:ae821e539d5bf9254f2e30103adc658fb5c7ef994be4c959840d6176029b369c",
       "digest_scope": "full-file",
       "missing_snippets": [],
       "status": "passed"
     },
     {
       "key": "test_program",
-      "path": "/docker/chummercomplete/chummer-core-engine/Chummer.CoreEngine.Tests/Program.cs",
+      "path": "Chummer.CoreEngine.Tests/Program.cs",
       "exists": true,
-      "digest": "sha256:f57e124f8e61332419367c42d4e9a2c73d464da35311f21fd47e10473af337f2",
+      "digest": "sha256:79185a9e84d5140b3b58ed9f6ae1134623f6bfdac815f7b46896061137e9ee9e",
       "digest_scope": "full-file",
       "missing_snippets": [],
       "status": "passed"
     },
     {
       "key": "tool_catalog_mstest",
-      "path": "/docker/chummercomplete/chummer-core-engine/Chummer.Tests/ToolCatalogServiceTests.cs",
+      "path": "Chummer.Tests/ToolCatalogServiceTests.cs",
       "exists": true,
       "digest": "sha256:8469ac2c8ea68ff482d702c735f7a2e005ec800fb1341f29952a40d2b1bf253c",
       "digest_scope": "full-file",
@@ -79,34 +79,34 @@
     },
     {
       "key": "workspace_service_mstest",
-      "path": "/docker/chummercomplete/chummer-core-engine/Chummer.Tests/WorkspaceServiceTests.cs",
+      "path": "Chummer.Tests/WorkspaceServiceTests.cs",
       "exists": true,
-      "digest": "sha256:082a1aa51a94eb6b992e777204baf2c45b3370ce783a7a924839e73aa6c08c3f",
+      "digest": "sha256:caddc3d290275e3fa70144275e57ede41043061cd922c25183f5f188f1830d64",
       "digest_scope": "full-file",
       "missing_snippets": [],
       "status": "passed"
     },
     {
       "key": "api_integration_mstest",
-      "path": "/docker/chummercomplete/chummer-core-engine/Chummer.Tests/ApiIntegrationTests.cs",
+      "path": "Chummer.Tests/ApiIntegrationTests.cs",
       "exists": true,
-      "digest": "sha256:991312cccc9bccee6eddcd576ada5e2adc117e2361b0ed2033a91bc8c9cae800",
+      "digest": "sha256:66a57e0be74983405a5f74e126126ac4b9815850792eca7e6f524f849c7c1ba8",
       "digest_scope": "full-file",
       "missing_snippets": [],
       "status": "passed"
     },
     {
       "key": "repo_verify",
-      "path": "/docker/chummercomplete/chummer-core-engine/scripts/ai/verify.sh",
+      "path": "scripts/ai/verify.sh",
       "exists": true,
-      "digest": "sha256:95daf5894a6475792f897e69e43ca4916f97333504d91e7eef3abe7bc6e137b3",
+      "digest": "sha256:bbb7f6f9714ca9f252dd6a68872a5a5f436f17078eb118cdd89c0814b9243220",
       "digest_scope": "m143-verify-block",
       "missing_snippets": [],
       "status": "passed"
     },
     {
       "key": "docs",
-      "path": "/docker/chummercomplete/chummer-core-engine/docs/NEXT90_M143_EXPORT_PRINT_SUPPLEMENT_RULE_ENVIRONMENT_RECEIPTS.md",
+      "path": "docs/NEXT90_M143_EXPORT_PRINT_SUPPLEMENT_RULE_ENVIRONMENT_RECEIPTS.md",
       "exists": true,
       "digest": "sha256:43f5c05d8fc172d02a67e1063b851a53ccb1fe02e67016f4011e5dcda70ef6f9",
       "digest_scope": "full-file",
