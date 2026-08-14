@@ -84,6 +84,8 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IAiRecapDraftService, NotImplementedAiRecapDraftService>();
         services.AddRulesetInfrastructure();
         services.AddSr5Ruleset();
+        services.AddSingleton<ICharacterSourceDataResolver, FileSystemCharacterSourceDataResolver>();
+        services.AddSingleton<ICharacterLinkedDocumentCodec, Chummer5LinkedDocumentCodec>();
         services.AddSingleton<ICharacterSectionService, CharacterSectionService>();
         services.AddSingleton<ICharacterFileQueries, XmlCharacterFileQueries>();
         services.AddSingleton<ICharacterMetadataCommands, XmlCharacterMetadataCommands>();

@@ -1,10 +1,27 @@
+using System.Globalization;
 using System.Xml.Linq;
+using Chummer.Application.Characters;
 using Chummer.Contracts.Characters;
 
 namespace Chummer.Infrastructure.Xml;
 
 public sealed class CharacterSectionService : ICharacterSectionService
 {
+    private readonly ICharacterSourceDataResolver? _sourceDataResolver;
+
+    private readonly record struct CharacterMatrixImprovementBasis(
+        bool OverclockerEnabled,
+        bool LivingPersonaDeviceRatingExact,
+        string LivingPersonaDeviceRatingSuffix,
+        bool LivingPersonaConditionMonitorExact,
+        string LivingPersonaConditionMonitorExpression,
+        IReadOnlyDictionary<string, int> SavedAttributeTotals);
+
+    public CharacterSectionService(ICharacterSourceDataResolver? sourceDataResolver = null)
+    {
+        _sourceDataResolver = sourceDataResolver;
+    }
+
     public CharacterAttributesSection ParseAttributes(string xml)
     {
         XElement character = LoadCharacterRoot(xml);
@@ -223,7 +240,8 @@ public sealed class CharacterSectionService : ICharacterSectionService
             StunThresholdOffset: ParseInt(ReadValue(character, "stuncmthresholdoffset")),
             StunNaturalRecovery: ReadValue(character, "stuncmnaturalrecovery"),
             PhysicalActsAsCore: ParseBool(ReadValue(character, "physicalcmiscorecm")),
-            StunActsAsMatrix: ParseBool(ReadValue(character, "stuncmismatrixcm")));
+            StunActsAsMatrix: ParseBool(ReadValue(character, "stuncmismatrixcm")),
+            Created: ParseBool(ReadValue(character, "created")));
     }
 
     public CharacterRulesSection ParseRules(string xml)
@@ -354,45 +372,218 @@ public sealed class CharacterSectionService : ICharacterSectionService
     public CharacterGearSection ParseGear(string xml)
     {
         XElement character = LoadCharacterRoot(xml);
-        IReadOnlyList<CharacterGearSummary> gear = character
-            .Element("gears")?
-            .Elements("gear")
-            .Select(item => new CharacterGearSummary(
-                Guid: ReadValue(item, "guid"),
-                Name: ReadValue(item, "name"),
-                Category: ReadValue(item, "category"),
-                Rating: ReadValue(item, "rating"),
-                Quantity: ReadValue(item, "qty"),
-                Cost: ReadValue(item, "cost"),
-                Equipped: ParseBool(ReadValue(item, "equipped")),
-                Location: ReadValue(item, "location")))
-            .Where(item => !string.IsNullOrWhiteSpace(item.Name))
-            .ToArray()
-            ?? Array.Empty<CharacterGearSummary>();
+        bool careerEditable = ParseBool(ReadValue(character, "created"));
+        CharacterMatrixImprovementBasis improvementBasis = BuildCharacterMatrixImprovementBasis(
+            character,
+            careerEditable);
+        List<CharacterGearSummary> gear = [];
+        foreach (XElement item in character.Element("gears")?.Elements("gear") ?? [])
+        {
+            FlattenGearSummary(
+                item,
+                gear,
+                careerEditable,
+                parentGuid: string.Empty,
+                parentName: string.Empty,
+                hierarchyPath: string.Empty,
+                depth: 0,
+                improvementBasis);
+        }
 
         return new CharacterGearSection(
             Count: gear.Count,
             Gear: gear);
     }
 
+    private static void FlattenGearSummary(
+        XElement item,
+        List<CharacterGearSummary> gear,
+        bool careerEditable,
+        string parentGuid,
+        string parentName,
+        string hierarchyPath,
+        int depth,
+        CharacterMatrixImprovementBasis improvementBasis)
+    {
+        string guid = ReadValue(item, "guid");
+        string name = ReadValue(item, "name");
+        string path = string.IsNullOrWhiteSpace(hierarchyPath)
+            ? name
+            : string.IsNullOrWhiteSpace(name) ? hierarchyPath : $"{hierarchyPath} / {name}";
+        XElement[] children = item.Element("children")?.Elements("gear").ToArray() ?? [];
+        bool maximumExact = TryCalculateGearMatrixMaximum(item, improvementBasis, out int maximum);
+        if (!string.IsNullOrWhiteSpace(name))
+        {
+            gear.Add(new CharacterGearSummary(
+                Guid: guid,
+                Name: name,
+                Category: ReadValue(item, "category"),
+                Rating: ReadValue(item, "rating"),
+                Quantity: ReadValue(item, "qty"),
+                Cost: ReadValue(item, "cost"),
+                Equipped: ParseBool(ReadValue(item, "equipped")),
+                Location: ReadValue(item, "location"),
+                Source: ReadValue(item, "source"),
+                Notes: ReadValue(item, "notes"),
+                CustomName: ReadValue(item, "extra"),
+                WirelessEnabled: ParseBool(ReadValue(item, "wirelesson")),
+                HomeNode: ParseBool(ReadValue(item, "homenode")),
+                ParentGuid: parentGuid,
+                ParentName: parentName,
+                HierarchyPath: path,
+                Depth: depth,
+                ChildCount: children.Length,
+                MatrixDamage: ParseInt(ReadValue(item, "matrixcmfilled")),
+                MatrixConditionMaximum: maximumExact ? maximum : 0,
+                MatrixConditionMaximumExact: maximumExact,
+                CareerEditable: careerEditable));
+        }
+
+        foreach (XElement child in children)
+        {
+            FlattenGearSummary(
+                child,
+                gear,
+                careerEditable,
+                guid,
+                name,
+                path,
+                depth + 1,
+                improvementBasis);
+        }
+    }
+
+    private static bool TryCalculateGearMatrixMaximum(
+        XElement gear,
+        CharacterMatrixImprovementBasis improvementBasis,
+        out int maximum)
+    {
+        maximum = 0;
+        if (!TryParseOptionalInt(ReadValue(gear, "rating"), out int rating))
+        {
+            return false;
+        }
+
+        string deviceRatingExpression = ReadValue(gear, "devicerating");
+        if (string.IsNullOrWhiteSpace(deviceRatingExpression))
+        {
+            bool isCommlink = ReadValue(gear, "canformpersona").Contains("Self", StringComparison.Ordinal)
+                || (gear.Element("children")?.Elements("gear") ?? [])
+                    .Any(child => ReadValue(child, "canformpersona").Contains("Parent", StringComparison.Ordinal));
+            deviceRatingExpression = isCommlink ? "2" : "0";
+        }
+        if (string.Equals(ReadValue(gear, "name"), "Living Persona", StringComparison.Ordinal))
+        {
+            if (!improvementBasis.LivingPersonaDeviceRatingExact)
+            {
+                return false;
+            }
+            deviceRatingExpression += improvementBasis.LivingPersonaDeviceRatingSuffix;
+        }
+        if (!CharacterVehicleConditionMonitorCalculator.TryResolveRatingExpression(
+                deviceRatingExpression,
+                rating,
+                improvementBasis.SavedAttributeTotals,
+                out int deviceRating))
+        {
+            return false;
+        }
+
+        if (string.Equals(ReadValue(gear, "overclocked"), "Device Rating", StringComparison.Ordinal)
+            && improvementBasis.OverclockerEnabled)
+        {
+            if (deviceRating == int.MaxValue)
+            {
+                return false;
+            }
+            deviceRating++;
+        }
+
+        if (!TryCalculateGearTotalBonusMatrixBoxes(gear, improvementBasis, out int bonusMatrixBoxes))
+        {
+            return false;
+        }
+        return CharacterMatrixConditionMonitorCalculator.TryCalculateMaximum(
+            deviceRating,
+            bonusMatrixBoxes,
+            out maximum);
+    }
+
+    private static bool TryCalculateGearTotalBonusMatrixBoxes(
+        XElement gear,
+        CharacterMatrixImprovementBasis improvementBasis,
+        out int total)
+    {
+        total = 0;
+        if (!TryParseOptionalInt(ReadValue(gear, "matrixcmbonus"), out int ownBonus))
+        {
+            return false;
+        }
+
+        long calculated = ownBonus;
+        if (string.Equals(ReadValue(gear, "name"), "Living Persona", StringComparison.Ordinal))
+        {
+            if (!improvementBasis.LivingPersonaConditionMonitorExact)
+            {
+                return false;
+            }
+            string expression = improvementBasis.LivingPersonaConditionMonitorExpression;
+            if (!string.IsNullOrEmpty(expression))
+            {
+                if (!TryParseOptionalInt(ReadValue(gear, "rating"), out int rating)
+                    || !CharacterVehicleConditionMonitorCalculator.TryResolveRatingExpression(
+                        expression,
+                        rating,
+                        improvementBasis.SavedAttributeTotals,
+                        out int livingPersonaBonus))
+                {
+                    return false;
+                }
+                calculated += livingPersonaBonus;
+            }
+        }
+        foreach (XElement child in gear.Element("children")?.Elements("gear") ?? [])
+        {
+            if (!TryParseOptionalBool(ReadValue(child, "equipped"), out bool equipped))
+            {
+                return false;
+            }
+            if (!equipped)
+            {
+                continue;
+            }
+            if (!TryCalculateGearTotalBonusMatrixBoxes(child, improvementBasis, out int childBonus))
+            {
+                return false;
+            }
+            calculated += childBonus;
+        }
+
+        if (calculated is < int.MinValue or > int.MaxValue)
+        {
+            return false;
+        }
+        total = (int)calculated;
+        return true;
+    }
+
     public CharacterWeaponsSection ParseWeapons(string xml)
     {
         XElement character = LoadCharacterRoot(xml);
+        ICharacterSourceDataContext? sourceData = _sourceDataResolver?.TryCreateContext(xml);
+        bool careerEditable = ParseBool(ReadValue(character, "created"));
+        CharacterMatrixImprovementBasis improvementBasis = BuildCharacterMatrixImprovementBasis(
+            character,
+            careerEditable);
         IReadOnlyList<CharacterWeaponSummary> weapons = character
             .Element("weapons")?
             .Elements("weapon")
-            .Select(item => new CharacterWeaponSummary(
-                Guid: ReadValue(item, "guid"),
-                Name: ReadValue(item, "name"),
-                Category: ReadValue(item, "category"),
-                Type: ReadValue(item, "type"),
-                Damage: ReadValue(item, "damage"),
-                AP: ReadValue(item, "ap"),
-                Accuracy: ReadValue(item, "accuracy"),
-                Mode: ReadValue(item, "mode"),
-                Ammo: ReadValue(item, "ammo"),
-                Cost: ReadValue(item, "cost"),
-                Equipped: ParseBool(ReadValue(item, "equipped"))))
+            .Select(item => BuildWeaponSummary(
+                character,
+                item,
+                careerEditable,
+                improvementBasis,
+                sourceData))
             .Where(item => !string.IsNullOrWhiteSpace(item.Name))
             .ToArray()
             ?? Array.Empty<CharacterWeaponSummary>();
@@ -400,6 +591,126 @@ public sealed class CharacterSectionService : ICharacterSectionService
         return new CharacterWeaponsSection(
             Count: weapons.Count,
             Weapons: weapons);
+    }
+
+    private static CharacterWeaponSummary BuildWeaponSummary(
+        XElement character,
+        XElement item,
+        bool careerEditable,
+        CharacterMatrixImprovementBasis improvementBasis,
+        ICharacterSourceDataContext? sourceData)
+    {
+        bool ownerExact = CharacterWeaponMatrixParentResolver.TryResolveOwner(
+            character,
+            item,
+            out CharacterMatrixOwner owner);
+        int maximum = 0;
+        bool maximumExact = ownerExact
+            && TryCalculateMatrixOwnerMaximum(
+                owner,
+                improvementBasis,
+                sourceData,
+                out maximum);
+        return new CharacterWeaponSummary(
+            Guid: ReadValue(item, "guid"),
+            Name: ReadValue(item, "name"),
+            Category: ReadValue(item, "category"),
+            Type: ReadValue(item, "type"),
+            Damage: ReadValue(item, "damage"),
+            AP: ReadValue(item, "ap"),
+            Accuracy: ReadValue(item, "accuracy"),
+            Mode: ReadValue(item, "mode"),
+            Ammo: ReadValue(item, "ammo"),
+            Cost: ReadValue(item, "cost"),
+            Equipped: ParseBool(ReadValue(item, "equipped")),
+            Source: ReadValue(item, "source"),
+            Notes: ReadValue(item, "notes"),
+            CustomName: ReadValue(item, "extra"),
+            WirelessEnabled: ParseBool(ReadValue(item, "wirelesson")),
+            MatrixDamage: ParseInt(ReadValue(ownerExact ? owner.Item : item, "matrixcmfilled")),
+            MatrixConditionMaximum: maximumExact ? maximum : 0,
+            MatrixConditionMaximumExact: maximumExact,
+            CareerEditable: careerEditable);
+    }
+
+    private static bool TryCalculateMatrixOwnerMaximum(
+        CharacterMatrixOwner owner,
+        CharacterMatrixImprovementBasis improvementBasis,
+        ICharacterSourceDataContext? sourceData,
+        out int maximum)
+        => owner.Kind switch
+        {
+            CharacterMatrixOwnerKind.Gear => TryCalculateGearMatrixMaximum(
+                owner.Item,
+                improvementBasis,
+                out maximum),
+            CharacterMatrixOwnerKind.Armor => TryCalculateArmorMatrixMaximum(
+                owner.Item,
+                improvementBasis,
+                out maximum),
+            CharacterMatrixOwnerKind.Weapon => TryCalculateWeaponOwnMatrixMaximum(
+                owner.Item,
+                improvementBasis,
+                out maximum),
+            CharacterMatrixOwnerKind.Cyberware => TryCalculateCyberwareMatrixMaximum(
+                owner.Item,
+                improvementBasis,
+                sourceData,
+                out maximum),
+            CharacterMatrixOwnerKind.Vehicle => TryCalculateVehicleMatrixMaximum(
+                owner.Item,
+                improvementBasis,
+                sourceData,
+                out maximum),
+            _ => AssignUnavailableMaximum(out maximum)
+        };
+
+    private static bool AssignUnavailableMaximum(out int maximum)
+    {
+        maximum = 0;
+        return false;
+    }
+
+    private static bool TryCalculateWeaponOwnMatrixMaximum(
+        XElement weapon,
+        CharacterMatrixImprovementBasis improvementBasis,
+        out int maximum)
+    {
+        maximum = 0;
+        if (!TryParseOptionalInt(ReadValue(weapon, "rating"), out int rating))
+        {
+            return false;
+        }
+
+        string deviceRatingExpression = ReadValue(weapon, "devicerating");
+        int deviceRating;
+        if (string.IsNullOrWhiteSpace(deviceRatingExpression))
+        {
+            deviceRating = 2;
+        }
+        else if (!CharacterVehicleConditionMonitorCalculator.TryResolveRatingExpression(
+            deviceRatingExpression,
+            rating,
+            improvementBasis.SavedAttributeTotals,
+            out deviceRating))
+        {
+            return false;
+        }
+
+        if (string.Equals(ReadValue(weapon, "overclocked"), "Device Rating", StringComparison.Ordinal)
+            && improvementBasis.OverclockerEnabled)
+        {
+            if (deviceRating == int.MaxValue)
+            {
+                return false;
+            }
+            deviceRating++;
+        }
+
+        return CharacterMatrixConditionMonitorCalculator.TryCalculateMaximum(
+            deviceRating,
+            totalBonusMatrixBoxes: 0,
+            out maximum);
     }
 
     public CharacterWeaponAccessoriesSection ParseWeaponAccessories(string xml)
@@ -423,7 +734,13 @@ public sealed class CharacterSectionService : ICharacterSectionService
                         ExtraMount: ReadValue(accessory, "extramount"),
                         Rating: ReadValue(accessory, "rating"),
                         Cost: ReadValue(accessory, "cost"),
-                        Equipped: ParseBool(ReadValue(accessory, "equipped"))))
+                        Equipped: ParseBool(ReadValue(accessory, "equipped")),
+                        Category: ReadValue(accessory, "category"),
+                        Source: ReadValue(accessory, "source"),
+                        Notes: ReadValue(accessory, "notes"),
+                        CustomName: ReadValue(accessory, "extra"),
+                        Location: ReadValue(accessory, "location"),
+                        WirelessEnabled: ParseBool(ReadValue(accessory, "wirelesson"))))
                     ?? Array.Empty<CharacterWeaponAccessorySummary>();
             })
             .Where(accessory => !string.IsNullOrWhiteSpace(accessory.Name))
@@ -438,17 +755,14 @@ public sealed class CharacterSectionService : ICharacterSectionService
     public CharacterArmorsSection ParseArmors(string xml)
     {
         XElement character = LoadCharacterRoot(xml);
+        bool careerEditable = ParseBool(ReadValue(character, "created"));
+        CharacterMatrixImprovementBasis improvementBasis = BuildCharacterMatrixImprovementBasis(
+            character,
+            careerEditable);
         IReadOnlyList<CharacterArmorSummary> armors = character
             .Element("armors")?
             .Elements("armor")
-            .Select(item => new CharacterArmorSummary(
-                Guid: ReadValue(item, "guid"),
-                Name: ReadValue(item, "name"),
-                Category: ReadValue(item, "category"),
-                ArmorValue: ReadValue(item, "armor"),
-                Rating: ReadValue(item, "rating"),
-                Cost: ReadValue(item, "cost"),
-                Equipped: ParseBool(ReadValue(item, "equipped"))))
+            .Select(item => BuildArmorSummary(item, careerEditable, improvementBasis))
             .Where(item => !string.IsNullOrWhiteSpace(item.Name))
             .ToArray()
             ?? Array.Empty<CharacterArmorSummary>();
@@ -456,6 +770,91 @@ public sealed class CharacterSectionService : ICharacterSectionService
         return new CharacterArmorsSection(
             Count: armors.Count,
             Armors: armors);
+    }
+
+    private static CharacterArmorSummary BuildArmorSummary(
+        XElement item,
+        bool careerEditable,
+        CharacterMatrixImprovementBasis improvementBasis)
+    {
+        bool maximumExact = TryCalculateArmorMatrixMaximum(item, improvementBasis, out int maximum);
+        return new CharacterArmorSummary(
+            Guid: ReadValue(item, "guid"),
+            Name: ReadValue(item, "name"),
+            Category: ReadValue(item, "category"),
+            ArmorValue: ReadValue(item, "armor"),
+            Rating: ReadValue(item, "rating"),
+            Cost: ReadValue(item, "cost"),
+            Equipped: ParseBool(ReadValue(item, "equipped")),
+            Source: ReadValue(item, "source"),
+            Notes: ReadValue(item, "notes"),
+            CustomName: ReadValue(item, "extra"),
+            WirelessEnabled: ParseBool(ReadValue(item, "wirelesson")),
+            MatrixDamage: ParseInt(ReadValue(item, "matrixcmfilled")),
+            MatrixConditionMaximum: maximumExact ? maximum : 0,
+            MatrixConditionMaximumExact: maximumExact,
+            CareerEditable: careerEditable);
+    }
+
+    private static bool TryCalculateArmorMatrixMaximum(
+        XElement armor,
+        CharacterMatrixImprovementBasis improvementBasis,
+        out int maximum)
+    {
+        maximum = 0;
+        if (!TryParseOptionalInt(ReadValue(armor, "matrixcmbonus"), out int ownBonus))
+        {
+            return false;
+        }
+
+        string deviceRatingText = ReadValue(armor, "devicerating");
+        int deviceRating;
+        if (string.IsNullOrWhiteSpace(deviceRatingText))
+        {
+            deviceRating = 2;
+        }
+        else if (!int.TryParse(deviceRatingText, out deviceRating))
+        {
+            return false;
+        }
+
+        if (string.Equals(ReadValue(armor, "overclocked"), "Device Rating", StringComparison.Ordinal)
+            && improvementBasis.OverclockerEnabled)
+        {
+            if (deviceRating == int.MaxValue)
+            {
+                return false;
+            }
+            deviceRating++;
+        }
+
+        long conditionBonus = ownBonus;
+        foreach (XElement gear in (armor.Element("gears")?.Elements("gear") ?? [])
+                     .Concat(armor.Element("children")?.Elements("gear") ?? []))
+        {
+            if (!TryParseOptionalBool(ReadValue(gear, "equipped"), out bool equipped))
+            {
+                return false;
+            }
+            if (!equipped)
+            {
+                continue;
+            }
+            if (!TryCalculateGearTotalBonusMatrixBoxes(gear, improvementBasis, out int gearBonus))
+            {
+                return false;
+            }
+            conditionBonus += gearBonus;
+        }
+
+        if (conditionBonus is < int.MinValue or > int.MaxValue)
+        {
+            return false;
+        }
+        return CharacterMatrixConditionMonitorCalculator.TryCalculateMaximum(
+            deviceRating,
+            (int)conditionBonus,
+            out maximum);
     }
 
     public CharacterArmorModsSection ParseArmorMods(string xml)
@@ -478,7 +877,12 @@ public sealed class CharacterSectionService : ICharacterSectionService
                         Category: ReadValue(mod, "category"),
                         Rating: ReadValue(mod, "rating"),
                         Cost: ReadValue(mod, "cost"),
-                        Equipped: ParseBool(ReadValue(mod, "equipped"))))
+                        Equipped: ParseBool(ReadValue(mod, "equipped")),
+                        Source: ReadValue(mod, "source"),
+                        Notes: ReadValue(mod, "notes"),
+                        CustomName: ReadValue(mod, "extra"),
+                        Location: ReadValue(mod, "location"),
+                        WirelessEnabled: ParseBool(ReadValue(mod, "wirelesson"))))
                     ?? Array.Empty<CharacterArmorModSummary>();
             })
             .Where(mod => !string.IsNullOrWhiteSpace(mod.Name))
@@ -493,6 +897,11 @@ public sealed class CharacterSectionService : ICharacterSectionService
     public CharacterCyberwaresSection ParseCyberwares(string xml)
     {
         XElement character = LoadCharacterRoot(xml);
+        ICharacterSourceDataContext? sourceData = _sourceDataResolver?.TryCreateContext(xml);
+        bool careerEditable = ParseBool(ReadValue(character, "created"));
+        CharacterMatrixImprovementBasis improvementBasis = BuildCharacterMatrixImprovementBasis(
+            character,
+            careerEditable);
         List<CharacterCyberwareSummary> cyberwares = [];
         foreach (XElement item in character.Element("cyberwares")?.Elements("cyberware") ?? [])
         {
@@ -502,7 +911,10 @@ public sealed class CharacterSectionService : ICharacterSectionService
                 parentGuid: string.Empty,
                 parentName: string.Empty,
                 hierarchyPath: string.Empty,
-                depth: 0);
+                depth: 0,
+                careerEditable,
+                improvementBasis,
+                sourceData);
         }
 
         return new CharacterCyberwaresSection(
@@ -513,22 +925,15 @@ public sealed class CharacterSectionService : ICharacterSectionService
     public CharacterVehiclesSection ParseVehicles(string xml)
     {
         XElement character = LoadCharacterRoot(xml);
+        ICharacterSourceDataContext? sourceData = _sourceDataResolver?.TryCreateContext(xml);
+        bool careerEditable = ParseBool(ReadValue(character, "created"));
+        CharacterMatrixImprovementBasis improvementBasis = BuildCharacterMatrixImprovementBasis(
+            character,
+            careerEditable);
         IReadOnlyList<CharacterVehicleSummary> vehicles = character
             .Element("vehicles")?
             .Elements("vehicle")
-            .Select(item => new CharacterVehicleSummary(
-                Guid: ReadValue(item, "guid"),
-                Name: ReadValue(item, "name"),
-                Category: ReadValue(item, "category"),
-                Handling: ReadValue(item, "handling"),
-                Speed: ReadValue(item, "speed"),
-                Body: ReadValue(item, "body"),
-                Armor: ReadValue(item, "armor"),
-                Sensor: ReadValue(item, "sensor"),
-                Seats: ReadValue(item, "seats"),
-                Cost: ReadValue(item, "cost"),
-                ModCount: item.Element("mods")?.Elements("mod").Count() ?? 0,
-                WeaponCount: item.Element("weapons")?.Elements("weapon").Count() ?? 0))
+            .Select(item => BuildVehicleSummary(item, careerEditable, improvementBasis, sourceData))
             .Where(item => !string.IsNullOrWhiteSpace(item.Name))
             .ToArray()
             ?? Array.Empty<CharacterVehicleSummary>();
@@ -536,6 +941,258 @@ public sealed class CharacterSectionService : ICharacterSectionService
         return new CharacterVehiclesSection(
             Count: vehicles.Count,
             Vehicles: vehicles);
+    }
+
+    private static CharacterVehicleSummary BuildVehicleSummary(
+        XElement item,
+        bool careerEditable,
+        CharacterMatrixImprovementBasis improvementBasis,
+        ICharacterSourceDataContext? sourceData)
+    {
+        CharacterVehicleConditionModifierBasis[] modifiers = item.Element("mods")?
+            .Elements("mod")
+            .Select(modifier => BuildVehicleConditionModifierBasis(modifier, sourceData))
+            .ToArray()
+            ?? [];
+        bool bodyExact = int.TryParse(ReadValue(item, "body"), out int baseBody);
+        int physicalMaximum = 0;
+        bool maximumExact = bodyExact
+            && CharacterVehicleConditionMonitorCalculator.TryCalculatePhysicalMaximum(
+                ReadValue(item, "category"),
+                baseBody,
+                modifiers,
+                out physicalMaximum);
+        bool matrixMaximumExact = TryCalculateVehicleMatrixMaximum(
+            item,
+            improvementBasis,
+            sourceData,
+            out int matrixMaximum);
+
+        return new CharacterVehicleSummary(
+            Guid: ReadValue(item, "guid"),
+            Name: ReadValue(item, "name"),
+            Category: ReadValue(item, "category"),
+            Handling: ReadValue(item, "handling"),
+            Speed: ReadValue(item, "speed"),
+            Body: ReadValue(item, "body"),
+            Armor: ReadValue(item, "armor"),
+            Sensor: ReadValue(item, "sensor"),
+            Seats: ReadValue(item, "seats"),
+            Cost: ReadValue(item, "cost"),
+            ModCount: modifiers.Length,
+            WeaponCount: item.Element("weapons")?.Elements("weapon").Count() ?? 0,
+            Source: ReadValue(item, "source"),
+            Notes: ReadValue(item, "notes"),
+            CustomName: ReadValue(item, "extra"),
+            PhysicalDamage: ParseInt(ReadValue(item, "physicalcmfilled")),
+            PhysicalConditionMaximum: maximumExact ? physicalMaximum : 0,
+            PhysicalConditionMaximumExact: maximumExact,
+            CareerEditable: careerEditable,
+            MatrixDamage: ParseInt(ReadValue(item, "matrixcmfilled")),
+            MatrixConditionMaximum: matrixMaximumExact ? matrixMaximum : 0,
+            MatrixConditionMaximumExact: matrixMaximumExact);
+    }
+
+    private static bool TryCalculateVehicleMatrixMaximum(
+        XElement vehicle,
+        CharacterMatrixImprovementBasis improvementBasis,
+        ICharacterSourceDataContext? sourceData,
+        out int maximum)
+    {
+        maximum = 0;
+        string deviceRatingText = ReadValue(vehicle, "devicerating");
+        if (string.IsNullOrWhiteSpace(deviceRatingText))
+        {
+            deviceRatingText = ReadValue(vehicle, "pilot");
+        }
+        if (!int.TryParse(deviceRatingText, out int baseDeviceRating))
+        {
+            return false;
+        }
+
+        long deviceRatingBonus = 0;
+        long conditionBonus = 0;
+        foreach (XElement modifier in vehicle.Element("mods")?.Elements("mod") ?? [])
+        {
+            if (!TryParseOptionalBool(ReadValue(modifier, "wirelesson"), out bool wirelessEnabled)
+                || !TryReadEffectiveVehicleModBonuses(
+                    modifier,
+                    sourceData,
+                    requireWireless: wirelessEnabled,
+                    out CharacterVehicleModSourceBonuses sourceBonuses))
+            {
+                return false;
+            }
+
+            XElement? bonus = modifier.Element("bonus");
+            int regularDeviceRating = ParseInt(
+                bonus?.Element("devicerating")?.Value ?? sourceBonuses.DeviceRatingExpression);
+            int regularConditionBonus = ParseInt(
+                bonus?.Element("matrixcmbonus")?.Value ?? sourceBonuses.MatrixConditionExpression);
+            deviceRatingBonus += regularDeviceRating;
+            conditionBonus += regularConditionBonus;
+            if (wirelessEnabled)
+            {
+                XElement? wirelessBonus = modifier.Element("wirelessbonus");
+                int wirelessDeviceRating = ParseInt(
+                    wirelessBonus?.Element("devicerating")?.Value
+                    ?? sourceBonuses.WirelessDeviceRatingExpression);
+                int wirelessConditionBonus = ParseInt(
+                    wirelessBonus?.Element("matrixcmbonus")?.Value
+                    ?? sourceBonuses.WirelessMatrixConditionExpression);
+                deviceRatingBonus += wirelessDeviceRating;
+                conditionBonus += wirelessConditionBonus;
+            }
+        }
+
+        foreach (XElement gear in vehicle.Element("gears")?.Elements("gear") ?? [])
+        {
+            if (!TryParseOptionalBool(ReadValue(gear, "equipped"), out bool equipped))
+            {
+                return false;
+            }
+            if (equipped)
+            {
+                if (!TryCalculateGearTotalBonusMatrixBoxes(
+                    gear,
+                    improvementBasis,
+                    out int gearConditionBonus))
+                {
+                    return false;
+                }
+                conditionBonus += gearConditionBonus;
+            }
+        }
+
+        long totalDeviceRating = baseDeviceRating + deviceRatingBonus;
+        if (string.Equals(
+                ReadValue(vehicle, "overclocked"),
+                "Device Rating",
+                StringComparison.Ordinal)
+            && improvementBasis.OverclockerEnabled)
+        {
+            totalDeviceRating++;
+        }
+        if (totalDeviceRating is < int.MinValue or > int.MaxValue
+            || conditionBonus is < int.MinValue or > int.MaxValue)
+        {
+            return false;
+        }
+        return CharacterMatrixConditionMonitorCalculator.TryCalculateMaximum(
+            (int)totalDeviceRating,
+            (int)conditionBonus,
+            out maximum);
+    }
+
+    private static CharacterVehicleConditionModifierBasis BuildVehicleConditionModifierBasis(
+        XElement modifier,
+        ICharacterSourceDataContext? sourceData)
+    {
+        bool includedExact = TryParseOptionalBool(ReadValue(modifier, "included"), out bool included);
+        bool equippedExact = TryParseOptionalBool(ReadValue(modifier, "equipped"), out bool equipped);
+        bool conditionExact = TryParseOptionalInt(ReadValue(modifier, "conditionmonitor"), out int conditionBonus);
+        bool ratingExact = TryParseOptionalInt(ReadValue(modifier, "rating"), out int rating);
+        bool modifierExact = includedExact && equippedExact && conditionExact;
+        int? effectiveBodyBonus = included || !equipped
+            ? 0
+            : ratingExact && TryReadEffectiveVehicleBodyBonus(modifier, rating, sourceData, out int bodyBonus)
+                ? bodyBonus
+                : null;
+        if (!included && equipped && effectiveBodyBonus is null)
+        {
+            modifierExact = false;
+        }
+        return new CharacterVehicleConditionModifierBasis(
+            IncludedInVehicle: included,
+            Equipped: equipped,
+            ConditionMonitorBonus: conditionBonus,
+            EffectiveBodyBonus: effectiveBodyBonus,
+            Exact: modifierExact);
+    }
+
+    private static bool TryReadEffectiveVehicleBodyBonus(
+        XElement modifier,
+        int rating,
+        ICharacterSourceDataContext? sourceData,
+        out int bodyBonus)
+    {
+        bodyBonus = 0;
+        XElement? bonus = modifier.Element("bonus");
+        if (!TryParseOptionalBool(ReadValue(modifier, "wirelesson"), out bool wirelessEnabled)
+            || !TryReadEffectiveVehicleModBonuses(
+                modifier,
+                sourceData,
+                requireWireless: wirelessEnabled,
+                out CharacterVehicleModSourceBonuses sourceBonuses)
+            || !TryResolveOptionalVehicleBodyExpression(
+                bonus?.Element("body")?.Value ?? sourceBonuses.BodyExpression,
+                rating,
+                out int regularBonus))
+        {
+            return false;
+        }
+        bodyBonus = regularBonus;
+
+        if (!wirelessEnabled)
+        {
+            return true;
+        }
+
+        XElement? wirelessBonus = modifier.Element("wirelessbonus");
+        if (!TryResolveOptionalVehicleBodyExpression(
+                wirelessBonus?.Element("body")?.Value ?? sourceBonuses.WirelessBodyExpression,
+                rating,
+                out int wirelessBodyBonus))
+        {
+            return false;
+        }
+        try
+        {
+            bodyBonus = checked(bodyBonus + wirelessBodyBonus);
+            return true;
+        }
+        catch (OverflowException)
+        {
+            bodyBonus = 0;
+            return false;
+        }
+    }
+
+    private static bool TryReadEffectiveVehicleModBonuses(
+        XElement modifier,
+        ICharacterSourceDataContext? sourceData,
+        bool requireWireless,
+        out CharacterVehicleModSourceBonuses bonuses)
+    {
+        bonuses = CharacterVehicleModSourceBonuses.Empty;
+        bool needsRegularSource = modifier.Element("bonus") is null;
+        bool needsWirelessSource = requireWireless && modifier.Element("wirelessbonus") is null;
+        if (!needsRegularSource && !needsWirelessSource)
+        {
+            return true;
+        }
+
+        return sourceData?.TryResolveVehicleModBonuses(
+            ReadValue(modifier, "sourceid"),
+            ReadValue(modifier, "name"),
+            out bonuses) == true;
+    }
+
+    private static bool TryResolveOptionalVehicleBodyExpression(
+        string? expression,
+        int rating,
+        out int bonus)
+    {
+        if (string.IsNullOrWhiteSpace(expression))
+        {
+            bonus = 0;
+            return true;
+        }
+
+        return CharacterVehicleConditionMonitorCalculator.TryResolveRatingExpression(
+            expression,
+            rating,
+            out bonus);
     }
 
     public CharacterVehicleModsSection ParseVehicleMods(string xml)
@@ -559,7 +1216,12 @@ public sealed class CharacterSectionService : ICharacterSectionService
                         Slots: ReadValue(mod, "slots"),
                         Rating: ReadValue(mod, "rating"),
                         Cost: ReadValue(mod, "cost"),
-                        Equipped: ParseBool(ReadValue(mod, "equipped"))))
+                        Equipped: ParseBool(ReadValue(mod, "equipped")),
+                        Source: ReadValue(mod, "source"),
+                        Notes: ReadValue(mod, "notes"),
+                        CustomName: ReadValue(mod, "extra"),
+                        Location: ReadValue(mod, "location"),
+                        WirelessEnabled: ParseBool(ReadValue(mod, "wirelesson"))))
                     ?? Array.Empty<CharacterVehicleModSummary>();
             })
             .Where(mod => !string.IsNullOrWhiteSpace(mod.Name))
@@ -590,7 +1252,9 @@ public sealed class CharacterSectionService : ICharacterSectionService
                     .Select(spec => ReadValue(spec, "name"))
                     .Where(name => !string.IsNullOrWhiteSpace(name))
                     .ToArray() ?? Array.Empty<string>(),
-                Name: FirstNonBlank(ReadValue(skill, "name"), ReadValue(skill, "suid"))))
+                Name: FirstNonBlank(ReadValue(skill, "name"), ReadValue(skill, "suid")),
+                Notes: ReadValue(skill, "notes"),
+                CustomName: ReadValue(skill, "extra")))
             .ToArray()
             ?? Array.Empty<CharacterSkillSummary>();
 
@@ -610,7 +1274,10 @@ public sealed class CharacterSectionService : ICharacterSectionService
             .Select(quality => new CharacterQualitySummary(
                 Name: ReadValue(quality, "name"),
                 Source: ReadValue(quality, "source"),
-                BP: ParseInt(ReadValue(quality, "bp"))))
+                BP: ParseInt(ReadValue(quality, "bp")),
+                Guid: ReadValue(quality, "guid"),
+                Notes: ReadValue(quality, "notes"),
+                CustomName: ReadValue(quality, "extra")))
             .ToArray()
             ?? Array.Empty<CharacterQualitySummary>();
 
@@ -638,7 +1305,7 @@ public sealed class CharacterSectionService : ICharacterSectionService
             .Element("contacts")?
             .Elements("contact")
             .Where(contact => includeContact(ParseContactRecordType(ReadValue(contact, "type"))))
-            .Select(ParseContactSummary)
+            .Select(contact => ParseContactSummary(character, contact))
             .ToArray()
             ?? Array.Empty<CharacterContactSummary>();
 
@@ -660,7 +1327,10 @@ public sealed class CharacterSectionService : ICharacterSectionService
                 Range: ReadValue(spell, "range"),
                 Duration: ReadValue(spell, "duration"),
                 DrainValue: ReadValue(spell, "dv"),
-                Source: ReadValue(spell, "source")))
+                Source: ReadValue(spell, "source"),
+                Guid: ReadValue(spell, "guid"),
+                Notes: ReadValue(spell, "notes"),
+                CustomName: ReadValue(spell, "extra")))
             .ToArray()
             ?? Array.Empty<CharacterSpellSummary>();
 
@@ -679,7 +1349,10 @@ public sealed class CharacterSectionService : ICharacterSectionService
                 Name: ReadValue(power, "name"),
                 Rating: ParseInt(ReadValue(power, "rating")),
                 Source: ReadValue(power, "source"),
-                PointsPerLevel: ParseDecimal(ReadValue(power, "pointsperlevel"))))
+                PointsPerLevel: ParseDecimal(ReadValue(power, "pointsperlevel")),
+                Guid: ReadValue(power, "guid"),
+                Notes: ReadValue(power, "notes"),
+                CustomName: ReadValue(power, "extra")))
             .ToArray()
             ?? Array.Empty<CharacterPowerSummary>();
 
@@ -699,7 +1372,10 @@ public sealed class CharacterSectionService : ICharacterSectionService
                 Target: ReadValue(form, "target"),
                 Duration: ReadValue(form, "duration"),
                 FadingValue: ReadValue(form, "fv"),
-                Source: ReadValue(form, "source")))
+                Source: ReadValue(form, "source"),
+                Guid: ReadValue(form, "guid"),
+                Notes: ReadValue(form, "notes"),
+                CustomName: ReadValue(form, "extra")))
             .ToArray()
             ?? Array.Empty<CharacterComplexFormSummary>();
 
@@ -718,7 +1394,10 @@ public sealed class CharacterSectionService : ICharacterSectionService
                 Name: ReadSpiritName(spirit),
                 Force: ParseInt(ReadValue(spirit, "force")),
                 Services: ParseInt(ReadValue(spirit, "services")),
-                Bound: ParseBool(ReadValue(spirit, "bound"))))
+                Bound: ParseBool(ReadValue(spirit, "bound")),
+                Guid: ReadValue(spirit, "guid"),
+                Notes: ReadValue(spirit, "notes"),
+                CustomName: ReadValue(spirit, "extra")))
             .Where(spirit => !string.IsNullOrWhiteSpace(spirit.Name))
             .ToArray()
             ?? Array.Empty<CharacterSpiritSummary>();
@@ -754,7 +1433,10 @@ public sealed class CharacterSectionService : ICharacterSectionService
             .Select(program => new CharacterAiProgramSummary(
                 Name: ReadValue(program, "name"),
                 Rating: ReadValue(program, "rating"),
-                Source: ReadValue(program, "source")))
+                Source: ReadValue(program, "source"),
+                Guid: ReadValue(program, "guid"),
+                Notes: ReadValue(program, "notes"),
+                CustomName: ReadValue(program, "extra")))
             .Where(program => !string.IsNullOrWhiteSpace(program.Name))
             .ToArray()
             ?? Array.Empty<CharacterAiProgramSummary>();
@@ -876,7 +1558,10 @@ public sealed class CharacterSectionService : ICharacterSectionService
                 Res: ParseBool(ReadValue(grade, "res")),
                 Group: ParseBool(ReadValue(grade, "group")),
                 Ordeal: ParseBool(ReadValue(grade, "ordeal")),
-                Schooling: ParseBool(ReadValue(grade, "schooling"))))
+                Schooling: ParseBool(ReadValue(grade, "schooling")),
+                Guid: ReadValue(grade, "guid"),
+                Reward: ReadValue(grade, "reward"),
+                Notes: ReadValue(grade, "notes")))
             .ToArray()
             ?? Array.Empty<CharacterInitiationGradeSummary>();
 
@@ -899,7 +1584,10 @@ public sealed class CharacterSectionService : ICharacterSectionService
                 Range: ReadValue(power, "range"),
                 Duration: ReadValue(power, "duration"),
                 Source: ReadValue(power, "source"),
-                Rating: ParseInt(ReadValue(power, "rating"))))
+                Rating: ParseInt(ReadValue(power, "rating")),
+                Guid: ReadValue(power, "guid"),
+                Notes: ReadValue(power, "notes"),
+                CustomName: ReadValue(power, "extra")))
             .ToArray()
             ?? Array.Empty<CharacterCritterPowerSummary>();
 
@@ -1042,7 +1730,7 @@ public sealed class CharacterSectionService : ICharacterSectionService
                 ImprovementType: ReadValue(improvement, "improvementttype"),
                 ImprovementSource: ReadValue(improvement, "improvementsource"),
                 Rating: ParseInt(ReadValue(improvement, "rating")),
-                Enabled: ParseBool(ReadValue(improvement, "enabled"))))
+                Enabled: ReadLegacyImprovementIntegerFlag(improvement, "enabled", defaultValue: 1) > 0))
             .ToArray()
             ?? Array.Empty<CharacterImprovementSummary>();
 
@@ -1050,6 +1738,155 @@ public sealed class CharacterSectionService : ICharacterSectionService
             Count: improvements.Count,
             EnabledCount: improvements.Count(improvement => improvement.Enabled),
             Improvements: improvements);
+    }
+
+    private static CharacterMatrixImprovementBasis BuildCharacterMatrixImprovementBasis(
+        XElement character,
+        bool careerMode)
+    {
+        XElement[] improvements = character
+            .Element("improvements")?
+            .Elements("improvement")
+            .ToArray()
+            ?? [];
+        bool overclockerEnabled = improvements.Any(improvement =>
+            string.Equals(
+                ReadValue(improvement, "improvementttype"),
+                "Overclocker",
+                StringComparison.Ordinal)
+            && IsApplicableValueImprovement(improvement, careerMode));
+        bool deviceRatingExact = TryReadLivingPersonaImprovementExpression(
+            improvements,
+            "LivingPersonaDeviceRating",
+            careerMode,
+            out string deviceRatingSuffix);
+        bool conditionMonitorExact = TryReadLivingPersonaImprovementExpression(
+            improvements,
+            "LivingPersonaMatrixCM",
+            careerMode,
+            out string conditionMonitorExpression);
+
+        return new CharacterMatrixImprovementBasis(
+            OverclockerEnabled: overclockerEnabled,
+            LivingPersonaDeviceRatingExact: deviceRatingExact,
+            LivingPersonaDeviceRatingSuffix: deviceRatingSuffix,
+            LivingPersonaConditionMonitorExact: conditionMonitorExact,
+            LivingPersonaConditionMonitorExpression: conditionMonitorExpression,
+            SavedAttributeTotals: ReadSavedAttributeTotals(character));
+    }
+
+    private static IReadOnlyDictionary<string, int> ReadSavedAttributeTotals(XElement character)
+    {
+        var totals = new Dictionary<string, int>(StringComparer.Ordinal);
+        var unavailable = new HashSet<string>(StringComparer.Ordinal);
+        foreach (XElement attribute in character.Element("attributes")?.Elements("attribute") ?? [])
+        {
+            string name = ReadValue(attribute, "name");
+            if (string.IsNullOrEmpty(name) || unavailable.Contains(name))
+            {
+                continue;
+            }
+
+            if (!int.TryParse(
+                    ReadValue(attribute, "totalvalue"),
+                    NumberStyles.Integer,
+                    CultureInfo.InvariantCulture,
+                    out int total)
+                || !totals.TryAdd(name, total))
+            {
+                totals.Remove(name);
+                unavailable.Add(name);
+            }
+        }
+        return totals;
+    }
+
+    private static bool TryReadLivingPersonaImprovementExpression(
+        IEnumerable<XElement> improvements,
+        string improvementType,
+        bool careerMode,
+        out string expression)
+    {
+        List<CharacterMatrixImprovementFragment> fragments = [];
+        foreach (XElement improvement in improvements)
+        {
+            if (!string.Equals(
+                    ReadValue(improvement, "improvementttype"),
+                    improvementType,
+                    StringComparison.Ordinal)
+                || !IsApplicableValueImprovement(improvement, careerMode))
+            {
+                continue;
+            }
+
+            string valueText = ReadValue(improvement, "val");
+            if (!string.IsNullOrEmpty(valueText)
+                && !decimal.TryParse(
+                    valueText,
+                    NumberStyles.Number,
+                    CultureInfo.InvariantCulture,
+                    out _))
+            {
+                expression = string.Empty;
+                return false;
+            }
+
+            fragments.Add(new CharacterMatrixImprovementFragment(
+                Expression: ReadValue(improvement, "improvedname"),
+                Value: string.IsNullOrEmpty(valueText)
+                    ? 0m
+                    : decimal.Parse(valueText, NumberStyles.Number, CultureInfo.InvariantCulture),
+                UniqueName: ReadValue(improvement, "unique"),
+                Custom: ParseBool(ReadValue(improvement, "custom"))));
+        }
+
+        if (!CharacterMatrixImprovementSelector.TrySelectExpressions(fragments, out IReadOnlyList<string> selected))
+        {
+            expression = string.Empty;
+            return false;
+        }
+        foreach (string fragment in selected)
+        {
+            if (!string.IsNullOrEmpty(fragment) && fragment[0] is not ('+' or '-'))
+            {
+                expression = string.Empty;
+                return false;
+            }
+        }
+
+        expression = string.Concat(selected);
+        return true;
+    }
+
+    private static bool IsApplicableValueImprovement(XElement improvement, bool careerMode)
+    {
+        if (ReadLegacyImprovementIntegerFlag(improvement, "enabled", defaultValue: 1) <= 0
+            || ReadLegacyImprovementIntegerFlag(improvement, "addtorating", defaultValue: 0) > 0)
+        {
+            return false;
+        }
+
+        string condition = ReadValue(improvement, "condition");
+        return string.IsNullOrEmpty(condition)
+            || string.Equals(
+                condition,
+                careerMode ? "career" : "create",
+                StringComparison.Ordinal);
+    }
+
+    private static int ReadLegacyImprovementIntegerFlag(
+        XElement improvement,
+        string nodeName,
+        int defaultValue)
+    {
+        string value = ReadValue(improvement, nodeName);
+        return int.TryParse(
+            value,
+            System.Globalization.NumberStyles.Any,
+            System.Globalization.CultureInfo.InvariantCulture,
+            out int parsed)
+            ? parsed
+            : defaultValue;
     }
 
     public CharacterCustomDataDirectoryNamesSection ParseCustomDataDirectoryNames(string xml)
@@ -1080,7 +1917,10 @@ public sealed class CharacterSectionService : ICharacterSectionService
                 Category: ReadValue(drug, "category"),
                 Source: ReadValue(drug, "source"),
                 Rating: ParseInt(ReadValue(drug, "rating")),
-                Quantity: ParseDecimal(ReadValue(drug, "qty"))))
+                Quantity: ParseDecimal(ReadValue(drug, "qty")),
+                Guid: ReadValue(drug, "guid"),
+                Notes: ReadValue(drug, "notes"),
+                CustomName: ReadValue(drug, "extra")))
             .ToArray()
             ?? Array.Empty<CharacterDrugSummary>();
 
@@ -1105,7 +1945,10 @@ public sealed class CharacterSectionService : ICharacterSectionService
         string parentGuid,
         string parentName,
         string hierarchyPath,
-        int depth)
+        int depth,
+        bool careerEditable,
+        CharacterMatrixImprovementBasis improvementBasis,
+        ICharacterSourceDataContext? sourceData)
     {
         string name = ReadValue(item, "name");
         if (string.IsNullOrWhiteSpace(name))
@@ -1119,6 +1962,11 @@ public sealed class CharacterSectionService : ICharacterSectionService
         string nextHierarchyPath = string.IsNullOrWhiteSpace(hierarchyPath)
             ? name
             : $"{hierarchyPath} > {name}";
+        bool maximumExact = TryCalculateCyberwareMatrixMaximum(
+            item,
+            improvementBasis,
+            sourceData,
+            out int maximum);
 
         cyberwares.Add(new CharacterCyberwareSummary(
             Guid: guid,
@@ -1138,7 +1986,17 @@ public sealed class CharacterSectionService : ICharacterSectionService
             ChildCount: children.Count,
             IsModular: !string.IsNullOrWhiteSpace(mountSlot)
                 || ParseBool(ReadValue(item, "hasmodularmount"))
-                || name.Contains("Modular", StringComparison.OrdinalIgnoreCase)));
+                || name.Contains("Modular", StringComparison.OrdinalIgnoreCase),
+            Source: ReadValue(item, "source"),
+            Notes: ReadValue(item, "notes"),
+            CustomName: ReadValue(item, "extra"),
+            Equipped: ParseBool(ReadValue(item, "equipped")),
+            WirelessEnabled: ParseBool(ReadValue(item, "wirelesson")),
+            HomeNode: ParseBool(ReadValue(item, "homenode")),
+            MatrixDamage: ParseInt(ReadValue(item, "matrixcmfilled")),
+            MatrixConditionMaximum: maximumExact ? maximum : 0,
+            MatrixConditionMaximumExact: maximumExact,
+            CareerEditable: careerEditable));
 
         foreach (XElement child in children)
         {
@@ -1148,8 +2006,115 @@ public sealed class CharacterSectionService : ICharacterSectionService
                 parentGuid: guid,
                 parentName: name,
                 hierarchyPath: nextHierarchyPath,
-                depth: depth + 1);
+                depth: depth + 1,
+                careerEditable,
+                improvementBasis,
+                sourceData);
         }
+    }
+
+    private static bool TryCalculateCyberwareMatrixMaximum(
+        XElement cyberware,
+        CharacterMatrixImprovementBasis improvementBasis,
+        ICharacterSourceDataContext? sourceData,
+        out int maximum)
+    {
+        maximum = 0;
+        if (!TryParseOptionalInt(ReadValue(cyberware, "rating"), out int rating))
+        {
+            return false;
+        }
+
+        string deviceRatingExpression = ReadValue(cyberware, "devicerating");
+        int deviceRating;
+        if (string.IsNullOrWhiteSpace(deviceRatingExpression))
+        {
+            if (sourceData?.TryResolveCyberwareGradeDeviceRating(
+                    ReadValue(cyberware, "grade"),
+                    ReadValue(cyberware, "improvementsource"),
+                    out deviceRating) != true)
+            {
+                return false;
+            }
+        }
+        else if (!CharacterVehicleConditionMonitorCalculator.TryResolveRatingExpression(
+                     deviceRatingExpression,
+                     rating,
+                     improvementBasis.SavedAttributeTotals,
+                     out deviceRating))
+        {
+            return false;
+        }
+
+        if (!TryCalculateCyberwareTotalBonusMatrixBoxes(
+                cyberware,
+                improvementBasis,
+                out int bonusMatrixBoxes))
+        {
+            return false;
+        }
+
+        if (string.Equals(ReadValue(cyberware, "overclocked"), "Device Rating", StringComparison.Ordinal)
+            && improvementBasis.OverclockerEnabled)
+        {
+            if (deviceRating == int.MaxValue)
+            {
+                return false;
+            }
+            deviceRating++;
+        }
+
+        return CharacterMatrixConditionMonitorCalculator.TryCalculateMaximum(
+            deviceRating,
+            bonusMatrixBoxes,
+            out maximum);
+    }
+
+    private static bool TryCalculateCyberwareTotalBonusMatrixBoxes(
+        XElement cyberware,
+        CharacterMatrixImprovementBasis improvementBasis,
+        out int total)
+    {
+        long calculated = 0;
+        foreach (XElement child in EnumerateCyberwareChildren(cyberware))
+        {
+            if (!TryCalculateCyberwareTotalBonusMatrixBoxes(
+                child,
+                improvementBasis,
+                out int childBonus))
+            {
+                total = 0;
+                return false;
+            }
+            calculated += childBonus;
+        }
+
+        foreach (XElement gear in cyberware.Element("gears")?.Elements("gear") ?? [])
+        {
+            if (!TryParseOptionalBool(ReadValue(gear, "equipped"), out bool equipped))
+            {
+                total = 0;
+                return false;
+            }
+            if (!equipped)
+            {
+                continue;
+            }
+            if (!TryCalculateGearTotalBonusMatrixBoxes(gear, improvementBasis, out int gearBonus))
+            {
+                total = 0;
+                return false;
+            }
+            calculated += gearBonus;
+        }
+
+        if (calculated is < int.MinValue or > int.MaxValue)
+        {
+            total = 0;
+            return false;
+        }
+        total = (int)calculated;
+        return true;
     }
 
     private static IEnumerable<XElement> EnumerateCyberwareChildren(XElement item)
@@ -1199,13 +2164,77 @@ public sealed class CharacterSectionService : ICharacterSectionService
             Formula: formula);
     }
 
-    private static CharacterContactSummary ParseContactSummary(XElement contact)
-        => new(
-            Name: ReadValue(contact, "name"),
+    private static CharacterContactSummary ParseContactSummary(XElement character, XElement contact)
+    {
+        ContactRecordType recordType = ParseContactRecordType(ReadValue(contact, "type"));
+        CharacterContactEditSemantics? contactSemantics = null;
+        CharacterPetEditSemantics? petSemantics = null;
+        bool exact = recordType == ContactRecordType.Pet
+            ? CharacterPetEditSemanticsResolver.TryResolve(contact, out petSemantics)
+            : CharacterContactEditSemanticsResolver.TryResolve(character, contact, out contactSemantics);
+        int connection = exact && contactSemantics is not null
+            ? contactSemantics.Connection
+            : Math.Max(1, ParseInt(ReadValue(contact, "connection")));
+        int loyalty = exact && contactSemantics is not null
+            ? contactSemantics.Loyalty
+            : Math.Max(1, ParseInt(ReadValue(contact, "loyalty")));
+        string linkedFileName = ReadValue(contact, "file");
+        string linkedRelativeFileName = ReadValue(contact, "relative");
+        bool linked = !string.IsNullOrWhiteSpace(linkedFileName)
+            || !string.IsNullOrWhiteSpace(linkedRelativeFileName);
+        XElement? linkedIdentity = contact.Element("chummercomplete")?.Element("linkedcharacter");
+        string linkedName = linkedIdentity?.Element("name")?.Value.Trim() ?? string.Empty;
+        bool linkedIdentityResolved = linked && !string.IsNullOrWhiteSpace(linkedName);
+        string savedMetatype = ReadValue(contact, "metatype");
+        string savedGender = FirstNonBlank(ReadValue(contact, "gender"), ReadValue(contact, "sex"));
+        string savedAge = ReadValue(contact, "age");
+        string linkedDisplayName = linkedIdentity?.Element("displayname")?.Value.Trim() ?? string.Empty;
+        string linkedMetatype = linkedIdentity?.Element("metatype")?.Value.Trim() ?? string.Empty;
+        string linkedGender = linkedIdentity?.Element("gender")?.Value.Trim() ?? string.Empty;
+        string linkedAge = linkedIdentity?.Element("age")?.Value.Trim() ?? string.Empty;
+        string pathDisplayName = Path.GetFileName(FirstNonBlank(linkedFileName, linkedRelativeFileName))
+            ?? string.Empty;
+        return new CharacterContactSummary(
+            Name: linkedIdentityResolved ? linkedName : ReadValue(contact, "name"),
             Role: ReadValue(contact, "role"),
             Location: ReadValue(contact, "location"),
-            Connection: ParseInt(ReadValue(contact, "connection")),
-            Loyalty: ParseInt(ReadValue(contact, "loyalty")));
+            Connection: connection,
+            Loyalty: loyalty,
+            Guid: ReadValue(contact, "guid"),
+            Notes: ReadValue(contact, "notes"),
+            CustomName: ReadValue(contact, "extra"),
+            Metatype: linkedIdentityResolved ? FirstNonBlank(linkedMetatype, savedMetatype) : savedMetatype,
+            Gender: linkedIdentityResolved ? FirstNonBlank(linkedGender, savedGender) : savedGender,
+            Age: linkedIdentityResolved ? FirstNonBlank(linkedAge, savedAge) : savedAge,
+            ContactType: ReadValue(contact, "contacttype"),
+            PreferredPayment: ReadValue(contact, "preferredpayment"),
+            HobbiesVice: ReadValue(contact, "hobbiesvice"),
+            PersonalLife: ReadValue(contact, "personallife"),
+            GroupName: ReadValue(contact, "groupname"),
+            IsGroup: contactSemantics?.IsGroup ?? ParseBool(ReadValue(contact, "group")),
+            Free: contactSemantics?.Free ?? ParseBool(ReadValue(contact, "free")),
+            Family: contactSemantics?.Family ?? ParseBool(ReadValue(contact, "family")),
+            Blackmail: contactSemantics?.Blackmail ?? ParseBool(ReadValue(contact, "blackmail")),
+            ConnectionMaximum: contactSemantics?.ConnectionMaximum ?? 0,
+            IdentityEditable: exact && (petSemantics?.IdentityEditable ?? contactSemantics?.IdentityEditable ?? false),
+            ConnectionEditable: exact && contactSemantics?.ConnectionEditable == true,
+            LoyaltyEditable: exact && contactSemantics?.LoyaltyEditable == true,
+            GroupEditable: exact && contactSemantics?.GroupEditable == true,
+            FreeEditable: exact && contactSemantics?.FreeEditable == true,
+            FamilyEditable: exact && contactSemantics?.FamilyEditable == true,
+            BlackmailEditable: exact && contactSemantics?.BlackmailEditable == true,
+            CanDelete: exact && (petSemantics?.CanDelete ?? contactSemantics?.CanDelete ?? false),
+            EditSemanticsExact: exact,
+            LinkedCharacter: new CharacterLinkedAssociationSummary(
+                IsLinked: linked,
+                IdentityResolved: linkedIdentityResolved,
+                FileName: linkedFileName,
+                RelativeFileName: linkedRelativeFileName,
+                DisplayName: FirstNonBlank(
+                    linkedDisplayName,
+                    pathDisplayName,
+                    linked ? "Linked runner" : string.Empty)));
+    }
 
     private static ContactRecordType ParseContactRecordType(string value)
         => value.Trim().ToUpperInvariant() switch
@@ -1292,12 +2321,34 @@ public sealed class CharacterSectionService : ICharacterSectionService
         return int.TryParse(value, out int parsed) ? parsed : 0;
     }
 
+    private static bool TryParseOptionalInt(string value, out int parsed)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            parsed = 0;
+            return true;
+        }
+
+        return int.TryParse(value, out parsed);
+    }
+
     private static string FirstNonBlank(params string[] values)
         => values.FirstOrDefault(static value => !string.IsNullOrWhiteSpace(value)) ?? string.Empty;
 
     private static bool ParseBool(string value)
     {
         return bool.TryParse(value, out bool parsed) && parsed;
+    }
+
+    private static bool TryParseOptionalBool(string value, out bool parsed)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            parsed = false;
+            return true;
+        }
+
+        return bool.TryParse(value, out parsed);
     }
 
     private static decimal ParseDecimal(string value)

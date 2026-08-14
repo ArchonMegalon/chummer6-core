@@ -132,7 +132,8 @@ public sealed record CharacterConditionMonitorSection(
     int StunThresholdOffset,
     string StunNaturalRecovery,
     bool PhysicalActsAsCore,
-    bool StunActsAsMatrix);
+    bool StunActsAsMatrix,
+    bool Created = false);
 
 public sealed record CharacterRulesSection(
     string GameEdition,
@@ -203,7 +204,21 @@ public sealed record CharacterGearSummary(
     string Quantity,
     string Cost,
     bool Equipped,
-    string Location);
+    string Location,
+    string Source = "",
+    string Notes = "",
+    string CustomName = "",
+    bool WirelessEnabled = false,
+    bool HomeNode = false,
+    string ParentGuid = "",
+    string ParentName = "",
+    string HierarchyPath = "",
+    int Depth = 0,
+    int ChildCount = 0,
+    int MatrixDamage = 0,
+    int MatrixConditionMaximum = 0,
+    bool MatrixConditionMaximumExact = false,
+    bool CareerEditable = false);
 
 public sealed record CharacterGearSection(
     int Count,
@@ -220,7 +235,15 @@ public sealed record CharacterWeaponSummary(
     string Mode,
     string Ammo,
     string Cost,
-    bool Equipped);
+    bool Equipped,
+    string Source = "",
+    string Notes = "",
+    string CustomName = "",
+    bool WirelessEnabled = false,
+    int MatrixDamage = 0,
+    int MatrixConditionMaximum = 0,
+    bool MatrixConditionMaximumExact = false,
+    bool CareerEditable = false);
 
 public sealed record CharacterWeaponsSection(
     int Count,
@@ -233,7 +256,15 @@ public sealed record CharacterArmorSummary(
     string ArmorValue,
     string Rating,
     string Cost,
-    bool Equipped);
+    bool Equipped,
+    string Source = "",
+    string Notes = "",
+    string CustomName = "",
+    bool WirelessEnabled = false,
+    int MatrixDamage = 0,
+    int MatrixConditionMaximum = 0,
+    bool MatrixConditionMaximumExact = false,
+    bool CareerEditable = false);
 
 public sealed record CharacterArmorsSection(
     int Count,
@@ -255,7 +286,17 @@ public sealed record CharacterCyberwareSummary(
     string HierarchyPath = "",
     int Depth = 0,
     int ChildCount = 0,
-    bool IsModular = false);
+    bool IsModular = false,
+    string Source = "",
+    string Notes = "",
+    string CustomName = "",
+    bool Equipped = false,
+    bool WirelessEnabled = false,
+    bool HomeNode = false,
+    int MatrixDamage = 0,
+    int MatrixConditionMaximum = 0,
+    bool MatrixConditionMaximumExact = false,
+    bool CareerEditable = false);
 
 public sealed record CharacterCyberwaresSection(
     int Count,
@@ -273,7 +314,17 @@ public sealed record CharacterVehicleSummary(
     string Seats,
     string Cost,
     int ModCount,
-    int WeaponCount);
+    int WeaponCount,
+    string Source = "",
+    string Notes = "",
+    string CustomName = "",
+    int PhysicalDamage = 0,
+    int PhysicalConditionMaximum = 0,
+    bool PhysicalConditionMaximumExact = false,
+    bool CareerEditable = false,
+    int MatrixDamage = 0,
+    int MatrixConditionMaximum = 0,
+    bool MatrixConditionMaximumExact = false);
 
 public sealed record CharacterVehiclesSection(
     int Count,
@@ -288,7 +339,13 @@ public sealed record CharacterWeaponAccessorySummary(
     string ExtraMount,
     string Rating,
     string Cost,
-    bool Equipped);
+    bool Equipped,
+    string Category = "",
+    string Source = "",
+    string Notes = "",
+    string CustomName = "",
+    string Location = "",
+    bool WirelessEnabled = false);
 
 public sealed record CharacterWeaponAccessoriesSection(
     int Count,
@@ -302,7 +359,12 @@ public sealed record CharacterArmorModSummary(
     string Category,
     string Rating,
     string Cost,
-    bool Equipped);
+    bool Equipped,
+    string Source = "",
+    string Notes = "",
+    string CustomName = "",
+    string Location = "",
+    bool WirelessEnabled = false);
 
 public sealed record CharacterArmorModsSection(
     int Count,
@@ -317,7 +379,12 @@ public sealed record CharacterVehicleModSummary(
     string Slots,
     string Rating,
     string Cost,
-    bool Equipped);
+    bool Equipped,
+    string Source = "",
+    string Notes = "",
+    string CustomName = "",
+    string Location = "",
+    bool WirelessEnabled = false);
 
 public sealed record CharacterVehicleModsSection(
     int Count,
@@ -331,7 +398,9 @@ public sealed record CharacterSkillSummary(
     int BaseValue,
     int KarmaValue,
     IReadOnlyList<string> Specializations,
-    string Name = "");
+    string Name = "",
+    string Notes = "",
+    string CustomName = "");
 
 public sealed record CharacterSkillsSection(
     int Count,
@@ -341,7 +410,10 @@ public sealed record CharacterSkillsSection(
 public sealed record CharacterQualitySummary(
     string Name,
     string Source,
-    int BP);
+    int BP,
+    string Guid = "",
+    string Notes = "",
+    string CustomName = "");
 
 public sealed record CharacterQualitiesSection(
     int Count,
@@ -352,7 +424,33 @@ public sealed record CharacterContactSummary(
     string Role,
     string Location,
     int Connection,
-    int Loyalty);
+    int Loyalty,
+    string Guid = "",
+    string Notes = "",
+    string CustomName = "",
+    string Metatype = "",
+    string Gender = "",
+    string Age = "",
+    string ContactType = "",
+    string PreferredPayment = "",
+    string HobbiesVice = "",
+    string PersonalLife = "",
+    string GroupName = "",
+    bool IsGroup = false,
+    bool Free = false,
+    bool Family = false,
+    bool Blackmail = false,
+    int ConnectionMaximum = 6,
+    bool IdentityEditable = true,
+    bool ConnectionEditable = true,
+    bool LoyaltyEditable = true,
+    bool GroupEditable = true,
+    bool FreeEditable = true,
+    bool FamilyEditable = true,
+    bool BlackmailEditable = true,
+    bool CanDelete = true,
+    bool EditSemanticsExact = true,
+    CharacterLinkedAssociationSummary? LinkedCharacter = null);
 
 public sealed record CharacterContactsSection(
     int Count,
@@ -378,7 +476,10 @@ public sealed record CharacterSpellSummary(
     string Range,
     string Duration,
     string DrainValue,
-    string Source);
+    string Source,
+    string Guid = "",
+    string Notes = "",
+    string CustomName = "");
 
 public sealed record CharacterSpellsSection(
     int Count,
@@ -388,7 +489,10 @@ public sealed record CharacterPowerSummary(
     string Name,
     int Rating,
     string Source,
-    decimal PointsPerLevel);
+    decimal PointsPerLevel,
+    string Guid = "",
+    string Notes = "",
+    string CustomName = "");
 
 public sealed record CharacterPowersSection(
     int Count,
@@ -399,7 +503,10 @@ public sealed record CharacterComplexFormSummary(
     string Target,
     string Duration,
     string FadingValue,
-    string Source);
+    string Source,
+    string Guid = "",
+    string Notes = "",
+    string CustomName = "");
 
 public sealed record CharacterComplexFormsSection(
     int Count,
@@ -409,7 +516,10 @@ public sealed record CharacterSpiritSummary(
     string Name,
     int Force,
     int Services,
-    bool Bound);
+    bool Bound,
+    string Guid = "",
+    string Notes = "",
+    string CustomName = "");
 
 public sealed record CharacterSpiritsSection(
     int Count,
@@ -426,7 +536,10 @@ public sealed record CharacterFociSection(
 public sealed record CharacterAiProgramSummary(
     string Name,
     string Rating,
-    string Source);
+    string Source,
+    string Guid = "",
+    string Notes = "",
+    string CustomName = "");
 
 public sealed record CharacterAiProgramsSection(
     int Count,
@@ -487,7 +600,10 @@ public sealed record CharacterInitiationGradeSummary(
     bool Res,
     bool Group,
     bool Ordeal,
-    bool Schooling);
+    bool Schooling,
+    string Guid = "",
+    string Reward = "",
+    string Notes = "");
 
 public sealed record CharacterInitiationGradesSection(
     int Count,
@@ -501,7 +617,10 @@ public sealed record CharacterCritterPowerSummary(
     string Range,
     string Duration,
     string Source,
-    int Rating);
+    int Rating,
+    string Guid = "",
+    string Notes = "",
+    string CustomName = "");
 
 public sealed record CharacterCritterPowersSection(
     int Count,
@@ -583,7 +702,10 @@ public sealed record CharacterDrugSummary(
     string Category,
     string Source,
     int Rating,
-    decimal Quantity);
+    decimal Quantity,
+    string Guid = "",
+    string Notes = "",
+    string CustomName = "");
 
 public sealed record CharacterDrugsSection(
     int Count,
