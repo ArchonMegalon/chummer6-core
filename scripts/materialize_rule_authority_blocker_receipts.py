@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-import json
-import sys
 import hashlib
+import json
+import os
+import sys
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -13,7 +14,9 @@ from rule_authority_errata_sources import errata_sources_for_ruleset
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-COMPLETION_ROOT = Path("/docker/chummercomplete/_completion")
+COMPLETION_ROOT = Path(
+    os.environ.get("CHUMMER_COMPLETION_ROOT", "/docker/chummercomplete/_completion")
+)
 PUBLISHED_ROOT = REPO_ROOT / ".codex-studio" / "published"
 PDF_SOURCE_IDENTITY = {
     "sr4": [Path("/mnt/pcloud/personal/Roleplay/sr/(SR4) Shadowrun 4e Core Rules.pdf")],
@@ -53,6 +56,11 @@ def now() -> str:
 
 
 def load_json(path: Path) -> dict[str, Any]:
+    if not path.is_file():
+        raise FileNotFoundError(
+            f"required completion receipt is missing: {path}. "
+            "Set CHUMMER_COMPLETION_ROOT or materialize the ruleset receipts first."
+        )
     with path.open("r", encoding="utf-8") as handle:
         return json.load(handle)
 

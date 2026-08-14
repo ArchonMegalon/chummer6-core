@@ -846,6 +846,8 @@ class EngineProofPackGeneratorTests(unittest.TestCase):
                 str(self.root),
                 "--out",
                 str(self.output_path),
+                "--release-channel",
+                str(self.root / "release-channel.generated.json"),
                 "--check",
             ],
             stdout=subprocess.PIPE,

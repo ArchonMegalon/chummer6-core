@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import sys
 from datetime import UTC, datetime
@@ -17,7 +18,9 @@ from verify_rule_authority_human_review import validate_review
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-COMPLETION_ROOT = Path("/docker/chummercomplete/_completion")
+COMPLETION_ROOT = Path(
+    os.environ.get("CHUMMER_COMPLETION_ROOT", "/docker/chummercomplete/_completion")
+)
 OUT_ROOT = COMPLETION_ROOT / "full_product_rule_authority"
 PUBLISHED_ROOT = REPO_ROOT / ".codex-studio" / "published"
 

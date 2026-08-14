@@ -1226,7 +1226,7 @@ def _validate_local_commit_proofs(root: Path) -> tuple[dict[str, Any], list[str]
     return (
         {
             "status": status,
-            "repository": str(root),
+            "repository": ".",
             "git_available": git_available,
             "required_commits": commits,
             "missing_commits": unresolved,
