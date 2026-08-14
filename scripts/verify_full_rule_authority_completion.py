@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
@@ -13,7 +14,9 @@ from verify_rule_authority_human_review import validate_review
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PUBLISHED_ROOT = REPO_ROOT / ".codex-studio" / "published"
-COMPLETION_ROOT = Path("/docker/chummercomplete/_completion")
+COMPLETION_ROOT = Path(
+    os.environ.get("CHUMMER_COMPLETION_ROOT", "/docker/chummercomplete/_completion")
+)
 OUT_ROOT = COMPLETION_ROOT / "full_product_rule_authority"
 
 SR5_PROVIDER_SPOT_CHECKS = {

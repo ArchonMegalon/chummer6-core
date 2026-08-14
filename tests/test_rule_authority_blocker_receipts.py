@@ -20,6 +20,22 @@ def load_module():
 class RuleAuthorityBlockerReceiptTests(unittest.TestCase):
     def test_sr4_and_sr6_blocker_receipts_stay_pending_not_ready(self) -> None:
         module = load_module()
+        missing = [
+            module.COMPLETION_ROOT
+            / f"{ruleset}_rule_authority"
+            / f"{ruleset.upper()}_ERRATA_PROFILE.generated.json"
+            for ruleset in ("sr4", "sr6")
+            if not (
+                module.COMPLETION_ROOT
+                / f"{ruleset}_rule_authority"
+                / f"{ruleset.upper()}_ERRATA_PROFILE.generated.json"
+            ).is_file()
+        ]
+        if missing:
+            self.skipTest(
+                "rule-authority completion receipts are not present: "
+                + ", ".join(str(path) for path in missing)
+            )
         for ruleset in ("sr4", "sr6"):
             row_level, errata = module.materialize_ruleset(ruleset)
             self.assertEqual("pending_human_review", row_level["status"])

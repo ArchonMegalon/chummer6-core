@@ -17,9 +17,29 @@ def load_module():
     return module
 
 
+def _skip_if_errata_profiles_missing(module) -> None:
+    missing = [
+        module.COMPLETION_ROOT
+        / f"{ruleset}_rule_authority"
+        / f"{ruleset.upper()}_ERRATA_PROFILE.generated.json"
+        for ruleset in ("sr4", "sr6")
+        if not (
+            module.COMPLETION_ROOT
+            / f"{ruleset}_rule_authority"
+            / f"{ruleset.upper()}_ERRATA_PROFILE.generated.json"
+        ).is_file()
+    ]
+    if missing:
+        raise unittest.SkipTest(
+            "rule-authority completion receipts are not present: "
+            + ", ".join(str(path) for path in missing)
+        )
+
+
 class RuleAuthorityOperatorReviewTests(unittest.TestCase):
     def test_build_payload_tracks_current_ready_rule_authority_state(self) -> None:
         module = load_module()
+        _skip_if_errata_profiles_missing(module)
         payload = module.build_payload()
 
         self.assertEqual("operator_review_complete_authority_ready", payload["status"])
@@ -74,6 +94,7 @@ class RuleAuthorityOperatorReviewTests(unittest.TestCase):
         module = importlib.util.module_from_spec(spec)
         assert spec and spec.loader
         spec.loader.exec_module(module)
+        _skip_if_errata_profiles_missing(module)
 
         self.assertEqual(0, module.main())
         import json

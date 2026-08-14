@@ -1,7 +1,7 @@
 {
   "contract_name": "chummer6-core.engine_proof_pack",
   "schema_version": 1,
-  "generated_at": "2026-07-17T05:10:57Z",
+  "generated_at": "2026-08-14T02:34:10Z",
   "status": "passed",
   "proof_kind": "release_bound_engine_proof",
   "milestone_id": 104,
@@ -638,7 +638,7 @@
   },
   "local_commit_proofs": {
     "status": "passed",
-    "repository": "/docker/chummercomplete/chummer-core-engine",
+    "repository": ".",
     "git_available": true,
     "required_commits": [
       {
