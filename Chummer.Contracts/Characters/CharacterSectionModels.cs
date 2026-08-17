@@ -527,6 +527,14 @@ public sealed record CharacterSpiritSummary(
     /// </summary>
     public string EntityType { get; init; } = "";
 
+    public string CritterName { get; init; } = "";
+
+    /// <summary>
+    /// True only when saved data proves no linked-character path is configured. A configured
+    /// path may resolve to an existing linked runner at runtime, so it must remain fail-closed.
+    /// </summary>
+    public bool CritterNameEditableExact { get; init; }
+
     /// <summary>
     /// The legacy SpiritControl ceiling for Force/Rating when it can be derived entirely from
     /// the saved runner. The corresponding exactness flag is deliberately separate because a

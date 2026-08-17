@@ -1425,6 +1425,9 @@ public sealed class CharacterSectionService : ICharacterSectionService
             CustomName: ReadValue(spirit, "extra"))
         {
             EntityType = NormalizeSpiritEntityType(ReadValue(spirit, "type")),
+            CritterName = ReadValue(spirit, "crittername"),
+            CritterNameEditableExact = string.IsNullOrWhiteSpace(ReadValue(spirit, "file"))
+                && string.IsNullOrWhiteSpace(ReadValue(spirit, "relative")),
             ForceMaximum = forceMaximumExact ? forceMaximum : 0,
             ForceMaximumExact = forceMaximumExact,
             ForceEditable = created && forceMaximumExact && force is >= 0 && force <= forceMaximum
