@@ -1387,6 +1387,7 @@ public sealed class CharacterSectionService : ICharacterSectionService
     public CharacterSpiritsSection ParseSpirits(string xml)
     {
         XElement character = LoadCharacterRoot(xml);
+        bool created = ParseBool(ReadValue(character, "created"));
         IReadOnlyList<CharacterSpiritSummary> spirits = character
             .Element("spirits")?
             .Elements("spirit")
@@ -1404,7 +1405,10 @@ public sealed class CharacterSectionService : ICharacterSectionService
 
         return new CharacterSpiritsSection(
             Count: spirits.Count,
-            Spirits: spirits);
+            Spirits: spirits)
+        {
+            Created = created
+        };
     }
 
     public CharacterFociSection ParseFoci(string xml)

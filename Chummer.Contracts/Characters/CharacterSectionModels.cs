@@ -523,7 +523,10 @@ public sealed record CharacterSpiritSummary(
 
 public sealed record CharacterSpiritsSection(
     int Count,
-    IReadOnlyList<CharacterSpiritSummary> Spirits);
+    IReadOnlyList<CharacterSpiritSummary> Spirits)
+{
+    public bool Created { get; init; }
+}
 
 public sealed record CharacterFocusSummary(
     string Guid,
