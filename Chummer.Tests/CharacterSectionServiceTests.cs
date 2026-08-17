@@ -1620,6 +1620,61 @@ public class CharacterSectionServiceTests
         Assert.IsFalse(CharacterPetEditSemanticsResolver.TryResolve(wrongType, out _));
     }
 
+    [TestMethod]
+    public void ParseSpirits_exposes_only_source_exact_force_ceilings()
+    {
+        const string xml = """
+<character>
+  <created>True</created>
+  <magenabled>True</magenabled>
+  <resenabled>True</resenabled>
+  <attributes>
+    <attribute><name>MAG</name><value>5</value><totalvalue>7</totalvalue></attribute>
+    <attribute><name>RES</name><totalvalue>4</totalvalue></attribute>
+  </attributes>
+  <spirits>
+    <spirit><guid>sprite-1</guid><name>Machine Sprite</name><type>Sprite</type><force>8</force><services>2</services><bound>True</bound></spirit>
+    <spirit><guid>spirit-unknown</guid><name>Fire Spirit</name><type>Spirit</type><force>10</force><services>1</services><bound>False</bound></spirit>
+  </spirits>
+</character>
+""";
+
+        CharacterSpiritsSection section = new CharacterSectionService().ParseSpirits(xml);
+
+        CharacterSpiritSummary sprite = section.Spirits.Single(spirit => spirit.Guid == "sprite-1");
+        Assert.AreEqual("Sprite", sprite.EntityType);
+        Assert.AreEqual(8, sprite.ForceMaximum);
+        Assert.IsTrue(sprite.ForceMaximumExact);
+        Assert.IsTrue(sprite.ForceEditable);
+
+        CharacterSpiritSummary spirit = section.Spirits.Single(spirit => spirit.Guid == "spirit-unknown");
+        Assert.AreEqual("Spirit", spirit.EntityType);
+        Assert.IsFalse(spirit.ForceMaximumExact);
+        Assert.IsFalse(spirit.ForceEditable);
+    }
+
+    [TestMethod]
+    public void ParseSpirits_uses_a_persisted_total_magic_setting_when_available()
+    {
+        const string xml = """
+<character>
+  <created>True</created>
+  <magenabled>True</magenabled>
+  <spiritforcebasedontotalmag>True</spiritforcebasedontotalmag>
+  <attributes><attribute><name>MAG</name><value>5</value><totalvalue>7</totalvalue></attribute></attributes>
+  <spirits><spirit><guid>spirit-1</guid><name>Fire Spirit</name><type>Spirit</type><force>14</force></spirit></spirits>
+</character>
+""";
+
+        CharacterSpiritSummary spirit = new CharacterSectionService()
+            .ParseSpirits(xml)
+            .Spirits.Single();
+
+        Assert.AreEqual(14, spirit.ForceMaximum);
+        Assert.IsTrue(spirit.ForceMaximumExact);
+        Assert.IsTrue(spirit.ForceEditable);
+    }
+
     private static string FindTestFilePath(string fileName)
     {
         DirectoryInfo current = new(AppDomain.CurrentDomain.BaseDirectory);

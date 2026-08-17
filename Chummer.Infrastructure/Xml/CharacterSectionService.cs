@@ -1391,14 +1391,7 @@ public sealed class CharacterSectionService : ICharacterSectionService
         IReadOnlyList<CharacterSpiritSummary> spirits = character
             .Element("spirits")?
             .Elements("spirit")
-            .Select(spirit => new CharacterSpiritSummary(
-                Name: ReadSpiritName(spirit),
-                Force: ParseInt(ReadValue(spirit, "force")),
-                Services: ParseInt(ReadValue(spirit, "services")),
-                Bound: ParseBool(ReadValue(spirit, "bound")),
-                Guid: ReadValue(spirit, "guid"),
-                Notes: ReadValue(spirit, "notes"),
-                CustomName: ReadValue(spirit, "extra")))
+            .Select(spirit => BuildSpiritSummary(character, spirit, created))
             .Where(spirit => !string.IsNullOrWhiteSpace(spirit.Name))
             .ToArray()
             ?? Array.Empty<CharacterSpiritSummary>();
@@ -1410,6 +1403,134 @@ public sealed class CharacterSectionService : ICharacterSectionService
             Created = created
         };
     }
+
+    private static CharacterSpiritSummary BuildSpiritSummary(
+        XElement character,
+        XElement spirit,
+        bool created)
+    {
+        int force = ParseInt(ReadValue(spirit, "force"));
+        bool forceMaximumExact = TryCalculateSpiritForceMaximum(
+            character,
+            spirit,
+            created,
+            out int forceMaximum);
+        return new CharacterSpiritSummary(
+            Name: ReadSpiritName(spirit),
+            Force: force,
+            Services: ParseInt(ReadValue(spirit, "services")),
+            Bound: ParseBool(ReadValue(spirit, "bound")),
+            Guid: ReadValue(spirit, "guid"),
+            Notes: ReadValue(spirit, "notes"),
+            CustomName: ReadValue(spirit, "extra"))
+        {
+            EntityType = NormalizeSpiritEntityType(ReadValue(spirit, "type")),
+            ForceMaximum = forceMaximumExact ? forceMaximum : 0,
+            ForceMaximumExact = forceMaximumExact,
+            ForceEditable = created && forceMaximumExact && force is >= 0 && force <= forceMaximum
+        };
+    }
+
+    /// <summary>
+    /// Mirrors Character.MaxSpiritForce and Character.MaxSpriteLevel without guessing an
+    /// external character-settings profile. Sprite ceilings are self-contained. Spirit
+    /// ceilings are exact only when the profile choice is persisted alongside the runner, or
+    /// when MAG.Value and MAG.TotalValue are equal so either legacy setting gives the same
+    /// result.
+    /// </summary>
+    private static bool TryCalculateSpiritForceMaximum(
+        XElement character,
+        XElement spirit,
+        bool created,
+        out int maximum)
+    {
+        maximum = 0;
+        string entityType = NormalizeSpiritEntityType(ReadValue(spirit, "type"));
+        if (string.IsNullOrWhiteSpace(entityType))
+        {
+            return false;
+        }
+
+        int basis;
+        if (string.Equals(entityType, "Sprite", StringComparison.Ordinal))
+        {
+            if (!ParseBool(ReadValue(character, "resenabled"))
+                || !TryReadCharacterAttributeValue(character, "RES", "totalvalue", out basis))
+            {
+                return false;
+            }
+        }
+        else
+        {
+            if (!ParseBool(ReadValue(character, "magenabled"))
+                || !TryReadCharacterAttributeValue(character, "MAG", "value", out int magicValue)
+                || !TryReadCharacterAttributeValue(character, "MAG", "totalvalue", out int magicTotalValue))
+            {
+                return false;
+            }
+
+            string savedSetting = ReadValue(character, "spiritforcebasedontotalmag");
+            if (bool.TryParse(savedSetting, out bool useTotalMagic))
+            {
+                basis = useTotalMagic ? magicTotalValue : magicValue;
+            }
+            else if (magicValue == magicTotalValue)
+            {
+                basis = magicValue;
+            }
+            else
+            {
+                return false;
+            }
+        }
+
+        if (basis <= 0)
+        {
+            maximum = 0;
+            return true;
+        }
+
+        if (created)
+        {
+            if (basis > int.MaxValue / 2)
+            {
+                return false;
+            }
+            basis *= 2;
+        }
+
+        maximum = basis;
+        return true;
+    }
+
+    private static bool TryReadCharacterAttributeValue(
+        XElement character,
+        string attributeName,
+        string propertyName,
+        out int value)
+    {
+        value = 0;
+        XElement? attribute = character.Element("attributes")?
+            .Elements("attribute")
+            .FirstOrDefault(candidate => string.Equals(
+                ReadValue(candidate, "name"),
+                attributeName,
+                StringComparison.OrdinalIgnoreCase));
+        return attribute is not null
+            && int.TryParse(
+                ReadValue(attribute, propertyName),
+                NumberStyles.Integer,
+                CultureInfo.InvariantCulture,
+                out value);
+    }
+
+    private static string NormalizeSpiritEntityType(string value)
+        => value.Trim().ToUpperInvariant() switch
+        {
+            "SPIRIT" => "Spirit",
+            "SPRITE" => "Sprite",
+            _ => string.Empty
+        };
 
     public CharacterFociSection ParseFoci(string xml)
     {

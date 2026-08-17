@@ -519,7 +519,25 @@ public sealed record CharacterSpiritSummary(
     bool Bound,
     string Guid = "",
     string Notes = "",
-    string CustomName = "");
+    string CustomName = "")
+{
+    /// <summary>
+    /// Chummer5's persisted SpiritType value (Spirit or Sprite). An empty value means the
+    /// persisted value was not recognized and rules that depend on the type must stay read-only.
+    /// </summary>
+    public string EntityType { get; init; } = "";
+
+    /// <summary>
+    /// The legacy SpiritControl ceiling for Force/Rating when it can be derived entirely from
+    /// the saved runner. The corresponding exactness flag is deliberately separate because a
+    /// Spirit's ceiling can depend on a character-settings profile that is not embedded in XML.
+    /// </summary>
+    public int ForceMaximum { get; init; }
+
+    public bool ForceMaximumExact { get; init; }
+
+    public bool ForceEditable { get; init; }
+}
 
 public sealed record CharacterSpiritsSection(
     int Count,
