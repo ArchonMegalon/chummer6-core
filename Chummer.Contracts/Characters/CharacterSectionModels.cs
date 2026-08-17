@@ -536,6 +536,13 @@ public sealed record CharacterSpiritSummary(
     public bool CritterNameEditableExact { get; init; }
 
     /// <summary>
+    /// The governed linked-runner association persisted for a Spirit or Sprite, when present.
+    /// The original Spirit record remains authoritative; this supplies only the safe link state
+    /// required to replace or remove the associated app-private runner file.
+    /// </summary>
+    public CharacterLinkedAssociationSummary? LinkedCharacter { get; init; }
+
+    /// <summary>
     /// The legacy SpiritControl ceiling for Force/Rating when it can be derived entirely from
     /// the saved runner. The corresponding exactness flag is deliberately separate because a
     /// Spirit's ceiling can depend on a character-settings profile that is not embedded in XML.

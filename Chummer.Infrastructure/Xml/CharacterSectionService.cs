@@ -1415,6 +1415,15 @@ public sealed class CharacterSectionService : ICharacterSectionService
             spirit,
             created,
             out int forceMaximum);
+        string linkedFileName = ReadValue(spirit, "file");
+        string linkedRelativeFileName = ReadValue(spirit, "relative");
+        bool linked = !string.IsNullOrWhiteSpace(linkedFileName)
+            || !string.IsNullOrWhiteSpace(linkedRelativeFileName);
+        XElement? linkedIdentity = spirit.Element("chummercomplete")?.Element("linkedcharacter");
+        string linkedName = linkedIdentity?.Element("name")?.Value.Trim() ?? string.Empty;
+        string linkedDisplayName = linkedIdentity?.Element("displayname")?.Value.Trim() ?? string.Empty;
+        string pathDisplayName = Path.GetFileName(FirstNonBlank(linkedFileName, linkedRelativeFileName))
+            ?? string.Empty;
         return new CharacterSpiritSummary(
             Name: ReadSpiritName(spirit),
             Force: force,
@@ -1428,6 +1437,15 @@ public sealed class CharacterSectionService : ICharacterSectionService
             CritterName = ReadValue(spirit, "crittername"),
             CritterNameEditableExact = string.IsNullOrWhiteSpace(ReadValue(spirit, "file"))
                 && string.IsNullOrWhiteSpace(ReadValue(spirit, "relative")),
+            LinkedCharacter = new CharacterLinkedAssociationSummary(
+                IsLinked: linked,
+                IdentityResolved: linked && !string.IsNullOrWhiteSpace(linkedName),
+                FileName: linkedFileName,
+                RelativeFileName: linkedRelativeFileName,
+                DisplayName: FirstNonBlank(
+                    linkedDisplayName,
+                    pathDisplayName,
+                    linked ? "Linked runner" : string.Empty)),
             ForceMaximum = forceMaximumExact ? forceMaximum : 0,
             ForceMaximumExact = forceMaximumExact,
             ForceEditable = created && forceMaximumExact && force is >= 0 && force <= forceMaximum

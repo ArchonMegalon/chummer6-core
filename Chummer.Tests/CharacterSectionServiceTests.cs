@@ -1621,6 +1621,45 @@ public class CharacterSectionServiceTests
     }
 
     [TestMethod]
+    public void ParseSpirits_projects_the_persisted_linked_runner_association()
+    {
+        const string xml = """
+<character>
+  <spirits>
+    <spirit>
+      <guid>spirit-linked</guid><name>Fire Spirit</name>
+      <file>/app/private/linked-characters/fire-spirit.chum5lz</file>
+      <relative>linked-characters/fire-spirit.chum5lz</relative>
+      <chummercomplete><linkedcharacter>
+        <displayname>Fire spirit runner.chum5lz</displayname>
+        <name>Ember</name>
+      </linkedcharacter></chummercomplete>
+    </spirit>
+    <spirit><guid>sprite-free</guid><name>Machine Sprite</name></spirit>
+  </spirits>
+</character>
+""";
+
+        CharacterSpiritsSection section = new CharacterSectionService().ParseSpirits(xml);
+
+        CharacterLinkedAssociationSummary linked = section.Spirits
+            .Single(spirit => spirit.Guid == "spirit-linked")
+            .LinkedCharacter!;
+        Assert.IsTrue(linked.IsLinked);
+        Assert.IsTrue(linked.IdentityResolved);
+        Assert.AreEqual("/app/private/linked-characters/fire-spirit.chum5lz", linked.FileName);
+        Assert.AreEqual("linked-characters/fire-spirit.chum5lz", linked.RelativeFileName);
+        Assert.AreEqual("Fire spirit runner.chum5lz", linked.DisplayName);
+
+        CharacterLinkedAssociationSummary free = section.Spirits
+            .Single(spirit => spirit.Guid == "sprite-free")
+            .LinkedCharacter!;
+        Assert.IsFalse(free.IsLinked);
+        Assert.IsFalse(free.IdentityResolved);
+        Assert.AreEqual(string.Empty, free.FileName);
+    }
+
+    [TestMethod]
     public void ParseSpirits_exposes_only_source_exact_force_ceilings()
     {
         const string xml = """
