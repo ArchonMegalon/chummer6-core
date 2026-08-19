@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>Chummer.BuildGhost</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Chummer.Contracts/Chummer.Contracts.csproj" />
+    <Compile Include="../Chummer.Application/BuildGhost/*.cs" Link="BuildGhost/%(Filename)%(Extension)" />
+  </ItemGroup>
+</Project>
