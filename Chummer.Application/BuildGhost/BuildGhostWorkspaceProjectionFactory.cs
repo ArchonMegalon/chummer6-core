@@ -310,10 +310,11 @@ public static class BuildGhostWorkspaceProjectionFactory
         IReadOnlyList<string> expertiseTags)
     {
         CharacterAttributeDetailSummary[] candidates = attributes.Attributes
-            .Where(static attribute => attribute.Created
+            .Where(attribute => attribute.Created
                 && attribute.CanCareerUpgrade
                 && attribute.UpgradeKarmaCost >= 0
                 && attribute.AvailableKarma >= attribute.UpgradeKarmaCost
+                && progress.Karma >= attribute.UpgradeKarmaCost
                 && attribute.BaseValue < attribute.MetatypeMax)
             .OrderBy(static attribute => attribute.UpgradeKarmaCost)
             .ThenBy(static attribute => attribute.TotalValue)

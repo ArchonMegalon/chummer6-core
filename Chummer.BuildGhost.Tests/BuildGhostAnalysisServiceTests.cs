@@ -179,6 +179,51 @@ public sealed class BuildGhostAnalysisServiceTests
     }
 
     [TestMethod]
+    public void Group_projection_requires_consent_revision_membership_digest_and_distinct_visible_members()
+    {
+        DefaultBuildGhostAnalysisService service = new();
+        BuildGhostAnalysisRequest request = CreateRequest();
+        BuildGhostGroupInput group = request.Group!;
+        BuildGhostGroupInput[] invalidBindings =
+        [
+            group with { GroupId = null },
+            group with { GroupRevision = null },
+            group with { GroupRevision = -1 },
+            group with { MembershipDigest = " " },
+            group with { VisibleMembers = [group.VisibleMembers[0], group.VisibleMembers[0]] }
+        ];
+
+        foreach (BuildGhostGroupInput invalid in invalidBindings)
+        {
+            GroupBuildCapabilityProjection projection = service.Analyze(request with { Group = invalid }).GroupCapabilityPosture!;
+            Assert.AreEqual("binding-required", projection.VisibilityPosture);
+            Assert.IsNull(projection.GroupId);
+            Assert.IsNull(projection.GroupRevision);
+            Assert.IsNull(projection.MembershipDigest);
+            Assert.IsEmpty(projection.VisibleMembers);
+            Assert.IsEmpty(projection.Conclusions);
+        }
+
+        BuildGhostAnalysisPacket deniedA = service.Analyze(request with
+        {
+            Group = group with { ConsentGranted = false }
+        });
+        BuildGhostAnalysisPacket deniedB = service.Analyze(request with
+        {
+            Group = group with
+            {
+                ConsentGranted = false,
+                GroupId = "different-hidden-group",
+                GroupRevision = 99,
+                MembershipDigest = "sha256:different-hidden-membership",
+                VisibleMembers = [new("different-hidden-member", [])]
+            }
+        });
+        Assert.AreEqual(deniedA.InputDigest, deniedB.InputDigest);
+        Assert.AreEqual(deniedA.PacketDigest, deniedB.PacketDigest);
+    }
+
+    [TestMethod]
     public void Provider_cannot_introduce_unpacketized_facts_rules_strategies_variants_members_sources_actions_or_links()
     {
         DefaultBuildGhostAnalysisService service = new();
@@ -273,17 +318,72 @@ public sealed class BuildGhostAnalysisServiceTests
         Assert.IsTrue(packet.Runner.Facts.Any(static fact => fact.FactId == "fact:skill:skill-hacking" && fact.Value == "6"));
         Assert.IsTrue(packet.ExpertiseTags.Contains("matrix-specialist", StringComparer.Ordinal));
         Assert.HasCount(3, packet.Variants);
-        Assert.IsTrue(packet.Variants.All(static variant => variant.Validation.Status == BuildGhostVariantValidationStatuses.Available));
-        Assert.IsTrue(packet.Variants.All(static variant => variant.ApplyPreview is { PreviewOnly: true, RequiresExplicitReview: true }));
+        Assert.AreEqual(1, packet.Variants.Count(static variant => variant.Validation.Status == BuildGhostVariantValidationStatuses.Available));
+        Assert.AreEqual(1, packet.Variants.Count(static variant => variant.ApplyPreview is { PreviewOnly: true, RequiresExplicitReview: true }));
+        Assert.HasCount(1, packet.AllowedSuggestedActions);
         Assert.IsTrue(packet.Variants.SelectMany(static variant => variant.Deltas)
             .Any(static delta => delta.DeltaId == "delta:attribute:logic"
                 && delta.BeforeValue == "6"
                 && delta.AfterValue == "7"
                 && delta.NumericDelta == 1m));
+        BuildGhostBuildVariant focused = packet.Variants
+            .Single(static variant => variant.Shape == BuildGhostVariantShapes.RoleFocusedSpecialization);
+        BuildGhostVariantDelta composedKarma = focused.Deltas
+            .Single(static delta => delta.DeltaId == "delta:composed:karma:resource:karma");
+        Assert.AreEqual("50", composedKarma.BeforeValue);
+        Assert.AreEqual("-10", composedKarma.AfterValue);
+        Assert.AreEqual(-60m, composedKarma.NumericDelta);
+        Assert.IsTrue(focused.Validation.Blockers.Contains("resource:karma would fall below zero", StringComparer.Ordinal));
+        Assert.IsNull(focused.ApplyPreview);
         BuildGhostRuleExplanation explanation = packet.RuleExplanations
             .Single(static item => item.ExplanationId == "explain:workspace:attribute-upgrade:logic");
         Assert.AreEqual("resolved", explanation.Status);
         StringAssert.Contains(explanation.Explanation, "35 Karma");
+    }
+
+    [TestMethod]
+    public void Workspace_strategy_generation_checks_the_canonical_progress_balance_as_well_as_attribute_projection()
+    {
+        BuildGhostAnalysisPacket packet = BuildGhostWorkspaceProjectionFactory.Analyze(
+            CreateWorkspaceContext(),
+            CreateProfile(),
+            CreateProgress() with { Karma = 10m },
+            CreateRules(),
+            CreateBuild(),
+            CreateSkills(),
+            CreateAttributes(),
+            CreateAwakening());
+
+        Assert.IsEmpty(packet.OptimizationStrategies);
+        Assert.IsEmpty(packet.AllowedSuggestedActions);
+        Assert.IsTrue(packet.Variants.All(static variant => variant.ApplyPreview is null));
+    }
+
+    [TestMethod]
+    public void Workspace_variants_compose_shared_resource_deltas_when_the_total_is_affordable()
+    {
+        BuildGhostAnalysisPacket packet = BuildGhostWorkspaceProjectionFactory.Analyze(
+            CreateWorkspaceContext(),
+            CreateProfile(),
+            CreateProgress() with { Karma = 100m },
+            CreateRules(),
+            CreateBuild(),
+            CreateSkills(),
+            CreateAttributes(),
+            CreateAwakening());
+
+        Assert.IsTrue(packet.Variants.All(static variant =>
+            variant.Validation.Status == BuildGhostVariantValidationStatuses.Available
+            && variant.ApplyPreview is { PreviewOnly: true, RequiresExplicitReview: true }));
+        BuildGhostVariantDelta focusedKarma = packet.Variants
+            .Single(static variant => variant.Shape == BuildGhostVariantShapes.RoleFocusedSpecialization)
+            .Deltas.Single(static delta => delta.DeltaId == "delta:composed:karma:resource:karma");
+        BuildGhostVariantDelta balancedKarma = packet.Variants
+            .Single(static variant => variant.Shape == BuildGhostVariantShapes.BalancedHybrid)
+            .Deltas.Single(static delta => delta.DeltaId == "delta:composed:karma:resource:karma");
+        Assert.AreEqual("40", focusedKarma.AfterValue);
+        Assert.AreEqual("20", balancedKarma.AfterValue);
+        Assert.HasCount(3, packet.AllowedSuggestedActions);
     }
 
     [TestMethod]

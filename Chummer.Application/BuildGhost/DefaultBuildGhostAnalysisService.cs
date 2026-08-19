@@ -266,22 +266,7 @@ public sealed class DefaultBuildGhostAnalysisService : IBuildGhostAnalysisServic
                 .ToArray(),
             ResourceValues = OrderDictionary(request.Runner.ResourceValues)
         };
-        BuildGhostGroupInput? group = request.Group is null
-            ? null
-            : request.Group with
-            {
-                VisibleMembers = request.Group.VisibleMembers
-                    .Select(member => member with
-                    {
-                        VisibleCapabilities = member.VisibleCapabilities
-                            .OrderBy(static capability => capability.CapabilityId, StringComparer.Ordinal)
-                            .ToArray()
-                    })
-                    .OrderBy(static member => member.MemberRef, StringComparer.Ordinal)
-                    .ToArray(),
-                RequiredCapabilityIds = Order(request.Group.RequiredCapabilityIds),
-                RequiredCapabilityDisplayNames = OrderDictionary(request.Group.RequiredCapabilityDisplayNames)
-            };
+        BuildGhostGroupInput? group = NormalizeGroup(request.Group);
 
         return request with
         {
@@ -523,17 +508,13 @@ public sealed class DefaultBuildGhostAnalysisService : IBuildGhostAnalysisServic
             }
         }
 
+        IReadOnlyList<BuildGhostVariantDelta> deltas = ComposeVariantDeltas(selected, blockers);
+        ValidateResourceDeltas(request.Runner.ResourceValues, deltas, blockers);
         string validationStatus = blockers.Count == 0
             ? BuildGhostVariantValidationStatuses.Available
             : selected.Any(static strategy => string.Equals(strategy.Applicability, BuildGhostApplicabilityStatuses.Unresolved, StringComparison.Ordinal))
                 ? BuildGhostVariantValidationStatuses.Unresolved
                 : BuildGhostVariantValidationStatuses.Rejected;
-        IReadOnlyList<BuildGhostVariantDelta> deltas = selected
-            .SelectMany(static strategy => strategy.Deltas)
-            .GroupBy(static delta => delta.DeltaId, StringComparer.Ordinal)
-            .Select(static group => group.First())
-            .OrderBy(static delta => delta.DeltaId, StringComparer.Ordinal)
-            .ToArray();
         IReadOnlyList<string> tags = selected
             .SelectMany(static strategy => strategy.ExpertiseTags)
             .Distinct(StringComparer.Ordinal)
@@ -590,6 +571,19 @@ public sealed class DefaultBuildGhostAnalysisService : IBuildGhostAnalysisServic
         {
             return new GroupBuildCapabilityProjection(
                 VisibilityPosture: "consent-required",
+                GroupId: null,
+                GroupRevision: null,
+                MembershipDigest: null,
+                VisibleMembers: [],
+                Conclusions: [],
+                MissingCapabilityIds: [],
+                RedundantCapabilityIds: []);
+        }
+
+        if (!HasValidGroupBinding(group))
+        {
+            return new GroupBuildCapabilityProjection(
+                VisibilityPosture: "binding-required",
                 GroupId: null,
                 GroupRevision: null,
                 MembershipDigest: null,
@@ -702,6 +696,163 @@ public sealed class DefaultBuildGhostAnalysisService : IBuildGhostAnalysisServic
             .ToArray();
     }
 
+    private static BuildGhostGroupInput? NormalizeGroup(BuildGhostGroupInput? group)
+    {
+        if (group is null)
+        {
+            return null;
+        }
+
+        if (!group.ConsentGranted || !HasValidGroupBinding(group))
+        {
+            return group with
+            {
+                GroupId = null,
+                GroupRevision = null,
+                MembershipDigest = null,
+                VisibleMembers = [],
+                RequiredCapabilityIds = [],
+                RequiredCapabilityDisplayNames = new Dictionary<string, string>(StringComparer.Ordinal)
+            };
+        }
+
+        return group with
+        {
+            VisibleMembers = group.VisibleMembers
+                .Select(member => member with
+                {
+                    VisibleCapabilities = member.VisibleCapabilities
+                        .OrderBy(static capability => capability.CapabilityId, StringComparer.Ordinal)
+                        .ToArray()
+                })
+                .OrderBy(static member => member.MemberRef, StringComparer.Ordinal)
+                .ToArray(),
+            RequiredCapabilityIds = Order(group.RequiredCapabilityIds),
+            RequiredCapabilityDisplayNames = OrderDictionary(group.RequiredCapabilityDisplayNames)
+        };
+    }
+
+    private static bool HasValidGroupBinding(BuildGhostGroupInput group)
+        => !string.IsNullOrWhiteSpace(group.GroupId)
+            && group.GroupRevision is >= 0
+            && !string.IsNullOrWhiteSpace(group.MembershipDigest)
+            && group.VisibleMembers.All(static member => !string.IsNullOrWhiteSpace(member.MemberRef))
+            && group.VisibleMembers.Select(static member => member.MemberRef).Distinct(StringComparer.Ordinal).Count()
+                == group.VisibleMembers.Count;
+
+    private static IReadOnlyList<BuildGhostVariantDelta> ComposeVariantDeltas(
+        IReadOnlyList<OptimizationStrategyProjection> strategies,
+        ICollection<string> blockers)
+    {
+        BuildGhostVariantDelta[] supplied = strategies.SelectMany(static strategy => strategy.Deltas).ToArray();
+        foreach (IGrouping<string, BuildGhostVariantDelta> duplicateId in supplied
+            .GroupBy(static delta => delta.DeltaId, StringComparer.Ordinal)
+            .Where(static group => group.Count() > 1))
+        {
+            blockers.Add($"duplicate variant delta id {duplicateId.Key}");
+        }
+
+        List<BuildGhostVariantDelta> result = [];
+        foreach (IGrouping<(string Domain, string TargetId), BuildGhostVariantDelta> target in supplied
+            .GroupBy(static delta => (delta.Domain, delta.TargetId)))
+        {
+            BuildGhostVariantDelta[] deltas = target.OrderBy(static delta => delta.DeltaId, StringComparer.Ordinal).ToArray();
+            if (deltas.Length == 1)
+            {
+                result.Add(deltas[0]);
+                continue;
+            }
+
+            if (CanComposeAdditiveResourceDeltas(deltas, out decimal before, out decimal numericDelta, out string? unit))
+            {
+                result.Add(new BuildGhostVariantDelta(
+                    DeltaId: $"delta:composed:{target.Key.Domain}:{target.Key.TargetId}",
+                    Domain: target.Key.Domain,
+                    TargetId: target.Key.TargetId,
+                    BeforeValue: Format(before),
+                    AfterValue: Format(before + numericDelta),
+                    NumericDelta: numericDelta,
+                    Unit: unit,
+                    SourceAnchorIds: deltas
+                        .SelectMany(static delta => delta.SourceAnchorIds)
+                        .Distinct(StringComparer.Ordinal)
+                        .OrderBy(static id => id, StringComparer.Ordinal)
+                        .ToArray()));
+                continue;
+            }
+
+            blockers.Add($"conflicting variant deltas target {target.Key.Domain}:{target.Key.TargetId}");
+            result.AddRange(deltas);
+        }
+
+        return result.OrderBy(static delta => delta.DeltaId, StringComparer.Ordinal).ToArray();
+    }
+
+    private static bool CanComposeAdditiveResourceDeltas(
+        IReadOnlyList<BuildGhostVariantDelta> deltas,
+        out decimal before,
+        out decimal numericDelta,
+        out string? unit)
+    {
+        before = 0m;
+        numericDelta = 0m;
+        unit = null;
+        BuildGhostVariantDelta first = deltas[0];
+        if (!string.Equals(first.TargetId, $"resource:{first.Domain}", StringComparison.Ordinal)
+            || first.NumericDelta is null
+            || !decimal.TryParse(first.BeforeValue, NumberStyles.Number, CultureInfo.InvariantCulture, out before))
+        {
+            return false;
+        }
+
+        unit = first.Unit;
+        foreach (BuildGhostVariantDelta delta in deltas)
+        {
+            if (delta.NumericDelta is null
+                || !decimal.TryParse(delta.BeforeValue, NumberStyles.Number, CultureInfo.InvariantCulture, out decimal candidateBefore)
+                || candidateBefore != before
+                || !string.Equals(delta.Unit, unit, StringComparison.Ordinal)
+                || !decimal.TryParse(delta.AfterValue, NumberStyles.Number, CultureInfo.InvariantCulture, out decimal candidateAfter)
+                || candidateAfter != before + delta.NumericDelta.Value)
+            {
+                return false;
+            }
+
+            numericDelta += delta.NumericDelta.Value;
+        }
+
+        return true;
+    }
+
+    private static void ValidateResourceDeltas(
+        IReadOnlyDictionary<string, decimal> resources,
+        IReadOnlyList<BuildGhostVariantDelta> deltas,
+        ICollection<string> blockers)
+    {
+        foreach (BuildGhostVariantDelta delta in deltas.Where(static delta =>
+            string.Equals(delta.TargetId, $"resource:{delta.Domain}", StringComparison.Ordinal)))
+        {
+            if (delta.NumericDelta is null
+                || !decimal.TryParse(delta.BeforeValue, NumberStyles.Number, CultureInfo.InvariantCulture, out decimal before)
+                || !decimal.TryParse(delta.AfterValue, NumberStyles.Number, CultureInfo.InvariantCulture, out decimal after)
+                || after != before + delta.NumericDelta.Value)
+            {
+                blockers.Add($"{delta.TargetId} delta is not an exact additive projection");
+                continue;
+            }
+
+            if (!resources.TryGetValue(delta.Domain, out decimal current) || current != before)
+            {
+                blockers.Add($"{delta.TargetId} delta does not match the current runner balance");
+            }
+
+            if (after < 0m)
+            {
+                blockers.Add($"{delta.TargetId} would fall below zero");
+            }
+        }
+    }
+
     private static void AddUnknownReferences(
         ICollection<string> reasons,
         string kind,
@@ -801,6 +952,9 @@ public sealed class DefaultBuildGhostAnalysisService : IBuildGhostAnalysisServic
 
     private static string JoinDistinct(IEnumerable<string> values)
         => string.Join(" ", values.Where(HasText).Distinct(StringComparer.Ordinal).OrderBy(static value => value, StringComparer.Ordinal));
+
+    private static string Format(decimal value)
+        => value.ToString("0.############################", CultureInfo.InvariantCulture);
 
     private static bool IsSupportedLocale(string locale, IEnumerable<string> supportedLocales)
         => supportedLocales.Any(supported => string.Equals(supported, locale, StringComparison.OrdinalIgnoreCase));
