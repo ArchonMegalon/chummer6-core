@@ -280,6 +280,7 @@ public sealed record BuildGhostAnalysisPacket(
     string SourceDigest,
     string Locale,
     IReadOnlyList<string> LocaleFallbackChain,
+    IReadOnlyList<string> SupportedLocales,
     BuildGhostRuleEnvironment RuleEnvironment,
     IReadOnlyList<BuildGhostSourceAnchor> SourceAnchors,
     BuildGhostRunnerProjection Runner,

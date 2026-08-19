@@ -295,6 +295,13 @@ public sealed class BuildGhostAnalysisServiceTests
 
         Assert.AreEqual(locale, packet.Locale);
         Assert.AreEqual(locale, packet.LocaleFallbackChain[0]);
+        CollectionAssert.Contains(packet.SupportedLocales.ToArray(), locale);
+        using JsonDocument serialized = JsonDocument.Parse(JsonSerializer.Serialize(
+            packet,
+            new JsonSerializerOptions(JsonSerializerDefaults.Web)));
+        Assert.IsTrue(serialized.RootElement.GetProperty("supportedLocales")
+            .EnumerateArray()
+            .Any(value => string.Equals(value.GetString(), locale, StringComparison.OrdinalIgnoreCase)));
         Assert.AreEqual(LocalizedFallbacks[locale], fallback.SafeText);
         Assert.IsFalse(packet.Warnings.Any(static warning => warning.FactId == "buildghost.locale.unsupported"));
     }

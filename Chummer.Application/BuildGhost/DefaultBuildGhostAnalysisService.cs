@@ -126,6 +126,7 @@ public sealed class DefaultBuildGhostAnalysisService : IBuildGhostAnalysisServic
             SourceDigest: normalizedRequest.SourceDigest,
             Locale: normalizedRequest.Locale,
             LocaleFallbackChain: normalizedRequest.LocaleFallbackChain,
+            SupportedLocales: normalizedRequest.SupportedLocales,
             RuleEnvironment: normalizedRequest.RuleEnvironment,
             SourceAnchors: anchors,
             Runner: normalizedRequest.Runner with { Facts = visibleFacts },
