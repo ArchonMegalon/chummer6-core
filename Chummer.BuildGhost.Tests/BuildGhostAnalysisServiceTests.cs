@@ -1,5 +1,6 @@
 using Chummer.Application.BuildGhost;
 using Chummer.Contracts.BuildGhost;
+using Chummer.Contracts.Characters;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using System.Text.Json;
 
@@ -252,6 +253,260 @@ public sealed class BuildGhostAnalysisServiceTests
         Assert.AreEqual(LocalizedFallbacks[locale], fallback.SafeText);
         Assert.IsFalse(packet.Warnings.Any(static warning => warning.FactId == "buildghost.locale.unsupported"));
     }
+
+    [TestMethod]
+    public void Current_workspace_sections_materialize_exact_affordable_variants_and_rule_explanations()
+    {
+        BuildGhostAnalysisPacket packet = BuildGhostWorkspaceProjectionFactory.Analyze(
+            CreateWorkspaceContext(),
+            CreateProfile(),
+            CreateProgress(),
+            CreateRules(),
+            CreateBuild(),
+            CreateSkills(),
+            CreateAttributes(),
+            CreateAwakening());
+
+        Assert.AreEqual("workspace-runner", packet.WorkspaceId);
+        Assert.AreEqual(12, packet.WorkspaceRevision);
+        Assert.AreEqual("sha256:workspace-source", packet.SourceDigest);
+        Assert.IsTrue(packet.Runner.Facts.Any(static fact => fact.FactId == "fact:skill:skill-hacking" && fact.Value == "6"));
+        Assert.IsTrue(packet.ExpertiseTags.Contains("matrix-specialist", StringComparer.Ordinal));
+        Assert.HasCount(3, packet.Variants);
+        Assert.IsTrue(packet.Variants.All(static variant => variant.Validation.Status == BuildGhostVariantValidationStatuses.Available));
+        Assert.IsTrue(packet.Variants.All(static variant => variant.ApplyPreview is { PreviewOnly: true, RequiresExplicitReview: true }));
+        Assert.IsTrue(packet.Variants.SelectMany(static variant => variant.Deltas)
+            .Any(static delta => delta.DeltaId == "delta:attribute:logic"
+                && delta.BeforeValue == "6"
+                && delta.AfterValue == "7"
+                && delta.NumericDelta == 1m));
+        BuildGhostRuleExplanation explanation = packet.RuleExplanations
+            .Single(static item => item.ExplanationId == "explain:workspace:attribute-upgrade:logic");
+        Assert.AreEqual("resolved", explanation.Status);
+        StringAssert.Contains(explanation.Explanation, "35 Karma");
+    }
+
+    [TestMethod]
+    public void Current_workspace_projection_digest_changes_with_exact_saved_attribute_truth()
+    {
+        BuildGhostWorkspaceAnalysisContext context = CreateWorkspaceContext();
+        CharacterAttributeDetailsSection attributes = CreateAttributes();
+        BuildGhostAnalysisPacket baseline = BuildGhostWorkspaceProjectionFactory.Analyze(
+            context,
+            CreateProfile(),
+            CreateProgress(),
+            CreateRules(),
+            CreateBuild(),
+            CreateSkills(),
+            attributes,
+            CreateAwakening());
+        CharacterAttributeDetailSummary changedLogic = attributes.Attributes
+            .Single(static attribute => attribute.Name == "Logic") with
+        {
+            BaseValue = 5,
+            TotalValue = 5,
+            UpgradeKarmaCost = 30
+        };
+        CharacterAttributeDetailsSection changedAttributes = attributes with
+        {
+            Attributes = attributes.Attributes
+                .Select(attribute => attribute.Name == "Logic" ? changedLogic : attribute)
+                .ToArray()
+        };
+
+        BuildGhostAnalysisPacket changed = BuildGhostWorkspaceProjectionFactory.Analyze(
+            context,
+            CreateProfile(),
+            CreateProgress(),
+            CreateRules(),
+            CreateBuild(),
+            CreateSkills(),
+            changedAttributes,
+            CreateAwakening());
+
+        Assert.AreNotEqual(baseline.PacketDigest, changed.PacketDigest);
+        Assert.AreEqual("5", changed.Runner.Facts.Single(static fact => fact.FactId == "fact:attribute:logic").Value);
+    }
+
+    private static BuildGhostWorkspaceAnalysisContext CreateWorkspaceContext()
+        => new(
+            OwnerId: "owner-current",
+            CampaignId: null,
+            RulesetId: "sr5",
+            RuntimeFingerprint: "runtime:sr5:current",
+            WorkspaceId: "workspace-runner",
+            WorkspaceRevision: 12,
+            SourceDigest: "sha256:workspace-source",
+            Locale: "en-US",
+            LocaleFallbackChain: ["en-US"],
+            SupportedLocales: LocalizedFallbacks.Keys.ToArray(),
+            RuleEnvironment: new BuildGhostRuleEnvironment(
+                ActiveSourcebookIds: ["core"],
+                SourcebookFingerprint: "sha256:books",
+                CustomDataPosture: "none",
+                CustomDataFingerprint: "sha256:custom-none",
+                GmPolicyFingerprint: "sha256:gm-default",
+                GmConstraintIds: []),
+            RequestedGoal: "Compare exact current-runner improvements.",
+            Group: null,
+            DeterministicFallbackText: LocalizedFallbacks["en-US"]);
+
+    private static CharacterProfileSection CreateProfile()
+        => new(
+            Name: "Workspace Runner",
+            Alias: "Current",
+            PlayerName: "Player",
+            Metatype: "Ork",
+            Metavariant: string.Empty,
+            Sex: string.Empty,
+            Age: string.Empty,
+            Height: string.Empty,
+            Weight: string.Empty,
+            Hair: string.Empty,
+            Eyes: string.Empty,
+            Skin: string.Empty,
+            Concept: "Decker",
+            Description: string.Empty,
+            Background: string.Empty,
+            CreatedVersion: "5.0",
+            AppVersion: "5.0",
+            BuildMethod: "Priority",
+            GameplayOption: "Standard",
+            Created: true,
+            Adept: false,
+            Magician: false,
+            Technomancer: false,
+            AI: false,
+            MainMugshotIndex: 0,
+            MugshotCount: 0);
+
+    private static CharacterProgressSection CreateProgress()
+        => new(
+            Karma: 50m,
+            Nuyen: 9000m,
+            StartingNuyen: 5000m,
+            StreetCred: 0,
+            Notoriety: 0,
+            PublicAwareness: 0,
+            BurntStreetCred: 0,
+            BuildKarma: 0,
+            TotalAttributes: 0,
+            TotalSpecial: 0,
+            PhysicalCmFilled: 0,
+            StunCmFilled: 0,
+            TotalEssence: 5.4m,
+            InitiateGrade: 0,
+            SubmersionGrade: 0,
+            MagEnabled: false,
+            ResEnabled: false,
+            DepEnabled: false);
+
+    private static CharacterRulesSection CreateRules()
+        => new(
+            GameEdition: "SR5",
+            Settings: "Standard",
+            GameplayOption: "Standard",
+            GameplayOptionQualityLimit: 25,
+            MaxNuyen: 10,
+            MaxKarma: 7,
+            ContactMultiplier: 3,
+            BannedWareGrades: []);
+
+    private static CharacterBuildSection CreateBuild()
+        => new(
+            BuildMethod: "Priority",
+            PriorityMetatype: "C",
+            PriorityAttributes: "B",
+            PrioritySpecial: "E",
+            PrioritySkills: "A",
+            PriorityResources: "D",
+            PriorityTalent: string.Empty,
+            SumToTen: 0,
+            Special: 0,
+            TotalSpecial: 0,
+            TotalAttributes: 0,
+            ContactPoints: 0,
+            ContactPointsUsed: 0);
+
+    private static CharacterSkillsSection CreateSkills()
+        => new(
+            Count: 2,
+            KnowledgeCount: 0,
+            Skills:
+            [
+                new CharacterSkillSummary(
+                    Guid: "skill-hacking-guid",
+                    Suid: "skill-hacking",
+                    Category: "Cracking",
+                    IsKnowledge: false,
+                    BaseValue: 5,
+                    KarmaValue: 1,
+                    Specializations: [],
+                    Name: "Hacking"),
+                new CharacterSkillSummary(
+                    Guid: "skill-first-aid-guid",
+                    Suid: "skill-first-aid",
+                    Category: "Technical",
+                    IsKnowledge: false,
+                    BaseValue: 1,
+                    KarmaValue: 0,
+                    Specializations: [],
+                    Name: "First Aid")
+            ]);
+
+    private static CharacterAttributeDetailsSection CreateAttributes()
+        => new(
+            Count: 3,
+            Attributes:
+            [
+                Attribute("Body", 3, 20),
+                Attribute("Intuition", 4, 25),
+                Attribute("Logic", 6, 35)
+            ]);
+
+    private static CharacterAttributeDetailSummary Attribute(string name, int total, int cost)
+        => new(
+            Name: name,
+            MetatypeMin: 1,
+            MetatypeMax: 9,
+            MetatypeAugMax: 13,
+            BaseValue: total,
+            KarmaValue: 0,
+            TotalValue: total,
+            MetatypeCategory: "standard")
+        {
+            Created = true,
+            AvailableKarma = 50,
+            UpgradeKarmaCost = cost,
+            CanCareerUpgrade = true
+        };
+
+    private static CharacterAwakeningSection CreateAwakening()
+        => new(
+            MagEnabled: false,
+            ResEnabled: false,
+            DepEnabled: false,
+            Adept: false,
+            Magician: false,
+            Technomancer: false,
+            AI: false,
+            InitiateGrade: 0,
+            SubmersionGrade: 0,
+            Tradition: string.Empty,
+            TraditionName: string.Empty,
+            TraditionDrain: string.Empty,
+            SpiritCombat: string.Empty,
+            SpiritDetection: string.Empty,
+            SpiritHealth: string.Empty,
+            SpiritIllusion: string.Empty,
+            SpiritManipulation: string.Empty,
+            Stream: string.Empty,
+            StreamDrain: string.Empty,
+            CurrentCounterspellingDice: 0,
+            SpellLimit: 0,
+            CfpLimit: 0,
+            AiNormalProgramLimit: 0,
+            AiAdvancedProgramLimit: 0);
 
     private static BuildGhostAnalysisRequest CreateRequest(string locale = "en-US")
     {
