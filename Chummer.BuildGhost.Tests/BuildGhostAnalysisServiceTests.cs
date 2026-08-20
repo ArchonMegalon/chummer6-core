@@ -40,6 +40,34 @@ public sealed class BuildGhostAnalysisServiceTests
         StringAssert.StartsWith(first.InputDigest, "sha256:");
         StringAssert.StartsWith(first.PacketDigest, "sha256:");
         Assert.AreNotEqual(first.InputDigest, first.PacketDigest);
+        Assert.IsTrue(BuildGhostPacketValidator.Validate(first).Accepted);
+    }
+
+    [TestMethod]
+    public void Packet_validator_rejects_digest_and_authority_drift()
+    {
+        BuildGhostAnalysisPacket packet = new DefaultBuildGhostAnalysisService().Analyze(CreateRequest());
+
+        BuildGhostPacketValidationResult accepted = BuildGhostPacketValidator.Validate(packet);
+        BuildGhostPacketValidationResult changedRevision = BuildGhostPacketValidator.Validate(
+            packet with { WorkspaceRevision = packet.WorkspaceRevision + 1 });
+        BuildGhostPacketValidationResult changedLocaleAuthority = BuildGhostPacketValidator.Validate(
+            packet with { SupportedLocales = ["de-DE"] });
+        BuildGhostPacketValidationResult changedAction = BuildGhostPacketValidator.Validate(
+            packet with
+            {
+                AllowedSuggestedActions = packet.AllowedSuggestedActions
+                    .Select(action => action with { RequiresExplicitReview = false })
+                    .ToArray()
+            });
+        BuildGhostPacketValidationResult missingActions = BuildGhostPacketValidator.Validate(
+            packet with { AllowedSuggestedActions = null! });
+
+        Assert.IsTrue(accepted.Accepted, string.Join(", ", accepted.RejectionReasons));
+        CollectionAssert.Contains(changedRevision.RejectionReasons.ToArray(), "packet-digest-mismatch");
+        CollectionAssert.Contains(changedLocaleAuthority.RejectionReasons.ToArray(), "locale-authority-mismatch");
+        CollectionAssert.Contains(changedAction.RejectionReasons.ToArray(), "suggested-action-binding-mismatch");
+        CollectionAssert.Contains(missingActions.RejectionReasons.ToArray(), "suggested-actions-missing");
     }
 
     [TestMethod]
@@ -54,14 +82,14 @@ public sealed class BuildGhostAnalysisServiceTests
         [
             request with { RuntimeFingerprint = "runtime:changed" },
             request with { WorkspaceRevision = request.WorkspaceRevision + 1 },
-            request with { SourceDigest = "sha256:source-changed" },
+            request with { SourceDigest = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" },
             request with { Locale = "de-DE", DeterministicFallbackText = LocalizedFallbacks["de-DE"] },
             request with { Runner = request.Runner with { Facts = [changedFact, .. request.Runner.Facts.Skip(1)] } },
             request with { RuleEnvironment = request.RuleEnvironment with { ActiveSourcebookIds = ["core", "data-trails"] } },
             request with { RuleEnvironment = request.RuleEnvironment with { CustomDataFingerprint = "custom:changed" } },
             request with { RuleEnvironment = request.RuleEnvironment with { GmPolicyFingerprint = "gm:changed" } },
             request with { Group = request.Group! with { GroupRevision = request.Group!.GroupRevision + 1 } },
-            request with { Group = request.Group! with { MembershipDigest = "sha256:membership-changed" } }
+            request with { Group = request.Group! with { MembershipDigest = "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd" } }
         ];
 
         foreach (BuildGhostAnalysisRequest mutation in changed)
@@ -755,7 +783,7 @@ public sealed class BuildGhostAnalysisServiceTests
             RuntimeFingerprint: "runtime:sr5:test",
             WorkspaceId: "workspace-1",
             WorkspaceRevision: 42,
-            SourceDigest: "sha256:source",
+            SourceDigest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             Locale: locale,
             LocaleFallbackChain: ["en-US"],
             SupportedLocales: LocalizedFallbacks.Keys.ToArray(),
@@ -791,7 +819,7 @@ public sealed class BuildGhostAnalysisServiceTests
                 ConsentGranted: true,
                 GroupId: "group-1",
                 GroupRevision: 7,
-                MembershipDigest: "sha256:membership",
+                MembershipDigest: "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
                 VisibleMembers:
                 [
                     new("member-visible-1", [new("capability:matrix", "Matrix", "strong", 0.9m)]),

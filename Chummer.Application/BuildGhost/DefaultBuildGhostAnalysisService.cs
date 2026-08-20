@@ -1,7 +1,4 @@
 using System.Globalization;
-using System.Security.Cryptography;
-using System.Text;
-using System.Text.Json;
 using Chummer.Contracts.BuildGhost;
 
 namespace Chummer.Application.BuildGhost;
@@ -20,19 +17,13 @@ public sealed class DefaultBuildGhostAnalysisService : IBuildGhostAnalysisServic
         "silently-switch-provider-locale-model-or-voice"
     ];
 
-    private static readonly JsonSerializerOptions DigestSerializerOptions = new()
-    {
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-        WriteIndented = false
-    };
-
     public BuildGhostAnalysisPacket Analyze(BuildGhostAnalysisRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
         ValidateBinding(request);
 
         BuildGhostAnalysisRequest normalizedRequest = Normalize(request);
-        string inputDigest = ComputeDigest(normalizedRequest);
+        string inputDigest = BuildGhostCanonicalDigest.Compute(normalizedRequest);
         IReadOnlyList<BuildGhostSourceAnchor> anchors = normalizedRequest.SourceAnchors;
         HashSet<string> anchorIds = anchors
             .Select(static anchor => anchor.AnchorId)
@@ -155,7 +146,7 @@ public sealed class DefaultBuildGhostAnalysisService : IBuildGhostAnalysisServic
             InputDigest: inputDigest,
             PacketDigest: string.Empty);
 
-        return packet with { PacketDigest = ComputeDigest(packet) };
+        return packet with { PacketDigest = BuildGhostCanonicalDigest.Compute(packet) };
     }
 
     public BuildGhostProviderValidationResult ValidateProviderAnswer(
@@ -867,62 +858,6 @@ public sealed class DefaultBuildGhostAnalysisService : IBuildGhostAnalysisServic
             {
                 reasons.Add($"unknown-{kind}:{id}");
             }
-        }
-    }
-
-    private static string ComputeDigest<T>(T value)
-    {
-        JsonElement element = JsonSerializer.SerializeToElement(value, DigestSerializerOptions);
-        using MemoryStream stream = new();
-        using (Utf8JsonWriter writer = new(stream, new JsonWriterOptions { Indented = false }))
-        {
-            WriteCanonical(writer, element);
-        }
-
-        return $"sha256:{Convert.ToHexString(SHA256.HashData(stream.ToArray())).ToLowerInvariant()}";
-    }
-
-    private static void WriteCanonical(Utf8JsonWriter writer, JsonElement element)
-    {
-        switch (element.ValueKind)
-        {
-            case JsonValueKind.Object:
-                writer.WriteStartObject();
-                foreach (JsonProperty property in element.EnumerateObject().OrderBy(static property => property.Name, StringComparer.Ordinal))
-                {
-                    writer.WritePropertyName(property.Name);
-                    WriteCanonical(writer, property.Value);
-                }
-
-                writer.WriteEndObject();
-                break;
-            case JsonValueKind.Array:
-                writer.WriteStartArray();
-                foreach (JsonElement item in element.EnumerateArray())
-                {
-                    WriteCanonical(writer, item);
-                }
-
-                writer.WriteEndArray();
-                break;
-            case JsonValueKind.String:
-                writer.WriteStringValue(element.GetString());
-                break;
-            case JsonValueKind.Number:
-                writer.WriteRawValue(element.GetRawText(), skipInputValidation: true);
-                break;
-            case JsonValueKind.True:
-                writer.WriteBooleanValue(true);
-                break;
-            case JsonValueKind.False:
-                writer.WriteBooleanValue(false);
-                break;
-            case JsonValueKind.Null:
-            case JsonValueKind.Undefined:
-                writer.WriteNullValue();
-                break;
-            default:
-                throw new InvalidOperationException($"Unsupported JSON kind {element.ValueKind}.");
         }
     }
 
