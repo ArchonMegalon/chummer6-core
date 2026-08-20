@@ -136,7 +136,11 @@ public sealed class Sr6WorkspaceCodec : IRulesetWorkspaceCodec
             Update: new CharacterMetadataUpdate(
                 Name: command.Name?.Trim() ?? string.Empty,
                 Alias: command.Alias?.Trim() ?? string.Empty,
-                Notes: command.Notes?.Trim() ?? string.Empty)));
+                Notes: command.Notes?.Trim() ?? string.Empty)
+            {
+                GameNotes = command.GameNotes?.Trim(),
+                GroupNotes = command.GroupNotes?.Trim()
+            }));
 
         return envelope with
         {

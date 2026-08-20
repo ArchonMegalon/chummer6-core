@@ -654,6 +654,19 @@ public class CharacterSectionServiceTests
     }
 
     [TestMethod]
+    public void ParseProfile_extracts_character_game_and_group_notes()
+    {
+        const string xml = "<character><name>Runner</name><notes>Character notes</notes><gamenotes>Game notes</gamenotes><groupnotes>Group notes</groupnotes></character>";
+        var service = new CharacterSectionService();
+
+        CharacterProfileSection section = service.ParseProfile(xml);
+
+        Assert.AreEqual("Character notes", section.CharacterNotes);
+        Assert.AreEqual("Game notes", section.GameNotes);
+        Assert.AreEqual("Group notes", section.GroupNotes);
+    }
+
+    [TestMethod]
     public void ParseProgress_extracts_character_progress_fields()
     {
         string xml = File.ReadAllText(FindTestFilePath("BLUE.chum5"));

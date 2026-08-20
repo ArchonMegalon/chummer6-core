@@ -24,7 +24,12 @@ public sealed record CharacterValidationResult(
 public sealed record CharacterMetadataUpdate(
     string? Name,
     string? Alias,
-    string? Notes);
+    string? Notes)
+{
+    public string? GameNotes { get; init; }
+
+    public string? GroupNotes { get; init; }
+}
 
 public enum CharacterDocumentFormat
 {

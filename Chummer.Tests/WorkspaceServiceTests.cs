@@ -27,6 +27,28 @@ namespace Chummer.Tests;
 public class WorkspaceServiceTests
 {
     [TestMethod]
+    public void UpdateWorkspaceMetadata_preserves_legacy_json_shape_until_long_notes_are_supplied()
+    {
+        JsonSerializerOptions options = new(JsonSerializerDefaults.Web);
+
+        string legacyJson = JsonSerializer.Serialize(
+            new UpdateWorkspaceMetadata("Name", "Alias", "Notes"),
+            options);
+        string longNotesJson = JsonSerializer.Serialize(
+            new UpdateWorkspaceMetadata("Name", "Alias", "Notes")
+            {
+                GameNotes = "Game",
+                GroupNotes = "Group"
+            },
+            options);
+
+        Assert.IsFalse(legacyJson.Contains("gameNotes", StringComparison.Ordinal));
+        Assert.IsFalse(legacyJson.Contains("groupNotes", StringComparison.Ordinal));
+        StringAssert.Contains(longNotesJson, "\"gameNotes\":\"Game\"");
+        StringAssert.Contains(longNotesJson, "\"groupNotes\":\"Group\"");
+    }
+
+    [TestMethod]
     public void Import_does_not_create_workspace_when_summary_parse_fails()
     {
         TrackingWorkspaceStore store = new();
@@ -227,9 +249,18 @@ public class WorkspaceServiceTests
         Assert.IsNotNull(section);
         Assert.AreEqual(1, section.Count);
 
-        var update = workspaceService.UpdateMetadata(imported.Id, new UpdateWorkspaceMetadata("Updated", "Alias", "Notes"));
+        var update = workspaceService.UpdateMetadata(
+            imported.Id,
+            new UpdateWorkspaceMetadata("Updated", "Alias", "Notes")
+            {
+                GameNotes = "Game Notes",
+                GroupNotes = "Group Notes"
+            });
         Assert.IsTrue(update.Success);
         Assert.AreEqual("Updated", update.Value?.Name);
+        Assert.AreEqual("Notes", update.Value?.CharacterNotes);
+        Assert.AreEqual("Game Notes", update.Value?.GameNotes);
+        Assert.AreEqual("Group Notes", update.Value?.GroupNotes);
 
         var save = workspaceService.Save(imported.Id);
         Assert.IsTrue(save.Success);

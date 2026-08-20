@@ -263,7 +263,16 @@ public static class WorkspaceRevisionEtag
 public sealed record UpdateWorkspaceMetadata(
     string? Name,
     string? Alias,
-    string? Notes);
+    string? Notes)
+{
+    [System.Text.Json.Serialization.JsonIgnore(
+        Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? GameNotes { get; init; }
+
+    [System.Text.Json.Serialization.JsonIgnore(
+        Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? GroupNotes { get; init; }
+}
 
 public sealed record CommandResult<T>(
     bool Success,

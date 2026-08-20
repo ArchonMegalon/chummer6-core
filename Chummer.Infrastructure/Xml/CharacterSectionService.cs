@@ -197,7 +197,12 @@ public sealed class CharacterSectionService : ICharacterSectionService
             Technomancer: ParseBool(ReadValue(character, "technomancer")),
             AI: ParseBool(ReadValue(character, "ai")),
             MainMugshotIndex: ParseInt(ReadValue(character, "mainmugshotindex")),
-            MugshotCount: mugshotCount);
+            MugshotCount: mugshotCount)
+        {
+            CharacterNotes = ReadValue(character, "notes"),
+            GameNotes = ReadValue(character, "gamenotes"),
+            GroupNotes = ReadValue(character, "groupnotes")
+        };
     }
 
     public CharacterProgressSection ParseProgress(string xml)

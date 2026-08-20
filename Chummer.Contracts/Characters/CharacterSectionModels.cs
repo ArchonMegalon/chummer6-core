@@ -99,7 +99,14 @@ public sealed record CharacterProfileSection(
     bool Technomancer,
     bool AI,
     int MainMugshotIndex,
-    int MugshotCount);
+    int MugshotCount)
+{
+    public string CharacterNotes { get; init; } = string.Empty;
+
+    public string GameNotes { get; init; } = string.Empty;
+
+    public string GroupNotes { get; init; } = string.Empty;
+}
 
 public sealed record CharacterProgressSection(
     decimal Karma,

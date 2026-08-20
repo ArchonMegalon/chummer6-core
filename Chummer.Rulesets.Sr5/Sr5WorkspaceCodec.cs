@@ -66,7 +66,11 @@ public sealed class Sr5WorkspaceCodec : IRulesetWorkspaceCodec
             Update: new CharacterMetadataUpdate(
                 Name: command.Name,
                 Alias: command.Alias,
-                Notes: command.Notes)));
+                Notes: command.Notes)
+            {
+                GameNotes = command.GameNotes,
+                GroupNotes = command.GroupNotes
+            }));
 
         return envelope with
         {
@@ -189,7 +193,12 @@ public sealed class Sr5WorkspaceCodec : IRulesetWorkspaceCodec
             Technomancer: ParseBool(ReadValue(character, "technomancer")),
             AI: ParseBool(ReadValue(character, "ai")),
             MainMugshotIndex: ParseInt(ReadValue(character, "mainmugshotindex")),
-            MugshotCount: character.Element("mugshots")?.Elements("mugshot").Count() ?? 0);
+            MugshotCount: character.Element("mugshots")?.Elements("mugshot").Count() ?? 0)
+        {
+            CharacterNotes = ReadValue(character, "notes"),
+            GameNotes = ReadValue(character, "gamenotes"),
+            GroupNotes = ReadValue(character, "groupnotes")
+        };
     }
 
     private static CharacterProgressSection BuildProgressSection(XElement character)

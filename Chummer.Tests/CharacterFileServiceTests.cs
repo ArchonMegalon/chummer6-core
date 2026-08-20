@@ -56,7 +56,7 @@ public class CharacterFileServiceTests
     }
 
     [TestMethod]
-    public void ApplyMetadataUpdate_updates_name_alias_and_notes_nodes()
+    public void ApplyMetadataUpdate_updates_name_alias_and_all_notes_nodes()
     {
         string xml = File.ReadAllText(FindTestFilePath("Apex Predator.chum5"));
         var service = new CharacterFileService();
@@ -64,7 +64,11 @@ public class CharacterFileServiceTests
         string updatedXml = service.ApplyMetadataUpdate(xml, new CharacterMetadataUpdate(
             Name: "Updated Name",
             Alias: "Updated Alias",
-            Notes: "Updated Notes"));
+            Notes: "Updated Notes")
+        {
+            GameNotes = "Updated Game Notes",
+            GroupNotes = "Updated Group Notes"
+        });
 
         CharacterFileSummary summary = service.ParseSummaryFromXml(updatedXml);
         CharacterValidationResult validation = service.ValidateXml(updatedXml);
@@ -72,7 +76,25 @@ public class CharacterFileServiceTests
         Assert.AreEqual("Updated Name", summary.Name);
         Assert.AreEqual("Updated Alias", summary.Alias);
         Assert.IsTrue(updatedXml.Contains("<notes>Updated Notes</notes>", StringComparison.Ordinal));
+        Assert.IsTrue(updatedXml.Contains("<gamenotes>Updated Game Notes</gamenotes>", StringComparison.Ordinal));
+        Assert.IsTrue(updatedXml.Contains("<groupnotes>Updated Group Notes</groupnotes>", StringComparison.Ordinal));
         Assert.IsTrue(validation.IsValid);
+    }
+
+    [TestMethod]
+    public void ApplyMetadataUpdate_preserves_unmentioned_long_notes()
+    {
+        const string xml = "<character><name>Runner</name><notes>Character</notes><gamenotes>Game</gamenotes><groupnotes>Group</groupnotes></character>";
+        var service = new CharacterFileService();
+
+        string updatedXml = service.ApplyMetadataUpdate(xml, new CharacterMetadataUpdate(
+            Name: null,
+            Alias: "Alias",
+            Notes: null));
+
+        Assert.IsTrue(updatedXml.Contains("<notes>Character</notes>", StringComparison.Ordinal));
+        Assert.IsTrue(updatedXml.Contains("<gamenotes>Game</gamenotes>", StringComparison.Ordinal));
+        Assert.IsTrue(updatedXml.Contains("<groupnotes>Group</groupnotes>", StringComparison.Ordinal));
     }
 
     private static string FindTestFilePath(string fileName)

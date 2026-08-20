@@ -102,7 +102,11 @@ public sealed class Sr4WorkspaceCodec : IRulesetWorkspaceCodec
             Update: new CharacterMetadataUpdate(
                 Name: command.Name,
                 Alias: command.Alias,
-                Notes: command.Notes)));
+                Notes: command.Notes)
+            {
+                GameNotes = command.GameNotes,
+                GroupNotes = command.GroupNotes
+            }));
 
         return envelope with
         {

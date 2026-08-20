@@ -75,6 +75,8 @@ public sealed class CharacterFileService : ICharacterFileService
         UpdateNode(character, "name", update.Name);
         UpdateNode(character, "alias", update.Alias);
         UpdateNode(character, "notes", update.Notes);
+        UpdateNode(character, "gamenotes", update.GameNotes);
+        UpdateNode(character, "groupnotes", update.GroupNotes);
 
         using StringWriter writer = new(CultureInfo.InvariantCulture);
         document.Save(writer, SaveOptions.DisableFormatting);

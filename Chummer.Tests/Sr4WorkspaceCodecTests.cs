@@ -116,13 +116,19 @@ public class Sr4WorkspaceCodecTests
 
         WorkspacePayloadEnvelope updated = codec.UpdateMetadata(
             envelope,
-            new UpdateWorkspaceMetadata("  Updated Name  ", null, "  Notes Here  "));
+            new UpdateWorkspaceMetadata("  Updated Name  ", null, "  Notes Here  ")
+            {
+                GameNotes = "  Game Notes  ",
+                GroupNotes = "  Group Notes  "
+            });
 
         Assert.AreEqual(Sr4WorkspaceCodec.SchemaVersion, updated.SchemaVersion);
         Assert.AreEqual(Sr4WorkspaceCodec.Sr4PayloadKind, updated.PayloadKind);
         StringAssert.Contains(updated.Payload, "<name>  Updated Name  </name>");
         StringAssert.Contains(updated.Payload, "<alias>Existing Alias</alias>");
         StringAssert.Contains(updated.Payload, "<notes>  Notes Here  </notes>");
+        StringAssert.Contains(updated.Payload, "<gamenotes>  Game Notes  </gamenotes>");
+        StringAssert.Contains(updated.Payload, "<groupnotes>  Group Notes  </groupnotes>");
     }
 
     [TestMethod]

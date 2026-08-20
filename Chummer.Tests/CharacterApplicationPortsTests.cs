@@ -37,11 +37,17 @@ public class CharacterApplicationPortsTests
             Update: new CharacterMetadataUpdate(
                 Name: "Updated",
                 Alias: "Alias",
-                Notes: "Hello")));
+                Notes: "Hello")
+            {
+                GameNotes = "Game",
+                GroupNotes = "Group"
+            }));
 
         Assert.AreEqual("Updated", result.Summary.Name);
         Assert.AreEqual("Alias", result.Summary.Alias);
         StringAssert.Contains(result.UpdatedDocument.Content, "<notes>Hello</notes>");
+        StringAssert.Contains(result.UpdatedDocument.Content, "<gamenotes>Game</gamenotes>");
+        StringAssert.Contains(result.UpdatedDocument.Content, "<groupnotes>Group</groupnotes>");
     }
 
     [TestMethod]
