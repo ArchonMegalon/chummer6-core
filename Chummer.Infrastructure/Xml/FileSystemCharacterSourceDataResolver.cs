@@ -134,7 +134,16 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 return null;
             }
 
-            return new SourceDataContext(catalog, enabledDirectories);
+            string[] enabledSourcebooks = settings
+                .Element("books")?
+                .Elements("book")
+                .Select(node => node.Value.Trim())
+                .Where(value => !string.IsNullOrWhiteSpace(value))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray()
+                ?? [];
+
+            return new SourceDataContext(catalog, enabledDirectories, enabledSourcebooks);
         }
         catch (Exception exception) when (exception is IOException
                                           or UnauthorizedAccessException
@@ -310,13 +319,28 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
     {
         private readonly ContentOverlayCatalog _catalog;
         private readonly IReadOnlyList<CustomDirectory> _customDirectories;
+        private readonly IReadOnlySet<string> _enabledSourcebooks;
 
         public SourceDataContext(
             ContentOverlayCatalog catalog,
-            IReadOnlyList<CustomDirectory> customDirectories)
+            IReadOnlyList<CustomDirectory> customDirectories,
+            IReadOnlyList<string> enabledSourcebooks)
         {
             _catalog = catalog;
             _customDirectories = customDirectories;
+            _enabledSourcebooks = enabledSourcebooks.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        }
+
+        public bool TryIsBookEnabled(string sourceCode, out bool enabled)
+        {
+            enabled = false;
+            if (string.IsNullOrWhiteSpace(sourceCode))
+            {
+                return false;
+            }
+
+            enabled = _enabledSourcebooks.Contains(sourceCode.Trim());
+            return true;
         }
 
         public bool TryResolveCyberwareGradeDeviceRating(

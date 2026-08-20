@@ -11,6 +11,16 @@ public interface ICharacterSourceDataResolver
 
 public interface ICharacterSourceDataContext
 {
+    /// <summary>
+    /// Resolves whether the exact source profile saved by the runner enables a sourcebook.
+    /// False means the profile could not prove the answer and callers must fail closed.
+    /// </summary>
+    bool TryIsBookEnabled(string sourceCode, out bool enabled)
+    {
+        enabled = false;
+        return false;
+    }
+
     bool TryResolveCyberwareGradeDeviceRating(
         string gradeName,
         string improvementSource,

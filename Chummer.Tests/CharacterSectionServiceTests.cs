@@ -680,6 +680,21 @@ public class CharacterSectionServiceTests
     }
 
     [TestMethod]
+    public void ParseProgress_preserves_manual_astral_and_wild_reputation()
+    {
+        const string xml = "<character><streetcred>11</streetcred><notoriety>12</notoriety><publicawareness>13</publicawareness><baseastralreputation>14</baseastralreputation><basewildreputation>15</basewildreputation></character>";
+        var service = new CharacterSectionService();
+
+        CharacterProgressSection section = service.ParseProgress(xml);
+
+        Assert.AreEqual(11, section.StreetCred);
+        Assert.AreEqual(12, section.Notoriety);
+        Assert.AreEqual(13, section.PublicAwareness);
+        Assert.AreEqual(14, section.AstralReputation);
+        Assert.AreEqual(15, section.WildReputation);
+    }
+
+    [TestMethod]
     public void ParseRules_extracts_character_rules_fields()
     {
         string xml = File.ReadAllText(FindTestFilePath("BLUE.chum5"));

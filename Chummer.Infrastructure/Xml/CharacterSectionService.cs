@@ -226,7 +226,11 @@ public sealed class CharacterSectionService : ICharacterSectionService
             SubmersionGrade: ParseInt(ReadValue(character, "submersiongrade")),
             MagEnabled: ParseBool(ReadValue(character, "magenabled")),
             ResEnabled: ParseBool(ReadValue(character, "resenabled")),
-            DepEnabled: ParseBool(ReadValue(character, "depenabled")));
+            DepEnabled: ParseBool(ReadValue(character, "depenabled")))
+        {
+            AstralReputation = ParseInt(ReadValue(character, "baseastralreputation")),
+            WildReputation = ParseInt(ReadValue(character, "basewildreputation"))
+        };
     }
 
     public CharacterProgressSection ParseKarmaSummary(string xml) => ParseProgress(xml);

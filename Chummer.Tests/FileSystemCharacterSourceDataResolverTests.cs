@@ -25,6 +25,11 @@ public sealed class FileSystemCharacterSourceDataResolverTests
             ICharacterSourceDataContext context = CreateContext(root, CharacterXml())!;
 
             Assert.IsNotNull(context);
+            Assert.IsTrue(context.TryIsBookEnabled("sg", out bool streetGrimoireEnabled));
+            Assert.IsTrue(streetGrimoireEnabled);
+            Assert.IsTrue(context.TryIsBookEnabled("FA", out bool forbiddenArcanaEnabled));
+            Assert.IsFalse(forbiddenArcanaEnabled);
+            Assert.IsFalse(context.TryIsBookEnabled(string.Empty, out _));
             Assert.IsTrue(context.TryResolveCyberwareGradeDeviceRating("Standard", "Cyberware", out int rating));
             Assert.AreEqual(4, rating);
             Assert.IsTrue(context.TryResolveCyberwareGradeDeviceRating("Alphaware", "Cyberware", out int fallbackRating));
@@ -218,7 +223,7 @@ public sealed class FileSystemCharacterSourceDataResolverTests
         Directory.CreateDirectory(data);
         File.WriteAllText(
             Path.Combine(data, "settings.xml"),
-            $"<chummer><settings><setting><id>{SettingsId}</id><customdatadirectorynames>{customDataSetting}</customdatadirectorynames></setting></settings></chummer>");
+            $"<chummer><settings><setting><id>{SettingsId}</id><books><book>SR5</book><book>SG</book></books><customdatadirectorynames>{customDataSetting}</customdatadirectorynames></setting></settings></chummer>");
         File.WriteAllText(
             Path.Combine(data, "cyberware.xml"),
             "<chummer><grades><grade><name>Standard</name><devicerating>4</devicerating></grade><grade><name>Alphaware</name></grade></grades></chummer>");

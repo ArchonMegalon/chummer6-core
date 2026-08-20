@@ -126,7 +126,12 @@ public sealed record CharacterProgressSection(
     int SubmersionGrade,
     bool MagEnabled,
     bool ResEnabled,
-    bool DepEnabled);
+    bool DepEnabled)
+{
+    public int AstralReputation { get; init; }
+
+    public int WildReputation { get; init; }
+}
 
 public sealed record CharacterConditionMonitorSection(
     int PhysicalTrack,
