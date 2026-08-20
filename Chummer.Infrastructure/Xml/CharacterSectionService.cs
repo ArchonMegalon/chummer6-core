@@ -229,7 +229,8 @@ public sealed class CharacterSectionService : ICharacterSectionService
             DepEnabled: ParseBool(ReadValue(character, "depenabled")))
         {
             AstralReputation = ParseInt(ReadValue(character, "baseastralreputation")),
-            WildReputation = ParseInt(ReadValue(character, "basewildreputation"))
+            WildReputation = ParseInt(ReadValue(character, "basewildreputation")),
+            CurrentLiftCarryHits = ParseInt(ReadValue(character, "currentliftcarryhits"))
         };
     }
 

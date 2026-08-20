@@ -680,9 +680,9 @@ public class CharacterSectionServiceTests
     }
 
     [TestMethod]
-    public void ParseProgress_preserves_manual_astral_and_wild_reputation()
+    public void ParseProgress_preserves_manual_reputation_and_lift_carry_hits()
     {
-        const string xml = "<character><streetcred>11</streetcred><notoriety>12</notoriety><publicawareness>13</publicawareness><baseastralreputation>14</baseastralreputation><basewildreputation>15</basewildreputation></character>";
+        const string xml = "<character><streetcred>11</streetcred><notoriety>12</notoriety><publicawareness>13</publicawareness><baseastralreputation>14</baseastralreputation><basewildreputation>15</basewildreputation><currentliftcarryhits>16</currentliftcarryhits></character>";
         var service = new CharacterSectionService();
 
         CharacterProgressSection section = service.ParseProgress(xml);
@@ -692,6 +692,7 @@ public class CharacterSectionServiceTests
         Assert.AreEqual(13, section.PublicAwareness);
         Assert.AreEqual(14, section.AstralReputation);
         Assert.AreEqual(15, section.WildReputation);
+        Assert.AreEqual(16, section.CurrentLiftCarryHits);
     }
 
     [TestMethod]

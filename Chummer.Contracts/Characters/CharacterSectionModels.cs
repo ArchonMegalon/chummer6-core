@@ -131,6 +131,8 @@ public sealed record CharacterProgressSection(
     public int AstralReputation { get; init; }
 
     public int WildReputation { get; init; }
+
+    public int CurrentLiftCarryHits { get; init; }
 }
 
 public sealed record CharacterConditionMonitorSection(
