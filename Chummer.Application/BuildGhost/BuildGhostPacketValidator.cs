@@ -59,7 +59,7 @@ public static class BuildGhostPacketValidator
         }
 
         IReadOnlyList<BuildGhostAllowedAction> suggestedActions = packet.AllowedSuggestedActions ?? [];
-        if (suggestedActions.Count == 0)
+        if (packet.AllowedSuggestedActions is null)
         {
             reasons.Add("suggested-actions-missing");
         }

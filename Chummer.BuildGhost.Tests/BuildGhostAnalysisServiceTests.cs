@@ -62,8 +62,14 @@ public sealed class BuildGhostAnalysisServiceTests
             });
         BuildGhostPacketValidationResult missingActions = BuildGhostPacketValidator.Validate(
             packet with { AllowedSuggestedActions = null! });
+        BuildGhostAnalysisPacket noLegalActions = new DefaultBuildGhostAnalysisService().Analyze(
+            CreateRequest() with { Strategies = [] });
 
         Assert.IsTrue(accepted.Accepted, string.Join(", ", accepted.RejectionReasons));
+        Assert.IsEmpty(noLegalActions.AllowedSuggestedActions);
+        Assert.IsTrue(
+            BuildGhostPacketValidator.Validate(noLegalActions).Accepted,
+            "A grounded packet may legitimately have no previewable actions.");
         CollectionAssert.Contains(changedRevision.RejectionReasons.ToArray(), "packet-digest-mismatch");
         CollectionAssert.Contains(changedLocaleAuthority.RejectionReasons.ToArray(), "locale-authority-mismatch");
         CollectionAssert.Contains(changedAction.RejectionReasons.ToArray(), "suggested-action-binding-mismatch");
