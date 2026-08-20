@@ -106,6 +106,10 @@ public sealed record CharacterProfileSection(
     public string GameNotes { get; init; } = string.Empty;
 
     public string GroupNotes { get; init; } = string.Empty;
+
+    public string PrimaryArm { get; init; } = "Right";
+
+    public bool Ambidextrous { get; init; }
 }
 
 public sealed record CharacterProgressSection(

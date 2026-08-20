@@ -171,6 +171,16 @@ public sealed class CharacterSectionService : ICharacterSectionService
         string alias = ReadValue(character, "alias");
         string name = ReadValue(character, "name");
 
+        bool ambidextrous = character
+            .Element("improvements")?
+            .Elements("improvement")
+            .Any(improvement =>
+                string.Equals(
+                    ReadValue(improvement, "improvementttype"),
+                    "Ambidextrous",
+                    StringComparison.OrdinalIgnoreCase)
+                && ReadLegacyImprovementIntegerFlag(improvement, "enabled", defaultValue: 1) > 0)
+            ?? false;
         return new CharacterProfileSection(
             Name: string.IsNullOrWhiteSpace(name) ? alias : name,
             Alias: alias,
@@ -201,7 +211,9 @@ public sealed class CharacterSectionService : ICharacterSectionService
         {
             CharacterNotes = ReadValue(character, "notes"),
             GameNotes = ReadValue(character, "gamenotes"),
-            GroupNotes = ReadValue(character, "groupnotes")
+            GroupNotes = ReadValue(character, "groupnotes"),
+            PrimaryArm = FirstNonBlank(ReadValue(character, "primaryarm"), "Right"),
+            Ambidextrous = ambidextrous
         };
     }
 
@@ -2036,12 +2048,16 @@ public sealed class CharacterSectionService : ICharacterSectionService
         int defaultValue)
     {
         string value = ReadValue(improvement, nodeName);
-        return int.TryParse(
-            value,
-            System.Globalization.NumberStyles.Any,
-            System.Globalization.CultureInfo.InvariantCulture,
-            out int parsed)
-            ? parsed
+        if (int.TryParse(
+                value,
+                System.Globalization.NumberStyles.Any,
+                System.Globalization.CultureInfo.InvariantCulture,
+                out int parsed))
+        {
+            return parsed;
+        }
+        return bool.TryParse(value, out bool boolean)
+            ? boolean ? 1 : 0
             : defaultValue;
     }
 

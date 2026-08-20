@@ -667,6 +667,24 @@ public class CharacterSectionServiceTests
     }
 
     [TestMethod]
+    public void ParseProfile_preserves_primary_arm_and_enabled_ambidextrous_gate()
+    {
+        const string xml = "<character><primaryarm>Left</primaryarm><improvements><improvement><improvementttype>Ambidextrous</improvementttype><enabled>False</enabled></improvement><improvement><improvementttype>Ambidextrous</improvementttype><enabled>True</enabled></improvement></improvements></character>";
+        var service = new CharacterSectionService();
+
+        CharacterProfileSection section = service.ParseProfile(xml);
+        CharacterProfileSection fallback = service.ParseProfile("<character />");
+        CharacterProfileSection disabled = service.ParseProfile(
+            "<character><improvements><improvement><improvementttype>Ambidextrous</improvementttype><enabled>False</enabled></improvement></improvements></character>");
+
+        Assert.AreEqual("Left", section.PrimaryArm);
+        Assert.IsTrue(section.Ambidextrous);
+        Assert.AreEqual("Right", fallback.PrimaryArm);
+        Assert.IsFalse(fallback.Ambidextrous);
+        Assert.IsFalse(disabled.Ambidextrous);
+    }
+
+    [TestMethod]
     public void ParseProgress_extracts_character_progress_fields()
     {
         string xml = File.ReadAllText(FindTestFilePath("BLUE.chum5"));
@@ -1323,13 +1341,15 @@ public class CharacterSectionServiceTests
     }
 
     [TestMethod]
-    public void ParseImprovements_reads_modern_numeric_enabled_flags()
+    public void ParseImprovements_reads_numeric_and_boolean_enabled_flags()
     {
         const string xml = """
             <character>
               <improvements>
                 <improvement><improvedname>active</improvedname><improvementttype>Overclocker</improvementttype><rating>1</rating><enabled>1</enabled></improvement>
                 <improvement><improvedname>inactive</improvedname><improvementttype>Overclocker</improvementttype><rating>1</rating><enabled>0</enabled></improvement>
+                <improvement><improvedname>boolean-active</improvedname><improvementttype>Ambidextrous</improvementttype><rating>1</rating><enabled>True</enabled></improvement>
+                <improvement><improvedname>boolean-inactive</improvedname><improvementttype>Ambidextrous</improvementttype><rating>1</rating><enabled>False</enabled></improvement>
               </improvements>
             </character>
             """;
@@ -1337,10 +1357,12 @@ public class CharacterSectionServiceTests
 
         CharacterImprovementsSection section = service.ParseImprovements(xml);
 
-        Assert.AreEqual(2, section.Count);
-        Assert.AreEqual(1, section.EnabledCount);
+        Assert.AreEqual(4, section.Count);
+        Assert.AreEqual(2, section.EnabledCount);
         Assert.IsTrue(section.Improvements.Single(item => item.ImprovedName == "active").Enabled);
         Assert.IsFalse(section.Improvements.Single(item => item.ImprovedName == "inactive").Enabled);
+        Assert.IsTrue(section.Improvements.Single(item => item.ImprovedName == "boolean-active").Enabled);
+        Assert.IsFalse(section.Improvements.Single(item => item.ImprovedName == "boolean-inactive").Enabled);
     }
 
     [TestMethod]
