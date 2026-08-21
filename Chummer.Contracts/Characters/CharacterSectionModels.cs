@@ -609,6 +609,13 @@ public sealed record CharacterSpiritSummary(
     public bool ForceMaximumExact { get; init; }
 
     public bool ForceEditable { get; init; }
+
+    /// <summary>
+    /// Null unless the saved runner proves the exact shared SpiritControl Fettered/Pet rules
+    /// for this stable identity. Career Spirit activation remains disabled when the active
+    /// settings profile's KarmaSpiritFettering value is not persisted with the runner.
+    /// </summary>
+    public CharacterSpiritFetteringState? FetteringSemantics { get; init; }
 }
 
 public sealed record CharacterSpiritsSection(

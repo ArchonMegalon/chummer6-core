@@ -1779,13 +1779,18 @@ public sealed class CharacterSectionService : ICharacterSectionService
     {
         XElement character = LoadCharacterRoot(xml);
         bool created = ParseBool(ReadValue(character, "created"));
-        IReadOnlyList<CharacterSpiritSummary> spirits = character
-            .Element("spirits")?
+        XElement[] spiritElements = character.Element("spirits")?
             .Elements("spirit")
-            .Select(spirit => BuildSpiritSummary(character, spirit, created))
-            .Where(spirit => !string.IsNullOrWhiteSpace(spirit.Name))
+            .Where(spirit => !string.IsNullOrWhiteSpace(ReadSpiritName(spirit)))
             .ToArray()
-            ?? Array.Empty<CharacterSpiritSummary>();
+            ?? [];
+        IReadOnlyList<CharacterSpiritSummary> spirits = spiritElements
+            .Select(spirit => BuildSpiritSummary(
+                character,
+                spirit,
+                created,
+                ProjectSpiritFetteringSemantics(character, spiritElements, spirit, created)))
+            .ToArray();
 
         return new CharacterSpiritsSection(
             Count: spirits.Count,
@@ -1798,7 +1803,8 @@ public sealed class CharacterSectionService : ICharacterSectionService
     private static CharacterSpiritSummary BuildSpiritSummary(
         XElement character,
         XElement spirit,
-        bool created)
+        bool created,
+        CharacterSpiritFetteringState? fetteringSemantics)
     {
         int force = ParseInt(ReadValue(spirit, "force"));
         bool forceMaximumExact = TryCalculateSpiritForceMaximum(
@@ -1839,8 +1845,200 @@ public sealed class CharacterSectionService : ICharacterSectionService
                     linked ? "Linked runner" : string.Empty)),
             ForceMaximum = forceMaximumExact ? forceMaximum : 0,
             ForceMaximumExact = forceMaximumExact,
-            ForceEditable = created && forceMaximumExact && force is >= 0 && force <= forceMaximum
+            ForceEditable = created && forceMaximumExact && force is >= 0 && force <= forceMaximum,
+            FetteringSemantics = fetteringSemantics
         };
+    }
+
+    private static CharacterSpiritFetteringState? ProjectSpiritFetteringSemantics(
+        XElement character,
+        IReadOnlyList<XElement> spiritElements,
+        XElement selectedSpirit,
+        bool created)
+    {
+        XElement[] selectedIds = selectedSpirit.Elements("guid").Take(2).ToArray();
+        if (selectedIds.Length != 1
+            || !Guid.TryParseExact(selectedIds[0].Value.Trim(), "D", out Guid selectedSpiritId)
+            || selectedSpiritId == Guid.Empty
+            || !TryReadLegacySpiritCollection(spiritElements, out CharacterSpiritFetteringBasis[] basis)
+            || !TryReadLegacyInt(character, "karma", 0, out int availableKarma)
+            || !TryReadOptionalNonNegativeInt(character, "karmaspiritfettering", out int? karmaSpiritFettering)
+            || !TryReadSpiritImprovementState(
+                character,
+                out bool? allowSpriteFettering,
+                out int spiritFetteringImprovementCount))
+        {
+            return null;
+        }
+
+        return CharacterSpiritFetteringRules.TryProject(
+            selectedSpiritId,
+            created,
+            availableKarma,
+            karmaSpiritFettering,
+            allowSpriteFettering,
+            spiritFetteringImprovementCount,
+            basis,
+            out CharacterSpiritFetteringState? state)
+            ? state
+            : null;
+    }
+
+    private static bool TryReadLegacySpiritCollection(
+        IReadOnlyList<XElement> spiritElements,
+        out CharacterSpiritFetteringBasis[] basis)
+    {
+        List<CharacterSpiritFetteringBasis> parsed = [];
+        foreach (XElement spirit in spiritElements)
+        {
+            XElement[] ids = spirit.Elements("guid").Take(2).ToArray();
+            string entityType = NormalizeSpiritEntityType(ReadValue(spirit, "type"));
+            if (ids.Length != 1
+                || !Guid.TryParseExact(ids[0].Value.Trim(), "D", out Guid spiritId)
+                || spiritId == Guid.Empty
+                || string.IsNullOrWhiteSpace(entityType)
+                || !TryReadNonNegativeInt(spirit, "force", 1, out int force)
+                || !TryReadNonNegativeInt(spirit, "services", 0, out int services)
+                || !TryReadLegacyBool(spirit, "bound", true, out bool bound)
+                || !TryReadLegacyBool(spirit, "fettered", false, out bool fettered))
+            {
+                basis = [];
+                return false;
+            }
+            parsed.Add(new CharacterSpiritFetteringBasis(
+                spiritId,
+                entityType,
+                force,
+                services,
+                bound,
+                fettered));
+        }
+        basis = parsed.ToArray();
+        return true;
+    }
+
+    private static bool TryReadSpiritImprovementState(
+        XElement character,
+        out bool? allowSpriteFettering,
+        out int spiritFetteringImprovementCount)
+    {
+        allowSpriteFettering = null;
+        spiritFetteringImprovementCount = 0;
+        XElement[] containers = character.Elements("improvements").Take(2).ToArray();
+        if (containers.Length != 1)
+        {
+            return false;
+        }
+
+        bool spriteAllowed = false;
+        foreach (XElement improvement in containers[0].Elements("improvement"))
+        {
+            if (!TryReadLegacyImprovementEnabled(improvement, out bool enabled))
+            {
+                return false;
+            }
+            if (enabled && string.Equals(
+                    ReadValue(improvement, "improvementttype"),
+                    "AllowSpriteFettering",
+                    StringComparison.Ordinal))
+            {
+                spriteAllowed = true;
+            }
+            if (string.Equals(
+                    ReadValue(improvement, "improvementsource"),
+                    "SpiritFettering",
+                    StringComparison.Ordinal))
+            {
+                spiritFetteringImprovementCount++;
+            }
+        }
+        allowSpriteFettering = spriteAllowed;
+        return true;
+    }
+
+    private static bool TryReadLegacyImprovementEnabled(XElement improvement, out bool enabled)
+    {
+        XElement[] values = improvement.Elements("enabled").Take(2).ToArray();
+        enabled = true;
+        if (values.Length == 0)
+        {
+            return true;
+        }
+        if (values.Length != 1)
+        {
+            return false;
+        }
+        string saved = values[0].Value.Trim();
+        if (int.TryParse(saved, NumberStyles.Integer, CultureInfo.InvariantCulture, out int integer))
+        {
+            enabled = integer > 0;
+            return true;
+        }
+        return bool.TryParse(saved, out enabled);
+    }
+
+    private static bool TryReadLegacyBool(
+        XElement parent,
+        string elementName,
+        bool legacyDefault,
+        out bool value)
+    {
+        XElement[] values = parent.Elements(elementName).Take(2).ToArray();
+        value = legacyDefault;
+        return values.Length == 0
+            || values.Length == 1 && bool.TryParse(values[0].Value.Trim(), out value);
+    }
+
+    private static bool TryReadNonNegativeInt(
+        XElement parent,
+        string elementName,
+        int legacyDefault,
+        out int value)
+    {
+        XElement[] values = parent.Elements(elementName).Take(2).ToArray();
+        value = legacyDefault;
+        return values.Length == 0
+            || values.Length == 1
+            && int.TryParse(values[0].Value.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out value)
+            && value >= 0;
+    }
+
+    private static bool TryReadLegacyInt(
+        XElement parent,
+        string elementName,
+        int legacyDefault,
+        out int value)
+    {
+        XElement[] values = parent.Elements(elementName).Take(2).ToArray();
+        value = legacyDefault;
+        return values.Length == 0
+            || values.Length == 1
+            && int.TryParse(values[0].Value.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out value);
+    }
+
+    private static bool TryReadOptionalNonNegativeInt(
+        XElement parent,
+        string elementName,
+        out int? value)
+    {
+        XElement[] values = parent.Elements(elementName).Take(2).ToArray();
+        value = null;
+        if (values.Length == 0)
+        {
+            return true;
+        }
+        if (values.Length != 1
+            || !int.TryParse(
+                values[0].Value.Trim(),
+                NumberStyles.Integer,
+                CultureInfo.InvariantCulture,
+                out int parsed)
+            || parsed < 0)
+        {
+            return false;
+        }
+        value = parsed;
+        return true;
     }
 
     /// <summary>
