@@ -146,6 +146,12 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             int? maximumNuyenDecimals = TryReadMaximumNuyenDecimals(settings, out int resolvedDecimals)
                 ? resolvedDecimals
                 : null;
+            int? joinGroupKarma = TryReadNonNegativeInt(settings, "karmajoingroup", out int resolvedJoinGroupKarma)
+                ? resolvedJoinGroupKarma
+                : null;
+            int? leaveGroupKarma = TryReadNonNegativeInt(settings, "karmaleavegroup", out int resolvedLeaveGroupKarma)
+                ? resolvedLeaveGroupKarma
+                : null;
             int? essenceDecimals = TryReadDecimalPlaces(
                 ReadValue(settings, "essenceformat"),
                 out int resolvedEssenceDecimals)
@@ -163,6 +169,8 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 enabledDirectories,
                 enabledSourcebooks,
                 maximumNuyenDecimals,
+                joinGroupKarma,
+                leaveGroupKarma,
                 essenceDecimals,
                 doNotRoundEssenceInternally,
                 essenceModifierPostExpression);
@@ -188,6 +196,15 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
         int separator = format.IndexOf('.');
         decimalPlaces = separator < 0 ? 0 : format.Length - separator - 1;
         return decimalPlaces is >= 0 and <= 28;
+    }
+
+    private static bool TryReadNonNegativeInt(XElement parent, string elementName, out int value)
+    {
+        value = 0;
+        XElement[] values = parent.Elements(elementName).Take(2).ToArray();
+        return values.Length == 1
+            && int.TryParse(values[0].Value.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out value)
+            && value >= 0;
     }
 
     private static bool TryReadDecimalPlaces(string format, out int decimalPlaces)
@@ -370,6 +387,8 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
         private readonly IReadOnlyList<CustomDirectory> _customDirectories;
         private readonly IReadOnlySet<string> _enabledSourcebooks;
         private readonly int? _maximumNuyenDecimals;
+        private readonly int? _joinGroupKarma;
+        private readonly int? _leaveGroupKarma;
         private readonly int? _essenceDecimals;
         private readonly bool _doNotRoundEssenceInternally;
         private readonly string _essenceModifierPostExpression;
@@ -379,6 +398,8 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             IReadOnlyList<CustomDirectory> customDirectories,
             IReadOnlyList<string> enabledSourcebooks,
             int? maximumNuyenDecimals,
+            int? joinGroupKarma,
+            int? leaveGroupKarma,
             int? essenceDecimals,
             bool doNotRoundEssenceInternally,
             string essenceModifierPostExpression)
@@ -387,6 +408,8 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             _customDirectories = customDirectories;
             _enabledSourcebooks = enabledSourcebooks.ToHashSet(StringComparer.OrdinalIgnoreCase);
             _maximumNuyenDecimals = maximumNuyenDecimals;
+            _joinGroupKarma = joinGroupKarma;
+            _leaveGroupKarma = leaveGroupKarma;
             _essenceDecimals = essenceDecimals;
             _doNotRoundEssenceInternally = doNotRoundEssenceInternally;
             _essenceModifierPostExpression = essenceModifierPostExpression;
@@ -396,6 +419,13 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
         {
             decimalPlaces = _maximumNuyenDecimals.GetValueOrDefault();
             return _maximumNuyenDecimals.HasValue;
+        }
+
+        public bool TryResolveGroupMembershipKarmaCosts(out int joinCost, out int leaveCost)
+        {
+            joinCost = _joinGroupKarma.GetValueOrDefault();
+            leaveCost = _leaveGroupKarma.GetValueOrDefault();
+            return _joinGroupKarma.HasValue && _leaveGroupKarma.HasValue;
         }
 
         public bool TryIsBookEnabled(string sourceCode, out bool enabled)

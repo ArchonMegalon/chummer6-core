@@ -36,6 +36,9 @@ public sealed class FileSystemCharacterSourceDataResolverTests
             Assert.AreEqual(3, fallbackRating);
             Assert.IsTrue(context.TryResolveMaxNuyenDecimals(out int maximumNuyenDecimals));
             Assert.AreEqual(3, maximumNuyenDecimals);
+            Assert.IsTrue(context.TryResolveGroupMembershipKarmaCosts(out int joinCost, out int leaveCost));
+            Assert.AreEqual(5, joinCost);
+            Assert.AreEqual(1, leaveCost);
 
             Assert.IsTrue(context.TryResolveVehicleModBonuses(
                 VehicleModId,
@@ -225,7 +228,7 @@ public sealed class FileSystemCharacterSourceDataResolverTests
         Directory.CreateDirectory(data);
         File.WriteAllText(
             Path.Combine(data, "settings.xml"),
-            $"<chummer><settings><setting><id>{SettingsId}</id><nuyenformat>#,0.###</nuyenformat><books><book>SR5</book><book>SG</book></books><customdatadirectorynames>{customDataSetting}</customdatadirectorynames></setting></settings></chummer>");
+            $"<chummer><settings><setting><id>{SettingsId}</id><nuyenformat>#,0.###</nuyenformat><karmajoingroup>5</karmajoingroup><karmaleavegroup>1</karmaleavegroup><books><book>SR5</book><book>SG</book></books><customdatadirectorynames>{customDataSetting}</customdatadirectorynames></setting></settings></chummer>");
         File.WriteAllText(
             Path.Combine(data, "cyberware.xml"),
             "<chummer><grades><grade><name>Standard</name><devicerating>4</devicerating></grade><grade><name>Alphaware</name></grade></grades></chummer>");

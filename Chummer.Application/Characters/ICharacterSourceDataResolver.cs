@@ -27,6 +27,18 @@ public interface ICharacterSourceDataContext
         return false;
     }
 
+    /// <summary>
+    /// Resolves the exact KarmaJoinGroup and KarmaLeaveGroup values from the
+    /// settings profile selected by the saved runner. False means callers must
+    /// refuse a Career magician-group mutation rather than use defaults.
+    /// </summary>
+    bool TryResolveGroupMembershipKarmaCosts(out int joinCost, out int leaveCost)
+    {
+        joinCost = 0;
+        leaveCost = 0;
+        return false;
+    }
+
     bool TryResolveCyberwareGradeDeviceRating(
         string gradeName,
         string improvementSource,
