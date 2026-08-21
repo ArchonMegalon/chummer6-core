@@ -1002,8 +1002,9 @@ public sealed class CharacterSectionService : ICharacterSectionService
         CharacterMatrixImprovementBasis improvementBasis)
     {
         bool maximumExact = TryCalculateArmorMatrixMaximum(item, improvementBasis, out int maximum);
+        int armorDamageMaximum = 0;
         bool armorDamageExact = TryParseOptionalInt(ReadValue(item, "damage"), out int armorDamage)
-            && TryCalculateArmorDamageMaximum(item, out int armorDamageMaximum);
+            && TryCalculateArmorDamageMaximum(item, out armorDamageMaximum);
         bool equippedExact = bool.TryParse(ReadValue(item, "equipped"), out bool equipped);
         return new CharacterArmorSummary(
             Guid: ReadValue(item, "guid"),
