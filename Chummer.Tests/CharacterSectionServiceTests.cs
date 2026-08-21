@@ -263,6 +263,29 @@ public class CharacterSectionServiceTests
     }
 
     [TestMethod]
+    public void ParseArmors_projects_exact_active_commlink_and_legacy_persona_eligibility()
+    {
+        const string xml = """
+            <character>
+              <armors>
+                <armor><guid>armor-self</guid><name>Direct persona</name><active>True</active><canformpersona>Self</canformpersona></armor>
+                <armor><guid>armor-child</guid><name>Child persona</name><active>False</active><canformpersona></canformpersona><gears><gear><canformpersona>Parent</canformpersona></gear></gears></armor>
+                <armor><guid>armor-none</guid><name>Not a commlink</name><active>False</active><canformpersona>self</canformpersona></armor>
+              </armors>
+            </character>
+            """;
+        var service = new CharacterSectionService();
+
+        CharacterArmorsSection result = service.ParseArmors(xml);
+
+        CharacterArmorSummary direct = result.Armors.Single(item => item.Guid == "armor-self");
+        Assert.IsTrue(direct.ActiveCommlink);
+        Assert.IsTrue(direct.IsCommlink);
+        Assert.IsTrue(result.Armors.Single(item => item.Guid == "armor-child").IsCommlink);
+        Assert.IsFalse(result.Armors.Single(item => item.Guid == "armor-none").IsCommlink);
+    }
+
+    [TestMethod]
     public void Weapon_matrix_condition_monitor_uses_saved_rating_and_fails_closed_for_attribute_overrides()
     {
         const string xml = """

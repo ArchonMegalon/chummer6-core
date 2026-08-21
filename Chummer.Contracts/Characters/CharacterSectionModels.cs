@@ -282,6 +282,8 @@ public sealed record CharacterArmorSummary(
     int MatrixDamage = 0,
     int MatrixConditionMaximum = 0,
     bool MatrixConditionMaximumExact = false,
+    bool ActiveCommlink = false,
+    bool IsCommlink = false,
     bool HomeNode = false,
     bool CareerEditable = false);
 

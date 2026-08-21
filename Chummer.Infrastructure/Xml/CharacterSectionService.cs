@@ -815,9 +815,16 @@ public sealed class CharacterSectionService : ICharacterSectionService
             MatrixDamage: ParseInt(ReadValue(item, "matrixcmfilled")),
             MatrixConditionMaximum: maximumExact ? maximum : 0,
             MatrixConditionMaximumExact: maximumExact,
+            ActiveCommlink: ParseBool(ReadValue(item, "active")),
+            IsCommlink: IsArmorCommlink(item),
             HomeNode: ParseBool(ReadValue(item, "homenode")),
             CareerEditable: careerEditable);
     }
+
+    private static bool IsArmorCommlink(XElement armor)
+        => ReadValue(armor, "canformpersona").Contains("Self", StringComparison.Ordinal)
+            || armor.Element("gears")?.Elements("gear").Any(
+                gear => ReadValue(gear, "canformpersona").Contains("Parent", StringComparison.Ordinal)) == true;
 
     private static bool TryCalculateArmorMatrixMaximum(
         XElement armor,
