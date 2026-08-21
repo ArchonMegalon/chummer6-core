@@ -146,12 +146,26 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             int? maximumNuyenDecimals = TryReadMaximumNuyenDecimals(settings, out int resolvedDecimals)
                 ? resolvedDecimals
                 : null;
+            int? essenceDecimals = TryReadDecimalPlaces(
+                ReadValue(settings, "essenceformat"),
+                out int resolvedEssenceDecimals)
+                ? resolvedEssenceDecimals
+                : null;
+            bool doNotRoundEssenceInternally = ParseBool(ReadValue(settings, "donotroundessenceinternally"));
+            string essenceModifierPostExpression = ReadValue(settings, "essencemodifierpostexpression");
+            if (string.IsNullOrWhiteSpace(essenceModifierPostExpression))
+            {
+                essenceModifierPostExpression = "{Modifier}";
+            }
 
             return new SourceDataContext(
                 catalog,
                 enabledDirectories,
                 enabledSourcebooks,
-                maximumNuyenDecimals);
+                maximumNuyenDecimals,
+                essenceDecimals,
+                doNotRoundEssenceInternally,
+                essenceModifierPostExpression);
         }
         catch (Exception exception) when (exception is IOException
                                           or UnauthorizedAccessException
@@ -167,6 +181,19 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
         decimalPlaces = 0;
         string format = ReadValue(settings, "nuyenformat").Trim();
         if (string.IsNullOrEmpty(format))
+        {
+            return false;
+        }
+
+        int separator = format.IndexOf('.');
+        decimalPlaces = separator < 0 ? 0 : format.Length - separator - 1;
+        return decimalPlaces is >= 0 and <= 28;
+    }
+
+    private static bool TryReadDecimalPlaces(string format, out int decimalPlaces)
+    {
+        decimalPlaces = 0;
+        if (string.IsNullOrWhiteSpace(format))
         {
             return false;
         }
@@ -343,17 +370,26 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
         private readonly IReadOnlyList<CustomDirectory> _customDirectories;
         private readonly IReadOnlySet<string> _enabledSourcebooks;
         private readonly int? _maximumNuyenDecimals;
+        private readonly int? _essenceDecimals;
+        private readonly bool _doNotRoundEssenceInternally;
+        private readonly string _essenceModifierPostExpression;
 
         public SourceDataContext(
             ContentOverlayCatalog catalog,
             IReadOnlyList<CustomDirectory> customDirectories,
             IReadOnlyList<string> enabledSourcebooks,
-            int? maximumNuyenDecimals)
+            int? maximumNuyenDecimals,
+            int? essenceDecimals,
+            bool doNotRoundEssenceInternally,
+            string essenceModifierPostExpression)
         {
             _catalog = catalog;
             _customDirectories = customDirectories;
             _enabledSourcebooks = enabledSourcebooks.ToHashSet(StringComparer.OrdinalIgnoreCase);
             _maximumNuyenDecimals = maximumNuyenDecimals;
+            _essenceDecimals = essenceDecimals;
+            _doNotRoundEssenceInternally = doNotRoundEssenceInternally;
+            _essenceModifierPostExpression = essenceModifierPostExpression;
         }
 
         public bool TryResolveMaxNuyenDecimals(out int decimalPlaces)
@@ -422,6 +458,122 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 : gradeName.Contains("Deltaware", StringComparison.Ordinal) ? 5
                 : gradeName.Contains("Gammaware", StringComparison.Ordinal) ? 6
                 : 2;
+            return true;
+        }
+
+        public bool TryResolveCyberwareCommerceSource(
+            string sourceId,
+            string name,
+            string improvementSource,
+            out CharacterCyberwareCommerceSource source)
+        {
+            source = CharacterCyberwareCommerceSource.Unavailable;
+            if (!string.Equals(improvementSource, "Cyberware", StringComparison.Ordinal)
+                || _customDirectories.Count != 0
+                || !TryLoadEffectiveDocument(_catalog, "cyberware.xml", out XDocument? document)
+                || document?.Root is null
+                || !TryResolveTarget(
+                    "cyberware.xml",
+                    ["cyberwares"],
+                    "cyberware",
+                    sourceId,
+                    name,
+                    out XElement? item)
+                || item is null)
+            {
+                return false;
+            }
+
+            if (_essenceDecimals is not int essenceDecimals
+                || !string.Equals(ReadValue(item, "id"), sourceId, StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            string itemSource = ReadValue(item, "source");
+            if (!string.IsNullOrWhiteSpace(itemSource)
+                && (!_enabledSourcebooks.Contains(itemSource) || _enabledSourcebooks.Count == 0))
+            {
+                return false;
+            }
+
+            List<CharacterCyberwareCommerceGradeSource> grades = [];
+            foreach (XElement grade in document.Root.Element("grades")?.Elements("grade") ?? [])
+            {
+                string gradeSource = ReadValue(grade, "source");
+                if (!string.IsNullOrWhiteSpace(gradeSource) && !_enabledSourcebooks.Contains(gradeSource))
+                {
+                    continue;
+                }
+                if (!Guid.TryParse(ReadValue(grade, "id"), out Guid gradeId)
+                    || gradeId == Guid.Empty
+                    || !decimal.TryParse(
+                        ReadValue(grade, "cost"),
+                        NumberStyles.Number,
+                        CultureInfo.InvariantCulture,
+                        out decimal costMultiplier)
+                    || !decimal.TryParse(
+                        ReadValue(grade, "ess"),
+                        NumberStyles.Number,
+                        CultureInfo.InvariantCulture,
+                        out decimal essenceMultiplier)
+                    || costMultiplier < 0m
+                    || essenceMultiplier < 0m)
+                {
+                    return false;
+                }
+
+                string gradeName = ReadValue(grade, "name");
+                HashSet<string> simpleFields = new(StringComparer.Ordinal)
+                {
+                    "id", "name", "translate", "ess", "cost", "devicerating", "avail", "source", "page", "altpage"
+                };
+                bool specialSemantics = string.IsNullOrWhiteSpace(gradeName)
+                    || gradeName.Contains('(')
+                    || grade.Elements().Any(element => !simpleFields.Contains(element.Name.LocalName));
+                grades.Add(new CharacterCyberwareCommerceGradeSource(
+                    gradeId.ToString("D"),
+                    gradeName,
+                    costMultiplier,
+                    essenceMultiplier,
+                    gradeSource,
+                    specialSemantics));
+            }
+
+            if (grades.Count == 0)
+            {
+                return false;
+            }
+
+            HashSet<string> unsafeSourceFields = new(StringComparer.Ordinal)
+            {
+                "bonus", "pairbonus", "wirelessbonus", "wirelesspairbonus",
+                "gears", "weapons", "vehicles", "addweapon", "addvehicle",
+                "modularmount", "plugsintomodularmount"
+            };
+            bool unsafeSemantics = item.Elements().Any(element =>
+                unsafeSourceFields.Contains(element.Name.LocalName));
+            source = new CharacterCyberwareCommerceSource(
+                SourceId: ReadValue(item, "id"),
+                Name: ReadValue(item, "name"),
+                Source: itemSource,
+                MinimumRatingExpression: ReadValue(item, "minrating"),
+                MaximumRatingExpression: ReadValue(item, "rating"),
+                CostExpression: ReadValue(item, "cost"),
+                EssenceExpression: ReadValue(item, "ess"),
+                CapacityExpression: ReadValue(item, "capacity"),
+                ForcedGrade: ReadValue(item, "forcegrade"),
+                BannedGrades: item.Element("bannedgrades")?
+                    .Elements("grade")
+                    .Select(node => node.Value.Trim())
+                    .Where(value => !string.IsNullOrWhiteSpace(value))
+                    .ToArray()
+                    ?? [],
+                Grades: grades,
+                EssenceDecimals: essenceDecimals,
+                DoNotRoundEssenceInternally: _doNotRoundEssenceInternally,
+                EssenceModifierPostExpression: _essenceModifierPostExpression,
+                SourceEntryUsesGeneratedOrImprovementSemantics: unsafeSemantics);
             return true;
         }
 

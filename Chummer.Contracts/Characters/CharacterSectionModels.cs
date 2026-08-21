@@ -332,7 +332,10 @@ public sealed record CharacterCyberwareSummary(
     int MatrixDamage = 0,
     int MatrixConditionMaximum = 0,
     bool MatrixConditionMaximumExact = false,
-    bool CareerEditable = false);
+    bool CareerEditable = false)
+{
+    public CharacterCyberwareCommerceSemantics? CommerceSemantics { get; init; }
+}
 
 public sealed record CharacterCyberwaresSection(
     int Count,

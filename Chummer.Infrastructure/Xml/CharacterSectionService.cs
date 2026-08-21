@@ -1177,6 +1177,8 @@ public sealed class CharacterSectionService : ICharacterSectionService
             FlattenCyberwareSummary(
                 item,
                 cyberwares,
+                character,
+                parentItem: null,
                 parentGuid: string.Empty,
                 parentName: string.Empty,
                 hierarchyPath: string.Empty,
@@ -2372,6 +2374,8 @@ public sealed class CharacterSectionService : ICharacterSectionService
     private static void FlattenCyberwareSummary(
         XElement item,
         ICollection<CharacterCyberwareSummary> cyberwares,
+        XElement character,
+        XElement? parentItem,
         string parentGuid,
         string parentName,
         string hierarchyPath,
@@ -2398,7 +2402,7 @@ public sealed class CharacterSectionService : ICharacterSectionService
             sourceData,
             out int maximum);
 
-        cyberwares.Add(new CharacterCyberwareSummary(
+        CharacterCyberwareSummary summary = new(
             Guid: guid,
             Name: name,
             Category: ReadValue(item, "category"),
@@ -2426,13 +2430,24 @@ public sealed class CharacterSectionService : ICharacterSectionService
             MatrixDamage: ParseInt(ReadValue(item, "matrixcmfilled")),
             MatrixConditionMaximum: maximumExact ? maximum : 0,
             MatrixConditionMaximumExact: maximumExact,
-            CareerEditable: careerEditable));
+            CareerEditable: careerEditable)
+        {
+            CommerceSemantics = BuildCyberwareCommerceSemantics(
+                character,
+                item,
+                parentItem,
+                sourceData,
+                careerEditable)
+        };
+        cyberwares.Add(summary);
 
         foreach (XElement child in children)
         {
             FlattenCyberwareSummary(
                 child,
                 cyberwares,
+                character,
+                parentItem: item,
                 parentGuid: guid,
                 parentName: name,
                 hierarchyPath: nextHierarchyPath,
@@ -2442,6 +2457,346 @@ public sealed class CharacterSectionService : ICharacterSectionService
                 sourceData);
         }
     }
+
+    private const string EssenceHoleSourceId = "b57eadaa-7c3b-4b80-8d79-cbbd922c1196";
+    private const string EssenceAntiHoleSourceId = "961eac53-0c43-4b19-8741-2872177a3a4c";
+
+    private static CharacterCyberwareCommerceSemantics? BuildCyberwareCommerceSemantics(
+        XElement character,
+        XElement item,
+        XElement? parentItem,
+        ICharacterSourceDataContext? sourceData,
+        bool careerEditable)
+    {
+        if (!careerEditable)
+        {
+            return null;
+        }
+
+        static CharacterCyberwareCommerceSemantics Blocked(string reason)
+            => new(false, reason, false, reason, Snapshot: null);
+
+        string guidText = ReadValue(item, "guid");
+        if (!Guid.TryParseExact(guidText, "D", out Guid cyberwareId) || cyberwareId == Guid.Empty)
+        {
+            return Blocked("Cyberware commerce requires one stable saved Cyberware GUID.");
+        }
+
+        string sourceId = ReadValue(item, "sourceid");
+        if (!Guid.TryParseExact(sourceId, "D", out Guid parsedSourceId) || parsedSourceId == Guid.Empty)
+        {
+            return Blocked("Cyberware commerce requires one exact saved source identity.");
+        }
+        if (string.Equals(sourceId, EssenceHoleSourceId, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(sourceId, EssenceAntiHoleSourceId, StringComparison.OrdinalIgnoreCase))
+        {
+            return Blocked("Essence Hole bookkeeping objects are not sellable or upgradeable Cyberware.");
+        }
+
+        string capacity = ReadValue(item, "capacity");
+        if (parentItem is not null && string.Equals(capacity, "[*]", StringComparison.Ordinal))
+        {
+            return Blocked("Linked Capacity=[*] child Cyberware cannot be upgraded or sold.");
+        }
+
+        if (sourceData is null
+            || !sourceData.TryResolveCyberwareCommerceSource(
+                sourceId,
+                ReadValue(item, "name"),
+                ReadValue(item, "improvementsource"),
+                out CharacterCyberwareCommerceSource source))
+        {
+            return Blocked("The exact Cyberware source profile or grade catalog is unavailable.");
+        }
+        if (source.SourceEntryUsesGeneratedOrImprovementSemantics)
+        {
+            return Blocked("This Cyberware source generates Gear/assets or requires improvement replay outside the bounded exact path.");
+        }
+        if (EnumerateCyberwareChildren(item).Any()
+            || item.Element("gears")?.Elements("gear").Any() == true
+            || item.Elements("gear").Any()
+            || HasNonEmptySavedElement(item, "bonus", "pairbonus", "wirelessbonus", "wirelesspairbonus")
+            || HasNonEmptySavedElement(item, "weapons", "vehicles")
+            || HasSavedGeneratedIdentity(item)
+            || HasCyberwareCommerceRelevantImprovement(character))
+        {
+            return Blocked("Cyberware with children, generated assets, or saved improvement payloads is refused instead of approximating its replay/deletion cascade.");
+        }
+        if (ParseBool(ReadValue(item, "suite"))
+            || ParseBool(ReadValue(item, "prototypetranshuman"))
+            || ParseBool(ReadValue(item, "hasmodularmount"))
+            || !string.IsNullOrWhiteSpace(ReadFirstNonEmptyValue(
+                item,
+                "plugsintomodularmount",
+                "plugintomodularmount",
+                "modularmount")))
+        {
+            return Blocked("Suite, prototype-transhuman, or modular Cyberware is outside the bounded exact commerce path.");
+        }
+        if (HasExternalSavedReference(character, item, guidText))
+        {
+            return Blocked("Cyberware with external saved-data references cannot be safely upgraded or sold.");
+        }
+
+        if (!int.TryParse(ReadValue(item, "rating"), NumberStyles.Integer, CultureInfo.InvariantCulture, out int currentRating)
+            || currentRating < 0
+            || !decimal.TryParse(ReadValue(character, "nuyen"), NumberStyles.Number, CultureInfo.InvariantCulture, out decimal availableNuyen)
+            || !TryReadOptionalDecimal(item, "extraessadditivemultiplier", 0m, out decimal extraAdditive)
+            || !TryReadOptionalDecimal(item, "extraessmultiplicativemultiplier", 1m, out decimal extraMultiplicative)
+            || !TryReadOptionalDecimal(item, "essdiscount", 0m, out decimal essenceDiscount)
+            || extraMultiplicative < 0m
+            || essenceDiscount is < 0m or > 100m)
+        {
+            return Blocked("Saved rating, Nuyen, or Essence multiplier values are not exact invariant numbers.");
+        }
+
+        int minimumRating;
+        int maximumRating;
+        if (string.IsNullOrWhiteSpace(source.MaximumRatingExpression))
+        {
+            minimumRating = 0;
+            maximumRating = 0;
+        }
+        else
+        {
+            if (!TryResolveCyberwareRatingBound(
+                    string.IsNullOrWhiteSpace(source.MinimumRatingExpression) ? "1" : source.MinimumRatingExpression,
+                    currentRating,
+                    fallbackMinimum: 1,
+                    out minimumRating)
+                || !TryResolveCyberwareRatingBound(
+                    source.MaximumRatingExpression,
+                    currentRating,
+                    minimumRating,
+                    out maximumRating)
+                || maximumRating < minimumRating)
+            {
+                return Blocked("Cyberware rating bounds could not be evaluated from the exact source entry.");
+            }
+        }
+        if (currentRating < minimumRating || currentRating > maximumRating)
+        {
+            return Blocked("The saved Cyberware rating is outside its exact effective source bounds.");
+        }
+
+        string forcedGrade = FirstNonBlank(ReadValue(item, "forcegrade"), source.ForcedGrade);
+        HashSet<string> bannedGrades = source.BannedGrades.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        CharacterCyberwareGradeOption[] grades = source.Grades
+            .Where(grade => !grade.SpecialSemantics)
+            .Where(grade => !bannedGrades.Contains(grade.Name))
+            .Where(grade => !string.Equals(grade.Name, "None", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(forcedGrade, "None", StringComparison.OrdinalIgnoreCase))
+            .Where(grade => string.IsNullOrWhiteSpace(forcedGrade)
+                || string.Equals(forcedGrade, grade.Name, StringComparison.OrdinalIgnoreCase))
+            .Select(grade => new CharacterCyberwareGradeOption(
+                grade.Id,
+                grade.Name,
+                grade.CostMultiplier,
+                grade.EssenceMultiplier))
+            .ToArray();
+        string currentGradeName = ReadValue(item, "grade");
+        CharacterCyberwareGradeOption? currentGrade = grades.SingleOrDefault(grade =>
+            string.Equals(grade.Name, currentGradeName, StringComparison.OrdinalIgnoreCase));
+        if (currentGrade is null)
+        {
+            return Blocked("The saved Cyberware grade is unavailable from the exact effective grade catalog.");
+        }
+
+        if (!TryReadEssenceBookkeeping(character, EssenceHoleSourceId, out int? essenceHoleRating)
+            || !TryReadEssenceBookkeeping(character, EssenceAntiHoleSourceId, out int? essenceAntiHoleRating))
+        {
+            return Blocked("Essence Hole bookkeeping identities or ratings are ambiguous.");
+        }
+
+        string parentGuid = parentItem is null ? string.Empty : ReadValue(parentItem, "guid");
+        bool parentCostExact = parentItem is null
+            || Guid.TryParseExact(parentGuid, "D", out Guid parsedParentGuid)
+                && parsedParentGuid != Guid.Empty
+                && TryReadOptionalDecimal(parentItem, "childcostmultiplier", 1m, out decimal childCostMultiplier)
+                && childCostMultiplier == 1m
+                && !ParseBool(ReadValue(parentItem, "suite"))
+                && !HasNonEmptySavedElement(parentItem, "bonus", "pairbonus");
+
+        var snapshot = new CharacterCyberwareCommerceSnapshot(
+            cyberwareId,
+            ReadValue(item, "name"),
+            parentGuid,
+            capacity,
+            currentRating,
+            minimumRating,
+            maximumRating,
+            currentGrade.Id,
+            currentGrade.Name,
+            FirstNonBlank(ReadValue(item, "cost"), source.CostExpression),
+            FirstNonBlank(ReadValue(item, "ess"), source.EssenceExpression),
+            DiscountedCost: ParseBool(ReadValue(item, "discountedcost")),
+            AddToParentEssence: ParseBool(ReadValue(item, "addtoparentess")),
+            extraAdditive,
+            extraMultiplicative,
+            essenceDiscount,
+            source.EssenceDecimals,
+            source.DoNotRoundEssenceInternally,
+            availableNuyen,
+            essenceHoleRating,
+            essenceAntiHoleRating,
+            grades);
+
+        bool upgradeExact = string.Equals(source.EssenceModifierPostExpression, "{Modifier}", StringComparison.Ordinal)
+            && !CapacityDependsOnRating(capacity)
+            && !CapacityDependsOnRating(source.CapacityExpression);
+        string upgradeBlockReason = upgradeExact
+            ? string.Empty
+            : "Cyberware upgrade requires default Essence rounding and rating-invariant capacity in the bounded exact path.";
+        bool sellExact = parentCostExact;
+        string sellBlockReason = sellExact
+            ? string.Empty
+            : "Nested Cyberware sale requires an exact stable parent and Chummer5 child-cost multiplier of one.";
+
+        var semantics = new CharacterCyberwareCommerceSemantics(
+            upgradeExact,
+            upgradeBlockReason,
+            sellExact,
+            sellBlockReason,
+            snapshot);
+        if (sellExact)
+        {
+            CharacterCyberwareCommerceQuote saleProbe = CharacterCyberwareCommerceRules.QuoteSale(
+                semantics,
+                CharacterCyberwareCommerceRules.DefaultRefundPercentage);
+            if (!saleProbe.Exact)
+            {
+                sellExact = false;
+                sellBlockReason = saleProbe.BlockReason;
+            }
+        }
+        if (upgradeExact)
+        {
+            CharacterCyberwareCommerceQuote upgradeProbe = CharacterCyberwareCommerceRules.QuoteUpgrade(
+                semantics,
+                currentGrade.Id,
+                currentRating,
+                CharacterCyberwareCommerceRules.DefaultRefundPercentage,
+                freeCost: true);
+            if (!upgradeProbe.Exact)
+            {
+                upgradeExact = false;
+                upgradeBlockReason = upgradeProbe.BlockReason;
+            }
+        }
+
+        return semantics with
+        {
+            UpgradeExact = upgradeExact,
+            UpgradeBlockReason = upgradeBlockReason,
+            SellExact = sellExact,
+            SellBlockReason = sellBlockReason
+        };
+    }
+
+    private static bool TryResolveCyberwareRatingBound(
+        string expression,
+        int currentRating,
+        int fallbackMinimum,
+        out int value)
+    {
+        value = 0;
+        if (!CharacterCyberwareCommerceRules.TryEvaluateRatingExpression(
+                expression,
+                currentRating,
+                fallbackMinimum,
+                out decimal resolved)
+            || resolved < 0m
+            || resolved > int.MaxValue)
+        {
+            return false;
+        }
+
+        value = decimal.ToInt32(decimal.Ceiling(resolved));
+        return true;
+    }
+
+    private static bool TryReadOptionalDecimal(
+        XElement item,
+        string elementName,
+        decimal fallback,
+        out decimal value)
+    {
+        string raw = ReadValue(item, elementName);
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            value = fallback;
+            return true;
+        }
+        return decimal.TryParse(raw, NumberStyles.Number, CultureInfo.InvariantCulture, out value);
+    }
+
+    private static bool TryReadEssenceBookkeeping(
+        XElement character,
+        string sourceId,
+        out int? rating)
+    {
+        rating = null;
+        XElement[] matches = character.Element("cyberwares")?
+            .Elements("cyberware")
+            .Where(candidate => string.Equals(
+                ReadValue(candidate, "sourceid"),
+                sourceId,
+                StringComparison.OrdinalIgnoreCase))
+            .ToArray()
+            ?? [];
+        if (matches.Length > 1)
+        {
+            return false;
+        }
+        if (matches.Length == 0)
+        {
+            return true;
+        }
+        if (!Guid.TryParseExact(ReadValue(matches[0], "guid"), "D", out Guid guid)
+            || guid == Guid.Empty
+            || !int.TryParse(ReadValue(matches[0], "rating"), NumberStyles.Integer, CultureInfo.InvariantCulture, out int parsed)
+            || parsed < 0)
+        {
+            return false;
+        }
+
+        rating = parsed;
+        return true;
+    }
+
+    private static bool HasNonEmptySavedElement(XElement item, params string[] names)
+        => names.Any(name => item.Element(name) is { } element
+            && (element.HasElements || !string.IsNullOrWhiteSpace(element.Value)));
+
+    private static bool HasSavedGeneratedIdentity(XElement item)
+        => item.DescendantsAndSelf()
+            .Where(element => !element.HasElements)
+            .Any(element => element.Name.LocalName is ("weaponid" or "vehicleid")
+                && Guid.TryParse(element.Value.Trim(), out Guid id)
+                && id != Guid.Empty);
+
+    private static bool HasCyberwareCommerceRelevantImprovement(XElement character)
+        => character.Element("improvements")?
+            .Elements("improvement")
+            .Any(improvement => ReadValue(improvement, "improvementttype") is
+                "CyberwareEssCost"
+                or "CyberwareTotalEssMultiplier"
+                or "DisableCyberware"
+                or "DisableCyberwareGrade"
+                or "Adapsin"
+                or "BurnoutsWay") == true;
+
+    private static bool HasExternalSavedReference(XElement character, XElement item, string guid)
+    {
+        HashSet<XElement> subtree = item.DescendantsAndSelf().ToHashSet();
+        return character.Descendants()
+            .Where(element => !subtree.Contains(element) && !element.HasElements)
+            .Any(element => string.Equals(element.Value.Trim(), guid, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static bool CapacityDependsOnRating(string expression)
+        => expression.Contains("Rating", StringComparison.Ordinal)
+            || expression.Contains("FixedValues", StringComparison.Ordinal);
 
     private static bool TryCalculateCyberwareMatrixMaximum(
         XElement cyberware,
