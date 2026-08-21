@@ -252,6 +252,71 @@ public class CharacterSectionServiceTests
     }
 
     [TestMethod]
+    public void ParseGear_projects_exact_active_commlink_semantics_for_stable_persona_gear()
+    {
+        const string xml = """
+            <character>
+              <gears>
+                <gear>
+                  <guid>11111111-1111-1111-1111-111111111111</guid><name>Direct persona</name>
+                  <active>False</active><canformpersona>Self</canformpersona><children />
+                </gear>
+                <gear>
+                  <guid>22222222-2222-2222-2222-222222222222</guid><name>Child persona</name>
+                  <active>True</active><canformpersona></canformpersona><children>
+                    <gear><guid>33333333-3333-3333-3333-333333333333</guid><name>Persona firmware</name><active>False</active><canformpersona>Parent</canformpersona><children /></gear>
+                  </children>
+                </gear>
+              </gears>
+            </character>
+            """;
+
+        CharacterGearSection result = new CharacterSectionService().ParseGear(xml);
+
+        CharacterGearActiveCommlinkSemantics direct = result.Gear
+            .Single(item => item.Guid.StartsWith("11111111", StringComparison.Ordinal))
+            .ActiveCommlinkSemantics!;
+        Assert.IsNotNull(direct);
+        Assert.AreEqual(Guid.Parse("11111111-1111-1111-1111-111111111111"), direct.GearId);
+        Assert.IsTrue(direct.IsCommlink);
+        Assert.IsFalse(direct.ActiveCommlink);
+        CharacterGearActiveCommlinkSemantics childPersona = result.Gear
+            .Single(item => item.Guid.StartsWith("22222222", StringComparison.Ordinal))
+            .ActiveCommlinkSemantics!;
+        Assert.IsTrue(childPersona.IsCommlink);
+        Assert.IsTrue(childPersona.ActiveCommlink);
+        Assert.IsFalse(result.Gear.Single(item => item.Guid.StartsWith("33333333", StringComparison.Ordinal))
+            .ActiveCommlinkSemantics!.IsCommlink);
+    }
+
+    [TestMethod]
+    public void Gear_active_commlink_projection_fails_closed_for_ambiguous_identity_or_state()
+    {
+        const string target = """
+            <gear><guid>11111111-1111-1111-1111-111111111111</guid><name>Target</name><active>False</active><canformpersona>Self</canformpersona><children /></gear>
+            """;
+        XElement duplicateIdentity = XDocument.Parse($"<character><gears>{target}{target}</gears></character>").Root!;
+        Assert.IsFalse(CharacterGearActiveCommlinkRules.TryProject(
+            duplicateIdentity,
+            duplicateIdentity.Descendants("gear").First(),
+            out _));
+
+        XElement duplicateActive = XDocument.Parse($"<character><gears>{target.Replace("</active>", "</active><active>True</active>", StringComparison.Ordinal)}</gears></character>").Root!;
+        Assert.IsFalse(CharacterGearActiveCommlinkRules.TryProject(
+            duplicateActive,
+            duplicateActive.Descendants("gear").Single(),
+            out _));
+
+        XElement twoSelected = XDocument.Parse($"""
+            <character><gears>{target}<gear><guid>22222222-2222-2222-2222-222222222222</guid><active>True</active><children /></gear></gears><armors><armor><active>True</active></armor></armors></character>
+            """).Root!;
+        Assert.IsFalse(CharacterGearActiveCommlinkRules.TryProject(
+            twoSelected,
+            twoSelected.Descendants("gear").First(),
+            out _));
+    }
+
+    [TestMethod]
     public void Armor_matrix_condition_monitor_uses_saved_device_and_equipped_child_gear_bonuses()
     {
         const string xml = """

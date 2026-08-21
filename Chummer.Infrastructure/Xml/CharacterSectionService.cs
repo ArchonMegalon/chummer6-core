@@ -405,6 +405,7 @@ public sealed class CharacterSectionService : ICharacterSectionService
         foreach (XElement item in topLevelGear)
         {
             FlattenGearSummary(
+                character,
                 item,
                 gear,
                 careerEditable,
@@ -422,6 +423,7 @@ public sealed class CharacterSectionService : ICharacterSectionService
     }
 
     private static void FlattenGearSummary(
+        XElement character,
         XElement item,
         List<CharacterGearSummary> gear,
         bool careerEditable,
@@ -439,6 +441,13 @@ public sealed class CharacterSectionService : ICharacterSectionService
             : string.IsNullOrWhiteSpace(name) ? hierarchyPath : $"{hierarchyPath} / {name}";
         XElement[] children = item.Element("children")?.Elements("gear").ToArray() ?? [];
         bool maximumExact = TryCalculateGearMatrixMaximum(item, improvementBasis, out int maximum);
+        CharacterGearActiveCommlinkSemantics? activeCommlinkSemantics =
+            CharacterGearActiveCommlinkRules.TryProject(
+                character,
+                item,
+                out CharacterGearActiveCommlinkSemantics projected)
+                ? projected
+                : null;
         if (!string.IsNullOrWhiteSpace(name))
         {
             gear.Add(new CharacterGearSummary(
@@ -466,13 +475,15 @@ public sealed class CharacterSectionService : ICharacterSectionService
                 MatrixConditionMaximumExact: maximumExact,
                 CareerEditable: careerEditable)
             {
-                QuantitySemantics = quantitySemantics.GetValueOrDefault(item)
+                QuantitySemantics = quantitySemantics.GetValueOrDefault(item),
+                ActiveCommlinkSemantics = activeCommlinkSemantics
             });
         }
 
         foreach (XElement child in children)
         {
             FlattenGearSummary(
+                character,
                 child,
                 gear,
                 careerEditable,

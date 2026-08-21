@@ -240,6 +240,7 @@ public sealed record CharacterGearSummary(
     bool CareerEditable = false)
 {
     public CharacterGearQuantitySemantics? QuantitySemantics { get; init; }
+    public CharacterGearActiveCommlinkSemantics? ActiveCommlinkSemantics { get; init; }
 }
 
 public sealed record CharacterGearQuantitySemantics(
