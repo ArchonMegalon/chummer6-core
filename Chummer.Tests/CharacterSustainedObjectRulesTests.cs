@@ -58,4 +58,31 @@ public sealed class CharacterSustainedObjectRulesTests
         Assert.IsFalse(CharacterSustainedObjectRules.CanDelete(false));
         Assert.IsTrue(CharacterSustainedObjectRules.CanDelete(true));
     }
+
+    [TestMethod]
+    public void Psyche_active_requires_career_mode_a_visible_legacy_surface_and_a_change()
+    {
+        CharacterPsycheActiveState state = new(
+            CareerMode: true,
+            Active: false,
+            MagicianControlAvailable: true,
+            TechnomancerControlAvailable: false);
+
+        Assert.IsTrue(CharacterSustainedObjectRules.CanSetPsycheActive(
+            state,
+            CharacterPsycheActiveSurface.Magician,
+            value: true));
+        Assert.IsFalse(CharacterSustainedObjectRules.CanSetPsycheActive(
+            state,
+            CharacterPsycheActiveSurface.Technomancer,
+            value: true));
+        Assert.IsFalse(CharacterSustainedObjectRules.CanSetPsycheActive(
+            state,
+            CharacterPsycheActiveSurface.Magician,
+            value: false));
+        Assert.IsFalse(CharacterSustainedObjectRules.CanSetPsycheActive(
+            state with { CareerMode = false },
+            CharacterPsycheActiveSurface.Magician,
+            value: true));
+    }
 }

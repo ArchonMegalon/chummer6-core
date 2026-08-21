@@ -6,6 +6,12 @@ public enum CharacterSustainedObjectAction
     Delete
 }
 
+public enum CharacterPsycheActiveSurface
+{
+    Magician,
+    Technomancer
+}
+
 public sealed record CharacterSustainedObjectIdentity(
     string LinkedObjectType,
     Guid LinkedObjectId,
@@ -26,6 +32,12 @@ public sealed record CharacterSustainedObjectState(
     int NetHits,
     bool SelfSustained,
     bool SelfSustainedEditable);
+
+public sealed record CharacterPsycheActiveState(
+    bool CareerMode,
+    bool Active,
+    bool MagicianControlAvailable,
+    bool TechnomancerControlAvailable);
 
 public static class CharacterSustainedObjectRules
 {
@@ -91,6 +103,25 @@ public static class CharacterSustainedObjectRules
     }
 
     public static bool CanDelete(bool confirmed) => confirmed;
+
+    public static bool CanSetPsycheActive(
+        CharacterPsycheActiveState state,
+        CharacterPsycheActiveSurface surface,
+        bool value)
+    {
+        ArgumentNullException.ThrowIfNull(state);
+        if (!state.CareerMode || value == state.Active)
+        {
+            return false;
+        }
+
+        return surface switch
+        {
+            CharacterPsycheActiveSurface.Magician => state.MagicianControlAvailable,
+            CharacterPsycheActiveSurface.Technomancer => state.TechnomancerControlAvailable,
+            _ => false
+        };
+    }
 
     public static bool IsSupportedLinkedObjectType(string? linkedObjectType)
         => linkedObjectType is "Spell" or "ComplexForm" or "CritterPower";
