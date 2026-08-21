@@ -674,7 +674,8 @@ public sealed record CharacterLifestyleSummary(
     int Months,
     string Guid = "",
     string Notes = "",
-    string CustomName = "");
+    string CustomName = "",
+    string NotesColor = "");
 
 public sealed record CharacterLifestylesSection(
     int Count,

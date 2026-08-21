@@ -2240,7 +2240,8 @@ public sealed class CharacterSectionService : ICharacterSectionService
                 Months: ParseInt(ReadValue(lifestyle, "months")),
                 Guid: ReadValue(lifestyle, "guid"),
                 Notes: ReadValue(lifestyle, "notes"),
-                CustomName: ReadValue(lifestyle, "extra")))
+                CustomName: ReadValue(lifestyle, "extra"),
+                NotesColor: ReadValue(lifestyle, "notesColor")))
             .ToArray()
             ?? Array.Empty<CharacterLifestyleSummary>();
 
