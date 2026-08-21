@@ -453,6 +453,7 @@ public sealed class CharacterSectionService : ICharacterSectionService
                 Source: ReadValue(item, "source"),
                 Notes: ReadValue(item, "notes"),
                 CustomName: ReadValue(item, "extra"),
+                GearName: ReadValue(item, "gearname"),
                 WirelessEnabled: ParseBool(ReadValue(item, "wirelesson")),
                 HomeNode: ParseBool(ReadValue(item, "homenode")),
                 ParentGuid: parentGuid,

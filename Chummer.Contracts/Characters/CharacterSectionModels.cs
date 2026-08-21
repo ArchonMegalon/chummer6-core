@@ -226,6 +226,7 @@ public sealed record CharacterGearSummary(
     string Source = "",
     string Notes = "",
     string CustomName = "",
+    string GearName = "",
     bool WirelessEnabled = false,
     bool HomeNode = false,
     string ParentGuid = "",
