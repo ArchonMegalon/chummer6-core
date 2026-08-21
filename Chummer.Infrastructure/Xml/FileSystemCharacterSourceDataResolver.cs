@@ -577,6 +577,59 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             return true;
         }
 
+        public bool TryResolveQualityLevelSource(
+            string sourceId,
+            string name,
+            out CharacterQualityLevelSource source)
+        {
+            source = CharacterQualityLevelSource.Unavailable;
+            if (!TryResolveTarget(
+                    "qualities.xml",
+                    ["qualities"],
+                    "quality",
+                    sourceId,
+                    name,
+                    out XElement? quality)
+                || quality is null
+                || !Guid.TryParse(ReadValue(quality, "id"), out Guid parsedSourceId)
+                || parsedSourceId == Guid.Empty
+                || !int.TryParse(
+                    ReadValue(quality, "limit"),
+                    NumberStyles.Integer,
+                    CultureInfo.InvariantCulture,
+                    out int maximumLevel)
+                || maximumLevel <= 0)
+            {
+                return false;
+            }
+
+            string sourceBook = ReadValue(quality, "source");
+            if (!string.IsNullOrWhiteSpace(sourceBook)
+                && (!_enabledSourcebooks.Contains(sourceBook) || _enabledSourcebooks.Count == 0))
+            {
+                return false;
+            }
+
+            HashSet<string> safeFields = new(StringComparer.Ordinal)
+            {
+                "id", "name", "translate", "karma", "category", "limit",
+                "bonus", "source", "page", "altpage"
+            };
+            bool unsupported = quality.Elements().Any(element =>
+                    !safeFields.Contains(element.Name.LocalName))
+                || quality.Elements("bonus").Any(element =>
+                    element.HasElements || !string.IsNullOrWhiteSpace(element.Value));
+
+            source = new CharacterQualityLevelSource(
+                SourceId: parsedSourceId.ToString("D"),
+                Name: ReadValue(quality, "name"),
+                QualityType: ReadValue(quality, "category"),
+                MaximumLevel: maximumLevel,
+                NoLevels: quality.Element("nolevels") is not null,
+                UsesUnsupportedSemantics: unsupported);
+            return true;
+        }
+
         public bool TryResolveVehicleModBonuses(
             string sourceId,
             string name,

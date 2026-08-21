@@ -48,10 +48,41 @@ public interface ICharacterSourceDataContext
         return false;
     }
 
+    /// <summary>
+    /// Resolves the bounded source metadata needed by the legacy quality-level
+    /// numeric control. Callers must refuse editing when this cannot prove a
+    /// unique, side-effect-free source entry.
+    /// </summary>
+    bool TryResolveQualityLevelSource(
+        string sourceId,
+        string name,
+        out CharacterQualityLevelSource source)
+    {
+        source = CharacterQualityLevelSource.Unavailable;
+        return false;
+    }
+
     bool TryResolveVehicleModBonuses(
         string sourceId,
         string name,
         out CharacterVehicleModSourceBonuses bonuses);
+}
+
+public sealed record CharacterQualityLevelSource(
+    string SourceId,
+    string Name,
+    string QualityType,
+    int MaximumLevel,
+    bool NoLevels,
+    bool UsesUnsupportedSemantics)
+{
+    public static CharacterQualityLevelSource Unavailable { get; } = new(
+        SourceId: string.Empty,
+        Name: string.Empty,
+        QualityType: string.Empty,
+        MaximumLevel: 0,
+        NoLevels: true,
+        UsesUnsupportedSemantics: true);
 }
 
 public sealed record CharacterCyberwareCommerceGradeSource(

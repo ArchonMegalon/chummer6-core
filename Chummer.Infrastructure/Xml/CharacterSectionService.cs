@@ -1566,23 +1566,116 @@ public sealed class CharacterSectionService : ICharacterSectionService
     public CharacterQualitiesSection ParseQualities(string xml)
     {
         XElement character = LoadCharacterRoot(xml);
-        IReadOnlyList<CharacterQualitySummary> qualities = character
-            .Element("qualities")?
+        XElement[] savedQualities = character.Element("qualities")?
             .Elements("quality")
+            .ToArray()
+            ?? [];
+        bool careerMode = ParseBool(ReadValue(character, "created"));
+        ICharacterSourceDataContext? sourceData = _sourceDataResolver?.TryCreateContext(xml);
+        IReadOnlyList<CharacterQualitySummary> qualities = savedQualities
             .Select(quality => new CharacterQualitySummary(
                 Name: ReadValue(quality, "name"),
                 Source: ReadValue(quality, "source"),
                 BP: ParseInt(ReadValue(quality, "bp")),
                 Guid: ReadValue(quality, "guid"),
                 Notes: ReadValue(quality, "notes"),
-                CustomName: ReadValue(quality, "extra")))
-            .ToArray()
-            ?? Array.Empty<CharacterQualitySummary>();
+                CustomName: ReadValue(quality, "extra"))
+            {
+                LevelSemantics = TryBuildQualityLevelSemantics(
+                    savedQualities,
+                    quality,
+                    careerMode,
+                    sourceData,
+                    out CharacterQualityLevelSemantics? semantics)
+                        ? semantics
+                        : null
+            })
+            .ToArray();
 
         return new CharacterQualitiesSection(
             Count: qualities.Count,
             Qualities: qualities);
     }
+
+    private static bool TryBuildQualityLevelSemantics(
+        IReadOnlyList<XElement> qualities,
+        XElement anchor,
+        bool careerMode,
+        ICharacterSourceDataContext? sourceData,
+        out CharacterQualityLevelSemantics? semantics)
+    {
+        semantics = null;
+        string anchorGuidText = ReadValue(anchor, "guid");
+        string sourceId = ReadValue(anchor, "sourceid");
+        string extra = ReadValue(anchor, "extra");
+        string sourceName = ReadValue(anchor, "sourcename");
+        string qualityType = ReadValue(anchor, "qualitytype");
+        string qualitySource = ReadValue(anchor, "qualitysource");
+        if (sourceData is null
+            || !Guid.TryParseExact(anchorGuidText, "D", out Guid anchorGuid)
+            || anchorGuid == Guid.Empty
+            || qualities.Count(item => string.Equals(
+                ReadValue(item, "guid"),
+                anchorGuidText,
+                StringComparison.OrdinalIgnoreCase)) != 1
+            || !Guid.TryParseExact(sourceId, "D", out Guid parsedSourceId)
+            || parsedSourceId == Guid.Empty
+            || !string.Equals(qualitySource, "Selected", StringComparison.Ordinal)
+            || qualityType is not ("Positive" or "Negative")
+            || ParseInt(ReadValue(anchor, "bp")) != 0
+            || HasUnsafeSavedQualityLevelSemantics(anchor)
+            || !sourceData.TryResolveQualityLevelSource(
+                sourceId,
+                ReadValue(anchor, "name"),
+                out CharacterQualityLevelSource source)
+            || source.NoLevels
+            || source.UsesUnsupportedSemantics
+            || source.MaximumLevel <= 0
+            || !string.Equals(source.SourceId, sourceId, StringComparison.OrdinalIgnoreCase)
+            || !string.Equals(source.Name, ReadValue(anchor, "name"), StringComparison.Ordinal)
+            || !string.Equals(source.QualityType, qualityType, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        XElement[] levels = qualities.Where(item =>
+                string.Equals(ReadValue(item, "sourceid"), sourceId, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(ReadValue(item, "extra"), extra, StringComparison.Ordinal)
+                && string.Equals(ReadValue(item, "sourcename"), sourceName, StringComparison.Ordinal)
+                && string.Equals(ReadValue(item, "qualitytype"), qualityType, StringComparison.Ordinal))
+            .ToArray();
+        if (levels.Length == 0
+            || levels.Length > source.MaximumLevel
+            || !ReferenceEquals(levels[0], anchor)
+            || levels.Any(item =>
+                !Guid.TryParseExact(ReadValue(item, "guid"), "D", out Guid itemGuid)
+                || itemGuid == Guid.Empty
+                || !string.Equals(ReadValue(item, "qualitysource"), "Selected", StringComparison.Ordinal)
+                || ParseInt(ReadValue(item, "bp")) != 0
+                || HasUnsafeSavedQualityLevelSemantics(item))
+            || levels.Select(item => ReadValue(item, "guid"))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Count() != levels.Length)
+        {
+            return false;
+        }
+
+        semantics = new CharacterQualityLevelSemantics(
+            AnchorQualityId: anchorGuid,
+            Level: levels.Length,
+            MaximumLevel: source.MaximumLevel,
+            CareerMode: careerMode,
+            QualityType: qualityType);
+        return true;
+    }
+
+    private static bool HasUnsafeSavedQualityLevelSemantics(XElement quality)
+        => !string.IsNullOrWhiteSpace(ReadValue(quality, "notes"))
+            || !string.IsNullOrWhiteSpace(ReadValue(quality, "weaponguid"))
+            || new[] { "bonus", "firstlevelbonus", "naturalweapons" }
+                .Select(name => quality.Element(name))
+                .Any(element => element is not null
+                    && (element.HasElements || !string.IsNullOrWhiteSpace(element.Value)));
 
     public CharacterContactsSection ParseContacts(string xml)
         => ParseContactsByType(xml, static type => type == ContactRecordType.Contact);

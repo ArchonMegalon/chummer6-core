@@ -460,7 +460,17 @@ public sealed record CharacterQualitySummary(
     int BP,
     string Guid = "",
     string Notes = "",
-    string CustomName = "");
+    string CustomName = "")
+{
+    public CharacterQualityLevelSemantics? LevelSemantics { get; init; }
+}
+
+public sealed record CharacterQualityLevelSemantics(
+    Guid AnchorQualityId,
+    int Level,
+    int MaximumLevel,
+    bool CareerMode,
+    string QualityType);
 
 public sealed record CharacterQualitiesSection(
     int Count,

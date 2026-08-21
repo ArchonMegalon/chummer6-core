@@ -1320,6 +1320,35 @@ public class CharacterSectionServiceTests
     }
 
     [TestMethod]
+    public void ParseQualities_projects_only_the_first_exact_free_side_effect_free_level_identity()
+    {
+        const string xml = """
+            <character>
+              <created>False</created>
+              <qualities>
+                <quality><guid>11111111-1111-1111-1111-111111111111</guid><sourceid>d537536d-893d-4bd6-89c6-03b7dd5bd24c</sourceid><name>Illness</name><extra /><bp>0</bp><qualitytype>Negative</qualitytype><qualitysource>Selected</qualitysource><sourcename /><bonus /><firstlevelbonus /><naturalweapons /><notes /></quality>
+                <quality><guid>22222222-2222-2222-2222-222222222222</guid><sourceid>d537536d-893d-4bd6-89c6-03b7dd5bd24c</sourceid><name>Illness</name><extra /><bp>0</bp><qualitytype>Negative</qualitytype><qualitysource>Selected</qualitysource><sourcename /><bonus /><firstlevelbonus /><naturalweapons /><notes /></quality>
+              </qualities>
+            </character>
+            """;
+
+        CharacterQualitiesSection section = new CharacterSectionService(new FixedSourceDataResolver())
+            .ParseQualities(xml);
+
+        CharacterQualityLevelSemantics semantics = section.Qualities[0].LevelSemantics!;
+        Assert.AreEqual(Guid.Parse("11111111-1111-1111-1111-111111111111"), semantics.AnchorQualityId);
+        Assert.AreEqual(2, semantics.Level);
+        Assert.AreEqual(3, semantics.MaximumLevel);
+        Assert.IsFalse(semantics.CareerMode);
+        Assert.AreEqual("Negative", semantics.QualityType);
+        Assert.IsNull(section.Qualities[1].LevelSemantics);
+        Assert.IsNull(new CharacterSectionService().ParseQualities(xml).Qualities[0].LevelSemantics);
+        Assert.IsNull(new CharacterSectionService(new FixedSourceDataResolver())
+            .ParseQualities(xml.Replace("<notes />", "<notes>custom</notes>", StringComparison.Ordinal))
+            .Qualities[0].LevelSemantics);
+    }
+
+    [TestMethod]
     public void ParseContacts_extracts_contact_entries()
     {
         string xml = File.ReadAllText(FindTestFilePath("BLUE.chum5"));
@@ -2191,6 +2220,22 @@ public class CharacterSectionServiceTests
         {
             decimalPlaces = 3;
             return true;
+        }
+
+        public bool TryResolveQualityLevelSource(
+            string sourceId,
+            string name,
+            out CharacterQualityLevelSource source)
+        {
+            source = new CharacterQualityLevelSource(
+                "d537536d-893d-4bd6-89c6-03b7dd5bd24c",
+                "Illness",
+                "Negative",
+                3,
+                NoLevels: false,
+                UsesUnsupportedSemantics: false);
+            return string.Equals(sourceId, source.SourceId, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(name, source.Name, StringComparison.Ordinal);
         }
 
         public bool TryResolveCyberwareGradeDeviceRating(
