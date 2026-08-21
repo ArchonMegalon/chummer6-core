@@ -815,6 +815,7 @@ public sealed class CharacterSectionService : ICharacterSectionService
             MatrixDamage: ParseInt(ReadValue(item, "matrixcmfilled")),
             MatrixConditionMaximum: maximumExact ? maximum : 0,
             MatrixConditionMaximumExact: maximumExact,
+            HomeNode: ParseBool(ReadValue(item, "homenode")),
             CareerEditable: careerEditable);
     }
 

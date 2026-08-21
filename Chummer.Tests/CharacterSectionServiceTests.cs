@@ -244,6 +244,25 @@ public class CharacterSectionServiceTests
     }
 
     [TestMethod]
+    public void ParseArmors_projects_exact_saved_home_node_boolean()
+    {
+        const string xml = """
+            <character>
+              <armors>
+                <armor><guid>armor-home</guid><name>Home armor</name><homenode>True</homenode></armor>
+                <armor><guid>armor-other</guid><name>Other armor</name></armor>
+              </armors>
+            </character>
+            """;
+        var service = new CharacterSectionService();
+
+        CharacterArmorsSection result = service.ParseArmors(xml);
+
+        Assert.IsTrue(result.Armors.Single(item => item.Guid == "armor-home").HomeNode);
+        Assert.IsFalse(result.Armors.Single(item => item.Guid == "armor-other").HomeNode);
+    }
+
+    [TestMethod]
     public void Weapon_matrix_condition_monitor_uses_saved_rating_and_fails_closed_for_attribute_overrides()
     {
         const string xml = """
