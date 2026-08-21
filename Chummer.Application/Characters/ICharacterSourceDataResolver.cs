@@ -97,6 +97,31 @@ public interface ICharacterSourceDataContext
         return false;
     }
 
+    /// <summary>
+    /// Resolves the exact names represented by the legacy All marker in a tradition or stream.
+    /// Entity type must be Spirit or Sprite; false means the selector must stay unavailable.
+    /// </summary>
+    bool TryResolveSpiritCatalogNames(
+        string entityType,
+        out IReadOnlyList<string> names)
+    {
+        names = Array.Empty<string>();
+        return false;
+    }
+
+    /// <summary>
+    /// Resolves the exact active traditions.xml/streams.xml source row used by a non-custom
+    /// saved tradition or stream, including the selected custom-data amendments.
+    /// </summary>
+    bool TryResolveTraditionSpiritNames(
+        string entityType,
+        string sourceId,
+        out IReadOnlyList<string> names)
+    {
+        names = Array.Empty<string>();
+        return false;
+    }
+
     bool TryResolveVehicleModBonuses(
         string sourceId,
         string name,

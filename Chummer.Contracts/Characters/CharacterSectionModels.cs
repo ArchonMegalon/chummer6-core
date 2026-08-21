@@ -617,6 +617,12 @@ public sealed record CharacterSpiritSummary(
     /// settings profile's KarmaSpiritFettering value is not persisted with the runner.
     /// </summary>
     public CharacterSpiritFetteringState? FetteringSemantics { get; init; }
+
+    /// <summary>
+    /// Null unless saved tradition/stream data and the active content profile prove the exact
+    /// DropDownList values exposed by the shared Create/Career SpiritControl.
+    /// </summary>
+    public CharacterSpiritNameChoiceState? NameChoiceSemantics { get; init; }
 }
 
 public sealed record CharacterSpiritsSection(

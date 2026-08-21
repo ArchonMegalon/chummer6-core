@@ -5,6 +5,7 @@ using System.Xml.Linq;
 using System.Xml.XPath;
 using Chummer.Application.Characters;
 using Chummer.Application.Content;
+using Chummer.Contracts.Characters;
 
 namespace Chummer.Infrastructure.Xml;
 
@@ -736,6 +737,109 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 return false;
             }
             expressions = values;
+            return true;
+        }
+
+        public bool TryResolveSpiritCatalogNames(
+            string entityType,
+            out IReadOnlyList<string> names)
+        {
+            names = Array.Empty<string>();
+            string fileName = entityType switch
+            {
+                "Spirit" => "traditions.xml",
+                "Sprite" => "streams.xml",
+                _ => string.Empty
+            };
+            // Custom data can add or amend arbitrary catalog rows. This bounded resolver does
+            // not guess at that global enumeration; explicit saved tradition values still work.
+            if (fileName.Length == 0
+                || _customDirectories.Count != 0
+                || !TryLoadEffectiveDocument(_catalog, fileName, out XDocument? document)
+                || document?.Root is null)
+            {
+                return false;
+            }
+
+            XElement[] containers = document.Root.Elements("spirits").Take(2).ToArray();
+            if (containers.Length != 1)
+            {
+                return false;
+            }
+
+            var values = new List<string>();
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            foreach (XElement entry in containers[0].Elements("spirit"))
+            {
+                XElement[] nameElements = entry.Elements("name").Take(2).ToArray();
+                if (nameElements.Length != 1
+                    || string.IsNullOrWhiteSpace(nameElements[0].Value)
+                    || nameElements[0].Value.Length > CharacterSpiritNameChoiceRules.MaximumNameLength
+                    || nameElements[0].Value.IndexOfAny(['\r', '\n', '\0']) >= 0
+                    || !seen.Add(nameElements[0].Value))
+                {
+                    return false;
+                }
+                values.Add(nameElements[0].Value);
+            }
+            if (values.Count == 0)
+            {
+                return false;
+            }
+            names = values;
+            return true;
+        }
+
+        public bool TryResolveTraditionSpiritNames(
+            string entityType,
+            string sourceId,
+            out IReadOnlyList<string> names)
+        {
+            names = Array.Empty<string>();
+            string fileName = entityType switch
+            {
+                "Spirit" => "traditions.xml",
+                "Sprite" => "streams.xml",
+                _ => string.Empty
+            };
+            if (fileName.Length == 0
+                || !Guid.TryParseExact(sourceId, "D", out Guid parsedSourceId)
+                || parsedSourceId == Guid.Empty
+                || !TryResolveTarget(
+                    fileName,
+                    ["traditions"],
+                    "tradition",
+                    sourceId,
+                    string.Empty,
+                    out XElement? tradition)
+                || tradition is null)
+            {
+                return false;
+            }
+
+            XElement[] containers = tradition.Elements("spirits").Take(2).ToArray();
+            if (containers.Length != 1)
+            {
+                return false;
+            }
+
+            var values = new List<string>();
+            foreach (XElement entry in containers[0].Elements())
+            {
+                string value = entry.Value;
+                if (string.IsNullOrWhiteSpace(value)
+                    || value.Length > CharacterSpiritNameChoiceRules.MaximumNameLength
+                    || value.IndexOfAny(['\r', '\n', '\0']) >= 0)
+                {
+                    return false;
+                }
+                values.Add(value);
+            }
+            if (values.Count == 0)
+            {
+                return false;
+            }
+            names = values;
             return true;
         }
 

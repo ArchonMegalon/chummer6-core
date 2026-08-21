@@ -1780,6 +1780,7 @@ public sealed class CharacterSectionService : ICharacterSectionService
     {
         XElement character = LoadCharacterRoot(xml);
         bool created = ParseBool(ReadValue(character, "created"));
+        ICharacterSourceDataContext? sourceData = _sourceDataResolver?.TryCreateContext(xml);
         XElement[] spiritElements = character.Element("spirits")?
             .Elements("spirit")
             .Where(spirit => !string.IsNullOrWhiteSpace(ReadSpiritName(spirit)))
@@ -1790,7 +1791,8 @@ public sealed class CharacterSectionService : ICharacterSectionService
                 character,
                 spirit,
                 created,
-                ProjectSpiritFetteringSemantics(character, spiritElements, spirit, created)))
+                ProjectSpiritFetteringSemantics(character, spiritElements, spirit, created),
+                ProjectSpiritNameChoiceSemantics(character, spiritElements, spirit, sourceData)))
             .ToArray();
 
         return new CharacterSpiritsSection(
@@ -1805,7 +1807,8 @@ public sealed class CharacterSectionService : ICharacterSectionService
         XElement character,
         XElement spirit,
         bool created,
-        CharacterSpiritFetteringState? fetteringSemantics)
+        CharacterSpiritFetteringState? fetteringSemantics,
+        CharacterSpiritNameChoiceState? nameChoiceSemantics)
     {
         int force = ParseInt(ReadValue(spirit, "force"));
         bool forceMaximumExact = TryCalculateSpiritForceMaximum(
@@ -1847,8 +1850,244 @@ public sealed class CharacterSectionService : ICharacterSectionService
             ForceMaximum = forceMaximumExact ? forceMaximum : 0,
             ForceMaximumExact = forceMaximumExact,
             ForceEditable = created && forceMaximumExact && force is >= 0 && force <= forceMaximum,
-            FetteringSemantics = fetteringSemantics
+            FetteringSemantics = fetteringSemantics,
+            NameChoiceSemantics = nameChoiceSemantics
         };
+    }
+
+    private static CharacterSpiritNameChoiceState? ProjectSpiritNameChoiceSemantics(
+        XElement character,
+        IReadOnlyList<XElement> spiritElements,
+        XElement selectedSpirit,
+        ICharacterSourceDataContext? sourceData)
+    {
+        XElement[] selectedIds = selectedSpirit.Elements("guid").Take(2).ToArray();
+        XElement[] selectedNames = selectedSpirit.Elements("name").Take(2).ToArray();
+        string entityType = NormalizeSpiritEntityType(ReadValue(selectedSpirit, "type"));
+        XElement[] traditions = character.Elements("tradition").Take(2).ToArray();
+        if (selectedIds.Length != 1
+            || selectedNames.Length != 1
+            || !Guid.TryParseExact(selectedIds[0].Value.Trim(), "D", out Guid selectedSpiritId)
+            || selectedSpiritId == Guid.Empty
+            || string.IsNullOrWhiteSpace(entityType)
+            || traditions.Length != 1
+            || !TryReadSpiritIds(spiritElements, out Guid[] spiritIds)
+            || !TryReadLegacyBool(character, "magenabled", false, out bool magicEnabled)
+            || !TryReadLegacyBool(character, "resenabled", false, out bool resonanceEnabled)
+            || !TryReadSpiritNameImprovements(
+                character,
+                out string[] limitCategories,
+                out string[] addedSpiritNames,
+                out string[] addedSpriteNames)
+            || !TryReadTraditionSpiritBaseNames(
+                traditions[0],
+                entityType,
+                limitCategories,
+                sourceData,
+                out string[] baseNames))
+        {
+            return null;
+        }
+
+        return CharacterSpiritNameChoiceRules.TryProject(
+            selectedSpiritId,
+            spiritIds,
+            entityType,
+            selectedNames[0].Value,
+            baseNames,
+            limitCategories,
+            magicEnabled,
+            resonanceEnabled,
+            addedSpiritNames,
+            addedSpriteNames,
+            out CharacterSpiritNameChoiceState? state)
+            ? state
+            : null;
+    }
+
+    private static bool TryReadSpiritIds(
+        IReadOnlyList<XElement> spiritElements,
+        out Guid[] spiritIds)
+    {
+        var values = new List<Guid>(spiritElements.Count);
+        foreach (XElement spirit in spiritElements)
+        {
+            XElement[] ids = spirit.Elements("guid").Take(2).ToArray();
+            if (ids.Length != 1
+                || !Guid.TryParseExact(ids[0].Value.Trim(), "D", out Guid id)
+                || id == Guid.Empty)
+            {
+                spiritIds = [];
+                return false;
+            }
+            values.Add(id);
+        }
+        spiritIds = values.ToArray();
+        return true;
+    }
+
+    private static bool TryReadSpiritNameImprovements(
+        XElement character,
+        out string[] limitCategories,
+        out string[] addedSpiritNames,
+        out string[] addedSpriteNames)
+    {
+        var limits = new List<string>();
+        var spirits = new List<string>();
+        var sprites = new List<string>();
+        XElement[] containers = character.Elements("improvements").Take(2).ToArray();
+        if (containers.Length != 1)
+        {
+            limitCategories = [];
+            addedSpiritNames = [];
+            addedSpriteNames = [];
+            return false;
+        }
+
+        foreach (XElement improvement in containers[0].Elements("improvement"))
+        {
+            if (!TryReadLegacyImprovementEnabled(improvement, out bool enabled))
+            {
+                limitCategories = [];
+                addedSpiritNames = [];
+                addedSpriteNames = [];
+                return false;
+            }
+            if (!enabled)
+            {
+                continue;
+            }
+
+            string name = ReadValue(improvement, "improvedname");
+            switch (ReadValue(improvement, "improvementttype"))
+            {
+                case "LimitSpiritCategory":
+                    limits.Add(name);
+                    break;
+                case "AddSpirit":
+                    spirits.Add(name);
+                    break;
+                case "AddSprite":
+                    sprites.Add(name);
+                    break;
+            }
+        }
+        limitCategories = limits.ToArray();
+        addedSpiritNames = spirits.ToArray();
+        addedSpriteNames = sprites.ToArray();
+        return true;
+    }
+
+    private static bool TryReadTraditionSpiritBaseNames(
+        XElement tradition,
+        string entityType,
+        IReadOnlyList<string> limitCategories,
+        ICharacterSourceDataContext? sourceData,
+        out string[] baseNames)
+    {
+        baseNames = [];
+        XElement[] typeElements = tradition.Elements("traditiontype").Take(2).ToArray();
+        XElement[] spiritContainers = tradition.Elements("spirits").Take(2).ToArray();
+        string expectedTraditionType = entityType == "Spirit" ? "MAG" : "RES";
+        if (typeElements.Length != 1
+            || !string.Equals(typeElements[0].Value.Trim(), expectedTraditionType, StringComparison.Ordinal)
+            || !TryReadTraditionSourceId(tradition, out Guid sourceId)
+            || spiritContainers.Length != 1)
+        {
+            return false;
+        }
+
+        foreach (XElement entry in spiritContainers[0].Elements())
+        {
+            if (!string.Equals(entry.Name.LocalName, "spirit", StringComparison.Ordinal))
+            {
+                return false;
+            }
+        }
+
+        if (sourceId == CharacterTraditionNameRules.CustomMagicalTraditionSourceId)
+        {
+            return TryReadCustomTraditionSpiritNames(tradition, out baseNames);
+        }
+
+        if (sourceData is null
+            || !sourceData.TryResolveTraditionSpiritNames(
+                entityType,
+                sourceId.ToString("D"),
+                out IReadOnlyList<string> sourceNames)
+            || sourceNames.Count == 0)
+        {
+            return false;
+        }
+
+        if (sourceNames.Contains("All", StringComparer.Ordinal))
+        {
+            if (limitCategories.Count != 0)
+            {
+                baseNames = limitCategories.ToArray();
+                return true;
+            }
+            if (sourceData is null
+                || !sourceData.TryResolveSpiritCatalogNames(entityType, out IReadOnlyList<string> catalogNames)
+                || catalogNames.Count == 0)
+            {
+                return false;
+            }
+            baseNames = catalogNames.ToArray();
+            return true;
+        }
+
+        baseNames = sourceNames.ToArray();
+        return true;
+    }
+
+    private static bool TryReadCustomTraditionSpiritNames(
+        XElement tradition,
+        out string[] names)
+    {
+        var values = new List<string>(5);
+        foreach (string elementName in new[]
+                 {
+                     "spiritcombat",
+                     "spiritdetection",
+                     "spirithealth",
+                     "spiritillusion",
+                     "spiritmanipulation"
+                 })
+        {
+            XElement[] elements = tradition.Elements(elementName).Take(2).ToArray();
+            if (elements.Length > 1)
+            {
+                names = [];
+                return false;
+            }
+            if (elements.Length == 1 && !string.IsNullOrWhiteSpace(elements[0].Value))
+            {
+                values.Add(elements[0].Value);
+            }
+        }
+        names = values.ToArray();
+        return true;
+    }
+
+    private static bool TryReadTraditionSourceId(XElement tradition, out Guid sourceId)
+    {
+        sourceId = Guid.Empty;
+        XElement[] sourceIds = tradition.Elements("sourceid").Take(2).ToArray();
+        XElement[] legacyIds = tradition.Elements("id").Take(2).ToArray();
+        if (sourceIds.Length > 1 || legacyIds.Length > 1)
+        {
+            return false;
+        }
+        if (sourceIds.Length == 1
+            && Guid.TryParseExact(sourceIds[0].Value.Trim(), "D", out sourceId)
+            && sourceId != Guid.Empty)
+        {
+            return true;
+        }
+        return legacyIds.Length == 1
+            && Guid.TryParseExact(legacyIds[0].Value.Trim(), "D", out sourceId)
+            && sourceId != Guid.Empty;
     }
 
     private static CharacterSpiritFetteringState? ProjectSpiritFetteringSemantics(
