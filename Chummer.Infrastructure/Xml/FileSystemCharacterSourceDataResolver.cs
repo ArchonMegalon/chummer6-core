@@ -751,10 +751,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 "Sprite" => "streams.xml",
                 _ => string.Empty
             };
-            // Custom data can add or amend arbitrary catalog rows. This bounded resolver does
-            // not guess at that global enumeration; explicit saved tradition values still work.
             if (fileName.Length == 0
-                || _customDirectories.Count != 0
                 || !TryLoadEffectiveDocument(_catalog, fileName, out XDocument? document)
                 || document?.Root is null)
             {
@@ -767,16 +764,132 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 return false;
             }
 
-            var values = new List<string>();
-            var seen = new HashSet<string>(StringComparer.Ordinal);
-            foreach (XElement entry in containers[0].Elements("spirit"))
+            var locators = new List<TargetLocator>();
+            var locatorKeys = new HashSet<string>(StringComparer.Ordinal);
+            bool TryAddLocator(XElement entry, bool duplicateIsError)
             {
+                if (!string.Equals(entry.Name.LocalName, "spirit", StringComparison.Ordinal))
+                {
+                    return false;
+                }
+                XElement[] ids = entry.Elements("id").Take(2).ToArray();
                 XElement[] nameElements = entry.Elements("name").Take(2).ToArray();
+                if (ids.Length > 1 || nameElements.Length > 1)
+                {
+                    return false;
+                }
+
+                string id = ids.SingleOrDefault()?.Value.Trim() ?? string.Empty;
+                string name = nameElements.SingleOrDefault()?.Value ?? string.Empty;
+                if (id.Length != 0
+                    && (!Guid.TryParseExact(id, "D", out Guid parsedId) || parsedId == Guid.Empty))
+                {
+                    return false;
+                }
+                if (id.Length == 0 && string.IsNullOrWhiteSpace(name))
+                {
+                    return false;
+                }
+
+                TargetLocator locator = TargetLocator.Create(id, name);
+                string key = locator.SourceId is Guid sourceId
+                    ? $"id:{sourceId:D}"
+                    : $"name:{locator.Name}";
+                if (!locatorKeys.Add(key))
+                {
+                    return !duplicateIsError;
+                }
+                locators.Add(locator);
+                return true;
+            }
+
+            foreach (XElement entry in containers[0].Elements())
+            {
+                if (!TryAddLocator(entry, duplicateIsError: true))
+                {
+                    return false;
+                }
+            }
+
+            foreach (CustomDirectory directory in _customDirectories)
+            {
+                string[] relevantFiles;
+                try
+                {
+                    relevantFiles = Directory
+                        .EnumerateFiles(directory.Path, $"*_{fileName}", SearchOption.AllDirectories)
+                        .Where(path =>
+                        {
+                            string candidate = Path.GetFileName(path);
+                            return candidate.StartsWith("override_", StringComparison.OrdinalIgnoreCase)
+                                || candidate.StartsWith("custom_", StringComparison.OrdinalIgnoreCase)
+                                || candidate.StartsWith("amend_", StringComparison.OrdinalIgnoreCase);
+                        })
+                        .OrderBy(path => Path.GetFileName(path), StringComparer.OrdinalIgnoreCase)
+                        .ThenBy(path => path, StringComparer.Ordinal)
+                        .ToArray();
+                }
+                catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+                {
+                    return false;
+                }
+
+                foreach (string prefix in new[] { "override_", "custom_", "amend_" })
+                {
+                    foreach (string path in relevantFiles.Where(path =>
+                                 Path.GetFileName(path).StartsWith(prefix, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        if (!TryLoadXml(path, out XDocument? customDocument)
+                            || customDocument?.Root is null)
+                        {
+                            return false;
+                        }
+                        XElement[] customContainers = customDocument.Root.Elements("spirits").Take(2).ToArray();
+                        if (customContainers.Length > 1)
+                        {
+                            return false;
+                        }
+                        if (customContainers.Length == 0)
+                        {
+                            continue;
+                        }
+                        foreach (XElement entry in customContainers[0].Elements())
+                        {
+                            if (!TryAddLocator(entry, duplicateIsError: false))
+                            {
+                                return false;
+                            }
+                        }
+                    }
+                }
+            }
+
+            var values = new List<string>(locators.Count);
+            var seenNames = new HashSet<string>(StringComparer.Ordinal);
+            foreach (TargetLocator locator in locators)
+            {
+                string sourceId = locator.SourceId?.ToString("D") ?? string.Empty;
+                if (!TryResolveTarget(
+                        fileName,
+                        ["spirits"],
+                        "spirit",
+                        sourceId,
+                        locator.Name,
+                        out XElement? resolved))
+                {
+                    return false;
+                }
+                if (resolved is null)
+                {
+                    continue;
+                }
+
+                XElement[] nameElements = resolved.Elements("name").Take(2).ToArray();
                 if (nameElements.Length != 1
                     || string.IsNullOrWhiteSpace(nameElements[0].Value)
                     || nameElements[0].Value.Length > CharacterSpiritNameChoiceRules.MaximumNameLength
                     || nameElements[0].Value.IndexOfAny(['\r', '\n', '\0']) >= 0
-                    || !seen.Add(nameElements[0].Value))
+                    || !seenNames.Add(nameElements[0].Value))
                 {
                     return false;
                 }

@@ -167,6 +167,51 @@ public sealed class FileSystemCharacterSourceDataResolverTests
     }
 
     [TestMethod]
+    public void Spirit_catalog_applies_selected_custom_additions_and_amendments_exactly()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            const string customId = "5b3a4c48-d2af-4e46-9d27-9f06eab83c0c";
+            const string fireId = "a1111111-1111-1111-1111-111111111111";
+            const string airId = "a2222222-2222-2222-2222-222222222222";
+            const string waterId = "a3333333-3333-3333-3333-333333333333";
+            WriteBaseContent(
+                root,
+                $"<customdatadirectoryname><directoryname>{customId}&gt;1.0</directoryname><order>0</order><enabled>True</enabled></customdatadirectoryname>");
+            File.WriteAllText(
+                Path.Combine(root, "data", "traditions.xml"),
+                $"<chummer><spirits><spirit><id>{fireId}</id><name>Spirit of Fire</name></spirit><spirit><id>{airId}</id><name>Spirit of Air</name></spirit></spirits></chummer>");
+
+            string customRoot = Path.Combine(root, "customdata", "Spirit Rules");
+            Directory.CreateDirectory(customRoot);
+            File.WriteAllText(
+                Path.Combine(customRoot, "manifest.xml"),
+                $"<manifest><guid>{customId}</guid><version>2.0.0</version></manifest>");
+            File.WriteAllText(
+                Path.Combine(customRoot, "custom_traditions.xml"),
+                $"<chummer><spirits><spirit><id>{waterId}</id><name>Spirit of Water</name></spirit></spirits></chummer>");
+            File.WriteAllText(
+                Path.Combine(customRoot, "amend_traditions.xml"),
+                $"<chummer><spirits><spirit><id>{airId}</id><name amendoperation=\"REPLACE\">Spirit of Storm</name></spirit></spirits></chummer>");
+
+            ICharacterSourceDataContext context = CreateContext(
+                root,
+                CharacterXml("<customdatadirectorynames><directoryname>Spirit Rules</directoryname></customdatadirectorynames>"))!;
+
+            Assert.IsNotNull(context);
+            Assert.IsTrue(context.TryResolveSpiritCatalogNames("Spirit", out IReadOnlyList<string> names));
+            CollectionAssert.AreEqual(
+                new[] { "Spirit of Fire", "Spirit of Storm", "Spirit of Water" },
+                names.ToArray());
+        }
+        finally
+        {
+            DeleteTempDirectory(root);
+        }
+    }
+
+    [TestMethod]
     public void Context_rejects_saved_custom_directory_mismatch_and_unknown_settings()
     {
         string root = CreateTempDirectory();
