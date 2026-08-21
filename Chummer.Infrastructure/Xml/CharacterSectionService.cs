@@ -989,6 +989,14 @@ public sealed class CharacterSectionService : ICharacterSectionService
             improvementBasis,
             sourceData,
             out int matrixMaximum);
+        CharacterLocationSummary[] locations = item.Element("locations")?
+            .Elements("location")
+            .Select(location => new CharacterLocationSummary(
+                Guid: ReadValue(location, "guid"),
+                Name: ReadValue(location, "name"),
+                Notes: ReadValue(location, "notes")))
+            .ToArray()
+            ?? [];
 
         return new CharacterVehicleSummary(
             Guid: ReadValue(item, "guid"),
@@ -1012,7 +1020,9 @@ public sealed class CharacterSectionService : ICharacterSectionService
             CareerEditable: careerEditable,
             MatrixDamage: ParseInt(ReadValue(item, "matrixcmfilled")),
             MatrixConditionMaximum: matrixMaximumExact ? matrixMaximum : 0,
-            MatrixConditionMaximumExact: matrixMaximumExact);
+            MatrixConditionMaximumExact: matrixMaximumExact,
+            LocationCount: locations.Length,
+            Locations: locations);
     }
 
     private static bool TryCalculateVehicleMatrixMaximum(

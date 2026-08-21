@@ -887,6 +887,54 @@ public class CharacterSectionServiceTests
     }
 
     [TestMethod]
+    public void ParseVehicles_projects_exact_nested_location_identity_name_and_notes()
+    {
+        const string xml = """
+            <character>
+              <created>False</created>
+              <vehicles>
+                <vehicle>
+                  <guid>7c2bc558-a149-4ae8-9266-e64a9b5352a2</guid>
+                  <name>Roadmaster</name>
+                  <locations>
+                    <location>
+                      <guid>21f2ae2c-1ffc-451a-862a-a2b14dfcb451</guid>
+                      <name>  Smuggling compartment  </name>
+                      <notes>Keep sealed</notes>
+                    </location>
+                    <location>
+                      <guid>d4536654-b7c5-4439-b087-78727b018c54</guid>
+                      <name>Roof rack</name>
+                      <notes />
+                    </location>
+                  </locations>
+                </vehicle>
+                <vehicle>
+                  <guid>3d494156-9435-4198-b9da-dd3a156dfe8c</guid>
+                  <name>Bike</name>
+                </vehicle>
+              </vehicles>
+            </character>
+            """;
+        var service = new CharacterSectionService();
+
+        CharacterVehiclesSection section = service.ParseVehicles(xml);
+
+        CharacterVehicleSummary roadmaster = section.Vehicles.Single(item => item.Name == "Roadmaster");
+        Assert.AreEqual(2, roadmaster.LocationCount);
+        Assert.IsNotNull(roadmaster.Locations);
+        Assert.AreEqual("21f2ae2c-1ffc-451a-862a-a2b14dfcb451", roadmaster.Locations[0].Guid);
+        Assert.AreEqual("Smuggling compartment", roadmaster.Locations[0].Name);
+        Assert.AreEqual("Keep sealed", roadmaster.Locations[0].Notes);
+        Assert.AreEqual(string.Empty, roadmaster.Locations[1].Notes);
+
+        CharacterVehicleSummary bike = section.Vehicles.Single(item => item.Name == "Bike");
+        Assert.AreEqual(0, bike.LocationCount);
+        Assert.IsNotNull(bike.Locations);
+        Assert.IsEmpty(bike.Locations);
+    }
+
+    [TestMethod]
     public void ParseVehicleMods_extracts_vehicle_mod_entries()
     {
         string xml = File.ReadAllText(FindTestFilePath("BLUE.chum5"));

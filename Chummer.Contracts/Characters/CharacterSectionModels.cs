@@ -342,7 +342,9 @@ public sealed record CharacterVehicleSummary(
     bool CareerEditable = false,
     int MatrixDamage = 0,
     int MatrixConditionMaximum = 0,
-    bool MatrixConditionMaximumExact = false);
+    bool MatrixConditionMaximumExact = false,
+    int LocationCount = 0,
+    IReadOnlyList<CharacterLocationSummary>? Locations = null);
 
 public sealed record CharacterVehiclesSection(
     int Count,
