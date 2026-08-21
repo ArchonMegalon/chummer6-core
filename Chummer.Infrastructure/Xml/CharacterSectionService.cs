@@ -1002,6 +1002,8 @@ public sealed class CharacterSectionService : ICharacterSectionService
         CharacterMatrixImprovementBasis improvementBasis)
     {
         bool maximumExact = TryCalculateArmorMatrixMaximum(item, improvementBasis, out int maximum);
+        bool armorDamageExact = TryParseOptionalInt(ReadValue(item, "damage"), out int armorDamage)
+            && TryCalculateArmorDamageMaximum(item, out int armorDamageMaximum);
         return new CharacterArmorSummary(
             Guid: ReadValue(item, "guid"),
             Name: ReadValue(item, "name"),
@@ -1020,7 +1022,40 @@ public sealed class CharacterSectionService : ICharacterSectionService
             ActiveCommlink: ParseBool(ReadValue(item, "active")),
             IsCommlink: IsArmorCommlink(item),
             HomeNode: ParseBool(ReadValue(item, "homenode")),
+            ArmorDamage: armorDamageExact ? armorDamage : 0,
+            ArmorDamageMaximum: armorDamageExact ? armorDamageMaximum : 0,
+            ArmorDamageMaximumExact: armorDamageExact,
             CareerEditable: careerEditable);
+    }
+
+    private static bool TryCalculateArmorDamageMaximum(XElement armor, out int maximum)
+    {
+        maximum = 0;
+        if (!TryParseOptionalInt(ReadValue(armor, "rating"), out int rating))
+        {
+            return false;
+        }
+
+        CharacterArmorDamageModifierBasis[] modifiers = armor
+            .Element("armormods")?
+            .Elements("armormod")
+            .Select(modifier =>
+            {
+                bool armorExact = TryParseOptionalInt(ReadValue(modifier, "armor"), out int armorValue);
+                bool equippedExact = TryParseOptionalBool(ReadValue(modifier, "equipped"), out bool equipped);
+                return new CharacterArmorDamageModifierBasis(
+                    armorValue,
+                    equipped,
+                    armorExact && equippedExact);
+            })
+            .ToArray()
+            ?? [];
+        return CharacterArmorDamageRules.TryCalculateMaximum(
+            ReadValue(armor, "armor"),
+            ReadValue(armor, "armoroverride"),
+            rating,
+            modifiers,
+            out maximum);
     }
 
     private static bool IsArmorCommlink(XElement armor)

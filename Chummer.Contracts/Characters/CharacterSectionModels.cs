@@ -296,6 +296,9 @@ public sealed record CharacterArmorSummary(
     bool ActiveCommlink = false,
     bool IsCommlink = false,
     bool HomeNode = false,
+    int ArmorDamage = 0,
+    int ArmorDamageMaximum = 0,
+    bool ArmorDamageMaximumExact = false,
     bool CareerEditable = false);
 
 public sealed record CharacterArmorsSection(

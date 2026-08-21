@@ -924,6 +924,58 @@ public class CharacterSectionServiceTests
     }
 
     [TestMethod]
+    public void Armor_damage_rules_preserve_exact_legacy_half_armor_bounds_and_directions()
+    {
+        CharacterArmorDamageModifierBasis[] modifiers =
+        [
+            new(2, Equipped: true),
+            new(50, Equipped: false)
+        ];
+
+        Assert.IsTrue(CharacterArmorDamageRules.TryCalculateMaximum(
+            "Rating + 7",
+            "12",
+            rating: 3,
+            modifiers,
+            out int maximum));
+        Assert.AreEqual(6, maximum);
+        Assert.IsFalse(CharacterArmorDamageRules.CanRepair(0));
+        Assert.IsTrue(CharacterArmorDamageRules.CanDegrade(5, maximum));
+        Assert.IsTrue(CharacterArmorDamageRules.TryApplyAdjustment(
+            5,
+            maximum,
+            CharacterArmorDamageAdjustment.Degrade,
+            out int degraded));
+        Assert.AreEqual(6, degraded);
+        Assert.IsFalse(CharacterArmorDamageRules.CanDegrade(degraded, maximum));
+        Assert.IsTrue(CharacterArmorDamageRules.TryApplyAdjustment(
+            degraded,
+            maximum,
+            CharacterArmorDamageAdjustment.Repair,
+            out int repaired));
+        Assert.AreEqual(5, repaired);
+    }
+
+    [TestMethod]
+    public void ParseArmors_projects_exact_saved_armor_damage_and_fails_closed_on_expression()
+    {
+        const string xml = """
+            <character><created>True</created><armors>
+              <armor><guid>11111111-1111-1111-1111-111111111111</guid><name>Exact Armor</name><armor>10</armor><armoroverride>8</armoroverride><rating>1</rating><damage>2</damage><armormods><armormod><armor>2</armor><equipped>True</equipped></armormod></armormods></armor>
+              <armor><guid>22222222-2222-2222-2222-222222222222</guid><name>Inexact Armor</name><armor>FixedValues(6,8)</armor><rating>1</rating><damage>1</damage><armormods /></armor>
+            </armors></character>
+            """;
+        var service = new CharacterSectionService();
+
+        CharacterArmorSummary exact = service.ParseArmors(xml).Armors.Single(item => item.Name == "Exact Armor");
+        Assert.IsTrue(exact.CareerEditable);
+        Assert.AreEqual(2, exact.ArmorDamage);
+        Assert.AreEqual(5, exact.ArmorDamageMaximum);
+        Assert.IsTrue(exact.ArmorDamageMaximumExact);
+        Assert.IsFalse(service.ParseArmors(xml).Armors.Single(item => item.Name == "Inexact Armor").ArmorDamageMaximumExact);
+    }
+
+    [TestMethod]
     public void ParseArmorMods_extracts_armor_mod_entries()
     {
         string xml = File.ReadAllText(FindTestFilePath("BLUE.chum5"));
