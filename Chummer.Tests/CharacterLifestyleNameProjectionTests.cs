@@ -28,5 +28,9 @@ public sealed class CharacterLifestyleNameProjectionTests
         Assert.AreEqual("Preserved notes", lifestyle.Notes);
         Assert.AreEqual("#123456", lifestyle.NotesColor);
         Assert.AreEqual("Low", lifestyle.Name);
+        Assert.IsNotNull(lifestyle.IncrementState);
+        Assert.AreEqual(3, lifestyle.IncrementState.Increments);
+        Assert.IsFalse(lifestyle.IncrementState.CareerMode);
+        Assert.IsFalse(lifestyle.IncrementState.TotalIncrementCostExact);
     }
 }

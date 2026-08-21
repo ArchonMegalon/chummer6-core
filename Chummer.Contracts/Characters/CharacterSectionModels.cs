@@ -675,7 +675,10 @@ public sealed record CharacterLifestyleSummary(
     string Guid = "",
     string Notes = "",
     string CustomName = "",
-    string NotesColor = "");
+    string NotesColor = "")
+{
+    public CharacterLifestyleIncrementState? IncrementState { get; init; }
+}
 
 public sealed record CharacterLifestylesSection(
     int Count,

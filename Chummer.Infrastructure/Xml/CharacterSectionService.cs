@@ -2229,19 +2229,51 @@ public sealed class CharacterSectionService : ICharacterSectionService
     public CharacterLifestylesSection ParseLifestyles(string xml)
     {
         XElement character = LoadCharacterRoot(xml);
+        bool careerMode = ParseBool(ReadValue(character, "created"));
+        bool nuyenExact = decimal.TryParse(
+            ReadValue(character, "nuyen"),
+            NumberStyles.Number,
+            CultureInfo.InvariantCulture,
+            out decimal nuyen);
         IReadOnlyList<CharacterLifestyleSummary> lifestyles = character
             .Element("lifestyles")?
             .Elements("lifestyle")
-            .Select(lifestyle => new CharacterLifestyleSummary(
-                Name: ReadValue(lifestyle, "name"),
-                BaseLifestyle: ReadValue(lifestyle, "baselifestyle"),
-                Source: ReadValue(lifestyle, "source"),
-                Cost: ParseDecimal(ReadValue(lifestyle, "cost")),
-                Months: ParseInt(ReadValue(lifestyle, "months")),
-                Guid: ReadValue(lifestyle, "guid"),
-                Notes: ReadValue(lifestyle, "notes"),
-                CustomName: ReadValue(lifestyle, "extra"),
-                NotesColor: ReadValue(lifestyle, "notesColor")))
+            .Select(lifestyle =>
+            {
+                string guidText = ReadValue(lifestyle, "guid");
+                string baseLifestyle = ReadValue(lifestyle, "baselifestyle");
+                string name = ReadValue(lifestyle, "name");
+                bool monthlyCostExact = decimal.TryParse(
+                    ReadValue(lifestyle, "totalmonthlycost"),
+                    NumberStyles.Number,
+                    CultureInfo.InvariantCulture,
+                    out decimal totalMonthlyCost);
+                var summary = new CharacterLifestyleSummary(
+                    Name: name,
+                    BaseLifestyle: baseLifestyle,
+                    Source: ReadValue(lifestyle, "source"),
+                    Cost: ParseDecimal(ReadValue(lifestyle, "cost")),
+                    Months: ParseInt(ReadValue(lifestyle, "months")),
+                    Guid: guidText,
+                    Notes: ReadValue(lifestyle, "notes"),
+                    CustomName: ReadValue(lifestyle, "extra"),
+                    NotesColor: ReadValue(lifestyle, "notesColor"));
+                return Guid.TryParse(guidText, out Guid lifestyleId)
+                    ? summary with
+                    {
+                        IncrementState = new CharacterLifestyleIncrementState(
+                            lifestyleId,
+                            summary.Months,
+                            CharacterLifestyleIncrementRules.ParseUnit(ReadValue(lifestyle, "increment")),
+                            careerMode,
+                            nuyenExact ? nuyen : 0m,
+                            nuyenExact,
+                            monthlyCostExact ? totalMonthlyCost : 0m,
+                            monthlyCostExact,
+                            string.IsNullOrWhiteSpace(baseLifestyle) ? name : baseLifestyle)
+                    }
+                    : summary;
+            })
             .ToArray()
             ?? Array.Empty<CharacterLifestyleSummary>();
 
