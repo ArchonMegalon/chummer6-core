@@ -1606,6 +1606,42 @@ public class CharacterSectionServiceTests
     }
 
     [TestMethod]
+    public void ParseCritterPowers_projects_exact_legacy_count_state_and_fails_closed()
+    {
+        const string exactXml = """
+            <character><critterpowers>
+              <critterpower><guid>11111111-1111-1111-1111-111111111111</guid><name>Default</name></critterpower>
+              <critterpower><guid>22222222-2222-2222-2222-222222222222</guid><name>Excluded</name><counttowardslimit>False</counttowardslimit></critterpower>
+            </critterpowers></character>
+            """;
+        var service = new CharacterSectionService();
+
+        CharacterCritterPowerSummary defaulted = service.ParseCritterPowers(exactXml).CritterPowers[0];
+        CharacterCritterPowerCountState? defaultState = defaulted.CountTowardsLimitSemantics;
+        Assert.IsNotNull(defaultState);
+        Assert.AreEqual(Guid.Parse("11111111-1111-1111-1111-111111111111"), defaultState.CritterPowerId);
+        Assert.IsTrue(defaultState.CountsTowardsLimit);
+        CharacterCritterPowerSummary excluded = service.ParseCritterPowers(exactXml).CritterPowers[1];
+        CharacterCritterPowerCountState? excludedState = excluded.CountTowardsLimitSemantics;
+        Assert.IsNotNull(excludedState);
+        Assert.IsFalse(excludedState.CountsTowardsLimit);
+
+        foreach (string invalidPower in new[]
+                 {
+                     "<guid>not-a-guid</guid><counttowardslimit>True</counttowardslimit>",
+                     "<guid>33333333-3333-3333-3333-333333333333</guid><guid>44444444-4444-4444-4444-444444444444</guid>",
+                     "<guid>33333333-3333-3333-3333-333333333333</guid><counttowardslimit>invalid</counttowardslimit>",
+                     "<guid>33333333-3333-3333-3333-333333333333</guid><counttowardslimit>True</counttowardslimit><counttowardslimit>False</counttowardslimit>"
+                 })
+        {
+            CharacterCritterPowerSummary invalid = service.ParseCritterPowers(
+                $"<character><critterpowers><critterpower><name>Invalid</name>{invalidPower}</critterpower></critterpowers></character>")
+                .CritterPowers.Single();
+            Assert.IsNull(invalid.CountTowardsLimitSemantics);
+        }
+    }
+
+    [TestMethod]
     public void ParseMentorSpirits_extracts_mentor_spirit_entries()
     {
         string xml = File.ReadAllText(FindTestFilePath("Draught.chum5"));

@@ -2124,7 +2124,15 @@ public sealed class CharacterSectionService : ICharacterSectionService
                 Rating: ParseInt(ReadValue(power, "rating")),
                 Guid: ReadValue(power, "guid"),
                 Notes: ReadValue(power, "notes"),
-                CustomName: ReadValue(power, "extra")))
+                CustomName: ReadValue(power, "extra"))
+            {
+                CountTowardsLimitSemantics = CharacterCritterPowerCountRules.TryProject(
+                    power.Elements("guid").Select(element => element.Value).Take(2).ToArray(),
+                    power.Elements("counttowardslimit").Select(element => element.Value).Take(2).ToArray(),
+                    out CharacterCritterPowerCountState? countState)
+                        ? countState
+                        : null
+            })
             .ToArray()
             ?? Array.Empty<CharacterCritterPowerSummary>();
 

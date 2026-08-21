@@ -713,7 +713,11 @@ public sealed record CharacterCritterPowerSummary(
     int Rating,
     string Guid = "",
     string Notes = "",
-    string CustomName = "");
+    string CustomName = "")
+{
+    // Null fails closed when the saved identity or legacy Boolean is ambiguous.
+    public CharacterCritterPowerCountState? CountTowardsLimitSemantics { get; init; }
+}
 
 public sealed record CharacterCritterPowersSection(
     int Count,
