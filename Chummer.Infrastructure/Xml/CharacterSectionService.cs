@@ -3010,6 +3010,13 @@ public sealed class CharacterSectionService : ICharacterSectionService
                 out CharacterPrototypeTranshumanSemantics projectedPrototypeTranshuman)
                 ? projectedPrototypeTranshuman
                 : null;
+        CharacterCyberwareActiveCommlinkSemantics? activeCommlinkSemantics =
+            CharacterCyberwareActiveCommlinkRules.TryProject(
+                character,
+                item,
+                out CharacterCyberwareActiveCommlinkSemantics projectedActiveCommlink)
+                ? projectedActiveCommlink
+                : null;
 
         CharacterCyberwareSummary summary = new(
             Guid: guid,
@@ -3041,6 +3048,7 @@ public sealed class CharacterSectionService : ICharacterSectionService
             MatrixConditionMaximumExact: maximumExact,
             CareerEditable: careerEditable)
         {
+            ActiveCommlinkSemantics = activeCommlinkSemantics,
             CommerceSemantics = BuildCyberwareCommerceSemantics(
                 character,
                 item,

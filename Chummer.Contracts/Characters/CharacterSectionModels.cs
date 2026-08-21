@@ -340,6 +340,7 @@ public sealed record CharacterCyberwareSummary(
     bool MatrixConditionMaximumExact = false,
     bool CareerEditable = false)
 {
+    public CharacterCyberwareActiveCommlinkSemantics? ActiveCommlinkSemantics { get; init; }
     public CharacterCyberwareCommerceSemantics? CommerceSemantics { get; init; }
     public CharacterPrototypeTranshumanSemantics? PrototypeTranshumanSemantics { get; init; }
 }
