@@ -39,6 +39,19 @@ public interface ICharacterSourceDataContext
         return false;
     }
 
+    /// <summary>
+    /// Resolves the exact NuyenPerBPWftP and NuyenPerBPWftM values used by the
+    /// Career manual Karma dialog. False means exchange-capable editing must fail closed.
+    /// </summary>
+    bool TryResolveKarmaNuyenExchangeRates(
+        out decimal workingForPeopleRate,
+        out decimal workingForManRate)
+    {
+        workingForPeopleRate = 0m;
+        workingForManRate = 0m;
+        return false;
+    }
+
     bool TryResolveCyberwareGradeDeviceRating(
         string gradeName,
         string improvementSource,

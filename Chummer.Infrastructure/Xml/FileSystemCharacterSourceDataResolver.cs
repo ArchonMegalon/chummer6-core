@@ -152,6 +152,18 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             int? leaveGroupKarma = TryReadNonNegativeInt(settings, "karmaleavegroup", out int resolvedLeaveGroupKarma)
                 ? resolvedLeaveGroupKarma
                 : null;
+            decimal? workingForPeopleRate = TryReadPositiveDecimal(
+                settings,
+                "nuyenperbpwftp",
+                out decimal resolvedWorkingForPeopleRate)
+                ? resolvedWorkingForPeopleRate
+                : null;
+            decimal? workingForManRate = TryReadPositiveDecimal(
+                settings,
+                "nuyenperbpwftm",
+                out decimal resolvedWorkingForManRate)
+                ? resolvedWorkingForManRate
+                : null;
             int? essenceDecimals = TryReadDecimalPlaces(
                 ReadValue(settings, "essenceformat"),
                 out int resolvedEssenceDecimals)
@@ -171,6 +183,8 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 maximumNuyenDecimals,
                 joinGroupKarma,
                 leaveGroupKarma,
+                workingForPeopleRate,
+                workingForManRate,
                 essenceDecimals,
                 doNotRoundEssenceInternally,
                 essenceModifierPostExpression);
@@ -205,6 +219,19 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
         return values.Length == 1
             && int.TryParse(values[0].Value.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out value)
             && value >= 0;
+    }
+
+    private static bool TryReadPositiveDecimal(XElement parent, string elementName, out decimal value)
+    {
+        value = 0m;
+        XElement[] values = parent.Elements(elementName).Take(2).ToArray();
+        return values.Length == 1
+            && decimal.TryParse(
+                values[0].Value.Trim(),
+                NumberStyles.Number,
+                CultureInfo.InvariantCulture,
+                out value)
+            && value > 0m;
     }
 
     private static bool TryReadDecimalPlaces(string format, out int decimalPlaces)
@@ -389,6 +416,8 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
         private readonly int? _maximumNuyenDecimals;
         private readonly int? _joinGroupKarma;
         private readonly int? _leaveGroupKarma;
+        private readonly decimal? _workingForPeopleRate;
+        private readonly decimal? _workingForManRate;
         private readonly int? _essenceDecimals;
         private readonly bool _doNotRoundEssenceInternally;
         private readonly string _essenceModifierPostExpression;
@@ -400,6 +429,8 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             int? maximumNuyenDecimals,
             int? joinGroupKarma,
             int? leaveGroupKarma,
+            decimal? workingForPeopleRate,
+            decimal? workingForManRate,
             int? essenceDecimals,
             bool doNotRoundEssenceInternally,
             string essenceModifierPostExpression)
@@ -410,6 +441,8 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             _maximumNuyenDecimals = maximumNuyenDecimals;
             _joinGroupKarma = joinGroupKarma;
             _leaveGroupKarma = leaveGroupKarma;
+            _workingForPeopleRate = workingForPeopleRate;
+            _workingForManRate = workingForManRate;
             _essenceDecimals = essenceDecimals;
             _doNotRoundEssenceInternally = doNotRoundEssenceInternally;
             _essenceModifierPostExpression = essenceModifierPostExpression;
@@ -426,6 +459,15 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             joinCost = _joinGroupKarma.GetValueOrDefault();
             leaveCost = _leaveGroupKarma.GetValueOrDefault();
             return _joinGroupKarma.HasValue && _leaveGroupKarma.HasValue;
+        }
+
+        public bool TryResolveKarmaNuyenExchangeRates(
+            out decimal workingForPeopleRate,
+            out decimal workingForManRate)
+        {
+            workingForPeopleRate = _workingForPeopleRate.GetValueOrDefault();
+            workingForManRate = _workingForManRate.GetValueOrDefault();
+            return _workingForPeopleRate.HasValue && _workingForManRate.HasValue;
         }
 
         public bool TryIsBookEnabled(string sourceCode, out bool enabled)
