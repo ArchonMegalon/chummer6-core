@@ -838,6 +838,13 @@ public sealed class CharacterSectionService : ICharacterSectionService
             CharacterWeaponHomeNodeRules.TryProject(character, item, out CharacterWeaponHomeNodeSemantics projected)
                 ? projected
                 : null;
+        CharacterWeaponActiveCommlinkSemantics? activeCommlinkSemantics =
+            CharacterWeaponActiveCommlinkRules.TryProject(
+                character,
+                item,
+                out CharacterWeaponActiveCommlinkSemantics activeProjected)
+                ? activeProjected
+                : null;
         return new CharacterWeaponSummary(
             Guid: ReadValue(item, "guid"),
             Name: ReadValue(item, "name"),
@@ -859,7 +866,8 @@ public sealed class CharacterSectionService : ICharacterSectionService
             MatrixConditionMaximumExact: maximumExact,
             CareerEditable: careerEditable)
         {
-            HomeNodeSemantics = homeNodeSemantics
+            HomeNodeSemantics = homeNodeSemantics,
+            ActiveCommlinkSemantics = activeCommlinkSemantics
         };
     }
 

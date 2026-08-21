@@ -549,6 +549,71 @@ public class CharacterSectionServiceTests
     }
 
     [TestMethod]
+    public void ParseWeapons_projects_exact_active_commlink_independently_of_ai_mode()
+    {
+        Guid ownerId = Guid.Parse("11111111-1111-1111-1111-111111111111");
+        Guid weaponId = Guid.Parse("22222222-2222-2222-2222-222222222222");
+        foreach (bool depEnabled in new[] { false, true })
+        {
+            string xml = $"""
+                <character><depenabled>{depEnabled}</depenabled>
+                  <attributes>
+                    <attribute><name>BOD</name><metatypemax>{(depEnabled ? 0 : 6)}</metatypemax><totalvalue>0</totalvalue></attribute>
+                    <attribute><name>DEP</name><metatypemax>6</metatypemax><totalvalue>4</totalvalue></attribute>
+                  </attributes>
+                  <gears><gear><guid>{ownerId:D}</guid><name>Weapon persona module</name><rating>1</rating>
+                    <canformpersona>Self</canformpersona><devicerating>3</devicerating><programlimit>2</programlimit>
+                    <active>False</active><children /></gear></gears>
+                  <weapons><weapon><guid>{weaponId:D}</guid><name>Persona-linked weapon</name>
+                    <parentid>{ownerId:D}</parentid><active>True</active></weapon></weapons>
+                </character>
+                """;
+
+            CharacterWeaponActiveCommlinkSemantics semantics = new CharacterSectionService()
+                .ParseWeapons(xml)
+                .Weapons
+                .Single()
+                .ActiveCommlinkSemantics!;
+
+            Assert.IsNotNull(semantics);
+            Assert.AreEqual(weaponId, semantics.WeaponId);
+            Assert.AreEqual(ownerId, semantics.MatrixOwnerId);
+            Assert.AreEqual("Gear", semantics.MatrixOwnerKind);
+            Assert.IsTrue(semantics.ActiveCommlink);
+            Assert.IsTrue(semantics.IsCommlink);
+        }
+    }
+
+    [TestMethod]
+    public void ParseWeapons_fails_closed_for_ambiguous_or_unproven_active_commlink_state()
+    {
+        const string duplicateActive = """
+            <character><gears><gear><guid>11111111-1111-1111-1111-111111111111</guid><rating>1</rating>
+              <canformpersona>Self</canformpersona><devicerating>3</devicerating><programlimit>2</programlimit>
+              <active>True</active><children /></gear></gears><weapons>
+              <weapon><guid>22222222-2222-2222-2222-222222222222</guid><name>Weapon</name>
+                <parentid>11111111-1111-1111-1111-111111111111</parentid><active>True</active></weapon>
+            </weapons></character>
+            """;
+        Assert.IsNull(new CharacterSectionService()
+            .ParseWeapons(duplicateActive)
+            .Weapons
+            .Single()
+            .ActiveCommlinkSemantics);
+
+        const string staleParent = """
+            <character><weapons><weapon><guid>22222222-2222-2222-2222-222222222222</guid><name>Weapon</name>
+              <parentid>33333333-3333-3333-3333-333333333333</parentid><active>False</active></weapon>
+            </weapons></character>
+            """;
+        Assert.IsNull(new CharacterSectionService()
+            .ParseWeapons(staleParent)
+            .Weapons
+            .Single()
+            .ActiveCommlinkSemantics);
+    }
+
+    [TestMethod]
     public void Matrix_condition_monitors_apply_saved_active_career_overclocker_improvement()
     {
         const string xml = """

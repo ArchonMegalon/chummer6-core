@@ -275,6 +275,7 @@ public sealed record CharacterWeaponSummary(
     bool CareerEditable = false)
 {
     public CharacterWeaponHomeNodeSemantics? HomeNodeSemantics { get; init; }
+    public CharacterWeaponActiveCommlinkSemantics? ActiveCommlinkSemantics { get; init; }
 }
 
 public sealed record CharacterWeaponsSection(

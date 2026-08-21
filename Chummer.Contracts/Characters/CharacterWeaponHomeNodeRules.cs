@@ -88,6 +88,97 @@ public static class CharacterWeaponHomeNodeRules
         return true;
     }
 
+    internal static bool TryEvaluateOwnerIsCommlink(
+        XElement character,
+        CharacterMatrixOwner owner,
+        out bool isCommlink)
+    {
+        isCommlink = false;
+        switch (owner.Kind)
+        {
+            case CharacterMatrixOwnerKind.Gear:
+                isCommlink = ReadValue(owner.Item, "canformpersona").Contains("Self", StringComparison.Ordinal)
+                    || (owner.Item.Element("children")?.Elements("gear") ?? [])
+                        .Any(child => ReadValue(child, "canformpersona").Contains("Parent", StringComparison.Ordinal));
+                return true;
+            case CharacterMatrixOwnerKind.Armor:
+                isCommlink = ReadValue(owner.Item, "canformpersona").Contains("Self", StringComparison.Ordinal)
+                    || (owner.Item.Element("gears")?.Elements("gear") ?? [])
+                        .Any(child => ReadValue(child, "canformpersona").Contains("Parent", StringComparison.Ordinal));
+                return true;
+            case CharacterMatrixOwnerKind.Cyberware:
+                if (ReadValue(owner.Item, "canformpersona").Contains("Self", StringComparison.Ordinal))
+                {
+                    isCommlink = true;
+                    return true;
+                }
+                if (!(owner.Item.Element("gears")?.Elements("gear") ?? [])
+                        .Concat(owner.Item.Element("children")?.Elements("cyberware") ?? [])
+                        .Any(child => ReadValue(child, "canformpersona").Contains("Parent", StringComparison.Ordinal)))
+                {
+                    return true;
+                }
+                if (!TryReadOwnerDeviceRating(character, owner.Item, ratingRequired: true, out int cyberwareRating))
+                {
+                    return false;
+                }
+                isCommlink = cyberwareRating > 0;
+                return true;
+            case CharacterMatrixOwnerKind.Vehicle:
+                if (!(owner.Item.Element("gears")?.Elements("gear") ?? [])
+                        .Any(child => ReadValue(child, "canformpersona").Contains("Parent", StringComparison.Ordinal)))
+                {
+                    return true;
+                }
+                // Unsaved vehicle-mod Matrix bonuses can change Device Rating. Without their
+                // source authority the mobile projection must fail closed.
+                if (owner.Item.Element("mods")?.Elements("mod").Any() == true)
+                {
+                    return false;
+                }
+                if (!TryReadOwnerDeviceRating(character, owner.Item, ratingRequired: false, out int vehicleRating))
+                {
+                    return false;
+                }
+                isCommlink = vehicleRating > 0;
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    private static bool TryReadOwnerDeviceRating(
+        XElement character,
+        XElement owner,
+        bool ratingRequired,
+        out int deviceRating)
+    {
+        deviceRating = 0;
+        if (!TryReadSavedAttributeTotals(character, out IReadOnlyDictionary<string, int> savedAttributes)
+            || !TryReadOverclockerEnabled(character, out bool overclockerEnabled)
+            || ratingRequired && !TryReadOptionalInt(owner, "rating", out _))
+        {
+            return false;
+        }
+
+        int rating = 0;
+        if (!TryReadOptionalInt(owner, "rating", out rating))
+        {
+            return false;
+        }
+        string expression = FirstNonBlank(
+            ReadValue(owner, "devicerating"),
+            ratingRequired ? string.Empty : ReadValue(owner, "pilot"));
+        return !string.IsNullOrWhiteSpace(expression)
+            && TryEvaluateExpression(expression, rating, savedAttributes, out int baseDeviceRating)
+            && TryApplyOverclocker(
+                baseDeviceRating,
+                ReadValue(owner, "overclocked"),
+                "Device Rating",
+                overclockerEnabled,
+                out deviceRating);
+    }
+
     private static bool TryEvaluateOwner(
         XElement character,
         CharacterMatrixOwner owner,
