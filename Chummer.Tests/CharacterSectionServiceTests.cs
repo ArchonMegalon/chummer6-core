@@ -211,6 +211,47 @@ public class CharacterSectionServiceTests
     }
 
     [TestMethod]
+    public void Gear_quantity_semantics_project_exact_precision_cost_and_recursive_merge_candidates()
+    {
+        const string xml = """
+            <character>
+              <created>True</created>
+              <gears>
+                <gear>
+                  <guid>11111111-1111-1111-1111-111111111111</guid><name>Nuyen credstick</name><category>Currency</category>
+                  <rating>2</rating><qty>1.125</qty><cost>Rating * 100</cost><discountedcost>True</discountedcost>
+                  <gearname>Left</gearname><notes>Left notes</notes><children>
+                    <gear><guid>21111111-1111-1111-1111-111111111111</guid><name>Token</name><category>Currency</category><rating>0</rating><qty>2</qty><cost>10</cost><children /></gear>
+                  </children>
+                </gear>
+                <gear>
+                  <guid>12222222-2222-2222-2222-222222222222</guid><name>Nuyen credstick</name><category>Currency</category>
+                  <rating>2</rating><qty>2.250</qty><cost>Rating * 100</cost><discountedcost>True</discountedcost>
+                  <gearname>Right</gearname><notes>Different superficial notes</notes><children>
+                    <gear><guid>22222222-2222-2222-2222-222222222222</guid><name>Token</name><category>Currency</category><rating>0</rating><qty>2</qty><cost>10</cost><children /></gear>
+                  </children>
+                </gear>
+              </gears>
+            </character>
+            """;
+
+        CharacterGearSection section = new CharacterSectionService(new FixedSourceDataResolver()).ParseGear(xml);
+
+        CharacterGearSummary first = section.Gear.Single(item => item.Guid.StartsWith("11111111", StringComparison.Ordinal));
+        CharacterGearQuantitySemantics semantics = first.QuantitySemantics!;
+        Assert.IsNotNull(semantics);
+        Assert.AreEqual(1.125m, semantics.Quantity);
+        Assert.AreEqual(3, semantics.DecimalPlaces);
+        Assert.AreEqual(0.001m, semantics.MinimumIncrement);
+        Assert.IsTrue(semantics.PurchaseUnitCostExact);
+        Assert.AreEqual(200m, semantics.PurchaseUnitCost);
+        CollectionAssert.AreEqual(
+            new[] { "12222222-2222-2222-2222-222222222222" },
+            semantics.MergeCandidateGuids.ToArray());
+        Assert.IsNull(section.Gear.Single(item => item.Depth == 1 && item.Guid.StartsWith("21111111", StringComparison.Ordinal)).QuantitySemantics);
+    }
+
+    [TestMethod]
     public void Armor_matrix_condition_monitor_uses_saved_device_and_equipped_child_gear_bonuses()
     {
         const string xml = """
@@ -1911,6 +1952,12 @@ public class CharacterSectionServiceTests
 
     private sealed class FixedSourceDataContext : ICharacterSourceDataContext
     {
+        public bool TryResolveMaxNuyenDecimals(out int decimalPlaces)
+        {
+            decimalPlaces = 3;
+            return true;
+        }
+
         public bool TryResolveCyberwareGradeDeviceRating(
             string gradeName,
             string improvementSource,

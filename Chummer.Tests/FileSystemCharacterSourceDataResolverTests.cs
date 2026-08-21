@@ -34,6 +34,8 @@ public sealed class FileSystemCharacterSourceDataResolverTests
             Assert.AreEqual(4, rating);
             Assert.IsTrue(context.TryResolveCyberwareGradeDeviceRating("Alphaware", "Cyberware", out int fallbackRating));
             Assert.AreEqual(3, fallbackRating);
+            Assert.IsTrue(context.TryResolveMaxNuyenDecimals(out int maximumNuyenDecimals));
+            Assert.AreEqual(3, maximumNuyenDecimals);
 
             Assert.IsTrue(context.TryResolveVehicleModBonuses(
                 VehicleModId,
@@ -223,7 +225,7 @@ public sealed class FileSystemCharacterSourceDataResolverTests
         Directory.CreateDirectory(data);
         File.WriteAllText(
             Path.Combine(data, "settings.xml"),
-            $"<chummer><settings><setting><id>{SettingsId}</id><books><book>SR5</book><book>SG</book></books><customdatadirectorynames>{customDataSetting}</customdatadirectorynames></setting></settings></chummer>");
+            $"<chummer><settings><setting><id>{SettingsId}</id><nuyenformat>#,0.###</nuyenformat><books><book>SR5</book><book>SG</book></books><customdatadirectorynames>{customDataSetting}</customdatadirectorynames></setting></settings></chummer>");
         File.WriteAllText(
             Path.Combine(data, "cyberware.xml"),
             "<chummer><grades><grade><name>Standard</name><devicerating>4</devicerating></grade><grade><name>Alphaware</name></grade></grades></chummer>");

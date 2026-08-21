@@ -143,7 +143,15 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 .ToArray()
                 ?? [];
 
-            return new SourceDataContext(catalog, enabledDirectories, enabledSourcebooks);
+            int? maximumNuyenDecimals = TryReadMaximumNuyenDecimals(settings, out int resolvedDecimals)
+                ? resolvedDecimals
+                : null;
+
+            return new SourceDataContext(
+                catalog,
+                enabledDirectories,
+                enabledSourcebooks,
+                maximumNuyenDecimals);
         }
         catch (Exception exception) when (exception is IOException
                                           or UnauthorizedAccessException
@@ -152,6 +160,20 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
         {
             return null;
         }
+    }
+
+    private static bool TryReadMaximumNuyenDecimals(XElement settings, out int decimalPlaces)
+    {
+        decimalPlaces = 0;
+        string format = ReadValue(settings, "nuyenformat").Trim();
+        if (string.IsNullOrEmpty(format))
+        {
+            return false;
+        }
+
+        int separator = format.IndexOf('.');
+        decimalPlaces = separator < 0 ? 0 : format.Length - separator - 1;
+        return decimalPlaces is >= 0 and <= 28;
     }
 
     private static IReadOnlyList<CustomDirectory> DiscoverCustomDirectories(ContentOverlayCatalog catalog)
@@ -320,15 +342,24 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
         private readonly ContentOverlayCatalog _catalog;
         private readonly IReadOnlyList<CustomDirectory> _customDirectories;
         private readonly IReadOnlySet<string> _enabledSourcebooks;
+        private readonly int? _maximumNuyenDecimals;
 
         public SourceDataContext(
             ContentOverlayCatalog catalog,
             IReadOnlyList<CustomDirectory> customDirectories,
-            IReadOnlyList<string> enabledSourcebooks)
+            IReadOnlyList<string> enabledSourcebooks,
+            int? maximumNuyenDecimals)
         {
             _catalog = catalog;
             _customDirectories = customDirectories;
             _enabledSourcebooks = enabledSourcebooks.ToHashSet(StringComparer.OrdinalIgnoreCase);
+            _maximumNuyenDecimals = maximumNuyenDecimals;
+        }
+
+        public bool TryResolveMaxNuyenDecimals(out int decimalPlaces)
+        {
+            decimalPlaces = _maximumNuyenDecimals.GetValueOrDefault();
+            return _maximumNuyenDecimals.HasValue;
         }
 
         public bool TryIsBookEnabled(string sourceCode, out bool enabled)

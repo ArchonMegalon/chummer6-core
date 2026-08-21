@@ -398,8 +398,11 @@ public sealed class CharacterSectionService : ICharacterSectionService
         CharacterMatrixImprovementBasis improvementBasis = BuildCharacterMatrixImprovementBasis(
             character,
             careerEditable);
+        XElement[] topLevelGear = character.Element("gears")?.Elements("gear").ToArray() ?? [];
+        IReadOnlyDictionary<XElement, CharacterGearQuantitySemantics> quantitySemantics
+            = BuildGearQuantitySemantics(xml, topLevelGear, careerEditable);
         List<CharacterGearSummary> gear = [];
-        foreach (XElement item in character.Element("gears")?.Elements("gear") ?? [])
+        foreach (XElement item in topLevelGear)
         {
             FlattenGearSummary(
                 item,
@@ -409,7 +412,8 @@ public sealed class CharacterSectionService : ICharacterSectionService
                 parentName: string.Empty,
                 hierarchyPath: string.Empty,
                 depth: 0,
-                improvementBasis);
+                improvementBasis,
+                quantitySemantics);
         }
 
         return new CharacterGearSection(
@@ -425,7 +429,8 @@ public sealed class CharacterSectionService : ICharacterSectionService
         string parentName,
         string hierarchyPath,
         int depth,
-        CharacterMatrixImprovementBasis improvementBasis)
+        CharacterMatrixImprovementBasis improvementBasis,
+        IReadOnlyDictionary<XElement, CharacterGearQuantitySemantics> quantitySemantics)
     {
         string guid = ReadValue(item, "guid");
         string name = ReadValue(item, "name");
@@ -458,7 +463,10 @@ public sealed class CharacterSectionService : ICharacterSectionService
                 MatrixDamage: ParseInt(ReadValue(item, "matrixcmfilled")),
                 MatrixConditionMaximum: maximumExact ? maximum : 0,
                 MatrixConditionMaximumExact: maximumExact,
-                CareerEditable: careerEditable));
+                CareerEditable: careerEditable)
+            {
+                QuantitySemantics = quantitySemantics.GetValueOrDefault(item)
+            });
         }
 
         foreach (XElement child in children)
@@ -471,8 +479,201 @@ public sealed class CharacterSectionService : ICharacterSectionService
                 name,
                 path,
                 depth + 1,
-                improvementBasis);
+                improvementBasis,
+                quantitySemantics);
         }
+    }
+
+    private IReadOnlyDictionary<XElement, CharacterGearQuantitySemantics> BuildGearQuantitySemantics(
+        string xml,
+        IReadOnlyList<XElement> topLevelGear,
+        bool careerEditable)
+    {
+        if (!careerEditable || topLevelGear.Count == 0)
+        {
+            return new Dictionary<XElement, CharacterGearQuantitySemantics>();
+        }
+
+        int? maximumNuyenDecimals = _sourceDataResolver?.TryCreateContext(xml)
+            is { } sourceData
+            && sourceData.TryResolveMaxNuyenDecimals(out int decimals)
+                ? decimals
+                : null;
+        Dictionary<string, int> identityCounts = topLevelGear
+            .Select(item => ReadValue(item, "guid"))
+            .Where(static value => Guid.TryParseExact(value, "D", out Guid parsed) && parsed != Guid.Empty)
+            .GroupBy(static value => value, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(static group => group.Key, static group => group.Count(), StringComparer.OrdinalIgnoreCase);
+        Dictionary<XElement, CharacterGearMergeIdentity> mergeIdentities = [];
+        foreach (XElement item in topLevelGear)
+        {
+            if (TryBuildGearMergeIdentity(item, out CharacterGearMergeIdentity? identity))
+            {
+                mergeIdentities[item] = identity;
+            }
+        }
+
+        Dictionary<XElement, CharacterGearQuantitySemantics> result = [];
+        foreach (XElement item in topLevelGear)
+        {
+            string guid = ReadValue(item, "guid");
+            string name = ReadValue(item, "name");
+            string category = ReadValue(item, "category");
+            if (!identityCounts.TryGetValue(guid, out int identityCount)
+                || identityCount != 1
+                || !decimal.TryParse(
+                    ReadValue(item, "qty"),
+                    NumberStyles.Number,
+                    CultureInfo.InvariantCulture,
+                    out decimal quantity)
+                || !CharacterGearQuantityRules.TryResolvePrecision(
+                    name,
+                    category,
+                    maximumNuyenDecimals,
+                    out int decimalPlaces,
+                    out decimal minimumIncrement)
+                || !CharacterGearQuantityRules.IsValidAmount(quantity, minimumIncrement)
+                || !mergeIdentities.TryGetValue(item, out CharacterGearMergeIdentity? identity))
+            {
+                continue;
+            }
+
+            bool purchaseCostExact = TryCalculateGearPurchaseUnitCost(item, out decimal purchaseUnitCost);
+            string[] mergeCandidates = topLevelGear
+                .Where(candidate => !ReferenceEquals(candidate, item)
+                    && mergeIdentities.TryGetValue(candidate, out CharacterGearMergeIdentity? candidateIdentity)
+                    && CharacterGearQuantityRules.AreIdenticalForMerge(identity, candidateIdentity))
+                .Select(candidate => ReadValue(candidate, "guid"))
+                .Where(candidateGuid => identityCounts.TryGetValue(candidateGuid, out int count) && count == 1)
+                .OrderBy(static candidateGuid => candidateGuid, StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+            result[item] = new CharacterGearQuantitySemantics(
+                Quantity: quantity,
+                DecimalPlaces: decimalPlaces,
+                MinimumIncrement: minimumIncrement,
+                PurchaseUnitCost: purchaseCostExact ? purchaseUnitCost : 0m,
+                PurchaseUnitCostExact: purchaseCostExact,
+                MergeCandidateGuids: mergeCandidates);
+        }
+
+        return result;
+    }
+
+    private static bool TryBuildGearMergeIdentity(
+        XElement gear,
+        out CharacterGearMergeIdentity? identity)
+    {
+        identity = null;
+        if (!int.TryParse(
+                ReadValue(gear, "rating"),
+                NumberStyles.Integer,
+                CultureInfo.InvariantCulture,
+                out int rating))
+        {
+            return false;
+        }
+
+        List<CharacterGearMergeChildIdentity> children = [];
+        foreach (XElement child in gear.Element("children")?.Elements("gear") ?? [])
+        {
+            if (!decimal.TryParse(
+                    ReadValue(child, "qty"),
+                    NumberStyles.Number,
+                    CultureInfo.InvariantCulture,
+                    out decimal quantity)
+                || quantity <= 0m
+                || !TryBuildGearMergeIdentity(child, out CharacterGearMergeIdentity? childIdentity))
+            {
+                return false;
+            }
+
+            children.Add(new CharacterGearMergeChildIdentity(quantity, childIdentity!));
+        }
+
+        identity = new CharacterGearMergeIdentity(
+            Name: ReadValue(gear, "name"),
+            Category: ReadValue(gear, "category"),
+            Rating: rating,
+            Extra: ReadValue(gear, "extra"),
+            GearName: ReadValue(gear, "gearname"),
+            Notes: ReadValue(gear, "notes"),
+            Children: children);
+        return true;
+    }
+
+    private static bool TryCalculateGearPurchaseUnitCost(XElement gear, out decimal cost)
+    {
+        cost = 0m;
+        return TryBuildGearCostSnapshot(gear, out CharacterGearCostSnapshot? snapshot)
+            && CharacterGearQuantityRules.TryCalculatePurchaseUnitCost(snapshot!, out cost);
+    }
+
+    private static bool TryBuildGearCostSnapshot(
+        XElement gear,
+        out CharacterGearCostSnapshot? snapshot)
+    {
+        snapshot = null;
+        if (!int.TryParse(
+                ReadValue(gear, "rating"),
+                NumberStyles.Integer,
+                CultureInfo.InvariantCulture,
+                out int rating)
+            || !TryReadPositiveDecimal(gear, "costfor", 1m, out decimal costFor)
+            || !TryReadPositiveDecimal(gear, "qty", 1m, out decimal savedQuantity)
+            || !TryParseOptionalBool(ReadValue(gear, "discountedcost"), out bool discounted))
+        {
+            return false;
+        }
+
+        int childMultiplier = 1;
+        string childMultiplierValue = ReadValue(gear, "childcostmultiplier");
+        if (!string.IsNullOrWhiteSpace(childMultiplierValue)
+            && (!int.TryParse(
+                    childMultiplierValue,
+                    NumberStyles.Integer,
+                    CultureInfo.InvariantCulture,
+                    out childMultiplier)
+                || childMultiplier <= 0))
+        {
+            return false;
+        }
+
+        List<CharacterGearCostSnapshot> children = [];
+        foreach (XElement child in gear.Element("children")?.Elements("gear") ?? [])
+        {
+            if (!TryBuildGearCostSnapshot(child, out CharacterGearCostSnapshot? childSnapshot))
+            {
+                return false;
+            }
+            children.Add(childSnapshot!);
+        }
+
+        snapshot = new CharacterGearCostSnapshot(
+            Rating: rating,
+            Quantity: savedQuantity,
+            CostExpression: ReadValue(gear, "cost"),
+            CostFor: costFor,
+            DiscountedCost: discounted,
+            ChildCostMultiplier: childMultiplier,
+            Children: children);
+        return true;
+    }
+
+    private static bool TryReadPositiveDecimal(
+        XElement item,
+        string elementName,
+        decimal fallback,
+        out decimal value)
+    {
+        string raw = ReadValue(item, elementName);
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            value = fallback;
+            return true;
+        }
+
+        return decimal.TryParse(raw, NumberStyles.Number, CultureInfo.InvariantCulture, out value)
+            && value > 0m;
     }
 
     private static bool TryCalculateGearMatrixMaximum(

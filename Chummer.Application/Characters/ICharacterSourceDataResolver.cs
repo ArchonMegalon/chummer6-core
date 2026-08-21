@@ -21,6 +21,12 @@ public interface ICharacterSourceDataContext
         return false;
     }
 
+    bool TryResolveMaxNuyenDecimals(out int decimalPlaces)
+    {
+        decimalPlaces = 0;
+        return false;
+    }
+
     bool TryResolveCyberwareGradeDeviceRating(
         string gradeName,
         string improvementSource,

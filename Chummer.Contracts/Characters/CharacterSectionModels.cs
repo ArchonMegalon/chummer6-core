@@ -236,7 +236,18 @@ public sealed record CharacterGearSummary(
     int MatrixDamage = 0,
     int MatrixConditionMaximum = 0,
     bool MatrixConditionMaximumExact = false,
-    bool CareerEditable = false);
+    bool CareerEditable = false)
+{
+    public CharacterGearQuantitySemantics? QuantitySemantics { get; init; }
+}
+
+public sealed record CharacterGearQuantitySemantics(
+    decimal Quantity,
+    int DecimalPlaces,
+    decimal MinimumIncrement,
+    decimal PurchaseUnitCost,
+    bool PurchaseUnitCostExact,
+    IReadOnlyList<string> MergeCandidateGuids);
 
 public sealed record CharacterGearSection(
     int Count,
