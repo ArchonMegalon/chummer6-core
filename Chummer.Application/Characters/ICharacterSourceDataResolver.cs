@@ -87,6 +87,16 @@ public interface ICharacterSourceDataContext
         return false;
     }
 
+    /// <summary>
+    /// Resolves the exact value set exposed by traditions.xml/drainattributes for
+    /// the saved runner's active content-overlay profile.
+    /// </summary>
+    bool TryResolveTraditionDrainExpressions(out IReadOnlyList<string> expressions)
+    {
+        expressions = Array.Empty<string>();
+        return false;
+    }
+
     bool TryResolveVehicleModBonuses(
         string sourceId,
         string name,

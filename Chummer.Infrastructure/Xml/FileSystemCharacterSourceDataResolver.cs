@@ -702,6 +702,43 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             return true;
         }
 
+        public bool TryResolveTraditionDrainExpressions(out IReadOnlyList<string> expressions)
+        {
+            expressions = Array.Empty<string>();
+            if (!TryLoadEffectiveDocument(_catalog, "traditions.xml", out XDocument? document)
+                || document?.Root is null)
+            {
+                return false;
+            }
+
+            XElement[] containers = document.Root.Elements("drainattributes").Take(2).ToArray();
+            if (containers.Length != 1)
+            {
+                return false;
+            }
+
+            var values = new List<string>();
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            foreach (XElement entry in containers[0].Elements("drainattribute"))
+            {
+                XElement[] names = entry.Elements("name").Take(2).ToArray();
+                if (names.Length != 1
+                    || string.IsNullOrWhiteSpace(names[0].Value)
+                    || !seen.Add(names[0].Value))
+                {
+                    return false;
+                }
+                values.Add(names[0].Value);
+            }
+
+            if (values.Count == 0)
+            {
+                return false;
+            }
+            expressions = values;
+            return true;
+        }
+
         public bool TryResolveVehicleModBonuses(
             string sourceId,
             string name,
