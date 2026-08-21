@@ -341,6 +341,7 @@ public sealed record CharacterCyberwareSummary(
     bool CareerEditable = false)
 {
     public CharacterCyberwareCommerceSemantics? CommerceSemantics { get; init; }
+    public CharacterPrototypeTranshumanSemantics? PrototypeTranshumanSemantics { get; init; }
 }
 
 public sealed record CharacterCyberwaresSection(

@@ -3003,6 +3003,13 @@ public sealed class CharacterSectionService : ICharacterSectionService
             improvementBasis,
             sourceData,
             out int maximum);
+        CharacterPrototypeTranshumanSemantics? prototypeTranshumanSemantics =
+            CharacterPrototypeTranshumanRules.TryProject(
+                character,
+                item,
+                out CharacterPrototypeTranshumanSemantics projectedPrototypeTranshuman)
+                ? projectedPrototypeTranshuman
+                : null;
 
         CharacterCyberwareSummary summary = new(
             Guid: guid,
@@ -3039,7 +3046,8 @@ public sealed class CharacterSectionService : ICharacterSectionService
                 item,
                 parentItem,
                 sourceData,
-                careerEditable)
+                careerEditable),
+            PrototypeTranshumanSemantics = prototypeTranshumanSemantics
         };
         cyberwares.Add(summary);
 
