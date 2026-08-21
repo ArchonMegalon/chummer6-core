@@ -896,6 +896,7 @@ public class CharacterSectionServiceTests
                 <vehicle>
                   <guid>7c2bc558-a149-4ae8-9266-e64a9b5352a2</guid>
                   <name>Roadmaster</name>
+                  <homenode>True</homenode>
                   <locations>
                     <location>
                       <guid>21f2ae2c-1ffc-451a-862a-a2b14dfcb451</guid>
@@ -921,6 +922,7 @@ public class CharacterSectionServiceTests
         CharacterVehiclesSection section = service.ParseVehicles(xml);
 
         CharacterVehicleSummary roadmaster = section.Vehicles.Single(item => item.Name == "Roadmaster");
+        Assert.IsTrue(roadmaster.HomeNode);
         Assert.AreEqual(2, roadmaster.LocationCount);
         Assert.IsNotNull(roadmaster.Locations);
         Assert.AreEqual("21f2ae2c-1ffc-451a-862a-a2b14dfcb451", roadmaster.Locations[0].Guid);
@@ -929,6 +931,7 @@ public class CharacterSectionServiceTests
         Assert.AreEqual(string.Empty, roadmaster.Locations[1].Notes);
 
         CharacterVehicleSummary bike = section.Vehicles.Single(item => item.Name == "Bike");
+        Assert.IsFalse(bike.HomeNode);
         Assert.AreEqual(0, bike.LocationCount);
         Assert.IsNotNull(bike.Locations);
         Assert.IsEmpty(bike.Locations);

@@ -1021,6 +1021,7 @@ public sealed class CharacterSectionService : ICharacterSectionService
             MatrixDamage: ParseInt(ReadValue(item, "matrixcmfilled")),
             MatrixConditionMaximum: matrixMaximumExact ? matrixMaximum : 0,
             MatrixConditionMaximumExact: matrixMaximumExact,
+            HomeNode: ParseBool(ReadValue(item, "homenode")),
             LocationCount: locations.Length,
             Locations: locations);
     }

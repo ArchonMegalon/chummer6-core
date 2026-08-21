@@ -343,6 +343,7 @@ public sealed record CharacterVehicleSummary(
     int MatrixDamage = 0,
     int MatrixConditionMaximum = 0,
     bool MatrixConditionMaximumExact = false,
+    bool HomeNode = false,
     int LocationCount = 0,
     IReadOnlyList<CharacterLocationSummary>? Locations = null);
 
