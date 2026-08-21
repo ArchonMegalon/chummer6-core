@@ -465,6 +465,90 @@ public class CharacterSectionServiceTests
     }
 
     [TestMethod]
+    public void ParseWeapons_projects_exact_ai_home_node_eligibility_in_create_and_career_modes()
+    {
+        Guid ownerId = Guid.Parse("11111111-1111-1111-1111-111111111111");
+        Guid weaponId = Guid.Parse("22222222-2222-2222-2222-222222222222");
+        foreach (bool created in new[] { false, true })
+        {
+            string xml = $"""
+                <character>
+                  <created>{created}</created><depenabled>True</depenabled>
+                  <attributes>
+                    <attribute><name>BOD</name><metatypemax>0</metatypemax><totalvalue>0</totalvalue></attribute>
+                    <attribute><name>DEP</name><metatypemax>6</metatypemax><totalvalue>4</totalvalue></attribute>
+                  </attributes>
+                  <gears>
+                    <gear><guid>{ownerId:D}</guid><name>Weapon persona module</name><rating>1</rating>
+                      <canformpersona>Self</canformpersona><devicerating>3</devicerating><programlimit>2</programlimit>
+                      <homenode>False</homenode><children /></gear>
+                  </gears>
+                  <weapons>
+                    <weapon><guid>{weaponId:D}</guid><name>Persona-linked weapon</name><parentid>{ownerId:D}</parentid>
+                      <homenode>True</homenode><matrixcmfilled>0</matrixcmfilled></weapon>
+                  </weapons>
+                </character>
+                """;
+
+            CharacterWeaponSummary weapon = new CharacterSectionService()
+                .ParseWeapons(xml)
+                .Weapons
+                .Single();
+
+            CharacterWeaponHomeNodeSemantics semantics = weapon.HomeNodeSemantics!;
+            Assert.IsNotNull(semantics);
+            Assert.AreEqual(weaponId, semantics.WeaponId);
+            Assert.AreEqual(ownerId, semantics.MatrixOwnerId);
+            Assert.AreEqual("Gear", semantics.MatrixOwnerKind);
+            Assert.IsTrue(semantics.Visible);
+            Assert.IsTrue(semantics.Enabled);
+            Assert.IsTrue(semantics.HomeNode);
+            Assert.IsTrue(semantics.IsCommlink);
+            Assert.AreEqual(3, semantics.DeviceRating);
+            Assert.AreEqual(2, semantics.ProgramLimit);
+            Assert.AreEqual(4, semantics.DepTotal);
+        }
+    }
+
+    [TestMethod]
+    public void ParseWeapons_hides_home_node_for_non_ai_and_fails_closed_for_unproven_ai_rules()
+    {
+        Guid weaponId = Guid.Parse("22222222-2222-2222-2222-222222222222");
+        const string nonAi = """
+            <character><depenabled>False</depenabled><weapons>
+              <weapon><guid>22222222-2222-2222-2222-222222222222</guid><name>Ordinary weapon</name><homenode>False</homenode></weapon>
+            </weapons></character>
+            """;
+        CharacterWeaponHomeNodeSemantics hidden = new CharacterSectionService()
+            .ParseWeapons(nonAi)
+            .Weapons
+            .Single()
+            .HomeNodeSemantics!;
+        Assert.IsNotNull(hidden);
+        Assert.AreEqual(weaponId, hidden.WeaponId);
+        Assert.IsFalse(hidden.Visible);
+        Assert.IsFalse(hidden.Enabled);
+
+        const string unprovenAi = """
+            <character><depenabled>True</depenabled><attributes>
+              <attribute><name>BOD</name><metatypemax>0</metatypemax><totalvalue>0</totalvalue></attribute>
+              <attribute><name>DEP</name><metatypemax>6</metatypemax><totalvalue>4</totalvalue></attribute>
+            </attributes><gears>
+              <gear><guid>11111111-1111-1111-1111-111111111111</guid><name>Unsupported expression</name><rating>2</rating>
+                <canformpersona>Self</canformpersona><devicerating>3</devicerating><programlimit>Rating / 2</programlimit><children /></gear>
+            </gears><weapons>
+              <weapon><guid>22222222-2222-2222-2222-222222222222</guid><name>Persona-linked weapon</name>
+                <parentid>11111111-1111-1111-1111-111111111111</parentid><homenode>False</homenode></weapon>
+            </weapons></character>
+            """;
+        Assert.IsNull(new CharacterSectionService()
+            .ParseWeapons(unprovenAi)
+            .Weapons
+            .Single()
+            .HomeNodeSemantics);
+    }
+
+    [TestMethod]
     public void Matrix_condition_monitors_apply_saved_active_career_overclocker_improvement()
     {
         const string xml = """

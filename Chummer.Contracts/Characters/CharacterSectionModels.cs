@@ -272,7 +272,10 @@ public sealed record CharacterWeaponSummary(
     int MatrixDamage = 0,
     int MatrixConditionMaximum = 0,
     bool MatrixConditionMaximumExact = false,
-    bool CareerEditable = false);
+    bool CareerEditable = false)
+{
+    public CharacterWeaponHomeNodeSemantics? HomeNodeSemantics { get; init; }
+}
 
 public sealed record CharacterWeaponsSection(
     int Count,

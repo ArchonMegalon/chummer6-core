@@ -834,6 +834,10 @@ public sealed class CharacterSectionService : ICharacterSectionService
                 improvementBasis,
                 sourceData,
                 out maximum);
+        CharacterWeaponHomeNodeSemantics? homeNodeSemantics =
+            CharacterWeaponHomeNodeRules.TryProject(character, item, out CharacterWeaponHomeNodeSemantics projected)
+                ? projected
+                : null;
         return new CharacterWeaponSummary(
             Guid: ReadValue(item, "guid"),
             Name: ReadValue(item, "name"),
@@ -853,7 +857,10 @@ public sealed class CharacterSectionService : ICharacterSectionService
             MatrixDamage: ParseInt(ReadValue(ownerExact ? owner.Item : item, "matrixcmfilled")),
             MatrixConditionMaximum: maximumExact ? maximum : 0,
             MatrixConditionMaximumExact: maximumExact,
-            CareerEditable: careerEditable);
+            CareerEditable: careerEditable)
+        {
+            HomeNodeSemantics = homeNodeSemantics
+        };
     }
 
     private static bool TryCalculateMatrixOwnerMaximum(
