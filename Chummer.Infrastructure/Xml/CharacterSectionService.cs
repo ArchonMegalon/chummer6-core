@@ -757,6 +757,7 @@ public sealed class CharacterSectionService : ICharacterSectionService
                         Rating: ReadValue(accessory, "rating"),
                         Cost: ReadValue(accessory, "cost"),
                         Equipped: ParseBool(ReadValue(accessory, "equipped")),
+                        IncludedInWeapon: ParseBool(ReadValue(accessory, "included")),
                         Category: ReadValue(accessory, "category"),
                         Source: ReadValue(accessory, "source"),
                         Notes: ReadValue(accessory, "notes"),

@@ -846,6 +846,31 @@ public class CharacterSectionServiceTests
     }
 
     [TestMethod]
+    public void ParseWeaponAccessories_projects_exact_saved_included_in_weapon_boolean()
+    {
+        const string xml = """
+            <character>
+              <weapons>
+                <weapon>
+                  <guid>11111111-1111-1111-1111-111111111111</guid>
+                  <name>Ares Predator</name>
+                  <accessories>
+                    <accessory><guid>22222222-2222-2222-2222-222222222222</guid><name>Factory Smartgun</name><included>True</included></accessory>
+                    <accessory><guid>33333333-3333-3333-3333-333333333333</guid><name>Aftermarket Sight</name></accessory>
+                  </accessories>
+                </weapon>
+              </weapons>
+            </character>
+            """;
+        var service = new CharacterSectionService();
+
+        CharacterWeaponAccessoriesSection section = service.ParseWeaponAccessories(xml);
+
+        Assert.IsTrue(section.Accessories.Single(item => item.Name == "Factory Smartgun").IncludedInWeapon);
+        Assert.IsFalse(section.Accessories.Single(item => item.Name == "Aftermarket Sight").IncludedInWeapon);
+    }
+
+    [TestMethod]
     public void ParseArmors_extracts_armor_entries()
     {
         string xml = File.ReadAllText(FindTestFilePath("BLUE.chum5"));

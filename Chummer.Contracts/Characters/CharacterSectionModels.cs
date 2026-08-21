@@ -364,6 +364,7 @@ public sealed record CharacterWeaponAccessorySummary(
     string Rating,
     string Cost,
     bool Equipped,
+    bool IncludedInWeapon = false,
     string Category = "",
     string Source = "",
     string Notes = "",
