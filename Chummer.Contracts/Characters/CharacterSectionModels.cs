@@ -299,6 +299,7 @@ public sealed record CharacterArmorSummary(
     int ArmorDamage = 0,
     int ArmorDamageMaximum = 0,
     bool ArmorDamageMaximumExact = false,
+    bool EquippedExact = false,
     bool CareerEditable = false);
 
 public sealed record CharacterArmorsSection(

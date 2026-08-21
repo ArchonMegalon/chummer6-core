@@ -961,7 +961,7 @@ public class CharacterSectionServiceTests
     {
         const string xml = """
             <character><created>True</created><armors>
-              <armor><guid>11111111-1111-1111-1111-111111111111</guid><name>Exact Armor</name><armor>10</armor><armoroverride>8</armoroverride><rating>1</rating><damage>2</damage><armormods><armormod><armor>2</armor><equipped>True</equipped></armormod></armormods></armor>
+              <armor><guid>11111111-1111-1111-1111-111111111111</guid><name>Exact Armor</name><armor>10</armor><armoroverride>8</armoroverride><rating>1</rating><damage>2</damage><equipped>True</equipped><armormods><armormod><armor>2</armor><equipped>True</equipped></armormod></armormods></armor>
               <armor><guid>22222222-2222-2222-2222-222222222222</guid><name>Inexact Armor</name><armor>FixedValues(6,8)</armor><rating>1</rating><damage>1</damage><armormods /></armor>
             </armors></character>
             """;
@@ -972,7 +972,41 @@ public class CharacterSectionServiceTests
         Assert.AreEqual(2, exact.ArmorDamage);
         Assert.AreEqual(5, exact.ArmorDamageMaximum);
         Assert.IsTrue(exact.ArmorDamageMaximumExact);
-        Assert.IsFalse(service.ParseArmors(xml).Armors.Single(item => item.Name == "Inexact Armor").ArmorDamageMaximumExact);
+        Assert.IsTrue(exact.Equipped);
+        Assert.IsTrue(exact.EquippedExact);
+        CharacterArmorSummary inexact = service.ParseArmors(xml).Armors.Single(item => item.Name == "Inexact Armor");
+        Assert.IsFalse(inexact.ArmorDamageMaximumExact);
+        Assert.IsFalse(inexact.EquippedExact);
+    }
+
+    [TestMethod]
+    public void Armor_equipment_rules_require_unique_exact_identity_and_preserve_independent_states()
+    {
+        Guid selectedId = Guid.Parse("11111111-1111-1111-1111-111111111111");
+        Guid otherId = Guid.Parse("22222222-2222-2222-2222-222222222222");
+        CharacterArmorEquipmentBasis[] armors = [new(selectedId, false), new(otherId, true)];
+
+        Assert.IsTrue(CharacterArmorEquipmentRules.TryProject(selectedId, armors, out CharacterArmorEquipmentState? state));
+        Assert.IsNotNull(state);
+        Assert.IsTrue(state.CanEquipSelected);
+        Assert.IsFalse(state.CanUnequipSelected);
+        Assert.IsTrue(state.CanEquipAll);
+        Assert.IsTrue(state.CanUnequipAll);
+        Assert.IsTrue(CharacterArmorEquipmentRules.ResolveEquipped(
+            CharacterArmorEquipmentAction.EquipSelected, selectedId, selectedId, false));
+        Assert.IsTrue(CharacterArmorEquipmentRules.ResolveEquipped(
+            CharacterArmorEquipmentAction.EquipSelected, selectedId, otherId, true));
+        Assert.IsFalse(CharacterArmorEquipmentRules.ResolveEquipped(
+            CharacterArmorEquipmentAction.UnequipAll, selectedId, otherId, true));
+
+        Assert.IsFalse(CharacterArmorEquipmentRules.TryProject(
+            selectedId,
+            [new(selectedId, false), new(selectedId, true)],
+            out _));
+        Assert.IsFalse(CharacterArmorEquipmentRules.TryProject(
+            selectedId,
+            [new(selectedId, false, Exact: false)],
+            out _));
     }
 
     [TestMethod]

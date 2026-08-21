@@ -1004,6 +1004,7 @@ public sealed class CharacterSectionService : ICharacterSectionService
         bool maximumExact = TryCalculateArmorMatrixMaximum(item, improvementBasis, out int maximum);
         bool armorDamageExact = TryParseOptionalInt(ReadValue(item, "damage"), out int armorDamage)
             && TryCalculateArmorDamageMaximum(item, out int armorDamageMaximum);
+        bool equippedExact = bool.TryParse(ReadValue(item, "equipped"), out bool equipped);
         return new CharacterArmorSummary(
             Guid: ReadValue(item, "guid"),
             Name: ReadValue(item, "name"),
@@ -1011,7 +1012,7 @@ public sealed class CharacterSectionService : ICharacterSectionService
             ArmorValue: ReadValue(item, "armor"),
             Rating: ReadValue(item, "rating"),
             Cost: ReadValue(item, "cost"),
-            Equipped: ParseBool(ReadValue(item, "equipped")),
+            Equipped: equippedExact && equipped,
             Source: ReadValue(item, "source"),
             Notes: ReadValue(item, "notes"),
             CustomName: ReadValue(item, "extra"),
@@ -1025,6 +1026,7 @@ public sealed class CharacterSectionService : ICharacterSectionService
             ArmorDamage: armorDamageExact ? armorDamage : 0,
             ArmorDamageMaximum: armorDamageExact ? armorDamageMaximum : 0,
             ArmorDamageMaximumExact: armorDamageExact,
+            EquippedExact: equippedExact,
             CareerEditable: careerEditable);
     }
 
