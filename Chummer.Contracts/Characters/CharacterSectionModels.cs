@@ -671,7 +671,10 @@ public sealed record CharacterLifestyleSummary(
     string BaseLifestyle,
     string Source,
     decimal Cost,
-    int Months);
+    int Months,
+    string Guid = "",
+    string Notes = "",
+    string CustomName = "");
 
 public sealed record CharacterLifestylesSection(
     int Count,

@@ -2237,7 +2237,10 @@ public sealed class CharacterSectionService : ICharacterSectionService
                 BaseLifestyle: ReadValue(lifestyle, "baselifestyle"),
                 Source: ReadValue(lifestyle, "source"),
                 Cost: ParseDecimal(ReadValue(lifestyle, "cost")),
-                Months: ParseInt(ReadValue(lifestyle, "months"))))
+                Months: ParseInt(ReadValue(lifestyle, "months")),
+                Guid: ReadValue(lifestyle, "guid"),
+                Notes: ReadValue(lifestyle, "notes"),
+                CustomName: ReadValue(lifestyle, "extra")))
             .ToArray()
             ?? Array.Empty<CharacterLifestyleSummary>();
 
