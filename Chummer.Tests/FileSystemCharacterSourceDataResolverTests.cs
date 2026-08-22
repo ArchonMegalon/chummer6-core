@@ -239,8 +239,9 @@ public sealed class FileSystemCharacterSourceDataResolverTests
             out CharacterCreationPrerequisiteAuthority authority));
         Assert.IsTrue(authority.IsAuthoritative, string.Join(",", authority.Blockers));
 
-        XDocument priorities = XDocument.Load(Path.Combine(coreRoot, "Chummer", "data",
-            "priorities.xml"));
+        XDocument priorities = XDocument.Load(
+            Path.Combine(coreRoot, "Chummer", "data", "priorities.xml"),
+            LoadOptions.PreserveWhitespace);
         XDocument skillsDocument = XDocument.Load(Path.Combine(coreRoot, "Chummer", "data",
             "skills.xml"));
         (string Id, string Name, string Attribute, string Category, string? Group, bool Exotic)[]
