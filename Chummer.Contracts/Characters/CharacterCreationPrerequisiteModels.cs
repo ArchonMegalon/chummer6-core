@@ -12,6 +12,57 @@ public static class CharacterCreationPrerequisiteSchemas
     public const string SnapshotV1 = "chummer.character_creation_prerequisite_snapshot.v1";
     public const string PreviewV1 = "chummer.character_creation_prerequisite_preview.v1";
     public const string DraftV1 = "chummer.character_creation_prerequisite_draft.v1";
+    public const string TalentGrantPlanV1 =
+        "chummer.character_creation_talent_grant_plan.v1";
+}
+
+public static class CharacterCreationTalentSkillGrantTypes
+{
+    public const int MaximumPromptSlots = 3;
+    public const string Active = "active";
+    public const string Default = "default";
+    public const string Magic = "magic";
+    public const string Resonance = "resonance";
+    public const string Matrix = "matrix";
+    public const string Specific = "specific";
+    public const string XPath = "xpath";
+    public const string Choices = "choices";
+    public const string Grouped = "grouped";
+    public const string GroupChoiceAliasCompatibility =
+        "legacy-chummer5:9ead69da989c6582a86d4f2342f6ef275b5bf760:"
+        + "skillgrouptype:choices-to-grouped";
+    public const string PinnedXPathPredicate =
+        "not(attribute = 'RES' or attribute = 'DEP') and "
+        + "(not(category = 'Magical Active') or skillgroup = '' or not(skillgroup))";
+
+    public static string NormalizeLegacySelectorType(
+        string rawSelectorType,
+        string selectorTypeSource)
+    {
+        string normalized = rawSelectorType.ToLowerInvariant();
+        if (normalized == Choices
+            && selectorTypeSource != CharacterCreationTalentGrantSelectorTypeSources.SkillGroupType)
+        {
+            return Default;
+        }
+        return normalized is Active or Default or Magic or Resonance or Matrix or Specific
+            or XPath or Choices or Grouped
+            ? normalized
+            : Default;
+    }
+}
+
+public static class CharacterCreationTalentGrantImprovementKinds
+{
+    public const string SkillBase = "SkillBase";
+    public const string SkillGroupBase = "SkillGroupBase";
+}
+
+public static class CharacterCreationTalentGrantSelectorTypeSources
+{
+    public const string Missing = "missing";
+    public const string SkillType = "skilltype";
+    public const string SkillGroupType = "skillgrouptype";
 }
 
 public static class CharacterCreationPriorityChildKinds
@@ -74,6 +125,21 @@ public static class CharacterCreationPrerequisiteBlockers
     public const string TalentSelectionIncomplete = "creation-prerequisite-talent-selection-incomplete";
     public const string TalentSelectionInvalid = "creation-prerequisite-talent-selection-invalid";
     public const string TalentSelectionUnsupported = "creation-prerequisite-talent-selection-unsupported";
+    public const string TalentActiveSkillSelectionIncomplete =
+        "creation-prerequisite-talent-active-skill-selection-incomplete";
+    public const string TalentActiveSkillSelectionInvalid =
+        "creation-prerequisite-talent-active-skill-selection-invalid";
+    public const string TalentSkillGroupSelectionIncomplete =
+        "creation-prerequisite-talent-skill-group-selection-incomplete";
+    public const string TalentSkillGroupSelectionInvalid =
+        "creation-prerequisite-talent-skill-group-selection-invalid";
+    public const string TalentSkillGrantAuthorityUnsupported =
+        "creation-prerequisite-talent-skill-grant-authority-unsupported";
+    public const string TalentExoticSkillSpecializationRequired =
+        "creation-prerequisite-talent-exotic-skill-specialization-required";
+    public const string SkillCustomDataUnsupported =
+        "creation-prerequisite-skill-custom-data-unsupported";
+    public const string SkillsSourceDrift = "creation-prerequisite-skills-source-drift";
     public const string StaleRawCharacterXmlDigest = "creation-prerequisite-stale-raw-character-xml-digest";
     public const string StaleWorkspaceRevision = "creation-prerequisite-stale-workspace-revision";
     public const string WorkspaceUnavailable = "creation-prerequisite-workspace-unavailable";
@@ -108,7 +174,142 @@ public sealed record CharacterCreationPriorityTalentOptionProjection(
     string PriorityChildNodeDigest,
     bool IsEnabled,
     IReadOnlyList<string> Blockers,
+    IReadOnlyList<string> SourceAnchorIds)
+{
+    public CharacterCreationTalentActiveSkillGrantProjection? ActiveSkillGrant
+        { get; init; }
+
+    public CharacterCreationTalentSkillGroupGrantProjection? SkillGroupGrant
+        { get; init; }
+
+    public string RawTalentNode { get; init; } = string.Empty;
+}
+
+public sealed record CharacterCreationTalentActiveSkillChoiceProjection(
+    string SelectionId,
+    string SourceId,
+    string CanonicalName,
+    string Category,
+    string? SkillGroup,
+    string SourceNodeDigest,
+    string SkillsSourceDigest,
+    IReadOnlyList<string> SourceAnchorIds)
+{
+    public string Attribute { get; init; } = string.Empty;
+
+    public bool IsExotic { get; init; }
+
+    public bool IsEnabled { get; init; } = true;
+
+    public IReadOnlyList<string> Blockers { get; init; } = [];
+}
+
+public sealed record CharacterCreationTalentSkillGroupChoiceProjection(
+    string SelectionId,
+    string CanonicalName,
+    IReadOnlyList<string> MemberSkillSourceIds,
+    string GroupDigest,
+    string SkillsSourceDigest,
     IReadOnlyList<string> SourceAnchorIds);
+
+public sealed record CharacterCreationTalentActiveSkillGrantProjection(
+    int Quantity,
+    int BaseRating,
+    string SkillType,
+    IReadOnlyList<CharacterCreationTalentActiveSkillChoiceProjection> Options,
+    string GrantDigest,
+    bool IsSupported,
+    IReadOnlyList<string> Blockers,
+    IReadOnlyList<string> SourceAnchorIds)
+{
+    public string ImprovementKind { get; init; } = string.Empty;
+
+    public string RawSelectorType { get; init; } = string.Empty;
+
+    public string SelectorTypeSource { get; init; } = string.Empty;
+
+    public string RawSelectorTypeQuery { get; init; } = string.Empty;
+
+    public string SkillTypeQuery { get; init; } = string.Empty;
+
+    public IReadOnlyList<string> SpecificSkillChoiceNames { get; init; } = [];
+}
+
+public sealed record CharacterCreationTalentSkillGroupGrantProjection(
+    int Quantity,
+    int BaseRating,
+    string SkillGroupType,
+    IReadOnlyList<CharacterCreationTalentSkillGroupChoiceProjection> Options,
+    string GrantDigest,
+    bool IsSupported,
+    IReadOnlyList<string> Blockers,
+    IReadOnlyList<string> SourceAnchorIds)
+{
+    public string ImprovementKind { get; init; } = string.Empty;
+
+    public string RawSelectorType { get; init; } = string.Empty;
+
+    public string SelectorTypeSource { get; init; } = string.Empty;
+
+    public string RawSelectorTypeQuery { get; init; } = string.Empty;
+
+    public string CompatibilityMarker { get; init; } = string.Empty;
+
+    public IReadOnlyList<string> RequestedGroupNames { get; init; } = [];
+}
+
+public static class CharacterCreationTalentGrantAuthorityDigest
+{
+    public static string ComputeActiveGrant(
+        int quantity,
+        int baseRating,
+        string skillType,
+        string improvementKind,
+        string rawSelectorType,
+        string selectorTypeSource,
+        string rawSelectorTypeQuery,
+        string skillsSourceDigest,
+        IEnumerable<string> orderedOptionIds) =>
+        RawDigest($"active\0{quantity}\0{baseRating}\0{skillType}\0{improvementKind}\0"
+                  + $"{rawSelectorType}\0{selectorTypeSource}\0{rawSelectorTypeQuery}\0"
+                  + $"{skillsSourceDigest}\0"
+                  + string.Join('\0', orderedOptionIds));
+
+    public static string ComputeSkillGroupGrant(
+        int quantity,
+        int baseRating,
+        string skillGroupType,
+        string improvementKind,
+        string rawSelectorType,
+        string selectorTypeSource,
+        string rawSelectorTypeQuery,
+        string skillsSourceDigest,
+        IEnumerable<string> orderedOptionIds) =>
+        RawDigest($"group\0{quantity}\0{baseRating}\0{skillGroupType}\0{improvementKind}\0"
+                  + $"{rawSelectorType}\0{selectorTypeSource}\0{rawSelectorTypeQuery}\0"
+                  + $"{skillsSourceDigest}\0"
+                  + string.Join('\0', orderedOptionIds));
+
+    public static string ComputeSkillGroup(
+        string skillsSourceDigest,
+        string canonicalName,
+        IEnumerable<string> memberSkillSourceIds) =>
+        RawDigest($"skill-group\0{skillsSourceDigest}\0{canonicalName}\0"
+                  + string.Join('\0', memberSkillSourceIds.OrderBy(
+                      sourceId => sourceId,
+                      StringComparer.Ordinal)));
+
+    public static string ComputeSkillGroupSelectionId(string groupDigest) =>
+        CharacterCreationPrerequisiteAuthorityDigest.IsCanonical(groupDigest)
+            ? $"skill-group:{groupDigest[7..]}"
+            : string.Empty;
+
+    public static string ComputeRawTalentNode(string rawTalentNode) =>
+        RawDigest(rawTalentNode);
+
+    private static string RawDigest(string value) =>
+        "sha256:" + Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(value)));
+}
 
 public sealed record CharacterCreationPriorityRankWeight(
     string Rank,
@@ -169,6 +370,10 @@ public sealed record CharacterCreationPrerequisiteAuthority(
     public bool? AlternateMetatypeAttributeKarma { get; init; }
 
     public bool? ReverseAttributePriorityOrder { get; init; }
+
+    public string RawSkillsXmlDigest { get; init; } = string.Empty;
+
+    public string EffectiveSkillsInputsDigest { get; init; } = string.Empty;
 
     public static CharacterCreationPrerequisiteAuthority Unavailable { get; } = new(
         Schema: CharacterCreationPrerequisiteSchemas.AuthorityV1,
@@ -303,7 +508,46 @@ public sealed record CharacterCreationPriorityTalentSelection(
     int? Depth,
     IReadOnlyList<string> GrantedQualities,
     string PriorityChildNodeDigest,
+    IReadOnlyList<string> SourceAnchorIds)
+{
+    public CharacterCreationTalentGrantPlanContribution? GrantPlan { get; init; }
+}
+
+public sealed record CharacterCreationTalentActiveSkillGrantPlanEntry(
+    string SelectionId,
+    string TargetKind,
+    string SourceId,
+    string CanonicalName,
+    string Category,
+    string? SkillGroup,
+    int BaseRating,
+    string ImprovementKind,
+    string SourceNodeDigest,
+    string SkillsSourceDigest,
     IReadOnlyList<string> SourceAnchorIds);
+
+public sealed record CharacterCreationTalentSkillGroupGrantPlanEntry(
+    string SelectionId,
+    string TargetKind,
+    string CanonicalName,
+    IReadOnlyList<string> MemberSkillSourceIds,
+    int BaseRating,
+    string ImprovementKind,
+    string GroupDigest,
+    string SkillsSourceDigest,
+    IReadOnlyList<string> SourceAnchorIds);
+
+/// <summary>
+/// A deterministic contribution to the eventual single Creation write plan.
+/// It carries no apply surface: incomplete Talent ledgers must still result in
+/// zero character writes until finalization can compose every required ledger.
+/// </summary>
+public sealed record CharacterCreationTalentGrantPlanContribution(
+    string Schema,
+    IReadOnlyList<CharacterCreationTalentActiveSkillGrantPlanEntry> ActiveSkills,
+    IReadOnlyList<CharacterCreationTalentSkillGroupGrantPlanEntry> SkillGroups,
+    IReadOnlyList<string> SourceAnchorIds,
+    string PlanDigest);
 
 public sealed record CharacterCreationPrerequisiteDraft(
     string Schema,
@@ -350,6 +594,10 @@ public sealed record CharacterCreationPrerequisitePreviewRequest(
     public string? HeritageSelectionId { get; init; }
 
     public string? TalentSelectionId { get; init; }
+
+    public IReadOnlyList<string> TalentActiveSkillSelectionIds { get; init; } = [];
+
+    public IReadOnlyList<string> TalentSkillGroupSelectionIds { get; init; } = [];
 }
 
 public sealed record CharacterCreationPrerequisiteConfirmRequest(
@@ -361,6 +609,10 @@ public sealed record CharacterCreationPrerequisiteConfirmRequest(
     public string? HeritageSelectionId { get; init; }
 
     public string? TalentSelectionId { get; init; }
+
+    public IReadOnlyList<string> TalentActiveSkillSelectionIds { get; init; } = [];
+
+    public IReadOnlyList<string> TalentSkillGroupSelectionIds { get; init; } = [];
 }
 
 public sealed record CharacterCreationPrerequisiteState(
