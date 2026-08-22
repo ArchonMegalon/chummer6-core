@@ -93,6 +93,57 @@ public static class CharacterRosterFavoriteRules
         return new CharacterRosterFavoriteState(current.Revision + 1, favorites, recent);
     }
 
+    /// <summary>
+    /// Matches CharacterRoster.tsDelete: remove the selected character path from exactly the
+    /// Favorite or Recent application list without deleting or rewriting the character document.
+    /// </summary>
+    public static CharacterRosterFavoriteState ApplyRemove(
+        CharacterRosterFavoriteState current,
+        CharacterRosterRemoveMutation mutation)
+    {
+        ArgumentNullException.ThrowIfNull(current);
+        ArgumentNullException.ThrowIfNull(mutation);
+        if (current.Revision < 0)
+            throw new InvalidDataException("Roster favorite revision cannot be negative.");
+        if (mutation.ExpectedRevision != current.Revision)
+        {
+            throw new InvalidOperationException(
+                $"Roster collections changed at revision {current.Revision}; expected {mutation.ExpectedRevision}.");
+        }
+        if (!Enum.IsDefined(mutation.Target))
+            throw new ArgumentOutOfRangeException(nameof(mutation), "A known roster removal target is required.");
+
+        CharacterRosterDocumentIdentity character = NormalizeIdentity(mutation.Character);
+        List<CharacterRosterDocumentIdentity> favorites = NormalizeCollection(current.Favorites, "favorites");
+        List<CharacterRosterDocumentIdentity> recent = NormalizeCollection(current.Recent, "recent");
+        List<CharacterRosterDocumentIdentity> selected = mutation.Target switch
+        {
+            CharacterRosterRemoveTarget.Favorites => favorites,
+            CharacterRosterRemoveTarget.Recent => recent,
+            _ => throw new ArgumentOutOfRangeException(nameof(mutation), "A known roster removal target is required.")
+        };
+        if (selected.RemoveAll(item => SameLocator(item, character)) == 0)
+            return new CharacterRosterFavoriteState(current.Revision, favorites, recent);
+
+        return new CharacterRosterFavoriteState(current.Revision + 1, favorites, recent);
+    }
+
+    public static bool Contains(
+        CharacterRosterFavoriteState state,
+        CharacterRosterDocumentIdentity character,
+        CharacterRosterRemoveTarget target)
+    {
+        CharacterRosterFavoriteState normalized = ValidateAndNormalize(state);
+        CharacterRosterDocumentIdentity identity = NormalizeIdentity(character);
+        IReadOnlyList<CharacterRosterDocumentIdentity> selected = target switch
+        {
+            CharacterRosterRemoveTarget.Favorites => normalized.Favorites,
+            CharacterRosterRemoveTarget.Recent => normalized.Recent,
+            _ => throw new ArgumentOutOfRangeException(nameof(target), "A known roster removal target is required.")
+        };
+        return selected.Any(item => SameLocator(item, identity));
+    }
+
     public static CharacterRosterFavoriteState ValidateAndNormalize(CharacterRosterFavoriteState state)
     {
         ArgumentNullException.ThrowIfNull(state);

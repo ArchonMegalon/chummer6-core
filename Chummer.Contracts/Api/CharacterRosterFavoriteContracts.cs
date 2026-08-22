@@ -29,3 +29,14 @@ public enum CharacterRosterSortTarget
 public sealed record CharacterRosterSortMutation(
     CharacterRosterSortTarget Target,
     long ExpectedRevision);
+
+public enum CharacterRosterRemoveTarget
+{
+    Favorites,
+    Recent
+}
+
+public sealed record CharacterRosterRemoveMutation(
+    CharacterRosterDocumentIdentity Character,
+    CharacterRosterRemoveTarget Target,
+    long ExpectedRevision);

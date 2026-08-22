@@ -128,6 +128,109 @@ public sealed class CharacterRosterFavoriteRulesTests
     }
 
     [Test]
+    public void Remove_matches_Chummer5_selected_collection_only()
+    {
+        CharacterRosterDocumentIdentity runner = new("content://runner/alpha", "Alpha");
+        CharacterRosterDocumentIdentity otherFavorite = new("content://runner/favorite", "Favorite");
+        CharacterRosterDocumentIdentity otherRecent = new("content://runner/recent", "Recent");
+        CharacterRosterFavoriteState initial = new(
+            11,
+            [runner, otherFavorite],
+            [otherRecent, runner]);
+
+        Assert.IsTrue(CharacterRosterFavoriteRules.Contains(
+            initial, runner, CharacterRosterRemoveTarget.Favorites));
+        Assert.IsTrue(CharacterRosterFavoriteRules.Contains(
+            initial, runner, CharacterRosterRemoveTarget.Recent));
+
+        CharacterRosterFavoriteState favoriteRemoved = CharacterRosterFavoriteRules.ApplyRemove(
+            initial,
+            new CharacterRosterRemoveMutation(
+                runner,
+                CharacterRosterRemoveTarget.Favorites,
+                ExpectedRevision: 11));
+        CollectionAssert.AreEqual(new[] { otherFavorite }, favoriteRemoved.Favorites);
+        CollectionAssert.AreEqual(initial.Recent, favoriteRemoved.Recent);
+        Assert.AreEqual(12, favoriteRemoved.Revision);
+
+        CharacterRosterFavoriteState recentRemoved = CharacterRosterFavoriteRules.ApplyRemove(
+            favoriteRemoved,
+            new CharacterRosterRemoveMutation(
+                runner,
+                CharacterRosterRemoveTarget.Recent,
+                ExpectedRevision: 12));
+        CollectionAssert.AreEqual(favoriteRemoved.Favorites, recentRemoved.Favorites);
+        CollectionAssert.AreEqual(new[] { otherRecent }, recentRemoved.Recent);
+        Assert.AreEqual(13, recentRemoved.Revision);
+    }
+
+    [Test]
+    public void Remove_fails_closed_for_stale_revision_unknown_target_and_invalid_identity()
+    {
+        CharacterRosterFavoriteState state = new(
+            2,
+            [new CharacterRosterDocumentIdentity("content://runner/alpha", "Alpha")],
+            []);
+
+        Assert.Throws<InvalidOperationException>(() => CharacterRosterFavoriteRules.ApplyRemove(
+            state,
+            new CharacterRosterRemoveMutation(
+                state.Favorites[0],
+                CharacterRosterRemoveTarget.Favorites,
+                ExpectedRevision: 1)));
+        Assert.Throws<ArgumentOutOfRangeException>(() => CharacterRosterFavoriteRules.ApplyRemove(
+            state,
+            new CharacterRosterRemoveMutation(
+                state.Favorites[0],
+                (CharacterRosterRemoveTarget)99,
+                ExpectedRevision: 2)));
+        Assert.Throws<ArgumentException>(() => CharacterRosterFavoriteRules.ApplyRemove(
+            state,
+            new CharacterRosterRemoveMutation(
+                new CharacterRosterDocumentIdentity("relative.chum5", "Relative"),
+                CharacterRosterRemoveTarget.Favorites,
+                ExpectedRevision: 2)));
+    }
+
+    [Test]
+    public void Removed_state_uses_atomic_revision_store_and_backup_recovery()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), "chummer-roster-remove-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        try
+        {
+            FileCharacterRosterFavoriteStore store = new(directory);
+            CharacterRosterDocumentIdentity runner = new("content://runner/alpha", "Alpha");
+            CharacterRosterFavoriteState seeded = new(1, [runner], [runner]);
+            store.Save(0, seeded);
+            CharacterRosterFavoriteState removed = CharacterRosterFavoriteRules.ApplyRemove(
+                store.Load(),
+                new CharacterRosterRemoveMutation(
+                    runner,
+                    CharacterRosterRemoveTarget.Favorites,
+                    ExpectedRevision: 1));
+            store.Save(1, removed);
+
+            Assert.AreEqual(2, store.Load().Revision);
+            Assert.IsEmpty(store.Load().Favorites);
+            Assert.AreEqual(runner, store.Load().Recent.Single());
+            Assert.Throws<InvalidOperationException>(() => store.Save(1, removed));
+
+            string primary = Directory.GetFiles(directory, "roster-favorites.json", SearchOption.AllDirectories).Single();
+            File.WriteAllText(primary, "{broken");
+            CharacterRosterFavoriteState recovered = store.Load();
+            Assert.AreEqual(1, recovered.Revision);
+            Assert.AreEqual(runner, recovered.Favorites.Single());
+            Assert.AreEqual(runner, recovered.Recent.Single());
+            StringAssert.DoesNotContain("{broken", File.ReadAllText(primary));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Test]
     public void File_store_is_atomic_revision_checked_and_recovers_from_backup()
     {
         string directory = Path.Combine(Path.GetTempPath(), "chummer-roster-favorites-" + Guid.NewGuid().ToString("N"));
