@@ -13,7 +13,9 @@ namespace Chummer.Application.Characters;
 internal static class CharacterCreationFoundationEffectCompiler
 {
     private const string CompilerSemantics =
-        "chummer5-life-module-improvement-oracle-5.225.0;attributelevel-v1-int32-any-default1;skilllevel-v1-digest-bound-active-skill-int32-any-default1;version-before-module;no-partial-apply";
+        "chummer5-life-module-improvement-oracle-5.225.0;attributelevel-v1-int32-any-default1;skilllevel-v1-digest-bound-active-skill-int32-any-default1;knowledgeskilllevel-v1-digest-bound-free-knowledge-pool-decimal-any-default1;version-before-module;no-partial-apply";
+
+    private const string FreeKnowledgeSkillsIdentity = "FreeKnowledgeSkills";
 
     private static readonly IReadOnlySet<string> s_AttributeIds = new HashSet<string>(
         [
@@ -38,7 +40,12 @@ internal static class CharacterCreationFoundationEffectCompiler
                 Schema = CharacterCreationFoundationSchemas.EffectCompilationV1,
                 RulesetId = rulesetId,
                 CompilerSemantics,
-                SupportedEffectKinds = new[] { "attributelevel:v1", "skilllevel:v1" },
+                SupportedEffectKinds = new[]
+                {
+                    "attributelevel:v1",
+                    "skilllevel:v1",
+                    "knowledgeskilllevel:v1-free-knowledge-pool"
+                },
                 SkillSourceDigest = skillSourceAuthority?.SourceDigest ?? string.Empty,
                 SupportedRequirementKinds = new[] { "oneof:metatype" }
             });
@@ -104,7 +111,8 @@ internal static class CharacterCreationFoundationEffectCompiler
                         effect.EffectId,
                         StringComparison.Ordinal))
                     .ToArray(),
-                skillSourceAuthority))
+                skillSourceAuthority,
+                ledger.SourceDigest))
             .ToArray();
         if (effects.Any(item => string.Equals(
                 item.CompilationStatus,
@@ -217,24 +225,34 @@ internal static class CharacterCreationFoundationEffectCompiler
         LifeModuleEffectProjectionDto effect,
         string sourcePhase,
         IReadOnlyList<LifeModuleFollowUpPromptDto> prompts,
-        CharacterCreationFoundationSkillSourceAuthority? skillSourceAuthority)
+        CharacterCreationFoundationSkillSourceAuthority? skillSourceAuthority,
+        string lifeModulesSourceDigest)
     {
         string effectKind = ReadEffectKind(effect.RawXml);
         string[] promptIds = prompts
             .Select(prompt => prompt.PromptId)
             .OrderBy(item => item, StringComparer.Ordinal)
             .ToArray();
-        bool requiresPrompt = promptIds.Length > 0;
+        bool requiresPrompt = promptIds.Length > 0
+                              || HasUnprojectedKnowledgeSkillPrompt(effect);
         CharacterCreationFoundationEffectTargetBinding? targetBinding = null;
         IReadOnlyDictionary<string, string> ignoredSourceMetadata =
             new Dictionary<string, string>(StringComparer.Ordinal);
-        bool supported = !requiresPrompt
-                         && (IsSupportedAttributeLevel(effect)
-                             || IsSupportedSkillLevel(
-                                 effect,
-                                 skillSourceAuthority,
-                                 out targetBinding,
-                                 out ignoredSourceMetadata));
+        bool supported = false;
+        if (!requiresPrompt)
+        {
+            supported = IsSupportedAttributeLevel(effect)
+                        || IsSupportedSkillLevel(
+                            effect,
+                            skillSourceAuthority,
+                            out targetBinding,
+                            out ignoredSourceMetadata)
+                        || IsSupportedKnowledgeSkillLevel(
+                            effect,
+                            lifeModulesSourceDigest,
+                            out targetBinding,
+                            out ignoredSourceMetadata);
+        }
         string status = requiresPrompt
             ? CharacterCreationFoundationEffectCompilationStatuses.PromptRequired
             : supported
@@ -269,6 +287,193 @@ internal static class CharacterCreationFoundationEffectCompiler
             InstructionDigest = CharacterCreationFoundationDraftLedgerIntegrity
                 .ComputeCanonicalDigest(instruction with { InstructionDigest = string.Empty })
         };
+    }
+
+    private static bool HasUnprojectedKnowledgeSkillPrompt(
+        LifeModuleEffectProjectionDto effect)
+    {
+        if (!string.Equals(effect.Domain, "knowledge-skill", StringComparison.Ordinal))
+            return false;
+
+        try
+        {
+            XElement element = XElement.Parse(effect.RawXml, LoadOptions.None);
+            return element.Name.NamespaceName.Length == 0
+                   && string.Equals(
+                       element.Name.LocalName,
+                       "knowledgeskilllevel",
+                       StringComparison.Ordinal)
+                   && (element.Elements("selectskill").Any()
+                       || element.Descendants()
+                           .Where(descendant => !descendant.HasElements)
+                           .Any(descendant => ContainsPlaceholderToken(descendant.Value)));
+        }
+        catch (System.Xml.XmlException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Chummer5's knowledgeskilllevel handler does not resolve the legacy Life
+    /// Module name/group/spec fields. Without a direct selectskill child it
+    /// writes one FreeKnowledgeSkills pool Improvement whose only operative
+    /// field is val. Keep the ignored literals reviewable; never manufacture a
+    /// knowledge-skill identity from them.
+    /// </summary>
+    private static bool IsSupportedKnowledgeSkillLevel(
+        LifeModuleEffectProjectionDto effect,
+        string lifeModulesSourceDigest,
+        out CharacterCreationFoundationEffectTargetBinding? targetBinding,
+        out IReadOnlyDictionary<string, string> ignoredSourceMetadata)
+    {
+        targetBinding = null;
+        ignoredSourceMetadata = new Dictionary<string, string>(StringComparer.Ordinal);
+        if (!CharacterCreationFoundationDraftLedgerIntegrity.IsCanonicalDigest(
+                lifeModulesSourceDigest)
+            || !effect.IsFullyTyped
+            || !string.Equals(effect.Domain, "knowledge-skill", StringComparison.Ordinal)
+            || effect.BudgetId is not null
+            || effect.BudgetDelta != 0
+            || effect.SourceAnchorIds.Count == 0
+            || effect.SourceAnchorIds.Any(string.IsNullOrWhiteSpace))
+        {
+            return false;
+        }
+
+        try
+        {
+            XElement element = XElement.Parse(effect.RawXml, LoadOptions.None);
+            if (element.Name.NamespaceName.Length != 0
+                || !string.Equals(
+                    element.Name.LocalName,
+                    "knowledgeskilllevel",
+                    StringComparison.Ordinal)
+                || element.HasAttributes)
+            {
+                return false;
+            }
+
+            XElement[] children = element.Elements().ToArray();
+            XElement[] names = children.Where(child => string.Equals(
+                    child.Name.LocalName,
+                    "name",
+                    StringComparison.Ordinal))
+                .ToArray();
+            XElement[] groups = children.Where(child => string.Equals(
+                    child.Name.LocalName,
+                    "group",
+                    StringComparison.Ordinal))
+                .ToArray();
+            XElement[] values = children.Where(child => string.Equals(
+                    child.Name.LocalName,
+                    "val",
+                    StringComparison.Ordinal))
+                .ToArray();
+            XElement[] specializations = children.Where(child => string.Equals(
+                    child.Name.LocalName,
+                    "spec",
+                    StringComparison.Ordinal))
+                .ToArray();
+            if (children.Any(child => child.Name.NamespaceName.Length != 0)
+                || children.Length
+                != names.Length + groups.Length + values.Length + specializations.Length
+                || names.Length != 1
+                || groups.Length > 1
+                || values.Length > 1
+                || specializations.Length > 1
+                || element.Nodes().Any(node => node is XText text
+                    ? !string.IsNullOrWhiteSpace(text.Value)
+                    : node is not XElement)
+                || children.Any(child => child.HasElements || child.HasAttributes))
+            {
+                return false;
+            }
+
+            string literalName = names[0].Value;
+            string? literalGroup = groups.Length == 0 ? null : groups[0].Value;
+            string? rawValue = values.Length == 0 ? null : values[0].Value;
+            string? literalSpecialization = specializations.Length == 0
+                ? null
+                : specializations[0].Value;
+            string? projectedValue = rawValue?.Trim();
+            if (string.IsNullOrWhiteSpace(literalName)
+                || !string.Equals(literalName, literalName.Trim(), StringComparison.Ordinal)
+                || ContainsPlaceholderToken(literalName)
+                || (literalGroup is not null
+                    && (string.IsNullOrWhiteSpace(literalGroup)
+                        || !string.Equals(
+                            literalGroup,
+                            literalGroup.Trim(),
+                            StringComparison.Ordinal)
+                        || ContainsPlaceholderToken(literalGroup)))
+                || (literalSpecialization is not null
+                    && (string.IsNullOrWhiteSpace(literalSpecialization)
+                        || !string.Equals(
+                            literalSpecialization,
+                            literalSpecialization.Trim(),
+                            StringComparison.Ordinal)
+                        || ContainsPlaceholderToken(literalSpecialization)))
+                || (rawValue is not null
+                    && (string.IsNullOrWhiteSpace(rawValue)
+                        || !decimal.TryParse(
+                            rawValue,
+                            System.Globalization.NumberStyles.Any,
+                            System.Globalization.CultureInfo.InvariantCulture,
+                            out _))))
+            {
+                return false;
+            }
+
+            var expectedParameters = new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["name"] = literalName
+            };
+            if (literalGroup is not null)
+                expectedParameters["group"] = literalGroup;
+            if (projectedValue is not null)
+                expectedParameters["val"] = projectedValue;
+            if (literalSpecialization is not null)
+                expectedParameters["spec"] = literalSpecialization;
+            if (!string.Equals(effect.TargetId, literalName, StringComparison.Ordinal)
+                || !CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(
+                    expectedParameters,
+                    effect.Parameters)
+                || (rawValue is null
+                    ? effect.AfterValue is not null
+                    : !string.Equals(
+                        effect.AfterValue,
+                        projectedValue,
+                        StringComparison.Ordinal)))
+            {
+                return false;
+            }
+
+            targetBinding = new CharacterCreationFoundationEffectTargetBinding(
+                TargetKind: "free-knowledge-skill-pool",
+                SourceId: FreeKnowledgeSkillsIdentity,
+                CanonicalName: FreeKnowledgeSkillsIdentity,
+                SourceDigest: lifeModulesSourceDigest);
+            var ignored = new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["legacy-ignored-literal-name"] = literalName
+            };
+            if (literalGroup is not null)
+                ignored["legacy-ignored-literal-group"] = literalGroup;
+            if (literalSpecialization is not null)
+            {
+                ignored["legacy-ignored-literal-spec"] = literalSpecialization;
+            }
+
+            ignoredSourceMetadata = ignored;
+            return true;
+        }
+        catch (System.Xml.XmlException)
+        {
+            targetBinding = null;
+            ignoredSourceMetadata = new Dictionary<string, string>(StringComparer.Ordinal);
+            return false;
+        }
     }
 
     private static bool IsSupportedSkillLevel(
@@ -470,6 +675,20 @@ internal static class CharacterCreationFoundationEffectCompiler
         return ParseLegacyLevelValue(rawValue);
     }
 
+    internal static decimal ParseLegacyKnowledgeSkillLevelValue(string? rawValue)
+    {
+        if (rawValue is null)
+            return 1m;
+
+        return decimal.TryParse(
+            rawValue,
+            System.Globalization.NumberStyles.Any,
+            System.Globalization.CultureInfo.InvariantCulture,
+            out decimal value)
+            ? value
+            : 0m;
+    }
+
     private static int ParseLegacyLevelValue(string? rawValue)
     {
         return rawValue is not null
@@ -480,6 +699,13 @@ internal static class CharacterCreationFoundationEffectCompiler
                    out int value)
             ? value
             : 1;
+    }
+
+    private static bool ContainsPlaceholderToken(string value)
+    {
+        int open = value.IndexOf("[", StringComparison.Ordinal);
+        return open >= 0
+               && value.IndexOf("]", open + 1, StringComparison.Ordinal) > open;
     }
 
     private static bool IsExactMetatypeOneOf(

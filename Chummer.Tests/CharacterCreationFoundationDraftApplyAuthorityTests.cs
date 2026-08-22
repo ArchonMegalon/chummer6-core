@@ -409,14 +409,24 @@ public sealed class CharacterCreationFoundationDraftApplyAuthorityTests
                 effect.SourcePhase == CharacterCreationFoundationEffectSourcePhases.Version));
             Assert.IsTrue(preview.Compilation.Effects.Skip(2).All(effect =>
                 effect.SourcePhase == CharacterCreationFoundationEffectSourcePhases.Module));
-            CharacterCreationFoundationEffectInstruction supportedAttribute = preview
-                .Compilation.Effects.Single(effect => effect.CompilationStatus
-                    == CharacterCreationFoundationEffectCompilationStatuses.Supported);
+            CharacterCreationFoundationEffectInstruction[] supportedEffects = preview
+                .Compilation.Effects.Where(effect => effect.CompilationStatus
+                    == CharacterCreationFoundationEffectCompilationStatuses.Supported)
+                .ToArray();
+            Assert.HasCount(5, supportedEffects);
+            CharacterCreationFoundationEffectInstruction supportedAttribute = supportedEffects
+                .Single(effect => effect.EffectKind == "attributelevel");
             Assert.AreEqual("attributelevel", supportedAttribute.EffectKind);
             Assert.AreEqual(CharacterCreationFoundationEffectSourcePhases.Version,
                 supportedAttribute.SourcePhase);
+            Assert.IsTrue(supportedEffects.Skip(1).All(effect =>
+                effect.EffectKind == "knowledgeskilllevel"
+                && effect.SourcePhase == CharacterCreationFoundationEffectSourcePhases.Module
+                && effect.TargetBinding?.TargetKind == "free-knowledge-skill-pool"
+                && effect.TargetBinding.SourceId == "FreeKnowledgeSkills"
+                && effect.TargetBinding.SourceDigest == draft.SourceDigest));
             Assert.IsTrue(preview.Compilation.Effects
-                .Where(effect => effect != supportedAttribute)
+                .Except(supportedEffects)
                 .All(effect => effect.CompilationStatus
                     == CharacterCreationFoundationEffectCompilationStatuses.Unsupported));
             Assert.IsTrue(preview.Compilation.Effects.All(effect =>
@@ -770,6 +780,171 @@ public sealed class CharacterCreationFoundationDraftApplyAuthorityTests
     }
 
     [TestMethod]
+    public void Canonical_knowledge_skill_levels_are_digest_bound_pool_grants_or_fail_closed_prompts()
+    {
+        string coreRoot = FindCoreRoot();
+        string lifeModulesXml = File.ReadAllText(
+            Path.Combine(coreRoot, "Chummer", "data", "lifemodules.xml"));
+        string skillsXml = File.ReadAllText(
+            Path.Combine(coreRoot, "Chummer", "data", "skills.xml"));
+        Assert.AreEqual(
+            CanonicalLifeModulesDigest,
+            CharacterCreationFoundationDraftLedgerIntegrity.ComputeRawCharacterXmlDigest(
+                lifeModulesXml));
+        Assert.AreEqual(
+            CanonicalSkillsDigest,
+            CharacterCreationFoundationDraftLedgerIntegrity.ComputeRawCharacterXmlDigest(
+                skillsXml));
+
+        XElement canonicalLifeModules = XElement.Parse(lifeModulesXml, LoadOptions.None);
+        XElement canonicalSkills = XElement.Parse(skillsXml, LoadOptions.None);
+        string[] literalKnowledgeNames = canonicalLifeModules
+            .Descendants("knowledgeskilllevel")
+            .Select(effect => effect.Element("name")?.Value)
+            .Where(name => !string.IsNullOrWhiteSpace(name)
+                           && !name.Contains("[", StringComparison.Ordinal)
+                           && !name.Contains("]", StringComparison.Ordinal))
+            .Cast<string>()
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        HashSet<string> catalogKnowledgeNames = canonicalSkills.Element("knowledgeskills")!
+            .Elements("skill")
+            .Select(skill => skill.Element("name")!.Value)
+            .ToHashSet(StringComparer.Ordinal);
+        Assert.HasCount(168, literalKnowledgeNames);
+        Assert.AreEqual(
+            113,
+            literalKnowledgeNames.Count(name => !catalogKnowledgeNames.Contains(name)));
+
+        XmlLifeModulesCatalogService catalog = CreateCatalog();
+        var compiledByEffectId = new Dictionary<
+            string,
+            CharacterCreationFoundationEffectInstruction>(StringComparer.Ordinal);
+        foreach (LifeModuleLegalOptionDto module in catalog.GetOptionProjections())
+        {
+            LifeModuleVersionProjectionDto?[] versions = module.Versions.Count == 0
+                ? [null]
+                : module.Versions.Cast<LifeModuleVersionProjectionDto?>().ToArray();
+            foreach (LifeModuleVersionProjectionDto? version in versions)
+            {
+                LifeModuleEffectProjectionDto[] effects =
+                [
+                    .. version?.Effects ?? [],
+                    .. module.Effects
+                ];
+                LifeModuleRequirementProjectionDto[] requirements =
+                [
+                    .. module.Requirements,
+                    .. version?.Requirements ?? []
+                ];
+                var workspaceId = new CharacterWorkspaceId(
+                    $"canonical-knowledge-{module.ModuleId}-{version?.VersionId ?? "base"}");
+                var ledger = new CharacterCreationFoundationDraftLedger(
+                    Schema: CharacterCreationFoundationSchemas.DraftLedgerV1,
+                    WorkspaceId: workspaceId,
+                    DraftRevision: 1,
+                    BaseContentRevision: 1,
+                    BaseRawCharacterXmlDigest: "sha256:" + new string('1', 64),
+                    SourceDigest: CanonicalLifeModulesDigest,
+                    RequestedMetatype: "Human",
+                    Selection: new CharacterCreationFoundationSelection(
+                        module.ModuleId,
+                        version?.VersionId),
+                    RequirementEvaluations: requirements,
+                    ProjectedEffects: effects,
+                    FollowUpValues: new Dictionary<string, string>(),
+                    SourceAnchorIds: version?.SourceAnchorIds ?? module.SourceAnchorIds,
+                    CompilationStatus:
+                        CharacterCreationFoundationDraftStatuses.PendingFinalization,
+                    CharacterEffectsApplied: false,
+                    DraftDigest: string.Empty);
+                ledger = ledger with
+                {
+                    DraftDigest = CharacterCreationFoundationDraftLedgerIntegrity.ComputeDigest(
+                        ledger)
+                };
+
+                CharacterCreationFoundationEffectCompilation compilation =
+                    CharacterCreationFoundationEffectCompiler.Compile(
+                        RulesetDefaults.Sr5,
+                        ledger,
+                        module,
+                        version);
+                foreach (CharacterCreationFoundationEffectInstruction instruction in compilation
+                             .Effects.Where(effect =>
+                                 effect.EffectKind == "knowledgeskilllevel"))
+                {
+                    if (compiledByEffectId.TryGetValue(
+                            instruction.EffectId,
+                            out CharacterCreationFoundationEffectInstruction? prior))
+                    {
+                        Assert.AreEqual(
+                            prior.CompilationStatus,
+                            instruction.CompilationStatus);
+                        Assert.AreEqual(prior.TargetBinding, instruction.TargetBinding);
+                        CollectionAssert.AreEquivalent(
+                            prior.PromptIds.ToList(),
+                            instruction.PromptIds.ToList());
+                    }
+                    else
+                    {
+                        compiledByEffectId.Add(instruction.EffectId, instruction);
+                    }
+                }
+            }
+        }
+
+        Assert.HasCount(506, compiledByEffectId);
+        CharacterCreationFoundationEffectInstruction[] supported = compiledByEffectId.Values
+            .Where(effect => effect.CompilationStatus
+                == CharacterCreationFoundationEffectCompilationStatuses.Supported)
+            .ToArray();
+        CharacterCreationFoundationEffectInstruction[] prompts = compiledByEffectId.Values
+            .Where(effect => effect.CompilationStatus
+                == CharacterCreationFoundationEffectCompilationStatuses.PromptRequired)
+            .ToArray();
+        Assert.HasCount(250, supported);
+        Assert.HasCount(256, prompts);
+        Assert.IsFalse(compiledByEffectId.Values.Any(effect => effect.CompilationStatus
+            == CharacterCreationFoundationEffectCompilationStatuses.Unsupported));
+        Assert.AreEqual(12, prompts.Count(effect => effect.PromptIds.Count == 0));
+
+        foreach (CharacterCreationFoundationEffectInstruction instruction in supported)
+        {
+            Assert.IsNotNull(instruction.TargetBinding);
+            Assert.AreEqual(
+                "free-knowledge-skill-pool",
+                instruction.TargetBinding.TargetKind);
+            Assert.AreEqual("FreeKnowledgeSkills", instruction.TargetBinding.SourceId);
+            Assert.AreEqual("FreeKnowledgeSkills", instruction.TargetBinding.CanonicalName);
+            Assert.AreEqual(CanonicalLifeModulesDigest, instruction.TargetBinding.SourceDigest);
+            Assert.AreEqual(
+                instruction.TargetId,
+                instruction.IgnoredSourceMetadata["legacy-ignored-literal-name"]);
+            if (instruction.Parameters.TryGetValue("group", out string? group))
+            {
+                Assert.AreEqual(
+                    group,
+                    instruction.IgnoredSourceMetadata["legacy-ignored-literal-group"]);
+            }
+            if (instruction.Parameters.TryGetValue("spec", out string? spec))
+            {
+                Assert.AreEqual(
+                    spec,
+                    instruction.IgnoredSourceMetadata["legacy-ignored-literal-spec"]);
+            }
+            if (instruction.Parameters.TryGetValue("val", out string? rawValue))
+            {
+                Assert.IsTrue(decimal.TryParse(
+                    rawValue,
+                    System.Globalization.NumberStyles.Any,
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    out _));
+            }
+        }
+    }
+
+    [TestMethod]
     public void Tir_and_State_University_level_plans_share_one_quality_and_preserve_duplicate_order()
     {
         string directory = CreateTempDirectory();
@@ -791,7 +966,15 @@ public sealed class CharacterCreationFoundationDraftApplyAuthorityTests
                     "<skilllevel><name>Computer</name><val>2</val></skilllevel>"
                     + "<attributelevel><name>CHA</name></attributelevel>",
                 moduleBonusXml:
-                    "<skilllevel><name>Etiquette</name></skilllevel>");
+                    "<knowledgeskilllevel><name>Sperethiel</name><group>Language</group>"
+                    + "<val>0</val></knowledgeskilllevel>"
+                    + "<knowledgeskilllevel><name>English</name><group>Language</group>"
+                    + "<val>2</val></knowledgeskilllevel>"
+                    + "<knowledgeskilllevel><name>History</name><group>Academic</group>"
+                    + "</knowledgeskilllevel>"
+                    + "<knowledgeskilllevel><name>Tír Tairngire</name><group>Street</group>"
+                    + "</knowledgeskilllevel>"
+                    + "<skilllevel><name>Etiquette</name></skilllevel>");
             CharacterCreationFoundationEffectWritePlanResult tirResult =
                 CharacterCreationFoundationLifeModuleQualityWritePlanner.Build(
                     tir.WorkspaceId,
@@ -814,24 +997,36 @@ public sealed class CharacterCreationFoundationDraftApplyAuthorityTests
                 {
                     CharacterCreationFoundationEffectSourcePhases.Version,
                     CharacterCreationFoundationEffectSourcePhases.Version,
+                    CharacterCreationFoundationEffectSourcePhases.Module,
+                    CharacterCreationFoundationEffectSourcePhases.Module,
+                    CharacterCreationFoundationEffectSourcePhases.Module,
+                    CharacterCreationFoundationEffectSourcePhases.Module,
                     CharacterCreationFoundationEffectSourcePhases.Module
                 },
                 tirPlan.EffectProvenance.Select(effect => effect.SourcePhase).ToArray());
             CollectionAssert.AreEqual(
-                new[] { "Computer", "CHA", "Etiquette" },
+                new[] { "Computer", "CHA", "", "", "", "", "Etiquette" },
                 tirPlan.ImprovementXml.Select(xml =>
                     XElement.Parse(xml).Element("improvedname")!.Value).ToArray());
             CollectionAssert.AreEqual(
-                new[] { "SkillLevel", "Attributelevel", "SkillLevel" },
+                new[]
+                {
+                    "SkillLevel", "Attributelevel", "FreeKnowledgeSkills",
+                    "FreeKnowledgeSkills", "FreeKnowledgeSkills", "FreeKnowledgeSkills",
+                    "SkillLevel"
+                },
                 tirPlan.ImprovementXml.Select(xml =>
                     XElement.Parse(xml).Element("improvementttype")!.Value).ToArray());
             CollectionAssert.AreEqual(
-                new[] { "2", "1", "1" },
+                new[] { "2", "1", "0", "2", "1", "1", "1" },
                 tirPlan.ImprovementXml.Select(xml =>
                     XElement.Parse(xml).Element("val")!.Value).ToArray());
             Assert.AreEqual(ComputerSkillId, tirPlan.EffectProvenance[0].TargetBinding!.SourceId);
             Assert.IsNull(tirPlan.EffectProvenance[1].TargetBinding);
-            Assert.AreEqual(EtiquetteSkillId, tirPlan.EffectProvenance[2].TargetBinding!.SourceId);
+            Assert.IsTrue(tirPlan.EffectProvenance.Skip(2).Take(4).All(effect =>
+                effect.TargetBinding?.SourceId == "FreeKnowledgeSkills"
+                && effect.TargetBinding.SourceDigest == tir.SourceDigest));
+            Assert.AreEqual(EtiquetteSkillId, tirPlan.EffectProvenance[6].TargetBinding!.SourceId);
             Assert.IsTrue(tirPlan.ImprovementXml.All(xml =>
                 XElement.Parse(xml).Element("sourcename")!.Value == tirPlan.QualityId));
 
@@ -848,13 +1043,17 @@ public sealed class CharacterCreationFoundationDraftApplyAuthorityTests
                 versionBonusXml:
                     "<skilllevel><name>Computer</name></skilllevel>"
                     + "<skilllevel><name>Etiquette</name></skilllevel>"
-                    + "<skilllevel><name>Software</name><val>2</val></skilllevel>",
+                    + "<skilllevel><name>Software</name><val>2</val></skilllevel>"
+                    + "<knowledgeskilllevel><name>Mathematics</name>"
+                    + "<group>Academic</group><val>5</val></knowledgeskilllevel>",
                 moduleBonusXml:
                     "<attributelevel><name>LOG</name></attributelevel>"
                     + "<attributelevel><name>WIL</name></attributelevel>"
                     + "<skilllevel><name>Computer</name></skilllevel>"
                     + "<skilllevel><name>Perception</name></skilllevel>"
-                    + "<skilllevel><name>Etiquette</name></skilllevel>");
+                    + "<skilllevel><name>Etiquette</name></skilllevel>"
+                    + "<knowledgeskilllevel><name>Mathematics</name>"
+                    + "<group>Academic</group><val>4</val></knowledgeskilllevel>");
             CharacterCreationFoundationEffectWritePlanResult stateResult =
                 CharacterCreationFoundationLifeModuleQualityWritePlanner.Build(
                     state.WorkspaceId,
@@ -870,12 +1069,12 @@ public sealed class CharacterCreationFoundationDraftApplyAuthorityTests
 
             Assert.IsTrue(stateResult.IsReady, string.Join(",", stateResult.Blockers));
             CharacterCreationFoundationEffectWritePlan statePlan = stateResult.Plan!;
-            Assert.HasCount(8, statePlan.ImprovementXml);
+            Assert.HasCount(10, statePlan.ImprovementXml);
             CollectionAssert.AreEqual(
                 new[]
                 {
-                    "Computer", "Etiquette", "Software", "LOG", "WIL",
-                    "Computer", "Perception", "Etiquette"
+                    "Computer", "Etiquette", "Software", "", "LOG", "WIL",
+                    "Computer", "Perception", "Etiquette", ""
                 },
                 statePlan.ImprovementXml.Select(xml =>
                     XElement.Parse(xml).Element("improvedname")!.Value).ToArray());
@@ -885,6 +1084,8 @@ public sealed class CharacterCreationFoundationDraftApplyAuthorityTests
                     CharacterCreationFoundationEffectSourcePhases.Version,
                     CharacterCreationFoundationEffectSourcePhases.Version,
                     CharacterCreationFoundationEffectSourcePhases.Version,
+                    CharacterCreationFoundationEffectSourcePhases.Version,
+                    CharacterCreationFoundationEffectSourcePhases.Module,
                     CharacterCreationFoundationEffectSourcePhases.Module,
                     CharacterCreationFoundationEffectSourcePhases.Module,
                     CharacterCreationFoundationEffectSourcePhases.Module,
@@ -901,10 +1102,19 @@ public sealed class CharacterCreationFoundationDraftApplyAuthorityTests
                 statePlan.EffectProvenance[0].TargetBinding!.SourceId);
             Assert.AreEqual(
                 ComputerSkillId,
-                statePlan.EffectProvenance[5].TargetBinding!.SourceId);
+                statePlan.EffectProvenance[6].TargetBinding!.SourceId);
             Assert.AreNotEqual(
                 statePlan.EffectProvenance[0].InstructionDigest,
-                statePlan.EffectProvenance[5].InstructionDigest);
+                statePlan.EffectProvenance[6].InstructionDigest);
+            Assert.AreEqual(2, statePlan.ImprovementXml.Count(xml =>
+                XElement.Parse(xml).Element("improvementttype")!.Value
+                == "FreeKnowledgeSkills"));
+            Assert.AreNotEqual(
+                statePlan.EffectProvenance[3].InstructionDigest,
+                statePlan.EffectProvenance[9].InstructionDigest);
+            Assert.IsTrue(new[] { 3, 9 }.All(index =>
+                statePlan.EffectProvenance[index].TargetBinding?.SourceId
+                == "FreeKnowledgeSkills"));
             Assert.IsTrue(statePlan.ImprovementXml.All(xml =>
                 XElement.Parse(xml).Element("sourcename")!.Value == statePlan.QualityId));
             Assert.AreEqual(
@@ -1048,6 +1258,191 @@ public sealed class CharacterCreationFoundationDraftApplyAuthorityTests
                     "Chocolate",
                     skillsXml,
                     CanonicalSkillsDigest);
+            Assert.IsFalse(mismatchResult.IsReady);
+            Assert.IsNull(mismatchResult.Plan);
+            CollectionAssert.Contains(
+                mismatchResult.Blockers.ToList(),
+                CharacterCreationFoundationBlockers.FinalizationEffectLedgerConflict);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public void Knowledge_skill_pool_plan_preserves_decimal_and_metadata_and_fails_closed()
+    {
+        string directory = CreateTempDirectory();
+        try
+        {
+            LevelWritePlanFixture literal = CreateLevelWritePlanFixture(
+                Path.Combine(directory, "literal"),
+                "literal-knowledge-pool-plan",
+                TirModuleId,
+                "Tír Tairngire",
+                "Nationality",
+                15,
+                "67",
+                TirHumanElfVersionId,
+                "Elves/Humans",
+                "<knowledgeskilllevel><name>Agriculture</name>"
+                + "<group>Professional</group><spec>Urban Agriculture</spec>"
+                + "<val> 2.50 </val></knowledgeskilllevel>",
+                "<knowledgeskilllevel><name>Agriculture</name>"
+                + "<group>Professional</group></knowledgeskilllevel>");
+            CharacterCreationFoundationEffectWritePlanResult literalResult =
+                CharacterCreationFoundationLifeModuleQualityWritePlanner.Build(
+                    literal.WorkspaceId,
+                    RulesetDefaults.Sr5,
+                    literal.Ledger,
+                    literal.Module,
+                    literal.Version,
+                    literal.EffectiveSourceXml,
+                    literal.SourceDigest,
+                    "Chocolate");
+
+            Assert.IsTrue(literalResult.IsReady, string.Join(",", literalResult.Blockers));
+            CharacterCreationFoundationEffectWritePlan plan = literalResult.Plan!;
+            Assert.HasCount(2, plan.ImprovementXml);
+            CollectionAssert.AreEqual(
+                new[] { "", "" },
+                plan.ImprovementXml.Select(xml =>
+                    XElement.Parse(xml).Element("improvedname")!.Value).ToArray());
+            CollectionAssert.AreEqual(
+                new[] { "2.50", "1" },
+                plan.ImprovementXml.Select(xml =>
+                    XElement.Parse(xml).Element("val")!.Value).ToArray());
+            Assert.IsTrue(plan.ImprovementXml.All(xml =>
+                XElement.Parse(xml).Element("improvementttype")!.Value
+                == "FreeKnowledgeSkills"));
+            Assert.IsTrue(plan.ImprovementXml.All(xml =>
+            {
+                XElement improvement = XElement.Parse(xml);
+                return improvement.Element("sourcename")!.Value == plan.QualityId
+                       && improvement.Element("improvementsource")!.Value == "Quality"
+                       && improvement.Element("rating")!.Value == "1"
+                       && improvement.Element("order")!.Value == "0"
+                       && improvement.Element("unique") is null;
+            }));
+            Assert.IsTrue(plan.EffectProvenance.All(effect =>
+                effect.TargetBinding?.TargetKind == "free-knowledge-skill-pool"
+                && effect.TargetBinding.SourceId == "FreeKnowledgeSkills"
+                && effect.TargetBinding.SourceDigest == literal.SourceDigest));
+            Assert.AreEqual(
+                "Agriculture",
+                plan.EffectProvenance[0]
+                    .IgnoredSourceMetadata["legacy-ignored-literal-name"]);
+            Assert.AreEqual(
+                "Professional",
+                plan.EffectProvenance[0]
+                    .IgnoredSourceMetadata["legacy-ignored-literal-group"]);
+            Assert.AreEqual(
+                "Urban Agriculture",
+                plan.EffectProvenance[0]
+                    .IgnoredSourceMetadata["legacy-ignored-literal-spec"]);
+            Assert.AreNotEqual(
+                plan.EffectProvenance[0].InstructionDigest,
+                plan.EffectProvenance[1].InstructionDigest);
+            Assert.AreEqual(
+                2.50m,
+                CharacterCreationFoundationEffectCompiler
+                    .ParseLegacyKnowledgeSkillLevelValue(" 2.50 "));
+            Assert.AreEqual(
+                1m,
+                CharacterCreationFoundationEffectCompiler
+                    .ParseLegacyKnowledgeSkillLevelValue(null));
+            Assert.AreEqual(
+                0m,
+                CharacterCreationFoundationEffectCompiler
+                    .ParseLegacyKnowledgeSkillLevelValue("Rating"));
+
+            string[] rejectedEffects =
+            [
+                "<knowledgeskilllevel name=\"History\" />",
+                "<knowledgeskilllevel><name /></knowledgeskilllevel>",
+                "<knowledgeskilllevel><val>2</val></knowledgeskilllevel>",
+                "<knowledgeskilllevel><name>History</name><name>Law</name>"
+                + "</knowledgeskilllevel>",
+                "<knowledgeskilllevel><name>History</name><val>1</val><val>2</val>"
+                + "</knowledgeskilllevel>",
+                "<knowledgeskilllevel><name>History</name><val /></knowledgeskilllevel>",
+                "<knowledgeskilllevel><name>History</name><val>Rating</val>"
+                + "</knowledgeskilllevel>",
+                "<knowledgeskilllevel><name>History</name><unknown>2</unknown>"
+                + "</knowledgeskilllevel>",
+                "<knowledgeskilllevel><name>[Any]</name><group>Academic</group>"
+                + "</knowledgeskilllevel>",
+                "<knowledgeskilllevel><name>Area Knowledge: [City]</name>"
+                + "<group>Street</group></knowledgeskilllevel>",
+                "<knowledgeskilllevel><options><history>History</history></options>"
+                + "<group>Academic</group></knowledgeskilllevel>",
+                "<knowledgeskilllevel><selectskill knowledgeskills=\"true\" />"
+                + "</knowledgeskilllevel>",
+                "<knowledgeskilllevel><name>History</name><group><options>"
+                + "<academic>Academic</academic></options></group></knowledgeskilllevel>",
+                "<knowledgeskilllevel xmlns=\"urn:unsupported\"><name>History</name>"
+                + "</knowledgeskilllevel>"
+            ];
+            for (int index = 0; index < rejectedEffects.Length; index++)
+            {
+                LevelWritePlanFixture rejected = CreateLevelWritePlanFixture(
+                    Path.Combine(directory, $"rejected-knowledge-{index}"),
+                    $"rejected-knowledge-{index}",
+                    TirModuleId,
+                    "Tír Tairngire",
+                    "Nationality",
+                    15,
+                    "67",
+                    TirHumanElfVersionId,
+                    "Elves/Humans",
+                    rejectedEffects[index],
+                    string.Empty);
+                CharacterCreationFoundationEffectWritePlanResult rejectedResult =
+                    CharacterCreationFoundationLifeModuleQualityWritePlanner.Build(
+                        rejected.WorkspaceId,
+                        RulesetDefaults.Sr5,
+                        rejected.Ledger,
+                        rejected.Module,
+                        rejected.Version,
+                        rejected.EffectiveSourceXml,
+                        rejected.SourceDigest,
+                        "Chocolate");
+                Assert.IsFalse(rejectedResult.IsReady, rejectedEffects[index]);
+                Assert.IsNull(rejectedResult.Plan, rejectedEffects[index]);
+                if (index is >= 8 and <= 12)
+                {
+                    Assert.IsTrue(
+                        rejectedResult.Blockers.Contains(
+                            CharacterCreationFoundationBlockers.FinalizationPromptRequired),
+                        rejectedEffects[index]);
+                }
+            }
+
+            CharacterCreationFoundationDraftLedger mismatchedLedger = literal.Ledger with
+            {
+                ProjectedEffects = literal.Ledger.ProjectedEffects
+                    .Select((effect, index) => index == 0
+                        ? effect with { TargetId = "Law" }
+                        : effect)
+                    .ToArray(),
+                DraftDigest = string.Empty
+            };
+            mismatchedLedger = mismatchedLedger with
+            {
+                DraftDigest = CharacterCreationFoundationDraftLedgerIntegrity.ComputeDigest(
+                    mismatchedLedger)
+            };
+            CharacterCreationFoundationEffectWritePlanResult mismatchResult =
+                CharacterCreationFoundationLifeModuleQualityWritePlanner.Build(
+                    literal.WorkspaceId,
+                    RulesetDefaults.Sr5,
+                    mismatchedLedger,
+                    literal.Module,
+                    literal.Version,
+                    literal.EffectiveSourceXml,
+                    literal.SourceDigest,
+                    "Chocolate");
             Assert.IsFalse(mismatchResult.IsReady);
             Assert.IsNull(mismatchResult.Plan);
             CollectionAssert.Contains(

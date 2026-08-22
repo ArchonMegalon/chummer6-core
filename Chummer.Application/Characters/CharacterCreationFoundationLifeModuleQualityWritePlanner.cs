@@ -20,7 +20,7 @@ internal static class CharacterCreationFoundationLifeModuleQualityWritePlanner
     private const string PlanSchema =
         "chummer.character_creation_foundation_lifemodule_quality_write_plan.v2";
     private const string WriterSemantics =
-        "chummer5-quality-create-save-5.225.0;attributelevel-and-digest-bound-skilllevel-int32-any-default1-create-save;one-quality-ordered-distinct-improvements;deterministic-quality-uuidv8;no-partial-apply";
+        "chummer5-quality-create-save-5.225.0;attributelevel-and-digest-bound-skilllevel-int32-any-default1-plus-digest-bound-free-knowledge-pool-decimal-any-default1-create-save;one-quality-ordered-distinct-improvements;deterministic-quality-uuidv8;no-partial-apply";
 
     private static readonly IReadOnlySet<string> s_AllowedSourceChildren =
         new HashSet<string>(
@@ -395,12 +395,28 @@ internal static class CharacterCreationFoundationLifeModuleQualityWritePlanner
             instruction.EffectKind,
             "skilllevel",
             StringComparison.Ordinal);
-        int parsedValue = isSkillLevel
-            ? CharacterCreationFoundationEffectCompiler.ParseLegacySkillLevelValue(rawValue)
-            : CharacterCreationFoundationEffectCompiler.ParseLegacyAttributeLevelValue(rawValue);
-        string improvedName = isSkillLevel
-            ? instruction.TargetBinding!.CanonicalName
-            : instruction.TargetId;
+        bool isKnowledgeSkillLevel = string.Equals(
+            instruction.EffectKind,
+            "knowledgeskilllevel",
+            StringComparison.Ordinal);
+        string parsedValue = isKnowledgeSkillLevel
+            ? CharacterCreationFoundationEffectCompiler
+                .ParseLegacyKnowledgeSkillLevelValue(rawValue)
+                .ToString(CultureInfo.InvariantCulture)
+            : (isSkillLevel
+                ? CharacterCreationFoundationEffectCompiler.ParseLegacySkillLevelValue(rawValue)
+                : CharacterCreationFoundationEffectCompiler.ParseLegacyAttributeLevelValue(rawValue))
+                .ToString(CultureInfo.InvariantCulture);
+        string improvedName = isKnowledgeSkillLevel
+            ? string.Empty
+            : isSkillLevel
+                ? instruction.TargetBinding!.CanonicalName
+                : instruction.TargetId;
+        string improvementType = isKnowledgeSkillLevel
+            ? "FreeKnowledgeSkills"
+            : isSkillLevel
+                ? "SkillLevel"
+                : "Attributelevel";
         return new XElement(
             "improvement",
             new XElement("target", string.Empty),
@@ -410,11 +426,11 @@ internal static class CharacterCreationFoundationLifeModuleQualityWritePlanner
             new XElement("max", "0"),
             new XElement("aug", "0"),
             new XElement("augmax", "0"),
-            new XElement("val", parsedValue.ToString(CultureInfo.InvariantCulture)),
+            new XElement("val", parsedValue),
             new XElement("rating", "1"),
             new XElement("exclude", string.Empty),
             new XElement("condition", string.Empty),
-            new XElement("improvementttype", isSkillLevel ? "SkillLevel" : "Attributelevel"),
+            new XElement("improvementttype", improvementType),
             new XElement("improvementsource", "Quality"),
             new XElement("custom", "False"),
             new XElement("customname", string.Empty),

@@ -236,10 +236,11 @@ public sealed record CharacterCreationFoundationEffectInstruction(
     string InstructionDigest)
 {
     /// <summary>
-    /// Exact source-data identity used when an effect targets a catalog entity.
-    /// The legacy character XML stores the canonical English name, while this
-    /// binding prevents a translated, ambiguous, or stale projection from
-    /// authorizing the write plan.
+    /// Exact source-data or runtime-domain identity used when an effect targets
+    /// a catalog entity or a typed aggregate such as the free knowledge-skill
+    /// pool. The legacy character XML may store a canonical English name or an
+    /// empty improved name; this binding prevents an ambiguous or stale
+    /// projection from authorizing the write plan.
     /// </summary>
     public CharacterCreationFoundationEffectTargetBinding? TargetBinding { get; init; }
 
