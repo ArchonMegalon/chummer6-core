@@ -12,10 +12,12 @@
   <ItemGroup>
     <Compile Include="..\Chummer.Tests\SessionActionBudgetServiceTests.cs" Link="SessionActionBudgetServiceTests.cs" />
     <Compile Include="..\Chummer.Tests\CalculationReportServiceTests.cs" Link="CalculationReportServiceTests.cs" />
+    <Compile Include="..\Chummer.Tests\LifeModulesServiceTests.cs" Link="LifeModulesServiceTests.cs" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\Chummer.Application\Chummer.Application.csproj" />
     <ProjectReference Include="..\Chummer.Contracts\Chummer.Contracts.csproj" />
+    <ProjectReference Include="..\Chummer.Infrastructure\Chummer.Infrastructure.csproj" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="MSTest" Version="4.0.2" />

@@ -2,7 +2,12 @@ namespace Chummer.Contracts.LifeModules;
 
 public sealed record LifeModuleStageDto(
     int Order,
-    string Name);
+    string Name)
+{
+    public bool IsRequired => LifeModuleJourneyStageOrders.Required.Contains(Order);
+
+    public bool CanRepeat => Order == LifeModuleJourneyStageOrders.RealLife;
+}
 
 public sealed record LifeModuleSummaryDto(
     string Id,
@@ -36,7 +41,12 @@ public sealed record LifeModuleRequirementProjectionDto(
     bool IsMet,
     string? DisableReasonKey,
     IReadOnlyDictionary<string, string> DisableReasonArguments,
-    IReadOnlyList<string> SourceAnchorIds);
+    IReadOnlyList<string> SourceAnchorIds,
+    string Operator,
+    string SubjectKind,
+    IReadOnlyList<string> AcceptedValues,
+    string RawXml,
+    bool RequiresCharacterAuthority);
 
 public sealed record LifeModuleEffectProjectionDto(
     string EffectId,
@@ -46,14 +56,19 @@ public sealed record LifeModuleEffectProjectionDto(
     string? AfterValue,
     string? BudgetId,
     decimal BudgetDelta,
-    IReadOnlyList<string> SourceAnchorIds);
+    IReadOnlyList<string> SourceAnchorIds,
+    IReadOnlyDictionary<string, string> Parameters,
+    string RawXml,
+    bool IsFullyTyped,
+    string? AuthorityBlocker);
 
 public sealed record LifeModuleFollowUpOptionDto(
     string OptionId,
     string Label,
     bool IsEnabled,
     string? DisableReasonKey,
-    IReadOnlyDictionary<string, string> DisableReasonArguments);
+    IReadOnlyDictionary<string, string> DisableReasonArguments,
+    string SourceValue);
 
 public sealed record LifeModuleFollowUpPromptDto(
     string PromptId,
@@ -61,7 +76,9 @@ public sealed record LifeModuleFollowUpPromptDto(
     string InputKind,
     bool IsRequired,
     IReadOnlyList<LifeModuleFollowUpOptionDto> Options,
-    IReadOnlyList<string> SourceAnchorIds);
+    IReadOnlyList<string> SourceAnchorIds,
+    string EffectId,
+    string ValuePath);
 
 public sealed record LifeModuleVersionProjectionDto(
     string VersionId,
@@ -70,7 +87,15 @@ public sealed record LifeModuleVersionProjectionDto(
     IReadOnlyList<LifeModuleRequirementProjectionDto> Requirements,
     IReadOnlyList<LifeModuleEffectProjectionDto> Effects,
     IReadOnlyList<LifeModuleFollowUpPromptDto> FollowUps,
-    IReadOnlyList<string> SourceAnchorIds);
+    IReadOnlyList<string> SourceAnchorIds,
+    string StoryTemplate,
+    decimal KarmaCost,
+    string KarmaRaw,
+    bool KarmaIsExact,
+    string Source,
+    int? Page,
+    string PageReference,
+    IReadOnlyList<string> AuthorityBlockers);
 
 public sealed record LifeModuleLegalOptionDto(
     string ModuleId,
@@ -85,7 +110,13 @@ public sealed record LifeModuleLegalOptionDto(
     IReadOnlyList<LifeModuleVersionProjectionDto> Versions,
     IReadOnlyList<LifeModuleEffectProjectionDto> Effects,
     IReadOnlyList<LifeModuleFollowUpPromptDto> FollowUps,
-    IReadOnlyList<string> SourceAnchorIds);
+    IReadOnlyList<string> SourceAnchorIds,
+    string StageId,
+    bool CanRepeat,
+    string KarmaRaw,
+    bool KarmaIsExact,
+    string PageReference,
+    IReadOnlyList<string> AuthorityBlockers);
 
 public sealed record LifeModuleStageProgressDto(
     int StageOrder,

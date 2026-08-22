@@ -7,4 +7,8 @@ public interface ILifeModulesCatalogService
     IReadOnlyList<LifeModuleStageDto> GetStages();
 
     IReadOnlyList<LifeModuleSummaryDto> GetModules(string? stage = null);
+
+    IReadOnlyList<LifeModuleLegalOptionDto> GetOptionProjections(
+        string? stage = null,
+        IReadOnlyCollection<string>? enabledSources = null);
 }
