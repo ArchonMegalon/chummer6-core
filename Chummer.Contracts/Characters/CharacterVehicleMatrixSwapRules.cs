@@ -1,6 +1,3 @@
-using System.Security.Cryptography;
-using System.Text;
-
 namespace Chummer.Contracts.Characters;
 
 public enum CharacterVehicleMatrixSwapPhase { Creation, Career }
@@ -30,7 +27,7 @@ public sealed record CharacterVehicleMatrixSwapState(
 /// </summary>
 public static class CharacterVehicleMatrixSwapRules
 {
-    public const int RevisionHexLength = 64;
+    public const int RevisionHexLength = CharacterMatrixPermutationAuthority.RevisionHexLength;
 
     public static bool TryCreateState(
         CharacterVehicleMatrixSwapIdentity? identity,
@@ -47,12 +44,8 @@ public static class CharacterVehicleMatrixSwapRules
         state = Unavailable();
         if (!IsValidIdentity(identity)
             || string.IsNullOrEmpty(displayName)
-            || string.IsNullOrEmpty(attack)
-            || string.IsNullOrEmpty(sleaze)
-            || string.IsNullOrEmpty(dataProcessing)
-            || string.IsNullOrEmpty(firewall)
-            || string.IsNullOrEmpty(attributeArray)
-            || !canSwapAttributes)
+            || !CharacterMatrixPermutationAuthority.HasExactRawState(
+                attack, sleaze, dataProcessing, firewall, attributeArray, canSwapAttributes))
         {
             return false;
         }
@@ -60,12 +53,12 @@ public static class CharacterVehicleMatrixSwapRules
         CharacterVehicleMatrixSwapPhase phase = created
             ? CharacterVehicleMatrixSwapPhase.Career
             : CharacterVehicleMatrixSwapPhase.Creation;
-        var provenance = new CharacterVehicleMatrixSwapProvenance(attributeArray, true);
+        var provenance = new CharacterVehicleMatrixSwapProvenance(attributeArray!, true);
         var economics = new CharacterVehicleMatrixSwapEconomics(0m, 0);
         state = new CharacterVehicleMatrixSwapState(
-            identity!, displayName, phase, attack, sleaze, dataProcessing, firewall,
+            identity!, displayName, phase, attack!, sleaze!, dataProcessing!, firewall!,
             provenance, economics,
-            CalculateRevision(identity!, phase, attack, sleaze, dataProcessing, firewall, provenance));
+            CalculateRevision(identity!, phase, attack!, sleaze!, dataProcessing!, firewall!, provenance));
         return true;
     }
 
@@ -75,15 +68,13 @@ public static class CharacterVehicleMatrixSwapRules
         CharacterVehicleMatrixStat changedAttribute,
         CharacterVehicleMatrixStat targetAttribute)
         => current is not null
-            && current.Provenance.CanSwapAttributes
-            && !string.IsNullOrEmpty(current.Provenance.AttributeArray)
             && current.Economics is { NuyenDelta: 0m, KarmaDelta: 0 }
             && IsDefined(changedAttribute)
             && IsDefined(targetAttribute)
             && changedAttribute != targetAttribute
-            && expectedRevision is { Length: RevisionHexLength }
-            && string.Equals(current.Revision, expectedRevision, StringComparison.Ordinal)
-            && !string.Equals(Read(current, changedAttribute), Read(current, targetAttribute), StringComparison.Ordinal);
+            && CharacterMatrixPermutationAuthority.TryValidatePermutation(
+                current.Revision, expectedRevision, Read(current, changedAttribute), Read(current, targetAttribute),
+                current.Provenance.AttributeArray, current.Provenance.CanSwapAttributes);
 
     public static bool RequiresMatrixInitiativeNotification(
         CharacterVehicleMatrixStat changedAttribute,
@@ -127,10 +118,9 @@ public static class CharacterVehicleMatrixSwapRules
         string firewall,
         CharacterVehicleMatrixSwapProvenance provenance)
     {
-        string payload = string.Join("\0", identity.VehicleId.ToString("D"), phase.ToString(),
-            attack, sleaze, dataProcessing, firewall, provenance.AttributeArray,
-            provenance.CanSwapAttributes ? "1" : "0");
-        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(payload))).ToLowerInvariant();
+        return CharacterMatrixPermutationAuthority.CalculateRevision(
+            identity.VehicleId, phase.ToString(), attack, sleaze, dataProcessing, firewall,
+            provenance.AttributeArray, provenance.CanSwapAttributes);
     }
 
     private static CharacterVehicleMatrixSwapState Unavailable() => new(
