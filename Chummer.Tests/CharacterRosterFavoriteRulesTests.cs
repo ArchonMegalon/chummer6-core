@@ -40,7 +40,7 @@ public sealed class CharacterRosterFavoriteRulesTests
 
         InvalidOperationException error = Assert.Throws<InvalidOperationException>(
             () => CharacterRosterFavoriteRules.Apply(CharacterRosterFavoriteState.Empty, stale))!;
-        StringAssert.Contains("expected 4", error.Message);
+        StringAssert.Contains(error.Message, "expected 4");
     }
 
     [TestMethod]
@@ -61,13 +61,13 @@ public sealed class CharacterRosterFavoriteRulesTests
         CollectionAssert.AreEqual(
             new[] { favoriteAlpha.Locator, favoriteZed.Locator },
             favoritesSorted.Favorites.Select(item => item.Locator).ToArray());
-        CollectionAssert.AreEqual(initial.Recent, favoritesSorted.Recent);
+        CollectionAssert.AreEqual(initial.Recent.ToArray(), favoritesSorted.Recent.ToArray());
         Assert.AreEqual(8, favoritesSorted.Revision);
 
         CharacterRosterFavoriteState recentSorted = CharacterRosterFavoriteRules.ApplySort(
             favoritesSorted,
             new CharacterRosterSortMutation(CharacterRosterSortTarget.Recent, ExpectedRevision: 8));
-        CollectionAssert.AreEqual(favoritesSorted.Favorites, recentSorted.Favorites);
+        CollectionAssert.AreEqual(favoritesSorted.Favorites.ToArray(), recentSorted.Favorites.ToArray());
         CollectionAssert.AreEqual(
             new[] { recentBravo.Locator, recentYankee.Locator },
             recentSorted.Recent.Select(item => item.Locator).ToArray());
@@ -120,7 +120,7 @@ public sealed class CharacterRosterFavoriteRulesTests
             CharacterRosterFavoriteState recovered = store.Load();
             Assert.AreEqual(1, recovered.Revision);
             Assert.AreEqual("content://runner/zed", recovered.Favorites[0].Locator);
-            StringAssert.DoesNotContain("{broken", File.ReadAllText(primary));
+            Assert.IsFalse(File.ReadAllText(primary).Contains("{broken", StringComparison.Ordinal));
         }
         finally
         {
@@ -150,8 +150,8 @@ public sealed class CharacterRosterFavoriteRulesTests
                 runner,
                 CharacterRosterRemoveTarget.Favorites,
                 ExpectedRevision: 11));
-        CollectionAssert.AreEqual(new[] { otherFavorite }, favoriteRemoved.Favorites);
-        CollectionAssert.AreEqual(initial.Recent, favoriteRemoved.Recent);
+        CollectionAssert.AreEqual(new[] { otherFavorite }, favoriteRemoved.Favorites.ToArray());
+        CollectionAssert.AreEqual(initial.Recent.ToArray(), favoriteRemoved.Recent.ToArray());
         Assert.AreEqual(12, favoriteRemoved.Revision);
 
         CharacterRosterFavoriteState recentRemoved = CharacterRosterFavoriteRules.ApplyRemove(
@@ -160,8 +160,8 @@ public sealed class CharacterRosterFavoriteRulesTests
                 runner,
                 CharacterRosterRemoveTarget.Recent,
                 ExpectedRevision: 12));
-        CollectionAssert.AreEqual(favoriteRemoved.Favorites, recentRemoved.Favorites);
-        CollectionAssert.AreEqual(new[] { otherRecent }, recentRemoved.Recent);
+        CollectionAssert.AreEqual(favoriteRemoved.Favorites.ToArray(), recentRemoved.Favorites.ToArray());
+        CollectionAssert.AreEqual(new[] { otherRecent }, recentRemoved.Recent.ToArray());
         Assert.AreEqual(13, recentRemoved.Revision);
     }
 
@@ -223,7 +223,7 @@ public sealed class CharacterRosterFavoriteRulesTests
             Assert.AreEqual(1, recovered.Revision);
             Assert.AreEqual(runner, recovered.Favorites.Single());
             Assert.AreEqual(runner, recovered.Recent.Single());
-            StringAssert.DoesNotContain("{broken", File.ReadAllText(primary));
+            Assert.IsFalse(File.ReadAllText(primary).Contains("{broken", StringComparison.Ordinal));
         }
         finally
         {
@@ -256,7 +256,7 @@ public sealed class CharacterRosterFavoriteRulesTests
             CharacterRosterFavoriteState recovered = store.Load();
             Assert.AreEqual(1, recovered.Revision);
             Assert.AreEqual("Alpha", recovered.Favorites.Single().DisplayName);
-            StringAssert.DoesNotContain("{broken", File.ReadAllText(primary));
+            Assert.IsFalse(File.ReadAllText(primary).Contains("{broken", StringComparison.Ordinal));
         }
         finally
         {

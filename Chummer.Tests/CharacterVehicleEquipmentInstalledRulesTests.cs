@@ -37,15 +37,20 @@ public sealed class CharacterVehicleEquipmentInstalledRulesTests
     [TestMethod]
     public void Legacy_enable_rules_are_exact_for_all_four_kinds()
     {
-        AssertState(Identity(new(CharacterVehicleEquipmentNodeKind.WeaponMount, MountId)),
+        AssertState(Identity(new CharacterVehicleEquipmentPathSegment(
+                CharacterVehicleEquipmentNodeKind.WeaponMount, MountId)),
             new(true, string.Empty, null, true), legacyEnabled: false, mutationExact: true);
-        AssertState(Identity(new(CharacterVehicleEquipmentNodeKind.VehicleMod, ModId)),
+        AssertState(Identity(new CharacterVehicleEquipmentPathSegment(
+                CharacterVehicleEquipmentNodeKind.VehicleMod, ModId)),
             new(false, string.Empty, null, false), legacyEnabled: true, mutationExact: false);
-        AssertState(Identity(new(CharacterVehicleEquipmentNodeKind.Weapon, WeaponId)),
+        AssertState(Identity(new CharacterVehicleEquipmentPathSegment(
+                CharacterVehicleEquipmentNodeKind.Weapon, WeaponId)),
             new(null, VehicleId.ToString("D"), null, true), legacyEnabled: false, mutationExact: true);
-        AssertState(Identity(new(CharacterVehicleEquipmentNodeKind.Weapon, WeaponId)),
+        AssertState(Identity(new CharacterVehicleEquipmentPathSegment(
+                CharacterVehicleEquipmentNodeKind.Weapon, WeaponId)),
             new(null, VehicleId.ToString("D").ToUpperInvariant(), null, true), legacyEnabled: true, mutationExact: true);
-        AssertState(Identity(new(CharacterVehicleEquipmentNodeKind.Weapon, WeaponId)),
+        AssertState(Identity(new CharacterVehicleEquipmentPathSegment(
+                CharacterVehicleEquipmentNodeKind.Weapon, WeaponId)),
             new(null, string.Empty, null, true), legacyEnabled: true, mutationExact: true);
         AssertState(Identity(
                 new(CharacterVehicleEquipmentNodeKind.Weapon, WeaponId),
@@ -76,7 +81,8 @@ public sealed class CharacterVehicleEquipmentInstalledRulesTests
             current, current.Revision, true));
         Assert.IsFalse(CharacterVehicleEquipmentInstalledRules.IsValidIdentity(
             Identity(
-                new(CharacterVehicleEquipmentNodeKind.WeaponAccessory, AccessoryId))));
+                new CharacterVehicleEquipmentPathSegment(
+                    CharacterVehicleEquipmentNodeKind.WeaponAccessory, AccessoryId))));
         Assert.IsFalse(CharacterVehicleEquipmentInstalledRules.IsValidIdentity(
             Identity(
                 new(CharacterVehicleEquipmentNodeKind.Weapon, WeaponId),
