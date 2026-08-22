@@ -478,6 +478,7 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
         int rating,
         string rawSkillType,
         string skillTypeQuery,
+        string rawSkillTypeQuery,
         string improvementKind,
         string selectorTypeSource,
         out CharacterCreationTalentActiveSkillGrantProjection? projection)
@@ -487,7 +488,7 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
             sourceQuantity,
             CharacterCreationTalentSkillGrantTypes.MaximumPromptSlots);
         string skillType = CharacterCreationTalentSkillGrantTypes
-            .NormalizeLegacySelectorType(rawSkillType);
+            .NormalizeLegacySelectorType(rawSkillType, selectorTypeSource);
 
         bool exactXPath = string.Equals(
             skillTypeQuery,
@@ -584,6 +585,7 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
                 improvementKind,
                 rawSkillType,
                 selectorTypeSource,
+                rawSkillTypeQuery,
                 sourceDigest,
                 options.Select(option => option.SelectionId)),
             supported,
@@ -593,6 +595,7 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
             ImprovementKind = improvementKind,
             RawSelectorType = rawSkillType,
             SelectorTypeSource = selectorTypeSource,
+            RawSelectorTypeQuery = rawSkillTypeQuery,
             SkillTypeQuery = skillTypeQuery,
             SpecificSkillChoiceNames = specificSkillChoiceNames
         };
@@ -712,16 +715,13 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
             return false;
         if (skillValues.Length == 1 && TryReadIntElement(skillValues[0], out rating))
         {
-            if (rating < 0)
-                return false;
             improvementKind = CharacterCreationTalentGrantImprovementKinds.SkillBase;
             return true;
         }
         XElement[] groupValues = talent.Elements("skillgroupval").Take(2).ToArray();
         if (groupValues.Length > 1)
             return false;
-        if (groupValues.Length == 1
-            && TryReadNonNegativeIntElement(groupValues[0], out rating))
+        if (groupValues.Length == 1 && TryReadIntElement(groupValues[0], out rating))
         {
             improvementKind = CharacterCreationTalentGrantImprovementKinds.SkillGroupBase;
             return true;
@@ -773,11 +773,6 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
                                            || !string.Equals(
                                                attribute.Name.LocalName,
                                                "xpath",
-                                               StringComparison.Ordinal)
-                                           || string.IsNullOrWhiteSpace(attribute.Value)
-                                           || !string.Equals(
-                                               attribute.Value,
-                                               attribute.Value.Trim(),
                                                StringComparison.Ordinal)))
         {
             return false;
@@ -790,9 +785,7 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
     private static bool TryReadIntElement(XElement element, out int value)
     {
         value = 0;
-        return !element.HasAttributes
-               && !element.HasElements
-               && string.Equals(element.Value, element.Value.Trim(), StringComparison.Ordinal)
+        return !element.HasElements
                && int.TryParse(
                    element.Value,
                    NumberStyles.Integer,
@@ -841,6 +834,7 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
         string rawSkillGroupType,
         string improvementKind,
         string selectorTypeSource,
+        string rawSkillTypeQuery,
         out CharacterCreationTalentSkillGroupGrantProjection? projection)
     {
         projection = null;
@@ -854,7 +848,7 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
             sourceQuantity,
             CharacterCreationTalentSkillGrantTypes.MaximumPromptSlots);
         string skillGroupType = CharacterCreationTalentSkillGrantTypes
-            .NormalizeLegacySelectorType(rawSkillGroupType);
+            .NormalizeLegacySelectorType(rawSkillGroupType, selectorTypeSource);
 
         var requestedNames = new List<string>();
         var uniqueNames = new HashSet<string>(StringComparer.Ordinal);
@@ -933,6 +927,7 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
                 improvementKind,
                 rawSkillGroupType,
                 selectorTypeSource,
+                rawSkillTypeQuery,
                 sourceDigest,
                 options.Select(option => option.SelectionId)),
             supported,
@@ -942,6 +937,7 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
             ImprovementKind = improvementKind,
             RawSelectorType = rawSkillGroupType,
             SelectorTypeSource = selectorTypeSource,
+            RawSelectorTypeQuery = rawSkillTypeQuery,
             CompatibilityMarker = compatibilityMarker,
             RequestedGroupNames = requestedNames.ToArray()
         };
@@ -1228,6 +1224,7 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
                 ? []
                 : [CharacterCreationPrerequisiteBlockers.TalentSelectionUnsupported];
             string selectionId = $"{prioritySourceId}:talent:{order}";
+            string rawTalentNode = talent.ToString(SaveOptions.DisableFormatting);
             CharacterCreationPriorityTalentOptionProjection projection = new(
                 selectionId,
                 name,
@@ -1237,10 +1234,13 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
                 resonance,
                 depth,
                 qualities,
-                RawDigest(talent.ToString(SaveOptions.DisableFormatting)),
+                CharacterCreationTalentGrantAuthorityDigest.ComputeRawTalentNode(rawTalentNode),
                 IsEnabled: exactMundane,
                 Blockers: blockers,
-                SourceAnchorIds: [$"priorities.xml#priority:{prioritySourceId}:talent:{order}"]);
+                SourceAnchorIds: [$"priorities.xml#priority:{prioritySourceId}:talent:{order}"])
+            {
+                RawTalentNode = rawTalentNode
+            };
             if (!TryReadEffectiveTalentGrantFields(
                     talent,
                     out bool hasGrantPrompt,
@@ -1258,11 +1258,14 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
             if (hasGrantPrompt)
             {
                 string normalizedType = CharacterCreationTalentSkillGrantTypes
-                    .NormalizeLegacySelectorType(rawSkillType);
-                bool groupPicker = string.IsNullOrEmpty(skillTypeQuery)
-                                   && (normalizedType is
-                                       CharacterCreationTalentSkillGrantTypes.Grouped
-                                       or CharacterCreationTalentSkillGrantTypes.Choices);
+                    .NormalizeLegacySelectorType(rawSkillType, selectorTypeSource);
+                string effectiveSkillTypeQuery = normalizedType ==
+                                                 CharacterCreationTalentSkillGrantTypes.XPath
+                    ? skillTypeQuery
+                    : string.Empty;
+                bool groupPicker = normalizedType is
+                    CharacterCreationTalentSkillGrantTypes.Grouped
+                    or CharacterCreationTalentSkillGrantTypes.Choices;
                 bool projectedGrant = groupPicker
                     ? TryProjectSkillGroupGrant(
                         talent,
@@ -1273,6 +1276,7 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
                         rawSkillType,
                         improvementKind,
                         selectorTypeSource,
+                        skillTypeQuery,
                         out skillGroupGrant)
                     : TryProjectActiveSkillGrant(
                         talent,
@@ -1281,6 +1285,7 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
                         sourceQuantity,
                         baseRating,
                         rawSkillType,
+                        effectiveSkillTypeQuery,
                         skillTypeQuery,
                         improvementKind,
                         selectorTypeSource,

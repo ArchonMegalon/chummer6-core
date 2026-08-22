@@ -304,6 +304,11 @@ public sealed class FileSystemCharacterSourceDataResolverTests
                     projectedRow.TalentOptions[index];
                 Assert.AreEqual(rawTalent.Element("name")!.Value, projected.Name);
                 Assert.AreEqual(rawTalent.Element("value")!.Value, projected.Value);
+                string rawTalentNode = rawTalent.ToString(SaveOptions.DisableFormatting);
+                Assert.AreEqual(rawTalentNode, projected.RawTalentNode);
+                Assert.AreEqual(
+                    CharacterCreationTalentGrantAuthorityDigest.ComputeRawTalentNode(rawTalentNode),
+                    projected.PriorityChildNodeDigest);
 
                 XElement? quantityNode = rawTalent.Element("skillqty")
                                          ?? rawTalent.Element("skillgroupqty");
@@ -318,18 +323,20 @@ public sealed class FileSystemCharacterSourceDataResolverTests
                 XElement? typeNode = rawTalent.Element("skilltype")
                                      ?? rawTalent.Element("skillgrouptype");
                 string rawSkillType = typeNode?.Value ?? string.Empty;
-                string skillType = CharacterCreationTalentSkillGrantTypes
-                    .NormalizeLegacySelectorType(rawSkillType);
                 string selectorTypeSource = rawTalent.Element("skilltype") is not null
                     ? CharacterCreationTalentGrantSelectorTypeSources.SkillType
                     : rawTalent.Element("skillgrouptype") is not null
                         ? CharacterCreationTalentGrantSelectorTypeSources.SkillGroupType
                         : CharacterCreationTalentGrantSelectorTypeSources.Missing;
-                string query = typeNode?.Attribute("xpath")?.Value ?? string.Empty;
-                bool groupPicker = string.IsNullOrEmpty(query)
-                                   && (skillType is
-                                       CharacterCreationTalentSkillGrantTypes.Grouped
-                                       or CharacterCreationTalentSkillGrantTypes.Choices);
+                string skillType = CharacterCreationTalentSkillGrantTypes
+                    .NormalizeLegacySelectorType(rawSkillType, selectorTypeSource);
+                string rawQuery = typeNode?.Attribute("xpath")?.Value ?? string.Empty;
+                string query = skillType == CharacterCreationTalentSkillGrantTypes.XPath
+                    ? rawQuery
+                    : string.Empty;
+                bool groupPicker = skillType is
+                    CharacterCreationTalentSkillGrantTypes.Grouped
+                    or CharacterCreationTalentSkillGrantTypes.Choices;
                 bool usesSkillValue = int.TryParse(
                                           rawTalent.Element("skillval")?.Value,
                                           out int effectiveRating)
@@ -359,6 +366,7 @@ public sealed class FileSystemCharacterSourceDataResolverTests
                     Assert.AreEqual(skillType, grant.SkillType);
                     Assert.AreEqual(rawSkillType, grant.RawSelectorType);
                     Assert.AreEqual(selectorTypeSource, grant.SelectorTypeSource);
+                    Assert.AreEqual(rawQuery, grant.RawSelectorTypeQuery);
                     Assert.AreEqual(query, grant.SkillTypeQuery);
                     string[] specificNames = skillType ==
                                              CharacterCreationTalentSkillGrantTypes.Specific
@@ -454,6 +462,7 @@ public sealed class FileSystemCharacterSourceDataResolverTests
                 Assert.AreEqual(improvementKind, groupGrant.ImprovementKind);
                 Assert.AreEqual(rawSkillType, groupGrant.RawSelectorType);
                 Assert.AreEqual(selectorTypeSource, groupGrant.SelectorTypeSource);
+                Assert.AreEqual(rawQuery, groupGrant.RawSelectorTypeQuery);
                 string groupType = skillType;
                 Assert.AreEqual(groupType, groupGrant.SkillGroupType);
                 Assert.AreEqual(
@@ -649,6 +658,8 @@ public sealed class FileSystemCharacterSourceDataResolverTests
                 + TalentGrant("Hybrid Invalid Active Value", "<skillqty>1</skillqty>"
                     + "<skillval>not-a-number</skillval><skillgroupval>5</skillgroupval>"
                     + "<skilltype>magic</skilltype>")
+                + TalentGrant("Whitespace Negative Numeric", "<skillqty> 1 </skillqty>"
+                    + "<skillval> -2 </skillval><skilltype>active</skilltype>")
                 + TalentGrant("Resonance", "<skillqty>3</skillqty><skillval>2</skillval>"
                     + "<skilltype>ReSoNaNcE</skilltype>")
                 + TalentGrant("Matrix", "<skillqty>2</skillqty><skillval>2</skillval>"
@@ -662,6 +673,8 @@ public sealed class FileSystemCharacterSourceDataResolverTests
                     + $"<skilltype xpath=\"{pinnedXPath}\">XpAtH</skilltype>")
                 + TalentGrant("Unknown XPath", "<skillqty>1</skillqty><skillval>2</skillval>"
                     + "<skilltype xpath=\"category = 'Combat Active'\">xpath</skilltype>")
+                + TalentGrant("Empty XPath", "<skillqty>1</skillqty><skillval>2</skillval>"
+                    + "<skilltype xpath=\"\">xpath</skilltype>")
                 + TalentGrant("Default", "<skillqty>1</skillqty><skillval>2</skillval>"
                     + "<skilltype>DeFaUlT</skilltype>")
                 + TalentGrant("Missing Type", "<skillchoices><skill>Arcana</skill></skillchoices>"
@@ -670,6 +683,11 @@ public sealed class FileSystemCharacterSourceDataResolverTests
                     + "<skilltype>active</skilltype>")
                 + TalentGrant("Unknown Active", "<skillqty>1</skillqty><skillval>2</skillval>"
                     + "<skilltype>unknown</skilltype>")
+                + TalentGrant("Unknown Attr Default", "<skillqty>1</skillqty><skillval>2</skillval>"
+                    + "<skilltype xpath=\"category = 'Combat Active'\">unknown</skilltype>")
+                + TalentGrant("Primary Choices", "<skillqty>1</skillqty><skillval>2</skillval>"
+                    + "<skilltype>choices</skilltype><skillgroupchoices>"
+                    + "<skillgroup>Sorcery</skillgroup></skillgroupchoices>")
                 + TalentGrant("Empty Type", "<skillqty>1</skillqty><skillval>2</skillval>"
                     + "<skilltype></skilltype>")
                 + TalentGrant("Whitespace Type", "<skillqty>1</skillqty><skillval>2</skillval>"
@@ -785,6 +803,12 @@ public sealed class FileSystemCharacterSourceDataResolverTests
                 hybridInvalidActiveValue.ImprovementKind,
                 "An unparsable skillval falls back to skillgroupval for persisted authority.");
 
+            CharacterCreationTalentActiveSkillGrantProjection whitespaceNegative = talents.Single(
+                talent => talent.Value == "Whitespace Negative Numeric").ActiveSkillGrant!;
+            Assert.AreEqual(1, whitespaceNegative.Quantity);
+            Assert.AreEqual(-2, whitespaceNegative.BaseRating,
+                "Legacy int.TryParse accepts numeric whitespace and preserves negative ratings.");
+
             CharacterCreationTalentActiveSkillGrantProjection resonance = talents.Single(talent =>
                 talent.Value == "Resonance").ActiveSkillGrant!;
             Assert.IsTrue(resonance.IsSupported, string.Join(",", resonance.Blockers));
@@ -833,6 +857,11 @@ public sealed class FileSystemCharacterSourceDataResolverTests
             CollectionAssert.Contains(
                 unknownXPath.Blockers.ToList(),
                 CharacterCreationPrerequisiteBlockers.TalentSkillGrantAuthorityUnsupported);
+            CharacterCreationTalentActiveSkillGrantProjection emptyXPath = talents.Single(talent =>
+                talent.Value == "Empty XPath").ActiveSkillGrant!;
+            Assert.IsFalse(emptyXPath.IsSupported);
+            Assert.IsEmpty(emptyXPath.Options);
+            Assert.AreEqual(string.Empty, emptyXPath.RawSelectorTypeQuery);
 
             CharacterCreationTalentActiveSkillGrantProjection defaultGrant = talents.Single(talent =>
                 talent.Value == "Default").ActiveSkillGrant!;
@@ -861,6 +890,25 @@ public sealed class FileSystemCharacterSourceDataResolverTests
             Assert.AreEqual(CharacterCreationTalentGrantSelectorTypeSources.SkillType,
                 unknownActive.SelectorTypeSource);
             Assert.AreEqual(emptySpecific.Options.Count, unknownActive.Options.Count);
+            CharacterCreationTalentActiveSkillGrantProjection unknownAttrDefault = talents.Single(
+                talent => talent.Value == "Unknown Attr Default").ActiveSkillGrant!;
+            Assert.IsTrue(unknownAttrDefault.IsSupported,
+                string.Join(",", unknownAttrDefault.Blockers));
+            Assert.AreEqual(CharacterCreationTalentSkillGrantTypes.Default,
+                unknownAttrDefault.SkillType);
+            Assert.AreEqual(string.Empty, unknownAttrDefault.SkillTypeQuery,
+                "A non-XPATH selector ignores its xpath attribute in legacy dispatch.");
+            Assert.AreEqual("category = 'Combat Active'",
+                unknownAttrDefault.RawSelectorTypeQuery);
+
+            CharacterCreationPriorityTalentOptionProjection primaryChoices = talents.Single(
+                talent => talent.Value == "Primary Choices");
+            Assert.IsNull(primaryChoices.SkillGroupGrant,
+                "The repaired choices alias is limited to skillgrouptype provenance.");
+            Assert.AreEqual(CharacterCreationTalentSkillGrantTypes.Default,
+                primaryChoices.ActiveSkillGrant!.SkillType);
+            Assert.IsTrue(primaryChoices.ActiveSkillGrant.IsSupported,
+                string.Join(",", primaryChoices.ActiveSkillGrant.Blockers));
             foreach (string value in new[] { "Empty Type", "Whitespace Type" })
             {
                 CharacterCreationTalentActiveSkillGrantProjection legacyDefault = talents.Single(

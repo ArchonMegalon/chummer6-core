@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Xml;
 using System.Xml.Linq;
 using Chummer.Application.Workspaces;
@@ -653,6 +654,12 @@ public sealed class CharacterCreationPrerequisiteService :
         ICollection<string> blockers)
     {
         int blockerCountBeforeValidation = blockers.Count;
+        if (talent.ActiveSkillGrant is not null && talent.SkillGroupGrant is not null)
+        {
+            blockers.Add(
+                CharacterCreationPrerequisiteBlockers.TalentSkillGrantAuthorityUnsupported);
+            return null;
+        }
         string[] requestedSkills = activeSkillSelectionIds?.ToArray() ?? [];
         string[] requestedGroups = skillGroupSelectionIds?.ToArray() ?? [];
         var activeEntries = new List<CharacterCreationTalentActiveSkillGrantPlanEntry>();
@@ -1114,12 +1121,315 @@ public sealed class CharacterCreationPrerequisiteService :
                && option.SourceAnchorIds is { Count: > 0 }
                && CharacterCreationPrerequisiteAuthorityDigest.IsCanonical(
                    option.PriorityChildNodeDigest)
+               && !(option.ActiveSkillGrant is not null && option.SkillGroupGrant is not null)
+               && HasValidTalentGrantSourceBinding(option)
                && IsValidActiveSkillGrant(option.ActiveSkillGrant, effectiveSkillsInputsDigest)
                && IsValidSkillGroupGrant(option.SkillGroupGrant, effectiveSkillsInputsDigest)
                && (!option.IsEnabled
                    || option.Blockers.Count == 0
                    && option.ActiveSkillGrant is null
                    && option.SkillGroupGrant is null);
+    }
+
+    private static bool HasValidTalentGrantSourceBinding(
+        CharacterCreationPriorityTalentOptionProjection option)
+    {
+        if (string.IsNullOrEmpty(option.RawTalentNode))
+            return option.ActiveSkillGrant is null && option.SkillGroupGrant is null;
+        if (!CharacterCreationPrerequisiteAuthorityDigest.EqualsFixedTime(
+                option.PriorityChildNodeDigest,
+                CharacterCreationTalentGrantAuthorityDigest.ComputeRawTalentNode(
+                    option.RawTalentNode)))
+            return false;
+
+        XElement talent;
+        try
+        {
+            talent = XElement.Parse(option.RawTalentNode, LoadOptions.PreserveWhitespace);
+        }
+        catch (XmlException)
+        {
+            return false;
+        }
+        if (talent.Name.NamespaceName.Length != 0
+            || !string.Equals(talent.Name.LocalName, "talent", StringComparison.Ordinal)
+            || talent.HasAttributes
+            || !TryReadTalentGrantSourceFields(
+                talent,
+                out TalentGrantSourceFields source))
+        {
+            return false;
+        }
+        if (!source.HasPrompt)
+            return option.ActiveSkillGrant is null && option.SkillGroupGrant is null;
+
+        int quantity = Math.Min(
+            source.SourceQuantity,
+            CharacterCreationTalentSkillGrantTypes.MaximumPromptSlots);
+        if (source.UsesGroupPicker)
+        {
+            CharacterCreationTalentSkillGroupGrantProjection? grant = option.SkillGroupGrant;
+            return option.ActiveSkillGrant is null
+                   && grant is not null
+                   && grant.Quantity == quantity
+                   && grant.BaseRating == source.BaseRating
+                   && string.Equals(
+                       grant.ImprovementKind,
+                       source.ImprovementKind,
+                       StringComparison.Ordinal)
+                   && string.Equals(
+                       grant.SkillGroupType,
+                       source.EffectiveSelectorType,
+                       StringComparison.Ordinal)
+                   && string.Equals(
+                       grant.RawSelectorType,
+                       source.RawSelectorType,
+                       StringComparison.Ordinal)
+                   && string.Equals(
+                       grant.SelectorTypeSource,
+                       source.SelectorTypeSource,
+                       StringComparison.Ordinal)
+                   && string.Equals(
+                       grant.RawSelectorTypeQuery,
+                       source.RawSelectorTypeQuery,
+                       StringComparison.Ordinal)
+                   && grant.RequestedGroupNames is not null
+                   && grant.RequestedGroupNames.SequenceEqual(
+                       source.GroupChoiceNames,
+                       StringComparer.Ordinal);
+        }
+
+        CharacterCreationTalentActiveSkillGrantProjection? active = option.ActiveSkillGrant;
+        return option.SkillGroupGrant is null
+               && active is not null
+               && active.Quantity == quantity
+               && active.BaseRating == source.BaseRating
+               && string.Equals(
+                   active.ImprovementKind,
+                   source.ImprovementKind,
+                   StringComparison.Ordinal)
+               && string.Equals(
+                   active.SkillType,
+                   source.EffectiveSelectorType,
+                   StringComparison.Ordinal)
+               && string.Equals(
+                   active.RawSelectorType,
+                   source.RawSelectorType,
+                   StringComparison.Ordinal)
+               && string.Equals(
+                   active.SelectorTypeSource,
+                   source.SelectorTypeSource,
+                   StringComparison.Ordinal)
+               && string.Equals(
+                   active.RawSelectorTypeQuery,
+                   source.RawSelectorTypeQuery,
+                   StringComparison.Ordinal)
+               && string.Equals(
+                   active.SkillTypeQuery,
+                   source.EffectiveSelectorType ==
+                   CharacterCreationTalentSkillGrantTypes.XPath
+                       ? source.RawSelectorTypeQuery
+                       : string.Empty,
+                   StringComparison.Ordinal)
+               && active.SpecificSkillChoiceNames is not null
+               && active.SpecificSkillChoiceNames.SequenceEqual(
+                   source.SpecificSkillChoiceNames,
+                   StringComparer.Ordinal);
+    }
+
+    private static bool TryReadTalentGrantSourceFields(
+        XElement talent,
+        out TalentGrantSourceFields fields)
+    {
+        fields = TalentGrantSourceFields.Empty;
+        if (!TryReadPreferredTalentGrantElement(
+                talent,
+                "skillqty",
+                "skillgroupqty",
+                out XElement? quantity,
+                out _))
+        {
+            return false;
+        }
+        if (quantity is null
+            || !TryReadTalentGrantInteger(quantity, out int sourceQuantity)
+            || sourceQuantity <= 0)
+        {
+            return true;
+        }
+
+        if (!TryReadTalentGrantRating(
+                talent,
+                out int baseRating,
+                out string improvementKind)
+            || !TryReadPreferredTalentGrantElement(
+                talent,
+                "skilltype",
+                "skillgrouptype",
+                out XElement? type,
+                out bool usesSkillType)
+            || !TryReadTalentGrantType(
+                type,
+                out string rawSelectorType,
+                out string rawSelectorTypeQuery))
+        {
+            return false;
+        }
+        string selectorTypeSource = type is null
+            ? CharacterCreationTalentGrantSelectorTypeSources.Missing
+            : usesSkillType
+                ? CharacterCreationTalentGrantSelectorTypeSources.SkillType
+                : CharacterCreationTalentGrantSelectorTypeSources.SkillGroupType;
+        string effectiveSelectorType = CharacterCreationTalentSkillGrantTypes
+            .NormalizeLegacySelectorType(rawSelectorType, selectorTypeSource);
+        bool usesGroupPicker = effectiveSelectorType is
+            CharacterCreationTalentSkillGrantTypes.Grouped
+            or CharacterCreationTalentSkillGrantTypes.Choices;
+        if (!TryReadTalentGrantChoiceNames(
+                talent,
+                usesGroupPicker ? "skillgroupchoices" : "skillchoices",
+                usesGroupPicker ? "skillgroup" : "skill",
+                shouldRead: usesGroupPicker
+                            || effectiveSelectorType ==
+                            CharacterCreationTalentSkillGrantTypes.Specific,
+                out string[] choiceNames))
+        {
+            return false;
+        }
+        fields = new TalentGrantSourceFields(
+            HasPrompt: true,
+            SourceQuantity: sourceQuantity,
+            BaseRating: baseRating,
+            ImprovementKind: improvementKind,
+            EffectiveSelectorType: effectiveSelectorType,
+            RawSelectorType: rawSelectorType,
+            SelectorTypeSource: selectorTypeSource,
+            RawSelectorTypeQuery: rawSelectorTypeQuery,
+            UsesGroupPicker: usesGroupPicker,
+            SpecificSkillChoiceNames: usesGroupPicker ? [] : choiceNames,
+            GroupChoiceNames: usesGroupPicker ? choiceNames : []);
+        return true;
+    }
+
+    private static bool TryReadPreferredTalentGrantElement(
+        XElement parent,
+        string primaryName,
+        string fallbackName,
+        out XElement? element,
+        out bool usedPrimary)
+    {
+        usedPrimary = false;
+        XElement[] primary = parent.Elements(primaryName).Take(2).ToArray();
+        if (primary.Length > 1)
+        {
+            element = null;
+            return false;
+        }
+        if (primary.Length == 1)
+        {
+            element = primary[0];
+            usedPrimary = true;
+            return true;
+        }
+        XElement[] fallback = parent.Elements(fallbackName).Take(2).ToArray();
+        element = fallback.SingleOrDefault();
+        return fallback.Length <= 1;
+    }
+
+    private static bool TryReadTalentGrantRating(
+        XElement talent,
+        out int rating,
+        out string improvementKind)
+    {
+        rating = 0;
+        improvementKind = string.Empty;
+        XElement[] active = talent.Elements("skillval").Take(2).ToArray();
+        if (active.Length > 1)
+            return false;
+        if (active.Length == 1 && TryReadTalentGrantInteger(active[0], out rating))
+        {
+            improvementKind = CharacterCreationTalentGrantImprovementKinds.SkillBase;
+            return true;
+        }
+        XElement[] grouped = talent.Elements("skillgroupval").Take(2).ToArray();
+        if (grouped.Length > 1)
+            return false;
+        if (grouped.Length == 1 && TryReadTalentGrantInteger(grouped[0], out rating))
+        {
+            improvementKind = CharacterCreationTalentGrantImprovementKinds.SkillGroupBase;
+            return true;
+        }
+        return false;
+    }
+
+    private static bool TryReadTalentGrantInteger(XElement element, out int value)
+    {
+        value = 0;
+        return !element.HasElements
+               && int.TryParse(
+                   element.Value,
+                   NumberStyles.Integer,
+                   CultureInfo.InvariantCulture,
+                   out value);
+    }
+
+    private static bool TryReadTalentGrantType(
+        XElement? element,
+        out string rawSelectorType,
+        out string rawSelectorTypeQuery)
+    {
+        rawSelectorType = string.Empty;
+        rawSelectorTypeQuery = string.Empty;
+        if (element is null)
+            return true;
+        XAttribute[] attributes = element.Attributes().Take(2).ToArray();
+        if (element.HasElements
+            || attributes.Length > 1
+            || attributes.Any(attribute => attribute.Name.NamespaceName.Length != 0
+                                           || !string.Equals(
+                                               attribute.Name.LocalName,
+                                               "xpath",
+                                               StringComparison.Ordinal)))
+        {
+            return false;
+        }
+        rawSelectorType = element.Value;
+        rawSelectorTypeQuery = attributes.SingleOrDefault()?.Value ?? string.Empty;
+        return true;
+    }
+
+    private static bool TryReadTalentGrantChoiceNames(
+        XElement talent,
+        string containerName,
+        string childName,
+        bool shouldRead,
+        out string[] names)
+    {
+        names = [];
+        if (!shouldRead)
+            return true;
+        XElement[] containers = talent.Elements(containerName).Take(2).ToArray();
+        if (containers.Length > 1 || containers.Any(container => container.HasAttributes))
+            return false;
+        var projected = new List<string>();
+        var unique = new HashSet<string>(StringComparer.Ordinal);
+        foreach (XElement choice in containers.SingleOrDefault()?.Elements()
+                 ?? Enumerable.Empty<XElement>())
+        {
+            if (choice.Name.NamespaceName.Length != 0
+                || !string.Equals(choice.Name.LocalName, childName, StringComparison.Ordinal)
+                || choice.HasAttributes
+                || choice.HasElements
+                || string.IsNullOrWhiteSpace(choice.Value)
+                || !string.Equals(choice.Value, choice.Value.Trim(), StringComparison.Ordinal)
+                || !unique.Add(choice.Value))
+            {
+                return false;
+            }
+            projected.Add(choice.Value);
+        }
+        names = projected.ToArray();
+        return true;
     }
 
     private static bool IsValidActiveSkillGrant(
@@ -1131,7 +1441,6 @@ public sealed class CharacterCreationPrerequisiteService :
         return CharacterCreationPrerequisiteAuthorityDigest.IsCanonical(effectiveSkillsInputsDigest)
                && grant.Quantity > 0
                && grant.Quantity <= CharacterCreationTalentSkillGrantTypes.MaximumPromptSlots
-               && grant.BaseRating >= 0
                && IsValidTalentGrantImprovementKind(grant.ImprovementKind)
                && IsNormalizedLowerToken(grant.SkillType)
                && HasValidTalentGrantSelectorTypeProvenance(
@@ -1139,9 +1448,12 @@ public sealed class CharacterCreationPrerequisiteService :
                    grant.RawSelectorType,
                    grant.SelectorTypeSource)
                && grant.SkillTypeQuery is not null
+               && grant.RawSelectorTypeQuery is not null
                && string.Equals(
                    grant.SkillTypeQuery,
-                   grant.SkillTypeQuery.Trim(),
+                   grant.SkillType == CharacterCreationTalentSkillGrantTypes.XPath
+                       ? grant.RawSelectorTypeQuery
+                       : string.Empty,
                    StringComparison.Ordinal)
                && grant.SpecificSkillChoiceNames is not null
                && grant.SpecificSkillChoiceNames.All(name =>
@@ -1162,6 +1474,7 @@ public sealed class CharacterCreationPrerequisiteService :
                        grant.ImprovementKind,
                        grant.RawSelectorType,
                        grant.SelectorTypeSource,
+                       grant.RawSelectorTypeQuery,
                        effectiveSkillsInputsDigest,
                        grant.Options.Select(option => option.SelectionId)))
                && HasExactGrantSupportState(
@@ -1350,7 +1663,9 @@ public sealed class CharacterCreationPrerequisiteService :
             || rawSelectorType.Length == 0)
         && string.Equals(
             effectiveType,
-            CharacterCreationTalentSkillGrantTypes.NormalizeLegacySelectorType(rawSelectorType),
+            CharacterCreationTalentSkillGrantTypes.NormalizeLegacySelectorType(
+                rawSelectorType,
+                selectorTypeSource),
             StringComparison.Ordinal);
 
     private static bool HasExactGrantSupportState(
@@ -1374,7 +1689,6 @@ public sealed class CharacterCreationPrerequisiteService :
         return CharacterCreationPrerequisiteAuthorityDigest.IsCanonical(effectiveSkillsInputsDigest)
                && grant.Quantity > 0
                && grant.Quantity <= CharacterCreationTalentSkillGrantTypes.MaximumPromptSlots
-               && grant.BaseRating >= 0
                && IsValidTalentGrantImprovementKind(grant.ImprovementKind)
                && IsNormalizedLowerToken(grant.SkillGroupType)
                && HasValidTalentGrantSelectorTypeProvenance(
@@ -1382,6 +1696,7 @@ public sealed class CharacterCreationPrerequisiteService :
                    grant.RawSelectorType,
                    grant.SelectorTypeSource)
                && grant.CompatibilityMarker is not null
+               && grant.RawSelectorTypeQuery is not null
                && HasExactSkillGroupCompatibilityMarker(grant)
                && grant.RequestedGroupNames is not null
                && grant.RequestedGroupNames.All(name =>
@@ -1402,6 +1717,7 @@ public sealed class CharacterCreationPrerequisiteService :
                        grant.ImprovementKind,
                        grant.RawSelectorType,
                        grant.SelectorTypeSource,
+                       grant.RawSelectorTypeQuery,
                        effectiveSkillsInputsDigest,
                        grant.Options.Select(option => option.SelectionId)))
                && HasExactGrantSupportState(
@@ -1557,6 +1873,33 @@ public sealed class CharacterCreationPrerequisiteService :
         params string[] blockers)
         where T : class =>
         new(outcome, null, blockers);
+
+    private sealed record TalentGrantSourceFields(
+        bool HasPrompt,
+        int SourceQuantity,
+        int BaseRating,
+        string ImprovementKind,
+        string EffectiveSelectorType,
+        string RawSelectorType,
+        string SelectorTypeSource,
+        string RawSelectorTypeQuery,
+        bool UsesGroupPicker,
+        IReadOnlyList<string> SpecificSkillChoiceNames,
+        IReadOnlyList<string> GroupChoiceNames)
+    {
+        public static TalentGrantSourceFields Empty { get; } = new(
+            HasPrompt: false,
+            SourceQuantity: 0,
+            BaseRating: 0,
+            ImprovementKind: string.Empty,
+            EffectiveSelectorType: CharacterCreationTalentSkillGrantTypes.Default,
+            RawSelectorType: string.Empty,
+            SelectorTypeSource: CharacterCreationTalentGrantSelectorTypeSources.Missing,
+            RawSelectorTypeQuery: string.Empty,
+            UsesGroupPicker: false,
+            SpecificSkillChoiceNames: [],
+            GroupChoiceNames: []);
+    }
 
     private sealed record PreviewEvaluation(
         CharacterCreationFoundationResult<CharacterCreationPrerequisitePreview> Result,

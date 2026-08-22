@@ -35,9 +35,16 @@ public static class CharacterCreationTalentSkillGrantTypes
         "not(attribute = 'RES' or attribute = 'DEP') and "
         + "(not(category = 'Magical Active') or skillgroup = '' or not(skillgroup))";
 
-    public static string NormalizeLegacySelectorType(string rawSelectorType)
+    public static string NormalizeLegacySelectorType(
+        string rawSelectorType,
+        string selectorTypeSource)
     {
         string normalized = rawSelectorType.ToLowerInvariant();
+        if (normalized == Choices
+            && selectorTypeSource != CharacterCreationTalentGrantSelectorTypeSources.SkillGroupType)
+        {
+            return Default;
+        }
         return normalized is Active or Default or Magic or Resonance or Matrix or Specific
             or XPath or Choices or Grouped
             ? normalized
@@ -174,6 +181,8 @@ public sealed record CharacterCreationPriorityTalentOptionProjection(
 
     public CharacterCreationTalentSkillGroupGrantProjection? SkillGroupGrant
         { get; init; }
+
+    public string RawTalentNode { get; init; } = string.Empty;
 }
 
 public sealed record CharacterCreationTalentActiveSkillChoiceProjection(
@@ -219,6 +228,8 @@ public sealed record CharacterCreationTalentActiveSkillGrantProjection(
 
     public string SelectorTypeSource { get; init; } = string.Empty;
 
+    public string RawSelectorTypeQuery { get; init; } = string.Empty;
+
     public string SkillTypeQuery { get; init; } = string.Empty;
 
     public IReadOnlyList<string> SpecificSkillChoiceNames { get; init; } = [];
@@ -240,6 +251,8 @@ public sealed record CharacterCreationTalentSkillGroupGrantProjection(
 
     public string SelectorTypeSource { get; init; } = string.Empty;
 
+    public string RawSelectorTypeQuery { get; init; } = string.Empty;
+
     public string CompatibilityMarker { get; init; } = string.Empty;
 
     public IReadOnlyList<string> RequestedGroupNames { get; init; } = [];
@@ -254,10 +267,11 @@ public static class CharacterCreationTalentGrantAuthorityDigest
         string improvementKind,
         string rawSelectorType,
         string selectorTypeSource,
+        string rawSelectorTypeQuery,
         string skillsSourceDigest,
         IEnumerable<string> orderedOptionIds) =>
         RawDigest($"active\0{quantity}\0{baseRating}\0{skillType}\0{improvementKind}\0"
-                  + $"{rawSelectorType}\0{selectorTypeSource}\0"
+                  + $"{rawSelectorType}\0{selectorTypeSource}\0{rawSelectorTypeQuery}\0"
                   + $"{skillsSourceDigest}\0"
                   + string.Join('\0', orderedOptionIds));
 
@@ -268,10 +282,11 @@ public static class CharacterCreationTalentGrantAuthorityDigest
         string improvementKind,
         string rawSelectorType,
         string selectorTypeSource,
+        string rawSelectorTypeQuery,
         string skillsSourceDigest,
         IEnumerable<string> orderedOptionIds) =>
         RawDigest($"group\0{quantity}\0{baseRating}\0{skillGroupType}\0{improvementKind}\0"
-                  + $"{rawSelectorType}\0{selectorTypeSource}\0"
+                  + $"{rawSelectorType}\0{selectorTypeSource}\0{rawSelectorTypeQuery}\0"
                   + $"{skillsSourceDigest}\0"
                   + string.Join('\0', orderedOptionIds));
 
@@ -288,6 +303,9 @@ public static class CharacterCreationTalentGrantAuthorityDigest
         CharacterCreationPrerequisiteAuthorityDigest.IsCanonical(groupDigest)
             ? $"skill-group:{groupDigest[7..]}"
             : string.Empty;
+
+    public static string ComputeRawTalentNode(string rawTalentNode) =>
+        RawDigest(rawTalentNode);
 
     private static string RawDigest(string value) =>
         "sha256:" + Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(value)));

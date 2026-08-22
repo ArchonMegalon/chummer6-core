@@ -456,6 +456,7 @@ public sealed class CharacterCreationPrerequisiteServiceTests
                             grant.ImprovementKind,
                             grant.RawSelectorType,
                             grant.SelectorTypeSource,
+                            grant.RawSelectorTypeQuery,
                             skillsDigest,
                             options.Select(option => option.SelectionId)),
                         IsSupported = false,
@@ -501,11 +502,22 @@ public sealed class CharacterCreationPrerequisiteServiceTests
             string type,
             CharacterCreationTalentActiveSkillChoiceProjection[] options,
             string query = "",
-            string[]? specificNames = null) =>
+            string[]? specificNames = null,
+            string? rawType = null,
+            string? rawQuery = null) =>
             MutateTalentOption(
                 baseline,
                 talent =>
                 {
+                    string sourceType = rawType ?? type;
+                    string sourceQuery = rawQuery ?? query;
+                    string rawTalentNode = ActiveTalentRaw(
+                        quantity: 1,
+                        rating: sourceGrant.BaseRating,
+                        selectorType: sourceType,
+                        improvementKind: sourceGrant.ImprovementKind,
+                        selectorTypeQuery: sourceQuery,
+                        specificSkillNames: specificNames);
                     CharacterCreationTalentActiveSkillGrantProjection grant =
                         talent.ActiveSkillGrant! with
                         {
@@ -517,19 +529,27 @@ public sealed class CharacterCreationPrerequisiteServiceTests
                                 sourceGrant.BaseRating,
                                 type,
                                 sourceGrant.ImprovementKind,
-                                type,
+                                sourceType,
                                 CharacterCreationTalentGrantSelectorTypeSources.SkillType,
+                                sourceQuery,
                                 skillsDigest,
                                 options.Select(option => option.SelectionId)),
                             IsSupported = true,
                             Blockers = [],
-                            RawSelectorType = type,
+                            RawSelectorType = sourceType,
                             SelectorTypeSource =
                                 CharacterCreationTalentGrantSelectorTypeSources.SkillType,
+                            RawSelectorTypeQuery = sourceQuery,
                             SkillTypeQuery = query,
                             SpecificSkillChoiceNames = specificNames ?? []
                         };
-                    return talent with { ActiveSkillGrant = grant };
+                    return talent with
+                    {
+                        ActiveSkillGrant = grant,
+                        PriorityChildNodeDigest = CharacterCreationTalentGrantAuthorityDigest
+                            .ComputeRawTalentNode(rawTalentNode),
+                        RawTalentNode = rawTalentNode
+                    };
                 });
 
         CharacterCreationTalentActiveSkillChoiceProjection[] matrixOptions =
@@ -542,6 +562,19 @@ public sealed class CharacterCreationPrerequisiteServiceTests
         CharacterCreationPrerequisiteAuthority[] acceptedAuthorities =
         [
             WithRule(CharacterCreationTalentSkillGrantTypes.Default, sourceGrant.Options.ToArray()),
+            WithRule(
+                CharacterCreationTalentSkillGrantTypes.Default,
+                sourceGrant.Options.ToArray(),
+                rawType: "unknown"),
+            WithRule(
+                CharacterCreationTalentSkillGrantTypes.Default,
+                sourceGrant.Options.ToArray(),
+                rawType: CharacterCreationTalentSkillGrantTypes.Choices),
+            WithRule(
+                CharacterCreationTalentSkillGrantTypes.Default,
+                sourceGrant.Options.ToArray(),
+                rawType: "unknown",
+                rawQuery: "category = 'Combat Active'"),
             WithRule(CharacterCreationTalentSkillGrantTypes.Matrix, matrixOptions),
             WithRule(
                 CharacterCreationTalentSkillGrantTypes.Specific,
@@ -573,9 +606,22 @@ public sealed class CharacterCreationPrerequisiteServiceTests
             CharacterCreationTalentSkillGrantTypes.Grouped);
         grouped = MutateTalentOption(
             grouped,
-            talent => talent with
+            talent =>
             {
-                SkillGroupGrant = talent.SkillGroupGrant! with { RequestedGroupNames = [] }
+                CharacterCreationTalentSkillGroupGrantProjection grant = talent.SkillGroupGrant!;
+                string rawTalentNode = SkillGroupTalentRaw(
+                    grant.Quantity,
+                    grant.BaseRating,
+                    grant.RawSelectorType,
+                    grant.ImprovementKind,
+                    []);
+                return talent with
+                {
+                    SkillGroupGrant = grant with { RequestedGroupNames = [] },
+                    PriorityChildNodeDigest = CharacterCreationTalentGrantAuthorityDigest
+                        .ComputeRawTalentNode(rawTalentNode),
+                    RawTalentNode = rawTalentNode
+                };
             });
         WithWorkspace(
             CharacterCreationBuildMethods.Priority,
@@ -738,6 +784,10 @@ public sealed class CharacterCreationPrerequisiteServiceTests
             "40c72109-8924-45ca-a4d7-255b75e6a6b0",
             "74a68a9e-8c5b-4998-8dbb-08c1e768afc3",
             "a1366ec2-772d-4f08-8c65-5f79464d975b");
+        string originalRawTalentNode = active.Options.Single(option =>
+                option.CategoryId == CharacterCreationPriorityCategoryIds.Talent
+                && option.Rank == "E")
+            .TalentOptions.Single().RawTalentNode;
         CharacterCreationPrerequisiteAuthority forgedActiveDigest = MutateTalentOption(
             active,
             talent => talent with
@@ -748,27 +798,69 @@ public sealed class CharacterCreationPrerequisiteServiceTests
 
         CharacterCreationPrerequisiteAuthority forgedActiveImprovementDigest = MutateTalentOption(
             active,
-            talent => talent with
+            talent =>
             {
-                ActiveSkillGrant = talent.ActiveSkillGrant! with
+                CharacterCreationTalentActiveSkillGrantProjection grant =
+                    talent.ActiveSkillGrant!;
+                string forgedKind =
+                    CharacterCreationTalentGrantImprovementKinds.SkillGroupBase;
+                return talent with
                 {
-                    ImprovementKind =
-                        CharacterCreationTalentGrantImprovementKinds.SkillGroupBase
-                }
+                    ActiveSkillGrant = grant with
+                    {
+                        ImprovementKind = forgedKind,
+                        GrantDigest = CharacterCreationTalentGrantAuthorityDigest
+                            .ComputeActiveGrant(
+                                grant.Quantity,
+                                grant.BaseRating,
+                                grant.SkillType,
+                                forgedKind,
+                                grant.RawSelectorType,
+                                grant.SelectorTypeSource,
+                                grant.RawSelectorTypeQuery,
+                                active.EffectiveSkillsInputsDigest,
+                                grant.Options.Select(option => option.SelectionId))
+                    }
+                };
             });
         AssertAuthorityUnavailable(forgedActiveImprovementDigest);
+        Assert.AreEqual(originalRawTalentNode, forgedActiveImprovementDigest.Options.Single(option =>
+                option.CategoryId == CharacterCreationPriorityCategoryIds.Talent
+                && option.Rank == "E")
+            .TalentOptions.Single().RawTalentNode);
 
         CharacterCreationPrerequisiteAuthority forgedSelectorProvenanceDigest =
             MutateTalentOption(
                 active,
-                talent => talent with
+                talent =>
                 {
-                    ActiveSkillGrant = talent.ActiveSkillGrant! with
+                    CharacterCreationTalentActiveSkillGrantProjection grant =
+                        talent.ActiveSkillGrant!;
+                    const string forgedRawType = "ACTIVE";
+                    return talent with
                     {
-                        RawSelectorType = "ACTIVE"
-                    }
+                        ActiveSkillGrant = grant with
+                        {
+                            RawSelectorType = forgedRawType,
+                            GrantDigest = CharacterCreationTalentGrantAuthorityDigest
+                                .ComputeActiveGrant(
+                                    grant.Quantity,
+                                    grant.BaseRating,
+                                    grant.SkillType,
+                                    grant.ImprovementKind,
+                                    forgedRawType,
+                                    grant.SelectorTypeSource,
+                                    grant.RawSelectorTypeQuery,
+                                    active.EffectiveSkillsInputsDigest,
+                                    grant.Options.Select(option => option.SelectionId))
+                        }
+                    };
                 });
         AssertAuthorityUnavailable(forgedSelectorProvenanceDigest);
+        Assert.AreEqual(originalRawTalentNode, forgedSelectorProvenanceDigest.Options.Single(option =>
+                option.CategoryId == CharacterCreationPriorityCategoryIds.Talent
+                && option.Rank == "E")
+            .TalentOptions.Single().RawTalentNode);
 
         CharacterCreationPrerequisiteAuthority forgedActiveImprovementKind = MutateTalentOption(
             active,
@@ -790,6 +882,7 @@ public sealed class CharacterCreationPrerequisiteServiceTests
                                 forgedKind,
                                 grant.RawSelectorType,
                                 grant.SelectorTypeSource,
+                                grant.RawSelectorTypeQuery,
                                 active.EffectiveSkillsInputsDigest,
                                 grant.Options.Select(option => option.SelectionId))
                     }
@@ -799,6 +892,42 @@ public sealed class CharacterCreationPrerequisiteServiceTests
 
         CharacterCreationPrerequisiteAuthority grouped = WithSkillGroupTalentGrant(
             CreateAuthority(CharacterCreationBuildMethods.Priority, ["A", "B", "C", "D", "E"]));
+        CharacterCreationTalentSkillGroupGrantProjection forgedSecondLane = grouped.Options.Single(
+                option => option.CategoryId == CharacterCreationPriorityCategoryIds.Talent
+                          && option.Rank == "E")
+            .TalentOptions.Single().SkillGroupGrant!;
+        CharacterCreationPrerequisiteAuthority forgedDualLane = MutateTalentOption(
+            active,
+            talent => talent with { SkillGroupGrant = forgedSecondLane });
+        AssertAuthorityUnavailable(forgedDualLane);
+        WithWorkspace(
+            CharacterCreationBuildMethods.Priority,
+            forgedDualLane,
+            (store, service, id) =>
+            {
+                CharacterCreationPrerequisiteState state = Load(service, id);
+                var request = new CharacterCreationPrerequisitePreviewRequest(
+                    state.Binding,
+                    Assign("A", "E", "B", "C", "D"))
+                {
+                    HeritageSelectionId = "human",
+                    TalentSelectionId = "adept",
+                    TalentActiveSkillSelectionIds =
+                        ["74a68a9e-8c5b-4998-8dbb-08c1e768afc3",
+                            "40c72109-8924-45ca-a4d7-255b75e6a6b0"],
+                    TalentSkillGroupSelectionIds = forgedSecondLane.Options
+                        .Select(option => option.SelectionId)
+                        .ToArray()
+                };
+                CharacterCreationPrerequisitePreview preview = service.Preview(request).Value!;
+                Assert.IsNull(preview.TalentSelection!.GrantPlan);
+                CollectionAssert.Contains(
+                    preview.Blockers.ToList(),
+                    CharacterCreationPrerequisiteBlockers
+                        .TalentSkillGrantAuthorityUnsupported);
+                Assert.AreEqual(1L, store.Get(id).Value!.ContentRevision);
+            });
+
         CharacterCreationPrerequisiteAuthority missingSkillsDigest = grouped with
         {
             RawSkillsXmlDigest = string.Empty,
@@ -834,6 +963,7 @@ public sealed class CharacterCreationPrerequisiteServiceTests
                                 grant.ImprovementKind,
                                 grant.RawSelectorType,
                                 grant.SelectorTypeSource,
+                                grant.RawSelectorTypeQuery,
                                 grouped.EffectiveSkillsInputsDigest,
                                 options.Select(option => option.SelectionId))
                     }
@@ -867,6 +997,7 @@ public sealed class CharacterCreationPrerequisiteServiceTests
                                 grant.ImprovementKind,
                                 grant.RawSelectorType,
                                 grant.SelectorTypeSource,
+                                grant.RawSelectorTypeQuery,
                                 grouped.EffectiveSkillsInputsDigest,
                                 options.Select(option => option.SelectionId))
                     }
@@ -1099,6 +1230,11 @@ public sealed class CharacterCreationPrerequisiteServiceTests
         string improvementKind = CharacterCreationTalentGrantImprovementKinds.SkillBase)
     {
         string skillsDigest = Digest(61);
+        string rawTalentNode = ActiveTalentRaw(
+            quantity: 2,
+            rating: 4,
+            selectorType: CharacterCreationTalentSkillGrantTypes.Active,
+            improvementKind: improvementKind);
         CharacterCreationPriorityOptionProjection[] options = authority.Options.Select(option =>
         {
             if (option.CategoryId != CharacterCreationPriorityCategoryIds.Talent
@@ -1153,6 +1289,7 @@ public sealed class CharacterCreationPrerequisiteServiceTests
                     improvementKind,
                     CharacterCreationTalentSkillGrantTypes.Active,
                     CharacterCreationTalentGrantSelectorTypeSources.SkillType,
+                    string.Empty,
                     skillsDigest,
                     grantOptions.Select(option => option.SelectionId)),
                 IsSupported: true,
@@ -1172,12 +1309,13 @@ public sealed class CharacterCreationPrerequisiteServiceTests
                 null,
                 null,
                 [],
-                Digest(64),
+                CharacterCreationTalentGrantAuthorityDigest.ComputeRawTalentNode(rawTalentNode),
                 IsEnabled: false,
                 Blockers: [CharacterCreationPrerequisiteBlockers.TalentSelectionUnsupported],
                 SourceAnchorIds: ["priorities.xml#talent:adept"])
             {
-                ActiveSkillGrant = grant
+                ActiveSkillGrant = grant,
+                RawTalentNode = rawTalentNode
             };
             return option with { TalentOptions = [adept] };
         }).ToArray();
@@ -1237,6 +1375,12 @@ public sealed class CharacterCreationPrerequisiteServiceTests
                 "skills.xml",
                 $"compatibility:{compatibilityMarker}"
             ];
+        string rawTalentNode = SkillGroupTalentRaw(
+            quantity: 2,
+            rating: 4,
+            selectorType: skillGroupType,
+            improvementKind: improvementKind,
+            groupNames: groupOptions.Select(option => option.CanonicalName));
         CharacterCreationTalentSkillGroupGrantProjection grant = new(
             2,
             4,
@@ -1249,6 +1393,7 @@ public sealed class CharacterCreationPrerequisiteServiceTests
                 improvementKind,
                 skillGroupType,
                 CharacterCreationTalentGrantSelectorTypeSources.SkillGroupType,
+                string.Empty,
                 skillsDigest,
                 groupOptions.Select(option => option.SelectionId)),
             IsSupported: true,
@@ -1277,12 +1422,13 @@ public sealed class CharacterCreationPrerequisiteServiceTests
                 null,
                 null,
                 [],
-                Digest(67),
+                CharacterCreationTalentGrantAuthorityDigest.ComputeRawTalentNode(rawTalentNode),
                 IsEnabled: false,
                 Blockers: [CharacterCreationPrerequisiteBlockers.TalentSelectionUnsupported],
                 SourceAnchorIds: ["priorities.xml#talent:aspected"])
             {
-                SkillGroupGrant = grant
+                SkillGroupGrant = grant,
+                RawTalentNode = rawTalentNode
             };
             return option with { TalentOptions = [aspected] };
         }).ToArray();
@@ -1291,6 +1437,61 @@ public sealed class CharacterCreationPrerequisiteServiceTests
         {
             AuthorityDigest = CharacterCreationPrerequisiteAuthorityDigest.Compute(authority)
         };
+    }
+
+    private static string ActiveTalentRaw(
+        int quantity,
+        int rating,
+        string selectorType,
+        string improvementKind,
+        string selectorTypeQuery = "",
+        IReadOnlyList<string>? specificSkillNames = null)
+    {
+        var talent = new XElement(
+            "talent",
+            new XElement("name", "Adept - 6 Magic"),
+            new XElement("value", "Adept"),
+            new XElement("skillqty", quantity),
+            new XElement(
+                improvementKind == CharacterCreationTalentGrantImprovementKinds.SkillBase
+                    ? "skillval"
+                    : "skillgroupval",
+                rating));
+        if (specificSkillNames is not null)
+        {
+            talent.Add(new XElement(
+                "skillchoices",
+                specificSkillNames.Select(name => new XElement("skill", name))));
+        }
+        var type = new XElement("skilltype", selectorType);
+        if (!string.IsNullOrEmpty(selectorTypeQuery))
+            type.Add(new XAttribute("xpath", selectorTypeQuery));
+        talent.Add(type);
+        return talent.ToString(SaveOptions.DisableFormatting);
+    }
+
+    private static string SkillGroupTalentRaw(
+        int quantity,
+        int rating,
+        string selectorType,
+        string improvementKind,
+        IEnumerable<string> groupNames)
+    {
+        var talent = new XElement(
+            "talent",
+            new XElement("name", "Aspected Magician - 5 Magic"),
+            new XElement("value", "Aspected Magician"),
+            new XElement(
+                "skillgroupchoices",
+                groupNames.Select(name => new XElement("skillgroup", name))),
+            new XElement("skillgroupqty", quantity),
+            new XElement(
+                improvementKind == CharacterCreationTalentGrantImprovementKinds.SkillBase
+                    ? "skillval"
+                    : "skillgroupval",
+                rating),
+            new XElement("skillgrouptype", selectorType));
+        return talent.ToString(SaveOptions.DisableFormatting);
     }
 
     private static CharacterCreationPrerequisiteAuthority MutateTalentOption(
