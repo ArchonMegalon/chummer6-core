@@ -54,10 +54,51 @@ public sealed class CharacterCareerMugshotRulesTests
             state, identities[0], state.Revision, isMain: true));
     }
 
+    [TestMethod]
+    public void Delete_applies_exact_main_index_adjustment_for_before_main_and_after()
+    {
+        CharacterMugshotIdentity[] identities = ThreeIdentities();
+        Assert.IsTrue(CharacterCareerMugshotRules.TryCreateState(
+            created: true, identities, mainMugshotIndex: 1, out CharacterCareerMugshotState state));
+
+        Assert.AreEqual(0, CharacterCareerMugshotRules.ApplyDeleteMainIndex(
+            state, identities[0], state.Revision));
+        Assert.AreEqual(-1, CharacterCareerMugshotRules.ApplyDeleteMainIndex(
+            state, identities[1], state.Revision));
+        Assert.AreEqual(1, CharacterCareerMugshotRules.ApplyDeleteMainIndex(
+            state, identities[2], state.Revision));
+    }
+
+    [TestMethod]
+    public void Delete_is_exact_identity_and_revision_bound()
+    {
+        CharacterMugshotIdentity[] identities = ThreeIdentities();
+        Assert.IsTrue(CharacterCareerMugshotRules.TryCreateState(
+            created: true, identities, mainMugshotIndex: 0, out CharacterCareerMugshotState state));
+        Assert.IsTrue(CharacterCareerMugshotRules.TryCreateIdentity(
+            1, [9, 9, 9], out CharacterMugshotIdentity changedBytes));
+
+        Assert.IsFalse(CharacterCareerMugshotRules.TryValidateDelete(
+            state, identities[1], new string('0', 64)));
+        Assert.IsFalse(CharacterCareerMugshotRules.TryValidateDelete(
+            state, changedBytes, state.Revision));
+        Assert.ThrowsExactly<InvalidOperationException>(() =>
+            CharacterCareerMugshotRules.ApplyDeleteMainIndex(
+                state, changedBytes, state.Revision));
+    }
+
     private static CharacterMugshotIdentity[] Identities()
     {
         Assert.IsTrue(CharacterCareerMugshotRules.TryCreateIdentity(0, [1, 2, 3], out CharacterMugshotIdentity first));
         Assert.IsTrue(CharacterCareerMugshotRules.TryCreateIdentity(1, [4, 5, 6], out CharacterMugshotIdentity second));
         return [first, second];
+    }
+
+    private static CharacterMugshotIdentity[] ThreeIdentities()
+    {
+        CharacterMugshotIdentity[] firstTwo = Identities();
+        Assert.IsTrue(CharacterCareerMugshotRules.TryCreateIdentity(
+            2, [7, 8, 9], out CharacterMugshotIdentity third));
+        return [firstTwo[0], firstTwo[1], third];
     }
 }

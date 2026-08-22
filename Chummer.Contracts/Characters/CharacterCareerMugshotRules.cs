@@ -23,9 +23,11 @@ public sealed record CharacterCareerMugshotState(
 
 /// <summary>
 /// Exact authority for CharacterCareer.nudMugshotIndex and
-/// CharacterCareer.chkIsMainMugshot. The spinner is a transient 1-based
+/// CharacterCareer.chkIsMainMugshot plus the collection mutation performed by
+/// CharacterCareer.cmdDeleteMugshot. The spinner is a transient 1-based
 /// selector with wraparound (or zero for an empty collection); the checkbox
-/// alone changes persisted state by writing a 0-based main index or -1.
+/// writes a 0-based main index or -1, while deletion preserves exact ordered
+/// identity and applies Chummer5's main-index adjustment rules.
 /// </summary>
 public static class CharacterCareerMugshotRules
 {
@@ -147,6 +149,44 @@ public static class CharacterCareerMugshotRules
                 "The selected mugshot, main state, collection order, or local revision changed; reopen before saving.");
         }
         return isMain ? selectedIdentity.ZeroBasedIndex : -1;
+    }
+
+    public static bool TryValidateDelete(
+        CharacterCareerMugshotState? current,
+        CharacterMugshotIdentity? selectedIdentity,
+        string? expectedRevision)
+    {
+        if (current is null
+            || selectedIdentity is null
+            || expectedRevision is not { Length: Sha256HexLength }
+            || !string.Equals(current.Revision, expectedRevision, StringComparison.Ordinal)
+            || !IsValidIdentity(selectedIdentity)
+            || selectedIdentity.ZeroBasedIndex >= current.Mugshots.Count)
+        {
+            return false;
+        }
+
+        return current.Mugshots[selectedIdentity.ZeroBasedIndex] == selectedIdentity;
+    }
+
+    public static int ApplyDeleteMainIndex(
+        CharacterCareerMugshotState current,
+        CharacterMugshotIdentity selectedIdentity,
+        string expectedRevision)
+    {
+        if (!TryValidateDelete(current, selectedIdentity, expectedRevision))
+        {
+            throw new InvalidOperationException(
+                "The selected mugshot, collection order, or local revision changed; reopen before deleting.");
+        }
+
+        if (selectedIdentity.ZeroBasedIndex == current.MainMugshotIndex)
+        {
+            return -1;
+        }
+        return selectedIdentity.ZeroBasedIndex < current.MainMugshotIndex
+            ? current.MainMugshotIndex - 1
+            : current.MainMugshotIndex;
     }
 
     private static bool HasExactOrderedIdentity(IReadOnlyList<CharacterMugshotIdentity> mugshots)
