@@ -13,12 +13,15 @@ namespace Chummer.Contracts.Workspaces;
 public sealed record WorkspaceDocumentAuxiliaryState(
     CharacterCreationFoundationDraftLedger? CharacterCreationFoundationDraft = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    CharacterCreationPrerequisiteDraft? CharacterCreationPrerequisiteDraft = null)
+    CharacterCreationPrerequisiteDraft? CharacterCreationPrerequisiteDraft = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    CharacterCreationAttributesDraft? CharacterCreationAttributesDraft = null)
 {
     public static WorkspaceDocumentAuxiliaryState Empty { get; } = new();
 
     public bool IsEmpty => CharacterCreationFoundationDraft is null
-                           && CharacterCreationPrerequisiteDraft is null;
+                           && CharacterCreationPrerequisiteDraft is null
+                           && CharacterCreationAttributesDraft is null;
 }
 
 public static class WorkspaceDocumentAuxiliaryStateDigest

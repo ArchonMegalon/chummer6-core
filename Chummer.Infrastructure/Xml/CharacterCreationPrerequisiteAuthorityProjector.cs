@@ -17,13 +17,21 @@ internal sealed record CharacterCreationPrerequisiteProjectionContext(
     string RawPrioritiesXmlDigest,
     string EffectivePrioritiesInputsDigest,
     string SelectedPriorityCustomDataInputsDigest,
+    string RawMetatypesXmlDigest,
+    string EffectiveMetatypesInputsDigest,
+    IReadOnlyList<string> EnabledSourcebooks,
+    int? MaxNumberMaxAttributesCreate,
+    int? KarmaAttribute,
+    bool? AlternateMetatypeAttributeKarma,
+    bool? ReverseAttributePriorityOrder,
     IReadOnlyList<string> SourceAnchorIds,
     IReadOnlyList<string> Blockers);
 
 /// <summary>
 /// Strict source projection of the bounded SelectMetatypePriority prerequisites.
-/// It models only rank allocation and the raw Attribute-row grant; metatype
-/// adjustments and Talent subchoices remain later authorities.
+/// Heritage and Talent child choices are source-bound here because their nested
+/// values are inputs to the Attribute pools. Unsupported children remain visible
+/// as disabled options and can never enter a durable prerequisite draft.
 /// </summary>
 internal static class CharacterCreationPrerequisiteAuthorityProjector
 {
@@ -49,9 +57,11 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
 
     public static CharacterCreationPrerequisiteAuthority Project(
         XDocument document,
+        XDocument metatypesDocument,
         CharacterCreationPrerequisiteProjectionContext context)
     {
         ArgumentNullException.ThrowIfNull(document);
+        ArgumentNullException.ThrowIfNull(metatypesDocument);
         ArgumentNullException.ThrowIfNull(context);
         var blockers = new List<string>(context.Blockers);
         XElement? root = document.Root;
@@ -152,6 +162,8 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
                         rank,
                         weights[rank].Value,
                         sourceIds,
+                        metatypesDocument,
+                        context.EnabledSourcebooks,
                         out CharacterCreationPriorityOptionProjection? option))
                 {
                     blockers.Add(CharacterCreationPrerequisiteBlockers.PriorityRowsInvalid);
@@ -242,6 +254,8 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
         string rank,
         int sumToTenValue,
         ISet<string> sourceIds,
+        XDocument metatypesDocument,
+        IReadOnlyList<string> enabledSourcebooks,
         out CharacterCreationPriorityOptionProjection? option)
     {
         option = null;
@@ -307,7 +321,7 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
         }
 
         string sourceNodeDigest = RawDigest(row.ToString(SaveOptions.DisableFormatting));
-        option = new CharacterCreationPriorityOptionProjection(
+        var projected = new CharacterCreationPriorityOptionProjection(
             categoryId,
             categoryName,
             rank,
@@ -317,6 +331,414 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
             baseNormalAttributePoints,
             sourceNodeDigest,
             [$"priorities.xml#priority:{sourceId}"]);
+        if (string.Equals(categoryId, CharacterCreationPriorityCategoryIds.Heritage, StringComparison.Ordinal))
+        {
+            if (!TryProjectHeritageOptions(
+                    row,
+                    sourceId,
+                    metatypesDocument,
+                    enabledSourcebooks,
+                    out CharacterCreationPriorityHeritageOptionProjection[] heritageOptions))
+            {
+                return false;
+            }
+            projected = projected with { HeritageOptions = heritageOptions };
+        }
+        else if (string.Equals(categoryId, CharacterCreationPriorityCategoryIds.Talent, StringComparison.Ordinal))
+        {
+            if (!TryProjectTalentOptions(
+                    row,
+                    sourceId,
+                    out CharacterCreationPriorityTalentOptionProjection[] talentOptions))
+            {
+                return false;
+            }
+            projected = projected with { TalentOptions = talentOptions };
+        }
+
+        option = projected;
+        return true;
+    }
+
+    private static bool TryProjectHeritageOptions(
+        XElement row,
+        string prioritySourceId,
+        XDocument metatypesDocument,
+        IReadOnlyList<string> enabledSourcebooks,
+        out CharacterCreationPriorityHeritageOptionProjection[] options)
+    {
+        options = [];
+        XElement[] containers = row.Elements("metatypes").Take(2).ToArray();
+        XElement[] sourceContainers = metatypesDocument.Root?.Elements("metatypes").Take(2).ToArray()
+            ?? [];
+        if (containers.Length != 1
+            || containers[0].HasAttributes
+            || sourceContainers.Length != 1
+            || sourceContainers[0].HasAttributes)
+        {
+            return false;
+        }
+
+        var projected = new List<CharacterCreationPriorityHeritageOptionProjection>();
+        int order = 0;
+        foreach (XElement child in containers[0].Elements())
+        {
+            if (child.Name.NamespaceName.Length != 0
+                || !string.Equals(child.Name.LocalName, "metatype", StringComparison.Ordinal)
+                || child.HasAttributes
+                || !TryReadNormalizedScalar(child, "name", out string metatypeName)
+                || !TryReadRequiredNonNegativeInt(child, "value", out int specialPoints)
+                || !TryReadOptionalInt(child, "karma", out int karmaCost))
+            {
+                return false;
+            }
+
+            XElement[] matches = sourceContainers[0].Elements("metatype")
+                .Where(candidate => string.Equals(ReadScalar(candidate, "name"), metatypeName, StringComparison.Ordinal))
+                .Take(2)
+                .ToArray();
+            CharacterCreationPriorityHeritageOptionProjection baseOption =
+                ProjectHeritageChild(
+                    child,
+                    matches.Length == 1 ? matches[0] : null,
+                    prioritySourceId,
+                    metatypeName,
+                    null,
+                    specialPoints,
+                    karmaCost,
+                    order++,
+                    enabledSourcebooks);
+            projected.Add(baseOption);
+
+            XElement[] metavariantContainers = child.Elements("metavariants").Take(2).ToArray();
+            if (metavariantContainers.Length > 1
+                || metavariantContainers.Any(container => container.HasAttributes))
+            {
+                return false;
+            }
+            foreach (XElement metavariant in metavariantContainers.SingleOrDefault()?.Elements()
+                         ?? Enumerable.Empty<XElement>())
+            {
+                if (metavariant.Name.NamespaceName.Length != 0
+                    || !string.Equals(metavariant.Name.LocalName, "metavariant", StringComparison.Ordinal)
+                    || metavariant.HasAttributes
+                    || !TryReadNormalizedScalar(metavariant, "name", out string metavariantName)
+                    || !TryReadRequiredNonNegativeInt(metavariant, "value", out int variantPoints)
+                    || !TryReadOptionalInt(metavariant, "karma", out int variantKarma))
+                {
+                    return false;
+                }
+                XElement[] sourceVariantMatches = matches.Length == 1
+                    ? matches[0].Element("metavariants")?.Elements("metavariant")
+                        .Where(candidate => string.Equals(
+                            ReadScalar(candidate, "name"),
+                            metavariantName,
+                            StringComparison.Ordinal))
+                        .Take(2)
+                        .ToArray() ?? []
+                    : [];
+                projected.Add(ProjectHeritageChild(
+                    metavariant,
+                    sourceVariantMatches.Length == 1 ? sourceVariantMatches[0] : null,
+                    prioritySourceId,
+                    metatypeName,
+                    metavariantName,
+                    variantPoints,
+                    variantKarma,
+                    order++,
+                    enabledSourcebooks));
+            }
+        }
+
+        options = projected.ToArray();
+        return options.Length > 0;
+    }
+
+    private static CharacterCreationPriorityHeritageOptionProjection ProjectHeritageChild(
+        XElement priorityChild,
+        XElement? sourceNode,
+        string prioritySourceId,
+        string metatypeName,
+        string? metavariantName,
+        int specialPoints,
+        int karmaCost,
+        int order,
+        IReadOnlyList<string> enabledSourcebooks)
+    {
+        var blockers = new List<string>();
+        string metatypeSourceId = string.Empty;
+        string? metavariantSourceId = null;
+        CharacterCreationMetatypeAttributeProjection[] attributes = [];
+        bool halves = false;
+        string sourceDigest = string.Empty;
+        if (sourceNode is null
+            || !TryReadNormalizedScalar(sourceNode, "id", out string rawSourceId)
+            || !Guid.TryParseExact(rawSourceId, "D", out Guid parsedSourceId)
+            || parsedSourceId == Guid.Empty
+            || !TryReadAttributes(sourceNode, out attributes)
+            || !TryReadEmptyMarker(sourceNode, "halveattributepoints", out halves))
+        {
+            blockers.Add(CharacterCreationPrerequisiteBlockers.HeritageSelectionUnsupported);
+        }
+        else
+        {
+            sourceDigest = RawDigest(sourceNode.ToString(SaveOptions.DisableFormatting));
+            if (!TryReadNormalizedScalar(sourceNode, "source", out string sourceBook)
+                || !enabledSourcebooks.Contains(sourceBook, StringComparer.OrdinalIgnoreCase))
+            {
+                blockers.Add(CharacterCreationPrerequisiteBlockers.HeritageSelectionUnsupported);
+            }
+            if (metavariantName is null)
+                metatypeSourceId = parsedSourceId.ToString("D");
+            else
+            {
+                metavariantSourceId = parsedSourceId.ToString("D");
+                // The parent metatype id is resolved independently to preserve both identities.
+                XElement? parent = sourceNode.Parent?.Parent;
+                if (parent is null
+                    || !TryReadNormalizedScalar(parent, "id", out string parentId)
+                    || !Guid.TryParseExact(parentId, "D", out Guid parsedParentId)
+                    || parsedParentId == Guid.Empty)
+                {
+                    blockers.Add(CharacterCreationPrerequisiteBlockers.HeritageSelectionUnsupported);
+                }
+                else
+                {
+                    metatypeSourceId = parsedParentId.ToString("D");
+                }
+            }
+        }
+
+        // This bounded slice proves the modifier-free Human base row. Other
+        // canonical rows remain visible but disabled until their qualities and
+        // bonuses are projected as Attribute authority.
+        if (metavariantName is not null
+            || !string.Equals(metatypeName, "Human", StringComparison.Ordinal)
+            || sourceNode?.HasAttributes == true
+            || sourceNode?.Elements().Any(element => element.Name.NamespaceName.Length != 0
+                                                     || !s_HeritageSourceFields.Contains(
+                                                         element.Name.LocalName)) == true
+            || sourceNode?.Elements("qualities").Any() == true
+            || sourceNode?.Elements("bonus").Any(element => element.HasAttributes || element.Nodes().Any()) == true)
+        {
+            blockers.Add(CharacterCreationPrerequisiteBlockers.HeritageSelectionUnsupported);
+        }
+
+        string childDigest = RawDigest(priorityChild.ToString(SaveOptions.DisableFormatting));
+        string selectionId = $"{prioritySourceId}:heritage:{order}";
+        string[] anchors =
+        [
+            $"priorities.xml#priority:{prioritySourceId}:heritage:{order}",
+            string.IsNullOrEmpty(metatypeSourceId)
+                ? $"metatypes.xml#unresolved:{metatypeName}"
+                : metavariantSourceId is null
+                    ? $"metatypes.xml#metatype:{metatypeSourceId}"
+                    : $"metatypes.xml#metatype:{metatypeSourceId}:metavariant:{metavariantSourceId}"
+        ];
+        string[] normalized = blockers.Distinct(StringComparer.Ordinal)
+            .OrderBy(item => item, StringComparer.Ordinal)
+            .ToArray();
+        return new CharacterCreationPriorityHeritageOptionProjection(
+            selectionId,
+            metavariantName is null
+                ? CharacterCreationPriorityChildKinds.Metatype
+                : CharacterCreationPriorityChildKinds.Metavariant,
+            metatypeSourceId,
+            metavariantSourceId,
+            metatypeName,
+            metavariantName,
+            specialPoints,
+            karmaCost,
+            halves,
+            attributes,
+            childDigest,
+            sourceDigest,
+            IsEnabled: normalized.Length == 0,
+            Blockers: normalized,
+            SourceAnchorIds: anchors);
+    }
+
+    private static bool TryProjectTalentOptions(
+        XElement row,
+        string prioritySourceId,
+        out CharacterCreationPriorityTalentOptionProjection[] options)
+    {
+        options = [];
+        XElement[] containers = row.Elements("talents").Take(2).ToArray();
+        if (containers.Length != 1 || containers[0].HasAttributes)
+            return false;
+
+        var projected = new List<CharacterCreationPriorityTalentOptionProjection>();
+        int order = 0;
+        foreach (XElement talent in containers[0].Elements())
+        {
+            if (talent.Name.NamespaceName.Length != 0
+                || !string.Equals(talent.Name.LocalName, "talent", StringComparison.Ordinal)
+                || talent.HasAttributes
+                || !TryReadNormalizedScalar(talent, "name", out string name)
+                || !TryReadNormalizedScalar(talent, "value", out string value)
+                || !TryReadOptionalNonNegativeInt(talent, "specialattribpoints", out int specialPoints)
+                || !TryReadOptionalNullableNonNegativeInt(talent, "magic", out int? magic)
+                || !TryReadOptionalNullableNonNegativeInt(talent, "resonance", out int? resonance)
+                || !TryReadOptionalNullableNonNegativeInt(talent, "depth", out int? depth))
+            {
+                return false;
+            }
+
+            string[] qualities = talent.Element("qualities")?.Elements("quality")
+                .Select(element => element.Value.Trim())
+                .ToArray() ?? [];
+            bool exactMundane = string.Equals(name, "Mundane", StringComparison.Ordinal)
+                                && string.Equals(value, "Mundane", StringComparison.Ordinal)
+                                && specialPoints == 0
+                                && magic is null
+                                && resonance is null
+                                && depth is null
+                                && qualities.Length == 0
+                                && HasExactMundaneRestriction(talent)
+                                && talent.Elements().All(element =>
+                                    element.Name.NamespaceName.Length == 0
+                                    && (element.Name.LocalName is "name" or "value" or "forbidden"));
+            string[] blockers = exactMundane
+                ? []
+                : [CharacterCreationPrerequisiteBlockers.TalentSelectionUnsupported];
+            string selectionId = $"{prioritySourceId}:talent:{order}";
+            projected.Add(new CharacterCreationPriorityTalentOptionProjection(
+                selectionId,
+                name,
+                value,
+                specialPoints,
+                magic,
+                resonance,
+                depth,
+                qualities,
+                RawDigest(talent.ToString(SaveOptions.DisableFormatting)),
+                IsEnabled: exactMundane,
+                Blockers: blockers,
+                SourceAnchorIds: [$"priorities.xml#priority:{prioritySourceId}:talent:{order}"]));
+            order++;
+        }
+
+        options = projected.ToArray();
+        return options.Length > 0;
+    }
+
+    private static bool HasExactMundaneRestriction(XElement talent)
+    {
+        XElement[] forbidden = talent.Elements("forbidden").Take(2).ToArray();
+        if (forbidden.Length != 1 || forbidden[0].HasAttributes)
+            return false;
+        XElement[] oneOf = forbidden[0].Elements("oneof").Take(2).ToArray();
+        return oneOf.Length == 1
+               && !oneOf[0].HasAttributes
+               && oneOf[0].Elements().Count() == 1
+               && TryReadNormalizedScalar(oneOf[0], "metatype", out string metatype)
+               && string.Equals(metatype, "A.I.", StringComparison.Ordinal);
+    }
+
+    private static readonly (string Id, string Prefix)[] s_AttributeFields =
+    [
+        ("BOD", "bod"), ("AGI", "agi"), ("REA", "rea"), ("STR", "str"),
+        ("CHA", "cha"), ("INT", "int"), ("LOG", "log"), ("WIL", "wil"),
+        ("EDG", "edg"), ("MAG", "mag"), ("RES", "res"), ("ESS", "ess"),
+        ("DEP", "dep")
+    ];
+
+    private static readonly IReadOnlySet<string> s_HeritageSourceFields = new HashSet<string>(
+        new[]
+        {
+            "id", "name", "karma", "category", "inimin", "inimax", "iniaug",
+            "walk", "run", "sprint", "qualities", "bonus", "source", "page",
+            "metavariants", "halveattributepoints"
+        }.Concat(s_AttributeFields.SelectMany(field => new[]
+        {
+            $"{field.Prefix}min", $"{field.Prefix}max", $"{field.Prefix}aug"
+        })),
+        StringComparer.Ordinal);
+
+    private static bool TryReadAttributes(
+        XElement sourceNode,
+        out CharacterCreationMetatypeAttributeProjection[] attributes)
+    {
+        var result = new List<CharacterCreationMetatypeAttributeProjection>();
+        foreach ((string id, string prefix) in s_AttributeFields)
+        {
+            if (!TryReadRequiredNonNegativeInt(sourceNode, $"{prefix}min", out int minimum)
+                || !TryReadRequiredNonNegativeInt(sourceNode, $"{prefix}max", out int maximum)
+                || !TryReadRequiredNonNegativeInt(sourceNode, $"{prefix}aug", out int augmented)
+                || minimum > maximum
+                || maximum > augmented)
+            {
+                attributes = [];
+                return false;
+            }
+            result.Add(new CharacterCreationMetatypeAttributeProjection(id, minimum, maximum, augmented));
+        }
+        attributes = result.ToArray();
+        return true;
+    }
+
+    private static bool TryReadEmptyMarker(XElement parent, string name, out bool present)
+    {
+        XElement[] matches = parent.Elements(name).Take(2).ToArray();
+        present = matches.Length == 1;
+        return matches.Length <= 1
+               && matches.All(element => !element.HasAttributes
+                                          && !element.HasElements
+                                          && string.IsNullOrWhiteSpace(element.Value));
+    }
+
+    private static bool TryReadNormalizedScalar(XElement parent, string name, out string value)
+    {
+        XElement[] matches = parent.Elements(name).Take(2).ToArray();
+        value = matches.Length == 1 ? matches[0].Value : string.Empty;
+        return matches.Length == 1
+               && !matches[0].HasAttributes
+               && !matches[0].HasElements
+               && !string.IsNullOrWhiteSpace(value)
+               && string.Equals(value, value.Trim(), StringComparison.Ordinal);
+    }
+
+    private static bool TryReadRequiredNonNegativeInt(XElement parent, string name, out int value)
+    {
+        value = 0;
+        return TryReadNormalizedScalar(parent, name, out string raw)
+               && int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out value)
+               && value >= 0;
+    }
+
+    private static bool TryReadOptionalNonNegativeInt(XElement parent, string name, out int value)
+    {
+        XElement[] matches = parent.Elements(name).Take(2).ToArray();
+        value = 0;
+        return matches.Length == 0 || matches.Length == 1
+               && TryReadRequiredNonNegativeInt(parent, name, out value);
+    }
+
+    private static bool TryReadOptionalInt(XElement parent, string name, out int value)
+    {
+        XElement[] matches = parent.Elements(name).Take(2).ToArray();
+        value = 0;
+        if (matches.Length == 0)
+            return true;
+        return matches.Length == 1
+               && TryReadNormalizedScalar(parent, name, out string raw)
+               && int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out value);
+    }
+
+    private static bool TryReadOptionalNullableNonNegativeInt(
+        XElement parent,
+        string name,
+        out int? value)
+    {
+        XElement[] matches = parent.Elements(name).Take(2).ToArray();
+        value = null;
+        if (matches.Length == 0)
+            return true;
+        if (matches.Length != 1
+            || !TryReadRequiredNonNegativeInt(parent, name, out int parsed))
+            return false;
+        value = parsed;
         return true;
     }
 
@@ -348,6 +770,15 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
             normalizedBlockers,
             normalizedBlockers.Length == 0,
             string.Empty);
+        authority = authority with
+        {
+            RawMetatypesXmlDigest = context.RawMetatypesXmlDigest,
+            EffectiveMetatypesInputsDigest = context.EffectiveMetatypesInputsDigest,
+            MaxNumberMaxAttributesCreate = context.MaxNumberMaxAttributesCreate,
+            KarmaAttribute = context.KarmaAttribute,
+            AlternateMetatypeAttributeKarma = context.AlternateMetatypeAttributeKarma,
+            ReverseAttributePriorityOrder = context.ReverseAttributePriorityOrder
+        };
         return authority with
         {
             AuthorityDigest = CharacterCreationPrerequisiteAuthorityDigest.Compute(authority)

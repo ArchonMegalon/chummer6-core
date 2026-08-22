@@ -180,6 +180,8 @@ public static class ServiceCollectionExtensions
             CharacterCreationFoundationService>();
         services.AddSingleton<ICharacterCreationPrerequisiteService,
             CharacterCreationPrerequisiteService>();
+        services.AddSingleton<ICharacterCreationAttributesService,
+            CharacterCreationAttributesService>();
 
         return services;
     }

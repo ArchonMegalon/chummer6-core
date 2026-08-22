@@ -504,7 +504,7 @@ public sealed class WorkspaceAuxiliaryStateStoreTests
                     category == CharacterCreationPriorityCategoryIds.Attributes ? 16 : null,
                     [$"priorities.xml#test:{category}"]))
             .ToArray();
-        return new CharacterCreationPrerequisiteDraft(
+        var draft = new CharacterCreationPrerequisiteDraft(
             CharacterCreationPrerequisiteSchemas.DraftV1,
             id,
             1,
@@ -520,7 +520,39 @@ public sealed class WorkspaceAuxiliaryStateStoreTests
             25,
             0,
             ["settings.xml#setting:test", "priorities.xml"],
-            "sha256:" + new string('d', 64));
+            "sha256:" + new string('d', 64))
+        {
+            HeritageSelection = new CharacterCreationPriorityHeritageSelection(
+                "human",
+                CharacterCreationPriorityChildKinds.Metatype,
+                assignments[0].SourceId,
+                "a53d885d-a4a4-443d-b6a6-b0a55b0a96c7",
+                null,
+                "Human",
+                null,
+                1,
+                0,
+                false,
+                CharacterCreationPrerequisiteServiceTests.HumanAttributes(),
+                "sha256:" + new string('e', 64),
+                "sha256:" + new string('f', 64),
+                ["priorities.xml#human", "metatypes.xml#human"]),
+            TalentSelection = new CharacterCreationPriorityTalentSelection(
+                "mundane",
+                assignments[1].SourceId,
+                "Mundane",
+                "Mundane",
+                0,
+                null,
+                null,
+                null,
+                [],
+                "sha256:" + new string('9', 64),
+                ["priorities.xml#mundane"]),
+            EffectiveNormalAttributePoints = 16,
+            TotalSpecialAttributePoints = 1
+        };
+        return draft;
     }
 
     private static WorkspaceDocument WithDraft(
