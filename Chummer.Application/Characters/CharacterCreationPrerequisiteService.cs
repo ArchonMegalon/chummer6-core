@@ -1135,7 +1135,7 @@ public sealed class CharacterCreationPrerequisiteService :
         CharacterCreationPriorityTalentOptionProjection option)
     {
         if (string.IsNullOrEmpty(option.RawTalentNode))
-            return option.ActiveSkillGrant is null && option.SkillGroupGrant is null;
+            return false;
         if (!CharacterCreationPrerequisiteAuthorityDigest.EqualsFixedTime(
                 option.PriorityChildNodeDigest,
                 CharacterCreationTalentGrantAuthorityDigest.ComputeRawTalentNode(

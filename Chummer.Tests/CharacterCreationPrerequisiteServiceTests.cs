@@ -835,6 +835,41 @@ public sealed class CharacterCreationPrerequisiteServiceTests
             });
         AssertAuthorityUnavailable(forgedActiveDigest);
 
+        CharacterCreationPrerequisiteAuthority forgedGrantErasure = MutateTalentOption(
+            active,
+            talent => talent with
+            {
+                ActiveSkillGrant = null,
+                SkillGroupGrant = null,
+                RawTalentNode = string.Empty
+            });
+        AssertAuthorityUnavailable(forgedGrantErasure);
+        WithWorkspace(
+            CharacterCreationBuildMethods.Priority,
+            forgedGrantErasure,
+            (_, service, id) =>
+            {
+                CharacterCreationPrerequisiteState state = Load(service, id);
+                CharacterCreationFoundationResult<CharacterCreationPrerequisitePreview> result =
+                    service.Preview(new CharacterCreationPrerequisitePreviewRequest(
+                        state.Binding,
+                        Assign("A", "E", "B", "C", "D"))
+                    {
+                        HeritageSelectionId = "human",
+                        TalentSelectionId = "adept",
+                        TalentActiveSkillSelectionIds =
+                        [
+                            "74a68a9e-8c5b-4998-8dbb-08c1e768afc3",
+                            "40c72109-8924-45ca-a4d7-255b75e6a6b0"
+                        ]
+                    });
+                Assert.IsNotNull(result.Value);
+                CollectionAssert.Contains(
+                    result.Blockers.ToList(),
+                    CharacterCreationPrerequisiteBlockers.AuthorityUnavailable);
+                Assert.IsNull(result.Value.TalentSelection?.GrantPlan);
+            });
+
         CharacterCreationPrerequisiteAuthority forgedActiveImprovementDigest = MutateTalentOption(
             active,
             talent =>
@@ -1594,10 +1629,13 @@ public sealed class CharacterCreationPrerequisiteServiceTests
             null,
             null,
             [],
-            Digest(52),
+            CharacterCreationTalentGrantAuthorityDigest.ComputeRawTalentNode("<talent />"),
             IsEnabled: true,
             Blockers: [],
-            SourceAnchorIds: [$"priorities.xml#priority:{priorityId}:talent:0"]);
+            SourceAnchorIds: [$"priorities.xml#priority:{priorityId}:talent:0"])
+        {
+            RawTalentNode = "<talent />"
+        };
 
     internal static CharacterCreationMetatypeAttributeProjection[] HumanAttributes() =>
     [
