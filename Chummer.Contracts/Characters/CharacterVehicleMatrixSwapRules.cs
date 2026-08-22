@@ -24,8 +24,9 @@ public sealed record CharacterVehicleMatrixSwapState(
 
 /// <summary>
 /// Exact saved-data authority for the Vehicle root selected by the four legacy
-/// cboVehicleDataProcessing/cboVehicleFirewall handlers. Descendant Vehicle-tree
-/// IHasMatrixAttributes targets remain outside this bounded authority and fail closed.
+/// Attack/Sleaze/Data Processing/Firewall combo handlers in creation or career.
+/// Descendant Vehicle-tree IHasMatrixAttributes targets remain outside this bounded
+/// authority and fail closed.
 /// </summary>
 public static class CharacterVehicleMatrixSwapRules
 {
@@ -77,7 +78,7 @@ public static class CharacterVehicleMatrixSwapRules
             && current.Provenance.CanSwapAttributes
             && !string.IsNullOrEmpty(current.Provenance.AttributeArray)
             && current.Economics is { NuyenDelta: 0m, KarmaDelta: 0 }
-            && changedAttribute is CharacterVehicleMatrixStat.DataProcessing or CharacterVehicleMatrixStat.Firewall
+            && IsDefined(changedAttribute)
             && IsDefined(targetAttribute)
             && changedAttribute != targetAttribute
             && expectedRevision is { Length: RevisionHexLength }

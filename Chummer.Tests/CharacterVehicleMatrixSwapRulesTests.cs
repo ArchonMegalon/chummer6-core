@@ -26,7 +26,7 @@ public sealed class CharacterVehicleMatrixSwapRulesTests
     }
 
     [TestMethod]
-    public void Data_processing_and_firewall_permute_distinct_raw_values_only()
+    public void All_four_vehicle_matrix_handlers_permute_distinct_raw_values_only()
     {
         Assert.IsTrue(CharacterVehicleMatrixSwapRules.TryCreateState(
             Identity, false, "Van", "7", "6", "5", "4", "7,6,5,4", true, out var state));
@@ -34,8 +34,12 @@ public sealed class CharacterVehicleMatrixSwapRulesTests
             state, state.Revision, CharacterVehicleMatrixStat.DataProcessing, CharacterVehicleMatrixStat.Attack));
         Assert.IsTrue(CharacterVehicleMatrixSwapRules.TryValidateMutation(
             state, state.Revision, CharacterVehicleMatrixStat.Firewall, CharacterVehicleMatrixStat.DataProcessing));
-        Assert.IsFalse(CharacterVehicleMatrixSwapRules.TryValidateMutation(
+        Assert.IsTrue(CharacterVehicleMatrixSwapRules.TryValidateMutation(
             state, state.Revision, CharacterVehicleMatrixStat.Attack, CharacterVehicleMatrixStat.DataProcessing));
+        Assert.IsTrue(CharacterVehicleMatrixSwapRules.TryValidateMutation(
+            state, state.Revision, CharacterVehicleMatrixStat.Sleaze, CharacterVehicleMatrixStat.Firewall));
+        Assert.IsFalse(CharacterVehicleMatrixSwapRules.TryValidateMutation(
+            state, state.Revision, (CharacterVehicleMatrixStat)99, CharacterVehicleMatrixStat.Attack));
         Assert.IsFalse(CharacterVehicleMatrixSwapRules.TryValidateMutation(
             state, new string('0', 64), CharacterVehicleMatrixStat.Firewall, CharacterVehicleMatrixStat.Attack));
         Assert.IsTrue(CharacterVehicleMatrixSwapRules.RequiresMatrixInitiativeNotification(
