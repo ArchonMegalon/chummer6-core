@@ -969,19 +969,23 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
     private static bool TryReadCanonicalSkillName(XElement skill, out string name)
     {
         XElement[] matches = skill.Elements("name").ToArray();
-        name = matches.FirstOrDefault()?.Value ?? string.Empty;
+        string canonicalName = matches.FirstOrDefault()?.Value ?? string.Empty;
+        name = canonicalName;
         // The current canonical skills corpus contains an exact duplicate name
         // element for Artisan. Treat identical repeated scalars as one source
         // value, while distinct values and cross-skill ordinary-name collisions
         // remain fail-closed.
         return matches.Length > 0
-               && !string.IsNullOrWhiteSpace(name)
-               && string.Equals(name, name.Trim(), StringComparison.Ordinal)
+               && !string.IsNullOrWhiteSpace(canonicalName)
+               && string.Equals(
+                   canonicalName,
+                   canonicalName.Trim(),
+                   StringComparison.Ordinal)
                && matches.All(element => !element.HasAttributes
                                          && !element.HasElements
                                          && string.Equals(
                                              element.Value,
-                                             name,
+                                             canonicalName,
                                              StringComparison.Ordinal));
     }
 
