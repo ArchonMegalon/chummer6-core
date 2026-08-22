@@ -716,6 +716,7 @@ public sealed class CharacterCreationPrerequisiteService :
                     option.Category,
                     option.SkillGroup,
                     activeGrant.BaseRating,
+                    activeGrant.ImprovementKind,
                     option.SourceNodeDigest,
                     option.SkillsSourceDigest,
                     option.SourceAnchorIds.ToArray()));
@@ -766,6 +767,7 @@ public sealed class CharacterCreationPrerequisiteService :
                     option.CanonicalName,
                     option.MemberSkillSourceIds.ToArray(),
                     groupGrant.BaseRating,
+                    groupGrant.ImprovementKind,
                     option.GroupDigest,
                     option.SkillsSourceDigest,
                     option.SourceAnchorIds.ToArray()));
@@ -1130,7 +1132,12 @@ public sealed class CharacterCreationPrerequisiteService :
                && grant.Quantity > 0
                && grant.Quantity <= CharacterCreationTalentSkillGrantTypes.MaximumPromptSlots
                && grant.BaseRating >= 0
+               && IsValidTalentGrantImprovementKind(grant.ImprovementKind)
                && IsNormalizedLowerToken(grant.SkillType)
+               && HasValidTalentGrantSelectorTypeProvenance(
+                   grant.SkillType,
+                   grant.RawSelectorType,
+                   grant.SelectorTypeSource)
                && grant.SkillTypeQuery is not null
                && string.Equals(
                    grant.SkillTypeQuery,
@@ -1152,6 +1159,9 @@ public sealed class CharacterCreationPrerequisiteService :
                        grant.Quantity,
                        grant.BaseRating,
                        grant.SkillType,
+                       grant.ImprovementKind,
+                       grant.RawSelectorType,
+                       grant.SelectorTypeSource,
                        effectiveSkillsInputsDigest,
                        grant.Options.Select(option => option.SelectionId)))
                && HasExactGrantSupportState(
@@ -1324,6 +1334,25 @@ public sealed class CharacterCreationPrerequisiteService :
         && string.Equals(value, value.Trim(), StringComparison.Ordinal)
         && string.Equals(value, value.ToLowerInvariant(), StringComparison.Ordinal);
 
+    private static bool IsValidTalentGrantImprovementKind(string value) =>
+        value is CharacterCreationTalentGrantImprovementKinds.SkillBase
+            or CharacterCreationTalentGrantImprovementKinds.SkillGroupBase;
+
+    private static bool HasValidTalentGrantSelectorTypeProvenance(
+        string effectiveType,
+        string rawSelectorType,
+        string selectorTypeSource) =>
+        rawSelectorType is not null
+        && (selectorTypeSource is CharacterCreationTalentGrantSelectorTypeSources.Missing
+            or CharacterCreationTalentGrantSelectorTypeSources.SkillType
+            or CharacterCreationTalentGrantSelectorTypeSources.SkillGroupType)
+        && (selectorTypeSource != CharacterCreationTalentGrantSelectorTypeSources.Missing
+            || rawSelectorType.Length == 0)
+        && string.Equals(
+            effectiveType,
+            CharacterCreationTalentSkillGrantTypes.NormalizeLegacySelectorType(rawSelectorType),
+            StringComparison.Ordinal);
+
     private static bool HasExactGrantSupportState(
         bool supported,
         bool expectedSupported,
@@ -1346,7 +1375,12 @@ public sealed class CharacterCreationPrerequisiteService :
                && grant.Quantity > 0
                && grant.Quantity <= CharacterCreationTalentSkillGrantTypes.MaximumPromptSlots
                && grant.BaseRating >= 0
+               && IsValidTalentGrantImprovementKind(grant.ImprovementKind)
                && IsNormalizedLowerToken(grant.SkillGroupType)
+               && HasValidTalentGrantSelectorTypeProvenance(
+                   grant.SkillGroupType,
+                   grant.RawSelectorType,
+                   grant.SelectorTypeSource)
                && grant.CompatibilityMarker is not null
                && HasExactSkillGroupCompatibilityMarker(grant)
                && grant.RequestedGroupNames is not null
@@ -1365,6 +1399,9 @@ public sealed class CharacterCreationPrerequisiteService :
                        grant.Quantity,
                        grant.BaseRating,
                        grant.SkillGroupType,
+                       grant.ImprovementKind,
+                       grant.RawSelectorType,
+                       grant.SelectorTypeSource,
                        effectiveSkillsInputsDigest,
                        grant.Options.Select(option => option.SelectionId)))
                && HasExactGrantSupportState(

@@ -381,6 +381,8 @@ public sealed class CharacterCreationPrerequisiteServiceTests
                 Assert.AreEqual("Arcana", plan.ActiveSkills[0].CanonicalName);
                 Assert.AreEqual(spellcastingId, plan.ActiveSkills[1].SourceId);
                 Assert.AreEqual(4, plan.ActiveSkills[0].BaseRating);
+                Assert.AreEqual(CharacterCreationTalentGrantImprovementKinds.SkillBase,
+                    plan.ActiveSkills[0].ImprovementKind);
                 Assert.IsTrue(CharacterCreationFoundationDraftLedgerIntegrity.IsCanonicalDigest(
                     plan.PlanDigest));
                 Assert.AreEqual(1L, store.Get(id).Value!.ContentRevision);
@@ -451,6 +453,9 @@ public sealed class CharacterCreationPrerequisiteServiceTests
                             4,
                             grant.BaseRating,
                             grant.SkillType,
+                            grant.ImprovementKind,
+                            grant.RawSelectorType,
+                            grant.SelectorTypeSource,
                             skillsDigest,
                             options.Select(option => option.SelectionId)),
                         IsSupported = false,
@@ -511,10 +516,16 @@ public sealed class CharacterCreationPrerequisiteServiceTests
                                 1,
                                 sourceGrant.BaseRating,
                                 type,
+                                sourceGrant.ImprovementKind,
+                                type,
+                                CharacterCreationTalentGrantSelectorTypeSources.SkillType,
                                 skillsDigest,
                                 options.Select(option => option.SelectionId)),
                             IsSupported = true,
                             Blockers = [],
+                            RawSelectorType = type,
+                            SelectorTypeSource =
+                                CharacterCreationTalentGrantSelectorTypeSources.SkillType,
                             SkillTypeQuery = query,
                             SpecificSkillChoiceNames = specificNames ?? []
                         };
@@ -626,6 +637,100 @@ public sealed class CharacterCreationPrerequisiteServiceTests
     }
 
     [TestMethod]
+    public void Hybrid_talent_selector_lanes_preserve_typed_improvement_kind_all_or_nothing()
+    {
+        const string spellcastingId = "40c72109-8924-45ca-a4d7-255b75e6a6b0";
+        const string arcanaId = "74a68a9e-8c5b-4998-8dbb-08c1e768afc3";
+        CharacterCreationPrerequisiteAuthority activeSelector = WithActiveSkillTalentGrant(
+            CreateAuthority(CharacterCreationBuildMethods.Priority, ["A", "B", "C", "D", "E"]),
+            spellcastingId,
+            arcanaId,
+            "a1366ec2-772d-4f08-8c65-5f79464d975b",
+            CharacterCreationTalentGrantImprovementKinds.SkillGroupBase);
+        WithWorkspace(
+            CharacterCreationBuildMethods.Priority,
+            activeSelector,
+            (store, service, id) =>
+            {
+                CharacterCreationPrerequisiteState state = Load(service, id);
+                var request = new CharacterCreationPrerequisitePreviewRequest(
+                    state.Binding,
+                    Assign("A", "E", "B", "C", "D"))
+                {
+                    HeritageSelectionId = "human",
+                    TalentSelectionId = "adept",
+                    TalentActiveSkillSelectionIds = [arcanaId, spellcastingId]
+                };
+                CharacterCreationTalentGrantPlanContribution plan = service.Preview(request)
+                    .Value!.TalentSelection!.GrantPlan!;
+                Assert.IsEmpty(plan.SkillGroups);
+                CollectionAssert.AreEqual(
+                    new[] { "Arcana", "Spellcasting" },
+                    plan.ActiveSkills.Select(entry => entry.CanonicalName).ToArray());
+                Assert.IsTrue(plan.ActiveSkills.All(entry =>
+                    entry.TargetKind == "active-skill"
+                    && entry.ImprovementKind ==
+                    CharacterCreationTalentGrantImprovementKinds.SkillGroupBase));
+
+                CharacterCreationPrerequisitePreview forged = service.Preview(request with
+                {
+                    TalentActiveSkillSelectionIds =
+                        [arcanaId, "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"]
+                }).Value!;
+                Assert.IsNull(forged.TalentSelection!.GrantPlan);
+                Assert.AreEqual(1L, store.Get(id).Value!.ContentRevision);
+                Assert.IsNull(store.Get(id).Value!.Document.AuxiliaryState
+                    .CharacterCreationPrerequisiteDraft);
+            });
+
+        CharacterCreationPrerequisiteAuthority groupSelector = WithSkillGroupTalentGrant(
+            CreateAuthority(CharacterCreationBuildMethods.Priority, ["A", "B", "C", "D", "E"]),
+            CharacterCreationTalentSkillGrantTypes.Grouped,
+            CharacterCreationTalentGrantImprovementKinds.SkillBase);
+        CharacterCreationTalentSkillGroupGrantProjection groupGrant = groupSelector.Options.Single(
+                option => option.CategoryId == CharacterCreationPriorityCategoryIds.Talent
+                          && option.Rank == "E")
+            .TalentOptions.Single().SkillGroupGrant!;
+        string firstGroupId = groupGrant.Options[0].SelectionId;
+        string secondGroupId = groupGrant.Options[1].SelectionId;
+        WithWorkspace(
+            CharacterCreationBuildMethods.Priority,
+            groupSelector,
+            (store, service, id) =>
+            {
+                CharacterCreationPrerequisiteState state = Load(service, id);
+                var request = new CharacterCreationPrerequisitePreviewRequest(
+                    state.Binding,
+                    Assign("A", "E", "B", "C", "D"))
+                {
+                    HeritageSelectionId = "human",
+                    TalentSelectionId = "aspected",
+                    TalentSkillGroupSelectionIds = [secondGroupId, firstGroupId]
+                };
+                CharacterCreationTalentGrantPlanContribution plan = service.Preview(request)
+                    .Value!.TalentSelection!.GrantPlan!;
+                Assert.IsEmpty(plan.ActiveSkills);
+                CollectionAssert.AreEqual(
+                    new[] { "Sorcery", "Conjuring" },
+                    plan.SkillGroups.Select(entry => entry.CanonicalName).ToArray());
+                Assert.IsTrue(plan.SkillGroups.All(entry =>
+                    entry.TargetKind == "skill-group"
+                    && entry.ImprovementKind ==
+                    CharacterCreationTalentGrantImprovementKinds.SkillBase));
+
+                CharacterCreationPrerequisitePreview forged = service.Preview(request with
+                {
+                    TalentSkillGroupSelectionIds =
+                        [firstGroupId, $"skill-group:{new string('a', 64)}"]
+                }).Value!;
+                Assert.IsNull(forged.TalentSelection!.GrantPlan);
+                Assert.AreEqual(1L, store.Get(id).Value!.ContentRevision);
+                Assert.IsNull(store.Get(id).Value!.Document.AuxiliaryState
+                    .CharacterCreationPrerequisiteDraft);
+            });
+    }
+
+    [TestMethod]
     public void Recomputed_outer_authority_digest_cannot_hide_forged_grant_or_group_identity()
     {
         CharacterCreationPrerequisiteAuthority active = WithActiveSkillTalentGrant(
@@ -640,6 +745,57 @@ public sealed class CharacterCreationPrerequisiteServiceTests
                 ActiveSkillGrant = talent.ActiveSkillGrant! with { GrantDigest = Digest(90) }
             });
         AssertAuthorityUnavailable(forgedActiveDigest);
+
+        CharacterCreationPrerequisiteAuthority forgedActiveImprovementDigest = MutateTalentOption(
+            active,
+            talent => talent with
+            {
+                ActiveSkillGrant = talent.ActiveSkillGrant! with
+                {
+                    ImprovementKind =
+                        CharacterCreationTalentGrantImprovementKinds.SkillGroupBase
+                }
+            });
+        AssertAuthorityUnavailable(forgedActiveImprovementDigest);
+
+        CharacterCreationPrerequisiteAuthority forgedSelectorProvenanceDigest =
+            MutateTalentOption(
+                active,
+                talent => talent with
+                {
+                    ActiveSkillGrant = talent.ActiveSkillGrant! with
+                    {
+                        RawSelectorType = "ACTIVE"
+                    }
+                });
+        AssertAuthorityUnavailable(forgedSelectorProvenanceDigest);
+
+        CharacterCreationPrerequisiteAuthority forgedActiveImprovementKind = MutateTalentOption(
+            active,
+            talent =>
+            {
+                CharacterCreationTalentActiveSkillGrantProjection grant =
+                    talent.ActiveSkillGrant!;
+                const string forgedKind = "SkillRating";
+                return talent with
+                {
+                    ActiveSkillGrant = grant with
+                    {
+                        ImprovementKind = forgedKind,
+                        GrantDigest = CharacterCreationTalentGrantAuthorityDigest
+                            .ComputeActiveGrant(
+                                grant.Quantity,
+                                grant.BaseRating,
+                                grant.SkillType,
+                                forgedKind,
+                                grant.RawSelectorType,
+                                grant.SelectorTypeSource,
+                                active.EffectiveSkillsInputsDigest,
+                                grant.Options.Select(option => option.SelectionId))
+                    }
+                };
+            });
+        AssertAuthorityUnavailable(forgedActiveImprovementKind);
 
         CharacterCreationPrerequisiteAuthority grouped = WithSkillGroupTalentGrant(
             CreateAuthority(CharacterCreationBuildMethods.Priority, ["A", "B", "C", "D", "E"]));
@@ -675,6 +831,9 @@ public sealed class CharacterCreationPrerequisiteServiceTests
                                 grant.Quantity,
                                 grant.BaseRating,
                                 grant.SkillGroupType,
+                                grant.ImprovementKind,
+                                grant.RawSelectorType,
+                                grant.SelectorTypeSource,
                                 grouped.EffectiveSkillsInputsDigest,
                                 options.Select(option => option.SelectionId))
                     }
@@ -705,6 +864,9 @@ public sealed class CharacterCreationPrerequisiteServiceTests
                                 grant.Quantity,
                                 grant.BaseRating,
                                 grant.SkillGroupType,
+                                grant.ImprovementKind,
+                                grant.RawSelectorType,
+                                grant.SelectorTypeSource,
                                 grouped.EffectiveSkillsInputsDigest,
                                 options.Select(option => option.SelectionId))
                     }
@@ -933,7 +1095,8 @@ public sealed class CharacterCreationPrerequisiteServiceTests
         CharacterCreationPrerequisiteAuthority authority,
         string skillSourceId,
         string secondSkillSourceId,
-        string exoticSkillSourceId)
+        string exoticSkillSourceId,
+        string improvementKind = CharacterCreationTalentGrantImprovementKinds.SkillBase)
     {
         string skillsDigest = Digest(61);
         CharacterCreationPriorityOptionProjection[] options = authority.Options.Select(option =>
@@ -987,11 +1150,19 @@ public sealed class CharacterCreationPrerequisiteServiceTests
                     2,
                     4,
                     CharacterCreationTalentSkillGrantTypes.Active,
+                    improvementKind,
+                    CharacterCreationTalentSkillGrantTypes.Active,
+                    CharacterCreationTalentGrantSelectorTypeSources.SkillType,
                     skillsDigest,
                     grantOptions.Select(option => option.SelectionId)),
                 IsSupported: true,
                 Blockers: [],
-                SourceAnchorIds: ["priorities.xml#talent:adept", "skills.xml"]);
+                SourceAnchorIds: ["priorities.xml#talent:adept", "skills.xml"])
+            {
+                ImprovementKind = improvementKind,
+                RawSelectorType = CharacterCreationTalentSkillGrantTypes.Active,
+                SelectorTypeSource = CharacterCreationTalentGrantSelectorTypeSources.SkillType
+            };
             CharacterCreationPriorityTalentOptionProjection adept = new(
                 "adept",
                 "Adept - 6 Magic",
@@ -1025,7 +1196,8 @@ public sealed class CharacterCreationPrerequisiteServiceTests
 
     private static CharacterCreationPrerequisiteAuthority WithSkillGroupTalentGrant(
         CharacterCreationPrerequisiteAuthority authority,
-        string skillGroupType = CharacterCreationTalentSkillGrantTypes.Choices)
+        string skillGroupType = CharacterCreationTalentSkillGrantTypes.Choices,
+        string improvementKind = CharacterCreationTalentGrantImprovementKinds.SkillGroupBase)
     {
         string skillsDigest = authority.EffectiveSkillsInputsDigest;
         CharacterCreationTalentSkillGroupChoiceProjection Group(
@@ -1074,12 +1246,18 @@ public sealed class CharacterCreationPrerequisiteServiceTests
                 2,
                 4,
                 skillGroupType,
+                improvementKind,
+                skillGroupType,
+                CharacterCreationTalentGrantSelectorTypeSources.SkillGroupType,
                 skillsDigest,
                 groupOptions.Select(option => option.SelectionId)),
             IsSupported: true,
             Blockers: [],
             SourceAnchorIds: sourceAnchors)
         {
+            ImprovementKind = improvementKind,
+            RawSelectorType = skillGroupType,
+            SelectorTypeSource = CharacterCreationTalentGrantSelectorTypeSources.SkillGroupType,
             CompatibilityMarker = compatibilityMarker,
             RequestedGroupNames = groupOptions.Select(option => option.CanonicalName).ToArray()
         };

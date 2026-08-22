@@ -474,44 +474,20 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
         XElement talent,
         TalentSkillCatalog? catalog,
         string talentAnchor,
-        out CharacterCreationTalentActiveSkillGrantProjection? projection,
-        out bool branchPresent)
+        int sourceQuantity,
+        int rating,
+        string rawSkillType,
+        string skillTypeQuery,
+        string improvementKind,
+        string selectorTypeSource,
+        out CharacterCreationTalentActiveSkillGrantProjection? projection)
     {
         projection = null;
-        XElement[] quantityNodes = talent.Elements("skillqty").Take(2).ToArray();
-        XElement[] ratingNodes = talent.Elements("skillval").Take(2).ToArray();
-        XElement[] typeNodes = talent.Elements("skilltype").Take(2).ToArray();
-        XElement[] choiceContainers = talent.Elements("skillchoices").Take(2).ToArray();
-        branchPresent = quantityNodes.Length != 0
-                        || ratingNodes.Length != 0
-                        || typeNodes.Length != 0
-                        || choiceContainers.Length != 0;
-        if (!branchPresent)
-            return true;
-        if (quantityNodes.Length == 0)
-            return true;
-        if (quantityNodes.Length != 1)
-            return false;
-        if (!TryReadIntScalar(talent, "skillqty", out int sourceQuantity)
-            || sourceQuantity <= 0)
-        {
-            // SelectMetatypePriority opens no prompt for a non-positive or
-            // unparseable quantity; the Talent row itself remains usable.
-            return true;
-        }
-        if (ratingNodes.Length != 1
-            || !TryReadRequiredNonNegativeInt(talent, "skillval", out int rating)
-            || !TryReadSkillType(talent, out string rawSkillType, out string skillTypeQuery)
-            || !TryReadSpecificSkillChoices(
-                talent,
-                out string[] sourceSpecificSkillChoiceNames))
-        {
-            return false;
-        }
         int quantity = Math.Min(
             sourceQuantity,
             CharacterCreationTalentSkillGrantTypes.MaximumPromptSlots);
-        string skillType = rawSkillType.ToLowerInvariant();
+        string skillType = CharacterCreationTalentSkillGrantTypes
+            .NormalizeLegacySelectorType(rawSkillType);
 
         bool exactXPath = string.Equals(
             skillTypeQuery,
@@ -526,6 +502,12 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
             skillType,
             CharacterCreationTalentSkillGrantTypes.Specific,
             StringComparison.Ordinal);
+        string[] sourceSpecificSkillChoiceNames = [];
+        if (specificType
+            && !TryReadSpecificSkillChoices(talent, out sourceSpecificSkillChoiceNames))
+        {
+            return false;
+        }
         string[] specificSkillChoiceNames = specificType
             ? sourceSpecificSkillChoiceNames
             : [];
@@ -599,12 +581,18 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
                 quantity,
                 rating,
                 skillType,
+                improvementKind,
+                rawSkillType,
+                selectorTypeSource,
                 sourceDigest,
                 options.Select(option => option.SelectionId)),
             supported,
             blockers,
             [talentAnchor, "skills.xml"])
         {
+            ImprovementKind = improvementKind,
+            RawSelectorType = rawSkillType,
+            SelectorTypeSource = selectorTypeSource,
             SkillTypeQuery = skillTypeQuery,
             SpecificSkillChoiceNames = specificSkillChoiceNames
         };
@@ -660,30 +648,126 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
             _ => false
         };
 
-    private static bool TryReadSkillType(
+    private static bool TryReadEffectiveTalentGrantFields(
         XElement talent,
+        out bool hasPrompt,
+        out int sourceQuantity,
+        out int rating,
+        out string rawSkillType,
+        out string skillTypeQuery,
+        out string improvementKind,
+        out string selectorTypeSource)
+    {
+        hasPrompt = false;
+        sourceQuantity = 0;
+        rating = 0;
+        rawSkillType = string.Empty;
+        skillTypeQuery = string.Empty;
+        improvementKind = string.Empty;
+        selectorTypeSource = CharacterCreationTalentGrantSelectorTypeSources.Missing;
+        if (!TryReadPreferredElement(
+                talent,
+                "skillqty",
+                "skillgroupqty",
+                out XElement? quantity,
+                out _))
+            return false;
+        if (quantity is null || !TryReadIntElement(quantity, out sourceQuantity)
+                             || sourceQuantity <= 0)
+        {
+            // The legacy selector opens no prompt for a missing, non-positive,
+            // or unparseable effective quantity. A present active quantity wins
+            // over any group fallback even in this no-prompt case.
+            return true;
+        }
+        if (!TryReadEffectiveGrantValue(talent, out rating, out improvementKind)
+            || !TryReadPreferredElement(
+                talent,
+                "skilltype",
+                "skillgrouptype",
+                out XElement? type,
+                out bool usesSkillType)
+            || !TryReadGrantTypeElement(type, out rawSkillType, out skillTypeQuery))
+        {
+            return false;
+        }
+        selectorTypeSource = type is null
+            ? CharacterCreationTalentGrantSelectorTypeSources.Missing
+            : usesSkillType
+                ? CharacterCreationTalentGrantSelectorTypeSources.SkillType
+                : CharacterCreationTalentGrantSelectorTypeSources.SkillGroupType;
+        hasPrompt = true;
+        return true;
+    }
+
+    private static bool TryReadEffectiveGrantValue(
+        XElement talent,
+        out int rating,
+        out string improvementKind)
+    {
+        rating = 0;
+        improvementKind = string.Empty;
+        XElement[] skillValues = talent.Elements("skillval").Take(2).ToArray();
+        if (skillValues.Length > 1)
+            return false;
+        if (skillValues.Length == 1 && TryReadIntElement(skillValues[0], out rating))
+        {
+            if (rating < 0)
+                return false;
+            improvementKind = CharacterCreationTalentGrantImprovementKinds.SkillBase;
+            return true;
+        }
+        XElement[] groupValues = talent.Elements("skillgroupval").Take(2).ToArray();
+        if (groupValues.Length > 1)
+            return false;
+        if (groupValues.Length == 1
+            && TryReadNonNegativeIntElement(groupValues[0], out rating))
+        {
+            improvementKind = CharacterCreationTalentGrantImprovementKinds.SkillGroupBase;
+            return true;
+        }
+        return false;
+    }
+
+    private static bool TryReadPreferredElement(
+        XElement parent,
+        string primaryName,
+        string fallbackName,
+        out XElement? element,
+        out bool usedPrimary)
+    {
+        usedPrimary = false;
+        XElement[] primary = parent.Elements(primaryName).Take(2).ToArray();
+        if (primary.Length > 1)
+        {
+            element = null;
+            return false;
+        }
+        if (primary.Length == 1)
+        {
+            element = primary[0];
+            usedPrimary = true;
+            return true;
+        }
+        XElement[] fallback = parent.Elements(fallbackName).Take(2).ToArray();
+        element = fallback.SingleOrDefault();
+        return fallback.Length <= 1;
+    }
+
+    private static bool TryReadGrantTypeElement(
+        XElement? element,
         out string skillType,
         out string skillTypeQuery)
     {
         skillType = string.Empty;
         skillTypeQuery = string.Empty;
-        XElement[] matches = talent.Elements("skilltype").Take(2).ToArray();
-        if (matches.Length == 0)
-        {
-            skillType = CharacterCreationTalentSkillGrantTypes.Default;
+        if (element is null)
             return true;
-        }
-        if (matches.Length != 1
-            || matches[0].HasElements
-            || string.IsNullOrWhiteSpace(matches[0].Value)
-            || !string.Equals(
-                matches[0].Value,
-                matches[0].Value.Trim(),
-                StringComparison.Ordinal))
+        if (element.HasElements)
         {
             return false;
         }
-        XAttribute[] attributes = matches[0].Attributes().Take(2).ToArray();
+        XAttribute[] attributes = element.Attributes().Take(2).ToArray();
         if (attributes.Length > 1
             || attributes.Any(attribute => attribute.Name.NamespaceName.Length != 0
                                            || !string.Equals(
@@ -698,10 +782,26 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
         {
             return false;
         }
-        skillType = matches[0].Value;
+        skillType = element.Value;
         skillTypeQuery = attributes.SingleOrDefault()?.Value ?? string.Empty;
         return true;
     }
+
+    private static bool TryReadIntElement(XElement element, out int value)
+    {
+        value = 0;
+        return !element.HasAttributes
+               && !element.HasElements
+               && string.Equals(element.Value, element.Value.Trim(), StringComparison.Ordinal)
+               && int.TryParse(
+                   element.Value,
+                   NumberStyles.Integer,
+                   CultureInfo.InvariantCulture,
+                   out value);
+    }
+
+    private static bool TryReadNonNegativeIntElement(XElement element, out int value) =>
+        TryReadIntElement(element, out value) && value >= 0;
 
     private static bool TryReadSpecificSkillChoices(
         XElement talent,
@@ -736,42 +836,25 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
         XElement talent,
         TalentSkillCatalog? catalog,
         string talentAnchor,
+        int sourceQuantity,
+        int rating,
+        string rawSkillGroupType,
+        string improvementKind,
+        string selectorTypeSource,
         out CharacterCreationTalentSkillGroupGrantProjection? projection)
     {
         projection = null;
-        XElement[] quantityNodes = talent.Elements("skillgroupqty").Take(2).ToArray();
-        XElement[] ratingNodes = talent.Elements("skillgroupval").Take(2).ToArray();
-        XElement[] typeNodes = talent.Elements("skillgrouptype").Take(2).ToArray();
         XElement[] choiceContainers = talent.Elements("skillgroupchoices").Take(2).ToArray();
-        if (quantityNodes.Length == 0
-            && ratingNodes.Length == 0
-            && typeNodes.Length == 0
-            && choiceContainers.Length == 0)
-        {
-            return true;
-        }
-        if (quantityNodes.Length == 0)
-            return true;
-        if (quantityNodes.Length != 1)
-            return false;
-        if (!TryReadIntScalar(talent, "skillgroupqty", out int sourceQuantity)
-            || sourceQuantity <= 0)
-        {
-            return true;
-        }
-        if (ratingNodes.Length != 1
-            || typeNodes.Length != 1
-            || choiceContainers.Length > 1
+        if (choiceContainers.Length > 1
             || choiceContainers.Any(container => container.HasAttributes)
-            || !TryReadRequiredNonNegativeInt(talent, "skillgroupval", out int rating)
-            || !TryReadNormalizedScalar(talent, "skillgrouptype", out string rawSkillGroupType))
         {
             return false;
         }
         int quantity = Math.Min(
             sourceQuantity,
             CharacterCreationTalentSkillGrantTypes.MaximumPromptSlots);
-        string skillGroupType = rawSkillGroupType.ToLowerInvariant();
+        string skillGroupType = CharacterCreationTalentSkillGrantTypes
+            .NormalizeLegacySelectorType(rawSkillGroupType);
 
         var requestedNames = new List<string>();
         var uniqueNames = new HashSet<string>(StringComparer.Ordinal);
@@ -847,12 +930,18 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
                 quantity,
                 rating,
                 skillGroupType,
+                improvementKind,
+                rawSkillGroupType,
+                selectorTypeSource,
                 sourceDigest,
                 options.Select(option => option.SelectionId)),
             supported,
             blockers,
             anchors)
         {
+            ImprovementKind = improvementKind,
+            RawSelectorType = rawSkillGroupType,
+            SelectorTypeSource = selectorTypeSource,
             CompatibilityMarker = compatibilityMarker,
             RequestedGroupNames = requestedNames.ToArray()
         };
@@ -1152,24 +1241,52 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
                 IsEnabled: exactMundane,
                 Blockers: blockers,
                 SourceAnchorIds: [$"priorities.xml#priority:{prioritySourceId}:talent:{order}"]);
-            if (!TryProjectActiveSkillGrant(
+            if (!TryReadEffectiveTalentGrantFields(
                     talent,
-                    skillCatalog,
-                    projection.SourceAnchorIds[0],
-                    out CharacterCreationTalentActiveSkillGrantProjection? activeSkillGrant,
-                    out bool activeBranchPresent))
+                    out bool hasGrantPrompt,
+                    out int sourceQuantity,
+                    out int baseRating,
+                    out string rawSkillType,
+                    out string skillTypeQuery,
+                    out string improvementKind,
+                    out string selectorTypeSource))
             {
                 return false;
             }
+            CharacterCreationTalentActiveSkillGrantProjection? activeSkillGrant = null;
             CharacterCreationTalentSkillGroupGrantProjection? skillGroupGrant = null;
-            if (!activeBranchPresent
-                && !TryProjectSkillGroupGrant(
-                    talent,
-                    skillCatalog,
-                    projection.SourceAnchorIds[0],
-                    out skillGroupGrant))
+            if (hasGrantPrompt)
             {
-                return false;
+                string normalizedType = CharacterCreationTalentSkillGrantTypes
+                    .NormalizeLegacySelectorType(rawSkillType);
+                bool groupPicker = string.IsNullOrEmpty(skillTypeQuery)
+                                   && (normalizedType is
+                                       CharacterCreationTalentSkillGrantTypes.Grouped
+                                       or CharacterCreationTalentSkillGrantTypes.Choices);
+                bool projectedGrant = groupPicker
+                    ? TryProjectSkillGroupGrant(
+                        talent,
+                        skillCatalog,
+                        projection.SourceAnchorIds[0],
+                        sourceQuantity,
+                        baseRating,
+                        rawSkillType,
+                        improvementKind,
+                        selectorTypeSource,
+                        out skillGroupGrant)
+                    : TryProjectActiveSkillGrant(
+                        talent,
+                        skillCatalog,
+                        projection.SourceAnchorIds[0],
+                        sourceQuantity,
+                        baseRating,
+                        rawSkillType,
+                        skillTypeQuery,
+                        improvementKind,
+                        selectorTypeSource,
+                        out activeSkillGrant);
+                if (!projectedGrant)
+                    return false;
             }
             projected.Add(projection with
             {
@@ -1265,13 +1382,6 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
         return TryReadNormalizedScalar(parent, name, out string raw)
                && int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out value)
                && value >= 0;
-    }
-
-    private static bool TryReadIntScalar(XElement parent, string name, out int value)
-    {
-        value = 0;
-        return TryReadNormalizedScalar(parent, name, out string raw)
-               && int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out value);
     }
 
     private static bool TryReadOptionalNormalizedScalar(

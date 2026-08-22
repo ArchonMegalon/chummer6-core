@@ -34,6 +34,28 @@ public static class CharacterCreationTalentSkillGrantTypes
     public const string PinnedXPathPredicate =
         "not(attribute = 'RES' or attribute = 'DEP') and "
         + "(not(category = 'Magical Active') or skillgroup = '' or not(skillgroup))";
+
+    public static string NormalizeLegacySelectorType(string rawSelectorType)
+    {
+        string normalized = rawSelectorType.ToLowerInvariant();
+        return normalized is Active or Default or Magic or Resonance or Matrix or Specific
+            or XPath or Choices or Grouped
+            ? normalized
+            : Default;
+    }
+}
+
+public static class CharacterCreationTalentGrantImprovementKinds
+{
+    public const string SkillBase = "SkillBase";
+    public const string SkillGroupBase = "SkillGroupBase";
+}
+
+public static class CharacterCreationTalentGrantSelectorTypeSources
+{
+    public const string Missing = "missing";
+    public const string SkillType = "skilltype";
+    public const string SkillGroupType = "skillgrouptype";
 }
 
 public static class CharacterCreationPriorityChildKinds
@@ -191,6 +213,12 @@ public sealed record CharacterCreationTalentActiveSkillGrantProjection(
     IReadOnlyList<string> Blockers,
     IReadOnlyList<string> SourceAnchorIds)
 {
+    public string ImprovementKind { get; init; } = string.Empty;
+
+    public string RawSelectorType { get; init; } = string.Empty;
+
+    public string SelectorTypeSource { get; init; } = string.Empty;
+
     public string SkillTypeQuery { get; init; } = string.Empty;
 
     public IReadOnlyList<string> SpecificSkillChoiceNames { get; init; } = [];
@@ -206,6 +234,12 @@ public sealed record CharacterCreationTalentSkillGroupGrantProjection(
     IReadOnlyList<string> Blockers,
     IReadOnlyList<string> SourceAnchorIds)
 {
+    public string ImprovementKind { get; init; } = string.Empty;
+
+    public string RawSelectorType { get; init; } = string.Empty;
+
+    public string SelectorTypeSource { get; init; } = string.Empty;
+
     public string CompatibilityMarker { get; init; } = string.Empty;
 
     public IReadOnlyList<string> RequestedGroupNames { get; init; } = [];
@@ -217,18 +251,28 @@ public static class CharacterCreationTalentGrantAuthorityDigest
         int quantity,
         int baseRating,
         string skillType,
+        string improvementKind,
+        string rawSelectorType,
+        string selectorTypeSource,
         string skillsSourceDigest,
         IEnumerable<string> orderedOptionIds) =>
-        RawDigest($"active\0{quantity}\0{baseRating}\0{skillType}\0{skillsSourceDigest}\0"
+        RawDigest($"active\0{quantity}\0{baseRating}\0{skillType}\0{improvementKind}\0"
+                  + $"{rawSelectorType}\0{selectorTypeSource}\0"
+                  + $"{skillsSourceDigest}\0"
                   + string.Join('\0', orderedOptionIds));
 
     public static string ComputeSkillGroupGrant(
         int quantity,
         int baseRating,
         string skillGroupType,
+        string improvementKind,
+        string rawSelectorType,
+        string selectorTypeSource,
         string skillsSourceDigest,
         IEnumerable<string> orderedOptionIds) =>
-        RawDigest($"group\0{quantity}\0{baseRating}\0{skillGroupType}\0{skillsSourceDigest}\0"
+        RawDigest($"group\0{quantity}\0{baseRating}\0{skillGroupType}\0{improvementKind}\0"
+                  + $"{rawSelectorType}\0{selectorTypeSource}\0"
+                  + $"{skillsSourceDigest}\0"
                   + string.Join('\0', orderedOptionIds));
 
     public static string ComputeSkillGroup(
@@ -459,6 +503,7 @@ public sealed record CharacterCreationTalentActiveSkillGrantPlanEntry(
     string Category,
     string? SkillGroup,
     int BaseRating,
+    string ImprovementKind,
     string SourceNodeDigest,
     string SkillsSourceDigest,
     IReadOnlyList<string> SourceAnchorIds);
@@ -469,6 +514,7 @@ public sealed record CharacterCreationTalentSkillGroupGrantPlanEntry(
     string CanonicalName,
     IReadOnlyList<string> MemberSkillSourceIds,
     int BaseRating,
+    string ImprovementKind,
     string GroupDigest,
     string SkillsSourceDigest,
     IReadOnlyList<string> SourceAnchorIds);

@@ -305,20 +305,47 @@ public sealed class FileSystemCharacterSourceDataResolverTests
                 Assert.AreEqual(rawTalent.Element("name")!.Value, projected.Name);
                 Assert.AreEqual(rawTalent.Element("value")!.Value, projected.Value);
 
-                bool activeBranch = rawTalent.Elements().Any(element => element.Name.LocalName is
-                    "skillqty" or "skillval" or "skilltype" or "skillchoices");
-                if (activeBranch)
+                XElement? quantityNode = rawTalent.Element("skillqty")
+                                         ?? rawTalent.Element("skillgroupqty");
+                bool hasPrompt = int.TryParse(quantityNode?.Value, out int sourceQuantity)
+                                 && sourceQuantity > 0;
+                if (!hasPrompt)
                 {
-                    bool hasPrompt = int.TryParse(
-                                         rawTalent.Element("skillqty")?.Value,
-                                         out int sourceQuantity)
-                                     && sourceQuantity > 0;
-                    if (!hasPrompt)
-                    {
-                        Assert.IsNull(projected.ActiveSkillGrant);
-                        Assert.IsNull(projected.SkillGroupGrant);
-                        continue;
-                    }
+                    Assert.IsNull(projected.ActiveSkillGrant);
+                    Assert.IsNull(projected.SkillGroupGrant);
+                    continue;
+                }
+                XElement? typeNode = rawTalent.Element("skilltype")
+                                     ?? rawTalent.Element("skillgrouptype");
+                string rawSkillType = typeNode?.Value ?? string.Empty;
+                string skillType = CharacterCreationTalentSkillGrantTypes
+                    .NormalizeLegacySelectorType(rawSkillType);
+                string selectorTypeSource = rawTalent.Element("skilltype") is not null
+                    ? CharacterCreationTalentGrantSelectorTypeSources.SkillType
+                    : rawTalent.Element("skillgrouptype") is not null
+                        ? CharacterCreationTalentGrantSelectorTypeSources.SkillGroupType
+                        : CharacterCreationTalentGrantSelectorTypeSources.Missing;
+                string query = typeNode?.Attribute("xpath")?.Value ?? string.Empty;
+                bool groupPicker = string.IsNullOrEmpty(query)
+                                   && (skillType is
+                                       CharacterCreationTalentSkillGrantTypes.Grouped
+                                       or CharacterCreationTalentSkillGrantTypes.Choices);
+                bool usesSkillValue = int.TryParse(
+                                          rawTalent.Element("skillval")?.Value,
+                                          out int effectiveRating)
+                                      && effectiveRating >= 0;
+                if (!usesSkillValue)
+                {
+                    Assert.IsTrue(int.TryParse(
+                        rawTalent.Element("skillgroupval")?.Value,
+                        out effectiveRating));
+                    Assert.IsTrue(effectiveRating >= 0);
+                }
+                string improvementKind = usesSkillValue
+                    ? CharacterCreationTalentGrantImprovementKinds.SkillBase
+                    : CharacterCreationTalentGrantImprovementKinds.SkillGroupBase;
+                if (!groupPicker)
+                {
 
                     CharacterCreationTalentActiveSkillGrantProjection grant =
                         projected.ActiveSkillGrant!;
@@ -327,13 +354,11 @@ public sealed class FileSystemCharacterSourceDataResolverTests
                         sourceQuantity,
                         CharacterCreationTalentSkillGrantTypes.MaximumPromptSlots);
                     Assert.AreEqual(quantity, grant.Quantity);
-                    Assert.AreEqual(int.Parse(rawTalent.Element("skillval")!.Value), grant.BaseRating);
-                    XElement? typeNode = rawTalent.Element("skilltype");
-                    string skillType = (typeNode?.Value
-                                        ?? CharacterCreationTalentSkillGrantTypes.Default)
-                        .ToLowerInvariant();
-                    string query = typeNode?.Attribute("xpath")?.Value ?? string.Empty;
+                    Assert.AreEqual(effectiveRating, grant.BaseRating);
+                    Assert.AreEqual(improvementKind, grant.ImprovementKind);
                     Assert.AreEqual(skillType, grant.SkillType);
+                    Assert.AreEqual(rawSkillType, grant.RawSelectorType);
+                    Assert.AreEqual(selectorTypeSource, grant.SelectorTypeSource);
                     Assert.AreEqual(query, grant.SkillTypeQuery);
                     string[] specificNames = skillType ==
                                              CharacterCreationTalentSkillGrantTypes.Specific
@@ -418,29 +443,18 @@ public sealed class FileSystemCharacterSourceDataResolverTests
                     continue;
                 }
 
-                bool groupBranch = rawTalent.Elements().Any(element => element.Name.LocalName is
-                    "skillgroupqty" or "skillgroupval" or "skillgrouptype"
-                    or "skillgroupchoices");
-                if (!groupBranch
-                    || !int.TryParse(rawTalent.Element("skillgroupqty")?.Value,
-                        out int sourceGroupQuantity)
-                    || sourceGroupQuantity <= 0)
-                {
-                    Assert.IsNull(projected.ActiveSkillGrant);
-                    Assert.IsNull(projected.SkillGroupGrant);
-                    continue;
-                }
-
                 CharacterCreationTalentSkillGroupGrantProjection groupGrant =
                     projected.SkillGroupGrant!;
                 Assert.IsNull(projected.ActiveSkillGrant);
                 int groupQuantity = Math.Min(
-                    sourceGroupQuantity,
+                    sourceQuantity,
                     CharacterCreationTalentSkillGrantTypes.MaximumPromptSlots);
                 Assert.AreEqual(groupQuantity, groupGrant.Quantity);
-                Assert.AreEqual(int.Parse(rawTalent.Element("skillgroupval")!.Value),
-                    groupGrant.BaseRating);
-                string groupType = rawTalent.Element("skillgrouptype")!.Value.ToLowerInvariant();
+                Assert.AreEqual(effectiveRating, groupGrant.BaseRating);
+                Assert.AreEqual(improvementKind, groupGrant.ImprovementKind);
+                Assert.AreEqual(rawSkillType, groupGrant.RawSelectorType);
+                Assert.AreEqual(selectorTypeSource, groupGrant.SelectorTypeSource);
+                string groupType = skillType;
                 Assert.AreEqual(groupType, groupGrant.SkillGroupType);
                 Assert.AreEqual(
                     groupType == CharacterCreationTalentSkillGrantTypes.Choices
@@ -617,6 +631,24 @@ public sealed class FileSystemCharacterSourceDataResolverTests
                     + "<skilltype>MaGiC</skilltype><skillgroupchoices><skillgroup>Sorcery"
                     + "</skillgroup></skillgroupchoices><skillgroupqty>1</skillgroupqty>"
                     + "<skillgroupval>2</skillgroupval><skillgrouptype>grouped</skillgrouptype>")
+                + TalentGrant("Hybrid Active Type", "<skilltype>magic</skilltype>"
+                    + "<skillgroupqty>1</skillgroupqty><skillgroupval>2</skillgroupval>"
+                    + "<skillgrouptype>grouped</skillgrouptype>")
+                + TalentGrant("Hybrid Active Value", "<skillval>3</skillval>"
+                    + "<skillgroupqty>1</skillgroupqty><skillgroupval>2</skillgroupval>"
+                    + "<skillgrouptype>grouped</skillgrouptype>"
+                    + "<skillgroupchoices><skillgroup>Sorcery</skillgroup></skillgroupchoices>")
+                + TalentGrant("Hybrid Skill Choices", "<skillchoices><skill>Arcana</skill>"
+                    + "</skillchoices><skillgroupqty>1</skillgroupqty>"
+                    + "<skillgroupval>2</skillgroupval><skillgrouptype>grouped</skillgrouptype>"
+                    + "<skillgroupchoices><skillgroup>Sorcery</skillgroup></skillgroupchoices>")
+                + TalentGrant("Hybrid Active Quantity", "<skillqty>1</skillqty>"
+                    + "<skillgroupqty>2</skillgroupqty><skillgroupval>2</skillgroupval>"
+                    + "<skillgrouptype>grouped</skillgrouptype>"
+                    + "<skillgroupchoices><skillgroup>Sorcery</skillgroup></skillgroupchoices>")
+                + TalentGrant("Hybrid Invalid Active Value", "<skillqty>1</skillqty>"
+                    + "<skillval>not-a-number</skillval><skillgroupval>5</skillgroupval>"
+                    + "<skilltype>magic</skilltype>")
                 + TalentGrant("Resonance", "<skillqty>3</skillqty><skillval>2</skillval>"
                     + "<skilltype>ReSoNaNcE</skilltype>")
                 + TalentGrant("Matrix", "<skillqty>2</skillqty><skillval>2</skillval>"
@@ -638,10 +670,15 @@ public sealed class FileSystemCharacterSourceDataResolverTests
                     + "<skilltype>active</skilltype>")
                 + TalentGrant("Unknown Active", "<skillqty>1</skillqty><skillval>2</skillval>"
                     + "<skilltype>unknown</skilltype>")
+                + TalentGrant("Empty Type", "<skillqty>1</skillqty><skillval>2</skillval>"
+                    + "<skilltype></skilltype>")
+                + TalentGrant("Whitespace Type", "<skillqty>1</skillqty><skillval>2</skillval>"
+                    + "<skilltype> </skilltype>")
                 + string.Concat(new[]
                 {
                     (Name: "Zero Active", Quantity: "0"),
                     (Name: "Negative Active", Quantity: "-1"),
+                    (Name: "Empty Active", Quantity: string.Empty),
                     (Name: "Unparseable Active", Quantity: "not-a-number")
                 }.Select(item => TalentGrant(
                     item.Name,
@@ -710,6 +747,43 @@ public sealed class FileSystemCharacterSourceDataResolverTests
             Assert.IsNull(mixed.SkillGroupGrant, "Active skill fields take branch precedence.");
             Assert.IsTrue(mixed.ActiveSkillGrant.Options.Any(option =>
                 option.CanonicalName == "Arcana"), "Talent prompts do not apply BookXPath.");
+
+            CharacterCreationPriorityTalentOptionProjection hybridActiveType = talents.Single(
+                talent => talent.Value == "Hybrid Active Type");
+            Assert.AreEqual(CharacterCreationTalentSkillGrantTypes.Magic,
+                hybridActiveType.ActiveSkillGrant!.SkillType);
+            Assert.AreEqual(CharacterCreationTalentGrantImprovementKinds.SkillGroupBase,
+                hybridActiveType.ActiveSkillGrant.ImprovementKind,
+                "The active selector retains the group-value improvement kind.");
+            Assert.IsNull(hybridActiveType.SkillGroupGrant);
+
+            CharacterCreationTalentSkillGroupGrantProjection hybridActiveValue = talents.Single(
+                talent => talent.Value == "Hybrid Active Value").SkillGroupGrant!;
+            Assert.AreEqual(3, hybridActiveValue.BaseRating,
+                "skillval takes precedence over skillgroupval in the one effective lane.");
+            Assert.AreEqual(CharacterCreationTalentGrantImprovementKinds.SkillBase,
+                hybridActiveValue.ImprovementKind,
+                "The group selector retains the active-value improvement kind.");
+
+            CharacterCreationPriorityTalentOptionProjection hybridSkillChoices = talents.Single(
+                talent => talent.Value == "Hybrid Skill Choices");
+            Assert.IsNull(hybridSkillChoices.ActiveSkillGrant);
+            CollectionAssert.AreEqual(
+                new[] { "Sorcery" },
+                hybridSkillChoices.SkillGroupGrant!.RequestedGroupNames.ToArray());
+
+            CharacterCreationTalentSkillGroupGrantProjection hybridActiveQuantity = talents.Single(
+                talent => talent.Value == "Hybrid Active Quantity").SkillGroupGrant!;
+            Assert.AreEqual(1, hybridActiveQuantity.Quantity,
+                "skillqty takes precedence over skillgroupqty in the one effective lane.");
+
+            CharacterCreationTalentActiveSkillGrantProjection hybridInvalidActiveValue =
+                talents.Single(talent => talent.Value == "Hybrid Invalid Active Value")
+                    .ActiveSkillGrant!;
+            Assert.AreEqual(5, hybridInvalidActiveValue.BaseRating);
+            Assert.AreEqual(CharacterCreationTalentGrantImprovementKinds.SkillGroupBase,
+                hybridInvalidActiveValue.ImprovementKind,
+                "An unparsable skillval falls back to skillgroupval for persisted authority.");
 
             CharacterCreationTalentActiveSkillGrantProjection resonance = talents.Single(talent =>
                 talent.Value == "Resonance").ActiveSkillGrant!;
@@ -780,11 +854,30 @@ public sealed class FileSystemCharacterSourceDataResolverTests
 
             CharacterCreationTalentActiveSkillGrantProjection unknownActive = talents.Single(talent =>
                 talent.Value == "Unknown Active").ActiveSkillGrant!;
-            Assert.IsFalse(unknownActive.IsSupported);
-            Assert.IsEmpty(unknownActive.Options);
+            Assert.IsTrue(unknownActive.IsSupported, string.Join(",", unknownActive.Blockers));
+            Assert.AreEqual(CharacterCreationTalentSkillGrantTypes.Default,
+                unknownActive.SkillType);
+            Assert.AreEqual("unknown", unknownActive.RawSelectorType);
+            Assert.AreEqual(CharacterCreationTalentGrantSelectorTypeSources.SkillType,
+                unknownActive.SelectorTypeSource);
+            Assert.AreEqual(emptySpecific.Options.Count, unknownActive.Options.Count);
+            foreach (string value in new[] { "Empty Type", "Whitespace Type" })
+            {
+                CharacterCreationTalentActiveSkillGrantProjection legacyDefault = talents.Single(
+                    talent => talent.Value == value).ActiveSkillGrant!;
+                Assert.IsTrue(legacyDefault.IsSupported,
+                    $"{value}: {string.Join(",", legacyDefault.Blockers)}");
+                Assert.AreEqual(CharacterCreationTalentSkillGrantTypes.Default,
+                    legacyDefault.SkillType);
+                Assert.AreEqual(CharacterCreationTalentGrantSelectorTypeSources.SkillType,
+                    legacyDefault.SelectorTypeSource);
+                Assert.AreEqual(value == "Whitespace Type" ? " " : string.Empty,
+                    legacyDefault.RawSelectorType);
+            }
             foreach (string value in new[]
                      {
-                         "Zero Active", "Negative Active", "Unparseable Active"
+                         "Zero Active", "Negative Active", "Empty Active",
+                         "Unparseable Active"
                      })
             {
                 CharacterCreationPriorityTalentOptionProjection noPrompt = talents.Single(talent =>
@@ -834,8 +927,18 @@ public sealed class FileSystemCharacterSourceDataResolverTests
             {
                 Assert.IsNull(talents.Single(talent => talent.Value == value).SkillGroupGrant);
             }
-            Assert.IsFalse(talents.Single(talent => talent.Value == "Unknown Group")
-                .SkillGroupGrant!.IsSupported);
+            CharacterCreationPriorityTalentOptionProjection unknownGroup = talents.Single(talent =>
+                talent.Value == "Unknown Group");
+            Assert.IsNull(unknownGroup.SkillGroupGrant);
+            Assert.IsTrue(unknownGroup.ActiveSkillGrant!.IsSupported,
+                string.Join(",", unknownGroup.ActiveSkillGrant.Blockers));
+            Assert.AreEqual(CharacterCreationTalentSkillGrantTypes.Default,
+                unknownGroup.ActiveSkillGrant.SkillType);
+            Assert.AreEqual(CharacterCreationTalentGrantImprovementKinds.SkillGroupBase,
+                unknownGroup.ActiveSkillGrant.ImprovementKind);
+            Assert.AreEqual(CharacterCreationTalentGrantSelectorTypeSources.SkillGroupType,
+                unknownGroup.ActiveSkillGrant.SelectorTypeSource);
+            Assert.AreEqual("unknown", unknownGroup.ActiveSkillGrant.RawSelectorType);
         }
         finally
         {
