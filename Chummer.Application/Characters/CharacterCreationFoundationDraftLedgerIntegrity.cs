@@ -113,6 +113,18 @@ internal static class CharacterCreationFoundationDraftLedgerIntegrity
             ComputeCanonicalSha256(normalizedRight));
     }
 
+    public static string ComputeCanonicalDigest<T>(T value)
+    {
+        return Sha256Prefix + ComputeCanonicalSha256(value);
+    }
+
+    public static bool CanonicallyEquals<T>(T left, T right)
+    {
+        return FixedTimeEquals(
+            ComputeCanonicalSha256(left),
+            ComputeCanonicalSha256(right));
+    }
+
     private static bool IsStructurallyValid(LifeModuleRequirementProjectionDto? requirement)
     {
         return requirement is not null

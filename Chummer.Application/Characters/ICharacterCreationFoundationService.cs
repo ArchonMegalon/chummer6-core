@@ -14,6 +14,12 @@ public interface ICharacterCreationFoundationService
 
     CharacterCreationFoundationResult<CharacterCreationFoundationApplyReceipt> Confirm(
         CharacterCreationFoundationConfirmRequest request);
+
+    CharacterCreationFoundationResult<CharacterCreationFoundationFinalizationPreview>
+        PreviewFinalization(CharacterCreationFoundationFinalizationPreviewRequest request);
+
+    CharacterCreationFoundationResult<CharacterCreationFoundationFinalizationReceipt>
+        ConfirmFinalization(CharacterCreationFoundationFinalizationConfirmRequest request);
 }
 
 public sealed record CharacterCreationFoundationAuthorityContext(

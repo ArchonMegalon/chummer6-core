@@ -8,6 +8,8 @@ public static class CharacterCreationFoundationSchemas
     public const string SnapshotV1 = "chummer.character_creation_foundation.v1";
     public const string PreviewV1 = "chummer.character_creation_foundation_preview.v1";
     public const string DraftLedgerV1 = "chummer.character_creation_foundation_draft_ledger.v1";
+    public const string EffectCompilationV1 = "chummer.character_creation_foundation_effect_compilation.v1";
+    public const string FinalizationPreviewV1 = "chummer.character_creation_foundation_finalization_preview.v1";
 }
 
 public static class CharacterCreationFoundationDigestSemantics
@@ -38,6 +40,15 @@ public static class CharacterCreationFoundationBlockers
     public const string CharacterEligibilityAuthorityRequired = "character-eligibility-authority-required";
     public const string EnabledSourceAuthorityRequired = "enabled-source-authority-required";
     public const string ExplicitConfirmationRequired = "explicit-confirmation-required";
+    public const string FinalizationDraftDigestConflict = "finalization-draft-digest-conflict";
+    public const string FinalizationDraftRevisionConflict = "finalization-draft-revision-conflict";
+    public const string FinalizationEffectLedgerConflict = "finalization-effect-ledger-conflict";
+    public const string FinalizationEffectUnsupported = "finalization-effect-unsupported";
+    public const string FinalizationPreviewDigestMismatch = "finalization-preview-digest-mismatch";
+    public const string FinalizationPromptRequired = "finalization-prompt-required";
+    public const string FinalizationRequiredStagesIncomplete = "finalization-required-stages-incomplete";
+    public const string FinalizationRequirementUnsupported = "finalization-requirement-unsupported";
+    public const string FinalizationRuntimeAuthorityRequired = "finalization-runtime-authority-required";
     public const string LifeModuleBuildMethodRequired = "life-module-build-method-required";
     public const string LifeModuleCatalogAuthorityRequired = "life-module-catalog-authority-required";
     public const string LifeModuleBudgetAuthorityRequired = "life-module-budget-authority-required";
@@ -69,6 +80,19 @@ public static class CharacterCreationFoundationBlockers
     public const string StaleWorkspaceRevision = "stale-workspace-revision";
     public const string WizardStatePersistenceAuthorityRequired = "wizard-state-persistence-authority-required";
     public const string WorkspaceUnavailable = "workspace-unavailable";
+}
+
+public static class CharacterCreationFoundationEffectCompilationStatuses
+{
+    public const string Supported = "supported";
+    public const string Unsupported = "unsupported";
+    public const string PromptRequired = "prompt-required";
+}
+
+public static class CharacterCreationFoundationEffectSourcePhases
+{
+    public const string Version = "version";
+    public const string Module = "module";
 }
 
 public static class CharacterCreationFoundationResumeStatuses
@@ -179,6 +203,87 @@ public sealed record CharacterCreationFoundationConfirmRequest(
     string PreviewDigest,
     bool ExplicitlyConfirmed,
     IReadOnlyDictionary<string, string>? FollowUpValues = null);
+
+public sealed record CharacterCreationFoundationFinalizationPreviewRequest(
+    CharacterCreationFoundationBinding Binding,
+    long DraftRevision,
+    string DraftDigest);
+
+public sealed record CharacterCreationFoundationFinalizationConfirmRequest(
+    CharacterCreationFoundationBinding Binding,
+    long DraftRevision,
+    string DraftDigest,
+    string PreviewDigest,
+    bool ExplicitlyConfirmed);
+
+/// <summary>
+/// One deterministic compiler instruction derived from the persisted draft and
+/// the currently-authoritative source projection.  Unsupported instructions are
+/// reviewable but can never be partially applied.
+/// </summary>
+public sealed record CharacterCreationFoundationEffectInstruction(
+    int Order,
+    string EffectId,
+    string SourcePhase,
+    string EffectKind,
+    string Domain,
+    string TargetId,
+    IReadOnlyDictionary<string, string> Parameters,
+    IReadOnlyList<string> PromptIds,
+    IReadOnlyList<string> SourceAnchorIds,
+    string CompilationStatus,
+    string? Blocker,
+    string InstructionDigest);
+
+public sealed record CharacterCreationFoundationRequirementInstruction(
+    int Order,
+    string RequirementId,
+    string Operator,
+    string SubjectKind,
+    IReadOnlyList<string> AcceptedValues,
+    IReadOnlyList<string> SourceAnchorIds,
+    string CompilationStatus,
+    string? Blocker,
+    string InstructionDigest);
+
+public sealed record CharacterCreationFoundationEffectCompilation(
+    string Schema,
+    string CompilerRuntimeDigest,
+    long DraftRevision,
+    string DraftDigest,
+    IReadOnlyList<CharacterCreationFoundationRequirementInstruction> Requirements,
+    IReadOnlyList<CharacterCreationFoundationEffectInstruction> Effects,
+    IReadOnlyList<string> Blockers,
+    bool IsCompleteLedgerSupported,
+    string CompilationDigest);
+
+public sealed record CharacterCreationFoundationFinalizationPreview(
+    string Schema,
+    CharacterCreationFoundationBinding Binding,
+    CharacterCreationFoundationEffectCompilation Compilation,
+    IReadOnlyList<string> FinalizationBlocked,
+    bool RequiresExplicitConfirmation,
+    bool CanConfirm,
+    bool CanApply,
+    bool CharacterEffectsApplied,
+    bool CharacterCreated,
+    string PreviewDigest);
+
+public sealed record CharacterCreationFoundationFinalizationReceipt(
+    CharacterWorkspaceId WorkspaceId,
+    long PreviousContentRevision,
+    long ContentRevision,
+    long SavedRevision,
+    string RawCharacterXmlDigest,
+    string SourceDigest,
+    string CompilerRuntimeDigest,
+    long DraftRevision,
+    string DraftDigest,
+    string CompilationDigest,
+    string PreviewDigest,
+    bool CharacterEffectsApplied,
+    bool CharacterCreated,
+    bool RequiresFreshCareerReopen);
 
 public sealed record CharacterCreationFoundationApplyReceipt(
     CharacterWorkspaceId WorkspaceId,

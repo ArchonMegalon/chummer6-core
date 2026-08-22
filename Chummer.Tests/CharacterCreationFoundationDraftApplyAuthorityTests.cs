@@ -338,6 +338,293 @@ public sealed class CharacterCreationFoundationDraftApplyAuthorityTests
         Assert.AreEqual(1L, store.Get(id).Value?.ContentRevision);
     }
 
+    [TestMethod]
+    public void Finalization_preview_compiles_exact_Tir_ledger_in_version_then_module_order()
+    {
+        string directory = CreateTempDirectory();
+        try
+        {
+            CharacterWorkspaceId id = new("foundation-finalization-tir");
+            string xml = CharacterXml("Human");
+            FileWorkspaceStore store = new(directory);
+            Assert.IsTrue(store.CreateWorkspaceDocument(
+                id,
+                new WorkspaceDocument(xml, RulesetDefaults.Sr5)).Success);
+            CharacterCreationFoundationService service = CreateService(store);
+            CharacterCreationFoundationPreview draftPreview = Preview(
+                service,
+                Load(service, id).Binding,
+                TirModuleId,
+                TirHumanElfVersionId);
+            Assert.AreEqual(
+                CharacterCreationFoundationOutcomes.Success,
+                Confirm(service, draftPreview).Outcome);
+            CharacterCreationFoundationState state = Load(service, id);
+            CharacterCreationFoundationDraftLedger draft = state.PendingDraft!;
+            string targetPath = WorkspacePath(directory, id);
+            byte[] before = File.ReadAllBytes(targetPath);
+
+            CharacterCreationFoundationResult<CharacterCreationFoundationFinalizationPreview>
+                result = service.PreviewFinalization(
+                    new CharacterCreationFoundationFinalizationPreviewRequest(
+                        state.Binding,
+                        draft.DraftRevision,
+                        draft.DraftDigest));
+
+            Assert.AreEqual(CharacterCreationFoundationOutcomes.Blocked, result.Outcome);
+            Assert.IsNotNull(result.Value);
+            CharacterCreationFoundationFinalizationPreview preview = result.Value;
+            Assert.IsFalse(preview.CanConfirm);
+            Assert.IsFalse(preview.CanApply);
+            Assert.IsFalse(preview.CharacterEffectsApplied);
+            Assert.IsFalse(preview.CharacterCreated);
+            Assert.IsFalse(preview.Compilation.IsCompleteLedgerSupported);
+            Assert.AreEqual(10, preview.Compilation.Effects.Count);
+            CollectionAssert.AreEqual(
+                Enumerable.Range(1, 10).ToList(),
+                preview.Compilation.Effects.Select(effect => effect.Order).ToList());
+            CollectionAssert.AreEqual(
+                new[]
+                {
+                    "skilllevel",
+                    "attributelevel",
+                    "knowledgeskilllevel",
+                    "knowledgeskilllevel",
+                    "knowledgeskilllevel",
+                    "knowledgeskilllevel",
+                    "skilllevel",
+                    "pushtext",
+                    "freenegativequalities",
+                    "qualitylevel"
+                },
+                preview.Compilation.Effects.Select(effect => effect.EffectKind).ToArray());
+            Assert.IsTrue(preview.Compilation.Effects.Take(2).All(effect =>
+                effect.SourcePhase == CharacterCreationFoundationEffectSourcePhases.Version));
+            Assert.IsTrue(preview.Compilation.Effects.Skip(2).All(effect =>
+                effect.SourcePhase == CharacterCreationFoundationEffectSourcePhases.Module));
+            Assert.IsTrue(preview.Compilation.Effects.All(effect =>
+                effect.CompilationStatus
+                == CharacterCreationFoundationEffectCompilationStatuses.Unsupported));
+            Assert.IsTrue(preview.Compilation.Effects.All(effect =>
+                effect.SourceAnchorIds.Count > 0
+                && effect.SourceAnchorIds.All(anchor => !string.IsNullOrWhiteSpace(anchor))
+                && IsCanonicalDigest(effect.InstructionDigest)));
+            Assert.AreEqual(1, preview.Compilation.Requirements.Count);
+            Assert.AreEqual(
+                CharacterCreationFoundationEffectCompilationStatuses.Supported,
+                preview.Compilation.Requirements[0].CompilationStatus);
+            CollectionAssert.Contains(
+                preview.FinalizationBlocked.ToList(),
+                CharacterCreationFoundationBlockers.FinalizationRequiredStagesIncomplete);
+            CollectionAssert.Contains(
+                preview.FinalizationBlocked.ToList(),
+                CharacterCreationFoundationBlockers.FinalizationEffectUnsupported);
+            CollectionAssert.DoesNotContain(
+                preview.FinalizationBlocked.ToList(),
+                CharacterCreationFoundationBlockers.FinalizationPromptRequired);
+            Assert.IsTrue(IsCanonicalDigest(preview.Compilation.CompilerRuntimeDigest));
+            Assert.IsTrue(IsCanonicalDigest(preview.Compilation.CompilationDigest));
+            Assert.IsTrue(IsCanonicalDigest(preview.PreviewDigest));
+            CollectionAssert.AreEqual(before, File.ReadAllBytes(targetPath));
+
+            CharacterCreationFoundationService reopenedService = CreateService(
+                new FileWorkspaceStore(directory));
+            CharacterCreationFoundationState reopenedState = Load(reopenedService, id);
+            CharacterCreationFoundationFinalizationPreview reopened = reopenedService
+                .PreviewFinalization(new CharacterCreationFoundationFinalizationPreviewRequest(
+                    reopenedState.Binding,
+                    reopenedState.PendingDraft!.DraftRevision,
+                    reopenedState.PendingDraft.DraftDigest))
+                .Value!;
+            Assert.AreEqual(preview.PreviewDigest, reopened.PreviewDigest);
+            Assert.AreEqual(
+                preview.Compilation.CompilationDigest,
+                reopened.Compilation.CompilationDigest);
+            Assert.AreEqual(
+                preview.Compilation.CompilerRuntimeDigest,
+                reopened.Compilation.CompilerRuntimeDigest);
+            Assert.AreEqual(xml, store.Get(id).Value!.Document.Content);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public void Finalization_prompt_effects_are_typed_and_confirm_is_repeatable_zero_write()
+    {
+        string directory = CreateTempDirectory();
+        try
+        {
+            CharacterWorkspaceId id = new("foundation-finalization-prompt");
+            string xml = CharacterXml("Human");
+            FileWorkspaceStore store = new(directory);
+            Assert.IsTrue(store.CreateWorkspaceDocument(
+                id,
+                new WorkspaceDocument(xml, RulesetDefaults.Sr5)).Success);
+            CharacterCreationFoundationService service = CreateService(store);
+            CharacterCreationFoundationPreview draftPreview = Preview(
+                service,
+                Load(service, id).Binding,
+                UcasModuleId,
+                UcasVersionId);
+            Assert.AreEqual(
+                CharacterCreationFoundationOutcomes.Success,
+                Confirm(service, draftPreview).Outcome);
+            CharacterCreationFoundationState state = Load(service, id);
+            CharacterCreationFoundationDraftLedger draft = state.PendingDraft!;
+            CharacterCreationFoundationFinalizationPreview preview = service
+                .PreviewFinalization(new CharacterCreationFoundationFinalizationPreviewRequest(
+                    state.Binding,
+                    draft.DraftRevision,
+                    draft.DraftDigest))
+                .Value!;
+            Assert.IsTrue(preview.Compilation.Effects.Any(effect =>
+                effect.CompilationStatus
+                == CharacterCreationFoundationEffectCompilationStatuses.PromptRequired
+                && effect.PromptIds.Count > 0));
+            CollectionAssert.Contains(
+                preview.FinalizationBlocked.ToList(),
+                CharacterCreationFoundationBlockers.FinalizationPromptRequired);
+            string targetPath = WorkspacePath(directory, id);
+            byte[] before = File.ReadAllBytes(targetPath);
+            DateTime beforeWrite = File.GetLastWriteTimeUtc(targetPath);
+
+            CharacterCreationFoundationResult<CharacterCreationFoundationFinalizationReceipt>
+                first = ConfirmFinalization(service, preview);
+            CharacterCreationFoundationResult<CharacterCreationFoundationFinalizationReceipt>
+                duplicate = ConfirmFinalization(service, preview);
+
+            Assert.AreEqual(CharacterCreationFoundationOutcomes.Blocked, first.Outcome);
+            Assert.AreEqual(CharacterCreationFoundationOutcomes.Blocked, duplicate.Outcome);
+            Assert.IsNull(first.Value);
+            Assert.IsNull(duplicate.Value);
+            CollectionAssert.Contains(
+                first.Blockers.ToList(),
+                CharacterCreationFoundationBlockers.FinalizationPromptRequired);
+            CollectionAssert.AreEqual(before, File.ReadAllBytes(targetPath));
+            Assert.AreEqual(beforeWrite, File.GetLastWriteTimeUtc(targetPath));
+            WorkspaceStoredDocument reopened = new FileWorkspaceStore(directory).Get(id).Value!;
+            Assert.AreEqual(xml, reopened.Document.Content);
+            Assert.IsFalse(reopened.Document.AuxiliaryState
+                .CharacterCreationFoundationDraft!.CharacterEffectsApplied);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public void Finalization_confirmation_rejects_tamper_stale_and_write_fault_without_partial_xml()
+    {
+        string directory = CreateTempDirectory();
+        try
+        {
+            CharacterWorkspaceId id = new("foundation-finalization-conflict");
+            string xml = CharacterXml("Human");
+            FileWorkspaceStore healthy = new(directory);
+            Assert.IsTrue(healthy.CreateWorkspaceDocument(
+                id,
+                new WorkspaceDocument(xml, RulesetDefaults.Sr5)).Success);
+            CharacterCreationFoundationService service = CreateService(healthy);
+            CharacterCreationFoundationPreview draftPreview = Preview(
+                service,
+                Load(service, id).Binding,
+                TirModuleId,
+                TirHumanElfVersionId);
+            Assert.AreEqual(
+                CharacterCreationFoundationOutcomes.Success,
+                Confirm(service, draftPreview).Outcome);
+            CharacterCreationFoundationState state = Load(service, id);
+            CharacterCreationFoundationDraftLedger draft = state.PendingDraft!;
+            CharacterCreationFoundationFinalizationPreview preview = service
+                .PreviewFinalization(new CharacterCreationFoundationFinalizationPreviewRequest(
+                    state.Binding,
+                    draft.DraftRevision,
+                    draft.DraftDigest))
+                .Value!;
+            string targetPath = WorkspacePath(directory, id);
+            byte[] before = File.ReadAllBytes(targetPath);
+
+            CharacterCreationFoundationResult<CharacterCreationFoundationFinalizationReceipt>
+                unconfirmed = service.ConfirmFinalization(
+                    new CharacterCreationFoundationFinalizationConfirmRequest(
+                        preview.Binding,
+                        draft.DraftRevision,
+                        draft.DraftDigest,
+                        preview.PreviewDigest,
+                        ExplicitlyConfirmed: false));
+            CharacterCreationFoundationResult<CharacterCreationFoundationFinalizationReceipt>
+                tampered = service.ConfirmFinalization(
+                    new CharacterCreationFoundationFinalizationConfirmRequest(
+                        preview.Binding,
+                        draft.DraftRevision,
+                        draft.DraftDigest,
+                        "sha256:" + new string('0', 64),
+                        ExplicitlyConfirmed: true));
+            CharacterCreationFoundationResult<CharacterCreationFoundationFinalizationPreview>
+                draftDigestTampered = service.PreviewFinalization(
+                    new CharacterCreationFoundationFinalizationPreviewRequest(
+                        preview.Binding,
+                        draft.DraftRevision,
+                        "sha256:" + new string('0', 64)));
+
+            Assert.AreEqual(CharacterCreationFoundationOutcomes.Invalid, unconfirmed.Outcome);
+            Assert.AreEqual(CharacterCreationFoundationOutcomes.Conflict, tampered.Outcome);
+            Assert.AreEqual(
+                CharacterCreationFoundationOutcomes.Conflict,
+                draftDigestTampered.Outcome);
+            CollectionAssert.Contains(
+                tampered.Blockers.ToList(),
+                CharacterCreationFoundationBlockers.FinalizationPreviewDigestMismatch);
+            CollectionAssert.Contains(
+                draftDigestTampered.Blockers.ToList(),
+                CharacterCreationFoundationBlockers.FinalizationDraftDigestConflict);
+            CollectionAssert.AreEqual(before, File.ReadAllBytes(targetPath));
+
+            WorkspaceStoredDocument current = healthy.Get(id).Value!;
+            Assert.IsTrue(healthy.ReplaceWorkspaceDocument(
+                id,
+                current.ContentRevision,
+                current.Document).Success);
+            byte[] afterExternalWrite = File.ReadAllBytes(targetPath);
+            CharacterCreationFoundationResult<CharacterCreationFoundationFinalizationReceipt>
+                stale = ConfirmFinalization(service, preview);
+            Assert.AreEqual(CharacterCreationFoundationOutcomes.Conflict, stale.Outcome);
+            CollectionAssert.Contains(
+                stale.Blockers.ToList(),
+                CharacterCreationFoundationBlockers.StaleWorkspaceRevision);
+            CollectionAssert.AreEqual(afterExternalWrite, File.ReadAllBytes(targetPath));
+
+            var faulty = new FileWorkspaceStore(
+                directory,
+                new ThrowingFaultInjector(FileWorkspaceStoreFaultStage.AfterTempFileFlushed));
+            CharacterCreationFoundationService faultyService = CreateService(faulty);
+            CharacterCreationFoundationState fresh = Load(faultyService, id);
+            CharacterCreationFoundationFinalizationPreview blocked = faultyService
+                .PreviewFinalization(new CharacterCreationFoundationFinalizationPreviewRequest(
+                    fresh.Binding,
+                    fresh.PendingDraft!.DraftRevision,
+                    fresh.PendingDraft.DraftDigest))
+                .Value!;
+            byte[] beforeFaultBoundary = File.ReadAllBytes(targetPath);
+            Assert.AreEqual(
+                CharacterCreationFoundationOutcomes.Blocked,
+                ConfirmFinalization(faultyService, blocked).Outcome);
+            CollectionAssert.AreEqual(beforeFaultBoundary, File.ReadAllBytes(targetPath));
+            WorkspaceStoredDocument reopened = new FileWorkspaceStore(directory).Get(id).Value!;
+            Assert.AreEqual(xml, reopened.Document.Content);
+            Assert.IsFalse(reopened.Document.AuxiliaryState
+                .CharacterCreationFoundationDraft!.CharacterEffectsApplied);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
     private static CharacterCreationFoundationDraftLedger ApplyExactTirDraft(string metatype)
     {
         string directory = CreateTempDirectory();
@@ -515,6 +802,20 @@ public sealed class CharacterCreationFoundationDraftApplyAuthorityTests
             preview.FollowUpValues));
     }
 
+    private static CharacterCreationFoundationResult<CharacterCreationFoundationFinalizationReceipt>
+        ConfirmFinalization(
+            ICharacterCreationFoundationService service,
+            CharacterCreationFoundationFinalizationPreview preview)
+    {
+        return service.ConfirmFinalization(
+            new CharacterCreationFoundationFinalizationConfirmRequest(
+                preview.Binding,
+                preview.Compilation.DraftRevision,
+                preview.Compilation.DraftDigest,
+                preview.PreviewDigest,
+                ExplicitlyConfirmed: true));
+    }
+
     private static CharacterCreationBudgetState ExactBudget(decimal used)
     {
         return new CharacterCreationBudgetState(
@@ -541,6 +842,14 @@ public sealed class CharacterCreationFoundationDraftApplyAuthorityTests
             Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(path);
         return path;
+    }
+
+    private static bool IsCanonicalDigest(string value)
+    {
+        return value is { Length: 71 }
+               && value.StartsWith("sha256:", StringComparison.Ordinal)
+               && value.AsSpan(7).ToArray().All(character =>
+                   character is >= '0' and <= '9' or >= 'a' and <= 'f');
     }
 
     private static string WorkspacePath(string directory, CharacterWorkspaceId id) =>

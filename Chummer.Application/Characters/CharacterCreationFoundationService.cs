@@ -101,6 +101,191 @@ public sealed class CharacterCreationFoundationService : ICharacterCreationFound
         return _applyAuthority.ApplyAndCheckpoint(context, preview.PreviewDigest);
     }
 
+    public CharacterCreationFoundationResult<CharacterCreationFoundationFinalizationPreview>
+        PreviewFinalization(CharacterCreationFoundationFinalizationPreviewRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        return EvaluateFinalization(request);
+    }
+
+    public CharacterCreationFoundationResult<CharacterCreationFoundationFinalizationReceipt>
+        ConfirmFinalization(CharacterCreationFoundationFinalizationConfirmRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (!request.ExplicitlyConfirmed)
+        {
+            return Blocked<CharacterCreationFoundationFinalizationReceipt>(
+                CharacterCreationFoundationOutcomes.Invalid,
+                CharacterCreationFoundationBlockers.ExplicitConfirmationRequired);
+        }
+
+        CharacterCreationFoundationResult<CharacterCreationFoundationFinalizationPreview>
+            evaluation = EvaluateFinalization(
+                new CharacterCreationFoundationFinalizationPreviewRequest(
+                    request.Binding,
+                    request.DraftRevision,
+                    request.DraftDigest));
+        if (evaluation.Value is not CharacterCreationFoundationFinalizationPreview preview)
+        {
+            return new CharacterCreationFoundationResult<CharacterCreationFoundationFinalizationReceipt>(
+                evaluation.Outcome,
+                null,
+                evaluation.Blockers);
+        }
+        if (!DigestEquals(preview.PreviewDigest, request.PreviewDigest))
+        {
+            return Blocked<CharacterCreationFoundationFinalizationReceipt>(
+                CharacterCreationFoundationOutcomes.Conflict,
+                CharacterCreationFoundationBlockers.FinalizationPreviewDigestMismatch);
+        }
+        if (!preview.CanConfirm
+            || !preview.CanApply
+            || !preview.Compilation.IsCompleteLedgerSupported
+            || preview.FinalizationBlocked.Count > 0)
+        {
+            return new CharacterCreationFoundationResult<CharacterCreationFoundationFinalizationReceipt>(
+                CharacterCreationFoundationOutcomes.Blocked,
+                null,
+                preview.FinalizationBlocked);
+        }
+
+        // Compiler v1 has no supported durable effect family.  This is a final
+        // fail-closed guard, not a success stub: the method above cannot reach
+        // this branch until the compiler produces a complete supported plan.
+        // A later compiler version must construct the complete canonical XML and
+        // use ReplaceWorkspaceDocumentAndAuxiliaryStateAndCheckpoint exactly once.
+        return Blocked<CharacterCreationFoundationFinalizationReceipt>(
+            CharacterCreationFoundationOutcomes.Blocked,
+            CharacterCreationFoundationBlockers.FinalizationEffectUnsupported);
+    }
+
+    private CharacterCreationFoundationResult<CharacterCreationFoundationFinalizationPreview>
+        EvaluateFinalization(CharacterCreationFoundationFinalizationPreviewRequest request)
+    {
+        WorkspaceStoreReadResult read = _workspaceStore.Get(request.Binding.WorkspaceId);
+        if (!read.Success || read.Value is not WorkspaceStoredDocument workspace)
+            return ReadFailure<CharacterCreationFoundationFinalizationPreview>(read);
+        if (workspace.ContentRevision != request.Binding.ContentRevision
+            || workspace.SavedRevision != request.Binding.SavedRevision)
+        {
+            return Blocked<CharacterCreationFoundationFinalizationPreview>(
+                CharacterCreationFoundationOutcomes.Conflict,
+                CharacterCreationFoundationBlockers.StaleWorkspaceRevision);
+        }
+
+        CharacterCreationFoundationResult<CharacterCreationFoundationState> stateResult =
+            BuildState(
+                workspace,
+                request.Binding.SourceFilterApplied
+                    ? request.Binding.EnabledSources
+                    : null,
+                request.Binding.SourceFilterApplied);
+        if (stateResult.Value is not CharacterCreationFoundationState state)
+        {
+            return new CharacterCreationFoundationResult<CharacterCreationFoundationFinalizationPreview>(
+                stateResult.Outcome,
+                null,
+                stateResult.Blockers);
+        }
+        if (!DigestEquals(
+                state.Binding.RawCharacterXmlDigest,
+                request.Binding.RawCharacterXmlDigest)
+            || !string.Equals(
+                request.Binding.CharacterDigestSemantics,
+                CharacterCreationFoundationDigestSemantics.RawCharacterXmlSha256,
+                StringComparison.Ordinal))
+        {
+            return Blocked<CharacterCreationFoundationFinalizationPreview>(
+                CharacterCreationFoundationOutcomes.Conflict,
+                CharacterCreationFoundationBlockers.StaleRawCharacterXmlDigest);
+        }
+        if (!DigestEquals(state.Binding.SourceDigest, request.Binding.SourceDigest)
+            || !string.Equals(
+                request.Binding.SourceDigestSemantics,
+                CharacterCreationFoundationDigestSemantics.RawSourceInputsSha256,
+                StringComparison.Ordinal)
+            || !state.Binding.EnabledSources.SequenceEqual(
+                request.Binding.EnabledSources,
+                StringComparer.Ordinal))
+        {
+            return Blocked<CharacterCreationFoundationFinalizationPreview>(
+                CharacterCreationFoundationOutcomes.Conflict,
+                CharacterCreationFoundationBlockers.SourceDigestConflict);
+        }
+
+        CharacterCreationFoundationDraftLedger? draft = state.PendingDraft;
+        if (draft is null)
+        {
+            return Blocked<CharacterCreationFoundationFinalizationPreview>(
+                CharacterCreationFoundationOutcomes.Blocked,
+                CharacterCreationFoundationBlockers.PendingDraftInvalid);
+        }
+        if (draft.DraftRevision != request.DraftRevision)
+        {
+            return Blocked<CharacterCreationFoundationFinalizationPreview>(
+                CharacterCreationFoundationOutcomes.Conflict,
+                CharacterCreationFoundationBlockers.FinalizationDraftRevisionConflict);
+        }
+        if (!DigestEquals(draft.DraftDigest, request.DraftDigest))
+        {
+            return Blocked<CharacterCreationFoundationFinalizationPreview>(
+                CharacterCreationFoundationOutcomes.Conflict,
+                CharacterCreationFoundationBlockers.FinalizationDraftDigestConflict);
+        }
+
+        LifeModuleLegalOptionDto? module = state.NationalityOptions.FirstOrDefault(option =>
+            string.Equals(option.ModuleId, draft.Selection.ModuleId, StringComparison.Ordinal));
+        LifeModuleVersionProjectionDto? version = module?.Versions.FirstOrDefault(item =>
+            string.Equals(item.VersionId, draft.Selection.VersionId, StringComparison.Ordinal));
+        bool versionMatches = module is not null
+                              && (module.Versions.Count == 0
+                                  ? string.IsNullOrWhiteSpace(draft.Selection.VersionId)
+                                  : version is not null);
+        if (module is null || !versionMatches)
+        {
+            return Blocked<CharacterCreationFoundationFinalizationPreview>(
+                CharacterCreationFoundationOutcomes.Conflict,
+                CharacterCreationFoundationBlockers.FinalizationEffectLedgerConflict);
+        }
+
+        CharacterCreationFoundationEffectCompilation compilation =
+            CharacterCreationFoundationEffectCompiler.Compile(
+                workspace.Document.RulesetId,
+                draft,
+                module,
+                version);
+        string[] blockers = state.AuthorityBlockers
+            .Concat(compilation.Blockers)
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(item => item, StringComparer.Ordinal)
+            .ToArray();
+        bool canApply = !state.CharacterCreated
+                        && compilation.IsCompleteLedgerSupported
+                        && blockers.Length == 0;
+        var preview = new CharacterCreationFoundationFinalizationPreview(
+            Schema: CharacterCreationFoundationSchemas.FinalizationPreviewV1,
+            Binding: state.Binding,
+            Compilation: compilation,
+            FinalizationBlocked: blockers,
+            RequiresExplicitConfirmation: true,
+            CanConfirm: canApply,
+            CanApply: canApply,
+            CharacterEffectsApplied: false,
+            CharacterCreated: false,
+            PreviewDigest: string.Empty);
+        preview = preview with
+        {
+            PreviewDigest = CharacterCreationFoundationDraftLedgerIntegrity
+                .ComputeCanonicalDigest(preview with { PreviewDigest = string.Empty })
+        };
+        return new CharacterCreationFoundationResult<CharacterCreationFoundationFinalizationPreview>(
+            blockers.Length == 0
+                ? CharacterCreationFoundationOutcomes.Success
+                : CharacterCreationFoundationOutcomes.Blocked,
+            preview,
+            blockers);
+    }
+
     private PreviewEvaluation EvaluatePreview(CharacterCreationFoundationPreviewRequest request)
     {
         WorkspaceStoreReadResult read = _workspaceStore.Get(request.Binding.WorkspaceId);
