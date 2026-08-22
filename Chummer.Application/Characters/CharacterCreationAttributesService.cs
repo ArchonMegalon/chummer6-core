@@ -449,6 +449,7 @@ public sealed class CharacterCreationAttributesService : ICharacterCreationAttri
         {
             bool normal = s_NormalAttributeIds.Contains(range.AttributeId, StringComparer.Ordinal);
             bool edge = string.Equals(range.AttributeId, "EDG", StringComparison.Ordinal);
+            bool essence = string.Equals(range.AttributeId, "ESS", StringComparison.Ordinal);
             bool enabled = normal || edge;
             string category = normal
                 ? CharacterCreationAttributeCategories.Normal
@@ -461,23 +462,26 @@ public sealed class CharacterCreationAttributesService : ICharacterCreationAttri
             if (!enabled && (allocation.PriorityPoints != 0 || allocation.KarmaLevels != 0))
                 blockers.Add(CharacterCreationAttributesBlockers.AttributeDisabled);
 
-            int minimum = enabled ? range.Minimum : 0;
-            int maximum = enabled ? range.Maximum : 0;
-            int augmentedMaximum = enabled ? range.AugmentedMaximum : 0;
-            int current = minimum;
+            int minimum = enabled || essence ? range.Minimum : 0;
+            int maximum = enabled || essence ? range.Maximum : 0;
+            int augmentedMaximum = enabled || essence ? range.AugmentedMaximum : 0;
+            int current = essence ? maximum : minimum;
             int karmaCost = 0;
-            try
+            if (enabled)
             {
-                current = checked(minimum + allocation.PriorityPoints + allocation.KarmaLevels);
-                int totalBase = checked(minimum + allocation.PriorityPoints);
-                karmaCost = checked(
-                    (2 * totalBase + allocation.KarmaLevels + 1)
-                    * allocation.KarmaLevels / 2
-                    * karmaAttribute);
-            }
-            catch (OverflowException)
-            {
-                blockers.Add(CharacterCreationAttributesBlockers.AllocationInvalid);
+                try
+                {
+                    current = checked(minimum + allocation.PriorityPoints + allocation.KarmaLevels);
+                    int totalBase = checked(minimum + allocation.PriorityPoints);
+                    karmaCost = checked(
+                        (2 * totalBase + allocation.KarmaLevels + 1)
+                        * allocation.KarmaLevels / 2
+                        * karmaAttribute);
+                }
+                catch (OverflowException)
+                {
+                    blockers.Add(CharacterCreationAttributesBlockers.AllocationInvalid);
+                }
             }
             if (current > maximum)
                 blockers.Add(CharacterCreationAttributesBlockers.AllocationInvalid);

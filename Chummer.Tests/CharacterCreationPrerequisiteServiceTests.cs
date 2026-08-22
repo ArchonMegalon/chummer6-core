@@ -80,6 +80,64 @@ public sealed class CharacterCreationPrerequisiteServiceTests
     }
 
     [TestMethod]
+    public void Heritage_karma_cost_is_spent_in_preview_receipt_and_draft_integrity()
+    {
+        CharacterCreationPrerequisiteAuthority authority = WithHumanKarmaCost(
+            CreateAuthority(CharacterCreationBuildMethods.Priority, ["A", "B", "C", "D", "E"]),
+            7);
+        WithWorkspace(
+            CharacterCreationBuildMethods.Priority,
+            authority,
+            (store, service, id) =>
+            {
+                CharacterCreationPrerequisiteState state = Load(service, id);
+                IReadOnlyDictionary<string, string> ranks = Assign("A", "E", "B", "C", "D");
+                CharacterCreationPrerequisitePreview preview = service.Preview(
+                    PreviewRequest(state.Binding, ranks)).Value!;
+
+                Assert.IsTrue(preview.CanConfirm, string.Join(",", preview.Blockers));
+                Assert.AreEqual(7m, preview.CreationKarmaBudget.Used);
+                Assert.AreEqual(18m, preview.CreationKarmaBudget.Remaining);
+                CharacterCreationFoundationResult<CharacterCreationPrerequisiteReceipt> confirmed =
+                    service.Confirm(ConfirmRequest(
+                        preview.Binding,
+                        ranks,
+                        preview.PreviewDigest,
+                        ExplicitlyConfirmed: true));
+
+                Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, confirmed.Outcome);
+                Assert.AreEqual(18, confirmed.Value!.CreationKarmaRemaining);
+                WorkspaceStoredDocument persisted = store.Get(id).Value!;
+                CharacterCreationPrerequisiteDraft draft = persisted.Document.AuxiliaryState
+                    .CharacterCreationPrerequisiteDraft!;
+                Assert.AreEqual(7, draft.CreationKarmaUsed);
+                Assert.IsTrue(CharacterCreationPrerequisiteDraftIntegrity.IsValidPending(
+                    draft,
+                    id,
+                    persisted.ContentRevision,
+                    CharacterCreationFoundationDraftLedgerIntegrity.ComputeRawCharacterXmlDigest(
+                        persisted.Document.Content),
+                    authority));
+                CharacterCreationPrerequisiteDraft forged = draft with
+                {
+                    CreationKarmaUsed = 0,
+                    DraftDigest = string.Empty
+                };
+                forged = forged with
+                {
+                    DraftDigest = CharacterCreationPrerequisiteDraftIntegrity.ComputeDigest(forged)
+                };
+                Assert.IsFalse(CharacterCreationPrerequisiteDraftIntegrity.IsValidPending(
+                    forged,
+                    id,
+                    persisted.ContentRevision,
+                    CharacterCreationFoundationDraftLedgerIntegrity.ComputeRawCharacterXmlDigest(
+                        persisted.Document.Content),
+                    authority));
+            });
+    }
+
+    [TestMethod]
     public void Priority_requires_the_profile_multiset_and_preserves_duplicate_rank_arrays()
     {
         CharacterCreationPrerequisiteAuthority authority = CreateAuthority(
@@ -435,6 +493,7 @@ public sealed class CharacterCreationPrerequisiteServiceTests
             AuthorityDigest: string.Empty);
         authority = authority with
         {
+            SelectedCustomDataInputsDigest = Digest(47),
             RawMetatypesXmlDigest = Digest(45),
             EffectiveMetatypesInputsDigest = Digest(46),
             MaxNumberMaxAttributesCreate = 1,
@@ -442,6 +501,27 @@ public sealed class CharacterCreationPrerequisiteServiceTests
             AlternateMetatypeAttributeKarma = false,
             ReverseAttributePriorityOrder = false
         };
+        return authority with
+        {
+            AuthorityDigest = CharacterCreationPrerequisiteAuthorityDigest.Compute(authority)
+        };
+    }
+
+    private static CharacterCreationPrerequisiteAuthority WithHumanKarmaCost(
+        CharacterCreationPrerequisiteAuthority authority,
+        int karmaCost)
+    {
+        CharacterCreationPriorityOptionProjection[] options = authority.Options.Select(option =>
+            option.CategoryId == CharacterCreationPriorityCategoryIds.Heritage
+                ? option with
+                {
+                    HeritageOptions = option.HeritageOptions.Select(child => child with
+                    {
+                        KarmaCost = karmaCost
+                    }).ToArray()
+                }
+                : option).ToArray();
+        authority = authority with { Options = options, AuthorityDigest = string.Empty };
         return authority with
         {
             AuthorityDigest = CharacterCreationPrerequisiteAuthorityDigest.Compute(authority)

@@ -48,7 +48,8 @@ internal static class CharacterCreationPrerequisiteDraftIntegrity
             || draft.Assignments is null
             || draft.Assignments.Count != CharacterCreationPriorityCategoryIds.Ordered.Count
             || draft.CreationKarmaTotal != authority.CreationKarmaTotal
-            || draft.CreationKarmaUsed != 0
+            || draft.CreationKarmaUsed < 0
+            || draft.CreationKarmaUsed > draft.CreationKarmaTotal
             || draft.CreationKarmaTotal < 0
             || draft.HeritageSelection is null
             || draft.TalentSelection is null
@@ -155,6 +156,7 @@ internal static class CharacterCreationPrerequisiteDraftIntegrity
                     heritageMatches[0].PriorityChildNodeDigest,
                     heritageMatches[0].MetatypeSourceNodeDigest,
                     heritageMatches[0].SourceAnchorIds.ToArray()))
+            || draft.CreationKarmaUsed != heritageMatches[0].KarmaCost
             || !CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(
                 draft.TalentSelection,
                 new CharacterCreationPriorityTalentSelection(

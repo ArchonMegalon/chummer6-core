@@ -1005,6 +1005,13 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                     out bool customDataUnsupported,
                     out string[] customSourceAnchors)
                 || document?.Root is null
+                || !TryComputeSelectedCustomDataInputsDigest(
+                    _customDirectories,
+                    out string currentCustomDataInputsDigest)
+                || !TryHasSelectedCustomDataInputFor(
+                    _customDirectories,
+                    "metatypes.xml",
+                    out bool hasMetatypeCustomData)
                 || !TryComputeRawBaseFileDigest(
                     _catalog,
                     "metatypes.xml",
@@ -1017,7 +1024,11 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                     _catalog,
                     "metatypes.xml",
                     out XDocument? metatypesDocument)
-                || metatypesDocument?.Root is null)
+                || metatypesDocument?.Root is null
+                || !TryHasEnabledOverlayInput(
+                    _catalog,
+                    "metatypes.xml",
+                    out bool hasMetatypeOverlay))
             {
                 return false;
             }
@@ -1055,6 +1066,25 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             {
                 blockers.Add(CharacterCreationPrerequisiteBlockers.PriorityCustomDataUnsupported);
             }
+            if (string.IsNullOrWhiteSpace(_selectedCustomDataInputsDigest))
+            {
+                blockers.Add(CharacterCreationPrerequisiteBlockers.AuthorityUnavailable);
+            }
+            else if (!string.Equals(
+                         currentCustomDataInputsDigest,
+                         _selectedCustomDataInputsDigest,
+                         StringComparison.Ordinal))
+            {
+                blockers.Add(CharacterCreationPrerequisiteBlockers.CustomDataDrift);
+            }
+            if (hasMetatypeCustomData)
+            {
+                blockers.Add(CharacterCreationPrerequisiteBlockers.MetatypeCustomDataUnsupported);
+            }
+            if (hasMetatypeOverlay)
+            {
+                blockers.Add(CharacterCreationPrerequisiteBlockers.MetatypeOverlayUnsupported);
+            }
             if (!string.Equals(
                     currentRawMetatypesXmlDigest,
                     _rawMetatypesXmlDigest,
@@ -1078,6 +1108,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 RawPrioritiesXmlDigest: _rawPrioritiesXmlDigest,
                 EffectivePrioritiesInputsDigest: _effectivePrioritiesInputsDigest,
                 SelectedPriorityCustomDataInputsDigest: _selectedPriorityCustomDataInputsDigest,
+                SelectedCustomDataInputsDigest: _selectedCustomDataInputsDigest,
                 RawMetatypesXmlDigest: _rawMetatypesXmlDigest,
                 EffectiveMetatypesInputsDigest: _effectiveMetatypesInputsDigest,
                 EnabledSourcebooks: _enabledSourcebooks
@@ -1092,6 +1123,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                     $"settings.xml#setting:{_settingsProfileId}",
                     "priorities.xml",
                     "metatypes.xml",
+                    .. _customDirectories.Select(directory => $"customdata:{directory.Name}"),
                     .. customSourceAnchors
                 ],
                 Blockers: blockers);
@@ -2380,6 +2412,31 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             }
 
             digest = "sha256:" + Convert.ToHexString(hash.GetHashAndReset()).ToLowerInvariant();
+            return true;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
+
+    private static bool TryHasSelectedCustomDataInputFor(
+        IReadOnlyList<CustomDirectory> directories,
+        string targetFileName,
+        out bool hasInput)
+    {
+        hasInput = false;
+        try
+        {
+            foreach (CustomDirectory directory in directories)
+            {
+                if (Directory.EnumerateFiles(directory.Path, "*.xml", SearchOption.AllDirectories)
+                    .Any(path => IsLegacyCustomDataInputFor(path, targetFileName)))
+                {
+                    hasInput = true;
+                    return true;
+                }
+            }
             return true;
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)

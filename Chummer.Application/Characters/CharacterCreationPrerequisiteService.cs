@@ -286,16 +286,17 @@ public sealed class CharacterCreationPrerequisiteService :
             }
         }
 
+        CharacterCreationBudgetState budget = BuildBudget(
+            state.Authority,
+            draft ?? state.PendingDraft,
+            blockers.Contains(
+                CharacterCreationPrerequisiteBlockers.CreationKarmaAuthorityRequired,
+                StringComparer.Ordinal));
+        blockers.AddRange(budget.Blockers);
         string[] normalizedBlockers = blockers
             .Distinct(StringComparer.Ordinal)
             .OrderBy(blocker => blocker, StringComparer.Ordinal)
             .ToArray();
-        CharacterCreationBudgetState budget = BuildBudget(
-            state.Authority,
-            state.PendingDraft,
-            normalizedBlockers.Contains(
-                CharacterCreationPrerequisiteBlockers.CreationKarmaAuthorityRequired,
-                StringComparer.Ordinal));
         var preview = new CharacterCreationPrerequisitePreview(
             CharacterCreationPrerequisiteSchemas.PreviewV1,
             state.Binding,
@@ -702,7 +703,7 @@ public sealed class CharacterCreationPrerequisiteService :
             authority.SumToTenTarget,
             assignments.ToArray(),
             creationKarmaTotal,
-            CreationKarmaUsed: 0,
+            CreationKarmaUsed: heritageSelection.KarmaCost,
             SourceAnchorIds: anchors,
             DraftDigest: string.Empty)
         {
@@ -728,7 +729,7 @@ public sealed class CharacterCreationPrerequisiteService :
         if (unavailable || authority.CreationKarmaTotal is null)
             blockers.Add(CharacterCreationPrerequisiteBlockers.CreationKarmaAuthorityRequired);
         if (used < 0 || used > total)
-            blockers.Add(CharacterCreationPrerequisiteBlockers.DraftInvalid);
+            blockers.Add(CharacterCreationPrerequisiteBlockers.CreationKarmaExceeded);
         int remaining = used is >= 0 && used <= total ? total - used : 0;
         string[] normalized = blockers.Distinct(StringComparer.Ordinal)
             .OrderBy(blocker => blocker, StringComparer.Ordinal)
@@ -787,6 +788,8 @@ public sealed class CharacterCreationPrerequisiteService :
                 authority.EffectivePrioritiesInputsDigest)
             || !CharacterCreationPrerequisiteAuthorityDigest.IsCanonical(
                 authority.SelectedPriorityCustomDataInputsDigest)
+            || !CharacterCreationPrerequisiteAuthorityDigest.IsCanonical(
+                authority.SelectedCustomDataInputsDigest)
             || !CharacterCreationPrerequisiteAuthorityDigest.IsCanonical(
                 authority.RawMetatypesXmlDigest)
             || !CharacterCreationPrerequisiteAuthorityDigest.IsCanonical(
@@ -901,6 +904,7 @@ public sealed class CharacterCreationPrerequisiteService :
                && option.Kind is CharacterCreationPriorityChildKinds.Metatype
                    or CharacterCreationPriorityChildKinds.Metavariant
                && option.SpecialAttributePoints >= 0
+               && option.KarmaCost >= 0
                && option.Attributes is not null
                && option.Blockers is not null
                && option.IsEnabled == (option.Blockers.Count == 0)

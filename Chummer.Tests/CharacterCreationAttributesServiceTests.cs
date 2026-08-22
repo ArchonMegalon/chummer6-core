@@ -27,6 +27,16 @@ public sealed class CharacterCreationAttributesServiceTests
             Assert.AreEqual(1, state.Attributes.Single(item => item.AttributeId == "BOD").Current);
             Assert.AreEqual(2, state.Attributes.Single(item => item.AttributeId == "EDG").Current);
             Assert.IsFalse(state.Attributes.Single(item => item.AttributeId == "MAG").IsEnabled);
+            CharacterCreationAttributeProjection essence = state.Attributes.Single(item =>
+                item.AttributeId == "ESS");
+            Assert.IsFalse(essence.IsEnabled);
+            Assert.AreEqual(0, essence.Minimum);
+            Assert.AreEqual(6, essence.Maximum);
+            Assert.AreEqual(6, essence.AugmentedMaximum);
+            Assert.AreEqual(6, essence.Current);
+            CollectionAssert.Contains(
+                essence.DisableReasons.ToList(),
+                CharacterCreationAttributesBlockers.EssenceNotSpendable);
 
             CharacterCreationFoundationResult<CharacterCreationAttributesPreview> result =
                 service.Preview(new CharacterCreationAttributesPreviewRequest(

@@ -41,6 +41,8 @@ public static class CharacterCreationPrerequisiteBlockers
     public const string CharacterAlreadyCreated = "creation-prerequisite-character-already-created";
     public const string CharacterDocumentInvalid = "creation-prerequisite-character-document-invalid";
     public const string CreationKarmaAuthorityRequired = "creation-karma-authority-required";
+    public const string CreationKarmaExceeded = "creation-prerequisite-creation-karma-exceeded";
+    public const string CustomDataDrift = "creation-prerequisite-custom-data-drift";
     public const string DraftConflict = "creation-prerequisite-draft-conflict";
     public const string DraftDuplicate = "creation-prerequisite-draft-duplicate";
     public const string DraftInvalid = "creation-prerequisite-draft-invalid";
@@ -51,6 +53,8 @@ public static class CharacterCreationPrerequisiteBlockers
     public const string HeritageSelectionIncomplete = "creation-prerequisite-heritage-selection-incomplete";
     public const string HeritageSelectionInvalid = "creation-prerequisite-heritage-selection-invalid";
     public const string HeritageSelectionUnsupported = "creation-prerequisite-heritage-selection-unsupported";
+    public const string MetatypeCustomDataUnsupported = "creation-prerequisite-metatype-custom-data-unsupported";
+    public const string MetatypeOverlayUnsupported = "creation-prerequisite-metatype-overlay-unsupported";
     public const string MetatypeSourceDrift = "creation-prerequisite-metatype-source-drift";
     public const string PersistenceAuthorityRequired = "creation-prerequisite-persistence-authority-required";
     public const string PreviewDigestMismatch = "creation-prerequisite-preview-digest-mismatch";
@@ -152,6 +156,8 @@ public sealed record CharacterCreationPrerequisiteAuthority(
     bool IsAuthoritative,
     string AuthorityDigest)
 {
+    public string SelectedCustomDataInputsDigest { get; init; } = string.Empty;
+
     public string RawMetatypesXmlDigest { get; init; } = string.Empty;
 
     public string EffectiveMetatypesInputsDigest { get; init; } = string.Empty;

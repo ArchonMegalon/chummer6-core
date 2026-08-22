@@ -17,6 +17,7 @@ internal sealed record CharacterCreationPrerequisiteProjectionContext(
     string RawPrioritiesXmlDigest,
     string EffectivePrioritiesInputsDigest,
     string SelectedPriorityCustomDataInputsDigest,
+    string SelectedCustomDataInputsDigest,
     string RawMetatypesXmlDigest,
     string EffectiveMetatypesInputsDigest,
     IReadOnlyList<string> EnabledSourcebooks,
@@ -772,6 +773,7 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
             string.Empty);
         authority = authority with
         {
+            SelectedCustomDataInputsDigest = context.SelectedCustomDataInputsDigest,
             RawMetatypesXmlDigest = context.RawMetatypesXmlDigest,
             EffectiveMetatypesInputsDigest = context.EffectiveMetatypesInputsDigest,
             MaxNumberMaxAttributesCreate = context.MaxNumberMaxAttributesCreate,

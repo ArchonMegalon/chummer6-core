@@ -44,6 +44,8 @@ public sealed class FileSystemCharacterSourceDataResolverTests
         Assert.AreEqual(10, authority.SumToTenTarget);
         Assert.AreEqual(CanonicalPrioritiesDigest, authority.RawPrioritiesXmlDigest);
         Assert.AreEqual(CanonicalMetatypesDigest, authority.RawMetatypesXmlDigest);
+        Assert.IsTrue(CharacterCreationPrerequisiteAuthorityDigest.IsCanonical(
+            authority.SelectedCustomDataInputsDigest));
         Assert.AreEqual(1, authority.MaxNumberMaxAttributesCreate);
         Assert.AreEqual(5, authority.KarmaAttribute);
         Assert.IsFalse(authority.AlternateMetatypeAttributeKarma);
@@ -163,6 +165,96 @@ public sealed class FileSystemCharacterSourceDataResolverTests
             CollectionAssert.Contains(
                 drifted.Blockers.ToList(),
                 CharacterCreationPrerequisiteBlockers.PrioritiesSourceDrift);
+        }
+        finally
+        {
+            DeleteTempDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public void Priority_authority_projects_nonzero_heritage_karma_from_effective_source()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            WriteBaseContent(
+                root,
+                string.Empty,
+                "<buildmethod>Priority</buildmethod><buildpoints>25</buildpoints>"
+                + "<priorityarray>ABCDE</priorityarray><prioritytable>Standard</prioritytable>"
+                + "<sumtoten>10</sumtoten>");
+            WritePriorityFixture(root);
+            string prioritiesPath = Path.Combine(root, "data", "priorities.xml");
+            File.WriteAllText(
+                prioritiesPath,
+                File.ReadAllText(prioritiesPath).Replace(
+                    "<karma>0</karma>",
+                    "<karma>7</karma>",
+                    StringComparison.Ordinal));
+
+            ICharacterSourceDataContext context = CreateContext(root, CharacterXml())!;
+            Assert.IsTrue(context.TryResolveCreationPrerequisiteAuthority(
+                out CharacterCreationPrerequisiteAuthority authority));
+            Assert.IsTrue(authority.IsAuthoritative, string.Join(",", authority.Blockers));
+            CharacterCreationPriorityHeritageOptionProjection human = authority.Options.Single(option =>
+                    option.CategoryId == CharacterCreationPriorityCategoryIds.Heritage
+                    && option.Rank == "A")
+                .HeritageOptions.Single(option => option.MetatypeName == "Human");
+            Assert.AreEqual(7, human.KarmaCost);
+        }
+        finally
+        {
+            DeleteTempDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public void Priority_authority_rejects_metatype_custom_data_and_detects_its_digest_drift()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            const string directoryName = "Unsafe Metatypes";
+            const string customSetting =
+                "<customdatadirectoryname><directoryname>Unsafe Metatypes</directoryname>"
+                + "<order>0</order><enabled>True</enabled></customdatadirectoryname>";
+            WriteBaseContent(
+                root,
+                customSetting,
+                "<buildmethod>Priority</buildmethod><buildpoints>25</buildpoints>"
+                + "<priorityarray>ABCDE</priorityarray><prioritytable>Standard</prioritytable>"
+                + "<sumtoten>10</sumtoten>");
+            WritePriorityFixture(root);
+            string customRoot = Path.Combine(root, "customdata", directoryName);
+            Directory.CreateDirectory(customRoot);
+            string amendmentPath = Path.Combine(customRoot, "amend_metatypes.xml");
+            File.WriteAllText(
+                amendmentPath,
+                "<chummer><metatypes><metatype><name>Human</name>"
+                + "<karma amendoperation=\"replace\">1</karma></metatype></metatypes></chummer>");
+            ICharacterSourceDataContext context = CreateContext(
+                root,
+                CharacterXml(
+                    "<customdatadirectorynames><directoryname>Unsafe Metatypes</directoryname>"
+                    + "</customdatadirectorynames>"))!;
+
+            Assert.IsTrue(context.TryResolveCreationPrerequisiteAuthority(
+                out CharacterCreationPrerequisiteAuthority unsupported));
+            Assert.IsFalse(unsupported.IsAuthoritative);
+            Assert.IsTrue(CharacterCreationPrerequisiteAuthorityDigest.IsCanonical(
+                unsupported.SelectedCustomDataInputsDigest));
+            CollectionAssert.Contains(
+                unsupported.Blockers.ToList(),
+                CharacterCreationPrerequisiteBlockers.MetatypeCustomDataUnsupported);
+
+            File.AppendAllText(amendmentPath, "\n");
+            Assert.IsTrue(context.TryResolveCreationPrerequisiteAuthority(
+                out CharacterCreationPrerequisiteAuthority drifted));
+            Assert.IsFalse(drifted.IsAuthoritative);
+            CollectionAssert.Contains(
+                drifted.Blockers.ToList(),
+                CharacterCreationPrerequisiteBlockers.CustomDataDrift);
         }
         finally
         {
