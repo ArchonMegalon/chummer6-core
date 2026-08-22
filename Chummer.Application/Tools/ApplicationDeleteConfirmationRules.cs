@@ -3,7 +3,8 @@ using Chummer.Contracts.Api;
 namespace Chummer.Application.Tools;
 
 /// <summary>
-/// Exact Chummer5 confirmation and date/time Global Settings semantics without registry or character XML.
+/// Exact Chummer5 confirmation, date/time, and index-visibility Global Settings semantics without
+/// registry or character XML.
 /// </summary>
 public static class ApplicationDeleteConfirmationRules
 {
@@ -13,6 +14,8 @@ public static class ApplicationDeleteConfirmationRules
     public const string LegacyCustomDateFormatIdentity = "customdateformat";
     public const string LegacyCustomTimeFormatIdentity = "customtimeformat";
     public const string LegacyDatesIncludeTimeIdentity = "datesincludetime";
+    public const string LegacyHideMasterIndexIdentity = "hidemasterindex";
+    public const string LegacyHideCharacterRosterIdentity = "hidecharacterroster";
 
     public static ApplicationDeleteConfirmationState Apply(
         ApplicationDeleteConfirmationState current,
@@ -35,6 +38,8 @@ public static class ApplicationDeleteConfirmationRules
             ApplicationSettingIdentity.ConfirmKarmaExpense => mutation.Value == current.ConfirmKarmaExpense,
             ApplicationSettingIdentity.CustomDateTimeFormats => mutation.Value == current.CustomDateTimeFormats,
             ApplicationSettingIdentity.DatesIncludeTime => mutation.Value == current.DatesIncludeTime,
+            ApplicationSettingIdentity.HideMasterIndex => mutation.Value == current.HideMasterIndex,
+            ApplicationSettingIdentity.HideCharacterRoster => mutation.Value == current.HideCharacterRoster,
             _ => throw new ArgumentOutOfRangeException(nameof(mutation), "A known application setting identity is required.")
         };
         if (unchanged)
@@ -61,6 +66,16 @@ public static class ApplicationDeleteConfirmationRules
             {
                 Revision = current.Revision + 1,
                 DatesIncludeTime = mutation.Value
+            },
+            ApplicationSettingIdentity.HideMasterIndex => current with
+            {
+                Revision = current.Revision + 1,
+                HideMasterIndex = mutation.Value
+            },
+            ApplicationSettingIdentity.HideCharacterRoster => current with
+            {
+                Revision = current.Revision + 1,
+                HideCharacterRoster = mutation.Value
             },
             _ => throw new ArgumentOutOfRangeException(nameof(mutation), "A known application setting identity is required.")
         };
@@ -91,7 +106,9 @@ public static class ApplicationDeleteConfirmationRules
             current.CustomDateTimeFormats,
             current.CustomDateFormat,
             current.CustomTimeFormat,
-            current.DatesIncludeTime);
+            current.DatesIncludeTime,
+            current.HideMasterIndex,
+            current.HideCharacterRoster);
     }
 
     /// <summary>
@@ -153,6 +170,9 @@ public static class ApplicationDeleteConfirmationRules
                 $"Application settings changed at revision {current.Revision}; expected {mutation.ExpectedRevision}.");
         }
 
+        RequireIdentity(mutation.HideMasterIndex, ApplicationSettingIdentity.HideMasterIndex);
+        RequireIdentity(mutation.HideCharacterRoster, ApplicationSettingIdentity.HideCharacterRoster);
+
         ApplicationDateTimeSettingsMutation dateTime = new(
             mutation.CustomDateTimeFormats,
             mutation.CustomDateFormat,
@@ -162,7 +182,9 @@ public static class ApplicationDeleteConfirmationRules
         ApplicationDeleteConfirmationState dateTimeUpdated = ApplyDateTimeSnapshot(current, dateTime);
         bool changed = dateTimeUpdated.Revision != current.Revision
             || mutation.ConfirmDelete != current.ConfirmDelete
-            || mutation.ConfirmKarmaExpense != current.ConfirmKarmaExpense;
+            || mutation.ConfirmKarmaExpense != current.ConfirmKarmaExpense
+            || mutation.HideMasterIndex.Value != current.HideMasterIndex
+            || mutation.HideCharacterRoster.Value != current.HideCharacterRoster;
         if (!changed)
             return current;
 
@@ -170,7 +192,9 @@ public static class ApplicationDeleteConfirmationRules
         {
             Revision = current.Revision + 1,
             ConfirmDelete = mutation.ConfirmDelete,
-            ConfirmKarmaExpense = mutation.ConfirmKarmaExpense
+            ConfirmKarmaExpense = mutation.ConfirmKarmaExpense,
+            HideMasterIndex = mutation.HideMasterIndex.Value,
+            HideCharacterRoster = mutation.HideCharacterRoster.Value
         };
     }
 

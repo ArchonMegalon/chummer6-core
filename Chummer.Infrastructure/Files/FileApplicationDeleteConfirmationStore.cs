@@ -134,6 +134,22 @@ public sealed class FileApplicationDeleteConfirmationStore : IApplicationDeleteC
                 datesIncludeTime = datesIncludeTimeElement.GetBoolean();
             }
 
+            bool hideMasterIndex = false;
+            if (root.TryGetProperty("HideMasterIndex", out JsonElement hideMasterIndexElement))
+            {
+                if (hideMasterIndexElement.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+                    return false;
+                hideMasterIndex = hideMasterIndexElement.GetBoolean();
+            }
+
+            bool hideCharacterRoster = false;
+            if (root.TryGetProperty("HideCharacterRoster", out JsonElement hideCharacterRosterElement))
+            {
+                if (hideCharacterRosterElement.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+                    return false;
+                hideCharacterRoster = hideCharacterRosterElement.GetBoolean();
+            }
+
             state = ApplicationDeleteConfirmationRules.Validate(new ApplicationDeleteConfirmationState(
                 revision,
                 confirmDeleteElement.GetBoolean(),
@@ -141,7 +157,9 @@ public sealed class FileApplicationDeleteConfirmationStore : IApplicationDeleteC
                 customDateTimeFormats,
                 customDateFormat,
                 customTimeFormat,
-                datesIncludeTime));
+                datesIncludeTime,
+                hideMasterIndex,
+                hideCharacterRoster));
             return true;
         }
         catch (Exception exception) when (exception is JsonException or IOException or InvalidDataException)

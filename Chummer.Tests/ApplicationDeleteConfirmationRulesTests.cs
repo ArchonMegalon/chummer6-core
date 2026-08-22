@@ -17,6 +17,8 @@ public sealed class ApplicationDeleteConfirmationRulesTests
         Assert.AreEqual(string.Empty, ApplicationDeleteConfirmationState.Default.CustomDateFormat);
         Assert.AreEqual(string.Empty, ApplicationDeleteConfirmationState.Default.CustomTimeFormat);
         Assert.IsTrue(ApplicationDeleteConfirmationState.Default.DatesIncludeTime);
+        Assert.IsFalse(ApplicationDeleteConfirmationState.Default.HideMasterIndex);
+        Assert.IsFalse(ApplicationDeleteConfirmationState.Default.HideCharacterRoster);
         Assert.AreEqual(0, ApplicationDeleteConfirmationState.Default.Revision);
         Assert.AreEqual("confirmdelete", ApplicationDeleteConfirmationRules.LegacyIdentity);
         Assert.AreEqual("confirmkarmaexpense", ApplicationDeleteConfirmationRules.LegacyKarmaExpenseIdentity);
@@ -24,6 +26,8 @@ public sealed class ApplicationDeleteConfirmationRulesTests
         Assert.AreEqual("customdateformat", ApplicationDeleteConfirmationRules.LegacyCustomDateFormatIdentity);
         Assert.AreEqual("customtimeformat", ApplicationDeleteConfirmationRules.LegacyCustomTimeFormatIdentity);
         Assert.AreEqual("datesincludetime", ApplicationDeleteConfirmationRules.LegacyDatesIncludeTimeIdentity);
+        Assert.AreEqual("hidemasterindex", ApplicationDeleteConfirmationRules.LegacyHideMasterIndexIdentity);
+        Assert.AreEqual("hidecharacterroster", ApplicationDeleteConfirmationRules.LegacyHideCharacterRosterIdentity);
     }
 
     [Test]
@@ -139,6 +143,8 @@ public sealed class ApplicationDeleteConfirmationRulesTests
             Assert.AreEqual(string.Empty, migrated.CustomDateFormat);
             Assert.AreEqual(string.Empty, migrated.CustomTimeFormat);
             Assert.IsTrue(migrated.DatesIncludeTime);
+            Assert.IsFalse(migrated.HideMasterIndex);
+            Assert.IsFalse(migrated.HideCharacterRoster);
         }
         finally
         {
@@ -162,6 +168,12 @@ public sealed class ApplicationDeleteConfirmationRulesTests
                 new ApplicationDeleteConfirmationState(7, ConfirmDelete: true)));
             File.WriteAllBytes(path + ".bak", JsonSerializer.SerializeToUtf8Bytes(
                 new ApplicationDeleteConfirmationState(7, ConfirmDelete: false)));
+            Assert.Throws<InvalidDataException>(() => new FileApplicationDeleteConfirmationStore(directory).Load());
+
+            File.WriteAllText(
+                path,
+                "{\"Revision\":0,\"ConfirmDelete\":true,\"HideMasterIndex\":\"false\"}");
+            File.Delete(path + ".bak");
             Assert.Throws<InvalidDataException>(() => new FileApplicationDeleteConfirmationStore(directory).Load());
         }
         finally
@@ -271,6 +283,65 @@ public sealed class ApplicationDeleteConfirmationRulesTests
         }
     }
 
+    [Test]
+    public void Whole_page_snapshot_types_and_atomically_persists_both_index_visibility_values()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            "chummer-index-visibility-settings-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        try
+        {
+            FileApplicationDeleteConfirmationStore store = new(directory);
+            ApplicationDeleteConfirmationState first = ApplicationDeleteConfirmationRules.ApplySettingsSnapshot(
+                store.Load(),
+                SettingsMutation(
+                    hideMasterIndex: true,
+                    hideCharacterRoster: true,
+                    expectedRevision: 0));
+            store.Save(0, first);
+
+            ApplicationDeleteConfirmationState restarted =
+                new FileApplicationDeleteConfirmationStore(directory).Load();
+            Assert.AreEqual(1, restarted.Revision);
+            Assert.IsTrue(restarted.HideMasterIndex);
+            Assert.IsTrue(restarted.HideCharacterRoster);
+
+            ApplicationDeleteConfirmationState second = ApplicationDeleteConfirmationRules.ApplySettingsSnapshot(
+                restarted,
+                SettingsMutation(
+                    hideMasterIndex: false,
+                    hideCharacterRoster: true,
+                    expectedRevision: 1));
+            store.Save(1, second);
+            Assert.AreEqual(2, second.Revision);
+            Assert.IsFalse(second.HideMasterIndex);
+            Assert.IsTrue(second.HideCharacterRoster, "The two legacy booleans are independent.");
+
+            string path = Path.Combine(directory, "application-delete-confirmation.json");
+            File.WriteAllText(path, "{");
+            Assert.AreEqual(first, new FileApplicationDeleteConfirmationStore(directory).Load());
+
+            ApplicationSettingsSnapshotMutation wrongIdentity = SettingsMutation(
+                hideMasterIndex: false,
+                hideCharacterRoster: false,
+                expectedRevision: first.Revision) with
+            {
+                HideMasterIndex = new(ApplicationSettingIdentity.HideCharacterRoster, false)
+            };
+            Assert.Throws<ArgumentException>(() => ApplicationDeleteConfirmationRules.ApplySettingsSnapshot(
+                first,
+                wrongIdentity));
+            Assert.Throws<InvalidOperationException>(() => ApplicationDeleteConfirmationRules.ApplySettingsSnapshot(
+                first,
+                SettingsMutation(true, true, expectedRevision: 0)));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
     private static ApplicationDateTimeSettingsMutation DateTimeMutation(
         bool useCustom,
         string dateFormat,
@@ -283,4 +354,19 @@ public sealed class ApplicationDeleteConfirmationRulesTests
             new(ApplicationSettingIdentity.CustomTimeFormat, timeFormat),
             new(ApplicationSettingIdentity.DatesIncludeTime, datesIncludeTime),
             expectedRevision);
+
+    private static ApplicationSettingsSnapshotMutation SettingsMutation(
+        bool hideMasterIndex,
+        bool hideCharacterRoster,
+        long expectedRevision)
+        => new(
+            ConfirmDelete: true,
+            ConfirmKarmaExpense: true,
+            CustomDateTimeFormats: new(ApplicationSettingIdentity.CustomDateTimeFormats, false),
+            CustomDateFormat: new(ApplicationSettingIdentity.CustomDateFormat, string.Empty),
+            CustomTimeFormat: new(ApplicationSettingIdentity.CustomTimeFormat, string.Empty),
+            DatesIncludeTime: new(ApplicationSettingIdentity.DatesIncludeTime, true),
+            HideMasterIndex: new(ApplicationSettingIdentity.HideMasterIndex, hideMasterIndex),
+            HideCharacterRoster: new(ApplicationSettingIdentity.HideCharacterRoster, hideCharacterRoster),
+            ExpectedRevision: expectedRevision);
 }

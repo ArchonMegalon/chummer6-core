@@ -11,7 +11,9 @@ public enum ApplicationSettingIdentity
     CustomDateTimeFormats,
     CustomDateFormat,
     CustomTimeFormat,
-    DatesIncludeTime
+    DatesIncludeTime,
+    HideMasterIndex,
+    HideCharacterRoster
 }
 
 public sealed record ApplicationDeleteConfirmationState(
@@ -21,7 +23,9 @@ public sealed record ApplicationDeleteConfirmationState(
     bool CustomDateTimeFormats = false,
     string CustomDateFormat = "",
     string CustomTimeFormat = "",
-    bool DatesIncludeTime = true)
+    bool DatesIncludeTime = true,
+    bool HideMasterIndex = false,
+    bool HideCharacterRoster = false)
 {
     public static ApplicationDeleteConfirmationState Default { get; } = new(
         Revision: 0,
@@ -30,7 +34,9 @@ public sealed record ApplicationDeleteConfirmationState(
         CustomDateTimeFormats: false,
         CustomDateFormat: "",
         CustomTimeFormat: "",
-        DatesIncludeTime: true);
+        DatesIncludeTime: true,
+        HideMasterIndex: false,
+        HideCharacterRoster: false);
 }
 
 public sealed record ApplicationDeleteConfirmationMutation(
@@ -62,7 +68,8 @@ public sealed record ApplicationDateTimeSettingsMutation(
     long ExpectedRevision);
 
 /// <summary>
-/// Atomic whole-page snapshot used when confirmations and date/time settings share one Save.
+/// Atomic whole-page snapshot used when confirmations, date/time, and index-visibility settings
+/// share one explicit Save.
 /// </summary>
 public sealed record ApplicationSettingsSnapshotMutation(
     bool ConfirmDelete,
@@ -71,6 +78,8 @@ public sealed record ApplicationSettingsSnapshotMutation(
     ApplicationSettingValue<string> CustomDateFormat,
     ApplicationSettingValue<string> CustomTimeFormat,
     ApplicationSettingValue<bool> DatesIncludeTime,
+    ApplicationSettingValue<bool> HideMasterIndex,
+    ApplicationSettingValue<bool> HideCharacterRoster,
     long ExpectedRevision);
 
 public enum ApplicationDateTimeFormatPhase
