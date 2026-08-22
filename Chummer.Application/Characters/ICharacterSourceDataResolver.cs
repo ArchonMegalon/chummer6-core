@@ -143,12 +143,20 @@ public interface ICharacterSourceDataContext
 public sealed record CharacterCreationSourceProfileAuthority(
     string SettingsProfileId,
     IReadOnlyList<string> EnabledSourcebooks,
+    string BuildMethod,
+    int? BuildPoints,
+    bool LifeModuleBudgetIsExact,
+    IReadOnlyList<string> BudgetBlockers,
     string RawProfileInputsDigest,
     IReadOnlyList<string> SourceAnchorIds)
 {
     public static CharacterCreationSourceProfileAuthority Unavailable { get; } = new(
         SettingsProfileId: string.Empty,
         EnabledSourcebooks: Array.Empty<string>(),
+        BuildMethod: string.Empty,
+        BuildPoints: null,
+        LifeModuleBudgetIsExact: false,
+        BudgetBlockers: Array.Empty<string>(),
         RawProfileInputsDigest: string.Empty,
         SourceAnchorIds: Array.Empty<string>());
 }

@@ -3,6 +3,7 @@
 using System;
 using System.IO;
 using Chummer.Application.Characters;
+using Chummer.Contracts.Characters;
 using Chummer.Infrastructure.Files;
 using Chummer.Infrastructure.Xml;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -13,7 +14,83 @@ namespace Chummer.Tests;
 public sealed class FileSystemCharacterSourceDataResolverTests
 {
     private const string SettingsId = "223a11ff-80e0-428b-89a9-6ef1c243b8b6";
+    private const string CanonicalLifeModuleSettingsId = "8a31af6d-7137-4284-872b-7d8087e156c6";
     private const string VehicleModId = "f89a112e-600a-4278-8731-9b14cf3737c9";
+
+    [TestMethod]
+    public void Canonical_life_module_profile_exposes_exact_750_karma_authority()
+    {
+        string coreRoot = FindCoreRoot();
+        ICharacterSourceDataContext context = CreateContext(
+            coreRoot,
+            $"<character><settings>{CanonicalLifeModuleSettingsId}</settings></character>")!;
+
+        Assert.IsNotNull(context);
+        Assert.IsTrue(context.TryResolveCreationSourceProfile(
+            out CharacterCreationSourceProfileAuthority authority));
+        Assert.AreEqual(CharacterCreationBuildMethods.LifeModules, authority.BuildMethod);
+        Assert.AreEqual(750, authority.BuildPoints);
+        Assert.IsTrue(authority.LifeModuleBudgetIsExact);
+        Assert.IsEmpty(authority.BudgetBlockers);
+        CollectionAssert.Contains(authority.EnabledSourcebooks.ToList(), "RF");
+        CollectionAssert.Contains(authority.EnabledSourcebooks.ToList(), "SR5");
+    }
+
+    [TestMethod]
+    public void Creation_budget_profile_rejects_missing_duplicate_mismatched_and_negative_fields()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            WriteBaseContent(root, string.Empty, "");
+            CharacterCreationSourceProfileAuthority missing = ResolveCreationProfile(root);
+            Assert.IsFalse(missing.LifeModuleBudgetIsExact);
+            CollectionAssert.Contains(
+                missing.BudgetBlockers.ToList(),
+                CharacterCreationFoundationBlockers.LifeModuleBudgetProfileBuildMethodInvalid);
+            CollectionAssert.Contains(
+                missing.BudgetBlockers.ToList(),
+                CharacterCreationFoundationBlockers.LifeModuleBudgetProfileBuildPointsInvalid);
+
+            WriteBaseContent(
+                root,
+                string.Empty,
+                "<buildmethod>LifeModule</buildmethod><buildmethod>LifeModule</buildmethod>"
+                + "<buildpoints>750</buildpoints><buildpoints>750</buildpoints>");
+            CharacterCreationSourceProfileAuthority duplicate = ResolveCreationProfile(root);
+            Assert.IsFalse(duplicate.LifeModuleBudgetIsExact);
+            CollectionAssert.Contains(
+                duplicate.BudgetBlockers.ToList(),
+                CharacterCreationFoundationBlockers.LifeModuleBudgetProfileBuildMethodInvalid);
+            CollectionAssert.Contains(
+                duplicate.BudgetBlockers.ToList(),
+                CharacterCreationFoundationBlockers.LifeModuleBudgetProfileBuildPointsInvalid);
+
+            WriteBaseContent(
+                root,
+                string.Empty,
+                "<buildmethod>Priority</buildmethod><buildpoints>750</buildpoints>");
+            CharacterCreationSourceProfileAuthority mismatch = ResolveCreationProfile(root);
+            Assert.IsFalse(mismatch.LifeModuleBudgetIsExact);
+            CollectionAssert.Contains(
+                mismatch.BudgetBlockers.ToList(),
+                CharacterCreationFoundationBlockers.LifeModuleBudgetProfileBuildMethodMismatch);
+
+            WriteBaseContent(
+                root,
+                string.Empty,
+                "<buildmethod>LifeModule</buildmethod><buildpoints>-1</buildpoints>");
+            CharacterCreationSourceProfileAuthority negative = ResolveCreationProfile(root);
+            Assert.IsFalse(negative.LifeModuleBudgetIsExact);
+            CollectionAssert.Contains(
+                negative.BudgetBlockers.ToList(),
+                CharacterCreationFoundationBlockers.LifeModuleBudgetProfileBuildPointsInvalid);
+        }
+        finally
+        {
+            DeleteTempDirectory(root);
+        }
+    }
 
     [TestMethod]
     public void Creation_source_profile_comes_from_saved_settings_and_binds_raw_profile_inputs()
@@ -304,13 +381,27 @@ public sealed class FileSystemCharacterSourceDataResolverTests
     private static string CharacterXml(string extra = "")
         => $"<character><settings>{SettingsId}</settings>{extra}</character>";
 
-    private static void WriteBaseContent(string root, string customDataSetting)
+    private static CharacterCreationSourceProfileAuthority ResolveCreationProfile(string root)
     {
+        ICharacterSourceDataContext context = CreateContext(root, CharacterXml())!;
+        Assert.IsNotNull(context);
+        Assert.IsTrue(context.TryResolveCreationSourceProfile(
+            out CharacterCreationSourceProfileAuthority authority));
+        return authority;
+    }
+
+    private static void WriteBaseContent(
+        string root,
+        string customDataSetting,
+        string? buildAuthorityXml = null)
+    {
+        buildAuthorityXml ??=
+            "<buildmethod>LifeModule</buildmethod><buildpoints>750</buildpoints>";
         string data = Path.Combine(root, "data");
         Directory.CreateDirectory(data);
         File.WriteAllText(
             Path.Combine(data, "settings.xml"),
-            $"<chummer><settings><setting><id>{SettingsId}</id><nuyenformat>#,0.###</nuyenformat><karmajoingroup>5</karmajoingroup><karmaleavegroup>1</karmaleavegroup><nuyenperbpwftp>1500</nuyenperbpwftp><nuyenperbpwftm>2000</nuyenperbpwftm><books><book>SR5</book><book>SG</book></books><customdatadirectorynames>{customDataSetting}</customdatadirectorynames></setting></settings></chummer>");
+            $"<chummer><settings><setting><id>{SettingsId}</id><nuyenformat>#,0.###</nuyenformat><karmajoingroup>5</karmajoingroup><karmaleavegroup>1</karmaleavegroup><nuyenperbpwftp>1500</nuyenperbpwftp><nuyenperbpwftm>2000</nuyenperbpwftm><books><book>SR5</book><book>SG</book></books><customdatadirectorynames>{customDataSetting}</customdatadirectorynames>{buildAuthorityXml}</setting></settings></chummer>");
         File.WriteAllText(
             Path.Combine(data, "cyberware.xml"),
             "<chummer><grades><grade><name>Standard</name><devicerating>4</devicerating></grade><grade><name>Alphaware</name></grade></grades></chummer>");
@@ -340,6 +431,19 @@ public sealed class FileSystemCharacterSourceDataResolverTests
         string path = Path.Combine(Path.GetTempPath(), $"chummer-source-data-{Guid.NewGuid():N}");
         Directory.CreateDirectory(path);
         return path;
+    }
+
+    private static string FindCoreRoot()
+    {
+        DirectoryInfo? current = new(AppDomain.CurrentDomain.BaseDirectory);
+        while (current is not null)
+        {
+            if (File.Exists(Path.Combine(current.FullName, "Chummer", "data", "settings.xml")))
+                return current.FullName;
+            current = current.Parent;
+        }
+
+        throw new DirectoryNotFoundException("Could not locate canonical Chummer/data/settings.xml.");
     }
 
     private static void DeleteTempDirectory(string path)

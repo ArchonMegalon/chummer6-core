@@ -20,10 +20,38 @@ public sealed class UnavailableCharacterCreationFoundationApplyAuthority
 
         var blockers = new List<string>
         {
-            CharacterCreationFoundationBlockers.LifeModuleBudgetAuthorityRequired,
             CharacterCreationFoundationBlockers.WizardStatePersistenceAuthorityRequired
         };
+        if (!context.LifeModuleBudgetBefore.IsExact
+            || !context.LifeModuleBudgetAfter.IsExact)
+        {
+            blockers.Add(CharacterCreationFoundationBlockers.LifeModuleBudgetAuthorityRequired);
+        }
         var diff = new List<CharacterCreationFoundationDiffEntry>();
+
+        string[] budgetDiffBlockers = context.LifeModuleBudgetAfter.Blockers
+            .Append(CharacterCreationFoundationBlockers.WizardStatePersistenceAuthorityRequired)
+            .Concat(context.LifeModuleBudgetAfter.IsExact
+                ? []
+                : [CharacterCreationFoundationBlockers.LifeModuleBudgetAuthorityRequired])
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(item => item, StringComparer.Ordinal)
+            .ToArray();
+        diff.Add(new CharacterCreationFoundationDiffEntry(
+            DiffId: "life-modules:karma-budget",
+            Domain: "budget",
+            TargetId: CharacterCreationBudgetIds.LifeModules,
+            BeforeValue: context.LifeModuleBudgetBefore.Remaining.ToString(
+                System.Globalization.CultureInfo.InvariantCulture),
+            AfterValue: context.LifeModuleBudgetAfter.Remaining.ToString(
+                System.Globalization.CultureInfo.InvariantCulture),
+            Phase: CharacterCreationFoundationDiffPhases.DraftLedger,
+            AppliesToCharacterDocument: false,
+            IsAuthoritative: context.LifeModuleBudgetBefore.IsExact
+                             && context.LifeModuleBudgetAfter.IsExact,
+            CanApply: false,
+            Blockers: budgetDiffBlockers,
+            SourceAnchorIds: context.Nationality.SourceAnchorIds));
 
         if (!string.Equals(
                 context.Summary.Metatype,
@@ -112,6 +140,9 @@ public sealed class UnavailableCharacterCreationFoundationApplyAuthority
             context.RequestedMetatype,
             context.Selection,
             context.FollowUpValues,
+            context.LifeModuleBudgetBefore,
+            context.SelectionCost,
+            context.LifeModuleBudgetAfter,
             context.SourceDigest,
             Diff = normalizedDiff,
             Blockers = normalizedBlockers

@@ -11,6 +11,7 @@ using Chummer.Contracts.LifeModules;
 using Chummer.Contracts.Owners;
 using Chummer.Contracts.Rulesets;
 using Chummer.Contracts.Workspaces;
+using Chummer.Infrastructure.Files;
 using Chummer.Infrastructure.Workspaces;
 using Chummer.Infrastructure.Xml;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -21,6 +22,48 @@ namespace Chummer.Tests;
 public sealed class CharacterCreationFoundationServiceTests
 {
     private static readonly CharacterWorkspaceId s_WorkspaceId = new("foundation-test");
+    private const string CanonicalLifeModuleSettingsId = "8a31af6d-7137-4284-872b-7d8087e156c6";
+
+    [TestMethod]
+    public void Canonical_profile_and_inherited_nationality_cost_project_750_to_735()
+    {
+        string coreRoot = FindCoreRoot();
+        var overlays = new FileSystemContentOverlayCatalogService(coreRoot, coreRoot, null);
+        var catalog = new XmlLifeModulesCatalogService(
+            LifeModulesCatalogPathResolver.Resolve(overlays));
+        var sourceResolver = new FileSystemCharacterSourceDataResolver(overlays);
+        var store = new CountingWorkspaceStore();
+        store.CreateWorkspaceDocument(
+            s_WorkspaceId,
+            CreateWorkspaceDocument(settingsId: CanonicalLifeModuleSettingsId));
+        store.ResetMutationCounts();
+        ICharacterCreationFoundationService service = CreateService(
+            store,
+            catalog,
+            sourceResolver);
+        CharacterCreationFoundationState state = AssertSuccess(service.Load(
+            new CharacterCreationFoundationLoadRequest(s_WorkspaceId))).Value!;
+
+        CharacterCreationFoundationPreview preview = service.Preview(
+            new CharacterCreationFoundationPreviewRequest(
+                Binding: state.Binding,
+                RequestedMetatype: "Human",
+                Selection: new CharacterCreationFoundationSelection(
+                    ModuleId: "f35ba316-dd0f-48ab-9f06-d7329305a44e",
+                    VersionId: "f9e684bb-d7fa-4fc7-87e0-d140cc6fc64d"))).Value!;
+
+        Assert.AreEqual(750m, preview.LifeModuleBudgetBefore.Total);
+        Assert.AreEqual(0m, preview.LifeModuleBudgetBefore.Used);
+        Assert.AreEqual(15m, preview.SelectionCost.Delta);
+        Assert.AreEqual(15m, preview.LifeModuleBudgetAfter.Used);
+        Assert.AreEqual(735m, preview.LifeModuleBudgetAfter.Remaining);
+        Assert.IsTrue(preview.LifeModuleBudgetBefore.IsExact);
+        Assert.IsTrue(preview.LifeModuleBudgetAfter.IsExact);
+        CollectionAssert.DoesNotContain(
+            preview.AuthorityBlockers.ToList(),
+            CharacterCreationFoundationBlockers.LifeModuleBudgetAuthorityRequired);
+        Assert.AreEqual(0, store.TotalMutationCalls);
+    }
 
     [TestMethod]
     public void Load_projects_revision_digest_and_honest_resume_boundaries_across_restart()
@@ -63,6 +106,11 @@ public sealed class CharacterCreationFoundationServiceTests
             Assert.IsFalse(restarted.CharacterCreated);
             Assert.HasCount(1, restarted.NationalityOptions);
             Assert.IsEmpty(restarted.MetatypeOptions);
+            Assert.AreEqual(CharacterCreationBudgetIds.LifeModules, restarted.LifeModuleBudget.BudgetId);
+            Assert.AreEqual(750m, restarted.LifeModuleBudget.Total);
+            Assert.AreEqual(0m, restarted.LifeModuleBudget.Used);
+            Assert.AreEqual(750m, restarted.LifeModuleBudget.Remaining);
+            Assert.IsTrue(restarted.LifeModuleBudget.IsExact);
             Assert.IsNull(restarted.PendingDraft);
             Assert.AreEqual(
                 CharacterCreationFoundationResumeStatuses.AuthorityRequired,
@@ -116,9 +164,21 @@ public sealed class CharacterCreationFoundationServiceTests
             !item.CanApply
             && item.Phase == CharacterCreationFoundationDiffPhases.DraftLedger
             && !item.AppliesToCharacterDocument));
-        CollectionAssert.Contains(
+        Assert.IsTrue(preview.LifeModuleBudgetBefore.IsExact);
+        Assert.AreEqual(750m, preview.LifeModuleBudgetBefore.Remaining);
+        Assert.AreEqual(CharacterCreationBudgetIds.LifeModules, preview.SelectionCost.BudgetId);
+        Assert.AreEqual(15m, preview.SelectionCost.Delta);
+        Assert.AreEqual(15m, preview.LifeModuleBudgetAfter.Used);
+        Assert.AreEqual(735m, preview.LifeModuleBudgetAfter.Remaining);
+        Assert.IsTrue(preview.LifeModuleBudgetAfter.IsExact);
+        CollectionAssert.DoesNotContain(
             preview.AuthorityBlockers.ToList(),
             CharacterCreationFoundationBlockers.LifeModuleBudgetAuthorityRequired);
+        Assert.IsTrue(preview.Diff.Any(item =>
+            item.Domain == "budget"
+            && item.BeforeValue == "750"
+            && item.AfterValue == "735"
+            && item.IsAuthoritative));
         CollectionAssert.Contains(
             preview.AuthorityBlockers.ToList(),
             CharacterCreationFoundationBlockers.LifeModuleEffectApplicationAuthorityRequired);
@@ -452,6 +512,42 @@ public sealed class CharacterCreationFoundationServiceTests
     }
 
     [TestMethod]
+    public void Existing_life_module_quality_keeps_used_budget_non_exact_instead_of_guessing()
+    {
+        var store = new CountingWorkspaceStore();
+        store.CreateWorkspaceDocument(
+            s_WorkspaceId,
+            CreateWorkspaceDocument(qualitiesXml: """
+                <qualities>
+                  <quality>
+                    <name>Existing Nationality</name>
+                    <qualitytype>LifeModule</qualitytype>
+                    <qualitysource>LifeModule</qualitysource>
+                    <stage>Nationality</stage>
+                    <bp>15</bp>
+                  </quality>
+                </qualities>
+                """));
+        store.ResetMutationCounts();
+        ICharacterCreationFoundationService service = CreateService(
+            store,
+            new StubLifeModulesCatalogService(CreateNationality()));
+
+        CharacterCreationFoundationState state = AssertSuccess(service.Load(
+            new CharacterCreationFoundationLoadRequest(s_WorkspaceId))).Value!;
+
+        Assert.AreEqual(750m, state.LifeModuleBudget.Total);
+        Assert.IsFalse(state.LifeModuleBudget.IsExact);
+        CollectionAssert.Contains(
+            state.LifeModuleBudget.Blockers.ToList(),
+            CharacterCreationFoundationBlockers.LifeModuleBudgetExistingSelectionAuthorityRequired);
+        CollectionAssert.Contains(
+            state.AuthorityBlockers.ToList(),
+            CharacterCreationFoundationBlockers.LifeModuleBudgetExistingSelectionAuthorityRequired);
+        Assert.AreEqual(0, store.TotalMutationCalls);
+    }
+
+    [TestMethod]
     public void Load_never_treats_null_as_all_and_intersects_requested_sources_with_saved_profile()
     {
         var store = new CountingWorkspaceStore();
@@ -601,8 +697,13 @@ public sealed class CharacterCreationFoundationServiceTests
         string metatype = "Human",
         string buildMethod = CharacterCreationBuildMethods.LifeModules,
         bool created = false,
-        string rulesetId = RulesetDefaults.Sr5)
+        string rulesetId = RulesetDefaults.Sr5,
+        string qualitiesXml = "",
+        string settingsId = "")
     {
+        string settingsXml = string.IsNullOrWhiteSpace(settingsId)
+            ? string.Empty
+            : $"<settings>{settingsId}</settings>";
         string content = $"""
                           <character>
                             <name>{name}</name>
@@ -614,6 +715,8 @@ public sealed class CharacterCreationFoundationServiceTests
                             <karma>25</karma>
                             <nuyen>0</nuyen>
                             <created>{created}</created>
+                            {settingsXml}
+                            {qualitiesXml}
                           </character>
                           """;
         return new WorkspaceDocument(content, rulesetId);
@@ -721,6 +824,19 @@ public sealed class CharacterCreationFoundationServiceTests
         return values[0];
     }
 
+    private static string FindCoreRoot()
+    {
+        DirectoryInfo? current = new(AppDomain.CurrentDomain.BaseDirectory);
+        while (current is not null)
+        {
+            if (File.Exists(Path.Combine(current.FullName, "Chummer", "data", "settings.xml")))
+                return current.FullName;
+            current = current.Parent;
+        }
+
+        throw new DirectoryNotFoundException("Could not locate canonical Chummer/data/settings.xml.");
+    }
+
     private sealed class StubLifeModulesCatalogService : ILifeModulesCatalogService
     {
         public StubLifeModulesCatalogService(LifeModuleLegalOptionDto option)
@@ -796,6 +912,10 @@ public sealed class CharacterCreationFoundationServiceTests
                 authority = new CharacterCreationSourceProfileAuthority(
                     SettingsProfileId: "test-profile",
                     EnabledSourcebooks: _enabledSources,
+                    BuildMethod: CharacterCreationBuildMethods.LifeModules,
+                    BuildPoints: 750,
+                    LifeModuleBudgetIsExact: true,
+                    BudgetBlockers: [],
                     RawProfileInputsDigest: _owner.RawProfileInputsDigest,
                     SourceAnchorIds: ["settings.xml#setting:test-profile"]);
                 return true;

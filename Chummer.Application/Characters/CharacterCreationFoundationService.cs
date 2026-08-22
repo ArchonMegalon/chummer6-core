@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Xml.Linq;
 using Chummer.Application.LifeModules;
 using Chummer.Application.Workspaces;
 using Chummer.Contracts.Characters;
@@ -210,6 +211,18 @@ public sealed class CharacterCreationFoundationService : ICharacterCreationFound
             followUpValues,
             selectionBlockers);
 
+        bool selectionKarmaIsExact = version?.KarmaIsExact ?? nationality.KarmaIsExact;
+        decimal selectionKarma = version?.KarmaCost ?? nationality.KarmaCost;
+        var selectionCost = new CharacterCreationChoiceCost(
+            BudgetId: CharacterCreationBudgetIds.LifeModules,
+            Delta: selectionKarma,
+            Unit: "karma");
+        CharacterCreationBudgetState budgetAfter = ProjectBudgetAfterSelection(
+            state.LifeModuleBudget,
+            selectionCost,
+            selectionKarmaIsExact);
+        selectionBlockers.AddRange(budgetAfter.Blockers);
+
         LifeModuleRequirementProjectionDto[] evaluatedModuleRequirements =
             requirementEvaluations.Take(nationality.Requirements.Count).ToArray();
         LifeModuleRequirementProjectionDto[] evaluatedVersionRequirements =
@@ -249,6 +262,9 @@ public sealed class CharacterCreationFoundationService : ICharacterCreationFound
             NationalityVersion: evaluatedVersion,
             RequirementEvaluations: requirementEvaluations,
             FollowUpValues: followUpValues,
+            LifeModuleBudgetBefore: state.LifeModuleBudget,
+            SelectionCost: selectionCost,
+            LifeModuleBudgetAfter: budgetAfter,
             SourceDigest: state.Binding.SourceDigest);
         CharacterCreationFoundationAuthorityPreview authorityPreview = _applyAuthority.Preview(context);
 
@@ -270,6 +286,9 @@ public sealed class CharacterCreationFoundationService : ICharacterCreationFound
             VersionId = evaluatedVersion?.VersionId,
             Requirements = requirementEvaluations,
             FollowUpValues = followUpValues,
+            BudgetBefore = state.LifeModuleBudget,
+            SelectionCost = selectionCost,
+            BudgetAfter = budgetAfter,
             authorityPreview.Diff,
             Blockers = blockers,
             authorityPreview.AuthorityPlanDigest
@@ -283,6 +302,9 @@ public sealed class CharacterCreationFoundationService : ICharacterCreationFound
             NationalityVersion: evaluatedVersion,
             RequirementEvaluations: requirementEvaluations,
             FollowUpValues: followUpValues,
+            LifeModuleBudgetBefore: state.LifeModuleBudget,
+            SelectionCost: selectionCost,
+            LifeModuleBudgetAfter: budgetAfter,
             Diff: authorityPreview.Diff,
             AuthorityBlockers: blockers,
             RequiresExplicitConfirmation: true,
@@ -406,6 +428,16 @@ public sealed class CharacterCreationFoundationService : ICharacterCreationFound
             SourceDigestSemantics: CharacterCreationFoundationDigestSemantics.RawSourceInputsSha256,
             SourceFilterApplied: sourceFilterApplied,
             EnabledSources: effectiveSources);
+
+        CharacterCreationFoundationDraftLedger? pendingDraft = null;
+        bool hasExistingLifeModuleQuality = HasExistingLifeModuleQuality(
+            workspace.Document.Content);
+        CharacterCreationBudgetState lifeModuleBudget = BuildCurrentLifeModuleBudget(
+            sourceProfile,
+            hasSourceProfileAuthority,
+            hasExistingLifeModuleQuality,
+            pendingDraft);
+        blockers.AddRange(lifeModuleBudget.Blockers);
         if (!string.Equals(
                 RulesetDefaults.NormalizeOptional(workspace.Document.RulesetId),
                 RulesetDefaults.Sr5,
@@ -436,6 +468,8 @@ public sealed class CharacterCreationFoundationService : ICharacterCreationFound
             summary.BuildMethod,
             summary.Created,
             Nationalities = nationalities,
+            LifeModuleBudget = lifeModuleBudget,
+            PendingDraft = pendingDraft,
             Blockers = normalizedBlockers
         });
         var state = new CharacterCreationFoundationState(
@@ -447,7 +481,8 @@ public sealed class CharacterCreationFoundationService : ICharacterCreationFound
             CharacterCreated: summary.Created,
             MetatypeOptions: [],
             NationalityOptions: nationalities,
-            PendingDraft: null,
+            LifeModuleBudget: lifeModuleBudget,
+            PendingDraft: pendingDraft,
             ResumeStatus: CharacterCreationFoundationResumeStatuses.AuthorityRequired,
             AuthorityBlockers: normalizedBlockers,
             SnapshotDigest: snapshotDigest);
@@ -545,6 +580,91 @@ public sealed class CharacterCreationFoundationService : ICharacterCreationFound
             .OrderBy(item => item, StringComparer.OrdinalIgnoreCase)
             .ToArray()
             ?? [];
+    }
+
+    private static CharacterCreationBudgetState BuildCurrentLifeModuleBudget(
+        CharacterCreationSourceProfileAuthority sourceProfile,
+        bool hasSourceProfileAuthority,
+        bool hasExistingLifeModuleQuality,
+        CharacterCreationFoundationDraftLedger? pendingDraft)
+    {
+        var blockers = new List<string>();
+        if (!hasSourceProfileAuthority)
+            blockers.Add(CharacterCreationFoundationBlockers.LifeModuleBudgetAuthorityRequired);
+        blockers.AddRange(sourceProfile.BudgetBlockers);
+        if (hasExistingLifeModuleQuality)
+        {
+            blockers.Add(
+                CharacterCreationFoundationBlockers.LifeModuleBudgetExistingSelectionAuthorityRequired);
+        }
+        if (pendingDraft is not null)
+        {
+            blockers.Add(
+                CharacterCreationFoundationBlockers.LifeModuleBudgetPendingDraftAuthorityRequired);
+        }
+
+        string[] normalizedBlockers = blockers
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(item => item, StringComparer.Ordinal)
+            .ToArray();
+        decimal total = sourceProfile.BuildPoints.GetValueOrDefault();
+        bool isExact = hasSourceProfileAuthority
+                       && sourceProfile.LifeModuleBudgetIsExact
+                       && normalizedBlockers.Length == 0;
+        return new CharacterCreationBudgetState(
+            BudgetId: CharacterCreationBudgetIds.LifeModules,
+            Label: "Life Modules Karma",
+            Total: total,
+            Used: 0,
+            Remaining: total,
+            IsExact: isExact,
+            Blockers: normalizedBlockers,
+            Unit: "karma");
+    }
+
+    private static CharacterCreationBudgetState ProjectBudgetAfterSelection(
+        CharacterCreationBudgetState before,
+        CharacterCreationChoiceCost selectionCost,
+        bool selectionCostIsExact)
+    {
+        var blockers = new List<string>(before.Blockers);
+        bool isExact = before.IsExact && selectionCostIsExact;
+        if (!selectionCostIsExact)
+            blockers.Add(CharacterCreationFoundationBlockers.LifeModuleBudgetAuthorityRequired);
+
+        decimal used = isExact ? before.Used + selectionCost.Delta : before.Used;
+        decimal remaining = isExact ? before.Total - used : before.Remaining;
+        if (isExact && remaining < 0)
+            blockers.Add(CharacterCreationFoundationBlockers.LifeModuleBudgetExceeded);
+
+        string[] normalizedBlockers = blockers
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(item => item, StringComparer.Ordinal)
+            .ToArray();
+        return before with
+        {
+            Used = used,
+            Remaining = remaining,
+            IsExact = isExact,
+            Blockers = normalizedBlockers
+        };
+    }
+
+    private static bool HasExistingLifeModuleQuality(string characterXml)
+    {
+        XDocument document = XDocument.Parse(characterXml, LoadOptions.None);
+        return document
+            .Descendants("quality")
+            .Any(quality =>
+                string.Equals(
+                    quality.Element("qualitytype")?.Value.Trim(),
+                    CharacterCreationBuildMethods.LifeModules,
+                    StringComparison.OrdinalIgnoreCase)
+                || string.Equals(
+                    quality.Element("qualitysource")?.Value.Trim(),
+                    CharacterCreationBuildMethods.LifeModules,
+                    StringComparison.OrdinalIgnoreCase)
+                || !string.IsNullOrWhiteSpace(quality.Element("stage")?.Value));
     }
 
     private static IReadOnlyDictionary<string, string> NormalizeFollowUpValues(

@@ -25,6 +25,9 @@ public sealed record CharacterCreationFoundationAuthorityContext(
     LifeModuleVersionProjectionDto? NationalityVersion,
     IReadOnlyList<LifeModuleRequirementProjectionDto> RequirementEvaluations,
     IReadOnlyDictionary<string, string> FollowUpValues,
+    CharacterCreationBudgetState LifeModuleBudgetBefore,
+    CharacterCreationChoiceCost SelectionCost,
+    CharacterCreationBudgetState LifeModuleBudgetAfter,
     string SourceDigest);
 
 public sealed record CharacterCreationFoundationAuthorityPreview(

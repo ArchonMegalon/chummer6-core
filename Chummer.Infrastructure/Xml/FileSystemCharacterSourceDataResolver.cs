@@ -150,6 +150,11 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToArray()
                 ?? [];
+            ResolveLifeModuleBudgetAuthority(
+                settings,
+                out string profileBuildMethod,
+                out int? profileBuildPoints,
+                out string[] lifeModuleBudgetBlockers);
 
             int? maximumNuyenDecimals = TryReadMaximumNuyenDecimals(settings, out int resolvedDecimals)
                 ? resolvedDecimals
@@ -190,6 +195,9 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 enabledSourcebooks,
                 settingsKey,
                 BindSelectedProfile(settingsInputsDigest, settingsKey),
+                profileBuildMethod,
+                profileBuildPoints,
+                lifeModuleBudgetBlockers,
                 maximumNuyenDecimals,
                 joinGroupKarma,
                 leaveGroupKarma,
@@ -220,6 +228,63 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
         int separator = format.IndexOf('.');
         decimalPlaces = separator < 0 ? 0 : format.Length - separator - 1;
         return decimalPlaces is >= 0 and <= 28;
+    }
+
+    private static void ResolveLifeModuleBudgetAuthority(
+        XElement settings,
+        out string buildMethod,
+        out int? buildPoints,
+        out string[] blockers)
+    {
+        var resolvedBlockers = new List<string>();
+        string[] buildMethodValues = settings
+            .Elements("buildmethod")
+            .Select(item => item.Value.Trim())
+            .ToArray();
+        if (buildMethodValues.Length != 1 || string.IsNullOrWhiteSpace(buildMethodValues[0]))
+        {
+            buildMethod = string.Empty;
+            resolvedBlockers.Add(
+                CharacterCreationFoundationBlockers.LifeModuleBudgetProfileBuildMethodInvalid);
+        }
+        else
+        {
+            buildMethod = buildMethodValues[0];
+            if (!string.Equals(
+                    buildMethod,
+                    CharacterCreationBuildMethods.LifeModules,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                resolvedBlockers.Add(
+                    CharacterCreationFoundationBlockers.LifeModuleBudgetProfileBuildMethodMismatch);
+            }
+        }
+
+        string[] buildPointValues = settings
+            .Elements("buildpoints")
+            .Select(item => item.Value.Trim())
+            .ToArray();
+        if (buildPointValues.Length == 1
+            && int.TryParse(
+                buildPointValues[0],
+                NumberStyles.Integer,
+                CultureInfo.InvariantCulture,
+                out int parsedBuildPoints)
+            && parsedBuildPoints >= 0)
+        {
+            buildPoints = parsedBuildPoints;
+        }
+        else
+        {
+            buildPoints = null;
+            resolvedBlockers.Add(
+                CharacterCreationFoundationBlockers.LifeModuleBudgetProfileBuildPointsInvalid);
+        }
+
+        blockers = resolvedBlockers
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(item => item, StringComparer.Ordinal)
+            .ToArray();
     }
 
     private static bool TryReadNonNegativeInt(XElement parent, string elementName, out int value)
@@ -425,6 +490,9 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
         private readonly IReadOnlySet<string> _enabledSourcebooks;
         private readonly string _settingsProfileId;
         private readonly string _rawProfileInputsDigest;
+        private readonly string _buildMethod;
+        private readonly int? _buildPoints;
+        private readonly IReadOnlyList<string> _lifeModuleBudgetBlockers;
         private readonly int? _maximumNuyenDecimals;
         private readonly int? _joinGroupKarma;
         private readonly int? _leaveGroupKarma;
@@ -440,6 +508,9 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             IReadOnlyList<string> enabledSourcebooks,
             string settingsProfileId,
             string rawProfileInputsDigest,
+            string buildMethod,
+            int? buildPoints,
+            IReadOnlyList<string> lifeModuleBudgetBlockers,
             int? maximumNuyenDecimals,
             int? joinGroupKarma,
             int? leaveGroupKarma,
@@ -454,6 +525,9 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             _enabledSourcebooks = enabledSourcebooks.ToHashSet(StringComparer.OrdinalIgnoreCase);
             _settingsProfileId = settingsProfileId;
             _rawProfileInputsDigest = rawProfileInputsDigest;
+            _buildMethod = buildMethod;
+            _buildPoints = buildPoints;
+            _lifeModuleBudgetBlockers = lifeModuleBudgetBlockers;
             _maximumNuyenDecimals = maximumNuyenDecimals;
             _joinGroupKarma = joinGroupKarma;
             _leaveGroupKarma = leaveGroupKarma;
@@ -485,6 +559,11 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 EnabledSourcebooks: _enabledSourcebooks
                     .OrderBy(item => item, StringComparer.OrdinalIgnoreCase)
                     .ToArray(),
+                BuildMethod: _buildMethod,
+                BuildPoints: _buildPoints,
+                LifeModuleBudgetIsExact: _lifeModuleBudgetBlockers.Count == 0
+                    && _buildPoints.HasValue,
+                BudgetBlockers: _lifeModuleBudgetBlockers,
                 RawProfileInputsDigest: _rawProfileInputsDigest,
                 SourceAnchorIds: [$"settings.xml#setting:{_settingsProfileId}"]);
             return true;

@@ -41,6 +41,12 @@ public static class CharacterCreationFoundationBlockers
     public const string LifeModuleBuildMethodRequired = "life-module-build-method-required";
     public const string LifeModuleCatalogAuthorityRequired = "life-module-catalog-authority-required";
     public const string LifeModuleBudgetAuthorityRequired = "life-module-budget-authority-required";
+    public const string LifeModuleBudgetExceeded = "life-module-budget-exceeded";
+    public const string LifeModuleBudgetExistingSelectionAuthorityRequired = "life-module-budget-existing-selection-authority-required";
+    public const string LifeModuleBudgetPendingDraftAuthorityRequired = "life-module-budget-pending-draft-authority-required";
+    public const string LifeModuleBudgetProfileBuildMethodInvalid = "life-module-budget-profile-build-method-invalid";
+    public const string LifeModuleBudgetProfileBuildMethodMismatch = "life-module-budget-profile-build-method-mismatch";
+    public const string LifeModuleBudgetProfileBuildPointsInvalid = "life-module-budget-profile-build-points-invalid";
     public const string LifeModuleEffectApplicationAuthorityRequired = "life-module-effect-application-authority-required";
     public const string LifeModuleFollowUpOptionInvalid = "life-module-follow-up-option-invalid";
     public const string LifeModuleFollowUpRequired = "life-module-follow-up-required";
@@ -116,6 +122,7 @@ public sealed record CharacterCreationFoundationState(
     bool CharacterCreated,
     IReadOnlyList<CharacterCreationLegalOption> MetatypeOptions,
     IReadOnlyList<LifeModuleLegalOptionDto> NationalityOptions,
+    CharacterCreationBudgetState LifeModuleBudget,
     CharacterCreationFoundationDraftLedger? PendingDraft,
     string ResumeStatus,
     IReadOnlyList<string> AuthorityBlockers,
@@ -149,6 +156,9 @@ public sealed record CharacterCreationFoundationPreview(
     LifeModuleVersionProjectionDto? NationalityVersion,
     IReadOnlyList<LifeModuleRequirementProjectionDto> RequirementEvaluations,
     IReadOnlyDictionary<string, string> FollowUpValues,
+    CharacterCreationBudgetState LifeModuleBudgetBefore,
+    CharacterCreationChoiceCost SelectionCost,
+    CharacterCreationBudgetState LifeModuleBudgetAfter,
     IReadOnlyList<CharacterCreationFoundationDiffEntry> Diff,
     IReadOnlyList<string> AuthorityBlockers,
     bool RequiresExplicitConfirmation,
