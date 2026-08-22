@@ -1,13 +1,14 @@
 using Chummer.Application.Tools;
 using Chummer.Contracts.Api;
 using Chummer.Infrastructure.Files;
+using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace Chummer.Tests;
 
-[TestFixture]
+[TestClass]
 public sealed class CharacterRosterFavoriteRulesTests
 {
-    [Test]
+    [TestMethod]
     public void Toggle_matches_Chummer5_sorted_favorites_and_front_of_MRU_rules()
     {
         CharacterRosterDocumentIdentity zed = new("content://runner/zed", "Zed");
@@ -29,7 +30,7 @@ public sealed class CharacterRosterFavoriteRulesTests
         Assert.AreEqual(3, third.Revision);
     }
 
-    [Test]
+    [TestMethod]
     public void Apply_rejects_stale_revision_without_returning_mutated_state()
     {
         CharacterRosterFavoriteMutation stale = new(
@@ -39,10 +40,10 @@ public sealed class CharacterRosterFavoriteRulesTests
 
         InvalidOperationException error = Assert.Throws<InvalidOperationException>(
             () => CharacterRosterFavoriteRules.Apply(CharacterRosterFavoriteState.Empty, stale))!;
-        StringAssert.Contains("expected 4", error.Message);
+        StringAssert.Contains(error.Message, "expected 4");
     }
 
-    [Test]
+    [TestMethod]
     public void Sort_matches_Chummer5_locator_order_and_changes_only_selected_collection()
     {
         CharacterRosterDocumentIdentity favoriteZed = new("content://runner/zed", "Alpha display");
@@ -60,20 +61,20 @@ public sealed class CharacterRosterFavoriteRulesTests
         CollectionAssert.AreEqual(
             new[] { favoriteAlpha.Locator, favoriteZed.Locator },
             favoritesSorted.Favorites.Select(item => item.Locator).ToArray());
-        CollectionAssert.AreEqual(initial.Recent, favoritesSorted.Recent);
+        CollectionAssert.AreEqual(initial.Recent.ToArray(), favoritesSorted.Recent.ToArray());
         Assert.AreEqual(8, favoritesSorted.Revision);
 
         CharacterRosterFavoriteState recentSorted = CharacterRosterFavoriteRules.ApplySort(
             favoritesSorted,
             new CharacterRosterSortMutation(CharacterRosterSortTarget.Recent, ExpectedRevision: 8));
-        CollectionAssert.AreEqual(favoritesSorted.Favorites, recentSorted.Favorites);
+        CollectionAssert.AreEqual(favoritesSorted.Favorites.ToArray(), recentSorted.Favorites.ToArray());
         CollectionAssert.AreEqual(
             new[] { recentBravo.Locator, recentYankee.Locator },
             recentSorted.Recent.Select(item => item.Locator).ToArray());
         Assert.AreEqual(9, recentSorted.Revision);
     }
 
-    [Test]
+    [TestMethod]
     public void Sort_fails_closed_for_stale_revision_and_unknown_target()
     {
         CharacterRosterFavoriteState state = new(
@@ -89,7 +90,7 @@ public sealed class CharacterRosterFavoriteRulesTests
             new CharacterRosterSortMutation((CharacterRosterSortTarget)99, ExpectedRevision: 2)));
     }
 
-    [Test]
+    [TestMethod]
     public void Sorted_state_uses_atomic_revision_store_and_backup_recovery()
     {
         string directory = Path.Combine(Path.GetTempPath(), "chummer-roster-sort-" + Guid.NewGuid().ToString("N"));
@@ -119,7 +120,7 @@ public sealed class CharacterRosterFavoriteRulesTests
             CharacterRosterFavoriteState recovered = store.Load();
             Assert.AreEqual(1, recovered.Revision);
             Assert.AreEqual("content://runner/zed", recovered.Favorites[0].Locator);
-            StringAssert.DoesNotContain("{broken", File.ReadAllText(primary));
+            Assert.IsFalse(File.ReadAllText(primary).Contains("{broken", StringComparison.Ordinal));
         }
         finally
         {
@@ -127,7 +128,7 @@ public sealed class CharacterRosterFavoriteRulesTests
         }
     }
 
-    [Test]
+    [TestMethod]
     public void Remove_matches_Chummer5_selected_collection_only()
     {
         CharacterRosterDocumentIdentity runner = new("content://runner/alpha", "Alpha");
@@ -149,8 +150,8 @@ public sealed class CharacterRosterFavoriteRulesTests
                 runner,
                 CharacterRosterRemoveTarget.Favorites,
                 ExpectedRevision: 11));
-        CollectionAssert.AreEqual(new[] { otherFavorite }, favoriteRemoved.Favorites);
-        CollectionAssert.AreEqual(initial.Recent, favoriteRemoved.Recent);
+        CollectionAssert.AreEqual(new[] { otherFavorite }, favoriteRemoved.Favorites.ToArray());
+        CollectionAssert.AreEqual(initial.Recent.ToArray(), favoriteRemoved.Recent.ToArray());
         Assert.AreEqual(12, favoriteRemoved.Revision);
 
         CharacterRosterFavoriteState recentRemoved = CharacterRosterFavoriteRules.ApplyRemove(
@@ -159,12 +160,12 @@ public sealed class CharacterRosterFavoriteRulesTests
                 runner,
                 CharacterRosterRemoveTarget.Recent,
                 ExpectedRevision: 12));
-        CollectionAssert.AreEqual(favoriteRemoved.Favorites, recentRemoved.Favorites);
-        CollectionAssert.AreEqual(new[] { otherRecent }, recentRemoved.Recent);
+        CollectionAssert.AreEqual(favoriteRemoved.Favorites.ToArray(), recentRemoved.Favorites.ToArray());
+        CollectionAssert.AreEqual(new[] { otherRecent }, recentRemoved.Recent.ToArray());
         Assert.AreEqual(13, recentRemoved.Revision);
     }
 
-    [Test]
+    [TestMethod]
     public void Remove_fails_closed_for_stale_revision_unknown_target_and_invalid_identity()
     {
         CharacterRosterFavoriteState state = new(
@@ -192,7 +193,7 @@ public sealed class CharacterRosterFavoriteRulesTests
                 ExpectedRevision: 2)));
     }
 
-    [Test]
+    [TestMethod]
     public void Removed_state_uses_atomic_revision_store_and_backup_recovery()
     {
         string directory = Path.Combine(Path.GetTempPath(), "chummer-roster-remove-" + Guid.NewGuid().ToString("N"));
@@ -222,7 +223,7 @@ public sealed class CharacterRosterFavoriteRulesTests
             Assert.AreEqual(1, recovered.Revision);
             Assert.AreEqual(runner, recovered.Favorites.Single());
             Assert.AreEqual(runner, recovered.Recent.Single());
-            StringAssert.DoesNotContain("{broken", File.ReadAllText(primary));
+            Assert.IsFalse(File.ReadAllText(primary).Contains("{broken", StringComparison.Ordinal));
         }
         finally
         {
@@ -230,7 +231,7 @@ public sealed class CharacterRosterFavoriteRulesTests
         }
     }
 
-    [Test]
+    [TestMethod]
     public void File_store_is_atomic_revision_checked_and_recovers_from_backup()
     {
         string directory = Path.Combine(Path.GetTempPath(), "chummer-roster-favorites-" + Guid.NewGuid().ToString("N"));
@@ -255,7 +256,7 @@ public sealed class CharacterRosterFavoriteRulesTests
             CharacterRosterFavoriteState recovered = store.Load();
             Assert.AreEqual(1, recovered.Revision);
             Assert.AreEqual("Alpha", recovered.Favorites.Single().DisplayName);
-            StringAssert.DoesNotContain("{broken", File.ReadAllText(primary));
+            Assert.IsFalse(File.ReadAllText(primary).Contains("{broken", StringComparison.Ordinal));
         }
         finally
         {

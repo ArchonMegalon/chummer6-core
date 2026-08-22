@@ -2,13 +2,14 @@ using System.Text.Json;
 using Chummer.Application.Tools;
 using Chummer.Contracts.Api;
 using Chummer.Infrastructure.Files;
+using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace Chummer.Tests;
 
-[TestFixture]
+[TestClass]
 public sealed class ApplicationDeleteConfirmationRulesTests
 {
-    [Test]
+    [TestMethod]
     public void Default_matches_Chummer5_confirmdelete_true()
     {
         Assert.IsTrue(ApplicationDeleteConfirmationState.Default.ConfirmDelete);
@@ -39,7 +40,7 @@ public sealed class ApplicationDeleteConfirmationRulesTests
             ApplicationDeleteConfirmationRules.LegacyLiveUpdateCleanCharacterFilesIdentity);
     }
 
-    [Test]
+    [TestMethod]
     public void Update_defaults_match_Chummer5_application_version_build_semantics()
     {
         ApplicationDeleteConfirmationState milestone =
@@ -53,7 +54,7 @@ public sealed class ApplicationDeleteConfirmationRulesTests
         Assert.IsFalse(nightly.LiveUpdateCleanCharacterFiles);
     }
 
-    [Test]
+    [TestMethod]
     public void Apply_requires_exact_identity_and_revision()
     {
         ApplicationDeleteConfirmationState updated = ApplicationDeleteConfirmationRules.Apply(
@@ -80,7 +81,7 @@ public sealed class ApplicationDeleteConfirmationRulesTests
                 ExpectedRevision: 1)));
     }
 
-    [Test]
+    [TestMethod]
     public void ApplySnapshot_commits_both_confirmation_drafts_once_with_one_revision_CAS()
     {
         ApplicationDeleteConfirmationState updated = ApplicationDeleteConfirmationRules.ApplySnapshot(
@@ -98,7 +99,7 @@ public sealed class ApplicationDeleteConfirmationRulesTests
             new ApplicationConfirmationSettingsMutation(true, true, ExpectedRevision: 0)));
     }
 
-    [Test]
+    [TestMethod]
     public void File_store_is_revision_safe_restart_safe_and_recovers_newest_valid_commit()
     {
         string directory = Path.Combine(Path.GetTempPath(), "chummer-delete-confirmation-" + Guid.NewGuid().ToString("N"));
@@ -147,7 +148,7 @@ public sealed class ApplicationDeleteConfirmationRulesTests
         }
     }
 
-    [Test]
+    [TestMethod]
     public void File_store_migrates_legacy_missing_karma_confirmation_to_true()
     {
         string directory = Path.Combine(Path.GetTempPath(), "chummer-delete-confirmation-" + Guid.NewGuid().ToString("N"));
@@ -178,7 +179,7 @@ public sealed class ApplicationDeleteConfirmationRulesTests
         }
     }
 
-    [Test]
+    [TestMethod]
     public void File_store_fails_closed_when_both_copies_are_invalid_or_ambiguous()
     {
         string directory = Path.Combine(Path.GetTempPath(), "chummer-delete-confirmation-" + Guid.NewGuid().ToString("N"));
@@ -223,7 +224,7 @@ public sealed class ApplicationDeleteConfirmationRulesTests
         }
     }
 
-    [Test]
+    [TestMethod]
     public void Date_time_snapshot_has_typed_identities_exact_phase_rules_and_one_revision()
     {
         ApplicationDeleteConfirmationState enabled = ApplicationDeleteConfirmationRules.ApplyDateTimeSnapshot(
@@ -268,7 +269,7 @@ public sealed class ApplicationDeleteConfirmationRulesTests
             }));
     }
 
-    [Test]
+    [TestMethod]
     public void Date_time_preview_matches_legacy_error_and_keeps_raw_format()
     {
         DateTime sample = new(2060, 12, 31, 23, 45, 0, DateTimeKind.Utc);
@@ -295,7 +296,7 @@ public sealed class ApplicationDeleteConfirmationRulesTests
         Assert.AreEqual("Error", invalid.Sample);
     }
 
-    [Test]
+    [TestMethod]
     public void File_store_round_trips_date_time_snapshot_and_recovers_previous_atomic_commit()
     {
         string directory = Path.Combine(Path.GetTempPath(), "chummer-date-time-settings-" + Guid.NewGuid().ToString("N"));
@@ -324,7 +325,7 @@ public sealed class ApplicationDeleteConfirmationRulesTests
         }
     }
 
-    [Test]
+    [TestMethod]
     public void Whole_page_snapshot_types_and_atomically_persists_both_index_visibility_values()
     {
         string directory = Path.Combine(
@@ -383,7 +384,7 @@ public sealed class ApplicationDeleteConfirmationRulesTests
         }
     }
 
-    [Test]
+    [TestMethod]
     public void Whole_page_snapshot_types_and_atomically_persists_both_selection_behavior_values()
     {
         string directory = Path.Combine(
@@ -442,7 +443,7 @@ public sealed class ApplicationDeleteConfirmationRulesTests
         }
     }
 
-    [Test]
+    [TestMethod]
     public void Whole_page_snapshot_persists_independent_update_values_with_build_aware_migration()
     {
         string directory = Path.Combine(
