@@ -374,7 +374,10 @@ public sealed record CharacterVehicleSummary(
     bool MatrixConditionMaximumExact = false,
     bool HomeNode = false,
     int LocationCount = 0,
-    IReadOnlyList<CharacterLocationSummary>? Locations = null);
+    IReadOnlyList<CharacterLocationSummary>? Locations = null)
+{
+    public CharacterVehicleActiveCommlinkSemantics? ActiveCommlinkSemantics { get; init; }
+}
 
 public sealed record CharacterVehiclesSection(
     int Count,

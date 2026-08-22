@@ -1232,7 +1232,7 @@ public sealed class CharacterSectionService : ICharacterSectionService
         IReadOnlyList<CharacterVehicleSummary> vehicles = character
             .Element("vehicles")?
             .Elements("vehicle")
-            .Select(item => BuildVehicleSummary(item, careerEditable, improvementBasis, sourceData))
+            .Select(item => BuildVehicleSummary(character, item, careerEditable, improvementBasis, sourceData))
             .Where(item => !string.IsNullOrWhiteSpace(item.Name))
             .ToArray()
             ?? Array.Empty<CharacterVehicleSummary>();
@@ -1243,6 +1243,7 @@ public sealed class CharacterSectionService : ICharacterSectionService
     }
 
     private static CharacterVehicleSummary BuildVehicleSummary(
+        XElement character,
         XElement item,
         bool careerEditable,
         CharacterMatrixImprovementBasis improvementBasis,
@@ -1275,6 +1276,15 @@ public sealed class CharacterSectionService : ICharacterSectionService
             .ToArray()
             ?? [];
 
+        CharacterVehicleActiveCommlinkSemantics? activeCommlinkSemantics =
+            CharacterVehicleActiveCommlinkRules.TryProject(
+                character,
+                item,
+                careerEditable,
+                out CharacterVehicleActiveCommlinkSemantics projectedActiveCommlink)
+                ? projectedActiveCommlink
+                : null;
+
         return new CharacterVehicleSummary(
             Guid: ReadValue(item, "guid"),
             Name: ReadValue(item, "name"),
@@ -1300,7 +1310,10 @@ public sealed class CharacterSectionService : ICharacterSectionService
             MatrixConditionMaximumExact: matrixMaximumExact,
             HomeNode: ParseBool(ReadValue(item, "homenode")),
             LocationCount: locations.Length,
-            Locations: locations);
+            Locations: locations)
+        {
+            ActiveCommlinkSemantics = activeCommlinkSemantics
+        };
     }
 
     private static bool TryCalculateVehicleMatrixMaximum(
