@@ -233,7 +233,29 @@ public sealed record CharacterCreationFoundationEffectInstruction(
     IReadOnlyList<string> SourceAnchorIds,
     string CompilationStatus,
     string? Blocker,
-    string InstructionDigest);
+    string InstructionDigest)
+{
+    /// <summary>
+    /// Exact source-data identity used when an effect targets a catalog entity.
+    /// The legacy character XML stores the canonical English name, while this
+    /// binding prevents a translated, ambiguous, or stale projection from
+    /// authorizing the write plan.
+    /// </summary>
+    public CharacterCreationFoundationEffectTargetBinding? TargetBinding { get; init; }
+
+    /// <summary>
+    /// Source values which Chummer5 deliberately ignores for this effect. They
+    /// remain digest-bound and reviewable instead of being silently discarded.
+    /// </summary>
+    public IReadOnlyDictionary<string, string> IgnoredSourceMetadata { get; init; } =
+        new Dictionary<string, string>(StringComparer.Ordinal);
+}
+
+public sealed record CharacterCreationFoundationEffectTargetBinding(
+    string TargetKind,
+    string SourceId,
+    string CanonicalName,
+    string SourceDigest);
 
 public sealed record CharacterCreationFoundationRequirementInstruction(
     int Order,

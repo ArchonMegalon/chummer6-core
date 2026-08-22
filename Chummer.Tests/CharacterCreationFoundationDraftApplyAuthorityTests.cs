@@ -26,6 +26,12 @@ public sealed class CharacterCreationFoundationDraftApplyAuthorityTests
     private const string TirHumanElfVersionId = "604831d9-0fdc-4579-aa7e-bc5d99bcee5d";
     private const string UcasModuleId = "f35ba316-dd0f-48ab-9f06-d7329305a44e";
     private const string UcasVersionId = "f9e684bb-d7fa-4fc7-87e0-d140cc6fc64d";
+    private const string CanonicalLifeModulesDigest =
+        "sha256:e70a1484e29fb991a3b82ec7215770f1203dc3a065e7294e9f45140604904a66";
+    private const string CanonicalSkillsDigest =
+        "sha256:8425a4800fb8309e60ee3fa7e96ed8510f1dced0b578f95b9d43fc93e019fc84";
+    private const string ComputerSkillId = "1c14bf0d-cc69-4126-9a95-1f2429c11aa5";
+    private const string EtiquetteSkillId = "b20acd11-f102-40f3-a641-e3c420fbdb91";
 
     [TestMethod]
     public void Exact_Tir_Human_and_Elf_drafts_preserve_legacy_effect_order_and_raw_xml()
@@ -533,7 +539,7 @@ public sealed class CharacterCreationFoundationDraftApplyAuthorityTests
                     module,
                     version);
             CharacterCreationFoundationEffectWritePlanResult first =
-                CharacterCreationFoundationAttributeLevelWritePlanner.Build(
+                CharacterCreationFoundationLifeModuleQualityWritePlanner.Build(
                     workspaceId,
                     RulesetDefaults.Sr5,
                     draft,
@@ -543,7 +549,7 @@ public sealed class CharacterCreationFoundationDraftApplyAuthorityTests
                     catalog.GetAuthority().RawXmlDigest,
                     "Chocolate");
             CharacterCreationFoundationEffectWritePlanResult duplicate =
-                CharacterCreationFoundationAttributeLevelWritePlanner.Build(
+                CharacterCreationFoundationLifeModuleQualityWritePlanner.Build(
                     workspaceId,
                     RulesetDefaults.Sr5,
                     draft,
@@ -664,7 +670,7 @@ public sealed class CharacterCreationFoundationDraftApplyAuthorityTests
             XElement tamperedSource = new(effectiveSource);
             tamperedSource.Element("bonus")!.Elements().First().Element("val")!.Value = "3";
             CharacterCreationFoundationEffectWritePlanResult tampered =
-                CharacterCreationFoundationAttributeLevelWritePlanner.Build(
+                CharacterCreationFoundationLifeModuleQualityWritePlanner.Build(
                     workspaceId,
                     RulesetDefaults.Sr5,
                     draft,
@@ -680,7 +686,7 @@ public sealed class CharacterCreationFoundationDraftApplyAuthorityTests
                 CharacterCreationFoundationBlockers.FinalizationEffectLedgerConflict);
 
             CharacterCreationFoundationEffectWritePlanResult wrongWorkspace =
-                CharacterCreationFoundationAttributeLevelWritePlanner.Build(
+                CharacterCreationFoundationLifeModuleQualityWritePlanner.Build(
                     new CharacterWorkspaceId("attributelevel-write-plan-other"),
                     RulesetDefaults.Sr5,
                     draft,
@@ -690,7 +696,7 @@ public sealed class CharacterCreationFoundationDraftApplyAuthorityTests
                     catalog.GetAuthority().RawXmlDigest,
                     "Chocolate");
             CharacterCreationFoundationEffectWritePlanResult wrongSourceDigest =
-                CharacterCreationFoundationAttributeLevelWritePlanner.Build(
+                CharacterCreationFoundationLifeModuleQualityWritePlanner.Build(
                     workspaceId,
                     RulesetDefaults.Sr5,
                     draft,
@@ -709,6 +715,344 @@ public sealed class CharacterCreationFoundationDraftApplyAuthorityTests
             CollectionAssert.Contains(
                 wrongSourceDigest.Blockers.ToList(),
                 CharacterCreationFoundationBlockers.FinalizationRuntimeAuthorityRequired);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public void Canonical_named_life_module_skilllevels_all_resolve_to_digest_bound_active_skills()
+    {
+        string coreRoot = FindCoreRoot();
+        string lifeModulesXml = File.ReadAllText(
+            Path.Combine(coreRoot, "Chummer", "data", "lifemodules.xml"));
+        string skillsXml = File.ReadAllText(
+            Path.Combine(coreRoot, "Chummer", "data", "skills.xml"));
+        Assert.AreEqual(
+            CanonicalLifeModulesDigest,
+            CharacterCreationFoundationDraftLedgerIntegrity.ComputeRawCharacterXmlDigest(
+                lifeModulesXml));
+        Assert.AreEqual(
+            CanonicalSkillsDigest,
+            CharacterCreationFoundationDraftLedgerIntegrity.ComputeRawCharacterXmlDigest(
+                skillsXml));
+        Assert.IsTrue(CharacterCreationFoundationSkillSourceAuthority.TryCreate(
+            skillsXml,
+            CanonicalSkillsDigest,
+            out CharacterCreationFoundationSkillSourceAuthority? authority));
+
+        XElement lifeModules = XElement.Parse(lifeModulesXml, LoadOptions.None);
+        string[] namedOccurrences = lifeModules
+            .Descendants("skilllevel")
+            .Select(effect => effect.Element("name")?.Value)
+            .Where(name => name is not null)
+            .Cast<string>()
+            .ToArray();
+        Assert.HasCount(1216, namedOccurrences);
+        Assert.AreEqual(65, namedOccurrences.Distinct(StringComparer.Ordinal).Count());
+
+        foreach (string canonicalName in namedOccurrences)
+        {
+            Assert.IsTrue(
+                authority!.TryResolveExactActive(
+                    canonicalName,
+                    out CharacterCreationFoundationEffectTargetBinding? binding),
+                canonicalName);
+            Assert.IsNotNull(binding);
+            Assert.AreEqual("active-skill", binding.TargetKind);
+            Assert.AreEqual(canonicalName, binding.CanonicalName);
+            Assert.AreEqual(CanonicalSkillsDigest, binding.SourceDigest);
+            Assert.IsTrue(Guid.TryParseExact(binding.SourceId, "D", out Guid sourceId));
+            Assert.AreNotEqual(Guid.Empty, sourceId);
+        }
+    }
+
+    [TestMethod]
+    public void Tir_and_State_University_level_plans_share_one_quality_and_preserve_duplicate_order()
+    {
+        string directory = CreateTempDirectory();
+        try
+        {
+            string skillsXml = File.ReadAllText(
+                Path.Combine(FindCoreRoot(), "Chummer", "data", "skills.xml"));
+            LevelWritePlanFixture tir = CreateLevelWritePlanFixture(
+                Path.Combine(directory, "tir"),
+                workspaceValue: "tir-level-plan",
+                moduleId: TirModuleId,
+                moduleName: "Tír Tairngire",
+                stage: "Nationality",
+                karma: 15,
+                page: "67",
+                versionId: TirHumanElfVersionId,
+                versionName: "Elves/Humans",
+                versionBonusXml:
+                    "<skilllevel><name>Computer</name><val>2</val></skilllevel>"
+                    + "<attributelevel><name>CHA</name></attributelevel>",
+                moduleBonusXml:
+                    "<skilllevel><name>Etiquette</name></skilllevel>");
+            CharacterCreationFoundationEffectWritePlanResult tirResult =
+                CharacterCreationFoundationLifeModuleQualityWritePlanner.Build(
+                    tir.WorkspaceId,
+                    RulesetDefaults.Sr5,
+                    tir.Ledger,
+                    tir.Module,
+                    tir.Version,
+                    tir.EffectiveSourceXml,
+                    tir.SourceDigest,
+                    "Chocolate",
+                    skillsXml,
+                    CanonicalSkillsDigest);
+
+            Assert.IsTrue(tirResult.IsReady, string.Join(",", tirResult.Blockers));
+            CharacterCreationFoundationEffectWritePlan tirPlan = tirResult.Plan!;
+            Assert.AreEqual(CanonicalSkillsDigest, tirPlan.SkillSourceAuthorityDigest);
+            Assert.AreEqual(TirHumanElfVersionId, tirPlan.SourceId);
+            CollectionAssert.AreEqual(
+                new[]
+                {
+                    CharacterCreationFoundationEffectSourcePhases.Version,
+                    CharacterCreationFoundationEffectSourcePhases.Version,
+                    CharacterCreationFoundationEffectSourcePhases.Module
+                },
+                tirPlan.EffectProvenance.Select(effect => effect.SourcePhase).ToArray());
+            CollectionAssert.AreEqual(
+                new[] { "Computer", "CHA", "Etiquette" },
+                tirPlan.ImprovementXml.Select(xml =>
+                    XElement.Parse(xml).Element("improvedname")!.Value).ToArray());
+            CollectionAssert.AreEqual(
+                new[] { "SkillLevel", "Attributelevel", "SkillLevel" },
+                tirPlan.ImprovementXml.Select(xml =>
+                    XElement.Parse(xml).Element("improvementttype")!.Value).ToArray());
+            CollectionAssert.AreEqual(
+                new[] { "2", "1", "1" },
+                tirPlan.ImprovementXml.Select(xml =>
+                    XElement.Parse(xml).Element("val")!.Value).ToArray());
+            Assert.AreEqual(ComputerSkillId, tirPlan.EffectProvenance[0].TargetBinding!.SourceId);
+            Assert.IsNull(tirPlan.EffectProvenance[1].TargetBinding);
+            Assert.AreEqual(EtiquetteSkillId, tirPlan.EffectProvenance[2].TargetBinding!.SourceId);
+            Assert.IsTrue(tirPlan.ImprovementXml.All(xml =>
+                XElement.Parse(xml).Element("sourcename")!.Value == tirPlan.QualityId));
+
+            LevelWritePlanFixture state = CreateLevelWritePlanFixture(
+                Path.Combine(directory, "state"),
+                workspaceValue: "state-mathematics-level-plan",
+                moduleId: "142d7a1b-c676-4bf6-a71f-bc2d29617a14",
+                moduleName: "State University",
+                stage: "Further Education",
+                karma: 65,
+                page: "73",
+                versionId: "dd5b8431-a443-483d-845f-86c5b9aea4a1",
+                versionName: "Mathematics",
+                versionBonusXml:
+                    "<skilllevel><name>Computer</name></skilllevel>"
+                    + "<skilllevel><name>Etiquette</name></skilllevel>"
+                    + "<skilllevel><name>Software</name><val>2</val></skilllevel>",
+                moduleBonusXml:
+                    "<attributelevel><name>LOG</name></attributelevel>"
+                    + "<attributelevel><name>WIL</name></attributelevel>"
+                    + "<skilllevel><name>Computer</name></skilllevel>"
+                    + "<skilllevel><name>Perception</name></skilllevel>"
+                    + "<skilllevel><name>Etiquette</name></skilllevel>");
+            CharacterCreationFoundationEffectWritePlanResult stateResult =
+                CharacterCreationFoundationLifeModuleQualityWritePlanner.Build(
+                    state.WorkspaceId,
+                    RulesetDefaults.Sr5,
+                    state.Ledger,
+                    state.Module,
+                    state.Version,
+                    state.EffectiveSourceXml,
+                    state.SourceDigest,
+                    "Chocolate",
+                    skillsXml,
+                    CanonicalSkillsDigest);
+
+            Assert.IsTrue(stateResult.IsReady, string.Join(",", stateResult.Blockers));
+            CharacterCreationFoundationEffectWritePlan statePlan = stateResult.Plan!;
+            Assert.HasCount(8, statePlan.ImprovementXml);
+            CollectionAssert.AreEqual(
+                new[]
+                {
+                    "Computer", "Etiquette", "Software", "LOG", "WIL",
+                    "Computer", "Perception", "Etiquette"
+                },
+                statePlan.ImprovementXml.Select(xml =>
+                    XElement.Parse(xml).Element("improvedname")!.Value).ToArray());
+            CollectionAssert.AreEqual(
+                new[]
+                {
+                    CharacterCreationFoundationEffectSourcePhases.Version,
+                    CharacterCreationFoundationEffectSourcePhases.Version,
+                    CharacterCreationFoundationEffectSourcePhases.Version,
+                    CharacterCreationFoundationEffectSourcePhases.Module,
+                    CharacterCreationFoundationEffectSourcePhases.Module,
+                    CharacterCreationFoundationEffectSourcePhases.Module,
+                    CharacterCreationFoundationEffectSourcePhases.Module,
+                    CharacterCreationFoundationEffectSourcePhases.Module
+                },
+                statePlan.EffectProvenance.Select(effect => effect.SourcePhase).ToArray());
+            Assert.AreEqual(2, statePlan.ImprovementXml.Count(xml =>
+                XElement.Parse(xml).Element("improvedname")!.Value == "Computer"));
+            Assert.AreEqual(2, statePlan.ImprovementXml.Count(xml =>
+                XElement.Parse(xml).Element("improvedname")!.Value == "Etiquette"));
+            Assert.AreEqual(
+                ComputerSkillId,
+                statePlan.EffectProvenance[0].TargetBinding!.SourceId);
+            Assert.AreEqual(
+                ComputerSkillId,
+                statePlan.EffectProvenance[5].TargetBinding!.SourceId);
+            Assert.AreNotEqual(
+                statePlan.EffectProvenance[0].InstructionDigest,
+                statePlan.EffectProvenance[5].InstructionDigest);
+            Assert.IsTrue(statePlan.ImprovementXml.All(xml =>
+                XElement.Parse(xml).Element("sourcename")!.Value == statePlan.QualityId));
+            Assert.AreEqual(
+                1,
+                XElement.Parse(statePlan.QualityXml).Elements("guid").Count());
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public void Skilllevel_plan_records_ignored_literal_spec_and_fails_closed_for_other_shapes()
+    {
+        string directory = CreateTempDirectory();
+        try
+        {
+            string skillsXml = File.ReadAllText(
+                Path.Combine(FindCoreRoot(), "Chummer", "data", "skills.xml"));
+            LevelWritePlanFixture literal = CreateLevelWritePlanFixture(
+                Path.Combine(directory, "literal"),
+                "literal-spec-level-plan",
+                TirModuleId,
+                "Tír Tairngire",
+                "Nationality",
+                15,
+                "67",
+                TirHumanElfVersionId,
+                "Elves/Humans",
+                "<skilllevel><name>Computer</name><spec>Matrix Search</spec>"
+                + "<val>2.00</val></skilllevel>",
+                string.Empty);
+            CharacterCreationFoundationEffectWritePlanResult literalResult =
+                CharacterCreationFoundationLifeModuleQualityWritePlanner.Build(
+                    literal.WorkspaceId,
+                    RulesetDefaults.Sr5,
+                    literal.Ledger,
+                    literal.Module,
+                    literal.Version,
+                    literal.EffectiveSourceXml,
+                    literal.SourceDigest,
+                    "Chocolate",
+                    skillsXml,
+                    CanonicalSkillsDigest);
+
+            Assert.IsTrue(literalResult.IsReady, string.Join(",", literalResult.Blockers));
+            CharacterCreationFoundationEffectWriteProvenance provenance =
+                literalResult.Plan!.EffectProvenance.Single();
+            Assert.AreEqual(
+                "Matrix Search",
+                provenance.IgnoredSourceMetadata["legacy-ignored-literal-spec"]);
+            Assert.AreEqual(
+                "2",
+                XElement.Parse(literalResult.Plan.ImprovementXml.Single())
+                    .Element("val")!.Value);
+
+            string[] rejectedEffects =
+            [
+                "<skilllevel name=\"Computer\" />",
+                "<skilllevel><name /></skilllevel>",
+                "<skilllevel><selectskill /></skilllevel>",
+                "<skilllevel><options><computer>Computer</computer></options></skilllevel>",
+                "<skilllevel><name>Computer</name><spec>[Any]</spec></skilllevel>",
+                "<skilllevel><name>Not A Canonical Skill</name></skilllevel>",
+                "<skilllevel><name>Pilot Exotic Vehicle</name></skilllevel>",
+                "<skilllevel><name>Administration</name></skilllevel>",
+                "<skilllevel xmlns=\"urn:unsupported\"><name>Computer</name></skilllevel>"
+            ];
+            for (int index = 0; index < rejectedEffects.Length; index++)
+            {
+                LevelWritePlanFixture rejected = CreateLevelWritePlanFixture(
+                    Path.Combine(directory, $"rejected-{index}"),
+                    $"rejected-skilllevel-{index}",
+                    TirModuleId,
+                    "Tír Tairngire",
+                    "Nationality",
+                    15,
+                    "67",
+                    TirHumanElfVersionId,
+                    "Elves/Humans",
+                    rejectedEffects[index],
+                    string.Empty);
+                CharacterCreationFoundationEffectWritePlanResult rejectedResult =
+                    CharacterCreationFoundationLifeModuleQualityWritePlanner.Build(
+                        rejected.WorkspaceId,
+                        RulesetDefaults.Sr5,
+                        rejected.Ledger,
+                        rejected.Module,
+                        rejected.Version,
+                        rejected.EffectiveSourceXml,
+                        rejected.SourceDigest,
+                        "Chocolate",
+                        skillsXml,
+                        CanonicalSkillsDigest);
+                Assert.IsFalse(rejectedResult.IsReady, rejectedEffects[index]);
+                Assert.IsNull(rejectedResult.Plan, rejectedEffects[index]);
+            }
+
+            const string ambiguousSkillsXml =
+                "<chummer><skills>"
+                + "<skill><id>00000000-0000-0000-0000-000000000001</id>"
+                + "<name>Computer</name></skill>"
+                + "<skill><id>00000000-0000-0000-0000-000000000002</id>"
+                + "<name>Computer</name></skill>"
+                + "</skills></chummer>";
+            string ambiguousDigest = CharacterCreationFoundationDraftLedgerIntegrity
+                .ComputeRawCharacterXmlDigest(ambiguousSkillsXml);
+            Assert.IsTrue(CharacterCreationFoundationSkillSourceAuthority.TryCreate(
+                ambiguousSkillsXml,
+                ambiguousDigest,
+                out CharacterCreationFoundationSkillSourceAuthority? ambiguousAuthority));
+            Assert.IsFalse(ambiguousAuthority!.TryResolveExactActive(
+                "Computer",
+                out CharacterCreationFoundationEffectTargetBinding? ambiguousBinding));
+            Assert.IsNull(ambiguousBinding);
+
+            CharacterCreationFoundationDraftLedger mismatchedLedger = literal.Ledger with
+            {
+                ProjectedEffects = literal.Ledger.ProjectedEffects
+                    .Select((effect, index) => index == 0
+                        ? effect with { TargetId = "Hacking" }
+                        : effect)
+                    .ToArray(),
+                DraftDigest = string.Empty
+            };
+            mismatchedLedger = mismatchedLedger with
+            {
+                DraftDigest = CharacterCreationFoundationDraftLedgerIntegrity.ComputeDigest(
+                    mismatchedLedger)
+            };
+            CharacterCreationFoundationEffectWritePlanResult mismatchResult =
+                CharacterCreationFoundationLifeModuleQualityWritePlanner.Build(
+                    literal.WorkspaceId,
+                    RulesetDefaults.Sr5,
+                    mismatchedLedger,
+                    literal.Module,
+                    literal.Version,
+                    literal.EffectiveSourceXml,
+                    literal.SourceDigest,
+                    "Chocolate",
+                    skillsXml,
+                    CanonicalSkillsDigest);
+            Assert.IsFalse(mismatchResult.IsReady);
+            Assert.IsNull(mismatchResult.Plan);
+            CollectionAssert.Contains(
+                mismatchResult.Blockers.ToList(),
+                CharacterCreationFoundationBlockers.FinalizationEffectLedgerConflict);
         }
         finally
         {
@@ -1094,6 +1438,97 @@ public sealed class CharacterCreationFoundationDraftApplyAuthorityTests
             Unit: "karma");
     }
 
+    private static LevelWritePlanFixture CreateLevelWritePlanFixture(
+        string directory,
+        string workspaceValue,
+        string moduleId,
+        string moduleName,
+        string stage,
+        int karma,
+        string page,
+        string versionId,
+        string versionName,
+        string versionBonusXml,
+        string moduleBonusXml)
+    {
+        Directory.CreateDirectory(directory);
+        string catalogPath = Path.Combine(directory, "lifemodules.xml");
+        File.WriteAllText(
+            catalogPath,
+            "<chummer><stages><stage order=\"1\">"
+            + stage
+            + "</stage></stages><modules><module><id>"
+            + moduleId
+            + "</id><stage>"
+            + stage
+            + "</stage><category>LifeModule</category><name>"
+            + moduleName
+            + "</name><karma>"
+            + karma.ToString(System.Globalization.CultureInfo.InvariantCulture)
+            + "</karma><versions><version><id>"
+            + versionId
+            + "</id><name>"
+            + versionName
+            + "</name><bonus>"
+            + versionBonusXml
+            + "</bonus></version></versions><bonus>"
+            + moduleBonusXml
+            + "</bonus><source>RF</source><page>"
+            + page
+            + "</page></module></modules></chummer>");
+        XmlLifeModulesCatalogService catalog = new(catalogPath);
+        LifeModuleLegalOptionDto module = catalog
+            .GetOptionProjections(stage, ["RF"])
+            .Single();
+        LifeModuleVersionProjectionDto version = module.Versions.Single();
+        LifeModuleEffectProjectionDto[] effects =
+        [
+            .. version.Effects,
+            .. module.Effects
+        ];
+        CharacterWorkspaceId workspaceId = new(workspaceValue);
+        var draft = new CharacterCreationFoundationDraftLedger(
+            Schema: CharacterCreationFoundationSchemas.DraftLedgerV1,
+            WorkspaceId: workspaceId,
+            DraftRevision: 1,
+            BaseContentRevision: 1,
+            BaseRawCharacterXmlDigest: "sha256:" + new string('1', 64),
+            SourceDigest: catalog.GetAuthority().RawXmlDigest,
+            RequestedMetatype: "Human",
+            Selection: new CharacterCreationFoundationSelection(moduleId, versionId),
+            RequirementEvaluations: [],
+            ProjectedEffects: effects,
+            FollowUpValues: new Dictionary<string, string>(),
+            SourceAnchorIds: version.SourceAnchorIds,
+            CompilationStatus: CharacterCreationFoundationDraftStatuses.PendingFinalization,
+            CharacterEffectsApplied: false,
+            DraftDigest: string.Empty);
+        draft = draft with
+        {
+            DraftDigest = CharacterCreationFoundationDraftLedgerIntegrity.ComputeDigest(draft)
+        };
+        XElement effectiveSource = new(
+            "version",
+            new XElement("id", versionId),
+            new XElement("name", version.Label),
+            new XElement("karma", version.KarmaRaw),
+            new XElement("category", "LifeModule"),
+            new XElement("source", version.Source),
+            new XElement("page", version.PageReference),
+            new XElement("stage", module.StageId),
+            new XElement("notesColor", "Chocolate"),
+            new XElement(
+                "bonus",
+                effects.Select(effect => XElement.Parse(effect.RawXml))));
+        return new LevelWritePlanFixture(
+            workspaceId,
+            module,
+            version,
+            draft,
+            effectiveSource.ToString(SaveOptions.DisableFormatting),
+            catalog.GetAuthority().RawXmlDigest);
+    }
+
     private static string CharacterXml(string metatype)
     {
         return $"<character><name>Foundation Runner</name><alias>Foundation</alias><metatype>{metatype}</metatype><buildmethod>{CharacterCreationBuildMethods.LifeModules}</buildmethod><createdversion>5.225.0</createdversion><appversion>5.225.0</appversion><karma>25</karma><nuyen>0</nuyen><created>False</created><settings>{CanonicalLifeModuleSettingsId}</settings></character>";
@@ -1132,6 +1567,14 @@ public sealed class CharacterCreationFoundationDraftApplyAuthorityTests
 
         throw new DirectoryNotFoundException("Could not locate canonical lifemodules.xml.");
     }
+
+    private sealed record LevelWritePlanFixture(
+        CharacterWorkspaceId WorkspaceId,
+        LifeModuleLegalOptionDto Module,
+        LifeModuleVersionProjectionDto Version,
+        CharacterCreationFoundationDraftLedger Ledger,
+        string EffectiveSourceXml,
+        string SourceDigest);
 
     private sealed class ThrowingFaultInjector : IFileWorkspaceStoreFaultInjector
     {

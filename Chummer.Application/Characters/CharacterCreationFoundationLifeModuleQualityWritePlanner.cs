@@ -10,17 +10,17 @@ namespace Chummer.Application.Characters;
 
 /// <summary>
 /// A deterministic, headless serialization plan for the exact Chummer5
-/// LifeModule Quality graph produced by non-prompt attributelevel effects.
+/// LifeModule Quality graph produced by supported non-prompt level effects.
 /// Producing a plan is not creation-finalization authority and never writes a
 /// workspace. The caller must supply the exact effective source node produced
 /// by the authoritative VERSION-over-MODULE resolver and its raw-input digest.
 /// </summary>
-internal static class CharacterCreationFoundationAttributeLevelWritePlanner
+internal static class CharacterCreationFoundationLifeModuleQualityWritePlanner
 {
     private const string PlanSchema =
-        "chummer.character_creation_foundation_attributelevel_write_plan.v1";
+        "chummer.character_creation_foundation_lifemodule_quality_write_plan.v2";
     private const string WriterSemantics =
-        "chummer5-quality-create-save-5.225.0;attributelevel-int32-any-default1-create-save;deterministic-quality-uuidv8;no-partial-apply";
+        "chummer5-quality-create-save-5.225.0;attributelevel-and-digest-bound-skilllevel-int32-any-default1-create-save;one-quality-ordered-distinct-improvements;deterministic-quality-uuidv8;no-partial-apply";
 
     private static readonly IReadOnlySet<string> s_AllowedSourceChildren =
         new HashSet<string>(
@@ -41,17 +41,27 @@ internal static class CharacterCreationFoundationAttributeLevelWritePlanner
         LifeModuleVersionProjectionDto? version,
         string effectiveSourceXml,
         string sourceAuthorityDigest,
-        string defaultNotesColor)
+        string defaultNotesColor,
+        string? skillsSourceXml = null,
+        string? skillsSourceDigest = null)
     {
         ArgumentNullException.ThrowIfNull(ledger);
         ArgumentNullException.ThrowIfNull(module);
 
+        bool hasSkillSourceInput = skillsSourceXml is not null || skillsSourceDigest is not null;
+        CharacterCreationFoundationSkillSourceAuthority? skillSourceAuthority = null;
+        bool skillSourceValid = !hasSkillSourceInput
+                                || CharacterCreationFoundationSkillSourceAuthority.TryCreate(
+                                    skillsSourceXml,
+                                    skillsSourceDigest,
+                                    out skillSourceAuthority);
         CharacterCreationFoundationEffectCompilation compilation =
             CharacterCreationFoundationEffectCompiler.Compile(
                 rulesetId,
                 ledger,
                 module,
-                version);
+                version,
+                skillSourceAuthority);
         var blockers = new List<string>();
         if (workspaceId != ledger.WorkspaceId
             || !CharacterCreationFoundationDraftLedgerIntegrity.IsCanonicalDigest(
@@ -59,6 +69,11 @@ internal static class CharacterCreationFoundationAttributeLevelWritePlanner
             || !FixedTimeEquals(sourceAuthorityDigest, ledger.SourceDigest)
             || string.IsNullOrWhiteSpace(defaultNotesColor)
             || !string.Equals(defaultNotesColor, defaultNotesColor.Trim(), StringComparison.Ordinal))
+        {
+            blockers.Add(
+                CharacterCreationFoundationBlockers.FinalizationRuntimeAuthorityRequired);
+        }
+        if (!skillSourceValid)
         {
             blockers.Add(
                 CharacterCreationFoundationBlockers.FinalizationRuntimeAuthorityRequired);
@@ -118,6 +133,7 @@ internal static class CharacterCreationFoundationAttributeLevelWritePlanner
                 Schema = PlanSchema,
                 RulesetId = rulesetId,
                 WriterSemantics,
+                SkillSourceDigest = skillSourceAuthority?.SourceDigest ?? string.Empty,
                 DefaultNotesColor = defaultNotesColor
             });
         var plan = new CharacterCreationFoundationEffectWritePlan(
@@ -128,6 +144,7 @@ internal static class CharacterCreationFoundationAttributeLevelWritePlanner
             DraftDigest: ledger.DraftDigest,
             CompilationDigest: compilation.CompilationDigest,
             SourceAuthorityDigest: sourceAuthorityDigest,
+            SkillSourceAuthorityDigest: skillSourceAuthority?.SourceDigest,
             SourceId: definition.SourceId,
             QualityId: qualityId,
             QualityXml: qualityElement.ToString(SaveOptions.DisableFormatting),
@@ -143,7 +160,12 @@ internal static class CharacterCreationFoundationAttributeLevelWritePlanner
                     instruction.EffectId,
                     instruction.SourcePhase,
                     instruction.InstructionDigest,
-                    instruction.SourceAnchorIds.ToArray())).ToArray(),
+                    instruction.SourceAnchorIds.ToArray(),
+                    instruction.TargetBinding,
+                    instruction.IgnoredSourceMetadata
+                        .OrderBy(item => item.Key, StringComparer.Ordinal)
+                        .ToDictionary(item => item.Key, item => item.Value, StringComparer.Ordinal)))
+                .ToArray(),
             PlanDigest: string.Empty);
         plan = plan with
         {
@@ -243,6 +265,7 @@ internal static class CharacterCreationFoundationAttributeLevelWritePlanner
             || !string.Equals(stage, module.StageId, StringComparison.Ordinal)
             || !string.Equals(ReadRequired(source, "category"), "LifeModule", StringComparison.Ordinal)
             || source.Element("bonus") is null
+            || source.Element("bonus")!.HasAttributes
             || string.IsNullOrWhiteSpace(defaultNotesColor))
         {
             blockers.Add(CharacterCreationFoundationBlockers.FinalizationRuntimeAuthorityRequired);
@@ -368,12 +391,20 @@ internal static class CharacterCreationFoundationAttributeLevelWritePlanner
         string? rawValue = instruction.Parameters.TryGetValue("val", out string? value)
             ? value
             : null;
-        int parsedValue = CharacterCreationFoundationEffectCompiler
-            .ParseLegacyAttributeLevelValue(rawValue);
+        bool isSkillLevel = string.Equals(
+            instruction.EffectKind,
+            "skilllevel",
+            StringComparison.Ordinal);
+        int parsedValue = isSkillLevel
+            ? CharacterCreationFoundationEffectCompiler.ParseLegacySkillLevelValue(rawValue)
+            : CharacterCreationFoundationEffectCompiler.ParseLegacyAttributeLevelValue(rawValue);
+        string improvedName = isSkillLevel
+            ? instruction.TargetBinding!.CanonicalName
+            : instruction.TargetId;
         return new XElement(
             "improvement",
             new XElement("target", string.Empty),
-            new XElement("improvedname", instruction.TargetId),
+            new XElement("improvedname", improvedName),
             new XElement("sourcename", qualityId),
             new XElement("min", "0"),
             new XElement("max", "0"),
@@ -383,7 +414,7 @@ internal static class CharacterCreationFoundationAttributeLevelWritePlanner
             new XElement("rating", "1"),
             new XElement("exclude", string.Empty),
             new XElement("condition", string.Empty),
-            new XElement("improvementttype", "Attributelevel"),
+            new XElement("improvementttype", isSkillLevel ? "SkillLevel" : "Attributelevel"),
             new XElement("improvementsource", "Quality"),
             new XElement("custom", "False"),
             new XElement("customname", string.Empty),
@@ -497,6 +528,7 @@ internal sealed record CharacterCreationFoundationEffectWritePlan(
     string DraftDigest,
     string CompilationDigest,
     string SourceAuthorityDigest,
+    string? SkillSourceAuthorityDigest,
     string SourceId,
     string QualityId,
     string QualityXml,
@@ -510,7 +542,9 @@ internal sealed record CharacterCreationFoundationEffectWriteProvenance(
     string EffectId,
     string SourcePhase,
     string InstructionDigest,
-    IReadOnlyList<string> SourceAnchorIds);
+    IReadOnlyList<string> SourceAnchorIds,
+    CharacterCreationFoundationEffectTargetBinding? TargetBinding,
+    IReadOnlyDictionary<string, string> IgnoredSourceMetadata);
 
 internal sealed record CharacterCreationFoundationEffectWritePlanResult(
     CharacterCreationFoundationEffectWritePlan? Plan,
