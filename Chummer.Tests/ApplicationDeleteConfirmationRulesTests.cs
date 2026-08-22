@@ -12,8 +12,10 @@ public sealed class ApplicationDeleteConfirmationRulesTests
     public void Default_matches_Chummer5_confirmdelete_true()
     {
         Assert.IsTrue(ApplicationDeleteConfirmationState.Default.ConfirmDelete);
+        Assert.IsTrue(ApplicationDeleteConfirmationState.Default.ConfirmKarmaExpense);
         Assert.AreEqual(0, ApplicationDeleteConfirmationState.Default.Revision);
         Assert.AreEqual("confirmdelete", ApplicationDeleteConfirmationRules.LegacyIdentity);
+        Assert.AreEqual("confirmkarmaexpense", ApplicationDeleteConfirmationRules.LegacyKarmaExpenseIdentity);
     }
 
     [Test]
@@ -27,6 +29,7 @@ public sealed class ApplicationDeleteConfirmationRulesTests
                 ExpectedRevision: 0));
 
         Assert.IsFalse(updated.ConfirmDelete);
+        Assert.IsTrue(updated.ConfirmKarmaExpense);
         Assert.AreEqual(1, updated.Revision);
         Assert.Throws<InvalidOperationException>(() => ApplicationDeleteConfirmationRules.Apply(
             updated,
@@ -40,6 +43,24 @@ public sealed class ApplicationDeleteConfirmationRulesTests
                 (ApplicationSettingIdentity)99,
                 Value: true,
                 ExpectedRevision: 1)));
+    }
+
+    [Test]
+    public void ApplySnapshot_commits_both_confirmation_drafts_once_with_one_revision_CAS()
+    {
+        ApplicationDeleteConfirmationState updated = ApplicationDeleteConfirmationRules.ApplySnapshot(
+            ApplicationDeleteConfirmationState.Default,
+            new ApplicationConfirmationSettingsMutation(
+                ConfirmDelete: false,
+                ConfirmKarmaExpense: false,
+                ExpectedRevision: 0));
+
+        Assert.AreEqual(1, updated.Revision);
+        Assert.IsFalse(updated.ConfirmDelete);
+        Assert.IsFalse(updated.ConfirmKarmaExpense);
+        Assert.Throws<InvalidOperationException>(() => ApplicationDeleteConfirmationRules.ApplySnapshot(
+            updated,
+            new ApplicationConfirmationSettingsMutation(true, true, ExpectedRevision: 0)));
     }
 
     [Test]
@@ -60,6 +81,7 @@ public sealed class ApplicationDeleteConfirmationRulesTests
                     ExpectedRevision: 0));
             store.Save(0, first);
             Assert.IsFalse(new FileApplicationDeleteConfirmationStore(directory).Load().ConfirmDelete);
+            Assert.IsTrue(new FileApplicationDeleteConfirmationStore(directory).Load().ConfirmKarmaExpense);
 
             ApplicationDeleteConfirmationState second = ApplicationDeleteConfirmationRules.Apply(
                 first,
@@ -83,6 +105,28 @@ public sealed class ApplicationDeleteConfirmationRulesTests
             ApplicationDeleteConfirmationState newest = new FileApplicationDeleteConfirmationStore(directory).Load();
             Assert.AreEqual(4, newest.Revision);
             Assert.IsFalse(newest.ConfirmDelete);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Test]
+    public void File_store_migrates_legacy_missing_karma_confirmation_to_true()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), "chummer-delete-confirmation-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        try
+        {
+            string path = Path.Combine(directory, "application-delete-confirmation.json");
+            File.WriteAllText(path, "{\"Revision\":9,\"ConfirmDelete\":false}");
+
+            ApplicationDeleteConfirmationState migrated = new FileApplicationDeleteConfirmationStore(directory).Load();
+
+            Assert.AreEqual(9, migrated.Revision);
+            Assert.IsFalse(migrated.ConfirmDelete);
+            Assert.IsTrue(migrated.ConfirmKarmaExpense);
         }
         finally
         {

@@ -83,11 +83,29 @@ public sealed class FileApplicationDeleteConfirmationStore : IApplicationDeleteC
             return false;
         try
         {
-            ApplicationDeleteConfirmationState? candidate =
-                JsonSerializer.Deserialize<ApplicationDeleteConfirmationState>(File.ReadAllBytes(path));
-            if (candidate is null)
+            using JsonDocument document = JsonDocument.Parse(File.ReadAllBytes(path));
+            JsonElement root = document.RootElement;
+            if (root.ValueKind != JsonValueKind.Object
+                || !root.TryGetProperty("Revision", out JsonElement revisionElement)
+                || !revisionElement.TryGetInt64(out long revision)
+                || !root.TryGetProperty("ConfirmDelete", out JsonElement confirmDeleteElement)
+                || confirmDeleteElement.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+            {
                 return false;
-            state = ApplicationDeleteConfirmationRules.Validate(candidate);
+            }
+
+            bool confirmKarmaExpense = true;
+            if (root.TryGetProperty("ConfirmKarmaExpense", out JsonElement confirmKarmaExpenseElement))
+            {
+                if (confirmKarmaExpenseElement.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+                    return false;
+                confirmKarmaExpense = confirmKarmaExpenseElement.GetBoolean();
+            }
+
+            state = ApplicationDeleteConfirmationRules.Validate(new ApplicationDeleteConfirmationState(
+                revision,
+                confirmDeleteElement.GetBoolean(),
+                confirmKarmaExpense));
             return true;
         }
         catch (Exception exception) when (exception is JsonException or IOException or InvalidDataException)
