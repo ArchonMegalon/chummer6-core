@@ -30,6 +30,12 @@ public sealed class CharacterCreationFoundationDraftApplyAuthorityTests
         "sha256:e70a1484e29fb991a3b82ec7215770f1203dc3a065e7294e9f45140604904a66";
     private const string CanonicalSkillsDigest =
         "sha256:8425a4800fb8309e60ee3fa7e96ed8510f1dced0b578f95b9d43fc93e019fc84";
+    private const string CanonicalQualitiesDigest =
+        "sha256:8328663bd404b120b862ae01f8f40dc96a80207cf3f2f294ecc7403b6f905b86";
+    private const string PrejudicedCommonOutspokenId =
+        "9a76f104-a472-4b6a-b5b7-a8f5248f65a9";
+    private const string PrejudicedCommonBiasedId =
+        "d6843e67-0837-4353-a5db-f4c320560ddb";
     private const string ComputerSkillId = "1c14bf0d-cc69-4126-9a95-1f2429c11aa5";
     private const string EtiquetteSkillId = "b20acd11-f102-40f3-a641-e3c420fbdb91";
 
@@ -1456,6 +1462,581 @@ public sealed class CharacterCreationFoundationDraftApplyAuthorityTests
     }
 
     [TestMethod]
+    public void Canonical_pushtext_addqualities_pairs_are_digest_bound_and_complete_or_explicitly_blocked()
+    {
+        string coreRoot = FindCoreRoot();
+        string lifeModulesXml = File.ReadAllText(
+            Path.Combine(coreRoot, "Chummer", "data", "lifemodules.xml"));
+        string qualitiesXml = File.ReadAllText(
+            Path.Combine(coreRoot, "Chummer", "data", "qualities.xml"));
+        Assert.AreEqual(
+            CanonicalLifeModulesDigest,
+            CharacterCreationFoundationDraftLedgerIntegrity.ComputeRawCharacterXmlDigest(
+                lifeModulesXml));
+        Assert.AreEqual(
+            CanonicalQualitiesDigest,
+            CharacterCreationFoundationDraftLedgerIntegrity.ComputeRawCharacterXmlDigest(
+                qualitiesXml));
+        Assert.IsTrue(CharacterCreationFoundationQualitySourceAuthority.TryCreate(
+            qualitiesXml,
+            CanonicalQualitiesDigest,
+            out CharacterCreationFoundationQualitySourceAuthority? qualityAuthority));
+
+        var expected = new Dictionary<string, (string Literal, string[] Qualities,
+            bool CompositeSupported)>(StringComparer.Ordinal)
+        {
+            ["4f078a7f-bfa5-4eba-97f9-a97f06eab6e8"] = (
+                "Poor",
+                ["Prejudiced (Common, Outspoken)", "Trust Fund II"],
+                false),
+            ["7b009ba2-dbd6-47a2-a13f-28709a625374"] = (
+                "Corp-Citizens",
+                ["Prejudiced (Common, Outspoken)", "Uneducated", "Toughness"],
+                true),
+            ["32f753ce-0696-45e2-8a65-9f62d583feb9"] = (
+                "Members of different Religions",
+                ["Prejudiced (Common, Biased)"],
+                true),
+            ["746cde0e-1ca3-46ae-96b6-cb3971656673"] = (
+                "Policeman",
+                ["Uncouth", "Prejudiced (Common, Outspoken)"],
+                true)
+        };
+        string directory = CreateTempDirectory();
+        try
+        {
+            string catalogPath = Path.Combine(directory, "lifemodules.xml");
+            File.WriteAllText(catalogPath, lifeModulesXml);
+            XmlLifeModulesCatalogService catalog = new(catalogPath);
+            LifeModuleLegalOptionDto[] modules = catalog.GetOptionProjections()
+                .Where(module => expected.ContainsKey(module.ModuleId))
+                .OrderBy(module => module.ModuleId, StringComparer.Ordinal)
+                .ToArray();
+            Assert.HasCount(4, modules);
+
+            foreach (LifeModuleLegalOptionDto module in modules)
+            {
+                (string literal, string[] qualityNames, bool compositeSupported) =
+                    expected[module.ModuleId];
+                CharacterCreationFoundationDraftLedger draft = CreateCompilerDraft(
+                    module,
+                    CanonicalLifeModulesDigest,
+                    "canonical-push-add-" + module.ModuleId);
+                CharacterCreationFoundationEffectCompilation compilation =
+                    CharacterCreationFoundationEffectCompiler.Compile(
+                        RulesetDefaults.Sr5,
+                        draft,
+                        module,
+                        null,
+                        qualitySourceAuthority: qualityAuthority);
+
+                Assert.HasCount(1, compilation.SelectionPushes);
+                Assert.HasCount(1, compilation.SelectionConsumers);
+                Assert.HasCount(1, compilation.SelectionBindings);
+                Assert.HasCount(qualityNames.Length, compilation.DependentQualities);
+                Assert.AreEqual(literal, compilation.SelectionPushes[0].Literal);
+                Assert.AreEqual(
+                    CanonicalLifeModulesDigest,
+                    compilation.SelectionPushes[0].SourceDigest);
+                Assert.AreEqual(literal, compilation.SelectionBindings[0].Literal);
+                CollectionAssert.AreEqual(
+                    qualityNames,
+                    compilation.DependentQualities
+                        .OrderBy(item => item.AddQualityIndex)
+                        .Select(item => item.TargetBinding.CanonicalName)
+                        .ToArray());
+                Assert.IsTrue(compilation.DependentQualities.All(item =>
+                    item.OwnerSourceDigest == CanonicalLifeModulesDigest
+                    && item.TargetBinding.SourceDigest == CanonicalQualitiesDigest
+                    && Guid.TryParseExact(item.TargetBinding.SourceId, "D", out Guid id)
+                    && id != Guid.Empty
+                    && IsCanonicalDigest(item.SourceNodeDigest)
+                    && IsCanonicalDigest(item.InstructionDigest)));
+                Assert.AreEqual(
+                    qualityNames.Contains("Prejudiced (Common, Biased)", StringComparer.Ordinal)
+                        ? PrejudicedCommonBiasedId
+                        : PrejudicedCommonOutspokenId,
+                    compilation.SelectionConsumers[0].TargetBinding.SourceId);
+                Assert.AreEqual(
+                    compositeSupported,
+                    compilation.Effects.Where(effect => effect.EffectKind
+                            is "pushtext" or "addqualities")
+                        .All(effect => effect.CompilationStatus
+                            == CharacterCreationFoundationEffectCompilationStatuses.Supported));
+            }
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public void Pushtext_addqualities_write_plans_include_complete_dependent_graphs_and_no_push_improvement()
+    {
+        string coreRoot = FindCoreRoot();
+        string qualitiesXml = File.ReadAllText(
+            Path.Combine(coreRoot, "Chummer", "data", "qualities.xml"));
+        string directory = CreateTempDirectory();
+        try
+        {
+            var cases = new[]
+            {
+                new
+                {
+                    Name = "religious",
+                    Push = "Members of different Religions",
+                    Add = "<addquality>Prejudiced (Common, Biased)</addquality>",
+                    DependentCount = 1,
+                    ExpectedImprovements = new[]
+                    {
+                        "Prejudiced (Common, Biased)|SpecificQuality|"
+                        + "Prejudiced (Common, Biased)|0|owner"
+                    }
+                },
+                new
+                {
+                    Name = "anarchist-brat",
+                    Push = "Corp-Citizens",
+                    Add = "<addquality>Prejudiced (Common, Outspoken)</addquality>"
+                          + "<addquality>Uneducated</addquality>"
+                          + "<addquality>Toughness</addquality>",
+                    DependentCount = 3,
+                    ExpectedImprovements = new[]
+                    {
+                        "Prejudiced (Common, Outspoken)|SpecificQuality|"
+                        + "Prejudiced (Common, Outspoken)|0|owner",
+                        "Uneducated|Notoriety||1|dependent",
+                        "Uneducated|BlockSkillCategoryDefault|Professional|0|dependent",
+                        "Uneducated|BlockSkillCategoryDefault|Academic|0|dependent",
+                        "Uneducated|BlockSkillCategoryDefault|Technical Active|0|dependent",
+                        "Uneducated|SkillCategoryKarmaCostMultiplier|Professional|200|dependent",
+                        "Uneducated|SkillCategoryKarmaCostMultiplier|Academic|200|dependent",
+                        "Uneducated|SkillCategoryKarmaCostMultiplier|Technical Active|200|dependent",
+                        "Uneducated|SkillCategorySpecializationKarmaCostMultiplier|Professional|200|dependent",
+                        "Uneducated|SkillCategorySpecializationKarmaCostMultiplier|Academic|200|dependent",
+                        "Uneducated|SkillCategorySpecializationKarmaCostMultiplier|Technical Active|200|dependent",
+                        "Uneducated|SkillGroupCategoryKarmaCostMultiplier|Technical Active|200|dependent",
+                        "Uneducated|SpecificQuality|Uneducated|0|owner",
+                        "Toughness|DamageResistance||1|dependent",
+                        "Toughness|SpecificQuality|Toughness|0|owner"
+                    }
+                },
+                new
+                {
+                    Name = "anarcho-teen",
+                    Push = "Policeman",
+                    Add = "<addquality>Uncouth</addquality>"
+                          + "<addquality>Prejudiced (Common, Outspoken)</addquality>",
+                    DependentCount = 2,
+                    ExpectedImprovements = new[]
+                    {
+                        "Uncouth|Notoriety||1|dependent",
+                        "Uncouth|SkillCategoryKarmaCostMultiplier|Social Active|200|dependent",
+                        "Uncouth|SkillCategoryPointCostMultiplier|Social Active|200|dependent",
+                        "Uncouth|SkillGroupCategoryDisable|Social Active|0|dependent",
+                        "Uncouth|SpecificQuality|Uncouth|0|owner",
+                        "Prejudiced (Common, Outspoken)|SpecificQuality|"
+                        + "Prejudiced (Common, Outspoken)|0|owner"
+                    }
+                }
+            };
+
+            foreach (var item in cases)
+            {
+                LevelWritePlanFixture fixture = CreateLevelWritePlanFixture(
+                    Path.Combine(directory, item.Name),
+                    "push-add-" + item.Name,
+                    Guid.NewGuid().ToString("D"),
+                    "Composite " + item.Name,
+                    "Formative Years",
+                    40,
+                    "148",
+                    Guid.NewGuid().ToString("D"),
+                    "Composite Version " + item.Name,
+                    string.Empty,
+                    $"<pushtext>{item.Push}</pushtext><addqualities>{item.Add}</addqualities>");
+                CharacterCreationFoundationEffectWritePlanResult first =
+                    CharacterCreationFoundationLifeModuleQualityWritePlanner.Build(
+                        fixture.WorkspaceId,
+                        RulesetDefaults.Sr5,
+                        fixture.Ledger,
+                        fixture.Module,
+                        fixture.Version,
+                        fixture.EffectiveSourceXml,
+                        fixture.SourceDigest,
+                        "Chocolate",
+                        qualitiesSourceXml: qualitiesXml,
+                        qualitiesSourceDigest: CanonicalQualitiesDigest);
+                CharacterCreationFoundationEffectWritePlanResult duplicate =
+                    CharacterCreationFoundationLifeModuleQualityWritePlanner.Build(
+                        fixture.WorkspaceId,
+                        RulesetDefaults.Sr5,
+                        fixture.Ledger,
+                        fixture.Module,
+                        fixture.Version,
+                        fixture.EffectiveSourceXml,
+                        fixture.SourceDigest,
+                        "Chocolate",
+                        qualitiesSourceXml: qualitiesXml,
+                        qualitiesSourceDigest: CanonicalQualitiesDigest);
+
+                Assert.IsTrue(first.IsReady, item.Name + ":" + string.Join(",", first.Blockers));
+                Assert.AreEqual(first.Plan!.PlanDigest, duplicate.Plan!.PlanDigest);
+                Assert.AreEqual(CanonicalQualitiesDigest, first.Plan.QualitySourceAuthorityDigest);
+                Assert.HasCount(item.DependentCount, first.Plan.DependentQualityXml);
+                Assert.HasCount(item.ExpectedImprovements.Length, first.Plan.ImprovementXml);
+                Assert.HasCount(1, first.Plan.SelectionPushes);
+                Assert.HasCount(1, first.Plan.SelectionConsumers);
+                Assert.HasCount(1, first.Plan.SelectionBindings);
+                Assert.HasCount(item.DependentCount, first.Plan.DependentQualityProvenance);
+                Assert.IsTrue(first.Plan.ImprovementXml.All(xml =>
+                    XElement.Parse(xml).Element("improvementttype")!.Value != "PushText"));
+
+                XElement[] dependentQualities = first.Plan.DependentQualityXml
+                    .Select(XElement.Parse)
+                    .ToArray();
+                Assert.AreEqual(
+                    item.Push,
+                    dependentQualities.Single(quality =>
+                        quality.Element("name")!.Value.StartsWith(
+                            "Prejudiced",
+                            StringComparison.Ordinal)).Element("extra")!.Value);
+                Assert.IsTrue(dependentQualities.All(quality =>
+                    quality.Element("qualitysource")!.Value == "Improvement"
+                    && quality.Element("bp")!.Value == "0"
+                    && quality.Element("contributetolimit")!.Value == "False"
+                    && Guid.TryParseExact(quality.Element("guid")!.Value, "D", out Guid id)
+                    && id != Guid.Empty));
+                Assert.AreEqual(
+                    item.DependentCount,
+                    first.Plan.ImprovementXml.Select(XElement.Parse).Count(improvement =>
+                        improvement.Element("improvementttype")!.Value == "SpecificQuality"
+                        && improvement.Element("sourcename")!.Value == first.Plan.QualityId));
+                Assert.AreEqual(
+                    item.DependentCount,
+                    dependentQualities.Select(quality => quality.Element("guid")!.Value)
+                        .Distinct(StringComparer.Ordinal)
+                        .Count());
+                Dictionary<string, string> dependentNamesById = dependentQualities.ToDictionary(
+                    quality => quality.Element("guid")!.Value,
+                    quality => quality.Element("name")!.Value,
+                    StringComparer.Ordinal);
+                string[] actualImprovements = first.Plan.ImprovementXml.Select(xml =>
+                {
+                    XElement improvement = XElement.Parse(xml);
+                    string type = improvement.Element("improvementttype")!.Value;
+                    bool isSpecificQuality = string.Equals(
+                        type,
+                        "SpecificQuality",
+                        StringComparison.Ordinal);
+                    string dependentId = isSpecificQuality
+                        ? improvement.Element("improvedname")!.Value
+                        : improvement.Element("sourcename")!.Value;
+                    string dependentName = dependentNamesById[dependentId];
+                    string improvedName = isSpecificQuality
+                        ? dependentName
+                        : improvement.Element("improvedname")!.Value;
+                    string linkage = isSpecificQuality
+                        && improvement.Element("sourcename")!.Value == first.Plan.QualityId
+                            ? "owner"
+                            : !isSpecificQuality
+                              && improvement.Element("sourcename")!.Value == dependentId
+                                ? "dependent"
+                                : "invalid";
+                    return string.Join(
+                        "|",
+                        dependentName,
+                        type,
+                        improvedName,
+                        improvement.Element("val")!.Value,
+                        linkage);
+                }).ToArray();
+                CollectionAssert.AreEqual(item.ExpectedImprovements, actualImprovements);
+            }
+
+            LevelWritePlanFixture rich = CreateLevelWritePlanFixture(
+                Path.Combine(directory, "rich-kid"),
+                "push-add-rich-kid",
+                Guid.NewGuid().ToString("D"),
+                "Composite Rich Kid",
+                "Formative Years",
+                40,
+                "69",
+                Guid.NewGuid().ToString("D"),
+                "Composite Rich Kid Version",
+                string.Empty,
+                "<pushtext>Poor</pushtext><addqualities>"
+                + "<addquality>Prejudiced (Common, Outspoken)</addquality>"
+                + "<addquality>Trust Fund II</addquality></addqualities>");
+            CharacterCreationFoundationEffectWritePlanResult richResult =
+                CharacterCreationFoundationLifeModuleQualityWritePlanner.Build(
+                    rich.WorkspaceId,
+                    RulesetDefaults.Sr5,
+                    rich.Ledger,
+                    rich.Module,
+                    rich.Version,
+                    rich.EffectiveSourceXml,
+                    rich.SourceDigest,
+                    "Chocolate",
+                    qualitiesSourceXml: qualitiesXml,
+                    qualitiesSourceDigest: CanonicalQualitiesDigest);
+            Assert.IsFalse(richResult.IsReady);
+            Assert.IsNull(richResult.Plan);
+            CollectionAssert.Contains(
+                richResult.Blockers.ToList(),
+                CharacterCreationFoundationBlockers.FinalizationEffectUnsupported);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public void Pushtext_addqualities_is_lifo_duplicate_preserving_and_fails_closed_on_incomplete_or_tampered_composites()
+    {
+        string coreRoot = FindCoreRoot();
+        string qualitiesXml = File.ReadAllText(
+            Path.Combine(coreRoot, "Chummer", "data", "qualities.xml"));
+        string directory = CreateTempDirectory();
+        try
+        {
+            LevelWritePlanFixture lifo = CreateLevelWritePlanFixture(
+                Path.Combine(directory, "lifo"),
+                "push-add-lifo",
+                Guid.NewGuid().ToString("D"),
+                "Lifo Composite",
+                "Formative Years",
+                40,
+                "148",
+                Guid.NewGuid().ToString("D"),
+                "Lifo Version",
+                "<pushtext>First</pushtext><pushtext>Second</pushtext>",
+                "<addqualities>"
+                + "<addquality>Prejudiced (Common, Outspoken)</addquality>"
+                + "<addquality>Prejudiced (Common, Outspoken)</addquality>"
+                + "</addqualities>");
+            CharacterCreationFoundationEffectWritePlanResult lifoResult =
+                CharacterCreationFoundationLifeModuleQualityWritePlanner.Build(
+                    lifo.WorkspaceId,
+                    RulesetDefaults.Sr5,
+                    lifo.Ledger,
+                    lifo.Module,
+                    lifo.Version,
+                    lifo.EffectiveSourceXml,
+                    lifo.SourceDigest,
+                    "Chocolate",
+                    qualitiesSourceXml: qualitiesXml,
+                    qualitiesSourceDigest: CanonicalQualitiesDigest);
+            Assert.IsTrue(lifoResult.IsReady, string.Join(",", lifoResult.Blockers));
+            CollectionAssert.AreEqual(
+                new[] { "Second", "First" },
+                lifoResult.Plan!.SelectionBindings.Select(binding => binding.Literal).ToArray());
+            CollectionAssert.AreEqual(
+                new[]
+                {
+                    CharacterCreationFoundationEffectSourcePhases.Version,
+                    CharacterCreationFoundationEffectSourcePhases.Version
+                },
+                lifoResult.Plan.SelectionPushes.Select(push => push.SourcePhase).ToArray());
+            Assert.IsTrue(lifoResult.Plan.SelectionConsumers.All(consumer =>
+                consumer.OwnerSourceDigest == lifo.SourceDigest));
+            CollectionAssert.AreEqual(
+                new[] { "Second", "First" },
+                lifoResult.Plan.DependentQualityXml.Select(xml =>
+                    XElement.Parse(xml).Element("extra")!.Value).ToArray());
+            Assert.AreEqual(
+                2,
+                lifoResult.Plan.DependentQualityXml.Select(xml =>
+                        XElement.Parse(xml).Element("guid")!.Value)
+                    .Distinct(StringComparer.Ordinal)
+                    .Count());
+
+            var invalidCases = new[]
+            {
+                ("orphan", "<pushtext>Orphan</pushtext>", string.Empty),
+                ("extra", "<pushtext>First</pushtext><pushtext>Extra</pushtext>",
+                    "<addqualities><addquality>Prejudiced (Common, Outspoken)"
+                    + "</addquality></addqualities>"),
+                ("underflow", string.Empty,
+                    "<addqualities><addquality>Prejudiced (Common, Outspoken)"
+                    + "</addquality></addqualities>"),
+                ("wrong-order",
+                    "<addqualities><addquality>Prejudiced (Common, Outspoken)"
+                    + "</addquality></addqualities>",
+                    "<pushtext>Late</pushtext>"),
+                ("non-select", "<pushtext>Unused</pushtext>",
+                    "<addqualities><addquality>Toughness</addquality></addqualities>"),
+                ("qualitylevel", "<pushtext>National</pushtext>",
+                    "<qualitylevel group=\"SINner\">1</qualitylevel>"),
+                ("push-attribute", "<pushtext unexpected=\"true\">Value</pushtext>",
+                    "<addqualities><addquality>Prejudiced (Common, Outspoken)"
+                    + "</addquality></addqualities>"),
+                ("push-child", "<pushtext><value>Value</value></pushtext>",
+                    "<addqualities><addquality>Prejudiced (Common, Outspoken)"
+                    + "</addquality></addqualities>"),
+                ("add-attribute", "<pushtext>Value</pushtext>",
+                    "<addqualities><addquality select=\"Value\">"
+                    + "Prejudiced (Common, Outspoken)</addquality></addqualities>"),
+                ("unresolved-quality", "<pushtext>Value</pushtext>",
+                    "<addqualities><addquality>Not A Canonical Quality"
+                    + "</addquality></addqualities>"),
+                ("malformed-add-child", "<pushtext>Value</pushtext>",
+                    "<addqualities><addquality><name>Prejudiced (Common, Outspoken)"
+                    + "</name></addquality></addqualities>")
+            };
+            foreach ((string name, string versionBonus, string moduleBonus) in invalidCases)
+            {
+                LevelWritePlanFixture invalid = CreateLevelWritePlanFixture(
+                    Path.Combine(directory, name),
+                    "push-add-invalid-" + name,
+                    Guid.NewGuid().ToString("D"),
+                    "Invalid " + name,
+                    "Formative Years",
+                    40,
+                    "148",
+                    Guid.NewGuid().ToString("D"),
+                    "Invalid Version " + name,
+                    versionBonus,
+                    moduleBonus);
+                CharacterCreationFoundationEffectWritePlanResult result =
+                    CharacterCreationFoundationLifeModuleQualityWritePlanner.Build(
+                        invalid.WorkspaceId,
+                        RulesetDefaults.Sr5,
+                        invalid.Ledger,
+                        invalid.Module,
+                        invalid.Version,
+                        invalid.EffectiveSourceXml,
+                        invalid.SourceDigest,
+                        "Chocolate",
+                        qualitiesSourceXml: qualitiesXml,
+                        qualitiesSourceDigest: CanonicalQualitiesDigest);
+                Assert.IsFalse(result.IsReady, name);
+                Assert.IsNull(result.Plan, name);
+            }
+
+            CharacterCreationFoundationEffectWritePlanResult wrongQualityDigest =
+                CharacterCreationFoundationLifeModuleQualityWritePlanner.Build(
+                    lifo.WorkspaceId,
+                    RulesetDefaults.Sr5,
+                    lifo.Ledger,
+                    lifo.Module,
+                    lifo.Version,
+                    lifo.EffectiveSourceXml,
+                    lifo.SourceDigest,
+                    "Chocolate",
+                    qualitiesSourceXml: qualitiesXml,
+                    qualitiesSourceDigest: "sha256:" + new string('0', 64));
+            Assert.IsFalse(wrongQualityDigest.IsReady);
+            CollectionAssert.Contains(
+                wrongQualityDigest.Blockers.ToList(),
+                CharacterCreationFoundationBlockers.FinalizationRuntimeAuthorityRequired);
+
+            const string ambiguousQualitiesXml =
+                "<chummer><qualities>"
+                + "<quality><id>00000000-0000-0000-0000-000000000001</id>"
+                + "<name>Ambiguous Quality</name></quality>"
+                + "<quality><id>00000000-0000-0000-0000-000000000002</id>"
+                + "<name>Ambiguous Quality</name></quality>"
+                + "<quality><id>AAAAAAAA-BBBB-4CCC-8DDD-EEEEEEEEEEEE</id>"
+                + "<name>Uppercase Identity</name></quality>"
+                + "</qualities></chummer>";
+            string ambiguousQualitiesDigest =
+                CharacterCreationFoundationDraftLedgerIntegrity
+                    .ComputeRawCharacterXmlDigest(ambiguousQualitiesXml);
+            Assert.IsTrue(CharacterCreationFoundationQualitySourceAuthority.TryCreate(
+                ambiguousQualitiesXml,
+                ambiguousQualitiesDigest,
+                out CharacterCreationFoundationQualitySourceAuthority? ambiguousAuthority));
+            Assert.IsFalse(ambiguousAuthority!.TryResolveExact(
+                "Ambiguous Quality",
+                out CharacterCreationFoundationEffectTargetBinding? ambiguousBinding));
+            Assert.IsNull(ambiguousBinding);
+            Assert.IsTrue(ambiguousAuthority.TryResolveExact(
+                "Uppercase Identity",
+                out CharacterCreationFoundationEffectTargetBinding? uppercaseBinding));
+            Assert.AreEqual(
+                "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+                uppercaseBinding!.SourceId);
+
+            const string unsupportedBonusQualitiesXml =
+                "<chummer><qualities><quality>"
+                + "<id>00000000-0000-0000-0000-000000000003</id>"
+                + "<name>Unsupported Prompt Quality</name><karma>-5</karma>"
+                + "<category>Negative</category><source>SR5</source><page>1</page>"
+                + "<bonus><selecttext/><selectskill/></bonus>"
+                + "</quality></qualities></chummer>";
+            string unsupportedBonusDigest =
+                CharacterCreationFoundationDraftLedgerIntegrity
+                    .ComputeRawCharacterXmlDigest(unsupportedBonusQualitiesXml);
+            LevelWritePlanFixture unsupportedBonus = CreateLevelWritePlanFixture(
+                Path.Combine(directory, "unsupported-dependent-bonus"),
+                "push-add-unsupported-dependent-bonus",
+                Guid.NewGuid().ToString("D"),
+                "Unsupported Dependent Bonus",
+                "Formative Years",
+                40,
+                "148",
+                Guid.NewGuid().ToString("D"),
+                "Unsupported Dependent Bonus Version",
+                string.Empty,
+                "<pushtext>Value</pushtext><addqualities>"
+                + "<addquality>Unsupported Prompt Quality</addquality></addqualities>");
+            CharacterCreationFoundationEffectWritePlanResult unsupportedBonusResult =
+                CharacterCreationFoundationLifeModuleQualityWritePlanner.Build(
+                    unsupportedBonus.WorkspaceId,
+                    RulesetDefaults.Sr5,
+                    unsupportedBonus.Ledger,
+                    unsupportedBonus.Module,
+                    unsupportedBonus.Version,
+                    unsupportedBonus.EffectiveSourceXml,
+                    unsupportedBonus.SourceDigest,
+                    "Chocolate",
+                    qualitiesSourceXml: unsupportedBonusQualitiesXml,
+                    qualitiesSourceDigest: unsupportedBonusDigest);
+            Assert.IsFalse(unsupportedBonusResult.IsReady);
+            Assert.IsNull(unsupportedBonusResult.Plan);
+            CollectionAssert.Contains(
+                unsupportedBonusResult.Blockers.ToList(),
+                CharacterCreationFoundationBlockers.FinalizationEffectUnsupported);
+
+            CharacterCreationFoundationDraftLedger projectionMismatch = lifo.Ledger with
+            {
+                ProjectedEffects = lifo.Ledger.ProjectedEffects.Select((effect, index) =>
+                        index == 0 ? effect with { TargetId = "Tampered" } : effect)
+                    .ToArray(),
+                DraftDigest = string.Empty
+            };
+            projectionMismatch = projectionMismatch with
+            {
+                DraftDigest = CharacterCreationFoundationDraftLedgerIntegrity.ComputeDigest(
+                    projectionMismatch)
+            };
+            CharacterCreationFoundationEffectWritePlanResult projectionMismatchResult =
+                CharacterCreationFoundationLifeModuleQualityWritePlanner.Build(
+                    lifo.WorkspaceId,
+                    RulesetDefaults.Sr5,
+                    projectionMismatch,
+                    lifo.Module,
+                    lifo.Version,
+                    lifo.EffectiveSourceXml,
+                    lifo.SourceDigest,
+                    "Chocolate",
+                    qualitiesSourceXml: qualitiesXml,
+                    qualitiesSourceDigest: CanonicalQualitiesDigest);
+            Assert.IsFalse(projectionMismatchResult.IsReady);
+            CollectionAssert.Contains(
+                projectionMismatchResult.Blockers.ToList(),
+                CharacterCreationFoundationBlockers.FinalizationEffectLedgerConflict);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [TestMethod]
     public void Finalization_prompt_effects_are_typed_and_confirm_is_repeatable_zero_write()
     {
         string directory = CreateTempDirectory();
@@ -1922,6 +2503,34 @@ public sealed class CharacterCreationFoundationDraftApplyAuthorityTests
             draft,
             effectiveSource.ToString(SaveOptions.DisableFormatting),
             catalog.GetAuthority().RawXmlDigest);
+    }
+
+    private static CharacterCreationFoundationDraftLedger CreateCompilerDraft(
+        LifeModuleLegalOptionDto module,
+        string sourceDigest,
+        string workspaceValue)
+    {
+        CharacterWorkspaceId workspaceId = new(workspaceValue);
+        var draft = new CharacterCreationFoundationDraftLedger(
+            Schema: CharacterCreationFoundationSchemas.DraftLedgerV1,
+            WorkspaceId: workspaceId,
+            DraftRevision: 1,
+            BaseContentRevision: 1,
+            BaseRawCharacterXmlDigest: "sha256:" + new string('1', 64),
+            SourceDigest: sourceDigest,
+            RequestedMetatype: "Human",
+            Selection: new CharacterCreationFoundationSelection(module.ModuleId, null),
+            RequirementEvaluations: module.Requirements,
+            ProjectedEffects: module.Effects,
+            FollowUpValues: new Dictionary<string, string>(),
+            SourceAnchorIds: module.SourceAnchorIds,
+            CompilationStatus: CharacterCreationFoundationDraftStatuses.PendingFinalization,
+            CharacterEffectsApplied: false,
+            DraftDigest: string.Empty);
+        return draft with
+        {
+            DraftDigest = CharacterCreationFoundationDraftLedgerIntegrity.ComputeDigest(draft)
+        };
     }
 
     private static string CharacterXml(string metatype)

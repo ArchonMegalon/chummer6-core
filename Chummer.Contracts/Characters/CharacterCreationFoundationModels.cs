@@ -278,7 +278,73 @@ public sealed record CharacterCreationFoundationEffectCompilation(
     IReadOnlyList<CharacterCreationFoundationEffectInstruction> Effects,
     IReadOnlyList<string> Blockers,
     bool IsCompleteLedgerSupported,
-    string CompilationDigest);
+    string CompilationDigest)
+{
+    public IReadOnlyList<CharacterCreationFoundationSelectionPushInstruction>
+        SelectionPushes { get; init; } = [];
+
+    public IReadOnlyList<CharacterCreationFoundationSelectionConsumerInstruction>
+        SelectionConsumers { get; init; } = [];
+
+    public IReadOnlyList<CharacterCreationFoundationSelectionBinding>
+        SelectionBindings { get; init; } = [];
+
+    public IReadOnlyList<CharacterCreationFoundationDependentQualityInstruction>
+        DependentQualities { get; init; } = [];
+}
+
+/// <summary>
+/// A transient legacy pushtext stack entry. It is compilation provenance and
+/// never a serialized Improvement.
+/// </summary>
+public sealed record CharacterCreationFoundationSelectionPushInstruction(
+    int Order,
+    string EffectId,
+    string SourcePhase,
+    string Literal,
+    string SourceDigest,
+    IReadOnlyList<string> SourceAnchorIds,
+    string InstructionDigest);
+
+/// <summary>
+/// One dependent Quality selecttext pre-pass which consumes the current top of
+/// the transient pushtext stack before that Quality's bonus is interpreted.
+/// </summary>
+public sealed record CharacterCreationFoundationSelectionConsumerInstruction(
+    int Order,
+    string ConsumerId,
+    string EffectId,
+    int AddQualityIndex,
+    string OwnerSourceDigest,
+    CharacterCreationFoundationEffectTargetBinding TargetBinding,
+    string SourceNodeDigest,
+    IReadOnlyList<string> SourceAnchorIds,
+    string InstructionDigest);
+
+public sealed record CharacterCreationFoundationSelectionBinding(
+    string PushEffectId,
+    string ConsumerId,
+    string Literal,
+    string PushInstructionDigest,
+    string ConsumerInstructionDigest,
+    string BindingDigest);
+
+/// <summary>
+/// Exact qualities.xml identity and source position of every Quality created by
+/// one addqualities effect, including qualities which do not consume text.
+/// </summary>
+public sealed record CharacterCreationFoundationDependentQualityInstruction(
+    int Order,
+    string EffectId,
+    int AddQualityIndex,
+    string OwnerSourceDigest,
+    CharacterCreationFoundationEffectTargetBinding TargetBinding,
+    string SourceNodeDigest,
+    string? SelectionConsumerId,
+    bool HasRuntimeRequirements,
+    string CompilationStatus,
+    string? Blocker,
+    string InstructionDigest);
 
 public sealed record CharacterCreationFoundationFinalizationPreview(
     string Schema,
