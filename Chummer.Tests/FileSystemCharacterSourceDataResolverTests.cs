@@ -15,7 +15,192 @@ public sealed class FileSystemCharacterSourceDataResolverTests
 {
     private const string SettingsId = "223a11ff-80e0-428b-89a9-6ef1c243b8b6";
     private const string CanonicalLifeModuleSettingsId = "8a31af6d-7137-4284-872b-7d8087e156c6";
+    private const string CanonicalSumToTenSettingsId = "3509a807-68ee-4c18-b7d5-b130313b4b77";
+    private const string CanonicalImprovedSumToTenSettingsId = "2ef9b098-4cd2-4c2b-8f3d-76164e3f4f8e";
+    private const string CanonicalStreetScumSettingsId = "4c34a8ed-2888-410c-afda-024475fa3c76";
+    private const string CanonicalPrioritiesDigest =
+        "sha256:4b41936b90fdd84a00b060585542eed8eb4d2045eeda1940c1c8a95af3eb91d1";
     private const string VehicleModId = "f89a112e-600a-4278-8731-9b14cf3737c9";
+
+    [TestMethod]
+    public void Canonical_priority_profile_projects_digest_bound_rank_and_creation_karma_authority()
+    {
+        string coreRoot = FindCoreRoot();
+        ICharacterSourceDataContext context = CreateContext(
+            coreRoot,
+            $"<character><settings>{SettingsId}</settings></character>")!;
+
+        Assert.IsTrue(context.TryResolveCreationPrerequisiteAuthority(
+            out CharacterCreationPrerequisiteAuthority authority));
+        Assert.IsTrue(authority.IsAuthoritative, string.Join(",", authority.Blockers));
+        Assert.AreEqual(CharacterCreationBuildMethods.Priority, authority.BuildMethod);
+        Assert.AreEqual(25, authority.CreationKarmaTotal);
+        CollectionAssert.AreEqual(
+            new[] { "A", "B", "C", "D", "E" },
+            authority.PriorityArray.ToArray());
+        Assert.AreEqual("Standard", authority.PriorityTable);
+        Assert.AreEqual(10, authority.SumToTenTarget);
+        Assert.AreEqual(CanonicalPrioritiesDigest, authority.RawPrioritiesXmlDigest);
+        Assert.HasCount(25, authority.Options);
+        CharacterCreationPriorityOptionProjection attributesA = authority.Options.Single(option =>
+            option.CategoryId == CharacterCreationPriorityCategoryIds.Attributes
+            && option.Rank == "A");
+        Assert.AreEqual(24, attributesA.BaseNormalAttributePoints);
+        Assert.IsTrue(CharacterCreationPrerequisiteAuthorityDigest.EqualsFixedTime(
+            authority.AuthorityDigest,
+            CharacterCreationPrerequisiteAuthorityDigest.Compute(authority)));
+
+        ICharacterSourceDataContext duplicateRanks = CreateContext(
+            coreRoot,
+            $"<character><settings>{CanonicalStreetScumSettingsId}</settings></character>")!;
+        Assert.IsTrue(duplicateRanks.TryResolveCreationPrerequisiteAuthority(
+            out CharacterCreationPrerequisiteAuthority streetScum));
+        Assert.IsTrue(streetScum.IsAuthoritative, string.Join(",", streetScum.Blockers));
+        CollectionAssert.AreEqual(
+            new[] { "B", "C", "D", "E", "E" },
+            streetScum.PriorityArray.ToArray());
+        Assert.HasCount(20, streetScum.Options);
+    }
+
+    [TestMethod]
+    public void Canonical_sum_to_ten_and_improved_profiles_project_exact_weights_and_targets()
+    {
+        string coreRoot = FindCoreRoot();
+        ICharacterSourceDataContext standard = CreateContext(
+            coreRoot,
+            $"<character><settings>{CanonicalSumToTenSettingsId}</settings></character>")!;
+        Assert.IsTrue(standard.TryResolveCreationPrerequisiteAuthority(
+            out CharacterCreationPrerequisiteAuthority standardAuthority));
+        Assert.IsTrue(standardAuthority.IsAuthoritative,
+            string.Join(",", standardAuthority.Blockers));
+        Assert.AreEqual(10, standardAuthority.SumToTenTarget);
+        Assert.AreEqual(4, standardAuthority.RankWeights.Single(weight => weight.Rank == "A").Value);
+        Assert.AreEqual(3, standardAuthority.RankWeights.Single(weight => weight.Rank == "B").Value);
+
+        ICharacterSourceDataContext improved = CreateContext(
+            coreRoot,
+            $"<character><settings>{CanonicalImprovedSumToTenSettingsId}</settings>"
+            + "<customdatadirectorynames><directoryname>Sum-to-Ten Improved</directoryname>"
+            + "</customdatadirectorynames></character>")!;
+        Assert.IsTrue(improved.TryResolveCreationPrerequisiteAuthority(
+            out CharacterCreationPrerequisiteAuthority improvedAuthority));
+        Assert.IsTrue(improvedAuthority.IsAuthoritative,
+            string.Join(",", improvedAuthority.Blockers));
+        Assert.AreEqual(14, improvedAuthority.SumToTenTarget);
+        Assert.AreEqual(7, improvedAuthority.RankWeights.Single(weight => weight.Rank == "A").Value);
+        Assert.AreEqual(4, improvedAuthority.RankWeights.Single(weight => weight.Rank == "B").Value);
+        Assert.AreNotEqual(
+            standardAuthority.SelectedPriorityCustomDataInputsDigest,
+            improvedAuthority.SelectedPriorityCustomDataInputsDigest);
+    }
+
+    [TestMethod]
+    public void Priority_authority_detects_source_drift_and_rejects_row_mutating_custom_data()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            const string customSetting =
+                "<customdatadirectoryname><directoryname>Unsafe Priority</directoryname>"
+                + "<order>0</order><enabled>True</enabled></customdatadirectoryname>";
+            WriteBaseContent(
+                root,
+                customSetting,
+                "<buildmethod>Priority</buildmethod><buildpoints>25</buildpoints>"
+                + "<priorityarray>ABCDE</priorityarray><prioritytable>Standard</prioritytable>"
+                + "<sumtoten>10</sumtoten>");
+            WritePriorityFixture(root);
+            string customRoot = Path.Combine(root, "customdata", "Unsafe Priority");
+            Directory.CreateDirectory(customRoot);
+            File.WriteAllText(
+                Path.Combine(customRoot, "amend_priorities.xml"),
+                "<chummer><priorities amendoperation=\"replace\" /></chummer>");
+            ICharacterSourceDataContext context = CreateContext(
+                root,
+                CharacterXml(
+                    "<customdatadirectorynames><directoryname>Unsafe Priority</directoryname>"
+                    + "</customdatadirectorynames>"))!;
+
+            Assert.IsTrue(context.TryResolveCreationPrerequisiteAuthority(
+                out CharacterCreationPrerequisiteAuthority unsupported));
+            Assert.IsFalse(unsupported.IsAuthoritative);
+            CollectionAssert.Contains(
+                unsupported.Blockers.ToList(),
+                CharacterCreationPrerequisiteBlockers.PriorityCustomDataUnsupported);
+
+            File.Delete(Path.Combine(customRoot, "amend_priorities.xml"));
+            Assert.IsTrue(context.TryResolveCreationPrerequisiteAuthority(
+                out CharacterCreationPrerequisiteAuthority drifted));
+            Assert.IsFalse(drifted.IsAuthoritative);
+            CollectionAssert.Contains(
+                drifted.Blockers.ToList(),
+                CharacterCreationPrerequisiteBlockers.PrioritiesSourceDrift);
+        }
+        finally
+        {
+            DeleteTempDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public void Priority_projection_fails_closed_on_ambiguous_rows_missing_attributes_and_namespaces()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            WriteBaseContent(
+                root,
+                string.Empty,
+                "<buildmethod>Priority</buildmethod><buildpoints>25</buildpoints>"
+                + "<priorityarray></priorityarray><prioritytable>Standard</prioritytable>"
+                + "<sumtoten>10</sumtoten>");
+            string path = Path.Combine(root, "data", "priorities.xml");
+
+            WritePriorityFixture(root);
+            ICharacterSourceDataContext defaultArray = CreateContext(root, CharacterXml())!;
+            Assert.IsTrue(defaultArray.TryResolveCreationPrerequisiteAuthority(
+                out CharacterCreationPrerequisiteAuthority defaultArrayAuthority));
+            Assert.IsTrue(defaultArrayAuthority.IsAuthoritative,
+                string.Join(",", defaultArrayAuthority.Blockers));
+            CollectionAssert.AreEqual(
+                new[] { "A", "B", "C", "D", "E" },
+                defaultArrayAuthority.PriorityArray.ToArray());
+            string canonical = File.ReadAllText(path);
+            File.WriteAllText(
+                path,
+                canonical.Replace(
+                    "</priorities>",
+                    "<priority><id>10000000-0000-0000-0000-000000000001</id>"
+                    + "<name>duplicate</name><value>A</value><category>Heritage</category>"
+                    + "</priority></priorities>",
+                    StringComparison.Ordinal));
+            AssertPriorityBlocker(root, CharacterCreationPrerequisiteBlockers.PriorityRowsInvalid);
+
+            WritePriorityFixture(root);
+            File.WriteAllText(
+                path,
+                File.ReadAllText(path).Replace(
+                    "<attributes>24</attributes>",
+                    string.Empty,
+                    StringComparison.Ordinal));
+            AssertPriorityBlocker(root, CharacterCreationPrerequisiteBlockers.PriorityRowsInvalid);
+
+            WritePriorityFixture(root);
+            File.WriteAllText(
+                path,
+                File.ReadAllText(path).Replace(
+                    "<chummer>",
+                    "<chummer xmlns=\"urn:unsupported\">",
+                    StringComparison.Ordinal));
+            AssertPriorityBlocker(
+                root,
+                CharacterCreationPrerequisiteBlockers.PriorityCategoriesInvalid);
+        }
+        finally
+        {
+            DeleteTempDirectory(root);
+        }
+    }
 
     [TestMethod]
     public void Canonical_life_module_profile_exposes_exact_750_karma_authority()
@@ -424,6 +609,46 @@ public sealed class FileSystemCharacterSourceDataResolverTests
         File.WriteAllText(
             Path.Combine(data, "cyberware.fragment.xml"),
             $"<chummer><grades><grade><name>Standard</name><devicerating>{deviceRating}</devicerating></grade></grades></chummer>");
+    }
+
+    private static void WritePriorityFixture(string root)
+    {
+        string[] categories = ["Heritage", "Talent", "Attributes", "Skills", "Resources"];
+        string[] ranks = ["A", "B", "C", "D", "E"];
+        Dictionary<string, int> attributePoints = new(StringComparer.Ordinal)
+        {
+            ["A"] = 24,
+            ["B"] = 20,
+            ["C"] = 16,
+            ["D"] = 14,
+            ["E"] = 12
+        };
+        int sequence = 1;
+        string rows = string.Concat(categories.SelectMany(category => ranks.Select(rank =>
+        {
+            string attributes = category == "Attributes"
+                ? $"<attributes>{attributePoints[rank]}</attributes>"
+                : string.Empty;
+            string id = $"00000000-0000-0000-0000-{sequence++:000000000000}";
+            return $"<priority><id>{id}</id><name>{category}-{rank}</name><value>{rank}</value>"
+                   + $"<category>{category}</category>{attributes}</priority>";
+        })));
+        File.WriteAllText(
+            Path.Combine(root, "data", "priorities.xml"),
+            "<chummer><categories><category>Heritage</category><category>Talent</category>"
+            + "<category>Attributes</category><category>Skills</category><category>Resources</category>"
+            + "</categories><priortysumtotenvalues><A>4</A><B>3</B><C>2</C><D>1</D><E>0</E>"
+            + $"</priortysumtotenvalues><priorities>{rows}</priorities></chummer>");
+    }
+
+    private static void AssertPriorityBlocker(string root, string blocker)
+    {
+        ICharacterSourceDataContext context = CreateContext(root, CharacterXml())!;
+        Assert.IsNotNull(context);
+        Assert.IsTrue(context.TryResolveCreationPrerequisiteAuthority(
+            out CharacterCreationPrerequisiteAuthority authority));
+        Assert.IsFalse(authority.IsAuthoritative);
+        CollectionAssert.Contains(authority.Blockers.ToList(), blocker);
     }
 
     private static string CreateTempDirectory()

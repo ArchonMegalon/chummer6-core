@@ -212,6 +212,124 @@ public sealed class WorkspaceAuxiliaryStateStoreTests
     }
 
     [TestMethod]
+    public void Independent_creation_draft_lanes_advance_atomically_without_rewriting_the_sibling()
+    {
+        string stateDirectory = CreateTempStateDirectory();
+        try
+        {
+            FileWorkspaceStore store = new(stateDirectory);
+            CharacterWorkspaceId id = new("draft-lane-composition");
+            WorkspaceDocument original = Document("Original");
+            Create(store, id, original);
+            CharacterCreationFoundationDraftLedger foundation = Draft(id);
+            WorkspaceDocument foundationDocument = WithDraft(original, foundation);
+            AssertMutation(
+                store.ReplaceWorkspaceDocumentAndAuxiliaryStateAndCheckpoint(
+                    id,
+                    1,
+                    original.AuxiliaryStateDigest,
+                    foundationDocument),
+                2,
+                2);
+
+            CharacterCreationPrerequisiteDraft prerequisite = PrerequisiteDraft(id, baseRevision: 2);
+            WorkspaceDocument composed = foundationDocument with
+            {
+                State = foundationDocument.State with
+                {
+                    AuxiliaryState = foundationDocument.AuxiliaryState with
+                    {
+                        CharacterCreationPrerequisiteDraft = prerequisite
+                    }
+                }
+            };
+            AssertMutation(
+                store.ReplaceWorkspaceDocumentAndAuxiliaryStateAndCheckpoint(
+                    id,
+                    2,
+                    foundationDocument.AuxiliaryStateDigest,
+                    composed),
+                3,
+                3);
+
+            CharacterCreationFoundationDraftLedger advancedFoundation = foundation with
+            {
+                DraftRevision = 2,
+                BaseContentRevision = 3,
+                DraftDigest = "sha256:" + new string('e', 64)
+            };
+            WorkspaceDocument advanced = composed with
+            {
+                State = composed.State with
+                {
+                    AuxiliaryState = composed.AuxiliaryState with
+                    {
+                        CharacterCreationFoundationDraft = advancedFoundation
+                    }
+                }
+            };
+            AssertMutation(
+                store.ReplaceWorkspaceDocumentAndAuxiliaryStateAndCheckpoint(
+                    id,
+                    3,
+                    composed.AuxiliaryStateDigest,
+                    advanced),
+                4,
+                4);
+
+            WorkspaceDocument foundationCleared = advanced with
+            {
+                State = advanced.State with
+                {
+                    AuxiliaryState = advanced.AuxiliaryState with
+                    {
+                        CharacterCreationFoundationDraft = null
+                    }
+                }
+            };
+            AssertMutation(
+                store.ReplaceWorkspaceDocumentAndAuxiliaryStateAndCheckpoint(
+                    id,
+                    4,
+                    advanced.AuxiliaryStateDigest,
+                    foundationCleared),
+                5,
+                5);
+
+            WorkspaceStoredDocument reopened = new FileWorkspaceStore(stateDirectory).Get(id).Value!;
+            Assert.IsNull(reopened.Document.AuxiliaryState.CharacterCreationFoundationDraft);
+            Assert.AreEqual(
+                prerequisite.DraftDigest,
+                reopened.Document.AuxiliaryState.CharacterCreationPrerequisiteDraft?.DraftDigest);
+
+            WorkspaceDocument prerequisiteCleared = foundationCleared with
+            {
+                State = foundationCleared.State with
+                {
+                    AuxiliaryState = foundationCleared.AuxiliaryState with
+                    {
+                        CharacterCreationPrerequisiteDraft = null
+                    }
+                }
+            };
+            AssertMutation(
+                store.ReplaceWorkspaceDocumentAndAuxiliaryStateAndCheckpoint(
+                    id,
+                    5,
+                    foundationCleared.AuxiliaryStateDigest,
+                    prerequisiteCleared),
+                6,
+                6);
+            Assert.IsTrue(
+                new FileWorkspaceStore(stateDirectory).Get(id).Value!.Document.AuxiliaryState.IsEmpty);
+        }
+        finally
+        {
+            Directory.Delete(stateDirectory, recursive: true);
+        }
+    }
+
+    [TestMethod]
     public void Creation_authority_write_fault_rolls_back_document_auxiliary_state_and_checkpoint()
     {
         string stateDirectory = CreateTempStateDirectory();
@@ -368,6 +486,41 @@ public sealed class WorkspaceAuxiliaryStateStoreTests
             CompilationStatus: CharacterCreationFoundationDraftStatuses.PendingFinalization,
             CharacterEffectsApplied: false,
             DraftDigest: "sha256:" + new string('c', 64));
+    }
+
+    private static CharacterCreationPrerequisiteDraft PrerequisiteDraft(
+        CharacterWorkspaceId id,
+        long baseRevision)
+    {
+        CharacterCreationPriorityAssignment[] assignments =
+            CharacterCreationPriorityCategoryIds.Ordered.Select((category, order) =>
+                new CharacterCreationPriorityAssignment(
+                    order,
+                    category,
+                    ((char)('A' + order)).ToString(),
+                    $"00000000-0000-0000-0000-{order + 1:000000000000}",
+                    "sha256:" + new string((char)('a' + order), 64),
+                    4 - order,
+                    category == CharacterCreationPriorityCategoryIds.Attributes ? 16 : null,
+                    [$"priorities.xml#test:{category}"]))
+            .ToArray();
+        return new CharacterCreationPrerequisiteDraft(
+            CharacterCreationPrerequisiteSchemas.DraftV1,
+            id,
+            1,
+            baseRevision,
+            "sha256:" + new string('a', 64),
+            "sha256:" + new string('b', 64),
+            CharacterCreationBuildMethods.Priority,
+            "223a11ff-80e0-428b-89a9-6ef1c243b8b6",
+            "Standard",
+            ["A", "B", "C", "D", "E"],
+            10,
+            assignments,
+            25,
+            0,
+            ["settings.xml#setting:test", "priorities.xml"],
+            "sha256:" + new string('d', 64));
     }
 
     private static WorkspaceDocument WithDraft(

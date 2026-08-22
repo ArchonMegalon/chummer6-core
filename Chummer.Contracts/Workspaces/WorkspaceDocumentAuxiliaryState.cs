@@ -1,6 +1,7 @@
 using System.Buffers;
 using System.Security.Cryptography;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Chummer.Contracts.Characters;
 
 namespace Chummer.Contracts.Workspaces;
@@ -10,11 +11,14 @@ namespace Chummer.Contracts.Workspaces;
 /// It must never be projected into a ruleset payload envelope or a character download.
 /// </summary>
 public sealed record WorkspaceDocumentAuxiliaryState(
-    CharacterCreationFoundationDraftLedger? CharacterCreationFoundationDraft = null)
+    CharacterCreationFoundationDraftLedger? CharacterCreationFoundationDraft = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    CharacterCreationPrerequisiteDraft? CharacterCreationPrerequisiteDraft = null)
 {
     public static WorkspaceDocumentAuxiliaryState Empty { get; } = new();
 
-    public bool IsEmpty => CharacterCreationFoundationDraft is null;
+    public bool IsEmpty => CharacterCreationFoundationDraft is null
+                           && CharacterCreationPrerequisiteDraft is null;
 }
 
 public static class WorkspaceDocumentAuxiliaryStateDigest

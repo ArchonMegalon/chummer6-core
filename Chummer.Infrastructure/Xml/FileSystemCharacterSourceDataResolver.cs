@@ -112,17 +112,21 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             }
 
             string settingsKey = ReadValue(character, "settings");
-            XElement? settings = settingsDocument.Root
+            XElement[] settingsMatches = settingsDocument.Root
                 .Element("settings")?
                 .Elements("setting")
-                .FirstOrDefault(candidate => string.Equals(
+                .Where(candidate => string.Equals(
                     ReadValue(candidate, "id"),
                     settingsKey,
-                    StringComparison.OrdinalIgnoreCase));
-            if (settings is null)
+                    StringComparison.OrdinalIgnoreCase))
+                .Take(2)
+                .ToArray()
+                ?? [];
+            if (settingsMatches.Length != 1)
             {
                 return null;
             }
+            XElement settings = settingsMatches[0];
 
             IReadOnlyList<CustomDirectory> installedDirectories = DiscoverCustomDirectories(catalog);
             if (!TryResolveProfileDirectories(settings, installedDirectories, out CustomDirectory[] enabledDirectories))
@@ -157,6 +161,14 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 out string profileBuildMethod,
                 out int? profileBuildPoints,
                 out string[] lifeModuleBudgetBlockers);
+            ResolveCreationPrerequisiteProfileAuthority(
+                settings,
+                out string prerequisiteBuildMethod,
+                out int? creationKarmaTotal,
+                out string[] priorityArray,
+                out string priorityTable,
+                out int? sumToTenTarget,
+                out string[] prerequisiteProfileBlockers);
             ResolveMetatypeProfileAuthority(
                 settings,
                 out int? metatypeKarmaMultiplier,
@@ -178,6 +190,17 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 catalog,
                 "metatypes.xml",
                 out string effectiveMetatypesInputsDigest);
+            _ = TryComputeRawBaseFileDigest(
+                catalog,
+                "priorities.xml",
+                out string rawPrioritiesXmlDigest);
+            _ = TryComputeEffectiveInputDigest(
+                catalog,
+                "priorities.xml",
+                out string effectivePrioritiesInputsDigest);
+            _ = TryComputeSelectedPriorityCustomDataInputsDigest(
+                enabledDirectories,
+                out string selectedPriorityCustomDataInputsDigest);
 
             int? maximumNuyenDecimals = TryReadMaximumNuyenDecimals(settings, out int resolvedDecimals)
                 ? resolvedDecimals
@@ -221,9 +244,18 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 selectedCustomDataInputsDigest,
                 rawMetatypesXmlDigest,
                 effectiveMetatypesInputsDigest,
+                rawPrioritiesXmlDigest,
+                effectivePrioritiesInputsDigest,
+                selectedPriorityCustomDataInputsDigest,
                 profileBuildMethod,
                 profileBuildPoints,
                 lifeModuleBudgetBlockers,
+                prerequisiteBuildMethod,
+                creationKarmaTotal,
+                priorityArray,
+                priorityTable,
+                sumToTenTarget,
+                prerequisiteProfileBlockers,
                 metatypeKarmaMultiplier,
                 minimumInitiativeDice,
                 droneMods,
@@ -309,6 +341,104 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             buildPoints = null;
             resolvedBlockers.Add(
                 CharacterCreationFoundationBlockers.LifeModuleBudgetProfileBuildPointsInvalid);
+        }
+
+        blockers = resolvedBlockers
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(item => item, StringComparer.Ordinal)
+            .ToArray();
+    }
+
+    private static void ResolveCreationPrerequisiteProfileAuthority(
+        XElement settings,
+        out string buildMethod,
+        out int? creationKarmaTotal,
+        out string[] priorityArray,
+        out string priorityTable,
+        out int? sumToTenTarget,
+        out string[] blockers)
+    {
+        var resolvedBlockers = new List<string>();
+        string[] buildMethods = settings.Elements("buildmethod").Take(2)
+            .Select(element => element.Value.Trim())
+            .ToArray();
+        if (buildMethods.Length != 1)
+        {
+            buildMethod = string.Empty;
+            resolvedBlockers.Add(CharacterCreationPrerequisiteBlockers.BuildMethodUnsupported);
+        }
+        else if (string.Equals(
+                     buildMethods[0],
+                     CharacterCreationBuildMethods.Priority,
+                     StringComparison.OrdinalIgnoreCase))
+        {
+            buildMethod = CharacterCreationBuildMethods.Priority;
+        }
+        else if (string.Equals(
+                     buildMethods[0],
+                     CharacterCreationBuildMethods.SumToTen,
+                     StringComparison.OrdinalIgnoreCase))
+        {
+            buildMethod = CharacterCreationBuildMethods.SumToTen;
+        }
+        else
+        {
+            buildMethod = buildMethods[0];
+            resolvedBlockers.Add(CharacterCreationPrerequisiteBlockers.BuildMethodUnsupported);
+        }
+
+        if (TryReadNonNegativeInt(settings, "buildpoints", out int parsedBuildPoints))
+        {
+            creationKarmaTotal = parsedBuildPoints;
+        }
+        else
+        {
+            creationKarmaTotal = null;
+            resolvedBlockers.Add(
+                CharacterCreationPrerequisiteBlockers.CreationKarmaAuthorityRequired);
+        }
+
+        XElement[] priorityArrays = settings.Elements("priorityarray").Take(2).ToArray();
+        string rawArray = priorityArrays.Length == 1 ? priorityArrays[0].Value : string.Empty;
+        if (priorityArrays.Length == 1 && rawArray.Length == 0)
+        {
+            // SelectMetatypePriority replaces an explicitly-empty settings value
+            // with its A/B/C/D/E list before the controls are populated.
+            priorityArray = ["A", "B", "C", "D", "E"];
+        }
+        else if (priorityArrays.Length != 1
+            || !string.Equals(rawArray, rawArray.Trim(), StringComparison.Ordinal)
+            || rawArray.Length != CharacterCreationPriorityCategoryIds.Ordered.Count
+            || rawArray.Any(character => !char.IsAsciiLetter(character)))
+        {
+            priorityArray = [];
+            resolvedBlockers.Add(CharacterCreationPrerequisiteBlockers.PriorityArrayInvalid);
+        }
+        else
+        {
+            priorityArray = rawArray.ToUpperInvariant()
+                .Select(character => character.ToString())
+                .ToArray();
+        }
+
+        XElement[] priorityTables = settings.Elements("prioritytable").Take(2).ToArray();
+        priorityTable = priorityTables.Length == 1 ? priorityTables[0].Value : string.Empty;
+        if (priorityTables.Length != 1
+            || string.IsNullOrWhiteSpace(priorityTable)
+            || !string.Equals(priorityTable, priorityTable.Trim(), StringComparison.Ordinal))
+        {
+            priorityTable = string.Empty;
+            resolvedBlockers.Add(CharacterCreationPrerequisiteBlockers.PriorityTableInvalid);
+        }
+
+        if (TryReadNonNegativeInt(settings, "sumtoten", out int parsedTarget))
+        {
+            sumToTenTarget = parsedTarget;
+        }
+        else
+        {
+            sumToTenTarget = null;
+            resolvedBlockers.Add(CharacterCreationPrerequisiteBlockers.SumToTenTargetInvalid);
         }
 
         blockers = resolvedBlockers
@@ -589,9 +719,18 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
         private readonly string _selectedCustomDataInputsDigest;
         private readonly string _rawMetatypesXmlDigest;
         private readonly string _effectiveMetatypesInputsDigest;
+        private readonly string _rawPrioritiesXmlDigest;
+        private readonly string _effectivePrioritiesInputsDigest;
+        private readonly string _selectedPriorityCustomDataInputsDigest;
         private readonly string _buildMethod;
         private readonly int? _buildPoints;
         private readonly IReadOnlyList<string> _lifeModuleBudgetBlockers;
+        private readonly string _prerequisiteBuildMethod;
+        private readonly int? _creationKarmaTotal;
+        private readonly IReadOnlyList<string> _priorityArray;
+        private readonly string _priorityTable;
+        private readonly int? _sumToTenTarget;
+        private readonly IReadOnlyList<string> _prerequisiteProfileBlockers;
         private readonly int? _metatypeKarmaMultiplier;
         private readonly int? _minimumInitiativeDice;
         private readonly bool? _droneMods;
@@ -614,9 +753,18 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             string selectedCustomDataInputsDigest,
             string rawMetatypesXmlDigest,
             string effectiveMetatypesInputsDigest,
+            string rawPrioritiesXmlDigest,
+            string effectivePrioritiesInputsDigest,
+            string selectedPriorityCustomDataInputsDigest,
             string buildMethod,
             int? buildPoints,
             IReadOnlyList<string> lifeModuleBudgetBlockers,
+            string prerequisiteBuildMethod,
+            int? creationKarmaTotal,
+            IReadOnlyList<string> priorityArray,
+            string priorityTable,
+            int? sumToTenTarget,
+            IReadOnlyList<string> prerequisiteProfileBlockers,
             int? metatypeKarmaMultiplier,
             int? minimumInitiativeDice,
             bool? droneMods,
@@ -638,9 +786,18 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             _selectedCustomDataInputsDigest = selectedCustomDataInputsDigest;
             _rawMetatypesXmlDigest = rawMetatypesXmlDigest;
             _effectiveMetatypesInputsDigest = effectiveMetatypesInputsDigest;
+            _rawPrioritiesXmlDigest = rawPrioritiesXmlDigest;
+            _effectivePrioritiesInputsDigest = effectivePrioritiesInputsDigest;
+            _selectedPriorityCustomDataInputsDigest = selectedPriorityCustomDataInputsDigest;
             _buildMethod = buildMethod;
             _buildPoints = buildPoints;
             _lifeModuleBudgetBlockers = lifeModuleBudgetBlockers;
+            _prerequisiteBuildMethod = prerequisiteBuildMethod;
+            _creationKarmaTotal = creationKarmaTotal;
+            _priorityArray = priorityArray;
+            _priorityTable = priorityTable;
+            _sumToTenTarget = sumToTenTarget;
+            _prerequisiteProfileBlockers = prerequisiteProfileBlockers;
             _metatypeKarmaMultiplier = metatypeKarmaMultiplier;
             _minimumInitiativeDice = minimumInitiativeDice;
             _droneMods = droneMods;
@@ -683,6 +840,95 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 BudgetBlockers: _lifeModuleBudgetBlockers,
                 RawProfileInputsDigest: _rawProfileInputsDigest,
                 SourceAnchorIds: [$"settings.xml#setting:{_settingsProfileId}"]);
+            return true;
+        }
+
+        public bool TryResolveCreationPrerequisiteAuthority(
+            out CharacterCreationPrerequisiteAuthority authority)
+        {
+            authority = CharacterCreationPrerequisiteAuthority.Unavailable;
+            if (string.IsNullOrWhiteSpace(_settingsProfileId)
+                || !TryComputeEffectiveInputDigest(
+                    _catalog,
+                    "settings.xml",
+                    out string currentSettingsInputsDigest)
+                || !TryComputeRawBaseFileDigest(
+                    _catalog,
+                    "priorities.xml",
+                    out string currentRawPrioritiesXmlDigest)
+                || !TryComputeEffectiveInputDigest(
+                    _catalog,
+                    "priorities.xml",
+                    out string currentEffectivePrioritiesInputsDigest)
+                || !TryComputeSelectedPriorityCustomDataInputsDigest(
+                    _customDirectories,
+                    out string currentPriorityCustomDataInputsDigest)
+                || !TryLoadCreationPriorityDocument(
+                    _catalog,
+                    _customDirectories,
+                    out XDocument? document,
+                    out bool customDataUnsupported,
+                    out string[] customSourceAnchors)
+                || document?.Root is null)
+            {
+                return false;
+            }
+
+            var blockers = new List<string>(_prerequisiteProfileBlockers);
+            if (!string.Equals(
+                    BindSelectedProfile(currentSettingsInputsDigest, _settingsProfileId),
+                    _rawProfileInputsDigest,
+                    StringComparison.Ordinal))
+            {
+                blockers.Add(CharacterCreationPrerequisiteBlockers.SettingsProfileDrift);
+            }
+            if (string.IsNullOrWhiteSpace(_rawPrioritiesXmlDigest)
+                || string.IsNullOrWhiteSpace(_effectivePrioritiesInputsDigest)
+                || string.IsNullOrWhiteSpace(_selectedPriorityCustomDataInputsDigest))
+            {
+                blockers.Add(CharacterCreationPrerequisiteBlockers.AuthorityUnavailable);
+            }
+            else if (!string.Equals(
+                         currentRawPrioritiesXmlDigest,
+                         _rawPrioritiesXmlDigest,
+                         StringComparison.Ordinal)
+                     || !string.Equals(
+                         currentEffectivePrioritiesInputsDigest,
+                         _effectivePrioritiesInputsDigest,
+                         StringComparison.Ordinal)
+                     || !string.Equals(
+                         currentPriorityCustomDataInputsDigest,
+                         _selectedPriorityCustomDataInputsDigest,
+                         StringComparison.Ordinal))
+            {
+                blockers.Add(CharacterCreationPrerequisiteBlockers.PrioritiesSourceDrift);
+            }
+            if (customDataUnsupported)
+            {
+                blockers.Add(CharacterCreationPrerequisiteBlockers.PriorityCustomDataUnsupported);
+            }
+
+            var projectionContext = new CharacterCreationPrerequisiteProjectionContext(
+                SettingsProfileId: _settingsProfileId,
+                BuildMethod: _prerequisiteBuildMethod,
+                CreationKarmaTotal: _creationKarmaTotal,
+                PriorityArray: _priorityArray,
+                PriorityTable: _priorityTable,
+                SumToTenTarget: _sumToTenTarget,
+                RawProfileInputsDigest: _rawProfileInputsDigest,
+                RawPrioritiesXmlDigest: _rawPrioritiesXmlDigest,
+                EffectivePrioritiesInputsDigest: _effectivePrioritiesInputsDigest,
+                SelectedPriorityCustomDataInputsDigest: _selectedPriorityCustomDataInputsDigest,
+                SourceAnchorIds:
+                [
+                    $"settings.xml#setting:{_settingsProfileId}",
+                    "priorities.xml",
+                    .. customSourceAnchors
+                ],
+                Blockers: blockers);
+            authority = CharacterCreationPrerequisiteAuthorityProjector.Project(
+                document,
+                projectionContext);
             return true;
         }
 
@@ -1921,6 +2167,198 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
         {
             return false;
         }
+    }
+
+    private static bool TryComputeSelectedPriorityCustomDataInputsDigest(
+        IReadOnlyList<CustomDirectory> directories,
+        out string digest)
+    {
+        digest = string.Empty;
+        try
+        {
+            using IncrementalHash hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+            AppendFramed(hash, Encoding.UTF8.GetBytes("selected-priority-custom-data-inputs-v1"));
+            foreach (CustomDirectory directory in directories)
+            {
+                AppendFramed(hash, Encoding.UTF8.GetBytes(directory.Name));
+                AppendFramed(hash, Encoding.UTF8.GetBytes(
+                    directory.ManifestId?.ToString("D") ?? string.Empty));
+                AppendFramed(hash, Encoding.UTF8.GetBytes(
+                    string.Join('.', directory.Version.Parts)));
+
+                string manifestPath = Path.Combine(directory.Path, "manifest.xml");
+                if (File.Exists(manifestPath))
+                {
+                    AppendFramed(hash, Encoding.UTF8.GetBytes("manifest.xml"));
+                    AppendFramed(hash, File.ReadAllBytes(manifestPath));
+                }
+
+                foreach (string path in Directory.EnumerateFiles(
+                             directory.Path,
+                             "*.xml",
+                             SearchOption.AllDirectories)
+                         .Where(path => IsLegacyCustomDataInputFor(path, "priorities.xml"))
+                         .OrderBy(
+                             path => Path.GetRelativePath(directory.Path, path),
+                             StringComparer.Ordinal))
+                {
+                    string relativePath = Path.GetRelativePath(directory.Path, path)
+                        .Replace('\\', '/');
+                    AppendFramed(hash, Encoding.UTF8.GetBytes(relativePath));
+                    AppendFramed(hash, File.ReadAllBytes(path));
+                }
+            }
+
+            digest = "sha256:" + Convert.ToHexString(hash.GetHashAndReset()).ToLowerInvariant();
+            return true;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
+
+    private static bool TryLoadCreationPriorityDocument(
+        ContentOverlayCatalog catalog,
+        IReadOnlyList<CustomDirectory> directories,
+        out XDocument? document,
+        out bool customDataUnsupported,
+        out string[] sourceAnchors)
+    {
+        customDataUnsupported = false;
+        sourceAnchors = [];
+        if (!TryLoadEffectiveDocument(catalog, "priorities.xml", out document)
+            || document?.Root is null)
+        {
+            return false;
+        }
+
+        var anchors = new List<string>();
+        try
+        {
+            foreach (CustomDirectory directory in directories)
+            {
+                foreach (string path in Directory.EnumerateFiles(
+                             directory.Path,
+                             "*.xml",
+                             SearchOption.AllDirectories)
+                         .Where(path => IsLegacyCustomDataInputFor(path, "priorities.xml"))
+                         .OrderBy(
+                             path => Path.GetRelativePath(directory.Path, path),
+                             StringComparer.Ordinal))
+                {
+                    string relativePath = Path.GetRelativePath(directory.Path, path)
+                        .Replace('\\', '/');
+                    anchors.Add($"customdata:{directory.Name}:{relativePath}");
+                    if (!Path.GetFileName(path).StartsWith(
+                            "amend_",
+                            StringComparison.OrdinalIgnoreCase)
+                        || !TryApplyCreationPriorityWeightAmendment(document, path))
+                    {
+                        customDataUnsupported = true;
+                    }
+                }
+            }
+        }
+        catch (Exception exception) when (exception is IOException
+                                          or UnauthorizedAccessException
+                                          or XmlException)
+        {
+            return false;
+        }
+
+        sourceAnchors = anchors.ToArray();
+        return true;
+    }
+
+    private static bool TryApplyCreationPriorityWeightAmendment(
+        XDocument target,
+        string amendmentPath)
+    {
+        if (!TryLoadXml(amendmentPath, out XDocument? amendment)
+            || target.Root is null
+            || amendment?.Root is null
+            || amendment.Root.Name.NamespaceName.Length != 0
+            || !string.Equals(amendment.Root.Name.LocalName, "chummer", StringComparison.Ordinal)
+            || amendment.Root.HasAttributes)
+        {
+            return false;
+        }
+
+        XElement[] containers = amendment.Root.Elements().ToArray();
+        if (containers.Length != 1
+            || containers[0].Name.NamespaceName.Length != 0
+            || !string.Equals(
+                containers[0].Name.LocalName,
+                "priortysumtotenvalues",
+                StringComparison.Ordinal)
+            || containers[0].HasAttributes)
+        {
+            return false;
+        }
+
+        var replacements = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (XElement value in containers[0].Elements())
+        {
+            string rank = value.Name.LocalName;
+            if (value.Name.NamespaceName.Length != 0
+                || rank.Length != 1
+                || rank[0] is < 'A' or > 'Z'
+                || value.HasAttributes
+                || value.HasElements
+                || !string.Equals(value.Value, value.Value.Trim(), StringComparison.Ordinal)
+                || !int.TryParse(
+                    value.Value,
+                    NumberStyles.Integer,
+                    CultureInfo.InvariantCulture,
+                    out int parsed)
+                || parsed < 0
+                || !replacements.TryAdd(rank, parsed))
+            {
+                return false;
+            }
+        }
+        if (replacements.Count == 0)
+            return false;
+
+        XElement[] targetContainers = target.Root.Elements("priortysumtotenvalues")
+            .Take(2)
+            .ToArray();
+        if (targetContainers.Length > 1
+            || targetContainers.Any(container => container.HasAttributes))
+        {
+            return false;
+        }
+
+        XElement targetContainer;
+        if (targetContainers.Length == 0)
+        {
+            targetContainer = new XElement("priortysumtotenvalues");
+            XElement? priorities = target.Root.Element("priorities");
+            if (priorities is null)
+                target.Root.Add(targetContainer);
+            else
+                priorities.AddBeforeSelf(targetContainer);
+        }
+        else
+        {
+            targetContainer = targetContainers[0];
+        }
+
+        foreach ((string rank, int parsed) in replacements)
+        {
+            XElement[] existing = targetContainer.Elements(rank).Take(2).ToArray();
+            if (existing.Length > 1
+                || existing.Any(element => element.HasAttributes || element.HasElements))
+            {
+                return false;
+            }
+            if (existing.Length == 0)
+                targetContainer.Add(new XElement(rank, parsed.ToString(CultureInfo.InvariantCulture)));
+            else
+                existing[0].Value = parsed.ToString(CultureInfo.InvariantCulture);
+        }
+        return true;
     }
 
     private static bool TryHasEnabledOverlayInput(

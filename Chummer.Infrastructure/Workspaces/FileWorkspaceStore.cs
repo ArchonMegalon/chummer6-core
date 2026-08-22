@@ -1397,12 +1397,7 @@ public sealed class FileWorkspaceStore :
         WorkspaceDocumentAuxiliaryState state)
     {
         CharacterCreationFoundationDraftLedger? draft = state.CharacterCreationFoundationDraft;
-        if (draft is null)
-        {
-            return true;
-        }
-
-        return string.Equals(
+        bool foundationValid = draft is null || string.Equals(
                    draft.Schema,
                    CharacterCreationFoundationSchemas.DraftLedgerV1,
                    StringComparison.Ordinal)
@@ -1425,6 +1420,31 @@ public sealed class FileWorkspaceStore :
                    StringComparison.Ordinal)
                && !draft.CharacterEffectsApplied
                && IsFoundationSha256(draft.DraftDigest);
+        CharacterCreationPrerequisiteDraft? prerequisite =
+            state.CharacterCreationPrerequisiteDraft;
+        bool prerequisiteValid = prerequisite is null
+            || string.Equals(
+                prerequisite.Schema,
+                CharacterCreationPrerequisiteSchemas.DraftV1,
+                StringComparison.Ordinal)
+            && prerequisite.WorkspaceId == workspaceId
+            && prerequisite.DraftRevision > 0
+            && prerequisite.BaseContentRevision > 0
+            && prerequisite.BaseContentRevision < currentContentRevision
+            && IsFoundationSha256(prerequisite.BaseRawCharacterXmlDigest)
+            && IsFoundationSha256(prerequisite.AuthorityDigest)
+            && (prerequisite.BuildMethod is CharacterCreationBuildMethods.Priority
+                or CharacterCreationBuildMethods.SumToTen)
+            && !string.IsNullOrWhiteSpace(prerequisite.SettingsProfileId)
+            && !string.IsNullOrWhiteSpace(prerequisite.PriorityTable)
+            && prerequisite.PriorityArray is { Count: 5 }
+            && prerequisite.Assignments is { Count: 5 }
+            && prerequisite.CreationKarmaTotal >= 0
+            && prerequisite.CreationKarmaUsed >= 0
+            && prerequisite.CreationKarmaUsed <= prerequisite.CreationKarmaTotal
+            && prerequisite.SourceAnchorIds is not null
+            && IsFoundationSha256(prerequisite.DraftDigest);
+        return foundationValid && prerequisiteValid;
     }
 
     private static bool IsValidAuxiliaryStateTransition(
@@ -1439,25 +1459,92 @@ public sealed class FileWorkspaceStore :
             return false;
         }
 
-        CharacterCreationFoundationDraftLedger? replacementDraft =
+        CharacterCreationFoundationDraftLedger? replacementFoundation =
             replacementState.CharacterCreationFoundationDraft;
-        if (replacementDraft is null)
-        {
-            return true;
-        }
-
-        CharacterCreationFoundationDraftLedger? currentDraft =
+        CharacterCreationFoundationDraftLedger? currentFoundation =
             currentState.CharacterCreationFoundationDraft;
-        if (currentDraft is null)
+        CharacterCreationPrerequisiteDraft? replacementPrerequisite =
+            replacementState.CharacterCreationPrerequisiteDraft;
+        CharacterCreationPrerequisiteDraft? currentPrerequisite =
+            currentState.CharacterCreationPrerequisiteDraft;
+
+        bool foundationUnchanged = HasSameFoundationDraft(
+            currentFoundation,
+            replacementFoundation);
+        bool prerequisiteUnchanged = HasSamePrerequisiteDraft(
+            currentPrerequisite,
+            replacementPrerequisite);
+        if (foundationUnchanged == prerequisiteUnchanged)
         {
-            return replacementDraft.DraftRevision == 1
-                   && replacementDraft.BaseContentRevision == previousContentRevision;
+            // The authority must advance exactly one typed lane. This prevents
+            // a caller from smuggling a sibling draft change into the same CAS.
+            return false;
         }
 
-        return currentDraft.DraftRevision < long.MaxValue
-               && replacementDraft.DraftRevision == currentDraft.DraftRevision + 1
-               && replacementDraft.BaseContentRevision == previousContentRevision;
+        return foundationUnchanged
+            ? IsValidPrerequisiteTransition(
+                currentPrerequisite,
+                replacementPrerequisite,
+                previousContentRevision)
+            : IsValidFoundationTransition(
+                currentFoundation,
+                replacementFoundation,
+                previousContentRevision);
     }
+
+    private static bool IsValidFoundationTransition(
+        CharacterCreationFoundationDraftLedger? current,
+        CharacterCreationFoundationDraftLedger? replacement,
+        long previousContentRevision)
+    {
+        if (replacement is null)
+            return current is not null;
+        return current is null
+            ? replacement.DraftRevision == 1
+              && replacement.BaseContentRevision == previousContentRevision
+            : current.DraftRevision < long.MaxValue
+              && replacement.DraftRevision == current.DraftRevision + 1
+              && replacement.BaseContentRevision == previousContentRevision;
+    }
+
+    private static bool IsValidPrerequisiteTransition(
+        CharacterCreationPrerequisiteDraft? current,
+        CharacterCreationPrerequisiteDraft? replacement,
+        long previousContentRevision)
+    {
+        if (replacement is null)
+            return current is not null;
+        return current is null
+            ? replacement.DraftRevision == 1
+              && replacement.BaseContentRevision == previousContentRevision
+            : current.DraftRevision < long.MaxValue
+              && replacement.DraftRevision == current.DraftRevision + 1
+              && replacement.BaseContentRevision == previousContentRevision;
+    }
+
+    private static bool HasSameFoundationDraft(
+        CharacterCreationFoundationDraftLedger? left,
+        CharacterCreationFoundationDraftLedger? right) =>
+        string.Equals(
+            WorkspaceDocumentAuxiliaryStateDigest.Compute(
+                new WorkspaceDocumentAuxiliaryState(left)),
+            WorkspaceDocumentAuxiliaryStateDigest.Compute(
+                new WorkspaceDocumentAuxiliaryState(right)),
+            StringComparison.Ordinal);
+
+    private static bool HasSamePrerequisiteDraft(
+        CharacterCreationPrerequisiteDraft? left,
+        CharacterCreationPrerequisiteDraft? right) =>
+        string.Equals(
+            WorkspaceDocumentAuxiliaryStateDigest.Compute(
+                new WorkspaceDocumentAuxiliaryState(
+                    CharacterCreationFoundationDraft: null,
+                    CharacterCreationPrerequisiteDraft: left)),
+            WorkspaceDocumentAuxiliaryStateDigest.Compute(
+                new WorkspaceDocumentAuxiliaryState(
+                    CharacterCreationFoundationDraft: null,
+                    CharacterCreationPrerequisiteDraft: right)),
+            StringComparison.Ordinal);
 
     private static bool IsFoundationSha256(string? value)
     {

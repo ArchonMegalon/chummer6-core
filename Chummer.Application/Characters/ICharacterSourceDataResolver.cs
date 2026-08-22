@@ -14,6 +14,18 @@ public interface ICharacterSourceDataResolver
 public interface ICharacterSourceDataContext
 {
     /// <summary>
+    /// Projects the exact Priority/Sum-to-Ten rank authority and global creation
+    /// Karma total selected by the saved character's settings profile. False
+    /// means callers must not expose rank or Attribute-point choices.
+    /// </summary>
+    bool TryResolveCreationPrerequisiteAuthority(
+        out CharacterCreationPrerequisiteAuthority authority)
+    {
+        authority = CharacterCreationPrerequisiteAuthority.Unavailable;
+        return false;
+    }
+
+    /// <summary>
     /// Projects the bounded, digest-bound metatype choices proven by the saved
     /// character's source profile. False means no catalog authority exists;
     /// callers must never substitute their own source filters or defaults.

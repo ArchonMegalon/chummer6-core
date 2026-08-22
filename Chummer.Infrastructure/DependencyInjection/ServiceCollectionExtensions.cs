@@ -178,6 +178,8 @@ public static class ServiceCollectionExtensions
         services.AddCharacterCreationFoundationDraftPersistence();
         services.AddSingleton<ICharacterCreationFoundationService,
             CharacterCreationFoundationService>();
+        services.AddSingleton<ICharacterCreationPrerequisiteService,
+            CharacterCreationPrerequisiteService>();
 
         return services;
     }
