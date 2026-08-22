@@ -675,6 +675,10 @@ public sealed class FileSystemCharacterSourceDataResolverTests
                     + "<skilltype xpath=\"category = 'Combat Active'\">xpath</skilltype>")
                 + TalentGrant("Empty XPath", "<skillqty>1</skillqty><skillval>2</skillval>"
                     + "<skilltype xpath=\"\">xpath</skilltype>")
+                + TalentGrant("Whitespace XPath", "<skillqty>1</skillqty><skillval>2</skillval>"
+                    + "<skilltype xpath=\" \" >xpath</skilltype>")
+                + TalentGrant("Outer XPath", "<skillqty>1</skillqty><skillval>2</skillval>"
+                    + "<skilltype xpath=\" category = 'Combat Active' \" >xpath</skilltype>")
                 + TalentGrant("Default", "<skillqty>1</skillqty><skillval>2</skillval>"
                     + "<skilltype>DeFaUlT</skilltype>")
                 + TalentGrant("Missing Type", "<skillchoices><skill>Arcana</skill></skillchoices>"
@@ -685,6 +689,12 @@ public sealed class FileSystemCharacterSourceDataResolverTests
                     + "<skilltype>unknown</skilltype>")
                 + TalentGrant("Unknown Attr Default", "<skillqty>1</skillqty><skillval>2</skillval>"
                     + "<skilltype xpath=\"category = 'Combat Active'\">unknown</skilltype>")
+                + TalentGrant("Empty Attr Default", "<skillqty>1</skillqty><skillval>2</skillval>"
+                    + "<skilltype xpath=\"\">unknown</skilltype>")
+                + TalentGrant("Whitespace Attr Default", "<skillqty>1</skillqty><skillval>2</skillval>"
+                    + "<skilltype xpath=\" \" >unknown</skilltype>")
+                + TalentGrant("Outer Attr Default", "<skillqty>1</skillqty><skillval>2</skillval>"
+                    + "<skilltype xpath=\" category = 'Combat Active' \" >unknown</skilltype>")
                 + TalentGrant("Primary Choices", "<skillqty>1</skillqty><skillval>2</skillval>"
                     + "<skilltype>choices</skilltype><skillgroupchoices>"
                     + "<skillgroup>Sorcery</skillgroup></skillgroupchoices>")
@@ -857,11 +867,20 @@ public sealed class FileSystemCharacterSourceDataResolverTests
             CollectionAssert.Contains(
                 unknownXPath.Blockers.ToList(),
                 CharacterCreationPrerequisiteBlockers.TalentSkillGrantAuthorityUnsupported);
-            CharacterCreationTalentActiveSkillGrantProjection emptyXPath = talents.Single(talent =>
-                talent.Value == "Empty XPath").ActiveSkillGrant!;
-            Assert.IsFalse(emptyXPath.IsSupported);
-            Assert.IsEmpty(emptyXPath.Options);
-            Assert.AreEqual(string.Empty, emptyXPath.RawSelectorTypeQuery);
+            foreach ((string value, string rawQuery) in new[]
+                     {
+                         ("Empty XPath", string.Empty),
+                         ("Whitespace XPath", " "),
+                         ("Outer XPath", " category = 'Combat Active' ")
+                     })
+            {
+                CharacterCreationTalentActiveSkillGrantProjection invalidXPath = talents.Single(
+                    talent => talent.Value == value).ActiveSkillGrant!;
+                Assert.IsFalse(invalidXPath.IsSupported);
+                Assert.IsEmpty(invalidXPath.Options);
+                Assert.AreEqual(rawQuery, invalidXPath.RawSelectorTypeQuery);
+                Assert.AreEqual(rawQuery, invalidXPath.SkillTypeQuery);
+            }
 
             CharacterCreationTalentActiveSkillGrantProjection defaultGrant = talents.Single(talent =>
                 talent.Value == "Default").ActiveSkillGrant!;
@@ -900,6 +919,22 @@ public sealed class FileSystemCharacterSourceDataResolverTests
                 "A non-XPATH selector ignores its xpath attribute in legacy dispatch.");
             Assert.AreEqual("category = 'Combat Active'",
                 unknownAttrDefault.RawSelectorTypeQuery);
+            foreach ((string value, string rawQuery) in new[]
+                     {
+                         ("Empty Attr Default", string.Empty),
+                         ("Whitespace Attr Default", " "),
+                         ("Outer Attr Default", " category = 'Combat Active' ")
+                     })
+            {
+                CharacterCreationTalentActiveSkillGrantProjection ignoredQuery = talents.Single(
+                    talent => talent.Value == value).ActiveSkillGrant!;
+                Assert.IsTrue(ignoredQuery.IsSupported,
+                    $"{value}: {string.Join(",", ignoredQuery.Blockers)}");
+                Assert.AreEqual(CharacterCreationTalentSkillGrantTypes.Default,
+                    ignoredQuery.SkillType);
+                Assert.AreEqual(rawQuery, ignoredQuery.RawSelectorTypeQuery);
+                Assert.AreEqual(string.Empty, ignoredQuery.SkillTypeQuery);
+            }
 
             CharacterCreationPriorityTalentOptionProjection primaryChoices = talents.Single(
                 talent => talent.Value == "Primary Choices");

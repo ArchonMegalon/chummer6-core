@@ -504,7 +504,8 @@ public sealed class CharacterCreationPrerequisiteServiceTests
             string query = "",
             string[]? specificNames = null,
             string? rawType = null,
-            string? rawQuery = null) =>
+            string? rawQuery = null,
+            bool isSupported = true) =>
             MutateTalentOption(
                 baseline,
                 talent =>
@@ -517,6 +518,8 @@ public sealed class CharacterCreationPrerequisiteServiceTests
                         selectorType: sourceType,
                         improvementKind: sourceGrant.ImprovementKind,
                         selectorTypeQuery: sourceQuery,
+                        includeSelectorTypeQuery: rawQuery is not null
+                                                  || query.Length != 0,
                         specificSkillNames: specificNames);
                     CharacterCreationTalentActiveSkillGrantProjection grant =
                         talent.ActiveSkillGrant! with
@@ -534,8 +537,11 @@ public sealed class CharacterCreationPrerequisiteServiceTests
                                 sourceQuery,
                                 skillsDigest,
                                 options.Select(option => option.SelectionId)),
-                            IsSupported = true,
-                            Blockers = [],
+                            IsSupported = isSupported,
+                            Blockers = isSupported
+                                ? []
+                                : [CharacterCreationPrerequisiteBlockers
+                                    .TalentSkillGrantAuthorityUnsupported],
                             RawSelectorType = sourceType,
                             SelectorTypeSource =
                                 CharacterCreationTalentGrantSelectorTypeSources.SkillType,
@@ -575,6 +581,39 @@ public sealed class CharacterCreationPrerequisiteServiceTests
                 sourceGrant.Options.ToArray(),
                 rawType: "unknown",
                 rawQuery: "category = 'Combat Active'"),
+            WithRule(
+                CharacterCreationTalentSkillGrantTypes.Default,
+                sourceGrant.Options.ToArray(),
+                rawType: "unknown",
+                rawQuery: string.Empty),
+            WithRule(
+                CharacterCreationTalentSkillGrantTypes.Default,
+                sourceGrant.Options.ToArray(),
+                rawType: "unknown",
+                rawQuery: " "),
+            WithRule(
+                CharacterCreationTalentSkillGrantTypes.Default,
+                sourceGrant.Options.ToArray(),
+                rawType: "unknown",
+                rawQuery: " category = 'Combat Active' "),
+            WithRule(
+                CharacterCreationTalentSkillGrantTypes.XPath,
+                [],
+                query: string.Empty,
+                rawQuery: string.Empty,
+                isSupported: false),
+            WithRule(
+                CharacterCreationTalentSkillGrantTypes.XPath,
+                [],
+                query: " ",
+                rawQuery: " ",
+                isSupported: false),
+            WithRule(
+                CharacterCreationTalentSkillGrantTypes.XPath,
+                [],
+                query: " category = 'Combat Active' ",
+                rawQuery: " category = 'Combat Active' ",
+                isSupported: false),
             WithRule(CharacterCreationTalentSkillGrantTypes.Matrix, matrixOptions),
             WithRule(
                 CharacterCreationTalentSkillGrantTypes.Specific,
@@ -1445,6 +1484,7 @@ public sealed class CharacterCreationPrerequisiteServiceTests
         string selectorType,
         string improvementKind,
         string selectorTypeQuery = "",
+        bool includeSelectorTypeQuery = false,
         IReadOnlyList<string>? specificSkillNames = null)
     {
         var talent = new XElement(
@@ -1464,7 +1504,7 @@ public sealed class CharacterCreationPrerequisiteServiceTests
                 specificSkillNames.Select(name => new XElement("skill", name))));
         }
         var type = new XElement("skilltype", selectorType);
-        if (!string.IsNullOrEmpty(selectorTypeQuery))
+        if (includeSelectorTypeQuery || !string.IsNullOrEmpty(selectorTypeQuery))
             type.Add(new XAttribute("xpath", selectorTypeQuery));
         talent.Add(type);
         return talent.ToString(SaveOptions.DisableFormatting);
