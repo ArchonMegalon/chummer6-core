@@ -5,7 +5,7 @@ namespace Chummer.Contracts.Characters;
 
 public enum CharacterGearMatrixSwapPhase { Creation, Career }
 
-public enum CharacterGearMatrixAttribute { Attack, Sleaze, DataProcessing, Firewall }
+public enum CharacterGearMatrixStat { Attack, Sleaze, DataProcessing, Firewall }
 
 public sealed record CharacterGearMatrixSwapIdentity(IReadOnlyList<Guid> GearPath);
 public sealed record CharacterGearMatrixSwapEconomics(decimal NuyenDelta, int KarmaDelta);
@@ -43,7 +43,7 @@ public static class CharacterGearMatrixSwapRules
 
     public static bool TryValidateMutation(
         CharacterGearMatrixSwapState? current, string? expectedRevision,
-        CharacterGearMatrixAttribute changedAttribute, CharacterGearMatrixAttribute targetAttribute)
+        CharacterGearMatrixStat changedAttribute, CharacterGearMatrixStat targetAttribute)
         => current is not null
             && current.Economics is { NuyenDelta: 0m, KarmaDelta: 0 }
             && IsDefined(changedAttribute) && IsDefined(targetAttribute)
@@ -59,27 +59,27 @@ public static class CharacterGearMatrixSwapRules
     public static bool IdentityEquals(CharacterGearMatrixSwapIdentity? left, CharacterGearMatrixSwapIdentity? right)
         => left?.GearPath is not null && right?.GearPath is not null && left.GearPath.SequenceEqual(right.GearPath);
 
-    public static string ElementName(CharacterGearMatrixAttribute attribute) => attribute switch
+    public static string ElementName(CharacterGearMatrixStat attribute) => attribute switch
     {
-        CharacterGearMatrixAttribute.Attack => "attack",
-        CharacterGearMatrixAttribute.Sleaze => "sleaze",
-        CharacterGearMatrixAttribute.DataProcessing => "dataprocessing",
-        CharacterGearMatrixAttribute.Firewall => "firewall",
+        CharacterGearMatrixStat.Attack => "attack",
+        CharacterGearMatrixStat.Sleaze => "sleaze",
+        CharacterGearMatrixStat.DataProcessing => "dataprocessing",
+        CharacterGearMatrixStat.Firewall => "firewall",
         _ => throw new ArgumentOutOfRangeException(nameof(attribute))
     };
 
-    public static string Read(CharacterGearMatrixSwapState state, CharacterGearMatrixAttribute attribute) => attribute switch
+    public static string Read(CharacterGearMatrixSwapState state, CharacterGearMatrixStat attribute) => attribute switch
     {
-        CharacterGearMatrixAttribute.Attack => state.Attack,
-        CharacterGearMatrixAttribute.Sleaze => state.Sleaze,
-        CharacterGearMatrixAttribute.DataProcessing => state.DataProcessing,
-        CharacterGearMatrixAttribute.Firewall => state.Firewall,
+        CharacterGearMatrixStat.Attack => state.Attack,
+        CharacterGearMatrixStat.Sleaze => state.Sleaze,
+        CharacterGearMatrixStat.DataProcessing => state.DataProcessing,
+        CharacterGearMatrixStat.Firewall => state.Firewall,
         _ => throw new ArgumentOutOfRangeException(nameof(attribute))
     };
 
-    private static bool IsDefined(CharacterGearMatrixAttribute value)
-        => value is CharacterGearMatrixAttribute.Attack or CharacterGearMatrixAttribute.Sleaze
-            or CharacterGearMatrixAttribute.DataProcessing or CharacterGearMatrixAttribute.Firewall;
+    private static bool IsDefined(CharacterGearMatrixStat value)
+        => value is CharacterGearMatrixStat.Attack or CharacterGearMatrixStat.Sleaze
+            or CharacterGearMatrixStat.DataProcessing or CharacterGearMatrixStat.Firewall;
 
     private static string CalculateRevision(CharacterGearMatrixSwapIdentity identity, CharacterGearMatrixSwapPhase phase,
         string attack, string sleaze, string dataProcessing, string firewall)

@@ -65,7 +65,7 @@ public static class CharacterGearAttackSwapRules
         string? expectedRevision,
         CharacterGearAttackSwapTarget target)
         => current is not null && CharacterGearMatrixSwapRules.TryValidateMutation(
-            ToShared(current), expectedRevision, CharacterGearMatrixAttribute.Attack, ToShared(target));
+            ToShared(current), expectedRevision, CharacterGearMatrixStat.Attack, ToShared(target));
 
     public static bool IsValidIdentity(CharacterGearAttackSwapIdentity? identity)
         => identity is not null && CharacterGearMatrixSwapRules.IsValidIdentity(
@@ -86,12 +86,12 @@ public static class CharacterGearAttackSwapRules
         CharacterGearAttackSwapTarget target)
         => CharacterGearMatrixSwapRules.Read(ToShared(state), ToShared(target));
 
-    private static CharacterGearMatrixAttribute ToShared(CharacterGearAttackSwapTarget target) => target switch
+    private static CharacterGearMatrixStat ToShared(CharacterGearAttackSwapTarget target) => target switch
     {
-        CharacterGearAttackSwapTarget.Sleaze => CharacterGearMatrixAttribute.Sleaze,
-        CharacterGearAttackSwapTarget.DataProcessing => CharacterGearMatrixAttribute.DataProcessing,
-        CharacterGearAttackSwapTarget.Firewall => CharacterGearMatrixAttribute.Firewall,
-        _ => (CharacterGearMatrixAttribute)(-1)
+        CharacterGearAttackSwapTarget.Sleaze => CharacterGearMatrixStat.Sleaze,
+        CharacterGearAttackSwapTarget.DataProcessing => CharacterGearMatrixStat.DataProcessing,
+        CharacterGearAttackSwapTarget.Firewall => CharacterGearMatrixStat.Firewall,
+        _ => (CharacterGearMatrixStat)(-1)
     };
 
     private static CharacterGearMatrixSwapState ToShared(CharacterGearAttackSwapState state) => new(

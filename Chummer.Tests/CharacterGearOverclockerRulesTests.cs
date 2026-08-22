@@ -18,7 +18,7 @@ public sealed class CharacterGearOverclockerRulesTests
             identity, true, true, "Cyberdecks", "Root > Deck", "Data Processing",
             out CharacterGearOverclockerState state));
         Assert.AreEqual(CharacterGearOverclockerPhase.Career, state.Phase);
-        Assert.AreEqual(CharacterGearOverclockerAttribute.DataProcessing, state.Attribute);
+        Assert.AreEqual(CharacterGearOverclockerTarget.DataProcessing, state.Attribute);
         Assert.AreEqual(0m, state.Economics.NuyenDelta);
         Assert.AreEqual(0, state.Economics.KarmaDelta);
         Assert.AreEqual(CharacterGearOverclockerRules.RevisionHexLength, state.Revision.Length);
@@ -52,12 +52,12 @@ public sealed class CharacterGearOverclockerRulesTests
 
         Assert.AreNotEqual(current.Revision, moved.Revision);
         Assert.IsFalse(CharacterGearOverclockerRules.TryValidateMutation(
-            current, new string('0', 64), CharacterGearOverclockerAttribute.Firewall));
+            current, new string('0', 64), CharacterGearOverclockerTarget.Firewall));
         Assert.IsFalse(CharacterGearOverclockerRules.TryValidateMutation(
-            current, current.Revision, CharacterGearOverclockerAttribute.Attack));
+            current, current.Revision, CharacterGearOverclockerTarget.Attack));
         Assert.IsTrue(CharacterGearOverclockerRules.TryValidateMutation(
-            current, current.Revision, CharacterGearOverclockerAttribute.Firewall));
+            current, current.Revision, CharacterGearOverclockerTarget.Firewall));
         Assert.AreEqual("Data Processing", CharacterGearOverclockerRules.ToSavedValue(
-            CharacterGearOverclockerAttribute.DataProcessing));
+            CharacterGearOverclockerTarget.DataProcessing));
     }
 }

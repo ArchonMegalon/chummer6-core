@@ -8,7 +8,7 @@ public enum CharacterGearOverclockerPhase
     Career
 }
 
-public enum CharacterGearOverclockerAttribute
+public enum CharacterGearOverclockerTarget
 {
     None,
     Attack,
@@ -29,7 +29,7 @@ public sealed record CharacterGearOverclockerState(
     CharacterGearOverclockerIdentity Identity,
     string DisplayPath,
     CharacterGearOverclockerPhase Phase,
-    CharacterGearOverclockerAttribute Attribute,
+    CharacterGearOverclockerTarget Attribute,
     CharacterGearOverclockerEconomics Economics,
     string Revision);
 
@@ -57,7 +57,7 @@ public static class CharacterGearOverclockerRules
             || !string.Equals(category, "Cyberdecks", StringComparison.Ordinal)
             || !IsValidIdentity(identity)
             || displayPath is null
-            || !TryParseAttribute(savedAttribute, out CharacterGearOverclockerAttribute attribute))
+            || !TryParseAttribute(savedAttribute, out CharacterGearOverclockerTarget attribute))
         {
             return false;
         }
@@ -76,7 +76,7 @@ public static class CharacterGearOverclockerRules
     public static bool TryValidateMutation(
         CharacterGearOverclockerState? current,
         string? expectedRevision,
-        CharacterGearOverclockerAttribute attribute)
+        CharacterGearOverclockerTarget attribute)
         => current is not null
             && current.Phase == CharacterGearOverclockerPhase.Career
             && current.Economics is { NuyenDelta: 0m, KarmaDelta: 0 }
@@ -97,43 +97,43 @@ public static class CharacterGearOverclockerRules
             && right?.GearPath is not null
             && left.GearPath.SequenceEqual(right.GearPath);
 
-    public static string ToSavedValue(CharacterGearOverclockerAttribute attribute)
+    public static string ToSavedValue(CharacterGearOverclockerTarget attribute)
         => attribute switch
         {
-            CharacterGearOverclockerAttribute.None => "None",
-            CharacterGearOverclockerAttribute.Attack => "Attack",
-            CharacterGearOverclockerAttribute.Sleaze => "Sleaze",
-            CharacterGearOverclockerAttribute.DataProcessing => "Data Processing",
-            CharacterGearOverclockerAttribute.Firewall => "Firewall",
+            CharacterGearOverclockerTarget.None => "None",
+            CharacterGearOverclockerTarget.Attack => "Attack",
+            CharacterGearOverclockerTarget.Sleaze => "Sleaze",
+            CharacterGearOverclockerTarget.DataProcessing => "Data Processing",
+            CharacterGearOverclockerTarget.Firewall => "Firewall",
             _ => throw new ArgumentOutOfRangeException(nameof(attribute))
         };
 
     public static bool TryParseAttribute(
         string? savedValue,
-        out CharacterGearOverclockerAttribute attribute)
+        out CharacterGearOverclockerTarget attribute)
     {
         attribute = savedValue switch
         {
-            null or "" or "None" => CharacterGearOverclockerAttribute.None,
-            "Attack" => CharacterGearOverclockerAttribute.Attack,
-            "Sleaze" => CharacterGearOverclockerAttribute.Sleaze,
-            "Data Processing" => CharacterGearOverclockerAttribute.DataProcessing,
-            "Firewall" => CharacterGearOverclockerAttribute.Firewall,
-            _ => (CharacterGearOverclockerAttribute)(-1)
+            null or "" or "None" => CharacterGearOverclockerTarget.None,
+            "Attack" => CharacterGearOverclockerTarget.Attack,
+            "Sleaze" => CharacterGearOverclockerTarget.Sleaze,
+            "Data Processing" => CharacterGearOverclockerTarget.DataProcessing,
+            "Firewall" => CharacterGearOverclockerTarget.Firewall,
+            _ => (CharacterGearOverclockerTarget)(-1)
         };
         return IsDefinedAttribute(attribute);
     }
 
-    private static bool IsDefinedAttribute(CharacterGearOverclockerAttribute attribute)
-        => attribute is CharacterGearOverclockerAttribute.None
-            or CharacterGearOverclockerAttribute.Attack
-            or CharacterGearOverclockerAttribute.Sleaze
-            or CharacterGearOverclockerAttribute.DataProcessing
-            or CharacterGearOverclockerAttribute.Firewall;
+    private static bool IsDefinedAttribute(CharacterGearOverclockerTarget attribute)
+        => attribute is CharacterGearOverclockerTarget.None
+            or CharacterGearOverclockerTarget.Attack
+            or CharacterGearOverclockerTarget.Sleaze
+            or CharacterGearOverclockerTarget.DataProcessing
+            or CharacterGearOverclockerTarget.Firewall;
 
     private static string CalculateRevision(
         CharacterGearOverclockerIdentity identity,
-        CharacterGearOverclockerAttribute attribute)
+        CharacterGearOverclockerTarget attribute)
     {
         var payload = new StringBuilder();
         payload.Append(CharacterGearOverclockerPhase.Career).Append('\0');
@@ -151,7 +151,7 @@ public static class CharacterGearOverclockerRules
             new CharacterGearOverclockerIdentity(Array.Empty<Guid>()),
             string.Empty,
             CharacterGearOverclockerPhase.Career,
-            CharacterGearOverclockerAttribute.None,
+            CharacterGearOverclockerTarget.None,
             new CharacterGearOverclockerEconomics(0m, 0),
             string.Empty);
 }
