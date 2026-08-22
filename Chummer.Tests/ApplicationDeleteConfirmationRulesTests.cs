@@ -21,6 +21,7 @@ public sealed class ApplicationDeleteConfirmationRulesTests
         Assert.IsFalse(ApplicationDeleteConfirmationState.Default.HideCharacterRoster);
         Assert.IsTrue(ApplicationDeleteConfirmationState.Default.SearchInCategoryOnly);
         Assert.IsFalse(ApplicationDeleteConfirmationState.Default.AllowEasterEggs);
+        Assert.IsFalse(ApplicationDeleteConfirmationState.Default.LiveUpdateCleanCharacterFiles);
         Assert.AreEqual(0, ApplicationDeleteConfirmationState.Default.Revision);
         Assert.AreEqual("confirmdelete", ApplicationDeleteConfirmationRules.LegacyIdentity);
         Assert.AreEqual("confirmkarmaexpense", ApplicationDeleteConfirmationRules.LegacyKarmaExpenseIdentity);
@@ -32,6 +33,24 @@ public sealed class ApplicationDeleteConfirmationRulesTests
         Assert.AreEqual("hidecharacterroster", ApplicationDeleteConfirmationRules.LegacyHideCharacterRosterIdentity);
         Assert.AreEqual("searchincategoryonly", ApplicationDeleteConfirmationRules.LegacySearchInCategoryOnlyIdentity);
         Assert.AreEqual("alloweastereggs", ApplicationDeleteConfirmationRules.LegacyAllowEasterEggsIdentity);
+        Assert.AreEqual("prefernightlybuilds", ApplicationDeleteConfirmationRules.LegacyPreferNightlyBuildsIdentity);
+        Assert.AreEqual(
+            "liveupdatecleancharacterfiles",
+            ApplicationDeleteConfirmationRules.LegacyLiveUpdateCleanCharacterFilesIdentity);
+    }
+
+    [Test]
+    public void Update_defaults_match_Chummer5_application_version_build_semantics()
+    {
+        ApplicationDeleteConfirmationState milestone =
+            ApplicationDeleteConfirmationState.ForApplicationVersion(new Version(5, 225, 0, 17));
+        ApplicationDeleteConfirmationState nightly =
+            ApplicationDeleteConfirmationState.ForApplicationVersion(new Version(5, 225, 42, 17));
+
+        Assert.IsFalse(milestone.PreferNightlyBuilds);
+        Assert.IsTrue(nightly.PreferNightlyBuilds);
+        Assert.IsFalse(milestone.LiveUpdateCleanCharacterFiles);
+        Assert.IsFalse(nightly.LiveUpdateCleanCharacterFiles);
     }
 
     [Test]
@@ -151,6 +170,7 @@ public sealed class ApplicationDeleteConfirmationRulesTests
             Assert.IsFalse(migrated.HideCharacterRoster);
             Assert.IsTrue(migrated.SearchInCategoryOnly);
             Assert.IsFalse(migrated.AllowEasterEggs);
+            Assert.IsFalse(migrated.LiveUpdateCleanCharacterFiles);
         }
         finally
         {
@@ -185,6 +205,16 @@ public sealed class ApplicationDeleteConfirmationRulesTests
             File.WriteAllText(
                 path,
                 "{\"Revision\":0,\"ConfirmDelete\":true,\"SearchInCategoryOnly\":\"true\"}");
+            Assert.Throws<InvalidDataException>(() => new FileApplicationDeleteConfirmationStore(directory).Load());
+
+            File.WriteAllText(
+                path,
+                "{\"Revision\":0,\"ConfirmDelete\":true,\"PreferNightlyBuilds\":\"false\"}");
+            Assert.Throws<InvalidDataException>(() => new FileApplicationDeleteConfirmationStore(directory).Load());
+
+            File.WriteAllText(
+                path,
+                "{\"Revision\":0,\"ConfirmDelete\":true,\"LiveUpdateCleanCharacterFiles\":\"false\"}");
             Assert.Throws<InvalidDataException>(() => new FileApplicationDeleteConfirmationStore(directory).Load());
         }
         finally
@@ -412,6 +442,75 @@ public sealed class ApplicationDeleteConfirmationRulesTests
         }
     }
 
+    [Test]
+    public void Whole_page_snapshot_persists_independent_update_values_with_build_aware_migration()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            "chummer-update-settings-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        Version nightlyVersion = new(5, 225, 42, 17);
+        try
+        {
+            string path = Path.Combine(directory, "application-delete-confirmation.json");
+            File.WriteAllText(path, "{\"Revision\":0,\"ConfirmDelete\":true}");
+            FileApplicationDeleteConfirmationStore store = new(directory, nightlyVersion);
+            ApplicationDeleteConfirmationState migrated = store.Load();
+            Assert.IsTrue(migrated.PreferNightlyBuilds);
+            Assert.IsFalse(migrated.LiveUpdateCleanCharacterFiles);
+
+            ApplicationDeleteConfirmationState first = ApplicationDeleteConfirmationRules.ApplySettingsSnapshot(
+                migrated,
+                SettingsMutation(
+                    hideMasterIndex: false,
+                    hideCharacterRoster: false,
+                    expectedRevision: 0,
+                    preferNightlyBuilds: false,
+                    liveUpdateCleanCharacterFiles: true));
+            store.Save(0, first);
+            ApplicationDeleteConfirmationState restarted =
+                new FileApplicationDeleteConfirmationStore(directory, nightlyVersion).Load();
+            Assert.IsFalse(restarted.PreferNightlyBuilds);
+            Assert.IsTrue(restarted.LiveUpdateCleanCharacterFiles);
+
+            ApplicationDeleteConfirmationState second = ApplicationDeleteConfirmationRules.ApplySettingsSnapshot(
+                restarted,
+                SettingsMutation(
+                    hideMasterIndex: false,
+                    hideCharacterRoster: false,
+                    expectedRevision: 1,
+                    preferNightlyBuilds: true,
+                    liveUpdateCleanCharacterFiles: true));
+            store.Save(1, second);
+            Assert.IsTrue(second.PreferNightlyBuilds);
+            Assert.IsTrue(
+                second.LiveUpdateCleanCharacterFiles,
+                "The two legacy update booleans are independent.");
+
+            File.WriteAllText(path, "{");
+            Assert.AreEqual(
+                first,
+                new FileApplicationDeleteConfirmationStore(directory, nightlyVersion).Load());
+
+            ApplicationSettingsSnapshotMutation wrongIdentity = SettingsMutation(
+                hideMasterIndex: false,
+                hideCharacterRoster: false,
+                expectedRevision: first.Revision) with
+            {
+                PreferNightlyBuilds = new(
+                    ApplicationSettingIdentity.LiveUpdateCleanCharacterFiles,
+                    false)
+            };
+            Assert.Throws<ArgumentException>(() => ApplicationDeleteConfirmationRules.ApplySettingsSnapshot(
+                first,
+                wrongIdentity));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
     private static ApplicationDateTimeSettingsMutation DateTimeMutation(
         bool useCustom,
         string dateFormat,
@@ -430,7 +529,9 @@ public sealed class ApplicationDeleteConfirmationRulesTests
         bool hideCharacterRoster,
         long expectedRevision,
         bool searchInCategoryOnly = true,
-        bool allowEasterEggs = false)
+        bool allowEasterEggs = false,
+        bool preferNightlyBuilds = false,
+        bool liveUpdateCleanCharacterFiles = false)
         => new(
             ConfirmDelete: true,
             ConfirmKarmaExpense: true,
@@ -442,5 +543,9 @@ public sealed class ApplicationDeleteConfirmationRulesTests
             HideCharacterRoster: new(ApplicationSettingIdentity.HideCharacterRoster, hideCharacterRoster),
             SearchInCategoryOnly: new(ApplicationSettingIdentity.SearchInCategoryOnly, searchInCategoryOnly),
             AllowEasterEggs: new(ApplicationSettingIdentity.AllowEasterEggs, allowEasterEggs),
+            PreferNightlyBuilds: new(ApplicationSettingIdentity.PreferNightlyBuilds, preferNightlyBuilds),
+            LiveUpdateCleanCharacterFiles: new(
+                ApplicationSettingIdentity.LiveUpdateCleanCharacterFiles,
+                liveUpdateCleanCharacterFiles),
             ExpectedRevision: expectedRevision);
 }

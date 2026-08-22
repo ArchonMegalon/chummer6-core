@@ -15,7 +15,9 @@ public enum ApplicationSettingIdentity
     HideMasterIndex,
     HideCharacterRoster,
     SearchInCategoryOnly,
-    AllowEasterEggs
+    AllowEasterEggs,
+    PreferNightlyBuilds,
+    LiveUpdateCleanCharacterFiles
 }
 
 public sealed record ApplicationDeleteConfirmationState(
@@ -29,20 +31,41 @@ public sealed record ApplicationDeleteConfirmationState(
     bool HideMasterIndex = false,
     bool HideCharacterRoster = false,
     bool SearchInCategoryOnly = true,
-    bool AllowEasterEggs = false)
+    bool AllowEasterEggs = false,
+    bool PreferNightlyBuilds = false,
+    bool LiveUpdateCleanCharacterFiles = false)
 {
-    public static ApplicationDeleteConfirmationState Default { get; } = new(
-        Revision: 0,
-        ConfirmDelete: true,
-        ConfirmKarmaExpense: true,
-        CustomDateTimeFormats: false,
-        CustomDateFormat: "",
-        CustomTimeFormat: "",
-        DatesIncludeTime: true,
-        HideMasterIndex: false,
-        HideCharacterRoster: false,
-        SearchInCategoryOnly: true,
-        AllowEasterEggs: false);
+    public static ApplicationDeleteConfirmationState Default { get; } = ForApplicationVersion(
+        typeof(ApplicationDeleteConfirmationState).Assembly.GetName().Version ?? new Version(0, 0));
+
+    /// <summary>
+    /// Reproduces Chummer5's <c>!Utils.IsMilestoneVersion</c> default, where milestone means
+    /// the running application's assembly version has a zero Build component.
+    /// </summary>
+    public static ApplicationDeleteConfirmationState ForApplicationVersion(Version applicationVersion)
+    {
+        ArgumentNullException.ThrowIfNull(applicationVersion);
+        return new(
+            Revision: 0,
+            ConfirmDelete: true,
+            ConfirmKarmaExpense: true,
+            CustomDateTimeFormats: false,
+            CustomDateFormat: "",
+            CustomTimeFormat: "",
+            DatesIncludeTime: true,
+            HideMasterIndex: false,
+            HideCharacterRoster: false,
+            SearchInCategoryOnly: true,
+            AllowEasterEggs: false,
+            PreferNightlyBuilds: PreferNightlyBuildsByDefault(applicationVersion),
+            LiveUpdateCleanCharacterFiles: false);
+    }
+
+    public static bool PreferNightlyBuildsByDefault(Version applicationVersion)
+    {
+        ArgumentNullException.ThrowIfNull(applicationVersion);
+        return applicationVersion.Build != 0;
+    }
 }
 
 public sealed record ApplicationDeleteConfirmationMutation(
@@ -74,8 +97,8 @@ public sealed record ApplicationDateTimeSettingsMutation(
     long ExpectedRevision);
 
 /// <summary>
-/// Atomic whole-page snapshot used when confirmations, date/time, visibility, and selection
-/// behavior settings share one explicit Save.
+/// Atomic whole-page snapshot used when confirmations, date/time, visibility, selection behavior,
+/// and update settings share one explicit Save.
 /// </summary>
 public sealed record ApplicationSettingsSnapshotMutation(
     bool ConfirmDelete,
@@ -88,6 +111,8 @@ public sealed record ApplicationSettingsSnapshotMutation(
     ApplicationSettingValue<bool> HideCharacterRoster,
     ApplicationSettingValue<bool> SearchInCategoryOnly,
     ApplicationSettingValue<bool> AllowEasterEggs,
+    ApplicationSettingValue<bool> PreferNightlyBuilds,
+    ApplicationSettingValue<bool> LiveUpdateCleanCharacterFiles,
     long ExpectedRevision);
 
 public enum ApplicationDateTimeFormatPhase

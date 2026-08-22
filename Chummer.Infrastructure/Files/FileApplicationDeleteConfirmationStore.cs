@@ -9,10 +9,16 @@ public sealed class FileApplicationDeleteConfirmationStore : IApplicationDeleteC
     private const string FileName = "application-delete-confirmation.json";
     private readonly object _gate = new();
     private readonly string _stateDirectory;
+    private readonly ApplicationDeleteConfirmationState _defaultState;
 
-    public FileApplicationDeleteConfirmationStore(string? stateDirectory = null)
+    public FileApplicationDeleteConfirmationStore(
+        string? stateDirectory = null,
+        Version? applicationVersion = null)
     {
         _stateDirectory = stateDirectory ?? Path.Combine(Path.GetTempPath(), "chummer-state");
+        _defaultState = ApplicationDeleteConfirmationState.ForApplicationVersion(
+            applicationVersion ?? typeof(FileApplicationDeleteConfirmationStore).Assembly.GetName().Version
+            ?? new Version(0, 0));
         Directory.CreateDirectory(_stateDirectory);
     }
 
@@ -53,7 +59,7 @@ public sealed class FileApplicationDeleteConfirmationStore : IApplicationDeleteC
         {
             if (File.Exists(path) || File.Exists(backupPath))
                 throw new InvalidDataException("Application settings state and its recovery copy are invalid.");
-            return ApplicationDeleteConfirmationState.Default;
+            return _defaultState;
         }
 
         ApplicationDeleteConfirmationState selected;
@@ -76,7 +82,7 @@ public sealed class FileApplicationDeleteConfirmationStore : IApplicationDeleteC
         return selected;
     }
 
-    private static bool TryLoad(string path, out ApplicationDeleteConfirmationState? state)
+    private bool TryLoad(string path, out ApplicationDeleteConfirmationState? state)
     {
         state = null;
         if (!File.Exists(path))
@@ -166,6 +172,25 @@ public sealed class FileApplicationDeleteConfirmationStore : IApplicationDeleteC
                 allowEasterEggs = allowEasterEggsElement.GetBoolean();
             }
 
+            bool preferNightlyBuilds = _defaultState.PreferNightlyBuilds;
+            if (root.TryGetProperty("PreferNightlyBuilds", out JsonElement preferNightlyBuildsElement))
+            {
+                if (preferNightlyBuildsElement.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+                    return false;
+                preferNightlyBuilds = preferNightlyBuildsElement.GetBoolean();
+            }
+
+            bool liveUpdateCleanCharacterFiles = false;
+            if (root.TryGetProperty("LiveUpdateCleanCharacterFiles", out JsonElement liveUpdateCleanCharacterFilesElement))
+            {
+                if (liveUpdateCleanCharacterFilesElement.ValueKind
+                    is not (JsonValueKind.True or JsonValueKind.False))
+                {
+                    return false;
+                }
+                liveUpdateCleanCharacterFiles = liveUpdateCleanCharacterFilesElement.GetBoolean();
+            }
+
             state = ApplicationDeleteConfirmationRules.Validate(new ApplicationDeleteConfirmationState(
                 revision,
                 confirmDeleteElement.GetBoolean(),
@@ -177,7 +202,9 @@ public sealed class FileApplicationDeleteConfirmationStore : IApplicationDeleteC
                 hideMasterIndex,
                 hideCharacterRoster,
                 searchInCategoryOnly,
-                allowEasterEggs));
+                allowEasterEggs,
+                preferNightlyBuilds,
+                liveUpdateCleanCharacterFiles));
             return true;
         }
         catch (Exception exception) when (exception is JsonException or IOException or InvalidDataException)
