@@ -15,6 +15,7 @@
     <Compile Include="..\Chummer.Tests\LifeModulesServiceTests.cs" Link="LifeModulesServiceTests.cs" />
     <Compile Include="..\Chummer.Tests\CharacterCreationFoundationServiceTests.cs" Link="CharacterCreationFoundationServiceTests.cs" />
     <Compile Include="..\Chummer.Tests\CharacterCreationMetatypeCatalogAuthorityTests.cs" Link="CharacterCreationMetatypeCatalogAuthorityTests.cs" />
+    <Compile Include="..\Chummer.Tests\CharacterCreationFoundationDraftApplyAuthorityTests.cs" Link="CharacterCreationFoundationDraftApplyAuthorityTests.cs" />
     <Compile Include="..\Chummer.Tests\FileSystemCharacterSourceDataResolverTests.cs" Link="FileSystemCharacterSourceDataResolverTests.cs" />
     <Compile Include="..\Chummer.Tests\WorkspaceAtomicCheckpointStoreTests.cs" Link="WorkspaceAtomicCheckpointStoreTests.cs" />
     <Compile Include="..\Chummer.Tests\WorkspaceAuxiliaryStateStoreTests.cs" Link="WorkspaceAuxiliaryStateStoreTests.cs" />

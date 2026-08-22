@@ -220,7 +220,8 @@ public sealed class CharacterCreationFoundationService : ICharacterCreationFound
         CharacterCreationBudgetState budgetAfter = ProjectBudgetAfterSelection(
             state.LifeModuleBudget,
             selectionCost,
-            selectionKarmaIsExact);
+            selectionKarmaIsExact,
+            replacesPendingDraft: state.PendingDraft is not null);
         selectionBlockers.AddRange(budgetAfter.Blockers);
 
         LifeModuleRequirementProjectionDto[] evaluatedModuleRequirements =
@@ -269,7 +270,10 @@ public sealed class CharacterCreationFoundationService : ICharacterCreationFound
         CharacterCreationFoundationAuthorityPreview authorityPreview = _applyAuthority.Preview(context);
 
         string[] blockers = state.AuthorityBlockers
-            .Where(blocker => blocker is not CharacterCreationFoundationBlockers.WizardStatePersistenceAuthorityRequired)
+            .Where(blocker => blocker is not CharacterCreationFoundationBlockers.WizardStatePersistenceAuthorityRequired
+                              && !authorityPreview.ResolvedBlockers.Contains(
+                                  blocker,
+                                  StringComparer.Ordinal))
             .Concat(selectionBlockers)
             .Concat(authorityPreview.Blockers)
             .Distinct(StringComparer.Ordinal)
@@ -354,9 +358,16 @@ public sealed class CharacterCreationFoundationService : ICharacterCreationFound
 
         var blockers = new List<string>
         {
-            CharacterCreationFoundationBlockers.MetatypeCatalogAuthorityRequired,
-            CharacterCreationFoundationBlockers.WizardStatePersistenceAuthorityRequired
+            CharacterCreationFoundationBlockers.MetatypeCatalogAuthorityRequired
         };
+        if (_applyAuthority is not ICharacterCreationFoundationDraftPersistenceCapability
+            {
+                CanPersistFoundationDrafts: true
+            })
+        {
+            blockers.Add(
+                CharacterCreationFoundationBlockers.WizardStatePersistenceAuthorityRequired);
+        }
         CharacterCreationSourceProfileAuthority sourceProfile =
             CharacterCreationSourceProfileAuthority.Unavailable;
         ICharacterSourceDataContext? sourceContext =
@@ -430,13 +441,32 @@ public sealed class CharacterCreationFoundationService : ICharacterCreationFound
             EnabledSources: effectiveSources);
 
         CharacterCreationFoundationDraftLedger? pendingDraft = null;
+        CharacterCreationFoundationDraftLedger? persistedDraft = workspace.Document
+            .AuxiliaryState.CharacterCreationFoundationDraft;
+        if (persistedDraft is not null)
+        {
+            if (CharacterCreationFoundationDraftLedgerIntegrity.IsValidPending(
+                    persistedDraft,
+                    workspace.Id,
+                    workspace.ContentRevision,
+                    rawCharacterXmlDigest,
+                    sourceDigest))
+            {
+                pendingDraft = persistedDraft;
+            }
+            else
+            {
+                blockers.Add(CharacterCreationFoundationBlockers.PendingDraftInvalid);
+            }
+        }
         bool hasExistingLifeModuleQuality = HasExistingLifeModuleQuality(
             workspace.Document.Content);
         CharacterCreationBudgetState lifeModuleBudget = BuildCurrentLifeModuleBudget(
             sourceProfile,
             hasSourceProfileAuthority,
             hasExistingLifeModuleQuality,
-            pendingDraft);
+            pendingDraft,
+            nationalities);
         blockers.AddRange(lifeModuleBudget.Blockers);
         if (!string.Equals(
                 RulesetDefaults.NormalizeOptional(workspace.Document.RulesetId),
@@ -483,7 +513,9 @@ public sealed class CharacterCreationFoundationService : ICharacterCreationFound
             NationalityOptions: nationalities,
             LifeModuleBudget: lifeModuleBudget,
             PendingDraft: pendingDraft,
-            ResumeStatus: CharacterCreationFoundationResumeStatuses.AuthorityRequired,
+            ResumeStatus: pendingDraft is null
+                ? CharacterCreationFoundationResumeStatuses.AuthorityRequired
+                : CharacterCreationFoundationResumeStatuses.PendingDraft,
             AuthorityBlockers: normalizedBlockers,
             SnapshotDigest: snapshotDigest);
         return new CharacterCreationFoundationResult<CharacterCreationFoundationState>(
@@ -586,7 +618,8 @@ public sealed class CharacterCreationFoundationService : ICharacterCreationFound
         CharacterCreationSourceProfileAuthority sourceProfile,
         bool hasSourceProfileAuthority,
         bool hasExistingLifeModuleQuality,
-        CharacterCreationFoundationDraftLedger? pendingDraft)
+        CharacterCreationFoundationDraftLedger? pendingDraft,
+        IReadOnlyList<LifeModuleLegalOptionDto> nationalities)
     {
         var blockers = new List<string>();
         if (!hasSourceProfileAuthority)
@@ -597,7 +630,14 @@ public sealed class CharacterCreationFoundationService : ICharacterCreationFound
             blockers.Add(
                 CharacterCreationFoundationBlockers.LifeModuleBudgetExistingSelectionAuthorityRequired);
         }
-        if (pendingDraft is not null)
+        decimal used = 0;
+        bool pendingCostIsExact = true;
+        if (pendingDraft is not null
+            && !TryResolvePendingDraftCost(
+                pendingDraft,
+                nationalities,
+                out used,
+                out pendingCostIsExact))
         {
             blockers.Add(
                 CharacterCreationFoundationBlockers.LifeModuleBudgetPendingDraftAuthorityRequired);
@@ -610,13 +650,14 @@ public sealed class CharacterCreationFoundationService : ICharacterCreationFound
         decimal total = sourceProfile.BuildPoints.GetValueOrDefault();
         bool isExact = hasSourceProfileAuthority
                        && sourceProfile.LifeModuleBudgetIsExact
+                       && pendingCostIsExact
                        && normalizedBlockers.Length == 0;
         return new CharacterCreationBudgetState(
             BudgetId: CharacterCreationBudgetIds.LifeModules,
             Label: "Life Modules Karma",
             Total: total,
-            Used: 0,
-            Remaining: total,
+            Used: isExact ? used : 0,
+            Remaining: isExact ? total - used : total,
             IsExact: isExact,
             Blockers: normalizedBlockers,
             Unit: "karma");
@@ -625,14 +666,19 @@ public sealed class CharacterCreationFoundationService : ICharacterCreationFound
     private static CharacterCreationBudgetState ProjectBudgetAfterSelection(
         CharacterCreationBudgetState before,
         CharacterCreationChoiceCost selectionCost,
-        bool selectionCostIsExact)
+        bool selectionCostIsExact,
+        bool replacesPendingDraft)
     {
         var blockers = new List<string>(before.Blockers);
         bool isExact = before.IsExact && selectionCostIsExact;
         if (!selectionCostIsExact)
             blockers.Add(CharacterCreationFoundationBlockers.LifeModuleBudgetAuthorityRequired);
 
-        decimal used = isExact ? before.Used + selectionCost.Delta : before.Used;
+        decimal used = isExact
+            ? replacesPendingDraft
+                ? selectionCost.Delta
+                : before.Used + selectionCost.Delta
+            : before.Used;
         decimal remaining = isExact ? before.Total - used : before.Remaining;
         if (isExact && remaining < 0)
             blockers.Add(CharacterCreationFoundationBlockers.LifeModuleBudgetExceeded);
@@ -648,6 +694,37 @@ public sealed class CharacterCreationFoundationService : ICharacterCreationFound
             IsExact = isExact,
             Blockers = normalizedBlockers
         };
+    }
+
+    private static bool TryResolvePendingDraftCost(
+        CharacterCreationFoundationDraftLedger draft,
+        IReadOnlyList<LifeModuleLegalOptionDto> nationalities,
+        out decimal cost,
+        out bool costIsExact)
+    {
+        cost = 0;
+        costIsExact = false;
+        LifeModuleLegalOptionDto? module = nationalities.FirstOrDefault(option =>
+            string.Equals(option.ModuleId, draft.Selection.ModuleId, StringComparison.Ordinal));
+        if (module is null)
+            return false;
+
+        if (module.Versions.Count == 0)
+        {
+            if (!string.IsNullOrWhiteSpace(draft.Selection.VersionId))
+                return false;
+            cost = module.KarmaCost;
+            costIsExact = module.KarmaIsExact;
+            return true;
+        }
+
+        LifeModuleVersionProjectionDto? version = module.Versions.FirstOrDefault(item =>
+            string.Equals(item.VersionId, draft.Selection.VersionId, StringComparison.Ordinal));
+        if (version is null)
+            return false;
+        cost = version.KarmaCost;
+        costIsExact = version.KarmaIsExact;
+        return true;
     }
 
     private static bool HasExistingLifeModuleQuality(string characterXml)

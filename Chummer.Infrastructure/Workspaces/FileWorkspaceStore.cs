@@ -11,7 +11,10 @@ using Chummer.Infrastructure.Files;
 
 namespace Chummer.Infrastructure.Workspaces;
 
-public sealed class FileWorkspaceStore : IWorkspaceStore, IWorkspaceStoreReadinessProbe
+public sealed class FileWorkspaceStore :
+    IWorkspaceStore,
+    IWorkspaceStoreReadinessProbe,
+    IWorkspaceAuxiliaryStateAtomicCommitCapability
 {
     private const int CurrentWorkspaceSchemaVersion = 1;
     private const int CurrentWorkspaceRecordSchemaVersion = 2;
@@ -45,6 +48,8 @@ public sealed class FileWorkspaceStore : IWorkspaceStore, IWorkspaceStoreReadine
             }
         }
     }
+
+    public bool SupportsWorkspaceAuxiliaryStateAtomicCommit => true;
 
     private readonly string _stateDirectory;
     private readonly IFileWorkspaceStoreFaultInjector _faultInjector;

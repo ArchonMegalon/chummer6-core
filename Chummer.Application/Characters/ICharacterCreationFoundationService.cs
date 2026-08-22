@@ -34,7 +34,15 @@ public sealed record CharacterCreationFoundationAuthorityPreview(
     IReadOnlyList<CharacterCreationFoundationDiffEntry> Diff,
     IReadOnlyList<string> Blockers,
     bool CanApply,
-    string AuthorityPlanDigest);
+    string AuthorityPlanDigest)
+{
+    public IReadOnlyList<string> ResolvedBlockers { get; init; } = [];
+}
+
+public interface ICharacterCreationFoundationDraftPersistenceCapability
+{
+    bool CanPersistFoundationDrafts { get; }
+}
 
 /// <summary>
 /// The only authority allowed to persist a confirmed foundation preview.  During

@@ -11,8 +11,11 @@ namespace Chummer.Application.Characters;
 /// It emits a reviewable structural diff but never mutates a workspace.
 /// </summary>
 public sealed class UnavailableCharacterCreationFoundationApplyAuthority
-    : ICharacterCreationFoundationApplyAuthority
+    : ICharacterCreationFoundationApplyAuthority,
+      ICharacterCreationFoundationDraftPersistenceCapability
 {
+    public bool CanPersistFoundationDrafts => false;
+
     public CharacterCreationFoundationAuthorityPreview Preview(
         CharacterCreationFoundationAuthorityContext context)
     {

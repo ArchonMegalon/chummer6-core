@@ -59,6 +59,9 @@ public static class CharacterCreationFoundationBlockers
     public const string NationalityVersionNotFound = "nationality-version-not-found";
     public const string NationalityVersionRequired = "nationality-version-required";
     public const string PreviewDigestMismatch = "preview-digest-mismatch";
+    public const string PendingDraftConflict = "pending-draft-conflict";
+    public const string PendingDraftDuplicate = "pending-draft-duplicate";
+    public const string PendingDraftInvalid = "pending-draft-invalid";
     public const string RulesetSr5Required = "ruleset-sr5-required";
     public const string SourceDigestConflict = "source-digest-conflict";
     public const string StaleRawCharacterXmlDigest = "stale-raw-character-xml-digest";
@@ -70,6 +73,7 @@ public static class CharacterCreationFoundationBlockers
 public static class CharacterCreationFoundationResumeStatuses
 {
     public const string AuthorityRequired = "authority-required";
+    public const string PendingDraft = "pending-draft";
 }
 
 public static class CharacterCreationFoundationDraftStatuses

@@ -175,11 +175,32 @@ public static class ServiceCollectionExtensions
                 "The configured workspace store does not provide a readiness probe."));
         services.AddSingleton<IWorkspaceImportRulesetDetector, WorkspaceImportRulesetDetector>();
         services.AddSingleton<IWorkspaceService, WorkspaceService>();
-        services.AddSingleton<ICharacterCreationFoundationApplyAuthority,
-            UnavailableCharacterCreationFoundationApplyAuthority>();
+        services.AddCharacterCreationFoundationDraftPersistence();
         services.AddSingleton<ICharacterCreationFoundationService,
             CharacterCreationFoundationService>();
 
+        return services;
+    }
+
+    /// <summary>
+    /// Selects the draft-only creation authority strictly from the configured store's
+    /// explicit atomic auxiliary-state capability. Non-capable compositions remain
+    /// fail-closed at Preview.
+    /// </summary>
+    public static IServiceCollection AddCharacterCreationFoundationDraftPersistence(
+        this IServiceCollection services)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        services.AddSingleton<ICharacterCreationFoundationApplyAuthority>(provider =>
+        {
+            IWorkspaceStore store = provider.GetRequiredService<IWorkspaceStore>();
+            return store is IWorkspaceAuxiliaryStateAtomicCommitCapability
+                   {
+                       SupportsWorkspaceAuxiliaryStateAtomicCommit: true
+                   }
+                ? new CharacterCreationFoundationDraftApplyAuthority(store)
+                : new UnavailableCharacterCreationFoundationApplyAuthority();
+        });
         return services;
     }
 

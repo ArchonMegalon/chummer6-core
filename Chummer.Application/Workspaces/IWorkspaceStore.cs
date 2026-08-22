@@ -55,6 +55,21 @@ public sealed record DelegatedGmCharacterEditStoreResult(
     long? CurrentRevision = null,
     string? Error = null);
 
+/// <summary>
+/// Explicit capability advertised only by stores that implement the auxiliary-state
+/// compare-and-swap and checkpoint as one durable transaction.
+/// </summary>
+public interface IWorkspaceAuxiliaryStateAtomicCommitCapability
+{
+    bool SupportsWorkspaceAuxiliaryStateAtomicCommit { get; }
+
+    WorkspaceStoreMutationResult ReplaceWorkspaceDocumentAndAuxiliaryStateAndCheckpoint(
+        CharacterWorkspaceId id,
+        long expectedContentRevision,
+        string expectedAuxiliaryStateDigest,
+        WorkspaceDocument document);
+}
+
 public interface IWorkspaceStore
 {
     WorkspaceStoreMutationResult CreateWorkspaceDocument(WorkspaceDocument document);
