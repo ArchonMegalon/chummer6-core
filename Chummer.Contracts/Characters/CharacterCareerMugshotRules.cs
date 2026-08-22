@@ -169,11 +169,11 @@ public static class CharacterCareerMugshotRules
                 character is >= '0' and <= '9' or >= 'a' and <= 'f');
 
     private static string CalculateRevision(
-        IReadOnlyList<CharacterMugshotIdentity> mugshots,
+        CharacterMugshotIdentity[] mugshots,
         int mainMugshotIndex)
     {
         var payload = new StringBuilder();
-        payload.Append(mainMugshotIndex).Append('\0').Append(mugshots.Count).Append('\0');
+        payload.Append(mainMugshotIndex).Append('\0').Append(mugshots.Length).Append('\0');
         foreach (CharacterMugshotIdentity mugshot in mugshots)
         {
             payload.Append(mugshot.ZeroBasedIndex).Append('\0')
