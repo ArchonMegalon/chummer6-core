@@ -95,6 +95,35 @@ public interface IWorkspaceStore
         long expectedContentRevision,
         WorkspaceDocument document);
 
+    /// <summary>
+    /// Atomically replaces a workspace document when its content revision matches and
+    /// checkpoints the newly-created content revision in the same durable commit.
+    /// Implementations must not compose this operation from a replacement followed by
+    /// <see cref="SaveCheckpoint(CharacterWorkspaceId, long)"/>.
+    /// </summary>
+    WorkspaceStoreMutationResult ReplaceWorkspaceDocumentAndCheckpoint(
+        CharacterWorkspaceId id,
+        long expectedContentRevision,
+        WorkspaceDocument document)
+        => new(
+            WorkspaceOperationOutcome.Unavailable,
+            Error: "Atomic workspace replacement and checkpoint is unavailable.");
+
+    /// <summary>
+    /// Atomically replaces an owner-scoped workspace document when its content revision
+    /// matches and checkpoints the newly-created content revision in the same durable commit.
+    /// Implementations must not route this method to local state or compose it from separate
+    /// replacement and checkpoint writes.
+    /// </summary>
+    WorkspaceStoreMutationResult ReplaceWorkspaceDocumentAndCheckpoint(
+        OwnerScope owner,
+        CharacterWorkspaceId id,
+        long expectedContentRevision,
+        WorkspaceDocument document)
+        => new(
+            WorkspaceOperationOutcome.Unavailable,
+            Error: "Atomic workspace replacement and checkpoint is unavailable.");
+
     WorkspaceStoreMutationResult SaveCheckpoint(
         CharacterWorkspaceId id,
         long expectedContentRevision);

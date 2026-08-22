@@ -479,6 +479,96 @@ public sealed class FileWorkspaceStore : IWorkspaceStore, IWorkspaceStoreReadine
         }
     }
 
+    public WorkspaceStoreMutationResult ReplaceWorkspaceDocumentAndCheckpoint(
+        CharacterWorkspaceId id,
+        long expectedContentRevision,
+        WorkspaceDocument document)
+    {
+        return ReplaceWorkspaceDocumentAndCheckpointCore(
+            OwnerScope.LocalSingleUser,
+            id,
+            expectedContentRevision,
+            document);
+    }
+
+    public WorkspaceStoreMutationResult ReplaceWorkspaceDocumentAndCheckpoint(
+        OwnerScope owner,
+        CharacterWorkspaceId id,
+        long expectedContentRevision,
+        WorkspaceDocument document)
+    {
+        return IsInvalidScopedOwner(owner)
+            ? InvalidOwnerMutation()
+            : ReplaceWorkspaceDocumentAndCheckpointCore(
+                owner,
+                id,
+                expectedContentRevision,
+                document);
+    }
+
+    private WorkspaceStoreMutationResult ReplaceWorkspaceDocumentAndCheckpointCore(
+        OwnerScope owner,
+        CharacterWorkspaceId id,
+        long expectedContentRevision,
+        WorkspaceDocument document)
+    {
+        ArgumentNullException.ThrowIfNull(document);
+        string? path = TryGetPath(owner, id);
+        if (path is null)
+        {
+            return new WorkspaceStoreMutationResult(WorkspaceOperationOutcome.Missing);
+        }
+
+        try
+        {
+            EnsureWorkspaceDirectory(owner);
+            using WorkspaceOperationLease operation = AcquireWorkspaceOperation(path);
+            WorkspaceStoreReadResult read = ReadWorkspaceUnderLease(
+                owner,
+                id,
+                path,
+                out IReadOnlyList<DelegatedGmCharacterEditLedgerEntry> delegatedEditLedger);
+            if (!read.Success || read.Value is not WorkspaceStoredDocument current)
+            {
+                return MutationFromRead(read);
+            }
+
+            if (current.ContentRevision != expectedContentRevision)
+            {
+                return ConflictMutation(current);
+            }
+
+            if (current.ContentRevision == long.MaxValue)
+            {
+                return UnavailableMutation("Workspace content revision is exhausted.");
+            }
+
+            long nextContentRevision = current.ContentRevision + 1;
+            PersistedWorkspaceRecord record = BuildPersistedRecord(
+                document,
+                nextContentRevision,
+                nextContentRevision,
+                delegatedEditLedger);
+            DateTimeOffset committedAtUtc = WriteRecordAtomically(
+                path,
+                record,
+                WorkspaceWriteDisposition.ReplaceExisting);
+            return SuccessfulMutation(
+                id,
+                committedAtUtc,
+                nextContentRevision,
+                nextContentRevision);
+        }
+        catch (IOException)
+        {
+            return UnavailableMutation("Workspace storage is unavailable.");
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return UnavailableMutation("Workspace storage is unavailable.");
+        }
+    }
+
     public WorkspaceStoreMutationResult SaveCheckpoint(
         CharacterWorkspaceId id,
         long expectedContentRevision)
