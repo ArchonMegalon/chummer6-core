@@ -52,6 +52,19 @@ public static class CharacterGearMatrixSwapRules
             && string.Equals(current.Revision, expectedRevision, StringComparison.Ordinal)
             && !string.Equals(Read(current, changedAttribute), Read(current, targetAttribute), StringComparison.Ordinal);
 
+    public static bool TryValidateDataProcessingOrFirewallMutation(
+        CharacterGearMatrixSwapState? current, string? expectedRevision,
+        CharacterGearMatrixStat changedAttribute, CharacterGearMatrixStat targetAttribute)
+        => changedAttribute is CharacterGearMatrixStat.DataProcessing or CharacterGearMatrixStat.Firewall
+            && TryValidateMutation(current, expectedRevision, changedAttribute, targetAttribute);
+
+    public static bool RequiresMatrixInitiativeNotification(
+        CharacterGearMatrixStat changedAttribute,
+        CharacterGearMatrixStat targetAttribute)
+        => IsDefined(changedAttribute) && IsDefined(targetAttribute)
+            && (changedAttribute == CharacterGearMatrixStat.DataProcessing
+                || targetAttribute == CharacterGearMatrixStat.DataProcessing);
+
     public static bool IsValidIdentity(CharacterGearMatrixSwapIdentity? identity)
         => identity?.GearPath is { Count: > 0 } path && path.All(id => id != Guid.Empty)
             && path.Distinct().Count() == path.Count;
