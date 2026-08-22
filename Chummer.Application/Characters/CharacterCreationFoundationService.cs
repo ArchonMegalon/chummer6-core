@@ -149,14 +149,13 @@ public sealed class CharacterCreationFoundationService : ICharacterCreationFound
                 preview.FinalizationBlocked);
         }
 
-        // Compiler v1 has no supported durable effect family.  This is a final
-        // fail-closed guard, not a success stub: the method above cannot reach
-        // this branch until the compiler produces a complete supported plan.
-        // A later compiler version must construct the complete canonical XML and
-        // use ReplaceWorkspaceDocumentAndAuxiliaryStateAndCheckpoint exactly once.
+        // Attributelevel has an isolated, deterministic Quality/Improvement
+        // write plan, but Foundation v1 still lacks every required creation
+        // stage and the full resource/final-validity transaction. This is the
+        // final fail-closed guard: no supported subgraph is ever applied early.
         return Blocked<CharacterCreationFoundationFinalizationReceipt>(
             CharacterCreationFoundationOutcomes.Blocked,
-            CharacterCreationFoundationBlockers.FinalizationEffectUnsupported);
+            CharacterCreationFoundationBlockers.FinalizationRuntimeAuthorityRequired);
     }
 
     private CharacterCreationFoundationResult<CharacterCreationFoundationFinalizationPreview>

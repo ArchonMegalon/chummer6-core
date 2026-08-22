@@ -1,3 +1,4 @@
+using System.Xml.Linq;
 using Chummer.Application.Characters;
 using Chummer.Application.LifeModules;
 using Chummer.Application.Workspaces;
@@ -402,9 +403,16 @@ public sealed class CharacterCreationFoundationDraftApplyAuthorityTests
                 effect.SourcePhase == CharacterCreationFoundationEffectSourcePhases.Version));
             Assert.IsTrue(preview.Compilation.Effects.Skip(2).All(effect =>
                 effect.SourcePhase == CharacterCreationFoundationEffectSourcePhases.Module));
-            Assert.IsTrue(preview.Compilation.Effects.All(effect =>
-                effect.CompilationStatus
-                == CharacterCreationFoundationEffectCompilationStatuses.Unsupported));
+            CharacterCreationFoundationEffectInstruction supportedAttribute = preview
+                .Compilation.Effects.Single(effect => effect.CompilationStatus
+                    == CharacterCreationFoundationEffectCompilationStatuses.Supported);
+            Assert.AreEqual("attributelevel", supportedAttribute.EffectKind);
+            Assert.AreEqual(CharacterCreationFoundationEffectSourcePhases.Version,
+                supportedAttribute.SourcePhase);
+            Assert.IsTrue(preview.Compilation.Effects
+                .Where(effect => effect != supportedAttribute)
+                .All(effect => effect.CompilationStatus
+                    == CharacterCreationFoundationEffectCompilationStatuses.Unsupported));
             Assert.IsTrue(preview.Compilation.Effects.All(effect =>
                 effect.SourceAnchorIds.Count > 0
                 && effect.SourceAnchorIds.All(anchor => !string.IsNullOrWhiteSpace(anchor))
@@ -444,6 +452,263 @@ public sealed class CharacterCreationFoundationDraftApplyAuthorityTests
                 preview.Compilation.CompilerRuntimeDigest,
                 reopened.Compilation.CompilerRuntimeDigest);
             Assert.AreEqual(xml, store.Get(id).Value!.Document.Content);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public void Attributelevel_write_plan_matches_legacy_quality_graph_and_is_deterministic()
+    {
+        const string moduleId = "110f9504-0a54-4fd3-95f2-e24f744ff439";
+        const string versionId = "35673f69-3fc1-4c89-801b-71920ff06874";
+        string directory = CreateTempDirectory();
+        try
+        {
+            string catalogPath = Path.Combine(directory, "lifemodules.xml");
+            File.WriteAllText(
+                catalogPath,
+                "<chummer><stages><stage order=\"1\">Nationality</stage></stages>"
+                + "<modules><module>"
+                + $"<id>{moduleId}</id><stage>Nationality</stage><category>LifeModule</category>"
+                + "<name>Writer Fixture</name><karma>15</karma><source>RF</source><page>77</page>"
+                + $"<versions><version><id>{versionId}</id><name>Writer Version</name>"
+                + "<bonus><attributelevel><name>LOG</name><val>2.00</val></attributelevel></bonus>"
+                + "</version></versions>"
+                + "<bonus><attributelevel><name>CHA</name></attributelevel>"
+                + "<attributelevel><name>INT</name><val>999999999999999999999</val></attributelevel>"
+                + "</bonus>"
+                + "</module></modules></chummer>");
+            XmlLifeModulesCatalogService catalog = new(catalogPath);
+            LifeModuleLegalOptionDto module = catalog
+                .GetOptionProjections("Nationality", ["RF"])
+                .Single();
+            LifeModuleVersionProjectionDto version = module.Versions.Single();
+            LifeModuleEffectProjectionDto[] effects =
+            [
+                .. version.Effects,
+                .. module.Effects
+            ];
+            CharacterWorkspaceId workspaceId = new("attributelevel-write-plan");
+            var draft = new CharacterCreationFoundationDraftLedger(
+                Schema: CharacterCreationFoundationSchemas.DraftLedgerV1,
+                WorkspaceId: workspaceId,
+                DraftRevision: 1,
+                BaseContentRevision: 1,
+                BaseRawCharacterXmlDigest: "sha256:" + new string('1', 64),
+                SourceDigest: catalog.GetAuthority().RawXmlDigest,
+                RequestedMetatype: "Human",
+                Selection: new CharacterCreationFoundationSelection(moduleId, versionId),
+                RequirementEvaluations: [],
+                ProjectedEffects: effects,
+                FollowUpValues: new Dictionary<string, string>(),
+                SourceAnchorIds: version.SourceAnchorIds,
+                CompilationStatus: CharacterCreationFoundationDraftStatuses.PendingFinalization,
+                CharacterEffectsApplied: false,
+                DraftDigest: string.Empty);
+            draft = draft with
+            {
+                DraftDigest = CharacterCreationFoundationDraftLedgerIntegrity.ComputeDigest(draft)
+            };
+            XElement effectiveSource = new(
+                "version",
+                new XElement("id", versionId),
+                new XElement("name", version.Label),
+                new XElement("karma", version.KarmaRaw),
+                new XElement("category", "LifeModule"),
+                new XElement("source", version.Source),
+                new XElement("page", version.PageReference),
+                new XElement("stage", module.StageId),
+                new XElement("notesColor", "Chocolate"),
+                new XElement(
+                    "bonus",
+                    effects.Select(effect => XElement.Parse(effect.RawXml))));
+
+            CharacterCreationFoundationEffectCompilation compilation =
+                CharacterCreationFoundationEffectCompiler.Compile(
+                    RulesetDefaults.Sr5,
+                    draft,
+                    module,
+                    version);
+            CharacterCreationFoundationEffectWritePlanResult first =
+                CharacterCreationFoundationAttributeLevelWritePlanner.Build(
+                    workspaceId,
+                    RulesetDefaults.Sr5,
+                    draft,
+                    module,
+                    version,
+                    effectiveSource.ToString(SaveOptions.DisableFormatting),
+                    catalog.GetAuthority().RawXmlDigest,
+                    "Chocolate");
+            CharacterCreationFoundationEffectWritePlanResult duplicate =
+                CharacterCreationFoundationAttributeLevelWritePlanner.Build(
+                    workspaceId,
+                    RulesetDefaults.Sr5,
+                    draft,
+                    module,
+                    version,
+                    effectiveSource.ToString(SaveOptions.DisableFormatting),
+                    catalog.GetAuthority().RawXmlDigest,
+                    "Chocolate");
+
+            Assert.IsFalse(compilation.IsCompleteLedgerSupported);
+            CollectionAssert.Contains(
+                compilation.Blockers.ToList(),
+                CharacterCreationFoundationBlockers.FinalizationRequiredStagesIncomplete);
+            Assert.IsTrue(first.IsReady, string.Join(",", first.Blockers));
+            Assert.IsTrue(duplicate.IsReady, string.Join(",", duplicate.Blockers));
+            CharacterCreationFoundationEffectWritePlan plan = first.Plan!;
+            Assert.AreEqual(plan.PlanDigest, duplicate.Plan!.PlanDigest);
+            Assert.AreEqual(plan.QualityId, duplicate.Plan.QualityId);
+            Assert.AreEqual(plan.QualityXml, duplicate.Plan.QualityXml);
+            CollectionAssert.AreEqual(
+                plan.ImprovementXml.ToList(),
+                duplicate.Plan.ImprovementXml.ToList());
+            Assert.IsTrue(Guid.TryParseExact(plan.QualityId, "D", out Guid qualityId));
+            Assert.AreNotEqual(Guid.Empty, qualityId);
+            Assert.IsTrue(IsCanonicalDigest(plan.WriterRuntimeDigest));
+            Assert.IsTrue(IsCanonicalDigest(plan.PlanDigest));
+            Assert.AreEqual(workspaceId, plan.WorkspaceId);
+            Assert.AreEqual(draft.DraftRevision, plan.DraftRevision);
+            Assert.AreEqual(draft.DraftDigest, plan.DraftDigest);
+            Assert.AreEqual(compilation.CompilationDigest, plan.CompilationDigest);
+            Assert.AreEqual(catalog.GetAuthority().RawXmlDigest, plan.SourceAuthorityDigest);
+            Assert.AreEqual(versionId, plan.SourceId);
+            CollectionAssert.AreEqual(
+                compilation.Effects.Select(effect => effect.InstructionDigest).ToList(),
+                plan.InstructionDigests.ToList());
+            CollectionAssert.AreEqual(
+                compilation.Effects.Select(effect => effect.Order).ToList(),
+                plan.EffectProvenance.Select(effect => effect.Order).ToList());
+            CollectionAssert.AreEqual(
+                new[]
+                {
+                    CharacterCreationFoundationEffectSourcePhases.Version,
+                    CharacterCreationFoundationEffectSourcePhases.Module,
+                    CharacterCreationFoundationEffectSourcePhases.Module
+                },
+                plan.EffectProvenance.Select(effect => effect.SourcePhase).ToArray());
+            Assert.IsTrue(plan.EffectProvenance.Zip(compilation.Effects).All(pair =>
+                pair.First.EffectId == pair.Second.EffectId
+                && pair.First.InstructionDigest == pair.Second.InstructionDigest
+                && pair.First.SourceAnchorIds.SequenceEqual(
+                    pair.Second.SourceAnchorIds,
+                    StringComparer.Ordinal)));
+
+            XElement quality = XElement.Parse(plan.QualityXml);
+            CollectionAssert.AreEqual(
+                new[]
+                {
+                    "sourceid", "guid", "name", "extra", "bp", "implemented",
+                    "contributetobp", "contributetolimit", "stagedpurchase", "doublecareer",
+                    "canbuywithspellpoints", "metagenic", "print", "qualitytype",
+                    "qualitysource", "mutant", "source", "page", "sourcename", "bonus",
+                    "firstlevelbonus", "naturalweapons", "notes", "notesColor", "stage"
+                },
+                quality.Elements().Select(element => element.Name.LocalName).ToArray());
+            Assert.AreEqual(versionId, quality.Element("sourceid")!.Value);
+            Assert.AreEqual(plan.QualityId, quality.Element("guid")!.Value);
+            Assert.AreEqual("Writer Version", quality.Element("name")!.Value);
+            Assert.AreEqual("15", quality.Element("bp")!.Value);
+            Assert.AreEqual("True", quality.Element("implemented")!.Value);
+            Assert.AreEqual("False", quality.Element("stagedpurchase")!.Value);
+            Assert.AreEqual("LifeModule", quality.Element("qualitytype")!.Value);
+            Assert.AreEqual("LifeModule", quality.Element("qualitysource")!.Value);
+            Assert.AreEqual("RF", quality.Element("source")!.Value);
+            Assert.AreEqual("77", quality.Element("page")!.Value);
+            Assert.AreEqual("Chocolate", quality.Element("notesColor")!.Value);
+            Assert.AreEqual("Nationality", quality.Element("stage")!.Value);
+            CollectionAssert.AreEqual(
+                new[] { "LOG", "CHA", "INT" },
+                quality.Element("bonus")!.Elements()
+                    .Select(effect => effect.Element("name")!.Value)
+                    .ToArray());
+
+            Assert.AreEqual(3, plan.ImprovementXml.Count);
+            XElement firstImprovement = XElement.Parse(plan.ImprovementXml[0]);
+            XElement secondImprovement = XElement.Parse(plan.ImprovementXml[1]);
+            XElement thirdImprovement = XElement.Parse(plan.ImprovementXml[2]);
+            CollectionAssert.AreEqual(
+                new[]
+                {
+                    "target", "improvedname", "sourcename", "min", "max", "aug",
+                    "augmax", "val", "rating", "exclude", "condition", "improvementttype",
+                    "improvementsource", "custom", "customname", "customid", "customgroup",
+                    "addtorating", "enabled", "order", "notes", "notesColor"
+                },
+                firstImprovement.Elements().Select(element => element.Name.LocalName).ToArray());
+            Assert.AreEqual("LOG", firstImprovement.Element("improvedname")!.Value);
+            Assert.AreEqual("2", firstImprovement.Element("val")!.Value);
+            Assert.AreEqual("CHA", secondImprovement.Element("improvedname")!.Value);
+            Assert.AreEqual("1", secondImprovement.Element("val")!.Value);
+            Assert.AreEqual("INT", thirdImprovement.Element("improvedname")!.Value);
+            Assert.AreEqual("1", thirdImprovement.Element("val")!.Value);
+            Assert.AreEqual(
+                2,
+                CharacterCreationFoundationEffectCompiler.ParseLegacyAttributeLevelValue("2.00"));
+            Assert.AreEqual(
+                1,
+                CharacterCreationFoundationEffectCompiler.ParseLegacyAttributeLevelValue(null));
+            Assert.AreEqual(
+                1,
+                CharacterCreationFoundationEffectCompiler.ParseLegacyAttributeLevelValue(
+                    "999999999999999999999"));
+            Assert.IsTrue(plan.ImprovementXml.All(xml =>
+                XElement.Parse(xml).Element("sourcename")!.Value == plan.QualityId));
+            Assert.IsTrue(plan.ImprovementXml.All(xml =>
+                XElement.Parse(xml).Element("improvementttype")!.Value == "Attributelevel"
+                && XElement.Parse(xml).Element("improvementsource")!.Value == "Quality"));
+
+            XElement tamperedSource = new(effectiveSource);
+            tamperedSource.Element("bonus")!.Elements().First().Element("val")!.Value = "3";
+            CharacterCreationFoundationEffectWritePlanResult tampered =
+                CharacterCreationFoundationAttributeLevelWritePlanner.Build(
+                    workspaceId,
+                    RulesetDefaults.Sr5,
+                    draft,
+                    module,
+                    version,
+                    tamperedSource.ToString(SaveOptions.DisableFormatting),
+                    catalog.GetAuthority().RawXmlDigest,
+                    "Chocolate");
+            Assert.IsFalse(tampered.IsReady);
+            Assert.IsNull(tampered.Plan);
+            CollectionAssert.Contains(
+                tampered.Blockers.ToList(),
+                CharacterCreationFoundationBlockers.FinalizationEffectLedgerConflict);
+
+            CharacterCreationFoundationEffectWritePlanResult wrongWorkspace =
+                CharacterCreationFoundationAttributeLevelWritePlanner.Build(
+                    new CharacterWorkspaceId("attributelevel-write-plan-other"),
+                    RulesetDefaults.Sr5,
+                    draft,
+                    module,
+                    version,
+                    effectiveSource.ToString(SaveOptions.DisableFormatting),
+                    catalog.GetAuthority().RawXmlDigest,
+                    "Chocolate");
+            CharacterCreationFoundationEffectWritePlanResult wrongSourceDigest =
+                CharacterCreationFoundationAttributeLevelWritePlanner.Build(
+                    workspaceId,
+                    RulesetDefaults.Sr5,
+                    draft,
+                    module,
+                    version,
+                    effectiveSource.ToString(SaveOptions.DisableFormatting),
+                    "sha256:" + new string('0', 64),
+                    "Chocolate");
+            Assert.IsFalse(wrongWorkspace.IsReady);
+            Assert.IsNull(wrongWorkspace.Plan);
+            Assert.IsFalse(wrongSourceDigest.IsReady);
+            Assert.IsNull(wrongSourceDigest.Plan);
+            CollectionAssert.Contains(
+                wrongWorkspace.Blockers.ToList(),
+                CharacterCreationFoundationBlockers.FinalizationRuntimeAuthorityRequired);
+            CollectionAssert.Contains(
+                wrongSourceDigest.Blockers.ToList(),
+                CharacterCreationFoundationBlockers.FinalizationRuntimeAuthorityRequired);
         }
         finally
         {

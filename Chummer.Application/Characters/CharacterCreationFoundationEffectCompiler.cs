@@ -6,15 +6,21 @@ namespace Chummer.Application.Characters;
 
 /// <summary>
 /// Deterministically compiles the persisted foundation draft into reviewable
-/// instructions.  The first compiler version intentionally supports no durable
-/// ImprovementManager writes: Chummer5 stores these effects as source-owned
-/// Quality/Improvement graphs, not as direct edits to attributes or skills.
-/// Classifying an effect is not authority to apply it.
+/// instructions. Supported effects are written as source-owned LifeModule
+/// Quality/Improvement graphs, never as direct edits to attributes or skills.
+/// Classifying one effect does not authorize partial application of a ledger.
 /// </summary>
 internal static class CharacterCreationFoundationEffectCompiler
 {
     private const string CompilerSemantics =
-        "chummer5-life-module-improvement-oracle-5.225.0;version-before-module;no-partial-apply";
+        "chummer5-life-module-improvement-oracle-5.225.0;attributelevel-v1-int32-any-default1;version-before-module;no-partial-apply";
+
+    private static readonly IReadOnlySet<string> s_AttributeIds = new HashSet<string>(
+        [
+            "BOD", "AGI", "REA", "STR", "CHA", "INT", "LOG", "WIL",
+            "EDG", "MAG", "MAGAdept", "RES", "ESS", "DEP"
+        ],
+        StringComparer.Ordinal);
 
     public static CharacterCreationFoundationEffectCompilation Compile(
         string rulesetId,
@@ -31,7 +37,7 @@ internal static class CharacterCreationFoundationEffectCompiler
                 Schema = CharacterCreationFoundationSchemas.EffectCompilationV1,
                 RulesetId = rulesetId,
                 CompilerSemantics,
-                SupportedEffectKinds = Array.Empty<string>(),
+                SupportedEffectKinds = new[] { "attributelevel:v1" },
                 SupportedRequirementKinds = new[] { "oneof:metatype" }
             });
 
@@ -116,8 +122,15 @@ internal static class CharacterCreationFoundationEffectCompiler
             .Distinct(StringComparer.Ordinal)
             .OrderBy(item => item, StringComparer.Ordinal)
             .ToArray();
+        bool requirementsSupported = requirements.Length == authoritativeRequirements.Length
+                                     && requirements.All(item => string.Equals(
+                                         item.CompilationStatus,
+                                         CharacterCreationFoundationEffectCompilationStatuses.Supported,
+                                         StringComparison.Ordinal));
         bool isCompleteLedgerSupported = normalizedBlockers.Length == 0
                                          && effectLedgerMatches
+                                         && requirementsSupported
+                                         && effects.Length > 0
                                          && effects.All(item => string.Equals(
                                              item.CompilationStatus,
                                              CharacterCreationFoundationEffectCompilationStatuses.Supported,
@@ -208,12 +221,17 @@ internal static class CharacterCreationFoundationEffectCompiler
             .OrderBy(item => item, StringComparer.Ordinal)
             .ToArray();
         bool requiresPrompt = promptIds.Length > 0;
+        bool supported = !requiresPrompt && IsSupportedAttributeLevel(effect);
         string status = requiresPrompt
             ? CharacterCreationFoundationEffectCompilationStatuses.PromptRequired
-            : CharacterCreationFoundationEffectCompilationStatuses.Unsupported;
-        string blocker = requiresPrompt
+            : supported
+                ? CharacterCreationFoundationEffectCompilationStatuses.Supported
+                : CharacterCreationFoundationEffectCompilationStatuses.Unsupported;
+        string? blocker = requiresPrompt
             ? CharacterCreationFoundationBlockers.FinalizationPromptRequired
-            : CharacterCreationFoundationBlockers.FinalizationEffectUnsupported;
+            : supported
+                ? null
+                : CharacterCreationFoundationBlockers.FinalizationEffectUnsupported;
         var instruction = new CharacterCreationFoundationEffectInstruction(
             Order: index + 1,
             EffectId: effect.EffectId,
@@ -234,6 +252,89 @@ internal static class CharacterCreationFoundationEffectCompiler
             InstructionDigest = CharacterCreationFoundationDraftLedgerIntegrity
                 .ComputeCanonicalDigest(instruction with { InstructionDigest = string.Empty })
         };
+    }
+
+    private static bool IsSupportedAttributeLevel(LifeModuleEffectProjectionDto effect)
+    {
+        if (!effect.IsFullyTyped
+            || !string.Equals(effect.Domain, "attribute", StringComparison.Ordinal)
+            || effect.BudgetId is not null
+            || effect.BudgetDelta != 0
+            || effect.SourceAnchorIds.Count == 0
+            || effect.SourceAnchorIds.Any(string.IsNullOrWhiteSpace))
+        {
+            return false;
+        }
+
+        try
+        {
+            XElement element = XElement.Parse(effect.RawXml, LoadOptions.None);
+            if (element.Name.NamespaceName.Length != 0
+                || !string.Equals(
+                    element.Name.LocalName,
+                    "attributelevel",
+                    StringComparison.OrdinalIgnoreCase)
+                || element.HasAttributes)
+            {
+                return false;
+            }
+
+            XElement[] children = element.Elements().ToArray();
+            XElement[] names = children.Where(child => string.Equals(
+                    child.Name.LocalName,
+                    "name",
+                    StringComparison.OrdinalIgnoreCase))
+                .ToArray();
+            XElement[] values = children.Where(child => string.Equals(
+                    child.Name.LocalName,
+                    "val",
+                    StringComparison.OrdinalIgnoreCase))
+                .ToArray();
+            if (children.Any(child => child.Name.NamespaceName.Length != 0)
+                || children.Length != names.Length + values.Length
+                || names.Length != 1
+                || values.Length > 1
+                || names[0].HasElements
+                || names[0].HasAttributes
+                || values.Any(value => value.HasElements || value.HasAttributes))
+            {
+                return false;
+            }
+
+            string name = names[0].Value.Trim();
+            string rawValue = values.Length == 0 ? "1" : values[0].Value.Trim();
+            if (!s_AttributeIds.Contains(name)
+                || !string.Equals(effect.TargetId, name, StringComparison.Ordinal)
+                || effect.Parameters.Count != (values.Length == 0 ? 1 : 2)
+                || !effect.Parameters.TryGetValue("name", out string? projectedName)
+                || !string.Equals(projectedName, name, StringComparison.Ordinal)
+                || (values.Length > 0
+                    && (!effect.Parameters.TryGetValue("val", out string? projectedValue)
+                        || !string.Equals(projectedValue, rawValue, StringComparison.Ordinal))))
+            {
+                return false;
+            }
+
+            return values.Length == 0
+                ? effect.AfterValue is null
+                : string.Equals(effect.AfterValue, rawValue, StringComparison.Ordinal);
+        }
+        catch (System.Xml.XmlException)
+        {
+            return false;
+        }
+    }
+
+    internal static int ParseLegacyAttributeLevelValue(string? rawValue)
+    {
+        return rawValue is not null
+               && int.TryParse(
+                   rawValue,
+                   System.Globalization.NumberStyles.Any,
+                   System.Globalization.CultureInfo.InvariantCulture,
+                   out int value)
+            ? value
+            : 1;
     }
 
     private static bool IsExactMetatypeOneOf(

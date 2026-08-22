@@ -22,4 +22,8 @@
     <PackageReference Include="Chummer.Hub.Registry.Contracts" Version="$(ChummerHubRegistryContractsPackageVersion)" />
     <PackageReference Include="Chummer.Run.Contracts" Version="$(ChummerRunContractsPackageVersion)" />
   </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Chummer.FeatureSlice.Tests" />
+    <InternalsVisibleTo Include="Chummer.Tests" />
+  </ItemGroup>
 </Project>
