@@ -681,7 +681,7 @@ public sealed class CharacterCreationPrerequisiteService :
         }
         else
         {
-            foreach (string selectionId in requestedSkills.OrderBy(id => id, StringComparer.Ordinal))
+            foreach (string selectionId in requestedSkills)
             {
                 CharacterCreationTalentActiveSkillChoiceProjection[] matches = activeGrant.Options
                     .Where(option => string.Equals(
@@ -745,7 +745,7 @@ public sealed class CharacterCreationPrerequisiteService :
         }
         else
         {
-            foreach (string selectionId in requestedGroups.OrderBy(id => id, StringComparer.Ordinal))
+            foreach (string selectionId in requestedGroups)
             {
                 CharacterCreationTalentSkillGroupChoiceProjection[] matches = groupGrant.Options
                     .Where(option => string.Equals(
@@ -1128,10 +1128,20 @@ public sealed class CharacterCreationPrerequisiteService :
             return true;
         return CharacterCreationPrerequisiteAuthorityDigest.IsCanonical(effectiveSkillsInputsDigest)
                && grant.Quantity > 0
+               && grant.Quantity <= CharacterCreationTalentSkillGrantTypes.MaximumPromptSlots
                && grant.BaseRating >= 0
-               && grant.SkillType is CharacterCreationTalentSkillGrantTypes.Active
-                   or CharacterCreationTalentSkillGrantTypes.Magic
-                   or CharacterCreationTalentSkillGrantTypes.Resonance
+               && IsNormalizedLowerToken(grant.SkillType)
+               && grant.SkillTypeQuery is not null
+               && string.Equals(
+                   grant.SkillTypeQuery,
+                   grant.SkillTypeQuery.Trim(),
+                   StringComparison.Ordinal)
+               && grant.SpecificSkillChoiceNames is not null
+               && grant.SpecificSkillChoiceNames.All(name =>
+                   !string.IsNullOrWhiteSpace(name)
+                   && string.Equals(name, name.Trim(), StringComparison.Ordinal))
+               && grant.SpecificSkillChoiceNames.Distinct(StringComparer.Ordinal).Count()
+                  == grant.SpecificSkillChoiceNames.Count
                && grant.Options is not null
                && grant.Blockers is not null
                && grant.SourceAnchorIds is { Count: > 0 }
@@ -1144,14 +1154,17 @@ public sealed class CharacterCreationPrerequisiteService :
                        grant.SkillType,
                        effectiveSkillsInputsDigest,
                        grant.Options.Select(option => option.SelectionId)))
-               && grant.IsSupported == (grant.Blockers.Count == 0)
-               && (!grant.IsSupported
-                   || grant.Options.Count(option => option.IsEnabled) >= grant.Quantity)
+               && HasExactGrantSupportState(
+                   grant.IsSupported,
+                   IsSupportedActiveSkillGrantRule(grant)
+                   && grant.Options.Count(option => option.IsEnabled) >= grant.Quantity,
+                   grant.Blockers)
+               && HasValidActiveSkillGrantRuleShape(grant)
                && grant.Options.Select(option => option.SelectionId)
                    .Distinct(StringComparer.Ordinal).Count() == grant.Options.Count
-               && grant.Options.SequenceEqual(
-                   grant.Options.OrderBy(option => option.CanonicalName, StringComparer.Ordinal)
-                       .ThenBy(option => option.SourceId, StringComparer.Ordinal))
+               && grant.Options.Select(option => option.CanonicalName)
+                   .Distinct(StringComparer.Ordinal).Count() == grant.Options.Count
+               && HasExpectedActiveSkillOptionOrder(grant)
                && grant.Options.All(option => Guid.TryParseExact(
                                                   option.SelectionId,
                                                   "D",
@@ -1166,6 +1179,11 @@ public sealed class CharacterCreationPrerequisiteService :
                                                   option.SourceId,
                                                   StringComparison.Ordinal)
                                               && !string.IsNullOrWhiteSpace(option.CanonicalName)
+                                              && option.Attribute is not null
+                                              && string.Equals(
+                                                  option.Attribute,
+                                                  option.Attribute.Trim(),
+                                                  StringComparison.Ordinal)
                                               && !string.IsNullOrWhiteSpace(option.Category)
                                               && option.Blockers is not null
                                               && option.IsEnabled == (option.Blockers.Count == 0)
@@ -1177,7 +1195,7 @@ public sealed class CharacterCreationPrerequisiteService :
                                                         StringComparer.Ordinal)
                                                   : option.IsEnabled)
                                               && IsEligibleActiveSkillOption(
-                                                  grant.SkillType,
+                                                  grant,
                                                   option)
                                               && CharacterCreationPrerequisiteAuthorityDigest.IsCanonical(
                                                   option.SourceNodeDigest)
@@ -1187,12 +1205,93 @@ public sealed class CharacterCreationPrerequisiteService :
                                               && option.SourceAnchorIds is { Count: > 0 });
     }
 
+    private static bool IsSupportedActiveSkillGrantRule(
+        CharacterCreationTalentActiveSkillGrantProjection grant) =>
+        grant.SkillType switch
+        {
+            CharacterCreationTalentSkillGrantTypes.Active
+                or CharacterCreationTalentSkillGrantTypes.Default
+                or CharacterCreationTalentSkillGrantTypes.Magic
+                or CharacterCreationTalentSkillGrantTypes.Resonance
+                or CharacterCreationTalentSkillGrantTypes.Matrix =>
+                string.IsNullOrEmpty(grant.SkillTypeQuery)
+                && grant.SpecificSkillChoiceNames.Count == 0,
+            CharacterCreationTalentSkillGrantTypes.Specific =>
+                string.IsNullOrEmpty(grant.SkillTypeQuery)
+                && (grant.SpecificSkillChoiceNames.Count == 0
+                    ? grant.Options.Count > 0
+                    : grant.Options.Count == grant.SpecificSkillChoiceNames.Count),
+            CharacterCreationTalentSkillGrantTypes.XPath =>
+                string.Equals(
+                    grant.SkillTypeQuery,
+                    CharacterCreationTalentSkillGrantTypes.PinnedXPathPredicate,
+                    StringComparison.Ordinal)
+                && grant.SpecificSkillChoiceNames.Count == 0,
+            _ => false
+        };
+
+    private static bool HasValidActiveSkillGrantRuleShape(
+        CharacterCreationTalentActiveSkillGrantProjection grant)
+    {
+        if (string.Equals(
+                grant.SkillType,
+                CharacterCreationTalentSkillGrantTypes.Specific,
+                StringComparison.Ordinal))
+        {
+            if (grant.SpecificSkillChoiceNames.Count == 0)
+            {
+                return grant.Options.SequenceEqual(
+                    grant.Options.OrderBy(option => option.CanonicalName, StringComparer.Ordinal)
+                        .ThenBy(option => option.SourceId, StringComparer.Ordinal));
+            }
+            return (string.IsNullOrEmpty(grant.SkillTypeQuery)
+                    && grant.Options.Select(option => option.CanonicalName).SequenceEqual(
+                        grant.SpecificSkillChoiceNames.Where(name => grant.Options.Any(option =>
+                            string.Equals(
+                                option.CanonicalName,
+                                name,
+                                StringComparison.Ordinal))),
+                        StringComparer.Ordinal))
+                   || (!grant.IsSupported && grant.Options.Count == 0);
+        }
+        if (grant.SkillType is CharacterCreationTalentSkillGrantTypes.Active
+            or CharacterCreationTalentSkillGrantTypes.Default
+            or CharacterCreationTalentSkillGrantTypes.Magic
+            or CharacterCreationTalentSkillGrantTypes.Resonance
+            or CharacterCreationTalentSkillGrantTypes.Matrix)
+        {
+            return (string.IsNullOrEmpty(grant.SkillTypeQuery)
+                    && grant.SpecificSkillChoiceNames.Count == 0)
+                   || (!grant.IsSupported && grant.Options.Count == 0);
+        }
+        if (string.Equals(
+                grant.SkillType,
+                CharacterCreationTalentSkillGrantTypes.XPath,
+                StringComparison.Ordinal))
+        {
+            return grant.SpecificSkillChoiceNames.Count == 0;
+        }
+        return grant.Options.Count == 0;
+    }
+
+    private static bool HasExpectedActiveSkillOptionOrder(
+        CharacterCreationTalentActiveSkillGrantProjection grant) =>
+        (string.Equals(
+             grant.SkillType,
+             CharacterCreationTalentSkillGrantTypes.Specific,
+             StringComparison.Ordinal)
+         && grant.SpecificSkillChoiceNames.Count > 0)
+            || grant.Options.SequenceEqual(
+                grant.Options.OrderBy(option => option.CanonicalName, StringComparer.Ordinal)
+                    .ThenBy(option => option.SourceId, StringComparer.Ordinal));
+
     private static bool IsEligibleActiveSkillOption(
-        string skillType,
+        CharacterCreationTalentActiveSkillGrantProjection grant,
         CharacterCreationTalentActiveSkillChoiceProjection option) =>
-        skillType switch
+        grant.SkillType switch
         {
             CharacterCreationTalentSkillGrantTypes.Active => true,
+            CharacterCreationTalentSkillGrantTypes.Default => true,
             CharacterCreationTalentSkillGrantTypes.Magic => option.Category is
                 "Magical Active" or "Pseudo-Magical Active",
             CharacterCreationTalentSkillGrantTypes.Resonance => string.Equals(
@@ -1200,8 +1299,42 @@ public sealed class CharacterCreationPrerequisiteService :
                     "Resonance Active",
                     StringComparison.Ordinal)
                 || option.SkillGroup is "Cracking" or "Electronics",
+            CharacterCreationTalentSkillGrantTypes.Matrix => option.SkillGroup is
+                "Cracking" or "Electronics",
+            CharacterCreationTalentSkillGrantTypes.Specific =>
+                grant.SpecificSkillChoiceNames.Count == 0
+                || grant.SpecificSkillChoiceNames.Contains(
+                    option.CanonicalName,
+                    StringComparer.Ordinal),
+            CharacterCreationTalentSkillGrantTypes.XPath => string.Equals(
+                    grant.SkillTypeQuery,
+                    CharacterCreationTalentSkillGrantTypes.PinnedXPathPredicate,
+                    StringComparison.Ordinal)
+                && option.Attribute is not ("RES" or "DEP")
+                && (!string.Equals(
+                        option.Category,
+                        "Magical Active",
+                        StringComparison.Ordinal)
+                    || string.IsNullOrEmpty(option.SkillGroup)),
             _ => false
         };
+
+    private static bool IsNormalizedLowerToken(string value) =>
+        !string.IsNullOrWhiteSpace(value)
+        && string.Equals(value, value.Trim(), StringComparison.Ordinal)
+        && string.Equals(value, value.ToLowerInvariant(), StringComparison.Ordinal);
+
+    private static bool HasExactGrantSupportState(
+        bool supported,
+        bool expectedSupported,
+        IReadOnlyList<string> blockers) =>
+        supported == expectedSupported
+        && (expectedSupported
+            ? blockers.Count == 0
+            : blockers.SequenceEqual(
+                [CharacterCreationPrerequisiteBlockers
+                    .TalentSkillGrantAuthorityUnsupported],
+                StringComparer.Ordinal));
 
     private static bool IsValidSkillGroupGrant(
         CharacterCreationTalentSkillGroupGrantProjection? grant,
@@ -1211,11 +1344,17 @@ public sealed class CharacterCreationPrerequisiteService :
             return true;
         return CharacterCreationPrerequisiteAuthorityDigest.IsCanonical(effectiveSkillsInputsDigest)
                && grant.Quantity > 0
+               && grant.Quantity <= CharacterCreationTalentSkillGrantTypes.MaximumPromptSlots
                && grant.BaseRating >= 0
-               && string.Equals(
-                   grant.SkillGroupType,
-                   CharacterCreationTalentSkillGrantTypes.Choices,
-                   StringComparison.Ordinal)
+               && IsNormalizedLowerToken(grant.SkillGroupType)
+               && grant.CompatibilityMarker is not null
+               && HasExactSkillGroupCompatibilityMarker(grant)
+               && grant.RequestedGroupNames is not null
+               && grant.RequestedGroupNames.All(name =>
+                   !string.IsNullOrWhiteSpace(name)
+                   && string.Equals(name, name.Trim(), StringComparison.Ordinal))
+               && grant.RequestedGroupNames.Distinct(StringComparer.Ordinal).Count()
+                  == grant.RequestedGroupNames.Count
                && grant.Options is not null
                && grant.Blockers is not null
                && grant.SourceAnchorIds is { Count: > 0 }
@@ -1228,13 +1367,32 @@ public sealed class CharacterCreationPrerequisiteService :
                        grant.SkillGroupType,
                        effectiveSkillsInputsDigest,
                        grant.Options.Select(option => option.SelectionId)))
-               && grant.IsSupported == (grant.Blockers.Count == 0)
-               && (!grant.IsSupported || grant.Options.Count >= grant.Quantity)
+               && HasExactGrantSupportState(
+                   grant.IsSupported,
+                   (grant.SkillGroupType is CharacterCreationTalentSkillGrantTypes.Choices
+                       or CharacterCreationTalentSkillGrantTypes.Grouped)
+                   && (grant.RequestedGroupNames.Count == 0
+                       ? grant.Options.Count > 0
+                       : grant.Options.Count == grant.RequestedGroupNames.Count)
+                   && grant.Options.Count >= grant.Quantity,
+                   grant.Blockers)
                && grant.Options.Select(option => option.SelectionId)
                    .Distinct(StringComparer.Ordinal).Count() == grant.Options.Count
-               && grant.Options.SequenceEqual(
-                   grant.Options.OrderBy(option => option.CanonicalName, StringComparer.Ordinal)
-                       .ThenBy(option => option.SelectionId, StringComparer.Ordinal))
+               && grant.Options.Select(option => option.CanonicalName)
+                   .Distinct(StringComparer.Ordinal).Count() == grant.Options.Count
+               && (grant.RequestedGroupNames.Count == 0
+                   ? grant.Options.SequenceEqual(
+                       grant.Options.OrderBy(
+                               option => option.CanonicalName,
+                               StringComparer.Ordinal)
+                           .ThenBy(option => option.SelectionId, StringComparer.Ordinal))
+                   : grant.Options.Select(option => option.CanonicalName).SequenceEqual(
+                       grant.RequestedGroupNames.Where(name => grant.Options.Any(option =>
+                           string.Equals(
+                               option.CanonicalName,
+                               name,
+                               StringComparison.Ordinal))),
+                       StringComparer.Ordinal))
                && grant.Options.All(option => !string.IsNullOrWhiteSpace(option.SelectionId)
                                               && !string.IsNullOrWhiteSpace(option.CanonicalName)
                                               && option.MemberSkillSourceIds is { Count: > 0 }
@@ -1271,6 +1429,25 @@ public sealed class CharacterCreationPrerequisiteService :
                                                   option.SkillsSourceDigest,
                                                   effectiveSkillsInputsDigest)
                                               && option.SourceAnchorIds is { Count: > 0 });
+    }
+
+    private static bool HasExactSkillGroupCompatibilityMarker(
+        CharacterCreationTalentSkillGroupGrantProjection grant)
+    {
+        if (string.Equals(
+                grant.SkillGroupType,
+                CharacterCreationTalentSkillGrantTypes.Choices,
+                StringComparison.Ordinal))
+        {
+            return string.Equals(
+                       grant.CompatibilityMarker,
+                       CharacterCreationTalentSkillGrantTypes.GroupChoiceAliasCompatibility,
+                       StringComparison.Ordinal)
+                   && grant.SourceAnchorIds.Contains(
+                       $"compatibility:{grant.CompatibilityMarker}",
+                       StringComparer.Ordinal);
+        }
+        return string.IsNullOrEmpty(grant.CompatibilityMarker);
     }
 
     private static string? CompareBinding(

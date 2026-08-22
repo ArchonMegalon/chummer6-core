@@ -2,6 +2,7 @@
 
 using System;
 using System.IO;
+using System.Xml.Linq;
 using Chummer.Application.Characters;
 using Chummer.Contracts.Characters;
 using Chummer.Infrastructure.Files;
@@ -140,6 +141,19 @@ public sealed class FileSystemCharacterSourceDataResolverTests
             || option.SkillGroup is "Cracking" or "Electronics"));
         Assert.IsTrue(resonanceGrant.Options.Any(option => option.Category != "Resonance Active"
             && (option.SkillGroup is "Cracking" or "Electronics")));
+        Assert.AreEqual(3, resonanceGrant.Quantity);
+
+        CharacterCreationPriorityTalentOptionProjection artificialIntelligence = authority.Options
+            .Single(option => option.CategoryId == CharacterCreationPriorityCategoryIds.Talent
+                              && option.Rank == "B")
+            .TalentOptions.Single(option => option.Value == "A.I.");
+        CharacterCreationTalentActiveSkillGrantProjection matrixGrant =
+            artificialIntelligence.ActiveSkillGrant!;
+        Assert.AreEqual(CharacterCreationTalentSkillGrantTypes.Matrix, matrixGrant.SkillType);
+        Assert.IsTrue(matrixGrant.IsSupported, string.Join(",", matrixGrant.Blockers));
+        Assert.IsTrue(matrixGrant.Options.Count > 0);
+        Assert.IsTrue(matrixGrant.Options.All(option => option.SkillGroup is
+            "Cracking" or "Electronics"));
 
         CharacterCreationPriorityTalentOptionProjection adept = authority.Options.Single(option =>
                 option.CategoryId == CharacterCreationPriorityCategoryIds.Talent
@@ -147,12 +161,42 @@ public sealed class FileSystemCharacterSourceDataResolverTests
             .TalentOptions.Single(option => option.Value == "Adept");
         CharacterCreationTalentActiveSkillChoiceProjection[] exoticOptions = adept.ActiveSkillGrant!
             .Options.Where(option => option.IsExotic).ToArray();
-        Assert.HasCount(3, exoticOptions);
+        Assert.IsTrue(exoticOptions.Length > 0);
         Assert.IsTrue(exoticOptions.All(option => !option.IsEnabled
             && option.Blockers.SequenceEqual(
                 [CharacterCreationPrerequisiteBlockers
                     .TalentExoticSkillSpecializationRequired],
                 StringComparer.Ordinal)));
+
+        CharacterCreationPriorityTalentOptionProjection explorer = authority.Options.Single(option =>
+                option.CategoryId == CharacterCreationPriorityCategoryIds.Talent
+                && option.Rank == "C")
+            .TalentOptions.Single(option => option.Value == "Explorer");
+        CharacterCreationTalentActiveSkillGrantProjection specificGrant =
+            explorer.ActiveSkillGrant!;
+        Assert.AreEqual(CharacterCreationTalentSkillGrantTypes.Specific, specificGrant.SkillType);
+        Assert.IsTrue(specificGrant.IsSupported, string.Join(",", specificGrant.Blockers));
+        CollectionAssert.AreEqual(
+            new[] { "Arcana", "Assensing", "Astral Combat" },
+            specificGrant.SpecificSkillChoiceNames.ToArray());
+        CollectionAssert.AreEqual(
+            specificGrant.SpecificSkillChoiceNames.ToArray(),
+            specificGrant.Options.Select(option => option.CanonicalName).ToArray());
+
+        CharacterCreationPriorityTalentOptionProjection adeptXPath = authority.Options.Single(option =>
+                option.CategoryId == CharacterCreationPriorityCategoryIds.Talent
+                && option.Rank == "C")
+            .TalentOptions.Single(option => option.Value == "Adept");
+        CharacterCreationTalentActiveSkillGrantProjection xpathGrant =
+            adeptXPath.ActiveSkillGrant!;
+        Assert.AreEqual(CharacterCreationTalentSkillGrantTypes.XPath, xpathGrant.SkillType);
+        Assert.AreEqual(
+            CharacterCreationTalentSkillGrantTypes.PinnedXPathPredicate,
+            xpathGrant.SkillTypeQuery);
+        Assert.IsTrue(xpathGrant.IsSupported, string.Join(",", xpathGrant.Blockers));
+        Assert.IsTrue(xpathGrant.Options.Count > 0);
+        Assert.IsTrue(xpathGrant.Options.All(option => option.Attribute is not ("RES" or "DEP")
+            && (option.Category != "Magical Active" || string.IsNullOrEmpty(option.SkillGroup))));
 
         CharacterCreationPriorityTalentOptionProjection aspected = authority.Options.Single(option =>
                 option.CategoryId == CharacterCreationPriorityCategoryIds.Talent
@@ -161,11 +205,15 @@ public sealed class FileSystemCharacterSourceDataResolverTests
         CharacterCreationTalentSkillGroupGrantProjection groupGrant = aspected.SkillGroupGrant!;
         Assert.AreEqual(1, groupGrant.Quantity);
         Assert.AreEqual(4, groupGrant.BaseRating);
-        Assert.AreEqual(CharacterCreationTalentSkillGrantTypes.Choices, groupGrant.SkillGroupType);
+        Assert.AreEqual(CharacterCreationTalentSkillGrantTypes.Grouped, groupGrant.SkillGroupType);
+        Assert.AreEqual(string.Empty, groupGrant.CompatibilityMarker);
         Assert.IsTrue(groupGrant.IsSupported, string.Join(",", groupGrant.Blockers));
         CollectionAssert.AreEqual(
             new[] { "Conjuring", "Enchanting", "Sorcery" },
             groupGrant.Options.Select(option => option.CanonicalName).ToArray());
+        CollectionAssert.AreEqual(
+            new[] { "Conjuring", "Enchanting", "Sorcery" },
+            groupGrant.RequestedGroupNames.ToArray());
         Assert.IsTrue(groupGrant.Options.All(option =>
             option.SelectionId.StartsWith("skill-group:", StringComparison.Ordinal)
             && option.MemberSkillSourceIds.Count > 0
@@ -178,6 +226,262 @@ public sealed class FileSystemCharacterSourceDataResolverTests
         Assert.AreEqual(0, aspectedD.SkillGroupGrant!.BaseRating);
         Assert.IsFalse(aspectedD.IsEnabled,
             "Grant authority must not make the remaining unsupported Talent ledgers writable.");
+    }
+
+    [TestMethod]
+    public void Canonical_talent_corpus_projects_every_child_with_exact_branch_and_option_order()
+    {
+        string coreRoot = FindCoreRoot();
+        ICharacterSourceDataContext context = CreateContext(
+            coreRoot,
+            $"<character><settings>{SettingsId}</settings></character>")!;
+        Assert.IsTrue(context.TryResolveCreationPrerequisiteAuthority(
+            out CharacterCreationPrerequisiteAuthority authority));
+        Assert.IsTrue(authority.IsAuthoritative, string.Join(",", authority.Blockers));
+
+        XDocument priorities = XDocument.Load(Path.Combine(coreRoot, "Chummer", "data",
+            "priorities.xml"));
+        XDocument skillsDocument = XDocument.Load(Path.Combine(coreRoot, "Chummer", "data",
+            "skills.xml"));
+        (string Id, string Name, string Attribute, string Category, string? Group, bool Exotic)[]
+            skills = skillsDocument.Root!.Element("skills")!.Elements("skill")
+                .Select(skill =>
+                {
+                    string[] names = skill.Elements("name").Select(node => node.Value)
+                        .Distinct(StringComparer.Ordinal).ToArray();
+                    Assert.HasCount(1, names);
+                    string? group = skill.Element("skillgroup")?.Value;
+                    if (string.IsNullOrEmpty(group))
+                        group = null;
+                    return (
+                        Id: skill.Element("id")!.Value,
+                        Name: names[0],
+                        Attribute: skill.Element("attribute")?.Value ?? string.Empty,
+                        Category: skill.Element("category")!.Value,
+                        Group: group,
+                        Exotic: bool.TryParse(skill.Element("exotic")?.Value, out bool exotic)
+                                && exotic);
+                })
+                .ToArray();
+        (string Name, string[] Members)[] groups = skillsDocument.Root!.Element("skillgroups")!
+            .Elements("name")
+            .Select(node => (
+                Name: node.Value,
+                Members: skills.Where(skill => string.Equals(
+                        skill.Group,
+                        node.Value,
+                        StringComparison.Ordinal))
+                    .Select(skill => skill.Id)
+                    .OrderBy(id => id, StringComparer.Ordinal)
+                    .ToArray()))
+            .Where(group => group.Members.Length > 0)
+            .OrderBy(group => group.Name, StringComparer.Ordinal)
+            .ToArray();
+
+        XElement[] rawRows = priorities.Root!.Element("priorities")!.Elements("priority")
+            .Where(row => string.Equals(
+                row.Element("category")?.Value,
+                "Talent",
+                StringComparison.Ordinal))
+            .ToArray();
+        CharacterCreationPriorityOptionProjection[] projectedRows = authority.Options
+            .Where(option => option.CategoryId == CharacterCreationPriorityCategoryIds.Talent)
+            .ToArray();
+        Assert.AreEqual(rawRows.Length, projectedRows.Length,
+            "Every current-corpus Talent priority row must be represented.");
+
+        foreach (XElement rawRow in rawRows)
+        {
+            string sourceId = rawRow.Element("id")!.Value;
+            CharacterCreationPriorityOptionProjection projectedRow = projectedRows.Single(option =>
+                option.SourceId == sourceId);
+            XElement[] rawTalents = rawRow.Element("talents")!.Elements("talent").ToArray();
+            Assert.AreEqual(rawTalents.Length, projectedRow.TalentOptions.Count);
+            for (int index = 0; index < rawTalents.Length; index++)
+            {
+                XElement rawTalent = rawTalents[index];
+                CharacterCreationPriorityTalentOptionProjection projected =
+                    projectedRow.TalentOptions[index];
+                Assert.AreEqual(rawTalent.Element("name")!.Value, projected.Name);
+                Assert.AreEqual(rawTalent.Element("value")!.Value, projected.Value);
+
+                bool activeBranch = rawTalent.Elements().Any(element => element.Name.LocalName is
+                    "skillqty" or "skillval" or "skilltype" or "skillchoices");
+                if (activeBranch)
+                {
+                    bool hasPrompt = int.TryParse(
+                                         rawTalent.Element("skillqty")?.Value,
+                                         out int sourceQuantity)
+                                     && sourceQuantity > 0;
+                    if (!hasPrompt)
+                    {
+                        Assert.IsNull(projected.ActiveSkillGrant);
+                        Assert.IsNull(projected.SkillGroupGrant);
+                        continue;
+                    }
+
+                    CharacterCreationTalentActiveSkillGrantProjection grant =
+                        projected.ActiveSkillGrant!;
+                    Assert.IsNull(projected.SkillGroupGrant);
+                    int quantity = Math.Min(
+                        sourceQuantity,
+                        CharacterCreationTalentSkillGrantTypes.MaximumPromptSlots);
+                    Assert.AreEqual(quantity, grant.Quantity);
+                    Assert.AreEqual(int.Parse(rawTalent.Element("skillval")!.Value), grant.BaseRating);
+                    XElement? typeNode = rawTalent.Element("skilltype");
+                    string skillType = (typeNode?.Value
+                                        ?? CharacterCreationTalentSkillGrantTypes.Default)
+                        .ToLowerInvariant();
+                    string query = typeNode?.Attribute("xpath")?.Value ?? string.Empty;
+                    Assert.AreEqual(skillType, grant.SkillType);
+                    Assert.AreEqual(query, grant.SkillTypeQuery);
+                    string[] specificNames = skillType ==
+                                             CharacterCreationTalentSkillGrantTypes.Specific
+                        ? rawTalent.Element("skillchoices")?.Elements("skill")
+                            .Select(node => node.Value).ToArray() ?? []
+                        : [];
+                    CollectionAssert.AreEqual(
+                        specificNames,
+                        grant.SpecificSkillChoiceNames.ToArray());
+
+                    IEnumerable<(string Id, string Name, string Attribute, string Category,
+                        string? Group, bool Exotic)> candidates = skillType switch
+                    {
+                        CharacterCreationTalentSkillGrantTypes.Active
+                            or CharacterCreationTalentSkillGrantTypes.Default => skills,
+                        CharacterCreationTalentSkillGrantTypes.Magic => skills.Where(skill =>
+                            skill.Category is "Magical Active" or "Pseudo-Magical Active"),
+                        CharacterCreationTalentSkillGrantTypes.Resonance => skills.Where(skill =>
+                            skill.Category == "Resonance Active"
+                            || skill.Group is "Cracking" or "Electronics"),
+                        CharacterCreationTalentSkillGrantTypes.Matrix => skills.Where(skill =>
+                            skill.Group is "Cracking" or "Electronics"),
+                        CharacterCreationTalentSkillGrantTypes.Specific when specificNames.Length == 0
+                            => skills,
+                        CharacterCreationTalentSkillGrantTypes.Specific => specificNames.Select(name =>
+                            skills.Single(skill => skill.Name == name)),
+                        CharacterCreationTalentSkillGrantTypes.XPath when string.Equals(
+                            query,
+                            CharacterCreationTalentSkillGrantTypes.PinnedXPathPredicate,
+                            StringComparison.Ordinal) => skills.Where(skill =>
+                            skill.Attribute is not ("RES" or "DEP")
+                            && (skill.Category != "Magical Active"
+                                || string.IsNullOrEmpty(skill.Group))),
+                        _ => []
+                    };
+                    (string Id, string Name, string Attribute, string Category, string? Group,
+                        bool Exotic)[] expected = skillType ==
+                                                  CharacterCreationTalentSkillGrantTypes.Specific
+                                                  && specificNames.Length > 0
+                        ? candidates.ToArray()
+                        : candidates.OrderBy(skill => skill.Name, StringComparer.Ordinal)
+                            .ThenBy(skill => skill.Id, StringComparer.Ordinal)
+                            .ToArray();
+                    CollectionAssert.AreEqual(
+                        expected.Select(skill => skill.Id).ToArray(),
+                        grant.Options.Select(option => option.SelectionId).ToArray(),
+                        $"Active option identity/order drift for {projected.Name}.");
+                    for (int optionIndex = 0; optionIndex < expected.Length; optionIndex++)
+                    {
+                        Assert.AreEqual(expected[optionIndex].Name,
+                            grant.Options[optionIndex].CanonicalName);
+                        Assert.AreEqual(expected[optionIndex].Attribute,
+                            grant.Options[optionIndex].Attribute);
+                        Assert.AreEqual(expected[optionIndex].Category,
+                            grant.Options[optionIndex].Category);
+                        Assert.AreEqual(expected[optionIndex].Group,
+                            grant.Options[optionIndex].SkillGroup);
+                        Assert.AreEqual(expected[optionIndex].Exotic,
+                            grant.Options[optionIndex].IsExotic);
+                        Assert.AreEqual(!expected[optionIndex].Exotic,
+                            grant.Options[optionIndex].IsEnabled);
+                    }
+                    bool supportedSkillType = skillType switch
+                    {
+                        CharacterCreationTalentSkillGrantTypes.Active
+                            or CharacterCreationTalentSkillGrantTypes.Default
+                            or CharacterCreationTalentSkillGrantTypes.Magic
+                            or CharacterCreationTalentSkillGrantTypes.Resonance
+                            or CharacterCreationTalentSkillGrantTypes.Matrix
+                            or CharacterCreationTalentSkillGrantTypes.Specific => true,
+                        CharacterCreationTalentSkillGrantTypes.XPath => string.Equals(
+                            query,
+                            CharacterCreationTalentSkillGrantTypes.PinnedXPathPredicate,
+                            StringComparison.Ordinal),
+                        _ => false
+                    };
+                    Assert.AreEqual(
+                        supportedSkillType
+                        && expected.Count(skill => !skill.Exotic) >= quantity,
+                        grant.IsSupported,
+                        $"Active support-state drift for {projected.Name}.");
+                    continue;
+                }
+
+                bool groupBranch = rawTalent.Elements().Any(element => element.Name.LocalName is
+                    "skillgroupqty" or "skillgroupval" or "skillgrouptype"
+                    or "skillgroupchoices");
+                if (!groupBranch
+                    || !int.TryParse(rawTalent.Element("skillgroupqty")?.Value,
+                        out int sourceGroupQuantity)
+                    || sourceGroupQuantity <= 0)
+                {
+                    Assert.IsNull(projected.ActiveSkillGrant);
+                    Assert.IsNull(projected.SkillGroupGrant);
+                    continue;
+                }
+
+                CharacterCreationTalentSkillGroupGrantProjection groupGrant =
+                    projected.SkillGroupGrant!;
+                Assert.IsNull(projected.ActiveSkillGrant);
+                int groupQuantity = Math.Min(
+                    sourceGroupQuantity,
+                    CharacterCreationTalentSkillGrantTypes.MaximumPromptSlots);
+                Assert.AreEqual(groupQuantity, groupGrant.Quantity);
+                Assert.AreEqual(int.Parse(rawTalent.Element("skillgroupval")!.Value),
+                    groupGrant.BaseRating);
+                string groupType = rawTalent.Element("skillgrouptype")!.Value.ToLowerInvariant();
+                Assert.AreEqual(groupType, groupGrant.SkillGroupType);
+                Assert.AreEqual(
+                    groupType == CharacterCreationTalentSkillGrantTypes.Choices
+                        ? CharacterCreationTalentSkillGrantTypes.GroupChoiceAliasCompatibility
+                        : string.Empty,
+                    groupGrant.CompatibilityMarker);
+                string[] requestedNames = rawTalent.Element("skillgroupchoices")?
+                    .Elements("skillgroup").Select(node => node.Value).ToArray() ?? [];
+                CollectionAssert.AreEqual(requestedNames, groupGrant.RequestedGroupNames.ToArray());
+                bool supportedGroupType = groupType is
+                    CharacterCreationTalentSkillGrantTypes.Grouped
+                    or CharacterCreationTalentSkillGrantTypes.Choices;
+                (string Name, string[] Members)[] expectedGroups = requestedNames.Length == 0
+                                                                   && supportedGroupType
+                    ? groups
+                    : requestedNames.Select(name => groups.Single(group => group.Name == name))
+                        .ToArray();
+                CollectionAssert.AreEqual(
+                    expectedGroups.Select(group => CharacterCreationTalentGrantAuthorityDigest
+                            .ComputeSkillGroupSelectionId(
+                                CharacterCreationTalentGrantAuthorityDigest.ComputeSkillGroup(
+                                    authority.EffectiveSkillsInputsDigest,
+                                    group.Name,
+                                    group.Members)))
+                        .ToArray(),
+                    groupGrant.Options.Select(option => option.SelectionId).ToArray(),
+                    $"Group option identity/order drift for {projected.Name}.");
+                for (int groupIndex = 0; groupIndex < expectedGroups.Length; groupIndex++)
+                {
+                    Assert.AreEqual(expectedGroups[groupIndex].Name,
+                        groupGrant.Options[groupIndex].CanonicalName);
+                    CollectionAssert.AreEqual(
+                        expectedGroups[groupIndex].Members,
+                        groupGrant.Options[groupIndex].MemberSkillSourceIds.ToArray());
+                }
+                Assert.AreEqual(
+                    supportedGroupType && expectedGroups.Length >= groupQuantity,
+                    groupGrant.IsSupported,
+                    $"Group support-state drift for {projected.Name}.");
+            }
+        }
     }
 
     [TestMethod]
@@ -285,6 +589,294 @@ public sealed class FileSystemCharacterSourceDataResolverTests
             CollectionAssert.Contains(
                 drifted.Blockers.ToList(),
                 CharacterCreationPrerequisiteBlockers.SkillsSourceDrift);
+        }
+        finally
+        {
+            DeleteTempDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public void Talent_skill_authority_projects_case_insensitive_current_and_legacy_choice_rules()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            WriteBaseContent(
+                root,
+                string.Empty,
+                "<buildmethod>Priority</buildmethod><buildpoints>25</buildpoints>"
+                + "<priorityarray>ABCDE</priorityarray><prioritytable>Standard</prioritytable>"
+                + "<sumtoten>10</sumtoten>");
+            const string pinnedXPath =
+                "not(attribute = 'RES' or attribute = 'DEP') and "
+                + "(not(category = 'Magical Active') or skillgroup = '' or not(skillgroup))";
+            string talentXml =
+                "<talents>"
+                + TalentGrant("Mixed", "<skillqty>1</skillqty><skillval>2</skillval>"
+                    + "<skilltype>MaGiC</skilltype><skillgroupchoices><skillgroup>Sorcery"
+                    + "</skillgroup></skillgroupchoices><skillgroupqty>1</skillgroupqty>"
+                    + "<skillgroupval>2</skillgroupval><skillgrouptype>grouped</skillgrouptype>")
+                + TalentGrant("Resonance", "<skillqty>3</skillqty><skillval>2</skillval>"
+                    + "<skilltype>ReSoNaNcE</skilltype>")
+                + TalentGrant("Matrix", "<skillqty>2</skillqty><skillval>2</skillval>"
+                    + "<skilltype>MaTrIx</skilltype>")
+                + TalentGrant("Specific", "<skillchoices><skill>Arcana</skill>"
+                    + "<skill>Assensing</skill></skillchoices><skillqty>2</skillqty>"
+                    + "<skillval>3</skillval><skilltype>SpEcIfIc</skilltype>")
+                + TalentGrant("Empty Specific", "<skillchoices/><skillqty>1</skillqty>"
+                    + "<skillval>3</skillval><skilltype>specific</skilltype>")
+                + TalentGrant("XPath", "<skillqty>1</skillqty><skillval>2</skillval>"
+                    + $"<skilltype xpath=\"{pinnedXPath}\">XpAtH</skilltype>")
+                + TalentGrant("Unknown XPath", "<skillqty>1</skillqty><skillval>2</skillval>"
+                    + "<skilltype xpath=\"category = 'Combat Active'\">xpath</skilltype>")
+                + TalentGrant("Default", "<skillqty>1</skillqty><skillval>2</skillval>"
+                    + "<skilltype>DeFaUlT</skilltype>")
+                + TalentGrant("Missing Type", "<skillchoices><skill>Arcana</skill></skillchoices>"
+                    + "<skillqty>1</skillqty><skillval>2</skillval>")
+                + TalentGrant("Clamped Active", "<skillqty>4</skillqty><skillval>2</skillval>"
+                    + "<skilltype>active</skilltype>")
+                + TalentGrant("Unknown Active", "<skillqty>1</skillqty><skillval>2</skillval>"
+                    + "<skilltype>unknown</skilltype>")
+                + string.Concat(new[]
+                {
+                    (Name: "Zero Active", Quantity: "0"),
+                    (Name: "Negative Active", Quantity: "-1"),
+                    (Name: "Unparseable Active", Quantity: "not-a-number")
+                }.Select(item => TalentGrant(
+                    item.Name,
+                    $"<skillqty>{item.Quantity}</skillqty><skillval>2</skillval>"
+                    + "<skilltype>active</skilltype><skillgroupchoices><skillgroup>Sorcery"
+                    + "</skillgroup></skillgroupchoices><skillgroupqty>1</skillgroupqty>"
+                    + "<skillgroupval>2</skillgroupval><skillgrouptype>grouped</skillgrouptype>")))
+                + TalentGrant("Legacy Choices", "<skillgroupchoices><skillgroup>Sorcery"
+                    + "</skillgroup></skillgroupchoices><skillgroupqty>1</skillgroupqty>"
+                    + "<skillgroupval>2</skillgroupval><skillgrouptype>ChOiCeS</skillgrouptype>")
+                + TalentGrant("Grouped", "<skillgroupchoices><skillgroup>Sorcery"
+                    + "</skillgroup></skillgroupchoices><skillgroupqty>1</skillgroupqty>"
+                    + "<skillgroupval>2</skillgroupval><skillgrouptype>GrOuPeD</skillgrouptype>")
+                + TalentGrant("Empty Grouped", "<skillgroupchoices/><skillgroupqty>1"
+                    + "</skillgroupqty><skillgroupval>2</skillgroupval>"
+                    + "<skillgrouptype>grouped</skillgrouptype>")
+                + TalentGrant("Clamped Grouped", "<skillgroupchoices/><skillgroupqty>4"
+                    + "</skillgroupqty><skillgroupval>2</skillgroupval>"
+                    + "<skillgrouptype>grouped</skillgrouptype>")
+                + string.Concat(new[]
+                {
+                    (Name: "Zero Group", Quantity: "0"),
+                    (Name: "Negative Group", Quantity: "-1"),
+                    (Name: "Unparseable Group", Quantity: "not-a-number")
+                }.Select(item => TalentGrant(
+                    item.Name,
+                    $"<skillgroupqty>{item.Quantity}</skillgroupqty>"
+                    + "<skillgroupval>2</skillgroupval><skillgrouptype>grouped</skillgrouptype>")))
+                + TalentGrant("Unknown Group", "<skillgroupchoices><skillgroup>Sorcery"
+                    + "</skillgroup></skillgroupchoices><skillgroupqty>1</skillgroupqty>"
+                    + "<skillgroupval>2</skillgroupval><skillgrouptype>unknown</skillgrouptype>")
+                + "</talents>";
+            WritePriorityFixture(root, talentXml);
+            File.WriteAllText(
+                Path.Combine(root, "data", "skills.xml"),
+                "<chummer><skillgroups><name>Sorcery</name><name>Cracking</name>"
+                + "<name>Electronics</name></skillgroups><skills>"
+                + Skill("11111111-1111-1111-1111-111111111111", "Spellcasting", "MAG",
+                    "Magical Active", "Sorcery", "DISABLED")
+                + Skill("22222222-2222-2222-2222-222222222222", "Arcana", "LOG",
+                    "Pseudo-Magical Active", null, "DISABLED")
+                + Skill("33333333-3333-3333-3333-333333333333", "Assensing", "INT",
+                    "Magical Active", null, "SR5")
+                + Skill("44444444-4444-4444-4444-444444444444", "Cybercombat", "LOG",
+                    "Technical Active", "Cracking", "DISABLED")
+                + Skill("55555555-5555-5555-5555-555555555555", "Computer", "LOG",
+                    "Technical Active", "Electronics", "DISABLED")
+                + Skill("66666666-6666-6666-6666-666666666666", "Compiling", "RES",
+                    "Resonance Active", null, "SR5")
+                + Skill("77777777-7777-7777-7777-777777777777", "Pistols", "AGI",
+                    "Combat Active", null, "SR5")
+                + "</skills></chummer>");
+
+            ICharacterSourceDataContext context = CreateContext(root, CharacterXml())!;
+            Assert.IsTrue(context.TryResolveCreationPrerequisiteAuthority(
+                out CharacterCreationPrerequisiteAuthority authority));
+            Assert.IsTrue(authority.IsAuthoritative, string.Join(",", authority.Blockers));
+            CharacterCreationPriorityTalentOptionProjection[] talents = authority.Options
+                .First(option => option.CategoryId == CharacterCreationPriorityCategoryIds.Talent)
+                .TalentOptions.ToArray();
+
+            CharacterCreationPriorityTalentOptionProjection mixed = talents.Single(talent =>
+                talent.Value == "Mixed");
+            Assert.AreEqual(CharacterCreationTalentSkillGrantTypes.Magic,
+                mixed.ActiveSkillGrant!.SkillType);
+            Assert.IsNull(mixed.SkillGroupGrant, "Active skill fields take branch precedence.");
+            Assert.IsTrue(mixed.ActiveSkillGrant.Options.Any(option =>
+                option.CanonicalName == "Arcana"), "Talent prompts do not apply BookXPath.");
+
+            CharacterCreationTalentActiveSkillGrantProjection resonance = talents.Single(talent =>
+                talent.Value == "Resonance").ActiveSkillGrant!;
+            Assert.IsTrue(resonance.IsSupported, string.Join(",", resonance.Blockers));
+            CollectionAssert.AreEquivalent(
+                new[] { "Cybercombat", "Computer", "Compiling" },
+                resonance.Options.Select(option => option.CanonicalName).ToArray());
+
+            CharacterCreationTalentActiveSkillGrantProjection matrix = talents.Single(talent =>
+                talent.Value == "Matrix").ActiveSkillGrant!;
+            Assert.IsTrue(matrix.IsSupported, string.Join(",", matrix.Blockers));
+            Assert.IsTrue(matrix.Options.All(option => option.SkillGroup is
+                "Cracking" or "Electronics"));
+
+            CharacterCreationTalentActiveSkillGrantProjection specific = talents.Single(talent =>
+                talent.Value == "Specific").ActiveSkillGrant!;
+            Assert.IsTrue(specific.IsSupported, string.Join(",", specific.Blockers));
+            CollectionAssert.AreEqual(
+                new[] { "Arcana", "Assensing" },
+                specific.Options.Select(option => option.CanonicalName).ToArray());
+
+            CharacterCreationTalentActiveSkillGrantProjection emptySpecific = talents.Single(talent =>
+                talent.Value == "Empty Specific").ActiveSkillGrant!;
+            Assert.IsTrue(emptySpecific.IsSupported, string.Join(",", emptySpecific.Blockers));
+            Assert.IsEmpty(emptySpecific.SpecificSkillChoiceNames);
+            CollectionAssert.AreEqual(
+                emptySpecific.Options.OrderBy(
+                        option => option.CanonicalName,
+                        StringComparer.Ordinal)
+                    .ThenBy(option => option.SourceId, StringComparer.Ordinal)
+                    .Select(option => option.SourceId)
+                    .ToArray(),
+                emptySpecific.Options.Select(option => option.SourceId).ToArray());
+            Assert.AreEqual(7, emptySpecific.Options.Count);
+
+            CharacterCreationTalentActiveSkillGrantProjection xpath = talents.Single(talent =>
+                talent.Value == "XPath").ActiveSkillGrant!;
+            Assert.IsTrue(xpath.IsSupported, string.Join(",", xpath.Blockers));
+            Assert.AreEqual(pinnedXPath, xpath.SkillTypeQuery);
+            Assert.IsFalse(xpath.Options.Any(option => option.CanonicalName is
+                "Spellcasting" or "Compiling"));
+
+            CharacterCreationTalentActiveSkillGrantProjection unknownXPath = talents.Single(talent =>
+                talent.Value == "Unknown XPath").ActiveSkillGrant!;
+            Assert.IsFalse(unknownXPath.IsSupported);
+            Assert.IsEmpty(unknownXPath.Options);
+            CollectionAssert.Contains(
+                unknownXPath.Blockers.ToList(),
+                CharacterCreationPrerequisiteBlockers.TalentSkillGrantAuthorityUnsupported);
+
+            CharacterCreationTalentActiveSkillGrantProjection defaultGrant = talents.Single(talent =>
+                talent.Value == "Default").ActiveSkillGrant!;
+            Assert.AreEqual(CharacterCreationTalentSkillGrantTypes.Default, defaultGrant.SkillType);
+            Assert.IsTrue(defaultGrant.IsSupported, string.Join(",", defaultGrant.Blockers));
+
+            CharacterCreationTalentActiveSkillGrantProjection missingType = talents.Single(talent =>
+                talent.Value == "Missing Type").ActiveSkillGrant!;
+            Assert.AreEqual(CharacterCreationTalentSkillGrantTypes.Default, missingType.SkillType);
+            Assert.IsTrue(missingType.IsSupported, string.Join(",", missingType.Blockers));
+            Assert.IsEmpty(missingType.SpecificSkillChoiceNames);
+            Assert.AreEqual(emptySpecific.Options.Count, missingType.Options.Count);
+
+            CharacterCreationTalentActiveSkillGrantProjection clampedActive = talents.Single(talent =>
+                talent.Value == "Clamped Active").ActiveSkillGrant!;
+            Assert.AreEqual(CharacterCreationTalentSkillGrantTypes.MaximumPromptSlots,
+                clampedActive.Quantity);
+            Assert.IsTrue(clampedActive.IsSupported, string.Join(",", clampedActive.Blockers));
+
+            CharacterCreationTalentActiveSkillGrantProjection unknownActive = talents.Single(talent =>
+                talent.Value == "Unknown Active").ActiveSkillGrant!;
+            Assert.IsFalse(unknownActive.IsSupported);
+            Assert.IsEmpty(unknownActive.Options);
+            foreach (string value in new[]
+                     {
+                         "Zero Active", "Negative Active", "Unparseable Active"
+                     })
+            {
+                CharacterCreationPriorityTalentOptionProjection noPrompt = talents.Single(talent =>
+                    talent.Value == value);
+                Assert.IsNull(noPrompt.ActiveSkillGrant);
+                Assert.IsNull(noPrompt.SkillGroupGrant,
+                    "An active branch with no prompts still takes precedence over group fields.");
+            }
+
+            CharacterCreationTalentSkillGroupGrantProjection legacy = talents.Single(talent =>
+                talent.Value == "Legacy Choices").SkillGroupGrant!;
+            Assert.IsTrue(legacy.IsSupported, string.Join(",", legacy.Blockers));
+            Assert.AreEqual(CharacterCreationTalentSkillGrantTypes.Choices, legacy.SkillGroupType);
+            Assert.AreEqual(
+                CharacterCreationTalentSkillGrantTypes.GroupChoiceAliasCompatibility,
+                legacy.CompatibilityMarker);
+            CollectionAssert.Contains(
+                legacy.SourceAnchorIds.ToList(),
+                $"compatibility:{legacy.CompatibilityMarker}");
+
+            CharacterCreationTalentSkillGroupGrantProjection grouped = talents.Single(talent =>
+                talent.Value == "Grouped").SkillGroupGrant!;
+            Assert.IsTrue(grouped.IsSupported, string.Join(",", grouped.Blockers));
+            Assert.AreEqual(CharacterCreationTalentSkillGrantTypes.Grouped, grouped.SkillGroupType);
+            Assert.AreEqual(string.Empty, grouped.CompatibilityMarker);
+            CollectionAssert.Contains(
+                grouped.Options.Single().MemberSkillSourceIds.ToList(),
+                "11111111-1111-1111-1111-111111111111");
+
+            CharacterCreationTalentSkillGroupGrantProjection emptyGrouped = talents.Single(talent =>
+                talent.Value == "Empty Grouped").SkillGroupGrant!;
+            Assert.IsTrue(emptyGrouped.IsSupported, string.Join(",", emptyGrouped.Blockers));
+            Assert.IsEmpty(emptyGrouped.RequestedGroupNames);
+            CollectionAssert.AreEqual(
+                new[] { "Cracking", "Electronics", "Sorcery" },
+                emptyGrouped.Options.Select(option => option.CanonicalName).ToArray());
+
+            CharacterCreationTalentSkillGroupGrantProjection clampedGrouped = talents.Single(talent =>
+                talent.Value == "Clamped Grouped").SkillGroupGrant!;
+            Assert.AreEqual(CharacterCreationTalentSkillGrantTypes.MaximumPromptSlots,
+                clampedGrouped.Quantity);
+            Assert.IsTrue(clampedGrouped.IsSupported, string.Join(",", clampedGrouped.Blockers));
+            foreach (string value in new[]
+                     {
+                         "Zero Group", "Negative Group", "Unparseable Group"
+                     })
+            {
+                Assert.IsNull(talents.Single(talent => talent.Value == value).SkillGroupGrant);
+            }
+            Assert.IsFalse(talents.Single(talent => talent.Value == "Unknown Group")
+                .SkillGroupGrant!.IsSupported);
+        }
+        finally
+        {
+            DeleteTempDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public void Talent_skill_authority_fails_closed_on_distinct_ordinary_skill_name_collision()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            WriteBaseContent(
+                root,
+                string.Empty,
+                "<buildmethod>Priority</buildmethod><buildpoints>25</buildpoints>"
+                + "<priorityarray>ABCDE</priorityarray><prioritytable>Standard</prioritytable>"
+                + "<sumtoten>10</sumtoten>");
+            WritePriorityFixture(
+                root,
+                "<talents>" + TalentGrant(
+                    "Active",
+                    "<skillqty>1</skillqty><skillval>2</skillval><skilltype>active</skilltype>")
+                + "</talents>");
+            File.WriteAllText(
+                Path.Combine(root, "data", "skills.xml"),
+                "<chummer><skillgroups/><skills>"
+                + Skill("11111111-1111-1111-1111-111111111111", "Duplicate", "LOG",
+                    "Technical Active", null, "SR5")
+                + Skill("22222222-2222-2222-2222-222222222222", "Duplicate", "INT",
+                    "Technical Active", null, "SR5")
+                + "</skills></chummer>");
+
+            ICharacterSourceDataContext context = CreateContext(root, CharacterXml())!;
+            Assert.IsTrue(context.TryResolveCreationPrerequisiteAuthority(
+                out CharacterCreationPrerequisiteAuthority authority));
+            Assert.IsFalse(authority.IsAuthoritative);
+            CollectionAssert.Contains(
+                authority.Blockers.ToList(),
+                CharacterCreationPrerequisiteBlockers.TalentSkillGrantAuthorityUnsupported);
         }
         finally
         {
@@ -875,8 +1467,27 @@ public sealed class FileSystemCharacterSourceDataResolverTests
             $"<chummer><grades><grade><name>Standard</name><devicerating>{deviceRating}</devicerating></grade></grades></chummer>");
     }
 
-    private static void WritePriorityFixture(string root)
+    private static string TalentGrant(string name, string grantXml) =>
+        $"<talent><name>{name}</name><value>{name}</value>{grantXml}</talent>";
+
+    private static string Skill(
+        string id,
+        string name,
+        string attribute,
+        string category,
+        string? group,
+        string source) =>
+        $"<skill><id>{id}</id><name>{name}</name><attribute>{attribute}</attribute>"
+        + $"<category>{category}</category>"
+        + (group is null ? "<skillgroup/>" : $"<skillgroup>{group}</skillgroup>")
+        + $"<source>{source}</source></skill>";
+
+    private static void WritePriorityFixture(string root, string? talentXml = null)
     {
+        talentXml ??=
+            "<talents><talent><name>Mundane</name><value>Mundane</value>"
+            + "<forbidden><oneof><metatype>A.I.</metatype></oneof></forbidden>"
+            + "</talent></talents>";
         string[] categories = ["Heritage", "Talent", "Attributes", "Skills", "Resources"];
         string[] ranks = ["A", "B", "C", "D", "E"];
         Dictionary<string, int> attributePoints = new(StringComparer.Ordinal)
@@ -895,7 +1506,7 @@ public sealed class FileSystemCharacterSourceDataResolverTests
                 : category == "Heritage"
                     ? "<metatypes><metatype><name>Human</name><value>1</value><karma>0</karma></metatype></metatypes>"
                     : category == "Talent"
-                        ? "<talents><talent><name>Mundane</name><value>Mundane</value><forbidden><oneof><metatype>A.I.</metatype></oneof></forbidden></talent></talents>"
+                        ? talentXml
                         : string.Empty;
             string id = $"00000000-0000-0000-0000-{sequence++:000000000000}";
             return $"<priority><id>{id}</id><name>{category}-{rank}</name><value>{rank}</value>"

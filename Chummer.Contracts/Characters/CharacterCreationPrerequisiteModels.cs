@@ -18,10 +18,22 @@ public static class CharacterCreationPrerequisiteSchemas
 
 public static class CharacterCreationTalentSkillGrantTypes
 {
+    public const int MaximumPromptSlots = 3;
     public const string Active = "active";
+    public const string Default = "default";
     public const string Magic = "magic";
     public const string Resonance = "resonance";
+    public const string Matrix = "matrix";
+    public const string Specific = "specific";
+    public const string XPath = "xpath";
     public const string Choices = "choices";
+    public const string Grouped = "grouped";
+    public const string GroupChoiceAliasCompatibility =
+        "legacy-chummer5:9ead69da989c6582a86d4f2342f6ef275b5bf760:"
+        + "skillgrouptype:choices-to-grouped";
+    public const string PinnedXPathPredicate =
+        "not(attribute = 'RES' or attribute = 'DEP') and "
+        + "(not(category = 'Magical Active') or skillgroup = '' or not(skillgroup))";
 }
 
 public static class CharacterCreationPriorityChildKinds
@@ -152,6 +164,8 @@ public sealed record CharacterCreationTalentActiveSkillChoiceProjection(
     string SkillsSourceDigest,
     IReadOnlyList<string> SourceAnchorIds)
 {
+    public string Attribute { get; init; } = string.Empty;
+
     public bool IsExotic { get; init; }
 
     public bool IsEnabled { get; init; } = true;
@@ -175,7 +189,12 @@ public sealed record CharacterCreationTalentActiveSkillGrantProjection(
     string GrantDigest,
     bool IsSupported,
     IReadOnlyList<string> Blockers,
-    IReadOnlyList<string> SourceAnchorIds);
+    IReadOnlyList<string> SourceAnchorIds)
+{
+    public string SkillTypeQuery { get; init; } = string.Empty;
+
+    public IReadOnlyList<string> SpecificSkillChoiceNames { get; init; } = [];
+}
 
 public sealed record CharacterCreationTalentSkillGroupGrantProjection(
     int Quantity,
@@ -185,7 +204,12 @@ public sealed record CharacterCreationTalentSkillGroupGrantProjection(
     string GrantDigest,
     bool IsSupported,
     IReadOnlyList<string> Blockers,
-    IReadOnlyList<string> SourceAnchorIds);
+    IReadOnlyList<string> SourceAnchorIds)
+{
+    public string CompatibilityMarker { get; init; } = string.Empty;
+
+    public IReadOnlyList<string> RequestedGroupNames { get; init; } = [];
+}
 
 public static class CharacterCreationTalentGrantAuthorityDigest
 {

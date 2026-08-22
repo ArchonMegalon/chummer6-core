@@ -365,7 +365,7 @@ public sealed class CharacterCreationPrerequisiteServiceTests
                 CharacterCreationFoundationResult<CharacterCreationPrerequisitePreview> selected =
                     service.Preview(missingRequest with
                     {
-                        TalentActiveSkillSelectionIds = [spellcastingId, arcanaId]
+                        TalentActiveSkillSelectionIds = [arcanaId, spellcastingId]
                     });
                 Assert.AreEqual(CharacterCreationFoundationOutcomes.Blocked, selected.Outcome);
                 CollectionAssert.Contains(
@@ -377,8 +377,9 @@ public sealed class CharacterCreationPrerequisiteServiceTests
                 Assert.HasCount(2, plan.ActiveSkills);
                 Assert.IsEmpty(plan.SkillGroups);
                 Assert.AreEqual("active-skill", plan.ActiveSkills[0].TargetKind);
-                Assert.AreEqual(spellcastingId, plan.ActiveSkills[0].SourceId);
-                Assert.AreEqual("Spellcasting", plan.ActiveSkills[0].CanonicalName);
+                Assert.AreEqual(arcanaId, plan.ActiveSkills[0].SourceId);
+                Assert.AreEqual("Arcana", plan.ActiveSkills[0].CanonicalName);
+                Assert.AreEqual(spellcastingId, plan.ActiveSkills[1].SourceId);
                 Assert.AreEqual(4, plan.ActiveSkills[0].BaseRating);
                 Assert.IsTrue(CharacterCreationFoundationDraftLedgerIntegrity.IsCanonicalDigest(
                     plan.PlanDigest));
@@ -414,6 +415,169 @@ public sealed class CharacterCreationPrerequisiteServiceTests
     }
 
     [TestMethod]
+    public void Forged_talent_skill_grant_above_projected_three_slot_cap_is_rejected()
+    {
+        const string arcanaId = "74a68a9e-8c5b-4998-8dbb-08c1e768afc3";
+        const string spellcastingId = "40c72109-8924-45ca-a4d7-255b75e6a6b0";
+        CharacterCreationPrerequisiteAuthority authority = WithActiveSkillTalentGrant(
+            CreateAuthority(CharacterCreationBuildMethods.Priority, ["A", "B", "C", "D", "E"]),
+            spellcastingId,
+            arcanaId,
+            "a1366ec2-772d-4f08-8c65-5f79464d975b");
+        string skillsDigest = authority.EffectiveSkillsInputsDigest;
+        CharacterCreationPrerequisiteAuthority overSlotLimit = MutateTalentOption(
+            authority,
+            talent =>
+            {
+                CharacterCreationTalentActiveSkillGrantProjection grant = talent.ActiveSkillGrant!;
+                CharacterCreationTalentActiveSkillChoiceProjection[] options = grant.Options
+                    .Concat(
+                    [
+                        ActiveSkill("33333333-3333-3333-3333-333333333333", "Gymnastics",
+                            "Physical Active", "Athletics", Digest(68), skillsDigest),
+                        ActiveSkill("44444444-4444-4444-4444-444444444444", "Pistols",
+                            "Combat Active", "Firearms", Digest(69), skillsDigest)
+                    ])
+                    .OrderBy(option => option.CanonicalName, StringComparer.Ordinal)
+                    .ThenBy(option => option.SourceId, StringComparer.Ordinal)
+                    .ToArray();
+                return talent with
+                {
+                    ActiveSkillGrant = grant with
+                    {
+                        Quantity = 4,
+                        Options = options,
+                        GrantDigest = CharacterCreationTalentGrantAuthorityDigest.ComputeActiveGrant(
+                            4,
+                            grant.BaseRating,
+                            grant.SkillType,
+                            skillsDigest,
+                            options.Select(option => option.SelectionId)),
+                        IsSupported = false,
+                        Blockers = [CharacterCreationPrerequisiteBlockers
+                            .TalentSkillGrantAuthorityUnsupported]
+                    }
+                };
+            });
+        WithWorkspace(
+            CharacterCreationBuildMethods.Priority,
+            overSlotLimit,
+            (store, service, id) =>
+            {
+                CharacterCreationPrerequisiteState state = Load(service, id);
+                CollectionAssert.Contains(
+                    state.Blockers.ToList(),
+                    CharacterCreationPrerequisiteBlockers.AuthorityUnavailable);
+                Assert.AreEqual(1L, store.Get(id).Value!.ContentRevision);
+            });
+    }
+
+    [TestMethod]
+    public void Current_corpus_active_rule_types_and_canonical_grouped_alias_pass_authority_validation()
+    {
+        const string arcanaId = "74a68a9e-8c5b-4998-8dbb-08c1e768afc3";
+        const string spellcastingId = "40c72109-8924-45ca-a4d7-255b75e6a6b0";
+        CharacterCreationPrerequisiteAuthority baseline = WithActiveSkillTalentGrant(
+            CreateAuthority(CharacterCreationBuildMethods.Priority, ["A", "B", "C", "D", "E"]),
+            spellcastingId,
+            arcanaId,
+            "a1366ec2-772d-4f08-8c65-5f79464d975b");
+        string skillsDigest = baseline.EffectiveSkillsInputsDigest;
+        CharacterCreationTalentActiveSkillGrantProjection sourceGrant = baseline.Options
+            .Single(option => option.CategoryId == CharacterCreationPriorityCategoryIds.Talent
+                              && option.Rank == "E")
+            .TalentOptions.Single().ActiveSkillGrant!;
+        CharacterCreationTalentActiveSkillChoiceProjection arcana = sourceGrant.Options.Single(
+            option => option.SourceId == arcanaId);
+        CharacterCreationTalentActiveSkillChoiceProjection spellcasting = sourceGrant.Options.Single(
+            option => option.SourceId == spellcastingId);
+
+        CharacterCreationPrerequisiteAuthority WithRule(
+            string type,
+            CharacterCreationTalentActiveSkillChoiceProjection[] options,
+            string query = "",
+            string[]? specificNames = null) =>
+            MutateTalentOption(
+                baseline,
+                talent =>
+                {
+                    CharacterCreationTalentActiveSkillGrantProjection grant =
+                        talent.ActiveSkillGrant! with
+                        {
+                            Quantity = 1,
+                            SkillType = type,
+                            Options = options,
+                            GrantDigest = CharacterCreationTalentGrantAuthorityDigest.ComputeActiveGrant(
+                                1,
+                                sourceGrant.BaseRating,
+                                type,
+                                skillsDigest,
+                                options.Select(option => option.SelectionId)),
+                            IsSupported = true,
+                            Blockers = [],
+                            SkillTypeQuery = query,
+                            SpecificSkillChoiceNames = specificNames ?? []
+                        };
+                    return talent with { ActiveSkillGrant = grant };
+                });
+
+        CharacterCreationTalentActiveSkillChoiceProjection[] matrixOptions =
+        [
+            ActiveSkill("33333333-3333-3333-3333-333333333333", "Computer",
+                "Technical Active", "Electronics", Digest(68), skillsDigest),
+            ActiveSkill("44444444-4444-4444-4444-444444444444", "Cybercombat",
+                "Technical Active", "Cracking", Digest(69), skillsDigest)
+        ];
+        CharacterCreationPrerequisiteAuthority[] acceptedAuthorities =
+        [
+            WithRule(CharacterCreationTalentSkillGrantTypes.Default, sourceGrant.Options.ToArray()),
+            WithRule(CharacterCreationTalentSkillGrantTypes.Matrix, matrixOptions),
+            WithRule(
+                CharacterCreationTalentSkillGrantTypes.Specific,
+                [arcana, spellcasting],
+                specificNames: ["Arcana", "Spellcasting"]),
+            WithRule(
+                CharacterCreationTalentSkillGrantTypes.Specific,
+                sourceGrant.Options.ToArray()),
+            WithRule(
+                CharacterCreationTalentSkillGrantTypes.XPath,
+                [arcana],
+                CharacterCreationTalentSkillGrantTypes.PinnedXPathPredicate)
+        ];
+        foreach (CharacterCreationPrerequisiteAuthority authority in acceptedAuthorities)
+        {
+            WithWorkspace(
+                CharacterCreationBuildMethods.Priority,
+                authority,
+                (_, service, id) =>
+                {
+                    CharacterCreationPrerequisiteState state = Load(service, id);
+                    Assert.IsFalse(state.Blockers.Contains(
+                        CharacterCreationPrerequisiteBlockers.AuthorityUnavailable));
+                });
+        }
+
+        CharacterCreationPrerequisiteAuthority grouped = WithSkillGroupTalentGrant(
+            CreateAuthority(CharacterCreationBuildMethods.Priority, ["A", "B", "C", "D", "E"]),
+            CharacterCreationTalentSkillGrantTypes.Grouped);
+        grouped = MutateTalentOption(
+            grouped,
+            talent => talent with
+            {
+                SkillGroupGrant = talent.SkillGroupGrant! with { RequestedGroupNames = [] }
+            });
+        WithWorkspace(
+            CharacterCreationBuildMethods.Priority,
+            grouped,
+            (_, service, id) =>
+            {
+                CharacterCreationPrerequisiteState state = Load(service, id);
+                Assert.IsFalse(state.Blockers.Contains(
+                    CharacterCreationPrerequisiteBlockers.AuthorityUnavailable));
+            });
+    }
+
+    [TestMethod]
     public void Talent_group_choices_are_all_or_nothing_for_mixed_valid_and_forged_ids()
     {
         CharacterCreationPrerequisiteAuthority authority = WithSkillGroupTalentGrant(
@@ -435,10 +599,14 @@ public sealed class CharacterCreationPrerequisiteServiceTests
                 {
                     HeritageSelectionId = "human",
                     TalentSelectionId = "aspected",
-                    TalentSkillGroupSelectionIds = [firstId, secondId]
+                    TalentSkillGroupSelectionIds = [secondId, firstId]
                 };
                 CharacterCreationPrerequisitePreview valid = service.Preview(request).Value!;
                 Assert.HasCount(2, valid.TalentSelection!.GrantPlan!.SkillGroups);
+                Assert.AreEqual(secondId,
+                    valid.TalentSelection.GrantPlan.SkillGroups[0].SelectionId);
+                Assert.AreEqual(firstId,
+                    valid.TalentSelection.GrantPlan.SkillGroups[1].SelectionId);
 
                 CharacterCreationFoundationResult<CharacterCreationPrerequisitePreview> forged =
                     service.Preview(request with
@@ -744,6 +912,23 @@ public sealed class CharacterCreationPrerequisiteServiceTests
         };
     }
 
+    private static CharacterCreationTalentActiveSkillChoiceProjection ActiveSkill(
+        string sourceId,
+        string name,
+        string category,
+        string? group,
+        string sourceNodeDigest,
+        string skillsDigest) =>
+        new(
+            sourceId,
+            sourceId,
+            name,
+            category,
+            group,
+            sourceNodeDigest,
+            skillsDigest,
+            [$"skills.xml#skill:{sourceId}"]);
+
     private static CharacterCreationPrerequisiteAuthority WithActiveSkillTalentGrant(
         CharacterCreationPrerequisiteAuthority authority,
         string skillSourceId,
@@ -839,7 +1024,8 @@ public sealed class CharacterCreationPrerequisiteServiceTests
     }
 
     private static CharacterCreationPrerequisiteAuthority WithSkillGroupTalentGrant(
-        CharacterCreationPrerequisiteAuthority authority)
+        CharacterCreationPrerequisiteAuthority authority,
+        string skillGroupType = CharacterCreationTalentSkillGrantTypes.Choices)
     {
         string skillsDigest = authority.EffectiveSkillsInputsDigest;
         CharacterCreationTalentSkillGroupChoiceProjection Group(
@@ -865,20 +1051,38 @@ public sealed class CharacterCreationPrerequisiteServiceTests
             Group("Conjuring", "11111111-1111-1111-1111-111111111111"),
             Group("Sorcery", "22222222-2222-2222-2222-222222222222")
         ];
+        string compatibilityMarker = string.Equals(
+            skillGroupType,
+            CharacterCreationTalentSkillGrantTypes.Choices,
+            StringComparison.Ordinal)
+            ? CharacterCreationTalentSkillGrantTypes.GroupChoiceAliasCompatibility
+            : string.Empty;
+        string[] sourceAnchors = string.IsNullOrEmpty(compatibilityMarker)
+            ? ["priorities.xml#talent:aspected", "skills.xml"]
+            :
+            [
+                "priorities.xml#talent:aspected",
+                "skills.xml",
+                $"compatibility:{compatibilityMarker}"
+            ];
         CharacterCreationTalentSkillGroupGrantProjection grant = new(
             2,
             4,
-            CharacterCreationTalentSkillGrantTypes.Choices,
+            skillGroupType,
             groupOptions,
             CharacterCreationTalentGrantAuthorityDigest.ComputeSkillGroupGrant(
                 2,
                 4,
-                CharacterCreationTalentSkillGrantTypes.Choices,
+                skillGroupType,
                 skillsDigest,
                 groupOptions.Select(option => option.SelectionId)),
             IsSupported: true,
             Blockers: [],
-            SourceAnchorIds: ["priorities.xml#talent:aspected", "skills.xml"]);
+            SourceAnchorIds: sourceAnchors)
+        {
+            CompatibilityMarker = compatibilityMarker,
+            RequestedGroupNames = groupOptions.Select(option => option.CanonicalName).ToArray()
+        };
         CharacterCreationPriorityOptionProjection[] options = authority.Options.Select(option =>
         {
             if (option.CategoryId != CharacterCreationPriorityCategoryIds.Talent

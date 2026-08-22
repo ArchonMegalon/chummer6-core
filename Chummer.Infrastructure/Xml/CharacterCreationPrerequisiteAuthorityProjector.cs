@@ -72,7 +72,6 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
         TalentSkillCatalog? talentSkillCatalog = TryProjectTalentSkillCatalog(
             skillsDocument,
             context.EffectiveSkillsInputsDigest,
-            context.EnabledSourcebooks,
             out TalentSkillCatalog? projectedSkillCatalog)
             ? projectedSkillCatalog
             : null;
@@ -475,69 +474,115 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
         XElement talent,
         TalentSkillCatalog? catalog,
         string talentAnchor,
-        out CharacterCreationTalentActiveSkillGrantProjection? projection)
+        out CharacterCreationTalentActiveSkillGrantProjection? projection,
+        out bool branchPresent)
     {
         projection = null;
         XElement[] quantityNodes = talent.Elements("skillqty").Take(2).ToArray();
         XElement[] ratingNodes = talent.Elements("skillval").Take(2).ToArray();
         XElement[] typeNodes = talent.Elements("skilltype").Take(2).ToArray();
-        if (quantityNodes.Length == 0 && ratingNodes.Length == 0 && typeNodes.Length == 0)
+        XElement[] choiceContainers = talent.Elements("skillchoices").Take(2).ToArray();
+        branchPresent = quantityNodes.Length != 0
+                        || ratingNodes.Length != 0
+                        || typeNodes.Length != 0
+                        || choiceContainers.Length != 0;
+        if (!branchPresent)
             return true;
-        if (quantityNodes.Length != 1
-            || ratingNodes.Length != 1
-            || typeNodes.Length != 1
-            || !TryReadRequiredNonNegativeInt(talent, "skillqty", out int quantity)
-            || quantity == 0
+        if (quantityNodes.Length == 0)
+            return true;
+        if (quantityNodes.Length != 1)
+            return false;
+        if (!TryReadIntScalar(talent, "skillqty", out int sourceQuantity)
+            || sourceQuantity <= 0)
+        {
+            // SelectMetatypePriority opens no prompt for a non-positive or
+            // unparseable quantity; the Talent row itself remains usable.
+            return true;
+        }
+        if (ratingNodes.Length != 1
             || !TryReadRequiredNonNegativeInt(talent, "skillval", out int rating)
-            || !TryReadNormalizedScalar(talent, "skilltype", out string skillType))
+            || !TryReadSkillType(talent, out string rawSkillType, out string skillTypeQuery)
+            || !TryReadSpecificSkillChoices(
+                talent,
+                out string[] sourceSpecificSkillChoiceNames))
         {
             return false;
         }
+        int quantity = Math.Min(
+            sourceQuantity,
+            CharacterCreationTalentSkillGrantTypes.MaximumPromptSlots);
+        string skillType = rawSkillType.ToLowerInvariant();
 
+        bool exactXPath = string.Equals(
+            skillTypeQuery,
+            CharacterCreationTalentSkillGrantTypes.PinnedXPathPredicate,
+            StringComparison.Ordinal);
+        bool simpleType = skillType is CharacterCreationTalentSkillGrantTypes.Active
+            or CharacterCreationTalentSkillGrantTypes.Default
+            or CharacterCreationTalentSkillGrantTypes.Magic
+            or CharacterCreationTalentSkillGrantTypes.Resonance
+            or CharacterCreationTalentSkillGrantTypes.Matrix;
+        bool specificType = string.Equals(
+            skillType,
+            CharacterCreationTalentSkillGrantTypes.Specific,
+            StringComparison.Ordinal);
+        string[] specificSkillChoiceNames = specificType
+            ? sourceSpecificSkillChoiceNames
+            : [];
+        bool validSimpleRule = simpleType && string.IsNullOrEmpty(skillTypeQuery);
+        bool validSpecificRule = specificType && string.IsNullOrEmpty(skillTypeQuery);
+        bool validXPathRule = string.Equals(
+                                  skillType,
+                                  CharacterCreationTalentSkillGrantTypes.XPath,
+                                  StringComparison.Ordinal)
+                              && exactXPath;
+        bool allSpecificChoicesResolved = catalog is not null;
+        var selectedSkills = new List<TalentActiveSkillDefinition>();
+        if (catalog is not null)
+        {
+            if (validSpecificRule && specificSkillChoiceNames.Length > 0)
+            {
+                foreach (string requestedName in specificSkillChoiceNames)
+                {
+                    TalentActiveSkillDefinition[] matches = catalog.ActiveSkills
+                        .Where(skill => string.Equals(
+                            skill.CanonicalName,
+                            requestedName,
+                            StringComparison.Ordinal))
+                        .Take(2)
+                        .ToArray();
+                    if (matches.Length != 1)
+                    {
+                        allSpecificChoicesResolved = false;
+                        continue;
+                    }
+                    selectedSkills.Add(matches[0]);
+                }
+            }
+            else if (validSpecificRule)
+            {
+                selectedSkills.AddRange(catalog.ActiveSkills
+                    .OrderBy(skill => skill.CanonicalName, StringComparer.Ordinal)
+                    .ThenBy(skill => skill.SourceId, StringComparer.Ordinal));
+            }
+            else if (validSimpleRule || validXPathRule)
+            {
+                selectedSkills.AddRange(catalog.ActiveSkills
+                    .Where(skill => IsEligibleActiveSkill(
+                        skillType,
+                        exactXPath,
+                        skill))
+                    .OrderBy(skill => skill.CanonicalName, StringComparer.Ordinal)
+                    .ThenBy(skill => skill.SourceId, StringComparer.Ordinal));
+            }
+        }
         CharacterCreationTalentActiveSkillChoiceProjection[] options = catalog is null
             ? []
-            : catalog.ActiveSkills
-                .Where(skill => skillType switch
-                {
-                    CharacterCreationTalentSkillGrantTypes.Active => true,
-                    CharacterCreationTalentSkillGrantTypes.Magic => string.Equals(
-                        skill.Category,
-                        "Magical Active",
-                        StringComparison.Ordinal)
-                        || string.Equals(
-                            skill.Category,
-                            "Pseudo-Magical Active",
-                            StringComparison.Ordinal),
-                    CharacterCreationTalentSkillGrantTypes.Resonance => string.Equals(
-                        skill.Category,
-                        "Resonance Active",
-                        StringComparison.Ordinal)
-                        || skill.SkillGroup is "Cracking" or "Electronics",
-                    _ => false
-                })
-                .OrderBy(skill => skill.CanonicalName, StringComparer.Ordinal)
-                .ThenBy(skill => skill.SourceId, StringComparer.Ordinal)
-                .Select(skill => new CharacterCreationTalentActiveSkillChoiceProjection(
-                    SelectionId: skill.SourceId,
-                    SourceId: skill.SourceId,
-                    CanonicalName: skill.CanonicalName,
-                    Category: skill.Category,
-                    SkillGroup: skill.SkillGroup,
-                    SourceNodeDigest: skill.SourceNodeDigest,
-                    SkillsSourceDigest: catalog.SourceDigest,
-                    SourceAnchorIds: [$"skills.xml#skill:{skill.SourceId}"])
-                {
-                    IsExotic = skill.IsExotic,
-                    IsEnabled = !skill.IsExotic,
-                    Blockers = skill.IsExotic
-                        ? [CharacterCreationPrerequisiteBlockers
-                            .TalentExoticSkillSpecializationRequired]
-                        : []
-                })
+            : selectedSkills.Select(skill => ProjectActiveSkillChoice(skill, catalog.SourceDigest))
                 .ToArray();
-        bool supportedType = skillType is CharacterCreationTalentSkillGrantTypes.Active
-            or CharacterCreationTalentSkillGrantTypes.Magic
-            or CharacterCreationTalentSkillGrantTypes.Resonance;
+        bool supportedType = validSimpleRule
+                             || (validSpecificRule && allSpecificChoicesResolved)
+                             || validXPathRule;
         bool supported = catalog is not null
                          && supportedType
                          && options.Count(option => option.IsEnabled) >= quantity;
@@ -558,7 +603,132 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
                 options.Select(option => option.SelectionId)),
             supported,
             blockers,
-            [talentAnchor, "skills.xml"]);
+            [talentAnchor, "skills.xml"])
+        {
+            SkillTypeQuery = skillTypeQuery,
+            SpecificSkillChoiceNames = specificSkillChoiceNames
+        };
+        return true;
+    }
+
+    private static CharacterCreationTalentActiveSkillChoiceProjection ProjectActiveSkillChoice(
+        TalentActiveSkillDefinition skill,
+        string sourceDigest) =>
+        new(
+            SelectionId: skill.SourceId,
+            SourceId: skill.SourceId,
+            CanonicalName: skill.CanonicalName,
+            Category: skill.Category,
+            SkillGroup: skill.SkillGroup,
+            SourceNodeDigest: skill.SourceNodeDigest,
+            SkillsSourceDigest: sourceDigest,
+            SourceAnchorIds: [$"skills.xml#skill:{skill.SourceId}"])
+        {
+            Attribute = skill.Attribute,
+            IsExotic = skill.IsExotic,
+            IsEnabled = !skill.IsExotic,
+            Blockers = skill.IsExotic
+                ? [CharacterCreationPrerequisiteBlockers
+                    .TalentExoticSkillSpecializationRequired]
+                : []
+        };
+
+    private static bool IsEligibleActiveSkill(
+        string skillType,
+        bool exactXPath,
+        TalentActiveSkillDefinition skill) =>
+        skillType switch
+        {
+            CharacterCreationTalentSkillGrantTypes.Active => true,
+            CharacterCreationTalentSkillGrantTypes.Default => true,
+            CharacterCreationTalentSkillGrantTypes.Magic => skill.Category is
+                "Magical Active" or "Pseudo-Magical Active",
+            CharacterCreationTalentSkillGrantTypes.Resonance => string.Equals(
+                    skill.Category,
+                    "Resonance Active",
+                    StringComparison.Ordinal)
+                || skill.SkillGroup is "Cracking" or "Electronics",
+            CharacterCreationTalentSkillGrantTypes.Matrix => skill.SkillGroup is
+                "Cracking" or "Electronics",
+            CharacterCreationTalentSkillGrantTypes.XPath when exactXPath =>
+                skill.Attribute is not ("RES" or "DEP")
+                && (!string.Equals(
+                        skill.Category,
+                        "Magical Active",
+                        StringComparison.Ordinal)
+                    || string.IsNullOrEmpty(skill.SkillGroup)),
+            _ => false
+        };
+
+    private static bool TryReadSkillType(
+        XElement talent,
+        out string skillType,
+        out string skillTypeQuery)
+    {
+        skillType = string.Empty;
+        skillTypeQuery = string.Empty;
+        XElement[] matches = talent.Elements("skilltype").Take(2).ToArray();
+        if (matches.Length == 0)
+        {
+            skillType = CharacterCreationTalentSkillGrantTypes.Default;
+            return true;
+        }
+        if (matches.Length != 1
+            || matches[0].HasElements
+            || string.IsNullOrWhiteSpace(matches[0].Value)
+            || !string.Equals(
+                matches[0].Value,
+                matches[0].Value.Trim(),
+                StringComparison.Ordinal))
+        {
+            return false;
+        }
+        XAttribute[] attributes = matches[0].Attributes().Take(2).ToArray();
+        if (attributes.Length > 1
+            || attributes.Any(attribute => attribute.Name.NamespaceName.Length != 0
+                                           || !string.Equals(
+                                               attribute.Name.LocalName,
+                                               "xpath",
+                                               StringComparison.Ordinal)
+                                           || string.IsNullOrWhiteSpace(attribute.Value)
+                                           || !string.Equals(
+                                               attribute.Value,
+                                               attribute.Value.Trim(),
+                                               StringComparison.Ordinal)))
+        {
+            return false;
+        }
+        skillType = matches[0].Value;
+        skillTypeQuery = attributes.SingleOrDefault()?.Value ?? string.Empty;
+        return true;
+    }
+
+    private static bool TryReadSpecificSkillChoices(
+        XElement talent,
+        out string[] names)
+    {
+        names = [];
+        XElement[] containers = talent.Elements("skillchoices").Take(2).ToArray();
+        if (containers.Length > 1 || containers.Any(container => container.HasAttributes))
+            return false;
+        var projected = new List<string>();
+        var unique = new HashSet<string>(StringComparer.Ordinal);
+        foreach (XElement choice in containers.SingleOrDefault()?.Elements()
+                 ?? Enumerable.Empty<XElement>())
+        {
+            if (choice.Name.NamespaceName.Length != 0
+                || !string.Equals(choice.Name.LocalName, "skill", StringComparison.Ordinal)
+                || choice.HasAttributes
+                || choice.HasElements
+                || string.IsNullOrWhiteSpace(choice.Value)
+                || !string.Equals(choice.Value, choice.Value.Trim(), StringComparison.Ordinal)
+                || !unique.Add(choice.Value))
+            {
+                return false;
+            }
+            projected.Add(choice.Value);
+        }
+        names = projected.ToArray();
         return true;
     }
 
@@ -580,22 +750,33 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
         {
             return true;
         }
-        if (quantityNodes.Length != 1
-            || ratingNodes.Length != 1
+        if (quantityNodes.Length == 0)
+            return true;
+        if (quantityNodes.Length != 1)
+            return false;
+        if (!TryReadIntScalar(talent, "skillgroupqty", out int sourceQuantity)
+            || sourceQuantity <= 0)
+        {
+            return true;
+        }
+        if (ratingNodes.Length != 1
             || typeNodes.Length != 1
-            || choiceContainers.Length != 1
-            || choiceContainers[0].HasAttributes
-            || !TryReadRequiredNonNegativeInt(talent, "skillgroupqty", out int quantity)
-            || quantity == 0
+            || choiceContainers.Length > 1
+            || choiceContainers.Any(container => container.HasAttributes)
             || !TryReadRequiredNonNegativeInt(talent, "skillgroupval", out int rating)
-            || !TryReadNormalizedScalar(talent, "skillgrouptype", out string skillGroupType))
+            || !TryReadNormalizedScalar(talent, "skillgrouptype", out string rawSkillGroupType))
         {
             return false;
         }
+        int quantity = Math.Min(
+            sourceQuantity,
+            CharacterCreationTalentSkillGrantTypes.MaximumPromptSlots);
+        string skillGroupType = rawSkillGroupType.ToLowerInvariant();
 
         var requestedNames = new List<string>();
         var uniqueNames = new HashSet<string>(StringComparer.Ordinal);
-        foreach (XElement choice in choiceContainers[0].Elements())
+        foreach (XElement choice in choiceContainers.SingleOrDefault()?.Elements()
+                 ?? Enumerable.Empty<XElement>())
         {
             if (choice.Name.NamespaceName.Length != 0
                 || !string.Equals(choice.Name.LocalName, "skillgroup", StringComparison.Ordinal)
@@ -610,11 +791,16 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
             requestedNames.Add(choice.Value);
         }
 
+        bool supportedType = skillGroupType is CharacterCreationTalentSkillGrantTypes.Choices
+            or CharacterCreationTalentSkillGrantTypes.Grouped;
         var options = new List<CharacterCreationTalentSkillGroupChoiceProjection>();
         bool allChoicesResolved = catalog is not null;
         if (catalog is not null)
         {
-            foreach (string name in requestedNames)
+            IEnumerable<string> projectedNames = requestedNames.Count == 0 && supportedType
+                ? catalog.SkillGroups.Keys.OrderBy(name => name, StringComparer.Ordinal)
+                : requestedNames;
+            foreach (string name in projectedNames)
             {
                 if (!catalog.SkillGroups.TryGetValue(name, out TalentSkillGroupDefinition? group))
                 {
@@ -630,21 +816,28 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
                     [$"skills.xml#skillgroup:{group.CanonicalName}"]));
             }
         }
-        options = options.OrderBy(option => option.CanonicalName, StringComparer.Ordinal)
-            .ThenBy(option => option.SelectionId, StringComparer.Ordinal)
-            .ToList();
+        // Current Core data is the corrected "grouped" form. The pinned fe435
+        // corpus still has the pre-9ead69da "choices" token, which is accepted
+        // only as an explicitly marked compatibility alias for the intended
+        // group picker. Every other branch remains visible but unsupported.
         bool supported = catalog is not null
-                         && string.Equals(
-                             skillGroupType,
-                             CharacterCreationTalentSkillGrantTypes.Choices,
-                             StringComparison.Ordinal)
-                         && requestedNames.Count > 0
+                         && supportedType
                          && allChoicesResolved
                          && options.Count >= quantity;
         string[] blockers = supported
             ? []
             : [CharacterCreationPrerequisiteBlockers.TalentSkillGrantAuthorityUnsupported];
         string sourceDigest = catalog?.SourceDigest ?? string.Empty;
+        bool legacyChoicesAlias = string.Equals(
+            skillGroupType,
+            CharacterCreationTalentSkillGrantTypes.Choices,
+            StringComparison.Ordinal);
+        string compatibilityMarker = legacyChoicesAlias
+            ? CharacterCreationTalentSkillGrantTypes.GroupChoiceAliasCompatibility
+            : string.Empty;
+        string[] anchors = legacyChoicesAlias
+            ? [talentAnchor, "skills.xml", $"compatibility:{compatibilityMarker}"]
+            : [talentAnchor, "skills.xml"];
         projection = new CharacterCreationTalentSkillGroupGrantProjection(
             quantity,
             rating,
@@ -658,14 +851,17 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
                 options.Select(option => option.SelectionId)),
             supported,
             blockers,
-            [talentAnchor, "skills.xml"]);
+            anchors)
+        {
+            CompatibilityMarker = compatibilityMarker,
+            RequestedGroupNames = requestedNames.ToArray()
+        };
         return true;
     }
 
     private static bool TryProjectTalentSkillCatalog(
         XDocument document,
         string sourceDigest,
-        IReadOnlyList<string> enabledSourcebooks,
         out TalentSkillCatalog? catalog)
     {
         catalog = null;
@@ -701,6 +897,7 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
 
         var activeSkills = new List<TalentActiveSkillDefinition>();
         var sourceIds = new HashSet<string>(StringComparer.Ordinal);
+        var ordinaryNames = new HashSet<string>(StringComparer.Ordinal);
         foreach (XElement skill in skillContainers[0].Elements())
         {
             if (skill.Name.NamespaceName.Length != 0
@@ -708,9 +905,10 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
                 || !TryReadNormalizedScalar(skill, "id", out string rawSourceId)
                 || !Guid.TryParseExact(rawSourceId, "D", out Guid parsedSourceId)
                 || parsedSourceId == Guid.Empty
-                || !TryReadNormalizedScalar(skill, "name", out string canonicalName)
+                || !TryReadCanonicalSkillName(skill, out string canonicalName)
+                || !TryReadOptionalNormalizedScalar(skill, "attribute", out string? attribute)
                 || !TryReadNormalizedScalar(skill, "category", out string category)
-                || !TryReadNormalizedScalar(skill, "source", out string sourceBook)
+                || !TryReadNormalizedScalar(skill, "source", out _)
                 || !TryReadOptionalNormalizedScalar(skill, "skillgroup", out string? skillGroup)
                 || skillGroup is not null && !groupNames.Contains(skillGroup)
                 || !TryReadOptionalStrictBool(skill, "exotic", out bool isExotic))
@@ -719,17 +917,18 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
             }
             string sourceId = parsedSourceId.ToString("D");
             if (!string.Equals(sourceId, rawSourceId, StringComparison.Ordinal)
-                || !sourceIds.Add(sourceId))
+                || !sourceIds.Add(sourceId)
+                || !isExotic && !ordinaryNames.Add(canonicalName))
             {
                 return false;
             }
-            if (!enabledSourcebooks.Contains(sourceBook, StringComparer.OrdinalIgnoreCase))
-            {
-                continue;
-            }
+            // SelectMetatypePriority does not apply BookXPath to this prompt.
+            // The saved profile still binds the skills input digest, but it does
+            // not silently narrow Talent-granted skill or group choices.
             activeSkills.Add(new TalentActiveSkillDefinition(
                 sourceId,
                 canonicalName,
+                attribute ?? string.Empty,
                 category,
                 skillGroup,
                 isExotic,
@@ -765,6 +964,25 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
             activeSkills.ToArray(),
             skillGroups);
         return true;
+    }
+
+    private static bool TryReadCanonicalSkillName(XElement skill, out string name)
+    {
+        XElement[] matches = skill.Elements("name").ToArray();
+        name = matches.FirstOrDefault()?.Value ?? string.Empty;
+        // The current canonical skills corpus contains an exact duplicate name
+        // element for Artisan. Treat identical repeated scalars as one source
+        // value, while distinct values and cross-skill ordinary-name collisions
+        // remain fail-closed.
+        return matches.Length > 0
+               && !string.IsNullOrWhiteSpace(name)
+               && string.Equals(name, name.Trim(), StringComparison.Ordinal)
+               && matches.All(element => !element.HasAttributes
+                                         && !element.HasElements
+                                         && string.Equals(
+                                             element.Value,
+                                             name,
+                                             StringComparison.Ordinal));
     }
 
     private static CharacterCreationPriorityHeritageOptionProjection ProjectHeritageChild(
@@ -934,12 +1152,18 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
                     talent,
                     skillCatalog,
                     projection.SourceAnchorIds[0],
-                    out CharacterCreationTalentActiveSkillGrantProjection? activeSkillGrant)
-                || !TryProjectSkillGroupGrant(
+                    out CharacterCreationTalentActiveSkillGrantProjection? activeSkillGrant,
+                    out bool activeBranchPresent))
+            {
+                return false;
+            }
+            CharacterCreationTalentSkillGroupGrantProjection? skillGroupGrant = null;
+            if (!activeBranchPresent
+                && !TryProjectSkillGroupGrant(
                     talent,
                     skillCatalog,
                     projection.SourceAnchorIds[0],
-                    out CharacterCreationTalentSkillGroupGrantProjection? skillGroupGrant))
+                    out skillGroupGrant))
             {
                 return false;
             }
@@ -1037,6 +1261,13 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
         return TryReadNormalizedScalar(parent, name, out string raw)
                && int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out value)
                && value >= 0;
+    }
+
+    private static bool TryReadIntScalar(XElement parent, string name, out int value)
+    {
+        value = 0;
+        return TryReadNormalizedScalar(parent, name, out string raw)
+               && int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out value);
     }
 
     private static bool TryReadOptionalNormalizedScalar(
@@ -1182,6 +1413,7 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
     private sealed record TalentActiveSkillDefinition(
         string SourceId,
         string CanonicalName,
+        string Attribute,
         string Category,
         string? SkillGroup,
         bool IsExotic,
