@@ -109,12 +109,12 @@ public static class CharacterFreeSpriteConversionRules
     private static string CalculateRevision(
         bool created,
         string category,
-        IReadOnlyList<Guid> ids)
+        Guid[] ids)
     {
         var payload = new StringBuilder();
         payload.Append(created).Append('\0')
             .Append(category.Length).Append(':').Append(category).Append('\0')
-            .Append(ids.Count).Append('\0');
+            .Append(ids.Length).Append('\0');
         foreach (Guid id in ids)
         {
             payload.Append(id.ToString("D")).Append('\0');

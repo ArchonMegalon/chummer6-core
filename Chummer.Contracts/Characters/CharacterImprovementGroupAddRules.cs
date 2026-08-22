@@ -75,10 +75,10 @@ public static class CharacterImprovementGroupAddRules
     public static bool IsValidNewName(string? name)
         => name is { Length: > 0 };
 
-    private static string CalculateRevision(IReadOnlyList<string> groups)
+    private static string CalculateRevision(string[] groups)
     {
         var payload = new StringBuilder();
-        payload.Append(groups.Count).Append('\0');
+        payload.Append(groups.Length).Append('\0');
         foreach (string group in groups)
         {
             payload.Append(group.Length).Append(':').Append(group).Append('\0');

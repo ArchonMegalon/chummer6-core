@@ -159,8 +159,8 @@ public static class CharacterSpiritNameChoiceRules
 
     private static void AppendUnique(
         IEnumerable<string> source,
-        ICollection<string> target,
-        ISet<string> seen)
+        List<string> target,
+        HashSet<string> seen)
     {
         foreach (string name in source)
         {
