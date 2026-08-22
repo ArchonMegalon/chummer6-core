@@ -52,6 +52,9 @@ public sealed record WorkspaceDocumentState
 
     public string Payload { get; init; }
 
+    public WorkspaceDocumentAuxiliaryState AuxiliaryState { get; init; }
+        = WorkspaceDocumentAuxiliaryState.Empty;
+
     public WorkspacePayloadEnvelope ToEnvelope()
     {
         return new WorkspacePayloadEnvelope(
@@ -96,6 +99,12 @@ public sealed record WorkspaceDocument(
     public int SchemaVersion => State.SchemaVersion;
 
     public string PayloadKind => State.PayloadKind;
+
+    public WorkspaceDocumentAuxiliaryState AuxiliaryState =>
+        State.AuxiliaryState ?? WorkspaceDocumentAuxiliaryState.Empty;
+
+    public string AuxiliaryStateDigest =>
+        WorkspaceDocumentAuxiliaryStateDigest.Compute(AuxiliaryState);
 }
 
 public sealed record WorkspaceImportDocument(

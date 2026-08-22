@@ -124,6 +124,35 @@ public interface IWorkspaceStore
             WorkspaceOperationOutcome.Unavailable,
             Error: "Atomic workspace replacement and checkpoint is unavailable.");
 
+    /// <summary>
+    /// Creation-authority-only atomic replacement. The implementation must compare both
+    /// the content revision and the digest of the currently persisted auxiliary state,
+    /// then replace the document and checkpoint the new revision in one durable commit.
+    /// Generic replacement APIs must not change auxiliary state.
+    /// </summary>
+    WorkspaceStoreMutationResult ReplaceWorkspaceDocumentAndAuxiliaryStateAndCheckpoint(
+        CharacterWorkspaceId id,
+        long expectedContentRevision,
+        string expectedAuxiliaryStateDigest,
+        WorkspaceDocument document)
+        => new(
+            WorkspaceOperationOutcome.Unavailable,
+            Error: "Creation-authority workspace replacement is unavailable.");
+
+    /// <summary>
+    /// Owner-scoped creation-authority-only atomic replacement. Implementations must not
+    /// route this method to local state or compose it from separate writes.
+    /// </summary>
+    WorkspaceStoreMutationResult ReplaceWorkspaceDocumentAndAuxiliaryStateAndCheckpoint(
+        OwnerScope owner,
+        CharacterWorkspaceId id,
+        long expectedContentRevision,
+        string expectedAuxiliaryStateDigest,
+        WorkspaceDocument document)
+        => new(
+            WorkspaceOperationOutcome.Unavailable,
+            Error: "Creation-authority workspace replacement is unavailable.");
+
     WorkspaceStoreMutationResult SaveCheckpoint(
         CharacterWorkspaceId id,
         long expectedContentRevision);

@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Chummer.Application.Workspaces;
+using Chummer.Contracts.Characters;
 using Chummer.Contracts.Owners;
 using Chummer.Contracts.Rulesets;
 using Chummer.Contracts.Workspaces;
@@ -13,6 +14,7 @@ namespace Chummer.Infrastructure.Workspaces;
 public sealed class FileWorkspaceStore : IWorkspaceStore, IWorkspaceStoreReadinessProbe
 {
     private const int CurrentWorkspaceSchemaVersion = 1;
+    private const int CurrentWorkspaceRecordSchemaVersion = 2;
     private const string WorkspacePayloadKind = "workspace";
     private const long InitialContentRevision = 1;
     private const long InitialSavedRevision = 0;
@@ -192,6 +194,12 @@ public sealed class FileWorkspaceStore : IWorkspaceStore, IWorkspaceStoreReadine
         WorkspaceDocument document)
     {
         ArgumentNullException.ThrowIfNull(document);
+        if (!document.AuxiliaryState.IsEmpty)
+        {
+            return UnavailableMutation(
+                "Workspace auxiliary state can only be created by an explicit creation-authority commit.");
+        }
+
         string? path = TryGetPath(owner, workspaceId);
         if (path is null)
         {
@@ -448,6 +456,11 @@ public sealed class FileWorkspaceStore : IWorkspaceStore, IWorkspaceStoreReadine
                 return ConflictMutation(current);
             }
 
+            if (!HasSameAuxiliaryState(current.Document, document))
+            {
+                return AuxiliaryStateConflictMutation(current);
+            }
+
             if (current.ContentRevision == long.MaxValue)
             {
                 return UnavailableMutation("Workspace content revision is exhausted.");
@@ -538,12 +551,135 @@ public sealed class FileWorkspaceStore : IWorkspaceStore, IWorkspaceStoreReadine
                 return ConflictMutation(current);
             }
 
+            if (!HasSameAuxiliaryState(current.Document, document))
+            {
+                return AuxiliaryStateConflictMutation(current);
+            }
+
             if (current.ContentRevision == long.MaxValue)
             {
                 return UnavailableMutation("Workspace content revision is exhausted.");
             }
 
             long nextContentRevision = current.ContentRevision + 1;
+            PersistedWorkspaceRecord record = BuildPersistedRecord(
+                document,
+                nextContentRevision,
+                nextContentRevision,
+                delegatedEditLedger);
+            DateTimeOffset committedAtUtc = WriteRecordAtomically(
+                path,
+                record,
+                WorkspaceWriteDisposition.ReplaceExisting);
+            return SuccessfulMutation(
+                id,
+                committedAtUtc,
+                nextContentRevision,
+                nextContentRevision);
+        }
+        catch (IOException)
+        {
+            return UnavailableMutation("Workspace storage is unavailable.");
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return UnavailableMutation("Workspace storage is unavailable.");
+        }
+    }
+
+    public WorkspaceStoreMutationResult ReplaceWorkspaceDocumentAndAuxiliaryStateAndCheckpoint(
+        CharacterWorkspaceId id,
+        long expectedContentRevision,
+        string expectedAuxiliaryStateDigest,
+        WorkspaceDocument document)
+    {
+        return ReplaceWorkspaceDocumentAndAuxiliaryStateAndCheckpointCore(
+            OwnerScope.LocalSingleUser,
+            id,
+            expectedContentRevision,
+            expectedAuxiliaryStateDigest,
+            document);
+    }
+
+    public WorkspaceStoreMutationResult ReplaceWorkspaceDocumentAndAuxiliaryStateAndCheckpoint(
+        OwnerScope owner,
+        CharacterWorkspaceId id,
+        long expectedContentRevision,
+        string expectedAuxiliaryStateDigest,
+        WorkspaceDocument document)
+    {
+        return IsInvalidScopedOwner(owner)
+            ? InvalidOwnerMutation()
+            : ReplaceWorkspaceDocumentAndAuxiliaryStateAndCheckpointCore(
+                owner,
+                id,
+                expectedContentRevision,
+                expectedAuxiliaryStateDigest,
+                document);
+    }
+
+    private WorkspaceStoreMutationResult ReplaceWorkspaceDocumentAndAuxiliaryStateAndCheckpointCore(
+        OwnerScope owner,
+        CharacterWorkspaceId id,
+        long expectedContentRevision,
+        string expectedAuxiliaryStateDigest,
+        WorkspaceDocument document)
+    {
+        ArgumentNullException.ThrowIfNull(document);
+        if (!IsSha256(expectedAuxiliaryStateDigest))
+        {
+            return UnavailableMutation("Expected workspace auxiliary-state digest is invalid.");
+        }
+
+        string? path = TryGetPath(owner, id);
+        if (path is null)
+        {
+            return new WorkspaceStoreMutationResult(WorkspaceOperationOutcome.Missing);
+        }
+
+        try
+        {
+            EnsureWorkspaceDirectory(owner);
+            using WorkspaceOperationLease operation = AcquireWorkspaceOperation(path);
+            WorkspaceStoreReadResult read = ReadWorkspaceUnderLease(
+                owner,
+                id,
+                path,
+                out IReadOnlyList<DelegatedGmCharacterEditLedgerEntry> delegatedEditLedger);
+            if (!read.Success || read.Value is not WorkspaceStoredDocument current)
+            {
+                return MutationFromRead(read);
+            }
+
+            if (current.ContentRevision != expectedContentRevision)
+            {
+                return ConflictMutation(current);
+            }
+
+            if (!string.Equals(
+                    current.Document.AuxiliaryStateDigest,
+                    expectedAuxiliaryStateDigest,
+                    StringComparison.Ordinal))
+            {
+                return AuxiliaryStateConflictMutation(current);
+            }
+
+            if (current.ContentRevision == long.MaxValue)
+            {
+                return UnavailableMutation("Workspace content revision is exhausted.");
+            }
+
+            long nextContentRevision = current.ContentRevision + 1;
+            if (!IsValidAuxiliaryStateTransition(
+                    id,
+                    current.ContentRevision,
+                    nextContentRevision,
+                    current.Document.AuxiliaryState,
+                    document.AuxiliaryState))
+            {
+                return UnavailableMutation("Workspace auxiliary state is invalid.");
+            }
+
             PersistedWorkspaceRecord record = BuildPersistedRecord(
                 document,
                 nextContentRevision,
@@ -883,6 +1019,12 @@ public sealed class FileWorkspaceStore : IWorkspaceStore, IWorkspaceStoreReadine
                     Error: "Workspace content revision does not match the expected revision.");
             }
 
+            if (!HasSameAuxiliaryState(current.Document, document))
+            {
+                return DelegatedEditUnavailable(
+                    "Generic delegated editing cannot change workspace auxiliary state.");
+            }
+
             if (current.ContentRevision == long.MaxValue
                 || ledger.Count >= MaximumDelegatedEditAuditEntries
                 || !IsValidDelegatedEditLedgerEntry(owner, id, expectedContentRevision, ledgerEntry))
@@ -1030,7 +1172,8 @@ public sealed class FileWorkspaceStore : IWorkspaceStore, IWorkspaceStoreReadine
                 id,
                 contentRevision,
                 record.DelegatedGmCharacterEdits,
-                out delegatedEditLedger))
+                out delegatedEditLedger)
+            || !IsValidAuxiliaryState(id, contentRevision, document.AuxiliaryState))
         {
             return CorruptRead();
         }
@@ -1038,20 +1181,19 @@ public sealed class FileWorkspaceStore : IWorkspaceStore, IWorkspaceStoreReadine
         DateTimeOffset? migratedAtUtc = null;
         if (requiresLegacyMigration)
         {
-            // Legacy records predate dirty-state tracking. They were already durable workspace
-            // files, so deterministic migration treats revision 1 as an existing checkpoint.
+            // Records without revisions predate dirty-state tracking and are treated as an
+            // existing checkpoint at revision 1. Version-1 records retain their existing
+            // revisions while being rewritten into the typed auxiliary-state envelope.
             PersistedWorkspaceRecord migrated = BuildPersistedRecord(
                 document,
-                LegacyMigratedRevision,
-                LegacyMigratedRevision,
+                contentRevision,
+                savedRevision,
                 delegatedEditLedger);
             migratedAtUtc = WriteRecordAtomically(
                 path,
                 migrated,
                 WorkspaceWriteDisposition.ReplaceExisting,
                 persistedLastUpdatedUtc);
-            contentRevision = LegacyMigratedRevision;
-            savedRevision = LegacyMigratedRevision;
         }
 
         DateTimeOffset lastUpdatedUtc = migratedAtUtc ?? persistedLastUpdatedUtc;
@@ -1072,8 +1214,29 @@ public sealed class FileWorkspaceStore : IWorkspaceStore, IWorkspaceStoreReadine
         out long savedRevision,
         out bool requiresLegacyMigration)
     {
-        requiresLegacyMigration = record.ContentRevision is null && record.SavedRevision is null;
-        if (requiresLegacyMigration)
+        if (record.RecordSchemaVersion is int recordSchemaVersion
+            && (recordSchemaVersion < 1 || recordSchemaVersion > CurrentWorkspaceRecordSchemaVersion))
+        {
+            document = null!;
+            contentRevision = 0;
+            savedRevision = 0;
+            requiresLegacyMigration = false;
+            return false;
+        }
+
+        bool revisionsRequireMigration = record.ContentRevision is null && record.SavedRevision is null;
+        bool recordEnvelopeRequiresMigration = record.RecordSchemaVersion is null
+                                               || record.RecordSchemaVersion < CurrentWorkspaceRecordSchemaVersion;
+        requiresLegacyMigration = revisionsRequireMigration || recordEnvelopeRequiresMigration;
+        if (recordEnvelopeRequiresMigration && record.AuxiliaryState is not null)
+        {
+            document = null!;
+            contentRevision = 0;
+            savedRevision = 0;
+            return false;
+        }
+
+        if (revisionsRequireMigration)
         {
             contentRevision = LegacyMigratedRevision;
             savedRevision = LegacyMigratedRevision;
@@ -1128,9 +1291,13 @@ public sealed class FileWorkspaceStore : IWorkspaceStore, IWorkspaceStoreReadine
     {
         return new PersistedWorkspaceRecord(document.Format.ToString())
         {
+            RecordSchemaVersion = CurrentWorkspaceRecordSchemaVersion,
             Envelope = NormalizeEnvelope(document.State),
             ContentRevision = contentRevision,
             SavedRevision = savedRevision,
+            AuxiliaryState = document.AuxiliaryState.IsEmpty
+                ? null
+                : document.AuxiliaryState,
             DelegatedGmCharacterEdits = delegatedEditLedger is { Count: > 0 }
                 ? delegatedEditLedger.ToArray()
                 : null
@@ -1198,6 +1365,101 @@ public sealed class FileWorkspaceStore : IWorkspaceStore, IWorkspaceStoreReadine
             WorkspaceOperationOutcome.Conflict,
             ToEntry(current),
             "Workspace content revision does not match the expected revision.");
+    }
+
+    private static WorkspaceStoreMutationResult AuxiliaryStateConflictMutation(
+        WorkspaceStoredDocument current)
+    {
+        return new WorkspaceStoreMutationResult(
+            WorkspaceOperationOutcome.Conflict,
+            ToEntry(current),
+            "Workspace auxiliary state does not match the expected authoritative state.");
+    }
+
+    private static bool HasSameAuxiliaryState(
+        WorkspaceDocument current,
+        WorkspaceDocument replacement)
+    {
+        return string.Equals(
+            current.AuxiliaryStateDigest,
+            replacement.AuxiliaryStateDigest,
+            StringComparison.Ordinal);
+    }
+
+    private static bool IsValidAuxiliaryState(
+        CharacterWorkspaceId workspaceId,
+        long currentContentRevision,
+        WorkspaceDocumentAuxiliaryState state)
+    {
+        CharacterCreationFoundationDraftLedger? draft = state.CharacterCreationFoundationDraft;
+        if (draft is null)
+        {
+            return true;
+        }
+
+        return string.Equals(
+                   draft.Schema,
+                   CharacterCreationFoundationSchemas.DraftLedgerV1,
+                   StringComparison.Ordinal)
+               && draft.WorkspaceId == workspaceId
+               && draft.DraftRevision > 0
+               && draft.BaseContentRevision > 0
+               && draft.BaseContentRevision < currentContentRevision
+               && IsFoundationSha256(draft.BaseRawCharacterXmlDigest)
+               && IsFoundationSha256(draft.SourceDigest)
+               && !string.IsNullOrWhiteSpace(draft.RequestedMetatype)
+               && draft.Selection is not null
+               && !string.IsNullOrWhiteSpace(draft.Selection.ModuleId)
+               && draft.RequirementEvaluations is not null
+               && draft.ProjectedEffects is not null
+               && draft.FollowUpValues is not null
+               && draft.SourceAnchorIds is not null
+               && string.Equals(
+                   draft.CompilationStatus,
+                   CharacterCreationFoundationDraftStatuses.PendingFinalization,
+                   StringComparison.Ordinal)
+               && !draft.CharacterEffectsApplied
+               && IsFoundationSha256(draft.DraftDigest);
+    }
+
+    private static bool IsValidAuxiliaryStateTransition(
+        CharacterWorkspaceId workspaceId,
+        long previousContentRevision,
+        long nextContentRevision,
+        WorkspaceDocumentAuxiliaryState currentState,
+        WorkspaceDocumentAuxiliaryState replacementState)
+    {
+        if (!IsValidAuxiliaryState(workspaceId, nextContentRevision, replacementState))
+        {
+            return false;
+        }
+
+        CharacterCreationFoundationDraftLedger? replacementDraft =
+            replacementState.CharacterCreationFoundationDraft;
+        if (replacementDraft is null)
+        {
+            return true;
+        }
+
+        CharacterCreationFoundationDraftLedger? currentDraft =
+            currentState.CharacterCreationFoundationDraft;
+        if (currentDraft is null)
+        {
+            return replacementDraft.DraftRevision == 1
+                   && replacementDraft.BaseContentRevision == previousContentRevision;
+        }
+
+        return currentDraft.DraftRevision < long.MaxValue
+               && replacementDraft.DraftRevision == currentDraft.DraftRevision + 1
+               && replacementDraft.BaseContentRevision == previousContentRevision;
+    }
+
+    private static bool IsFoundationSha256(string? value)
+    {
+        const string prefix = "sha256:";
+        return value is { Length: 71 }
+               && value.StartsWith(prefix, StringComparison.Ordinal)
+               && IsSha256(value[prefix.Length..]);
     }
 
     private static DelegatedGmCharacterEditStoreResult ResolveDelegatedEditReplay(
@@ -1957,7 +2219,10 @@ public sealed class FileWorkspaceStore : IWorkspaceStore, IWorkspaceStoreReadine
             rulesetId: normalizedRulesetId,
             schemaVersion: schemaVersion,
             payloadKind: payloadKind,
-            payload: content);
+            payload: content)
+        {
+            AuxiliaryState = record.AuxiliaryState ?? WorkspaceDocumentAuxiliaryState.Empty
+        };
     }
 
     private static WorkspacePayloadEnvelope NormalizeEnvelope(WorkspaceDocumentState state)
@@ -1977,11 +2242,16 @@ public sealed class FileWorkspaceStore : IWorkspaceStore, IWorkspaceStoreReadine
 
     private sealed record PersistedWorkspaceRecord(string Format)
     {
+        public int? RecordSchemaVersion { get; init; }
+
         public WorkspacePayloadEnvelope? Envelope { get; init; }
 
         public long? ContentRevision { get; init; }
 
         public long? SavedRevision { get; init; }
+
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public WorkspaceDocumentAuxiliaryState? AuxiliaryState { get; init; }
 
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public DelegatedGmCharacterEditLedgerEntry[]? DelegatedGmCharacterEdits { get; init; }

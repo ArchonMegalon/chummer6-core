@@ -2039,7 +2039,10 @@ public sealed class WorkspaceService : IWorkspaceService
     private static WorkspaceDocument CreateUpdatedDocument(WorkspaceDocument current, WorkspacePayloadEnvelope updatedEnvelope)
     {
         return new WorkspaceDocument(
-            State: new WorkspaceDocumentState(updatedEnvelope),
+            State: new WorkspaceDocumentState(updatedEnvelope)
+            {
+                AuxiliaryState = current.AuxiliaryState
+            },
             Format: current.Format);
     }
 }

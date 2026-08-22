@@ -80,6 +80,13 @@ public sealed class InMemoryWorkspaceStore : IWorkspaceStore
         WorkspaceDocument document)
     {
         ArgumentNullException.ThrowIfNull(document);
+        if (!document.AuxiliaryState.IsEmpty)
+        {
+            return new WorkspaceStoreMutationResult(
+                WorkspaceOperationOutcome.Unavailable,
+                Error: "Workspace auxiliary state can only be created by an explicit creation-authority commit.");
+        }
+
         if (!IsSupportedWorkspaceId(id))
         {
             return new WorkspaceStoreMutationResult(
@@ -296,6 +303,11 @@ public sealed class InMemoryWorkspaceStore : IWorkspaceStore
                 return ConflictMutation(id, current);
             }
 
+            if (!HasSameAuxiliaryState(current.Document, document))
+            {
+                return AuxiliaryStateConflictMutation(id, current);
+            }
+
             if (current.ContentRevision == long.MaxValue)
             {
                 return new WorkspaceStoreMutationResult(
@@ -506,6 +518,12 @@ public sealed class InMemoryWorkspaceStore : IWorkspaceStore
                     Error: "Workspace content revision does not match the expected revision.");
             }
 
+            if (!HasSameAuxiliaryState(current.Document, document))
+            {
+                return DelegatedEditUnavailable(
+                    "Generic delegated editing cannot change workspace auxiliary state.");
+            }
+
             if (current.ContentRevision == long.MaxValue
                 || current.DelegatedGmCharacterEdits.Length >= MaximumDelegatedEditAuditEntries
                 || !IsValidDelegatedEditLedgerEntry(owner, id, expectedContentRevision, ledgerEntry))
@@ -602,6 +620,26 @@ public sealed class InMemoryWorkspaceStore : IWorkspaceStore
             WorkspaceOperationOutcome.Conflict,
             ToStoreEntry(id, current),
             "Workspace content revision does not match the expected revision.");
+    }
+
+    private static WorkspaceStoreMutationResult AuxiliaryStateConflictMutation(
+        CharacterWorkspaceId id,
+        WorkspaceEntry current)
+    {
+        return new WorkspaceStoreMutationResult(
+            WorkspaceOperationOutcome.Conflict,
+            ToStoreEntry(id, current),
+            "Workspace auxiliary state does not match the expected authoritative state.");
+    }
+
+    private static bool HasSameAuxiliaryState(
+        WorkspaceDocument current,
+        WorkspaceDocument replacement)
+    {
+        return string.Equals(
+            current.AuxiliaryStateDigest,
+            replacement.AuxiliaryStateDigest,
+            StringComparison.Ordinal);
     }
 
     private static WorkspaceStoreMutationResult MissingMutation()
