@@ -503,11 +503,16 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
                     CharacterCreationTalentSkillGrantTypes.Magic => string.Equals(
                         skill.Category,
                         "Magical Active",
-                        StringComparison.Ordinal),
+                        StringComparison.Ordinal)
+                        || string.Equals(
+                            skill.Category,
+                            "Pseudo-Magical Active",
+                            StringComparison.Ordinal),
                     CharacterCreationTalentSkillGrantTypes.Resonance => string.Equals(
                         skill.Category,
                         "Resonance Active",
-                        StringComparison.Ordinal),
+                        StringComparison.Ordinal)
+                        || skill.SkillGroup is "Cracking" or "Electronics",
                     _ => false
                 })
                 .OrderBy(skill => skill.CanonicalName, StringComparer.Ordinal)
@@ -520,12 +525,22 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
                     SkillGroup: skill.SkillGroup,
                     SourceNodeDigest: skill.SourceNodeDigest,
                     SkillsSourceDigest: catalog.SourceDigest,
-                    SourceAnchorIds: [$"skills.xml#skill:{skill.SourceId}"]))
+                    SourceAnchorIds: [$"skills.xml#skill:{skill.SourceId}"])
+                {
+                    IsExotic = skill.IsExotic,
+                    IsEnabled = !skill.IsExotic,
+                    Blockers = skill.IsExotic
+                        ? [CharacterCreationPrerequisiteBlockers
+                            .TalentExoticSkillSpecializationRequired]
+                        : []
+                })
                 .ToArray();
         bool supportedType = skillType is CharacterCreationTalentSkillGrantTypes.Active
             or CharacterCreationTalentSkillGrantTypes.Magic
             or CharacterCreationTalentSkillGrantTypes.Resonance;
-        bool supported = catalog is not null && supportedType && options.Length >= quantity;
+        bool supported = catalog is not null
+                         && supportedType
+                         && options.Count(option => option.IsEnabled) >= quantity;
         string[] blockers = supported
             ? []
             : [CharacterCreationPrerequisiteBlockers.TalentSkillGrantAuthorityUnsupported];
@@ -535,8 +550,12 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
             rating,
             skillType,
             options,
-            RawDigest($"active\0{quantity}\0{rating}\0{skillType}\0{sourceDigest}\0"
-                      + string.Join('\0', options.Select(option => option.SelectionId))),
+            CharacterCreationTalentGrantAuthorityDigest.ComputeActiveGrant(
+                quantity,
+                rating,
+                skillType,
+                sourceDigest,
+                options.Select(option => option.SelectionId)),
             supported,
             blockers,
             [talentAnchor, "skills.xml"]);
@@ -611,6 +630,9 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
                     [$"skills.xml#skillgroup:{group.CanonicalName}"]));
             }
         }
+        options = options.OrderBy(option => option.CanonicalName, StringComparer.Ordinal)
+            .ThenBy(option => option.SelectionId, StringComparer.Ordinal)
+            .ToList();
         bool supported = catalog is not null
                          && string.Equals(
                              skillGroupType,
@@ -628,8 +650,12 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
             rating,
             skillGroupType,
             options,
-            RawDigest($"group\0{quantity}\0{rating}\0{skillGroupType}\0{sourceDigest}\0"
-                      + string.Join('\0', options.Select(option => option.SelectionId))),
+            CharacterCreationTalentGrantAuthorityDigest.ComputeSkillGroupGrant(
+                quantity,
+                rating,
+                skillGroupType,
+                sourceDigest,
+                options.Select(option => option.SelectionId)),
             supported,
             blockers,
             [talentAnchor, "skills.xml"]);
@@ -697,8 +723,7 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
             {
                 return false;
             }
-            if (isExotic
-                || !enabledSourcebooks.Contains(sourceBook, StringComparer.OrdinalIgnoreCase))
+            if (!enabledSourcebooks.Contains(sourceBook, StringComparer.OrdinalIgnoreCase))
             {
                 continue;
             }
@@ -707,6 +732,7 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
                 canonicalName,
                 category,
                 skillGroup,
+                isExotic,
                 RawDigest(skill.ToString(SaveOptions.DisableFormatting))));
         }
         if (activeSkills.Count == 0)
@@ -722,10 +748,13 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
                 .ToArray();
             if (memberIds.Length == 0)
                 continue;
-            string groupDigest = RawDigest(
-                $"skill-group\0{sourceDigest}\0{groupName}\0{string.Join('\0', memberIds)}");
+            string groupDigest = CharacterCreationTalentGrantAuthorityDigest.ComputeSkillGroup(
+                sourceDigest,
+                groupName,
+                memberIds);
             skillGroups.Add(groupName, new TalentSkillGroupDefinition(
-                $"skill-group:{groupDigest[7..]}",
+                CharacterCreationTalentGrantAuthorityDigest.ComputeSkillGroupSelectionId(
+                    groupDigest),
                 groupName,
                 memberIds,
                 groupDigest));
@@ -1155,6 +1184,7 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
         string CanonicalName,
         string Category,
         string? SkillGroup,
+        bool IsExotic,
         string SourceNodeDigest);
 
     private sealed record TalentSkillGroupDefinition(

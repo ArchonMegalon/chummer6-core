@@ -118,7 +118,9 @@ public sealed class FileSystemCharacterSourceDataResolverTests
         Assert.AreEqual(CharacterCreationTalentSkillGrantTypes.Magic, magicGrant.SkillType);
         Assert.IsTrue(magicGrant.IsSupported, string.Join(",", magicGrant.Blockers));
         Assert.AreNotEqual(0, magicGrant.Options.Count);
-        Assert.IsTrue(magicGrant.Options.All(option => option.Category == "Magical Active"));
+        Assert.IsTrue(magicGrant.Options.All(option => option.Category is
+            "Magical Active" or "Pseudo-Magical Active"));
+        Assert.IsTrue(magicGrant.Options.Any(option => option.Category == "Pseudo-Magical Active"));
         Assert.IsTrue(magicGrant.Options.All(option => Guid.TryParseExact(
             option.SourceId,
             "D",
@@ -127,6 +129,30 @@ public sealed class FileSystemCharacterSourceDataResolverTests
             CharacterCreationPrerequisiteAuthorityDigest.EqualsFixedTime(
                 option.SkillsSourceDigest,
                 authority.EffectiveSkillsInputsDigest)));
+
+        CharacterCreationPriorityTalentOptionProjection technomancer = authority.Options.Single(option =>
+                option.CategoryId == CharacterCreationPriorityCategoryIds.Talent
+                && option.Rank == "A")
+            .TalentOptions.Single(option => option.Value == "Technomancer");
+        CharacterCreationTalentActiveSkillGrantProjection resonanceGrant =
+            technomancer.ActiveSkillGrant!;
+        Assert.IsTrue(resonanceGrant.Options.All(option => option.Category == "Resonance Active"
+            || option.SkillGroup is "Cracking" or "Electronics"));
+        Assert.IsTrue(resonanceGrant.Options.Any(option => option.Category != "Resonance Active"
+            && (option.SkillGroup is "Cracking" or "Electronics")));
+
+        CharacterCreationPriorityTalentOptionProjection adept = authority.Options.Single(option =>
+                option.CategoryId == CharacterCreationPriorityCategoryIds.Talent
+                && option.Rank == "B")
+            .TalentOptions.Single(option => option.Value == "Adept");
+        CharacterCreationTalentActiveSkillChoiceProjection[] exoticOptions = adept.ActiveSkillGrant!
+            .Options.Where(option => option.IsExotic).ToArray();
+        Assert.HasCount(3, exoticOptions);
+        Assert.IsTrue(exoticOptions.All(option => !option.IsEnabled
+            && option.Blockers.SequenceEqual(
+                [CharacterCreationPrerequisiteBlockers
+                    .TalentExoticSkillSpecializationRequired],
+                StringComparer.Ordinal)));
 
         CharacterCreationPriorityTalentOptionProjection aspected = authority.Options.Single(option =>
                 option.CategoryId == CharacterCreationPriorityCategoryIds.Talent

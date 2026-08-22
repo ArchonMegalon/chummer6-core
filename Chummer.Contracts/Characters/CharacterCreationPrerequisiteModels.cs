@@ -94,6 +94,8 @@ public static class CharacterCreationPrerequisiteBlockers
         "creation-prerequisite-talent-skill-group-selection-invalid";
     public const string TalentSkillGrantAuthorityUnsupported =
         "creation-prerequisite-talent-skill-grant-authority-unsupported";
+    public const string TalentExoticSkillSpecializationRequired =
+        "creation-prerequisite-talent-exotic-skill-specialization-required";
     public const string SkillCustomDataUnsupported =
         "creation-prerequisite-skill-custom-data-unsupported";
     public const string SkillsSourceDrift = "creation-prerequisite-skills-source-drift";
@@ -148,7 +150,14 @@ public sealed record CharacterCreationTalentActiveSkillChoiceProjection(
     string? SkillGroup,
     string SourceNodeDigest,
     string SkillsSourceDigest,
-    IReadOnlyList<string> SourceAnchorIds);
+    IReadOnlyList<string> SourceAnchorIds)
+{
+    public bool IsExotic { get; init; }
+
+    public bool IsEnabled { get; init; } = true;
+
+    public IReadOnlyList<string> Blockers { get; init; } = [];
+}
 
 public sealed record CharacterCreationTalentSkillGroupChoiceProjection(
     string SelectionId,
@@ -177,6 +186,44 @@ public sealed record CharacterCreationTalentSkillGroupGrantProjection(
     bool IsSupported,
     IReadOnlyList<string> Blockers,
     IReadOnlyList<string> SourceAnchorIds);
+
+public static class CharacterCreationTalentGrantAuthorityDigest
+{
+    public static string ComputeActiveGrant(
+        int quantity,
+        int baseRating,
+        string skillType,
+        string skillsSourceDigest,
+        IEnumerable<string> orderedOptionIds) =>
+        RawDigest($"active\0{quantity}\0{baseRating}\0{skillType}\0{skillsSourceDigest}\0"
+                  + string.Join('\0', orderedOptionIds));
+
+    public static string ComputeSkillGroupGrant(
+        int quantity,
+        int baseRating,
+        string skillGroupType,
+        string skillsSourceDigest,
+        IEnumerable<string> orderedOptionIds) =>
+        RawDigest($"group\0{quantity}\0{baseRating}\0{skillGroupType}\0{skillsSourceDigest}\0"
+                  + string.Join('\0', orderedOptionIds));
+
+    public static string ComputeSkillGroup(
+        string skillsSourceDigest,
+        string canonicalName,
+        IEnumerable<string> memberSkillSourceIds) =>
+        RawDigest($"skill-group\0{skillsSourceDigest}\0{canonicalName}\0"
+                  + string.Join('\0', memberSkillSourceIds.OrderBy(
+                      sourceId => sourceId,
+                      StringComparer.Ordinal))));
+
+    public static string ComputeSkillGroupSelectionId(string groupDigest) =>
+        CharacterCreationPrerequisiteAuthorityDigest.IsCanonical(groupDigest)
+            ? $"skill-group:{groupDigest[7..]}"
+            : string.Empty;
+
+    private static string RawDigest(string value) =>
+        "sha256:" + Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(value)));
+}
 
 public sealed record CharacterCreationPriorityRankWeight(
     string Rank,
