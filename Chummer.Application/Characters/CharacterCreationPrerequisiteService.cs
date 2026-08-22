@@ -543,8 +543,6 @@ public sealed class CharacterCreationPrerequisiteService :
         CharacterCreationPrerequisiteAuthority authority,
         IReadOnlyList<CharacterCreationPriorityAssignment> assignments,
         string? selectionId,
-        IReadOnlyList<string>? activeSkillSelectionIds,
-        IReadOnlyList<string>? skillGroupSelectionIds,
         ICollection<string> blockers)
     {
         CharacterCreationPriorityAssignment? assignment = assignments.SingleOrDefault(item =>
@@ -594,6 +592,8 @@ public sealed class CharacterCreationPrerequisiteService :
         CharacterCreationPrerequisiteAuthority authority,
         IReadOnlyList<CharacterCreationPriorityAssignment> assignments,
         string? selectionId,
+        IReadOnlyList<string>? activeSkillSelectionIds,
+        IReadOnlyList<string>? skillGroupSelectionIds,
         ICollection<string> blockers)
     {
         CharacterCreationPriorityAssignment? assignment = assignments.SingleOrDefault(item =>
