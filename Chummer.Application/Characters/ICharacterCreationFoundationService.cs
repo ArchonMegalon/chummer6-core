@@ -20,6 +20,7 @@ public sealed record CharacterCreationFoundationAuthorityContext(
     WorkspaceStoredDocument Workspace,
     CharacterFileSummary Summary,
     string RequestedMetatype,
+    CharacterCreationLegalOption SelectedMetatype,
     CharacterCreationFoundationSelection Selection,
     LifeModuleLegalOptionDto Nationality,
     LifeModuleVersionProjectionDto? NationalityVersion,
@@ -34,10 +35,7 @@ public sealed record CharacterCreationFoundationAuthorityPreview(
     IReadOnlyList<CharacterCreationFoundationDiffEntry> Diff,
     IReadOnlyList<string> Blockers,
     bool CanApply,
-    string AuthorityPlanDigest)
-{
-    public IReadOnlyList<string> ResolvedBlockers { get; init; } = [];
-}
+    string AuthorityPlanDigest);
 
 public interface ICharacterCreationFoundationDraftPersistenceCapability
 {

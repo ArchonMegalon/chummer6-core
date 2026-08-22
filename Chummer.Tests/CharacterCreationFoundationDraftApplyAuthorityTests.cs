@@ -18,6 +18,9 @@ namespace Chummer.Tests;
 [TestClass]
 public sealed class CharacterCreationFoundationDraftApplyAuthorityTests
 {
+    private const string CanonicalLifeModuleSettingsId = "8a31af6d-7137-4284-872b-7d8087e156c6";
+    private const string HumanId = "a53d885d-a4a4-443d-b6a6-b0a55b0a96c7";
+    private const string ElfId = "b3259991-b315-4dbe-ae3c-51f71a1116e2";
     private const string TirModuleId = "83c132b5-fcf5-4a43-b9de-6c8ab206a586";
     private const string TirHumanElfVersionId = "604831d9-0fdc-4579-aa7e-bc5d99bcee5d";
     private const string UcasModuleId = "f35ba316-dd0f-48ab-9f06-d7329305a44e";
@@ -38,9 +41,12 @@ public sealed class CharacterCreationFoundationDraftApplyAuthorityTests
         CollectionAssert.AreEqual(
             human.ProjectedEffects.Select(effect => effect.EffectId).ToList(),
             elf.ProjectedEffects.Select(effect => effect.EffectId).ToList());
-        CollectionAssert.AreEqual(
+        CollectionAssert.Contains(
             human.SourceAnchorIds.ToList(),
-            elf.SourceAnchorIds.ToList());
+            $"metatypes.xml#metatype:{HumanId}");
+        CollectionAssert.Contains(
+            elf.SourceAnchorIds.ToList(),
+            $"metatypes.xml#metatype:{ElfId}");
         Assert.AreEqual(
             CharacterCreationFoundationDraftStatuses.PendingFinalization,
             human.CompilationStatus);
@@ -93,9 +99,11 @@ public sealed class CharacterCreationFoundationDraftApplyAuthorityTests
                 service,
                 resumed.Binding,
                 UcasModuleId,
-                UcasVersionId);
+                UcasVersionId,
+                metatype: "Elf");
             Assert.AreEqual(15m, update.LifeModuleBudgetBefore.Used);
-            Assert.AreEqual(15m, update.LifeModuleBudgetAfter.Used);
+            Assert.AreEqual(55m, update.LifeModuleBudgetAfter.Used);
+            Assert.AreEqual(695m, update.LifeModuleBudgetAfter.Remaining);
             CharacterCreationFoundationApplyReceipt receipt = Confirm(service, update).Value!;
             Assert.AreEqual(2L, receipt.DraftRevision);
             Assert.AreEqual(3L, receipt.ContentRevision);
@@ -106,6 +114,7 @@ public sealed class CharacterCreationFoundationDraftApplyAuthorityTests
                 .CharacterCreationFoundationDraft!;
             Assert.AreEqual(2L, draft.DraftRevision);
             Assert.AreEqual(2L, draft.BaseContentRevision);
+            Assert.AreEqual("Elf", draft.RequestedMetatype);
             Assert.AreEqual(UcasModuleId, draft.Selection.ModuleId);
             Assert.AreEqual(xml, reopened.Document.Content);
         }
@@ -294,12 +303,17 @@ public sealed class CharacterCreationFoundationDraftApplyAuthorityTests
             .ToArray();
         CharacterCreationBudgetState before = ExactBudget(used: 0);
         CharacterCreationBudgetState after = ExactBudget(used: 15);
+        CharacterCreationLegalOption selectedMetatype = Load(
+                CreateService(store),
+                id)
+            .MetatypeOptions.Single(option => option.OptionId == HumanId);
         var context = new CharacterCreationFoundationAuthorityContext(
             workspace,
             new CharacterFileSummary(
                 "Runner", "Runner", "Human", CharacterCreationBuildMethods.LifeModules,
                 "5.225.0", "5.225.0", 0, 0, false),
             "Human",
+            selectedMetatype,
             new CharacterCreationFoundationSelection(TirModuleId, TirHumanElfVersionId),
             nationality,
             version,
@@ -330,19 +344,38 @@ public sealed class CharacterCreationFoundationDraftApplyAuthorityTests
         try
         {
             CharacterWorkspaceId id = new("tir-" + metatype.ToLowerInvariant());
-            string xml = CharacterXml(metatype);
+            // The canonical character remains a Human placeholder even when the
+            // authoritative draft selection is Elf.
+            string xml = CharacterXml("Human");
             FileWorkspaceStore store = new(directory);
             Assert.IsTrue(store.CreateWorkspaceDocument(
                 id,
                 new WorkspaceDocument(xml, RulesetDefaults.Sr5)).Success);
             CharacterCreationFoundationService service = CreateService(store);
+            CharacterCreationFoundationState initial = Load(service, id);
             CharacterCreationFoundationPreview preview = Preview(
                 service,
-                Load(service, id).Binding,
+                initial.Binding,
                 TirModuleId,
                 TirHumanElfVersionId,
                 metatype);
             Assert.IsTrue(preview.CanApply);
+            decimal expectedUsed = string.Equals(metatype, "Elf", StringComparison.Ordinal)
+                ? 55m
+                : 15m;
+            Assert.AreEqual(0m, preview.LifeModuleBudgetBefore.Used);
+            Assert.AreEqual(expectedUsed, preview.LifeModuleBudgetAfter.Used);
+            Assert.AreEqual(750m - expectedUsed, preview.LifeModuleBudgetAfter.Remaining);
+            CharacterCreationFoundationDiffEntry metatypeChoice = preview.Diff.Single(item =>
+                item.DiffId == "foundation:requested-metatype");
+            Assert.AreEqual(metatype, metatypeChoice.AfterValue);
+            Assert.IsTrue(metatypeChoice.IsAuthoritative);
+            Assert.IsFalse(metatypeChoice.AppliesToCharacterDocument);
+            CharacterCreationFoundationDiffEntry metatypeCost = preview.Diff.Single(item =>
+                item.DiffId == "foundation:metatype-cost");
+            Assert.AreEqual(
+                string.Equals(metatype, "Elf", StringComparison.Ordinal) ? "40" : "0",
+                metatypeCost.AfterValue);
             Assert.IsTrue(preview.Diff.All(item =>
                 item.Phase == CharacterCreationFoundationDiffPhases.DraftLedger
                 && !item.AppliesToCharacterDocument));
@@ -356,6 +389,8 @@ public sealed class CharacterCreationFoundationDraftApplyAuthorityTests
             Assert.AreEqual(1L, receipt.DraftRevision);
             Assert.AreEqual(2L, receipt.ContentRevision);
             Assert.AreEqual(2L, receipt.SavedRevision);
+            Assert.AreEqual(initial.Binding.RawCharacterXmlDigest, receipt.RawCharacterXmlDigest);
+            Assert.AreEqual(initial.Binding.SourceDigest, receipt.SourceDigest);
             Assert.IsFalse(receipt.CharacterEffectsApplied);
             WorkspaceStoredDocument reopened = new FileWorkspaceStore(directory).Get(id).Value!;
             Assert.AreEqual(xml, reopened.Document.Content);
@@ -379,6 +414,9 @@ public sealed class CharacterCreationFoundationDraftApplyAuthorityTests
                 resumed.ResumeStatus);
             Assert.IsNotNull(resumed.PendingDraft);
             Assert.IsFalse(resumed.PendingDraft.CharacterEffectsApplied);
+            Assert.AreEqual(expectedUsed, resumed.LifeModuleBudget.Used);
+            Assert.AreEqual(750m - expectedUsed, resumed.LifeModuleBudget.Remaining);
+            Assert.IsTrue(resumed.LifeModuleBudget.IsExact);
             return draft;
         }
         finally
@@ -394,7 +432,7 @@ public sealed class CharacterCreationFoundationDraftApplyAuthorityTests
         return new CharacterCreationFoundationService(
             store,
             new XmlCharacterFileQueries(new CharacterFileService()),
-            new ExactSourceResolver(),
+            new FileSystemCharacterSourceDataResolver(CreateOverlays()),
             CreateCatalog(),
             authority ?? new CharacterCreationFoundationDraftApplyAuthority(store));
     }
@@ -406,6 +444,12 @@ public sealed class CharacterCreationFoundationDraftApplyAuthorityTests
             "Chummer",
             "data",
             "lifemodules.xml"));
+    }
+
+    private static FileSystemContentOverlayCatalogService CreateOverlays()
+    {
+        string root = FindCoreRoot();
+        return new FileSystemContentOverlayCatalogService(root, root, null);
     }
 
     private static LifeModuleLegalOptionDto GetTirNationality()
@@ -486,7 +530,7 @@ public sealed class CharacterCreationFoundationDraftApplyAuthorityTests
 
     private static string CharacterXml(string metatype)
     {
-        return $"<character><name>Foundation Runner</name><alias>Foundation</alias><metatype>{metatype}</metatype><buildmethod>{CharacterCreationBuildMethods.LifeModules}</buildmethod><createdversion>5.225.0</createdversion><appversion>5.225.0</appversion><karma>25</karma><nuyen>0</nuyen><created>False</created></character>";
+        return $"<character><name>Foundation Runner</name><alias>Foundation</alias><metatype>{metatype}</metatype><buildmethod>{CharacterCreationBuildMethods.LifeModules}</buildmethod><createdversion>5.225.0</createdversion><appversion>5.225.0</appversion><karma>25</karma><nuyen>0</nuyen><created>False</created><settings>{CanonicalLifeModuleSettingsId}</settings></character>";
     }
 
     private static string CreateTempDirectory()
@@ -513,47 +557,6 @@ public sealed class CharacterCreationFoundationDraftApplyAuthorityTests
         }
 
         throw new DirectoryNotFoundException("Could not locate canonical lifemodules.xml.");
-    }
-
-    private sealed class ExactSourceResolver : ICharacterSourceDataResolver
-    {
-        public ICharacterSourceDataContext TryCreateContext(string characterXml) => new Context();
-
-        private sealed class Context : ICharacterSourceDataContext
-        {
-            public bool TryResolveCreationSourceProfile(
-                out CharacterCreationSourceProfileAuthority authority)
-            {
-                authority = new CharacterCreationSourceProfileAuthority(
-                    SettingsProfileId: "foundation-authority-test-profile",
-                    EnabledSourcebooks: ["RF"],
-                    BuildMethod: CharacterCreationBuildMethods.LifeModules,
-                    BuildPoints: 750,
-                    LifeModuleBudgetIsExact: true,
-                    BudgetBlockers: [],
-                    RawProfileInputsDigest: "sha256:" + new string('c', 64),
-                    SourceAnchorIds: ["settings.xml#setting:foundation-authority-test-profile"]);
-                return true;
-            }
-
-            public bool TryResolveCyberwareGradeDeviceRating(
-                string gradeName,
-                string improvementSource,
-                out int deviceRating)
-            {
-                deviceRating = 0;
-                return false;
-            }
-
-            public bool TryResolveVehicleModBonuses(
-                string sourceId,
-                string name,
-                out CharacterVehicleModSourceBonuses bonuses)
-            {
-                bonuses = CharacterVehicleModSourceBonuses.Empty;
-                return false;
-            }
-        }
     }
 
     private sealed class ThrowingFaultInjector : IFileWorkspaceStoreFaultInjector

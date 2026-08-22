@@ -32,7 +32,6 @@ public sealed class CharacterCreationFoundationDraftApplyAuthority :
     {
         ArgumentNullException.ThrowIfNull(context);
         var blockers = new List<string>();
-        var resolvedBlockers = new List<string>();
 
         if (!CanPersistFoundationDrafts)
             blockers.Add(CharacterCreationFoundationBlockers.WizardStatePersistenceAuthorityRequired);
@@ -42,22 +41,10 @@ public sealed class CharacterCreationFoundationDraftApplyAuthority :
             blockers.Add(CharacterCreationFoundationBlockers.LifeModuleBudgetAuthorityRequired);
         blockers.AddRange(context.LifeModuleBudgetAfter.Blockers);
 
-        bool metatypeMatches = !string.IsNullOrWhiteSpace(context.RequestedMetatype)
-                               && string.Equals(
-                                   context.Summary.Metatype,
-                                   context.RequestedMetatype,
-                                   StringComparison.OrdinalIgnoreCase);
-        if (!metatypeMatches)
-        {
+        if (!IsAuthoritativeMetatypeSelection(
+                context.SelectedMetatype,
+                context.RequestedMetatype))
             blockers.Add(CharacterCreationFoundationBlockers.MetatypeLegalityAuthorityRequired);
-        }
-        else
-        {
-            // This authority can bind the unchanged, already-parsed metatype. It is
-            // not an authority for choosing or changing metatype legality.
-            resolvedBlockers.Add(
-                CharacterCreationFoundationBlockers.MetatypeCatalogAuthorityRequired);
-        }
 
         if (!string.Equals(
                 context.Nationality.ModuleId,
@@ -116,13 +103,7 @@ public sealed class CharacterCreationFoundationDraftApplyAuthority :
             Diff: BuildDiff(context, canApply, normalizedBlockers),
             Blockers: normalizedBlockers,
             CanApply: canApply,
-            AuthorityPlanDigest: proposed.DraftDigest)
-        {
-            ResolvedBlockers = resolvedBlockers
-                .Distinct(StringComparer.Ordinal)
-                .OrderBy(item => item, StringComparer.Ordinal)
-                .ToArray()
-        };
+            AuthorityPlanDigest: proposed.DraftDigest);
     }
 
     public CharacterCreationFoundationResult<CharacterCreationFoundationApplyReceipt> ApplyAndCheckpoint(
@@ -208,7 +189,8 @@ public sealed class CharacterCreationFoundationDraftApplyAuthority :
             .. context.NationalityVersion?.Effects ?? [],
             .. context.Nationality.Effects
         ];
-        string[] sourceAnchors = (context.NationalityVersion?.SourceAnchorIds ?? [])
+        string[] sourceAnchors = context.SelectedMetatype.SourceAnchorIds
+            .Concat(context.NationalityVersion?.SourceAnchorIds ?? [])
             .Concat(context.Nationality.SourceAnchorIds)
             .Distinct(StringComparer.Ordinal)
             .ToArray();
@@ -220,7 +202,7 @@ public sealed class CharacterCreationFoundationDraftApplyAuthority :
             BaseRawCharacterXmlDigest: CharacterCreationFoundationDraftLedgerIntegrity
                 .ComputeRawCharacterXmlDigest(context.Workspace.Document.Content),
             SourceDigest: context.SourceDigest,
-            RequestedMetatype: context.RequestedMetatype.Trim(),
+            RequestedMetatype: context.SelectedMetatype.Label,
             Selection: new CharacterCreationFoundationSelection(
                 context.Selection.ModuleId.Trim(),
                 context.Selection.VersionId?.Trim()),
@@ -251,19 +233,31 @@ public sealed class CharacterCreationFoundationDraftApplyAuthority :
         {
             new(
                 DiffId: "foundation:requested-metatype",
-                Domain: "metatype",
-                TargetId: "metatype",
+                Domain: "metatype-choice",
+                TargetId: context.SelectedMetatype.OptionId,
                 BeforeValue: context.Summary.Metatype,
-                AfterValue: context.RequestedMetatype,
+                AfterValue: context.SelectedMetatype.Label,
                 Phase: CharacterCreationFoundationDiffPhases.DraftLedger,
                 AppliesToCharacterDocument: false,
-                IsAuthoritative: string.Equals(
-                    context.Summary.Metatype,
-                    context.RequestedMetatype,
-                    StringComparison.OrdinalIgnoreCase),
+                IsAuthoritative: IsAuthoritativeMetatypeSelection(
+                    context.SelectedMetatype,
+                    context.RequestedMetatype),
                 CanApply: canApply,
                 Blockers: entryBlockers,
-                SourceAnchorIds: []),
+                SourceAnchorIds: context.SelectedMetatype.SourceAnchorIds),
+            new(
+                DiffId: "foundation:metatype-cost",
+                Domain: "choice-cost",
+                TargetId: CharacterCreationBudgetIds.LifeModules,
+                BeforeValue: null,
+                AfterValue: ResolveMetatypeCost(context.SelectedMetatype)?.ToString(
+                    CultureInfo.InvariantCulture),
+                Phase: CharacterCreationFoundationDiffPhases.DraftLedger,
+                AppliesToCharacterDocument: false,
+                IsAuthoritative: ResolveMetatypeCost(context.SelectedMetatype).HasValue,
+                CanApply: canApply,
+                Blockers: entryBlockers,
+                SourceAnchorIds: context.SelectedMetatype.SourceAnchorIds),
             new(
                 DiffId: "life-modules:karma-budget",
                 Domain: "budget",
@@ -278,7 +272,10 @@ public sealed class CharacterCreationFoundationDraftApplyAuthority :
                                  && context.LifeModuleBudgetAfter.IsExact,
                 CanApply: canApply,
                 Blockers: entryBlockers,
-                SourceAnchorIds: context.Nationality.SourceAnchorIds),
+                SourceAnchorIds: context.SelectedMetatype.SourceAnchorIds
+                    .Concat(context.Nationality.SourceAnchorIds)
+                    .Distinct(StringComparer.Ordinal)
+                    .ToArray()),
             new(
                 DiffId: "life-modules:nationality-selection",
                 Domain: "life-module-selection",
@@ -346,6 +343,37 @@ public sealed class CharacterCreationFoundationDraftApplyAuthority :
             Blockers: entryBlockers,
             SourceAnchorIds: effect.SourceAnchorIds)));
         return diff;
+    }
+
+    private static bool IsAuthoritativeMetatypeSelection(
+        CharacterCreationLegalOption? option,
+        string requestedMetatype)
+    {
+        return option is not null
+               && option.IsEnabled
+               && option.DisableReasonKey is null
+               && Guid.TryParseExact(option.OptionId, "D", out Guid id)
+               && id != Guid.Empty
+               && string.Equals(option.OptionId, id.ToString("D"), StringComparison.Ordinal)
+               && string.Equals(option.Label, requestedMetatype, StringComparison.Ordinal)
+               && option.SourceAnchorIds.Count > 0
+               && option.SourceAnchorIds.All(anchor => !string.IsNullOrWhiteSpace(anchor))
+               && ResolveMetatypeCost(option).HasValue;
+    }
+
+    private static decimal? ResolveMetatypeCost(CharacterCreationLegalOption option)
+    {
+        CharacterCreationChoiceCost[] costs = option.Costs
+            .Where(cost => string.Equals(
+                               cost.BudgetId,
+                               CharacterCreationBudgetIds.LifeModules,
+                               StringComparison.Ordinal)
+                           && string.Equals(cost.Unit, "karma", StringComparison.Ordinal))
+            .Take(2)
+            .ToArray();
+        return costs.Length == 1 && costs[0].Delta >= 0
+            ? costs[0].Delta
+            : null;
     }
 
     private static string SelectionValue(CharacterCreationFoundationSelection selection)

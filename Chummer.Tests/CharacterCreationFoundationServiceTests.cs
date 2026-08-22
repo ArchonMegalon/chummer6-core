@@ -23,6 +23,8 @@ public sealed class CharacterCreationFoundationServiceTests
 {
     private static readonly CharacterWorkspaceId s_WorkspaceId = new("foundation-test");
     private const string CanonicalLifeModuleSettingsId = "8a31af6d-7137-4284-872b-7d8087e156c6";
+    private const string CanonicalHumanId = "a53d885d-a4a4-443d-b6a6-b0a55b0a96c7";
+    private const string CanonicalElfId = "b3259991-b315-4dbe-ae3c-51f71a1116e2";
 
     [TestMethod]
     public void Canonical_profile_and_inherited_nationality_cost_project_750_to_735()
@@ -105,7 +107,11 @@ public sealed class CharacterCreationFoundationServiceTests
             Assert.AreEqual(CharacterCreationBuildMethods.LifeModules, restarted.BuildMethod);
             Assert.IsFalse(restarted.CharacterCreated);
             Assert.HasCount(1, restarted.NationalityOptions);
-            Assert.IsEmpty(restarted.MetatypeOptions);
+            Assert.HasCount(2, restarted.MetatypeOptions);
+            Assert.IsTrue(restarted.MetatypeOptions.Any(option =>
+                option.OptionId == CanonicalHumanId && option.IsEnabled));
+            Assert.IsTrue(restarted.MetatypeOptions.Any(option =>
+                option.OptionId == CanonicalElfId && option.IsEnabled));
             Assert.AreEqual(CharacterCreationBudgetIds.LifeModules, restarted.LifeModuleBudget.BudgetId);
             Assert.AreEqual(750m, restarted.LifeModuleBudget.Total);
             Assert.AreEqual(0m, restarted.LifeModuleBudget.Used);
@@ -115,7 +121,7 @@ public sealed class CharacterCreationFoundationServiceTests
             Assert.AreEqual(
                 CharacterCreationFoundationResumeStatuses.AuthorityRequired,
                 restarted.ResumeStatus);
-            CollectionAssert.Contains(
+            CollectionAssert.DoesNotContain(
                 restarted.AuthorityBlockers.ToList(),
                 CharacterCreationFoundationBlockers.MetatypeCatalogAuthorityRequired);
             CollectionAssert.Contains(
@@ -185,26 +191,26 @@ public sealed class CharacterCreationFoundationServiceTests
         CollectionAssert.Contains(
             preview.AuthorityBlockers.ToList(),
             CharacterCreationFoundationBlockers.WizardStatePersistenceAuthorityRequired);
-        CollectionAssert.Contains(
+        CollectionAssert.DoesNotContain(
             preview.AuthorityBlockers.ToList(),
             CharacterCreationFoundationBlockers.MetatypeCatalogAuthorityRequired);
         Assert.AreEqual(0, store.TotalMutationCalls);
     }
 
     [TestMethod]
-    public void Preview_rejects_metatype_requirement_that_current_character_does_not_meet()
+    public void Preview_rejects_metatype_requirement_that_selected_authoritative_metatype_does_not_meet()
     {
         var store = new CountingWorkspaceStore();
-        store.CreateWorkspaceDocument(s_WorkspaceId, CreateWorkspaceDocument(metatype: "Ork"));
+        store.CreateWorkspaceDocument(s_WorkspaceId, CreateWorkspaceDocument());
         store.ResetMutationCounts();
         ICharacterCreationFoundationService service = CreateService(
             store,
-            new StubLifeModulesCatalogService(CreateNationality()));
+            new StubLifeModulesCatalogService(CreateNationality(["Human"])));
         CharacterCreationFoundationState state = AssertSuccess(
             service.Load(new CharacterCreationFoundationLoadRequest(s_WorkspaceId))).Value!;
 
         CharacterCreationFoundationPreview preview = service.Preview(
-            CreatePreviewRequest(state.Binding, requestedMetatype: "Ork")).Value!;
+            CreatePreviewRequest(state.Binding, requestedMetatype: "Elf")).Value!;
 
         LifeModuleRequirementProjectionDto requirement = AssertExactlyOne(preview.RequirementEvaluations);
         Assert.IsFalse(requirement.IsMet);
@@ -219,7 +225,7 @@ public sealed class CharacterCreationFoundationServiceTests
     }
 
     [TestMethod]
-    public void Preview_evaluates_requirement_against_requested_metatype_but_keeps_legality_blocked()
+    public void Preview_evaluates_requirement_against_authoritative_selection_while_unavailable_apply_stays_blocked()
     {
         var store = new CountingWorkspaceStore();
         store.CreateWorkspaceDocument(s_WorkspaceId, CreateWorkspaceDocument(metatype: "Ork"));
@@ -318,22 +324,22 @@ public sealed class CharacterCreationFoundationServiceTests
         ICharacterCreationFoundationService service = CreateService(
             store,
             new StubLifeModulesCatalogService(CreateNationality()),
+            sourceResolver: new StubCharacterSourceDataResolver(
+                ["RF"],
+                metatypeAuthorityAvailable: false),
             applyAuthority: applyAuthority);
         CharacterCreationFoundationState state = AssertSuccess(service.Load(
             new CharacterCreationFoundationLoadRequest(s_WorkspaceId))).Value!;
 
-        CharacterCreationFoundationPreview preview = service.Preview(
-            CreatePreviewRequest(state.Binding)).Value!;
-        CharacterCreationFoundationResult<CharacterCreationFoundationApplyReceipt> confirmed =
-            service.Confirm(CreateConfirmRequest(preview, explicitlyConfirmed: true));
+        CharacterCreationFoundationResult<CharacterCreationFoundationPreview> preview = service.Preview(
+            CreatePreviewRequest(state.Binding));
 
         Assert.IsEmpty(state.MetatypeOptions);
         CollectionAssert.Contains(
-            preview.AuthorityBlockers.ToList(),
+            preview.Blockers.ToList(),
             CharacterCreationFoundationBlockers.MetatypeCatalogAuthorityRequired);
-        Assert.IsFalse(preview.CanApply);
-        Assert.IsFalse(preview.CanConfirm);
-        Assert.AreEqual(CharacterCreationFoundationOutcomes.Blocked, confirmed.Outcome);
+        Assert.AreEqual(CharacterCreationFoundationOutcomes.Blocked, preview.Outcome);
+        Assert.IsNull(preview.Value);
         Assert.AreEqual(0, applyAuthority.ApplyCalls);
         Assert.AreEqual(0, store.TotalMutationCalls);
     }
@@ -415,6 +421,66 @@ public sealed class CharacterCreationFoundationServiceTests
         CollectionAssert.Contains(
             result.Blockers.ToList(),
             CharacterCreationFoundationBlockers.SourceDigestConflict);
+        Assert.AreEqual(0, store.TotalMutationCalls);
+    }
+
+    [TestMethod]
+    public void Confirm_rejects_changed_metatype_authority_digest_without_writes()
+    {
+        var store = new CountingWorkspaceStore();
+        store.CreateWorkspaceDocument(s_WorkspaceId, CreateWorkspaceDocument());
+        store.ResetMutationCounts();
+        var sourceResolver = new StubCharacterSourceDataResolver(["RF"]);
+        ICharacterCreationFoundationService service = CreateService(
+            store,
+            new StubLifeModulesCatalogService(CreateNationality()),
+            sourceResolver);
+        CharacterCreationFoundationState state = AssertSuccess(service.Load(
+            new CharacterCreationFoundationLoadRequest(s_WorkspaceId))).Value!;
+        CharacterCreationFoundationPreview preview = service.Preview(
+            CreatePreviewRequest(state.Binding)).Value!;
+        sourceResolver.MetatypeAuthorityDigest = "sha256:" + new string('f', 64);
+
+        CharacterCreationFoundationResult<CharacterCreationFoundationApplyReceipt> result =
+            service.Confirm(CreateConfirmRequest(preview, explicitlyConfirmed: true));
+
+        Assert.AreEqual(CharacterCreationFoundationOutcomes.Conflict, result.Outcome);
+        CollectionAssert.Contains(
+            result.Blockers.ToList(),
+            CharacterCreationFoundationBlockers.SourceDigestConflict);
+        Assert.AreEqual(0, store.TotalMutationCalls);
+    }
+
+    [TestMethod]
+    public void Preview_resolves_canonical_option_id_and_rejects_unknown_or_noncanonical_label_without_writes()
+    {
+        var store = new CountingWorkspaceStore();
+        store.CreateWorkspaceDocument(s_WorkspaceId, CreateWorkspaceDocument());
+        store.ResetMutationCounts();
+        ICharacterCreationFoundationService service = CreateService(
+            store,
+            new StubLifeModulesCatalogService(CreateNationality()));
+        CharacterCreationFoundationState state = AssertSuccess(service.Load(
+            new CharacterCreationFoundationLoadRequest(s_WorkspaceId))).Value!;
+
+        CharacterCreationFoundationPreview byId = service.Preview(
+            CreatePreviewRequest(state.Binding, requestedMetatype: CanonicalElfId.ToUpperInvariant())).Value!;
+        CharacterCreationFoundationResult<CharacterCreationFoundationPreview> unknown = service.Preview(
+            CreatePreviewRequest(state.Binding, requestedMetatype: "Ork"));
+        CharacterCreationFoundationResult<CharacterCreationFoundationPreview> noncanonical = service.Preview(
+            CreatePreviewRequest(state.Binding, requestedMetatype: "human"));
+
+        Assert.AreEqual("Elf", byId.RequestedMetatype);
+        Assert.AreEqual(55m, byId.LifeModuleBudgetAfter.Used);
+        Assert.AreEqual(695m, byId.LifeModuleBudgetAfter.Remaining);
+        Assert.AreEqual(CharacterCreationFoundationOutcomes.Blocked, unknown.Outcome);
+        CollectionAssert.Contains(
+            unknown.Blockers.ToList(),
+            CharacterCreationFoundationBlockers.MetatypeOptionNotFound);
+        Assert.AreEqual(CharacterCreationFoundationOutcomes.Blocked, noncanonical.Outcome);
+        CollectionAssert.Contains(
+            noncanonical.Blockers.ToList(),
+            CharacterCreationFoundationBlockers.MetatypeOptionNotFound);
         Assert.AreEqual(0, store.TotalMutationCalls);
     }
 
@@ -569,6 +635,7 @@ public sealed class CharacterCreationFoundationServiceTests
         Assert.IsEmpty(catalog.LastEnabledSources);
         Assert.IsTrue(unauthorized.Binding.SourceFilterApplied);
         Assert.IsEmpty(unauthorized.Binding.EnabledSources);
+        Assert.IsEmpty(unauthorized.MetatypeOptions);
     }
 
     [TestMethod]
@@ -591,6 +658,31 @@ public sealed class CharacterCreationFoundationServiceTests
             state.AuthorityBlockers.ToList(),
             CharacterCreationFoundationBlockers.EnabledSourceAuthorityRequired);
         Assert.IsEmpty(state.MetatypeOptions);
+    }
+
+    [TestMethod]
+    public void Load_rejects_disabled_metatype_projection_and_exposes_no_choices()
+    {
+        var store = new CountingWorkspaceStore();
+        store.CreateWorkspaceDocument(s_WorkspaceId, CreateWorkspaceDocument());
+        store.ResetMutationCounts();
+        var sourceResolver = new StubCharacterSourceDataResolver(["RF"])
+        {
+            MetatypeOptionsEnabled = false
+        };
+        ICharacterCreationFoundationService service = CreateService(
+            store,
+            new StubLifeModulesCatalogService(CreateNationality()),
+            sourceResolver);
+
+        CharacterCreationFoundationState state = AssertSuccess(service.Load(
+            new CharacterCreationFoundationLoadRequest(s_WorkspaceId))).Value!;
+
+        Assert.IsEmpty(state.MetatypeOptions);
+        CollectionAssert.Contains(
+            state.AuthorityBlockers.ToList(),
+            CharacterCreationFoundationBlockers.MetatypeCatalogAuthorityRequired);
+        Assert.AreEqual(0, store.TotalMutationCalls);
     }
 
     [TestMethod]
@@ -722,7 +814,8 @@ public sealed class CharacterCreationFoundationServiceTests
         return new WorkspaceDocument(content, rulesetId);
     }
 
-    private static LifeModuleLegalOptionDto CreateNationality()
+    private static LifeModuleLegalOptionDto CreateNationality(
+        IReadOnlyList<string>? acceptedMetatypes = null)
     {
         LifeModuleRequirementProjectionDto requirement = new(
             RequirementId: "nationality-version:requirement:1",
@@ -737,7 +830,7 @@ public sealed class CharacterCreationFoundationServiceTests
             SourceAnchorIds: ["lifemodules.xml#version:nationality-version"],
             Operator: "oneof",
             SubjectKind: "metatype",
-            AcceptedValues: ["Human", "Elf"],
+            AcceptedValues: acceptedMetatypes ?? ["Human", "Elf"],
             RawXml: "<oneof><metatype>Human</metatype><metatype>Elf</metatype></oneof>",
             RequiresCharacterAuthority: true);
         LifeModuleEffectProjectionDto moduleEffect = CreateEffect(
@@ -882,13 +975,19 @@ public sealed class CharacterCreationFoundationServiceTests
     private sealed class StubCharacterSourceDataResolver : ICharacterSourceDataResolver
     {
         private readonly IReadOnlyList<string>? _enabledSources;
+        private readonly bool _metatypeAuthorityAvailable;
 
-        public StubCharacterSourceDataResolver(IReadOnlyList<string>? enabledSources)
+        public StubCharacterSourceDataResolver(
+            IReadOnlyList<string>? enabledSources,
+            bool metatypeAuthorityAvailable = true)
         {
             _enabledSources = enabledSources;
+            _metatypeAuthorityAvailable = metatypeAuthorityAvailable;
         }
 
         public string RawProfileInputsDigest { get; set; } = "sha256:" + new string('c', 64);
+        public string MetatypeAuthorityDigest { get; set; } = "sha256:" + new string('d', 64);
+        public bool MetatypeOptionsEnabled { get; set; } = true;
 
         public ICharacterSourceDataContext? TryCreateContext(string characterXml) =>
             _enabledSources is null ? null : new Context(_enabledSources, this);
@@ -920,6 +1019,79 @@ public sealed class CharacterCreationFoundationServiceTests
                     SourceAnchorIds: ["settings.xml#setting:test-profile"]);
                 return true;
             }
+
+            public bool TryResolveCreationMetatypeCatalog(
+                out CharacterCreationMetatypeCatalogAuthority authority)
+            {
+                if (!_owner._metatypeAuthorityAvailable)
+                {
+                    authority = CharacterCreationMetatypeCatalogAuthority.Unavailable;
+                    return false;
+                }
+
+                authority = new CharacterCreationMetatypeCatalogAuthority(
+                    Schema: CharacterCreationMetatypeCatalogSchemas.CatalogV1,
+                    SourceContext: new CharacterCreationMetatypeSourceContextAuthority(
+                        SettingsProfileId: "test-profile",
+                        RawMetatypesXmlDigest: "sha256:" + new string('1', 64),
+                        EffectiveMetatypesInputsDigest: "sha256:" + new string('2', 64),
+                        RawProfileInputsDigest: _owner.RawProfileInputsDigest,
+                        SelectedCustomDataInputsDigest: "sha256:" + new string('3', 64),
+                        AuthorityDigest: _owner.MetatypeAuthorityDigest,
+                        MetatypeKarmaMultiplier: 1,
+                        MinimumInitiativeDiceFallback: 1,
+                        DroneMods: false,
+                        EnabledSourcebooks: _enabledSources,
+                        SourceAnchorIds: ["settings.xml#setting:test-profile", "metatypes.xml"],
+                        Blockers: [],
+                        IsAuthoritative: true),
+                    Options:
+                    [
+                        CreateMetatypeOption(
+                            CanonicalHumanId,
+                            "Human",
+                            karmaCost: 0,
+                            isEnabled: _owner.MetatypeOptionsEnabled),
+                        CreateMetatypeOption(
+                            CanonicalElfId,
+                            "Elf",
+                            karmaCost: 40,
+                            isEnabled: _owner.MetatypeOptionsEnabled)
+                    ],
+                    Blockers: [],
+                    IsAuthoritative: true);
+                return true;
+            }
+
+            private static CharacterCreationMetatypeOptionProjection CreateMetatypeOption(
+                string id,
+                string label,
+                int karmaCost,
+                bool isEnabled) => new(
+                    OptionId: id,
+                    Label: label,
+                    Category: "Metahuman",
+                    SourceBook: "RF",
+                    SourcePage: 1,
+                    BaseKarma: karmaCost,
+                    KarmaCost: karmaCost,
+                    Attributes:
+                    [
+                        new CharacterCreationMetatypeAttributeProjection("BOD", 1, 6, 10),
+                        new CharacterCreationMetatypeAttributeProjection("AGI", 1, 6, 10)
+                    ],
+                    Initiative: new CharacterCreationMetatypeInitiativeProjection(2, 12, 18, 1),
+                    Movement: new CharacterCreationMetatypeMovementProjection(
+                        new CharacterCreationMetatypeMovementRate(2m, 1m, 0m),
+                        new CharacterCreationMetatypeMovementRate(4m, 2m, 0m),
+                        new CharacterCreationMetatypeMovementRate(1m, 1m, 0m)),
+                    GrantedQualities: [],
+                    ExcludedMetavariants: [],
+                    IsEnabled: isEnabled,
+                    Blockers: isEnabled
+                        ? []
+                        : [CharacterCreationMetatypeCatalogBlockers.SourceDisabled],
+                    SourceAnchorIds: [$"metatypes.xml#metatype:{id}"]);
 
             public bool TryResolveCyberwareGradeDeviceRating(
                 string gradeName,

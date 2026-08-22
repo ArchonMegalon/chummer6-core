@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -163,6 +164,26 @@ public sealed class CharacterCreationFoundationService : ICharacterCreationFound
                 null);
         }
 
+        var selectionBlockers = new List<string>();
+        CharacterCreationLegalOption? selectedMetatype = ResolveMetatypeOption(
+            state.MetatypeOptions,
+            request.RequestedMetatype,
+            selectionBlockers);
+        if (selectedMetatype is null)
+        {
+            string[] unresolvedMetatypeBlockers = state.AuthorityBlockers
+                .Concat(selectionBlockers)
+                .Distinct(StringComparer.Ordinal)
+                .OrderBy(item => item, StringComparer.Ordinal)
+                .ToArray();
+            return new PreviewEvaluation(
+                new CharacterCreationFoundationResult<CharacterCreationFoundationPreview>(
+                    Outcome: CharacterCreationFoundationOutcomes.Blocked,
+                    Value: null,
+                    Blockers: unresolvedMetatypeBlockers),
+                null);
+        }
+
         CharacterFileSummary summary = _characterFileQueries.ParseSummary(
             new CharacterDocument(workspace.Document.Content));
         LifeModuleLegalOptionDto? nationality = state.NationalityOptions.FirstOrDefault(option =>
@@ -176,8 +197,7 @@ public sealed class CharacterCreationFoundationService : ICharacterCreationFound
                 null);
         }
 
-        var selectionBlockers = new List<string>();
-        string requestedMetatype = (request.RequestedMetatype ?? string.Empty).Trim();
+        string requestedMetatype = selectedMetatype.Label;
         LifeModuleVersionProjectionDto? version = ResolveVersion(
             nationality,
             request.Selection.VersionId,
@@ -219,9 +239,9 @@ public sealed class CharacterCreationFoundationService : ICharacterCreationFound
             Unit: "karma");
         CharacterCreationBudgetState budgetAfter = ProjectBudgetAfterSelection(
             state.LifeModuleBudget,
+            selectedMetatype,
             selectionCost,
-            selectionKarmaIsExact,
-            replacesPendingDraft: state.PendingDraft is not null);
+            selectionKarmaIsExact);
         selectionBlockers.AddRange(budgetAfter.Blockers);
 
         LifeModuleRequirementProjectionDto[] evaluatedModuleRequirements =
@@ -258,6 +278,7 @@ public sealed class CharacterCreationFoundationService : ICharacterCreationFound
             Workspace: workspace,
             Summary: summary,
             RequestedMetatype: requestedMetatype,
+            SelectedMetatype: selectedMetatype,
             Selection: request.Selection,
             Nationality: evaluatedNationality,
             NationalityVersion: evaluatedVersion,
@@ -270,10 +291,7 @@ public sealed class CharacterCreationFoundationService : ICharacterCreationFound
         CharacterCreationFoundationAuthorityPreview authorityPreview = _applyAuthority.Preview(context);
 
         string[] blockers = state.AuthorityBlockers
-            .Where(blocker => blocker is not CharacterCreationFoundationBlockers.WizardStatePersistenceAuthorityRequired
-                              && !authorityPreview.ResolvedBlockers.Contains(
-                                  blocker,
-                                  StringComparer.Ordinal))
+            .Where(blocker => blocker is not CharacterCreationFoundationBlockers.WizardStatePersistenceAuthorityRequired)
             .Concat(selectionBlockers)
             .Concat(authorityPreview.Blockers)
             .Distinct(StringComparer.Ordinal)
@@ -285,6 +303,7 @@ public sealed class CharacterCreationFoundationService : ICharacterCreationFound
             Schema = CharacterCreationFoundationSchemas.PreviewV1,
             Binding = state.Binding,
             RequestedMetatype = context.RequestedMetatype,
+            SelectedMetatype = context.SelectedMetatype,
             request.Selection,
             NationalityId = evaluatedNationality.ModuleId,
             VersionId = evaluatedVersion?.VersionId,
@@ -356,10 +375,7 @@ public sealed class CharacterCreationFoundationService : ICharacterCreationFound
                 CharacterCreationFoundationBlockers.CharacterDocumentInvalid);
         }
 
-        var blockers = new List<string>
-        {
-            CharacterCreationFoundationBlockers.MetatypeCatalogAuthorityRequired
-        };
+        var blockers = new List<string>();
         if (_applyAuthority is not ICharacterCreationFoundationDraftPersistenceCapability
             {
                 CanPersistFoundationDrafts: true
@@ -381,6 +397,25 @@ public sealed class CharacterCreationFoundationService : ICharacterCreationFound
         string[] authoritativeSources = hasSourceProfileAuthority
             ? NormalizeSources(sourceProfile.EnabledSourcebooks)
             : [];
+        CharacterCreationMetatypeCatalogAuthority metatypeAuthority =
+            CharacterCreationMetatypeCatalogAuthority.Unavailable;
+        bool metatypeAuthorityResolved = sourceContext is not null
+            && sourceContext.TryResolveCreationMetatypeCatalog(out metatypeAuthority);
+        CharacterCreationLegalOption[] metatypeOptions = [];
+        bool hasMetatypeAuthority = metatypeAuthorityResolved
+            && TryMapMetatypeOptions(
+                metatypeAuthority,
+                sourceProfile,
+                hasSourceProfileAuthority,
+                authoritativeSources,
+                out metatypeOptions);
+        if (!hasMetatypeAuthority)
+        {
+            blockers.Add(CharacterCreationFoundationBlockers.MetatypeCatalogAuthorityRequired);
+            blockers.AddRange(metatypeAuthority.Blockers);
+            blockers.AddRange(metatypeAuthority.SourceContext.Blockers);
+            metatypeOptions = [];
+        }
         string[] normalizedRequestSources = NormalizeSources(requestedSources);
         string[] effectiveSources = sourceFilterApplied
             ? authoritativeSources
@@ -388,6 +423,14 @@ public sealed class CharacterCreationFoundationService : ICharacterCreationFound
                 .OrderBy(item => item, StringComparer.Ordinal)
                 .ToArray()
             : authoritativeSources;
+        if (hasMetatypeAuthority && sourceFilterApplied)
+        {
+            metatypeOptions = metatypeOptions
+                .Where(option => effectiveSources.Contains(
+                    option.SourceId,
+                    StringComparer.OrdinalIgnoreCase))
+                .ToArray();
+        }
 
         LifeModuleCatalogAuthorityDto? catalogAuthority = null;
         IReadOnlyList<LifeModuleLegalOptionDto> nationalities = [];
@@ -426,7 +469,21 @@ public sealed class CharacterCreationFoundationService : ICharacterCreationFound
             SettingsProfileId = hasSourceProfileAuthority
                 ? sourceProfile.SettingsProfileId
                 : string.Empty,
-            EnabledSources = effectiveSources
+            EnabledSources = effectiveSources,
+            MetatypeAuthority = new
+            {
+                metatypeAuthority.Schema,
+                metatypeAuthority.IsAuthoritative,
+                metatypeAuthority.SourceContext.AuthorityDigest,
+                metatypeAuthority.SourceContext.RawMetatypesXmlDigest,
+                metatypeAuthority.SourceContext.EffectiveMetatypesInputsDigest,
+                metatypeAuthority.SourceContext.RawProfileInputsDigest,
+                metatypeAuthority.SourceContext.SelectedCustomDataInputsDigest,
+                metatypeAuthority.SourceContext.SettingsProfileId,
+                metatypeAuthority.SourceContext.EnabledSourcebooks,
+                SourceContextBlockers = metatypeAuthority.SourceContext.Blockers,
+                CatalogBlockers = metatypeAuthority.Blockers
+            }
         });
         string rawCharacterXmlDigest = DigestRawXml(workspace.Document.Content);
         var binding = new CharacterCreationFoundationBinding(
@@ -466,7 +523,8 @@ public sealed class CharacterCreationFoundationService : ICharacterCreationFound
             hasSourceProfileAuthority,
             hasExistingLifeModuleQuality,
             pendingDraft,
-            nationalities);
+            nationalities,
+            metatypeOptions);
         blockers.AddRange(lifeModuleBudget.Blockers);
         if (!string.Equals(
                 RulesetDefaults.NormalizeOptional(workspace.Document.RulesetId),
@@ -497,6 +555,7 @@ public sealed class CharacterCreationFoundationService : ICharacterCreationFound
             summary.Metatype,
             summary.BuildMethod,
             summary.Created,
+            Metatypes = metatypeOptions,
             Nationalities = nationalities,
             LifeModuleBudget = lifeModuleBudget,
             PendingDraft = pendingDraft,
@@ -509,7 +568,7 @@ public sealed class CharacterCreationFoundationService : ICharacterCreationFound
             CurrentMetatype: summary.Metatype,
             BuildMethod: summary.BuildMethod,
             CharacterCreated: summary.Created,
-            MetatypeOptions: [],
+            MetatypeOptions: metatypeOptions,
             NationalityOptions: nationalities,
             LifeModuleBudget: lifeModuleBudget,
             PendingDraft: pendingDraft,
@@ -547,6 +606,225 @@ public sealed class CharacterCreationFoundationService : ICharacterCreationFound
         if (version is null)
             blockers.Add(CharacterCreationFoundationBlockers.NationalityVersionNotFound);
         return version;
+    }
+
+    private static CharacterCreationLegalOption? ResolveMetatypeOption(
+        IReadOnlyList<CharacterCreationLegalOption> options,
+        string? requestedMetatype,
+        ICollection<string> blockers)
+    {
+        string requested = (requestedMetatype ?? string.Empty).Trim();
+        CharacterCreationLegalOption[] matches = options
+            .Where(option => string.Equals(option.Label, requested, StringComparison.Ordinal))
+            .Take(2)
+            .ToArray();
+        if (matches.Length == 0
+            && Guid.TryParseExact(requested, "D", out Guid requestedId)
+            && requestedId != Guid.Empty)
+        {
+            string canonicalId = requestedId.ToString("D");
+            matches = options
+                .Where(option => string.Equals(
+                    option.OptionId,
+                    canonicalId,
+                    StringComparison.Ordinal))
+                .Take(2)
+                .ToArray();
+        }
+
+        if (matches.Length != 1 || !matches[0].IsEnabled)
+        {
+            blockers.Add(CharacterCreationFoundationBlockers.MetatypeOptionNotFound);
+            return null;
+        }
+
+        return matches[0];
+    }
+
+    private static bool TryMapMetatypeOptions(
+        CharacterCreationMetatypeCatalogAuthority authority,
+        CharacterCreationSourceProfileAuthority sourceProfile,
+        bool hasSourceProfileAuthority,
+        IReadOnlyList<string> authoritativeSources,
+        out CharacterCreationLegalOption[] options)
+    {
+        options = [];
+        CharacterCreationMetatypeSourceContextAuthority? sourceContext = authority.SourceContext;
+        if (!hasSourceProfileAuthority
+            || !string.Equals(
+                authority.Schema,
+                CharacterCreationMetatypeCatalogSchemas.CatalogV1,
+                StringComparison.Ordinal)
+            || !authority.IsAuthoritative
+            || authority.Blockers is null
+            || authority.Blockers.Count != 0
+            || sourceContext is null
+            || !sourceContext.IsAuthoritative
+            || sourceContext.Blockers is null
+            || sourceContext.Blockers.Count != 0
+            || !CharacterCreationFoundationDraftLedgerIntegrity.IsCanonicalDigest(
+                sourceContext.AuthorityDigest)
+            || !CharacterCreationFoundationDraftLedgerIntegrity.IsCanonicalDigest(
+                sourceContext.RawMetatypesXmlDigest)
+            || !CharacterCreationFoundationDraftLedgerIntegrity.IsCanonicalDigest(
+                sourceContext.EffectiveMetatypesInputsDigest)
+            || !CharacterCreationFoundationDraftLedgerIntegrity.IsCanonicalDigest(
+                sourceContext.RawProfileInputsDigest)
+            || !CharacterCreationFoundationDraftLedgerIntegrity.IsCanonicalDigest(
+                sourceContext.SelectedCustomDataInputsDigest)
+            || !string.Equals(
+                sourceContext.SettingsProfileId,
+                sourceProfile.SettingsProfileId,
+                StringComparison.OrdinalIgnoreCase)
+            || !string.Equals(
+                sourceContext.RawProfileInputsDigest,
+                sourceProfile.RawProfileInputsDigest,
+                StringComparison.Ordinal)
+            || !NormalizeSources(sourceContext.EnabledSourcebooks)
+                .SequenceEqual(authoritativeSources, StringComparer.OrdinalIgnoreCase)
+            || authority.Options is null
+            || authority.Options.Count == 0)
+        {
+            return false;
+        }
+
+        var ids = new HashSet<string>(StringComparer.Ordinal);
+        var labels = new HashSet<string>(StringComparer.Ordinal);
+        var mapped = new List<CharacterCreationLegalOption>(authority.Options.Count);
+        foreach (CharacterCreationMetatypeOptionProjection? option in authority.Options)
+        {
+            if (option is null
+                || !Guid.TryParseExact(option.OptionId, "D", out Guid optionId)
+                || optionId == Guid.Empty
+                || !string.Equals(option.OptionId, optionId.ToString("D"), StringComparison.Ordinal)
+                || string.IsNullOrWhiteSpace(option.Label)
+                || !string.Equals(option.Label, option.Label.Trim(), StringComparison.Ordinal)
+                || !option.IsEnabled
+                || option.Blockers is null
+                || option.Blockers.Count != 0
+                || option.KarmaCost < 0
+                || string.IsNullOrWhiteSpace(option.SourceBook)
+                || !string.Equals(option.SourceBook, option.SourceBook.Trim(), StringComparison.Ordinal)
+                || !authoritativeSources.Contains(
+                    option.SourceBook,
+                    StringComparer.OrdinalIgnoreCase)
+                || option.SourcePage <= 0
+                || option.Attributes is null
+                || option.Attributes.Count == 0
+                || option.Attributes.Any(attribute =>
+                    attribute is null
+                    || string.IsNullOrWhiteSpace(attribute.AttributeId)
+                    || attribute.Minimum < 0
+                    || attribute.Maximum < attribute.Minimum
+                    || attribute.AugmentedMaximum < attribute.Maximum)
+                || option.Initiative is null
+                || option.Initiative.Minimum < 0
+                || option.Initiative.Maximum < option.Initiative.Minimum
+                || option.Initiative.AugmentedMaximum < option.Initiative.Maximum
+                || option.Initiative.MinimumDiceFallback < 0
+                || option.Movement is null
+                || option.GrantedQualities is null
+                || option.GrantedQualities.Any(quality =>
+                    quality is null
+                    || string.IsNullOrWhiteSpace(quality.Name)
+                    || quality.SourceAnchorIds is null
+                    || quality.SourceAnchorIds.Count == 0
+                    || quality.SourceAnchorIds.Any(string.IsNullOrWhiteSpace))
+                || option.ExcludedMetavariants is null
+                || option.ExcludedMetavariants.Any(excluded =>
+                    excluded is null
+                    || string.IsNullOrWhiteSpace(excluded.OptionId)
+                    || string.IsNullOrWhiteSpace(excluded.Label)
+                    || excluded.SourceAnchorIds is null
+                    || excluded.SourceAnchorIds.Count == 0
+                    || excluded.SourceAnchorIds.Any(string.IsNullOrWhiteSpace))
+                || option.SourceAnchorIds is null
+                || option.SourceAnchorIds.Count == 0
+                || option.SourceAnchorIds.Any(string.IsNullOrWhiteSpace)
+                || !ids.Add(option.OptionId)
+                || !labels.Add(option.Label))
+            {
+                return false;
+            }
+
+            mapped.Add(MapMetatypeOption(option));
+        }
+
+        options = mapped.ToArray();
+        return true;
+    }
+
+    private static CharacterCreationLegalOption MapMetatypeOption(
+        CharacterCreationMetatypeOptionProjection option)
+    {
+        var consequences = new List<CharacterCreationChoiceConsequence>();
+        consequences.AddRange(option.Attributes.Select(attribute =>
+            new CharacterCreationChoiceConsequence(
+                ConsequenceId: $"metatype:{option.OptionId}:attribute:{attribute.AttributeId}",
+                Domain: "attribute-range",
+                TargetId: attribute.AttributeId,
+                BeforeValue: null,
+                AfterValue: string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"{attribute.Minimum}/{attribute.Maximum}/{attribute.AugmentedMaximum}"),
+                SourceAnchorIds: option.SourceAnchorIds)));
+        consequences.Add(new CharacterCreationChoiceConsequence(
+            ConsequenceId: $"metatype:{option.OptionId}:initiative",
+            Domain: "initiative-range",
+            TargetId: "initiative",
+            BeforeValue: null,
+            AfterValue: string.Create(
+                CultureInfo.InvariantCulture,
+                $"{option.Initiative.Minimum}/{option.Initiative.Maximum}/{option.Initiative.AugmentedMaximum};dice-fallback={option.Initiative.MinimumDiceFallback}"),
+            SourceAnchorIds: option.SourceAnchorIds));
+        consequences.AddRange(new[]
+        {
+            (Id: "walk", Rate: option.Movement.Walk),
+            (Id: "run", Rate: option.Movement.Run),
+            (Id: "sprint", Rate: option.Movement.Sprint)
+        }.Select(movement => new CharacterCreationChoiceConsequence(
+            ConsequenceId: $"metatype:{option.OptionId}:movement:{movement.Id}",
+            Domain: "movement-rate",
+            TargetId: movement.Id,
+            BeforeValue: null,
+            AfterValue: string.Create(
+                CultureInfo.InvariantCulture,
+                $"{movement.Rate.Ground}/{movement.Rate.Swim}/{movement.Rate.Fly}"),
+            SourceAnchorIds: option.SourceAnchorIds)));
+        consequences.AddRange(option.GrantedQualities.Select(quality =>
+            new CharacterCreationChoiceConsequence(
+                ConsequenceId: $"metatype:{option.OptionId}:quality:{quality.Polarity}:{quality.Name}",
+                Domain: "quality",
+                TargetId: quality.Name,
+                BeforeValue: null,
+                AfterValue: quality.Polarity,
+                SourceAnchorIds: quality.SourceAnchorIds)));
+        consequences.AddRange(option.ExcludedMetavariants.Select(excluded =>
+            new CharacterCreationChoiceConsequence(
+                ConsequenceId: $"metatype:{option.OptionId}:excluded:{excluded.OptionId}",
+                Domain: "excluded-metavariant",
+                TargetId: excluded.OptionId,
+                BeforeValue: null,
+                AfterValue: excluded.Label,
+                SourceAnchorIds: excluded.SourceAnchorIds)));
+
+        return new CharacterCreationLegalOption(
+            OptionId: option.OptionId,
+            Label: option.Label,
+            IsEnabled: true,
+            DisableReasonKey: null,
+            DisableReasonArguments: new Dictionary<string, string>(),
+            Costs:
+            [
+                new CharacterCreationChoiceCost(
+                    CharacterCreationBudgetIds.LifeModules,
+                    option.KarmaCost,
+                    "karma")
+            ],
+            Consequences: consequences,
+            SourceAnchorIds: option.SourceAnchorIds,
+            SourceId: option.SourceBook,
+            SourcePage: option.SourcePage);
     }
 
     private static LifeModuleRequirementProjectionDto EvaluateRequirement(
@@ -619,7 +897,8 @@ public sealed class CharacterCreationFoundationService : ICharacterCreationFound
         bool hasSourceProfileAuthority,
         bool hasExistingLifeModuleQuality,
         CharacterCreationFoundationDraftLedger? pendingDraft,
-        IReadOnlyList<LifeModuleLegalOptionDto> nationalities)
+        IReadOnlyList<LifeModuleLegalOptionDto> nationalities,
+        IReadOnlyList<CharacterCreationLegalOption> metatypes)
     {
         var blockers = new List<string>();
         if (!hasSourceProfileAuthority)
@@ -636,6 +915,7 @@ public sealed class CharacterCreationFoundationService : ICharacterCreationFound
             && !TryResolvePendingDraftCost(
                 pendingDraft,
                 nationalities,
+                metatypes,
                 out used,
                 out pendingCostIsExact))
         {
@@ -665,19 +945,22 @@ public sealed class CharacterCreationFoundationService : ICharacterCreationFound
 
     private static CharacterCreationBudgetState ProjectBudgetAfterSelection(
         CharacterCreationBudgetState before,
+        CharacterCreationLegalOption selectedMetatype,
         CharacterCreationChoiceCost selectionCost,
-        bool selectionCostIsExact,
-        bool replacesPendingDraft)
+        bool selectionCostIsExact)
     {
         var blockers = new List<string>(before.Blockers);
-        bool isExact = before.IsExact && selectionCostIsExact;
+        bool metatypeCostIsExact = TryResolveMetatypeCost(
+            selectedMetatype,
+            out decimal metatypeCost);
+        bool isExact = before.IsExact && selectionCostIsExact && metatypeCostIsExact;
         if (!selectionCostIsExact)
             blockers.Add(CharacterCreationFoundationBlockers.LifeModuleBudgetAuthorityRequired);
+        if (!metatypeCostIsExact)
+            blockers.Add(CharacterCreationFoundationBlockers.MetatypeLegalityAuthorityRequired);
 
         decimal used = isExact
-            ? replacesPendingDraft
-                ? selectionCost.Delta
-                : before.Used + selectionCost.Delta
+            ? metatypeCost + selectionCost.Delta
             : before.Used;
         decimal remaining = isExact ? before.Total - used : before.Remaining;
         if (isExact && remaining < 0)
@@ -699,11 +982,17 @@ public sealed class CharacterCreationFoundationService : ICharacterCreationFound
     private static bool TryResolvePendingDraftCost(
         CharacterCreationFoundationDraftLedger draft,
         IReadOnlyList<LifeModuleLegalOptionDto> nationalities,
+        IReadOnlyList<CharacterCreationLegalOption> metatypes,
         out decimal cost,
         out bool costIsExact)
     {
         cost = 0;
         costIsExact = false;
+        CharacterCreationLegalOption? metatype = metatypes.FirstOrDefault(option =>
+            string.Equals(option.Label, draft.RequestedMetatype, StringComparison.Ordinal));
+        if (metatype is null || !TryResolveMetatypeCost(metatype, out decimal metatypeCost))
+            return false;
+
         LifeModuleLegalOptionDto? module = nationalities.FirstOrDefault(option =>
             string.Equals(option.ModuleId, draft.Selection.ModuleId, StringComparison.Ordinal));
         if (module is null)
@@ -713,7 +1002,7 @@ public sealed class CharacterCreationFoundationService : ICharacterCreationFound
         {
             if (!string.IsNullOrWhiteSpace(draft.Selection.VersionId))
                 return false;
-            cost = module.KarmaCost;
+            cost = metatypeCost + module.KarmaCost;
             costIsExact = module.KarmaIsExact;
             return true;
         }
@@ -722,8 +1011,27 @@ public sealed class CharacterCreationFoundationService : ICharacterCreationFound
             string.Equals(item.VersionId, draft.Selection.VersionId, StringComparison.Ordinal));
         if (version is null)
             return false;
-        cost = version.KarmaCost;
+        cost = metatypeCost + version.KarmaCost;
         costIsExact = version.KarmaIsExact;
+        return true;
+    }
+
+    private static bool TryResolveMetatypeCost(
+        CharacterCreationLegalOption option,
+        out decimal cost)
+    {
+        cost = 0;
+        CharacterCreationChoiceCost[] costs = option.Costs
+            .Where(item => string.Equals(
+                item.BudgetId,
+                CharacterCreationBudgetIds.LifeModules,
+                StringComparison.Ordinal)
+                && string.Equals(item.Unit, "karma", StringComparison.Ordinal))
+            .Take(2)
+            .ToArray();
+        if (costs.Length != 1 || costs[0].Delta < 0)
+            return false;
+        cost = costs[0].Delta;
         return true;
     }
 

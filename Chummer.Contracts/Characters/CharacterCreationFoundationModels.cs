@@ -54,6 +54,7 @@ public static class CharacterCreationFoundationBlockers
     public const string LifeModuleRequirementNotMet = "life-module-requirement-not-met";
     public const string MetatypeCatalogAuthorityRequired = "metatype-catalog-authority-required";
     public const string MetatypeLegalityAuthorityRequired = "metatype-legality-authority-required";
+    public const string MetatypeOptionNotFound = "metatype-option-not-found";
     public const string NationalityModuleNotFound = "nationality-module-not-found";
     public const string NationalityVersionNotApplicable = "nationality-version-not-applicable";
     public const string NationalityVersionNotFound = "nationality-version-not-found";
