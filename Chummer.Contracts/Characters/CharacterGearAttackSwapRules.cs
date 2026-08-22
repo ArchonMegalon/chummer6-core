@@ -1,6 +1,3 @@
-using System.Security.Cryptography;
-using System.Text;
-
 namespace Chummer.Contracts.Characters;
 
 public enum CharacterGearAttackSwapPhase
@@ -38,7 +35,7 @@ public sealed record CharacterGearAttackSwapState(
 /// </summary>
 public static class CharacterGearAttackSwapRules
 {
-    public const int RevisionHexLength = 64;
+    public const int RevisionHexLength = CharacterGearMatrixSwapRules.RevisionHexLength;
 
     public static bool TryCreateState(
         CharacterGearAttackSwapIdentity? identity,
@@ -52,25 +49,14 @@ public static class CharacterGearAttackSwapRules
         out CharacterGearAttackSwapState state)
     {
         state = Unavailable();
-        if (!canSwapAttributes
-            || !IsValidIdentity(identity)
-            || string.IsNullOrEmpty(displayPath)
-            || string.IsNullOrEmpty(attack)
-            || string.IsNullOrEmpty(sleaze)
-            || string.IsNullOrEmpty(dataProcessing)
-            || string.IsNullOrEmpty(firewall))
-        {
-            return false;
-        }
-
-        CharacterGearAttackSwapPhase phase = created
-            ? CharacterGearAttackSwapPhase.Career
-            : CharacterGearAttackSwapPhase.Creation;
-        var economics = new CharacterGearAttackSwapEconomics(0m, 0);
-        state = new CharacterGearAttackSwapState(
-            identity!, displayPath, phase, attack, sleaze, dataProcessing, firewall,
-            economics,
-            CalculateRevision(identity!, phase, attack, sleaze, dataProcessing, firewall));
+        if (!CharacterGearMatrixSwapRules.TryCreateState(
+                identity is null ? null : new CharacterGearMatrixSwapIdentity(identity.GearPath),
+                created, canSwapAttributes, displayPath, attack, sleaze, dataProcessing, firewall,
+                out CharacterGearMatrixSwapState shared)) return false;
+        state = new(identity!, shared.DisplayPath,
+            shared.Phase == CharacterGearMatrixSwapPhase.Career ? CharacterGearAttackSwapPhase.Career : CharacterGearAttackSwapPhase.Creation,
+            shared.Attack, shared.Sleaze, shared.DataProcessing, shared.Firewall,
+            new CharacterGearAttackSwapEconomics(shared.Economics.NuyenDelta, shared.Economics.KarmaDelta), shared.Revision);
         return true;
     }
 
@@ -78,17 +64,12 @@ public static class CharacterGearAttackSwapRules
         CharacterGearAttackSwapState? current,
         string? expectedRevision,
         CharacterGearAttackSwapTarget target)
-        => current is not null
-            && current.Economics is { NuyenDelta: 0m, KarmaDelta: 0 }
-            && IsDefinedTarget(target)
-            && expectedRevision is { Length: RevisionHexLength }
-            && string.Equals(current.Revision, expectedRevision, StringComparison.Ordinal)
-            && !string.Equals(current.Attack, ReadTarget(current, target), StringComparison.Ordinal);
+        => current is not null && CharacterGearMatrixSwapRules.TryValidateMutation(
+            ToShared(current), expectedRevision, CharacterGearMatrixAttribute.Attack, ToShared(target));
 
     public static bool IsValidIdentity(CharacterGearAttackSwapIdentity? identity)
-        => identity?.GearPath is { Count: > 0 } path
-            && path.All(id => id != Guid.Empty)
-            && path.Distinct().Count() == path.Count;
+        => identity is not null && CharacterGearMatrixSwapRules.IsValidIdentity(
+            new CharacterGearMatrixSwapIdentity(identity.GearPath));
 
     public static bool IdentityEquals(
         CharacterGearAttackSwapIdentity? left,
@@ -98,51 +79,26 @@ public static class CharacterGearAttackSwapRules
             && left.GearPath.SequenceEqual(right.GearPath);
 
     public static string TargetElement(CharacterGearAttackSwapTarget target)
-        => target switch
-        {
-            CharacterGearAttackSwapTarget.Sleaze => "sleaze",
-            CharacterGearAttackSwapTarget.DataProcessing => "dataprocessing",
-            CharacterGearAttackSwapTarget.Firewall => "firewall",
-            _ => throw new ArgumentOutOfRangeException(nameof(target))
-        };
+        => CharacterGearMatrixSwapRules.ElementName(ToShared(target));
 
     public static string ReadTarget(
         CharacterGearAttackSwapState state,
         CharacterGearAttackSwapTarget target)
-        => target switch
-        {
-            CharacterGearAttackSwapTarget.Sleaze => state.Sleaze,
-            CharacterGearAttackSwapTarget.DataProcessing => state.DataProcessing,
-            CharacterGearAttackSwapTarget.Firewall => state.Firewall,
-            _ => throw new ArgumentOutOfRangeException(nameof(target))
-        };
+        => CharacterGearMatrixSwapRules.Read(ToShared(state), ToShared(target));
 
-    private static bool IsDefinedTarget(CharacterGearAttackSwapTarget target)
-        => target is CharacterGearAttackSwapTarget.Sleaze
-            or CharacterGearAttackSwapTarget.DataProcessing
-            or CharacterGearAttackSwapTarget.Firewall;
-
-    private static string CalculateRevision(
-        CharacterGearAttackSwapIdentity identity,
-        CharacterGearAttackSwapPhase phase,
-        string attack,
-        string sleaze,
-        string dataProcessing,
-        string firewall)
+    private static CharacterGearMatrixAttribute ToShared(CharacterGearAttackSwapTarget target) => target switch
     {
-        var payload = new StringBuilder();
-        payload.Append(phase).Append('\0');
-        foreach (Guid id in identity.GearPath)
-        {
-            payload.Append(id.ToString("D")).Append('\0');
-        }
-        payload.Append(attack).Append('\0')
-            .Append(sleaze).Append('\0')
-            .Append(dataProcessing).Append('\0')
-            .Append(firewall);
-        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(payload.ToString())))
-            .ToLowerInvariant();
-    }
+        CharacterGearAttackSwapTarget.Sleaze => CharacterGearMatrixAttribute.Sleaze,
+        CharacterGearAttackSwapTarget.DataProcessing => CharacterGearMatrixAttribute.DataProcessing,
+        CharacterGearAttackSwapTarget.Firewall => CharacterGearMatrixAttribute.Firewall,
+        _ => (CharacterGearMatrixAttribute)(-1)
+    };
+
+    private static CharacterGearMatrixSwapState ToShared(CharacterGearAttackSwapState state) => new(
+        new CharacterGearMatrixSwapIdentity(state.Identity.GearPath), state.DisplayPath,
+        state.Phase == CharacterGearAttackSwapPhase.Career ? CharacterGearMatrixSwapPhase.Career : CharacterGearMatrixSwapPhase.Creation,
+        state.Attack, state.Sleaze, state.DataProcessing, state.Firewall,
+        new CharacterGearMatrixSwapEconomics(state.Economics.NuyenDelta, state.Economics.KarmaDelta), state.Revision);
 
     private static CharacterGearAttackSwapState Unavailable()
         => new(
