@@ -1,13 +1,14 @@
 using Chummer.Application.Tools;
 using Chummer.Contracts.Api;
 using Chummer.Infrastructure.Files;
+using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace Chummer.Tests;
 
-[TestFixture]
+[TestClass]
 public sealed class CharacterRosterFavoriteRulesTests
 {
-    [Test]
+    [TestMethod]
     public void Toggle_matches_Chummer5_sorted_favorites_and_front_of_MRU_rules()
     {
         CharacterRosterDocumentIdentity zed = new("content://runner/zed", "Zed");
@@ -29,7 +30,7 @@ public sealed class CharacterRosterFavoriteRulesTests
         Assert.AreEqual(3, third.Revision);
     }
 
-    [Test]
+    [TestMethod]
     public void Apply_rejects_stale_revision_without_returning_mutated_state()
     {
         CharacterRosterFavoriteMutation stale = new(
@@ -42,7 +43,7 @@ public sealed class CharacterRosterFavoriteRulesTests
         StringAssert.Contains("expected 4", error.Message);
     }
 
-    [Test]
+    [TestMethod]
     public void Sort_matches_Chummer5_locator_order_and_changes_only_selected_collection()
     {
         CharacterRosterDocumentIdentity favoriteZed = new("content://runner/zed", "Alpha display");
@@ -73,7 +74,7 @@ public sealed class CharacterRosterFavoriteRulesTests
         Assert.AreEqual(9, recentSorted.Revision);
     }
 
-    [Test]
+    [TestMethod]
     public void Sort_fails_closed_for_stale_revision_and_unknown_target()
     {
         CharacterRosterFavoriteState state = new(
@@ -89,7 +90,7 @@ public sealed class CharacterRosterFavoriteRulesTests
             new CharacterRosterSortMutation((CharacterRosterSortTarget)99, ExpectedRevision: 2)));
     }
 
-    [Test]
+    [TestMethod]
     public void Sorted_state_uses_atomic_revision_store_and_backup_recovery()
     {
         string directory = Path.Combine(Path.GetTempPath(), "chummer-roster-sort-" + Guid.NewGuid().ToString("N"));
@@ -127,7 +128,7 @@ public sealed class CharacterRosterFavoriteRulesTests
         }
     }
 
-    [Test]
+    [TestMethod]
     public void Remove_matches_Chummer5_selected_collection_only()
     {
         CharacterRosterDocumentIdentity runner = new("content://runner/alpha", "Alpha");
@@ -164,7 +165,7 @@ public sealed class CharacterRosterFavoriteRulesTests
         Assert.AreEqual(13, recentRemoved.Revision);
     }
 
-    [Test]
+    [TestMethod]
     public void Remove_fails_closed_for_stale_revision_unknown_target_and_invalid_identity()
     {
         CharacterRosterFavoriteState state = new(
@@ -192,7 +193,7 @@ public sealed class CharacterRosterFavoriteRulesTests
                 ExpectedRevision: 2)));
     }
 
-    [Test]
+    [TestMethod]
     public void Removed_state_uses_atomic_revision_store_and_backup_recovery()
     {
         string directory = Path.Combine(Path.GetTempPath(), "chummer-roster-remove-" + Guid.NewGuid().ToString("N"));
@@ -230,7 +231,7 @@ public sealed class CharacterRosterFavoriteRulesTests
         }
     }
 
-    [Test]
+    [TestMethod]
     public void File_store_is_atomic_revision_checked_and_recovers_from_backup()
     {
         string directory = Path.Combine(Path.GetTempPath(), "chummer-roster-favorites-" + Guid.NewGuid().ToString("N"));
