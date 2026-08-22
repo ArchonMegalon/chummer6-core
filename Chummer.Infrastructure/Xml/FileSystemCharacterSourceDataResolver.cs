@@ -213,6 +213,14 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             _ = TryComputeSelectedPriorityCustomDataInputsDigest(
                 enabledDirectories,
                 out string selectedPriorityCustomDataInputsDigest);
+            _ = TryComputeRawBaseFileDigest(
+                catalog,
+                "skills.xml",
+                out string rawSkillsXmlDigest);
+            _ = TryComputeEffectiveInputDigest(
+                catalog,
+                "skills.xml",
+                out string effectiveSkillsInputsDigest);
 
             int? maximumNuyenDecimals = TryReadMaximumNuyenDecimals(settings, out int resolvedDecimals)
                 ? resolvedDecimals
@@ -259,6 +267,8 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 rawPrioritiesXmlDigest,
                 effectivePrioritiesInputsDigest,
                 selectedPriorityCustomDataInputsDigest,
+                rawSkillsXmlDigest,
+                effectiveSkillsInputsDigest,
                 profileBuildMethod,
                 profileBuildPoints,
                 lifeModuleBudgetBlockers,
@@ -845,6 +855,8 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
         private readonly string _rawPrioritiesXmlDigest;
         private readonly string _effectivePrioritiesInputsDigest;
         private readonly string _selectedPriorityCustomDataInputsDigest;
+        private readonly string _rawSkillsXmlDigest;
+        private readonly string _effectiveSkillsInputsDigest;
         private readonly string _buildMethod;
         private readonly int? _buildPoints;
         private readonly IReadOnlyList<string> _lifeModuleBudgetBlockers;
@@ -883,6 +895,8 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             string rawPrioritiesXmlDigest,
             string effectivePrioritiesInputsDigest,
             string selectedPriorityCustomDataInputsDigest,
+            string rawSkillsXmlDigest,
+            string effectiveSkillsInputsDigest,
             string buildMethod,
             int? buildPoints,
             IReadOnlyList<string> lifeModuleBudgetBlockers,
@@ -920,6 +934,8 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             _rawPrioritiesXmlDigest = rawPrioritiesXmlDigest;
             _effectivePrioritiesInputsDigest = effectivePrioritiesInputsDigest;
             _selectedPriorityCustomDataInputsDigest = selectedPriorityCustomDataInputsDigest;
+            _rawSkillsXmlDigest = rawSkillsXmlDigest;
+            _effectiveSkillsInputsDigest = effectiveSkillsInputsDigest;
             _buildMethod = buildMethod;
             _buildPoints = buildPoints;
             _lifeModuleBudgetBlockers = lifeModuleBudgetBlockers;
@@ -1028,7 +1044,24 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 || !TryHasEnabledOverlayInput(
                     _catalog,
                     "metatypes.xml",
-                    out bool hasMetatypeOverlay))
+                    out bool hasMetatypeOverlay)
+                || !TryHasSelectedCustomDataInputFor(
+                    _customDirectories,
+                    "skills.xml",
+                    out bool hasSkillCustomData)
+                || !TryComputeRawBaseFileDigest(
+                    _catalog,
+                    "skills.xml",
+                    out string currentRawSkillsXmlDigest)
+                || !TryComputeEffectiveInputDigest(
+                    _catalog,
+                    "skills.xml",
+                    out string currentEffectiveSkillsInputsDigest)
+                || !TryLoadEffectiveDocument(
+                    _catalog,
+                    "skills.xml",
+                    out XDocument? skillsDocument)
+                || skillsDocument?.Root is null)
             {
                 return false;
             }
@@ -1096,6 +1129,23 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             {
                 blockers.Add(CharacterCreationPrerequisiteBlockers.MetatypeSourceDrift);
             }
+            if (hasSkillCustomData)
+            {
+                blockers.Add(CharacterCreationPrerequisiteBlockers.SkillCustomDataUnsupported);
+            }
+            if (string.IsNullOrWhiteSpace(_rawSkillsXmlDigest)
+                || string.IsNullOrWhiteSpace(_effectiveSkillsInputsDigest)
+                || !string.Equals(
+                    currentRawSkillsXmlDigest,
+                    _rawSkillsXmlDigest,
+                    StringComparison.Ordinal)
+                || !string.Equals(
+                    currentEffectiveSkillsInputsDigest,
+                    _effectiveSkillsInputsDigest,
+                    StringComparison.Ordinal))
+            {
+                blockers.Add(CharacterCreationPrerequisiteBlockers.SkillsSourceDrift);
+            }
 
             var projectionContext = new CharacterCreationPrerequisiteProjectionContext(
                 SettingsProfileId: _settingsProfileId,
@@ -1111,6 +1161,8 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 SelectedCustomDataInputsDigest: _selectedCustomDataInputsDigest,
                 RawMetatypesXmlDigest: _rawMetatypesXmlDigest,
                 EffectiveMetatypesInputsDigest: _effectiveMetatypesInputsDigest,
+                RawSkillsXmlDigest: _rawSkillsXmlDigest,
+                EffectiveSkillsInputsDigest: _effectiveSkillsInputsDigest,
                 EnabledSourcebooks: _enabledSourcebooks
                     .OrderBy(item => item, StringComparer.OrdinalIgnoreCase)
                     .ToArray(),
@@ -1123,6 +1175,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                     $"settings.xml#setting:{_settingsProfileId}",
                     "priorities.xml",
                     "metatypes.xml",
+                    "skills.xml",
                     .. _customDirectories.Select(directory => $"customdata:{directory.Name}"),
                     .. customSourceAnchors
                 ],
@@ -1130,6 +1183,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             authority = CharacterCreationPrerequisiteAuthorityProjector.Project(
                 document,
                 metatypesDocument,
+                skillsDocument,
                 projectionContext);
             return true;
         }

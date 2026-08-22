@@ -93,6 +93,68 @@ public sealed class FileSystemCharacterSourceDataResolverTests
     }
 
     [TestMethod]
+    public void Canonical_talent_grants_project_exact_active_skill_and_group_choice_authority()
+    {
+        string coreRoot = FindCoreRoot();
+        ICharacterSourceDataContext context = CreateContext(
+            coreRoot,
+            $"<character><settings>{SettingsId}</settings></character>")!;
+
+        Assert.IsTrue(context.TryResolveCreationPrerequisiteAuthority(
+            out CharacterCreationPrerequisiteAuthority authority));
+        Assert.IsTrue(authority.IsAuthoritative, string.Join(",", authority.Blockers));
+        Assert.IsTrue(CharacterCreationPrerequisiteAuthorityDigest.IsCanonical(
+            authority.RawSkillsXmlDigest));
+        Assert.IsTrue(CharacterCreationPrerequisiteAuthorityDigest.IsCanonical(
+            authority.EffectiveSkillsInputsDigest));
+
+        CharacterCreationPriorityTalentOptionProjection magician = authority.Options.Single(option =>
+                option.CategoryId == CharacterCreationPriorityCategoryIds.Talent
+                && option.Rank == "A")
+            .TalentOptions.Single(option => option.Value == "Magician");
+        CharacterCreationTalentActiveSkillGrantProjection magicGrant = magician.ActiveSkillGrant!;
+        Assert.AreEqual(2, magicGrant.Quantity);
+        Assert.AreEqual(5, magicGrant.BaseRating);
+        Assert.AreEqual(CharacterCreationTalentSkillGrantTypes.Magic, magicGrant.SkillType);
+        Assert.IsTrue(magicGrant.IsSupported, string.Join(",", magicGrant.Blockers));
+        Assert.AreNotEqual(0, magicGrant.Options.Count);
+        Assert.IsTrue(magicGrant.Options.All(option => option.Category == "Magical Active"));
+        Assert.IsTrue(magicGrant.Options.All(option => Guid.TryParseExact(
+            option.SourceId,
+            "D",
+            out _)));
+        Assert.IsTrue(magicGrant.Options.All(option =>
+            CharacterCreationPrerequisiteAuthorityDigest.EqualsFixedTime(
+                option.SkillsSourceDigest,
+                authority.EffectiveSkillsInputsDigest)));
+
+        CharacterCreationPriorityTalentOptionProjection aspected = authority.Options.Single(option =>
+                option.CategoryId == CharacterCreationPriorityCategoryIds.Talent
+                && option.Rank == "B")
+            .TalentOptions.Single(option => option.Value == "Aspected Magician");
+        CharacterCreationTalentSkillGroupGrantProjection groupGrant = aspected.SkillGroupGrant!;
+        Assert.AreEqual(1, groupGrant.Quantity);
+        Assert.AreEqual(4, groupGrant.BaseRating);
+        Assert.AreEqual(CharacterCreationTalentSkillGrantTypes.Choices, groupGrant.SkillGroupType);
+        Assert.IsTrue(groupGrant.IsSupported, string.Join(",", groupGrant.Blockers));
+        CollectionAssert.AreEqual(
+            new[] { "Conjuring", "Enchanting", "Sorcery" },
+            groupGrant.Options.Select(option => option.CanonicalName).ToArray());
+        Assert.IsTrue(groupGrant.Options.All(option =>
+            option.SelectionId.StartsWith("skill-group:", StringComparison.Ordinal)
+            && option.MemberSkillSourceIds.Count > 0
+            && CharacterCreationPrerequisiteAuthorityDigest.IsCanonical(option.GroupDigest)));
+
+        CharacterCreationPriorityTalentOptionProjection aspectedD = authority.Options.Single(option =>
+                option.CategoryId == CharacterCreationPriorityCategoryIds.Talent
+                && option.Rank == "D")
+            .TalentOptions.Single(option => option.Value == "Aspected Magician");
+        Assert.AreEqual(0, aspectedD.SkillGroupGrant!.BaseRating);
+        Assert.IsFalse(aspectedD.IsEnabled,
+            "Grant authority must not make the remaining unsupported Talent ledgers writable.");
+    }
+
+    [TestMethod]
     public void Canonical_sum_to_ten_and_improved_profiles_project_exact_weights_and_targets()
     {
         string coreRoot = FindCoreRoot();
@@ -165,6 +227,38 @@ public sealed class FileSystemCharacterSourceDataResolverTests
             CollectionAssert.Contains(
                 drifted.Blockers.ToList(),
                 CharacterCreationPrerequisiteBlockers.PrioritiesSourceDrift);
+        }
+        finally
+        {
+            DeleteTempDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public void Talent_skill_authority_detects_effective_skills_source_drift()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            WriteBaseContent(
+                root,
+                string.Empty,
+                "<buildmethod>Priority</buildmethod><buildpoints>25</buildpoints>"
+                + "<priorityarray>ABCDE</priorityarray><prioritytable>Standard</prioritytable>"
+                + "<sumtoten>10</sumtoten>");
+            WritePriorityFixture(root);
+            ICharacterSourceDataContext context = CreateContext(root, CharacterXml())!;
+            Assert.IsTrue(context.TryResolveCreationPrerequisiteAuthority(
+                out CharacterCreationPrerequisiteAuthority initial));
+            Assert.IsTrue(initial.IsAuthoritative, string.Join(",", initial.Blockers));
+
+            File.AppendAllText(Path.Combine(root, "data", "skills.xml"), "\n");
+            Assert.IsTrue(context.TryResolveCreationPrerequisiteAuthority(
+                out CharacterCreationPrerequisiteAuthority drifted));
+            Assert.IsFalse(drifted.IsAuthoritative);
+            CollectionAssert.Contains(
+                drifted.Blockers.ToList(),
+                CharacterCreationPrerequisiteBlockers.SkillsSourceDrift);
         }
         finally
         {
@@ -725,6 +819,12 @@ public sealed class FileSystemCharacterSourceDataResolverTests
             + "<essmin>0</essmin><essmax>6</essmax><essaug>6</essaug>"
             + "<depmin>0</depmin><depmax>0</depmax><depaug>0</depaug>"
             + "<bonus/><source>SR5</source></metatype></metatypes></chummer>");
+        File.WriteAllText(
+            Path.Combine(data, "skills.xml"),
+            "<chummer><skillgroups><name>Sorcery</name></skillgroups><skills><skill>"
+            + "<id>40c72109-8924-45ca-a4d7-255b75e6a6b0</id><name>Spellcasting</name>"
+            + "<category>Magical Active</category><skillgroup>Sorcery</skillgroup>"
+            + "<source>SR5</source></skill></skills></chummer>");
         File.WriteAllText(
             Path.Combine(data, "cyberware.xml"),
             "<chummer><grades><grade><name>Standard</name><devicerating>4</devicerating></grade><grade><name>Alphaware</name></grade></grades></chummer>");

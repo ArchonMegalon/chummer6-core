@@ -12,6 +12,16 @@ public static class CharacterCreationPrerequisiteSchemas
     public const string SnapshotV1 = "chummer.character_creation_prerequisite_snapshot.v1";
     public const string PreviewV1 = "chummer.character_creation_prerequisite_preview.v1";
     public const string DraftV1 = "chummer.character_creation_prerequisite_draft.v1";
+    public const string TalentGrantPlanV1 =
+        "chummer.character_creation_talent_grant_plan.v1";
+}
+
+public static class CharacterCreationTalentSkillGrantTypes
+{
+    public const string Active = "active";
+    public const string Magic = "magic";
+    public const string Resonance = "resonance";
+    public const string Choices = "choices";
 }
 
 public static class CharacterCreationPriorityChildKinds
@@ -74,6 +84,19 @@ public static class CharacterCreationPrerequisiteBlockers
     public const string TalentSelectionIncomplete = "creation-prerequisite-talent-selection-incomplete";
     public const string TalentSelectionInvalid = "creation-prerequisite-talent-selection-invalid";
     public const string TalentSelectionUnsupported = "creation-prerequisite-talent-selection-unsupported";
+    public const string TalentActiveSkillSelectionIncomplete =
+        "creation-prerequisite-talent-active-skill-selection-incomplete";
+    public const string TalentActiveSkillSelectionInvalid =
+        "creation-prerequisite-talent-active-skill-selection-invalid";
+    public const string TalentSkillGroupSelectionIncomplete =
+        "creation-prerequisite-talent-skill-group-selection-incomplete";
+    public const string TalentSkillGroupSelectionInvalid =
+        "creation-prerequisite-talent-skill-group-selection-invalid";
+    public const string TalentSkillGrantAuthorityUnsupported =
+        "creation-prerequisite-talent-skill-grant-authority-unsupported";
+    public const string SkillCustomDataUnsupported =
+        "creation-prerequisite-skill-custom-data-unsupported";
+    public const string SkillsSourceDrift = "creation-prerequisite-skills-source-drift";
     public const string StaleRawCharacterXmlDigest = "creation-prerequisite-stale-raw-character-xml-digest";
     public const string StaleWorkspaceRevision = "creation-prerequisite-stale-workspace-revision";
     public const string WorkspaceUnavailable = "creation-prerequisite-workspace-unavailable";
@@ -107,6 +130,51 @@ public sealed record CharacterCreationPriorityTalentOptionProjection(
     IReadOnlyList<string> GrantedQualities,
     string PriorityChildNodeDigest,
     bool IsEnabled,
+    IReadOnlyList<string> Blockers,
+    IReadOnlyList<string> SourceAnchorIds)
+{
+    public CharacterCreationTalentActiveSkillGrantProjection? ActiveSkillGrant
+        { get; init; }
+
+    public CharacterCreationTalentSkillGroupGrantProjection? SkillGroupGrant
+        { get; init; }
+}
+
+public sealed record CharacterCreationTalentActiveSkillChoiceProjection(
+    string SelectionId,
+    string SourceId,
+    string CanonicalName,
+    string Category,
+    string? SkillGroup,
+    string SourceNodeDigest,
+    string SkillsSourceDigest,
+    IReadOnlyList<string> SourceAnchorIds);
+
+public sealed record CharacterCreationTalentSkillGroupChoiceProjection(
+    string SelectionId,
+    string CanonicalName,
+    IReadOnlyList<string> MemberSkillSourceIds,
+    string GroupDigest,
+    string SkillsSourceDigest,
+    IReadOnlyList<string> SourceAnchorIds);
+
+public sealed record CharacterCreationTalentActiveSkillGrantProjection(
+    int Quantity,
+    int BaseRating,
+    string SkillType,
+    IReadOnlyList<CharacterCreationTalentActiveSkillChoiceProjection> Options,
+    string GrantDigest,
+    bool IsSupported,
+    IReadOnlyList<string> Blockers,
+    IReadOnlyList<string> SourceAnchorIds);
+
+public sealed record CharacterCreationTalentSkillGroupGrantProjection(
+    int Quantity,
+    int BaseRating,
+    string SkillGroupType,
+    IReadOnlyList<CharacterCreationTalentSkillGroupChoiceProjection> Options,
+    string GrantDigest,
+    bool IsSupported,
     IReadOnlyList<string> Blockers,
     IReadOnlyList<string> SourceAnchorIds);
 
@@ -169,6 +237,10 @@ public sealed record CharacterCreationPrerequisiteAuthority(
     public bool? AlternateMetatypeAttributeKarma { get; init; }
 
     public bool? ReverseAttributePriorityOrder { get; init; }
+
+    public string RawSkillsXmlDigest { get; init; } = string.Empty;
+
+    public string EffectiveSkillsInputsDigest { get; init; } = string.Empty;
 
     public static CharacterCreationPrerequisiteAuthority Unavailable { get; } = new(
         Schema: CharacterCreationPrerequisiteSchemas.AuthorityV1,
@@ -303,7 +375,44 @@ public sealed record CharacterCreationPriorityTalentSelection(
     int? Depth,
     IReadOnlyList<string> GrantedQualities,
     string PriorityChildNodeDigest,
+    IReadOnlyList<string> SourceAnchorIds)
+{
+    public CharacterCreationTalentGrantPlanContribution? GrantPlan { get; init; }
+}
+
+public sealed record CharacterCreationTalentActiveSkillGrantPlanEntry(
+    string SelectionId,
+    string TargetKind,
+    string SourceId,
+    string CanonicalName,
+    string Category,
+    string? SkillGroup,
+    int BaseRating,
+    string SourceNodeDigest,
+    string SkillsSourceDigest,
     IReadOnlyList<string> SourceAnchorIds);
+
+public sealed record CharacterCreationTalentSkillGroupGrantPlanEntry(
+    string SelectionId,
+    string TargetKind,
+    string CanonicalName,
+    IReadOnlyList<string> MemberSkillSourceIds,
+    int BaseRating,
+    string GroupDigest,
+    string SkillsSourceDigest,
+    IReadOnlyList<string> SourceAnchorIds);
+
+/// <summary>
+/// A deterministic contribution to the eventual single Creation write plan.
+/// It carries no apply surface: incomplete Talent ledgers must still result in
+/// zero character writes until finalization can compose every required ledger.
+/// </summary>
+public sealed record CharacterCreationTalentGrantPlanContribution(
+    string Schema,
+    IReadOnlyList<CharacterCreationTalentActiveSkillGrantPlanEntry> ActiveSkills,
+    IReadOnlyList<CharacterCreationTalentSkillGroupGrantPlanEntry> SkillGroups,
+    IReadOnlyList<string> SourceAnchorIds,
+    string PlanDigest);
 
 public sealed record CharacterCreationPrerequisiteDraft(
     string Schema,
@@ -350,6 +459,10 @@ public sealed record CharacterCreationPrerequisitePreviewRequest(
     public string? HeritageSelectionId { get; init; }
 
     public string? TalentSelectionId { get; init; }
+
+    public IReadOnlyList<string> TalentActiveSkillSelectionIds { get; init; } = [];
+
+    public IReadOnlyList<string> TalentSkillGroupSelectionIds { get; init; } = [];
 }
 
 public sealed record CharacterCreationPrerequisiteConfirmRequest(
@@ -361,6 +474,10 @@ public sealed record CharacterCreationPrerequisiteConfirmRequest(
     public string? HeritageSelectionId { get; init; }
 
     public string? TalentSelectionId { get; init; }
+
+    public IReadOnlyList<string> TalentActiveSkillSelectionIds { get; init; } = [];
+
+    public IReadOnlyList<string> TalentSkillGroupSelectionIds { get; init; } = [];
 }
 
 public sealed record CharacterCreationPrerequisiteState(
