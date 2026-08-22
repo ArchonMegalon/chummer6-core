@@ -1,3 +1,5 @@
+using Chummer.Contracts.Characters;
+
 namespace Chummer.Application.Characters;
 
 /// <summary>
@@ -11,6 +13,18 @@ public interface ICharacterSourceDataResolver
 
 public interface ICharacterSourceDataContext
 {
+    /// <summary>
+    /// Projects the bounded, digest-bound metatype choices proven by the saved
+    /// character's source profile. False means no catalog authority exists;
+    /// callers must never substitute their own source filters or defaults.
+    /// </summary>
+    bool TryResolveCreationMetatypeCatalog(
+        out CharacterCreationMetatypeCatalogAuthority authority)
+    {
+        authority = CharacterCreationMetatypeCatalogAuthority.Unavailable;
+        return false;
+    }
+
     /// <summary>
     /// Resolves the complete sourcebook set from the settings profile selected by
     /// the saved character and identifies the exact raw settings/profile inputs.

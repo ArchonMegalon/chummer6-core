@@ -14,6 +14,8 @@ namespace Chummer.Infrastructure.Xml;
 
 public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceDataResolver
 {
+    private const string CanonicalLifeModuleSettingsProfileId = "8a31af6d-7137-4284-872b-7d8087e156c6";
+
     private sealed record CustomDirectory(
         string Name,
         string Path,
@@ -155,6 +157,27 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 out string profileBuildMethod,
                 out int? profileBuildPoints,
                 out string[] lifeModuleBudgetBlockers);
+            ResolveMetatypeProfileAuthority(
+                settings,
+                out int? metatypeKarmaMultiplier,
+                out int? minimumInitiativeDice,
+                out bool? droneMods,
+                out string[] metatypeProfileBlockers);
+            string boundProfileInputsDigest = BindSelectedProfile(settingsInputsDigest, settingsKey);
+            if (!TryComputeSelectedCustomDataInputsDigest(
+                    enabledDirectories,
+                    out string selectedCustomDataInputsDigest))
+            {
+                return null;
+            }
+            _ = TryComputeRawBaseFileDigest(
+                catalog,
+                "metatypes.xml",
+                out string rawMetatypesXmlDigest);
+            _ = TryComputeEffectiveInputDigest(
+                catalog,
+                "metatypes.xml",
+                out string effectiveMetatypesInputsDigest);
 
             int? maximumNuyenDecimals = TryReadMaximumNuyenDecimals(settings, out int resolvedDecimals)
                 ? resolvedDecimals
@@ -194,10 +217,17 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 enabledDirectories,
                 enabledSourcebooks,
                 settingsKey,
-                BindSelectedProfile(settingsInputsDigest, settingsKey),
+                boundProfileInputsDigest,
+                selectedCustomDataInputsDigest,
+                rawMetatypesXmlDigest,
+                effectiveMetatypesInputsDigest,
                 profileBuildMethod,
                 profileBuildPoints,
                 lifeModuleBudgetBlockers,
+                metatypeKarmaMultiplier,
+                minimumInitiativeDice,
+                droneMods,
+                metatypeProfileBlockers,
                 maximumNuyenDecimals,
                 joinGroupKarma,
                 leaveGroupKarma,
@@ -287,6 +317,65 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             .ToArray();
     }
 
+    private static void ResolveMetatypeProfileAuthority(
+        XElement settings,
+        out int? metatypeKarmaMultiplier,
+        out int? minimumInitiativeDice,
+        out bool? droneMods,
+        out string[] blockers)
+    {
+        var resolvedBlockers = new List<string>();
+        if (!TryReadSingleBool(settings, "metatypecostskarma", out bool metatypeCostsKarma)
+            || !metatypeCostsKarma)
+        {
+            resolvedBlockers.Add(CharacterCreationMetatypeCatalogBlockers.ProfileKarmaModeInvalid);
+        }
+
+        if (TryReadNonNegativeInt(settings, "metatypecostskarmamultiplier", out int multiplier)
+            && multiplier is >= 1 and <= 10)
+        {
+            metatypeKarmaMultiplier = multiplier;
+        }
+        else
+        {
+            metatypeKarmaMultiplier = null;
+            resolvedBlockers.Add(CharacterCreationMetatypeCatalogBlockers.ProfileKarmaMultiplierInvalid);
+        }
+
+        if (TryReadNonNegativeInt(settings, "mininitiativedice", out int initiativeDice)
+            && initiativeDice <= 99)
+        {
+            minimumInitiativeDice = initiativeDice;
+        }
+        else
+        {
+            minimumInitiativeDice = null;
+            resolvedBlockers.Add(CharacterCreationMetatypeCatalogBlockers.ProfileInitiativeFallbackInvalid);
+        }
+
+        if (TryReadSingleBool(settings, "dronemods", out bool resolvedDroneMods))
+        {
+            droneMods = resolvedDroneMods;
+        }
+        else
+        {
+            droneMods = null;
+            resolvedBlockers.Add(CharacterCreationMetatypeCatalogBlockers.ProfileDroneModsInvalid);
+        }
+
+        string[] buildMethods = settings.Elements("buildmethod").Take(2).Select(item => item.Value.Trim()).ToArray();
+        if (buildMethods.Length != 1
+            || !string.Equals(buildMethods[0], CharacterCreationBuildMethods.LifeModules, StringComparison.OrdinalIgnoreCase))
+        {
+            resolvedBlockers.Add(CharacterCreationMetatypeCatalogBlockers.ProfileBuildMethodUnsupported);
+        }
+
+        blockers = resolvedBlockers
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(item => item, StringComparer.Ordinal)
+            .ToArray();
+    }
+
     private static bool TryReadNonNegativeInt(XElement parent, string elementName, out int value)
     {
         value = 0;
@@ -294,6 +383,13 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
         return values.Length == 1
             && int.TryParse(values[0].Value.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out value)
             && value >= 0;
+    }
+
+    private static bool TryReadSingleBool(XElement parent, string elementName, out bool value)
+    {
+        value = false;
+        XElement[] values = parent.Elements(elementName).Take(2).ToArray();
+        return values.Length == 1 && bool.TryParse(values[0].Value.Trim(), out value);
     }
 
     private static bool TryReadPositiveDecimal(XElement parent, string elementName, out decimal value)
@@ -490,9 +586,16 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
         private readonly IReadOnlySet<string> _enabledSourcebooks;
         private readonly string _settingsProfileId;
         private readonly string _rawProfileInputsDigest;
+        private readonly string _selectedCustomDataInputsDigest;
+        private readonly string _rawMetatypesXmlDigest;
+        private readonly string _effectiveMetatypesInputsDigest;
         private readonly string _buildMethod;
         private readonly int? _buildPoints;
         private readonly IReadOnlyList<string> _lifeModuleBudgetBlockers;
+        private readonly int? _metatypeKarmaMultiplier;
+        private readonly int? _minimumInitiativeDice;
+        private readonly bool? _droneMods;
+        private readonly IReadOnlyList<string> _metatypeProfileBlockers;
         private readonly int? _maximumNuyenDecimals;
         private readonly int? _joinGroupKarma;
         private readonly int? _leaveGroupKarma;
@@ -508,9 +611,16 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             IReadOnlyList<string> enabledSourcebooks,
             string settingsProfileId,
             string rawProfileInputsDigest,
+            string selectedCustomDataInputsDigest,
+            string rawMetatypesXmlDigest,
+            string effectiveMetatypesInputsDigest,
             string buildMethod,
             int? buildPoints,
             IReadOnlyList<string> lifeModuleBudgetBlockers,
+            int? metatypeKarmaMultiplier,
+            int? minimumInitiativeDice,
+            bool? droneMods,
+            IReadOnlyList<string> metatypeProfileBlockers,
             int? maximumNuyenDecimals,
             int? joinGroupKarma,
             int? leaveGroupKarma,
@@ -525,9 +635,16 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             _enabledSourcebooks = enabledSourcebooks.ToHashSet(StringComparer.OrdinalIgnoreCase);
             _settingsProfileId = settingsProfileId;
             _rawProfileInputsDigest = rawProfileInputsDigest;
+            _selectedCustomDataInputsDigest = selectedCustomDataInputsDigest;
+            _rawMetatypesXmlDigest = rawMetatypesXmlDigest;
+            _effectiveMetatypesInputsDigest = effectiveMetatypesInputsDigest;
             _buildMethod = buildMethod;
             _buildPoints = buildPoints;
             _lifeModuleBudgetBlockers = lifeModuleBudgetBlockers;
+            _metatypeKarmaMultiplier = metatypeKarmaMultiplier;
+            _minimumInitiativeDice = minimumInitiativeDice;
+            _droneMods = droneMods;
+            _metatypeProfileBlockers = metatypeProfileBlockers;
             _maximumNuyenDecimals = maximumNuyenDecimals;
             _joinGroupKarma = joinGroupKarma;
             _leaveGroupKarma = leaveGroupKarma;
@@ -566,6 +683,125 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 BudgetBlockers: _lifeModuleBudgetBlockers,
                 RawProfileInputsDigest: _rawProfileInputsDigest,
                 SourceAnchorIds: [$"settings.xml#setting:{_settingsProfileId}"]);
+            return true;
+        }
+
+        public bool TryResolveCreationMetatypeCatalog(
+            out CharacterCreationMetatypeCatalogAuthority authority)
+        {
+            authority = CharacterCreationMetatypeCatalogAuthority.Unavailable;
+            if (string.IsNullOrWhiteSpace(_settingsProfileId)
+                || string.IsNullOrWhiteSpace(_rawProfileInputsDigest)
+                || string.IsNullOrWhiteSpace(_selectedCustomDataInputsDigest)
+                || !TryComputeEffectiveInputDigest(_catalog, "settings.xml", out string currentSettingsInputsDigest)
+                || !TryComputeSelectedCustomDataInputsDigest(
+                    _customDirectories,
+                    out string currentCustomDataInputsDigest)
+                || !TryComputeRawBaseFileDigest(
+                    _catalog,
+                    "metatypes.xml",
+                    out string currentRawMetatypesXmlDigest)
+                || !TryComputeEffectiveInputDigest(
+                    _catalog,
+                    "metatypes.xml",
+                    out string currentEffectiveMetatypesInputsDigest)
+                || !TryLoadEffectiveDocument(_catalog, "metatypes.xml", out XDocument? document)
+                || document?.Root is null
+                || !TryHasEnabledOverlayInput(
+                    _catalog,
+                    "metatypes.xml",
+                    out bool hasMetatypeOverlay))
+            {
+                return false;
+            }
+
+            var blockers = new List<string>(_metatypeProfileBlockers);
+            if (string.IsNullOrWhiteSpace(_rawMetatypesXmlDigest)
+                || string.IsNullOrWhiteSpace(_effectiveMetatypesInputsDigest))
+            {
+                blockers.Add(CharacterCreationMetatypeCatalogBlockers.AuthorityUnavailable);
+            }
+            else if (!string.Equals(
+                         currentRawMetatypesXmlDigest,
+                         _rawMetatypesXmlDigest,
+                         StringComparison.Ordinal)
+                     || !string.Equals(
+                         currentEffectiveMetatypesInputsDigest,
+                         _effectiveMetatypesInputsDigest,
+                         StringComparison.Ordinal))
+            {
+                blockers.Add(CharacterCreationMetatypeCatalogBlockers.MetatypesSourceDrift);
+            }
+            if (!string.Equals(
+                    _settingsProfileId,
+                    CanonicalLifeModuleSettingsProfileId,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                blockers.Add(CharacterCreationMetatypeCatalogBlockers.ProfileUnsupported);
+            }
+            if (!string.Equals(
+                    BindSelectedProfile(currentSettingsInputsDigest, _settingsProfileId),
+                    _rawProfileInputsDigest,
+                    StringComparison.Ordinal))
+            {
+                blockers.Add(CharacterCreationMetatypeCatalogBlockers.ProfileSettingsDrift);
+            }
+            if (!string.Equals(
+                    currentCustomDataInputsDigest,
+                    _selectedCustomDataInputsDigest,
+                    StringComparison.Ordinal))
+            {
+                blockers.Add(CharacterCreationMetatypeCatalogBlockers.CustomDataDrift);
+            }
+            if (_customDirectories.Count != 0)
+            {
+                blockers.Add(CharacterCreationMetatypeCatalogBlockers.CustomDataUnsupported);
+            }
+            if (hasMetatypeOverlay)
+            {
+                blockers.Add(CharacterCreationMetatypeCatalogBlockers.OverlayUnsupported);
+            }
+
+            string[] orderedBlockers = blockers
+                .Distinct(StringComparer.Ordinal)
+                .OrderBy(item => item, StringComparer.Ordinal)
+                .ToArray();
+            string[] enabledSourcebooks = _enabledSourcebooks
+                .OrderBy(item => item, StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+            string authorityDigest = ComputeMetatypeAuthorityDigest(
+                _rawMetatypesXmlDigest,
+                _effectiveMetatypesInputsDigest,
+                _rawProfileInputsDigest,
+                _selectedCustomDataInputsDigest,
+                _settingsProfileId,
+                _metatypeKarmaMultiplier,
+                _minimumInitiativeDice,
+                _droneMods,
+                enabledSourcebooks);
+            var sourceContext = new CharacterCreationMetatypeSourceContextAuthority(
+                SettingsProfileId: _settingsProfileId,
+                RawMetatypesXmlDigest: _rawMetatypesXmlDigest,
+                EffectiveMetatypesInputsDigest: _effectiveMetatypesInputsDigest,
+                RawProfileInputsDigest: _rawProfileInputsDigest,
+                SelectedCustomDataInputsDigest: _selectedCustomDataInputsDigest,
+                AuthorityDigest: authorityDigest,
+                MetatypeKarmaMultiplier: _metatypeKarmaMultiplier,
+                MinimumInitiativeDiceFallback: _minimumInitiativeDice,
+                DroneMods: _droneMods,
+                EnabledSourcebooks: enabledSourcebooks,
+                SourceAnchorIds:
+                [
+                    "metatypes.xml",
+                    $"settings.xml#setting:{_settingsProfileId}",
+                    .. _customDirectories.Select(directory => $"customdata:{directory.Name}")
+                ],
+                Blockers: orderedBlockers,
+                IsAuthoritative: orderedBlockers.Length == 0
+                    && _metatypeKarmaMultiplier.HasValue
+                    && _minimumInitiativeDice.HasValue
+                    && _droneMods.HasValue);
+            authority = CharacterCreationMetatypeCatalogProjector.Project(document, sourceContext);
             return true;
         }
 
@@ -1623,6 +1859,154 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
         {
             return false;
         }
+    }
+
+    private static bool TryComputeRawBaseFileDigest(
+        ContentOverlayCatalog catalog,
+        string fileName,
+        out string digest)
+    {
+        digest = string.Empty;
+        try
+        {
+            string path = Path.Combine(catalog.BaseDataPath, fileName);
+            if (!File.Exists(path))
+            {
+                return false;
+            }
+            digest = "sha256:" + Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path))).ToLowerInvariant();
+            return true;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
+
+    private static bool TryComputeSelectedCustomDataInputsDigest(
+        IReadOnlyList<CustomDirectory> directories,
+        out string digest)
+    {
+        digest = string.Empty;
+        try
+        {
+            using IncrementalHash hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+            AppendFramed(hash, Encoding.UTF8.GetBytes("selected-metatype-custom-data-inputs-v1"));
+            foreach (CustomDirectory directory in directories)
+            {
+                AppendFramed(hash, Encoding.UTF8.GetBytes(directory.Name));
+                AppendFramed(hash, Encoding.UTF8.GetBytes(directory.ManifestId?.ToString("D") ?? string.Empty));
+                AppendFramed(hash, Encoding.UTF8.GetBytes(string.Join('.', directory.Version.Parts)));
+
+                string manifestPath = Path.Combine(directory.Path, "manifest.xml");
+                if (File.Exists(manifestPath))
+                {
+                    AppendFramed(hash, Encoding.UTF8.GetBytes("manifest.xml"));
+                    AppendFramed(hash, File.ReadAllBytes(manifestPath));
+                }
+
+                foreach (string path in Directory.EnumerateFiles(directory.Path, "*.xml", SearchOption.AllDirectories)
+                             .Where(path => IsLegacyCustomDataInputFor(path, "metatypes.xml"))
+                             .OrderBy(path => Path.GetRelativePath(directory.Path, path), StringComparer.Ordinal))
+                {
+                    string relativePath = Path.GetRelativePath(directory.Path, path).Replace('\\', '/');
+                    AppendFramed(hash, Encoding.UTF8.GetBytes(relativePath));
+                    AppendFramed(hash, File.ReadAllBytes(path));
+                }
+            }
+            digest = "sha256:" + Convert.ToHexString(hash.GetHashAndReset()).ToLowerInvariant();
+            return true;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
+
+    private static bool TryHasEnabledOverlayInput(
+        ContentOverlayCatalog catalog,
+        string fileName,
+        out bool hasInput)
+    {
+        hasInput = false;
+        try
+        {
+            foreach (ContentOverlayPack pack in catalog.Overlays.Where(pack => pack.Enabled))
+            {
+                if (string.IsNullOrWhiteSpace(pack.DataPath) || !Directory.Exists(pack.DataPath))
+                {
+                    continue;
+                }
+                if (string.Equals(pack.Mode, ContentOverlayModes.ReplaceFile, StringComparison.Ordinal))
+                {
+                    if (File.Exists(Path.Combine(pack.DataPath, fileName)))
+                    {
+                        hasInput = true;
+                        return true;
+                    }
+                    continue;
+                }
+                if (!string.Equals(pack.Mode, ContentOverlayModes.MergeCatalog, StringComparison.Ordinal))
+                {
+                    return false;
+                }
+                if (Directory.EnumerateFiles(pack.DataPath, "*.xml", SearchOption.TopDirectoryOnly).Any(path =>
+                        string.Equals(
+                            ResolveCatalogTargetFileName(Path.GetFileName(path)),
+                            fileName,
+                            StringComparison.OrdinalIgnoreCase)))
+                {
+                    hasInput = true;
+                    return true;
+                }
+            }
+            return true;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
+
+    private static bool IsLegacyCustomDataInputFor(string path, string targetFileName)
+    {
+        string fileName = Path.GetFileName(path);
+        return (fileName.StartsWith("override_", StringComparison.OrdinalIgnoreCase)
+                || fileName.StartsWith("custom_", StringComparison.OrdinalIgnoreCase)
+                || fileName.StartsWith("amend_", StringComparison.OrdinalIgnoreCase))
+            && fileName.EndsWith($"_{targetFileName}", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string ComputeMetatypeAuthorityDigest(
+        string rawMetatypesXmlDigest,
+        string effectiveMetatypesInputsDigest,
+        string rawProfileInputsDigest,
+        string selectedCustomDataInputsDigest,
+        string settingsProfileId,
+        int? metatypeKarmaMultiplier,
+        int? minimumInitiativeDice,
+        bool? droneMods,
+        IReadOnlyList<string> enabledSourcebooks)
+    {
+        using IncrementalHash hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        string[] authorityInputs =
+        [
+            CharacterCreationMetatypeCatalogSchemas.CatalogV1,
+            rawMetatypesXmlDigest,
+            effectiveMetatypesInputsDigest,
+            rawProfileInputsDigest,
+            selectedCustomDataInputsDigest,
+            settingsProfileId.Trim(),
+            metatypeKarmaMultiplier?.ToString(CultureInfo.InvariantCulture) ?? "missing",
+            minimumInitiativeDice?.ToString(CultureInfo.InvariantCulture) ?? "missing",
+            droneMods?.ToString(CultureInfo.InvariantCulture) ?? "missing",
+            .. enabledSourcebooks
+        ];
+        foreach (string value in authorityInputs)
+        {
+            AppendFramed(hash, Encoding.UTF8.GetBytes(value));
+        }
+        return "sha256:" + Convert.ToHexString(hash.GetHashAndReset()).ToLowerInvariant();
     }
 
     private static string BindSelectedProfile(string rawInputsDigest, string settingsProfileId)
