@@ -3,8 +3,8 @@ using Chummer.Contracts.Api;
 namespace Chummer.Application.Tools;
 
 /// <summary>
-/// Exact Chummer5 confirmation, date/time, and index-visibility Global Settings semantics without
-/// registry or character XML.
+/// Exact Chummer5 confirmation, date/time, visibility, and selection-behavior Global Settings
+/// semantics without registry or character XML.
 /// </summary>
 public static class ApplicationDeleteConfirmationRules
 {
@@ -16,6 +16,8 @@ public static class ApplicationDeleteConfirmationRules
     public const string LegacyDatesIncludeTimeIdentity = "datesincludetime";
     public const string LegacyHideMasterIndexIdentity = "hidemasterindex";
     public const string LegacyHideCharacterRosterIdentity = "hidecharacterroster";
+    public const string LegacySearchInCategoryOnlyIdentity = "searchincategoryonly";
+    public const string LegacyAllowEasterEggsIdentity = "alloweastereggs";
 
     public static ApplicationDeleteConfirmationState Apply(
         ApplicationDeleteConfirmationState current,
@@ -40,6 +42,8 @@ public static class ApplicationDeleteConfirmationRules
             ApplicationSettingIdentity.DatesIncludeTime => mutation.Value == current.DatesIncludeTime,
             ApplicationSettingIdentity.HideMasterIndex => mutation.Value == current.HideMasterIndex,
             ApplicationSettingIdentity.HideCharacterRoster => mutation.Value == current.HideCharacterRoster,
+            ApplicationSettingIdentity.SearchInCategoryOnly => mutation.Value == current.SearchInCategoryOnly,
+            ApplicationSettingIdentity.AllowEasterEggs => mutation.Value == current.AllowEasterEggs,
             _ => throw new ArgumentOutOfRangeException(nameof(mutation), "A known application setting identity is required.")
         };
         if (unchanged)
@@ -77,6 +81,16 @@ public static class ApplicationDeleteConfirmationRules
                 Revision = current.Revision + 1,
                 HideCharacterRoster = mutation.Value
             },
+            ApplicationSettingIdentity.SearchInCategoryOnly => current with
+            {
+                Revision = current.Revision + 1,
+                SearchInCategoryOnly = mutation.Value
+            },
+            ApplicationSettingIdentity.AllowEasterEggs => current with
+            {
+                Revision = current.Revision + 1,
+                AllowEasterEggs = mutation.Value
+            },
             _ => throw new ArgumentOutOfRangeException(nameof(mutation), "A known application setting identity is required.")
         };
     }
@@ -108,7 +122,9 @@ public static class ApplicationDeleteConfirmationRules
             current.CustomTimeFormat,
             current.DatesIncludeTime,
             current.HideMasterIndex,
-            current.HideCharacterRoster);
+            current.HideCharacterRoster,
+            current.SearchInCategoryOnly,
+            current.AllowEasterEggs);
     }
 
     /// <summary>
@@ -172,6 +188,8 @@ public static class ApplicationDeleteConfirmationRules
 
         RequireIdentity(mutation.HideMasterIndex, ApplicationSettingIdentity.HideMasterIndex);
         RequireIdentity(mutation.HideCharacterRoster, ApplicationSettingIdentity.HideCharacterRoster);
+        RequireIdentity(mutation.SearchInCategoryOnly, ApplicationSettingIdentity.SearchInCategoryOnly);
+        RequireIdentity(mutation.AllowEasterEggs, ApplicationSettingIdentity.AllowEasterEggs);
 
         ApplicationDateTimeSettingsMutation dateTime = new(
             mutation.CustomDateTimeFormats,
@@ -184,7 +202,9 @@ public static class ApplicationDeleteConfirmationRules
             || mutation.ConfirmDelete != current.ConfirmDelete
             || mutation.ConfirmKarmaExpense != current.ConfirmKarmaExpense
             || mutation.HideMasterIndex.Value != current.HideMasterIndex
-            || mutation.HideCharacterRoster.Value != current.HideCharacterRoster;
+            || mutation.HideCharacterRoster.Value != current.HideCharacterRoster
+            || mutation.SearchInCategoryOnly.Value != current.SearchInCategoryOnly
+            || mutation.AllowEasterEggs.Value != current.AllowEasterEggs;
         if (!changed)
             return current;
 
@@ -194,7 +214,9 @@ public static class ApplicationDeleteConfirmationRules
             ConfirmDelete = mutation.ConfirmDelete,
             ConfirmKarmaExpense = mutation.ConfirmKarmaExpense,
             HideMasterIndex = mutation.HideMasterIndex.Value,
-            HideCharacterRoster = mutation.HideCharacterRoster.Value
+            HideCharacterRoster = mutation.HideCharacterRoster.Value,
+            SearchInCategoryOnly = mutation.SearchInCategoryOnly.Value,
+            AllowEasterEggs = mutation.AllowEasterEggs.Value
         };
     }
 

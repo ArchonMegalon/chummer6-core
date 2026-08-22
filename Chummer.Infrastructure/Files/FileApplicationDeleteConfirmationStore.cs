@@ -150,6 +150,22 @@ public sealed class FileApplicationDeleteConfirmationStore : IApplicationDeleteC
                 hideCharacterRoster = hideCharacterRosterElement.GetBoolean();
             }
 
+            bool searchInCategoryOnly = true;
+            if (root.TryGetProperty("SearchInCategoryOnly", out JsonElement searchInCategoryOnlyElement))
+            {
+                if (searchInCategoryOnlyElement.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+                    return false;
+                searchInCategoryOnly = searchInCategoryOnlyElement.GetBoolean();
+            }
+
+            bool allowEasterEggs = false;
+            if (root.TryGetProperty("AllowEasterEggs", out JsonElement allowEasterEggsElement))
+            {
+                if (allowEasterEggsElement.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+                    return false;
+                allowEasterEggs = allowEasterEggsElement.GetBoolean();
+            }
+
             state = ApplicationDeleteConfirmationRules.Validate(new ApplicationDeleteConfirmationState(
                 revision,
                 confirmDeleteElement.GetBoolean(),
@@ -159,7 +175,9 @@ public sealed class FileApplicationDeleteConfirmationStore : IApplicationDeleteC
                 customTimeFormat,
                 datesIncludeTime,
                 hideMasterIndex,
-                hideCharacterRoster));
+                hideCharacterRoster,
+                searchInCategoryOnly,
+                allowEasterEggs));
             return true;
         }
         catch (Exception exception) when (exception is JsonException or IOException or InvalidDataException)

@@ -13,7 +13,9 @@ public enum ApplicationSettingIdentity
     CustomTimeFormat,
     DatesIncludeTime,
     HideMasterIndex,
-    HideCharacterRoster
+    HideCharacterRoster,
+    SearchInCategoryOnly,
+    AllowEasterEggs
 }
 
 public sealed record ApplicationDeleteConfirmationState(
@@ -25,7 +27,9 @@ public sealed record ApplicationDeleteConfirmationState(
     string CustomTimeFormat = "",
     bool DatesIncludeTime = true,
     bool HideMasterIndex = false,
-    bool HideCharacterRoster = false)
+    bool HideCharacterRoster = false,
+    bool SearchInCategoryOnly = true,
+    bool AllowEasterEggs = false)
 {
     public static ApplicationDeleteConfirmationState Default { get; } = new(
         Revision: 0,
@@ -36,7 +40,9 @@ public sealed record ApplicationDeleteConfirmationState(
         CustomTimeFormat: "",
         DatesIncludeTime: true,
         HideMasterIndex: false,
-        HideCharacterRoster: false);
+        HideCharacterRoster: false,
+        SearchInCategoryOnly: true,
+        AllowEasterEggs: false);
 }
 
 public sealed record ApplicationDeleteConfirmationMutation(
@@ -68,8 +74,8 @@ public sealed record ApplicationDateTimeSettingsMutation(
     long ExpectedRevision);
 
 /// <summary>
-/// Atomic whole-page snapshot used when confirmations, date/time, and index-visibility settings
-/// share one explicit Save.
+/// Atomic whole-page snapshot used when confirmations, date/time, visibility, and selection
+/// behavior settings share one explicit Save.
 /// </summary>
 public sealed record ApplicationSettingsSnapshotMutation(
     bool ConfirmDelete,
@@ -80,6 +86,8 @@ public sealed record ApplicationSettingsSnapshotMutation(
     ApplicationSettingValue<bool> DatesIncludeTime,
     ApplicationSettingValue<bool> HideMasterIndex,
     ApplicationSettingValue<bool> HideCharacterRoster,
+    ApplicationSettingValue<bool> SearchInCategoryOnly,
+    ApplicationSettingValue<bool> AllowEasterEggs,
     long ExpectedRevision);
 
 public enum ApplicationDateTimeFormatPhase

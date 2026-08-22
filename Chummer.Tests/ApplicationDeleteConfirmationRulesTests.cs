@@ -19,6 +19,8 @@ public sealed class ApplicationDeleteConfirmationRulesTests
         Assert.IsTrue(ApplicationDeleteConfirmationState.Default.DatesIncludeTime);
         Assert.IsFalse(ApplicationDeleteConfirmationState.Default.HideMasterIndex);
         Assert.IsFalse(ApplicationDeleteConfirmationState.Default.HideCharacterRoster);
+        Assert.IsTrue(ApplicationDeleteConfirmationState.Default.SearchInCategoryOnly);
+        Assert.IsFalse(ApplicationDeleteConfirmationState.Default.AllowEasterEggs);
         Assert.AreEqual(0, ApplicationDeleteConfirmationState.Default.Revision);
         Assert.AreEqual("confirmdelete", ApplicationDeleteConfirmationRules.LegacyIdentity);
         Assert.AreEqual("confirmkarmaexpense", ApplicationDeleteConfirmationRules.LegacyKarmaExpenseIdentity);
@@ -28,6 +30,8 @@ public sealed class ApplicationDeleteConfirmationRulesTests
         Assert.AreEqual("datesincludetime", ApplicationDeleteConfirmationRules.LegacyDatesIncludeTimeIdentity);
         Assert.AreEqual("hidemasterindex", ApplicationDeleteConfirmationRules.LegacyHideMasterIndexIdentity);
         Assert.AreEqual("hidecharacterroster", ApplicationDeleteConfirmationRules.LegacyHideCharacterRosterIdentity);
+        Assert.AreEqual("searchincategoryonly", ApplicationDeleteConfirmationRules.LegacySearchInCategoryOnlyIdentity);
+        Assert.AreEqual("alloweastereggs", ApplicationDeleteConfirmationRules.LegacyAllowEasterEggsIdentity);
     }
 
     [Test]
@@ -145,6 +149,8 @@ public sealed class ApplicationDeleteConfirmationRulesTests
             Assert.IsTrue(migrated.DatesIncludeTime);
             Assert.IsFalse(migrated.HideMasterIndex);
             Assert.IsFalse(migrated.HideCharacterRoster);
+            Assert.IsTrue(migrated.SearchInCategoryOnly);
+            Assert.IsFalse(migrated.AllowEasterEggs);
         }
         finally
         {
@@ -174,6 +180,11 @@ public sealed class ApplicationDeleteConfirmationRulesTests
                 path,
                 "{\"Revision\":0,\"ConfirmDelete\":true,\"HideMasterIndex\":\"false\"}");
             File.Delete(path + ".bak");
+            Assert.Throws<InvalidDataException>(() => new FileApplicationDeleteConfirmationStore(directory).Load());
+
+            File.WriteAllText(
+                path,
+                "{\"Revision\":0,\"ConfirmDelete\":true,\"SearchInCategoryOnly\":\"true\"}");
             Assert.Throws<InvalidDataException>(() => new FileApplicationDeleteConfirmationStore(directory).Load());
         }
         finally
@@ -342,6 +353,65 @@ public sealed class ApplicationDeleteConfirmationRulesTests
         }
     }
 
+    [Test]
+    public void Whole_page_snapshot_types_and_atomically_persists_both_selection_behavior_values()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            "chummer-selection-behavior-settings-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        try
+        {
+            FileApplicationDeleteConfirmationStore store = new(directory);
+            ApplicationDeleteConfirmationState first = ApplicationDeleteConfirmationRules.ApplySettingsSnapshot(
+                store.Load(),
+                SettingsMutation(
+                    hideMasterIndex: false,
+                    hideCharacterRoster: false,
+                    expectedRevision: 0,
+                    searchInCategoryOnly: false,
+                    allowEasterEggs: true));
+            store.Save(0, first);
+
+            ApplicationDeleteConfirmationState restarted =
+                new FileApplicationDeleteConfirmationStore(directory).Load();
+            Assert.AreEqual(1, restarted.Revision);
+            Assert.IsFalse(restarted.SearchInCategoryOnly);
+            Assert.IsTrue(restarted.AllowEasterEggs);
+
+            ApplicationDeleteConfirmationState second = ApplicationDeleteConfirmationRules.ApplySettingsSnapshot(
+                restarted,
+                SettingsMutation(
+                    hideMasterIndex: false,
+                    hideCharacterRoster: false,
+                    expectedRevision: 1,
+                    searchInCategoryOnly: true,
+                    allowEasterEggs: true));
+            store.Save(1, second);
+            Assert.IsTrue(second.SearchInCategoryOnly);
+            Assert.IsTrue(second.AllowEasterEggs, "The two legacy booleans are independent.");
+
+            string path = Path.Combine(directory, "application-delete-confirmation.json");
+            File.WriteAllText(path, "{");
+            Assert.AreEqual(first, new FileApplicationDeleteConfirmationStore(directory).Load());
+
+            ApplicationSettingsSnapshotMutation wrongIdentity = SettingsMutation(
+                hideMasterIndex: false,
+                hideCharacterRoster: false,
+                expectedRevision: first.Revision) with
+            {
+                SearchInCategoryOnly = new(ApplicationSettingIdentity.AllowEasterEggs, true)
+            };
+            Assert.Throws<ArgumentException>(() => ApplicationDeleteConfirmationRules.ApplySettingsSnapshot(
+                first,
+                wrongIdentity));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
     private static ApplicationDateTimeSettingsMutation DateTimeMutation(
         bool useCustom,
         string dateFormat,
@@ -358,7 +428,9 @@ public sealed class ApplicationDeleteConfirmationRulesTests
     private static ApplicationSettingsSnapshotMutation SettingsMutation(
         bool hideMasterIndex,
         bool hideCharacterRoster,
-        long expectedRevision)
+        long expectedRevision,
+        bool searchInCategoryOnly = true,
+        bool allowEasterEggs = false)
         => new(
             ConfirmDelete: true,
             ConfirmKarmaExpense: true,
@@ -368,5 +440,7 @@ public sealed class ApplicationDeleteConfirmationRulesTests
             DatesIncludeTime: new(ApplicationSettingIdentity.DatesIncludeTime, true),
             HideMasterIndex: new(ApplicationSettingIdentity.HideMasterIndex, hideMasterIndex),
             HideCharacterRoster: new(ApplicationSettingIdentity.HideCharacterRoster, hideCharacterRoster),
+            SearchInCategoryOnly: new(ApplicationSettingIdentity.SearchInCategoryOnly, searchInCategoryOnly),
+            AllowEasterEggs: new(ApplicationSettingIdentity.AllowEasterEggs, allowEasterEggs),
             ExpectedRevision: expectedRevision);
 }
