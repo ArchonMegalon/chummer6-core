@@ -846,7 +846,7 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
         projection = null;
         XElement[] choiceContainers = talent.Elements("skillgroupchoices").Take(2).ToArray();
         if (choiceContainers.Length > 1
-            || choiceContainers.Any(container => container.HasAttributes)
+            || choiceContainers.Any(container => container.HasAttributes))
         {
             return false;
         }
