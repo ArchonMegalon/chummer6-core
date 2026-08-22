@@ -40,6 +40,7 @@ public static class BuildGhostVariantValidationStatuses
 public static class BuildGhostActionTypes
 {
     public const string PreviewBuildVariant = "chummer.preview_build_variant";
+    public const string PreviewWizardChoice = "chummer.preview_wizard_choice";
     public const string OpenRuleSource = "chummer.open_rule_source";
     public const string OpenWorkbenchRoute = "chummer.open_workbench_route";
 }
