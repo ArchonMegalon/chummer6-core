@@ -57,6 +57,42 @@ public static class CharacterRosterFavoriteRules
         return new CharacterRosterFavoriteState(current.Revision + 1, favorites, recent);
     }
 
+    /// <summary>
+    /// Matches CharacterRoster.tsSort: sort exactly the selected Chummer5 roster collection by
+    /// its stored document locator, using the default string comparer used by Array.Sort.
+    /// </summary>
+    public static CharacterRosterFavoriteState ApplySort(
+        CharacterRosterFavoriteState current,
+        CharacterRosterSortMutation mutation)
+    {
+        ArgumentNullException.ThrowIfNull(current);
+        ArgumentNullException.ThrowIfNull(mutation);
+        if (current.Revision < 0)
+            throw new InvalidDataException("Roster favorite revision cannot be negative.");
+        if (mutation.ExpectedRevision != current.Revision)
+        {
+            throw new InvalidOperationException(
+                $"Roster collections changed at revision {current.Revision}; expected {mutation.ExpectedRevision}.");
+        }
+        if (!Enum.IsDefined(mutation.Target))
+            throw new ArgumentOutOfRangeException(nameof(mutation), "A known roster sort target is required.");
+
+        List<CharacterRosterDocumentIdentity> favorites = NormalizeCollection(current.Favorites, "favorites");
+        List<CharacterRosterDocumentIdentity> recent = NormalizeCollection(current.Recent, "recent");
+        List<CharacterRosterDocumentIdentity> selected = mutation.Target switch
+        {
+            CharacterRosterSortTarget.Favorites => favorites,
+            CharacterRosterSortTarget.Recent => recent,
+            _ => throw new ArgumentOutOfRangeException(nameof(mutation), "A known roster sort target is required.")
+        };
+        CharacterRosterDocumentIdentity[] before = selected.ToArray();
+        selected.Sort(CompareLocatorsLikeChummer5);
+        if (before.SequenceEqual(selected))
+            return new CharacterRosterFavoriteState(current.Revision, favorites, recent);
+
+        return new CharacterRosterFavoriteState(current.Revision + 1, favorites, recent);
+    }
+
     public static CharacterRosterFavoriteState ValidateAndNormalize(CharacterRosterFavoriteState state)
     {
         ArgumentNullException.ThrowIfNull(state);
@@ -126,6 +162,11 @@ public static class CharacterRosterFavoriteRules
         int byName = StringComparer.OrdinalIgnoreCase.Compare(left.DisplayName, right.DisplayName);
         return byName != 0 ? byName : StringComparer.OrdinalIgnoreCase.Compare(left.Locator, right.Locator);
     }
+
+    private static int CompareLocatorsLikeChummer5(
+        CharacterRosterDocumentIdentity left,
+        CharacterRosterDocumentIdentity right)
+        => Comparer<string>.Default.Compare(left.Locator, right.Locator);
 
     private static void Trim(List<CharacterRosterDocumentIdentity> items)
     {

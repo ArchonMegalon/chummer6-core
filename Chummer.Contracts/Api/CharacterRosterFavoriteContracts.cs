@@ -19,3 +19,13 @@ public sealed record CharacterRosterFavoriteMutation(
     CharacterRosterDocumentIdentity Character,
     bool IsFavorite,
     long ExpectedRevision);
+
+public enum CharacterRosterSortTarget
+{
+    Favorites,
+    Recent
+}
+
+public sealed record CharacterRosterSortMutation(
+    CharacterRosterSortTarget Target,
+    long ExpectedRevision);
