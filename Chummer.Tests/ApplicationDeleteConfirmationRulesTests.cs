@@ -13,9 +13,17 @@ public sealed class ApplicationDeleteConfirmationRulesTests
     {
         Assert.IsTrue(ApplicationDeleteConfirmationState.Default.ConfirmDelete);
         Assert.IsTrue(ApplicationDeleteConfirmationState.Default.ConfirmKarmaExpense);
+        Assert.IsFalse(ApplicationDeleteConfirmationState.Default.CustomDateTimeFormats);
+        Assert.AreEqual(string.Empty, ApplicationDeleteConfirmationState.Default.CustomDateFormat);
+        Assert.AreEqual(string.Empty, ApplicationDeleteConfirmationState.Default.CustomTimeFormat);
+        Assert.IsTrue(ApplicationDeleteConfirmationState.Default.DatesIncludeTime);
         Assert.AreEqual(0, ApplicationDeleteConfirmationState.Default.Revision);
         Assert.AreEqual("confirmdelete", ApplicationDeleteConfirmationRules.LegacyIdentity);
         Assert.AreEqual("confirmkarmaexpense", ApplicationDeleteConfirmationRules.LegacyKarmaExpenseIdentity);
+        Assert.AreEqual("usecustomdatetime", ApplicationDeleteConfirmationRules.LegacyCustomDateTimeFormatsIdentity);
+        Assert.AreEqual("customdateformat", ApplicationDeleteConfirmationRules.LegacyCustomDateFormatIdentity);
+        Assert.AreEqual("customtimeformat", ApplicationDeleteConfirmationRules.LegacyCustomTimeFormatIdentity);
+        Assert.AreEqual("datesincludetime", ApplicationDeleteConfirmationRules.LegacyDatesIncludeTimeIdentity);
     }
 
     [Test]
@@ -127,6 +135,10 @@ public sealed class ApplicationDeleteConfirmationRulesTests
             Assert.AreEqual(9, migrated.Revision);
             Assert.IsFalse(migrated.ConfirmDelete);
             Assert.IsTrue(migrated.ConfirmKarmaExpense);
+            Assert.IsFalse(migrated.CustomDateTimeFormats);
+            Assert.AreEqual(string.Empty, migrated.CustomDateFormat);
+            Assert.AreEqual(string.Empty, migrated.CustomTimeFormat);
+            Assert.IsTrue(migrated.DatesIncludeTime);
         }
         finally
         {
@@ -157,4 +169,118 @@ public sealed class ApplicationDeleteConfirmationRulesTests
             Directory.Delete(directory, recursive: true);
         }
     }
+
+    [Test]
+    public void Date_time_snapshot_has_typed_identities_exact_phase_rules_and_one_revision()
+    {
+        ApplicationDeleteConfirmationState enabled = ApplicationDeleteConfirmationRules.ApplyDateTimeSnapshot(
+            ApplicationDeleteConfirmationState.Default,
+            DateTimeMutation(
+                useCustom: true,
+                dateFormat: "yyyy-MM-dd",
+                timeFormat: "HH:mm:ss",
+                datesIncludeTime: false,
+                expectedRevision: 0));
+
+        Assert.AreEqual(1, enabled.Revision);
+        Assert.IsTrue(enabled.CustomDateTimeFormats);
+        Assert.AreEqual("yyyy-MM-dd", enabled.CustomDateFormat);
+        Assert.AreEqual("HH:mm:ss", enabled.CustomTimeFormat);
+        Assert.IsFalse(enabled.DatesIncludeTime);
+
+        ApplicationDeleteConfirmationState disabled = ApplicationDeleteConfirmationRules.ApplyDateTimeSnapshot(
+            enabled,
+            DateTimeMutation(
+                useCustom: false,
+                dateFormat: "M/d/yyyy",
+                timeFormat: "h:mm tt",
+                datesIncludeTime: true,
+                expectedRevision: 1));
+        Assert.AreEqual(2, disabled.Revision);
+        Assert.IsFalse(disabled.CustomDateTimeFormats);
+        Assert.AreEqual("yyyy-MM-dd", disabled.CustomDateFormat, "Disabled-phase culture previews are not persisted.");
+        Assert.AreEqual("HH:mm:ss", disabled.CustomTimeFormat, "Disabled-phase culture previews are not persisted.");
+        Assert.IsTrue(disabled.DatesIncludeTime);
+
+        Assert.Throws<ArgumentException>(() => ApplicationDeleteConfirmationRules.ApplyDateTimeSnapshot(
+            disabled,
+            DateTimeMutation(
+                useCustom: true,
+                dateFormat: "d",
+                timeFormat: "t",
+                datesIncludeTime: true,
+                expectedRevision: 2) with
+            {
+                CustomDateFormat = new(ApplicationSettingIdentity.CustomTimeFormat, "d")
+            }));
+    }
+
+    [Test]
+    public void Date_time_preview_matches_legacy_error_and_keeps_raw_format()
+    {
+        DateTime sample = new(2060, 12, 31, 23, 45, 0, DateTimeKind.Utc);
+        ApplicationDateTimeFormatPreview valid = ApplicationDeleteConfirmationRules.PreviewDateTimeFormat(
+            ApplicationSettingIdentity.CustomDateFormat,
+            customDateTimeFormats: true,
+            customFormat: "yyyy-MM-dd",
+            cultureDefaultFormat: "d",
+            sample: sample,
+            formatProvider: System.Globalization.CultureInfo.InvariantCulture);
+        Assert.IsTrue(valid.IsValid);
+        Assert.AreEqual(ApplicationDateTimeFormatPhase.Custom, valid.Phase);
+        Assert.AreEqual("2060-12-31", valid.Sample);
+
+        ApplicationDateTimeFormatPreview invalid = ApplicationDeleteConfirmationRules.PreviewDateTimeFormat(
+            ApplicationSettingIdentity.CustomTimeFormat,
+            customDateTimeFormats: true,
+            customFormat: "%",
+            cultureDefaultFormat: "t",
+            sample: sample,
+            formatProvider: System.Globalization.CultureInfo.InvariantCulture);
+        Assert.IsFalse(invalid.IsValid);
+        Assert.AreEqual("%", invalid.Format);
+        Assert.AreEqual("Error", invalid.Sample);
+    }
+
+    [Test]
+    public void File_store_round_trips_date_time_snapshot_and_recovers_previous_atomic_commit()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), "chummer-date-time-settings-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        try
+        {
+            FileApplicationDeleteConfirmationStore store = new(directory);
+            ApplicationDeleteConfirmationState first = ApplicationDeleteConfirmationRules.ApplyDateTimeSnapshot(
+                store.Load(),
+                DateTimeMutation(true, "yyyy-MM-dd", "HH:mm:ss", false, 0));
+            store.Save(0, first);
+            ApplicationDeleteConfirmationState restarted = new FileApplicationDeleteConfirmationStore(directory).Load();
+            Assert.AreEqual(first, restarted);
+
+            ApplicationDeleteConfirmationState second = ApplicationDeleteConfirmationRules.ApplyDateTimeSnapshot(
+                restarted,
+                DateTimeMutation(true, "yyyyMMdd", "HHmm", true, 1));
+            store.Save(1, second);
+            string path = Path.Combine(directory, "application-delete-confirmation.json");
+            File.WriteAllText(path, "{");
+            Assert.AreEqual(first, new FileApplicationDeleteConfirmationStore(directory).Load());
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    private static ApplicationDateTimeSettingsMutation DateTimeMutation(
+        bool useCustom,
+        string dateFormat,
+        string timeFormat,
+        bool datesIncludeTime,
+        long expectedRevision)
+        => new(
+            new(ApplicationSettingIdentity.CustomDateTimeFormats, useCustom),
+            new(ApplicationSettingIdentity.CustomDateFormat, dateFormat),
+            new(ApplicationSettingIdentity.CustomTimeFormat, timeFormat),
+            new(ApplicationSettingIdentity.DatesIncludeTime, datesIncludeTime),
+            expectedRevision);
 }

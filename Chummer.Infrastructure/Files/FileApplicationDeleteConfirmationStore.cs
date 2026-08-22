@@ -102,10 +102,46 @@ public sealed class FileApplicationDeleteConfirmationStore : IApplicationDeleteC
                 confirmKarmaExpense = confirmKarmaExpenseElement.GetBoolean();
             }
 
+            bool customDateTimeFormats = false;
+            if (root.TryGetProperty("CustomDateTimeFormats", out JsonElement customDateTimeFormatsElement))
+            {
+                if (customDateTimeFormatsElement.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+                    return false;
+                customDateTimeFormats = customDateTimeFormatsElement.GetBoolean();
+            }
+
+            string customDateFormat = string.Empty;
+            if (root.TryGetProperty("CustomDateFormat", out JsonElement customDateFormatElement))
+            {
+                if (customDateFormatElement.ValueKind != JsonValueKind.String)
+                    return false;
+                customDateFormat = customDateFormatElement.GetString()!;
+            }
+
+            string customTimeFormat = string.Empty;
+            if (root.TryGetProperty("CustomTimeFormat", out JsonElement customTimeFormatElement))
+            {
+                if (customTimeFormatElement.ValueKind != JsonValueKind.String)
+                    return false;
+                customTimeFormat = customTimeFormatElement.GetString()!;
+            }
+
+            bool datesIncludeTime = true;
+            if (root.TryGetProperty("DatesIncludeTime", out JsonElement datesIncludeTimeElement))
+            {
+                if (datesIncludeTimeElement.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+                    return false;
+                datesIncludeTime = datesIncludeTimeElement.GetBoolean();
+            }
+
             state = ApplicationDeleteConfirmationRules.Validate(new ApplicationDeleteConfirmationState(
                 revision,
                 confirmDeleteElement.GetBoolean(),
-                confirmKarmaExpense));
+                confirmKarmaExpense,
+                customDateTimeFormats,
+                customDateFormat,
+                customTimeFormat,
+                datesIncludeTime));
             return true;
         }
         catch (Exception exception) when (exception is JsonException or IOException or InvalidDataException)

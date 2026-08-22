@@ -3,12 +3,16 @@ using Chummer.Contracts.Api;
 namespace Chummer.Application.Tools;
 
 /// <summary>
-/// Exact Chummer5 confirmation Global Settings semantics without registry or character XML.
+/// Exact Chummer5 confirmation and date/time Global Settings semantics without registry or character XML.
 /// </summary>
 public static class ApplicationDeleteConfirmationRules
 {
     public const string LegacyIdentity = "confirmdelete";
     public const string LegacyKarmaExpenseIdentity = "confirmkarmaexpense";
+    public const string LegacyCustomDateTimeFormatsIdentity = "usecustomdatetime";
+    public const string LegacyCustomDateFormatIdentity = "customdateformat";
+    public const string LegacyCustomTimeFormatIdentity = "customtimeformat";
+    public const string LegacyDatesIncludeTimeIdentity = "datesincludetime";
 
     public static ApplicationDeleteConfirmationState Apply(
         ApplicationDeleteConfirmationState current,
@@ -29,6 +33,8 @@ public static class ApplicationDeleteConfirmationRules
         {
             ApplicationSettingIdentity.ConfirmDelete => mutation.Value == current.ConfirmDelete,
             ApplicationSettingIdentity.ConfirmKarmaExpense => mutation.Value == current.ConfirmKarmaExpense,
+            ApplicationSettingIdentity.CustomDateTimeFormats => mutation.Value == current.CustomDateTimeFormats,
+            ApplicationSettingIdentity.DatesIncludeTime => mutation.Value == current.DatesIncludeTime,
             _ => throw new ArgumentOutOfRangeException(nameof(mutation), "A known application setting identity is required.")
         };
         if (unchanged)
@@ -45,6 +51,16 @@ public static class ApplicationDeleteConfirmationRules
             {
                 Revision = current.Revision + 1,
                 ConfirmKarmaExpense = mutation.Value
+            },
+            ApplicationSettingIdentity.CustomDateTimeFormats => current with
+            {
+                Revision = current.Revision + 1,
+                CustomDateTimeFormats = mutation.Value
+            },
+            ApplicationSettingIdentity.DatesIncludeTime => current with
+            {
+                Revision = current.Revision + 1,
+                DatesIncludeTime = mutation.Value
             },
             _ => throw new ArgumentOutOfRangeException(nameof(mutation), "A known application setting identity is required.")
         };
@@ -71,7 +87,130 @@ public static class ApplicationDeleteConfirmationRules
         return new ApplicationDeleteConfirmationState(
             current.Revision + 1,
             mutation.ConfirmDelete,
-            mutation.ConfirmKarmaExpense);
+            mutation.ConfirmKarmaExpense,
+            current.CustomDateTimeFormats,
+            current.CustomDateFormat,
+            current.CustomTimeFormat,
+            current.DatesIncludeTime);
+    }
+
+    /// <summary>
+    /// Applies the four date/time controls with Chummer5's SaveGlobalOptions semantics. When
+    /// custom formats are disabled, the two displayed culture defaults are not written over the
+    /// previously stored custom strings. DatesIncludeTime remains independent of that phase.
+    /// </summary>
+    public static ApplicationDeleteConfirmationState ApplyDateTimeSnapshot(
+        ApplicationDeleteConfirmationState current,
+        ApplicationDateTimeSettingsMutation mutation)
+    {
+        ArgumentNullException.ThrowIfNull(current);
+        ArgumentNullException.ThrowIfNull(mutation);
+        Validate(current);
+        if (mutation.ExpectedRevision != current.Revision)
+        {
+            throw new InvalidOperationException(
+                $"Application settings changed at revision {current.Revision}; expected {mutation.ExpectedRevision}.");
+        }
+
+        RequireIdentity(mutation.CustomDateTimeFormats, ApplicationSettingIdentity.CustomDateTimeFormats);
+        RequireIdentity(mutation.CustomDateFormat, ApplicationSettingIdentity.CustomDateFormat);
+        RequireIdentity(mutation.CustomTimeFormat, ApplicationSettingIdentity.CustomTimeFormat);
+        RequireIdentity(mutation.DatesIncludeTime, ApplicationSettingIdentity.DatesIncludeTime);
+        ArgumentNullException.ThrowIfNull(mutation.CustomDateFormat.Value);
+        ArgumentNullException.ThrowIfNull(mutation.CustomTimeFormat.Value);
+
+        bool useCustom = mutation.CustomDateTimeFormats.Value;
+        string dateFormat = useCustom ? mutation.CustomDateFormat.Value : current.CustomDateFormat;
+        string timeFormat = useCustom ? mutation.CustomTimeFormat.Value : current.CustomTimeFormat;
+        if (useCustom == current.CustomDateTimeFormats
+            && dateFormat == current.CustomDateFormat
+            && timeFormat == current.CustomTimeFormat
+            && mutation.DatesIncludeTime.Value == current.DatesIncludeTime)
+        {
+            return current;
+        }
+
+        return current with
+        {
+            Revision = current.Revision + 1,
+            CustomDateTimeFormats = useCustom,
+            CustomDateFormat = dateFormat,
+            CustomTimeFormat = timeFormat,
+            DatesIncludeTime = mutation.DatesIncludeTime.Value
+        };
+    }
+
+    public static ApplicationDeleteConfirmationState ApplySettingsSnapshot(
+        ApplicationDeleteConfirmationState current,
+        ApplicationSettingsSnapshotMutation mutation)
+    {
+        ArgumentNullException.ThrowIfNull(current);
+        ArgumentNullException.ThrowIfNull(mutation);
+        Validate(current);
+        if (mutation.ExpectedRevision != current.Revision)
+        {
+            throw new InvalidOperationException(
+                $"Application settings changed at revision {current.Revision}; expected {mutation.ExpectedRevision}.");
+        }
+
+        ApplicationDateTimeSettingsMutation dateTime = new(
+            mutation.CustomDateTimeFormats,
+            mutation.CustomDateFormat,
+            mutation.CustomTimeFormat,
+            mutation.DatesIncludeTime,
+            mutation.ExpectedRevision);
+        ApplicationDeleteConfirmationState dateTimeUpdated = ApplyDateTimeSnapshot(current, dateTime);
+        bool changed = dateTimeUpdated.Revision != current.Revision
+            || mutation.ConfirmDelete != current.ConfirmDelete
+            || mutation.ConfirmKarmaExpense != current.ConfirmKarmaExpense;
+        if (!changed)
+            return current;
+
+        return dateTimeUpdated with
+        {
+            Revision = current.Revision + 1,
+            ConfirmDelete = mutation.ConfirmDelete,
+            ConfirmKarmaExpense = mutation.ConfirmKarmaExpense
+        };
+    }
+
+    /// <summary>
+    /// Mirrors EditGlobalSettings' TextChanged preview: formatting errors are surfaced as the
+    /// literal Error preview, but the raw format remains an editable draft and is not normalized.
+    /// </summary>
+    public static ApplicationDateTimeFormatPreview PreviewDateTimeFormat(
+        ApplicationSettingIdentity identity,
+        bool customDateTimeFormats,
+        string customFormat,
+        string cultureDefaultFormat,
+        DateTime sample,
+        IFormatProvider formatProvider)
+    {
+        if (identity is not (ApplicationSettingIdentity.CustomDateFormat or ApplicationSettingIdentity.CustomTimeFormat))
+        {
+            throw new ArgumentOutOfRangeException(nameof(identity), "A date or time format identity is required.");
+        }
+        ArgumentNullException.ThrowIfNull(customFormat);
+        ArgumentNullException.ThrowIfNull(cultureDefaultFormat);
+        ArgumentNullException.ThrowIfNull(formatProvider);
+
+        ApplicationDateTimeFormatPhase phase = customDateTimeFormats
+            ? ApplicationDateTimeFormatPhase.Custom
+            : ApplicationDateTimeFormatPhase.CultureDefault;
+        string format = customDateTimeFormats ? customFormat : cultureDefaultFormat;
+        try
+        {
+            return new ApplicationDateTimeFormatPreview(
+                identity,
+                phase,
+                format,
+                sample.ToString(format, formatProvider),
+                IsValid: true);
+        }
+        catch
+        {
+            return new ApplicationDateTimeFormatPreview(identity, phase, format, "Error", IsValid: false);
+        }
     }
 
     public static ApplicationDeleteConfirmationState Validate(ApplicationDeleteConfirmationState state)
@@ -79,6 +218,8 @@ public static class ApplicationDeleteConfirmationRules
         ArgumentNullException.ThrowIfNull(state);
         if (state.Revision < 0)
             throw new InvalidDataException("Application settings revision cannot be negative.");
+        if (state.CustomDateFormat is null || state.CustomTimeFormat is null)
+            throw new InvalidDataException("Application date/time formats cannot be null.");
         return state;
     }
 
@@ -87,4 +228,17 @@ public static class ApplicationDeleteConfirmationRules
 
     public static bool RequiresKarmaExpenseConfirmation(ApplicationDeleteConfirmationState state)
         => Validate(state).ConfirmKarmaExpense;
+
+    private static void RequireIdentity<T>(
+        ApplicationSettingValue<T> setting,
+        ApplicationSettingIdentity expected)
+    {
+        ArgumentNullException.ThrowIfNull(setting);
+        if (setting.Identity != expected)
+        {
+            throw new ArgumentException(
+                $"Expected application setting identity {expected}, got {setting.Identity}.",
+                nameof(setting));
+        }
+    }
 }
