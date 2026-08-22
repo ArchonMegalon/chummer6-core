@@ -214,7 +214,7 @@ public static class CharacterCreationTalentGrantAuthorityDigest
         RawDigest($"skill-group\0{skillsSourceDigest}\0{canonicalName}\0"
                   + string.Join('\0', memberSkillSourceIds.OrderBy(
                       sourceId => sourceId,
-                      StringComparer.Ordinal))));
+                      StringComparer.Ordinal)));
 
     public static string ComputeSkillGroupSelectionId(string groupDigest) =>
         CharacterCreationPrerequisiteAuthorityDigest.IsCanonical(groupDigest)
