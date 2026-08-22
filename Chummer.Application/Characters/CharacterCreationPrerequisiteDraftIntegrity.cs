@@ -48,8 +48,13 @@ internal static class CharacterCreationPrerequisiteDraftIntegrity
             || draft.Assignments is null
             || draft.Assignments.Count != CharacterCreationPriorityCategoryIds.Ordered.Count
             || draft.CreationKarmaTotal != authority.CreationKarmaTotal
-            || draft.CreationKarmaUsed != 0
+            || draft.CreationKarmaUsed < 0
+            || draft.CreationKarmaUsed > draft.CreationKarmaTotal
             || draft.CreationKarmaTotal < 0
+            || draft.HeritageSelection is null
+            || draft.TalentSelection is null
+            || draft.EffectiveNormalAttributePoints < 0
+            || draft.TotalSpecialAttributePoints < 0
             || draft.SourceAnchorIds is null
             || draft.SourceAnchorIds.Any(anchor => !IsNormalizedNonEmpty(anchor))
             || !CharacterCreationFoundationDraftLedgerIntegrity.IsCanonicalDigest(
@@ -104,6 +109,94 @@ internal static class CharacterCreationPrerequisiteDraftIntegrity
             {
                 return false;
             }
+        }
+
+        CharacterCreationPriorityAssignment heritageAssignment = draft.Assignments.Single(item =>
+            string.Equals(item.CategoryId, CharacterCreationPriorityCategoryIds.Heritage, StringComparison.Ordinal));
+        CharacterCreationPriorityOptionProjection heritagePriority = authority.Options.Single(item =>
+            string.Equals(item.SourceId, heritageAssignment.SourceId, StringComparison.Ordinal));
+        CharacterCreationPriorityHeritageOptionProjection[] heritageMatches = heritagePriority.HeritageOptions
+            .Where(item => string.Equals(
+                item.SelectionId,
+                draft.HeritageSelection.SelectionId,
+                StringComparison.Ordinal))
+            .Take(2)
+            .ToArray();
+        CharacterCreationPriorityAssignment talentAssignment = draft.Assignments.Single(item =>
+            string.Equals(item.CategoryId, CharacterCreationPriorityCategoryIds.Talent, StringComparison.Ordinal));
+        CharacterCreationPriorityOptionProjection talentPriority = authority.Options.Single(item =>
+            string.Equals(item.SourceId, talentAssignment.SourceId, StringComparison.Ordinal));
+        CharacterCreationPriorityTalentOptionProjection[] talentMatches = talentPriority.TalentOptions
+            .Where(item => string.Equals(
+                item.SelectionId,
+                draft.TalentSelection.SelectionId,
+                StringComparison.Ordinal))
+            .Take(2)
+            .ToArray();
+        if (heritageMatches.Length != 1
+            || talentMatches.Length != 1
+            || !heritageMatches[0].IsEnabled
+            || heritageMatches[0].Blockers.Count != 0
+            || !talentMatches[0].IsEnabled
+            || talentMatches[0].Blockers.Count != 0
+            || !CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(
+                draft.HeritageSelection,
+                new CharacterCreationPriorityHeritageSelection(
+                    heritageMatches[0].SelectionId,
+                    heritageMatches[0].Kind,
+                    heritageAssignment.SourceId,
+                    heritageMatches[0].MetatypeSourceId,
+                    heritageMatches[0].MetavariantSourceId,
+                    heritageMatches[0].MetatypeName,
+                    heritageMatches[0].MetavariantName,
+                    heritageMatches[0].SpecialAttributePoints,
+                    heritageMatches[0].KarmaCost,
+                    heritageMatches[0].HalvesNormalAttributePoints,
+                    heritageMatches[0].Attributes.ToArray(),
+                    heritageMatches[0].PriorityChildNodeDigest,
+                    heritageMatches[0].MetatypeSourceNodeDigest,
+                    heritageMatches[0].SourceAnchorIds.ToArray()))
+            || draft.CreationKarmaUsed != heritageMatches[0].KarmaCost
+            || !CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(
+                draft.TalentSelection,
+                new CharacterCreationPriorityTalentSelection(
+                    talentMatches[0].SelectionId,
+                    talentAssignment.SourceId,
+                    talentMatches[0].Name,
+                    talentMatches[0].Value,
+                    talentMatches[0].SpecialAttributePoints,
+                    talentMatches[0].Magic,
+                    talentMatches[0].Resonance,
+                    talentMatches[0].Depth,
+                    talentMatches[0].GrantedQualities.ToArray(),
+                    talentMatches[0].PriorityChildNodeDigest,
+                    talentMatches[0].SourceAnchorIds.ToArray())))
+        {
+            return false;
+        }
+
+        CharacterCreationPriorityAssignment attributeAssignment = draft.Assignments.Single(item =>
+            string.Equals(item.CategoryId, CharacterCreationPriorityCategoryIds.Attributes, StringComparison.Ordinal));
+        int rawAttributePoints = attributeAssignment.BaseNormalAttributePoints.GetValueOrDefault(-1);
+        int expectedNormalPoints = draft.HeritageSelection.HalvesNormalAttributePoints
+            ? rawAttributePoints / 2
+            : rawAttributePoints;
+        int expectedSpecialPoints;
+        try
+        {
+            expectedSpecialPoints = checked(
+                draft.HeritageSelection.SpecialAttributePoints
+                + draft.TalentSelection.SpecialAttributePoints);
+        }
+        catch (OverflowException)
+        {
+            return false;
+        }
+        if (rawAttributePoints < 0
+            || draft.EffectiveNormalAttributePoints != expectedNormalPoints
+            || draft.TotalSpecialAttributePoints != expectedSpecialPoints)
+        {
+            return false;
         }
 
         return IsSelectionValid(draft, authority);

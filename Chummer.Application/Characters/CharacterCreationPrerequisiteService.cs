@@ -15,6 +15,9 @@ namespace Chummer.Application.Characters;
 public sealed class CharacterCreationPrerequisiteService :
     ICharacterCreationPrerequisiteService
 {
+    private static readonly string[] s_AttributeIds =
+        ["BOD", "AGI", "REA", "STR", "CHA", "INT", "LOG", "WIL", "EDG", "MAG", "RES", "ESS", "DEP"];
+
     private static readonly string[] s_LegacyPriorityElements =
     [
         "prioritymetatype",
@@ -72,7 +75,11 @@ public sealed class CharacterCreationPrerequisiteService :
         PreviewEvaluation evaluation = EvaluatePreview(
             new CharacterCreationPrerequisitePreviewRequest(
                 request.Binding,
-                request.PriorityAssignments));
+                request.PriorityAssignments)
+            {
+                HeritageSelectionId = request.HeritageSelectionId,
+                TalentSelectionId = request.TalentSelectionId
+            });
         if (evaluation.Result.Value is not CharacterCreationPrerequisitePreview preview
             || evaluation.Workspace is not WorkspaceStoredDocument workspace
             || evaluation.Draft is not CharacterCreationPrerequisiteDraft draft)
@@ -144,7 +151,11 @@ public sealed class CharacterCreationPrerequisiteService :
                 draft.DraftDigest,
                 checked(draft.CreationKarmaTotal - draft.CreationKarmaUsed),
                 baseNormalAttributePoints,
-                CharacterDocumentChanged: false),
+                CharacterDocumentChanged: false)
+            {
+                EffectiveNormalAttributePoints = draft.EffectiveNormalAttributePoints,
+                TotalSpecialAttributePoints = draft.TotalSpecialAttributePoints
+            },
             []);
     }
 
@@ -209,6 +220,16 @@ public sealed class CharacterCreationPrerequisiteService :
         }
 
         ValidateSelectedRanks(state.Authority, assignments, sumToTenUsed, blockers);
+        CharacterCreationPriorityHeritageSelection? heritageSelection = ResolveHeritageSelection(
+            state.Authority,
+            assignments,
+            request.HeritageSelectionId,
+            blockers);
+        CharacterCreationPriorityTalentSelection? talentSelection = ResolveTalentSelection(
+            state.Authority,
+            assignments,
+            request.TalentSelectionId,
+            blockers);
         CharacterCreationPriorityAssignment? attributeAssignment = assignments
             .SingleOrDefault(assignment => string.Equals(
                 assignment.CategoryId,
@@ -217,18 +238,42 @@ public sealed class CharacterCreationPrerequisiteService :
         int baseNormalAttributePoints = attributeAssignment?.BaseNormalAttributePoints ?? -1;
         if (baseNormalAttributePoints < 0)
             blockers.Add(CharacterCreationPrerequisiteBlockers.SelectionInvalid);
+        int effectiveNormalAttributePoints = 0;
+        int totalSpecialAttributePoints = 0;
+        if (heritageSelection is not null && talentSelection is not null && baseNormalAttributePoints >= 0)
+        {
+            effectiveNormalAttributePoints = heritageSelection.HalvesNormalAttributePoints
+                ? baseNormalAttributePoints / 2
+                : baseNormalAttributePoints;
+            try
+            {
+                totalSpecialAttributePoints = checked(
+                    heritageSelection.SpecialAttributePoints
+                    + talentSelection.SpecialAttributePoints);
+            }
+            catch (OverflowException)
+            {
+                blockers.Add(CharacterCreationPrerequisiteBlockers.SelectionInvalid);
+            }
+        }
 
         CharacterCreationPrerequisiteDraft? draft = null;
         if (assignments.Length == CharacterCreationPriorityCategoryIds.Ordered.Count
             && state.Authority.CreationKarmaTotal is int creationKarmaTotal
             && creationKarmaTotal >= 0
-            && baseNormalAttributePoints >= 0)
+            && baseNormalAttributePoints >= 0
+            && heritageSelection is not null
+            && talentSelection is not null)
         {
             draft = BuildProposedDraft(
                 workspace,
                 state.Authority,
                 assignments,
-                creationKarmaTotal);
+                creationKarmaTotal,
+                heritageSelection,
+                talentSelection,
+                effectiveNormalAttributePoints,
+                totalSpecialAttributePoints);
             CharacterCreationPrerequisiteDraft? current = state.PendingDraft;
             if (current is not null)
             {
@@ -241,16 +286,17 @@ public sealed class CharacterCreationPrerequisiteService :
             }
         }
 
+        CharacterCreationBudgetState budget = BuildBudget(
+            state.Authority,
+            draft ?? state.PendingDraft,
+            blockers.Contains(
+                CharacterCreationPrerequisiteBlockers.CreationKarmaAuthorityRequired,
+                StringComparer.Ordinal));
+        blockers.AddRange(budget.Blockers);
         string[] normalizedBlockers = blockers
             .Distinct(StringComparer.Ordinal)
             .OrderBy(blocker => blocker, StringComparer.Ordinal)
             .ToArray();
-        CharacterCreationBudgetState budget = BuildBudget(
-            state.Authority,
-            state.PendingDraft,
-            normalizedBlockers.Contains(
-                CharacterCreationPrerequisiteBlockers.CreationKarmaAuthorityRequired,
-                StringComparer.Ordinal));
         var preview = new CharacterCreationPrerequisitePreview(
             CharacterCreationPrerequisiteSchemas.PreviewV1,
             state.Binding,
@@ -259,11 +305,17 @@ public sealed class CharacterCreationPrerequisiteService :
             sumToTenUsed,
             state.Authority.SumToTenTarget,
             Math.Max(0, baseNormalAttributePoints),
-            RequiresMetatypeAttributeAdjustment: true,
+            RequiresMetatypeAttributeAdjustment: heritageSelection is null || talentSelection is null,
             normalizedBlockers,
             RequiresExplicitConfirmation: true,
             CanConfirm: normalizedBlockers.Length == 0 && draft is not null,
-            PreviewDigest: string.Empty);
+            PreviewDigest: string.Empty)
+        {
+            HeritageSelection = heritageSelection,
+            TalentSelection = talentSelection,
+            EffectiveNormalAttributePoints = effectiveNormalAttributePoints,
+            TotalSpecialAttributePoints = totalSpecialAttributePoints
+        };
         preview = preview with
         {
             PreviewDigest = CharacterCreationFoundationDraftLedgerIntegrity
@@ -378,6 +430,8 @@ public sealed class CharacterCreationPrerequisiteService :
         {
             blockers.Add(CharacterCreationPrerequisiteBlockers.LegacyPriorityStateRequiresImport);
         }
+        if (workspace.Document.AuxiliaryState.CharacterCreationAttributesDraft is not null)
+            blockers.Add(CharacterCreationPrerequisiteBlockers.DependentAttributesDraftExists);
 
         CharacterCreationBudgetState budget = BuildBudget(
             authority,
@@ -404,10 +458,17 @@ public sealed class CharacterCreationPrerequisiteService :
             budget,
             pendingDraft,
             baseNormalAttributePoints,
-            RequiresMetatypeAttributeAdjustment: true,
-            CanEnterAttributes: false,
+            RequiresMetatypeAttributeAdjustment: pendingDraft is null,
+            CanEnterAttributes: pendingDraft is not null
+                                && !normalizedBlockers.Contains(
+                                    CharacterCreationPrerequisiteBlockers.DraftInvalid,
+                                    StringComparer.Ordinal),
             Blockers: normalizedBlockers,
-            SnapshotDigest: string.Empty);
+            SnapshotDigest: string.Empty)
+        {
+            EffectiveNormalAttributePoints = pendingDraft?.EffectiveNormalAttributePoints,
+            TotalSpecialAttributePoints = pendingDraft?.TotalSpecialAttributePoints
+        };
         state = state with
         {
             SnapshotDigest = CharacterCreationFoundationDraftLedgerIntegrity
@@ -474,6 +535,101 @@ public sealed class CharacterCreationPrerequisiteService :
         return assignments.ToArray();
     }
 
+    private static CharacterCreationPriorityHeritageSelection? ResolveHeritageSelection(
+        CharacterCreationPrerequisiteAuthority authority,
+        IReadOnlyList<CharacterCreationPriorityAssignment> assignments,
+        string? selectionId,
+        ICollection<string> blockers)
+    {
+        CharacterCreationPriorityAssignment? assignment = assignments.SingleOrDefault(item =>
+            string.Equals(item.CategoryId, CharacterCreationPriorityCategoryIds.Heritage, StringComparison.Ordinal));
+        if (assignment is null || string.IsNullOrWhiteSpace(selectionId))
+        {
+            blockers.Add(CharacterCreationPrerequisiteBlockers.HeritageSelectionIncomplete);
+            return null;
+        }
+        CharacterCreationPriorityOptionProjection? option = authority.Options.SingleOrDefault(item =>
+            string.Equals(item.SourceId, assignment.SourceId, StringComparison.Ordinal));
+        CharacterCreationPriorityHeritageOptionProjection[] matches = option?.HeritageOptions
+            .Where(item => string.Equals(item.SelectionId, selectionId, StringComparison.Ordinal))
+            .Take(2)
+            .ToArray() ?? [];
+        if (matches.Length != 1)
+        {
+            blockers.Add(CharacterCreationPrerequisiteBlockers.HeritageSelectionInvalid);
+            return null;
+        }
+        CharacterCreationPriorityHeritageOptionProjection selected = matches[0];
+        if (!selected.IsEnabled || selected.Blockers.Count != 0)
+        {
+            blockers.Add(CharacterCreationPrerequisiteBlockers.HeritageSelectionUnsupported);
+            foreach (string blocker in selected.Blockers)
+                blockers.Add(blocker);
+            return null;
+        }
+        return new CharacterCreationPriorityHeritageSelection(
+            selected.SelectionId,
+            selected.Kind,
+            assignment.SourceId,
+            selected.MetatypeSourceId,
+            selected.MetavariantSourceId,
+            selected.MetatypeName,
+            selected.MetavariantName,
+            selected.SpecialAttributePoints,
+            selected.KarmaCost,
+            selected.HalvesNormalAttributePoints,
+            selected.Attributes.ToArray(),
+            selected.PriorityChildNodeDigest,
+            selected.MetatypeSourceNodeDigest,
+            selected.SourceAnchorIds.ToArray());
+    }
+
+    private static CharacterCreationPriorityTalentSelection? ResolveTalentSelection(
+        CharacterCreationPrerequisiteAuthority authority,
+        IReadOnlyList<CharacterCreationPriorityAssignment> assignments,
+        string? selectionId,
+        ICollection<string> blockers)
+    {
+        CharacterCreationPriorityAssignment? assignment = assignments.SingleOrDefault(item =>
+            string.Equals(item.CategoryId, CharacterCreationPriorityCategoryIds.Talent, StringComparison.Ordinal));
+        if (assignment is null || string.IsNullOrWhiteSpace(selectionId))
+        {
+            blockers.Add(CharacterCreationPrerequisiteBlockers.TalentSelectionIncomplete);
+            return null;
+        }
+        CharacterCreationPriorityOptionProjection? option = authority.Options.SingleOrDefault(item =>
+            string.Equals(item.SourceId, assignment.SourceId, StringComparison.Ordinal));
+        CharacterCreationPriorityTalentOptionProjection[] matches = option?.TalentOptions
+            .Where(item => string.Equals(item.SelectionId, selectionId, StringComparison.Ordinal))
+            .Take(2)
+            .ToArray() ?? [];
+        if (matches.Length != 1)
+        {
+            blockers.Add(CharacterCreationPrerequisiteBlockers.TalentSelectionInvalid);
+            return null;
+        }
+        CharacterCreationPriorityTalentOptionProjection selected = matches[0];
+        if (!selected.IsEnabled || selected.Blockers.Count != 0)
+        {
+            blockers.Add(CharacterCreationPrerequisiteBlockers.TalentSelectionUnsupported);
+            foreach (string blocker in selected.Blockers)
+                blockers.Add(blocker);
+            return null;
+        }
+        return new CharacterCreationPriorityTalentSelection(
+            selected.SelectionId,
+            assignment.SourceId,
+            selected.Name,
+            selected.Value,
+            selected.SpecialAttributePoints,
+            selected.Magic,
+            selected.Resonance,
+            selected.Depth,
+            selected.GrantedQualities.ToArray(),
+            selected.PriorityChildNodeDigest,
+            selected.SourceAnchorIds.ToArray());
+    }
+
     private static void ValidateSelectedRanks(
         CharacterCreationPrerequisiteAuthority authority,
         IReadOnlyList<CharacterCreationPriorityAssignment> assignments,
@@ -513,7 +669,11 @@ public sealed class CharacterCreationPrerequisiteService :
         WorkspaceStoredDocument workspace,
         CharacterCreationPrerequisiteAuthority authority,
         IReadOnlyList<CharacterCreationPriorityAssignment> assignments,
-        int creationKarmaTotal)
+        int creationKarmaTotal,
+        CharacterCreationPriorityHeritageSelection heritageSelection,
+        CharacterCreationPriorityTalentSelection talentSelection,
+        int effectiveNormalAttributePoints,
+        int totalSpecialAttributePoints)
     {
         CharacterCreationPrerequisiteDraft? current = workspace.Document.AuxiliaryState
             .CharacterCreationPrerequisiteDraft;
@@ -524,6 +684,8 @@ public sealed class CharacterCreationPrerequisiteService :
                 : current.DraftRevision + 1;
         string[] anchors = authority.SourceAnchorIds
             .Concat(assignments.SelectMany(assignment => assignment.SourceAnchorIds))
+            .Concat(heritageSelection.SourceAnchorIds)
+            .Concat(talentSelection.SourceAnchorIds)
             .Distinct(StringComparer.Ordinal)
             .ToArray();
         var draft = new CharacterCreationPrerequisiteDraft(
@@ -541,9 +703,15 @@ public sealed class CharacterCreationPrerequisiteService :
             authority.SumToTenTarget,
             assignments.ToArray(),
             creationKarmaTotal,
-            CreationKarmaUsed: 0,
+            CreationKarmaUsed: heritageSelection.KarmaCost,
             SourceAnchorIds: anchors,
-            DraftDigest: string.Empty);
+            DraftDigest: string.Empty)
+        {
+            HeritageSelection = heritageSelection,
+            TalentSelection = talentSelection,
+            EffectiveNormalAttributePoints = effectiveNormalAttributePoints,
+            TotalSpecialAttributePoints = totalSpecialAttributePoints
+        };
         return draft with
         {
             DraftDigest = CharacterCreationPrerequisiteDraftIntegrity.ComputeDigest(draft)
@@ -561,7 +729,7 @@ public sealed class CharacterCreationPrerequisiteService :
         if (unavailable || authority.CreationKarmaTotal is null)
             blockers.Add(CharacterCreationPrerequisiteBlockers.CreationKarmaAuthorityRequired);
         if (used < 0 || used > total)
-            blockers.Add(CharacterCreationPrerequisiteBlockers.DraftInvalid);
+            blockers.Add(CharacterCreationPrerequisiteBlockers.CreationKarmaExceeded);
         int remaining = used is >= 0 && used <= total ? total - used : 0;
         string[] normalized = blockers.Distinct(StringComparer.Ordinal)
             .OrderBy(blocker => blocker, StringComparer.Ordinal)
@@ -620,6 +788,18 @@ public sealed class CharacterCreationPrerequisiteService :
                 authority.EffectivePrioritiesInputsDigest)
             || !CharacterCreationPrerequisiteAuthorityDigest.IsCanonical(
                 authority.SelectedPriorityCustomDataInputsDigest)
+            || !CharacterCreationPrerequisiteAuthorityDigest.IsCanonical(
+                authority.SelectedCustomDataInputsDigest)
+            || !CharacterCreationPrerequisiteAuthorityDigest.IsCanonical(
+                authority.RawMetatypesXmlDigest)
+            || !CharacterCreationPrerequisiteAuthorityDigest.IsCanonical(
+                authority.EffectiveMetatypesInputsDigest)
+            || authority.MaxNumberMaxAttributesCreate is not int maxAtMaximum
+            || maxAtMaximum < 0
+            || authority.KarmaAttribute is not int karmaAttribute
+            || karmaAttribute <= 0
+            || authority.AlternateMetatypeAttributeKarma is null
+            || authority.ReverseAttributePriorityOrder is null
             || !CharacterCreationPrerequisiteAuthorityDigest.IsCanonical(
                 authority.AuthorityDigest)
             || !CharacterCreationPrerequisiteAuthorityDigest.EqualsFixedTime(
@@ -688,7 +868,23 @@ public sealed class CharacterCreationPrerequisiteService :
                                                             anchor.Trim(),
                                                             StringComparison.Ordinal))
                 || !pairs.Add($"{option.CategoryId}\0{option.Rank}")
-                || !ids.Add(option.SourceId))
+                || !ids.Add(option.SourceId)
+                || option.HeritageOptions is null
+                || option.TalentOptions is null
+                || (string.Equals(
+                        option.CategoryId,
+                        CharacterCreationPriorityCategoryIds.Heritage,
+                        StringComparison.Ordinal)
+                        ? option.HeritageOptions.Count == 0 || option.TalentOptions.Count != 0
+                    : option.HeritageOptions.Count != 0)
+                || (string.Equals(
+                        option.CategoryId,
+                        CharacterCreationPriorityCategoryIds.Talent,
+                        StringComparison.Ordinal)
+                        ? option.TalentOptions.Count == 0 || option.HeritageOptions.Count != 0
+                    : option.TalentOptions.Count != 0)
+                || option.HeritageOptions.Any(child => !IsValidHeritageOption(child))
+                || option.TalentOptions.Any(child => !IsValidTalentOption(child)))
             {
                 return false;
             }
@@ -698,6 +894,52 @@ public sealed class CharacterCreationPrerequisiteService :
                 return false;
         }
         return true;
+    }
+
+    private static bool IsValidHeritageOption(
+        CharacterCreationPriorityHeritageOptionProjection? option)
+    {
+        return option is not null
+               && !string.IsNullOrWhiteSpace(option.SelectionId)
+               && option.Kind is CharacterCreationPriorityChildKinds.Metatype
+                   or CharacterCreationPriorityChildKinds.Metavariant
+               && option.SpecialAttributePoints >= 0
+               && option.KarmaCost >= 0
+               && option.Attributes is not null
+               && option.Blockers is not null
+               && option.IsEnabled == (option.Blockers.Count == 0)
+               && option.SourceAnchorIds is { Count: > 0 }
+               && CharacterCreationPrerequisiteAuthorityDigest.IsCanonical(
+                   option.PriorityChildNodeDigest)
+               && (!option.IsEnabled
+                   || option.Blockers.Count == 0
+                   && Guid.TryParseExact(option.MetatypeSourceId, "D", out Guid metatypeId)
+                   && metatypeId != Guid.Empty
+                   && CharacterCreationPrerequisiteAuthorityDigest.IsCanonical(
+                       option.MetatypeSourceNodeDigest)
+                   && option.Attributes.Count == s_AttributeIds.Length
+                   && option.Attributes.Select(item => item.AttributeId)
+                       .SequenceEqual(s_AttributeIds, StringComparer.Ordinal)
+                   && option.Attributes.All(item => item.Minimum >= 0
+                                                    && item.Minimum <= item.Maximum
+                                                    && item.Maximum <= item.AugmentedMaximum));
+    }
+
+    private static bool IsValidTalentOption(
+        CharacterCreationPriorityTalentOptionProjection? option)
+    {
+        return option is not null
+               && !string.IsNullOrWhiteSpace(option.SelectionId)
+               && !string.IsNullOrWhiteSpace(option.Name)
+               && !string.IsNullOrWhiteSpace(option.Value)
+               && option.SpecialAttributePoints >= 0
+               && option.GrantedQualities is not null
+               && option.Blockers is not null
+               && option.IsEnabled == (option.Blockers.Count == 0)
+               && option.SourceAnchorIds is { Count: > 0 }
+               && CharacterCreationPrerequisiteAuthorityDigest.IsCanonical(
+                   option.PriorityChildNodeDigest)
+               && (!option.IsEnabled || option.Blockers.Count == 0);
     }
 
     private static string? CompareBinding(

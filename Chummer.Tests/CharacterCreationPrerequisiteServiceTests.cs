@@ -28,20 +28,112 @@ public sealed class CharacterCreationPrerequisiteServiceTests
                 Assert.IsNull(state.PendingDraft);
 
                 CharacterCreationFoundationResult<CharacterCreationPrerequisitePreview> result =
-                    service.Preview(new CharacterCreationPrerequisitePreviewRequest(
+                    service.Preview(PreviewRequest(
                         state.Binding,
                         Assign("A", "B", "C", "D", "E")));
 
                 Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, result.Outcome);
                 Assert.IsNotNull(result.Value);
                 Assert.AreEqual(16, result.Value.BaseNormalAttributePoints);
-                Assert.IsTrue(result.Value.RequiresMetatypeAttributeAdjustment);
+                Assert.IsFalse(result.Value.RequiresMetatypeAttributeAdjustment);
                 Assert.AreEqual(10, result.Value.SumToTenUsed);
                 Assert.IsTrue(result.Value.CanConfirm);
                 WorkspaceStoredDocument unchanged = store.Get(id).Value!;
                 Assert.AreEqual(1L, unchanged.ContentRevision);
                 Assert.AreEqual(0L, unchanged.SavedRevision);
                 Assert.IsNull(unchanged.Document.AuxiliaryState.CharacterCreationPrerequisiteDraft);
+            });
+    }
+
+    [TestMethod]
+    public void Heritage_and_talent_children_are_explicit_and_digest_bound()
+    {
+        WithWorkspace(
+            CharacterCreationBuildMethods.Priority,
+            CreateAuthority(CharacterCreationBuildMethods.Priority, ["A", "B", "C", "D", "E"]),
+            (_, service, id) =>
+            {
+                CharacterCreationPrerequisiteState state = Load(service, id);
+                IReadOnlyDictionary<string, string> ranks = Assign("A", "E", "B", "C", "D");
+                CharacterCreationFoundationResult<CharacterCreationPrerequisitePreview> missing =
+                    service.Preview(new CharacterCreationPrerequisitePreviewRequest(
+                        state.Binding,
+                        ranks));
+                CharacterCreationFoundationResult<CharacterCreationPrerequisitePreview> wrong =
+                    service.Preview(new CharacterCreationPrerequisitePreviewRequest(
+                        state.Binding,
+                        ranks)
+                    {
+                        HeritageSelectionId = "human",
+                        TalentSelectionId = "forged"
+                    });
+
+                Assert.AreEqual(CharacterCreationFoundationOutcomes.Blocked, missing.Outcome);
+                CollectionAssert.Contains(missing.Blockers.ToList(),
+                    CharacterCreationPrerequisiteBlockers.HeritageSelectionIncomplete);
+                CollectionAssert.Contains(missing.Blockers.ToList(),
+                    CharacterCreationPrerequisiteBlockers.TalentSelectionIncomplete);
+                Assert.AreEqual(CharacterCreationFoundationOutcomes.Blocked, wrong.Outcome);
+                CollectionAssert.Contains(wrong.Blockers.ToList(),
+                    CharacterCreationPrerequisiteBlockers.TalentSelectionInvalid);
+            });
+    }
+
+    [TestMethod]
+    public void Heritage_karma_cost_is_spent_in_preview_receipt_and_draft_integrity()
+    {
+        CharacterCreationPrerequisiteAuthority authority = WithHumanKarmaCost(
+            CreateAuthority(CharacterCreationBuildMethods.Priority, ["A", "B", "C", "D", "E"]),
+            7);
+        WithWorkspace(
+            CharacterCreationBuildMethods.Priority,
+            authority,
+            (store, service, id) =>
+            {
+                CharacterCreationPrerequisiteState state = Load(service, id);
+                IReadOnlyDictionary<string, string> ranks = Assign("A", "E", "B", "C", "D");
+                CharacterCreationPrerequisitePreview preview = service.Preview(
+                    PreviewRequest(state.Binding, ranks)).Value!;
+
+                Assert.IsTrue(preview.CanConfirm, string.Join(",", preview.Blockers));
+                Assert.AreEqual(7m, preview.CreationKarmaBudget.Used);
+                Assert.AreEqual(18m, preview.CreationKarmaBudget.Remaining);
+                CharacterCreationFoundationResult<CharacterCreationPrerequisiteReceipt> confirmed =
+                    service.Confirm(ConfirmRequest(
+                        preview.Binding,
+                        ranks,
+                        preview.PreviewDigest,
+                        ExplicitlyConfirmed: true));
+
+                Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, confirmed.Outcome);
+                Assert.AreEqual(18, confirmed.Value!.CreationKarmaRemaining);
+                WorkspaceStoredDocument persisted = store.Get(id).Value!;
+                CharacterCreationPrerequisiteDraft draft = persisted.Document.AuxiliaryState
+                    .CharacterCreationPrerequisiteDraft!;
+                Assert.AreEqual(7, draft.CreationKarmaUsed);
+                Assert.IsTrue(CharacterCreationPrerequisiteDraftIntegrity.IsValidPending(
+                    draft,
+                    id,
+                    persisted.ContentRevision,
+                    CharacterCreationFoundationDraftLedgerIntegrity.ComputeRawCharacterXmlDigest(
+                        persisted.Document.Content),
+                    authority));
+                CharacterCreationPrerequisiteDraft forged = draft with
+                {
+                    CreationKarmaUsed = 0,
+                    DraftDigest = string.Empty
+                };
+                forged = forged with
+                {
+                    DraftDigest = CharacterCreationPrerequisiteDraftIntegrity.ComputeDigest(forged)
+                };
+                Assert.IsFalse(CharacterCreationPrerequisiteDraftIntegrity.IsValidPending(
+                    forged,
+                    id,
+                    persisted.ContentRevision,
+                    CharacterCreationFoundationDraftLedgerIntegrity.ComputeRawCharacterXmlDigest(
+                        persisted.Document.Content),
+                    authority));
             });
     }
 
@@ -58,13 +150,13 @@ public sealed class CharacterCreationPrerequisiteServiceTests
             {
                 CharacterCreationPrerequisiteState state = Load(service, id);
                 CharacterCreationPrerequisitePreview valid = service.Preview(
-                    new CharacterCreationPrerequisitePreviewRequest(
+                    PreviewRequest(
                         state.Binding,
                         Assign("E", "B", "E", "D", "C"))).Value!;
                 Assert.IsTrue(valid.CanConfirm);
 
                 CharacterCreationFoundationResult<CharacterCreationPrerequisitePreview> invalid =
-                    service.Preview(new CharacterCreationPrerequisitePreviewRequest(
+                    service.Preview(PreviewRequest(
                         state.Binding,
                         Assign("B", "B", "C", "D", "E")));
                 Assert.AreEqual(CharacterCreationFoundationOutcomes.Blocked, invalid.Outcome);
@@ -86,14 +178,14 @@ public sealed class CharacterCreationPrerequisiteServiceTests
             {
                 CharacterCreationPrerequisiteState state = Load(service, id);
                 CharacterCreationPrerequisitePreview repeated = service.Preview(
-                    new CharacterCreationPrerequisitePreviewRequest(
+                    PreviewRequest(
                         state.Binding,
                         Assign("A", "A", "D", "D", "E"))).Value!;
                 Assert.AreEqual(10, repeated.SumToTenUsed);
                 Assert.IsTrue(repeated.CanConfirm);
 
                 CharacterCreationFoundationResult<CharacterCreationPrerequisitePreview> wrong =
-                    service.Preview(new CharacterCreationPrerequisitePreviewRequest(
+                    service.Preview(PreviewRequest(
                         state.Binding,
                         Assign("A", "A", "E", "E", "E")));
                 Assert.AreEqual(CharacterCreationFoundationOutcomes.Blocked, wrong.Outcome);
@@ -114,12 +206,12 @@ public sealed class CharacterCreationPrerequisiteServiceTests
                 WorkspaceStoredDocument before = store.Get(id).Value!;
                 CharacterCreationPrerequisiteState state = Load(service, id);
                 CharacterCreationPrerequisitePreview preview = service.Preview(
-                    new CharacterCreationPrerequisitePreviewRequest(
+                    PreviewRequest(
                         state.Binding,
                         Assign("A", "B", "C", "D", "E"))).Value!;
 
                 CharacterCreationFoundationResult<CharacterCreationPrerequisiteReceipt> result =
-                    service.Confirm(new CharacterCreationPrerequisiteConfirmRequest(
+                    service.Confirm(ConfirmRequest(
                         preview.Binding,
                         Assign("A", "B", "C", "D", "E"),
                         preview.PreviewDigest,
@@ -134,12 +226,14 @@ public sealed class CharacterCreationPrerequisiteServiceTests
                 Assert.AreEqual(before.Document.Content, after.Document.Content);
                 Assert.IsNotNull(after.Document.AuxiliaryState.CharacterCreationPrerequisiteDraft);
                 CharacterCreationPrerequisiteState resumed = Load(service, id);
-                Assert.IsFalse(resumed.CanEnterAttributes);
-                Assert.IsTrue(resumed.RequiresMetatypeAttributeAdjustment);
+                Assert.IsTrue(resumed.CanEnterAttributes);
+                Assert.IsFalse(resumed.RequiresMetatypeAttributeAdjustment);
                 Assert.AreEqual(16, resumed.BaseNormalAttributePoints);
+                Assert.AreEqual(16, resumed.EffectiveNormalAttributePoints);
+                Assert.AreEqual(1, resumed.TotalSpecialAttributePoints);
 
                 CharacterCreationFoundationResult<CharacterCreationPrerequisitePreview> duplicate =
-                    service.Preview(new CharacterCreationPrerequisitePreviewRequest(
+                    service.Preview(PreviewRequest(
                         resumed.Binding,
                         Assign("A", "B", "C", "D", "E")));
                 Assert.AreEqual(CharacterCreationFoundationOutcomes.Blocked, duplicate.Outcome);
@@ -167,7 +261,7 @@ public sealed class CharacterCreationPrerequisiteServiceTests
                     AuthorityDigest = Digest(99)
                 };
                 CharacterCreationFoundationResult<CharacterCreationPrerequisitePreview> result =
-                    service.Preview(new CharacterCreationPrerequisitePreviewRequest(
+                    service.Preview(PreviewRequest(
                         stale,
                         Assign("A", "B", "C", "D", "E")));
                 Assert.AreEqual(CharacterCreationFoundationOutcomes.Conflict, result.Outcome);
@@ -216,16 +310,16 @@ public sealed class CharacterCreationPrerequisiteServiceTests
                 CharacterCreationPrerequisiteState state = Load(service, id);
                 IReadOnlyDictionary<string, string> selection = Assign("A", "B", "C", "D", "E");
                 CharacterCreationPrerequisitePreview preview = service.Preview(
-                    new CharacterCreationPrerequisitePreviewRequest(state.Binding, selection)).Value!;
+                    PreviewRequest(state.Binding, selection)).Value!;
 
                 CharacterCreationFoundationResult<CharacterCreationPrerequisiteReceipt> noConsent =
-                    service.Confirm(new CharacterCreationPrerequisiteConfirmRequest(
+                    service.Confirm(ConfirmRequest(
                         preview.Binding,
                         selection,
                         preview.PreviewDigest,
                         ExplicitlyConfirmed: false));
                 CharacterCreationFoundationResult<CharacterCreationPrerequisiteReceipt> tampered =
-                    service.Confirm(new CharacterCreationPrerequisiteConfirmRequest(
+                    service.Confirm(ConfirmRequest(
                         preview.Binding,
                         selection,
                         Digest(88),
@@ -247,6 +341,26 @@ public sealed class CharacterCreationPrerequisiteServiceTests
         Assert.IsNotNull(result.Value);
         return result.Value;
     }
+
+    private static CharacterCreationPrerequisitePreviewRequest PreviewRequest(
+        CharacterCreationPrerequisiteBinding binding,
+        IReadOnlyDictionary<string, string> assignments) =>
+        new(binding, assignments)
+        {
+            HeritageSelectionId = "human",
+            TalentSelectionId = "mundane"
+        };
+
+    private static CharacterCreationPrerequisiteConfirmRequest ConfirmRequest(
+        CharacterCreationPrerequisiteBinding binding,
+        IReadOnlyDictionary<string, string> assignments,
+        string previewDigest,
+        bool ExplicitlyConfirmed) =>
+        new(binding, assignments, previewDigest, ExplicitlyConfirmed)
+        {
+            HeritageSelectionId = "human",
+            TalentSelectionId = "mundane"
+        };
 
     private static void WithWorkspace(
         string buildMethod,
@@ -282,7 +396,7 @@ public sealed class CharacterCreationPrerequisiteServiceTests
         + $"<buildmethod>{buildMethod}</buildmethod><created>false</created>"
         + $"<karma>25</karma><nuyen>0</nuyen>{extraXml}</character>";
 
-    private static IReadOnlyDictionary<string, string> Assign(
+    internal static IReadOnlyDictionary<string, string> Assign(
         string heritage,
         string talent,
         string attributes,
@@ -296,7 +410,7 @@ public sealed class CharacterCreationPrerequisiteServiceTests
         [CharacterCreationPriorityCategoryIds.Resources] = resources
     };
 
-    private static CharacterCreationPrerequisiteAuthority CreateAuthority(
+    internal static CharacterCreationPrerequisiteAuthority CreateAuthority(
         string buildMethod,
         IReadOnlyList<string> priorityArray)
     {
@@ -329,7 +443,7 @@ public sealed class CharacterCreationPrerequisiteServiceTests
             foreach (string rank in priorityArray.Distinct(StringComparer.Ordinal))
             {
                 string id = $"00000000-0000-0000-0000-{sequence:000000000000}";
-                options.Add(new CharacterCreationPriorityOptionProjection(
+                CharacterCreationPriorityOptionProjection option = new(
                     category,
                     category,
                     rank,
@@ -340,7 +454,22 @@ public sealed class CharacterCreationPrerequisiteServiceTests
                         ? attributePoints[rank]
                         : null,
                     Digest(sequence),
-                    [$"priorities.xml#priority:{id}"]));
+                    [$"priorities.xml#priority:{id}"]);
+                if (category == CharacterCreationPriorityCategoryIds.Heritage)
+                {
+                    option = option with
+                    {
+                        HeritageOptions = [HumanOption(id)]
+                    };
+                }
+                else if (category == CharacterCreationPriorityCategoryIds.Talent)
+                {
+                    option = option with
+                    {
+                        TalentOptions = [MundaneOption(id)]
+                    };
+                }
+                options.Add(option);
                 sequence++;
             }
         }
@@ -362,11 +491,84 @@ public sealed class CharacterCreationPrerequisiteServiceTests
             [],
             IsAuthoritative: true,
             AuthorityDigest: string.Empty);
+        authority = authority with
+        {
+            SelectedCustomDataInputsDigest = Digest(47),
+            RawMetatypesXmlDigest = Digest(45),
+            EffectiveMetatypesInputsDigest = Digest(46),
+            MaxNumberMaxAttributesCreate = 1,
+            KarmaAttribute = 5,
+            AlternateMetatypeAttributeKarma = false,
+            ReverseAttributePriorityOrder = false
+        };
         return authority with
         {
             AuthorityDigest = CharacterCreationPrerequisiteAuthorityDigest.Compute(authority)
         };
     }
+
+    private static CharacterCreationPrerequisiteAuthority WithHumanKarmaCost(
+        CharacterCreationPrerequisiteAuthority authority,
+        int karmaCost)
+    {
+        CharacterCreationPriorityOptionProjection[] options = authority.Options.Select(option =>
+            option.CategoryId == CharacterCreationPriorityCategoryIds.Heritage
+                ? option with
+                {
+                    HeritageOptions = option.HeritageOptions.Select(child => child with
+                    {
+                        KarmaCost = karmaCost
+                    }).ToArray()
+                }
+                : option).ToArray();
+        authority = authority with { Options = options, AuthorityDigest = string.Empty };
+        return authority with
+        {
+            AuthorityDigest = CharacterCreationPrerequisiteAuthorityDigest.Compute(authority)
+        };
+    }
+
+    internal static CharacterCreationPriorityHeritageOptionProjection HumanOption(string priorityId) =>
+        new(
+            "human",
+            CharacterCreationPriorityChildKinds.Metatype,
+            "a53d885d-a4a4-443d-b6a6-b0a55b0a96c7",
+            null,
+            "Human",
+            null,
+            1,
+            0,
+            false,
+            HumanAttributes(),
+            Digest(50),
+            Digest(51),
+            IsEnabled: true,
+            Blockers: [],
+            SourceAnchorIds: [$"priorities.xml#priority:{priorityId}:heritage:0", "metatypes.xml#metatype:human"]);
+
+    internal static CharacterCreationPriorityTalentOptionProjection MundaneOption(string priorityId) =>
+        new(
+            "mundane",
+            "Mundane",
+            "Mundane",
+            0,
+            null,
+            null,
+            null,
+            [],
+            Digest(52),
+            IsEnabled: true,
+            Blockers: [],
+            SourceAnchorIds: [$"priorities.xml#priority:{priorityId}:talent:0"]);
+
+    internal static CharacterCreationMetatypeAttributeProjection[] HumanAttributes() =>
+    [
+        new("BOD", 1, 6, 10), new("AGI", 1, 6, 10), new("REA", 1, 6, 10),
+        new("STR", 1, 6, 10), new("CHA", 1, 6, 10), new("INT", 1, 6, 10),
+        new("LOG", 1, 6, 10), new("WIL", 1, 6, 10), new("EDG", 2, 7, 7),
+        new("MAG", 1, 6, 6), new("RES", 1, 6, 6), new("ESS", 0, 6, 6),
+        new("DEP", 0, 0, 0)
+    ];
 
     private static string Digest(int value) =>
         "sha256:" + value.ToString("x64");

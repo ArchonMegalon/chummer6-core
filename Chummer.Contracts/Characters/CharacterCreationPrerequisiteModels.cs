@@ -14,6 +14,13 @@ public static class CharacterCreationPrerequisiteSchemas
     public const string DraftV1 = "chummer.character_creation_prerequisite_draft.v1";
 }
 
+public static class CharacterCreationPriorityChildKinds
+{
+    public const string Metatype = "metatype";
+    public const string Metavariant = "metavariant";
+    public const string Talent = "talent";
+}
+
 public static class CharacterCreationPriorityCategoryIds
 {
     public const string Heritage = "heritage";
@@ -34,11 +41,21 @@ public static class CharacterCreationPrerequisiteBlockers
     public const string CharacterAlreadyCreated = "creation-prerequisite-character-already-created";
     public const string CharacterDocumentInvalid = "creation-prerequisite-character-document-invalid";
     public const string CreationKarmaAuthorityRequired = "creation-karma-authority-required";
+    public const string CreationKarmaExceeded = "creation-prerequisite-creation-karma-exceeded";
+    public const string CustomDataDrift = "creation-prerequisite-custom-data-drift";
     public const string DraftConflict = "creation-prerequisite-draft-conflict";
     public const string DraftDuplicate = "creation-prerequisite-draft-duplicate";
     public const string DraftInvalid = "creation-prerequisite-draft-invalid";
+    public const string DependentAttributesDraftExists = "creation-prerequisite-dependent-attributes-draft-exists";
     public const string ExplicitConfirmationRequired = "creation-prerequisite-explicit-confirmation-required";
     public const string LegacyPriorityStateRequiresImport = "creation-prerequisite-legacy-priority-state-requires-import";
+    public const string AttributeSettingsInvalid = "creation-prerequisite-attribute-settings-invalid";
+    public const string HeritageSelectionIncomplete = "creation-prerequisite-heritage-selection-incomplete";
+    public const string HeritageSelectionInvalid = "creation-prerequisite-heritage-selection-invalid";
+    public const string HeritageSelectionUnsupported = "creation-prerequisite-heritage-selection-unsupported";
+    public const string MetatypeCustomDataUnsupported = "creation-prerequisite-metatype-custom-data-unsupported";
+    public const string MetatypeOverlayUnsupported = "creation-prerequisite-metatype-overlay-unsupported";
+    public const string MetatypeSourceDrift = "creation-prerequisite-metatype-source-drift";
     public const string PersistenceAuthorityRequired = "creation-prerequisite-persistence-authority-required";
     public const string PreviewDigestMismatch = "creation-prerequisite-preview-digest-mismatch";
     public const string PrioritiesSourceDrift = "creation-prerequisite-priorities-source-drift";
@@ -54,10 +71,44 @@ public static class CharacterCreationPrerequisiteBlockers
     public const string SettingsProfileDrift = "creation-prerequisite-settings-profile-drift";
     public const string SumToTenMismatch = "creation-prerequisite-sum-to-ten-mismatch";
     public const string SumToTenTargetInvalid = "creation-prerequisite-sum-to-ten-target-invalid";
+    public const string TalentSelectionIncomplete = "creation-prerequisite-talent-selection-incomplete";
+    public const string TalentSelectionInvalid = "creation-prerequisite-talent-selection-invalid";
+    public const string TalentSelectionUnsupported = "creation-prerequisite-talent-selection-unsupported";
     public const string StaleRawCharacterXmlDigest = "creation-prerequisite-stale-raw-character-xml-digest";
     public const string StaleWorkspaceRevision = "creation-prerequisite-stale-workspace-revision";
     public const string WorkspaceUnavailable = "creation-prerequisite-workspace-unavailable";
 }
+
+public sealed record CharacterCreationPriorityHeritageOptionProjection(
+    string SelectionId,
+    string Kind,
+    string MetatypeSourceId,
+    string? MetavariantSourceId,
+    string MetatypeName,
+    string? MetavariantName,
+    int SpecialAttributePoints,
+    int KarmaCost,
+    bool HalvesNormalAttributePoints,
+    IReadOnlyList<CharacterCreationMetatypeAttributeProjection> Attributes,
+    string PriorityChildNodeDigest,
+    string MetatypeSourceNodeDigest,
+    bool IsEnabled,
+    IReadOnlyList<string> Blockers,
+    IReadOnlyList<string> SourceAnchorIds);
+
+public sealed record CharacterCreationPriorityTalentOptionProjection(
+    string SelectionId,
+    string Name,
+    string Value,
+    int SpecialAttributePoints,
+    int? Magic,
+    int? Resonance,
+    int? Depth,
+    IReadOnlyList<string> GrantedQualities,
+    string PriorityChildNodeDigest,
+    bool IsEnabled,
+    IReadOnlyList<string> Blockers,
+    IReadOnlyList<string> SourceAnchorIds);
 
 public sealed record CharacterCreationPriorityRankWeight(
     string Rank,
@@ -77,7 +128,14 @@ public sealed record CharacterCreationPriorityOptionProjection(
     int SumToTenValue,
     int? BaseNormalAttributePoints,
     string SourceNodeDigest,
-    IReadOnlyList<string> SourceAnchorIds);
+    IReadOnlyList<string> SourceAnchorIds)
+{
+    public IReadOnlyList<CharacterCreationPriorityHeritageOptionProjection> HeritageOptions
+        { get; init; } = [];
+
+    public IReadOnlyList<CharacterCreationPriorityTalentOptionProjection> TalentOptions
+        { get; init; } = [];
+}
 
 public sealed record CharacterCreationPrerequisiteAuthority(
     string Schema,
@@ -98,6 +156,20 @@ public sealed record CharacterCreationPrerequisiteAuthority(
     bool IsAuthoritative,
     string AuthorityDigest)
 {
+    public string SelectedCustomDataInputsDigest { get; init; } = string.Empty;
+
+    public string RawMetatypesXmlDigest { get; init; } = string.Empty;
+
+    public string EffectiveMetatypesInputsDigest { get; init; } = string.Empty;
+
+    public int? MaxNumberMaxAttributesCreate { get; init; }
+
+    public int? KarmaAttribute { get; init; }
+
+    public bool? AlternateMetatypeAttributeKarma { get; init; }
+
+    public bool? ReverseAttributePriorityOrder { get; init; }
+
     public static CharacterCreationPrerequisiteAuthority Unavailable { get; } = new(
         Schema: CharacterCreationPrerequisiteSchemas.AuthorityV1,
         SettingsProfileId: string.Empty,
@@ -204,6 +276,35 @@ public sealed record CharacterCreationPriorityAssignment(
     int? BaseNormalAttributePoints,
     IReadOnlyList<string> SourceAnchorIds);
 
+public sealed record CharacterCreationPriorityHeritageSelection(
+    string SelectionId,
+    string Kind,
+    string PrioritySourceId,
+    string MetatypeSourceId,
+    string? MetavariantSourceId,
+    string MetatypeName,
+    string? MetavariantName,
+    int SpecialAttributePoints,
+    int KarmaCost,
+    bool HalvesNormalAttributePoints,
+    IReadOnlyList<CharacterCreationMetatypeAttributeProjection> Attributes,
+    string PriorityChildNodeDigest,
+    string MetatypeSourceNodeDigest,
+    IReadOnlyList<string> SourceAnchorIds);
+
+public sealed record CharacterCreationPriorityTalentSelection(
+    string SelectionId,
+    string PrioritySourceId,
+    string Name,
+    string Value,
+    int SpecialAttributePoints,
+    int? Magic,
+    int? Resonance,
+    int? Depth,
+    IReadOnlyList<string> GrantedQualities,
+    string PriorityChildNodeDigest,
+    IReadOnlyList<string> SourceAnchorIds);
+
 public sealed record CharacterCreationPrerequisiteDraft(
     string Schema,
     CharacterWorkspaceId WorkspaceId,
@@ -220,7 +321,16 @@ public sealed record CharacterCreationPrerequisiteDraft(
     int CreationKarmaTotal,
     int CreationKarmaUsed,
     IReadOnlyList<string> SourceAnchorIds,
-    string DraftDigest);
+    string DraftDigest)
+{
+    public CharacterCreationPriorityHeritageSelection? HeritageSelection { get; init; }
+
+    public CharacterCreationPriorityTalentSelection? TalentSelection { get; init; }
+
+    public int EffectiveNormalAttributePoints { get; init; }
+
+    public int TotalSpecialAttributePoints { get; init; }
+}
 
 public sealed record CharacterCreationPrerequisiteBinding(
     CharacterWorkspaceId WorkspaceId,
@@ -235,13 +345,23 @@ public sealed record CharacterCreationPrerequisiteLoadRequest(
 
 public sealed record CharacterCreationPrerequisitePreviewRequest(
     CharacterCreationPrerequisiteBinding Binding,
-    IReadOnlyDictionary<string, string> PriorityAssignments);
+    IReadOnlyDictionary<string, string> PriorityAssignments)
+{
+    public string? HeritageSelectionId { get; init; }
+
+    public string? TalentSelectionId { get; init; }
+}
 
 public sealed record CharacterCreationPrerequisiteConfirmRequest(
     CharacterCreationPrerequisiteBinding Binding,
     IReadOnlyDictionary<string, string> PriorityAssignments,
     string PreviewDigest,
-    bool ExplicitlyConfirmed);
+    bool ExplicitlyConfirmed)
+{
+    public string? HeritageSelectionId { get; init; }
+
+    public string? TalentSelectionId { get; init; }
+}
 
 public sealed record CharacterCreationPrerequisiteState(
     string Schema,
@@ -256,7 +376,12 @@ public sealed record CharacterCreationPrerequisiteState(
     bool RequiresMetatypeAttributeAdjustment,
     bool CanEnterAttributes,
     IReadOnlyList<string> Blockers,
-    string SnapshotDigest);
+    string SnapshotDigest)
+{
+    public int? EffectiveNormalAttributePoints { get; init; }
+
+    public int? TotalSpecialAttributePoints { get; init; }
+}
 
 public sealed record CharacterCreationPrerequisitePreview(
     string Schema,
@@ -270,7 +395,16 @@ public sealed record CharacterCreationPrerequisitePreview(
     IReadOnlyList<string> Blockers,
     bool RequiresExplicitConfirmation,
     bool CanConfirm,
-    string PreviewDigest);
+    string PreviewDigest)
+{
+    public CharacterCreationPriorityHeritageSelection? HeritageSelection { get; init; }
+
+    public CharacterCreationPriorityTalentSelection? TalentSelection { get; init; }
+
+    public int EffectiveNormalAttributePoints { get; init; }
+
+    public int TotalSpecialAttributePoints { get; init; }
+}
 
 public sealed record CharacterCreationPrerequisiteReceipt(
     CharacterWorkspaceId WorkspaceId,
@@ -283,4 +417,9 @@ public sealed record CharacterCreationPrerequisiteReceipt(
     string DraftDigest,
     int CreationKarmaRemaining,
     int BaseNormalAttributePoints,
-    bool CharacterDocumentChanged);
+    bool CharacterDocumentChanged)
+{
+    public int EffectiveNormalAttributePoints { get; init; }
+
+    public int TotalSpecialAttributePoints { get; init; }
+}

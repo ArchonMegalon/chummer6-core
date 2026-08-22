@@ -20,6 +20,8 @@ public sealed class FileSystemCharacterSourceDataResolverTests
     private const string CanonicalStreetScumSettingsId = "4c34a8ed-2888-410c-afda-024475fa3c76";
     private const string CanonicalPrioritiesDigest =
         "sha256:4b41936b90fdd84a00b060585542eed8eb4d2045eeda1940c1c8a95af3eb91d1";
+    private const string CanonicalMetatypesDigest =
+        "sha256:ccee5dfabb8d0e193aa980e9905822a0f94fb9bb8093c162f5b694a974946425";
     private const string VehicleModId = "f89a112e-600a-4278-8731-9b14cf3737c9";
 
     [TestMethod]
@@ -41,11 +43,39 @@ public sealed class FileSystemCharacterSourceDataResolverTests
         Assert.AreEqual("Standard", authority.PriorityTable);
         Assert.AreEqual(10, authority.SumToTenTarget);
         Assert.AreEqual(CanonicalPrioritiesDigest, authority.RawPrioritiesXmlDigest);
+        Assert.AreEqual(CanonicalMetatypesDigest, authority.RawMetatypesXmlDigest);
+        Assert.IsTrue(CharacterCreationPrerequisiteAuthorityDigest.IsCanonical(
+            authority.SelectedCustomDataInputsDigest));
+        Assert.AreEqual(1, authority.MaxNumberMaxAttributesCreate);
+        Assert.AreEqual(5, authority.KarmaAttribute);
+        Assert.IsFalse(authority.AlternateMetatypeAttributeKarma);
+        Assert.IsFalse(authority.ReverseAttributePriorityOrder);
         Assert.HasCount(25, authority.Options);
         CharacterCreationPriorityOptionProjection attributesA = authority.Options.Single(option =>
             option.CategoryId == CharacterCreationPriorityCategoryIds.Attributes
             && option.Rank == "A");
         Assert.AreEqual(24, attributesA.BaseNormalAttributePoints);
+        CharacterCreationPriorityOptionProjection heritageE = authority.Options.Single(option =>
+            option.CategoryId == CharacterCreationPriorityCategoryIds.Heritage
+            && option.Rank == "E");
+        CharacterCreationPriorityHeritageOptionProjection human = heritageE.HeritageOptions.Single(option =>
+            option.MetatypeName == "Human" && option.MetavariantName is null);
+        Assert.IsTrue(human.IsEnabled, string.Join(",", human.Blockers));
+        Assert.AreEqual(1, human.SpecialAttributePoints);
+        Assert.IsFalse(human.HalvesNormalAttributePoints);
+        Assert.HasCount(13, human.Attributes);
+        CharacterCreationPriorityOptionProjection talentE = authority.Options.Single(option =>
+            option.CategoryId == CharacterCreationPriorityCategoryIds.Talent
+            && option.Rank == "E");
+        Assert.IsTrue(talentE.TalentOptions.Single(option => option.Value == "Mundane").IsEnabled);
+        Assert.IsFalse(talentE.TalentOptions.Single(option => option.Value == "A.I.").IsEnabled);
+        CharacterCreationPriorityHeritageOptionProjection halved = authority.Options
+            .Where(option => option.CategoryId == CharacterCreationPriorityCategoryIds.Heritage)
+            .SelectMany(option => option.HeritageOptions)
+            .First(option => option.HalvesNormalAttributePoints);
+        Assert.IsFalse(halved.IsEnabled);
+        Assert.IsTrue(CharacterCreationPrerequisiteAuthorityDigest.IsCanonical(
+            halved.MetatypeSourceNodeDigest));
         Assert.IsTrue(CharacterCreationPrerequisiteAuthorityDigest.EqualsFixedTime(
             authority.AuthorityDigest,
             CharacterCreationPrerequisiteAuthorityDigest.Compute(authority)));
@@ -135,6 +165,96 @@ public sealed class FileSystemCharacterSourceDataResolverTests
             CollectionAssert.Contains(
                 drifted.Blockers.ToList(),
                 CharacterCreationPrerequisiteBlockers.PrioritiesSourceDrift);
+        }
+        finally
+        {
+            DeleteTempDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public void Priority_authority_projects_nonzero_heritage_karma_from_effective_source()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            WriteBaseContent(
+                root,
+                string.Empty,
+                "<buildmethod>Priority</buildmethod><buildpoints>25</buildpoints>"
+                + "<priorityarray>ABCDE</priorityarray><prioritytable>Standard</prioritytable>"
+                + "<sumtoten>10</sumtoten>");
+            WritePriorityFixture(root);
+            string prioritiesPath = Path.Combine(root, "data", "priorities.xml");
+            File.WriteAllText(
+                prioritiesPath,
+                File.ReadAllText(prioritiesPath).Replace(
+                    "<karma>0</karma>",
+                    "<karma>7</karma>",
+                    StringComparison.Ordinal));
+
+            ICharacterSourceDataContext context = CreateContext(root, CharacterXml())!;
+            Assert.IsTrue(context.TryResolveCreationPrerequisiteAuthority(
+                out CharacterCreationPrerequisiteAuthority authority));
+            Assert.IsTrue(authority.IsAuthoritative, string.Join(",", authority.Blockers));
+            CharacterCreationPriorityHeritageOptionProjection human = authority.Options.Single(option =>
+                    option.CategoryId == CharacterCreationPriorityCategoryIds.Heritage
+                    && option.Rank == "A")
+                .HeritageOptions.Single(option => option.MetatypeName == "Human");
+            Assert.AreEqual(7, human.KarmaCost);
+        }
+        finally
+        {
+            DeleteTempDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public void Priority_authority_rejects_metatype_custom_data_and_detects_its_digest_drift()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            const string directoryName = "Unsafe Metatypes";
+            const string customSetting =
+                "<customdatadirectoryname><directoryname>Unsafe Metatypes</directoryname>"
+                + "<order>0</order><enabled>True</enabled></customdatadirectoryname>";
+            WriteBaseContent(
+                root,
+                customSetting,
+                "<buildmethod>Priority</buildmethod><buildpoints>25</buildpoints>"
+                + "<priorityarray>ABCDE</priorityarray><prioritytable>Standard</prioritytable>"
+                + "<sumtoten>10</sumtoten>");
+            WritePriorityFixture(root);
+            string customRoot = Path.Combine(root, "customdata", directoryName);
+            Directory.CreateDirectory(customRoot);
+            string amendmentPath = Path.Combine(customRoot, "amend_metatypes.xml");
+            File.WriteAllText(
+                amendmentPath,
+                "<chummer><metatypes><metatype><name>Human</name>"
+                + "<karma amendoperation=\"replace\">1</karma></metatype></metatypes></chummer>");
+            ICharacterSourceDataContext context = CreateContext(
+                root,
+                CharacterXml(
+                    "<customdatadirectorynames><directoryname>Unsafe Metatypes</directoryname>"
+                    + "</customdatadirectorynames>"))!;
+
+            Assert.IsTrue(context.TryResolveCreationPrerequisiteAuthority(
+                out CharacterCreationPrerequisiteAuthority unsupported));
+            Assert.IsFalse(unsupported.IsAuthoritative);
+            Assert.IsTrue(CharacterCreationPrerequisiteAuthorityDigest.IsCanonical(
+                unsupported.SelectedCustomDataInputsDigest));
+            CollectionAssert.Contains(
+                unsupported.Blockers.ToList(),
+                CharacterCreationPrerequisiteBlockers.MetatypeCustomDataUnsupported);
+
+            File.AppendAllText(amendmentPath, "\n");
+            Assert.IsTrue(context.TryResolveCreationPrerequisiteAuthority(
+                out CharacterCreationPrerequisiteAuthority drifted));
+            Assert.IsFalse(drifted.IsAuthoritative);
+            CollectionAssert.Contains(
+                drifted.Blockers.ToList(),
+                CharacterCreationPrerequisiteBlockers.CustomDataDrift);
         }
         finally
         {
@@ -586,7 +706,25 @@ public sealed class FileSystemCharacterSourceDataResolverTests
         Directory.CreateDirectory(data);
         File.WriteAllText(
             Path.Combine(data, "settings.xml"),
-            $"<chummer><settings><setting><id>{SettingsId}</id><nuyenformat>#,0.###</nuyenformat><karmajoingroup>5</karmajoingroup><karmaleavegroup>1</karmaleavegroup><nuyenperbpwftp>1500</nuyenperbpwftp><nuyenperbpwftm>2000</nuyenperbpwftm><books><book>SR5</book><book>SG</book></books><customdatadirectorynames>{customDataSetting}</customdatadirectorynames>{buildAuthorityXml}</setting></settings></chummer>");
+            $"<chummer><settings><setting><id>{SettingsId}</id><nuyenformat>#,0.###</nuyenformat><karmajoingroup>5</karmajoingroup><karmaleavegroup>1</karmaleavegroup><nuyenperbpwftp>1500</nuyenperbpwftp><nuyenperbpwftm>2000</nuyenperbpwftm><books><book>SR5</book><book>SG</book></books><customdatadirectorynames>{customDataSetting}</customdatadirectorynames>{buildAuthorityXml}<alternatemetatypeattributekarma>False</alternatemetatypeattributekarma><reverseattributepriorityorder>False</reverseattributepriorityorder><karmacost><karmaattribute>5</karmaattribute></karmacost></setting></settings></chummer>");
+        File.WriteAllText(
+            Path.Combine(data, "metatypes.xml"),
+            "<chummer><metatypes><metatype><id>a53d885d-a4a4-443d-b6a6-b0a55b0a96c7</id>"
+            + "<name>Human</name><category>Metahuman</category><karma>0</karma>"
+            + "<bodmin>1</bodmin><bodmax>6</bodmax><bodaug>10</bodaug>"
+            + "<agimin>1</agimin><agimax>6</agimax><agiaug>10</agiaug>"
+            + "<reamin>1</reamin><reamax>6</reamax><reaaug>10</reaaug>"
+            + "<strmin>1</strmin><strmax>6</strmax><straug>10</straug>"
+            + "<chamin>1</chamin><chamax>6</chamax><chaaug>10</chaaug>"
+            + "<intmin>1</intmin><intmax>6</intmax><intaug>10</intaug>"
+            + "<logmin>1</logmin><logmax>6</logmax><logaug>10</logaug>"
+            + "<wilmin>1</wilmin><wilmax>6</wilmax><wilaug>10</wilaug>"
+            + "<edgmin>2</edgmin><edgmax>7</edgmax><edgaug>7</edgaug>"
+            + "<magmin>1</magmin><magmax>6</magmax><magaug>6</magaug>"
+            + "<resmin>1</resmin><resmax>6</resmax><resaug>6</resaug>"
+            + "<essmin>0</essmin><essmax>6</essmax><essaug>6</essaug>"
+            + "<depmin>0</depmin><depmax>0</depmax><depaug>0</depaug>"
+            + "<bonus/><source>SR5</source></metatype></metatypes></chummer>");
         File.WriteAllText(
             Path.Combine(data, "cyberware.xml"),
             "<chummer><grades><grade><name>Standard</name><devicerating>4</devicerating></grade><grade><name>Alphaware</name></grade></grades></chummer>");
@@ -628,7 +766,11 @@ public sealed class FileSystemCharacterSourceDataResolverTests
         {
             string attributes = category == "Attributes"
                 ? $"<attributes>{attributePoints[rank]}</attributes>"
-                : string.Empty;
+                : category == "Heritage"
+                    ? "<metatypes><metatype><name>Human</name><value>1</value><karma>0</karma></metatype></metatypes>"
+                    : category == "Talent"
+                        ? "<talents><talent><name>Mundane</name><value>Mundane</value><forbidden><oneof><metatype>A.I.</metatype></oneof></forbidden></talent></talents>"
+                        : string.Empty;
             string id = $"00000000-0000-0000-0000-{sequence++:000000000000}";
             return $"<priority><id>{id}</id><name>{category}-{rank}</name><value>{rank}</value>"
                    + $"<category>{category}</category>{attributes}</priority>";

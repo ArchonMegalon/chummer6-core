@@ -169,6 +169,18 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 out string priorityTable,
                 out int? sumToTenTarget,
                 out string[] prerequisiteProfileBlockers);
+            ResolveCreationAttributeProfileAuthority(
+                settings,
+                out int? maxNumberMaxAttributesCreate,
+                out int? karmaAttribute,
+                out bool? alternateMetatypeAttributeKarma,
+                out bool? reverseAttributePriorityOrder,
+                out string[] attributeProfileBlockers);
+            prerequisiteProfileBlockers = prerequisiteProfileBlockers
+                .Concat(attributeProfileBlockers)
+                .Distinct(StringComparer.Ordinal)
+                .OrderBy(item => item, StringComparer.Ordinal)
+                .ToArray();
             ResolveMetatypeProfileAuthority(
                 settings,
                 out int? metatypeKarmaMultiplier,
@@ -256,6 +268,10 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 priorityTable,
                 sumToTenTarget,
                 prerequisiteProfileBlockers,
+                maxNumberMaxAttributesCreate,
+                karmaAttribute,
+                alternateMetatypeAttributeKarma,
+                reverseAttributePriorityOrder,
                 metatypeKarmaMultiplier,
                 minimumInitiativeDice,
                 droneMods,
@@ -445,6 +461,113 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             .Distinct(StringComparer.Ordinal)
             .OrderBy(item => item, StringComparer.Ordinal)
             .ToArray();
+    }
+
+    private static void ResolveCreationAttributeProfileAuthority(
+        XElement settings,
+        out int? maxNumberMaxAttributesCreate,
+        out int? karmaAttribute,
+        out bool? alternateMetatypeAttributeKarma,
+        out bool? reverseAttributePriorityOrder,
+        out string[] blockers)
+    {
+        var resolvedBlockers = new List<string>();
+        XElement[] maximumNodes = settings.Elements("maxnumbermaxattributescreate").Take(2).ToArray();
+        if (maximumNodes.Length == 0)
+        {
+            XElement[] legacyNodes = settings.Elements("allow2ndmaxattribute").Take(2).ToArray();
+            if (legacyNodes.Length == 0)
+            {
+                maxNumberMaxAttributesCreate = 1;
+            }
+            else if (legacyNodes.Length == 1
+                     && TryParseStrictBoolElement(legacyNodes[0], out bool allowSecond))
+            {
+                maxNumberMaxAttributesCreate = allowSecond ? 2 : 1;
+            }
+            else
+            {
+                maxNumberMaxAttributesCreate = null;
+                resolvedBlockers.Add(CharacterCreationPrerequisiteBlockers.AttributeSettingsInvalid);
+            }
+        }
+        else if (maximumNodes.Length == 1
+                 && TryParseNonNegativeIntElement(maximumNodes[0], out int maximum))
+        {
+            maxNumberMaxAttributesCreate = maximum;
+        }
+        else
+        {
+            maxNumberMaxAttributesCreate = null;
+            resolvedBlockers.Add(CharacterCreationPrerequisiteBlockers.AttributeSettingsInvalid);
+        }
+
+        alternateMetatypeAttributeKarma = TryReadStrictBool(
+            settings,
+            "alternatemetatypeattributekarma",
+            out bool alternate)
+            ? alternate
+            : null;
+        reverseAttributePriorityOrder = TryReadStrictBool(
+            settings,
+            "reverseattributepriorityorder",
+            out bool reverse)
+            ? reverse
+            : null;
+        if (!alternateMetatypeAttributeKarma.HasValue || !reverseAttributePriorityOrder.HasValue)
+            resolvedBlockers.Add(CharacterCreationPrerequisiteBlockers.AttributeSettingsInvalid);
+
+        XElement[] karmaContainers = settings.Elements("karmacost").Take(2).ToArray();
+        XElement[] karmaNodes = karmaContainers.Length == 1
+            ? karmaContainers[0].Elements("karmaattribute").Take(2).ToArray()
+            : [];
+        if (karmaContainers.Length == 1
+            && !karmaContainers[0].HasAttributes
+            && karmaNodes.Length == 1
+            && TryParseNonNegativeIntElement(karmaNodes[0], out int parsedKarma)
+            && parsedKarma > 0)
+        {
+            karmaAttribute = parsedKarma;
+        }
+        else
+        {
+            karmaAttribute = null;
+            resolvedBlockers.Add(CharacterCreationPrerequisiteBlockers.AttributeSettingsInvalid);
+        }
+
+        blockers = resolvedBlockers.Distinct(StringComparer.Ordinal)
+            .OrderBy(item => item, StringComparer.Ordinal)
+            .ToArray();
+    }
+
+    private static bool TryReadStrictBool(XElement parent, string name, out bool value)
+    {
+        XElement[] matches = parent.Elements(name).Take(2).ToArray();
+        value = false;
+        return matches.Length == 1 && TryParseStrictBoolElement(matches[0], out value);
+    }
+
+    private static bool TryParseStrictBoolElement(XElement element, out bool value)
+    {
+        value = false;
+        return !element.HasAttributes
+               && !element.HasElements
+               && string.Equals(element.Value, element.Value.Trim(), StringComparison.Ordinal)
+               && bool.TryParse(element.Value, out value);
+    }
+
+    private static bool TryParseNonNegativeIntElement(XElement element, out int value)
+    {
+        value = 0;
+        return !element.HasAttributes
+               && !element.HasElements
+               && string.Equals(element.Value, element.Value.Trim(), StringComparison.Ordinal)
+               && int.TryParse(
+                   element.Value,
+                   NumberStyles.Integer,
+                   CultureInfo.InvariantCulture,
+                   out value)
+               && value >= 0;
     }
 
     private static void ResolveMetatypeProfileAuthority(
@@ -731,6 +854,10 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
         private readonly string _priorityTable;
         private readonly int? _sumToTenTarget;
         private readonly IReadOnlyList<string> _prerequisiteProfileBlockers;
+        private readonly int? _maxNumberMaxAttributesCreate;
+        private readonly int? _karmaAttribute;
+        private readonly bool? _alternateMetatypeAttributeKarma;
+        private readonly bool? _reverseAttributePriorityOrder;
         private readonly int? _metatypeKarmaMultiplier;
         private readonly int? _minimumInitiativeDice;
         private readonly bool? _droneMods;
@@ -765,6 +892,10 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             string priorityTable,
             int? sumToTenTarget,
             IReadOnlyList<string> prerequisiteProfileBlockers,
+            int? maxNumberMaxAttributesCreate,
+            int? karmaAttribute,
+            bool? alternateMetatypeAttributeKarma,
+            bool? reverseAttributePriorityOrder,
             int? metatypeKarmaMultiplier,
             int? minimumInitiativeDice,
             bool? droneMods,
@@ -798,6 +929,10 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             _priorityTable = priorityTable;
             _sumToTenTarget = sumToTenTarget;
             _prerequisiteProfileBlockers = prerequisiteProfileBlockers;
+            _maxNumberMaxAttributesCreate = maxNumberMaxAttributesCreate;
+            _karmaAttribute = karmaAttribute;
+            _alternateMetatypeAttributeKarma = alternateMetatypeAttributeKarma;
+            _reverseAttributePriorityOrder = reverseAttributePriorityOrder;
             _metatypeKarmaMultiplier = metatypeKarmaMultiplier;
             _minimumInitiativeDice = minimumInitiativeDice;
             _droneMods = droneMods;
@@ -869,7 +1004,31 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                     out XDocument? document,
                     out bool customDataUnsupported,
                     out string[] customSourceAnchors)
-                || document?.Root is null)
+                || document?.Root is null
+                || !TryComputeSelectedCustomDataInputsDigest(
+                    _customDirectories,
+                    out string currentCustomDataInputsDigest)
+                || !TryHasSelectedCustomDataInputFor(
+                    _customDirectories,
+                    "metatypes.xml",
+                    out bool hasMetatypeCustomData)
+                || !TryComputeRawBaseFileDigest(
+                    _catalog,
+                    "metatypes.xml",
+                    out string currentRawMetatypesXmlDigest)
+                || !TryComputeEffectiveInputDigest(
+                    _catalog,
+                    "metatypes.xml",
+                    out string currentEffectiveMetatypesInputsDigest)
+                || !TryLoadEffectiveDocument(
+                    _catalog,
+                    "metatypes.xml",
+                    out XDocument? metatypesDocument)
+                || metatypesDocument?.Root is null
+                || !TryHasEnabledOverlayInput(
+                    _catalog,
+                    "metatypes.xml",
+                    out bool hasMetatypeOverlay))
             {
                 return false;
             }
@@ -907,6 +1066,36 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             {
                 blockers.Add(CharacterCreationPrerequisiteBlockers.PriorityCustomDataUnsupported);
             }
+            if (string.IsNullOrWhiteSpace(_selectedCustomDataInputsDigest))
+            {
+                blockers.Add(CharacterCreationPrerequisiteBlockers.AuthorityUnavailable);
+            }
+            else if (!string.Equals(
+                         currentCustomDataInputsDigest,
+                         _selectedCustomDataInputsDigest,
+                         StringComparison.Ordinal))
+            {
+                blockers.Add(CharacterCreationPrerequisiteBlockers.CustomDataDrift);
+            }
+            if (hasMetatypeCustomData)
+            {
+                blockers.Add(CharacterCreationPrerequisiteBlockers.MetatypeCustomDataUnsupported);
+            }
+            if (hasMetatypeOverlay)
+            {
+                blockers.Add(CharacterCreationPrerequisiteBlockers.MetatypeOverlayUnsupported);
+            }
+            if (!string.Equals(
+                    currentRawMetatypesXmlDigest,
+                    _rawMetatypesXmlDigest,
+                    StringComparison.Ordinal)
+                || !string.Equals(
+                    currentEffectiveMetatypesInputsDigest,
+                    _effectiveMetatypesInputsDigest,
+                    StringComparison.Ordinal))
+            {
+                blockers.Add(CharacterCreationPrerequisiteBlockers.MetatypeSourceDrift);
+            }
 
             var projectionContext = new CharacterCreationPrerequisiteProjectionContext(
                 SettingsProfileId: _settingsProfileId,
@@ -919,15 +1108,28 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 RawPrioritiesXmlDigest: _rawPrioritiesXmlDigest,
                 EffectivePrioritiesInputsDigest: _effectivePrioritiesInputsDigest,
                 SelectedPriorityCustomDataInputsDigest: _selectedPriorityCustomDataInputsDigest,
+                SelectedCustomDataInputsDigest: _selectedCustomDataInputsDigest,
+                RawMetatypesXmlDigest: _rawMetatypesXmlDigest,
+                EffectiveMetatypesInputsDigest: _effectiveMetatypesInputsDigest,
+                EnabledSourcebooks: _enabledSourcebooks
+                    .OrderBy(item => item, StringComparer.OrdinalIgnoreCase)
+                    .ToArray(),
+                MaxNumberMaxAttributesCreate: _maxNumberMaxAttributesCreate,
+                KarmaAttribute: _karmaAttribute,
+                AlternateMetatypeAttributeKarma: _alternateMetatypeAttributeKarma,
+                ReverseAttributePriorityOrder: _reverseAttributePriorityOrder,
                 SourceAnchorIds:
                 [
                     $"settings.xml#setting:{_settingsProfileId}",
                     "priorities.xml",
+                    "metatypes.xml",
+                    .. _customDirectories.Select(directory => $"customdata:{directory.Name}"),
                     .. customSourceAnchors
                 ],
                 Blockers: blockers);
             authority = CharacterCreationPrerequisiteAuthorityProjector.Project(
                 document,
+                metatypesDocument,
                 projectionContext);
             return true;
         }
@@ -2210,6 +2412,31 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             }
 
             digest = "sha256:" + Convert.ToHexString(hash.GetHashAndReset()).ToLowerInvariant();
+            return true;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
+
+    private static bool TryHasSelectedCustomDataInputFor(
+        IReadOnlyList<CustomDirectory> directories,
+        string targetFileName,
+        out bool hasInput)
+    {
+        hasInput = false;
+        try
+        {
+            foreach (CustomDirectory directory in directories)
+            {
+                if (Directory.EnumerateFiles(directory.Path, "*.xml", SearchOption.AllDirectories)
+                    .Any(path => IsLegacyCustomDataInputFor(path, targetFileName)))
+                {
+                    hasInput = true;
+                    return true;
+                }
+            }
             return true;
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)

@@ -1439,12 +1439,44 @@ public sealed class FileWorkspaceStore :
             && !string.IsNullOrWhiteSpace(prerequisite.PriorityTable)
             && prerequisite.PriorityArray is { Count: 5 }
             && prerequisite.Assignments is { Count: 5 }
+            && prerequisite.HeritageSelection is not null
+            && prerequisite.TalentSelection is not null
+            && prerequisite.EffectiveNormalAttributePoints >= 0
+            && prerequisite.TotalSpecialAttributePoints >= 0
             && prerequisite.CreationKarmaTotal >= 0
             && prerequisite.CreationKarmaUsed >= 0
             && prerequisite.CreationKarmaUsed <= prerequisite.CreationKarmaTotal
             && prerequisite.SourceAnchorIds is not null
             && IsFoundationSha256(prerequisite.DraftDigest);
-        return foundationValid && prerequisiteValid;
+        CharacterCreationAttributesDraft? attributes = state.CharacterCreationAttributesDraft;
+        bool attributesValid = attributes is null
+            || string.Equals(attributes.Schema, CharacterCreationAttributesSchemas.DraftV1, StringComparison.Ordinal)
+            && attributes.WorkspaceId == workspaceId
+            && attributes.DraftRevision > 0
+            && attributes.BaseContentRevision > 0
+            && attributes.BaseContentRevision < currentContentRevision
+            && IsFoundationSha256(attributes.BaseRawCharacterXmlDigest)
+            && attributes.PrerequisiteDraftRevision > 0
+            && IsFoundationSha256(attributes.PrerequisiteDraftDigest)
+            && IsFoundationSha256(attributes.PrerequisiteAuthorityDigest)
+            && Guid.TryParseExact(attributes.MetatypeSourceId, "D", out Guid metatypeSourceId)
+            && metatypeSourceId != Guid.Empty
+            && IsFoundationSha256(attributes.MetatypeSourceNodeDigest)
+            && attributes.NormalPointTotal >= 0
+            && attributes.NormalPointUsed >= 0
+            && attributes.NormalPointUsed <= attributes.NormalPointTotal
+            && attributes.SpecialPointTotal >= 0
+            && attributes.SpecialPointUsed >= 0
+            && attributes.SpecialPointUsed <= attributes.SpecialPointTotal
+            && attributes.CreationKarmaTotal >= 0
+            && attributes.CreationKarmaUsed >= 0
+            && attributes.CreationKarmaUsed <= attributes.CreationKarmaTotal
+            && attributes.Allocations is not null
+            && attributes.Attributes is not null
+            && attributes.SourceAnchorIds is { Count: > 0 }
+            && !attributes.CharacterEffectsApplied
+            && IsFoundationSha256(attributes.DraftDigest);
+        return foundationValid && prerequisiteValid && attributesValid;
     }
 
     private static bool IsValidAuxiliaryStateTransition(
@@ -1467,6 +1499,10 @@ public sealed class FileWorkspaceStore :
             replacementState.CharacterCreationPrerequisiteDraft;
         CharacterCreationPrerequisiteDraft? currentPrerequisite =
             currentState.CharacterCreationPrerequisiteDraft;
+        CharacterCreationAttributesDraft? replacementAttributes =
+            replacementState.CharacterCreationAttributesDraft;
+        CharacterCreationAttributesDraft? currentAttributes =
+            currentState.CharacterCreationAttributesDraft;
 
         bool foundationUnchanged = HasSameFoundationDraft(
             currentFoundation,
@@ -1474,21 +1510,34 @@ public sealed class FileWorkspaceStore :
         bool prerequisiteUnchanged = HasSamePrerequisiteDraft(
             currentPrerequisite,
             replacementPrerequisite);
-        if (foundationUnchanged == prerequisiteUnchanged)
+        bool attributesUnchanged = HasSameAttributesDraft(
+            currentAttributes,
+            replacementAttributes);
+        int changedLaneCount = (foundationUnchanged ? 0 : 1)
+                               + (prerequisiteUnchanged ? 0 : 1)
+                               + (attributesUnchanged ? 0 : 1);
+        if (changedLaneCount != 1)
         {
             // The authority must advance exactly one typed lane. This prevents
             // a caller from smuggling a sibling draft change into the same CAS.
             return false;
         }
 
-        return foundationUnchanged
+        if (!foundationUnchanged)
+        {
+            return IsValidFoundationTransition(
+                currentFoundation,
+                replacementFoundation,
+                previousContentRevision);
+        }
+        return !prerequisiteUnchanged
             ? IsValidPrerequisiteTransition(
                 currentPrerequisite,
                 replacementPrerequisite,
                 previousContentRevision)
-            : IsValidFoundationTransition(
-                currentFoundation,
-                replacementFoundation,
+            : IsValidAttributesTransition(
+                currentAttributes,
+                replacementAttributes,
                 previousContentRevision);
     }
 
@@ -1510,6 +1559,21 @@ public sealed class FileWorkspaceStore :
     private static bool IsValidPrerequisiteTransition(
         CharacterCreationPrerequisiteDraft? current,
         CharacterCreationPrerequisiteDraft? replacement,
+        long previousContentRevision)
+    {
+        if (replacement is null)
+            return current is not null;
+        return current is null
+            ? replacement.DraftRevision == 1
+              && replacement.BaseContentRevision == previousContentRevision
+            : current.DraftRevision < long.MaxValue
+              && replacement.DraftRevision == current.DraftRevision + 1
+              && replacement.BaseContentRevision == previousContentRevision;
+    }
+
+    private static bool IsValidAttributesTransition(
+        CharacterCreationAttributesDraft? current,
+        CharacterCreationAttributesDraft? replacement,
         long previousContentRevision)
     {
         if (replacement is null)
@@ -1544,6 +1608,22 @@ public sealed class FileWorkspaceStore :
                 new WorkspaceDocumentAuxiliaryState(
                     CharacterCreationFoundationDraft: null,
                     CharacterCreationPrerequisiteDraft: right)),
+            StringComparison.Ordinal);
+
+    private static bool HasSameAttributesDraft(
+        CharacterCreationAttributesDraft? left,
+        CharacterCreationAttributesDraft? right) =>
+        string.Equals(
+            WorkspaceDocumentAuxiliaryStateDigest.Compute(
+                new WorkspaceDocumentAuxiliaryState(
+                    CharacterCreationFoundationDraft: null,
+                    CharacterCreationPrerequisiteDraft: null,
+                    CharacterCreationAttributesDraft: left)),
+            WorkspaceDocumentAuxiliaryStateDigest.Compute(
+                new WorkspaceDocumentAuxiliaryState(
+                    CharacterCreationFoundationDraft: null,
+                    CharacterCreationPrerequisiteDraft: null,
+                    CharacterCreationAttributesDraft: right)),
             StringComparison.Ordinal);
 
     private static bool IsFoundationSha256(string? value)
