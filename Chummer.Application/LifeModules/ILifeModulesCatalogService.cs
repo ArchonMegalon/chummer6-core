@@ -4,6 +4,8 @@ namespace Chummer.Application.LifeModules;
 
 public interface ILifeModulesCatalogService
 {
+    LifeModuleCatalogAuthorityDto GetAuthority();
+
     IReadOnlyList<LifeModuleStageDto> GetStages();
 
     IReadOnlyList<LifeModuleSummaryDto> GetModules(string? stage = null);

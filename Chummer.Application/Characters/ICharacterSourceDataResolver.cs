@@ -12,6 +12,18 @@ public interface ICharacterSourceDataResolver
 public interface ICharacterSourceDataContext
 {
     /// <summary>
+    /// Resolves the complete sourcebook set from the settings profile selected by
+    /// the saved character and identifies the exact raw settings/profile inputs.
+    /// False means creation option catalogs must remain empty rather than treating
+    /// a caller-provided filter, or null, as permission to expose every source.
+    /// </summary>
+    bool TryResolveCreationSourceProfile(out CharacterCreationSourceProfileAuthority authority)
+    {
+        authority = CharacterCreationSourceProfileAuthority.Unavailable;
+        return false;
+    }
+
+    /// <summary>
     /// Resolves whether the exact source profile saved by the runner enables a sourcebook.
     /// False means the profile could not prove the answer and callers must fail closed.
     /// </summary>
@@ -126,6 +138,19 @@ public interface ICharacterSourceDataContext
         string sourceId,
         string name,
         out CharacterVehicleModSourceBonuses bonuses);
+}
+
+public sealed record CharacterCreationSourceProfileAuthority(
+    string SettingsProfileId,
+    IReadOnlyList<string> EnabledSourcebooks,
+    string RawProfileInputsDigest,
+    IReadOnlyList<string> SourceAnchorIds)
+{
+    public static CharacterCreationSourceProfileAuthority Unavailable { get; } = new(
+        SettingsProfileId: string.Empty,
+        EnabledSourcebooks: Array.Empty<string>(),
+        RawProfileInputsDigest: string.Empty,
+        SourceAnchorIds: Array.Empty<string>());
 }
 
 public sealed record CharacterQualityLevelSource(

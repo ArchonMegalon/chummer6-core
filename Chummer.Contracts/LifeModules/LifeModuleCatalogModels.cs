@@ -21,7 +21,17 @@ public sealed record LifeModuleSummaryDto(
 public static class LifeModuleJourneySchemas
 {
     public const string V1 = "chummer.life_module_journey.v1";
+    public const string CatalogAuthorityV1 = "chummer.life_module_catalog_authority.v1";
 }
+
+/// <summary>
+/// Identifies the exact raw lifemodules.xml bytes from which catalog projections
+/// were loaded. The digest is intentionally not a digest of projected DTOs.
+/// </summary>
+public sealed record LifeModuleCatalogAuthorityDto(
+    string Schema,
+    string RawXmlDigest,
+    IReadOnlyList<string> SourceAnchorIds);
 
 public static class LifeModuleJourneyStageOrders
 {

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Security.Cryptography;
 using Chummer.Contracts.LifeModules;
 using Chummer.Infrastructure.Files;
 using Chummer.Infrastructure.Xml;
@@ -12,6 +13,29 @@ namespace Chummer.Tests;
 [TestClass]
 public class LifeModulesServiceTests
 {
+    [TestMethod]
+    public void GetAuthority_digest_is_over_exact_raw_lifemodules_xml_bytes()
+    {
+        (string root, string xmlPath) = CreateTempLifeModulesXml();
+        try
+        {
+            byte[] rawXml = File.ReadAllBytes(xmlPath);
+            string expected = "sha256:"
+                              + Convert.ToHexString(SHA256.HashData(rawXml)).ToLowerInvariant();
+            var service = new XmlLifeModulesCatalogService(xmlPath);
+
+            LifeModuleCatalogAuthorityDto authority = service.GetAuthority();
+
+            Assert.AreEqual(LifeModuleJourneySchemas.CatalogAuthorityV1, authority.Schema);
+            Assert.AreEqual(expected, authority.RawXmlDigest);
+            CollectionAssert.Contains(authority.SourceAnchorIds.ToList(), "lifemodules.xml");
+        }
+        finally
+        {
+            DeleteTempDirectory(root);
+        }
+    }
+
     [TestMethod]
     public void GetStages_returns_sorted_stage_list()
     {

@@ -1,4 +1,7 @@
+using System.Buffers.Binary;
 using System.Globalization;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.RegularExpressions;
 using System.Xml;
 using System.Xml.Linq;
@@ -101,6 +104,10 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             {
                 return null;
             }
+            if (!TryComputeEffectiveInputDigest(catalog, "settings.xml", out string settingsInputsDigest))
+            {
+                return null;
+            }
 
             string settingsKey = ReadValue(character, "settings");
             XElement? settings = settingsDocument.Root
@@ -181,6 +188,8 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 catalog,
                 enabledDirectories,
                 enabledSourcebooks,
+                settingsKey,
+                BindSelectedProfile(settingsInputsDigest, settingsKey),
                 maximumNuyenDecimals,
                 joinGroupKarma,
                 leaveGroupKarma,
@@ -414,6 +423,8 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
         private readonly ContentOverlayCatalog _catalog;
         private readonly IReadOnlyList<CustomDirectory> _customDirectories;
         private readonly IReadOnlySet<string> _enabledSourcebooks;
+        private readonly string _settingsProfileId;
+        private readonly string _rawProfileInputsDigest;
         private readonly int? _maximumNuyenDecimals;
         private readonly int? _joinGroupKarma;
         private readonly int? _leaveGroupKarma;
@@ -427,6 +438,8 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             ContentOverlayCatalog catalog,
             IReadOnlyList<CustomDirectory> customDirectories,
             IReadOnlyList<string> enabledSourcebooks,
+            string settingsProfileId,
+            string rawProfileInputsDigest,
             int? maximumNuyenDecimals,
             int? joinGroupKarma,
             int? leaveGroupKarma,
@@ -439,6 +452,8 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             _catalog = catalog;
             _customDirectories = customDirectories;
             _enabledSourcebooks = enabledSourcebooks.ToHashSet(StringComparer.OrdinalIgnoreCase);
+            _settingsProfileId = settingsProfileId;
+            _rawProfileInputsDigest = rawProfileInputsDigest;
             _maximumNuyenDecimals = maximumNuyenDecimals;
             _joinGroupKarma = joinGroupKarma;
             _leaveGroupKarma = leaveGroupKarma;
@@ -453,6 +468,26 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
         {
             decimalPlaces = _maximumNuyenDecimals.GetValueOrDefault();
             return _maximumNuyenDecimals.HasValue;
+        }
+
+        public bool TryResolveCreationSourceProfile(
+            out CharacterCreationSourceProfileAuthority authority)
+        {
+            if (string.IsNullOrWhiteSpace(_settingsProfileId)
+                || string.IsNullOrWhiteSpace(_rawProfileInputsDigest))
+            {
+                authority = CharacterCreationSourceProfileAuthority.Unavailable;
+                return false;
+            }
+
+            authority = new CharacterCreationSourceProfileAuthority(
+                SettingsProfileId: _settingsProfileId,
+                EnabledSourcebooks: _enabledSourcebooks
+                    .OrderBy(item => item, StringComparer.OrdinalIgnoreCase)
+                    .ToArray(),
+                RawProfileInputsDigest: _rawProfileInputsDigest,
+                SourceAnchorIds: [$"settings.xml#setting:{_settingsProfileId}"]);
+            return true;
         }
 
         public bool TryResolveGroupMembershipKarmaCosts(out int joinCost, out int leaveCost)
@@ -1443,6 +1478,88 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
         }
 
         return document?.Root is not null;
+    }
+
+    private static bool TryComputeEffectiveInputDigest(
+        ContentOverlayCatalog catalog,
+        string fileName,
+        out string digest)
+    {
+        digest = string.Empty;
+        try
+        {
+            var inputs = new List<(string AuthorityId, string Path)>();
+            string basePath = Path.Combine(catalog.BaseDataPath, fileName);
+            if (File.Exists(basePath))
+                inputs.Add(("base", basePath));
+
+            foreach (ContentOverlayPack pack in catalog.Overlays
+                         .Where(pack => pack.Enabled)
+                         .OrderBy(pack => pack.Priority)
+                         .ThenBy(pack => pack.Id, StringComparer.Ordinal))
+            {
+                if (string.IsNullOrWhiteSpace(pack.DataPath) || !Directory.Exists(pack.DataPath))
+                    continue;
+
+                if (string.Equals(pack.Mode, ContentOverlayModes.ReplaceFile, StringComparison.Ordinal))
+                {
+                    string replacementPath = Path.Combine(pack.DataPath, fileName);
+                    if (File.Exists(replacementPath))
+                        inputs.Add(($"overlay:{pack.Id}:replace", replacementPath));
+                    continue;
+                }
+
+                if (!string.Equals(pack.Mode, ContentOverlayModes.MergeCatalog, StringComparison.Ordinal))
+                    return false;
+
+                foreach (string fragmentPath in Directory.EnumerateFiles(
+                             pack.DataPath,
+                             "*.xml",
+                             SearchOption.TopDirectoryOnly).OrderBy(path => path, StringComparer.Ordinal))
+                {
+                    if (string.Equals(
+                            ResolveCatalogTargetFileName(Path.GetFileName(fragmentPath)),
+                            fileName,
+                            StringComparison.OrdinalIgnoreCase))
+                    {
+                        inputs.Add(($"overlay:{pack.Id}:merge:{Path.GetFileName(fragmentPath)}", fragmentPath));
+                    }
+                }
+            }
+
+            if (inputs.Count == 0)
+                return false;
+
+            using IncrementalHash hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+            foreach ((string authorityId, string path) in inputs)
+            {
+                AppendFramed(hash, Encoding.UTF8.GetBytes(authorityId));
+                AppendFramed(hash, File.ReadAllBytes(path));
+            }
+
+            digest = "sha256:" + Convert.ToHexString(hash.GetHashAndReset()).ToLowerInvariant();
+            return true;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
+
+    private static string BindSelectedProfile(string rawInputsDigest, string settingsProfileId)
+    {
+        using IncrementalHash hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        AppendFramed(hash, Encoding.UTF8.GetBytes(rawInputsDigest));
+        AppendFramed(hash, Encoding.UTF8.GetBytes(settingsProfileId.Trim()));
+        return "sha256:" + Convert.ToHexString(hash.GetHashAndReset()).ToLowerInvariant();
+    }
+
+    private static void AppendFramed(IncrementalHash hash, byte[] bytes)
+    {
+        Span<byte> length = stackalloc byte[sizeof(long)];
+        BinaryPrimitives.WriteInt64LittleEndian(length, bytes.LongLength);
+        hash.AppendData(length);
+        hash.AppendData(bytes);
     }
 
     private static string ResolveCatalogTargetFileName(string fileName)

@@ -175,6 +175,10 @@ public static class ServiceCollectionExtensions
                 "The configured workspace store does not provide a readiness probe."));
         services.AddSingleton<IWorkspaceImportRulesetDetector, WorkspaceImportRulesetDetector>();
         services.AddSingleton<IWorkspaceService, WorkspaceService>();
+        services.AddSingleton<ICharacterCreationFoundationApplyAuthority,
+            UnavailableCharacterCreationFoundationApplyAuthority>();
+        services.AddSingleton<ICharacterCreationFoundationService,
+            CharacterCreationFoundationService>();
 
         return services;
     }

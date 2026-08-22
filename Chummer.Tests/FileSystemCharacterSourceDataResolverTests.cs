@@ -16,6 +16,38 @@ public sealed class FileSystemCharacterSourceDataResolverTests
     private const string VehicleModId = "f89a112e-600a-4278-8731-9b14cf3737c9";
 
     [TestMethod]
+    public void Creation_source_profile_comes_from_saved_settings_and_binds_raw_profile_inputs()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            WriteBaseContent(root, customDataSetting: string.Empty);
+            ICharacterSourceDataContext first = CreateContext(root, CharacterXml())!;
+            Assert.IsTrue(first.TryResolveCreationSourceProfile(
+                out CharacterCreationSourceProfileAuthority firstAuthority));
+            CollectionAssert.AreEqual(
+                new[] { "SG", "SR5" },
+                firstAuthority.EnabledSourcebooks.ToArray());
+
+            string settingsPath = Path.Combine(root, "data", "settings.xml");
+            File.AppendAllText(settingsPath, "\n");
+            ICharacterSourceDataContext second = CreateContext(root, CharacterXml())!;
+            Assert.IsTrue(second.TryResolveCreationSourceProfile(
+                out CharacterCreationSourceProfileAuthority secondAuthority));
+
+            Assert.AreEqual(SettingsId, firstAuthority.SettingsProfileId);
+            Assert.AreNotEqual(
+                firstAuthority.RawProfileInputsDigest,
+                secondAuthority.RawProfileInputsDigest,
+                "Changing raw settings.xml bytes must change the profile authority digest.");
+        }
+        finally
+        {
+            DeleteTempDirectory(root);
+        }
+    }
+
+    [TestMethod]
     public void Context_resolves_base_grade_and_vehicle_mod_source_values()
     {
         string root = CreateTempDirectory();

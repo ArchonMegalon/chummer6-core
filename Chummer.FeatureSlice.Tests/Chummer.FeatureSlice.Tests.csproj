@@ -13,6 +13,8 @@
     <Compile Include="..\Chummer.Tests\SessionActionBudgetServiceTests.cs" Link="SessionActionBudgetServiceTests.cs" />
     <Compile Include="..\Chummer.Tests\CalculationReportServiceTests.cs" Link="CalculationReportServiceTests.cs" />
     <Compile Include="..\Chummer.Tests\LifeModulesServiceTests.cs" Link="LifeModulesServiceTests.cs" />
+    <Compile Include="..\Chummer.Tests\CharacterCreationFoundationServiceTests.cs" Link="CharacterCreationFoundationServiceTests.cs" />
+    <Compile Include="..\Chummer.Tests\FileSystemCharacterSourceDataResolverTests.cs" Link="FileSystemCharacterSourceDataResolverTests.cs" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\Chummer.Application\Chummer.Application.csproj" />

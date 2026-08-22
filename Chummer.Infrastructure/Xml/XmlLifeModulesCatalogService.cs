@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Security.Cryptography;
 using System.Text.RegularExpressions;
 using System.Xml.Linq;
 using Chummer.Application.LifeModules;
@@ -34,17 +35,24 @@ public sealed class XmlLifeModulesCatalogService : ILifeModulesCatalogService
             ["pushtext"] = "story"
         };
 
-    private readonly Lazy<XDocument> _document;
+    private sealed record CatalogSnapshot(XDocument Document, string RawXmlDigest);
+
+    private readonly Lazy<CatalogSnapshot> _snapshot;
 
     public XmlLifeModulesCatalogService(string lifeModulesPath)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(lifeModulesPath);
-        _document = new Lazy<XDocument>(() => XDocument.Load(lifeModulesPath));
+        _snapshot = new Lazy<CatalogSnapshot>(() => LoadSnapshot(lifeModulesPath));
     }
+
+    public LifeModuleCatalogAuthorityDto GetAuthority() => new(
+        Schema: LifeModuleJourneySchemas.CatalogAuthorityV1,
+        RawXmlDigest: _snapshot.Value.RawXmlDigest,
+        SourceAnchorIds: ["lifemodules.xml"]);
 
     public IReadOnlyList<LifeModuleStageDto> GetStages()
     {
-        return _document.Value.Root!
+        return _snapshot.Value.Document.Root!
             .Element("stages")!
             .Elements("stage")
             .Select(stage => new LifeModuleStageDto(
@@ -56,7 +64,7 @@ public sealed class XmlLifeModulesCatalogService : ILifeModulesCatalogService
 
     public IReadOnlyList<LifeModuleSummaryDto> GetModules(string? stage = null)
     {
-        IEnumerable<XElement> modules = _document.Value.Root!
+        IEnumerable<XElement> modules = _snapshot.Value.Document.Root!
             .Element("modules")!
             .Elements("module");
 
@@ -91,7 +99,7 @@ public sealed class XmlLifeModulesCatalogService : ILifeModulesCatalogService
                 .Select(item => item.Trim())
                 .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-        IEnumerable<XElement> modules = _document.Value.Root!
+        IEnumerable<XElement> modules = _snapshot.Value.Document.Root!
             .Element("modules")!
             .Elements("module");
 
@@ -595,4 +603,13 @@ public sealed class XmlLifeModulesCatalogService : ILifeModulesCatalogService
 
     private static bool TryParseDecimal(string raw, out decimal value) =>
         decimal.TryParse(raw, NumberStyles.Number, CultureInfo.InvariantCulture, out value);
+
+    private static CatalogSnapshot LoadSnapshot(string path)
+    {
+        byte[] bytes = File.ReadAllBytes(path);
+        using var stream = new MemoryStream(bytes, writable: false);
+        XDocument document = XDocument.Load(stream, LoadOptions.None);
+        string digest = "sha256:" + Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
+        return new CatalogSnapshot(document, digest);
+    }
 }
