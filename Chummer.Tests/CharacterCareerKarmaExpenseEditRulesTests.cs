@@ -81,6 +81,29 @@ public sealed class CharacterCareerKarmaExpenseEditRulesTests
     }
 
     [TestMethod]
+    public void Karma_delta_truncates_each_amount_before_subtraction()
+    {
+        Assert.IsTrue(CharacterCareerKarmaExpenseEditRules.TryCreateEntry(
+            ExpenseId,
+            new DateTime(2081, 5, 12),
+            1.9m,
+            "Run reward",
+            refund: false,
+            forceCareerVisible: false,
+            "ManualAdd",
+            out CharacterCareerKarmaExpenseEntry? entry));
+
+        Assert.IsTrue(CharacterCareerKarmaExpenseEditRules.TryEdit(
+            entry!,
+            2.1m,
+            entry!.Reason,
+            entry.ExpenseDateLocal,
+            out CharacterCareerKarmaExpenseEditResult? result));
+        Assert.AreEqual(1, result!.KarmaDelta);
+        Assert.AreEqual(2m, result.Expense.Amount);
+    }
+
+    [TestMethod]
     public void Default_nonmanual_and_wrong_case_undo_types_lock_amount()
     {
         Assert.IsFalse(CharacterCareerKarmaExpenseEditRules.IsAmountEditable(null));
