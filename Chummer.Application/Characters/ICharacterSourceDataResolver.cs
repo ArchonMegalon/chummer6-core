@@ -26,6 +26,19 @@ public interface ICharacterSourceDataContext
     }
 
     /// <summary>
+    /// Resolves one non-custom saved knowledge-skill source GUID through the runner's exact
+    /// enabled-book and ordered custom-data profile. Custom knowledge skills intentionally
+    /// carry no source GUID and must remain bound to their complete saved XML instead.
+    /// </summary>
+    bool TryResolveKnowledgeSkillSource(
+        string sourceSkillId,
+        out CharacterKnowledgeSkillSource source)
+    {
+        source = CharacterKnowledgeSkillSource.Unavailable;
+        return false;
+    }
+
+    /// <summary>
     /// Projects the exact Priority/Sum-to-Ten rank authority and global creation
     /// Karma total selected by the saved character's settings profile. False
     /// means callers must not expose rank or Attribute-point choices.
@@ -200,6 +213,21 @@ public sealed record CharacterActiveSkillSource(
         RequiresGroundMovement: false,
         RequiresSwimMovement: false,
         RequiresFlyMovement: false,
+        RawSourceXml: string.Empty);
+}
+
+public sealed record CharacterKnowledgeSkillSource(
+    string SourceSkillId,
+    string Name,
+    string SkillCategory,
+    string DefaultAttribute,
+    string RawSourceXml)
+{
+    public static CharacterKnowledgeSkillSource Unavailable { get; } = new(
+        SourceSkillId: string.Empty,
+        Name: string.Empty,
+        SkillCategory: string.Empty,
+        DefaultAttribute: string.Empty,
         RawSourceXml: string.Empty);
 }
 

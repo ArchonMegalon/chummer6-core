@@ -1362,6 +1362,49 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             return true;
         }
 
+        public bool TryResolveKnowledgeSkillSource(
+            string sourceSkillId,
+            out CharacterKnowledgeSkillSource source)
+        {
+            source = CharacterKnowledgeSkillSource.Unavailable;
+            if (!Guid.TryParse(sourceSkillId, out Guid parsedSourceId)
+                || parsedSourceId == Guid.Empty
+                || !TryResolveTarget(
+                    "skills.xml",
+                    ["knowledgeskills"],
+                    "skill",
+                    parsedSourceId.ToString("D"),
+                    name: string.Empty,
+                    out XElement? skill)
+                || skill is null
+                || !Guid.TryParse(ReadValue(skill, "id"), out Guid resolvedSourceId)
+                || resolvedSourceId != parsedSourceId)
+            {
+                return false;
+            }
+
+            string name = ReadValue(skill, "name");
+            string category = ReadValue(skill, "category");
+            string attribute = ReadValue(skill, "attribute");
+            string sourceBook = ReadValue(skill, "source");
+            if (string.IsNullOrWhiteSpace(name)
+                || string.IsNullOrWhiteSpace(category)
+                || string.IsNullOrWhiteSpace(attribute)
+                || !string.IsNullOrWhiteSpace(sourceBook)
+                    && (!_enabledSourcebooks.Contains(sourceBook) || _enabledSourcebooks.Count == 0))
+            {
+                return false;
+            }
+
+            source = new CharacterKnowledgeSkillSource(
+                resolvedSourceId.ToString("D"),
+                name,
+                category,
+                attribute,
+                skill.ToString(SaveOptions.DisableFormatting));
+            return true;
+        }
+
         public bool TryResolveKarmaNuyenExchangeRates(
             out decimal workingForPeopleRate,
             out decimal workingForManRate)
