@@ -26,6 +26,30 @@ public sealed class FileSystemCharacterSourceDataResolverTests
     private const string VehicleModId = "f89a112e-600a-4278-8731-9b14cf3737c9";
 
     [TestMethod]
+    public void Canonical_active_skill_source_resolves_exact_saved_source_guid()
+    {
+        string coreRoot = FindCoreRoot();
+        ICharacterSourceDataContext context = CreateContext(
+            coreRoot,
+            $"<character><settings>{SettingsId}</settings></character>")!;
+
+        Assert.IsTrue(context.TryResolveActiveSkillSource(
+            "b52f7575-eebf-41c4-938d-df3397b5ee68",
+            out CharacterActiveSkillSource source));
+        Assert.AreEqual("b52f7575-eebf-41c4-938d-df3397b5ee68", source.SourceSkillId);
+        Assert.AreEqual("Aeronautics Mechanic", source.Name);
+        Assert.AreEqual("Technical Active", source.SkillCategory);
+        Assert.AreEqual("Engineering", source.SkillGroup);
+        Assert.AreEqual("LOG", source.DefaultAttribute);
+        Assert.IsFalse(source.IsExotic);
+        StringAssert.Contains(source.RawSourceXml, "<skillgroup>Engineering</skillgroup>");
+
+        Assert.IsFalse(context.TryResolveActiveSkillSource(
+            "11111111-1111-1111-1111-111111111111",
+            out _));
+    }
+
+    [TestMethod]
     public void Canonical_priority_profile_projects_digest_bound_rank_and_creation_karma_authority()
     {
         string coreRoot = FindCoreRoot();
