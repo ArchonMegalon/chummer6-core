@@ -9,10 +9,10 @@
     <ProjectReference Include="../Chummer.Application/Chummer.Application.csproj" />
     <ProjectReference Include="../Chummer.Infrastructure/Chummer.Infrastructure.csproj" />
   </ItemGroup>
-  <ItemGroup Condition="'$(ChummerUseLocalCompatibilityTree)' == 'true'">
+  <ItemGroup Condition="'$(ChummerUseLocalCompatibilityTree)' == 'true' and '$(ChummerUseLockedOwnerContractPackages)' != 'true'">
     <ProjectReference Include="$(ChummerLocalRunContractsProject)" />
   </ItemGroup>
-  <ItemGroup Condition="'$(ChummerUseLocalCompatibilityTree)' != 'true'">
+  <ItemGroup Condition="'$(ChummerUseLocalCompatibilityTree)' != 'true' or '$(ChummerUseLockedOwnerContractPackages)' == 'true'">
     <PackageReference Include="Chummer.Run.Contracts" Version="$(ChummerRunContractsPackageVersion)" />
   </ItemGroup>
   <ItemGroup Condition="'$(ChummerLocalContractsProject)' != '' and Exists('$(ChummerLocalContractsProject)')">
