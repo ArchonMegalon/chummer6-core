@@ -44,11 +44,11 @@ jobs:
         run: >-
           dotnet restore Chummer.Tests/Chummer.Tests.csproj
           -p:TargetFramework=net10.0
-      - name: Build and run affected Talent authority tests
+      - name: Build and run affected authority tests
         run: >-
           dotnet test Chummer.Tests/Chummer.Tests.csproj
           --configuration Release
           --framework net10.0
           --no-restore
           --filter
-          "FullyQualifiedName~CharacterCreationPrerequisiteServiceTests|FullyQualifiedName~FileSystemCharacterSourceDataResolverTests"
+          "FullyQualifiedName~CharacterCreationPrerequisiteServiceTests|FullyQualifiedName~FileSystemCharacterSourceDataResolverTests|FullyQualifiedName~CharacterCareerKarmaExpenseEditRulesTests|FullyQualifiedName~CharacterCareerNuyenExpenseEditRulesTests"
