@@ -29,11 +29,34 @@ public static class CharacterCareerKarmaExpenseEditRules
         bool karmaUndoTypeElementPresent,
         string? rawKarmaUndoType)
     {
+        if (!TryResolveAmountEditable(
+                karmaUndoTypeElementPresent,
+                rawKarmaUndoType,
+                out bool amountEditable))
+        {
+            return false;
+        }
+
+        return amountEditable;
+    }
+
+    private static bool TryResolveAmountEditable(
+        bool karmaUndoTypeElementPresent,
+        string? rawKarmaUndoType,
+        out bool amountEditable)
+    {
+        amountEditable = false;
+        if (karmaUndoTypeElementPresent == (rawKarmaUndoType is null))
+        {
+            return false;
+        }
+
         Chummer5KarmaExpenseType loaded = LoadKarmaUndoType(
             karmaUndoTypeElementPresent,
             rawKarmaUndoType);
-        return loaded is Chummer5KarmaExpenseType.ManualAdd
+        amountEditable = loaded is Chummer5KarmaExpenseType.ManualAdd
             or Chummer5KarmaExpenseType.ManualSubtract;
+        return true;
     }
 
     public static bool TryCreateEntry(
@@ -48,28 +71,25 @@ public static class CharacterCareerKarmaExpenseEditRules
         out CharacterCareerKarmaExpenseEntry? entry)
     {
         entry = null;
-        string normalizedReason = reason ?? string.Empty;
-        if (expenseId == Guid.Empty
-            || (!karmaUndoTypeElementPresent && rawKarmaUndoType is not null)
-            || expenseDateLocal < MinimumDate
-            || expenseDateLocal > MaximumDate
-            || amount < -MaximumAmount
-            || amount > MaximumAmount
-            || normalizedReason.Length > MaximumReasonLength)
+        string? normalizedRawKarmaUndoType = karmaUndoTypeElementPresent
+            ? rawKarmaUndoType ?? string.Empty
+            : rawKarmaUndoType;
+        CharacterCareerKarmaExpenseEntry candidate = new(
+            expenseId,
+            DateTime.SpecifyKind(expenseDateLocal, DateTimeKind.Unspecified),
+            amount,
+            reason ?? string.Empty,
+            refund,
+            forceCareerVisible,
+            karmaUndoTypeElementPresent,
+            normalizedRawKarmaUndoType,
+            IsAmountEditable(karmaUndoTypeElementPresent, normalizedRawKarmaUndoType));
+        if (!IsCoherentEntry(candidate))
         {
             return false;
         }
 
-        entry = new CharacterCareerKarmaExpenseEntry(
-            expenseId,
-            DateTime.SpecifyKind(expenseDateLocal, DateTimeKind.Unspecified),
-            amount,
-            normalizedReason,
-            refund,
-            forceCareerVisible,
-            karmaUndoTypeElementPresent,
-            karmaUndoTypeElementPresent ? rawKarmaUndoType ?? string.Empty : null,
-            IsAmountEditable(karmaUndoTypeElementPresent, rawKarmaUndoType));
+        entry = candidate;
         return true;
     }
 
@@ -82,6 +102,11 @@ public static class CharacterCareerKarmaExpenseEditRules
     {
         ArgumentNullException.ThrowIfNull(current);
         result = null;
+        if (!IsCoherentEntry(current))
+        {
+            return false;
+        }
+
         string normalizedReason = reason ?? string.Empty;
         DateTime normalizedDate = DateTime.SpecifyKind(expenseDateLocal, DateTimeKind.Unspecified);
         decimal minimumAmount = current.Amount < 0m
@@ -89,15 +114,8 @@ public static class CharacterCareerKarmaExpenseEditRules
             : current.Amount == 0m
                 ? 0m
                 : 1m;
-        bool amountEditable = IsAmountEditable(
-            current.KarmaUndoTypeElementPresent,
-            current.RawKarmaUndoType);
-        if (current.ExpenseId == Guid.Empty
-            || (!current.KarmaUndoTypeElementPresent && current.RawKarmaUndoType is not null)
-            || current.Amount < -MaximumAmount
-            || current.Amount > MaximumAmount
-            || current.AmountEditable != amountEditable
-            || normalizedReason.Length > MaximumReasonLength
+        bool amountEditable = current.AmountEditable;
+        if (normalizedReason.Length > MaximumReasonLength
             || normalizedDate < MinimumDate
             || normalizedDate > MaximumDate
             || amount < minimumAmount
@@ -125,6 +143,11 @@ public static class CharacterCareerKarmaExpenseEditRules
                 Amount = savedAmount,
                 Reason = normalizedReason
             };
+            if (!IsCoherentEntry(updated))
+            {
+                return false;
+            }
+
             result = new CharacterCareerKarmaExpenseEditResult(updated, karmaDelta);
             return true;
         }
@@ -132,6 +155,23 @@ public static class CharacterCareerKarmaExpenseEditRules
         {
             return false;
         }
+    }
+
+    private static bool IsCoherentEntry(CharacterCareerKarmaExpenseEntry entry)
+    {
+        return entry.ExpenseId != Guid.Empty
+            && entry.ExpenseDateLocal.Kind == DateTimeKind.Unspecified
+            && entry.ExpenseDateLocal >= MinimumDate
+            && entry.ExpenseDateLocal <= MaximumDate
+            && entry.Amount >= -MaximumAmount
+            && entry.Amount <= MaximumAmount
+            && entry.Reason is not null
+            && entry.Reason.Length <= MaximumReasonLength
+            && TryResolveAmountEditable(
+                entry.KarmaUndoTypeElementPresent,
+                entry.RawKarmaUndoType,
+                out bool amountEditable)
+            && entry.AmountEditable == amountEditable;
     }
 
     private static Chummer5KarmaExpenseType LoadKarmaUndoType(

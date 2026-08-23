@@ -180,6 +180,14 @@ public sealed class CharacterCareerKarmaExpenseEditRulesTests
                 out CharacterCareerKarmaExpenseEntry? entry));
             Assert.AreEqual(raw, entry!.RawKarmaUndoType);
             Assert.IsTrue(entry.AmountEditable);
+            Assert.IsTrue(CharacterCareerKarmaExpenseEditRules.TryEdit(
+                entry,
+                6m,
+                "Edited fallback",
+                entry.ExpenseDateLocal,
+                out CharacterCareerKarmaExpenseEditResult? edited));
+            Assert.IsTrue(edited!.Expense.KarmaUndoTypeElementPresent);
+            Assert.AreEqual(raw, edited.Expense.RawKarmaUndoType);
         }
     }
 
@@ -313,5 +321,63 @@ public sealed class CharacterCareerKarmaExpenseEditRulesTests
             AmountEditable: true);
         Assert.IsFalse(CharacterCareerKarmaExpenseEditRules.TryEdit(
             overflowing, 1m, overflowing.Reason, overflowing.ExpenseDateLocal, out _));
+    }
+
+    [TestMethod]
+    public void Factory_impossible_current_entries_cannot_be_repaired_through_edit()
+    {
+        DateTime date = new(2081, 5, 12);
+        Assert.IsTrue(CharacterCareerKarmaExpenseEditRules.TryCreateEntry(
+            ExpenseId,
+            date,
+            5m,
+            "Valid",
+            false,
+            false,
+            karmaUndoTypeElementPresent: true,
+            rawKarmaUndoType: "ManualAdd",
+            out CharacterCareerKarmaExpenseEntry? valid));
+
+        CharacterCareerKarmaExpenseEntry[] impossible =
+        [
+            valid! with { RawKarmaUndoType = null },
+            valid! with
+            {
+                KarmaUndoTypeElementPresent = false,
+                RawKarmaUndoType = "ManualAdd",
+                AmountEditable = false
+            },
+            valid! with
+            {
+                ExpenseDateLocal = CharacterCareerKarmaExpenseEditRules.MinimumDate.AddTicks(-1)
+            },
+            valid! with
+            {
+                ExpenseDateLocal = CharacterCareerKarmaExpenseEditRules.MaximumDate.AddTicks(1)
+            },
+            valid! with
+            {
+                ExpenseDateLocal = DateTime.SpecifyKind(date, DateTimeKind.Utc)
+            },
+            valid! with { Reason = null! },
+            valid! with
+            {
+                Reason = new string('x', CharacterCareerKarmaExpenseEditRules.MaximumReasonLength + 1)
+            }
+        ];
+
+        Assert.IsFalse(CharacterCareerKarmaExpenseEditRules.IsAmountEditable(
+            karmaUndoTypeElementPresent: true,
+            rawKarmaUndoType: null));
+
+        foreach (CharacterCareerKarmaExpenseEntry current in impossible)
+        {
+            Assert.IsFalse(CharacterCareerKarmaExpenseEditRules.TryEdit(
+                current,
+                6m,
+                "Repaired",
+                date,
+                out _));
+        }
     }
 }
