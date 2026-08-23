@@ -52,5 +52,7 @@ jobs:
           --configuration Release
           --framework net10.0
           --no-restore
+          --disable-build-servers
+          -m:1
           --filter
-          "FullyQualifiedName~CharacterCreationPrerequisiteServiceTests|FullyQualifiedName~CharacterCreationContactsServiceTests|FullyQualifiedName~FileSystemCharacterSourceDataResolverTests|FullyQualifiedName~CharacterCareerKarmaExpenseEditRulesTests|FullyQualifiedName~CharacterCareerNuyenExpenseEditRulesTests"
+          "FullyQualifiedName~CharacterCreationPrerequisiteServiceTests|FullyQualifiedName~CharacterCreationContactsServiceTests|FullyQualifiedName~FileSystemCharacterSourceDataResolverTests|FullyQualifiedName~CharacterCareerKarmaExpenseEditRulesTests|FullyQualifiedName~CharacterCareerNuyenExpenseEditRulesTests|FullyQualifiedName~CharacterCareerActiveSkillAdvanceRulesTests|FullyQualifiedName~CharacterCareerSkillGroupAdvanceRulesTests"
