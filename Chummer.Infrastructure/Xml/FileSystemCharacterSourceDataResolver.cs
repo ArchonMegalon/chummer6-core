@@ -1314,6 +1314,54 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             return _joinGroupKarma.HasValue && _leaveGroupKarma.HasValue;
         }
 
+        public bool TryResolveActiveSkillSource(
+            string sourceSkillId,
+            out CharacterActiveSkillSource source)
+        {
+            source = CharacterActiveSkillSource.Unavailable;
+            if (!Guid.TryParse(sourceSkillId, out Guid parsedSourceId)
+                || parsedSourceId == Guid.Empty
+                || !TryResolveTarget(
+                    "skills.xml",
+                    ["skills"],
+                    "skill",
+                    parsedSourceId.ToString("D"),
+                    name: string.Empty,
+                    out XElement? skill)
+                || skill is null
+                || !Guid.TryParse(ReadValue(skill, "id"), out Guid resolvedSourceId)
+                || resolvedSourceId != parsedSourceId)
+            {
+                return false;
+            }
+
+            string name = ReadValue(skill, "name");
+            string category = ReadValue(skill, "category");
+            string attribute = ReadValue(skill, "attribute");
+            string sourceBook = ReadValue(skill, "source");
+            if (string.IsNullOrWhiteSpace(name)
+                || string.IsNullOrWhiteSpace(category)
+                || string.IsNullOrWhiteSpace(attribute)
+                || !string.IsNullOrWhiteSpace(sourceBook)
+                    && (!_enabledSourcebooks.Contains(sourceBook) || _enabledSourcebooks.Count == 0))
+            {
+                return false;
+            }
+
+            source = new CharacterActiveSkillSource(
+                resolvedSourceId.ToString("D"),
+                name,
+                category,
+                ReadValue(skill, "skillgroup"),
+                attribute,
+                ParseBool(ReadValue(skill, "exotic")),
+                ParseBool(ReadValue(skill, "requiresgroundmovement")),
+                ParseBool(ReadValue(skill, "requiresswimmovement")),
+                ParseBool(ReadValue(skill, "requiresflymovement")),
+                skill.ToString(SaveOptions.DisableFormatting));
+            return true;
+        }
+
         public bool TryResolveKarmaNuyenExchangeRates(
             out decimal workingForPeopleRate,
             out decimal workingForManRate)

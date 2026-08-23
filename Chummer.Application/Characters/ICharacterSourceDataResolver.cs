@@ -14,6 +14,18 @@ public interface ICharacterSourceDataResolver
 public interface ICharacterSourceDataContext
 {
     /// <summary>
+    /// Resolves one saved active-skill source GUID through the runner's exact enabled-book and
+    /// ordered custom-data profile. The saved instance GUID must never be substituted here.
+    /// </summary>
+    bool TryResolveActiveSkillSource(
+        string sourceSkillId,
+        out CharacterActiveSkillSource source)
+    {
+        source = CharacterActiveSkillSource.Unavailable;
+        return false;
+    }
+
+    /// <summary>
     /// Projects the exact Priority/Sum-to-Ten rank authority and global creation
     /// Karma total selected by the saved character's settings profile. False
     /// means callers must not expose rank or Attribute-point choices.
@@ -164,6 +176,31 @@ public interface ICharacterSourceDataContext
         string sourceId,
         string name,
         out CharacterVehicleModSourceBonuses bonuses);
+}
+
+public sealed record CharacterActiveSkillSource(
+    string SourceSkillId,
+    string Name,
+    string SkillCategory,
+    string SkillGroup,
+    string DefaultAttribute,
+    bool IsExotic,
+    bool RequiresGroundMovement,
+    bool RequiresSwimMovement,
+    bool RequiresFlyMovement,
+    string RawSourceXml)
+{
+    public static CharacterActiveSkillSource Unavailable { get; } = new(
+        SourceSkillId: string.Empty,
+        Name: string.Empty,
+        SkillCategory: string.Empty,
+        SkillGroup: string.Empty,
+        DefaultAttribute: string.Empty,
+        IsExotic: false,
+        RequiresGroundMovement: false,
+        RequiresSwimMovement: false,
+        RequiresFlyMovement: false,
+        RawSourceXml: string.Empty);
 }
 
 public sealed record CharacterCreationSourceProfileAuthority(
