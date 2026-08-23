@@ -50,6 +50,31 @@ public sealed class FileSystemCharacterSourceDataResolverTests
     }
 
     [TestMethod]
+    public void Canonical_knowledge_skill_source_resolves_exact_saved_source_guid()
+    {
+        string coreRoot = FindCoreRoot();
+        ICharacterSourceDataContext context = CreateContext(
+            coreRoot,
+            $"<character><settings>{SettingsId}</settings></character>")!;
+
+        Assert.IsTrue(context.TryResolveKnowledgeSkillSource(
+            "9f348c99-27e8-47ac-a098-a8a6a54c446a",
+            out CharacterKnowledgeSkillSource source));
+        Assert.AreEqual("9f348c99-27e8-47ac-a098-a8a6a54c446a", source.SourceSkillId);
+        Assert.AreEqual("Administration", source.Name);
+        Assert.AreEqual("Professional", source.SkillCategory);
+        Assert.AreEqual("LOG", source.DefaultAttribute);
+        StringAssert.Contains(source.RawSourceXml, "<name>Administration</name>");
+
+        Assert.IsFalse(context.TryResolveKnowledgeSkillSource(
+            "11111111-1111-1111-1111-111111111111",
+            out _));
+        Assert.IsFalse(context.TryResolveKnowledgeSkillSource(
+            Guid.Empty.ToString("D"),
+            out _));
+    }
+
+    [TestMethod]
     public void Canonical_priority_profile_projects_digest_bound_rank_and_creation_karma_authority()
     {
         string coreRoot = FindCoreRoot();

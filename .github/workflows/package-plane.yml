@@ -55,4 +55,4 @@ jobs:
           --disable-build-servers
           -m:1
           --filter
-          "FullyQualifiedName~CharacterCreationPrerequisiteServiceTests|FullyQualifiedName~CharacterCreationContactsServiceTests|FullyQualifiedName~FileSystemCharacterSourceDataResolverTests|FullyQualifiedName~CharacterCareerKarmaExpenseEditRulesTests|FullyQualifiedName~CharacterCareerNuyenExpenseEditRulesTests|FullyQualifiedName~CharacterCareerActiveSkillAdvanceRulesTests|FullyQualifiedName~CharacterCareerSkillGroupAdvanceRulesTests"
+          "FullyQualifiedName~CharacterCreationPrerequisiteServiceTests|FullyQualifiedName~CharacterCreationContactsServiceTests|FullyQualifiedName~FileSystemCharacterSourceDataResolverTests|FullyQualifiedName~CharacterCareerKarmaExpenseEditRulesTests|FullyQualifiedName~CharacterCareerNuyenExpenseEditRulesTests|FullyQualifiedName~CharacterCareerActiveSkillAdvanceRulesTests|FullyQualifiedName~CharacterCareerSkillGroupAdvanceRulesTests|FullyQualifiedName~CharacterCareerKnowledgeSkillAdvanceRulesTests"
