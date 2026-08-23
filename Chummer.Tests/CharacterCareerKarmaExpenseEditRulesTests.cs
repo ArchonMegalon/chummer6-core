@@ -18,7 +18,8 @@ public sealed class CharacterCareerKarmaExpenseEditRulesTests
             "Run reward",
             refund: false,
             forceCareerVisible: true,
-            "ManualAdd",
+            karmaUndoTypeElementPresent: true,
+            rawKarmaUndoType: "ManualAdd",
             out CharacterCareerKarmaExpenseEntry? added));
 
         Assert.IsTrue(CharacterCareerKarmaExpenseEditRules.TryEdit(
@@ -32,7 +33,8 @@ public sealed class CharacterCareerKarmaExpenseEditRulesTests
         Assert.AreEqual("Corrected reward", gained.Expense.Reason);
         Assert.IsFalse(gained.Expense.Refund);
         Assert.IsTrue(gained.Expense.ForceCareerVisible);
-        Assert.AreEqual("ManualAdd", gained.Expense.KarmaUndoType);
+        Assert.IsTrue(gained.Expense.KarmaUndoTypeElementPresent);
+        Assert.AreEqual("ManualAdd", gained.Expense.RawKarmaUndoType);
 
         Assert.IsTrue(CharacterCareerKarmaExpenseEditRules.TryCreateEntry(
             ExpenseId,
@@ -41,7 +43,8 @@ public sealed class CharacterCareerKarmaExpenseEditRulesTests
             "Training",
             refund: true,
             forceCareerVisible: false,
-            "ManualSubtract",
+            karmaUndoTypeElementPresent: true,
+            rawKarmaUndoType: "ManualSubtract",
             out CharacterCareerKarmaExpenseEntry? subtracted));
         Assert.IsTrue(CharacterCareerKarmaExpenseEditRules.TryEdit(
             subtracted!,
@@ -65,7 +68,8 @@ public sealed class CharacterCareerKarmaExpenseEditRulesTests
             "Run reward",
             refund: false,
             forceCareerVisible: false,
-            "ManualAdd",
+            karmaUndoTypeElementPresent: true,
+            rawKarmaUndoType: "ManualAdd",
             out CharacterCareerKarmaExpenseEntry? entry));
 
         Assert.IsTrue(CharacterCareerKarmaExpenseEditRules.TryEdit(
@@ -90,7 +94,8 @@ public sealed class CharacterCareerKarmaExpenseEditRulesTests
             "Run reward",
             refund: false,
             forceCareerVisible: false,
-            "ManualAdd",
+            karmaUndoTypeElementPresent: true,
+            rawKarmaUndoType: "ManualAdd",
             out CharacterCareerKarmaExpenseEntry? entry));
 
         Assert.IsTrue(CharacterCareerKarmaExpenseEditRules.TryEdit(
@@ -104,14 +109,8 @@ public sealed class CharacterCareerKarmaExpenseEditRulesTests
     }
 
     [TestMethod]
-    public void Default_nonmanual_and_wrong_case_undo_types_lock_amount()
+    public void Absent_karmatype_stays_default_locked_but_present_blank_falls_back_to_manual_add()
     {
-        Assert.IsFalse(CharacterCareerKarmaExpenseEditRules.IsAmountEditable(null));
-        Assert.IsFalse(CharacterCareerKarmaExpenseEditRules.IsAmountEditable("manualadd"));
-        Assert.IsFalse(CharacterCareerKarmaExpenseEditRules.IsAmountEditable("MANUALSUBTRACT"));
-        Assert.IsTrue(CharacterCareerKarmaExpenseEditRules.IsAmountEditable("ManualAdd"));
-        Assert.IsTrue(CharacterCareerKarmaExpenseEditRules.IsAmountEditable("ManualSubtract"));
-
         Assert.IsTrue(CharacterCareerKarmaExpenseEditRules.TryCreateEntry(
             ExpenseId,
             new DateTime(2081, 5, 12),
@@ -119,14 +118,16 @@ public sealed class CharacterCareerKarmaExpenseEditRulesTests
             "Attribute",
             refund: false,
             forceCareerVisible: true,
-            karmaUndoType: null,
-            out CharacterCareerKarmaExpenseEntry? entry));
-        Assert.AreEqual(CharacterCareerKarmaExpenseEditRules.DefaultKarmaUndoType, entry!.KarmaUndoType);
-        Assert.IsFalse(entry.AmountEditable);
+            karmaUndoTypeElementPresent: false,
+            rawKarmaUndoType: null,
+            out CharacterCareerKarmaExpenseEntry? absent));
+        Assert.IsFalse(absent!.KarmaUndoTypeElementPresent);
+        Assert.IsNull(absent.RawKarmaUndoType);
+        Assert.IsFalse(absent.AmountEditable);
         Assert.IsFalse(CharacterCareerKarmaExpenseEditRules.TryEdit(
-            entry, -4m, "Attribute", entry.ExpenseDateLocal, out _));
+            absent, -4m, "Attribute", absent.ExpenseDateLocal, out _));
         Assert.IsTrue(CharacterCareerKarmaExpenseEditRules.TryEdit(
-            entry,
+            absent,
             -5m,
             "Corrected attribute label",
             new DateTime(2081, 5, 15),
@@ -139,14 +140,74 @@ public sealed class CharacterCareerKarmaExpenseEditRulesTests
             ExpenseId,
             new DateTime(2081, 5, 12),
             5m,
-            "Wrong case",
+            "Present blank",
             refund: false,
             forceCareerVisible: false,
-            "manualadd",
-            out CharacterCareerKarmaExpenseEntry? wrongCase));
-        Assert.IsFalse(wrongCase!.AmountEditable);
-        Assert.IsFalse(CharacterCareerKarmaExpenseEditRules.TryEdit(
-            wrongCase, 6m, wrongCase.Reason, wrongCase.ExpenseDateLocal, out _));
+            karmaUndoTypeElementPresent: true,
+            rawKarmaUndoType: string.Empty,
+            out CharacterCareerKarmaExpenseEntry? presentBlank));
+        Assert.IsTrue(presentBlank!.KarmaUndoTypeElementPresent);
+        Assert.AreEqual(string.Empty, presentBlank.RawKarmaUndoType);
+        Assert.IsTrue(presentBlank.AmountEditable);
+        Assert.IsTrue(CharacterCareerKarmaExpenseEditRules.TryEdit(
+            presentBlank,
+            6m,
+            presentBlank.Reason,
+            presentBlank.ExpenseDateLocal,
+            out CharacterCareerKarmaExpenseEditResult? blankEdit));
+        Assert.AreEqual(1, blankEdit!.KarmaDelta);
+    }
+
+    [TestMethod]
+    public void Present_wrong_case_and_unknown_names_use_Chummer5_manual_add_fallback()
+    {
+        foreach (string raw in new[] { "manualadd", "MANUALSUBTRACT", "NotARealKarmaType" })
+        {
+            Assert.IsTrue(
+                CharacterCareerKarmaExpenseEditRules.IsAmountEditable(
+                    karmaUndoTypeElementPresent: true,
+                    rawKarmaUndoType: raw),
+                $"Present source text '{raw}' should load as Chummer5 ManualAdd fallback.");
+            Assert.IsTrue(CharacterCareerKarmaExpenseEditRules.TryCreateEntry(
+                ExpenseId,
+                new DateTime(2081, 5, 12),
+                5m,
+                "Fallback",
+                false,
+                false,
+                karmaUndoTypeElementPresent: true,
+                rawKarmaUndoType: raw,
+                out CharacterCareerKarmaExpenseEntry? entry));
+            Assert.AreEqual(raw, entry!.RawKarmaUndoType);
+            Assert.IsTrue(entry.AmountEditable);
+        }
+    }
+
+    [TestMethod]
+    public void Canonical_and_numeric_karmatype_values_follow_case_sensitive_Enum_TryParse()
+    {
+        (string Raw, bool Editable)[] cases =
+        [
+            ("ManualAdd", true),
+            ("ManualSubtract", true),
+            ("ImproveAttribute", false),
+            ("12", true),
+            ("13", true),
+            ("0", false),
+            ("999", false),
+            ("-1", false),
+            ("2147483648", true)
+        ];
+
+        foreach ((string raw, bool expected) in cases)
+        {
+            Assert.AreEqual(
+                expected,
+                CharacterCareerKarmaExpenseEditRules.IsAmountEditable(
+                    karmaUndoTypeElementPresent: true,
+                    rawKarmaUndoType: raw),
+                $"Unexpected Chummer5 Enum.TryParse authority for '{raw}'.");
+        }
     }
 
     [TestMethod]
@@ -159,6 +220,7 @@ public sealed class CharacterCareerKarmaExpenseEditRulesTests
             "Positive",
             false,
             false,
+            true,
             "ManualAdd",
             out CharacterCareerKarmaExpenseEntry? positive));
         Assert.IsFalse(CharacterCareerKarmaExpenseEditRules.TryEdit(
@@ -171,6 +233,7 @@ public sealed class CharacterCareerKarmaExpenseEditRulesTests
             "Zero",
             false,
             false,
+            true,
             "ManualAdd",
             out CharacterCareerKarmaExpenseEntry? zero));
         Assert.IsFalse(CharacterCareerKarmaExpenseEditRules.TryEdit(
@@ -183,6 +246,7 @@ public sealed class CharacterCareerKarmaExpenseEditRulesTests
             "Negative",
             false,
             false,
+            true,
             "ManualSubtract",
             out CharacterCareerKarmaExpenseEntry? negative));
         Assert.IsTrue(CharacterCareerKarmaExpenseEditRules.TryEdit(
@@ -196,11 +260,11 @@ public sealed class CharacterCareerKarmaExpenseEditRulesTests
     {
         DateTime date = new(2081, 5, 12);
         Assert.IsFalse(CharacterCareerKarmaExpenseEditRules.TryCreateEntry(
-            Guid.Empty, date, 1m, "Bad", false, false, "ManualAdd", out _));
+            Guid.Empty, date, 1m, "Bad", false, false, true, "ManualAdd", out _));
         Assert.IsFalse(CharacterCareerKarmaExpenseEditRules.TryCreateEntry(
-            ExpenseId, date, CharacterCareerKarmaExpenseEditRules.MaximumAmount + 1m, "Bad", false, false, "ManualAdd", out _));
+            ExpenseId, date, CharacterCareerKarmaExpenseEditRules.MaximumAmount + 1m, "Bad", false, false, true, "ManualAdd", out _));
         Assert.IsFalse(CharacterCareerKarmaExpenseEditRules.TryCreateEntry(
-            ExpenseId, date, -CharacterCareerKarmaExpenseEditRules.MaximumAmount - 1m, "Bad", false, false, "ManualSubtract", out _));
+            ExpenseId, date, -CharacterCareerKarmaExpenseEditRules.MaximumAmount - 1m, "Bad", false, false, true, "ManualSubtract", out _));
         Assert.IsFalse(CharacterCareerKarmaExpenseEditRules.TryCreateEntry(
             ExpenseId,
             CharacterCareerKarmaExpenseEditRules.MinimumDate.AddTicks(-1),
@@ -208,6 +272,7 @@ public sealed class CharacterCareerKarmaExpenseEditRulesTests
             "Bad",
             false,
             false,
+            true,
             "ManualAdd",
             out _));
         Assert.IsFalse(CharacterCareerKarmaExpenseEditRules.TryCreateEntry(
@@ -217,16 +282,35 @@ public sealed class CharacterCareerKarmaExpenseEditRulesTests
             new string('x', CharacterCareerKarmaExpenseEditRules.MaximumReasonLength + 1),
             false,
             false,
+            true,
             "ManualAdd",
             out _));
+        Assert.IsFalse(CharacterCareerKarmaExpenseEditRules.TryCreateEntry(
+            ExpenseId, date, 1m, "Bad", false, false, false, "ManualAdd", out _));
 
         CharacterCareerKarmaExpenseEntry incoherent = new(
-            ExpenseId, date, 1m, "Bad", false, false, "ImproveAttribute", AmountEditable: true);
+            ExpenseId,
+            date,
+            1m,
+            "Bad",
+            false,
+            false,
+            KarmaUndoTypeElementPresent: true,
+            RawKarmaUndoType: "ImproveAttribute",
+            AmountEditable: true);
         Assert.IsFalse(CharacterCareerKarmaExpenseEditRules.TryEdit(
             incoherent, 2m, incoherent.Reason, incoherent.ExpenseDateLocal, out _));
 
         CharacterCareerKarmaExpenseEntry overflowing = new(
-            ExpenseId, date, decimal.MaxValue, "Bad", false, false, "ManualAdd", AmountEditable: true);
+            ExpenseId,
+            date,
+            decimal.MaxValue,
+            "Bad",
+            false,
+            false,
+            KarmaUndoTypeElementPresent: true,
+            RawKarmaUndoType: "ManualAdd",
+            AmountEditable: true);
         Assert.IsFalse(CharacterCareerKarmaExpenseEditRules.TryEdit(
             overflowing, 1m, overflowing.Reason, overflowing.ExpenseDateLocal, out _));
     }
