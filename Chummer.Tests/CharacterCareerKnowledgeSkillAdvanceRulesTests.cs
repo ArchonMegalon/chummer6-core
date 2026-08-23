@@ -249,6 +249,333 @@ public sealed class CharacterCareerKnowledgeSkillAdvanceRulesTests
             quote, quote.RuleDigest, true, Guid.NewGuid(), new DateTime(1752, 12, 31), out _));
     }
 
+    [TestMethod]
+    public void Career_active_specialization_quotes_exact_cost_group_effect_and_expense_undo()
+    {
+        CharacterCareerSkillSpecializationInput input = SpecializationInput(
+            CharacterCareerSkillKind.Active,
+            availableKarma: 20) with
+        {
+            ExistingSpecializationCount = 2,
+            Modifiers =
+            [
+                SpecializationModifier(
+                    'c',
+                    CharacterCareerSkillSpecializationModifierKind.SkillCategorySpecializationKarmaCostMultiplier,
+                    "Combat Active",
+                    minimum: 4,
+                    value: 50m),
+                SpecializationModifier(
+                    'd',
+                    CharacterCareerSkillSpecializationModifierKind.SkillCategorySpecializationKarmaCost,
+                    "Combat Active",
+                    minimum: 4,
+                    value: 0.2m)
+            ]
+        };
+
+        Assert.IsTrue(CharacterCareerSkillSpecializationRules.TryCreateQuote(input, out var quote));
+        Assert.IsTrue(CharacterCareerSkillSpecializationRules.IsCoherent(quote));
+        Assert.AreEqual(4, quote.KarmaCost,
+            "Chummer rounds 7 * 0.5 + 0.2 away from zero after composing both modifier families.");
+        Assert.IsTrue(quote.CanAdd);
+        Assert.IsTrue(quote.WillBreakSkillGroup);
+
+        Guid specializationId = Guid.Parse("44444444-4444-4444-4444-444444444444");
+        Guid expenseId = Guid.Parse("55555555-5555-5555-5555-555555555555");
+        Assert.IsTrue(CharacterCareerSkillSpecializationRules.TryPlanAdd(
+            quote,
+            quote.CharacterRevision,
+            quote.SourceRevision,
+            quote.RuleDigest,
+            quote.LogicalRevision,
+            confirmed: true,
+            specializationId,
+            expenseId,
+            new DateTime(2081, 6, 1, 9, 30, 0, DateTimeKind.Local),
+            out CharacterCareerSkillSpecializationPlan plan));
+        Assert.AreEqual(specializationId, plan.SpecializationId);
+        Assert.AreEqual("Semi-Automatics", plan.SpecializationName);
+        Assert.IsFalse(plan.SavedFree);
+        Assert.IsFalse(plan.SavedExpertise);
+        Assert.AreEqual(16, plan.SavedCharacterKarma);
+        Assert.AreEqual(-4, plan.ExpenseAmount);
+        Assert.AreEqual("Learned Specialization Pistols (Semi-Automatics)", plan.ExpenseReason);
+        Assert.AreEqual(DateTimeKind.Unspecified, plan.ExpenseDateLocal.Kind);
+        Assert.AreEqual(expenseId, plan.ExpenseId);
+        Assert.AreEqual("AddSpecialization", plan.KarmaUndoType);
+        Assert.AreEqual("AddCyberware", plan.NuyenUndoType);
+        Assert.AreEqual(specializationId.ToString("D"), plan.UndoObjectId);
+        Assert.AreEqual(0m, plan.UndoQuantity);
+        Assert.AreEqual(string.Empty, plan.UndoExtra);
+        Assert.IsTrue(plan.WillBreakSkillGroup);
+    }
+
+    [TestMethod]
+    public void Career_custom_knowledge_specialization_preserves_nullable_source_and_has_no_count_cap()
+    {
+        CharacterCareerSkillSpecializationInput input = SpecializationInput(
+            CharacterCareerSkillKind.Knowledge,
+            availableKarma: 10) with
+        {
+            Identity = new CharacterCareerSkillIdentity(
+                Guid.Parse("66666666-6666-6666-6666-666666666666"),
+                null,
+                CharacterCareerSkillKind.Knowledge),
+            SkillName = "Lone Star Procedures",
+            SkillCategory = "Professional",
+            DictionaryKey = "Lone Star Procedures",
+            SkillGroup = string.Empty,
+            EnabledSkillGroupMemberCount = 0,
+            ExistingSpecializationCount = int.MaxValue,
+            AvailableOptions = [],
+            Selection = new CharacterCareerSkillSpecializationSelection(
+                "Evidence handling",
+                CharacterCareerSkillSpecializationOptionKind.Custom,
+                null),
+            RawSourceState = "<skill><guid>66666666-6666-6666-6666-666666666666</guid><name>Lone Star Procedures</name></skill>"
+        };
+
+        Assert.IsTrue(CharacterCareerSkillSpecializationRules.TryCreateQuote(input, out var quote));
+        Assert.IsTrue(quote.CanAdd);
+        Assert.AreEqual(5, quote.KarmaCost);
+        Assert.AreEqual(input.Identity, quote.Identity);
+        Assert.IsFalse(quote.WillBreakSkillGroup);
+        Assert.IsFalse(CharacterCareerSkillSpecializationRules.TryCreateQuote(
+            input with { ExistingSpecializationCount = -1 },
+            out _));
+    }
+
+    [TestMethod]
+    public void Career_specialization_eligibility_matches_chummer_can_have_specs_restrictions()
+    {
+        CharacterCareerSkillSpecializationInput active = SpecializationInput(
+            CharacterCareerSkillKind.Active,
+            availableKarma: 20);
+        AssertSpecializationBlocker(
+            active with { Enabled = false },
+            CharacterCareerSkillSpecializationBlocker.SkillDisabled);
+        AssertSpecializationBlocker(
+            active with { IsExoticSkill = true },
+            CharacterCareerSkillSpecializationBlocker.ExoticSkill);
+        AssertSpecializationBlocker(
+            active with { KarmaUnlocked = false },
+            CharacterCareerSkillSpecializationBlocker.KarmaLocked);
+        AssertSpecializationBlocker(
+            active with { TotalBaseRating = 0 },
+            CharacterCareerSkillSpecializationBlocker.RatingRequired);
+        AssertSpecializationBlocker(
+            active with { SkillSpecializationsBlocked = true },
+            CharacterCareerSkillSpecializationBlocker.SkillSpecializationsBlocked);
+        AssertSpecializationBlocker(
+            active with { SkillCategorySpecializationsBlocked = true },
+            CharacterCareerSkillSpecializationBlocker.SkillCategorySpecializationsBlocked);
+        AssertSpecializationBlocker(
+            active with { AvailableKarma = 6 },
+            CharacterCareerSkillSpecializationBlocker.InsufficientKarma);
+
+        CharacterCareerSkillSpecializationInput knowledge = SpecializationInput(
+            CharacterCareerSkillKind.Knowledge,
+            availableKarma: 20) with
+        {
+            Identity = new CharacterCareerSkillIdentity(
+                Guid.Parse("77777777-7777-7777-7777-777777777777"),
+                null,
+                CharacterCareerSkillKind.Knowledge),
+            SkillName = "English",
+            SkillCategory = "Language",
+            DictionaryKey = "English",
+            SkillGroup = string.Empty,
+            EnabledSkillGroupMemberCount = 0,
+            AvailableOptions = [],
+            Selection = new CharacterCareerSkillSpecializationSelection(
+                "Legalese",
+                CharacterCareerSkillSpecializationOptionKind.Custom,
+                null)
+        };
+        AssertSpecializationBlocker(
+            knowledge with { IsNativeLanguage = true, AllowUpgrade = false },
+            CharacterCareerSkillSpecializationBlocker.NativeLanguage);
+        AssertSpecializationBlocker(
+            knowledge with { AllowUpgrade = false },
+            CharacterCareerSkillSpecializationBlocker.UpgradeDisallowed);
+    }
+
+    [TestMethod]
+    public void Career_specialization_selection_and_typed_identity_fail_closed()
+    {
+        CharacterCareerSkillSpecializationInput active = SpecializationInput(
+            CharacterCareerSkillKind.Active,
+            availableKarma: 20);
+        Assert.IsTrue(CharacterCareerSkillSpecializationRules.TryCreateQuote(active, out var coherent));
+        Assert.IsFalse(CharacterCareerSkillSpecializationRules.IsCoherent(
+            coherent with
+            {
+                Selection = coherent.Selection with
+                {
+                    Kind = CharacterCareerSkillSpecializationOptionKind.Custom
+                }
+            }));
+        Assert.IsFalse(CharacterCareerSkillSpecializationRules.TryCreateQuote(
+            active with
+            {
+                Identity = active.Identity with { SourceSkillId = null }
+            },
+            out _));
+        Assert.IsFalse(CharacterCareerSkillSpecializationRules.TryCreateQuote(
+            active with
+            {
+                Selection = active.Selection with { OptionIdentity = new string('0', 64) }
+            },
+            out _));
+        Assert.IsFalse(CharacterCareerSkillSpecializationRules.TryCreateQuote(
+            active with
+            {
+                Selection = active.Selection with
+                {
+                    Kind = CharacterCareerSkillSpecializationOptionKind.Custom
+                }
+            },
+            out _));
+        Assert.IsFalse(CharacterCareerSkillSpecializationRules.TryCreateQuote(
+            active with
+            {
+                Identity = active.Identity with { Kind = (CharacterCareerSkillKind)99 }
+            },
+            out _));
+        Assert.IsFalse(CharacterCareerSkillSpecializationRules.TryCreateQuote(
+            active with
+            {
+                Modifiers =
+                [
+                    SpecializationModifier(
+                        'f',
+                        (CharacterCareerSkillSpecializationModifierKind)99,
+                        "Combat Active",
+                        minimum: 0,
+                        value: 1m)
+                ]
+            },
+            out _));
+        Assert.IsFalse(CharacterCareerSkillSpecializationRules.TryCreateQuote(
+            active with
+            {
+                Settings = active.Settings with
+                {
+                    KarmaActiveSpecialization =
+                        CharacterCareerSkillSpecializationRules.MaximumSettingCost + 1
+                }
+            },
+            out _));
+        Assert.IsFalse(CharacterCareerSkillSpecializationRules.TryCreateQuote(
+            active with
+            {
+                AvailableOptions =
+                [
+                    active.AvailableOptions[0] with
+                    {
+                        Kind = (CharacterCareerSkillSpecializationOptionKind)99
+                    }
+                ],
+                Selection = active.Selection with
+                {
+                    Kind = (CharacterCareerSkillSpecializationOptionKind)99
+                }
+            },
+            out _));
+        Assert.IsFalse(CharacterCareerSkillSpecializationRules.TryCreateQuote(
+            active with
+            {
+                AvailableOptions =
+                [
+                    active.AvailableOptions[0] with
+                    {
+                        Kind = CharacterCareerSkillSpecializationOptionKind.CombatWeapon,
+                        OptionIdentity = new string('e', 64)
+                    }
+                ],
+                SkillCategory = "Technical Active",
+                Selection = new CharacterCareerSkillSpecializationSelection(
+                    "Semi-Automatics",
+                    CharacterCareerSkillSpecializationOptionKind.CombatWeapon,
+                    new string('e', 64))
+            },
+            out _));
+    }
+
+    [TestMethod]
+    public void Career_specialization_plan_rejects_every_stale_cas_dimension()
+    {
+        CharacterCareerSkillSpecializationInput input = SpecializationInput(
+            CharacterCareerSkillKind.Active,
+            availableKarma: 20);
+        Assert.IsTrue(CharacterCareerSkillSpecializationRules.TryCreateQuote(input, out var quote));
+        Guid specializationId = Guid.Parse("88888888-8888-8888-8888-888888888888");
+        Guid expenseId = Guid.Parse("99999999-9999-9999-9999-999999999999");
+        DateTime date = new(2081, 6, 1);
+
+        AssertPlanRejected(new string('0', 64), quote.SourceRevision, quote.RuleDigest, quote.LogicalRevision);
+        AssertPlanRejected(quote.CharacterRevision, new string('0', 64), quote.RuleDigest, quote.LogicalRevision);
+        AssertPlanRejected(quote.CharacterRevision, quote.SourceRevision, new string('0', 64), quote.LogicalRevision);
+        AssertPlanRejected(quote.CharacterRevision, quote.SourceRevision, quote.RuleDigest, new string('0', 64));
+        Assert.IsFalse(CharacterCareerSkillSpecializationRules.TryPlanAdd(
+            quote,
+            quote.CharacterRevision,
+            quote.SourceRevision,
+            quote.RuleDigest,
+            quote.LogicalRevision,
+            confirmed: false,
+            specializationId,
+            expenseId,
+            date,
+            out _));
+        Assert.IsFalse(CharacterCareerSkillSpecializationRules.TryPlanAdd(
+            quote,
+            quote.CharacterRevision,
+            quote.SourceRevision,
+            quote.RuleDigest,
+            quote.LogicalRevision,
+            confirmed: true,
+            Guid.Empty,
+            expenseId,
+            date,
+            out _));
+
+        void AssertPlanRejected(string character, string source, string rules, string logical)
+            => Assert.IsFalse(CharacterCareerSkillSpecializationRules.TryPlanAdd(
+                quote,
+                character,
+                source,
+                rules,
+                logical,
+                confirmed: true,
+                specializationId,
+                expenseId,
+                date,
+                out _));
+    }
+
+    [TestMethod]
+    public void Career_specialization_character_source_and_rule_changes_invalidate_quote()
+    {
+        CharacterCareerSkillSpecializationInput input = SpecializationInput(
+            CharacterCareerSkillKind.Active,
+            availableKarma: 20);
+        Assert.IsTrue(CharacterCareerSkillSpecializationRules.TryCreateQuote(input, out var original));
+        Assert.IsTrue(CharacterCareerSkillSpecializationRules.TryCreateQuote(
+            input with { RawCharacterState = input.RawCharacterState + " " }, out var characterChanged));
+        Assert.IsTrue(CharacterCareerSkillSpecializationRules.TryCreateQuote(
+            input with { RawSourceState = input.RawSourceState + " " }, out var sourceChanged));
+        Assert.IsTrue(CharacterCareerSkillSpecializationRules.TryCreateQuote(
+            input with { RawRuleState = input.RawRuleState + " " }, out var rulesChanged));
+        Assert.AreNotEqual(original.CharacterRevision, characterChanged.CharacterRevision);
+        Assert.AreNotEqual(original.SourceRevision, sourceChanged.SourceRevision);
+        Assert.AreNotEqual(original.RuleDigest, rulesChanged.RuleDigest);
+        Assert.AreNotEqual(original.LogicalRevision, characterChanged.LogicalRevision);
+        Assert.AreNotEqual(original.LogicalRevision, sourceChanged.LogicalRevision);
+        Assert.AreNotEqual(original.LogicalRevision, rulesChanged.LogicalRevision);
+    }
+
     private static CharacterCareerKnowledgeSkillAdvanceQuote Quote(
         CharacterCareerKnowledgeSkillAdvanceInput input)
     {
@@ -291,4 +618,65 @@ public sealed class CharacterCareerKnowledgeSkillAdvanceRulesTests
         int maximum,
         decimal value)
         => new(new string(identityCharacter, 64), kind, target, minimum, maximum, value);
+
+    private static CharacterCareerSkillSpecializationInput SpecializationInput(
+        CharacterCareerSkillKind kind,
+        int availableKarma)
+    {
+        Guid skillId = Guid.Parse("aaaaaaaa-1111-2222-3333-bbbbbbbbbbbb");
+        Guid sourceSkillId = Guid.Parse("adf31a50-b228-4e09-a09c-46ab9f5e59a1");
+        CharacterCareerSkillSpecializationOption option = new(
+            new string('a', 64),
+            "Semi-Automatics",
+            CharacterCareerSkillSpecializationOptionKind.SourceCatalog,
+            $"skills.xml#skill:{sourceSkillId:D}/spec:2");
+        return new CharacterCareerSkillSpecializationInput(
+            new CharacterCareerSkillIdentity(skillId, sourceSkillId, kind),
+            Created: true,
+            Enabled: true,
+            IsExoticSkill: false,
+            KarmaUnlocked: true,
+            AllowUpgrade: true,
+            IsNativeLanguage: false,
+            SkillName: "Pistols",
+            SkillCategory: "Combat Active",
+            DictionaryKey: "Pistols",
+            SkillGroup: "Firearms",
+            TotalBaseRating: 4,
+            ExistingSpecializationCount: 0,
+            AvailableKarma: availableKarma,
+            EnabledSkillGroupMemberCount: 3,
+            SkillSpecializationsBlocked: false,
+            SkillCategorySpecializationsBlocked: false,
+            Settings: new CharacterCareerSkillSpecializationSettings(
+                KarmaActiveSpecialization: 7,
+                KarmaKnowledgeSpecialization: 5,
+                SpecializationsBreakSkillGroups: true),
+            Modifiers: [],
+            AvailableOptions: [option],
+            Selection: new CharacterCareerSkillSpecializationSelection(
+                option.Name,
+                option.Kind,
+                option.OptionIdentity),
+            RawCharacterState: "<skill><guid>aaaaaaaa-1111-2222-3333-bbbbbbbbbbbb</guid><rating>4</rating></skill>",
+            RawSourceState: "<skill><id>adf31a50-b228-4e09-a09c-46ab9f5e59a1</id><name>Pistols</name></skill>",
+            RawRuleState: "settings:career-specialization:v1");
+    }
+
+    private static CharacterCareerSkillSpecializationModifier SpecializationModifier(
+        char identityCharacter,
+        CharacterCareerSkillSpecializationModifierKind kind,
+        string target,
+        int minimum,
+        decimal value)
+        => new(new string(identityCharacter, 64), kind, target, minimum, value);
+
+    private static void AssertSpecializationBlocker(
+        CharacterCareerSkillSpecializationInput input,
+        CharacterCareerSkillSpecializationBlocker blocker)
+    {
+        Assert.IsTrue(CharacterCareerSkillSpecializationRules.TryCreateQuote(input, out var quote));
+        Assert.IsFalse(quote.CanAdd);
+        Assert.AreEqual(blocker, quote.Blocker);
+    }
 }

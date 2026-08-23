@@ -254,6 +254,33 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             {
                 essenceModifierPostExpression = "{Modifier}";
             }
+            int? karmaActiveSpecialization = TryReadKarmaCost(
+                    settings,
+                    "karmaspecialization",
+                    out int resolvedActiveSpecialization)
+                && resolvedActiveSpecialization <= CharacterCareerSkillSpecializationRules.MaximumSettingCost
+                    ? resolvedActiveSpecialization
+                    : null;
+            int? karmaKnowledgeSpecialization = TryReadKarmaCost(
+                    settings,
+                    "karmaknospecialization",
+                    out int resolvedKnowledgeSpecialization)
+                && resolvedKnowledgeSpecialization <= CharacterCareerSkillSpecializationRules.MaximumSettingCost
+                    ? resolvedKnowledgeSpecialization
+                    : null;
+            XElement[] breakGroupNodes = settings.Elements("specializationsbreakskillgroups").Take(2).ToArray();
+            bool? specializationsBreakSkillGroups = breakGroupNodes.Length == 0
+                ? true
+                : breakGroupNodes.Length == 1
+                    && TryParseStrictBoolElement(breakGroupNodes[0], out bool resolvedBreakGroups)
+                        ? resolvedBreakGroups
+                        : null;
+            string specializationRuleState = string.Join('\0',
+                settingsKey,
+                karmaActiveSpecialization?.ToString(CultureInfo.InvariantCulture) ?? "invalid",
+                karmaKnowledgeSpecialization?.ToString(CultureInfo.InvariantCulture) ?? "invalid",
+                specializationsBreakSkillGroups?.ToString(CultureInfo.InvariantCulture) ?? "invalid",
+                boundProfileInputsDigest);
 
             return new SourceDataContext(
                 catalog,
@@ -293,7 +320,11 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 workingForManRate,
                 essenceDecimals,
                 doNotRoundEssenceInternally,
-                essenceModifierPostExpression);
+                essenceModifierPostExpression,
+                karmaActiveSpecialization,
+                karmaKnowledgeSpecialization,
+                specializationsBreakSkillGroups,
+                specializationRuleState);
         }
         catch (Exception exception) when (exception is IOException
                                           or UnauthorizedAccessException
@@ -648,6 +679,19 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             && value >= 0;
     }
 
+    private static bool TryReadKarmaCost(XElement settings, string elementName, out int value)
+    {
+        value = 0;
+        XElement[] containers = settings.Elements("karmacost").Take(2).ToArray();
+        if (containers.Length != 1 || containers[0].HasAttributes)
+        {
+            return false;
+        }
+
+        XElement[] values = containers[0].Elements(elementName).Take(2).ToArray();
+        return values.Length == 1 && TryParseNonNegativeIntElement(values[0], out value);
+    }
+
     private static bool TryReadSingleBool(XElement parent, string elementName, out bool value)
     {
         value = false;
@@ -882,6 +926,10 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
         private readonly int? _essenceDecimals;
         private readonly bool _doNotRoundEssenceInternally;
         private readonly string _essenceModifierPostExpression;
+        private readonly int? _karmaActiveSpecialization;
+        private readonly int? _karmaKnowledgeSpecialization;
+        private readonly bool? _specializationsBreakSkillGroups;
+        private readonly string _specializationRuleState;
 
         public SourceDataContext(
             ContentOverlayCatalog catalog,
@@ -921,7 +969,11 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             decimal? workingForManRate,
             int? essenceDecimals,
             bool doNotRoundEssenceInternally,
-            string essenceModifierPostExpression)
+            string essenceModifierPostExpression,
+            int? karmaActiveSpecialization,
+            int? karmaKnowledgeSpecialization,
+            bool? specializationsBreakSkillGroups,
+            string specializationRuleState)
         {
             _catalog = catalog;
             _customDirectories = customDirectories;
@@ -961,6 +1013,10 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             _essenceDecimals = essenceDecimals;
             _doNotRoundEssenceInternally = doNotRoundEssenceInternally;
             _essenceModifierPostExpression = essenceModifierPostExpression;
+            _karmaActiveSpecialization = karmaActiveSpecialization;
+            _karmaKnowledgeSpecialization = karmaKnowledgeSpecialization;
+            _specializationsBreakSkillGroups = specializationsBreakSkillGroups;
+            _specializationRuleState = specializationRuleState;
         }
 
         public bool TryResolveMaxNuyenDecimals(out int decimalPlaces)
@@ -1404,6 +1460,182 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 skill.ToString(SaveOptions.DisableFormatting));
             return true;
         }
+
+        public bool TryResolveCareerSkillSpecializationSettings(
+            out CharacterCareerSkillSpecializationSettings settings,
+            out string rawRuleState)
+        {
+            settings = new CharacterCareerSkillSpecializationSettings(0, 0, false);
+            rawRuleState = string.Empty;
+            if (!_karmaActiveSpecialization.HasValue
+                || !_karmaKnowledgeSpecialization.HasValue
+                || !_specializationsBreakSkillGroups.HasValue
+                || string.IsNullOrWhiteSpace(_specializationRuleState))
+            {
+                return false;
+            }
+
+            settings = new CharacterCareerSkillSpecializationSettings(
+                _karmaActiveSpecialization.Value,
+                _karmaKnowledgeSpecialization.Value,
+                _specializationsBreakSkillGroups.Value);
+            rawRuleState = _specializationRuleState;
+            return true;
+        }
+
+        public bool TryResolveCareerSkillSpecializationSource(
+            string sourceSkillId,
+            CharacterCareerSkillKind kind,
+            out CharacterCareerSkillSpecializationSource source)
+        {
+            source = CharacterCareerSkillSpecializationSource.Unavailable;
+            if (kind is not (CharacterCareerSkillKind.Active or CharacterCareerSkillKind.Knowledge)
+                || !Guid.TryParse(sourceSkillId, out Guid parsedSourceId)
+                || parsedSourceId == Guid.Empty
+                || !TryResolveTarget(
+                    "skills.xml",
+                    kind == CharacterCareerSkillKind.Knowledge ? ["knowledgeskills"] : ["skills"],
+                    "skill",
+                    parsedSourceId.ToString("D"),
+                    name: string.Empty,
+                    out XElement? skill)
+                || skill is null
+                || !Guid.TryParse(ReadValue(skill, "id"), out Guid resolvedSourceId)
+                || resolvedSourceId != parsedSourceId)
+            {
+                return false;
+            }
+
+            string name = ReadValue(skill, "name");
+            string category = ReadValue(skill, "category");
+            string sourceBook = ReadValue(skill, "source");
+            if (string.IsNullOrWhiteSpace(name)
+                || string.IsNullOrWhiteSpace(category)
+                || !IsEnabledSource(sourceBook))
+            {
+                return false;
+            }
+
+            var options = new List<CharacterCareerSkillSpecializationOption>();
+            var rawSourceEntries = new List<string>
+            {
+                skill.ToString(SaveOptions.DisableFormatting)
+            };
+            int sourceIndex = 0;
+            foreach (XElement specialization in skill.Element("specs")?.Elements("spec") ?? [])
+            {
+                string specializationName = specialization.Value.Trim();
+                if (string.IsNullOrWhiteSpace(specializationName))
+                {
+                    continue;
+                }
+
+                string anchor = $"skills.xml#skill:{resolvedSourceId:D}/spec:{sourceIndex.ToString(CultureInfo.InvariantCulture)}";
+                options.Add(new CharacterCareerSkillSpecializationOption(
+                    ComputeSpecializationOptionIdentity(
+                        resolvedSourceId,
+                        CharacterCareerSkillSpecializationOptionKind.SourceCatalog,
+                        specializationName,
+                        anchor,
+                        specialization.ToString(SaveOptions.DisableFormatting)),
+                    specializationName,
+                    CharacterCareerSkillSpecializationOptionKind.SourceCatalog,
+                    anchor));
+                sourceIndex++;
+            }
+
+            if (kind == CharacterCareerSkillKind.Active
+                && string.Equals(category, "Combat Active", StringComparison.Ordinal))
+            {
+                if (!TryEnumerateTargets("weapons.xml", ["weapons"], "weapon", out XElement[] weapons))
+                {
+                    return false;
+                }
+
+                HashSet<string> canonicalSpecializations = options
+                    .Where(option => option.Kind == CharacterCareerSkillSpecializationOptionKind.SourceCatalog)
+                    .Select(option => option.Name)
+                    .ToHashSet(StringComparer.Ordinal);
+                foreach (XElement weapon in weapons)
+                {
+                    string weaponName = ReadValue(weapon, "name");
+                    string weaponSourceBook = ReadValue(weapon, "source");
+                    bool isRelevant = string.Equals(ReadValue(weapon, "category"), name, StringComparison.Ordinal)
+                        || canonicalSpecializations.Contains(ReadValue(weapon, "spec"))
+                        || canonicalSpecializations.Contains(ReadValue(weapon, "spec2"));
+                    if (!isRelevant
+                        || string.IsNullOrWhiteSpace(weaponName)
+                        || !IsEnabledSource(weaponSourceBook))
+                    {
+                        continue;
+                    }
+
+                    string rawWeapon = weapon.ToString(SaveOptions.DisableFormatting);
+                    string weaponId = Guid.TryParse(ReadValue(weapon, "id"), out Guid parsedWeaponId)
+                        && parsedWeaponId != Guid.Empty
+                            ? parsedWeaponId.ToString("D")
+                            : ComputeLowerSha256(rawWeapon);
+                    string anchor = $"weapons.xml#weapon:{weaponId}";
+                    options.Add(new CharacterCareerSkillSpecializationOption(
+                        ComputeSpecializationOptionIdentity(
+                            resolvedSourceId,
+                            CharacterCareerSkillSpecializationOptionKind.CombatWeapon,
+                            weaponName,
+                            anchor,
+                            rawWeapon),
+                        weaponName,
+                        CharacterCareerSkillSpecializationOptionKind.CombatWeapon,
+                        anchor));
+                    rawSourceEntries.Add(rawWeapon);
+                }
+            }
+
+            CharacterCareerSkillSpecializationOption[] orderedOptions = options
+                .OrderBy(option => option.Name, StringComparer.Ordinal)
+                .ThenBy(option => option.Kind)
+                .ThenBy(option => option.OptionIdentity, StringComparer.Ordinal)
+                .ToArray();
+            if (orderedOptions.Select(option => option.OptionIdentity)
+                    .Distinct(StringComparer.Ordinal)
+                    .Count() != orderedOptions.Length)
+            {
+                return false;
+            }
+
+            string rawSourceState = string.Join('\0',
+                _rawProfileInputsDigest,
+                string.Join("|", _enabledSourcebooks.OrderBy(book => book, StringComparer.OrdinalIgnoreCase)),
+                string.Join("|", rawSourceEntries.OrderBy(value => value, StringComparer.Ordinal)));
+            source = new CharacterCareerSkillSpecializationSource(
+                resolvedSourceId.ToString("D"),
+                kind,
+                name,
+                category,
+                orderedOptions,
+                rawSourceState);
+            return true;
+        }
+
+        private bool IsEnabledSource(string sourceBook)
+            => string.IsNullOrWhiteSpace(sourceBook)
+                || _enabledSourcebooks.Count != 0 && _enabledSourcebooks.Contains(sourceBook);
+
+        private static string ComputeSpecializationOptionIdentity(
+            Guid sourceSkillId,
+            CharacterCareerSkillSpecializationOptionKind kind,
+            string name,
+            string sourceAnchor,
+            string rawSource)
+            => ComputeLowerSha256(string.Join('\0',
+                sourceSkillId.ToString("D"),
+                kind.ToString(),
+                name,
+                sourceAnchor,
+                rawSource));
+
+        private static string ComputeLowerSha256(string value)
+            => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value)))
+                .ToLowerInvariant();
 
         public bool TryResolveKarmaNuyenExchangeRates(
             out decimal workingForPeopleRate,
@@ -1995,6 +2227,130 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             }
 
             return true;
+        }
+
+        private bool TryEnumerateTargets(
+            string fileName,
+            IReadOnlyList<string> containerNames,
+            string entryName,
+            out XElement[] targets)
+        {
+            targets = [];
+            if (!TryLoadEffectiveDocument(_catalog, fileName, out XDocument? document)
+                || document?.Root is null)
+            {
+                return false;
+            }
+
+            var locators = new List<TargetLocator>();
+            AddLocators(document.Root, containerNames, entryName, locators);
+            if (_customDirectories.Count == 0)
+            {
+                targets = containerNames
+                    .SelectMany(containerName => document.Root.Element(containerName)?.Elements(entryName) ?? [])
+                    .Select(entry => new XElement(entry))
+                    .ToArray();
+                return true;
+            }
+            var customInputs = new List<(string Prefix, XElement Root)>();
+            foreach (CustomDirectory directory in _customDirectories)
+            {
+                string[] relevantFiles;
+                try
+                {
+                    relevantFiles = Directory
+                        .EnumerateFiles(directory.Path, $"*_{fileName}", SearchOption.AllDirectories)
+                        .Where(path =>
+                        {
+                            string candidate = Path.GetFileName(path);
+                            return candidate.StartsWith("override_", StringComparison.OrdinalIgnoreCase)
+                                || candidate.StartsWith("custom_", StringComparison.OrdinalIgnoreCase)
+                                || candidate.StartsWith("amend_", StringComparison.OrdinalIgnoreCase);
+                        })
+                        .OrderBy(path => Path.GetFileName(path), StringComparer.OrdinalIgnoreCase)
+                        .ThenBy(path => path, StringComparer.Ordinal)
+                        .ToArray();
+                }
+                catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+                {
+                    return false;
+                }
+
+                foreach (string prefix in new[] { "override_", "custom_", "amend_" })
+                {
+                    foreach (string path in relevantFiles.Where(path =>
+                                 Path.GetFileName(path).StartsWith(prefix, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        if (!TryLoadXml(path, out XDocument? customDocument)
+                            || customDocument?.Root is null)
+                        {
+                            return false;
+                        }
+                        AddLocators(customDocument.Root, containerNames, entryName, locators);
+                        customInputs.Add((prefix, customDocument.Root));
+                    }
+                }
+            }
+
+            var resolved = new Dictionary<string, XElement>(StringComparer.Ordinal);
+            foreach (TargetLocator locator in locators.Distinct()
+                         .OrderBy(locator => locator.SourceId?.ToString("D") ?? string.Empty, StringComparer.Ordinal)
+                         .ThenBy(locator => locator.Name, StringComparer.Ordinal))
+            {
+                XElement? target = FindTarget(document.Root, containerNames, entryName, locator);
+                foreach ((string prefix, XElement customRoot) in customInputs)
+                {
+                    if (!TryApplyCustomFile(
+                            customRoot,
+                            prefix,
+                            containerNames,
+                            entryName,
+                            locator,
+                            ref target))
+                    {
+                        return false;
+                    }
+                }
+                if (target is null)
+                {
+                    continue;
+                }
+
+                string key = Guid.TryParse(ReadValue(target, "id"), out Guid targetId)
+                    && targetId != Guid.Empty
+                        ? $"id:{targetId:D}"
+                        : $"name:{ReadValue(target, "name")}";
+                if (string.Equals(key, "name:", StringComparison.Ordinal))
+                {
+                    return false;
+                }
+                resolved[key] = target;
+            }
+
+            targets = resolved
+                .OrderBy(pair => pair.Key, StringComparer.Ordinal)
+                .Select(pair => pair.Value)
+                .ToArray();
+            return true;
+        }
+
+        private static void AddLocators(
+            XElement root,
+            IReadOnlyList<string> containerNames,
+            string entryName,
+            ICollection<TargetLocator> locators)
+        {
+            foreach (XElement entry in containerNames
+                         .SelectMany(containerName => root.Element(containerName)?.Elements(entryName) ?? []))
+            {
+                TargetLocator locator = TargetLocator.Create(
+                    ReadValue(entry, "id"),
+                    ReadValue(entry, "name"));
+                if (locator.SourceId.HasValue || !string.IsNullOrWhiteSpace(locator.Name))
+                {
+                    locators.Add(locator);
+                }
+            }
         }
     }
 
