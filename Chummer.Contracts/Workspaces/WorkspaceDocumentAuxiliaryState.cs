@@ -15,13 +15,16 @@ public sealed record WorkspaceDocumentAuxiliaryState(
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     CharacterCreationPrerequisiteDraft? CharacterCreationPrerequisiteDraft = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    CharacterCreationAttributesDraft? CharacterCreationAttributesDraft = null)
+    CharacterCreationAttributesDraft? CharacterCreationAttributesDraft = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    IReadOnlyList<CharacterCreationContactReceiptLedgerEntry>? CharacterCreationContactReceipts = null)
 {
     public static WorkspaceDocumentAuxiliaryState Empty { get; } = new();
 
     public bool IsEmpty => CharacterCreationFoundationDraft is null
                            && CharacterCreationPrerequisiteDraft is null
-                           && CharacterCreationAttributesDraft is null;
+                           && CharacterCreationAttributesDraft is null
+                           && CharacterCreationContactReceipts is null;
 }
 
 public static class WorkspaceDocumentAuxiliaryStateDigest

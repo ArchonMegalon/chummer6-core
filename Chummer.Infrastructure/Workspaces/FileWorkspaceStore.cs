@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Chummer.Application.Characters;
 using Chummer.Application.Workspaces;
 using Chummer.Contracts.Characters;
 using Chummer.Contracts.Owners;
@@ -678,9 +679,12 @@ public sealed class FileWorkspaceStore :
             if (!IsValidAuxiliaryStateTransition(
                     id,
                     current.ContentRevision,
+                    current.SavedRevision,
                     nextContentRevision,
                     current.Document.AuxiliaryState,
-                    document.AuxiliaryState))
+                    document.AuxiliaryState,
+                    current.Document,
+                    document))
             {
                 return UnavailableMutation("Workspace auxiliary state is invalid.");
             }
@@ -1476,15 +1480,25 @@ public sealed class FileWorkspaceStore :
             && attributes.SourceAnchorIds is { Count: > 0 }
             && !attributes.CharacterEffectsApplied
             && IsFoundationSha256(attributes.DraftDigest);
-        return foundationValid && prerequisiteValid && attributesValid;
+        IReadOnlyList<CharacterCreationContactReceiptLedgerEntry>? contactReceipts =
+            state.CharacterCreationContactReceipts;
+        bool contactReceiptsValid = contactReceipts is null
+            || CharacterCreationContactReceiptLedgerIntegrity.IsValidLedger(
+                workspaceId,
+                currentContentRevision,
+                contactReceipts);
+        return foundationValid && prerequisiteValid && attributesValid && contactReceiptsValid;
     }
 
     private static bool IsValidAuxiliaryStateTransition(
         CharacterWorkspaceId workspaceId,
         long previousContentRevision,
+        long previousSavedRevision,
         long nextContentRevision,
         WorkspaceDocumentAuxiliaryState currentState,
-        WorkspaceDocumentAuxiliaryState replacementState)
+        WorkspaceDocumentAuxiliaryState replacementState,
+        WorkspaceDocument currentDocument,
+        WorkspaceDocument replacementDocument)
     {
         if (!IsValidAuxiliaryState(workspaceId, nextContentRevision, replacementState))
         {
@@ -1503,6 +1517,10 @@ public sealed class FileWorkspaceStore :
             replacementState.CharacterCreationAttributesDraft;
         CharacterCreationAttributesDraft? currentAttributes =
             currentState.CharacterCreationAttributesDraft;
+        IReadOnlyList<CharacterCreationContactReceiptLedgerEntry>? replacementContactReceipts =
+            replacementState.CharacterCreationContactReceipts;
+        IReadOnlyList<CharacterCreationContactReceiptLedgerEntry>? currentContactReceipts =
+            currentState.CharacterCreationContactReceipts;
 
         bool foundationUnchanged = HasSameFoundationDraft(
             currentFoundation,
@@ -1513,9 +1531,13 @@ public sealed class FileWorkspaceStore :
         bool attributesUnchanged = HasSameAttributesDraft(
             currentAttributes,
             replacementAttributes);
+        bool contactReceiptsUnchanged = HasSameContactReceiptLedger(
+            currentContactReceipts,
+            replacementContactReceipts);
         int changedLaneCount = (foundationUnchanged ? 0 : 1)
                                + (prerequisiteUnchanged ? 0 : 1)
-                               + (attributesUnchanged ? 0 : 1);
+                               + (attributesUnchanged ? 0 : 1)
+                               + (contactReceiptsUnchanged ? 0 : 1);
         if (changedLaneCount != 1)
         {
             // The authority must advance exactly one typed lane. This prevents
@@ -1530,15 +1552,32 @@ public sealed class FileWorkspaceStore :
                 replacementFoundation,
                 previousContentRevision);
         }
-        return !prerequisiteUnchanged
-            ? IsValidPrerequisiteTransition(
+        if (!prerequisiteUnchanged)
+        {
+            return IsValidPrerequisiteTransition(
                 currentPrerequisite,
                 replacementPrerequisite,
-                previousContentRevision)
-            : IsValidAttributesTransition(
+                previousContentRevision);
+        }
+        if (!attributesUnchanged)
+        {
+            return IsValidAttributesTransition(
                 currentAttributes,
                 replacementAttributes,
                 previousContentRevision);
+        }
+        return CharacterCreationContactReceiptLedgerIntegrity.IsValidAppendTransition(
+                   workspaceId,
+                   previousContentRevision,
+                   previousSavedRevision,
+                   nextContentRevision,
+                   currentContactReceipts,
+                   replacementContactReceipts)
+               && replacementContactReceipts is { Count: > 0 }
+               && CharacterCreationContactReceiptLedgerIntegrity.HasValidContentTransition(
+                   replacementContactReceipts[^1],
+                   currentDocument,
+                   replacementDocument);
     }
 
     private static bool IsValidFoundationTransition(
@@ -1624,6 +1663,18 @@ public sealed class FileWorkspaceStore :
                     CharacterCreationFoundationDraft: null,
                     CharacterCreationPrerequisiteDraft: null,
                     CharacterCreationAttributesDraft: right)),
+            StringComparison.Ordinal);
+
+    private static bool HasSameContactReceiptLedger(
+        IReadOnlyList<CharacterCreationContactReceiptLedgerEntry>? left,
+        IReadOnlyList<CharacterCreationContactReceiptLedgerEntry>? right) =>
+        string.Equals(
+            WorkspaceDocumentAuxiliaryStateDigest.Compute(
+                new WorkspaceDocumentAuxiliaryState(
+                    CharacterCreationContactReceipts: left)),
+            WorkspaceDocumentAuxiliaryStateDigest.Compute(
+                new WorkspaceDocumentAuxiliaryState(
+                    CharacterCreationContactReceipts: right)),
             StringComparison.Ordinal);
 
     private static bool IsFoundationSha256(string? value)

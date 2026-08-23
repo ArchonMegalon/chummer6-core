@@ -182,6 +182,8 @@ public static class ServiceCollectionExtensions
             CharacterCreationPrerequisiteService>();
         services.AddSingleton<ICharacterCreationAttributesService,
             CharacterCreationAttributesService>();
+        services.AddSingleton<ICharacterCreationContactsService,
+            CharacterCreationContactsService>();
 
         return services;
     }
