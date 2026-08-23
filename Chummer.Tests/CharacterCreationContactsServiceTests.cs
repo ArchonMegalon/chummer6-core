@@ -314,6 +314,122 @@ public sealed class CharacterCreationContactsServiceTests
     }
 
     [TestMethod]
+    public void Persistence_boundary_recomputes_every_authority_digest_and_budget_receipt_field()
+    {
+        WithService((store, service, id, _) =>
+        {
+            CharacterCreationContactsState state = Load(service, id);
+            CharacterCreationContactPreview preview = Preview(
+                service,
+                state.Binding,
+                new CharacterCreationContactEdit(ContactId, Free: true));
+
+            (string Name, Func<CharacterCreationContactReceipt, CharacterCreationContactReceipt> Forge)[] forgeries =
+            [
+                ("source", receipt => receipt with { SourceDigest = Sha('a') }),
+                ("rules", receipt => receipt with { RulesDigest = Sha('b') }),
+                ("runtime", receipt => receipt with { RuntimeDigest = Sha('c') }),
+                ("contact-before", receipt => receipt with { ContactPointsBefore = receipt.ContactPointsBefore + 1 }),
+                ("contact-after", receipt => receipt with { ContactPointsAfter = receipt.ContactPointsAfter + 1 }),
+                ("contact-remaining", receipt => receipt with { ContactPointsRemaining = receipt.ContactPointsRemaining + 1 }),
+                ("high-before", receipt => receipt with { HighPlacesPointsBefore = receipt.HighPlacesPointsBefore + 1 }),
+                ("high-after", receipt => receipt with { HighPlacesPointsAfter = receipt.HighPlacesPointsAfter + 1 }),
+                ("high-remaining", receipt => receipt with { HighPlacesPointsRemaining = receipt.HighPlacesPointsRemaining + 1 })
+            ];
+
+            foreach ((string name, Func<CharacterCreationContactReceipt, CharacterCreationContactReceipt> forge) in forgeries)
+            {
+                WorkspaceStoreMutationResult rejected = DirectCommit(
+                    store,
+                    id,
+                    preview,
+                    forge,
+                    idempotencySeed: 'd',
+                    commandSeed: 'e');
+                Assert.AreEqual(WorkspaceOperationOutcome.Unavailable, rejected.Outcome, name);
+                Assert.AreEqual(1L, store.Get(id).Value!.ContentRevision, name);
+            }
+        });
+    }
+
+    [TestMethod]
+    public void Persistence_boundary_rejects_a_self_consistent_overspend_receipt()
+    {
+        string smallBudget = Fixture()
+            .Replace("<contactpoints>15</contactpoints>", "<contactpoints>4</contactpoints>", StringComparison.Ordinal)
+            .Replace("<free>False</free>", "<free>True</free>", StringComparison.Ordinal);
+        WithService((store, service, id, _) =>
+        {
+            CharacterCreationContactsState state = Load(service, id);
+            CharacterCreationContactResult<CharacterCreationContactPreview> result = service.Preview(
+                new CharacterCreationContactPreviewRequest(
+                    state.Binding,
+                    new CharacterCreationContactEdit(ContactId, Free: false)));
+            Assert.AreEqual(CharacterCreationContactOutcomes.Blocked, result.Outcome);
+            Assert.AreEqual(4, result.Value!.ContactBudgetAfter.Overspend);
+
+            WorkspaceStoreMutationResult rejected = DirectCommit(
+                store,
+                id,
+                result.Value,
+                receipt => receipt,
+                idempotencySeed: 'f',
+                commandSeed: '1');
+
+            Assert.AreEqual(WorkspaceOperationOutcome.Unavailable, rejected.Outcome);
+            Assert.AreEqual(1L, store.Get(id).Value!.ContentRevision);
+        }, smallBudget);
+    }
+
+    [TestMethod]
+    public void Persistence_boundary_recomputes_FIH_reclassification_and_accepts_only_the_exact_receipt()
+    {
+        string highPlaces = Fixture()
+            .Replace(
+                "<improvements />",
+                "<improvements><improvement><improvementttype>FriendsInHighPlaces</improvementttype><enabled>1</enabled><condition>create</condition></improvement></improvements>",
+                StringComparison.Ordinal)
+            .Replace(
+                "<contacts>",
+                "<attributes><attribute><name>CHA</name><totalvalue>5</totalvalue></attribute></attributes><contacts>",
+                StringComparison.Ordinal)
+            .Replace("<connection>3</connection>", "<connection>7</connection>", StringComparison.Ordinal);
+        WithService((store, service, id, _) =>
+        {
+            CharacterCreationContactsState state = Load(service, id);
+            CharacterCreationContactPreview preview = Preview(
+                service,
+                state.Binding,
+                new CharacterCreationContactEdit(ContactId, Connection: 8));
+            Assert.AreEqual(12, preview.ContactBudgetBefore.Used);
+            Assert.AreEqual(0, preview.ContactBudgetAfter.Used);
+            Assert.AreEqual(0, preview.HighPlacesBudgetBefore.Used);
+            Assert.AreEqual(13, preview.HighPlacesBudgetAfter.Used);
+            Assert.AreEqual(7, preview.HighPlacesBudgetAfter.Remaining);
+
+            WorkspaceStoreMutationResult forged = DirectCommit(
+                store,
+                id,
+                preview,
+                receipt => receipt with { HighPlacesPointsAfter = receipt.HighPlacesPointsAfter + 1 },
+                idempotencySeed: '2',
+                commandSeed: '3');
+            Assert.AreEqual(WorkspaceOperationOutcome.Unavailable, forged.Outcome);
+            Assert.AreEqual(1L, store.Get(id).Value!.ContentRevision);
+
+            WorkspaceStoreMutationResult exact = DirectCommit(
+                store,
+                id,
+                preview,
+                receipt => receipt,
+                idempotencySeed: '4',
+                commandSeed: '5');
+            Assert.AreEqual(WorkspaceOperationOutcome.Success, exact.Outcome);
+            Assert.AreEqual(2L, store.Get(id).Value!.ContentRevision);
+        }, highPlaces);
+    }
+
+    [TestMethod]
     public void Career_mode_and_free_from_improvement_fail_closed()
     {
         string career = Fixture().Replace("<created>False</created>", "<created>True</created>", StringComparison.Ordinal);
@@ -551,6 +667,98 @@ public sealed class CharacterCreationContactsServiceTests
     }
 
     private static WorkspaceDocument Document(string xml) => new(xml, "sr5", WorkspaceDocumentFormat.Chum5Xml);
+
+    private static WorkspaceStoreMutationResult DirectCommit(
+        FileWorkspaceStore store,
+        CharacterWorkspaceId id,
+        CharacterCreationContactPreview preview,
+        Func<CharacterCreationContactReceipt, CharacterCreationContactReceipt> transform,
+        char idempotencySeed,
+        char commandSeed)
+    {
+        WorkspaceStoredDocument current = store.Get(id).Value!;
+        string replacementContent = ApplyPreview(current.Document.Content, preview);
+        Assert.AreEqual(preview.WritePlan.ContentDigestAfter,
+            CharacterCreationContactReceiptLedgerIntegrity.ComputeContentDigest(replacementContent));
+        string idempotencyDigest = Sha(idempotencySeed);
+        string commandDigest = Sha(commandSeed);
+        long nextRevision = current.ContentRevision + 1;
+        var receipt = new CharacterCreationContactReceipt(
+            CharacterCreationContactsSchemas.ReceiptV1,
+            "creation-contact-" + commandDigest["sha256:".Length..][..24],
+            CharacterCreationWizardStepIds.ContactsLifestyles,
+            id,
+            preview.ContactAfter.ContactId,
+            idempotencyDigest,
+            commandDigest,
+            current.ContentRevision,
+            nextRevision,
+            current.ContentRevision,
+            nextRevision,
+            current.SavedRevision,
+            nextRevision,
+            preview.WritePlan.ContentDigestBefore,
+            preview.WritePlan.ContentDigestAfter,
+            preview.Binding.SourceDigest,
+            preview.Binding.RulesDigest,
+            preview.Binding.RuntimeDigest,
+            preview.ContactBudgetBefore.Used,
+            preview.ContactBudgetAfter.Used,
+            preview.ContactBudgetAfter.Remaining,
+            preview.HighPlacesBudgetBefore.Used,
+            preview.HighPlacesBudgetAfter.Used,
+            preview.HighPlacesBudgetAfter.Remaining,
+            preview.WritePlan,
+            ReceiptDigest: string.Empty);
+        receipt = transform(receipt);
+        receipt = receipt with
+        {
+            ReceiptDigest = CharacterCreationContactReceiptLedgerIntegrity.ComputeReceiptDigest(receipt)
+        };
+        var entry = new CharacterCreationContactReceiptLedgerEntry(
+            idempotencyDigest,
+            commandDigest,
+            receipt);
+        WorkspaceDocument replacement = current.Document with
+        {
+            State = current.Document.State with
+            {
+                Payload = replacementContent,
+                AuxiliaryState = current.Document.AuxiliaryState with
+                {
+                    CharacterCreationContactReceipts = [entry]
+                }
+            }
+        };
+        return store.ReplaceWorkspaceDocumentAndAuxiliaryStateAndCheckpoint(
+            id,
+            current.ContentRevision,
+            current.Document.AuxiliaryStateDigest,
+            replacement);
+    }
+
+    private static string ApplyPreview(
+        string content,
+        CharacterCreationContactPreview preview)
+    {
+        XDocument replacement = XDocument.Parse(content, LoadOptions.PreserveWhitespace);
+        XElement contact = Contact(replacement, preview.ContactAfter.ContactId);
+        foreach (CharacterCreationContactWriteOperation operation in preview.WritePlan.Operations)
+        {
+            string elementName = operation.FieldId switch
+            {
+                CharacterCreationContactFieldIds.Free => "free",
+                CharacterCreationContactFieldIds.Connection => "connection",
+                _ => throw new InvalidOperationException("Direct authority fixture only supports Free and Connection.")
+            };
+            XElement? element = contact.Element(elementName);
+            if (element is null)
+                contact.Add(new XElement(elementName, operation.AfterValue));
+            else
+                element.Value = operation.AfterValue;
+        }
+        return replacement.ToString(SaveOptions.DisableFormatting);
+    }
 
     private static string Fixture() => $"""
 <character>

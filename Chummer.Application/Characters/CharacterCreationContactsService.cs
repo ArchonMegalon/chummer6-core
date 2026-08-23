@@ -27,31 +27,6 @@ public sealed class CharacterCreationContactsService : ICharacterCreationContact
             ["connection", "loyalty", "group", "free", "family", "blackmail"]),
         StringComparer.Ordinal);
 
-    private static readonly string s_RulesDigest =
-        CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(new
-        {
-            CharacterCreationContactsSchemas.RulesV1,
-            StepId = CharacterCreationWizardStepIds.ContactsLifestyles,
-            ConnectionMinimum = MinimumConnection,
-            CreationConnectionMaximum = 6,
-            LoyaltyMinimum = MinimumLoyalty,
-            LoyaltyMaximum = MaximumLoyalty,
-            Cost = "free?0:round-away(max(connection+loyalty+(family?1:0)+(blackmail?2:0)+discount,2+minimum))",
-            Budget = "contacts excluding groups; FIH connection>=8 uses CHA*4 pool",
-            Career = "rejected",
-            SourceAnchors = CharacterCreationContactSourceAnchors.All
-        });
-
-    private static readonly string s_RuntimeDigest =
-        CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(new
-        {
-            CharacterCreationContactsSchemas.RuntimeV1,
-            Service = typeof(CharacterCreationContactsService).FullName,
-            Semantics = typeof(CharacterContactEditSemanticsResolver).FullName,
-            Assembly = typeof(CharacterCreationContactsService).Assembly.GetName().Name,
-            Version = typeof(CharacterCreationContactsService).Assembly.GetName().Version?.ToString() ?? string.Empty
-        });
-
     private readonly IWorkspaceStore _workspaceStore;
 
     public CharacterCreationContactsService(IWorkspaceStore workspaceStore)
@@ -385,34 +360,28 @@ public sealed class CharacterCreationContactsService : ICharacterCreationContact
         string contentAfter = CharacterCreationFoundationDraftLedgerIntegrity
             .ComputeRawCharacterXmlDigest(replacementContent);
 
+        WorkspaceDocument replacementWorkspaceDocument = workspace.Document with
+        {
+            State = workspace.Document.State with { Payload = replacementContent }
+        };
+        CharacterCreationContactsAuthoritySnapshot replacementAuthority =
+            CharacterCreationContactsAuthorityEvaluator.Evaluate(replacementWorkspaceDocument);
+        blockers.AddRange(replacementAuthority.AuthorityBlockers);
         List<CharacterCreationContactProjection> projectedAfter = ProjectContacts(
             replacementRoot,
             context.CharacterCreated,
+            replacementAuthority.Contacts,
             blockers);
         CharacterCreationContactProjection? after = projectedAfter.SingleOrDefault(
             contact => contact.ContactId == request.Edit.ContactId);
-        bool contactUsedExact = TrySumContactCosts(
-            projectedAfter,
-            contact => contact.CountsAgainstContactBudget,
-            out int contactUsedAfter);
-        bool highPlacesUsedExact = TrySumContactCosts(
-            projectedAfter,
-            contact => contact.CountsAgainstHighPlacesBudget,
-            out int highPlacesUsedAfter);
-        if (!contactUsedExact || !highPlacesUsedExact)
+        if (!FixedEquals(context.Binding.SourceDigest, replacementAuthority.SourceDigest)
+            || !FixedEquals(context.Binding.RulesDigest, replacementAuthority.RulesDigest)
+            || !FixedEquals(context.Binding.RuntimeDigest, replacementAuthority.RuntimeDigest))
+        {
             blockers.Add(CharacterCreationContactsBlockers.AuthorityUnavailable);
-        CharacterCreationContactBudget contactBudgetAfter = BuildBudget(
-            CharacterCreationContactBudgetIds.Contacts,
-            context.ContactBudget.Total,
-            contactUsedAfter,
-            context.ContactBudget.IsExact && contactUsedExact,
-            CharacterCreationContactsBlockers.BudgetExceeded);
-        CharacterCreationContactBudget highPlacesBudgetAfter = BuildBudget(
-            CharacterCreationContactBudgetIds.FriendsInHighPlaces,
-            context.HighPlacesBudget.Total,
-            highPlacesUsedAfter,
-            context.HighPlacesBudget.IsExact && highPlacesUsedExact,
-            CharacterCreationContactsBlockers.HighPlacesBudgetExceeded);
+        }
+        CharacterCreationContactBudget contactBudgetAfter = replacementAuthority.ContactBudget;
+        CharacterCreationContactBudget highPlacesBudgetAfter = replacementAuthority.HighPlacesBudget;
         blockers.AddRange(contactBudgetAfter.Blockers);
         blockers.AddRange(highPlacesBudgetAfter.Blockers);
         if (operations.Count == 0)
@@ -543,6 +512,9 @@ public sealed class CharacterCreationContactsService : ICharacterCreationContact
     private AuthorityContext BuildContext(WorkspaceStoredDocument workspace)
     {
         var blockers = new List<string>();
+        CharacterCreationContactsAuthoritySnapshot authority =
+            CharacterCreationContactsAuthorityEvaluator.Evaluate(workspace.Document);
+        blockers.AddRange(authority.AuthorityBlockers);
         if (_workspaceStore is not IWorkspaceAuxiliaryStateAtomicCommitCapability
             {
                 SupportsWorkspaceAuxiliaryStateAtomicCommit: true
@@ -592,61 +564,17 @@ public sealed class CharacterCreationContactsService : ICharacterCreationContact
             blockers.Add(CharacterCreationContactsBlockers.PersistenceAuthorityRequired);
         }
 
-        List<CharacterCreationContactProjection> contacts = ProjectContacts(root, created, blockers);
+        List<CharacterCreationContactProjection> contacts = ProjectContacts(
+            root,
+            created,
+            authority.Contacts,
+            blockers);
         ContactElement[] elements = EnumerateContactElements(root).ToArray();
         int editableContactCount = (root.Element("contacts")?.Elements("contact") ?? [])
             .Count(contact => ReadValue(contact, "type") is ""
                 || string.Equals(ReadValue(contact, "type"), "Contact", StringComparison.OrdinalIgnoreCase));
         if (elements.Length != editableContactCount)
             blockers.Add(CharacterCreationContactsBlockers.ContactInvalid);
-        bool contactTotalExact = TryParseNonNegativeInt(ReadValue(root, "contactpoints"), out int contactTotal);
-        if (!contactTotalExact)
-            blockers.Add(CharacterCreationContactsBlockers.BudgetAuthorityRequired);
-        bool friendsInHighPlaces = HasApplicableImprovement(root, "FriendsInHighPlaces", null, careerMode: false);
-        int highPlacesTotal = 0;
-        bool highPlacesExact = true;
-        int charisma = 0;
-        if (friendsInHighPlaces && !TryReadCharismaValue(root, out charisma))
-        {
-            highPlacesExact = false;
-            blockers.Add(CharacterCreationContactsBlockers.FriendsInHighPlacesAuthorityRequired);
-        }
-        else if (friendsInHighPlaces)
-        {
-            try
-            {
-                highPlacesTotal = checked(charisma * 4);
-            }
-            catch (OverflowException)
-            {
-                highPlacesExact = false;
-                blockers.Add(CharacterCreationContactsBlockers.FriendsInHighPlacesAuthorityRequired);
-            }
-        }
-
-        bool contactUsedExact = TrySumContactCosts(
-            contacts,
-            contact => contact.CountsAgainstContactBudget,
-            out int contactUsed);
-        bool highPlacesUsedExact = TrySumContactCosts(
-            contacts,
-            contact => contact.CountsAgainstHighPlacesBudget,
-            out int highPlacesUsed);
-        if (!contactUsedExact || !highPlacesUsedExact)
-            blockers.Add(CharacterCreationContactsBlockers.AuthorityUnavailable);
-        CharacterCreationContactBudget contactBudget = BuildBudget(
-            CharacterCreationContactBudgetIds.Contacts,
-            contactTotal,
-            contactUsed,
-            contactTotalExact && contactUsedExact,
-            CharacterCreationContactsBlockers.BudgetExceeded);
-        CharacterCreationContactBudget highPlacesBudget = BuildBudget(
-            CharacterCreationContactBudgetIds.FriendsInHighPlaces,
-            highPlacesTotal,
-            highPlacesUsed,
-            highPlacesExact && highPlacesUsedExact,
-            CharacterCreationContactsBlockers.HighPlacesBudgetExceeded);
-        string sourceDigest = ComputeSourceDigest(root);
         string contentDigest = CharacterCreationFoundationDraftLedgerIntegrity
             .ComputeRawCharacterXmlDigest(workspace.Document.Content);
         var binding = new CharacterCreationContactBinding(
@@ -656,9 +584,9 @@ public sealed class CharacterCreationContactsService : ICharacterCreationContact
             workspace.SavedRevision,
             contentDigest,
             workspace.Document.AuxiliaryStateDigest,
-            sourceDigest,
-            s_RulesDigest,
-            s_RuntimeDigest);
+            authority.SourceDigest,
+            authority.RulesDigest,
+            authority.RuntimeDigest);
         return new AuthorityContext(
             workspace,
             document,
@@ -667,8 +595,8 @@ public sealed class CharacterCreationContactsService : ICharacterCreationContact
             binding,
             contacts,
             elements,
-            contactBudget,
-            highPlacesBudget,
+            authority.ContactBudget,
+            authority.HighPlacesBudget,
             blockers.Distinct(StringComparer.Ordinal)
                 .OrderBy(value => value, StringComparer.Ordinal)
                 .ToArray());
@@ -677,6 +605,7 @@ public sealed class CharacterCreationContactsService : ICharacterCreationContact
     private static List<CharacterCreationContactProjection> ProjectContacts(
         XElement root,
         bool created,
+        IReadOnlyList<CharacterCreationContactAuthorityCost> authority,
         ICollection<string> blockers)
     {
         var projections = new List<CharacterCreationContactProjection>();
@@ -688,19 +617,18 @@ public sealed class CharacterCreationContactsService : ICharacterCreationContact
                 blockers.Add(CharacterCreationContactsBlockers.ContactAmbiguous);
                 continue;
             }
-            if (!CharacterContactEditSemanticsResolver.TryResolve(root, item.Element, out CharacterContactEditSemantics semantics)
-                || !TryComputeContactCost(root, semantics, out int cost))
+            CharacterCreationContactAuthorityCost? cost = authority.SingleOrDefault(
+                contact => contact.ContactId == item.Id);
+            if (!CharacterContactEditSemanticsResolver.TryResolve(
+                    root,
+                    item.Element,
+                    out CharacterContactEditSemantics semantics)
+                || cost is null)
             {
                 blockers.Add(CharacterCreationContactsBlockers.AuthorityUnavailable);
                 continue;
             }
 
-            bool friendsInHighPlaces = HasApplicableImprovement(root, "FriendsInHighPlaces", null, careerMode: false);
-            bool highPlaces = !semantics.IsGroup
-                              && !semantics.Free
-                              && semantics.Connection >= 8
-                              && friendsInHighPlaces;
-            bool regular = !semantics.IsGroup && !semantics.Free && !highPlaces;
             CharacterCreationContactIdentity identity = ReadIdentity(item.Element);
             IReadOnlyList<CharacterCreationContactFieldAuthority> fields = BuildFields(identity, semantics, created);
             var projection = new CharacterCreationContactProjection(
@@ -712,9 +640,9 @@ public sealed class CharacterCreationContactsService : ICharacterCreationContact
                 semantics.Free,
                 semantics.Family,
                 semantics.Blackmail,
-                cost,
-                regular,
-                highPlaces,
+                cost.ContactPointCost,
+                cost.CountsAgainstContactBudget,
+                cost.CountsAgainstHighPlacesBudget,
                 fields,
                 CharacterCreationContactSourceAnchors.All,
                 ContactDigest: string.Empty);
@@ -1067,165 +995,6 @@ public sealed class CharacterCreationContactsService : ICharacterCreationContact
         }
     }
 
-    private static bool TryComputeContactCost(
-        XElement root,
-        CharacterContactEditSemantics semantics,
-        out int cost)
-    {
-        cost = 0;
-        if (semantics.Free)
-            return true;
-        if (!TrySumApplicableImprovement(root, "ContactKarmaDiscount", out decimal discount)
-            || !TrySumApplicableImprovement(root, "ContactKarmaMinimum", out decimal minimum))
-        {
-            return false;
-        }
-        try
-        {
-            decimal raw = checked((decimal)semantics.Connection + semantics.Loyalty
-                                  + (semantics.Family ? 1 : 0)
-                                  + (semantics.Blackmail ? 2 : 0)
-                                  + discount);
-            decimal floor = checked(2m + minimum);
-            decimal rounded = decimal.Round(Math.Max(raw, floor), 0, MidpointRounding.AwayFromZero);
-            if (rounded is < 0 or > int.MaxValue)
-                return false;
-            cost = decimal.ToInt32(rounded);
-            return true;
-        }
-        catch (OverflowException)
-        {
-            return false;
-        }
-    }
-
-    private static bool TrySumApplicableImprovement(
-        XElement root,
-        string type,
-        out decimal total)
-    {
-        total = 0;
-        foreach (XElement improvement in root.Element("improvements")?.Elements("improvement") ?? [])
-        {
-            if (!string.Equals(ReadValue(improvement, "improvementttype"), type, StringComparison.Ordinal)
-                || !IsApplicable(improvement, careerMode: false))
-            {
-                continue;
-            }
-            if (!decimal.TryParse(
-                    ReadValue(improvement, "val"),
-                    NumberStyles.Number,
-                    CultureInfo.InvariantCulture,
-                    out decimal value))
-            {
-                return false;
-            }
-            try
-            {
-                total = checked(total + value);
-            }
-            catch (OverflowException)
-            {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    private static bool HasApplicableImprovement(
-        XElement root,
-        string type,
-        string? improvedName,
-        bool careerMode) =>
-        (root.Element("improvements")?.Elements("improvement") ?? []).Any(improvement =>
-            string.Equals(ReadValue(improvement, "improvementttype"), type, StringComparison.Ordinal)
-            && (improvedName is null
-                || string.Equals(ReadValue(improvement, "improvedname"), improvedName, StringComparison.OrdinalIgnoreCase))
-            && IsApplicable(improvement, careerMode));
-
-    private static bool IsApplicable(XElement improvement, bool careerMode)
-    {
-        if (!int.TryParse(ReadValue(improvement, "enabled"), NumberStyles.Integer,
-                CultureInfo.InvariantCulture, out int enabled))
-        {
-            enabled = 1;
-        }
-        if (enabled <= 0)
-            return false;
-        string condition = ReadValue(improvement, "condition");
-        return condition.Length == 0
-               || string.Equals(condition, careerMode ? "career" : "create", StringComparison.Ordinal);
-    }
-
-    private static CharacterCreationContactBudget BuildBudget(
-        string id,
-        int total,
-        int used,
-        bool exact,
-        string exceededBlocker)
-    {
-        int normalizedTotal = Math.Max(0, total);
-        int normalizedUsed = Math.Max(0, used);
-        int remaining = Math.Max(0, normalizedTotal - normalizedUsed);
-        int overspend = Math.Max(0, normalizedUsed - normalizedTotal);
-        return new CharacterCreationContactBudget(
-            id,
-            normalizedTotal,
-            normalizedUsed,
-            remaining,
-            overspend,
-            exact,
-            !exact
-                ? [CharacterCreationContactsBlockers.BudgetAuthorityRequired]
-                : overspend > 0 ? [exceededBlocker] : [],
-            CharacterCreationContactSourceAnchors.All);
-    }
-
-    private static bool TrySumContactCosts(
-        IEnumerable<CharacterCreationContactProjection> contacts,
-        Func<CharacterCreationContactProjection, bool> applies,
-        out int total)
-    {
-        total = 0;
-        try
-        {
-            foreach (CharacterCreationContactProjection contact in contacts)
-            {
-                if (applies(contact))
-                    total = checked(total + contact.ContactPointCost);
-            }
-            return true;
-        }
-        catch (OverflowException)
-        {
-            total = 0;
-            return false;
-        }
-    }
-
-    private static string ComputeSourceDigest(XElement root)
-    {
-        string[] improvements = (root.Element("improvements")?.Elements("improvement") ?? [])
-            .Where(improvement => ReadValue(improvement, "improvementttype") is
-                "FriendsInHighPlaces" or "ContactForceGroup" or "ContactMakeFree"
-                or "ContactForcedLoyalty" or "ContactKarmaDiscount" or "ContactKarmaMinimum")
-            .Select(improvement => improvement.ToString(SaveOptions.DisableFormatting))
-            .OrderBy(value => value, StringComparer.Ordinal)
-            .ToArray();
-        return CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(new
-        {
-            Schema = "chummer.character_creation_contacts.source.v1",
-            Settings = ReadValue(root, "settings"),
-            BuildMethod = ReadValue(root, "buildmethod"),
-            ContactPoints = ReadValue(root, "contactpoints"),
-            Charisma = (root.Element("attributes")?.Elements("attribute") ?? [])
-                .FirstOrDefault(attribute => string.Equals(ReadValue(attribute, "name"), "CHA", StringComparison.Ordinal))
-                ?.ToString(SaveOptions.DisableFormatting) ?? string.Empty,
-            Improvements = improvements,
-            SourceAnchors = CharacterCreationContactSourceAnchors.All
-        });
-    }
-
     private static string ComputeUntouchedSiblingDigest(XElement root, Guid targetId)
     {
         XElement? contacts = root.Element("contacts");
@@ -1249,38 +1018,6 @@ public sealed class CharacterCreationContactsService : ICharacterCreationContact
                 .Select(node => node.ToString(SaveOptions.DisableFormatting))
                 .ToArray()
         });
-
-    private static bool TryReadCharismaValue(XElement root, out int value)
-    {
-        value = 0;
-        XElement[] candidates = (root.Element("attributes")?.Elements("attribute") ?? [])
-            .Where(attribute => string.Equals(ReadValue(attribute, "name"), "CHA", StringComparison.Ordinal))
-            .Take(2)
-            .ToArray();
-        if (candidates.Length != 1)
-            return false;
-        XElement charisma = candidates[0];
-        if (TryParseNonNegativeInt(ReadValue(charisma, "totalvalue"), out value)
-            || TryParseNonNegativeInt(ReadValue(charisma, "value"), out value))
-        {
-            return true;
-        }
-        if (!TryParseNonNegativeInt(ReadValue(charisma, "base"), out int basis)
-            || !TryParseNonNegativeInt(ReadValue(charisma, "karma"), out int karma)
-            || !TryParseNonNegativeInt(ReadValue(charisma, "metatypemin"), out int minimum))
-        {
-            return false;
-        }
-        try
-        {
-            value = checked(basis + karma + minimum);
-            return true;
-        }
-        catch (OverflowException)
-        {
-            return false;
-        }
-    }
 
     private static XElement? FindContact(XElement root, Guid id)
         => EnumerateContactElements(root).SingleOrDefault(item => item.Id == id)?.Element;
@@ -1364,10 +1101,6 @@ public sealed class CharacterCreationContactsService : ICharacterCreationContact
                && normalized.All(character => char.IsLetterOrDigit(character)
                    || character is '-' or '_' or '.' or ':' or '/');
     }
-
-    private static bool TryParseNonNegativeInt(string value, out int parsed)
-        => int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out parsed)
-           && parsed >= 0;
 
     private static bool ParseBool(string value)
         => bool.TryParse(value, out bool parsed) && parsed

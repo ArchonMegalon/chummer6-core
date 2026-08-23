@@ -122,18 +122,33 @@ public static class CharacterCreationContactReceiptLedgerIntegrity
 
     public static bool HasValidContentTransition(
         CharacterCreationContactReceiptLedgerEntry entry,
-        string currentContent,
-        string replacementContent)
+        WorkspaceDocument currentDocument,
+        WorkspaceDocument replacementDocument)
     {
         ArgumentNullException.ThrowIfNull(entry);
+        ArgumentNullException.ThrowIfNull(currentDocument);
+        ArgumentNullException.ThrowIfNull(replacementDocument);
         CharacterCreationContactReceipt receipt = entry.Receipt;
+        string currentContent = currentDocument.Content;
+        string replacementContent = replacementDocument.Content;
         if (!FixedEquals(receipt.ContentDigestBefore, ComputeContentDigest(currentContent))
             || !FixedEquals(receipt.ContentDigestAfter, ComputeContentDigest(replacementContent))
             || !FixedEquals(receipt.WritePlan.ContentDigestBefore, receipt.ContentDigestBefore)
-            || !FixedEquals(receipt.WritePlan.ContentDigestAfter, receipt.ContentDigestAfter))
+            || !FixedEquals(receipt.WritePlan.ContentDigestAfter, receipt.ContentDigestAfter)
+            || currentDocument.Format != replacementDocument.Format
+            || !string.Equals(currentDocument.RulesetId, replacementDocument.RulesetId, StringComparison.Ordinal)
+            || currentDocument.SchemaVersion != replacementDocument.SchemaVersion
+            || !string.Equals(currentDocument.PayloadKind, replacementDocument.PayloadKind, StringComparison.Ordinal))
         {
             return false;
         }
+
+        CharacterCreationContactsAuthoritySnapshot currentAuthority =
+            CharacterCreationContactsAuthorityEvaluator.Evaluate(currentDocument);
+        CharacterCreationContactsAuthoritySnapshot replacementAuthority =
+            CharacterCreationContactsAuthorityEvaluator.Evaluate(replacementDocument);
+        if (!HasExactReceiptAuthority(receipt, currentAuthority, replacementAuthority))
+            return false;
 
         try
         {
@@ -217,6 +232,37 @@ public static class CharacterCreationContactReceiptLedgerIntegrity
         {
             return false;
         }
+    }
+
+    private static bool HasExactReceiptAuthority(
+        CharacterCreationContactReceipt receipt,
+        CharacterCreationContactsAuthoritySnapshot current,
+        CharacterCreationContactsAuthoritySnapshot replacement)
+    {
+        if (current.AuthorityBlockers.Count != 0
+            || replacement.AuthorityBlockers.Count != 0
+            || !current.ContactBudget.IsExact
+            || !current.HighPlacesBudget.IsExact
+            || !replacement.ContactBudget.IsExact
+            || !replacement.HighPlacesBudget.IsExact
+            || replacement.ContactBudget.Overspend != 0
+            || replacement.HighPlacesBudget.Overspend != 0
+            || !FixedEquals(current.SourceDigest, replacement.SourceDigest)
+            || !FixedEquals(current.RulesDigest, replacement.RulesDigest)
+            || !FixedEquals(current.RuntimeDigest, replacement.RuntimeDigest)
+            || !FixedEquals(receipt.SourceDigest, current.SourceDigest)
+            || !FixedEquals(receipt.RulesDigest, current.RulesDigest)
+            || !FixedEquals(receipt.RuntimeDigest, current.RuntimeDigest))
+        {
+            return false;
+        }
+
+        return receipt.ContactPointsBefore == current.ContactBudget.Used
+               && receipt.ContactPointsAfter == replacement.ContactBudget.Used
+               && receipt.ContactPointsRemaining == replacement.ContactBudget.Remaining
+               && receipt.HighPlacesPointsBefore == current.HighPlacesBudget.Used
+               && receipt.HighPlacesPointsAfter == replacement.HighPlacesBudget.Used
+               && receipt.HighPlacesPointsRemaining == replacement.HighPlacesBudget.Remaining;
     }
 
     public static bool IsValidForCommit(

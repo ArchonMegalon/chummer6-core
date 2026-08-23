@@ -683,8 +683,8 @@ public sealed class FileWorkspaceStore :
                     nextContentRevision,
                     current.Document.AuxiliaryState,
                     document.AuxiliaryState,
-                    current.Document.Content,
-                    document.Content))
+                    current.Document,
+                    document))
             {
                 return UnavailableMutation("Workspace auxiliary state is invalid.");
             }
@@ -1497,8 +1497,8 @@ public sealed class FileWorkspaceStore :
         long nextContentRevision,
         WorkspaceDocumentAuxiliaryState currentState,
         WorkspaceDocumentAuxiliaryState replacementState,
-        string currentContent,
-        string replacementContent)
+        WorkspaceDocument currentDocument,
+        WorkspaceDocument replacementDocument)
     {
         if (!IsValidAuxiliaryState(workspaceId, nextContentRevision, replacementState))
         {
@@ -1576,8 +1576,8 @@ public sealed class FileWorkspaceStore :
                && replacementContactReceipts is { Count: > 0 }
                && CharacterCreationContactReceiptLedgerIntegrity.HasValidContentTransition(
                    replacementContactReceipts[^1],
-                   currentContent,
-                   replacementContent);
+                   currentDocument,
+                   replacementDocument);
     }
 
     private static bool IsValidFoundationTransition(

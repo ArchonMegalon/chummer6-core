@@ -72,6 +72,38 @@ class CreationContactsAuthoritySourceContracts(unittest.TestCase):
         self.assertIn("ReplaceWorkspaceDocumentAndAuxiliaryStateAndCheckpoint", service)
         self.assertNotIn("ReplaceWorkspaceDocument(", service)
 
+    def test_service_and_persistence_share_the_deterministic_budget_and_digest_evaluator(self) -> None:
+        service = (REPO_ROOT / "Chummer.Application/Characters/CharacterCreationContactsService.cs").read_text(
+            encoding="utf-8"
+        )
+        integrity = (
+            REPO_ROOT
+            / "Chummer.Application/Characters/CharacterCreationContactReceiptLedgerIntegrity.cs"
+        ).read_text(encoding="utf-8")
+        evaluator = (
+            REPO_ROOT
+            / "Chummer.Application/Characters/CharacterCreationContactsAuthorityEvaluator.cs"
+        ).read_text(encoding="utf-8")
+        authority_call = "CharacterCreationContactsAuthorityEvaluator.Evaluate"
+        self.assertIn(authority_call, service)
+        self.assertIn(authority_call, integrity)
+        self.assertIn("ContactKarmaDiscount", evaluator)
+        self.assertIn("FriendsInHighPlaces", evaluator)
+        self.assertIn("ContactBudget.Overspend", integrity)
+        self.assertIn("HighPlacesBudget.Overspend", integrity)
+        for receipt_field in (
+            "SourceDigest",
+            "RulesDigest",
+            "RuntimeDigest",
+            "ContactPointsBefore",
+            "ContactPointsAfter",
+            "ContactPointsRemaining",
+            "HighPlacesPointsBefore",
+            "HighPlacesPointsAfter",
+            "HighPlacesPointsRemaining",
+        ):
+            self.assertIn(f"receipt.{receipt_field}", integrity)
+
     def test_hosted_package_plane_runs_the_authority_and_source_contract_tests(self) -> None:
         workflow = (REPO_ROOT / ".github/workflows/package-plane.yml").read_text(encoding="utf-8")
         self.assertIn("CharacterCreationContactsServiceTests", workflow)
