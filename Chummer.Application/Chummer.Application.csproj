@@ -12,13 +12,13 @@
   <ItemGroup Condition="'$(ChummerLocalContractsProject)' == '' or !Exists('$(ChummerLocalContractsProject)')">
     <PackageReference Include="Chummer.Engine.Contracts" Version="$(ChummerEngineContractsPackageVersion)" />
   </ItemGroup>
-  <ItemGroup Condition="'$(ChummerUseLocalCompatibilityTree)' == 'true'">
+  <ItemGroup Condition="'$(ChummerUseLocalCompatibilityTree)' == 'true' and '$(ChummerUseLockedOwnerContractPackages)' != 'true'">
     <ProjectReference Include="$(ChummerLocalHubRegistryContractsProject)"
                       AdditionalProperties="RuntimeIdentifier=$(RuntimeIdentifier);RuntimeIdentifiers=$(RuntimeIdentifiers)" />
     <ProjectReference Include="$(ChummerLocalRunContractsProject)"
                       AdditionalProperties="RuntimeIdentifier=$(RuntimeIdentifier);RuntimeIdentifiers=$(RuntimeIdentifiers)" />
   </ItemGroup>
-  <ItemGroup Condition="'$(ChummerUseLocalCompatibilityTree)' != 'true'">
+  <ItemGroup Condition="'$(ChummerUseLocalCompatibilityTree)' != 'true' or '$(ChummerUseLockedOwnerContractPackages)' == 'true'">
     <PackageReference Include="Chummer.Hub.Registry.Contracts" Version="$(ChummerHubRegistryContractsPackageVersion)" />
     <PackageReference Include="Chummer.Run.Contracts" Version="$(ChummerRunContractsPackageVersion)" />
   </ItemGroup>

@@ -54,6 +54,28 @@ PACKAGE_CONSUMERS = {
     ),
 }
 
+LOCKED_OWNER_SWITCHED_CONSUMERS = (
+    "Chummer.Application/Chummer.Application.csproj",
+    "Chummer.Infrastructure/Chummer.Infrastructure.csproj",
+    "Chummer.Rulesets.Hosting/Chummer.Rulesets.Hosting.csproj",
+    "Chummer.Rulesets.Sr4/Chummer.Rulesets.Sr4.csproj",
+    "Chummer.Rulesets.Sr5/Chummer.Rulesets.Sr5.csproj",
+    "Chummer.Rulesets.Sr6/Chummer.Rulesets.Sr6.csproj",
+)
+HUB_OWNER_SWITCHED_CONSUMERS = {
+    "Chummer.Application/Chummer.Application.csproj",
+    "Chummer.Infrastructure/Chummer.Infrastructure.csproj",
+}
+
+LOCAL_OWNER_PROJECT_CONDITION = (
+    "'$(ChummerUseLocalCompatibilityTree)' == 'true' and "
+    "'$(ChummerUseLockedOwnerContractPackages)' != 'true'"
+)
+LOCKED_OWNER_PACKAGE_CONDITION = (
+    "'$(ChummerUseLocalCompatibilityTree)' != 'true' or "
+    "'$(ChummerUseLockedOwnerContractPackages)' == 'true'"
+)
+
 
 def local_name(tag: str) -> str:
     return tag.rsplit("}", 1)[-1]
@@ -164,6 +186,42 @@ class PackagePlaneTests(unittest.TestCase):
             "$(ChummerOwnerContractsPackageVersion)",
             values["ChummerRunContractsPackageVersion"],
         )
+        self.assertEqual("false", values["ChummerUseLockedOwnerContractPackages"])
+
+    def test_locked_owner_mode_selects_packages_across_local_production_graph(self) -> None:
+        for relative_path in LOCKED_OWNER_SWITCHED_CONSUMERS:
+            project = ET.parse(REPO_ROOT / relative_path).getroot()
+            run_project_condition = None
+            run_package_condition = None
+            hub_project_condition = None
+            hub_package_condition = None
+
+            for item_group in project:
+                includes = {
+                    element.attrib.get("Include")
+                    for element in item_group
+                }
+                if "$(ChummerLocalRunContractsProject)" in includes:
+                    run_project_condition = item_group.attrib.get("Condition")
+                if "Chummer.Run.Contracts" in includes:
+                    run_package_condition = item_group.attrib.get("Condition")
+                if "$(ChummerLocalHubRegistryContractsProject)" in includes:
+                    hub_project_condition = item_group.attrib.get("Condition")
+                if "Chummer.Hub.Registry.Contracts" in includes:
+                    hub_package_condition = item_group.attrib.get("Condition")
+
+            with self.subTest(project=relative_path):
+                self.assertEqual(LOCAL_OWNER_PROJECT_CONDITION, run_project_condition)
+                self.assertEqual(LOCKED_OWNER_PACKAGE_CONDITION, run_package_condition)
+                if relative_path in HUB_OWNER_SWITCHED_CONSUMERS:
+                    self.assertEqual(
+                        LOCAL_OWNER_PROJECT_CONDITION,
+                        hub_project_condition,
+                    )
+                    self.assertEqual(
+                        LOCKED_OWNER_PACKAGE_CONDITION,
+                        hub_package_condition,
+                    )
 
     def test_engine_contract_package_declares_gplv3_license_metadata(self) -> None:
         root = ET.parse(REPO_ROOT / "Chummer.Contracts/Chummer.Contracts.csproj").getroot()

@@ -9,6 +9,7 @@
     <ChummerHubRegistryContractsPackageVersion Condition="'$(ChummerHubRegistryContractsPackageVersion)' == ''">$(ChummerOwnerContractsPackageVersion)</ChummerHubRegistryContractsPackageVersion>
     <ChummerRunContractsPackageVersion Condition="'$(ChummerRunContractsPackageVersion)' == ''">$(ChummerOwnerContractsPackageVersion)</ChummerRunContractsPackageVersion>
     <ChummerUseLocalCompatibilityTree Condition="'$(ChummerUseLocalCompatibilityTree)' == ''">false</ChummerUseLocalCompatibilityTree>
+    <ChummerUseLockedOwnerContractPackages Condition="'$(ChummerUseLockedOwnerContractPackages)' == ''">false</ChummerUseLockedOwnerContractPackages>
     <ChummerCompatibilityRoot Condition="'$(ChummerCompatibilityRoot)' == ''">$(MSBuildThisFileDirectory)../</ChummerCompatibilityRoot>
     <ChummerLocalRunContractsProject Condition="'$(ChummerUseLocalCompatibilityTree)' == 'true' and '$(ChummerLocalRunContractsProject)' == ''">$(ChummerCompatibilityRoot)chummer.run-services/Chummer.Run.Contracts/Chummer.Run.Contracts.csproj</ChummerLocalRunContractsProject>
     <ChummerLocalHubRegistryContractsProject Condition="'$(ChummerUseLocalCompatibilityTree)' == 'true' and '$(ChummerLocalHubRegistryContractsProject)' == ''">$(ChummerCompatibilityRoot)chummer-hub-registry/Chummer.Hub.Registry.Contracts/Chummer.Hub.Registry.Contracts.csproj</ChummerLocalHubRegistryContractsProject>
