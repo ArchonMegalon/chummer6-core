@@ -1,0 +1,59 @@
+{
+  "contract": "chummer-core.android-content-plane-lock/v1",
+  "sourceRepository": "ArchonMegalon/chummer6-core",
+  "sourceCommit": "bc08228d3ce06410ca97ada63a5af41a2eaa91bf",
+  "sourceTree": "b376960723c63743c50e8b6878c212b1b2fc8d3c",
+  "roots": [
+    {
+      "sourcePath": "Chummer/data",
+      "artifactPath": "content/data",
+      "tree": "ec73ac4f3887c7cf9cdad831c11723d63237902d"
+    },
+    {
+      "sourcePath": "Chummer/lang",
+      "artifactPath": "content/lang",
+      "tree": "02f6049b25bfb83cf385f8668289922d7168d516"
+    }
+  ],
+  "contentFileCount": 110,
+  "contentByteCount": 17371170,
+  "contentDigest": "95b0653a54fc16c15b5283562e426e214db67c7b58c7e21c124d8d396a7c2f3d",
+  "licenses": [
+    {
+      "sourcePath": "LICENSE",
+      "artifactPath": "licenses/LICENSE",
+      "blob": "f288702d2fa16d3cdf0035b15a9fcbc552cd88e7",
+      "size": 35149,
+      "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986"
+    },
+    {
+      "sourcePath": "Chummer/LICENSE.txt",
+      "artifactPath": "licenses/Chummer-LICENSE.txt",
+      "blob": "fe1341954b9cddf07ff4acf97180855b4c5d7111",
+      "size": 32425,
+      "sha256": "ed5cfe0fa58d086a63c181125c129a2ac77a355aba3fa77c3b2aa408830a8fc9"
+    }
+  ],
+  "artifact": {
+    "layout": "chummer-core.android-content-artifact/v1",
+    "inventoryContract": "chummer-core.android-content-inventory/v1",
+    "inventoryPath": "content/manifest.json",
+    "receiptContract": "chummer-core.android-content-receipt/v1",
+    "receiptPath": "authority/producer-receipt.json",
+    "receiptSealPath": "authority/producer-receipt.json.sha256",
+    "memberCount": 115
+  },
+  "limits": {
+    "maxContentFiles": 256,
+    "maxContentBytes": 33554432,
+    "maxFileBytes": 4194304,
+    "maxManifestBytes": 1048576,
+    "maxPathUtf8Bytes": 240
+  },
+  "producerInputPaths": [
+    ".github/workflows/android-content-plane.yml",
+    "eng/android-content-plane.lock.json",
+    "scripts/ai/android-content-plane.py",
+    "tests/test_android_content_plane.py"
+  ]
+}
