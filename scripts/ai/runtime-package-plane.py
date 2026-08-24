@@ -48,6 +48,7 @@ SDK_ARCHIVE_SHA512 = (
     "d31258401dcec31cc3cf6ccae1d012623075aca1c9b9165bcfe5ba9abda1c0c"
 )
 SDK_ARCHIVE_MAX_BYTES = 512 * 1024 * 1024
+EXPORT_MEMBER_MAX_BYTES = 512 * 1024 * 1024
 TARGET_FRAMEWORK = "net10.0"
 LICENSE_EXPRESSION = "GPL-3.0-only"
 EXTERNAL_OWNER_PACKAGES = (
@@ -1351,6 +1352,85 @@ def _validate_export_layout_at(
         raise RuntimePackagePlaneError("runtime bundle contains case-colliding members")
 
 
+def _stable_file_identity(metadata: os.stat_result) -> tuple[int, ...]:
+    return (
+        metadata.st_dev,
+        metadata.st_ino,
+        metadata.st_mode,
+        metadata.st_nlink,
+        metadata.st_size,
+        metadata.st_mtime_ns,
+        metadata.st_ctime_ns,
+    )
+
+
+def _verify_stable_bound_file_at(
+    directory_descriptor: int,
+    name: str,
+    *,
+    expected_sha256: str,
+    expected_size: int,
+) -> None:
+    if (
+        not name
+        or "/" in name
+        or "\\" in name
+        or name in {".", ".."}
+        or not SHA256_RE.fullmatch(expected_sha256)
+        or not isinstance(expected_size, int)
+        or isinstance(expected_size, bool)
+        or expected_size <= 0
+        or expected_size > EXPORT_MEMBER_MAX_BYTES
+    ):
+        raise RuntimePackagePlaneError(f"exported file authority is invalid: {name!r}")
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0)
+    descriptor = -1
+    try:
+        path_before = os.stat(name, dir_fd=directory_descriptor, follow_symlinks=False)
+        descriptor = os.open(name, flags, dir_fd=directory_descriptor)
+        opened_before = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(path_before.st_mode)
+            or not stat.S_ISREG(opened_before.st_mode)
+            or path_before.st_nlink != 1
+            or opened_before.st_nlink != 1
+            or _stable_file_identity(path_before) != _stable_file_identity(opened_before)
+            or opened_before.st_size != expected_size
+        ):
+            raise RuntimePackagePlaneError(
+                f"exported file identity differs from authority: {name}"
+            )
+        digest = hashlib.sha256()
+        size = 0
+        while size <= expected_size:
+            chunk = os.read(
+                descriptor,
+                min(1024 * 1024, expected_size + 1 - size),
+            )
+            if not chunk:
+                break
+            digest.update(chunk)
+            size += len(chunk)
+        opened_after = os.fstat(descriptor)
+        path_after = os.stat(name, dir_fd=directory_descriptor, follow_symlinks=False)
+        if (
+            _stable_file_identity(opened_after) != _stable_file_identity(opened_before)
+            or _stable_file_identity(path_after) != _stable_file_identity(opened_before)
+            or size != expected_size
+            or digest.hexdigest() != expected_sha256
+        ):
+            raise RuntimePackagePlaneError(
+                f"exported file stable byte authority differs: {name}"
+            )
+    except OSError as exc:
+        raise RuntimePackagePlaneError(
+            f"cannot verify exported file authority {name}: {exc}"
+        ) from exc
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+
+
 def export_bundle(
     repo_root: Path,
     lock_path: Path,
@@ -1380,6 +1460,8 @@ def export_bundle(
     package_names = [row["file_name"] for row in inventory["packages"]]
     if len(package_names) != len(set(name.casefold() for name in package_names)):
         raise RuntimePackagePlaneError("runtime inventory contains case-colliding package names")
+    inventory_size = inventory_path.stat().st_size
+    lock_size = lock_path.stat().st_size
 
     parent_descriptor = _open_absolute_directory(export_dir.parent)
     export_descriptor = -1
@@ -1427,14 +1509,14 @@ def export_bundle(
             export_descriptor,
             INVENTORY_NAME,
             expected_sha256=inventory_sha256,
-            expected_size=inventory_path.stat().st_size,
+            expected_size=inventory_size,
         )
         _copy_bound_file_at(
             lock_path,
             export_descriptor,
             "runtime-package-plane.lock.json",
             expected_sha256=inventory["package_plane_lock_sha256"],
-            expected_size=lock_path.stat().st_size,
+            expected_size=lock_size,
         )
         _copy_bound_file_at(
             receipt_path,
@@ -1509,6 +1591,28 @@ def export_bundle(
             reopened_packages,
             set(package_names),
         )
+        for row in inventory["packages"]:
+            _verify_stable_bound_file_at(
+                reopened_packages,
+                row["file_name"],
+                expected_sha256=row["sha256"],
+                expected_size=row["size_bytes"],
+            )
+        for name, expected_sha256, expected_size in (
+            (INVENTORY_NAME, inventory_sha256, inventory_size),
+            (
+                "runtime-package-plane.lock.json",
+                inventory["package_plane_lock_sha256"],
+                lock_size,
+            ),
+            ("no-siblings.v3.receipt.json", receipt_sha256, receipt_size),
+        ):
+            _verify_stable_bound_file_at(
+                reopened_export,
+                name,
+                expected_sha256=expected_sha256,
+                expected_size=expected_size,
+            )
     finally:
         if reopened_packages >= 0:
             os.close(reopened_packages)

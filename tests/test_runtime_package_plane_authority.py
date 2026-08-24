@@ -453,6 +453,38 @@ class RuntimePackageArchiveTests(unittest.TestCase):
         runtime._atomic_json(receipt_path, receipt)
         return receipt_path, receipt
 
+    def _assert_pre_final_file_mutation_rejected(
+        self,
+        relative_name: str,
+        *,
+        same_size: bool,
+        suffix: str,
+    ) -> None:
+        receipt_path, _ = self._write_inventory_and_receipt()
+        export_dir = self.feed / f"stable-read-{suffix}"
+
+        def mutate_exported_file() -> None:
+            target = export_dir / relative_name
+            original = target.read_bytes()
+            if same_size:
+                replacement = bytes((original[0] ^ 0xFF,)) + original[1:]
+            else:
+                replacement = original + b"changed-size"
+            target.write_bytes(replacement)
+
+        with self.assertRaisesRegex(
+            runtime.RuntimePackagePlaneError,
+            "identity differs from authority|stable byte authority differs",
+        ):
+            runtime.export_bundle(
+                REPO_ROOT,
+                REPO_ROOT / "eng/runtime-package-plane.lock.json",
+                self.feed,
+                receipt_path,
+                export_dir,
+                _before_final_reopen=mutate_exported_file,
+            )
+
     def test_export_bundle_contains_only_exact_digest_bound_members(self) -> None:
         receipt_path, _ = self._write_inventory_and_receipt()
         (self.feed / "unrelated-owner-package.nupkg").write_bytes(b"must-not-export")
@@ -662,6 +694,61 @@ class RuntimePackageArchiveTests(unittest.TestCase):
                 receipt_path,
                 export_dir,
                 _before_final_reopen=swap_packages,
+            )
+
+    def test_export_stable_read_rejects_same_size_package_mutation(self) -> None:
+        package = runtime.PACKAGE_SPECS[0]
+        self._assert_pre_final_file_mutation_rejected(
+            f"packages/{package.package_id}.{runtime.PACKAGE_VERSION}.nupkg",
+            same_size=True,
+            suffix="package-same-size",
+        )
+
+    def test_export_stable_read_rejects_changed_size_package_mutation(self) -> None:
+        package = runtime.PACKAGE_SPECS[0]
+        self._assert_pre_final_file_mutation_rejected(
+            f"packages/{package.package_id}.{runtime.PACKAGE_VERSION}.nupkg",
+            same_size=False,
+            suffix="package-changed-size",
+        )
+
+    def test_export_stable_read_rejects_root_authority_mutations(self) -> None:
+        names = (
+            runtime.INVENTORY_NAME,
+            "runtime-package-plane.lock.json",
+            "no-siblings.v3.receipt.json",
+        )
+        for name in names:
+            for same_size in (True, False):
+                with self.subTest(name=name, same_size=same_size):
+                    self._assert_pre_final_file_mutation_rejected(
+                        name,
+                        same_size=same_size,
+                        suffix=f"{name}-{same_size}".replace(".", "-"),
+                    )
+
+    def test_export_stable_read_rejects_hardlinked_package(self) -> None:
+        receipt_path, _ = self._write_inventory_and_receipt()
+        export_dir = self.feed / "stable-read-hardlink"
+        package = runtime.PACKAGE_SPECS[0]
+        relative_name = (
+            f"packages/{package.package_id}.{runtime.PACKAGE_VERSION}.nupkg"
+        )
+
+        def hardlink_exported_file() -> None:
+            target = export_dir / relative_name
+            held = self.feed / "held-hardlink-package.nupkg"
+            target.rename(held)
+            target.hardlink_to(held)
+
+        with self.assertRaisesRegex(runtime.RuntimePackagePlaneError, "identity differs"):
+            runtime.export_bundle(
+                REPO_ROOT,
+                REPO_ROOT / "eng/runtime-package-plane.lock.json",
+                self.feed,
+                receipt_path,
+                export_dir,
+                _before_final_reopen=hardlink_exported_file,
             )
 
     def test_export_rejects_noncanonical_dotdot_parent(self) -> None:

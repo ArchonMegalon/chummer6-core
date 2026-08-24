@@ -37,7 +37,7 @@
     {"path": "scripts/ai/_env.sh", "sha256": "efd91711e2492039933b2b97a0e0cfe51f84127dc25987dc2d5034997dcb8c30"},
     {"path": "scripts/ai/bootstrap-contracts-feed.sh", "sha256": "8b0c25566398f3b222ffbdd23a8244fb27d4f7ce8a65c15a9678a6a63d1a88e6"},
     {"path": "scripts/ai/bootstrap-owner-contracts-feed.py", "sha256": "5beffe15d1708f4cf2c096f376822cd48b9502b5fb1acb69b95db3c86c474786"},
-    {"path": "scripts/ai/runtime-package-plane.py", "sha256": "ec20836d1c8af78d91ca7c366c3582b2d97789f1deeae7e400909329ca80d142"},
+    {"path": "scripts/ai/runtime-package-plane.py", "sha256": "e887fdccba6b675eaa5fcdd88e535da8e39564941776392bcbd27c2606f3e549"},
     {"path": "scripts/ai/verify-no-siblings-package-plane.sh", "sha256": "dce5211365f6ecb67f59a2e12ef71c06743170f2e728ee2bd77f2d3b39869105"}
   ],
   "external_owner_packages": [
