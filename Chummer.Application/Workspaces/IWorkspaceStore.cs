@@ -70,6 +70,19 @@ public interface IWorkspaceAuxiliaryStateAtomicCommitCapability
         WorkspaceDocument document);
 }
 
+/// <summary>
+/// Explicit atomic seam for creating the only workspace shape that may begin with
+/// authority-bound auxiliary state. Generic imports must never use this capability.
+/// </summary>
+public interface ICharacterCreationBootstrapAtomicCreateCapability
+{
+    bool SupportsCharacterCreationBootstrapAtomicCreate { get; }
+
+    WorkspaceStoreMutationResult CreateCharacterCreationBootstrapWorkspaceDocument(
+        CharacterWorkspaceId id,
+        WorkspaceDocument document);
+}
+
 public interface IWorkspaceStore
 {
     WorkspaceStoreMutationResult CreateWorkspaceDocument(WorkspaceDocument document);

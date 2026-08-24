@@ -11,6 +11,7 @@ using Chummer.Contracts.Presentation;
 using Chummer.Contracts.Rulesets;
 using Chummer.Contracts.Workspaces;
 using Chummer.Application.BuildLab;
+using Chummer.Application.Characters;
 
 namespace Chummer.Application.Workspaces;
 
@@ -60,6 +61,12 @@ public sealed class WorkspaceService : IWorkspaceService
 
         IRulesetWorkspaceCodec codec = _workspaceCodecResolver.Resolve(rulesetId);
         WorkspacePayloadEnvelope envelope = codec.WrapImport(rulesetId, document);
+        if (CharacterCreationBootstrapAuthority.HasBootstrapState(
+                new WorkspaceDocument(envelope, document.Format)))
+        {
+            throw new InvalidOperationException(
+                "A character creation bootstrap must use the typed, resolver-bound atomic creation service.");
+        }
         CharacterFileSummary summary = codec.ParseSummary(envelope);
         DataExportBundle bundle = codec.BuildExportBundle(envelope);
         CharacterWorkspaceId id = new(Guid.NewGuid().ToString("N"));

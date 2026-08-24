@@ -14,8 +14,6 @@ namespace Chummer.Infrastructure.Xml;
 
 public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceDataResolver
 {
-    private const string CanonicalLifeModuleSettingsProfileId = "8a31af6d-7137-4284-872b-7d8087e156c6";
-
     private sealed record CustomDirectory(
         string Name,
         string Path,
@@ -659,7 +657,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
 
         string[] buildMethods = settings.Elements("buildmethod").Take(2).Select(item => item.Value.Trim()).ToArray();
         if (buildMethods.Length != 1
-            || !string.Equals(buildMethods[0], CharacterCreationBuildMethods.LifeModules, StringComparison.OrdinalIgnoreCase))
+            || !CharacterCreationBuildMethods.IsSupported(buildMethods[0]))
         {
             resolvedBlockers.Add(CharacterCreationMetatypeCatalogBlockers.ProfileBuildMethodUnsupported);
         }
@@ -1290,10 +1288,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             {
                 blockers.Add(CharacterCreationMetatypeCatalogBlockers.MetatypesSourceDrift);
             }
-            if (!string.Equals(
-                    _settingsProfileId,
-                    CanonicalLifeModuleSettingsProfileId,
-                    StringComparison.OrdinalIgnoreCase))
+            if (!CharacterCreationBuildMethods.IsSupported(_buildMethod))
             {
                 blockers.Add(CharacterCreationMetatypeCatalogBlockers.ProfileUnsupported);
             }

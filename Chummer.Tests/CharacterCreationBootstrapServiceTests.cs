@@ -1,0 +1,603 @@
+using System.Xml.Linq;
+using Chummer.Application.Characters;
+using Chummer.Application.Workspaces;
+using Chummer.Contracts.Api;
+using Chummer.Contracts.Characters;
+using Chummer.Contracts.Rulesets;
+using Chummer.Contracts.Workspaces;
+using Chummer.Infrastructure.Files;
+using Chummer.Infrastructure.Workspaces;
+using Chummer.Infrastructure.Xml;
+using Chummer.Rulesets.Hosting;
+using Chummer.Rulesets.Sr5;
+using Microsoft.VisualStudio.TestTools.UnitTesting;
+
+namespace Chummer.Tests;
+
+[TestClass]
+public sealed class CharacterCreationBootstrapServiceTests
+{
+    private const string CanonicalPrioritySettingsId =
+        "223a11ff-80e0-428b-89a9-6ef1c243b8b6";
+    private const string CanonicalSumToTenSettingsId =
+        "3509a807-68ee-4c18-b7d5-b130313b4b77";
+    private const string CanonicalKarmaSettingsId =
+        "fe7bb0d9-3cd9-4a75-825e-135b95a4f3ef";
+    private const string CanonicalLifeModulesSettingsId =
+        "8a31af6d-7137-4284-872b-7d8087e156c6";
+
+    [TestMethod]
+    public void Generic_character_validation_remains_strict_for_marker_bearing_xml()
+    {
+        string xml = MinimalMarkerXml();
+        var files = new CharacterFileService();
+
+        CharacterValidationResult validation = files.ValidateXml(xml);
+        CharacterFileSummary summary = files.ParseSummaryFromXml(xml);
+
+        Assert.IsFalse(validation.IsValid);
+        CharacterValidationIssue missingMetatype = validation.Issues.Single(issue =>
+            issue.Severity == "Error" && issue.Path == "/character/metatype");
+        Assert.AreEqual("MissingRequiredNode", missingMetatype.Code);
+        Assert.AreEqual(string.Empty, summary.Metatype);
+        Assert.IsFalse(summary.Created);
+
+        string unknownMarker = xml.Replace(
+            CharacterCreationBootstrapSchemas.MarkerV1,
+            "unknown-marker",
+            StringComparison.Ordinal);
+        CharacterValidationResult unknownValidation = files.ValidateXml(unknownMarker);
+        Assert.IsFalse(unknownValidation.IsValid);
+        Assert.IsTrue(unknownValidation.Issues.Any(issue =>
+            issue.Path == "/character/metatype"));
+    }
+
+    [TestMethod]
+    public void Canonical_priority_bootstrap_atomically_binds_and_loads_real_creation_authorities()
+    {
+        string coreRoot = FindCoreRoot();
+        var store = new InMemoryWorkspaceStore();
+        FileSystemCharacterSourceDataResolver sourceResolver = CreateSourceResolver(coreRoot);
+        ICharacterFileQueries queries = CreateFileQueries();
+        CharacterCreationBootstrapService service = CreateService(
+            store,
+            sourceResolver,
+            queries);
+
+        CharacterCreationBootstrapResult<CharacterCreationBootstrapReceipt> created =
+            service.Create(CanonicalRequest());
+
+        Assert.AreEqual(CharacterCreationBootstrapOutcomes.Success, created.Outcome,
+            string.Join(",", created.Blockers));
+        CharacterCreationBootstrapReceipt receipt = created.Value!;
+        Assert.IsNotNull(receipt);
+        Assert.AreEqual(1, receipt.ContentRevision);
+        Assert.AreEqual(0, receipt.SavedRevision);
+        Assert.AreEqual(string.Empty, receipt.Summary.Metatype);
+        Assert.IsFalse(receipt.Summary.Created);
+        Assert.IsTrue(CharacterCreationBootstrapBindingDigest.IsValid(receipt.Binding));
+        Assert.IsTrue(CharacterCreationPrerequisiteAuthorityDigest.IsCanonical(
+            receipt.Binding.RawProfileInputsDigest));
+        Assert.IsTrue(CharacterCreationPrerequisiteAuthorityDigest.IsCanonical(
+            receipt.Binding.MetatypeAuthorityDigest));
+        Assert.IsTrue(CharacterCreationPrerequisiteAuthorityDigest.IsCanonical(
+            receipt.Binding.PrerequisiteAuthorityDigest));
+        CollectionAssert.Contains(
+            receipt.SourceAnchorIds.ToList(),
+            $"settings.xml#setting:{CanonicalPrioritySettingsId}");
+        CollectionAssert.Contains(receipt.SourceAnchorIds.ToList(), "metatypes.xml");
+        CollectionAssert.Contains(receipt.SourceAnchorIds.ToList(), "priorities.xml");
+
+        WorkspaceStoredDocument workspace = store.Get(receipt.WorkspaceId).Value!;
+        Assert.IsNotNull(workspace);
+        XDocument xml = XDocument.Parse(workspace.Document.Content);
+        Assert.IsNull(xml.Root!.Element("metatype"));
+        Assert.HasCount(1, xml.Root.Elements(CharacterCreationBootstrapXml.MarkerElement));
+        Assert.IsFalse(xml.Root.Elements().Any(element =>
+            element.Name.LocalName.StartsWith("priority", StringComparison.Ordinal)));
+        Assert.IsNull(xml.Root.Element("lifemodules"));
+        Assert.IsFalse(CreateFileQueries().Validate(
+            new CharacterDocument(workspace.Document.Content)).IsValid,
+            "The generic file contract must continue rejecting a missing metatype.");
+        Assert.IsTrue(CharacterCreationBootstrapAuthority.TryValidatePending(
+            workspace,
+            sourceResolver,
+            out IReadOnlyList<string> bootstrapBlockers),
+            string.Join(",", bootstrapBlockers));
+
+        var foundation = new CharacterCreationFoundationService(
+            store,
+            queries,
+            sourceResolver,
+            new XmlLifeModulesCatalogService(
+                Path.Combine(coreRoot, "Chummer", "data", "lifemodules.xml")),
+            new UnavailableCharacterCreationFoundationApplyAuthority());
+        CharacterCreationFoundationResult<CharacterCreationFoundationState> foundationLoaded =
+            foundation.Load(new CharacterCreationFoundationLoadRequest(receipt.WorkspaceId));
+        Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, foundationLoaded.Outcome,
+            string.Join(",", foundationLoaded.Blockers));
+        CharacterCreationFoundationState foundationState = foundationLoaded.Value!;
+        Assert.IsNotNull(foundationState);
+        Assert.AreEqual(string.Empty, foundationState.CurrentMetatype);
+        Assert.IsTrue(foundationState.MetatypeOptions.Count > 0);
+        Assert.IsTrue(foundationState.MetatypeOptions.All(option =>
+            option.SourceAnchorIds.Count > 0));
+        Assert.IsTrue(CharacterCreationPrerequisiteAuthorityDigest.IsCanonical(
+            foundationState.Binding.SourceDigest));
+        CollectionAssert.DoesNotContain(
+            foundationState.AuthorityBlockers.ToList(),
+            CharacterCreationFoundationBlockers.CharacterDocumentInvalid);
+
+        var prerequisites = new CharacterCreationPrerequisiteService(
+            store,
+            queries,
+            sourceResolver);
+        CharacterCreationFoundationResult<CharacterCreationPrerequisiteState> prerequisiteLoaded =
+            prerequisites.Load(new CharacterCreationPrerequisiteLoadRequest(receipt.WorkspaceId));
+        Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, prerequisiteLoaded.Outcome,
+            string.Join(",", prerequisiteLoaded.Blockers));
+        CharacterCreationPrerequisiteState prerequisiteState = prerequisiteLoaded.Value!;
+        Assert.IsNotNull(prerequisiteState);
+        Assert.IsTrue(prerequisiteState.Authority.IsAuthoritative,
+            string.Join(",", prerequisiteState.Authority.Blockers));
+        Assert.IsTrue(prerequisiteState.Authority.Options.Count > 0);
+        Assert.IsTrue(prerequisiteState.Authority.SourceAnchorIds.Count > 0);
+        Assert.IsTrue(CharacterCreationPrerequisiteAuthorityDigest.EqualsFixedTime(
+            prerequisiteState.Authority.AuthorityDigest,
+            receipt.Binding.PrerequisiteAuthorityDigest));
+        CollectionAssert.DoesNotContain(
+            prerequisiteState.Blockers.ToList(),
+            CharacterCreationPrerequisiteBlockers.CharacterDocumentInvalid);
+    }
+
+    [TestMethod]
+    public void Request_tuple_is_exact_and_invalid_variants_never_mutate_the_store()
+    {
+        string coreRoot = FindCoreRoot();
+        var store = new InMemoryWorkspaceStore();
+        CharacterCreationBootstrapService service = CreateService(
+            store,
+            CreateSourceResolver(coreRoot),
+            CreateFileQueries());
+        CharacterCreationBootstrapRequest canonical = CanonicalRequest();
+        CharacterCreationBootstrapRequest[] hostile =
+        [
+            canonical with { Schema = "unknown" },
+            canonical with { Stage = "complete" },
+            canonical with { RulesetId = RulesetDefaults.Sr6 },
+            canonical with { BuildMethod = "priority" },
+            canonical with { BuildMethod = string.Empty },
+            canonical with { SettingsProfileId = Guid.Empty.ToString("D") },
+            canonical with { SettingsProfileId = CanonicalPrioritySettingsId.ToUpperInvariant() },
+            canonical with { Name = string.Empty },
+            canonical with { Alias = string.Empty }
+        ];
+
+        foreach (CharacterCreationBootstrapRequest request in hostile)
+        {
+            CharacterCreationBootstrapResult<CharacterCreationBootstrapReceipt> result =
+                service.Create(request);
+            Assert.AreEqual(CharacterCreationBootstrapOutcomes.Invalid, result.Outcome);
+            Assert.IsNull(result.Value);
+            Assert.IsTrue(result.Blockers.Count > 0);
+        }
+
+        Assert.HasCount(0, store.List());
+    }
+
+    [DataTestMethod]
+    [DataRow(CharacterCreationBuildMethods.Priority, CanonicalPrioritySettingsId, true)]
+    [DataRow(CharacterCreationBuildMethods.SumToTen, CanonicalSumToTenSettingsId, true)]
+    [DataRow(CharacterCreationBuildMethods.Karma, CanonicalKarmaSettingsId, false)]
+    [DataRow(CharacterCreationBuildMethods.LifeModules, CanonicalLifeModulesSettingsId, false)]
+    public void Canonical_sr5_profiles_bind_only_to_their_exact_build_method(
+        string buildMethod,
+        string settingsProfileId,
+        bool hasPrerequisiteAuthority)
+    {
+        string coreRoot = FindCoreRoot();
+        var store = new InMemoryWorkspaceStore();
+        CharacterCreationBootstrapService service = CreateService(
+            store,
+            CreateSourceResolver(coreRoot),
+            CreateFileQueries());
+        CharacterCreationBootstrapRequest request = CanonicalRequest() with
+        {
+            BuildMethod = buildMethod,
+            SettingsProfileId = settingsProfileId
+        };
+
+        CharacterCreationBootstrapResult<CharacterCreationBootstrapReceipt> result =
+            service.Create(request);
+
+        Assert.AreEqual(CharacterCreationBootstrapOutcomes.Success, result.Outcome,
+            string.Join(",", result.Blockers));
+        Assert.AreEqual(buildMethod, result.Value!.Binding.BuildMethod);
+        Assert.AreEqual(settingsProfileId, result.Value.Binding.SettingsProfileId);
+        Assert.AreEqual(
+            hasPrerequisiteAuthority,
+            CharacterCreationPrerequisiteAuthorityDigest.IsCanonical(
+                result.Value.Binding.PrerequisiteAuthorityDigest));
+    }
+
+    [TestMethod]
+    public void Marker_without_atomic_binding_is_an_ordinary_invalid_import()
+    {
+        string coreRoot = FindCoreRoot();
+        var store = new InMemoryWorkspaceStore();
+        FileSystemCharacterSourceDataResolver resolver = CreateSourceResolver(coreRoot);
+        ICharacterFileQueries queries = CreateFileQueries();
+        var codec = new Sr5WorkspaceCodec(
+            queries,
+            new XmlCharacterSectionQueries(new CharacterSectionService(resolver)),
+            new XmlCharacterMetadataCommands(new CharacterFileService()));
+        var workspaces = new WorkspaceService(
+            store,
+            new RulesetWorkspaceCodecResolver([codec]),
+            new WorkspaceImportRulesetDetector());
+        InvalidOperationException importFailure = Assert.ThrowsExactly<InvalidOperationException>(
+            () => workspaces.Import(new WorkspaceImportDocument(
+                MinimalMarkerXml(),
+                RulesetDefaults.Sr5,
+                WorkspaceDocumentFormat.NativeXml)));
+        StringAssert.Contains(importFailure.Message, "typed, resolver-bound atomic creation service");
+        Assert.HasCount(0, store.List());
+
+        CharacterWorkspaceId id = new("ordinary-marker-import");
+        Assert.IsTrue(store.CreateWorkspaceDocument(
+            id,
+            new WorkspaceDocument(MinimalMarkerXml(), RulesetDefaults.Sr5)).Success);
+
+        var foundation = new CharacterCreationFoundationService(
+            store,
+            queries,
+            resolver,
+            new XmlLifeModulesCatalogService(
+                Path.Combine(coreRoot, "Chummer", "data", "lifemodules.xml")),
+            new UnavailableCharacterCreationFoundationApplyAuthority());
+        CharacterCreationFoundationResult<CharacterCreationFoundationState> foundationLoaded =
+            foundation.Load(new CharacterCreationFoundationLoadRequest(id));
+        Assert.AreEqual(CharacterCreationFoundationOutcomes.Invalid, foundationLoaded.Outcome);
+        CollectionAssert.Contains(
+            foundationLoaded.Blockers.ToList(),
+            CharacterCreationFoundationBlockers.CharacterDocumentInvalid);
+
+        var prerequisites = new CharacterCreationPrerequisiteService(store, queries, resolver);
+        CharacterCreationFoundationResult<CharacterCreationPrerequisiteState> prerequisiteLoaded =
+            prerequisites.Load(new CharacterCreationPrerequisiteLoadRequest(id));
+        Assert.AreEqual(CharacterCreationFoundationOutcomes.Invalid, prerequisiteLoaded.Outcome);
+        CollectionAssert.Contains(
+            prerequisiteLoaded.Blockers.ToList(),
+            CharacterCreationPrerequisiteBlockers.CharacterDocumentInvalid);
+    }
+
+    [TestMethod]
+    public void Marker_cardinality_selection_and_binding_tamper_fail_closed()
+    {
+        string coreRoot = FindCoreRoot();
+        var store = new InMemoryWorkspaceStore();
+        FileSystemCharacterSourceDataResolver resolver = CreateSourceResolver(coreRoot);
+        CharacterCreationBootstrapResult<CharacterCreationBootstrapReceipt> created =
+            CreateService(store, resolver, CreateFileQueries()).Create(CanonicalRequest());
+        CharacterCreationBootstrapReceipt receipt = created.Value!;
+        WorkspaceStoredDocument workspace = store.Get(receipt.WorkspaceId).Value!;
+        XDocument canonical = XDocument.Parse(workspace.Document.Content);
+
+        XDocument duplicate = XDocument.Parse(workspace.Document.Content);
+        duplicate.Root!.Add(new XElement(
+            duplicate.Root.Element(CharacterCreationBootstrapXml.MarkerElement)!));
+        AssertPrepareBlocked(
+            receipt.WorkspaceId,
+            workspace.Document with
+            {
+                State = workspace.Document.State with
+                {
+                    Payload = duplicate.ToString(SaveOptions.DisableFormatting),
+                    AuxiliaryState = WorkspaceDocumentAuxiliaryState.Empty
+                }
+            },
+            resolver,
+            CharacterCreationBootstrapBlockers.MarkerDuplicate);
+
+        XDocument wrongMarker = XDocument.Parse(workspace.Document.Content);
+        wrongMarker.Root!.Element(CharacterCreationBootstrapXml.MarkerElement)!
+            .Element(CharacterCreationBootstrapXml.SchemaElement)!.Value = "unknown-marker";
+        AssertPrepareBlocked(
+            receipt.WorkspaceId,
+            WithoutBinding(workspace.Document, wrongMarker),
+            resolver,
+            CharacterCreationBootstrapBlockers.MarkerInvalid);
+
+        XDocument duplicateMarkerField = XDocument.Parse(workspace.Document.Content);
+        duplicateMarkerField.Root!.Element(CharacterCreationBootstrapXml.MarkerElement)!.Add(
+            new XElement(
+                CharacterCreationBootstrapXml.SchemaElement,
+                CharacterCreationBootstrapSchemas.MarkerV1));
+        AssertPrepareBlocked(
+            receipt.WorkspaceId,
+            WithoutBinding(workspace.Document, duplicateMarkerField),
+            resolver,
+            CharacterCreationBootstrapBlockers.MarkerInvalid);
+
+        XDocument selected = XDocument.Parse(workspace.Document.Content);
+        selected.Root!.AddFirst(new XElement("metatype", "Human"));
+        AssertPrepareBlocked(
+            receipt.WorkspaceId,
+            workspace.Document with
+            {
+                State = workspace.Document.State with
+                {
+                    Payload = selected.ToString(SaveOptions.DisableFormatting),
+                    AuxiliaryState = WorkspaceDocumentAuxiliaryState.Empty
+                }
+            },
+            resolver,
+            CharacterCreationBootstrapBlockers.MetatypeAlreadySelected);
+
+        XDocument emptySelection = XDocument.Parse(workspace.Document.Content);
+        emptySelection.Root!.AddFirst(new XElement("metatype"));
+        Assert.IsTrue(CharacterCreationBootstrapAuthority.TryPrepareBinding(
+            receipt.WorkspaceId,
+            WithoutBinding(workspace.Document, emptySelection),
+            resolver,
+            out CharacterCreationBootstrapBinding emptyMetatypeBinding,
+            out _,
+            out IReadOnlyList<string> emptyMetatypeBlockers),
+            string.Join(",", emptyMetatypeBlockers));
+        Assert.IsTrue(CharacterCreationBootstrapBindingDigest.IsValid(emptyMetatypeBinding));
+
+        XDocument createdCharacter = XDocument.Parse(workspace.Document.Content);
+        createdCharacter.Root!.Element("created")!.Value = "True";
+        AssertPrepareBlocked(
+            receipt.WorkspaceId,
+            WithoutBinding(workspace.Document, createdCharacter),
+            resolver,
+            CharacterCreationBootstrapBlockers.CharacterAlreadyCreated);
+
+        XDocument missingBuild = XDocument.Parse(workspace.Document.Content);
+        missingBuild.Root!.Element("buildmethod")!.Remove();
+        AssertPrepareBlocked(
+            receipt.WorkspaceId,
+            WithoutBinding(workspace.Document, missingBuild),
+            resolver,
+            CharacterCreationBootstrapBlockers.CharacterDocumentInvalid);
+
+        XDocument duplicateSettings = XDocument.Parse(workspace.Document.Content);
+        duplicateSettings.Root!.Add(new XElement("settings", CanonicalPrioritySettingsId));
+        AssertPrepareBlocked(
+            receipt.WorkspaceId,
+            WithoutBinding(workspace.Document, duplicateSettings),
+            resolver,
+            CharacterCreationBootstrapBlockers.CharacterDocumentInvalid);
+
+        CharacterCreationBootstrapBinding badStage = receipt.Binding with
+        {
+            Stage = "completed",
+            BindingDigest = string.Empty
+        };
+        badStage = badStage with
+        {
+            BindingDigest = CharacterCreationBootstrapBindingDigest.Compute(badStage)
+        };
+        WorkspaceDocument badBindingDocument = workspace.Document with
+        {
+            State = workspace.Document.State with
+            {
+                AuxiliaryState = new WorkspaceDocumentAuxiliaryState(
+                    CharacterCreationBootstrapBinding: badStage)
+            }
+        };
+        var badBindingWorkspace = workspace with { Document = badBindingDocument };
+        Assert.IsFalse(CharacterCreationBootstrapAuthority.TryValidatePending(
+            badBindingWorkspace,
+            resolver,
+            out IReadOnlyList<string> bindingBlockers));
+        CollectionAssert.Contains(
+            bindingBlockers.ToList(),
+            CharacterCreationBootstrapBlockers.BindingInvalid);
+        Assert.IsTrue(canonical.Root!.Element("metatype") is null);
+    }
+
+    [TestMethod]
+    public void Post_selection_stale_marker_is_rejected_and_generic_auxiliary_cas_cannot_clear_it()
+    {
+        string coreRoot = FindCoreRoot();
+        string workspaceRoot = Path.Combine(
+            Path.GetTempPath(),
+            $"chummer-bootstrap-lifecycle-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(workspaceRoot);
+        try
+        {
+            var store = new FileWorkspaceStore(workspaceRoot);
+            FileSystemCharacterSourceDataResolver resolver = CreateSourceResolver(coreRoot);
+            CharacterCreationBootstrapResult<CharacterCreationBootstrapReceipt> created =
+                CreateService(store, resolver, CreateFileQueries()).Create(CanonicalRequest());
+            Assert.AreEqual(CharacterCreationBootstrapOutcomes.Success, created.Outcome,
+                string.Join(",", created.Blockers));
+            CharacterCreationBootstrapReceipt receipt = created.Value!;
+            WorkspaceStoredDocument workspace = store.Get(receipt.WorkspaceId).Value!;
+
+            CharacterWorkspaceId forgedId = new("ordinary-bootstrap-forgery");
+            WorkspaceDocument ordinaryCopy = workspace.Document with
+            {
+                State = workspace.Document.State with
+                {
+                    AuxiliaryState = WorkspaceDocumentAuxiliaryState.Empty
+                }
+            };
+            WorkspaceStoreMutationResult ordinaryCreated = store.CreateWorkspaceDocument(
+                forgedId,
+                ordinaryCopy);
+            Assert.IsTrue(ordinaryCreated.Success);
+            CharacterCreationBootstrapBinding forgedUnsigned = receipt.Binding with
+            {
+                WorkspaceId = forgedId,
+                BindingDigest = string.Empty
+            };
+            CharacterCreationBootstrapBinding forgedBinding = forgedUnsigned with
+            {
+                BindingDigest = CharacterCreationBootstrapBindingDigest.Compute(forgedUnsigned)
+            };
+            WorkspaceDocument forgedReplacement = ordinaryCopy with
+            {
+                State = ordinaryCopy.State with
+                {
+                    AuxiliaryState = new WorkspaceDocumentAuxiliaryState(
+                        CharacterCreationBootstrapBinding: forgedBinding)
+                }
+            };
+            WorkspaceStoreMutationResult forged =
+                ((IWorkspaceAuxiliaryStateAtomicCommitCapability)store)
+                .ReplaceWorkspaceDocumentAndAuxiliaryStateAndCheckpoint(
+                    forgedId,
+                    ordinaryCreated.Entry!.Value.ContentRevision,
+                    ordinaryCopy.AuxiliaryStateDigest,
+                    forgedReplacement);
+            Assert.IsFalse(forged.Success,
+                "An ordinary auxiliary-state CAS cannot forge a bootstrap binding.");
+            Assert.IsNull(store.Get(forgedId).Value!.Document.AuxiliaryState
+                .CharacterCreationBootstrapBinding);
+
+            CharacterWorkspaceId genericBoundId = new("generic-bound-bootstrap");
+            Assert.IsFalse(store.CreateWorkspaceDocument(
+                genericBoundId,
+                workspace.Document).Success,
+                "Generic creation cannot persist bootstrap auxiliary authority.");
+
+            XDocument selected = XDocument.Parse(workspace.Document.Content);
+            selected.Root!.AddFirst(new XElement("metatype", "Human"));
+            WorkspaceDocument stale = workspace.Document with
+            {
+                State = workspace.Document.State with
+                {
+                    Payload = selected.ToString(SaveOptions.DisableFormatting)
+                }
+            };
+            Assert.IsFalse(CharacterCreationBootstrapAuthority.TryValidatePending(
+                workspace with { Document = stale },
+                resolver,
+                out IReadOnlyList<string> staleBlockers));
+            Assert.IsTrue(staleBlockers.Count > 0);
+
+            selected.Root!.Element(CharacterCreationBootstrapXml.MarkerElement)!.Remove();
+            WorkspaceDocument genericCompletion = workspace.Document with
+            {
+                State = workspace.Document.State with
+                {
+                    Payload = selected.ToString(SaveOptions.DisableFormatting),
+                    AuxiliaryState = WorkspaceDocumentAuxiliaryState.Empty
+                }
+            };
+            WorkspaceStoreMutationResult attempted =
+                ((IWorkspaceAuxiliaryStateAtomicCommitCapability)store)
+                .ReplaceWorkspaceDocumentAndAuxiliaryStateAndCheckpoint(
+                    receipt.WorkspaceId,
+                    workspace.ContentRevision,
+                    workspace.Document.AuxiliaryStateDigest,
+                    genericCompletion);
+            Assert.IsFalse(attempted.Success,
+                "Only a future resolver-bound finalization authority may clear the pending marker and binding.");
+            Assert.IsNotNull(store.Get(receipt.WorkspaceId).Value!.Document.AuxiliaryState
+                .CharacterCreationBootstrapBinding);
+        }
+        finally
+        {
+            if (Directory.Exists(workspaceRoot))
+                Directory.Delete(workspaceRoot, recursive: true);
+        }
+    }
+
+    private static CharacterCreationBootstrapService CreateService(
+        IWorkspaceStore store,
+        ICharacterSourceDataResolver sourceResolver,
+        ICharacterFileQueries queries)
+    {
+        var codec = new Sr5WorkspaceCodec(
+            queries,
+            new XmlCharacterSectionQueries(new CharacterSectionService(sourceResolver)),
+            new XmlCharacterMetadataCommands(new CharacterFileService()));
+        return new CharacterCreationBootstrapService(
+            store,
+            new RulesetWorkspaceCodecResolver([codec]),
+            queries,
+            sourceResolver);
+    }
+
+    private static CharacterCreationBootstrapRequest CanonicalRequest()
+        => new(
+            CharacterCreationBootstrapSchemas.RequestV1,
+            CharacterCreationBootstrapStages.AwaitingFoundationSelection,
+            RulesetDefaults.Sr5,
+            "Pending Runner",
+            "No Default",
+            CharacterCreationBuildMethods.Priority,
+            CanonicalPrioritySettingsId);
+
+    private static ICharacterFileQueries CreateFileQueries()
+        => new XmlCharacterFileQueries(new CharacterFileService());
+
+    private static FileSystemCharacterSourceDataResolver CreateSourceResolver(string coreRoot)
+        => new(new FileSystemContentOverlayCatalogService(coreRoot, coreRoot, null));
+
+    private static void AssertPrepareBlocked(
+        CharacterWorkspaceId workspaceId,
+        WorkspaceDocument document,
+        ICharacterSourceDataResolver resolver,
+        string expectedBlocker)
+    {
+        Assert.IsFalse(CharacterCreationBootstrapAuthority.TryPrepareBinding(
+            workspaceId,
+            document,
+            resolver,
+            out _,
+            out _,
+            out IReadOnlyList<string> blockers));
+        CollectionAssert.Contains(blockers.ToList(), expectedBlocker);
+    }
+
+    private static WorkspaceDocument WithoutBinding(
+        WorkspaceDocument template,
+        XDocument character)
+        => template with
+        {
+            State = template.State with
+            {
+                Payload = character.ToString(SaveOptions.DisableFormatting),
+                AuxiliaryState = WorkspaceDocumentAuxiliaryState.Empty
+            }
+        };
+
+    private static string MinimalMarkerXml()
+        => $"""
+           <character>
+             <name>Pending Runner</name>
+             <alias>No Default</alias>
+             <buildmethod>{CharacterCreationBuildMethods.Priority}</buildmethod>
+             <createdversion>5.225.0</createdversion>
+             <appversion>5.225.0</appversion>
+             <karma>0</karma>
+             <nuyen>0</nuyen>
+             <created>False</created>
+             <gameedition>SR5</gameedition>
+             <settings>{CanonicalPrioritySettingsId}</settings>
+             <{CharacterCreationBootstrapXml.MarkerElement}>
+               <{CharacterCreationBootstrapXml.SchemaElement}>{CharacterCreationBootstrapSchemas.MarkerV1}</{CharacterCreationBootstrapXml.SchemaElement}>
+               <{CharacterCreationBootstrapXml.StageElement}>{CharacterCreationBootstrapStages.AwaitingFoundationSelection}</{CharacterCreationBootstrapXml.StageElement}>
+             </{CharacterCreationBootstrapXml.MarkerElement}>
+           </character>
+           """;
+
+    private static string FindCoreRoot()
+    {
+        DirectoryInfo? current = new(AppDomain.CurrentDomain.BaseDirectory);
+        while (current is not null)
+        {
+            if (File.Exists(Path.Combine(current.FullName, "Chummer", "data", "settings.xml")))
+                return current.FullName;
+            current = current.Parent;
+        }
+
+        throw new DirectoryNotFoundException(
+            "Could not locate canonical Chummer/data/settings.xml.");
+    }
+}
