@@ -18,13 +18,13 @@ namespace Chummer.Tests;
 public sealed class CharacterCreationBootstrapServiceTests
 {
     private const string CanonicalPrioritySettingsId =
-        "223a11ff-80e0-428b-89a9-6ef1c243b8b6";
+        CharacterCreationBootstrapProfiles.PrioritySettingsProfileId;
     private const string CanonicalSumToTenSettingsId =
-        "3509a807-68ee-4c18-b7d5-b130313b4b77";
+        CharacterCreationBootstrapProfiles.SumToTenSettingsProfileId;
     private const string CanonicalKarmaSettingsId =
-        "fe7bb0d9-3cd9-4a75-825e-135b95a4f3ef";
+        CharacterCreationBootstrapProfiles.KarmaSettingsProfileId;
     private const string CanonicalLifeModulesSettingsId =
-        "8a31af6d-7137-4284-872b-7d8087e156c6";
+        CharacterCreationBootstrapProfiles.LifeModulesSettingsProfileId;
 
     [TestMethod]
     public void Generic_character_validation_remains_strict_for_marker_bearing_xml()
@@ -76,6 +76,21 @@ public sealed class CharacterCreationBootstrapServiceTests
         Assert.AreEqual(string.Empty, receipt.Summary.Metatype);
         Assert.IsFalse(receipt.Summary.Created);
         Assert.IsTrue(CharacterCreationBootstrapBindingDigest.IsValid(receipt.Binding));
+        Assert.IsTrue(CharacterCreationBootstrapReceiptDigest.IsValid(receipt));
+        Assert.AreEqual(
+            CharacterCreationBootstrapRevisions.InitialContentRevision,
+            receipt.Binding.InitialContentRevision);
+        Assert.AreEqual(
+            CharacterCreationBootstrapRevisions.InitialSavedRevision,
+            receipt.Binding.InitialSavedRevision);
+        CollectionAssert.AreEqual(
+            CharacterCreationBootstrapProfiles.ExpectedSourceAnchorIds(
+                CharacterCreationBuildMethods.Priority,
+                CanonicalPrioritySettingsId),
+            receipt.Binding.SourceAnchorIds.ToArray());
+        CollectionAssert.AreEqual(
+            receipt.Binding.SourceAnchorIds.ToArray(),
+            receipt.SourceAnchorIds.ToArray());
         Assert.IsTrue(CharacterCreationPrerequisiteAuthorityDigest.IsCanonical(
             receipt.Binding.RawProfileInputsDigest));
         Assert.IsTrue(CharacterCreationPrerequisiteAuthorityDigest.IsCanonical(
@@ -180,6 +195,93 @@ public sealed class CharacterCreationBootstrapServiceTests
             Assert.AreEqual(CharacterCreationBootstrapOutcomes.Invalid, result.Outcome);
             Assert.IsNull(result.Value);
             Assert.IsTrue(result.Blockers.Count > 0);
+        }
+
+        Assert.HasCount(0, store.List());
+    }
+
+    [TestMethod]
+    public void Every_noncanonical_builtin_sr5_profile_is_rejected_before_resolution()
+    {
+        string coreRoot = FindCoreRoot();
+        var store = new InMemoryWorkspaceStore();
+        CharacterCreationBootstrapService service = CreateService(
+            store,
+            CreateSourceResolver(coreRoot),
+            CreateFileQueries());
+        XDocument settings = XDocument.Load(
+            Path.Combine(coreRoot, "Chummer", "data", "settings.xml"),
+            LoadOptions.None);
+        XElement[] noncanonical = settings.Root!
+            .Element("settings")!
+            .Elements("setting")
+            .Where(setting =>
+            {
+                string method = setting.Element("buildmethod")?.Value.Trim() ?? string.Empty;
+                string id = setting.Element("id")?.Value.Trim() ?? string.Empty;
+                return CharacterCreationBuildMethods.IsSupported(method)
+                       && !CharacterCreationBootstrapProfiles.IsExactCanonicalTuple(method, id);
+            })
+            .ToArray();
+        Assert.IsTrue(noncanonical.Length > 0);
+
+        foreach (XElement setting in noncanonical)
+        {
+            string method = setting.Element("buildmethod")!.Value.Trim();
+            string id = setting.Element("id")!.Value.Trim();
+            CharacterCreationBootstrapResult<CharacterCreationBootstrapReceipt> result =
+                service.Create(CanonicalRequest() with
+                {
+                    BuildMethod = method,
+                    SettingsProfileId = id
+                });
+            Assert.AreEqual(
+                CharacterCreationBootstrapOutcomes.Invalid,
+                result.Outcome,
+                $"Noncanonical profile {id} ({method}) was accepted.");
+            CollectionAssert.Contains(
+                result.Blockers.ToList(),
+                CharacterCreationBootstrapBlockers.SettingsProfileInvalid);
+        }
+
+        Assert.HasCount(0, store.List());
+    }
+
+    [TestMethod]
+    public void Every_canonical_method_profile_cross_pair_fails_closed()
+    {
+        string coreRoot = FindCoreRoot();
+        var store = new InMemoryWorkspaceStore();
+        CharacterCreationBootstrapService service = CreateService(
+            store,
+            CreateSourceResolver(coreRoot),
+            CreateFileQueries());
+        (string Method, string Profile)[] tuples =
+        [
+            (CharacterCreationBuildMethods.Priority, CanonicalPrioritySettingsId),
+            (CharacterCreationBuildMethods.SumToTen, CanonicalSumToTenSettingsId),
+            (CharacterCreationBuildMethods.Karma, CanonicalKarmaSettingsId),
+            (CharacterCreationBuildMethods.LifeModules, CanonicalLifeModulesSettingsId)
+        ];
+
+        foreach ((string Method, string Profile) left in tuples)
+        foreach ((string Method, string Profile) right in tuples)
+        {
+            string method = left.Method;
+            string profile = right.Profile;
+            if (CharacterCreationBootstrapProfiles.IsExactCanonicalTuple(method, profile))
+                continue;
+
+            CharacterCreationBootstrapResult<CharacterCreationBootstrapReceipt> result =
+                service.Create(CanonicalRequest() with
+                {
+                    BuildMethod = method,
+                    SettingsProfileId = profile
+                });
+            Assert.AreEqual(CharacterCreationBootstrapOutcomes.Invalid, result.Outcome);
+            CollectionAssert.Contains(
+                result.Blockers.ToList(),
+                CharacterCreationBootstrapBlockers.SettingsProfileInvalid);
         }
 
         Assert.HasCount(0, store.List());
@@ -370,6 +472,15 @@ public sealed class CharacterCreationBootstrapServiceTests
             resolver,
             CharacterCreationBootstrapBlockers.CharacterDocumentInvalid);
 
+        XDocument noncanonicalProfile = XDocument.Parse(workspace.Document.Content);
+        noncanonicalProfile.Root!.Element("settings")!.Value =
+            "507eef8e-eba8-41ea-84c4-4282258fe669";
+        AssertPrepareBlocked(
+            receipt.WorkspaceId,
+            WithoutBinding(workspace.Document, noncanonicalProfile),
+            resolver,
+            CharacterCreationBootstrapBlockers.SettingsProfileInvalid);
+
         CharacterCreationBootstrapBinding badStage = receipt.Binding with
         {
             Stage = "completed",
@@ -396,6 +507,162 @@ public sealed class CharacterCreationBootstrapServiceTests
             bindingBlockers.ToList(),
             CharacterCreationBootstrapBlockers.BindingInvalid);
         Assert.IsTrue(canonical.Root!.Element("metatype") is null);
+    }
+
+    [TestMethod]
+    public void Revision_and_complete_anchor_tamper_fail_even_after_structural_redigest()
+    {
+        string coreRoot = FindCoreRoot();
+        var store = new InMemoryWorkspaceStore();
+        FileSystemCharacterSourceDataResolver resolver = CreateSourceResolver(coreRoot);
+        CharacterCreationBootstrapReceipt receipt = CreateService(
+                store,
+                resolver,
+                CreateFileQueries())
+            .Create(CanonicalRequest())
+            .Value!;
+        WorkspaceStoredDocument workspace = store.Get(receipt.WorkspaceId).Value!;
+        Assert.IsTrue(CharacterCreationBootstrapReceiptDigest.IsValid(receipt));
+
+        CharacterCreationBootstrapReceipt receiptRevisionTamper = ResignReceipt(
+            receipt with { ContentRevision = receipt.ContentRevision + 1 });
+        Assert.IsFalse(CharacterCreationBootstrapReceiptDigest.IsValid(receiptRevisionTamper));
+
+        CharacterCreationBootstrapBinding bindingRevisionTamper = ResignBinding(
+            receipt.Binding with
+            {
+                InitialContentRevision =
+                    CharacterCreationBootstrapRevisions.InitialContentRevision + 1
+            });
+        CharacterCreationBootstrapReceipt fullyRedigestedRevisionTamper = ResignReceipt(
+            receipt with
+            {
+                ContentRevision = bindingRevisionTamper.InitialContentRevision,
+                Binding = bindingRevisionTamper
+            });
+        Assert.IsFalse(CharacterCreationBootstrapBindingDigest.IsValid(bindingRevisionTamper));
+        Assert.IsFalse(CharacterCreationBootstrapReceiptDigest.IsValid(
+            fullyRedigestedRevisionTamper));
+        Assert.IsFalse(CharacterCreationBootstrapStoreIntegrity.IsValidBinding(
+            receipt.WorkspaceId,
+            bindingRevisionTamper));
+        WorkspaceDocument revisionTamperDocument = workspace.Document with
+        {
+            State = workspace.Document.State with
+            {
+                AuxiliaryState = new WorkspaceDocumentAuxiliaryState(
+                    CharacterCreationBootstrapBinding: bindingRevisionTamper)
+            }
+        };
+        Assert.IsFalse(CharacterCreationBootstrapStoreIntegrity.IsValidInitialState(
+            receipt.WorkspaceId,
+            revisionTamperDocument));
+        var hostileRevisionStore = new InMemoryWorkspaceStore();
+        Assert.IsFalse(((ICharacterCreationBootstrapAtomicCreateCapability)hostileRevisionStore)
+            .CreateCharacterCreationBootstrapWorkspaceDocument(
+                receipt.WorkspaceId,
+                revisionTamperDocument)
+            .Success);
+
+        CharacterCreationBootstrapBinding savedRevisionTamper = ResignBinding(
+            receipt.Binding with
+            {
+                InitialSavedRevision =
+                    CharacterCreationBootstrapRevisions.InitialSavedRevision + 1
+            });
+        CharacterCreationBootstrapReceipt fullyRedigestedSavedRevisionTamper = ResignReceipt(
+            receipt with
+            {
+                SavedRevision = savedRevisionTamper.InitialSavedRevision,
+                Binding = savedRevisionTamper
+            });
+        Assert.IsFalse(CharacterCreationBootstrapBindingDigest.IsValid(savedRevisionTamper));
+        Assert.IsFalse(CharacterCreationBootstrapReceiptDigest.IsValid(
+            fullyRedigestedSavedRevisionTamper));
+
+        CharacterCreationBootstrapBinding crossPairBinding = ResignBinding(
+            receipt.Binding with { BuildMethod = CharacterCreationBuildMethods.SumToTen });
+        WorkspaceDocument crossPairDocument = workspace.Document with
+        {
+            State = workspace.Document.State with
+            {
+                AuxiliaryState = new WorkspaceDocumentAuxiliaryState(
+                    CharacterCreationBootstrapBinding: crossPairBinding)
+            }
+        };
+        Assert.IsFalse(CharacterCreationBootstrapBindingDigest.IsValid(crossPairBinding));
+        Assert.IsFalse(CharacterCreationBootstrapStoreIntegrity.IsValidInitialState(
+            receipt.WorkspaceId,
+            crossPairDocument));
+
+        string[] missingAnchorSet = receipt.Binding.SourceAnchorIds
+            .Where(anchor => !string.Equals(anchor, "skills.xml", StringComparison.Ordinal))
+            .ToArray();
+        CharacterCreationBootstrapBinding missingAnchorBinding = ResignBinding(
+            receipt.Binding with { SourceAnchorIds = missingAnchorSet });
+        CharacterCreationBootstrapReceipt fullyRedigestedMissingAnchor = ResignReceipt(
+            receipt with
+            {
+                Binding = missingAnchorBinding,
+                SourceAnchorIds = missingAnchorSet
+            });
+        Assert.IsFalse(CharacterCreationBootstrapBindingDigest.IsValid(missingAnchorBinding));
+        Assert.IsFalse(CharacterCreationBootstrapReceiptDigest.IsValid(
+            fullyRedigestedMissingAnchor));
+
+        string[] extraAnchorSet = receipt.Binding.SourceAnchorIds
+            .Append("unknown.xml")
+            .OrderBy(anchor => anchor, StringComparer.Ordinal)
+            .ToArray();
+        CharacterCreationBootstrapBinding extraAnchorBinding = ResignBinding(
+            receipt.Binding with { SourceAnchorIds = extraAnchorSet });
+        CharacterCreationBootstrapReceipt fullyRedigestedExtraAnchor = ResignReceipt(
+            receipt with
+            {
+                Binding = extraAnchorBinding,
+                SourceAnchorIds = extraAnchorSet
+            });
+        Assert.IsFalse(CharacterCreationBootstrapBindingDigest.IsValid(extraAnchorBinding));
+        Assert.IsFalse(CharacterCreationBootstrapReceiptDigest.IsValid(
+            fullyRedigestedExtraAnchor));
+
+        string[] reorderedAnchorSet = receipt.Binding.SourceAnchorIds.Reverse().ToArray();
+        CharacterCreationBootstrapBinding reorderedAnchorBinding = ResignBinding(
+            receipt.Binding with { SourceAnchorIds = reorderedAnchorSet });
+        CharacterCreationBootstrapReceipt fullyRedigestedReorderedAnchors = ResignReceipt(
+            receipt with
+            {
+                Binding = reorderedAnchorBinding,
+                SourceAnchorIds = reorderedAnchorSet
+            });
+        Assert.IsFalse(CharacterCreationBootstrapBindingDigest.IsValid(reorderedAnchorBinding));
+        Assert.IsFalse(CharacterCreationBootstrapReceiptDigest.IsValid(
+            fullyRedigestedReorderedAnchors));
+
+        WorkspaceDocument extraAnchorDocument = workspace.Document with
+        {
+            State = workspace.Document.State with
+            {
+                AuxiliaryState = new WorkspaceDocumentAuxiliaryState(
+                    CharacterCreationBootstrapBinding: extraAnchorBinding)
+            }
+        };
+        Assert.IsFalse(CharacterCreationBootstrapStoreIntegrity.IsValidInitialState(
+            receipt.WorkspaceId,
+            extraAnchorDocument));
+        var hostileAnchorStore = new InMemoryWorkspaceStore();
+        Assert.IsFalse(((ICharacterCreationBootstrapAtomicCreateCapability)hostileAnchorStore)
+            .CreateCharacterCreationBootstrapWorkspaceDocument(
+                receipt.WorkspaceId,
+                extraAnchorDocument)
+            .Success);
+        Assert.IsFalse(CharacterCreationBootstrapAuthority.TryValidatePending(
+            workspace with { Document = extraAnchorDocument },
+            resolver,
+            out IReadOnlyList<string> blockers));
+        CollectionAssert.Contains(
+            blockers.ToList(),
+            CharacterCreationBootstrapBlockers.BindingInvalid);
     }
 
     [TestMethod]
@@ -566,6 +833,26 @@ public sealed class CharacterCreationBootstrapServiceTests
                 AuxiliaryState = WorkspaceDocumentAuxiliaryState.Empty
             }
         };
+
+    private static CharacterCreationBootstrapBinding ResignBinding(
+        CharacterCreationBootstrapBinding binding)
+    {
+        CharacterCreationBootstrapBinding unsigned = binding with { BindingDigest = string.Empty };
+        return unsigned with
+        {
+            BindingDigest = CharacterCreationBootstrapBindingDigest.Compute(unsigned)
+        };
+    }
+
+    private static CharacterCreationBootstrapReceipt ResignReceipt(
+        CharacterCreationBootstrapReceipt receipt)
+    {
+        CharacterCreationBootstrapReceipt unsigned = receipt with { ReceiptDigest = string.Empty };
+        return unsigned with
+        {
+            ReceiptDigest = CharacterCreationBootstrapReceiptDigest.Compute(unsigned)
+        };
+    }
 
     private static string MinimalMarkerXml()
         => $"""

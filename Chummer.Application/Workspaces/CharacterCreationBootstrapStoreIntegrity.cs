@@ -100,6 +100,13 @@ public static class CharacterCreationBootstrapStoreIntegrity
                 StringComparison.Ordinal)
             || !string.Equals(binding.RulesetId, RulesetDefaults.Sr5, StringComparison.Ordinal)
             || !CharacterCreationBuildMethods.IsSupported(binding.BuildMethod)
+            || !CharacterCreationBootstrapProfiles.IsExactCanonicalTuple(
+                binding.BuildMethod,
+                binding.SettingsProfileId)
+            || binding.InitialContentRevision
+                != CharacterCreationBootstrapRevisions.InitialContentRevision
+            || binding.InitialSavedRevision
+                != CharacterCreationBootstrapRevisions.InitialSavedRevision
             || !Guid.TryParseExact(binding.SettingsProfileId, "D", out Guid settingsId)
             || settingsId == Guid.Empty
             || !string.Equals(settingsId.ToString("D"), binding.SettingsProfileId,
@@ -120,7 +127,11 @@ public static class CharacterCreationBootstrapStoreIntegrity
             || !string.Equals(
                 binding.SettingsSourceAnchor,
                 $"settings.xml#setting:{binding.SettingsProfileId}",
-                StringComparison.Ordinal))
+                StringComparison.Ordinal)
+            || !CharacterCreationBootstrapProfiles.HasExactCanonicalSourceAnchors(
+                binding.BuildMethod,
+                binding.SettingsProfileId,
+                binding.SourceAnchorIds))
         {
             return false;
         }

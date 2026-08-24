@@ -146,16 +146,28 @@ public sealed class CharacterCreationBootstrapService : ICharacterCreationBootst
                 [CharacterCreationBootstrapBlockers.WorkspaceCreateFailed]);
         }
 
+        var unsignedReceipt = new CharacterCreationBootstrapReceipt(
+            CharacterCreationBootstrapSchemas.ReceiptV1,
+            workspaceId,
+            entry.ContentRevision,
+            entry.SavedRevision,
+            summary,
+            binding,
+            sourceAnchorIds.ToArray(),
+            string.Empty);
+        CharacterCreationBootstrapReceipt receipt = unsignedReceipt with
+        {
+            ReceiptDigest = CharacterCreationBootstrapReceiptDigest.Compute(unsignedReceipt)
+        };
+        if (!CharacterCreationBootstrapReceiptDigest.IsValid(receipt))
+        {
+            return Unavailable<CharacterCreationBootstrapReceipt>(
+                CharacterCreationBootstrapBlockers.WorkspaceCreateFailed);
+        }
+
         return new CharacterCreationBootstrapResult<CharacterCreationBootstrapReceipt>(
             CharacterCreationBootstrapOutcomes.Success,
-            new CharacterCreationBootstrapReceipt(
-                CharacterCreationBootstrapSchemas.ReceiptV1,
-                workspaceId,
-                entry.ContentRevision,
-                entry.SavedRevision,
-                summary,
-                binding,
-                sourceAnchorIds),
+            receipt,
             []);
     }
 
@@ -187,6 +199,10 @@ public sealed class CharacterCreationBootstrapService : ICharacterCreationBootst
                 settingsId.ToString("D"),
                 request.SettingsProfileId,
                 StringComparison.Ordinal))
+            blockers.Add(CharacterCreationBootstrapBlockers.SettingsProfileInvalid);
+        if (!CharacterCreationBootstrapProfiles.IsExactCanonicalTuple(
+                request.BuildMethod,
+                request.SettingsProfileId))
             blockers.Add(CharacterCreationBootstrapBlockers.SettingsProfileInvalid);
         return blockers.Distinct(StringComparer.Ordinal)
             .OrderBy(blocker => blocker, StringComparer.Ordinal)
