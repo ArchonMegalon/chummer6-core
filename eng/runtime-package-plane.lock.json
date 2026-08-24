@@ -22,7 +22,7 @@
     "tests/test_runtime_package_plane_authority.py"
   ],
   "build_authority_files": [
-    {"path": ".github/workflows/package-plane.yml", "sha256": "e4c109a3059bdb6ddcd58dcf4d81f2e273172921bc62ffe7d962c506cd1aaa73"},
+    {"path": ".github/workflows/package-plane.yml", "sha256": "34c5c3e47759d3a0c5181c0b0359e7ea99762331c6bdf2a05723222f92b9f1d5"},
     {"path": "Chummer.CoreEngine.sln", "sha256": "a3fd0096e249453f68b9bb4b327722a1ce25d0faf81b74a11d048b24cc0a43c7"},
     {"path": "Directory.Build.props", "sha256": "0607c419f70881157e30d4c571bc880f5e3cfc1cc64fe8a36850adf2b9c14a02"},
     {"path": "Directory.Build.targets", "sha256": "fe701e982c753339dc9357e559d3824faf0d1f392abaa31d7f2cb5486baf2b65"},

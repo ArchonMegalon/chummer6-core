@@ -44,6 +44,13 @@ jobs:
         run: |
           python3 scripts/ai/runtime-package-plane.py --repo-root .
           python3 -m unittest -v tests/test_runtime_package_plane_authority.py
+      - name: Prepare locked owner-contract feed for test restores
+        run: |
+          bash scripts/ai/bootstrap-contracts-feed.sh
+          python3 scripts/ai/bootstrap-owner-contracts-feed.py \
+            --repo-root . \
+            --feed .tmp/ai/local-nuget \
+            --validate-only
       - name: Verify creation-contact package boundary
         run: python3 -m unittest tests/test_creation_contacts_authority.py
       - name: Restore affected Core test graph
