@@ -4,6 +4,10 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <RuntimeIdentifiers Condition="'$(RuntimeIdentifiers)' == ''">$(ChummerDesktopRuntimeIdentifiers)</RuntimeIdentifiers>
+    <PackageId>Chummer.Rulesets.Sr6</PackageId>
+    <Version>0.0.0-local</Version>
+    <PackageLicenseExpression>GPL-3.0-only</PackageLicenseExpression>
+    <Description>Deterministic Shadowrun Sixth Edition ruleset runtime.</Description>
   </PropertyGroup>
   <ItemGroup Condition="'$(ChummerLocalContractsProject)' != '' and Exists('$(ChummerLocalContractsProject)')">
     <ProjectReference Include="$(ChummerLocalContractsProject)"

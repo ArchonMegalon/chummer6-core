@@ -4,6 +4,10 @@
     <RuntimeIdentifiers Condition="'$(RuntimeIdentifiers)' == ''">$(ChummerDesktopRuntimeIdentifiers)</RuntimeIdentifiers>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <PackageId>Chummer.Rulesets.Sr4</PackageId>
+    <Version>0.0.0-local</Version>
+    <PackageLicenseExpression>GPL-3.0-only</PackageLicenseExpression>
+    <Description>Deterministic Shadowrun Fourth Edition ruleset runtime.</Description>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../Chummer.Application/Chummer.Application.csproj" />

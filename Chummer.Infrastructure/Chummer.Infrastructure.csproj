@@ -4,6 +4,10 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <RuntimeIdentifiers Condition="'$(RuntimeIdentifiers)' == ''">$(ChummerDesktopRuntimeIdentifiers)</RuntimeIdentifiers>
+    <PackageId>Chummer.Infrastructure</PackageId>
+    <Version>0.0.0-local</Version>
+    <PackageLicenseExpression>GPL-3.0-only</PackageLicenseExpression>
+    <Description>Core infrastructure, persistence, and dependency-injection composition.</Description>
   </PropertyGroup>
   <ItemGroup Condition="'$(ChummerLocalContractsProject)' != '' and Exists('$(ChummerLocalContractsProject)')">
     <ProjectReference Include="$(ChummerLocalContractsProject)"

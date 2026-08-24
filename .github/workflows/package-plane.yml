@@ -38,6 +38,10 @@ jobs:
         shell: bash
         run: |
           test "$(dotnet --version)" = "10.0.103"
+      - name: Verify immutable Core runtime package authority
+        run: |
+          python3 scripts/ai/runtime-package-plane.py --repo-root .
+          python3 -m unittest -v tests/test_runtime_package_plane_authority.py
       - name: Verify immutable no-siblings package plane
         run: bash scripts/ai/verify-no-siblings-package-plane.sh
       - name: Verify creation-contact package boundary

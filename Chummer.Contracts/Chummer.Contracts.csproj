@@ -16,6 +16,7 @@
     <AssemblyName>Chummer.Engine.Contracts</AssemblyName>
     <PackageId>Chummer.Engine.Contracts</PackageId>
     <PackageLicenseExpression>GPL-3.0-only</PackageLicenseExpression>
+    <Description>Versioned Core contracts for character, workspace, and ruleset integrations.</Description>
     <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
   <ItemGroup>
