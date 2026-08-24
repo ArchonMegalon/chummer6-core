@@ -103,6 +103,8 @@ public static class ServiceCollectionExtensions
                 provider.GetRequiredService<ICharacterSocialNarrativeQueries>(),
                 provider.GetRequiredService<IBuildLabService>()));
         services.AddSingleton<IContentOverlayCatalogService>(overlays);
+        services.AddSingleton<ICharacterCyberwarePurchaseAuthority,
+            FileSystemCharacterCyberwarePurchaseAuthority>();
         services.AddSingleton<IBuildKitRegistryService, DefaultBuildKitRegistryService>();
         services.AddSingleton<INpcVaultRegistryService, DefaultNpcVaultRegistryService>();
         services.AddSingleton<IOppositionPacketContractService, DefaultOppositionPacketContractService>();

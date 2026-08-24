@@ -4,10 +4,12 @@ using System;
 using System.IO;
 using System.Linq;
 using Chummer.Application.Owners;
+using Chummer.Application.Characters;
 using Chummer.Application.Content;
 using Chummer.Contracts.Owners;
 using Chummer.Contracts.Rulesets;
 using Chummer.Infrastructure.DependencyInjection;
+using Chummer.Infrastructure.Xml;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -64,10 +66,17 @@ public class HeadlessCoreContentBundleValidationTests
 
             using ServiceProvider provider = services.BuildServiceProvider();
             IContentOverlayCatalogService overlays = provider.GetRequiredService<IContentOverlayCatalogService>();
+            ICharacterCyberwarePurchaseAuthority cyberwarePurchase =
+                provider.GetRequiredService<ICharacterCyberwarePurchaseAuthority>();
+            ICharacterCyberwarePurchaseAuthority resolvedAgain =
+                provider.GetRequiredService<ICharacterCyberwarePurchaseAuthority>();
             IOwnerContextAccessor ownerContextAccessor = provider.GetRequiredService<IOwnerContextAccessor>();
             IRulesetPlugin[] plugins = provider.GetServices<IRulesetPlugin>().ToArray();
             string resolved = overlays.ResolveDataFile("lifemodules.xml");
             Assert.AreEqual(Path.Combine(dataDirectory, "lifemodules.xml"), resolved);
+            Assert.IsInstanceOfType<FileSystemCharacterCyberwarePurchaseAuthority>(cyberwarePurchase);
+            Assert.AreSame(cyberwarePurchase, resolvedAgain,
+                "Local-runtime and Android content-bundle compositions must share one purchase authority.");
             Assert.AreEqual(OwnerScope.LocalSingleUser.NormalizedValue, ownerContextAccessor.Current.NormalizedValue);
             Assert.IsFalse(plugins.Any(plugin => string.Equals(plugin.Id.NormalizedValue, RulesetDefaults.Sr4, StringComparison.Ordinal)));
             Assert.IsTrue(plugins.Any(plugin => string.Equals(plugin.Id.NormalizedValue, RulesetDefaults.Sr5, StringComparison.Ordinal)));
