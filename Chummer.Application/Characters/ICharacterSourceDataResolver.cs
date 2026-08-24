@@ -26,6 +26,47 @@ public interface ICharacterSourceDataContext
     }
 
     /// <summary>
+    /// Resolves one non-custom saved knowledge-skill source GUID through the runner's exact
+    /// enabled-book and ordered custom-data profile. Custom knowledge skills intentionally
+    /// carry no source GUID and must remain bound to their complete saved XML instead.
+    /// </summary>
+    bool TryResolveKnowledgeSkillSource(
+        string sourceSkillId,
+        out CharacterKnowledgeSkillSource source)
+    {
+        source = CharacterKnowledgeSkillSource.Unavailable;
+        return false;
+    }
+
+    /// <summary>
+    /// Resolves the exact Career specialization costs and skill-group break policy from the
+    /// settings profile selected by the saved runner. Missing or malformed profile values
+    /// must leave specialization purchase unavailable.
+    /// </summary>
+    bool TryResolveCareerSkillSpecializationSettings(
+        out CharacterCareerSkillSpecializationSettings settings,
+        out string rawRuleState)
+    {
+        settings = new CharacterCareerSkillSpecializationSettings(0, 0, false);
+        rawRuleState = string.Empty;
+        return false;
+    }
+
+    /// <summary>
+    /// Resolves the exact enabled-profile source row and deterministic source choices for
+    /// an active or non-custom knowledge skill. Custom knowledge skills intentionally have
+    /// no source GUID and use their complete saved XML plus an explicit custom selection.
+    /// </summary>
+    bool TryResolveCareerSkillSpecializationSource(
+        string sourceSkillId,
+        CharacterCareerSkillKind kind,
+        out CharacterCareerSkillSpecializationSource source)
+    {
+        source = CharacterCareerSkillSpecializationSource.Unavailable;
+        return false;
+    }
+
+    /// <summary>
     /// Projects the exact Priority/Sum-to-Ten rank authority and global creation
     /// Karma total selected by the saved character's settings profile. False
     /// means callers must not expose rank or Attribute-point choices.
@@ -201,6 +242,38 @@ public sealed record CharacterActiveSkillSource(
         RequiresSwimMovement: false,
         RequiresFlyMovement: false,
         RawSourceXml: string.Empty);
+}
+
+public sealed record CharacterKnowledgeSkillSource(
+    string SourceSkillId,
+    string Name,
+    string SkillCategory,
+    string DefaultAttribute,
+    string RawSourceXml)
+{
+    public static CharacterKnowledgeSkillSource Unavailable { get; } = new(
+        SourceSkillId: string.Empty,
+        Name: string.Empty,
+        SkillCategory: string.Empty,
+        DefaultAttribute: string.Empty,
+        RawSourceXml: string.Empty);
+}
+
+public sealed record CharacterCareerSkillSpecializationSource(
+    string SourceSkillId,
+    CharacterCareerSkillKind Kind,
+    string Name,
+    string SkillCategory,
+    IReadOnlyList<CharacterCareerSkillSpecializationOption> Options,
+    string RawSourceState)
+{
+    public static CharacterCareerSkillSpecializationSource Unavailable { get; } = new(
+        SourceSkillId: string.Empty,
+        Kind: CharacterCareerSkillKind.Active,
+        Name: string.Empty,
+        SkillCategory: string.Empty,
+        Options: Array.Empty<CharacterCareerSkillSpecializationOption>(),
+        RawSourceState: string.Empty);
 }
 
 public sealed record CharacterCreationSourceProfileAuthority(

@@ -50,6 +50,172 @@ public sealed class FileSystemCharacterSourceDataResolverTests
     }
 
     [TestMethod]
+    public void Canonical_knowledge_skill_source_resolves_exact_saved_source_guid()
+    {
+        string coreRoot = FindCoreRoot();
+        ICharacterSourceDataContext context = CreateContext(
+            coreRoot,
+            $"<character><settings>{SettingsId}</settings></character>")!;
+
+        Assert.IsTrue(context.TryResolveKnowledgeSkillSource(
+            "9f348c99-27e8-47ac-a098-a8a6a54c446a",
+            out CharacterKnowledgeSkillSource source));
+        Assert.AreEqual("9f348c99-27e8-47ac-a098-a8a6a54c446a", source.SourceSkillId);
+        Assert.AreEqual("Administration", source.Name);
+        Assert.AreEqual("Professional", source.SkillCategory);
+        Assert.AreEqual("LOG", source.DefaultAttribute);
+        StringAssert.Contains(source.RawSourceXml, "<name>Administration</name>");
+
+        Assert.IsFalse(context.TryResolveKnowledgeSkillSource(
+            "11111111-1111-1111-1111-111111111111",
+            out _));
+        Assert.IsFalse(context.TryResolveKnowledgeSkillSource(
+            Guid.Empty.ToString("D"),
+            out _));
+    }
+
+    [TestMethod]
+    public void Canonical_career_specialization_settings_preserve_profile_costs_and_default_group_policy()
+    {
+        string coreRoot = FindCoreRoot();
+        ICharacterSourceDataContext context = CreateContext(
+            coreRoot,
+            $"<character><settings>{SettingsId}</settings></character>")!;
+
+        Assert.IsTrue(context.TryResolveCareerSkillSpecializationSettings(
+            out CharacterCareerSkillSpecializationSettings settings,
+            out string rawRuleState));
+        Assert.AreEqual(7, settings.KarmaActiveSpecialization);
+        Assert.AreEqual(7, settings.KarmaKnowledgeSpecialization);
+        Assert.IsTrue(settings.SpecializationsBreakSkillGroups,
+            "The legacy CharacterSettings default is true when this optional profile node is absent.");
+        Assert.IsFalse(string.IsNullOrWhiteSpace(rawRuleState));
+        StringAssert.Contains(rawRuleState, SettingsId);
+    }
+
+    [TestMethod]
+    public void Career_specialization_settings_resolve_nested_costs_and_reject_malformed_profile_values()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            WriteBaseContent(root, string.Empty);
+            string settingsPath = Path.Combine(root, "data", "settings.xml");
+            string settingsXml = File.ReadAllText(settingsPath)
+                .Replace(
+                    "<karmaattribute>5</karmaattribute>",
+                    "<karmaattribute>5</karmaattribute><karmaspecialization>7</karmaspecialization>"
+                    + "<karmaknospecialization>5</karmaknospecialization>",
+                    StringComparison.Ordinal)
+                .Replace(
+                    "<karmacost>",
+                    "<specializationsbreakskillgroups>False</specializationsbreakskillgroups><karmacost>",
+                    StringComparison.Ordinal);
+            File.WriteAllText(settingsPath, settingsXml);
+
+            ICharacterSourceDataContext exact = CreateContext(root, CharacterXml())!;
+            Assert.IsTrue(exact.TryResolveCareerSkillSpecializationSettings(
+                out CharacterCareerSkillSpecializationSettings settings,
+                out string rawRuleState));
+            Assert.AreEqual(7, settings.KarmaActiveSpecialization);
+            Assert.AreEqual(5, settings.KarmaKnowledgeSpecialization);
+            Assert.IsFalse(settings.SpecializationsBreakSkillGroups);
+            Assert.IsFalse(string.IsNullOrWhiteSpace(rawRuleState));
+
+            File.WriteAllText(
+                settingsPath,
+                settingsXml.Replace(
+                    "<karmaknospecialization>5</karmaknospecialization>",
+                    "<karmaknospecialization>101</karmaknospecialization>",
+                    StringComparison.Ordinal));
+            ICharacterSourceDataContext malformed = CreateContext(root, CharacterXml())!;
+            Assert.IsFalse(malformed.TryResolveCareerSkillSpecializationSettings(out _, out _));
+        }
+        finally
+        {
+            DeleteTempDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public void Canonical_career_specialization_source_is_enabled_profile_and_kind_exact()
+    {
+        string coreRoot = FindCoreRoot();
+        ICharacterSourceDataContext context = CreateContext(
+            coreRoot,
+            $"<character><settings>{SettingsId}</settings></character>")!;
+
+        Assert.IsTrue(context.TryResolveCareerSkillSpecializationSource(
+            "adf31a50-b228-4e09-a09c-46ab9f5e59a1",
+            CharacterCareerSkillKind.Active,
+            out CharacterCareerSkillSpecializationSource active));
+        Assert.AreEqual(CharacterCareerSkillKind.Active, active.Kind);
+        Assert.AreEqual("Pistols", active.Name);
+        Assert.AreEqual("Combat Active", active.SkillCategory);
+        Assert.IsTrue(active.Options.Any(option =>
+            option.Kind == CharacterCareerSkillSpecializationOptionKind.SourceCatalog
+            && option.Name == "Semi-Automatics"));
+        Assert.IsTrue(active.Options.Any(option =>
+            option.Kind == CharacterCareerSkillSpecializationOptionKind.CombatWeapon
+            && option.Name == "Ares Predator V"));
+        Assert.AreEqual(
+            active.Options.Count,
+            active.Options.Select(option => option.OptionIdentity).Distinct(StringComparer.Ordinal).Count());
+        Assert.IsTrue(active.Options.All(option => option.OptionIdentity.Length == 64));
+        StringAssert.Contains(active.RawSourceState, "<name>Pistols</name>");
+        StringAssert.Contains(active.RawSourceState, "<name>Ares Predator V</name>");
+
+        Assert.IsTrue(context.TryResolveCareerSkillSpecializationSource(
+            "9f348c99-27e8-47ac-a098-a8a6a54c446a",
+            CharacterCareerSkillKind.Knowledge,
+            out CharacterCareerSkillSpecializationSource knowledge));
+        Assert.AreEqual(CharacterCareerSkillKind.Knowledge, knowledge.Kind);
+        Assert.AreEqual("Administration", knowledge.Name);
+        Assert.IsFalse(knowledge.Options.Any(option =>
+            option.Kind == CharacterCareerSkillSpecializationOptionKind.CombatWeapon));
+
+        Assert.IsFalse(context.TryResolveCareerSkillSpecializationSource(
+            active.SourceSkillId,
+            CharacterCareerSkillKind.Knowledge,
+            out _));
+        Assert.IsFalse(context.TryResolveCareerSkillSpecializationSource(
+            Guid.Empty.ToString("D"),
+            CharacterCareerSkillKind.Active,
+            out _));
+        Assert.IsFalse(context.TryResolveCareerSkillSpecializationSource(
+            active.SourceSkillId,
+            (CharacterCareerSkillKind)99,
+            out _));
+    }
+
+    [TestMethod]
+    public void Career_specialization_source_fails_closed_when_its_book_is_not_enabled()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            WriteBaseContent(root, string.Empty);
+            string settingsPath = Path.Combine(root, "data", "settings.xml");
+            File.WriteAllText(
+                settingsPath,
+                File.ReadAllText(settingsPath).Replace(
+                    "<book>SR5</book>",
+                    string.Empty,
+                    StringComparison.Ordinal));
+
+            ICharacterSourceDataContext context = CreateContext(root, CharacterXml())!;
+            Assert.IsFalse(context.TryResolveCareerSkillSpecializationSource(
+                "40c72109-8924-45ca-a4d7-255b75e6a6b0",
+                CharacterCareerSkillKind.Active,
+                out _));
+        }
+        finally
+        {
+            DeleteTempDirectory(root);
+        }
+    }
+
+    [TestMethod]
     public void Canonical_priority_profile_projects_digest_bound_rank_and_creation_karma_authority()
     {
         string coreRoot = FindCoreRoot();
