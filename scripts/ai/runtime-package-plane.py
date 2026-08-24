@@ -10,13 +10,14 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-import importlib.util
 import json
 import os
 import re
+import stat
 import subprocess
 import sys
 import tempfile
+import types
 import xml.etree.ElementTree as ET
 import zipfile
 from dataclasses import dataclass
@@ -31,6 +32,7 @@ PACKAGE_VERSION = "0.0.0-packageplane.candidate.shabc08228d3ce0"
 SOURCE_REPOSITORY = "https://github.com/ArchonMegalon/chummer6-core.git"
 SOURCE_COMMIT = "bc08228d3ce06410ca97ada63a5af41a2eaa91bf"
 SDK_VERSION = "10.0.103"
+TARGET_FRAMEWORK = "net10.0"
 LICENSE_EXPRESSION = "GPL-3.0-only"
 EXTERNAL_OWNER_PACKAGES = (
     (
@@ -51,6 +53,10 @@ EXTERNAL_OWNER_PACKAGES = (
         "https://github.com/ArchonMegalon/chummer6-hub.git",
         "7c1faef298fb9028e77069c2467686f92624566c",
     ),
+)
+THIRD_PARTY_PACKAGES = (
+    ("Microsoft.Extensions.DependencyInjection", "10.0.0"),
+    ("SharpCompress", "0.50.1"),
 )
 
 
@@ -91,6 +97,7 @@ PACKAGE_SPECS = (
             "Chummer.Application",
             "Chummer.Engine.Contracts",
             "Chummer.Run.Contracts",
+            "Microsoft.Extensions.DependencyInjection",
         ),
     ),
     PackageSpec(
@@ -102,6 +109,7 @@ PACKAGE_SPECS = (
             "Chummer.Application",
             "Chummer.Engine.Contracts",
             "Chummer.Run.Contracts",
+            "Microsoft.Extensions.DependencyInjection",
         ),
     ),
     PackageSpec(
@@ -113,6 +121,7 @@ PACKAGE_SPECS = (
             "Chummer.Application",
             "Chummer.Engine.Contracts",
             "Chummer.Run.Contracts",
+            "Microsoft.Extensions.DependencyInjection",
         ),
     ),
     PackageSpec(
@@ -128,6 +137,8 @@ PACKAGE_SPECS = (
             "Chummer.Rulesets.Sr5",
             "Chummer.Rulesets.Sr6",
             "Chummer.Run.Contracts",
+            "Microsoft.Extensions.DependencyInjection",
+            "SharpCompress",
         ),
     ),
     PackageSpec(
@@ -140,6 +151,7 @@ PACKAGE_SPECS = (
             "Chummer.Engine.Contracts",
             "Chummer.Infrastructure",
             "Chummer.Run.Contracts",
+            "Microsoft.Extensions.DependencyInjection",
         ),
     ),
     PackageSpec(
@@ -171,10 +183,46 @@ PROJECT_VARIABLE_DEPENDENCIES = {
     "$(ChummerLocalRunContractsProject)": "Chummer.Run.Contracts",
 }
 GM_PACKAGE_PLANE_CONDITION = "'$(ChummerRuntimePackagePlane)' != 'true'"
+ALLOWED_RECIPE_DELTA = (
+    ".github/workflows/package-plane.yml",
+    "Chummer.Application/Chummer.Application.csproj",
+    "Chummer.Contracts/Chummer.Contracts.csproj",
+    "Chummer.GmCharacterEdits/Chummer.GmCharacterEdits.csproj",
+    "Chummer.Infrastructure/Chummer.Infrastructure.csproj",
+    "Chummer.Rulesets.Hosting/Chummer.Rulesets.Hosting.csproj",
+    "Chummer.Rulesets.Sr4/Chummer.Rulesets.Sr4.csproj",
+    "Chummer.Rulesets.Sr5/Chummer.Rulesets.Sr5.csproj",
+    "Chummer.Rulesets.Sr6/Chummer.Rulesets.Sr6.csproj",
+    "eng/runtime-package-plane.lock.json",
+    "scripts/ai/runtime-package-plane.py",
+    "scripts/ai/verify-no-siblings-package-plane.sh",
+    "tests/test_runtime_package_plane_authority.py",
+)
+BUILD_AUTHORITY_PATHS = (
+    ".github/workflows/package-plane.yml",
+    "Chummer.CoreEngine.sln",
+    "Directory.Build.props",
+    "Directory.Build.targets",
+    "eng/package-plane.lock.json",
+    "global.json",
+    "scripts/ai/_env.sh",
+    "scripts/ai/bootstrap-contracts-feed.sh",
+    "scripts/ai/bootstrap-owner-contracts-feed.py",
+    "scripts/ai/runtime-package-plane.py",
+    "scripts/ai/verify-no-siblings-package-plane.sh",
+)
 
 
 class RuntimePackagePlaneError(RuntimeError):
     pass
+
+
+def _dependency_version(package_id: str) -> str:
+    if package_id in {spec.package_id for spec in PACKAGE_SPECS}:
+        return PACKAGE_VERSION
+    owner_versions = {row[0]: row[1] for row in EXTERNAL_OWNER_PACKAGES}
+    third_party_versions = dict(THIRD_PARTY_PACKAGES)
+    return owner_versions.get(package_id, third_party_versions.get(package_id, ""))
 
 
 def _local_name(tag: str) -> str:
@@ -220,7 +268,10 @@ def validate_lock_payload(payload: Any) -> None:
         "dotnet_sdk",
         "package_version",
         "runtime_source",
+        "allowed_recipe_delta",
+        "build_authority_files",
         "external_owner_packages",
+        "third_party_packages",
         "packages",
     }:
         raise RuntimePackagePlaneError("runtime package lock has an invalid top-level shape")
@@ -235,6 +286,21 @@ def validate_lock_payload(payload: Any) -> None:
         "commit": SOURCE_COMMIT,
     }:
         raise RuntimePackagePlaneError("runtime source authority is not exact")
+    if payload["allowed_recipe_delta"] != list(ALLOWED_RECIPE_DELTA):
+        raise RuntimePackagePlaneError("allowed package recipe delta is not exact")
+    build_authority = payload["build_authority_files"]
+    if not isinstance(build_authority, list) or any(
+        not isinstance(row, dict) for row in build_authority
+    ):
+        raise RuntimePackagePlaneError("build authority files have an invalid shape")
+    if [row.get("path") for row in build_authority] != list(BUILD_AUTHORITY_PATHS):
+        raise RuntimePackagePlaneError("build authority file order is not exact")
+    if any(
+        set(row) != {"path", "sha256"}
+        or not SHA256_RE.fullmatch(str(row.get("sha256", "")))
+        for row in build_authority
+    ):
+        raise RuntimePackagePlaneError("build authority file digest is invalid")
 
     external = payload["external_owner_packages"]
     expected_external = [
@@ -243,6 +309,12 @@ def validate_lock_payload(payload: Any) -> None:
     ]
     if external != expected_external:
         raise RuntimePackagePlaneError("external owner package authority is not exact")
+    expected_third_party = [
+        {"id": package_id, "version": version}
+        for package_id, version in THIRD_PARTY_PACKAGES
+    ]
+    if payload["third_party_packages"] != expected_third_party:
+        raise RuntimePackagePlaneError("third-party package authority is not exact")
 
     rows = payload["packages"]
     expected_rows = [
@@ -251,7 +323,11 @@ def validate_lock_payload(payload: Any) -> None:
             "project": spec.project,
             "project_sha256": spec.project_sha256,
             "assembly": spec.assembly,
-            "dependencies": list(spec.dependencies),
+            "target_framework": TARGET_FRAMEWORK,
+            "dependencies": [
+                {"id": dependency, "version": _dependency_version(dependency)}
+                for dependency in spec.dependencies
+            ],
         }
         for spec in PACKAGE_SPECS
     ]
@@ -260,6 +336,7 @@ def validate_lock_payload(payload: Any) -> None:
 
     internal_ids = {spec.package_id for spec in PACKAGE_SPECS}
     external_ids = {row[0] for row in EXTERNAL_OWNER_PACKAGES}
+    third_party_ids = {row[0] for row in THIRD_PARTY_PACKAGES}
     seen: set[str] = set()
     assemblies: set[str] = set()
     for spec in PACKAGE_SPECS:
@@ -267,7 +344,7 @@ def validate_lock_payload(payload: Any) -> None:
             raise RuntimePackagePlaneError("one runtime assembly has multiple package owners")
         assemblies.add(spec.assembly.casefold())
         for dependency in spec.dependencies:
-            if dependency not in internal_ids | external_ids:
+            if dependency not in internal_ids | external_ids | third_party_ids:
                 raise RuntimePackagePlaneError(f"unknown package dependency: {dependency}")
             if dependency in internal_ids and dependency not in seen:
                 raise RuntimePackagePlaneError(
@@ -286,7 +363,7 @@ def _project_dependencies(repo_root: Path, spec: PackageSpec, root: ET.Element) 
     for element in root.iter():
         name = _local_name(element.tag)
         include = (element.attrib.get("Include") or "").strip()
-        if name == "PackageReference" and include.startswith("Chummer."):
+        if name == "PackageReference" and include:
             dependencies.add(include)
         elif name == "ProjectReference":
             internal_reference = False
@@ -342,10 +419,8 @@ def validate_repository(repo_root: Path, lock: dict[str, Any]) -> None:
         raise RuntimePackagePlaneError("runtime source commit is unavailable")
     _run(("git", "merge-base", "--is-ancestor", SOURCE_COMMIT, "HEAD"), cwd=repo_root)
 
-    allowed_project_changes = {spec.project for spec in PACKAGE_SPECS}
-    project_directories = sorted({str(PurePosixPath(spec.project).parent) for spec in PACKAGE_SPECS})
     changed = _run(
-        ("git", "diff", "--name-only", SOURCE_COMMIT, "--", *project_directories),
+        ("git", "diff", "--name-only", SOURCE_COMMIT),
         cwd=repo_root,
     ).splitlines()
     untracked = _run(
@@ -354,18 +429,25 @@ def validate_repository(repo_root: Path, lock: dict[str, Any]) -> None:
             "ls-files",
             "--others",
             "--exclude-standard",
-            "--",
-            *project_directories,
         ),
         cwd=repo_root,
     ).splitlines()
-    unexpected = sorted(
-        path for path in set(changed) | set(untracked) if path not in allowed_project_changes
-    )
-    if unexpected:
+    observed_recipe_delta = set(changed) | set(untracked)
+    expected_recipe_delta = set(ALLOWED_RECIPE_DELTA)
+    if observed_recipe_delta != expected_recipe_delta:
         raise RuntimePackagePlaneError(
-            "runtime implementation differs from the pinned source commit: " + ", ".join(unexpected)
+            "package recipe delta differs from authority "
+            f"(missing={sorted(expected_recipe_delta - observed_recipe_delta)}, "
+            f"extra={sorted(observed_recipe_delta - expected_recipe_delta)})"
         )
+
+    for row in lock["build_authority_files"]:
+        authority_path = repo_root / row["path"]
+        _require_regular_file(authority_path, f"build authority {row['path']}")
+        if _sha256(authority_path) != row["sha256"]:
+            raise RuntimePackagePlaneError(
+                f"build authority bytes drifted: {row['path']}"
+            )
 
     for spec in PACKAGE_SPECS:
         project_path = repo_root / spec.project
@@ -408,14 +490,22 @@ def validate_repository(repo_root: Path, lock: dict[str, Any]) -> None:
                 raise RuntimePackagePlaneError(f"{spec.package_id} contains a runtime bundling target")
 
 
-def _canonicalizer(repo_root: Path):
+def _canonicalizer(repo_root: Path, lock: dict[str, Any]):
     path = repo_root / "scripts/ai/bootstrap-owner-contracts-feed.py"
-    spec = importlib.util.spec_from_file_location("core_owner_package_canonicalizer", path)
-    if spec is None or spec.loader is None:
-        raise RuntimePackagePlaneError("owner package canonicalizer is unavailable")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
+    expected = next(
+        row["sha256"]
+        for row in lock["build_authority_files"]
+        if row["path"] == "scripts/ai/bootstrap-owner-contracts-feed.py"
+    )
+    _require_regular_file(path, "owner package canonicalizer")
+    source = path.read_bytes()
+    if hashlib.sha256(source).hexdigest() != expected:
+        raise RuntimePackagePlaneError("owner package canonicalizer bytes drifted")
+    module_name = "core_owner_package_canonicalizer"
+    module = types.ModuleType(module_name)
+    module.__file__ = str(path)
+    sys.modules[module_name] = module
+    exec(compile(source, str(path), "exec"), module.__dict__)
     return module
 
 
@@ -462,23 +552,38 @@ def _license(root: ET.Element) -> tuple[str, str]:
     return (rows[0].attrib.get("type") or "").strip(), (rows[0].text or "").strip()
 
 
-def _dependencies(root: ET.Element) -> dict[str, str]:
+def _dependency_group(root: ET.Element) -> tuple[str | None, dict[str, str]]:
+    containers = [
+        element for element in root.iter() if _local_name(element.tag) == "dependencies"
+    ]
+    if not containers:
+        return None, {}
+    if len(containers) != 1:
+        raise RuntimePackagePlaneError("nuspec must contain at most one dependencies container")
+    groups = [
+        element for element in containers[0] if _local_name(element.tag) == "group"
+    ]
+    if len(groups) != 1 or len(list(containers[0])) != 1:
+        raise RuntimePackagePlaneError("nuspec must contain one exact dependency group")
+    group = groups[0]
+    if set(group.attrib) != {"targetFramework"}:
+        raise RuntimePackagePlaneError("nuspec dependency group metadata is invalid")
     result: dict[str, str] = {}
-    for element in root.iter():
+    for element in group:
         if _local_name(element.tag) != "dependency":
-            continue
+            raise RuntimePackagePlaneError("nuspec dependency group contains a foreign element")
+        if set(element.attrib) != {"id", "version", "exclude"}:
+            raise RuntimePackagePlaneError("nuspec dependency metadata is not exact")
+        if (element.attrib.get("exclude") or "").strip() != "Build,Analyzers":
+            raise RuntimePackagePlaneError("nuspec dependency exclusion metadata is not exact")
         package_id = (element.attrib.get("id") or "").strip()
-        if not package_id.startswith("Chummer."):
-            continue
         if package_id in result:
             raise RuntimePackagePlaneError(f"duplicate dependency in nuspec: {package_id}")
         result[package_id] = (element.attrib.get("version") or "").strip()
-    return result
+    return (group.attrib.get("targetFramework") or "").strip(), result
 
 
 def inspect_packages(feed: Path) -> list[dict[str, Any]]:
-    internal_versions = {spec.package_id: PACKAGE_VERSION for spec in PACKAGE_SPECS}
-    external_versions = {row[0]: row[1] for row in EXTERNAL_OWNER_PACKAGES}
     rows: list[dict[str, Any]] = []
     assembly_owners: dict[str, str] = {}
     for spec in PACKAGE_SPECS:
@@ -539,10 +644,14 @@ def inspect_packages(feed: Path) -> list[dict[str, Any]]:
         if _license(root) != ("expression", LICENSE_EXPRESSION):
             raise RuntimePackagePlaneError(f"{spec.package_id} license is invalid")
         expected_dependencies = {
-            dependency: internal_versions.get(dependency, external_versions.get(dependency, ""))
-            for dependency in spec.dependencies
+            dependency: _dependency_version(dependency) for dependency in spec.dependencies
         }
-        if _dependencies(root) != expected_dependencies:
+        observed_framework, observed_dependencies = _dependency_group(root)
+        expected_framework = TARGET_FRAMEWORK if expected_dependencies else None
+        if (
+            observed_framework != expected_framework
+            or observed_dependencies != expected_dependencies
+        ):
             raise RuntimePackagePlaneError(f"{spec.package_id} nuspec dependency closure drifted")
         rows.append(
             {
@@ -552,7 +661,11 @@ def inspect_packages(feed: Path) -> list[dict[str, Any]]:
                 "source_commit": SOURCE_COMMIT,
                 "project": spec.project,
                 "assembly": spec.assembly,
-                "dependencies": list(spec.dependencies),
+                "target_framework": TARGET_FRAMEWORK,
+                "dependencies": [
+                    {"id": dependency, "version": _dependency_version(dependency)}
+                    for dependency in spec.dependencies
+                ],
                 "file_name": path.name,
                 "sha256": _sha256(path),
                 "size_bytes": path.stat().st_size,
@@ -591,8 +704,13 @@ def _atomic_json(path: Path, payload: dict[str, Any]) -> None:
             temporary.unlink()
 
 
-def canonicalize_and_write_inventory(repo_root: Path, lock_path: Path, feed: Path) -> str:
-    module = _canonicalizer(repo_root)
+def canonicalize_and_write_inventory(
+    repo_root: Path,
+    lock_path: Path,
+    lock: dict[str, Any],
+    feed: Path,
+) -> str:
+    module = _canonicalizer(repo_root, lock)
     for spec in PACKAGE_SPECS:
         module.canonicalize_nupkg(_find_package(feed, spec.package_id))
     payload = inventory_payload(repo_root, lock_path, feed)
@@ -614,14 +732,205 @@ def validate_inventory(repo_root: Path, lock_path: Path, feed: Path) -> str:
     return hashlib.sha256(raw).hexdigest()
 
 
+def _require_regular_file(path: Path, label: str) -> None:
+    try:
+        mode = path.lstat().st_mode
+    except OSError as exc:
+        raise RuntimePackagePlaneError(f"{label} is unavailable: {exc}") from exc
+    if not stat.S_ISREG(mode) or path.is_symlink():
+        raise RuntimePackagePlaneError(f"{label} must be one regular non-symlink file")
+
+
+def _copy_bound_file(
+    source: Path,
+    target: Path,
+    *,
+    expected_sha256: str,
+    expected_size: int,
+) -> None:
+    _require_regular_file(source, source.name)
+    if source.stat().st_size != expected_size or _sha256(source) != expected_sha256:
+        raise RuntimePackagePlaneError(f"source bytes drifted before export: {source.name}")
+    try:
+        descriptor = os.open(
+            target,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0),
+            0o644,
+        )
+    except OSError as exc:
+        raise RuntimePackagePlaneError(f"cannot create export file {target.name}: {exc}") from exc
+    try:
+        with os.fdopen(descriptor, "wb", closefd=True) as output, source.open("rb") as input_stream:
+            for chunk in iter(lambda: input_stream.read(1024 * 1024), b""):
+                output.write(chunk)
+            output.flush()
+            os.fsync(output.fileno())
+    except BaseException:
+        raise
+    if target.stat().st_size != expected_size or _sha256(target) != expected_sha256:
+        raise RuntimePackagePlaneError(f"exported bytes do not match authority: {target.name}")
+
+
+def _validate_receipt(
+    receipt_path: Path,
+    inventory: dict[str, Any],
+    inventory_sha256: str,
+) -> tuple[dict[str, Any], str, int]:
+    _require_regular_file(receipt_path, "no-siblings receipt")
+    try:
+        receipt_bytes = receipt_path.read_bytes()
+        receipt = json.loads(receipt_bytes)
+    except (OSError, json.JSONDecodeError) as exc:
+        raise RuntimePackagePlaneError(f"no-siblings receipt is invalid: {exc}") from exc
+    if not isinstance(receipt, dict) or receipt.get("contract") != "chummer-core.no-siblings-package-plane/v3":
+        raise RuntimePackagePlaneError("no-siblings v3 receipt is required for export")
+    required = {
+        "status": "pass",
+        "core_commit": inventory["package_recipe_commit"],
+        "runtime_package_inventory_sha256": inventory_sha256,
+        "runtime_package_plane_lock_sha256": inventory["package_plane_lock_sha256"],
+        "runtime_source_commit": inventory["runtime_source_commit"],
+        "package_recipe_commit": inventory["package_recipe_commit"],
+        "candidate_package_version": inventory["package_version"],
+        "eight_package_runtime_plane": "pass",
+    }
+    for key, expected in required.items():
+        if receipt.get(key) != expected:
+            raise RuntimePackagePlaneError(f"no-siblings receipt field is stale: {key}")
+    expected_runtime_rows = [
+        dict(row, role="current_core_runtime_candidate") for row in inventory["packages"]
+    ]
+    resolved = receipt.get("resolved_owner_contracts")
+    if not isinstance(resolved, list):
+        raise RuntimePackagePlaneError("no-siblings receipt lacks resolved package authority")
+    observed_runtime_rows = [
+        row
+        for row in resolved
+        if isinstance(row, dict) and row.get("role") == "current_core_runtime_candidate"
+    ]
+    if observed_runtime_rows != expected_runtime_rows:
+        raise RuntimePackagePlaneError("no-siblings receipt runtime rows differ from inventory")
+    return receipt, hashlib.sha256(receipt_bytes).hexdigest(), len(receipt_bytes)
+
+
+def _validate_export_layout(export_dir: Path, expected_files: set[str]) -> None:
+    observed_files: set[str] = set()
+    observed_directories: set[str] = set()
+    for root_name, directory_names, file_names in os.walk(export_dir, followlinks=False):
+        root = Path(root_name)
+        for directory_name in directory_names:
+            path = root / directory_name
+            if path.is_symlink():
+                raise RuntimePackagePlaneError("runtime bundle contains a symlink directory")
+            observed_directories.add(path.relative_to(export_dir).as_posix())
+        for file_name in file_names:
+            path = root / file_name
+            _require_regular_file(path, "runtime bundle member")
+            observed_files.add(path.relative_to(export_dir).as_posix())
+    if observed_directories != {"packages"}:
+        raise RuntimePackagePlaneError("runtime bundle directory layout is not exact")
+    if observed_files != expected_files:
+        missing = sorted(expected_files - observed_files)
+        extra = sorted(observed_files - expected_files)
+        raise RuntimePackagePlaneError(
+            f"runtime bundle members differ (missing={missing}, extra={extra})"
+        )
+    casefolded = [name.casefold() for name in observed_files]
+    if len(casefolded) != len(set(casefolded)):
+        raise RuntimePackagePlaneError("runtime bundle contains case-colliding members")
+
+
+def export_bundle(
+    repo_root: Path,
+    lock_path: Path,
+    feed: Path,
+    receipt_path: Path,
+    export_dir: Path,
+) -> tuple[str, str]:
+    if not export_dir.is_absolute():
+        raise RuntimePackagePlaneError("runtime bundle export path must be absolute")
+    if export_dir.exists() or export_dir.is_symlink():
+        raise RuntimePackagePlaneError("runtime bundle export path must not already exist")
+    inventory_sha256 = validate_inventory(repo_root, lock_path, feed)
+    inventory_path = feed / INVENTORY_NAME
+    inventory = json.loads(inventory_path.read_text(encoding="utf-8"))
+    _, receipt_sha256, receipt_size = _validate_receipt(
+        receipt_path,
+        inventory,
+        inventory_sha256,
+    )
+    package_names = [row["file_name"] for row in inventory["packages"]]
+    if len(package_names) != len(set(name.casefold() for name in package_names)):
+        raise RuntimePackagePlaneError("runtime inventory contains case-colliding package names")
+
+    try:
+        export_dir.mkdir(mode=0o755, parents=False, exist_ok=False)
+        packages_dir = export_dir / "packages"
+        packages_dir.mkdir(mode=0o755, exist_ok=False)
+    except OSError as exc:
+        raise RuntimePackagePlaneError(f"cannot create runtime bundle export path: {exc}") from exc
+
+    expected_files = {
+        "chummer-core-runtime-packages.inventory.json",
+        "runtime-package-plane.lock.json",
+        "no-siblings.v3.receipt.json",
+        *(f"packages/{name}" for name in package_names),
+    }
+    for row in inventory["packages"]:
+        _copy_bound_file(
+            _find_package(feed, row["id"]),
+            packages_dir / row["file_name"],
+            expected_sha256=row["sha256"],
+            expected_size=row["size_bytes"],
+        )
+    _copy_bound_file(
+        inventory_path,
+        export_dir / INVENTORY_NAME,
+        expected_sha256=inventory_sha256,
+        expected_size=inventory_path.stat().st_size,
+    )
+    _copy_bound_file(
+        lock_path,
+        export_dir / "runtime-package-plane.lock.json",
+        expected_sha256=inventory["package_plane_lock_sha256"],
+        expected_size=lock_path.stat().st_size,
+    )
+    _copy_bound_file(
+        receipt_path,
+        export_dir / "no-siblings.v3.receipt.json",
+        expected_sha256=receipt_sha256,
+        expected_size=receipt_size,
+    )
+    _validate_export_layout(export_dir, expected_files)
+    try:
+        directory_descriptor = os.open(export_dir, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+        packages_descriptor = os.open(
+            packages_dir,
+            os.O_RDONLY | getattr(os, "O_DIRECTORY", 0),
+        )
+        try:
+            os.fsync(packages_descriptor)
+            os.fsync(directory_descriptor)
+        finally:
+            os.close(packages_descriptor)
+            os.close(directory_descriptor)
+    except OSError as exc:
+        raise RuntimePackagePlaneError(f"cannot flush runtime bundle directories: {exc}") from exc
+    return inventory_sha256, receipt_sha256
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--repo-root", type=Path, required=True)
     parser.add_argument("--lock", type=Path)
     parser.add_argument("--feed", type=Path)
-    parser.add_argument("--canonicalize-and-write-inventory", action="store_true")
-    parser.add_argument("--validate-feed", action="store_true")
-    parser.add_argument("--print-pack-rows", action="store_true")
+    parser.add_argument("--receipt", type=Path)
+    parser.add_argument("--export-dir", type=Path)
+    actions = parser.add_mutually_exclusive_group()
+    actions.add_argument("--canonicalize-and-write-inventory", action="store_true")
+    actions.add_argument("--validate-feed", action="store_true")
+    actions.add_argument("--print-pack-rows", action="store_true")
+    actions.add_argument("--export-bundle", action="store_true")
     return parser.parse_args()
 
 
@@ -635,12 +944,30 @@ def main() -> int:
         for spec in PACKAGE_SPECS:
             print(f"{spec.package_id}\t{spec.project}")
         return 0
+    if args.export_bundle:
+        if args.feed is None or args.receipt is None or args.export_dir is None:
+            raise RuntimePackagePlaneError(
+                "--feed, --receipt, and --export-dir are required for export"
+            )
+        inventory_digest, receipt_digest = export_bundle(
+            repo_root,
+            lock_path,
+            args.feed.resolve(),
+            args.receipt.resolve(),
+            args.export_dir,
+        )
+        print(
+            "runtime-package-bundle: ok "
+            f"({len(PACKAGE_SPECS)} packages; inventory {inventory_digest}; "
+            f"receipt {receipt_digest})"
+        )
+        return 0
     if args.canonicalize_and_write_inventory or args.validate_feed:
         if args.feed is None:
             raise RuntimePackagePlaneError("--feed is required for feed operations")
         feed = args.feed.resolve()
         digest = (
-            canonicalize_and_write_inventory(repo_root, lock_path, feed)
+            canonicalize_and_write_inventory(repo_root, lock_path, lock, feed)
             if args.canonicalize_and_write_inventory
             else validate_inventory(repo_root, lock_path, feed)
         )

@@ -539,6 +539,14 @@ dotnet test "$consumer_root/Chummer.Tests/Chummer.Tests.csproj" \
   --filter "$local_owner_filter" \
   "${common_properties[@]}"
 
+# Nothing after this point may alter package bytes. Revalidate all eight exact
+# packages and their unified inventory after every restore/build/test graph.
+python3 "$consumer_root/scripts/ai/runtime-package-plane.py" \
+  --repo-root "$consumer_root" \
+  --lock "$consumer_root/eng/runtime-package-plane.lock.json" \
+  --feed "$isolated_feed" \
+  --validate-feed
+
 python3 - \
   "$consumer_root" \
   "$isolated_packages" \
@@ -681,6 +689,21 @@ if (
 runtime_rows = runtime_inventory.get("packages")
 if not isinstance(runtime_rows, list) or len(runtime_rows) != 8:
     raise SystemExit("unified runtime package inventory must bind exactly eight packages")
+for row in runtime_rows:
+    matches = [
+        path
+        for path in isolated_feed.iterdir()
+        if path.name.casefold() == row["file_name"].casefold()
+    ]
+    if len(matches) != 1 or matches[0].is_symlink() or not matches[0].is_file():
+        raise SystemExit(f"runtime package byte authority is ambiguous: {row['id']}")
+    package_bytes = matches[0].read_bytes()
+    if (
+        matches[0].name != row["file_name"]
+        or len(package_bytes) != row["size_bytes"]
+        or hashlib.sha256(package_bytes).hexdigest() != row["sha256"]
+    ):
+        raise SystemExit(f"runtime package bytes changed after final validation: {row['id']}")
 runtime_assets = json.loads(runtime_consumer_assets_path.read_text(encoding="utf-8"))
 runtime_package_folders = list((runtime_assets.get("packageFolders") or {}).keys())
 if (
@@ -789,3 +812,13 @@ receipt_path.write_text(json.dumps(receipt, indent=2) + "\n", encoding="utf-8")
 print(f"no-siblings-package-plane: ok ({len(asset_files)} assets files)")
 print(f"receipt: {receipt_path}")
 PY
+
+if [[ -n "${CHUMMER_RUNTIME_PACKAGE_EXPORT_DIR:-}" ]]; then
+  python3 "$consumer_root/scripts/ai/runtime-package-plane.py" \
+    --repo-root "$consumer_root" \
+    --lock "$consumer_root/eng/runtime-package-plane.lock.json" \
+    --feed "$isolated_feed" \
+    --receipt "$receipt_path" \
+    --export-dir "$CHUMMER_RUNTIME_PACKAGE_EXPORT_DIR" \
+    --export-bundle
+fi

@@ -13,6 +13,8 @@ jobs:
   no-siblings:
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
     steps:
       - name: Check out Core
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
@@ -42,8 +44,6 @@ jobs:
         run: |
           python3 scripts/ai/runtime-package-plane.py --repo-root .
           python3 -m unittest -v tests/test_runtime_package_plane_authority.py
-      - name: Verify immutable no-siblings package plane
-        run: bash scripts/ai/verify-no-siblings-package-plane.sh
       - name: Verify creation-contact package boundary
         run: python3 -m unittest tests/test_creation_contacts_authority.py
       - name: Restore affected Core test graph
@@ -74,3 +74,26 @@ jobs:
           -m:1
           --filter
           "FullyQualifiedName~CharacterCareerCalendarRulesTests"
+      - name: Verify immutable no-siblings package plane and export bundle
+        env:
+          CHUMMER_PACKAGE_PLANE_RECEIPT: ${{ runner.temp }}/chummer-core-runtime-package-plane-${{ github.sha }}.receipt.json
+          CHUMMER_RUNTIME_PACKAGE_EXPORT_DIR: ${{ runner.temp }}/chummer-core-runtime-package-plane-${{ github.sha }}
+        run: bash scripts/ai/verify-no-siblings-package-plane.sh
+      - name: Upload exact Core runtime package bundle
+        id: upload-runtime-package-bundle
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: chummer-core-runtime-package-plane-${{ github.sha }}
+          path: ${{ runner.temp }}/chummer-core-runtime-package-plane-${{ github.sha }}
+          if-no-files-found: error
+          retention-days: 5
+          compression-level: 0
+          overwrite: false
+          include-hidden-files: false
+      - name: Verify uploaded runtime package artifact authority
+        env:
+          RUNTIME_ARTIFACT_ID: ${{ steps.upload-runtime-package-bundle.outputs.artifact-id }}
+          RUNTIME_ARTIFACT_DIGEST: ${{ steps.upload-runtime-package-bundle.outputs.artifact-digest }}
+        run: |
+          [[ "${RUNTIME_ARTIFACT_ID}" =~ ^[1-9][0-9]*$ ]]
+          [[ "${RUNTIME_ARTIFACT_DIGEST}" =~ ^(sha256:)?[0-9a-f]{64}$ ]]
