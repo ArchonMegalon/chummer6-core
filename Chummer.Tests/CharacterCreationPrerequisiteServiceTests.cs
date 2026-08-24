@@ -138,6 +138,108 @@ public sealed class CharacterCreationPrerequisiteServiceTests
     }
 
     [TestMethod]
+    public void Signed_negative_heritage_cost_is_accepted_only_for_blocked_disabled_metavariant()
+    {
+        CharacterCreationPrerequisiteAuthority baseline =
+            CreateAuthority(CharacterCreationBuildMethods.Priority, ["A", "B", "C", "D", "E"]);
+        CharacterCreationPrerequisiteAuthority safe = AddNegativeOniProjection(baseline);
+        WithWorkspace(
+            CharacterCreationBuildMethods.Priority,
+            safe,
+            (_, service, id) =>
+            {
+                CharacterCreationPrerequisiteState state = Load(service, id);
+                CollectionAssert.DoesNotContain(
+                    state.Blockers.ToList(),
+                    CharacterCreationPrerequisiteBlockers.AuthorityUnavailable);
+                CharacterCreationPriorityHeritageOptionProjection oni = FindOni(state.Authority);
+                Assert.AreEqual(-4, oni.KarmaCost);
+                Assert.IsFalse(oni.IsEnabled);
+                CollectionAssert.Contains(
+                    oni.Blockers.ToList(),
+                    CharacterCreationPrerequisiteBlockers.HeritageSelectionUnsupported);
+
+                IReadOnlyDictionary<string, string> ranks = Assign("C", "E", "A", "B", "D");
+                CharacterCreationFoundationResult<CharacterCreationPrerequisitePreview> human =
+                    service.Preview(PreviewRequest(state.Binding, ranks));
+                Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, human.Outcome);
+                Assert.IsTrue(human.Value!.CanConfirm);
+                Assert.IsTrue(human.Value.CreationKarmaBudget.Used >= 0);
+
+                CharacterCreationFoundationResult<CharacterCreationPrerequisitePreview> oniResult =
+                    service.Preview(new CharacterCreationPrerequisitePreviewRequest(
+                        state.Binding,
+                        ranks)
+                    {
+                        HeritageSelectionId = oni.SelectionId,
+                        TalentSelectionId = "mundane"
+                    });
+                Assert.AreEqual(CharacterCreationFoundationOutcomes.Blocked, oniResult.Outcome);
+                CollectionAssert.Contains(
+                    oniResult.Blockers.ToList(),
+                    CharacterCreationPrerequisiteBlockers.HeritageSelectionUnsupported);
+                Assert.AreEqual(0m, oniResult.Value!.CreationKarmaBudget.Used);
+            });
+    }
+
+    [TestMethod]
+    public void Negative_heritage_cost_exception_fails_closed_for_enabled_base_and_unbound_tampering()
+    {
+        CharacterCreationPrerequisiteAuthority baseline =
+            CreateAuthority(CharacterCreationBuildMethods.Priority, ["A", "B", "C", "D", "E"]);
+        CharacterCreationPrerequisiteAuthority safe = AddNegativeOniProjection(baseline);
+
+        CharacterCreationPrerequisiteAuthority enabledNegativeMetavariant = MutateOni(
+            safe,
+            option => option with { IsEnabled = true, Blockers = [] });
+        CharacterCreationPrerequisiteAuthority disabledNegativeMetatype = MutateOni(
+            safe,
+            option => option with
+            {
+                Kind = CharacterCreationPriorityChildKinds.Metatype,
+                MetavariantSourceId = null,
+                MetavariantName = null
+            });
+        CharacterCreationPrerequisiteAuthority enabledNegativeMetatype = MutateHeritage(
+            baseline,
+            "human",
+            option => option with { KarmaCost = -4 });
+        CharacterCreationPrerequisiteAuthority sourceUnbound = MutateOni(
+            safe,
+            option => option with { SourceAnchorIds = [] });
+        CharacterCreationPrerequisiteAuthority digestUnbound = MutateOni(
+            safe,
+            option => option with { PriorityChildNodeDigest = string.Empty });
+        CharacterCreationPrerequisiteAuthority unsignedTamper = safe with
+        {
+            Options = safe.Options.Select(option =>
+                option.CategoryId == CharacterCreationPriorityCategoryIds.Heritage
+                && option.Rank == "C"
+                    ? option with
+                    {
+                        HeritageOptions = option.HeritageOptions.Select(child =>
+                            child.SelectionId == "oni-negative"
+                                ? child with { KarmaCost = -5 }
+                                : child).ToArray()
+                    }
+                    : option).ToArray()
+        };
+
+        foreach (CharacterCreationPrerequisiteAuthority hostile in new[]
+                 {
+                     enabledNegativeMetavariant,
+                     disabledNegativeMetatype,
+                     enabledNegativeMetatype,
+                     sourceUnbound,
+                     digestUnbound,
+                     unsignedTamper
+                 })
+        {
+            AssertAuthorityUnavailable(hostile);
+        }
+    }
+
+    [TestMethod]
     public void Priority_requires_the_profile_multiset_and_preserves_duplicate_rank_arrays()
     {
         CharacterCreationPrerequisiteAuthority authority = CreateAuthority(
@@ -1278,6 +1380,76 @@ public sealed class CharacterCreationPrerequisiteServiceTests
             AuthorityDigest = CharacterCreationPrerequisiteAuthorityDigest.Compute(authority)
         };
     }
+
+    private static CharacterCreationPrerequisiteAuthority AddNegativeOniProjection(
+        CharacterCreationPrerequisiteAuthority authority)
+    {
+        CharacterCreationPriorityHeritageOptionProjection oni = new(
+            "oni-negative",
+            CharacterCreationPriorityChildKinds.Metavariant,
+            "33333333-3333-3333-3333-333333333333",
+            "44444444-4444-4444-4444-444444444444",
+            "Ork",
+            "Oni",
+            0,
+            -4,
+            false,
+            HumanAttributes(),
+            Digest(70),
+            Digest(71),
+            IsEnabled: false,
+            Blockers: [CharacterCreationPrerequisiteBlockers.HeritageSelectionUnsupported],
+            SourceAnchorIds:
+            [
+                "priorities.xml#priority:heritage-c:oni",
+                "metatypes.xml#metatype:ork:metavariant:oni"
+            ]);
+        CharacterCreationPriorityOptionProjection[] options = authority.Options.Select(option =>
+            option.CategoryId == CharacterCreationPriorityCategoryIds.Heritage
+            && option.Rank == "C"
+                ? option with { HeritageOptions = option.HeritageOptions.Append(oni).ToArray() }
+                : option).ToArray();
+        return Resign(authority with { Options = options });
+    }
+
+    private static CharacterCreationPrerequisiteAuthority MutateOni(
+        CharacterCreationPrerequisiteAuthority authority,
+        Func<CharacterCreationPriorityHeritageOptionProjection,
+            CharacterCreationPriorityHeritageOptionProjection> mutation) =>
+        MutateHeritage(authority, "oni-negative", mutation);
+
+    private static CharacterCreationPrerequisiteAuthority MutateHeritage(
+        CharacterCreationPrerequisiteAuthority authority,
+        string selectionId,
+        Func<CharacterCreationPriorityHeritageOptionProjection,
+            CharacterCreationPriorityHeritageOptionProjection> mutation)
+    {
+        CharacterCreationPriorityOptionProjection[] options = authority.Options.Select(option =>
+            option.CategoryId == CharacterCreationPriorityCategoryIds.Heritage
+                ? option with
+                {
+                    HeritageOptions = option.HeritageOptions.Select(child =>
+                        child.SelectionId == selectionId ? mutation(child) : child).ToArray()
+                }
+                : option).ToArray();
+        return Resign(authority with { Options = options });
+    }
+
+    private static CharacterCreationPrerequisiteAuthority Resign(
+        CharacterCreationPrerequisiteAuthority authority)
+    {
+        authority = authority with { AuthorityDigest = string.Empty };
+        return authority with
+        {
+            AuthorityDigest = CharacterCreationPrerequisiteAuthorityDigest.Compute(authority)
+        };
+    }
+
+    private static CharacterCreationPriorityHeritageOptionProjection FindOni(
+        CharacterCreationPrerequisiteAuthority authority) => authority.Options.Single(option =>
+            option.CategoryId == CharacterCreationPriorityCategoryIds.Heritage
+            && option.Rank == "C").HeritageOptions.Single(option =>
+            option.SelectionId == "oni-negative");
 
     private static CharacterCreationTalentActiveSkillChoiceProjection ActiveSkill(
         string sourceId,

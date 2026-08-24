@@ -4,8 +4,11 @@ using System;
 using System.IO;
 using System.Xml.Linq;
 using Chummer.Application.Characters;
+using Chummer.Contracts.Rulesets;
 using Chummer.Contracts.Characters;
+using Chummer.Contracts.Workspaces;
 using Chummer.Infrastructure.Files;
+using Chummer.Infrastructure.Workspaces;
 using Chummer.Infrastructure.Xml;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -255,6 +258,21 @@ public sealed class FileSystemCharacterSourceDataResolverTests
         Assert.AreEqual(1, human.SpecialAttributePoints);
         Assert.IsFalse(human.HalvesNormalAttributePoints);
         Assert.HasCount(13, human.Attributes);
+        CharacterCreationPriorityHeritageOptionProjection oni = authority.Options.Single(option =>
+                option.CategoryId == CharacterCreationPriorityCategoryIds.Heritage
+                && option.Rank == "C")
+            .HeritageOptions.Single(option =>
+                option.MetatypeName == "Ork" && option.MetavariantName == "Oni");
+        Assert.AreEqual(CharacterCreationPriorityChildKinds.Metavariant, oni.Kind);
+        Assert.AreEqual(-4, oni.KarmaCost);
+        Assert.IsFalse(oni.IsEnabled);
+        CollectionAssert.Contains(
+            oni.Blockers.ToList(),
+            CharacterCreationPrerequisiteBlockers.HeritageSelectionUnsupported);
+        Assert.IsTrue(CharacterCreationPrerequisiteAuthorityDigest.IsCanonical(
+            oni.PriorityChildNodeDigest));
+        Assert.IsTrue(CharacterCreationPrerequisiteAuthorityDigest.IsCanonical(
+            oni.MetatypeSourceNodeDigest));
         CharacterCreationPriorityOptionProjection talentE = authority.Options.Single(option =>
             option.CategoryId == CharacterCreationPriorityCategoryIds.Talent
             && option.Rank == "E");
@@ -281,6 +299,115 @@ public sealed class FileSystemCharacterSourceDataResolverTests
             new[] { "B", "C", "D", "E", "E" },
             streetScum.PriorityArray.ToArray());
         Assert.HasCount(20, streetScum.Options);
+    }
+
+    [TestMethod]
+    public void Canonical_disabled_negative_oni_does_not_block_enabled_human_service_path()
+    {
+        string coreRoot = FindCoreRoot();
+        var overlays = new FileSystemContentOverlayCatalogService(coreRoot, coreRoot, null);
+        var resolver = new FileSystemCharacterSourceDataResolver(overlays);
+        string workspaceRoot = CreateTempDirectory();
+        try
+        {
+            var store = new FileWorkspaceStore(workspaceRoot);
+            var workspaceId = new CharacterWorkspaceId("canonical-priority-negative-oni");
+            string characterXml = $"""
+                                   <character>
+                                     <name>Canonical Priority Runner</name>
+                                     <alias>Human Path</alias>
+                                     <metatype>Human</metatype>
+                                     <buildmethod>Priority</buildmethod>
+                                     <createdversion>5.225.0</createdversion>
+                                     <appversion>5.225.0</appversion>
+                                     <karma>25</karma>
+                                     <nuyen>0</nuyen>
+                                     <created>false</created>
+                                     <settings>{SettingsId}</settings>
+                                   </character>
+                                   """;
+            Assert.IsTrue(store.CreateWorkspaceDocument(
+                workspaceId,
+                new WorkspaceDocument(characterXml, RulesetDefaults.Sr5)).Success);
+            var service = new CharacterCreationPrerequisiteService(
+                store,
+                new XmlCharacterFileQueries(new CharacterFileService()),
+                resolver);
+
+            CharacterCreationFoundationResult<CharacterCreationPrerequisiteState> loaded =
+                service.Load(new CharacterCreationPrerequisiteLoadRequest(workspaceId));
+
+            Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, loaded.Outcome);
+            CharacterCreationPrerequisiteState state = loaded.Value!;
+            Assert.IsNotNull(state);
+            Assert.HasCount(0, state.Blockers);
+            Assert.IsTrue(state.Authority.IsAuthoritative, string.Join(",", state.Authority.Blockers));
+            CollectionAssert.DoesNotContain(
+                state.Blockers.ToList(),
+                CharacterCreationPrerequisiteBlockers.AuthorityUnavailable);
+
+            CharacterCreationPriorityOptionProjection heritageC = state.Authority.Options.Single(option =>
+                option.CategoryId == CharacterCreationPriorityCategoryIds.Heritage
+                && option.Rank == "C");
+            CharacterCreationPriorityHeritageOptionProjection oni = heritageC.HeritageOptions.Single(option =>
+                option.MetatypeName == "Ork" && option.MetavariantName == "Oni");
+            CharacterCreationPriorityHeritageOptionProjection human = heritageC.HeritageOptions.Single(option =>
+                option.MetatypeName == "Human" && option.MetavariantName is null);
+            CharacterCreationPriorityTalentOptionProjection mundane = state.Authority.Options.Single(option =>
+                    option.CategoryId == CharacterCreationPriorityCategoryIds.Talent
+                    && option.Rank == "E")
+                .TalentOptions.Single(option => option.Value == "Mundane");
+            Assert.AreEqual(-4, oni.KarmaCost);
+            Assert.IsFalse(oni.IsEnabled);
+            CollectionAssert.Contains(
+                oni.Blockers.ToList(),
+                CharacterCreationPrerequisiteBlockers.HeritageSelectionUnsupported);
+            Assert.IsTrue(human.IsEnabled);
+            Assert.HasCount(0, human.Blockers);
+            Assert.IsTrue(mundane.IsEnabled);
+            Assert.HasCount(0, mundane.Blockers);
+
+            var assignments = new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                [CharacterCreationPriorityCategoryIds.Heritage] = "C",
+                [CharacterCreationPriorityCategoryIds.Talent] = "E",
+                [CharacterCreationPriorityCategoryIds.Attributes] = "A",
+                [CharacterCreationPriorityCategoryIds.Skills] = "B",
+                [CharacterCreationPriorityCategoryIds.Resources] = "D"
+            };
+            CharacterCreationFoundationResult<CharacterCreationPrerequisitePreview> humanResult =
+                service.Preview(new CharacterCreationPrerequisitePreviewRequest(
+                    state.Binding,
+                    assignments)
+                {
+                    HeritageSelectionId = human.SelectionId,
+                    TalentSelectionId = mundane.SelectionId
+                });
+            Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, humanResult.Outcome);
+            Assert.IsTrue(humanResult.Value!.CanConfirm, string.Join(",", humanResult.Blockers));
+            Assert.HasCount(0, humanResult.Value.Blockers);
+            Assert.AreEqual(human.KarmaCost, humanResult.Value.CreationKarmaBudget.Used);
+            Assert.IsTrue(humanResult.Value.CreationKarmaBudget.Used >= 0);
+
+            CharacterCreationFoundationResult<CharacterCreationPrerequisitePreview> oniResult =
+                service.Preview(new CharacterCreationPrerequisitePreviewRequest(
+                    state.Binding,
+                    assignments)
+                {
+                    HeritageSelectionId = oni.SelectionId,
+                    TalentSelectionId = mundane.SelectionId
+                });
+            Assert.AreEqual(CharacterCreationFoundationOutcomes.Blocked, oniResult.Outcome);
+            CollectionAssert.Contains(
+                oniResult.Blockers.ToList(),
+                CharacterCreationPrerequisiteBlockers.HeritageSelectionUnsupported);
+            Assert.IsFalse(oniResult.Value!.CanConfirm);
+            Assert.AreEqual(0m, oniResult.Value.CreationKarmaBudget.Used);
+        }
+        finally
+        {
+            DeleteTempDirectory(workspaceRoot);
+        }
     }
 
     [TestMethod]

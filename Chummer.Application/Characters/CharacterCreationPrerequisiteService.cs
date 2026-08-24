@@ -1085,7 +1085,10 @@ public sealed class CharacterCreationPrerequisiteService :
                && option.Kind is CharacterCreationPriorityChildKinds.Metatype
                    or CharacterCreationPriorityChildKinds.Metavariant
                && option.SpecialAttributePoints >= 0
-               && option.KarmaCost >= 0
+               && (option.KarmaCost >= 0
+                   || option.Kind == CharacterCreationPriorityChildKinds.Metavariant
+                   && !option.IsEnabled
+                   && option.Blockers is { Count: > 0 })
                && option.Attributes is not null
                && option.Blockers is not null
                && option.IsEnabled == (option.Blockers.Count == 0)
