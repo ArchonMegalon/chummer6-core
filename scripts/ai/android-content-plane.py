@@ -961,25 +961,7 @@ def _read_export_member(
     return b"".join(chunks)
 
 
-def _verify_export_snapshot_stable(snapshot: _ExportSnapshot) -> None:
-    if set(snapshot.file_fds) != set(snapshot.file_identities):
-        raise ContentPlaneError("not every artifact file was descriptor-verified")
-    for relative, initial in snapshot.file_identities.items():
-        descriptor = snapshot.file_fds[relative]
-        final = _StableIdentity.capture(os.fstat(descriptor))
-        _require_file_identity(final, f"artifact member {relative}", initial.size)
-        _require_same_identity(initial, final, f"artifact member {relative}")
-        path = PurePosixPath(relative)
-        parent_name = path.parent.as_posix()
-        if parent_name == ".":
-            parent_name = ""
-        entry_final = _entry_identity(
-            snapshot.directory_fds[parent_name],
-            path.name,
-            f"artifact member {relative}",
-        )
-        _require_same_identity(final, entry_final, f"artifact member {relative}")
-
+def _verify_export_directories_stable(snapshot: _ExportSnapshot) -> None:
     for relative in sorted(
         snapshot.directory_fds,
         key=lambda value: (len(PurePosixPath(value).parts), value),
@@ -1015,6 +997,116 @@ def _verify_export_snapshot_stable(snapshot: _ExportSnapshot) -> None:
             except OSError as error:
                 raise ContentPlaneError(f"export root cannot be re-inspected: {error}") from error
             _require_same_identity(final, entry_final, "export root")
+
+
+def _reread_export_member_exact(
+    descriptor: int,
+    relative: str,
+    initial: _StableIdentity,
+    expected_value: bytes,
+) -> None:
+    expected_size = len(expected_value)
+    before = _StableIdentity.capture(os.fstat(descriptor))
+    _require_file_identity(before, f"artifact member {relative}", expected_size)
+    try:
+        if os.lseek(descriptor, 0, os.SEEK_SET) != 0:
+            raise ContentPlaneError(f"artifact member cannot be rewound exactly: {relative}")
+        digest = hashlib.sha256()
+        remaining = expected_size
+        while remaining:
+            chunk = os.read(descriptor, min(1024 * 1024, remaining))
+            if not chunk:
+                raise ContentPlaneError(f"artifact member ended early on final read: {relative}")
+            digest.update(chunk)
+            remaining -= len(chunk)
+        if os.read(descriptor, 1):
+            raise ContentPlaneError(f"artifact member exceeds its exact size on final read: {relative}")
+        after = _StableIdentity.capture(os.fstat(descriptor))
+    except OSError as error:
+        raise ContentPlaneError(f"artifact member cannot be reread: {relative}: {error}") from error
+    _require_file_identity(after, f"artifact member {relative}", expected_size)
+    _require_same_identity(before, after, f"artifact member {relative}")
+    if digest.hexdigest() != _sha256(expected_value):
+        raise ContentPlaneError(f"artifact member digest differs on final read: {relative}")
+    _require_same_identity(initial, after, f"artifact member {relative}")
+
+
+def _resweep_export_identities(snapshot: _ExportSnapshot) -> None:
+    for relative in sorted(
+        snapshot.directory_fds,
+        key=lambda value: (len(PurePosixPath(value).parts), value),
+        reverse=True,
+    ):
+        descriptor = snapshot.directory_fds[relative]
+        initial = snapshot.directory_identities[relative]
+        final = _StableIdentity.capture(os.fstat(descriptor))
+        _require_directory_identity(final, f"artifact directory {relative or '.'}")
+        _require_same_identity(initial, final, f"artifact directory {relative or '.'}")
+        membership = _directory_membership(
+            descriptor,
+            f"artifact directory {relative or '.'}",
+        )
+        if membership != snapshot.directory_memberships[relative]:
+            raise ContentPlaneError(
+                f"artifact directory {relative or '.'} membership changed during final resweep"
+            )
+        if relative:
+            path = PurePosixPath(relative)
+            parent_name = path.parent.as_posix()
+            if parent_name == ".":
+                parent_name = ""
+            entry_final = _entry_identity(
+                snapshot.directory_fds[parent_name],
+                path.name,
+                f"artifact directory {relative}",
+            )
+            _require_same_identity(final, entry_final, f"artifact directory {relative}")
+        else:
+            try:
+                entry_final = _StableIdentity.capture(snapshot.root_path.lstat())
+            except OSError as error:
+                raise ContentPlaneError(f"export root cannot be re-inspected: {error}") from error
+            _require_same_identity(final, entry_final, "export root")
+
+    for relative, initial in snapshot.file_identities.items():
+        descriptor = snapshot.file_fds[relative]
+        final = _StableIdentity.capture(os.fstat(descriptor))
+        _require_file_identity(final, f"artifact member {relative}", initial.size)
+        _require_same_identity(initial, final, f"artifact member {relative}")
+        path = PurePosixPath(relative)
+        parent_name = path.parent.as_posix()
+        if parent_name == ".":
+            parent_name = ""
+        entry_final = _entry_identity(
+            snapshot.directory_fds[parent_name],
+            path.name,
+            f"artifact member {relative}",
+        )
+        _require_same_identity(final, entry_final, f"artifact member {relative}")
+
+
+def _verify_export_snapshot_stable(
+    snapshot: _ExportSnapshot,
+    expected: dict[str, bytes],
+) -> None:
+    if set(snapshot.file_fds) != set(snapshot.file_identities) or set(expected) != set(
+        snapshot.file_identities
+    ):
+        raise ContentPlaneError("not every artifact file was descriptor-verified")
+
+    # Membership and directory metadata must settle before the terminal byte pass.
+    _verify_export_directories_stable(snapshot)
+    for relative, expected_value in expected.items():
+        _reread_export_member_exact(
+            snapshot.file_fds[relative],
+            relative,
+            snapshot.file_identities[relative],
+            expected_value,
+        )
+
+    # This is deliberately the final filesystem-dependent operation. It catches
+    # byte, mode, link, or entry changes that race the terminal digest pass.
+    _resweep_export_identities(snapshot)
 
 
 def verify_export(
@@ -1080,7 +1172,7 @@ def verify_export(
         expected_seal = f"{_sha256(receipt_value)}  producer-receipt.json\n".encode("ascii")
         if seal_value != expected_seal:
             raise ContentPlaneError("content receipt seal differs")
-        _verify_export_snapshot_stable(snapshot)
+        _verify_export_snapshot_stable(snapshot, expected)
         return receipt
     finally:
         snapshot.close()

@@ -243,6 +243,152 @@ class AndroidContentPlaneTests(unittest.TestCase):
                     with self.assertRaises(plane.ContentPlaneError):
                         plane.verify_export(self.authority, export, "17", "2")
 
+    def verify_with_directory_sweep_mutation(
+        self,
+        export: Path,
+        mutation,
+        expected_error: str | None = None,
+    ) -> None:
+        original_sweep = plane._verify_export_directories_stable
+        state = {"mutated": False}
+
+        def sweep_with_mutation(snapshot) -> None:
+            original_membership = plane._directory_membership
+
+            def membership_then_mutate(descriptor: int, label: str):
+                membership = original_membership(descriptor, label)
+                if not state["mutated"]:
+                    mutation(snapshot.root_path)
+                    state["mutated"] = True
+                return membership
+
+            with mock.patch.object(
+                plane,
+                "_directory_membership",
+                side_effect=membership_then_mutate,
+            ):
+                original_sweep(snapshot)
+
+        context = (
+            self.assertRaisesRegex(plane.ContentPlaneError, expected_error)
+            if expected_error is not None
+            else self.assertRaises(plane.ContentPlaneError)
+        )
+        with mock.patch.object(
+            plane,
+            "_verify_export_directories_stable",
+            side_effect=sweep_with_mutation,
+        ):
+            with context:
+                plane.verify_export(self.authority, export, "19", "3")
+        self.assertTrue(state["mutated"])
+
+    def test_terminal_reread_rejects_same_size_mutation_during_directory_sweep(self) -> None:
+        with self.temporary_directory() as temporary:
+            export = Path(temporary) / "artifact"
+            plane.export_artifact(self.authority, export, "19", "3")
+
+            def same_size_in_place(root: Path) -> None:
+                target = root / "content/data/actions.xml"
+                with target.open("r+b", buffering=0) as stream:
+                    first = stream.read(1)
+                    stream.seek(0)
+                    stream.write(bytes((first[0] ^ 1,)))
+                    os.fsync(stream.fileno())
+
+            self.verify_with_directory_sweep_mutation(
+                export,
+                same_size_in_place,
+                "digest differs on final read",
+            )
+
+    def test_terminal_reread_and_identity_resweep_reject_related_directory_sweep_races(
+        self,
+    ) -> None:
+        def grow(root: Path) -> None:
+            target = root / "content/data/actions.xml"
+            with target.open("ab", buffering=0) as stream:
+                stream.write(b"hostile")
+                os.fsync(stream.fileno())
+
+        def mutate_restore_bytes_and_mtime(root: Path) -> None:
+            target = root / "content/data/actions.xml"
+            metadata = target.stat()
+            value = target.read_bytes()
+            with target.open("r+b", buffering=0) as stream:
+                stream.write(bytes((value[0] ^ 1,)) + value[1:])
+                stream.seek(0)
+                stream.write(value)
+                os.fsync(stream.fileno())
+            os.utime(
+                target,
+                ns=(metadata.st_atime_ns, metadata.st_mtime_ns),
+                follow_symlinks=False,
+            )
+
+        def weaken_mode(root: Path) -> None:
+            (root / "content/data/actions.xml").chmod(0o666)
+
+        def replace_same_name_and_bytes(root: Path) -> None:
+            target = root / "content/data/actions.xml"
+            value = target.read_bytes()
+            target.unlink()
+            target.write_bytes(value)
+            target.chmod(0o644)
+
+        mutations = {
+            "file-growth": grow,
+            "restored-bytes-and-mtime": mutate_restore_bytes_and_mtime,
+            "file-mode": weaken_mode,
+            "same-name-entry-replacement": replace_same_name_and_bytes,
+        }
+        for label, mutation in mutations.items():
+            with self.subTest(mutation=label), self.temporary_directory() as temporary:
+                export = Path(temporary) / "artifact"
+                plane.export_artifact(self.authority, export, "19", "3")
+                self.verify_with_directory_sweep_mutation(export, mutation)
+
+    def test_identity_resweep_rejects_mutation_after_the_terminal_digest_pass(self) -> None:
+        with self.temporary_directory() as temporary:
+            export = Path(temporary) / "artifact"
+            plane.export_artifact(self.authority, export, "29", "1")
+            original_resweep = plane._resweep_export_identities
+            state = {"mutated": False}
+
+            def resweep_with_mutation(snapshot) -> None:
+                original_membership = plane._directory_membership
+
+                def membership_then_mutate(descriptor: int, label: str):
+                    membership = original_membership(descriptor, label)
+                    if not state["mutated"]:
+                        target = snapshot.root_path / "content/lang/fr-fr_data.xml"
+                        with target.open("r+b", buffering=0) as stream:
+                            first = stream.read(1)
+                            stream.seek(0)
+                            stream.write(bytes((first[0] ^ 1,)))
+                            os.fsync(stream.fileno())
+                        state["mutated"] = True
+                    return membership
+
+                with mock.patch.object(
+                    plane,
+                    "_directory_membership",
+                    side_effect=membership_then_mutate,
+                ):
+                    original_resweep(snapshot)
+
+            with mock.patch.object(
+                plane,
+                "_resweep_export_identities",
+                side_effect=resweep_with_mutation,
+            ):
+                with self.assertRaisesRegex(
+                    plane.ContentPlaneError,
+                    "identity changed during verification",
+                ):
+                    plane.verify_export(self.authority, export, "29", "1")
+            self.assertTrue(state["mutated"])
+
     def test_receipt_is_source_producer_inventory_run_and_layout_bound(self) -> None:
         members, inventory, receipt = plane.build_artifact_members(self.authority, "23", "4")
         self.assertEqual(115, len(members))
