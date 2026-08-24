@@ -21,6 +21,7 @@
     <Compile Include="..\Chummer.Tests\FileSystemCharacterSourceDataResolverTests.cs" Link="FileSystemCharacterSourceDataResolverTests.cs" />
     <Compile Include="..\Chummer.Tests\WorkspaceAtomicCheckpointStoreTests.cs" Link="WorkspaceAtomicCheckpointStoreTests.cs" />
     <Compile Include="..\Chummer.Tests\WorkspaceAuxiliaryStateStoreTests.cs" Link="WorkspaceAuxiliaryStateStoreTests.cs" />
+    <Compile Include="..\Chummer.Tests\CharacterCareerCalendarRulesTests.cs" Link="CharacterCareerCalendarRulesTests.cs" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\Chummer.Application\Chummer.Application.csproj" />

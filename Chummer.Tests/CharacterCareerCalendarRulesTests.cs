@@ -11,6 +11,8 @@ public sealed class CharacterCareerCalendarRulesTests
         new(Guid.Parse("11111111-1111-1111-1111-111111111111"));
     private static readonly CharacterCareerCalendarWeekIdentity SecondIdentity =
         new(Guid.Parse("22222222-2222-2222-2222-222222222222"));
+    private static readonly CharacterCareerCalendarWeekIdentity ThirdIdentity =
+        new(Guid.Parse("33333333-3333-3333-3333-333333333333"));
     private static readonly CharacterCareerCalendarSourceAuthority Authority =
         CharacterCareerCalendarRules.PinnedSourceAuthority;
 
@@ -20,9 +22,9 @@ public sealed class CharacterCareerCalendarRulesTests
         Assert.AreEqual(
             "fe4355d06c98cd9b7feade89f5fc1a0e438f7ce3",
             Authority.Revision);
-        Assert.HasCount(4, Authority.SourceFiles);
+        Assert.HasCount(6, Authority.SourceFiles);
         Assert.HasCount(4, Authority.Handlers);
-        Assert.HasCount(10, Authority.Callees);
+        Assert.HasCount(14, Authority.Callees);
         CollectionAssert.AreEqual(
             new[]
             {
@@ -38,6 +40,21 @@ public sealed class CharacterCareerCalendarRulesTests
         CollectionAssert.Contains(
             Authority.Callees.Select(static slice => slice.Name).ToArray(),
             "IntegerExtensions.IsYearLongYear");
+        CollectionAssert.Contains(
+            Authority.SourceFiles.Select(static source => source.Path).ToArray(),
+            "Chummer/Forms/Selection Forms/SelectCalendarStart.Designer.cs");
+        CollectionAssert.Contains(
+            Authority.SourceFiles.Select(static source => source.Path).ToArray(),
+            "Chummer/Backend/Static/Extensions/StringExtensions.cs");
+        CollectionAssert.Contains(
+            Authority.Callees.Select(static slice => slice.Name).ToArray(),
+            "SelectCalendarStart.Designer.yearAndWeekBounds");
+        CollectionAssert.Contains(
+            Authority.Callees.Select(static slice => slice.Name).ToArray(),
+            "StringExtensions.CleanOfXmlInvalidUnicodeChars");
+        CollectionAssert.Contains(
+            Authority.Callees.Select(static slice => slice.Name).ToArray(),
+            "StringExtensions.XmlInvalidUnicodeCharacterSet");
         Assert.IsTrue(CharacterCareerCalendarRules.IsExactSourceAuthority(Authority));
         AssertRevision(CharacterCareerCalendarRules.PinnedSourceAuthorityDigest);
         Assert.AreEqual(
@@ -60,7 +77,7 @@ public sealed class CharacterCareerCalendarRulesTests
     }
 
     [TestMethod]
-    public void Prior_public_surface_remains_compatible_but_is_now_full_source_bound()
+    public void Prior_loader_surface_remains_source_compatible_and_full_source_bound()
     {
         string source = Source(FirstIdentity, 2081, 12);
         Assert.IsTrue(CharacterCareerCalendarRules.TryCreateState(
@@ -81,15 +98,6 @@ public sealed class CharacterCareerCalendarRulesTests
         AssertRevision(logicalRevision);
         AssertRevision(sourceRevision);
 
-        Assert.IsTrue(CharacterCareerCalendarRules.TryPlanAdd(
-            [state], SecondIdentity, 2000, 1, out CharacterCareerCalendarWeekDraft add));
-        Assert.AreEqual(2081, add.Year);
-        Assert.AreEqual(13, add.Week);
-        Assert.IsTrue(CharacterCareerCalendarRules.TryEdit(
-            state, state.SourceRevision, "edited", "Red", out _));
-        Assert.IsTrue(CharacterCareerCalendarRules.CanDelete(
-            state, FirstIdentity, state.SourceRevision, confirmed: true));
-
         Assert.IsFalse(CharacterCareerCalendarRules.TryCreateState(
             FirstIdentity,
             created: true,
@@ -100,6 +108,37 @@ public sealed class CharacterCareerCalendarRulesTests
             source,
             out CharacterCareerCalendarWeekState rejected));
         Assert.AreEqual(Guid.Empty, rejected.Identity.WeekId);
+    }
+
+    [TestMethod]
+    public void Every_legacy_ungated_mutator_and_planner_signature_fails_closed()
+    {
+        CharacterCareerCalendarState calendar = Calendar(Source(FirstIdentity, 2081, 12));
+        CharacterCareerCalendarWeekState state = calendar.Weeks[0];
+
+        Assert.IsFalse(CharacterCareerCalendarRules.TryPlanAdd(
+            [state], SecondIdentity, 2000, 1, out CharacterCareerCalendarWeekDraft add));
+        Assert.AreEqual(Guid.Empty, add.Identity.WeekId);
+        Assert.AreEqual(string.Empty, add.SourceElement);
+
+        Assert.IsFalse(CharacterCareerCalendarRules.TryPlanAdd(
+            null!, SecondIdentity, 2000, 1, out add));
+        Assert.AreEqual(Guid.Empty, add.Identity.WeekId);
+
+        Assert.IsFalse(CharacterCareerCalendarRules.TryEdit(
+            state, state.SourceRevision, "edited", "Red", out CharacterCareerCalendarWeekDraft edit));
+        Assert.AreEqual(Guid.Empty, edit.Identity.WeekId);
+        Assert.AreEqual(string.Empty, edit.SourceElement);
+        Assert.IsFalse(CharacterCareerCalendarRules.TryEdit(
+            null, state.SourceRevision, "edited", "Red", out edit));
+        Assert.AreEqual(Guid.Empty, edit.Identity.WeekId);
+
+        Assert.IsFalse(CharacterCareerCalendarRules.CanDelete(
+            state, FirstIdentity, state.SourceRevision, confirmed: true));
+        Assert.IsFalse(CharacterCareerCalendarRules.CanDelete(
+            state, FirstIdentity, state.SourceRevision, confirmed: false));
+        Assert.IsFalse(CharacterCareerCalendarRules.CanDelete(
+            null, FirstIdentity, state.SourceRevision, confirmed: true));
     }
 
     [TestMethod]
@@ -169,7 +208,7 @@ public sealed class CharacterCareerCalendarRulesTests
     }
 
     [TestMethod]
-    public void Empty_or_duplicate_identity_and_duplicate_iso_coordinate_fail_closed()
+    public void Empty_or_duplicate_identity_and_duplicate_calendar_coordinate_fail_closed()
     {
         Assert.IsFalse(CharacterCareerCalendarRules.TryCreateState(
             true,
@@ -196,10 +235,17 @@ public sealed class CharacterCareerCalendarRulesTests
         Assert.IsTrue(CharacterCareerCalendarRules.IsSupportedIsoWeek(2000, 1));
         Assert.IsTrue(CharacterCareerCalendarRules.IsSupportedIsoWeek(9000, 1));
         Assert.IsFalse(CharacterCareerCalendarRules.IsSupportedIsoWeek(9001, 1));
-        Assert.IsFalse(CharacterCareerCalendarRules.IsSupportedIsoWeek(2081, 0));
-        Assert.IsFalse(CharacterCareerCalendarRules.IsSupportedIsoWeek(2081, 54));
         Assert.IsFalse(CharacterCareerCalendarRules.IsSupportedIsoWeek(2025, 53));
         Assert.IsTrue(CharacterCareerCalendarRules.IsSupportedIsoWeek(2026, 53));
+        Assert.IsFalse(CharacterCareerCalendarRules.IsSupportedCalendarCoordinate(1999, 1));
+        Assert.IsTrue(CharacterCareerCalendarRules.IsSupportedCalendarCoordinate(2000, 1));
+        Assert.IsTrue(CharacterCareerCalendarRules.IsSupportedCalendarCoordinate(9000, 1));
+        Assert.IsFalse(CharacterCareerCalendarRules.IsSupportedCalendarCoordinate(9001, 1));
+        Assert.IsFalse(CharacterCareerCalendarRules.IsSupportedCalendarCoordinate(2081, 0));
+        Assert.IsFalse(CharacterCareerCalendarRules.IsSupportedCalendarCoordinate(2081, 54));
+        Assert.IsFalse(CharacterCareerCalendarRules.IsSupportedCalendarCoordinate(2020, 53));
+        Assert.IsFalse(CharacterCareerCalendarRules.IsSupportedCalendarCoordinate(2025, 53));
+        Assert.IsTrue(CharacterCareerCalendarRules.IsSupportedCalendarCoordinate(2026, 53));
 
         Assert.IsTrue(CharacterCareerCalendarRules.TryGetWeeksInYear(
             true, Authority, 2000, out int boundaryWeeks));
@@ -216,9 +262,35 @@ public sealed class CharacterCareerCalendarRulesTests
     }
 
     [TestMethod]
+    public void Every_supported_year_matches_the_pinned_Chummer5_long_year_algorithm()
+    {
+        for (int year = CharacterCareerCalendarRules.MinimumYear;
+             year <= CharacterCareerCalendarRules.MaximumYear;
+             year++)
+        {
+            int expectedWeeks = PinnedChummer5LongYear(year) ? 53 : 52;
+            Assert.IsTrue(CharacterCareerCalendarRules.TryGetWeeksInYear(
+                true,
+                Authority,
+                year,
+                out int actualWeeks));
+            Assert.AreEqual(expectedWeeks, actualWeeks, $"Chummer5 year {year}");
+            Assert.AreEqual(
+                expectedWeeks == 53,
+                CharacterCareerCalendarRules.IsSupportedCalendarCoordinate(year, 53),
+                $"Chummer5 year {year}, week 53");
+        }
+    }
+
+    [TestMethod]
     public void Rollover_is_exact_across_short_long_and_maximum_year_boundaries()
     {
-        Assert.IsTrue(CharacterCareerCalendarRules.TryNextWeek(2025, 52, out int year, out int week));
+        Assert.IsTrue(CharacterCareerCalendarRules.TryNextWeek(2020, 52, out int year, out int week));
+        Assert.AreEqual(2021, year);
+        Assert.AreEqual(1, week);
+        Assert.IsFalse(CharacterCareerCalendarRules.TryNextWeek(2020, 53, out _, out _));
+
+        Assert.IsTrue(CharacterCareerCalendarRules.TryNextWeek(2025, 52, out year, out week));
         Assert.AreEqual(2026, year);
         Assert.AreEqual(1, week);
 
@@ -307,7 +379,7 @@ public sealed class CharacterCareerCalendarRulesTests
         Assert.AreEqual(2026, first.Year);
         Assert.AreEqual(53, first.Week);
         Assert.AreEqual(CharacterCareerCalendarRules.DefaultNotesColor, first.NotesColor);
-        Assert.AreEqual(string.Empty, first.ExpectedSourceRevision);
+        Assert.IsEmpty(first.ExpectedSourceRevision);
         AssertRevision(first.SourceRevision);
         Assert.IsTrue(CharacterCareerCalendarRules.TryCreateState(
             true, Authority, first.SourceElement, out CharacterCareerCalendarWeekState loaded));
@@ -382,8 +454,8 @@ public sealed class CharacterCareerCalendarRulesTests
         Assert.AreEqual(selected.Week, edit.Week);
         Assert.AreEqual("Downtime <complete>", edit.Notes);
         Assert.AreEqual("#A52A2A", edit.NotesColor);
-        Assert.AreEqual(selected.LogicalRevision, edit.ExpectedLogicalRevision);
-        Assert.AreEqual(selected.SourceRevision, edit.ExpectedSourceRevision);
+        Assert.AreEqual(edit.ExpectedLogicalRevision, selected.LogicalRevision);
+        Assert.AreEqual(edit.ExpectedSourceRevision, selected.SourceRevision);
         Assert.AreNotEqual(selected.SourceRevision, edit.SourceRevision);
         Assert.IsTrue(CharacterCareerCalendarRules.TryCreateState(
             true, Authority, edit.SourceElement, out CharacterCareerCalendarWeekState replacement));
@@ -402,6 +474,161 @@ public sealed class CharacterCareerCalendarRulesTests
             "forged",
             "NotAColor",
             out _));
+    }
+
+    [TestMethod]
+    public void Add_and_edit_reentry_rebuilds_authority_and_rejects_every_old_revision()
+    {
+        CharacterCareerCalendarState empty = Calendar();
+        Assert.IsTrue(CharacterCareerCalendarRules.TryPlanAdd(
+            empty,
+            Authority,
+            empty.Revision,
+            FirstIdentity,
+            2081,
+            12,
+            out CharacterCareerCalendarWeekDraft add));
+        CharacterCareerCalendarState added = Calendar(add.SourceElement);
+        CharacterCareerCalendarWeekState addedWeek = added.Weeks.Single();
+        Assert.AreNotEqual(empty.Revision, added.Revision);
+        Assert.AreEqual(add.SourceRevision, addedWeek.SourceRevision);
+
+        Assert.IsFalse(CharacterCareerCalendarRules.TryPlanAdd(
+            added,
+            Authority,
+            empty.Revision,
+            SecondIdentity,
+            2000,
+            1,
+            out _),
+            "The calendar revision captured before Add must not authorize reentry.");
+        Assert.IsFalse(CharacterCareerCalendarRules.TryPlanAdd(
+            added,
+            Authority,
+            added.Revision,
+            FirstIdentity,
+            2000,
+            1,
+            out _),
+            "Replaying the already-added identity must fail even with the rebuilt revision.");
+
+        Assert.IsTrue(CharacterCareerCalendarRules.TryPlanEdit(
+            added,
+            Authority,
+            added.Revision,
+            addedWeek.Identity,
+            addedWeek.LogicalRevision,
+            addedWeek.SourceRevision,
+            "After the run",
+            "Chocolate",
+            out CharacterCareerCalendarWeekDraft edit));
+        CharacterCareerCalendarState edited = Calendar(edit.SourceElement);
+        CharacterCareerCalendarWeekState editedWeek = edited.Weeks.Single();
+        Assert.AreNotEqual(added.Revision, edited.Revision);
+        Assert.AreNotEqual(addedWeek.LogicalRevision, editedWeek.LogicalRevision);
+        Assert.AreNotEqual(addedWeek.SourceRevision, editedWeek.SourceRevision);
+        Assert.AreEqual(edit.SourceRevision, editedWeek.SourceRevision);
+
+        AssertEditRejected(
+            edited,
+            editedWeek,
+            added.Revision,
+            editedWeek.LogicalRevision,
+            editedWeek.SourceRevision);
+        AssertEditRejected(
+            edited,
+            editedWeek,
+            edited.Revision,
+            addedWeek.LogicalRevision,
+            editedWeek.SourceRevision);
+        AssertEditRejected(
+            edited,
+            editedWeek,
+            edited.Revision,
+            editedWeek.LogicalRevision,
+            addedWeek.SourceRevision);
+        Assert.IsFalse(CharacterCareerCalendarRules.TryPlanEdit(
+            edited,
+            Authority,
+            added.Revision,
+            addedWeek.Identity,
+            addedWeek.LogicalRevision,
+            addedWeek.SourceRevision,
+            edit.Notes,
+            edit.NotesColor,
+            out _),
+            "Replaying the edit draft with its captured pre-edit authorities must fail.");
+
+        Assert.IsTrue(CharacterCareerCalendarRules.TryPlanAdd(
+            edited,
+            Authority,
+            edited.Revision,
+            ThirdIdentity,
+            2000,
+            1,
+            out _),
+            "The rebuilt calendar remains usable with its current authority.");
+    }
+
+    [TestMethod]
+    public void Edit_cleans_exact_Chummer5_invalid_character_set_before_source_persistence()
+    {
+        CharacterCareerCalendarState current = Calendar(Source(FirstIdentity, 2081, 12));
+        CharacterCareerCalendarWeekState selected = current.Weeks[0];
+        string invalid = new(
+        [
+            '\u0000', '\u0001', '\u0002', '\u0003', '\u0004', '\u0005', '\u0006', '\u0007',
+            '\u0008', '\u000B', '\u000C', '\u000E', '\u000F', '\u0010', '\u0011', '\u0012',
+            '\u0013', '\u0014', '\u0015', '\u0016', '\u0017', '\u0018', '\u0019', '\u001A',
+            '\u001B', '\u001C', '\u001D', '\u001E', '\u001F'
+        ]);
+        string notes = "before" + invalid + "\t\n\r🚀after";
+
+        Assert.IsTrue(CharacterCareerCalendarRules.TryPlanEdit(
+            current,
+            Authority,
+            current.Revision,
+            selected.Identity,
+            selected.LogicalRevision,
+            selected.SourceRevision,
+            notes,
+            "Chocolate",
+            out CharacterCareerCalendarWeekDraft draft));
+
+        Assert.AreEqual("before\t\n\r🚀after", draft.Notes);
+        Assert.IsFalse(draft.Notes.Any(invalid.Contains));
+        Assert.IsTrue(CharacterCareerCalendarRules.TryCreateState(
+            true,
+            Authority,
+            draft.SourceElement,
+            out CharacterCareerCalendarWeekState persisted));
+        Assert.AreEqual(draft.Notes, persisted.Notes);
+        Assert.AreEqual(draft.SourceRevision, persisted.SourceRevision);
+    }
+
+    [TestMethod]
+    public void Edit_rejects_unpaired_surrogates_and_unsanitized_noncharacters_without_a_draft()
+    {
+        CharacterCareerCalendarState current = Calendar(Source(FirstIdentity, 2081, 12));
+        CharacterCareerCalendarWeekState selected = current.Weeks[0];
+        string[] invalid = ["\uD800", "\uDC00", "before\uD800after", "\uFFFE", "\uFFFF"];
+
+        foreach (string notes in invalid)
+        {
+            Assert.IsFalse(CharacterCareerCalendarRules.TryPlanEdit(
+                current,
+                Authority,
+                current.Revision,
+                selected.Identity,
+                selected.LogicalRevision,
+                selected.SourceRevision,
+                notes,
+                "Chocolate",
+                out CharacterCareerCalendarWeekDraft draft),
+                Convert.ToHexString(System.Text.Encoding.Unicode.GetBytes(notes)));
+            Assert.AreEqual(Guid.Empty, draft.Identity.WeekId);
+            Assert.AreEqual(string.Empty, draft.SourceElement);
+        }
     }
 
     [TestMethod]
@@ -457,7 +684,7 @@ public sealed class CharacterCareerCalendarRulesTests
             3,
             out CharacterCareerCalendarChangeStartPlan plan));
         Assert.IsFalse(plan.HasDurableMutation);
-        Assert.AreEqual(current.Revision, plan.ExpectedCalendarRevision);
+        Assert.AreEqual(plan.ExpectedCalendarRevision, current.Revision);
         Assert.AreEqual(current.Revision, plan.ResultCalendarRevision);
         Assert.AreEqual(2082, plan.RequestedStart.Year);
         Assert.AreEqual(3, plan.RequestedStart.Week);
@@ -612,5 +839,15 @@ public sealed class CharacterCareerCalendarRulesTests
         Assert.HasCount(64, value);
         Assert.IsTrue(value.All(static character =>
             character is >= '0' and <= '9' or >= 'a' and <= 'f'));
+    }
+
+    private static bool PinnedChummer5LongYear(int year)
+    {
+        int yearDiv4 = Math.DivRem(year, 4, out int yearMod4);
+        int yearDiv100 = Math.DivRem(year, 100, out int yearMod100);
+        int yearDiv400 = Math.DivRem(year, 400, out int yearMod400);
+        bool leapYear = yearMod4 == 0 && (yearMod100 != 0 || yearMod400 == 0);
+        int dayOfWeekOfDecember31 = (year + yearDiv4 - yearDiv100 + yearDiv400) % 7;
+        return dayOfWeekOfDecember31 == (leapYear ? 5 : 4);
     }
 }

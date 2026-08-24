@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Collections.ObjectModel;
 using System.Drawing;
 using System.Globalization;
@@ -167,6 +168,17 @@ public static class CharacterCareerCalendarRules
     public const string DefaultNotesColor = "Chocolate";
     public const string PinnedChummer5Revision = "fe4355d06c98cd9b7feade89f5fc1a0e438f7ce3";
 
+    private static readonly char[] XmlInvalidUnicodeCharacters =
+    [
+        '\u0000', '\u0001', '\u0002', '\u0003', '\u0004', '\u0005', '\u0006', '\u0007',
+        '\u0008', '\u000B', '\u000C', '\u000E', '\u000F', '\u0010', '\u0011', '\u0012',
+        '\u0013', '\u0014', '\u0015', '\u0016', '\u0017', '\u0018', '\u0019', '\u001A',
+        '\u001B', '\u001C', '\u001D', '\u001E', '\u001F'
+    ];
+
+    private static readonly SearchValues<char> XmlInvalidUnicodeCharacterSearch =
+        SearchValues.Create(XmlInvalidUnicodeCharacters);
+
     private static readonly ReadOnlyCollection<CharacterCareerCalendarSourceFile> PinnedSourceFiles =
         Array.AsReadOnly<CharacterCareerCalendarSourceFile>(
         [
@@ -177,11 +189,17 @@ public static class CharacterCareerCalendarRules
                 "Chummer/Forms/Selection Forms/SelectCalendarStart.cs",
                 "9b34a19f5549fd6233e94814e41d93aaf80e58d9575d23bebc707d89ff8eeb59"),
             new(
+                "Chummer/Forms/Selection Forms/SelectCalendarStart.Designer.cs",
+                "d05035d3f2d8df035f21fa0b61c71d88c936dee5faebc6a3fea77aad03c5970a"),
+            new(
                 "Chummer/Backend/Uniques/CalendarWeek.cs",
                 "151aa754683428f30fc1c781867b29837fbf07c8510b53ec4702fab7916eed1c"),
             new(
                 "Chummer/Backend/Static/Extensions/IntegerExtensions.cs",
-                "8f93cac323ff86ae873839ea90001b744238435e59703c4d7e7a4a0a8ea6e710")
+                "8f93cac323ff86ae873839ea90001b744238435e59703c4d7e7a4a0a8ea6e710"),
+            new(
+                "Chummer/Backend/Static/Extensions/StringExtensions.cs",
+                "944331be2752a4f207574041af810f274ce09e2892a75798268480776481cffc")
         ]);
 
     private static readonly ReadOnlyCollection<CharacterCareerCalendarSourceSlice> PinnedHandlers =
@@ -235,6 +253,12 @@ public static class CharacterCareerCalendarRules
                 120,
                 "672f2499cfda9e32bb8d0a8c8f1763db23095b10915f18736a986cc009ff6f7b"),
             new(
+                "SelectCalendarStart.Designer.yearAndWeekBounds",
+                "Chummer/Forms/Selection Forms/SelectCalendarStart.Designer.cs",
+                60,
+                118,
+                "8e17780f00e1e31b41bcbd08774eaacc1bd8041135490752f819d4b819399400"),
+            new(
                 "CalendarWeek.construction",
                 "Chummer/Backend/Uniques/CalendarWeek.cs",
                 246,
@@ -275,7 +299,25 @@ public static class CharacterCareerCalendarRules
                 "Chummer/Backend/Static/Extensions/IntegerExtensions.cs",
                 52,
                 73,
-                "592cad88a5bd6978ec904d58730b731711eaeeb9dc378c45cc7d6efc01bb94e0")
+                "592cad88a5bd6978ec904d58730b731711eaeeb9dc378c45cc7d6efc01bb94e0"),
+            new(
+                "StringExtensions.FastEscape.charArray",
+                "Chummer/Backend/Static/Extensions/StringExtensions.cs",
+                2521,
+                2594,
+                "17e8ebf81055a09ffad621dd47f3c0b10e6badb773ee15b7de9e1a3fed12dc3a"),
+            new(
+                "StringExtensions.CleanOfXmlInvalidUnicodeChars",
+                "Chummer/Backend/Static/Extensions/StringExtensions.cs",
+                5251,
+                5259,
+                "9537904e2c884f68171f85cb92aeeec908b26d69cf281397b8c011fa0c2d9b72"),
+            new(
+                "StringExtensions.XmlInvalidUnicodeCharacterSet",
+                "Chummer/Backend/Static/Extensions/StringExtensions.cs",
+                5702,
+                5733,
+                "235dc577b1deedae95d4fb62faa4a6b2970d101a14b3b467917208ca24645f22")
         ]);
 
     public static CharacterCareerCalendarSourceAuthority PinnedSourceAuthority { get; } =
@@ -424,7 +466,7 @@ public static class CharacterCareerCalendarRules
         int week;
         if (current.Weeks.Count == 0)
         {
-            if (!IsSupportedIsoWeek(requestedFirstYear, requestedFirstWeek))
+            if (!IsSupportedCalendarCoordinate(requestedFirstYear, requestedFirstWeek))
             {
                 return false;
             }
@@ -449,17 +491,21 @@ public static class CharacterCareerCalendarRules
             return false;
         }
 
-        draft = CreateDraft(
+        return TryCreateDraft(
             newIdentity!,
             year,
             week,
             string.Empty,
             DefaultNotesColor,
             string.Empty,
-            string.Empty);
-        return true;
+            string.Empty,
+            out draft);
     }
 
+    /// <summary>
+    /// Compatibility-only overload without career, source, and calendar
+    /// authority. It always fails closed and never creates a draft.
+    /// </summary>
     public static bool TryPlanAdd(
         IReadOnlyList<CharacterCareerCalendarWeekState> current,
         CharacterCareerCalendarWeekIdentity? newIdentity,
@@ -467,17 +513,8 @@ public static class CharacterCareerCalendarRules
         int requestedFirstWeek,
         out CharacterCareerCalendarWeekDraft draft)
     {
-        ArgumentNullException.ThrowIfNull(current);
         draft = UnavailableDraft();
-        return TryCreateCalendarFromStates(current, out CharacterCareerCalendarState calendar)
-            && TryPlanAdd(
-                calendar,
-                PinnedSourceAuthority,
-                calendar.Revision,
-                newIdentity,
-                requestedFirstYear,
-                requestedFirstWeek,
-                out draft);
+        return false;
     }
 
     public static bool TryPlanEdit(
@@ -511,17 +548,21 @@ public static class CharacterCareerCalendarRules
             return false;
         }
 
-        draft = CreateDraft(
+        return TryCreateDraft(
             selected.Identity,
             selected.Year,
             selected.Week,
             notes,
             normalizedColor,
             selected.LogicalRevision,
-            selected.SourceRevision);
-        return true;
+            selected.SourceRevision,
+            out draft);
     }
 
+    /// <summary>
+    /// Compatibility-only overload without career, source, and calendar
+    /// authority. It always fails closed and never creates a draft.
+    /// </summary>
     public static bool TryEdit(
         CharacterCareerCalendarWeekState? current,
         string? expectedSourceRevision,
@@ -530,18 +571,7 @@ public static class CharacterCareerCalendarRules
         out CharacterCareerCalendarWeekDraft draft)
     {
         draft = UnavailableDraft();
-        return current is not null
-            && TryCreateCalendarFromStates([current], out CharacterCareerCalendarState calendar)
-            && TryPlanEdit(
-                calendar,
-                PinnedSourceAuthority,
-                calendar.Revision,
-                current.Identity,
-                current.LogicalRevision,
-                expectedSourceRevision,
-                notes,
-                notesColor,
-                out draft);
+        return false;
     }
 
     public static bool CanDelete(
@@ -569,21 +599,16 @@ public static class CharacterCareerCalendarRules
             && RevisionMatches(selected.SourceRevision, expectedSourceRevision);
     }
 
+    /// <summary>
+    /// Compatibility-only overload without career, source, and calendar
+    /// authority. It always fails closed and never authorizes deletion.
+    /// </summary>
     public static bool CanDelete(
         CharacterCareerCalendarWeekState? current,
         CharacterCareerCalendarWeekIdentity? identity,
         string? expectedSourceRevision,
         bool confirmed)
-        => current is not null
-            && TryCreateCalendarFromStates([current], out CharacterCareerCalendarState calendar)
-            && CanDelete(
-                calendar,
-                PinnedSourceAuthority,
-                calendar.Revision,
-                identity,
-                current.LogicalRevision,
-                expectedSourceRevision,
-                confirmed);
+        => false;
 
     public static bool TryPlanChangeStart(
         CharacterCareerCalendarState? current,
@@ -624,12 +649,19 @@ public static class CharacterCareerCalendarRules
         out CharacterCareerCalendarStartSelection selection)
     {
         selection = new CharacterCareerCalendarStartSelection(0, 0, default, default);
-        if (!isCareer || !IsExactSourceAuthority(authority) || !IsSupportedIsoWeek(year, week))
+        if (!isCareer
+            || !IsExactSourceAuthority(authority)
+            || !IsSupportedCalendarCoordinate(year, week))
         {
             return false;
         }
 
-        DateTime start = ISOWeek.ToDateTime(year, week, DayOfWeek.Monday);
+        DateTime january4 = new(year, 1, 4);
+        int january4CalendarDay = january4.DayOfWeek == DayOfWeek.Sunday
+            ? 7
+            : (int)january4.DayOfWeek;
+        DateTime start = january4.AddDays(
+            1 - january4CalendarDay + ((week - 1) * 7));
         selection = new CharacterCareerCalendarStartSelection(
             year,
             week,
@@ -659,7 +691,7 @@ public static class CharacterCareerCalendarRules
     public static bool IsCoherent(CharacterCareerCalendarWeekState? state)
         => state is not null
             && IsValidIdentity(state.Identity)
-            && IsSupportedIsoWeek(state.Year, state.Week)
+            && IsSupportedCalendarCoordinate(state.Year, state.Week)
             && state.Notes is not null
             && TryNormalizeNotesColor(state.NotesColor, out string normalizedColor)
             && string.Equals(state.NotesColor, normalizedColor, StringComparison.Ordinal)
@@ -686,16 +718,28 @@ public static class CharacterCareerCalendarRules
                 CalculateCalendarRevision(state.Weeks, state.SourceAuthorityDigest),
                 state.Revision);
 
-    public static bool IsSupportedIsoWeek(int year, int week)
+    /// <summary>
+    /// Returns whether the coordinate is accepted by the pinned Chummer5
+    /// year-bound and long-year implementation. This deliberately preserves
+    /// that implementation's historical long-year behavior.
+    /// </summary>
+    public static bool IsSupportedCalendarCoordinate(int year, int week)
         => year is >= MinimumYear and <= MaximumYear
             && week >= 1
             && week <= (IsYearLongYear(year) ? 53 : 52);
+
+    /// <summary>
+    /// Compatibility name retained for existing Contracts consumers. It uses
+    /// the same corrected, fail-closed 2000 through 9000 coordinate authority.
+    /// </summary>
+    public static bool IsSupportedIsoWeek(int year, int week)
+        => IsSupportedCalendarCoordinate(year, week);
 
     public static bool TryNextWeek(int year, int week, out int nextYear, out int nextWeek)
     {
         nextYear = 0;
         nextWeek = 0;
-        if (!IsSupportedIsoWeek(year, week))
+        if (!IsSupportedCalendarCoordinate(year, week))
         {
             return false;
         }
@@ -845,7 +889,7 @@ public static class CharacterCareerCalendarRules
             || !string.Equals(rawYear, year.ToString(CultureInfo.InvariantCulture), StringComparison.Ordinal)
             || !int.TryParse(rawWeek, NumberStyles.None, CultureInfo.InvariantCulture, out week)
             || !string.Equals(rawWeek, week.ToString(CultureInfo.InvariantCulture), StringComparison.Ordinal)
-            || !IsSupportedIsoWeek(year, week)
+            || !IsSupportedCalendarCoordinate(year, week)
             || !TryNormalizeNotesColor(rawColor, out notesColor)
             || !string.Equals(rawColor, notesColor, StringComparison.Ordinal))
         {
@@ -856,54 +900,90 @@ public static class CharacterCareerCalendarRules
         return true;
     }
 
-    private static CharacterCareerCalendarWeekDraft CreateDraft(
+    private static bool TryCreateDraft(
         CharacterCareerCalendarWeekIdentity identity,
         int year,
         int week,
         string notes,
         string notesColor,
         string expectedLogicalRevision,
-        string expectedSourceRevision)
+        string expectedSourceRevision,
+        out CharacterCareerCalendarWeekDraft draft)
     {
-        string sourceElement = new XElement(
-            "week",
-            new XElement("guid", identity.WeekId.ToString("D")),
-            new XElement("year", year.ToString(CultureInfo.InvariantCulture)),
-            new XElement("week", week.ToString(CultureInfo.InvariantCulture)),
-            new XElement("notes", notes),
-            new XElement("notesColor", notesColor))
-            .ToString(SaveOptions.DisableFormatting);
-        return new CharacterCareerCalendarWeekDraft(
+        draft = UnavailableDraft();
+        string sanitizedNotes = CleanOfXmlInvalidUnicodeChars(notes);
+        string sourceElement;
+        try
+        {
+            XmlConvert.VerifyXmlChars(sanitizedNotes);
+            var source = new XElement(
+                "week",
+                new XElement("guid", identity.WeekId.ToString("D")),
+                new XElement("year", year.ToString(CultureInfo.InvariantCulture)),
+                new XElement("week", week.ToString(CultureInfo.InvariantCulture)),
+                new XElement("notes", sanitizedNotes),
+                new XElement("notesColor", notesColor));
+            sourceElement = SerializeSourceElement(source);
+        }
+        catch (Exception exception) when (exception is XmlException or ArgumentException)
+        {
+            return false;
+        }
+
+        draft = new CharacterCareerCalendarWeekDraft(
             identity,
             year,
             week,
-            notes,
+            sanitizedNotes,
             notesColor,
             expectedLogicalRevision,
             expectedSourceRevision,
             sourceElement,
             Sha256(sourceElement));
+        return true;
     }
 
-    private static bool TryCreateCalendarFromStates(
-        IReadOnlyList<CharacterCareerCalendarWeekState> weeks,
-        out CharacterCareerCalendarState calendar)
+    private static string SerializeSourceElement(XElement source)
     {
-        calendar = UnavailableCalendar();
-        if (weeks.Any(static week => !IsCoherent(week))
-            || !HasUniqueIdentityAndCoordinates(weeks))
+        var serialized = new StringBuilder();
+        var settings = new XmlWriterSettings
         {
-            return false;
+            ConformanceLevel = ConformanceLevel.Fragment,
+            Indent = false,
+            NewLineHandling = NewLineHandling.Entitize,
+            OmitXmlDeclaration = true
+        };
+        using (XmlWriter writer = XmlWriter.Create(serialized, settings))
+        {
+            source.WriteTo(writer);
+        }
+        return serialized.ToString();
+    }
+
+    private static string CleanOfXmlInvalidUnicodeChars(string? value)
+    {
+        if (string.IsNullOrEmpty(value))
+        {
+            return string.Empty;
         }
 
-        ReadOnlyCollection<CharacterCareerCalendarWeekState> exact =
-            Array.AsReadOnly(weeks.ToArray());
-        calendar = new CharacterCareerCalendarState(
-            true,
-            exact,
-            CalculateCalendarRevision(exact, PinnedSourceAuthorityDigest),
-            PinnedSourceAuthorityDigest);
-        return true;
+        int firstInvalid = value.AsSpan().IndexOfAny(XmlInvalidUnicodeCharacterSearch);
+        if (firstInvalid < 0)
+        {
+            return value;
+        }
+
+        var sanitized = new StringBuilder(value.Length);
+        sanitized.Append(value, 0, firstInvalid);
+        for (int index = firstInvalid; index < value.Length; index++)
+        {
+            char candidate = value[index];
+            if (!XmlInvalidUnicodeCharacterSearch.Contains(candidate))
+            {
+                sanitized.Append(candidate);
+            }
+        }
+        return sanitized.ToString();
     }
 
     private static bool HasUniqueIdentityAndCoordinates(

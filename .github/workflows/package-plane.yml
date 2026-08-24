@@ -56,3 +56,17 @@ jobs:
           -m:1
           --filter
           "FullyQualifiedName~CharacterCreationPrerequisiteServiceTests|FullyQualifiedName~CharacterCreationContactsServiceTests|FullyQualifiedName~FileSystemCharacterSourceDataResolverTests|FullyQualifiedName~CharacterCareerKarmaExpenseEditRulesTests|FullyQualifiedName~CharacterCareerNuyenExpenseEditRulesTests|FullyQualifiedName~CharacterCareerActiveSkillAdvanceRulesTests|FullyQualifiedName~CharacterCareerSkillGroupAdvanceRulesTests|FullyQualifiedName~CharacterCareerKnowledgeSkillAdvanceRulesTests"
+      - name: Restore deterministic feature-slice test graph
+        run: >-
+          dotnet restore Chummer.FeatureSlice.Tests/Chummer.FeatureSlice.Tests.csproj
+          -p:TargetFramework=net10.0
+      - name: Run Career Calendar authority tests
+        run: >-
+          dotnet test Chummer.FeatureSlice.Tests/Chummer.FeatureSlice.Tests.csproj
+          --configuration Release
+          --framework net10.0
+          --no-restore
+          --disable-build-servers
+          -m:1
+          --filter
+          "FullyQualifiedName~CharacterCareerCalendarRulesTests"
