@@ -10,6 +10,7 @@ public static class BuildGhostContractVersions
 public static class BuildGhostPersonaIds
 {
     public const string Rook = "build-ghost-rook-v1";
+    public const string StockDefaultAvatar = "build-ghost-tough-tongue-stock-avatar-v1";
     public const string RookAvatar = "build-ghost-rook-avatar-v1";
     public const string RookVoice = "build-ghost-rook-voice-v1";
 }

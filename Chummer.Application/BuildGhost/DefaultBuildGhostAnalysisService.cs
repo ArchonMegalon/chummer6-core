@@ -105,7 +105,7 @@ public sealed class DefaultBuildGhostAnalysisService : IBuildGhostAnalysisServic
         BuildGhostAnalysisPacket packet = new(
             Schema: BuildGhostContractVersions.AnalysisV1,
             PersonaId: BuildGhostPersonaIds.Rook,
-            AvatarId: BuildGhostPersonaIds.RookAvatar,
+            AvatarId: BuildGhostPersonaIds.StockDefaultAvatar,
             VoiceId: BuildGhostPersonaIds.RookVoice,
             DisplayName: "Rook",
             OwnerId: normalizedRequest.OwnerId,

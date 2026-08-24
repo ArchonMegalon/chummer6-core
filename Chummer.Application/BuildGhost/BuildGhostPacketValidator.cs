@@ -18,7 +18,7 @@ public static class BuildGhostPacketValidator
 
         RequireExact(reasons, "schema", packet.Schema, BuildGhostContractVersions.AnalysisV1);
         RequireExact(reasons, "persona", packet.PersonaId, BuildGhostPersonaIds.Rook);
-        RequireExact(reasons, "avatar", packet.AvatarId, BuildGhostPersonaIds.RookAvatar);
+        RequireExact(reasons, "avatar", packet.AvatarId, BuildGhostPersonaIds.StockDefaultAvatar);
         RequireExact(reasons, "voice", packet.VoiceId, BuildGhostPersonaIds.RookVoice);
         Require(reasons, "owner", packet.OwnerId);
         Require(reasons, "ruleset", packet.RulesetId);

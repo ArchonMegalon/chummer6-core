@@ -44,6 +44,32 @@ public sealed class BuildGhostAnalysisServiceTests
     }
 
     [TestMethod]
+    public void Packet_identity_uses_stock_default_avatar_and_rejects_legacy_Rook_avatar()
+    {
+        BuildGhostAnalysisPacket packet = new DefaultBuildGhostAnalysisService().Analyze(CreateRequest());
+
+        Assert.AreEqual(BuildGhostPersonaIds.Rook, packet.PersonaId);
+        Assert.AreEqual("build-ghost-tough-tongue-stock-avatar-v1", packet.AvatarId);
+        Assert.AreEqual(BuildGhostPersonaIds.RookVoice, packet.VoiceId);
+
+        BuildGhostAnalysisPacket legacyPacket = packet with
+        {
+            AvatarId = BuildGhostPersonaIds.RookAvatar,
+            PacketDigest = string.Empty
+        };
+        legacyPacket = legacyPacket with
+        {
+            PacketDigest = BuildGhostCanonicalDigest.Compute(legacyPacket)
+        };
+
+        BuildGhostPacketValidationResult rejected = BuildGhostPacketValidator.Validate(legacyPacket);
+
+        Assert.IsFalse(rejected.Accepted);
+        CollectionAssert.Contains(rejected.RejectionReasons.ToArray(), "avatar-mismatch");
+        CollectionAssert.DoesNotContain(rejected.RejectionReasons.ToArray(), "packet-digest-mismatch");
+    }
+
+    [TestMethod]
     public void Packet_validator_rejects_digest_and_authority_drift()
     {
         BuildGhostAnalysisPacket packet = new DefaultBuildGhostAnalysisService().Analyze(CreateRequest());
