@@ -15,21 +15,25 @@ import math
 import os
 import re
 import stat
+import tempfile
 import zipfile
 from datetime import datetime
 from pathlib import Path, PurePosixPath
 from typing import Any
 
 
-CONTRACT = "chummer-core.runtime-package-public-handoff/v1"
+CONTRACT = "chummer-core.runtime-package-public-handoff/v2"
 ARCHIVE_CONTRACT = "chummer-core.runtime-package-public-handoff-zip/v1"
 REPOSITORY = "ArchonMegalon/chummer6-core"
 MAIN_REF = "refs/heads/main"
+MAIN_BRANCH = "main"
+WORKFLOW_PATH = ".github/workflows/package-plane.yml"
 INVENTORY_NAME = "chummer-core-runtime-packages.inventory.json"
 LOCK_NAME = "runtime-package-plane.lock.json"
 NO_SIBLINGS_RECEIPT_NAME = "no-siblings.v3.receipt.json"
 MAX_MEMBER_BYTES = 16 * 1024 * 1024
 MAX_BUNDLE_BYTES = 32 * 1024 * 1024
+MAX_ACTIONS_ARCHIVE_BYTES = 32 * 1024 * 1024
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
 ARTIFACT_DIGEST_RE = re.compile(r"^(?:sha256:)?([0-9a-f]{64})$")
@@ -163,7 +167,12 @@ def _safe_member_name(name: str) -> None:
         raise PublicHandoffError(f"unsafe runtime bundle member: {name!r}")
 
 
-def _read_bound_file(path: Path, label: str) -> bytes:
+def _read_bound_file(
+    path: Path,
+    label: str,
+    *,
+    maximum_bytes: int = MAX_MEMBER_BYTES,
+) -> bytes:
     try:
         before = path.lstat()
     except OSError as exc:
@@ -172,7 +181,7 @@ def _read_bound_file(path: Path, label: str) -> bytes:
         not stat.S_ISREG(before.st_mode)
         or before.st_nlink != 1
         or before.st_size <= 0
-        or before.st_size > MAX_MEMBER_BYTES
+        or before.st_size > maximum_bytes
     ):
         raise PublicHandoffError(f"{label} is not one bounded regular file")
     descriptor = -1
@@ -204,8 +213,8 @@ def _read_bound_file(path: Path, label: str) -> bytes:
             raise PublicHandoffError(f"{label} changed while opening")
         chunks: list[bytes] = []
         total = 0
-        while total <= MAX_MEMBER_BYTES:
-            chunk = os.read(descriptor, min(1024 * 1024, MAX_MEMBER_BYTES + 1 - total))
+        while total <= maximum_bytes:
+            chunk = os.read(descriptor, min(1024 * 1024, maximum_bytes + 1 - total))
             if not chunk:
                 break
             chunks.append(chunk)
@@ -243,6 +252,212 @@ def _directory_names(path: Path, label: str) -> set[str]:
     if len(names) != len({name.casefold() for name in names}):
         raise PublicHandoffError(f"{label} contains case-colliding members")
     return names
+
+
+def _positive_int(value: Any, label: str) -> int:
+    if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+        raise PublicHandoffError(f"{label} must be one positive integer")
+    return value
+
+
+def _utc_timestamp(value: Any, label: str) -> str:
+    if not isinstance(value, str):
+        raise PublicHandoffError(f"{label} must be one UTC timestamp")
+    try:
+        datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ")
+    except ValueError as exc:
+        raise PublicHandoffError(f"{label} must be one UTC timestamp") from exc
+    return value
+
+
+def _expected_workflow_ref(repository: str, ref: str) -> str:
+    return f"{repository}/{WORKFLOW_PATH}@{ref}"
+
+
+def _validate_actions_source(
+    *,
+    artifact_metadata_path: Path,
+    run_metadata_path: Path,
+    actions_archive_path: Path,
+    repository: str,
+    commit: str,
+    ref: str,
+    event_name: str,
+    source_artifact_id: int,
+    source_artifact_digest: str,
+    run_id: int,
+    run_attempt: int,
+    workflow_ref: str,
+    workflow_sha: str,
+    head_tree: str,
+) -> tuple[bytes, dict[str, Any]]:
+    """Authenticate one current-run artifact before parsing any archive member."""
+
+    _require_commit(commit)
+    _require_commit(workflow_sha)
+    _require_commit(head_tree)
+    source_artifact_id = _positive_int(source_artifact_id, "source artifact ID")
+    run_id = _positive_int(run_id, "workflow run ID")
+    run_attempt = _positive_int(run_attempt, "workflow run attempt")
+    digest_match = ARTIFACT_DIGEST_RE.fullmatch(source_artifact_digest)
+    if (
+        repository != REPOSITORY
+        or ref != MAIN_REF
+        or event_name != "push"
+        or workflow_ref != _expected_workflow_ref(repository, ref)
+        or workflow_sha != commit
+        or digest_match is None
+    ):
+        raise PublicHandoffError(
+            "Actions artifact authority is allowed only for the exact Core main push workflow"
+        )
+
+    archive_raw = _read_bound_file(
+        actions_archive_path,
+        "raw Actions artifact archive",
+        maximum_bytes=MAX_ACTIONS_ARCHIVE_BYTES,
+    )
+    archive_sha256 = _sha256(archive_raw)
+    if digest_match.group(1) != archive_sha256:
+        raise PublicHandoffError("raw Actions artifact digest differs from upload authority")
+
+    artifact = _strict_json(
+        _read_bound_file(artifact_metadata_path, "authenticated Actions artifact metadata"),
+        "authenticated Actions artifact metadata",
+    )
+    run = _strict_json(
+        _read_bound_file(run_metadata_path, "authenticated Actions run metadata"),
+        "authenticated Actions run metadata",
+    )
+    if not isinstance(artifact, dict) or not isinstance(run, dict):
+        raise PublicHandoffError("authenticated Actions metadata shape differs")
+
+    api_root = f"https://api.github.com/repos/{repository}"
+    artifact_api_url = f"{api_root}/actions/artifacts/{source_artifact_id}"
+    artifact_archive_url = f"{artifact_api_url}/zip"
+    run_attempt_api_url = f"{api_root}/actions/runs/{run_id}/attempts/{run_attempt}"
+    artifact_run = artifact.get("workflow_run")
+    if not isinstance(artifact_run, dict):
+        raise PublicHandoffError("authenticated artifact omits workflow-run authority")
+    repository_id = _positive_int(artifact_run.get("repository_id"), "artifact repository ID")
+    head_repository_id = _positive_int(
+        artifact_run.get("head_repository_id"),
+        "artifact head repository ID",
+    )
+    if (
+        artifact.get("id") != source_artifact_id
+        or artifact.get("name") != actions_artifact_name(commit)
+        or artifact.get("url") != artifact_api_url
+        or artifact.get("archive_download_url") != artifact_archive_url
+        or artifact.get("expired") is not False
+        or artifact.get("size_in_bytes") != len(archive_raw)
+        or artifact.get("digest") != f"sha256:{archive_sha256}"
+        or artifact_run.get("id") != run_id
+        or artifact_run.get("head_branch") != MAIN_BRANCH
+        or artifact_run.get("head_sha") != commit
+        or repository_id != head_repository_id
+    ):
+        raise PublicHandoffError("authenticated Actions artifact metadata differs")
+    created_at = _utc_timestamp(artifact.get("created_at"), "artifact creation time")
+    expires_at = _utc_timestamp(artifact.get("expires_at"), "artifact expiry time")
+
+    run_repository = run.get("repository")
+    head_repository = run.get("head_repository")
+    head_commit = run.get("head_commit")
+    if not all(isinstance(value, dict) for value in (run_repository, head_repository, head_commit)):
+        raise PublicHandoffError("authenticated run omits repository or head-commit authority")
+    workflow_id = _positive_int(run.get("workflow_id"), "workflow ID")
+    observed_run_attempt = _positive_int(run.get("run_attempt"), "observed workflow run attempt")
+    if (
+        run.get("id") != run_id
+        or observed_run_attempt != run_attempt
+        or run.get("event") != event_name
+        or run.get("head_branch") != MAIN_BRANCH
+        or run.get("head_sha") != commit
+        or run.get("path") != WORKFLOW_PATH
+        or run_repository.get("id") != repository_id
+        or run_repository.get("full_name") != repository
+        or head_repository.get("id") != head_repository_id
+        or head_repository.get("full_name") != repository
+        or head_commit.get("id") != commit
+        or head_commit.get("tree_id") != head_tree
+    ):
+        raise PublicHandoffError("authenticated Actions run metadata differs")
+
+    source_authority = {
+        "id": source_artifact_id,
+        "name": actions_artifact_name(commit),
+        "sha256": archive_sha256,
+        "size_bytes": len(archive_raw),
+        "authenticated_metadata": {
+            "api_url": artifact_api_url,
+            "archive_download_url": artifact_archive_url,
+            "created_at_utc": created_at,
+            "expires_at_utc": expires_at,
+            "repository_id": repository_id,
+            "head_repository_id": head_repository_id,
+        },
+        "workflow_run": {
+            "id": run_id,
+            "attempt": run_attempt,
+            "attempt_api_url": run_attempt_api_url,
+            "workflow_id": workflow_id,
+            "workflow_ref": workflow_ref,
+            "workflow_sha": workflow_sha,
+            "event": event_name,
+            "head_branch": MAIN_BRANCH,
+            "head_sha": commit,
+            "head_tree": head_tree,
+            "repository": repository,
+        },
+    }
+    return archive_raw, source_authority
+
+
+def _snapshot_actions_archive(archive_raw: bytes) -> dict[str, bytes]:
+    """Read an already-authenticated outer archive into one immutable byte snapshot."""
+
+    try:
+        with zipfile.ZipFile(io.BytesIO(archive_raw), "r", allowZip64=False) as archive:
+            infos = archive.infolist()
+            if len(infos) != 11:
+                raise PublicHandoffError("Actions artifact must contain exactly 11 files")
+            names = [info.filename for info in infos]
+            if len(names) != len(set(names)) or len(names) != len({name.casefold() for name in names}):
+                raise PublicHandoffError("Actions artifact contains duplicate or case-colliding names")
+            snapshot: dict[str, bytes] = {}
+            total = 0
+            for info in infos:
+                _safe_member_name(info.filename)
+                mode = info.external_attr >> 16
+                if (
+                    info.is_dir()
+                    or info.create_system != 3
+                    or stat.S_IFMT(mode) != stat.S_IFREG
+                    or stat.S_IMODE(mode) != 0o644
+                    or info.compress_type != zipfile.ZIP_STORED
+                    or info.flag_bits & 0x1
+                    or info.file_size <= 0
+                    or info.file_size > MAX_MEMBER_BYTES
+                    or info.compress_size != info.file_size
+                ):
+                    raise PublicHandoffError(
+                        f"Actions artifact member posture differs: {info.filename}"
+                    )
+                total += info.file_size
+                if total > MAX_BUNDLE_BYTES:
+                    raise PublicHandoffError("Actions artifact exceeds aggregate byte authority")
+                raw = archive.read(info)
+                if len(raw) != info.file_size:
+                    raise PublicHandoffError(
+                        f"Actions artifact member size differs: {info.filename}"
+                    )
+                snapshot[info.filename] = raw
+            return snapshot
+    except PublicHandoffError:
+        raise
+    except (OSError, ValueError, zipfile.BadZipFile, RuntimeError) as exc:
+        raise PublicHandoffError(f"Actions artifact archive is invalid: {exc}") from exc
 
 
 def _validate_bundle(
@@ -401,31 +616,15 @@ def _deterministic_zip(members: dict[str, bytes]) -> bytes:
     return raw
 
 
-def prepare(
+def _write_public_assets(
     *,
-    repo_root: Path,
-    bundle_dir: Path,
+    members: dict[str, bytes],
     output_dir: Path,
     repository: str,
     commit: str,
     ref: str,
-    event_name: str,
-    source_artifact_id: int,
-    source_artifact_digest: str,
+    source_actions_artifact: dict[str, Any],
 ) -> tuple[Path, Path]:
-    _require_commit(commit)
-    digest_match = ARTIFACT_DIGEST_RE.fullmatch(source_artifact_digest)
-    if (
-        repository != REPOSITORY
-        or ref != MAIN_REF
-        or event_name != "push"
-        or not isinstance(source_artifact_id, int)
-        or isinstance(source_artifact_id, bool)
-        or source_artifact_id <= 0
-        or digest_match is None
-    ):
-        raise PublicHandoffError("public handoff is allowed only for the exact Core main push artifact")
-    members, _ = _validate_bundle(repo_root, bundle_dir, commit)
     archive_bytes = _deterministic_zip(members)
     archive_name = bundle_asset_name(commit)
     manifest_name = receipt_asset_name(commit)
@@ -443,11 +642,7 @@ def prepare(
         "commit": commit,
         "ref": ref,
         "release_tag": release_tag(commit),
-        "source_actions_artifact": {
-            "id": source_artifact_id,
-            "name": actions_artifact_name(commit),
-            "sha256": digest_match.group(1),
-        },
+        "source_actions_artifact": source_actions_artifact,
         "bundle": {
             "contract": ARCHIVE_CONTRACT,
             "asset_name": archive_name,
@@ -473,6 +668,66 @@ def prepare(
     return archive_path, receipt_path
 
 
+def prepare_from_actions_artifact(
+    *,
+    repo_root: Path,
+    artifact_metadata_path: Path,
+    run_metadata_path: Path,
+    actions_archive_path: Path,
+    output_dir: Path,
+    repository: str,
+    commit: str,
+    ref: str,
+    event_name: str,
+    source_artifact_id: int,
+    source_artifact_digest: str,
+    run_id: int,
+    run_attempt: int,
+    workflow_ref: str,
+    workflow_sha: str,
+    head_tree: str,
+) -> tuple[Path, Path]:
+    archive_raw, source_authority = _validate_actions_source(
+        artifact_metadata_path=artifact_metadata_path,
+        run_metadata_path=run_metadata_path,
+        actions_archive_path=actions_archive_path,
+        repository=repository,
+        commit=commit,
+        ref=ref,
+        event_name=event_name,
+        source_artifact_id=source_artifact_id,
+        source_artifact_digest=source_artifact_digest,
+        run_id=run_id,
+        run_attempt=run_attempt,
+        workflow_ref=workflow_ref,
+        workflow_sha=workflow_sha,
+        head_tree=head_tree,
+    )
+    snapshot = _snapshot_actions_archive(archive_raw)
+    try:
+        with tempfile.TemporaryDirectory(prefix="chummer-core-actions-artifact-") as temporary:
+            bundle_dir = Path(temporary) / "bundle"
+            bundle_dir.mkdir(mode=0o700)
+            for name, raw in snapshot.items():
+                destination = bundle_dir / PurePosixPath(name)
+                destination.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+                with destination.open("xb") as stream:
+                    stream.write(raw)
+            members, _ = _validate_bundle(repo_root, bundle_dir, commit)
+    except PublicHandoffError:
+        raise
+    except OSError as exc:
+        raise PublicHandoffError(f"cannot materialize authenticated artifact snapshot: {exc}") from exc
+    return _write_public_assets(
+        members=members,
+        output_dir=output_dir,
+        repository=repository,
+        commit=commit,
+        ref=ref,
+        source_actions_artifact=source_authority,
+    )
+
+
 def _load_public_receipt(path: Path) -> tuple[bytes, dict[str, Any]]:
     raw = _read_bound_file(path, "public handoff receipt")
     payload = _strict_json(raw, "public handoff receipt")
@@ -484,6 +739,8 @@ def _load_public_receipt(path: Path) -> tuple[bytes, dict[str, Any]]:
     _require_commit(commit)
     source = payload.get("source_actions_artifact")
     bundle = payload.get("bundle")
+    authenticated_metadata = source.get("authenticated_metadata") if isinstance(source, dict) else None
+    workflow_run = source.get("workflow_run") if isinstance(source, dict) else None
     if (
         payload.get("contract") != CONTRACT
         or payload.get("repository") != REPOSITORY
@@ -491,12 +748,79 @@ def _load_public_receipt(path: Path) -> tuple[bytes, dict[str, Any]]:
         or payload.get("release_tag") != release_tag(commit)
         or payload.get("receipt_asset_name") != receipt_asset_name(commit)
         or not isinstance(source, dict)
-        or set(source) != {"id", "name", "sha256"}
+        or set(source)
+        != {
+            "id",
+            "name",
+            "sha256",
+            "size_bytes",
+            "authenticated_metadata",
+            "workflow_run",
+        }
         or not isinstance(source.get("id"), int)
         or isinstance(source.get("id"), bool)
         or source["id"] <= 0
         or source.get("name") != actions_artifact_name(commit)
         or not SHA256_RE.fullmatch(str(source.get("sha256", "")))
+        or not isinstance(source.get("size_bytes"), int)
+        or isinstance(source.get("size_bytes"), bool)
+        or source["size_bytes"] <= 0
+        or source["size_bytes"] > MAX_ACTIONS_ARCHIVE_BYTES
+        or not isinstance(authenticated_metadata, dict)
+        or set(authenticated_metadata)
+        != {
+            "api_url",
+            "archive_download_url",
+            "created_at_utc",
+            "expires_at_utc",
+            "repository_id",
+            "head_repository_id",
+        }
+        or authenticated_metadata.get("api_url")
+        != f"https://api.github.com/repos/{REPOSITORY}/actions/artifacts/{source.get('id')}"
+        or authenticated_metadata.get("archive_download_url")
+        != f"https://api.github.com/repos/{REPOSITORY}/actions/artifacts/{source.get('id')}/zip"
+        or not isinstance(authenticated_metadata.get("repository_id"), int)
+        or isinstance(authenticated_metadata.get("repository_id"), bool)
+        or authenticated_metadata["repository_id"] <= 0
+        or authenticated_metadata.get("head_repository_id")
+        != authenticated_metadata.get("repository_id")
+        or not isinstance(workflow_run, dict)
+        or set(workflow_run)
+        != {
+            "id",
+            "attempt",
+            "attempt_api_url",
+            "workflow_id",
+            "workflow_ref",
+            "workflow_sha",
+            "event",
+            "head_branch",
+            "head_sha",
+            "head_tree",
+            "repository",
+        }
+        or not isinstance(workflow_run.get("id"), int)
+        or isinstance(workflow_run.get("id"), bool)
+        or workflow_run["id"] <= 0
+        or not isinstance(workflow_run.get("attempt"), int)
+        or isinstance(workflow_run.get("attempt"), bool)
+        or workflow_run["attempt"] <= 0
+        or workflow_run.get("attempt_api_url")
+        != (
+            f"https://api.github.com/repos/{REPOSITORY}/actions/runs/"
+            f"{workflow_run.get('id')}/attempts/{workflow_run.get('attempt')}"
+        )
+        or not isinstance(workflow_run.get("workflow_id"), int)
+        or isinstance(workflow_run.get("workflow_id"), bool)
+        or workflow_run["workflow_id"] <= 0
+        or workflow_run.get("workflow_ref") != _expected_workflow_ref(REPOSITORY, MAIN_REF)
+        or workflow_run.get("workflow_sha") != commit
+        or workflow_run.get("event") != "push"
+        or workflow_run.get("head_branch") != MAIN_BRANCH
+        or workflow_run.get("head_sha") != commit
+        or not COMMIT_RE.fullmatch(str(workflow_run.get("head_tree", "")))
+        or workflow_run.get("repository") != REPOSITORY
         or not isinstance(bundle, dict)
         or set(bundle) != {
             "contract",
@@ -512,7 +836,22 @@ def _load_public_receipt(path: Path) -> tuple[bytes, dict[str, Any]]:
         or not SHA256_RE.fullmatch(str(bundle.get("sha256", "")))
     ):
         raise PublicHandoffError("public handoff receipt authority differs")
+    _utc_timestamp(authenticated_metadata["created_at_utc"], "receipt artifact creation time")
+    _utc_timestamp(authenticated_metadata["expires_at_utc"], "receipt artifact expiry time")
+    if raw != _canonical_json(payload):
+        raise PublicHandoffError("public handoff receipt is not canonical JSON")
     return raw, payload
+
+
+def _validate_direct_tag_metadata(tag_metadata: Any, tag: str, commit: str) -> None:
+    if (
+        not isinstance(tag_metadata, dict)
+        or tag_metadata.get("ref") != f"refs/tags/{tag}"
+        or not isinstance(tag_metadata.get("object"), dict)
+        or tag_metadata["object"].get("type") != "commit"
+        or tag_metadata["object"].get("sha") != commit
+    ):
+        raise PublicHandoffError("public Git tag does not point directly to the exact commit")
 
 
 def verify_public_release(
@@ -542,14 +881,7 @@ def verify_public_release(
         _read_bound_file(tag_metadata_path, "public tag metadata"),
         "public tag metadata",
     )
-    if (
-        not isinstance(tag_metadata, dict)
-        or tag_metadata.get("ref") != f"refs/tags/{receipt['release_tag']}"
-        or not isinstance(tag_metadata.get("object"), dict)
-        or tag_metadata["object"].get("type") != "commit"
-        or tag_metadata["object"].get("sha") != commit
-    ):
-        raise PublicHandoffError("public Git tag does not point directly to the exact commit")
+    _validate_direct_tag_metadata(tag_metadata, receipt["release_tag"], commit)
     assets = metadata.get("assets")
     if not isinstance(assets, list) or len(assets) != 2:
         raise PublicHandoffError("public release must contain exactly two assets")
@@ -595,9 +927,11 @@ def verify_public_release(
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     subcommands = parser.add_subparsers(dest="command", required=True)
-    prepare_parser = subcommands.add_parser("prepare")
+    prepare_parser = subcommands.add_parser("prepare-from-actions-artifact")
     prepare_parser.add_argument("--repo-root", type=Path, required=True)
-    prepare_parser.add_argument("--bundle-dir", type=Path, required=True)
+    prepare_parser.add_argument("--artifact-metadata", type=Path, required=True)
+    prepare_parser.add_argument("--run-metadata", type=Path, required=True)
+    prepare_parser.add_argument("--actions-archive", type=Path, required=True)
     prepare_parser.add_argument("--output-dir", type=Path, required=True)
     prepare_parser.add_argument("--repository", required=True)
     prepare_parser.add_argument("--commit", required=True)
@@ -605,6 +939,11 @@ def parse_args() -> argparse.Namespace:
     prepare_parser.add_argument("--event-name", required=True)
     prepare_parser.add_argument("--source-artifact-id", type=int, required=True)
     prepare_parser.add_argument("--source-artifact-digest", required=True)
+    prepare_parser.add_argument("--run-id", type=int, required=True)
+    prepare_parser.add_argument("--run-attempt", type=int, required=True)
+    prepare_parser.add_argument("--workflow-ref", required=True)
+    prepare_parser.add_argument("--workflow-sha", required=True)
+    prepare_parser.add_argument("--head-tree", required=True)
 
     verify_parser = subcommands.add_parser("verify-public-release")
     verify_parser.add_argument("--release-metadata", type=Path, required=True)
@@ -612,16 +951,23 @@ def parse_args() -> argparse.Namespace:
     verify_parser.add_argument("--receipt", type=Path, required=True)
     verify_parser.add_argument("--downloaded-bundle", type=Path, required=True)
     verify_parser.add_argument("--downloaded-receipt", type=Path, required=True)
+
+    tag_parser = subcommands.add_parser("verify-tag-ref")
+    tag_parser.add_argument("--tag-metadata", type=Path, required=True)
+    tag_parser.add_argument("--tag", required=True)
+    tag_parser.add_argument("--commit", required=True)
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
     try:
-        if args.command == "prepare":
-            archive, receipt = prepare(
+        if args.command == "prepare-from-actions-artifact":
+            archive, receipt = prepare_from_actions_artifact(
                 repo_root=args.repo_root.resolve(),
-                bundle_dir=args.bundle_dir.resolve(),
+                artifact_metadata_path=args.artifact_metadata.resolve(),
+                run_metadata_path=args.run_metadata.resolve(),
+                actions_archive_path=args.actions_archive.resolve(),
                 output_dir=args.output_dir.resolve(),
                 repository=args.repository,
                 commit=args.commit,
@@ -629,10 +975,15 @@ def main() -> int:
                 event_name=args.event_name,
                 source_artifact_id=args.source_artifact_id,
                 source_artifact_digest=args.source_artifact_digest,
+                run_id=args.run_id,
+                run_attempt=args.run_attempt,
+                workflow_ref=args.workflow_ref,
+                workflow_sha=args.workflow_sha,
+                head_tree=args.head_tree,
             )
             print(f"public runtime package bundle: {archive}")
             print(f"public runtime package receipt: {receipt}")
-        else:
+        elif args.command == "verify-public-release":
             verify_public_release(
                 release_metadata_path=args.release_metadata.resolve(),
                 tag_metadata_path=args.tag_metadata.resolve(),
@@ -641,6 +992,14 @@ def main() -> int:
                 downloaded_receipt_path=args.downloaded_receipt.resolve(),
             )
             print("public runtime package release: verified without credentials")
+        else:
+            _require_commit(args.commit)
+            tag_metadata = _strict_json(
+                _read_bound_file(args.tag_metadata.resolve(), "created tag metadata"),
+                "created tag metadata",
+            )
+            _validate_direct_tag_metadata(tag_metadata, args.tag, args.commit)
+            print("public runtime package tag: exact lightweight commit ref")
     except PublicHandoffError as exc:
         print(f"public-runtime-package-handoff: {exc}", file=os.sys.stderr)
         return 1

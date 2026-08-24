@@ -278,23 +278,58 @@ jobs:
           fetch-depth: 1
           ref: ${{ github.sha }}
           persist-credentials: false
-      - name: Download the exact successful runtime package artifact
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
-        with:
-          name: chummer-core-runtime-package-plane-${{ github.sha }}
-          path: ${{ runner.temp }}/runtime-package-source-${{ github.sha }}
-      - name: Prepare commit-derived public assets and exact byte receipt
+      - name: Acquire exact current-run artifact metadata and raw archive by ID
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SOURCE_ARTIFACT_ID: ${{ needs.no-siblings.outputs.runtime-artifact-id }}
         run: |
-          python3 scripts/ai/public-runtime-package-handoff.py prepare \
+          set -euo pipefail
+          [[ "${SOURCE_ARTIFACT_ID}" =~ ^[1-9][0-9]*$ ]]
+          source_root="${RUNNER_TEMP}/runtime-package-source-${GITHUB_SHA}"
+          test ! -e "${source_root}"
+          mkdir --mode=0700 "${source_root}"
+          api_root="https://api.github.com/repos/${GITHUB_REPOSITORY}"
+          artifact_api="${api_root}/actions/artifacts/${SOURCE_ARTIFACT_ID}"
+          run_attempt_api="${api_root}/actions/runs/${GITHUB_RUN_ID}/attempts/${GITHUB_RUN_ATTEMPT}"
+          curl --proto '=https' --tlsv1.2 --fail --silent --show-error --max-filesize 1048576 \
+            --header "Authorization: Bearer ${GH_TOKEN}" \
+            --header "Accept: application/vnd.github+json" \
+            "${artifact_api}" \
+            --output "${source_root}/artifact-metadata.json"
+          curl --proto '=https' --tlsv1.2 --fail --silent --show-error --max-filesize 1048576 \
+            --header "Authorization: Bearer ${GH_TOKEN}" \
+            --header "Accept: application/vnd.github+json" \
+            "${run_attempt_api}" \
+            --output "${source_root}/run-attempt-metadata.json"
+          curl --proto '=https' --proto-redir '=https' --tlsv1.2 --fail --location \
+            --max-redirs 3 --silent --show-error --max-filesize 33554432 \
+            --header "Authorization: Bearer ${GH_TOKEN}" \
+            --header "Accept: application/vnd.github+json" \
+            "${artifact_api}/zip" \
+            --output "${source_root}/artifact.zip"
+      - name: Prepare commit-derived public assets from authenticated raw bytes
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+          head_tree="$(git rev-parse 'HEAD^{tree}')"
+          [[ "${head_tree}" =~ ^[0-9a-f]{40}$ ]]
+          python3 scripts/ai/public-runtime-package-handoff.py prepare-from-actions-artifact \
             --repo-root "${GITHUB_WORKSPACE}" \
-            --bundle-dir "${RUNNER_TEMP}/runtime-package-source-${GITHUB_SHA}" \
+            --artifact-metadata "${RUNNER_TEMP}/runtime-package-source-${GITHUB_SHA}/artifact-metadata.json" \
+            --run-metadata "${RUNNER_TEMP}/runtime-package-source-${GITHUB_SHA}/run-attempt-metadata.json" \
+            --actions-archive "${RUNNER_TEMP}/runtime-package-source-${GITHUB_SHA}/artifact.zip" \
             --output-dir "${RUNNER_TEMP}/runtime-package-public-${GITHUB_SHA}" \
             --repository "${GITHUB_REPOSITORY}" \
             --commit "${GITHUB_SHA}" \
             --ref "${GITHUB_REF}" \
             --event-name "${GITHUB_EVENT_NAME}" \
             --source-artifact-id "${{ needs.no-siblings.outputs.runtime-artifact-id }}" \
-            --source-artifact-digest "${{ needs.no-siblings.outputs.runtime-artifact-digest }}"
+            --source-artifact-digest "${{ needs.no-siblings.outputs.runtime-artifact-digest }}" \
+            --run-id "${GITHUB_RUN_ID}" \
+            --run-attempt "${GITHUB_RUN_ATTEMPT}" \
+            --workflow-ref "${GITHUB_WORKFLOW_REF}" \
+            --workflow-sha "${GITHUB_WORKFLOW_SHA}" \
+            --head-tree "${head_tree}"
           test -f "${RUNNER_TEMP}/runtime-package-public-${GITHUB_SHA}/${PUBLIC_BUNDLE_NAME}"
           test -f "${RUNNER_TEMP}/runtime-package-public-${GITHUB_SHA}/${PUBLIC_RECEIPT_NAME}"
       - name: Refuse every pre-existing release or tag, then publish once
@@ -316,19 +351,31 @@ jobs:
             200) echo "release already exists; overwrite is forbidden" >&2; exit 1 ;;
             *) echo "cannot prove release tag is unused: HTTP ${release_status}" >&2; exit 1 ;;
           esac
+          jq --null-input \
+            --arg ref "refs/tags/${PUBLIC_RELEASE_TAG}" \
+            --arg sha "${GITHUB_SHA}" \
+            '{ref: $ref, sha: $sha}' \
+            >"${RUNNER_TEMP}/create-tag.json"
           tag_status="$({
             curl --proto '=https' --tlsv1.2 --silent --show-error \
+              --request POST \
               --header "Authorization: Bearer ${GH_TOKEN}" \
               --header "Accept: application/vnd.github+json" \
-              --output "${RUNNER_TEMP}/existing-tag.json" \
+              --header "Content-Type: application/json" \
+              --data-binary "@${RUNNER_TEMP}/create-tag.json" \
+              --output "${RUNNER_TEMP}/created-tag.json" \
               --write-out '%{http_code}' \
-              "${api_root}/git/ref/tags/${PUBLIC_RELEASE_TAG}"
+              "${api_root}/git/refs"
           })"
           case "${tag_status}" in
-            404) ;;
-            200) echo "tag already exists; overwrite or retarget is forbidden" >&2; exit 1 ;;
-            *) echo "cannot prove Git tag is unused: HTTP ${tag_status}" >&2; exit 1 ;;
+            201) ;;
+            409|422) echo "tag already exists or conflicted; overwrite is forbidden" >&2; exit 1 ;;
+            *) echo "cannot atomically create exact Git tag: HTTP ${tag_status}" >&2; exit 1 ;;
           esac
+          python3 scripts/ai/public-runtime-package-handoff.py verify-tag-ref \
+            --tag-metadata "${RUNNER_TEMP}/created-tag.json" \
+            --tag "${PUBLIC_RELEASE_TAG}" \
+            --commit "${GITHUB_SHA}"
           gh release create "${PUBLIC_RELEASE_TAG}" \
             "${RUNNER_TEMP}/runtime-package-public-${GITHUB_SHA}/${PUBLIC_BUNDLE_NAME}#Exact Core runtime package plane" \
             "${RUNNER_TEMP}/runtime-package-public-${GITHUB_SHA}/${PUBLIC_RECEIPT_NAME}#Public handoff byte receipt" \
@@ -336,6 +383,7 @@ jobs:
             --target "${GITHUB_SHA}" \
             --title "Core runtime package plane ${GITHUB_SHA}" \
             --notes "Secret-free, digest-verifiable runtime package handoff for Core commit ${GITHUB_SHA}. Consumers must pin both asset digests in reviewed authority." \
+            --verify-tag \
             --latest=false
       - name: Prove the published release is anonymously readable and byte exact
         run: |
