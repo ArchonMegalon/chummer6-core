@@ -6,12 +6,16 @@ using Chummer.Contracts.Workspaces;
 
 namespace Chummer.Infrastructure.Workspaces;
 
-public sealed class InMemoryWorkspaceStore : IWorkspaceStore
+public sealed class InMemoryWorkspaceStore :
+    IWorkspaceStore,
+    ICharacterCreationBootstrapAtomicCreateCapability
 {
     private const long InitialContentRevision = 1;
     private const long InitialSavedRevision = 0;
     private const int MaximumDelegatedEditAuditEntries = 4096;
     private readonly ConcurrentDictionary<string, ConcurrentDictionary<string, WorkspaceEntry>> _documentsByOwner = new(StringComparer.Ordinal);
+
+    public bool SupportsCharacterCreationBootstrapAtomicCreate => true;
 
     [Obsolete("Use CreateWorkspaceDocument to receive revision metadata and typed storage outcomes.")]
     public CharacterWorkspaceId Create(WorkspaceDocument document)
@@ -58,6 +62,22 @@ public sealed class InMemoryWorkspaceStore : IWorkspaceStore
             : CreateWorkspaceDocumentCore(GetOwnerDocuments(owner), id, document);
     }
 
+    public WorkspaceStoreMutationResult CreateCharacterCreationBootstrapWorkspaceDocument(
+        CharacterWorkspaceId id,
+        WorkspaceDocument document)
+    {
+        ArgumentNullException.ThrowIfNull(document);
+        return CharacterCreationBootstrapStoreIntegrity.IsValidInitialState(id, document)
+            ? CreateWorkspaceDocumentCore(
+                GetLocalDocuments(),
+                id,
+                document,
+                allowBootstrapAuxiliaryState: true)
+            : new WorkspaceStoreMutationResult(
+                WorkspaceOperationOutcome.Unavailable,
+                Error: "Character creation bootstrap state is invalid.");
+    }
+
     private static WorkspaceStoreMutationResult CreateGeneratedWorkspaceDocument(
         ConcurrentDictionary<string, WorkspaceEntry> documents,
         WorkspaceDocument document)
@@ -77,10 +97,11 @@ public sealed class InMemoryWorkspaceStore : IWorkspaceStore
     private static WorkspaceStoreMutationResult CreateWorkspaceDocumentCore(
         ConcurrentDictionary<string, WorkspaceEntry> documents,
         CharacterWorkspaceId id,
-        WorkspaceDocument document)
+        WorkspaceDocument document,
+        bool allowBootstrapAuxiliaryState = false)
     {
         ArgumentNullException.ThrowIfNull(document);
-        if (!document.AuxiliaryState.IsEmpty)
+        if (!document.AuxiliaryState.IsEmpty && !allowBootstrapAuxiliaryState)
         {
             return new WorkspaceStoreMutationResult(
                 WorkspaceOperationOutcome.Unavailable,

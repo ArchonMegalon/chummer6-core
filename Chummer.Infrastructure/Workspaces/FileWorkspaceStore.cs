@@ -15,7 +15,8 @@ namespace Chummer.Infrastructure.Workspaces;
 public sealed class FileWorkspaceStore :
     IWorkspaceStore,
     IWorkspaceStoreReadinessProbe,
-    IWorkspaceAuxiliaryStateAtomicCommitCapability
+    IWorkspaceAuxiliaryStateAtomicCommitCapability,
+    ICharacterCreationBootstrapAtomicCreateCapability
 {
     private const int CurrentWorkspaceSchemaVersion = 1;
     private const int CurrentWorkspaceRecordSchemaVersion = 2;
@@ -51,6 +52,8 @@ public sealed class FileWorkspaceStore :
     }
 
     public bool SupportsWorkspaceAuxiliaryStateAtomicCommit => true;
+
+    public bool SupportsCharacterCreationBootstrapAtomicCreate => true;
 
     private readonly string _stateDirectory;
     private readonly IFileWorkspaceStoreFaultInjector _faultInjector;
@@ -194,13 +197,28 @@ public sealed class FileWorkspaceStore :
             : CreateWorkspaceDocumentCore(owner, id, document);
     }
 
-    private WorkspaceStoreMutationResult CreateWorkspaceDocumentCore(
-        OwnerScope owner,
-        CharacterWorkspaceId workspaceId,
+    public WorkspaceStoreMutationResult CreateCharacterCreationBootstrapWorkspaceDocument(
+        CharacterWorkspaceId id,
         WorkspaceDocument document)
     {
         ArgumentNullException.ThrowIfNull(document);
-        if (!document.AuxiliaryState.IsEmpty)
+        return CharacterCreationBootstrapStoreIntegrity.IsValidInitialState(id, document)
+            ? CreateWorkspaceDocumentCore(
+                OwnerScope.LocalSingleUser,
+                id,
+                document,
+                allowBootstrapAuxiliaryState: true)
+            : UnavailableMutation("Character creation bootstrap state is invalid.");
+    }
+
+    private WorkspaceStoreMutationResult CreateWorkspaceDocumentCore(
+        OwnerScope owner,
+        CharacterWorkspaceId workspaceId,
+        WorkspaceDocument document,
+        bool allowBootstrapAuxiliaryState = false)
+    {
+        ArgumentNullException.ThrowIfNull(document);
+        if (!document.AuxiliaryState.IsEmpty && !allowBootstrapAuxiliaryState)
         {
             return UnavailableMutation(
                 "Workspace auxiliary state can only be created by an explicit creation-authority commit.");
@@ -1487,7 +1505,15 @@ public sealed class FileWorkspaceStore :
                 workspaceId,
                 currentContentRevision,
                 contactReceipts);
-        return foundationValid && prerequisiteValid && attributesValid && contactReceiptsValid;
+        CharacterCreationBootstrapBinding? bootstrap =
+            state.CharacterCreationBootstrapBinding;
+        bool bootstrapValid = bootstrap is null
+            || CharacterCreationBootstrapStoreIntegrity.IsValidBinding(workspaceId, bootstrap);
+        return foundationValid
+               && prerequisiteValid
+               && attributesValid
+               && contactReceiptsValid
+               && bootstrapValid;
     }
 
     private static bool IsValidAuxiliaryStateTransition(
@@ -1521,6 +1547,10 @@ public sealed class FileWorkspaceStore :
             replacementState.CharacterCreationContactReceipts;
         IReadOnlyList<CharacterCreationContactReceiptLedgerEntry>? currentContactReceipts =
             currentState.CharacterCreationContactReceipts;
+        CharacterCreationBootstrapBinding? replacementBootstrap =
+            replacementState.CharacterCreationBootstrapBinding;
+        CharacterCreationBootstrapBinding? currentBootstrap =
+            currentState.CharacterCreationBootstrapBinding;
 
         bool foundationUnchanged = HasSameFoundationDraft(
             currentFoundation,
@@ -1534,10 +1564,14 @@ public sealed class FileWorkspaceStore :
         bool contactReceiptsUnchanged = HasSameContactReceiptLedger(
             currentContactReceipts,
             replacementContactReceipts);
+        bool bootstrapUnchanged = HasSameBootstrapBinding(
+            currentBootstrap,
+            replacementBootstrap);
         int changedLaneCount = (foundationUnchanged ? 0 : 1)
                                + (prerequisiteUnchanged ? 0 : 1)
                                + (attributesUnchanged ? 0 : 1)
-                               + (contactReceiptsUnchanged ? 0 : 1);
+                               + (contactReceiptsUnchanged ? 0 : 1)
+                               + (bootstrapUnchanged ? 0 : 1);
         if (changedLaneCount != 1)
         {
             // The authority must advance exactly one typed lane. This prevents
@@ -1566,6 +1600,14 @@ public sealed class FileWorkspaceStore :
                 replacementAttributes,
                 previousContentRevision);
         }
+        if (!bootstrapUnchanged)
+        {
+            return IsValidBootstrapTransition(
+                currentBootstrap,
+                replacementBootstrap,
+                currentDocument,
+                replacementDocument);
+        }
         return CharacterCreationContactReceiptLedgerIntegrity.IsValidAppendTransition(
                    workspaceId,
                    previousContentRevision,
@@ -1578,6 +1620,22 @@ public sealed class FileWorkspaceStore :
                    replacementContactReceipts[^1],
                    currentDocument,
                    replacementDocument);
+    }
+
+    private static bool IsValidBootstrapTransition(
+        CharacterCreationBootstrapBinding? current,
+        CharacterCreationBootstrapBinding? replacement,
+        WorkspaceDocument currentDocument,
+        WorkspaceDocument replacementDocument)
+    {
+        _ = current;
+        _ = replacement;
+        _ = currentDocument;
+        _ = replacementDocument;
+        // Clearing the bootstrap binding must be part of the future resolver-bound
+        // metatype/finalization authority. A generic auxiliary-state CAS cannot prove
+        // the selected source row or all required creation effects, so it fails closed.
+        return false;
     }
 
     private static bool IsValidFoundationTransition(
@@ -1675,6 +1733,18 @@ public sealed class FileWorkspaceStore :
             WorkspaceDocumentAuxiliaryStateDigest.Compute(
                 new WorkspaceDocumentAuxiliaryState(
                     CharacterCreationContactReceipts: right)),
+            StringComparison.Ordinal);
+
+    private static bool HasSameBootstrapBinding(
+        CharacterCreationBootstrapBinding? left,
+        CharacterCreationBootstrapBinding? right) =>
+        string.Equals(
+            WorkspaceDocumentAuxiliaryStateDigest.Compute(
+                new WorkspaceDocumentAuxiliaryState(
+                    CharacterCreationBootstrapBinding: left)),
+            WorkspaceDocumentAuxiliaryStateDigest.Compute(
+                new WorkspaceDocumentAuxiliaryState(
+                    CharacterCreationBootstrapBinding: right)),
             StringComparison.Ordinal);
 
     private static bool IsFoundationSha256(string? value)

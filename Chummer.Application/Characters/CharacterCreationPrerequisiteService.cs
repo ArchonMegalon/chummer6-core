@@ -358,7 +358,14 @@ public sealed class CharacterCreationPrerequisiteService :
                 CharacterCreationFoundationOutcomes.Invalid,
                 CharacterCreationPrerequisiteBlockers.CharacterDocumentInvalid);
         }
-        if (!validation.IsValid)
+        bool hasBootstrapState = CharacterCreationBootstrapAuthority.HasBootstrapState(
+            workspace.Document);
+        bool bootstrapValid = hasBootstrapState
+                              && CharacterCreationBootstrapAuthority.TryValidatePending(
+                                  workspace,
+                                  _sourceDataResolver,
+                                  out _);
+        if (hasBootstrapState ? !bootstrapValid : !validation.IsValid)
         {
             return Blocked<CharacterCreationPrerequisiteState>(
                 CharacterCreationFoundationOutcomes.Invalid,

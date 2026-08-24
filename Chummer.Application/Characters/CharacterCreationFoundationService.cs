@@ -552,7 +552,14 @@ public sealed class CharacterCreationFoundationService : ICharacterCreationFound
                 CharacterCreationFoundationBlockers.CharacterDocumentInvalid);
         }
 
-        if (!validation.IsValid)
+        bool hasBootstrapState = CharacterCreationBootstrapAuthority.HasBootstrapState(
+            workspace.Document);
+        bool bootstrapValid = hasBootstrapState
+                              && CharacterCreationBootstrapAuthority.TryValidatePending(
+                                  workspace,
+                                  _sourceDataResolver,
+                                  out _);
+        if (hasBootstrapState ? !bootstrapValid : !validation.IsValid)
         {
             return Blocked<CharacterCreationFoundationState>(
                 CharacterCreationFoundationOutcomes.Invalid,

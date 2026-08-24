@@ -17,14 +17,17 @@ public sealed record WorkspaceDocumentAuxiliaryState(
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     CharacterCreationAttributesDraft? CharacterCreationAttributesDraft = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    IReadOnlyList<CharacterCreationContactReceiptLedgerEntry>? CharacterCreationContactReceipts = null)
+    IReadOnlyList<CharacterCreationContactReceiptLedgerEntry>? CharacterCreationContactReceipts = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    CharacterCreationBootstrapBinding? CharacterCreationBootstrapBinding = null)
 {
     public static WorkspaceDocumentAuxiliaryState Empty { get; } = new();
 
     public bool IsEmpty => CharacterCreationFoundationDraft is null
                            && CharacterCreationPrerequisiteDraft is null
                            && CharacterCreationAttributesDraft is null
-                           && CharacterCreationContactReceipts is null;
+                           && CharacterCreationContactReceipts is null
+                           && CharacterCreationBootstrapBinding is null;
 }
 
 public static class WorkspaceDocumentAuxiliaryStateDigest
