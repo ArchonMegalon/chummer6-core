@@ -5,17 +5,23 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 source "$script_dir/_env.sh"
 
 lock_path="$repo_root/eng/package-plane.lock.json"
+runtime_lock_path="$repo_root/eng/runtime-package-plane.lock.json"
 bootstrap_script="$repo_root/scripts/ai/bootstrap-owner-contracts-feed.py"
+runtime_plane_script="$repo_root/scripts/ai/runtime-package-plane.py"
 feed_root="$repo_root/.tmp/ai/local-nuget"
 inventory_name="chummer-owner-contracts.inventory.json"
 candidate_inventory_name="chummer-core-candidate-engine-contract.inventory.json"
 candidate_runtime_inventory_name="chummer-core-candidate-gm-edit-runtime.inventory.json"
-candidate_version_prefix="0.0.0-packageplane.candidate"
+runtime_inventory_name="chummer-core-runtime-packages.inventory.json"
+candidate_version="0.0.0-packageplane.candidate.shabc08228d3ce0"
+runtime_source_commit="bc08228d3ce06410ca97ada63a5af41a2eaa91bf"
 candidate_id="Chummer.Engine.Contracts"
 candidate_runtime_id="Chummer.Engine.GmCharacterEdits"
 candidate_repository="https://github.com/ArchonMegalon/chummer6-core.git"
 receipt_path="${CHUMMER_PACKAGE_PLANE_RECEIPT:-$repo_root/.artifacts/package-plane/no-siblings.generated.json}"
 locked_version="$(python3 "$bootstrap_script" --repo-root "$repo_root" --print-version)"
+
+python3 "$runtime_plane_script" --repo-root "$repo_root" --lock "$runtime_lock_path"
 
 bash "$script_dir/bootstrap-contracts-feed.sh"
 python3 "$bootstrap_script" \
@@ -141,8 +147,7 @@ export NUGET_PACKAGES="$isolated_packages"
 # remaining unmistakably non-release evidence. This keeps new Application code
 # from compiling against the older locked baseline without suppressing NU1605
 # or pretending that current source has already been published.
-candidate_commit="$(git -C "$consumer_root" rev-parse HEAD)"
-candidate_version="$candidate_version_prefix.sha${candidate_commit:0:12}"
+candidate_recipe_commit="$(git -C "$consumer_root" rev-parse HEAD)"
 missing_local_project="$temporary_root/no-local-contracts-project.csproj"
 candidate_origin="$(git -C "$repo_root" remote get-url origin)"
 if [[ "$candidate_origin" != "$candidate_repository" \
@@ -157,7 +162,7 @@ dotnet pack "$consumer_root/Chummer.Contracts/Chummer.Contracts.csproj" \
   -m:1 \
   -p:PackageVersion="$candidate_version" \
   -p:Version="$candidate_version" \
-  -p:RepositoryCommit="$candidate_commit" \
+  -p:RepositoryCommit="$runtime_source_commit" \
   -p:RepositoryUrl="$candidate_repository" \
   -p:PublishRepositoryUrl=true \
   -p:ContinuousIntegrationBuild=true \
@@ -174,7 +179,8 @@ python3 - \
   "$candidate_id" \
   "$candidate_version" \
   "$candidate_repository" \
-  "$candidate_commit" <<'PY'
+  "$runtime_source_commit" \
+  "$candidate_recipe_commit" <<'PY'
 import hashlib
 import importlib.util
 import sys
@@ -187,8 +193,9 @@ from pathlib import Path
     package_id,
     version,
     repository,
-    commit,
-) = sys.argv[1:8]
+    source_commit,
+    recipe_commit,
+) = sys.argv[1:9]
 bootstrap_path = Path(bootstrap_path)
 feed = Path(feed)
 module_spec = importlib.util.spec_from_file_location(
@@ -204,7 +211,7 @@ module_spec.loader.exec_module(module)
 package_spec = module.PackageSpec(
     package_id,
     repository,
-    commit,
+    source_commit,
     "current-core-checkout",
     "Chummer.Contracts/Chummer.Contracts.csproj",
 )
@@ -213,14 +220,15 @@ module.canonicalize_nupkg(package_path)
 module.validate_package(feed, package_spec, version)
 package_bytes = package_path.read_bytes()
 inventory = {
-    "contract": "chummer-core.candidate-engine-contract-package-inventory/v1",
+    "contract": "chummer-core.candidate-engine-contract-package-inventory/v2",
     "role": "current_core_candidate",
-    "core_commit": commit,
+    "runtime_source_commit": source_commit,
+    "package_recipe_commit": recipe_commit,
     "package": {
         "id": package_id,
         "version": version,
         "repository": repository,
-        "commit": commit,
+        "commit": source_commit,
         "project": "Chummer.Contracts/Chummer.Contracts.csproj",
         "file_name": package_path.name,
         "sha256": hashlib.sha256(package_bytes).hexdigest(),
@@ -230,7 +238,7 @@ inventory = {
 module._atomic_write_json(feed / inventory_name, inventory)
 print(
     "candidate-engine-contract-package: ok "
-    f"({package_id} {version} at {commit}; "
+    f"({package_id} {version} from {source_commit}; recipe {recipe_commit}; "
     f"sha256 {inventory['package']['sha256']})"
 )
 PY
@@ -243,6 +251,35 @@ runtime_properties=(
   "-p:ChummerOwnerContractsPackageVersion=$locked_version"
   "-p:RuntimeIdentifiers=linux-x64"
   "-p:UseSharedCompilation=false"
+  "-p:ChummerRuntimePackagePlane=true"
+  "-p:RestoreConfigFile=$nuget_config"
+  "-p:RestorePackagesPath=$isolated_packages"
+)
+
+# Pack every non-leaf runtime project separately. Project references remain
+# compile-time references but become exact candidate package dependencies in
+# each nuspec; no package is permitted to embed another project's assembly.
+while IFS=$'\t' read -r package_id project_path; do
+  case "$package_id" in
+    "$candidate_id"|"$candidate_runtime_id") continue ;;
+  esac
+  dotnet pack "$consumer_root/$project_path" \
+    --configuration Release \
+    --nologo \
+    -m:1 \
+    -p:PackageVersion="$candidate_version" \
+    -p:Version="$candidate_version" \
+    -p:RepositoryCommit="$runtime_source_commit" \
+    -p:RepositoryUrl="$candidate_repository" \
+    -p:PublishRepositoryUrl=true \
+    -p:ContinuousIntegrationBuild=true \
+    "${runtime_properties[@]}" \
+    --output "$isolated_feed"
+done < <(
+  python3 "$runtime_plane_script" \
+    --repo-root "$repo_root" \
+    --lock "$runtime_lock_path" \
+    --print-pack-rows
 )
 
 dotnet restore "$consumer_root/Chummer.GmCharacterEdits/Chummer.GmCharacterEdits.csproj" \
@@ -260,7 +297,7 @@ dotnet pack "$consumer_root/Chummer.GmCharacterEdits/Chummer.GmCharacterEdits.cs
   -m:1 \
   -p:PackageVersion="$candidate_version" \
   -p:Version="$candidate_version" \
-  -p:RepositoryCommit="$candidate_commit" \
+  -p:RepositoryCommit="$runtime_source_commit" \
   -p:RepositoryUrl="$candidate_repository" \
   -p:PublishRepositoryUrl=true \
   -p:ContinuousIntegrationBuild=true \
@@ -274,7 +311,8 @@ python3 - \
   "$candidate_runtime_id" \
   "$candidate_version" \
   "$candidate_repository" \
-  "$candidate_commit" \
+  "$runtime_source_commit" \
+  "$candidate_recipe_commit" \
   "$locked_version" <<'PY'
 import hashlib
 import importlib.util
@@ -292,9 +330,10 @@ from pathlib import Path
     package_id,
     version,
     repository,
-    commit,
+    source_commit,
+    recipe_commit,
     locked_version,
-) = sys.argv[1:9]
+) = sys.argv[1:10]
 bootstrap_path = Path(bootstrap_path)
 feed = Path(feed)
 spec = importlib.util.spec_from_file_location(
@@ -310,11 +349,6 @@ spec.loader.exec_module(module)
 package_path = feed / f"{package_id}.{version}.nupkg"
 module.canonicalize_nupkg(package_path)
 expected_assemblies = {
-    "lib/net10.0/Chummer.Application.dll",
-    "lib/net10.0/Chummer.Infrastructure.dll",
-    "lib/net10.0/Chummer.Rulesets.Hosting.dll",
-    "lib/net10.0/Chummer.Rulesets.Sr5.dll",
-    "lib/net10.0/Chummer.Rulesets.Sr6.dll",
     "lib/net10.0/Chummer.Engine.GmCharacterEdits.dll",
 }
 with zipfile.ZipFile(package_path) as archive:
@@ -361,7 +395,7 @@ with zipfile.ZipFile(package_path) as archive:
     ]
     if len(repositories) != 1 or (
         repositories[0].get("url"), repositories[0].get("commit")
-    ) != (repository, commit):
+    ) != (repository, source_commit):
         raise SystemExit("candidate GM runtime source provenance mismatch")
     dependencies = {
         ((element.get("id") or "").strip(), (element.get("version") or "").strip())
@@ -370,8 +404,13 @@ with zipfile.ZipFile(package_path) as archive:
         and (element.get("id") or "").startswith("Chummer.")
     }
     expected_dependencies = {
+        ("Chummer.Application", version),
         ("Chummer.Engine.Contracts", version),
         ("Chummer.Hub.Registry.Contracts", locked_version),
+        ("Chummer.Infrastructure", version),
+        ("Chummer.Rulesets.Hosting", version),
+        ("Chummer.Rulesets.Sr5", version),
+        ("Chummer.Rulesets.Sr6", version),
         ("Chummer.Run.Contracts", locked_version),
     }
     if dependencies != expected_dependencies:
@@ -382,14 +421,15 @@ with zipfile.ZipFile(package_path) as archive:
 
 package_bytes = package_path.read_bytes()
 inventory = {
-    "contract": "chummer-core.candidate-gm-edit-runtime-package-inventory/v1",
+    "contract": "chummer-core.candidate-gm-edit-runtime-package-inventory/v2",
     "role": "current_core_candidate",
-    "core_commit": commit,
+    "runtime_source_commit": source_commit,
+    "package_recipe_commit": recipe_commit,
     "package": {
         "id": package_id,
         "version": version,
         "repository": repository,
-        "commit": commit,
+        "commit": source_commit,
         "project": "Chummer.GmCharacterEdits/Chummer.GmCharacterEdits.csproj",
         "file_name": package_path.name,
         "sha256": hashlib.sha256(package_bytes).hexdigest(),
@@ -400,10 +440,16 @@ inventory = {
 module._atomic_write_json(feed / inventory_name, inventory)
 print(
     "candidate-gm-edit-runtime-package: ok "
-    f"({package_id} {version} at {commit}; "
+    f"({package_id} {version} from {source_commit}; recipe {recipe_commit}; "
     f"sha256 {inventory['package']['sha256']})"
 )
 PY
+
+python3 "$consumer_root/scripts/ai/runtime-package-plane.py" \
+  --repo-root "$consumer_root" \
+  --lock "$consumer_root/eng/runtime-package-plane.lock.json" \
+  --feed "$isolated_feed" \
+  --canonicalize-and-write-inventory
 
 runtime_consumer_root="$temporary_root/gm-runtime-consumer"
 mkdir -p "$runtime_consumer_root"
@@ -417,6 +463,7 @@ cat >"$runtime_consumer_root/GmRuntimeConsumer.csproj" <<EOF
   <ItemGroup>
     <PackageReference Include="$candidate_id" Version="$candidate_version" />
     <PackageReference Include="$candidate_runtime_id" Version="$candidate_version" />
+    <PackageReference Include="Chummer.Rulesets.Sr4" Version="$candidate_version" />
   </ItemGroup>
 </Project>
 EOF
@@ -492,6 +539,14 @@ dotnet test "$consumer_root/Chummer.Tests/Chummer.Tests.csproj" \
   --filter "$local_owner_filter" \
   "${common_properties[@]}"
 
+# Nothing after this point may alter package bytes. Revalidate all eight exact
+# packages and their unified inventory after every restore/build/test graph.
+python3 "$consumer_root/scripts/ai/runtime-package-plane.py" \
+  --repo-root "$consumer_root" \
+  --lock "$consumer_root/eng/runtime-package-plane.lock.json" \
+  --feed "$isolated_feed" \
+  --validate-feed
+
 python3 - \
   "$consumer_root" \
   "$isolated_packages" \
@@ -499,6 +554,7 @@ python3 - \
   "$isolated_feed/$inventory_name" \
   "$isolated_feed/$candidate_inventory_name" \
   "$isolated_feed/$candidate_runtime_inventory_name" \
+  "$isolated_feed/$runtime_inventory_name" \
   "$runtime_consumer_root/obj/project.assets.json" \
   "$isolated_feed" \
   "$receipt_path" <<'PY'
@@ -516,10 +572,11 @@ from pathlib import Path
     inventory_path,
     candidate_inventory_path,
     candidate_runtime_inventory_path,
+    runtime_inventory_path,
     runtime_consumer_assets_path,
     isolated_feed,
     receipt_path,
-) = map(Path, sys.argv[1:10])
+) = map(Path, sys.argv[1:11])
 expected_package_root = package_root.resolve()
 asset_files = sorted(consumer_root.glob("**/obj/project.assets.json"))
 if not asset_files:
@@ -551,16 +608,18 @@ candidate_inventory_bytes = candidate_inventory_path.read_bytes()
 candidate_inventory = json.loads(candidate_inventory_bytes)
 candidate_runtime_inventory_bytes = candidate_runtime_inventory_path.read_bytes()
 candidate_runtime_inventory = json.loads(candidate_runtime_inventory_bytes)
+runtime_inventory_bytes = runtime_inventory_path.read_bytes()
+runtime_inventory = json.loads(runtime_inventory_bytes)
 version = lock["package_version"]
 candidate = candidate_inventory["package"]
 commit = subprocess.check_output(
     ["git", "-C", str(consumer_root), "rev-parse", "HEAD"], text=True
 ).strip()
-if candidate_inventory.get("contract") != "chummer-core.candidate-engine-contract-package-inventory/v1":
+if candidate_inventory.get("contract") != "chummer-core.candidate-engine-contract-package-inventory/v2":
     raise SystemExit("candidate Engine Contracts inventory contract is invalid")
 if candidate_inventory.get("role") != "current_core_candidate":
     raise SystemExit("candidate Engine Contracts inventory role is invalid")
-expected_candidate_version = f"0.0.0-packageplane.candidate.sha{commit[:12]}"
+expected_candidate_version = "0.0.0-packageplane.candidate.shabc08228d3ce0"
 if (
     candidate.get("id") != "Chummer.Engine.Contracts"
     or candidate.get("version") != expected_candidate_version
@@ -568,7 +627,7 @@ if (
     raise SystemExit("candidate Engine Contracts identity is invalid")
 expected_candidate_metadata = {
     "repository": "https://github.com/ArchonMegalon/chummer6-core.git",
-    "commit": commit,
+    "commit": "bc08228d3ce06410ca97ada63a5af41a2eaa91bf",
     "project": "Chummer.Contracts/Chummer.Contracts.csproj",
     "file_name": f"Chummer.Engine.Contracts.{expected_candidate_version}.nupkg",
 }
@@ -577,8 +636,12 @@ for key, expected in expected_candidate_metadata.items():
         raise SystemExit(
             f"candidate Engine Contracts {key} mismatch: {candidate.get(key)!r}"
         )
-if candidate_inventory.get("core_commit") != commit:
-    raise SystemExit("candidate Engine Contracts inventory is not bound to the consumer commit")
+if (
+    candidate_inventory.get("runtime_source_commit")
+    != "bc08228d3ce06410ca97ada63a5af41a2eaa91bf"
+    or candidate_inventory.get("package_recipe_commit") != commit
+):
+    raise SystemExit("candidate Engine Contracts inventory authority is invalid")
 candidate_path = isolated_feed / candidate["file_name"]
 candidate_bytes = candidate_path.read_bytes()
 if len(candidate_bytes) != candidate.get("size_bytes"):
@@ -589,16 +652,18 @@ if hashlib.sha256(candidate_bytes).hexdigest() != candidate.get("sha256"):
 runtime_candidate = candidate_runtime_inventory["package"]
 if (
     candidate_runtime_inventory.get("contract")
-    != "chummer-core.candidate-gm-edit-runtime-package-inventory/v1"
+    != "chummer-core.candidate-gm-edit-runtime-package-inventory/v2"
     or candidate_runtime_inventory.get("role") != "current_core_candidate"
-    or candidate_runtime_inventory.get("core_commit") != commit
+    or candidate_runtime_inventory.get("runtime_source_commit")
+    != "bc08228d3ce06410ca97ada63a5af41a2eaa91bf"
+    or candidate_runtime_inventory.get("package_recipe_commit") != commit
 ):
     raise SystemExit("candidate GM edit runtime inventory authority is invalid")
 expected_runtime_metadata = {
     "id": "Chummer.Engine.GmCharacterEdits",
     "version": expected_candidate_version,
     "repository": "https://github.com/ArchonMegalon/chummer6-core.git",
-    "commit": commit,
+    "commit": "bc08228d3ce06410ca97ada63a5af41a2eaa91bf",
     "project": "Chummer.GmCharacterEdits/Chummer.GmCharacterEdits.csproj",
     "file_name": f"Chummer.Engine.GmCharacterEdits.{expected_candidate_version}.nupkg",
 }
@@ -613,6 +678,32 @@ if len(runtime_candidate_bytes) != runtime_candidate.get("size_bytes"):
     raise SystemExit("candidate GM edit runtime byte size does not match its inventory")
 if hashlib.sha256(runtime_candidate_bytes).hexdigest() != runtime_candidate.get("sha256"):
     raise SystemExit("candidate GM edit runtime digest does not match its inventory")
+if (
+    runtime_inventory.get("contract") != "chummer-core.runtime-package-inventory/v1"
+    or runtime_inventory.get("package_version") != expected_candidate_version
+    or runtime_inventory.get("runtime_source_commit")
+    != "bc08228d3ce06410ca97ada63a5af41a2eaa91bf"
+    or runtime_inventory.get("package_recipe_commit") != commit
+):
+    raise SystemExit("unified runtime package inventory authority is invalid")
+runtime_rows = runtime_inventory.get("packages")
+if not isinstance(runtime_rows, list) or len(runtime_rows) != 8:
+    raise SystemExit("unified runtime package inventory must bind exactly eight packages")
+for row in runtime_rows:
+    matches = [
+        path
+        for path in isolated_feed.iterdir()
+        if path.name.casefold() == row["file_name"].casefold()
+    ]
+    if len(matches) != 1 or matches[0].is_symlink() or not matches[0].is_file():
+        raise SystemExit(f"runtime package byte authority is ambiguous: {row['id']}")
+    package_bytes = matches[0].read_bytes()
+    if (
+        matches[0].name != row["file_name"]
+        or len(package_bytes) != row["size_bytes"]
+        or hashlib.sha256(package_bytes).hexdigest() != row["sha256"]
+    ):
+        raise SystemExit(f"runtime package bytes changed after final validation: {row['id']}")
 runtime_assets = json.loads(runtime_consumer_assets_path.read_text(encoding="utf-8"))
 runtime_package_folders = list((runtime_assets.get("packageFolders") or {}).keys())
 if (
@@ -621,12 +712,13 @@ if (
 ):
     raise SystemExit("GM edit runtime consumer used an ambient package cache")
 runtime_libraries = runtime_assets.get("libraries") or {}
-for identity in (
-    f"Chummer.Engine.Contracts/{expected_candidate_version}",
-    f"Chummer.Engine.GmCharacterEdits/{expected_candidate_version}",
+runtime_identities = {
+    f"{row['id']}/{row['version']}" for row in runtime_rows
+}
+for identity in sorted(runtime_identities | {
     f"Chummer.Hub.Registry.Contracts/{version}",
     f"Chummer.Run.Contracts/{version}",
-):
+}):
     metadata = runtime_libraries.get(identity)
     if not isinstance(metadata, dict) or metadata.get("type") != "package":
         raise SystemExit(f"GM edit runtime consumer did not use locked package {identity}")
@@ -656,10 +748,7 @@ for identity, observed_types in observed_owner_types.items():
             f"{sorted(str(value) for value in observed_types)}"
         )
 locked_packages = []
-resolved_packages = [
-    dict(candidate, role="current_core_candidate"),
-    dict(runtime_candidate, role="current_core_candidate"),
-]
+resolved_packages = [dict(row, role="current_core_runtime_candidate") for row in runtime_rows]
 for row in inventory["packages"]:
     is_engine_baseline = row["id"] == "Chummer.Engine.Contracts"
     locked_packages.append(
@@ -687,7 +776,7 @@ for row in inventory["packages"]:
         )
 
 receipt = {
-    "contract": "chummer-core.no-siblings-package-plane/v2",
+    "contract": "chummer-core.no-siblings-package-plane/v3",
     "generated_at_utc": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
     "status": "pass",
     "core_commit": commit,
@@ -695,6 +784,10 @@ receipt = {
     "package_inventory_sha256": hashlib.sha256(inventory_bytes).hexdigest(),
     "candidate_package_inventory_sha256": hashlib.sha256(candidate_inventory_bytes).hexdigest(),
     "candidate_runtime_package_inventory_sha256": hashlib.sha256(candidate_runtime_inventory_bytes).hexdigest(),
+    "runtime_package_inventory_sha256": hashlib.sha256(runtime_inventory_bytes).hexdigest(),
+    "runtime_package_plane_lock_sha256": runtime_inventory["package_plane_lock_sha256"],
+    "runtime_source_commit": runtime_inventory["runtime_source_commit"],
+    "package_recipe_commit": runtime_inventory["package_recipe_commit"],
     "package_version": version,
     "candidate_package_version": candidate["version"],
     "locked_packages": locked_packages,
@@ -712,9 +805,20 @@ receipt = {
     "candidate_engine_contract_pack": "pass",
     "candidate_gm_edit_runtime_pack": "pass",
     "candidate_gm_edit_runtime_consumer": "pass",
+    "eight_package_runtime_plane": "pass",
 }
 receipt_path.parent.mkdir(parents=True, exist_ok=True)
 receipt_path.write_text(json.dumps(receipt, indent=2) + "\n", encoding="utf-8")
 print(f"no-siblings-package-plane: ok ({len(asset_files)} assets files)")
 print(f"receipt: {receipt_path}")
 PY
+
+if [[ -n "${CHUMMER_RUNTIME_PACKAGE_EXPORT_DIR:-}" ]]; then
+  python3 "$consumer_root/scripts/ai/runtime-package-plane.py" \
+    --repo-root "$consumer_root" \
+    --lock "$consumer_root/eng/runtime-package-plane.lock.json" \
+    --feed "$isolated_feed" \
+    --receipt "$receipt_path" \
+    --export-dir "$CHUMMER_RUNTIME_PACKAGE_EXPORT_DIR" \
+    --export-bundle
+fi

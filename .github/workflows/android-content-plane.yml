@@ -1,0 +1,95 @@
+name: Core Android content plane
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  android-content:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+    steps:
+      - name: Check out the exact Core producer
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify the immutable Android content authority
+        run: |
+          python3 scripts/ai/android-content-plane.py \
+            --check \
+            --expected-producer-commit "${GITHUB_SHA}"
+          python3 -m unittest -v tests/test_android_content_plane.py
+
+      - name: Export the isolated Android content artifact
+        env:
+          CONTENT_EXPORT: ${{ runner.temp }}/chummer-core-android-content-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          python3 scripts/ai/android-content-plane.py \
+            --export \
+            --export-dir "${CONTENT_EXPORT}" \
+            --expected-producer-commit "${GITHUB_SHA}" \
+            --run-id "${GITHUB_RUN_ID}" \
+            --run-attempt "${GITHUB_RUN_ATTEMPT}"
+          python3 scripts/ai/android-content-plane.py \
+            --verify-export \
+            --export-dir "${CONTENT_EXPORT}" \
+            --expected-producer-commit "${GITHUB_SHA}" \
+            --run-id "${GITHUB_RUN_ID}" \
+            --run-attempt "${GITHUB_RUN_ATTEMPT}"
+
+      - name: Upload the exact content-only artifact
+        id: upload-android-content
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: chummer-core-android-content-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/chummer-core-android-content-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0
+          overwrite: false
+          include-hidden-files: false
+
+      - name: Validate post-upload artifact authority outputs
+        env:
+          CONTENT_ARTIFACT_ID: ${{ steps.upload-android-content.outputs.artifact-id }}
+          CONTENT_ARTIFACT_DIGEST: ${{ steps.upload-android-content.outputs.artifact-digest }}
+        run: |
+          [[ "${CONTENT_ARTIFACT_ID}" =~ ^[1-9][0-9]*$ ]]
+          [[ "${CONTENT_ARTIFACT_DIGEST}" =~ ^(sha256:)?[0-9a-f]{64}$ ]]
+
+      - name: Reserve a fresh post-upload verification root
+        env:
+          CONTENT_REDOWNLOAD: ${{ runner.temp }}/chummer-core-android-content-post-upload-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          if [[ -e "${CONTENT_REDOWNLOAD}" || -L "${CONTENT_REDOWNLOAD}" ]]; then
+            echo "post-upload verification root already exists" >&2
+            exit 1
+          fi
+          mkdir -m 0755 -- "${CONTENT_REDOWNLOAD}"
+
+      - name: Download the exact uploaded artifact ID
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          artifact-ids: ${{ steps.upload-android-content.outputs.artifact-id }}
+          path: ${{ runner.temp }}/chummer-core-android-content-post-upload-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          merge-multiple: true
+
+      - name: Reverify the downloaded artifact name, run authority, layout, and bytes
+        env:
+          CONTENT_REDOWNLOAD: ${{ runner.temp }}/chummer-core-android-content-post-upload-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          python3 scripts/ai/android-content-plane.py \
+            --verify-export \
+            --export-dir "${CONTENT_REDOWNLOAD}" \
+            --expected-producer-commit "${GITHUB_SHA}" \
+            --run-id "${GITHUB_RUN_ID}" \
+            --run-attempt "${GITHUB_RUN_ATTEMPT}"
