@@ -203,7 +203,11 @@ GM_PACKAGE_PLANE_CONDITION = "'$(ChummerRuntimePackagePlane)' != 'true'"
 ALLOWED_RECIPE_DELTA = (
     ".github/workflows/android-content-plane.yml",
     ".github/workflows/package-plane.yml",
+    "Chummer.Application/BuildGhost/BuildGhostPacketValidator.cs",
+    "Chummer.Application/BuildGhost/DefaultBuildGhostAnalysisService.cs",
     "Chummer.Application/Chummer.Application.csproj",
+    "Chummer.BuildGhost.Tests/BuildGhostAnalysisServiceTests.cs",
+    "Chummer.Contracts/BuildGhost/BuildGhostContracts.cs",
     "Chummer.Contracts/Chummer.Contracts.csproj",
     "Chummer.GmCharacterEdits/Chummer.GmCharacterEdits.csproj",
     "Chummer.Infrastructure/Chummer.Infrastructure.csproj",
