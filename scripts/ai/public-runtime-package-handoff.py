@@ -872,11 +872,10 @@ def verify_public_release(
     commit = receipt["commit"]
     if (
         metadata.get("tag_name") != receipt["release_tag"]
-        or metadata.get("target_commitish") != commit
         or metadata.get("draft") is not False
         or metadata.get("prerelease") is not False
     ):
-        raise PublicHandoffError("public release target or posture differs")
+        raise PublicHandoffError("public release tag or posture differs")
     tag_metadata = _strict_json(
         _read_bound_file(tag_metadata_path, "public tag metadata"),
         "public tag metadata",

@@ -435,18 +435,17 @@ class PublicRuntimePackageHandoffTests(unittest.TestCase):
                 downloaded_receipt_path=downloaded_receipt,
             )
 
-    def test_public_release_rejects_moved_tag_target(self) -> None:
+    def test_public_release_ignores_unused_target_commitish_for_precreated_tag(self) -> None:
         metadata_path, tag, receipt, archive, downloaded_receipt, metadata = self._release_fixture()
-        metadata["target_commitish"] = "0" * 40
+        metadata["target_commitish"] = "main"
         self._write_json(metadata_path, metadata)
-        with self.assertRaisesRegex(handoff.PublicHandoffError, "target or posture"):
-            handoff.verify_public_release(
-                release_metadata_path=metadata_path,
-                tag_metadata_path=tag,
-                receipt_path=receipt,
-                downloaded_bundle_path=archive,
-                downloaded_receipt_path=downloaded_receipt,
-            )
+        handoff.verify_public_release(
+            release_metadata_path=metadata_path,
+            tag_metadata_path=tag,
+            receipt_path=receipt,
+            downloaded_bundle_path=archive,
+            downloaded_receipt_path=downloaded_receipt,
+        )
 
     def test_public_release_rejects_moved_git_ref(self) -> None:
         metadata, tag_path, receipt, archive, downloaded_receipt, _ = self._release_fixture()

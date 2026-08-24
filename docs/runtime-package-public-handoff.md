@@ -37,9 +37,11 @@ explicit forensic cleanup.
 
 After creating the release, the workflow downloads the release API response
 and Git tag response plus both assets without an authorization header. It
-requires both the release target and lightweight Git tag to name the exact
-commit, non-draft/non-prerelease posture, exactly two uploaded assets, GitHub's
-SHA-256 metadata, and byte-for-byte agreement with the local receipt.
+requires the release to name the exact tag and the lightweight Git tag to name
+the exact commit, non-draft/non-prerelease posture, exactly two uploaded assets,
+GitHub's SHA-256 metadata, and byte-for-byte agreement with the local receipt.
+The release `target_commitish` field is intentionally not authority because
+GitHub ignores it when the Git tag already exists.
 
 ## Consumer authority
 
