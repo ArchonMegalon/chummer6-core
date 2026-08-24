@@ -65,3 +65,31 @@ jobs:
         run: |
           [[ "${CONTENT_ARTIFACT_ID}" =~ ^[1-9][0-9]*$ ]]
           [[ "${CONTENT_ARTIFACT_DIGEST}" =~ ^(sha256:)?[0-9a-f]{64}$ ]]
+
+      - name: Reserve a fresh post-upload verification root
+        env:
+          CONTENT_REDOWNLOAD: ${{ runner.temp }}/chummer-core-android-content-post-upload-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          if [[ -e "${CONTENT_REDOWNLOAD}" || -L "${CONTENT_REDOWNLOAD}" ]]; then
+            echo "post-upload verification root already exists" >&2
+            exit 1
+          fi
+          mkdir -m 0755 -- "${CONTENT_REDOWNLOAD}"
+
+      - name: Download the exact uploaded artifact ID
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          artifact-ids: ${{ steps.upload-android-content.outputs.artifact-id }}
+          path: ${{ runner.temp }}/chummer-core-android-content-post-upload-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          merge-multiple: true
+
+      - name: Reverify the downloaded artifact name, run authority, layout, and bytes
+        env:
+          CONTENT_REDOWNLOAD: ${{ runner.temp }}/chummer-core-android-content-post-upload-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          python3 scripts/ai/android-content-plane.py \
+            --verify-export \
+            --export-dir "${CONTENT_REDOWNLOAD}" \
+            --expected-producer-commit "${GITHUB_SHA}" \
+            --run-id "${GITHUB_RUN_ID}" \
+            --run-attempt "${GITHUB_RUN_ATTEMPT}"

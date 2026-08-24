@@ -132,6 +132,57 @@ class Authority:
     licenses: tuple[SourceFile, ...]
 
 
+@dataclass(frozen=True)
+class _StableIdentity:
+    device: int
+    inode: int
+    mode: int
+    link_count: int
+    size: int
+    modified_ns: int
+    changed_ns: int
+
+    @classmethod
+    def capture(cls, metadata: os.stat_result) -> "_StableIdentity":
+        return cls(
+            metadata.st_dev,
+            metadata.st_ino,
+            metadata.st_mode,
+            metadata.st_nlink,
+            metadata.st_size,
+            metadata.st_mtime_ns,
+            metadata.st_ctime_ns,
+        )
+
+
+@dataclass
+class _ExportSnapshot:
+    root_path: Path
+    directory_fds: dict[str, int]
+    directory_identities: dict[str, _StableIdentity]
+    directory_memberships: dict[str, tuple[str, ...]]
+    file_identities: dict[str, _StableIdentity]
+    file_fds: dict[str, int]
+
+    def close(self) -> None:
+        for descriptor in tuple(self.file_fds.values()):
+            try:
+                os.close(descriptor)
+            except OSError:
+                pass
+        self.file_fds.clear()
+        for relative in sorted(
+            self.directory_fds,
+            key=lambda value: (len(PurePosixPath(value).parts), value),
+            reverse=True,
+        ):
+            try:
+                os.close(self.directory_fds[relative])
+            except OSError:
+                pass
+        self.directory_fds.clear()
+
+
 def _require_exact_keys(value: Any, expected: set[str], label: str) -> dict[str, Any]:
     if not isinstance(value, dict) or set(value) != expected:
         actual = sorted(value) if isinstance(value, dict) else type(value).__name__
@@ -721,74 +772,249 @@ def export_artifact(
     return receipt
 
 
-def _walk_export(export_dir: Path) -> tuple[set[str], set[str]]:
+def _require_same_identity(
+    before: _StableIdentity,
+    after: _StableIdentity,
+    label: str,
+) -> None:
+    if before != after:
+        raise ContentPlaneError(f"{label} identity changed during verification")
+
+
+def _require_directory_identity(identity: _StableIdentity, label: str) -> None:
+    if not stat.S_ISDIR(identity.mode):
+        raise ContentPlaneError(f"{label} is not a regular directory")
+    if stat.S_IMODE(identity.mode) != 0o755:
+        raise ContentPlaneError(f"{label} mode is not 0755")
+    if identity.link_count < 1:
+        raise ContentPlaneError(f"{label} has no directory link authority")
+
+
+def _require_file_identity(
+    identity: _StableIdentity,
+    label: str,
+    expected_size: int | None = None,
+) -> None:
+    if not stat.S_ISREG(identity.mode):
+        raise ContentPlaneError(f"{label} is not a regular file")
+    if identity.link_count != 1:
+        raise ContentPlaneError(f"{label} is hard-linked")
+    if stat.S_IMODE(identity.mode) != 0o644:
+        raise ContentPlaneError(f"{label} mode is not 0644")
+    if expected_size is not None and identity.size != expected_size:
+        raise ContentPlaneError(f"{label} size differs from the exact member")
+
+
+def _directory_membership(descriptor: int, label: str) -> tuple[str, ...]:
     try:
-        root_metadata = export_dir.lstat()
+        names = os.listdir(descriptor)
+    except OSError as error:
+        raise ContentPlaneError(f"{label} membership cannot be read: {error}") from error
+    if len(names) != len(set(names)):
+        raise ContentPlaneError(f"{label} membership is ambiguous")
+    return tuple(sorted(names))
+
+
+def _entry_identity(parent_fd: int, name: str, label: str) -> _StableIdentity:
+    try:
+        return _StableIdentity.capture(os.stat(name, dir_fd=parent_fd, follow_symlinks=False))
+    except OSError as error:
+        raise ContentPlaneError(f"{label} entry cannot be inspected: {error}") from error
+
+
+def _walk_export(export_dir: Path) -> _ExportSnapshot:
+    flags_dir = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        root_before = _StableIdentity.capture(export_dir.lstat())
+        root_fd = os.open(export_dir, flags_dir)
+        root_open = _StableIdentity.capture(os.fstat(root_fd))
     except OSError as error:
         raise ContentPlaneError(f"export directory is unavailable: {error}") from error
-    if not stat.S_ISDIR(root_metadata.st_mode) or export_dir.is_symlink():
-        raise ContentPlaneError("export root must be a regular non-symlink directory")
-    if stat.S_IMODE(root_metadata.st_mode) != 0o755:
-        raise ContentPlaneError("export root mode is not 0755")
-    files: set[str] = set()
-    directories: set[str] = set()
-    for root, directory_names, file_names in os.walk(export_dir, followlinks=False):
-        root_path = Path(root)
-        for name in directory_names:
-            path = root_path / name
-            metadata = path.lstat()
-            if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISDIR(metadata.st_mode):
-                raise ContentPlaneError(f"artifact directory member is unsafe: {path}")
-            if stat.S_IMODE(metadata.st_mode) != 0o755:
-                raise ContentPlaneError(f"artifact directory mode is not 0755: {path}")
-            directories.add(path.relative_to(export_dir).as_posix())
-        for name in file_names:
-            path = root_path / name
-            metadata = path.lstat()
-            if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISREG(metadata.st_mode):
-                raise ContentPlaneError(f"artifact file member is not regular: {path}")
-            if metadata.st_nlink != 1:
-                raise ContentPlaneError(f"artifact file member is hard-linked: {path}")
-            if stat.S_IMODE(metadata.st_mode) != 0o644:
-                raise ContentPlaneError(f"artifact file mode is not 0644: {path}")
-            files.add(path.relative_to(export_dir).as_posix())
-    return files, directories
-
-
-def _read_export_member(export_dir: Path, relative: str) -> bytes:
-    flags_dir = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
-    flags_file = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
-    descriptor = os.open(export_dir, flags_dir)
     try:
-        parts = PurePosixPath(relative).parts
-        for part in parts[:-1]:
-            child = os.open(part, flags_dir, dir_fd=descriptor)
+        _require_directory_identity(root_before, "export root")
+        _require_directory_identity(root_open, "export root")
+        _require_same_identity(root_before, root_open, "export root")
+        snapshot = _ExportSnapshot(
+            export_dir,
+            {"": root_fd},
+            {"": root_open},
+            {},
+            {},
+            {},
+        )
+        pending = [""]
+        while pending:
+            directory = pending.pop()
+            descriptor = snapshot.directory_fds[directory]
+            membership = _directory_membership(
+                descriptor,
+                f"artifact directory {directory or '.'}",
+            )
+            snapshot.directory_memberships[directory] = membership
+            for name in membership:
+                relative = f"{directory}/{name}" if directory else name
+                identity_before = _entry_identity(
+                    descriptor,
+                    name,
+                    f"artifact member {relative}",
+                )
+                if stat.S_ISDIR(identity_before.mode):
+                    _require_directory_identity(
+                        identity_before,
+                        f"artifact directory {relative}",
+                    )
+                    child_fd = -1
+                    try:
+                        child_fd = os.open(name, flags_dir, dir_fd=descriptor)
+                        identity_open = _StableIdentity.capture(os.fstat(child_fd))
+                    except OSError as error:
+                        if child_fd >= 0:
+                            os.close(child_fd)
+                        raise ContentPlaneError(
+                            f"artifact directory {relative} cannot be opened: {error}"
+                        ) from error
+                    try:
+                        _require_directory_identity(
+                            identity_open,
+                            f"artifact directory {relative}",
+                        )
+                        _require_same_identity(
+                            identity_before,
+                            identity_open,
+                            f"artifact directory {relative}",
+                        )
+                    except Exception:
+                        os.close(child_fd)
+                        raise
+                    snapshot.directory_fds[relative] = child_fd
+                    snapshot.directory_identities[relative] = identity_open
+                    pending.append(relative)
+                else:
+                    _require_file_identity(
+                        identity_before,
+                        f"artifact file member {relative}",
+                    )
+                    snapshot.file_identities[relative] = identity_before
+        return snapshot
+    except Exception:
+        if "snapshot" in locals():
+            snapshot.close()
+        else:
+            os.close(root_fd)
+        raise
+
+
+def _read_export_member(
+    snapshot: _ExportSnapshot,
+    relative: str,
+    expected_value: bytes,
+) -> bytes:
+    if relative in snapshot.file_fds:
+        raise ContentPlaneError(f"artifact member was requested more than once: {relative}")
+    path = PurePosixPath(relative)
+    parent_name = path.parent.as_posix()
+    if parent_name == ".":
+        parent_name = ""
+    parent = snapshot.directory_fds.get(parent_name)
+    initial = snapshot.file_identities.get(relative)
+    if parent is None or initial is None:
+        raise ContentPlaneError(f"artifact member is outside the descriptor snapshot: {relative}")
+    expected_size = len(expected_value)
+    before = _entry_identity(parent, path.name, f"artifact member {relative}")
+    _require_file_identity(before, f"artifact member {relative}", expected_size)
+    _require_same_identity(initial, before, f"artifact member {relative}")
+    flags_file = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    descriptor = -1
+    try:
+        descriptor = os.open(path.name, flags_file, dir_fd=parent)
+        opened = _StableIdentity.capture(os.fstat(descriptor))
+    except OSError as error:
+        if descriptor >= 0:
             os.close(descriptor)
-            descriptor = child
-        member = os.open(parts[-1], flags_file, dir_fd=descriptor)
-        try:
-            before = os.fstat(member)
-            if not stat.S_ISREG(before.st_mode) or before.st_nlink != 1:
-                raise ContentPlaneError(f"artifact member is not an independent regular file: {relative}")
-            chunks: list[bytes] = []
-            while True:
-                chunk = os.read(member, 1024 * 1024)
-                if not chunk:
-                    break
-                chunks.append(chunk)
-            after = os.fstat(member)
-            if (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns) != (
-                after.st_dev,
-                after.st_ino,
-                after.st_size,
-                after.st_mtime_ns,
-            ):
-                raise ContentPlaneError(f"artifact member changed while read: {relative}")
-            return b"".join(chunks)
-        finally:
-            os.close(member)
-    finally:
-        os.close(descriptor)
+        raise ContentPlaneError(f"artifact member cannot be opened: {relative}: {error}") from error
+    snapshot.file_fds[relative] = descriptor
+    _require_file_identity(opened, f"artifact member {relative}", expected_size)
+    _require_same_identity(before, opened, f"artifact member {relative}")
+
+    digest = hashlib.sha256()
+    chunks: list[bytes] = []
+    remaining = expected_size
+    try:
+        while remaining:
+            chunk = os.read(descriptor, min(1024 * 1024, remaining))
+            if not chunk:
+                raise ContentPlaneError(f"artifact member ended early: {relative}")
+            digest.update(chunk)
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        if os.read(descriptor, 1):
+            raise ContentPlaneError(f"artifact member exceeds its exact size: {relative}")
+        after = _StableIdentity.capture(os.fstat(descriptor))
+    except OSError as error:
+        raise ContentPlaneError(f"artifact member cannot be read: {relative}: {error}") from error
+    _require_file_identity(after, f"artifact member {relative}", expected_size)
+    _require_same_identity(opened, after, f"artifact member {relative}")
+    entry_after = _entry_identity(parent, path.name, f"artifact member {relative}")
+    _require_same_identity(after, entry_after, f"artifact member {relative}")
+    if digest.hexdigest() != _sha256(expected_value):
+        raise ContentPlaneError(f"artifact member digest differs: {relative}")
+    return b"".join(chunks)
+
+
+def _verify_export_snapshot_stable(snapshot: _ExportSnapshot) -> None:
+    if set(snapshot.file_fds) != set(snapshot.file_identities):
+        raise ContentPlaneError("not every artifact file was descriptor-verified")
+    for relative, initial in snapshot.file_identities.items():
+        descriptor = snapshot.file_fds[relative]
+        final = _StableIdentity.capture(os.fstat(descriptor))
+        _require_file_identity(final, f"artifact member {relative}", initial.size)
+        _require_same_identity(initial, final, f"artifact member {relative}")
+        path = PurePosixPath(relative)
+        parent_name = path.parent.as_posix()
+        if parent_name == ".":
+            parent_name = ""
+        entry_final = _entry_identity(
+            snapshot.directory_fds[parent_name],
+            path.name,
+            f"artifact member {relative}",
+        )
+        _require_same_identity(final, entry_final, f"artifact member {relative}")
+
+    for relative in sorted(
+        snapshot.directory_fds,
+        key=lambda value: (len(PurePosixPath(value).parts), value),
+        reverse=True,
+    ):
+        descriptor = snapshot.directory_fds[relative]
+        initial = snapshot.directory_identities[relative]
+        final = _StableIdentity.capture(os.fstat(descriptor))
+        _require_directory_identity(final, f"artifact directory {relative or '.'}")
+        _require_same_identity(initial, final, f"artifact directory {relative or '.'}")
+        membership = _directory_membership(
+            descriptor,
+            f"artifact directory {relative or '.'}",
+        )
+        if membership != snapshot.directory_memberships[relative]:
+            raise ContentPlaneError(
+                f"artifact directory {relative or '.'} membership changed during verification"
+            )
+        if relative:
+            path = PurePosixPath(relative)
+            parent_name = path.parent.as_posix()
+            if parent_name == ".":
+                parent_name = ""
+            entry_final = _entry_identity(
+                snapshot.directory_fds[parent_name],
+                path.name,
+                f"artifact directory {relative}",
+            )
+            _require_same_identity(final, entry_final, f"artifact directory {relative}")
+        else:
+            try:
+                entry_final = _StableIdentity.capture(snapshot.root_path.lstat())
+            except OSError as error:
+                raise ContentPlaneError(f"export root cannot be re-inspected: {error}") from error
+            _require_same_identity(final, entry_final, "export root")
 
 
 def verify_export(
@@ -798,45 +1024,66 @@ def verify_export(
     run_attempt: str,
 ) -> dict[str, Any]:
     expected, inventory, receipt = build_artifact_members(authority, run_id, run_attempt)
-    actual_files, actual_directories = _walk_export(export_dir)
-    expected_files = set(expected)
-    if actual_files != expected_files:
-        raise ContentPlaneError(
-            "artifact members differ "
-            f"(missing={sorted(expected_files - actual_files)!r}, "
-            f"extra={sorted(actual_files - expected_files)!r})"
-        )
-    expected_directories = {
-        PurePosixPath(path).parent.as_posix()
-        for path in expected_files
-        if PurePosixPath(path).parent.as_posix() != "."
-    }
-    expected_directories |= {
-        parent.as_posix()
-        for path in tuple(expected_directories)
-        for parent in PurePosixPath(path).parents
-        if parent.as_posix() != "."
-    }
-    if actual_directories != expected_directories:
-        raise ContentPlaneError("artifact directories differ from the exact layout")
-    _validate_unique_paths(sorted(actual_files), "artifact layout")
-    if any(path.casefold().endswith(FORBIDDEN_SUFFIXES) for path in actual_files):
-        raise ContentPlaneError("artifact contains a forbidden runtime assembly/package member")
-    for relative, expected_value in expected.items():
-        actual = _read_export_member(export_dir, relative)
-        if len(actual) != len(expected_value) or _sha256(actual) != _sha256(expected_value):
-            raise ContentPlaneError(f"artifact member bytes differ: {relative}")
-    inventory_value = _read_export_member(export_dir, authority.lock["artifact"]["inventoryPath"])
-    if _read_json_bytes(inventory_value, "content inventory") != inventory:
-        raise ContentPlaneError("content inventory object differs after export")
-    receipt_value = _read_export_member(export_dir, authority.lock["artifact"]["receiptPath"])
-    if _read_json_bytes(receipt_value, "content receipt") != receipt:
-        raise ContentPlaneError("content receipt object differs after export")
-    seal_value = _read_export_member(export_dir, authority.lock["artifact"]["receiptSealPath"])
-    expected_seal = f"{_sha256(receipt_value)}  producer-receipt.json\n".encode("ascii")
-    if seal_value != expected_seal:
-        raise ContentPlaneError("content receipt seal differs")
-    return receipt
+    snapshot = _walk_export(export_dir)
+    try:
+        actual_files = set(snapshot.file_identities)
+        actual_directories = set(snapshot.directory_identities) - {""}
+        expected_files = set(expected)
+        if actual_files != expected_files:
+            raise ContentPlaneError(
+                "artifact members differ "
+                f"(missing={sorted(expected_files - actual_files)!r}, "
+                f"extra={sorted(actual_files - expected_files)!r})"
+            )
+        expected_directories = {
+            PurePosixPath(path).parent.as_posix()
+            for path in expected_files
+            if PurePosixPath(path).parent.as_posix() != "."
+        }
+        expected_directories |= {
+            parent.as_posix()
+            for path in tuple(expected_directories)
+            for parent in PurePosixPath(path).parents
+            if parent.as_posix() != "."
+        }
+        if actual_directories != expected_directories:
+            raise ContentPlaneError("artifact directories differ from the exact layout")
+        for path in sorted(actual_files):
+            _validate_path(
+                path,
+                ("content", "licenses", "authority"),
+                authority.lock["limits"]["maxPathUtf8Bytes"],
+            )
+        _validate_unique_paths(sorted(actual_files), "artifact layout")
+        _validate_unique_paths(sorted(actual_directories), "artifact directory layout")
+        if any(path.casefold().endswith(FORBIDDEN_SUFFIXES) for path in actual_files):
+            raise ContentPlaneError("artifact contains a forbidden runtime assembly/package member")
+
+        verified_values: dict[str, bytes] = {}
+        authority_paths = {
+            authority.lock["artifact"]["inventoryPath"],
+            authority.lock["artifact"]["receiptPath"],
+            authority.lock["artifact"]["receiptSealPath"],
+        }
+        for relative, expected_value in expected.items():
+            actual = _read_export_member(snapshot, relative, expected_value)
+            if relative in authority_paths:
+                verified_values[relative] = actual
+
+        inventory_value = verified_values[authority.lock["artifact"]["inventoryPath"]]
+        if _read_json_bytes(inventory_value, "content inventory") != inventory:
+            raise ContentPlaneError("content inventory object differs after export")
+        receipt_value = verified_values[authority.lock["artifact"]["receiptPath"]]
+        if _read_json_bytes(receipt_value, "content receipt") != receipt:
+            raise ContentPlaneError("content receipt object differs after export")
+        seal_value = verified_values[authority.lock["artifact"]["receiptSealPath"]]
+        expected_seal = f"{_sha256(receipt_value)}  producer-receipt.json\n".encode("ascii")
+        if seal_value != expected_seal:
+            raise ContentPlaneError("content receipt seal differs")
+        _verify_export_snapshot_stable(snapshot)
+        return receipt
+    finally:
+        snapshot.close()
 
 
 def _summary(authority: Authority) -> dict[str, Any]:

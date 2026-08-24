@@ -8,6 +8,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -199,6 +200,49 @@ class AndroidContentPlaneTests(unittest.TestCase):
             with self.assertRaisesRegex(plane.ContentPlaneError, "root mode"):
                 plane.verify_export(self.authority, export, "13", "1")
 
+    def test_descriptor_snapshot_rejects_mutations_after_the_initial_walk(self) -> None:
+        def file_mode(export: Path) -> None:
+            (export / "content/data/actions.xml").chmod(0o666)
+
+        def file_bytes(export: Path) -> None:
+            target = export / "content/data/actions.xml"
+            value = target.read_bytes()
+            target.write_bytes(bytes((value[0] ^ 1,)) + value[1:])
+
+        def file_size(export: Path) -> None:
+            target = export / "content/data/actions.xml"
+            target.write_bytes(target.read_bytes() + b"hostile")
+
+        def directory_mode(export: Path) -> None:
+            (export / "content/data").chmod(0o775)
+
+        def directory_membership(export: Path) -> None:
+            extra = export / "content/data/hostile-empty"
+            extra.mkdir(mode=0o755)
+            extra.chmod(0o755)
+
+        mutations = {
+            "file-mode": file_mode,
+            "file-bytes": file_bytes,
+            "file-size": file_size,
+            "directory-mode": directory_mode,
+            "directory-membership": directory_membership,
+        }
+        for label, mutate in mutations.items():
+            with self.subTest(mutation=label), self.temporary_directory() as temporary:
+                export = Path(temporary) / "artifact"
+                plane.export_artifact(self.authority, export, "17", "2")
+                original_walk = plane._walk_export
+
+                def mutate_after_walk(path: Path):
+                    snapshot = original_walk(path)
+                    mutate(path)
+                    return snapshot
+
+                with mock.patch.object(plane, "_walk_export", side_effect=mutate_after_walk):
+                    with self.assertRaises(plane.ContentPlaneError):
+                        plane.verify_export(self.authority, export, "17", "2")
+
     def test_receipt_is_source_producer_inventory_run_and_layout_bound(self) -> None:
         members, inventory, receipt = plane.build_artifact_members(self.authority, "23", "4")
         self.assertEqual(115, len(members))
@@ -227,9 +271,20 @@ class AndroidContentPlaneTests(unittest.TestCase):
             "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
             workflow,
         )
+        self.assertIn(
+            "actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093",
+            workflow,
+        )
         self.assertIn("--expected-producer-commit \"${GITHUB_SHA}\"", workflow)
         self.assertIn("CONTENT_ARTIFACT_ID", workflow)
         self.assertIn("CONTENT_ARTIFACT_DIGEST", workflow)
+        self.assertIn(
+            "artifact-ids: ${{ steps.upload-android-content.outputs.artifact-id }}",
+            workflow,
+        )
+        self.assertIn("merge-multiple: true", workflow)
+        self.assertIn("post-upload verification root already exists", workflow)
+        self.assertEqual(2, workflow.count("--verify-export"))
         for forbidden in (
             "dotnet ",
             "curl ",
