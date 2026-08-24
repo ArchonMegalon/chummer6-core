@@ -12,6 +12,7 @@
     "commit": "bc08228d3ce06410ca97ada63a5af41a2eaa91bf"
   },
   "allowed_recipe_delta": [
+    ".github/workflows/android-content-plane.yml",
     ".github/workflows/package-plane.yml",
     "Chummer.Application/Chummer.Application.csproj",
     "Chummer.Contracts/Chummer.Contracts.csproj",
@@ -21,9 +22,12 @@
     "Chummer.Rulesets.Sr4/Chummer.Rulesets.Sr4.csproj",
     "Chummer.Rulesets.Sr5/Chummer.Rulesets.Sr5.csproj",
     "Chummer.Rulesets.Sr6/Chummer.Rulesets.Sr6.csproj",
+    "eng/android-content-plane.lock.json",
     "eng/runtime-package-plane.lock.json",
+    "scripts/ai/android-content-plane.py",
     "scripts/ai/runtime-package-plane.py",
     "scripts/ai/verify-no-siblings-package-plane.sh",
+    "tests/test_android_content_plane.py",
     "tests/test_package_plane.py",
     "tests/test_runtime_package_plane_authority.py"
   ],
@@ -37,7 +41,7 @@
     {"path": "scripts/ai/_env.sh", "sha256": "efd91711e2492039933b2b97a0e0cfe51f84127dc25987dc2d5034997dcb8c30"},
     {"path": "scripts/ai/bootstrap-contracts-feed.sh", "sha256": "8b0c25566398f3b222ffbdd23a8244fb27d4f7ce8a65c15a9678a6a63d1a88e6"},
     {"path": "scripts/ai/bootstrap-owner-contracts-feed.py", "sha256": "5beffe15d1708f4cf2c096f376822cd48b9502b5fb1acb69b95db3c86c474786"},
-    {"path": "scripts/ai/runtime-package-plane.py", "sha256": "e887fdccba6b675eaa5fcdd88e535da8e39564941776392bcbd27c2606f3e549"},
+    {"path": "scripts/ai/runtime-package-plane.py", "sha256": "52d67de28ca56bee29679915da5abf7b07fb15788fcda846ccdc85b2a8394e20"},
     {"path": "scripts/ai/verify-no-siblings-package-plane.sh", "sha256": "dce5211365f6ecb67f59a2e12ef71c06743170f2e728ee2bd77f2d3b39869105"}
   ],
   "external_owner_packages": [

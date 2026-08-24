@@ -201,6 +201,7 @@ PROJECT_VARIABLE_DEPENDENCIES = {
 }
 GM_PACKAGE_PLANE_CONDITION = "'$(ChummerRuntimePackagePlane)' != 'true'"
 ALLOWED_RECIPE_DELTA = (
+    ".github/workflows/android-content-plane.yml",
     ".github/workflows/package-plane.yml",
     "Chummer.Application/Chummer.Application.csproj",
     "Chummer.Contracts/Chummer.Contracts.csproj",
@@ -210,9 +211,12 @@ ALLOWED_RECIPE_DELTA = (
     "Chummer.Rulesets.Sr4/Chummer.Rulesets.Sr4.csproj",
     "Chummer.Rulesets.Sr5/Chummer.Rulesets.Sr5.csproj",
     "Chummer.Rulesets.Sr6/Chummer.Rulesets.Sr6.csproj",
+    "eng/android-content-plane.lock.json",
     "eng/runtime-package-plane.lock.json",
+    "scripts/ai/android-content-plane.py",
     "scripts/ai/runtime-package-plane.py",
     "scripts/ai/verify-no-siblings-package-plane.sh",
+    "tests/test_android_content_plane.py",
     "tests/test_package_plane.py",
     "tests/test_runtime_package_plane_authority.py",
 )
