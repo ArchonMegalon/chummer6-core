@@ -531,15 +531,14 @@ class PackagePlaneTests(unittest.TestCase):
         self.assertIn("no_sibling_directories", verifier)
         self.assertIn("normal_local_engine_dependency_graph", verifier)
         self.assertIn("package_inventory_sha256", verifier)
-        self.assertIn(
-            'candidate_version_prefix="0.0.0-packageplane.candidate"',
-            verifier,
+        runtime_lock = json.loads(
+            (REPO_ROOT / "eng/runtime-package-plane.lock.json").read_text(encoding="utf-8")
         )
         self.assertIn(
-            'candidate_version="$candidate_version_prefix.sha${candidate_commit:0:12}"',
+            f'candidate_version="{runtime_lock["package_version"]}"',
             verifier,
         )
-        self.assertIn("chummer-core.candidate-engine-contract-package-inventory/v1", verifier)
+        self.assertIn("chummer-core.candidate-engine-contract-package-inventory/v2", verifier)
         self.assertIn('"role": "current_core_candidate"', verifier)
         self.assertIn('"locked_engine_baseline_not_selected"', verifier)
         self.assertIn('"locked_owner_dependency"', verifier)

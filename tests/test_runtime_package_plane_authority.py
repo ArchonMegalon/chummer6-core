@@ -3,8 +3,10 @@ from __future__ import annotations
 import copy
 import hashlib
 import importlib.util
+import io
 import json
 import sys
+import tarfile
 import tempfile
 import unittest
 import xml.etree.ElementTree as ET
@@ -42,6 +44,19 @@ class RuntimePackageLockTests(unittest.TestCase):
         altered["package_version"] += ".newer"
         with self.assertRaisesRegex(runtime.RuntimePackagePlaneError, "version is not exact"):
             runtime.validate_lock_payload(altered)
+
+    def test_sdk_archive_authority_is_fail_closed(self) -> None:
+        for field, altered_value in (
+            ("version", "10.0.104"),
+            ("rid", "linux-arm64"),
+            ("archive_url", "https://example.invalid/sdk.tar.gz"),
+            ("archive_sha512", "0" * 128),
+        ):
+            with self.subTest(field=field):
+                altered = copy.deepcopy(self.lock)
+                altered["dotnet_sdk"][field] = altered_value
+                with self.assertRaisesRegex(runtime.RuntimePackagePlaneError, "SDK is not exact"):
+                    runtime.validate_lock_payload(altered)
 
     def test_external_owner_commit_is_fail_closed(self) -> None:
         altered = copy.deepcopy(self.lock)
@@ -138,6 +153,7 @@ class RuntimePackageArchiveTests(unittest.TestCase):
         dependencies: tuple[str, ...] | None = None,
         source_commit: str | None = None,
         target_framework: str | None = None,
+        omit_dependency_group: bool = False,
     ) -> bytes:
         root = ET.Element("package")
         metadata = ET.SubElement(root, "metadata")
@@ -154,7 +170,7 @@ class RuntimePackageArchiveTests(unittest.TestCase):
             },
         )
         selected_dependencies = dependencies if dependencies is not None else package.dependencies
-        if selected_dependencies:
+        if not omit_dependency_group:
             groups = ET.SubElement(metadata, "dependencies")
             group = ET.SubElement(
                 groups,
@@ -180,6 +196,7 @@ class RuntimePackageArchiveTests(unittest.TestCase):
         dependencies: tuple[str, ...] | None = None,
         source_commit: str | None = None,
         target_framework: str | None = None,
+        omit_dependency_group: bool = False,
         extra_dll: str | None = None,
         extra_payload: str | None = None,
     ) -> None:
@@ -190,6 +207,7 @@ class RuntimePackageArchiveTests(unittest.TestCase):
                 dependencies=dependencies,
                 source_commit=source_commit,
                 target_framework=target_framework,
+                omit_dependency_group=omit_dependency_group,
             ),
             f"lib/net10.0/{package.assembly}": b"immutable-test-assembly",
         }
@@ -236,6 +254,12 @@ class RuntimePackageArchiveTests(unittest.TestCase):
         with self.assertRaisesRegex(runtime.RuntimePackagePlaneError, "dependency closure"):
             runtime.inspect_packages(self.feed)
 
+    def test_contracts_empty_net10_group_is_required(self) -> None:
+        contracts = runtime.PACKAGE_SPECS[0]
+        self._write_package(contracts, omit_dependency_group=True)
+        with self.assertRaisesRegex(runtime.RuntimePackagePlaneError, "dependency closure"):
+            runtime.inspect_packages(self.feed)
+
     def test_inventory_binds_every_package_byte(self) -> None:
         inventory = runtime.inventory_payload(REPO_ROOT, REPO_ROOT / "eng/runtime-package-plane.lock.json", self.feed)
         runtime._atomic_json(self.feed / runtime.INVENTORY_NAME, inventory)
@@ -260,20 +284,97 @@ class RuntimePackageArchiveTests(unittest.TestCase):
         inventory_path = self.feed / runtime.INVENTORY_NAME
         runtime._atomic_json(inventory_path, inventory)
         inventory_sha256 = hashlib.sha256(inventory_path.read_bytes()).hexdigest()
+        owner_lock_path = REPO_ROOT / "eng/package-plane.lock.json"
+        owner_lock_bytes = owner_lock_path.read_bytes()
+        owner_lock = json.loads(owner_lock_bytes)
+        owner_rows = []
+        for spec in owner_lock["packages"]:
+            file_name = f"{spec['id']}.{owner_lock['package_version']}.nupkg"
+            package_path = self.feed / file_name
+            package_path.write_bytes(f"owner-package:{spec['id']}".encode("utf-8"))
+            owner_rows.append(
+                {
+                    "id": spec["id"],
+                    "version": owner_lock["package_version"],
+                    "repository": spec["repository"],
+                    "commit": spec["commit"],
+                    "project": spec["project"],
+                    "file_name": file_name,
+                    "sha256": hashlib.sha256(package_path.read_bytes()).hexdigest(),
+                    "size_bytes": package_path.stat().st_size,
+                }
+            )
+        owner_inventory = {
+            "contract": "chummer-core.owner-contract-package-inventory/v1",
+            "package_plane_lock_sha256": hashlib.sha256(owner_lock_bytes).hexdigest(),
+            "package_version": owner_lock["package_version"],
+            "packages": owner_rows,
+        }
+        owner_inventory_path = self.feed / runtime.OWNER_INVENTORY_NAME
+        runtime._atomic_json(owner_inventory_path, owner_inventory)
+        candidate_engine_path = self.feed / runtime.CANDIDATE_ENGINE_INVENTORY_NAME
+        candidate_gm_path = self.feed / runtime.CANDIDATE_GM_INVENTORY_NAME
+        runtime._atomic_json(candidate_engine_path, {"candidate": "engine"})
+        runtime._atomic_json(candidate_gm_path, {"candidate": "gm"})
+        locked_rows = [
+            {
+                "id": row["id"],
+                "version": row["version"],
+                "sha256": row["sha256"],
+                "size_bytes": row["size_bytes"],
+                "role": (
+                    "locked_engine_baseline_not_selected"
+                    if row["id"] == "Chummer.Engine.Contracts"
+                    else "locked_owner_dependency"
+                ),
+            }
+            for row in owner_rows
+        ]
+        resolved_rows = [
+            *(dict(row, role="current_core_runtime_candidate") for row in inventory["packages"]),
+            *(
+                {
+                    "id": row["id"],
+                    "version": row["version"],
+                    "sha256": row["sha256"],
+                    "size_bytes": row["size_bytes"],
+                    "role": "locked_owner_dependency",
+                }
+                for row in owner_rows
+                if row["id"] != "Chummer.Engine.Contracts"
+            ),
+        ]
         receipt = {
             "contract": "chummer-core.no-siblings-package-plane/v3",
+            "generated_at_utc": "2026-08-24T12:00:00Z",
             "status": "pass",
             "core_commit": inventory["package_recipe_commit"],
+            "package_plane_lock_sha256": hashlib.sha256(owner_lock_bytes).hexdigest(),
+            "package_inventory_sha256": hashlib.sha256(owner_inventory_path.read_bytes()).hexdigest(),
+            "candidate_package_inventory_sha256": hashlib.sha256(candidate_engine_path.read_bytes()).hexdigest(),
+            "candidate_runtime_package_inventory_sha256": hashlib.sha256(candidate_gm_path.read_bytes()).hexdigest(),
             "runtime_package_inventory_sha256": inventory_sha256,
             "runtime_package_plane_lock_sha256": inventory["package_plane_lock_sha256"],
             "runtime_source_commit": inventory["runtime_source_commit"],
             "package_recipe_commit": inventory["package_recipe_commit"],
+            "package_version": owner_lock["package_version"],
             "candidate_package_version": inventory["package_version"],
+            "locked_packages": locked_rows,
+            "no_sibling_directories": True,
+            "isolated_package_cache": True,
+            "package_source_mapping": {
+                "Chummer.*": "locked-owner-contracts",
+                "other": "https://api.nuget.org/v3/index.json",
+            },
+            "normal_local_engine_dependency_graph": "pass",
+            "build": "pass",
+            "package_plane_runtime_test": "pass",
+            "local_owner_isolation_tests": "pass",
+            "candidate_engine_contract_pack": "pass",
+            "candidate_gm_edit_runtime_pack": "pass",
+            "candidate_gm_edit_runtime_consumer": "pass",
             "eight_package_runtime_plane": "pass",
-            "resolved_owner_contracts": [
-                dict(row, role="current_core_runtime_candidate")
-                for row in inventory["packages"]
-            ],
+            "resolved_owner_contracts": resolved_rows,
         }
         receipt_path = self.feed / "source-receipt.json"
         runtime._atomic_json(receipt_path, receipt)
@@ -334,6 +435,67 @@ class RuntimePackageArchiveTests(unittest.TestCase):
                 self.feed / "stale-receipt-export",
             )
 
+    def test_export_rejects_truncated_v3_receipt(self) -> None:
+        receipt_path, receipt = self._write_inventory_and_receipt()
+        receipt.pop("isolated_package_cache")
+        runtime._atomic_json(receipt_path, receipt)
+        with self.assertRaisesRegex(runtime.RuntimePackagePlaneError, "v3 receipt is required"):
+            runtime.export_bundle(
+                REPO_ROOT,
+                REPO_ROOT / "eng/runtime-package-plane.lock.json",
+                self.feed,
+                receipt_path,
+                self.feed / "truncated-receipt-export",
+            )
+
+    def test_export_rejects_foreign_resolved_owner_row(self) -> None:
+        receipt_path, receipt = self._write_inventory_and_receipt()
+        receipt["resolved_owner_contracts"].append(
+            {
+                "id": "Chummer.Foreign.Contracts",
+                "version": "1.0.0",
+                "sha256": "0" * 64,
+                "size_bytes": 1,
+                "role": "locked_owner_dependency",
+            }
+        )
+        runtime._atomic_json(receipt_path, receipt)
+        with self.assertRaisesRegex(runtime.RuntimePackagePlaneError, "resolved package rows"):
+            runtime.export_bundle(
+                REPO_ROOT,
+                REPO_ROOT / "eng/runtime-package-plane.lock.json",
+                self.feed,
+                receipt_path,
+                self.feed / "foreign-row-export",
+            )
+
+    def test_export_rejects_false_or_foreign_v3_claims(self) -> None:
+        mutations = (
+            ("no_sibling_directories", False),
+            ("isolated_package_cache", False),
+            (
+                "package_source_mapping",
+                {"Chummer.*": "nuget.org", "other": "https://api.nuget.org/v3/index.json"},
+            ),
+            ("build", "skipped"),
+        )
+        for index, (key, value) in enumerate(mutations):
+            with self.subTest(key=key):
+                receipt_path, receipt = self._write_inventory_and_receipt()
+                receipt[key] = value
+                runtime._atomic_json(receipt_path, receipt)
+                with self.assertRaisesRegex(
+                    runtime.RuntimePackagePlaneError,
+                    "receipt field is stale|verifier claim is invalid",
+                ):
+                    runtime.export_bundle(
+                        REPO_ROOT,
+                        REPO_ROOT / "eng/runtime-package-plane.lock.json",
+                        self.feed,
+                        receipt_path,
+                        self.feed / f"foreign-claim-export-{index}",
+                    )
+
     def test_export_rejects_case_colliding_package_source(self) -> None:
         receipt_path, _ = self._write_inventory_and_receipt()
         package = runtime.PACKAGE_SPECS[0]
@@ -349,6 +511,92 @@ class RuntimePackageArchiveTests(unittest.TestCase):
                 self.feed / "collision-export",
             )
 
+    def test_export_rejects_symlinked_parent_component(self) -> None:
+        receipt_path, _ = self._write_inventory_and_receipt()
+        real_parent = self.feed / "real-export-parent"
+        real_parent.mkdir()
+        linked_parent = self.feed / "linked-export-parent"
+        linked_parent.symlink_to(real_parent, target_is_directory=True)
+        with self.assertRaisesRegex(runtime.RuntimePackagePlaneError, "symlink component"):
+            runtime.export_bundle(
+                REPO_ROOT,
+                REPO_ROOT / "eng/runtime-package-plane.lock.json",
+                self.feed,
+                receipt_path,
+                linked_parent / "bundle",
+            )
+
+    def test_export_rejects_parent_swapped_after_open(self) -> None:
+        receipt_path, _ = self._write_inventory_and_receipt()
+        export_parent = self.feed / "swappable-export-parent"
+        moved_parent = self.feed / "original-export-parent"
+        export_parent.mkdir()
+
+        def swap_parent() -> None:
+            export_parent.rename(moved_parent)
+            export_parent.mkdir()
+
+        with self.assertRaisesRegex(runtime.RuntimePackagePlaneError, "parent changed"):
+            runtime.export_bundle(
+                REPO_ROOT,
+                REPO_ROOT / "eng/runtime-package-plane.lock.json",
+                self.feed,
+                receipt_path,
+                export_parent / "bundle",
+                _after_parent_open=swap_parent,
+            )
+        self.assertFalse((export_parent / "bundle").exists())
+
+
+class SdkArchiveAuthorityTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temporary = tempfile.TemporaryDirectory(prefix="sdk-archive-authority-test-")
+        self.root = Path(self.temporary.name)
+
+    def tearDown(self) -> None:
+        self.temporary.cleanup()
+
+    def _archive(self, members: tuple[tuple[str, bytes], ...]) -> tuple[Path, str]:
+        path = self.root / "sdk.tar.gz"
+        with tarfile.open(path, mode="w:gz") as archive:
+            for name, payload in members:
+                info = tarfile.TarInfo(name)
+                info.size = len(payload)
+                info.mode = 0o755 if name == "dotnet" else 0o644
+                archive.addfile(info, io.BytesIO(payload))
+        return path, hashlib.sha512(path.read_bytes()).hexdigest()
+
+    def _destination(self, name: str = "sdk-root") -> Path:
+        destination = self.root / name
+        destination.mkdir()
+        return destination
+
+    def test_exact_archive_extracts_from_same_hashed_descriptor(self) -> None:
+        archive, digest = self._archive((("dotnet", b"digest-bound-sdk"),))
+        destination = self._destination()
+        runtime._extract_digest_bound_tar_gz(archive, destination, digest)
+        self.assertEqual((destination / "dotnet").read_bytes(), b"digest-bound-sdk")
+
+    def test_wrong_archive_digest_is_rejected_before_extraction(self) -> None:
+        archive, _ = self._archive((("dotnet", b"wrong-digest"),))
+        destination = self._destination()
+        with self.assertRaisesRegex(runtime.RuntimePackagePlaneError, "SHA-512"):
+            runtime._extract_digest_bound_tar_gz(archive, destination, "0" * 128)
+        self.assertEqual(list(destination.iterdir()), [])
+
+    def test_parent_traversal_member_is_rejected(self) -> None:
+        archive, digest = self._archive((("../escape", b"hostile"),))
+        destination = self._destination()
+        with self.assertRaisesRegex(runtime.RuntimePackagePlaneError, "unsafe SDK archive member"):
+            runtime._extract_digest_bound_tar_gz(archive, destination, digest)
+        self.assertFalse((self.root / "escape").exists())
+
+    def test_case_colliding_members_are_rejected(self) -> None:
+        archive, digest = self._archive((("sdk/A.dll", b"a"), ("sdk/a.dll", b"b")))
+        destination = self._destination()
+        with self.assertRaisesRegex(runtime.RuntimePackagePlaneError, "duplicate SDK archive member"):
+            runtime._extract_digest_bound_tar_gz(archive, destination, digest)
+
 
 class RuntimePackageWorkflowTests(unittest.TestCase):
     def test_workflow_upload_is_pinned_and_fail_closed(self) -> None:
@@ -361,6 +609,60 @@ class RuntimePackageWorkflowTests(unittest.TestCase):
         self.assertIn("CHUMMER_RUNTIME_PACKAGE_EXPORT_DIR: ${{ runner.temp }}/", workflow)
         self.assertIn("if-no-files-found: error", workflow)
         self.assertIn("retention-days: 5", workflow)
+
+    def test_sdk_archive_install_is_exact_and_installer_free(self) -> None:
+        workflow = (REPO_ROOT / ".github/workflows/package-plane.yml").read_text(encoding="utf-8")
+        self.assertIn(runtime.SDK_ARCHIVE_URL, workflow)
+        self.assertIn(runtime.SDK_ARCHIVE_SHA512, workflow)
+        self.assertIn("dotnet-sdk-10.0.103-linux-x64.tar.gz", workflow)
+        self.assertIn("sha512sum --check --strict", workflow)
+        self.assertIn("--extract-sdk-archive", workflow)
+        self.assertNotIn("dotnet-install.sh", workflow)
+        self.assertNotIn("core_dotnet_script", workflow)
+        download = workflow.index(runtime.SDK_ARCHIVE_URL)
+        digest = workflow.index("sha512sum --check --strict")
+        extract = workflow.index("--extract-sdk-archive")
+        executable = workflow.index('test -x "${core_dotnet_root}/dotnet"')
+        self.assertLess(download, digest)
+        self.assertLess(digest, extract)
+        self.assertLess(extract, executable)
+
+    def test_early_restores_use_only_the_locked_source_mapping_and_cache(self) -> None:
+        workflow = (REPO_ROOT / ".github/workflows/package-plane.yml").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn(
+            'core_nuget_config="${RUNNER_TEMP}/chummer-core-package-plane.NuGet.Config"',
+            workflow,
+        )
+        self.assertIn(
+            'core_nuget_packages="${RUNNER_TEMP}/chummer-core-package-plane-packages"',
+            workflow,
+        )
+        self.assertIn("<clear />", workflow)
+        self.assertIn('<package pattern="Chummer.*" />', workflow)
+        self.assertIn('<package pattern="*" />', workflow)
+        self.assertIn('echo "NUGET_PACKAGES=${core_nuget_packages}"', workflow)
+        self.assertEqual(workflow.count('--configfile "${CHUMMER_CI_NUGET_CONFIG}"'), 2)
+        self.assertEqual(workflow.count('--packages "${CHUMMER_CI_NUGET_PACKAGES}"'), 2)
+        self.assertGreaterEqual(workflow.count("-p:RestoreAdditionalProjectSources="), 2)
+        self.assertGreaterEqual(workflow.count("-p:RestoreFallbackFolders="), 2)
+        self.assertGreaterEqual(workflow.count("-p:DisableImplicitNuGetFallbackFolder=true"), 2)
+        self.assertEqual(workflow.count("--force"), 2)
+        self.assertGreaterEqual(workflow.count("--no-cache"), 2)
+        self.assertEqual(workflow.count("ambient package folder in"), 2)
+        self.assertEqual(workflow.count("owner package identities drifted in"), 2)
+        self.assertEqual(workflow.count("owner package source drifted in"), 2)
+        self.assertEqual(workflow.count('/ ".nupkg.metadata"'), 2)
+        restore_tests = workflow.index("Restore affected Core test graph from exact sources")
+        restore_feature = workflow.index(
+            "Restore deterministic feature-slice graph from exact sources"
+        )
+        revalidate = workflow.index("Revalidate locked owner feed after early test graphs")
+        export = workflow.index("Verify immutable no-siblings package plane and export bundle")
+        self.assertLess(restore_tests, restore_feature)
+        self.assertLess(restore_feature, revalidate)
+        self.assertLess(revalidate, export)
 
     def test_verifier_revalidates_before_receipt_and_export(self) -> None:
         verifier = (REPO_ROOT / "scripts/ai/verify-no-siblings-package-plane.sh").read_text(

@@ -20,19 +20,25 @@ jobs:
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
           fetch-depth: 0
-      - name: Install the digest-locked private .NET SDK
+      - name: Install the digest-locked .NET SDK archive
         shell: bash
         run: |
-          core_dotnet_script="${RUNNER_TEMP}/chummer-core-dotnet-install.sh"
-          core_dotnet_root="${RUNNER_TEMP}/chummer-core-dotnet"
+          core_dotnet_archive="${RUNNER_TEMP}/dotnet-sdk-10.0.103-linux-x64.tar.gz"
+          core_dotnet_root="${RUNNER_TEMP}/chummer-core-dotnet-10.0.103-linux-x64"
+          test ! -e "${core_dotnet_archive}"
+          test ! -e "${core_dotnet_root}"
           curl --proto '=https' --tlsv1.2 --fail --location --silent --show-error \
-            https://dot.net/v1/dotnet-install.sh --output "${core_dotnet_script}"
-          echo "082f7685e156738a1b2e2ed8381a621870d4ce8e8c59278034556f05c186eb2e  ${core_dotnet_script}" \
-            | sha256sum --check --strict
-          bash "${core_dotnet_script}" \
-            --version 10.0.103 \
-            --install-dir "${core_dotnet_root}" \
-            --no-path
+            https://builds.dotnet.microsoft.com/dotnet/Sdk/10.0.103/dotnet-sdk-10.0.103-linux-x64.tar.gz \
+            --output "${core_dotnet_archive}"
+          echo "bab94f13c57b2ac821d4924fe66084be9b44c41761ff7ff64522c8f7aba345659d31258401dcec31cc3cf6ccae1d012623075aca1c9b9165bcfe5ba9abda1c0c  ${core_dotnet_archive}" \
+            | sha512sum --check --strict
+          mkdir --mode=0755 "${core_dotnet_root}"
+          python3 scripts/ai/runtime-package-plane.py \
+            --repo-root . \
+            --archive "${core_dotnet_archive}" \
+            --destination "${core_dotnet_root}" \
+            --extract-sdk-archive
+          test -x "${core_dotnet_root}/dotnet"
           echo "${core_dotnet_root}" >> "${GITHUB_PATH}"
           echo "DOTNET_ROOT=${core_dotnet_root}" >> "${GITHUB_ENV}"
           "${core_dotnet_root}/dotnet" --info
@@ -51,12 +57,92 @@ jobs:
             --repo-root . \
             --feed .tmp/ai/local-nuget \
             --validate-only
+          core_nuget_config="${RUNNER_TEMP}/chummer-core-package-plane.NuGet.Config"
+          core_nuget_packages="${RUNNER_TEMP}/chummer-core-package-plane-packages"
+          test ! -e "${core_nuget_config}"
+          test ! -e "${core_nuget_packages}"
+          mkdir --mode=0755 "${core_nuget_packages}"
+          cat >"${core_nuget_config}" <<EOF
+          <?xml version="1.0" encoding="utf-8"?>
+          <configuration>
+            <packageSources>
+              <clear />
+              <add key="locked-owner-contracts" value="${GITHUB_WORKSPACE}/.tmp/ai/local-nuget" />
+              <add key="nuget.org" value="https://api.nuget.org/v3/index.json" protocolVersion="3" />
+            </packageSources>
+            <packageSourceMapping>
+              <packageSource key="locked-owner-contracts">
+                <package pattern="Chummer.*" />
+              </packageSource>
+              <packageSource key="nuget.org">
+                <package pattern="*" />
+              </packageSource>
+            </packageSourceMapping>
+          </configuration>
+          EOF
+          echo "CHUMMER_CI_NUGET_CONFIG=${core_nuget_config}" >> "${GITHUB_ENV}"
+          echo "CHUMMER_CI_NUGET_PACKAGES=${core_nuget_packages}" >> "${GITHUB_ENV}"
+          echo "NUGET_PACKAGES=${core_nuget_packages}" >> "${GITHUB_ENV}"
       - name: Verify creation-contact package boundary
         run: python3 -m unittest tests/test_creation_contacts_authority.py
-      - name: Restore affected Core test graph
-        run: >-
-          dotnet restore Chummer.Tests/Chummer.Tests.csproj
-          -p:TargetFramework=net10.0
+      - name: Restore affected Core test graph from exact sources
+        run: |
+          dotnet restore Chummer.Tests/Chummer.Tests.csproj \
+            --configfile "${CHUMMER_CI_NUGET_CONFIG}" \
+            --packages "${CHUMMER_CI_NUGET_PACKAGES}" \
+            --force \
+            --no-cache \
+            -m:1 \
+            -p:TargetFramework=net10.0 \
+            -p:RestoreAdditionalProjectSources= \
+            -p:RestoreFallbackFolders= \
+            -p:DisableImplicitNuGetFallbackFolder=true \
+            -p:RestoreIgnoreFailedSources=false
+          python3 - \
+            Chummer.Tests/obj/project.assets.json \
+            "${CHUMMER_CI_NUGET_PACKAGES}" \
+            "${GITHUB_WORKSPACE}/.tmp/ai/local-nuget" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          assets_path = Path(sys.argv[1])
+          expected_package_root = Path(sys.argv[2]).resolve()
+          expected_owner_source = Path(sys.argv[3]).resolve()
+          payload = json.loads(assets_path.read_text(encoding="utf-8"))
+          folders = list((payload.get("packageFolders") or {}).keys())
+          if len(folders) != 1 or Path(folders[0]).resolve() != expected_package_root:
+              raise SystemExit(f"ambient package folder in {assets_path}: {folders}")
+          expected = {
+              "Chummer.Engine.Contracts/0.0.0-local": "project",
+              "Chummer.Hub.Registry.Contracts/0.0.0-packageplane.20260721.1": "package",
+              "Chummer.Play.Contracts/0.0.0-packageplane.20260721.1": "package",
+              "Chummer.Run.Contracts/0.0.0-packageplane.20260721.1": "package",
+          }
+          libraries = payload.get("libraries") or {}
+          observed = {
+              identity: details.get("type")
+              for identity, details in libraries.items()
+              if identity.split("/", 1)[0] in {key.split("/", 1)[0] for key in expected}
+          }
+          if observed != expected:
+              raise SystemExit(f"owner package identities drifted in {assets_path}: {observed}")
+          for identity, package_type in observed.items():
+              if package_type != "package":
+                  continue
+              package_id, version = identity.split("/", 1)
+              metadata_path = (
+                  expected_package_root / package_id.lower() / version / ".nupkg.metadata"
+              )
+              metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+              if Path(str(metadata.get("source", ""))).resolve() != expected_owner_source:
+                  raise SystemExit(
+                      f"owner package source drifted in {assets_path}: {identity}"
+                  )
+          for log in payload.get("logs") or []:
+              if log.get("code") == "NU1605" or str(log.get("level", "")).lower() == "error":
+                  raise SystemExit(f"restore authority error in {assets_path}: {log}")
+          PY
       - name: Build and run affected authority tests
         run: >-
           dotnet test Chummer.Tests/Chummer.Tests.csproj
@@ -67,10 +153,64 @@ jobs:
           -m:1
           --filter
           "FullyQualifiedName~CharacterCreationPrerequisiteServiceTests|FullyQualifiedName~CharacterCreationContactsServiceTests|FullyQualifiedName~FileSystemCharacterSourceDataResolverTests|FullyQualifiedName~CharacterCareerKarmaExpenseEditRulesTests|FullyQualifiedName~CharacterCareerNuyenExpenseEditRulesTests|FullyQualifiedName~CharacterCareerActiveSkillAdvanceRulesTests|FullyQualifiedName~CharacterCareerSkillGroupAdvanceRulesTests|FullyQualifiedName~CharacterCareerKnowledgeSkillAdvanceRulesTests"
-      - name: Restore deterministic feature-slice test graph
-        run: >-
-          dotnet restore Chummer.FeatureSlice.Tests/Chummer.FeatureSlice.Tests.csproj
-          -p:TargetFramework=net10.0
+      - name: Restore deterministic feature-slice graph from exact sources
+        run: |
+          dotnet restore Chummer.FeatureSlice.Tests/Chummer.FeatureSlice.Tests.csproj \
+            --configfile "${CHUMMER_CI_NUGET_CONFIG}" \
+            --packages "${CHUMMER_CI_NUGET_PACKAGES}" \
+            --force \
+            --no-cache \
+            -m:1 \
+            -p:TargetFramework=net10.0 \
+            -p:RestoreAdditionalProjectSources= \
+            -p:RestoreFallbackFolders= \
+            -p:DisableImplicitNuGetFallbackFolder=true \
+            -p:RestoreIgnoreFailedSources=false
+          python3 - \
+            Chummer.FeatureSlice.Tests/obj/project.assets.json \
+            "${CHUMMER_CI_NUGET_PACKAGES}" \
+            "${GITHUB_WORKSPACE}/.tmp/ai/local-nuget" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          assets_path = Path(sys.argv[1])
+          expected_package_root = Path(sys.argv[2]).resolve()
+          expected_owner_source = Path(sys.argv[3]).resolve()
+          payload = json.loads(assets_path.read_text(encoding="utf-8"))
+          folders = list((payload.get("packageFolders") or {}).keys())
+          if len(folders) != 1 or Path(folders[0]).resolve() != expected_package_root:
+              raise SystemExit(f"ambient package folder in {assets_path}: {folders}")
+          expected = {
+              "Chummer.Engine.Contracts/0.0.0-local": "project",
+              "Chummer.Hub.Registry.Contracts/0.0.0-packageplane.20260721.1": "package",
+              "Chummer.Play.Contracts/0.0.0-packageplane.20260721.1": "package",
+              "Chummer.Run.Contracts/0.0.0-packageplane.20260721.1": "package",
+          }
+          libraries = payload.get("libraries") or {}
+          observed = {
+              identity: details.get("type")
+              for identity, details in libraries.items()
+              if identity.split("/", 1)[0] in {key.split("/", 1)[0] for key in expected}
+          }
+          if observed != expected:
+              raise SystemExit(f"owner package identities drifted in {assets_path}: {observed}")
+          for identity, package_type in observed.items():
+              if package_type != "package":
+                  continue
+              package_id, version = identity.split("/", 1)
+              metadata_path = (
+                  expected_package_root / package_id.lower() / version / ".nupkg.metadata"
+              )
+              metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+              if Path(str(metadata.get("source", ""))).resolve() != expected_owner_source:
+                  raise SystemExit(
+                      f"owner package source drifted in {assets_path}: {identity}"
+                  )
+          for log in payload.get("logs") or []:
+              if log.get("code") == "NU1605" or str(log.get("level", "")).lower() == "error":
+                  raise SystemExit(f"restore authority error in {assets_path}: {log}")
+          PY
       - name: Run Career Calendar authority tests
         run: >-
           dotnet test Chummer.FeatureSlice.Tests/Chummer.FeatureSlice.Tests.csproj
@@ -81,6 +221,12 @@ jobs:
           -m:1
           --filter
           "FullyQualifiedName~CharacterCareerCalendarRulesTests"
+      - name: Revalidate locked owner feed after early test graphs
+        run: >-
+          python3 scripts/ai/bootstrap-owner-contracts-feed.py
+          --repo-root .
+          --feed .tmp/ai/local-nuget
+          --validate-only
       - name: Verify immutable no-siblings package plane and export bundle
         env:
           CHUMMER_PACKAGE_PLANE_RECEIPT: ${{ runner.temp }}/chummer-core-runtime-package-plane-${{ github.sha }}.receipt.json
