@@ -11,6 +11,9 @@ permissions:
 
 jobs:
   no-siblings:
+    outputs:
+      runtime-artifact-id: ${{ steps.upload-runtime-package-bundle.outputs.artifact-id }}
+      runtime-artifact-digest: ${{ steps.upload-runtime-package-bundle.outputs.artifact-digest }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
@@ -49,6 +52,7 @@ jobs:
         run: |
           python3 scripts/ai/runtime-package-plane.py --repo-root .
           python3 -m unittest -v tests/test_runtime_package_plane_authority.py
+          python3 -m unittest -v tests/test_public_runtime_package_handoff.py
       - name: Prepare locked owner-contract feed for test restores
         run: |
           bash scripts/ai/bootstrap-contracts-feed.sh
@@ -249,3 +253,112 @@ jobs:
         run: |
           [[ "${RUNTIME_ARTIFACT_ID}" =~ ^[1-9][0-9]*$ ]]
           [[ "${RUNTIME_ARTIFACT_DIGEST}" =~ ^(sha256:)?[0-9a-f]{64}$ ]]
+
+  publish-public-runtime-package-handoff:
+    name: Publish secret-free Core runtime handoff
+    if: >-
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      github.repository == 'ArchonMegalon/chummer6-core'
+    needs: no-siblings
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      actions: read
+      contents: write
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+      PUBLIC_RELEASE_TAG: core-runtime-package-plane-${{ github.sha }}
+      PUBLIC_BUNDLE_NAME: chummer-core-runtime-package-plane-${{ github.sha }}.zip
+      PUBLIC_RECEIPT_NAME: chummer-core-runtime-package-plane-${{ github.sha }}.public-handoff.json
+    steps:
+      - name: Check out the exact Core main commit without persisted credentials
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          fetch-depth: 1
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Download the exact successful runtime package artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: chummer-core-runtime-package-plane-${{ github.sha }}
+          path: ${{ runner.temp }}/runtime-package-source-${{ github.sha }}
+      - name: Prepare commit-derived public assets and exact byte receipt
+        run: |
+          python3 scripts/ai/public-runtime-package-handoff.py prepare \
+            --repo-root "${GITHUB_WORKSPACE}" \
+            --bundle-dir "${RUNNER_TEMP}/runtime-package-source-${GITHUB_SHA}" \
+            --output-dir "${RUNNER_TEMP}/runtime-package-public-${GITHUB_SHA}" \
+            --repository "${GITHUB_REPOSITORY}" \
+            --commit "${GITHUB_SHA}" \
+            --ref "${GITHUB_REF}" \
+            --event-name "${GITHUB_EVENT_NAME}" \
+            --source-artifact-id "${{ needs.no-siblings.outputs.runtime-artifact-id }}" \
+            --source-artifact-digest "${{ needs.no-siblings.outputs.runtime-artifact-digest }}"
+          test -f "${RUNNER_TEMP}/runtime-package-public-${GITHUB_SHA}/${PUBLIC_BUNDLE_NAME}"
+          test -f "${RUNNER_TEMP}/runtime-package-public-${GITHUB_SHA}/${PUBLIC_RECEIPT_NAME}"
+      - name: Refuse every pre-existing release or tag, then publish once
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          api_root="https://api.github.com/repos/${GITHUB_REPOSITORY}"
+          release_status="$({
+            curl --proto '=https' --tlsv1.2 --silent --show-error \
+              --header "Authorization: Bearer ${GH_TOKEN}" \
+              --header "Accept: application/vnd.github+json" \
+              --output "${RUNNER_TEMP}/existing-release.json" \
+              --write-out '%{http_code}' \
+              "${api_root}/releases/tags/${PUBLIC_RELEASE_TAG}"
+          })"
+          case "${release_status}" in
+            404) ;;
+            200) echo "release already exists; overwrite is forbidden" >&2; exit 1 ;;
+            *) echo "cannot prove release tag is unused: HTTP ${release_status}" >&2; exit 1 ;;
+          esac
+          tag_status="$({
+            curl --proto '=https' --tlsv1.2 --silent --show-error \
+              --header "Authorization: Bearer ${GH_TOKEN}" \
+              --header "Accept: application/vnd.github+json" \
+              --output "${RUNNER_TEMP}/existing-tag.json" \
+              --write-out '%{http_code}' \
+              "${api_root}/git/ref/tags/${PUBLIC_RELEASE_TAG}"
+          })"
+          case "${tag_status}" in
+            404) ;;
+            200) echo "tag already exists; overwrite or retarget is forbidden" >&2; exit 1 ;;
+            *) echo "cannot prove Git tag is unused: HTTP ${tag_status}" >&2; exit 1 ;;
+          esac
+          gh release create "${PUBLIC_RELEASE_TAG}" \
+            "${RUNNER_TEMP}/runtime-package-public-${GITHUB_SHA}/${PUBLIC_BUNDLE_NAME}#Exact Core runtime package plane" \
+            "${RUNNER_TEMP}/runtime-package-public-${GITHUB_SHA}/${PUBLIC_RECEIPT_NAME}#Public handoff byte receipt" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --target "${GITHUB_SHA}" \
+            --title "Core runtime package plane ${GITHUB_SHA}" \
+            --notes "Secret-free, digest-verifiable runtime package handoff for Core commit ${GITHUB_SHA}. Consumers must pin both asset digests in reviewed authority." \
+            --latest=false
+      - name: Prove the published release is anonymously readable and byte exact
+        run: |
+          set -euo pipefail
+          public_root="https://github.com/${GITHUB_REPOSITORY}/releases/download/${PUBLIC_RELEASE_TAG}"
+          public_api="https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/tags/${PUBLIC_RELEASE_TAG}"
+          public_tag_api="https://api.github.com/repos/${GITHUB_REPOSITORY}/git/ref/tags/${PUBLIC_RELEASE_TAG}"
+          mkdir --mode=0755 "${RUNNER_TEMP}/public-runtime-proof-${GITHUB_SHA}"
+          curl --proto '=https' --tlsv1.2 --fail --location --silent --show-error --max-filesize 1048576 \
+            "${public_api}" \
+            --output "${RUNNER_TEMP}/public-runtime-proof-${GITHUB_SHA}/release.json"
+          curl --proto '=https' --tlsv1.2 --fail --location --silent --show-error --max-filesize 1048576 \
+            "${public_tag_api}" \
+            --output "${RUNNER_TEMP}/public-runtime-proof-${GITHUB_SHA}/tag.json"
+          curl --proto '=https' --tlsv1.2 --fail --location --silent --show-error --max-filesize 33554432 \
+            "${public_root}/${PUBLIC_BUNDLE_NAME}" \
+            --output "${RUNNER_TEMP}/public-runtime-proof-${GITHUB_SHA}/${PUBLIC_BUNDLE_NAME}"
+          curl --proto '=https' --tlsv1.2 --fail --location --silent --show-error --max-filesize 1048576 \
+            "${public_root}/${PUBLIC_RECEIPT_NAME}" \
+            --output "${RUNNER_TEMP}/public-runtime-proof-${GITHUB_SHA}/${PUBLIC_RECEIPT_NAME}"
+          python3 scripts/ai/public-runtime-package-handoff.py verify-public-release \
+            --release-metadata "${RUNNER_TEMP}/public-runtime-proof-${GITHUB_SHA}/release.json" \
+            --tag-metadata "${RUNNER_TEMP}/public-runtime-proof-${GITHUB_SHA}/tag.json" \
+            --receipt "${RUNNER_TEMP}/runtime-package-public-${GITHUB_SHA}/${PUBLIC_RECEIPT_NAME}" \
+            --downloaded-bundle "${RUNNER_TEMP}/public-runtime-proof-${GITHUB_SHA}/${PUBLIC_BUNDLE_NAME}" \
+            --downloaded-receipt "${RUNNER_TEMP}/public-runtime-proof-${GITHUB_SHA}/${PUBLIC_RECEIPT_NAME}"
