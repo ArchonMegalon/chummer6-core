@@ -211,13 +211,16 @@ ALLOWED_RECIPE_DELTA = (
     "Chummer.Rulesets.Sr4/Chummer.Rulesets.Sr4.csproj",
     "Chummer.Rulesets.Sr5/Chummer.Rulesets.Sr5.csproj",
     "Chummer.Rulesets.Sr6/Chummer.Rulesets.Sr6.csproj",
+    "docs/runtime-package-public-handoff.md",
     "eng/android-content-plane.lock.json",
     "eng/runtime-package-plane.lock.json",
     "scripts/ai/android-content-plane.py",
+    "scripts/ai/public-runtime-package-handoff.py",
     "scripts/ai/runtime-package-plane.py",
     "scripts/ai/verify-no-siblings-package-plane.sh",
     "tests/test_android_content_plane.py",
     "tests/test_package_plane.py",
+    "tests/test_public_runtime_package_handoff.py",
     "tests/test_runtime_package_plane_authority.py",
 )
 BUILD_AUTHORITY_PATHS = (
@@ -230,6 +233,7 @@ BUILD_AUTHORITY_PATHS = (
     "scripts/ai/_env.sh",
     "scripts/ai/bootstrap-contracts-feed.sh",
     "scripts/ai/bootstrap-owner-contracts-feed.py",
+    "scripts/ai/public-runtime-package-handoff.py",
     "scripts/ai/runtime-package-plane.py",
     "scripts/ai/verify-no-siblings-package-plane.sh",
 )
