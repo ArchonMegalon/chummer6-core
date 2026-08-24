@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 import re
 import stat
@@ -46,6 +47,7 @@ SDK_ARCHIVE_SHA512 = (
     "bab94f13c57b2ac821d4924fe66084be9b44c41761ff7ff64522c8f7aba345659"
     "d31258401dcec31cc3cf6ccae1d012623075aca1c9b9165bcfe5ba9abda1c0c"
 )
+SDK_ARCHIVE_MAX_BYTES = 512 * 1024 * 1024
 TARGET_FRAMEWORK = "net10.0"
 LICENSE_EXPRESSION = "GPL-3.0-only"
 EXTERNAL_OWNER_PACKAGES = (
@@ -232,6 +234,49 @@ class RuntimePackagePlaneError(RuntimeError):
     pass
 
 
+def _strict_json_loads(raw: bytes | str, label: str) -> Any:
+    def reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+        result: dict[str, Any] = {}
+        for key, value in pairs:
+            if key in result:
+                raise RuntimePackagePlaneError(
+                    f"{label} contains a duplicate JSON key: {key!r}"
+                )
+            result[key] = value
+        return result
+
+    def reject_nonfinite(value: str) -> Any:
+        raise RuntimePackagePlaneError(
+            f"{label} contains a non-finite JSON number: {value}"
+        )
+
+    def parse_finite_float(value: str) -> float:
+        parsed = float(value)
+        if not math.isfinite(parsed):
+            reject_nonfinite(value)
+        return parsed
+
+    try:
+        return json.loads(
+            raw,
+            object_pairs_hook=reject_duplicate_keys,
+            parse_constant=reject_nonfinite,
+            parse_float=parse_finite_float,
+        )
+    except RuntimePackagePlaneError:
+        raise
+    except (TypeError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise RuntimePackagePlaneError(f"{label} is invalid JSON: {exc}") from exc
+
+
+def _require_canonical_absolute_path(path: Path, label: str) -> None:
+    if not path.is_absolute() or ".." in path.parts:
+        raise RuntimePackagePlaneError(f"{label} must be one canonical absolute path")
+    normalized = Path(os.path.normpath(os.fspath(path)))
+    if path != normalized:
+        raise RuntimePackagePlaneError(f"{label} must be one canonical absolute path")
+
+
 def _dependency_version(package_id: str) -> str:
     if package_id in {spec.package_id for spec in PACKAGE_SPECS}:
         return PACKAGE_VERSION
@@ -256,27 +301,94 @@ def _extract_digest_bound_tar_gz(
     archive_path: Path,
     destination: Path,
     expected_sha512: str,
+    *,
+    _after_snapshot: Callable[[], None] | None = None,
+    _after_destination_open: Callable[[], None] | None = None,
 ) -> None:
-    _require_regular_file(archive_path, "SDK archive")
+    _require_canonical_absolute_path(archive_path, "SDK archive path")
+    _require_canonical_absolute_path(destination, "SDK extraction path")
+    if destination.name in {"", ".", ".."}:
+        raise RuntimePackagePlaneError("SDK extraction directory name is invalid")
+
+    source_flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0)
+    directory_flags = (
+        os.O_RDONLY
+        | getattr(os, "O_DIRECTORY", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+        | getattr(os, "O_CLOEXEC", 0)
+    )
     try:
-        destination_mode = destination.lstat().st_mode
+        source_descriptor = os.open(archive_path, source_flags)
     except OSError as exc:
-        raise RuntimePackagePlaneError(f"SDK extraction directory is unavailable: {exc}") from exc
-    with os.scandir(destination) as entries:
-        destination_has_entries = any(entries)
-    if not stat.S_ISDIR(destination_mode) or destination.is_symlink() or destination_has_entries:
-        raise RuntimePackagePlaneError(
-            "SDK extraction directory must be one empty non-symlink directory"
-        )
+        raise RuntimePackagePlaneError(f"SDK archive is unavailable: {exc}") from exc
+    parent_descriptor = -1
+    destination_descriptor = -1
+    reopened_parent = -1
+    reopened_destination = -1
     try:
-        with archive_path.open("rb") as stream:
+        if not stat.S_ISREG(os.fstat(source_descriptor).st_mode):
+            raise RuntimePackagePlaneError("SDK archive must be one regular non-symlink file")
+        with os.fdopen(source_descriptor, "rb", closefd=True) as source, tempfile.TemporaryFile(
+            mode="w+b"
+        ) as snapshot:
+            source_descriptor = -1
             digest = hashlib.sha512()
-            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            size = 0
+            for chunk in iter(lambda: source.read(1024 * 1024), b""):
+                size += len(chunk)
+                if size > SDK_ARCHIVE_MAX_BYTES:
+                    raise RuntimePackagePlaneError(
+                        "SDK archive exceeds the bounded snapshot authority"
+                    )
                 digest.update(chunk)
+                snapshot.write(chunk)
             if digest.hexdigest() != expected_sha512:
                 raise RuntimePackagePlaneError("SDK archive SHA-512 differs from authority")
-            stream.seek(0)
-            with tarfile.open(fileobj=stream, mode="r:gz") as archive:
+            snapshot.flush()
+            if os.fstat(snapshot.fileno()).st_size != size:
+                raise RuntimePackagePlaneError("SDK archive snapshot size differs from authority")
+            snapshot.seek(0)
+            if _after_snapshot is not None:
+                _after_snapshot()
+
+            parent_descriptor = _open_absolute_directory(destination.parent)
+            try:
+                os.stat(destination.name, dir_fd=parent_descriptor, follow_symlinks=False)
+            except FileNotFoundError:
+                pass
+            else:
+                raise RuntimePackagePlaneError(
+                    "SDK extraction directory must not already exist"
+                )
+            try:
+                os.mkdir(destination.name, mode=0o755, dir_fd=parent_descriptor)
+                destination_descriptor = os.open(
+                    destination.name,
+                    directory_flags,
+                    dir_fd=parent_descriptor,
+                )
+            except OSError as exc:
+                raise RuntimePackagePlaneError(
+                    f"cannot create SDK extraction directory: {exc}"
+                ) from exc
+            if os.listdir(destination_descriptor):
+                raise RuntimePackagePlaneError("SDK extraction directory is not empty")
+            descriptor_path = Path(f"/proc/self/fd/{destination_descriptor}")
+            try:
+                descriptor_stat = descriptor_path.stat()
+            except OSError as exc:
+                raise RuntimePackagePlaneError(
+                    f"SDK extraction descriptor path is unavailable: {exc}"
+                ) from exc
+            if (descriptor_stat.st_dev, descriptor_stat.st_ino) != (
+                os.fstat(destination_descriptor).st_dev,
+                os.fstat(destination_descriptor).st_ino,
+            ):
+                raise RuntimePackagePlaneError("SDK extraction descriptor path is not bound")
+            if _after_destination_open is not None:
+                _after_destination_open()
+
+            with tarfile.open(fileobj=snapshot, mode="r:gz") as archive:
                 members = archive.getmembers()
                 if not members:
                     raise RuntimePackagePlaneError("SDK archive is empty")
@@ -300,15 +412,58 @@ def _extract_digest_bound_tar_gz(
                             f"duplicate SDK archive member: {member.name!r}"
                         )
                     seen.add(normalized)
-                    filtered = tarfile.data_filter(member, destination)
+                    filtered = tarfile.data_filter(member, descriptor_path)
                     if filtered is None:
                         raise RuntimePackagePlaneError(
                             f"SDK archive member was rejected: {member.name!r}"
                         )
                     safe_members.append(filtered)
-                archive.extractall(destination, members=safe_members, filter="data")
+                archive.extractall(descriptor_path, members=safe_members, filter="data")
+
+            os.fsync(destination_descriptor)
+            os.fsync(parent_descriptor)
+            reopened_parent = _open_absolute_directory(destination.parent)
+            if (
+                os.fstat(reopened_parent).st_dev,
+                os.fstat(reopened_parent).st_ino,
+            ) != (
+                os.fstat(parent_descriptor).st_dev,
+                os.fstat(parent_descriptor).st_ino,
+            ):
+                raise RuntimePackagePlaneError("SDK extraction parent changed during extraction")
+            try:
+                reopened_destination = os.open(
+                    destination.name,
+                    directory_flags,
+                    dir_fd=reopened_parent,
+                )
+            except OSError as exc:
+                raise RuntimePackagePlaneError(
+                    "SDK extraction directory changed during extraction"
+                ) from exc
+            if (
+                os.fstat(reopened_destination).st_dev,
+                os.fstat(reopened_destination).st_ino,
+            ) != (
+                os.fstat(destination_descriptor).st_dev,
+                os.fstat(destination_descriptor).st_ino,
+            ):
+                raise RuntimePackagePlaneError(
+                    "SDK extraction directory changed during extraction"
+                )
     except (OSError, tarfile.TarError) as exc:
         raise RuntimePackagePlaneError(f"cannot safely extract SDK archive: {exc}") from exc
+    finally:
+        if reopened_destination >= 0:
+            os.close(reopened_destination)
+        if reopened_parent >= 0:
+            os.close(reopened_parent)
+        if destination_descriptor >= 0:
+            os.close(destination_descriptor)
+        if parent_descriptor >= 0:
+            os.close(parent_descriptor)
+        if source_descriptor >= 0:
+            os.close(source_descriptor)
 
 
 def _run(command: Iterable[str], *, cwd: Path) -> str:
@@ -329,8 +484,8 @@ def _run(command: Iterable[str], *, cwd: Path) -> str:
 
 def load_lock(path: Path) -> dict[str, Any]:
     try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
+        payload = _strict_json_loads(path.read_bytes(), "runtime package lock")
+    except (OSError, RuntimePackagePlaneError) as exc:
         raise RuntimePackagePlaneError(f"cannot read runtime package lock: {exc}") from exc
     validate_lock_payload(payload)
     return payload
@@ -773,7 +928,7 @@ def _atomic_json(path: Path, payload: dict[str, Any]) -> None:
     temporary = Path(temporary_name)
     try:
         with os.fdopen(descriptor, "w", encoding="utf-8", closefd=True) as stream:
-            json.dump(payload, stream, indent=2)
+            json.dump(payload, stream, indent=2, allow_nan=False)
             stream.write("\n")
             stream.flush()
             os.fsync(stream.fileno())
@@ -802,8 +957,8 @@ def validate_inventory(repo_root: Path, lock_path: Path, feed: Path) -> str:
     inventory_path = feed / INVENTORY_NAME
     try:
         raw = inventory_path.read_bytes()
-        observed = json.loads(raw)
-    except (OSError, json.JSONDecodeError) as exc:
+        observed = _strict_json_loads(raw, "runtime package inventory")
+    except (OSError, RuntimePackagePlaneError) as exc:
         raise RuntimePackagePlaneError(f"runtime package inventory is unavailable: {exc}") from exc
     expected = inventory_payload(repo_root, lock_path, feed)
     if observed != expected:
@@ -821,9 +976,9 @@ def _require_regular_file(path: Path, label: str) -> None:
 
 
 def _open_absolute_directory(path: Path) -> int:
-    if not path.is_absolute():
-        raise RuntimePackagePlaneError("directory authority path must be absolute")
+    _require_canonical_absolute_path(path, "directory authority path")
     flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
+    descriptor = -1
     try:
         descriptor = os.open(path.anchor, flags)
         for part in path.parts[1:]:
@@ -833,11 +988,11 @@ def _open_absolute_directory(path: Path) -> int:
         if not stat.S_ISDIR(os.fstat(descriptor).st_mode):
             raise RuntimePackagePlaneError("directory authority is not a directory")
         return descriptor
-    except OSError as exc:
-        try:
+    except (OSError, RuntimePackagePlaneError) as exc:
+        if descriptor >= 0:
             os.close(descriptor)
-        except (OSError, UnboundLocalError):
-            pass
+        if isinstance(exc, RuntimePackagePlaneError):
+            raise
         raise RuntimePackagePlaneError(
             f"directory authority contains a missing, swapped, or symlink component: {path}"
         ) from exc
@@ -882,6 +1037,74 @@ def _copy_bound_file_at(
             )
 
 
+def _candidate_inventory_digest(
+    feed: Path,
+    path: Path,
+    runtime_inventory: dict[str, Any],
+    *,
+    gm_runtime: bool,
+) -> str:
+    label = "candidate GM runtime inventory" if gm_runtime else "candidate Engine inventory"
+    _require_regular_file(path, label)
+    try:
+        raw = path.read_bytes()
+    except OSError as exc:
+        raise RuntimePackagePlaneError(f"{label} is unavailable: {exc}") from exc
+    payload = _strict_json_loads(raw, label)
+    spec = PACKAGE_SPECS[-1] if gm_runtime else PACKAGE_SPECS[0]
+    package_path = _find_package(feed, spec.package_id)
+    _require_regular_file(package_path, f"{label} package")
+    package_size = package_path.stat().st_size
+    if package_size <= 0:
+        raise RuntimePackagePlaneError(f"{label} package is empty")
+    expected_package: dict[str, Any] = {
+        "id": spec.package_id,
+        "version": PACKAGE_VERSION,
+        "repository": SOURCE_REPOSITORY,
+        "commit": SOURCE_COMMIT,
+        "project": spec.project,
+        "file_name": package_path.name,
+        "sha256": _sha256(package_path),
+        "size_bytes": package_size,
+    }
+    if gm_runtime:
+        expected_package["runtime_assemblies"] = [
+            "lib/net10.0/Chummer.Engine.GmCharacterEdits.dll"
+        ]
+    expected = {
+        "contract": (
+            "chummer-core.candidate-gm-edit-runtime-package-inventory/v2"
+            if gm_runtime
+            else "chummer-core.candidate-engine-contract-package-inventory/v2"
+        ),
+        "role": "current_core_candidate",
+        "runtime_source_commit": SOURCE_COMMIT,
+        "package_recipe_commit": runtime_inventory["package_recipe_commit"],
+        "package": expected_package,
+    }
+    if payload != expected:
+        raise RuntimePackagePlaneError(f"{label} schema or authority differs")
+    matching_runtime_rows = [
+        row for row in runtime_inventory.get("packages", [])
+        if isinstance(row, dict) and row.get("id") == spec.package_id
+    ]
+    if len(matching_runtime_rows) != 1:
+        raise RuntimePackagePlaneError(f"{label} lacks one matching runtime row")
+    runtime_row = matching_runtime_rows[0]
+    expected_runtime_binding = {
+        "version": expected_package["version"],
+        "repository": expected_package["repository"],
+        "source_commit": expected_package["commit"],
+        "project": expected_package["project"],
+        "file_name": expected_package["file_name"],
+        "sha256": expected_package["sha256"],
+        "size_bytes": expected_package["size_bytes"],
+    }
+    if any(runtime_row.get(key) != value for key, value in expected_runtime_binding.items()):
+        raise RuntimePackagePlaneError(f"{label} differs from unified runtime authority")
+    return hashlib.sha256(raw).hexdigest()
+
+
 def _validate_receipt(
     repo_root: Path,
     feed: Path,
@@ -892,8 +1115,8 @@ def _validate_receipt(
     _require_regular_file(receipt_path, "no-siblings receipt")
     try:
         receipt_bytes = receipt_path.read_bytes()
-        receipt = json.loads(receipt_bytes)
-    except (OSError, json.JSONDecodeError) as exc:
+        receipt = _strict_json_loads(receipt_bytes, "no-siblings receipt")
+    except (OSError, RuntimePackagePlaneError) as exc:
         raise RuntimePackagePlaneError(f"no-siblings receipt is invalid: {exc}") from exc
     expected_keys = {
         "contract",
@@ -938,17 +1161,11 @@ def _validate_receipt(
     owner_lock_path = repo_root / "eng/package-plane.lock.json"
     _require_regular_file(owner_lock_path, "owner package-plane lock")
     owner_lock_bytes = owner_lock_path.read_bytes()
-    try:
-        owner_lock = json.loads(owner_lock_bytes)
-    except json.JSONDecodeError as exc:
-        raise RuntimePackagePlaneError("owner package-plane lock is invalid") from exc
+    owner_lock = _strict_json_loads(owner_lock_bytes, "owner package-plane lock")
     owner_inventory_path = feed / OWNER_INVENTORY_NAME
     _require_regular_file(owner_inventory_path, "owner package inventory")
     owner_inventory_bytes = owner_inventory_path.read_bytes()
-    try:
-        owner_inventory = json.loads(owner_inventory_bytes)
-    except json.JSONDecodeError as exc:
-        raise RuntimePackagePlaneError("owner package inventory is invalid") from exc
+    owner_inventory = _strict_json_loads(owner_inventory_bytes, "owner package inventory")
     if not isinstance(owner_lock, dict) or set(owner_lock) != {
         "contract",
         "dotnet_sdk",
@@ -1013,13 +1230,22 @@ def _validate_receipt(
         ):
             raise RuntimePackagePlaneError("owner package bytes differ from inventory")
 
-    candidate_paths = {
-        "candidate_package_inventory_sha256": feed / CANDIDATE_ENGINE_INVENTORY_NAME,
-        "candidate_runtime_package_inventory_sha256": feed / CANDIDATE_GM_INVENTORY_NAME,
+    candidate_digests = {
+        "candidate_package_inventory_sha256": _candidate_inventory_digest(
+            feed,
+            feed / CANDIDATE_ENGINE_INVENTORY_NAME,
+            inventory,
+            gm_runtime=False,
+        ),
+        "candidate_runtime_package_inventory_sha256": _candidate_inventory_digest(
+            feed,
+            feed / CANDIDATE_GM_INVENTORY_NAME,
+            inventory,
+            gm_runtime=True,
+        ),
     }
-    for receipt_key, path in candidate_paths.items():
-        _require_regular_file(path, receipt_key)
-        if receipt.get(receipt_key) != _sha256(path):
+    for receipt_key, digest in candidate_digests.items():
+        if receipt.get(receipt_key) != digest:
             raise RuntimePackagePlaneError(f"no-siblings receipt field is stale: {receipt_key}")
     required = {
         "status": "pass",
@@ -1133,14 +1359,17 @@ def export_bundle(
     export_dir: Path,
     *,
     _after_parent_open: Callable[[], None] | None = None,
+    _before_final_reopen: Callable[[], None] | None = None,
 ) -> tuple[str, str]:
-    if not export_dir.is_absolute():
-        raise RuntimePackagePlaneError("runtime bundle export path must be absolute")
+    _require_canonical_absolute_path(export_dir, "runtime bundle export path")
     if export_dir.name in {"", ".", ".."}:
         raise RuntimePackagePlaneError("runtime bundle export name is invalid")
     inventory_sha256 = validate_inventory(repo_root, lock_path, feed)
     inventory_path = feed / INVENTORY_NAME
-    inventory = json.loads(inventory_path.read_text(encoding="utf-8"))
+    inventory = _strict_json_loads(
+        inventory_path.read_bytes(),
+        "runtime package inventory",
+    )
     _, receipt_sha256, receipt_size = _validate_receipt(
         repo_root,
         feed,
@@ -1155,6 +1384,9 @@ def export_bundle(
     parent_descriptor = _open_absolute_directory(export_dir.parent)
     export_descriptor = -1
     packages_descriptor = -1
+    reopened_parent = -1
+    reopened_export = -1
+    reopened_packages = -1
     directory_flags = (
         os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
     )
@@ -1219,21 +1451,71 @@ def export_bundle(
         os.fsync(packages_descriptor)
         os.fsync(export_descriptor)
         os.fsync(parent_descriptor)
+        if _before_final_reopen is not None:
+            _before_final_reopen()
         reopened_parent = _open_absolute_directory(export_dir.parent)
+        if (
+            os.fstat(reopened_parent).st_dev,
+            os.fstat(reopened_parent).st_ino,
+        ) != (
+            os.fstat(parent_descriptor).st_dev,
+            os.fstat(parent_descriptor).st_ino,
+        ):
+            raise RuntimePackagePlaneError(
+                "runtime bundle parent changed during export"
+            )
         try:
-            if (
-                os.fstat(reopened_parent).st_dev,
-                os.fstat(reopened_parent).st_ino,
-            ) != (
-                os.fstat(parent_descriptor).st_dev,
-                os.fstat(parent_descriptor).st_ino,
-            ):
-                raise RuntimePackagePlaneError(
-                    "runtime bundle parent changed during export"
-                )
-        finally:
-            os.close(reopened_parent)
+            reopened_export = os.open(
+                export_dir.name,
+                directory_flags,
+                dir_fd=reopened_parent,
+            )
+        except OSError as exc:
+            raise RuntimePackagePlaneError(
+                "runtime bundle export directory changed during export"
+            ) from exc
+        if (
+            os.fstat(reopened_export).st_dev,
+            os.fstat(reopened_export).st_ino,
+        ) != (
+            os.fstat(export_descriptor).st_dev,
+            os.fstat(export_descriptor).st_ino,
+        ):
+            raise RuntimePackagePlaneError(
+                "runtime bundle export directory changed during export"
+            )
+        try:
+            reopened_packages = os.open(
+                "packages",
+                directory_flags,
+                dir_fd=reopened_export,
+            )
+        except OSError as exc:
+            raise RuntimePackagePlaneError(
+                "runtime bundle packages directory changed during export"
+            ) from exc
+        if (
+            os.fstat(reopened_packages).st_dev,
+            os.fstat(reopened_packages).st_ino,
+        ) != (
+            os.fstat(packages_descriptor).st_dev,
+            os.fstat(packages_descriptor).st_ino,
+        ):
+            raise RuntimePackagePlaneError(
+                "runtime bundle packages directory changed during export"
+            )
+        _validate_export_layout_at(
+            reopened_export,
+            reopened_packages,
+            set(package_names),
+        )
     finally:
+        if reopened_packages >= 0:
+            os.close(reopened_packages)
+        if reopened_export >= 0:
+            os.close(reopened_export)
+        if reopened_parent >= 0:
+            os.close(reopened_parent)
         if packages_descriptor >= 0:
             os.close(packages_descriptor)
         if export_descriptor >= 0:

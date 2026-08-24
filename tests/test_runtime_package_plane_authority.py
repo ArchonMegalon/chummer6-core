@@ -58,6 +58,37 @@ class RuntimePackageLockTests(unittest.TestCase):
                 with self.assertRaisesRegex(runtime.RuntimePackagePlaneError, "SDK is not exact"):
                     runtime.validate_lock_payload(altered)
 
+    def test_runtime_lock_rejects_duplicate_keys(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="runtime-lock-duplicate-") as directory:
+            path = Path(directory) / "lock.json"
+            path.write_text(
+                self.lock_path.read_text(encoding="utf-8").replace(
+                    "{\n",
+                    '{\n  "contract": "ambiguous",\n',
+                    1,
+                ),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(runtime.RuntimePackagePlaneError, "duplicate JSON key"):
+                runtime.load_lock(path)
+
+    def test_runtime_lock_rejects_nonfinite_numbers(self) -> None:
+        for index, value in enumerate(("NaN", "1e999")):
+            with self.subTest(value=value), tempfile.TemporaryDirectory(
+                prefix="runtime-lock-nonfinite-"
+            ) as directory:
+                path = Path(directory) / f"lock-{index}.json"
+                path.write_text(
+                    self.lock_path.read_text(encoding="utf-8").replace(
+                        '"contract": "chummer-core.runtime-package-plane-lock/v1"',
+                        f'"contract": {value}',
+                        1,
+                    ),
+                    encoding="utf-8",
+                )
+                with self.assertRaisesRegex(runtime.RuntimePackagePlaneError, "non-finite JSON"):
+                    runtime.load_lock(path)
+
     def test_external_owner_commit_is_fail_closed(self) -> None:
         altered = copy.deepcopy(self.lock)
         altered["external_owner_packages"][0]["commit"] = "0" * 40
@@ -314,8 +345,50 @@ class RuntimePackageArchiveTests(unittest.TestCase):
         runtime._atomic_json(owner_inventory_path, owner_inventory)
         candidate_engine_path = self.feed / runtime.CANDIDATE_ENGINE_INVENTORY_NAME
         candidate_gm_path = self.feed / runtime.CANDIDATE_GM_INVENTORY_NAME
-        runtime._atomic_json(candidate_engine_path, {"candidate": "engine"})
-        runtime._atomic_json(candidate_gm_path, {"candidate": "gm"})
+        runtime_rows = {row["id"]: row for row in inventory["packages"]}
+        candidate_engine_row = runtime_rows["Chummer.Engine.Contracts"]
+        candidate_gm_row = runtime_rows["Chummer.Engine.GmCharacterEdits"]
+        runtime._atomic_json(
+            candidate_engine_path,
+            {
+                "contract": "chummer-core.candidate-engine-contract-package-inventory/v2",
+                "role": "current_core_candidate",
+                "runtime_source_commit": runtime.SOURCE_COMMIT,
+                "package_recipe_commit": inventory["package_recipe_commit"],
+                "package": {
+                    "id": candidate_engine_row["id"],
+                    "version": candidate_engine_row["version"],
+                    "repository": candidate_engine_row["repository"],
+                    "commit": candidate_engine_row["source_commit"],
+                    "project": candidate_engine_row["project"],
+                    "file_name": candidate_engine_row["file_name"],
+                    "sha256": candidate_engine_row["sha256"],
+                    "size_bytes": candidate_engine_row["size_bytes"],
+                },
+            },
+        )
+        runtime._atomic_json(
+            candidate_gm_path,
+            {
+                "contract": "chummer-core.candidate-gm-edit-runtime-package-inventory/v2",
+                "role": "current_core_candidate",
+                "runtime_source_commit": runtime.SOURCE_COMMIT,
+                "package_recipe_commit": inventory["package_recipe_commit"],
+                "package": {
+                    "id": candidate_gm_row["id"],
+                    "version": candidate_gm_row["version"],
+                    "repository": candidate_gm_row["repository"],
+                    "commit": candidate_gm_row["source_commit"],
+                    "project": candidate_gm_row["project"],
+                    "file_name": candidate_gm_row["file_name"],
+                    "sha256": candidate_gm_row["sha256"],
+                    "size_bytes": candidate_gm_row["size_bytes"],
+                    "runtime_assemblies": [
+                        "lib/net10.0/Chummer.Engine.GmCharacterEdits.dll"
+                    ],
+                },
+            },
+        )
         locked_rows = [
             {
                 "id": row["id"],
@@ -547,6 +620,220 @@ class RuntimePackageArchiveTests(unittest.TestCase):
             )
         self.assertFalse((export_parent / "bundle").exists())
 
+    def test_export_rejects_export_directory_swapped_after_fsync(self) -> None:
+        receipt_path, _ = self._write_inventory_and_receipt()
+        export_parent = self.feed / "export-child-swap-parent"
+        export_parent.mkdir()
+        export_dir = export_parent / "bundle"
+        moved_export = export_parent / "held-bundle"
+
+        def swap_export() -> None:
+            export_dir.rename(moved_export)
+            export_dir.mkdir()
+            (export_dir / "attacker.txt").write_text("substituted", encoding="utf-8")
+
+        with self.assertRaisesRegex(runtime.RuntimePackagePlaneError, "export directory changed"):
+            runtime.export_bundle(
+                REPO_ROOT,
+                REPO_ROOT / "eng/runtime-package-plane.lock.json",
+                self.feed,
+                receipt_path,
+                export_dir,
+                _before_final_reopen=swap_export,
+            )
+        self.assertEqual([path.name for path in export_dir.iterdir()], ["attacker.txt"])
+
+    def test_export_rejects_packages_directory_swapped_after_fsync(self) -> None:
+        receipt_path, _ = self._write_inventory_and_receipt()
+        export_dir = self.feed / "packages-child-swap-bundle"
+        moved_packages = self.feed / "held-packages"
+
+        def swap_packages() -> None:
+            packages = export_dir / "packages"
+            packages.rename(moved_packages)
+            packages.mkdir()
+            (packages / "attacker.nupkg").write_bytes(b"substituted")
+
+        with self.assertRaisesRegex(runtime.RuntimePackagePlaneError, "packages directory changed"):
+            runtime.export_bundle(
+                REPO_ROOT,
+                REPO_ROOT / "eng/runtime-package-plane.lock.json",
+                self.feed,
+                receipt_path,
+                export_dir,
+                _before_final_reopen=swap_packages,
+            )
+
+    def test_export_rejects_noncanonical_dotdot_parent(self) -> None:
+        receipt_path, _ = self._write_inventory_and_receipt()
+        hop = self.feed / "hop"
+        hop.mkdir()
+        with self.assertRaisesRegex(runtime.RuntimePackagePlaneError, "canonical absolute path"):
+            runtime.export_bundle(
+                REPO_ROOT,
+                REPO_ROOT / "eng/runtime-package-plane.lock.json",
+                self.feed,
+                receipt_path,
+                hop / ".." / "dotdot-bundle",
+            )
+
+    def test_export_rejects_self_consistent_arbitrary_candidate_inventory(self) -> None:
+        receipt_path, receipt = self._write_inventory_and_receipt()
+        candidate_path = self.feed / runtime.CANDIDATE_ENGINE_INVENTORY_NAME
+        runtime._atomic_json(candidate_path, {"candidate": "engine"})
+        receipt["candidate_package_inventory_sha256"] = hashlib.sha256(
+            candidate_path.read_bytes()
+        ).hexdigest()
+        runtime._atomic_json(receipt_path, receipt)
+        with self.assertRaisesRegex(runtime.RuntimePackagePlaneError, "schema or authority differs"):
+            runtime.export_bundle(
+                REPO_ROOT,
+                REPO_ROOT / "eng/runtime-package-plane.lock.json",
+                self.feed,
+                receipt_path,
+                self.feed / "arbitrary-candidate-export",
+            )
+
+    def test_export_rejects_wrong_gm_runtime_assembly_authority(self) -> None:
+        receipt_path, receipt = self._write_inventory_and_receipt()
+        candidate_path = self.feed / runtime.CANDIDATE_GM_INVENTORY_NAME
+        candidate = json.loads(candidate_path.read_text(encoding="utf-8"))
+        candidate["package"]["runtime_assemblies"] = ["lib/net10.0/Foreign.dll"]
+        runtime._atomic_json(candidate_path, candidate)
+        receipt["candidate_runtime_package_inventory_sha256"] = hashlib.sha256(
+            candidate_path.read_bytes()
+        ).hexdigest()
+        runtime._atomic_json(receipt_path, receipt)
+        with self.assertRaisesRegex(runtime.RuntimePackagePlaneError, "schema or authority differs"):
+            runtime.export_bundle(
+                REPO_ROOT,
+                REPO_ROOT / "eng/runtime-package-plane.lock.json",
+                self.feed,
+                receipt_path,
+                self.feed / "wrong-gm-assembly-export",
+            )
+
+    def test_duplicate_key_receipt_is_rejected(self) -> None:
+        receipt_path, _ = self._write_inventory_and_receipt()
+        receipt_path.write_text(
+            receipt_path.read_text(encoding="utf-8").replace(
+                "{\n",
+                '{\n  "status": "fail",\n',
+                1,
+            ),
+            encoding="utf-8",
+        )
+        with self.assertRaisesRegex(runtime.RuntimePackagePlaneError, "duplicate JSON key"):
+            runtime.export_bundle(
+                REPO_ROOT,
+                REPO_ROOT / "eng/runtime-package-plane.lock.json",
+                self.feed,
+                receipt_path,
+                self.feed / "duplicate-receipt-export",
+            )
+
+    def test_duplicate_key_owner_inventory_is_rejected_even_when_receipt_hash_matches(self) -> None:
+        receipt_path, receipt = self._write_inventory_and_receipt()
+        owner_inventory_path = self.feed / runtime.OWNER_INVENTORY_NAME
+        owner_inventory_path.write_text(
+            owner_inventory_path.read_text(encoding="utf-8").replace(
+                "{\n",
+                '{\n  "contract": "ambiguous",\n',
+                1,
+            ),
+            encoding="utf-8",
+        )
+        receipt["package_inventory_sha256"] = hashlib.sha256(
+            owner_inventory_path.read_bytes()
+        ).hexdigest()
+        runtime._atomic_json(receipt_path, receipt)
+        with self.assertRaisesRegex(runtime.RuntimePackagePlaneError, "duplicate JSON key"):
+            runtime.export_bundle(
+                REPO_ROOT,
+                REPO_ROOT / "eng/runtime-package-plane.lock.json",
+                self.feed,
+                receipt_path,
+                self.feed / "duplicate-owner-inventory-export",
+            )
+
+    def test_duplicate_key_candidate_inventory_is_rejected(self) -> None:
+        receipt_path, receipt = self._write_inventory_and_receipt()
+        candidate_path = self.feed / runtime.CANDIDATE_ENGINE_INVENTORY_NAME
+        candidate_path.write_text(
+            candidate_path.read_text(encoding="utf-8").replace(
+                "{\n",
+                '{\n  "role": "ambiguous",\n',
+                1,
+            ),
+            encoding="utf-8",
+        )
+        receipt["candidate_package_inventory_sha256"] = hashlib.sha256(
+            candidate_path.read_bytes()
+        ).hexdigest()
+        runtime._atomic_json(receipt_path, receipt)
+        with self.assertRaisesRegex(runtime.RuntimePackagePlaneError, "duplicate JSON key"):
+            runtime.export_bundle(
+                REPO_ROOT,
+                REPO_ROOT / "eng/runtime-package-plane.lock.json",
+                self.feed,
+                receipt_path,
+                self.feed / "duplicate-candidate-export",
+            )
+
+    def test_duplicate_key_runtime_inventory_is_rejected(self) -> None:
+        receipt_path, _ = self._write_inventory_and_receipt()
+        inventory_path = self.feed / runtime.INVENTORY_NAME
+        inventory_path.write_text(
+            inventory_path.read_text(encoding="utf-8").replace(
+                "{\n",
+                '{\n  "contract": "ambiguous",\n',
+                1,
+            ),
+            encoding="utf-8",
+        )
+        with self.assertRaisesRegex(runtime.RuntimePackagePlaneError, "duplicate JSON key"):
+            runtime.export_bundle(
+                REPO_ROOT,
+                REPO_ROOT / "eng/runtime-package-plane.lock.json",
+                self.feed,
+                receipt_path,
+                self.feed / "duplicate-runtime-inventory-export",
+            )
+
+    def test_duplicate_key_owner_lock_is_rejected(self) -> None:
+        receipt_path, receipt = self._write_inventory_and_receipt()
+        fake_repo = self.feed / "fake-owner-lock-repo"
+        (fake_repo / "eng").mkdir(parents=True)
+        owner_lock_path = fake_repo / "eng/package-plane.lock.json"
+        owner_lock_path.write_text(
+            (REPO_ROOT / "eng/package-plane.lock.json").read_text(encoding="utf-8").replace(
+                "{\n",
+                '{\n  "contract": "ambiguous",\n',
+                1,
+            ),
+            encoding="utf-8",
+        )
+        owner_lock_sha256 = hashlib.sha256(owner_lock_path.read_bytes()).hexdigest()
+        owner_inventory_path = self.feed / runtime.OWNER_INVENTORY_NAME
+        owner_inventory = json.loads(owner_inventory_path.read_text(encoding="utf-8"))
+        owner_inventory["package_plane_lock_sha256"] = owner_lock_sha256
+        runtime._atomic_json(owner_inventory_path, owner_inventory)
+        receipt["package_plane_lock_sha256"] = owner_lock_sha256
+        receipt["package_inventory_sha256"] = hashlib.sha256(
+            owner_inventory_path.read_bytes()
+        ).hexdigest()
+        runtime._atomic_json(receipt_path, receipt)
+        runtime_inventory_path = self.feed / runtime.INVENTORY_NAME
+        runtime_inventory = json.loads(runtime_inventory_path.read_text(encoding="utf-8"))
+        with self.assertRaisesRegex(runtime.RuntimePackagePlaneError, "duplicate JSON key"):
+            runtime._validate_receipt(
+                fake_repo,
+                self.feed,
+                receipt_path,
+                runtime_inventory,
+                hashlib.sha256(runtime_inventory_path.read_bytes()).hexdigest(),
+            )
+
 
 class SdkArchiveAuthorityTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -567,9 +854,7 @@ class SdkArchiveAuthorityTests(unittest.TestCase):
         return path, hashlib.sha512(path.read_bytes()).hexdigest()
 
     def _destination(self, name: str = "sdk-root") -> Path:
-        destination = self.root / name
-        destination.mkdir()
-        return destination
+        return self.root / name
 
     def test_exact_archive_extracts_from_same_hashed_descriptor(self) -> None:
         archive, digest = self._archive((("dotnet", b"digest-bound-sdk"),))
@@ -582,7 +867,7 @@ class SdkArchiveAuthorityTests(unittest.TestCase):
         destination = self._destination()
         with self.assertRaisesRegex(runtime.RuntimePackagePlaneError, "SHA-512"):
             runtime._extract_digest_bound_tar_gz(archive, destination, "0" * 128)
-        self.assertEqual(list(destination.iterdir()), [])
+        self.assertFalse(destination.exists())
 
     def test_parent_traversal_member_is_rejected(self) -> None:
         archive, digest = self._archive((("../escape", b"hostile"),))
@@ -596,6 +881,71 @@ class SdkArchiveAuthorityTests(unittest.TestCase):
         destination = self._destination()
         with self.assertRaisesRegex(runtime.RuntimePackagePlaneError, "duplicate SDK archive member"):
             runtime._extract_digest_bound_tar_gz(archive, destination, digest)
+
+    def test_source_inode_overwrite_after_snapshot_cannot_change_extracted_bytes(self) -> None:
+        archive, digest = self._archive((("dotnet", b"digest-bound-sdk"),))
+        replacement = self.root / "replacement.tar.gz"
+        with tarfile.open(replacement, mode="w:gz") as stream:
+            info = tarfile.TarInfo("attacker-tool")
+            payload = b"unhashed replacement"
+            info.size = len(payload)
+            stream.addfile(info, io.BytesIO(payload))
+        destination = self._destination()
+
+        runtime._extract_digest_bound_tar_gz(
+            archive,
+            destination,
+            digest,
+            _after_snapshot=lambda: archive.write_bytes(replacement.read_bytes()),
+        )
+
+        self.assertEqual((destination / "dotnet").read_bytes(), b"digest-bound-sdk")
+        self.assertFalse((destination / "attacker-tool").exists())
+
+    def test_destination_swap_after_open_is_rejected_and_cannot_redirect_extraction(self) -> None:
+        archive, digest = self._archive((("dotnet", b"digest-bound-sdk"),))
+        destination = self._destination()
+        moved = self.root / "held-sdk-root"
+        external = self.root / "external-sdk-root"
+        external.mkdir()
+
+        def swap_destination() -> None:
+            destination.rename(moved)
+            destination.symlink_to(external, target_is_directory=True)
+
+        with self.assertRaisesRegex(
+            runtime.RuntimePackagePlaneError,
+            "extraction directory changed",
+        ):
+            runtime._extract_digest_bound_tar_gz(
+                archive,
+                destination,
+                digest,
+                _after_destination_open=swap_destination,
+            )
+        self.assertEqual(list(external.iterdir()), [])
+        self.assertEqual((moved / "dotnet").read_bytes(), b"digest-bound-sdk")
+
+    def test_precreated_sdk_destination_is_rejected(self) -> None:
+        archive, digest = self._archive((("dotnet", b"digest-bound-sdk"),))
+        destination = self._destination()
+        destination.mkdir()
+        with self.assertRaisesRegex(runtime.RuntimePackagePlaneError, "must not already exist"):
+            runtime._extract_digest_bound_tar_gz(archive, destination, digest)
+
+    def test_sdk_snapshot_has_a_hard_size_bound(self) -> None:
+        archive, digest = self._archive((("dotnet", b"two-bytes"),))
+        original_limit = runtime.SDK_ARCHIVE_MAX_BYTES
+        runtime.SDK_ARCHIVE_MAX_BYTES = 1
+        try:
+            with self.assertRaisesRegex(runtime.RuntimePackagePlaneError, "bounded snapshot"):
+                runtime._extract_digest_bound_tar_gz(
+                    archive,
+                    self._destination(),
+                    digest,
+                )
+        finally:
+            runtime.SDK_ARCHIVE_MAX_BYTES = original_limit
 
 
 class RuntimePackageWorkflowTests(unittest.TestCase):
@@ -619,6 +969,11 @@ class RuntimePackageWorkflowTests(unittest.TestCase):
         self.assertIn("--extract-sdk-archive", workflow)
         self.assertNotIn("dotnet-install.sh", workflow)
         self.assertNotIn("core_dotnet_script", workflow)
+        self.assertNotIn('mkdir --mode=0755 "${core_dotnet_root}"', workflow)
+        validator = SCRIPT_PATH.read_text(encoding="utf-8")
+        self.assertEqual(runtime.SDK_RID, "linux-x64")
+        self.assertIn('Path(f"/proc/self/fd/{destination_descriptor}")', validator)
+        self.assertIn("tempfile.TemporaryFile", validator)
         download = workflow.index(runtime.SDK_ARCHIVE_URL)
         digest = workflow.index("sha512sum --check --strict")
         extract = workflow.index("--extract-sdk-archive")

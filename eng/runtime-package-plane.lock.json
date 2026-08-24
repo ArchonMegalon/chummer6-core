@@ -28,7 +28,7 @@
     "tests/test_runtime_package_plane_authority.py"
   ],
   "build_authority_files": [
-    {"path": ".github/workflows/package-plane.yml", "sha256": "4ff5a51425c29be9a0211cd033544732cad63f8937f07c5042a2ed861c1815a6"},
+    {"path": ".github/workflows/package-plane.yml", "sha256": "a1f3c98af166b9d593fcf7cea9d6bc37f884b5d5202f6accdcf0856dd717b86a"},
     {"path": "Chummer.CoreEngine.sln", "sha256": "a3fd0096e249453f68b9bb4b327722a1ce25d0faf81b74a11d048b24cc0a43c7"},
     {"path": "Directory.Build.props", "sha256": "0607c419f70881157e30d4c571bc880f5e3cfc1cc64fe8a36850adf2b9c14a02"},
     {"path": "Directory.Build.targets", "sha256": "fe701e982c753339dc9357e559d3824faf0d1f392abaa31d7f2cb5486baf2b65"},
@@ -37,7 +37,7 @@
     {"path": "scripts/ai/_env.sh", "sha256": "efd91711e2492039933b2b97a0e0cfe51f84127dc25987dc2d5034997dcb8c30"},
     {"path": "scripts/ai/bootstrap-contracts-feed.sh", "sha256": "8b0c25566398f3b222ffbdd23a8244fb27d4f7ce8a65c15a9678a6a63d1a88e6"},
     {"path": "scripts/ai/bootstrap-owner-contracts-feed.py", "sha256": "5beffe15d1708f4cf2c096f376822cd48b9502b5fb1acb69b95db3c86c474786"},
-    {"path": "scripts/ai/runtime-package-plane.py", "sha256": "518cbec8f1cf50bcc558d0e47a5e751c6663d48c594253f6453a7a7b19d98694"},
+    {"path": "scripts/ai/runtime-package-plane.py", "sha256": "ec20836d1c8af78d91ca7c366c3582b2d97789f1deeae7e400909329ca80d142"},
     {"path": "scripts/ai/verify-no-siblings-package-plane.sh", "sha256": "dce5211365f6ecb67f59a2e12ef71c06743170f2e728ee2bd77f2d3b39869105"}
   ],
   "external_owner_packages": [

@@ -32,7 +32,6 @@ jobs:
             --output "${core_dotnet_archive}"
           echo "bab94f13c57b2ac821d4924fe66084be9b44c41761ff7ff64522c8f7aba345659d31258401dcec31cc3cf6ccae1d012623075aca1c9b9165bcfe5ba9abda1c0c  ${core_dotnet_archive}" \
             | sha512sum --check --strict
-          mkdir --mode=0755 "${core_dotnet_root}"
           python3 scripts/ai/runtime-package-plane.py \
             --repo-root . \
             --archive "${core_dotnet_archive}" \
