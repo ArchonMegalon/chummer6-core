@@ -1,6 +1,7 @@
 using System.Buffers;
 using System.Security.Cryptography;
 using System.Text.Json;
+using Chummer.Contracts.Rulesets;
 using Chummer.Contracts.Workspaces;
 
 namespace Chummer.Contracts.Characters;
@@ -21,6 +22,77 @@ public static class CharacterCreationBootstrapSchemas
 public static class CharacterCreationBootstrapStages
 {
     public const string AwaitingFoundationSelection = "awaiting-foundation-selection";
+}
+
+public static class CharacterCreationBootstrapRevisions
+{
+    public const long InitialContentRevision = 1;
+    public const long InitialSavedRevision = 0;
+}
+
+/// <summary>
+/// The only SR5 creation-profile identities that may seed an authority-bound
+/// pending-selection workspace. A resolvable settings row is not sufficient:
+/// method and profile id are one exact, case-sensitive tuple.
+/// </summary>
+public static class CharacterCreationBootstrapProfiles
+{
+    public const string PrioritySettingsProfileId =
+        "223a11ff-80e0-428b-89a9-6ef1c243b8b6";
+    public const string SumToTenSettingsProfileId =
+        "3509a807-68ee-4c18-b7d5-b130313b4b77";
+    public const string KarmaSettingsProfileId =
+        "fe7bb0d9-3cd9-4a75-825e-135b95a4f3ef";
+    public const string LifeModulesSettingsProfileId =
+        "8a31af6d-7137-4284-872b-7d8087e156c6";
+
+    public static bool IsExactCanonicalTuple(string? buildMethod, string? settingsProfileId)
+        => buildMethod switch
+        {
+            CharacterCreationBuildMethods.Priority => string.Equals(
+                settingsProfileId,
+                PrioritySettingsProfileId,
+                StringComparison.Ordinal),
+            CharacterCreationBuildMethods.SumToTen => string.Equals(
+                settingsProfileId,
+                SumToTenSettingsProfileId,
+                StringComparison.Ordinal),
+            CharacterCreationBuildMethods.Karma => string.Equals(
+                settingsProfileId,
+                KarmaSettingsProfileId,
+                StringComparison.Ordinal),
+            CharacterCreationBuildMethods.LifeModules => string.Equals(
+                settingsProfileId,
+                LifeModulesSettingsProfileId,
+                StringComparison.Ordinal),
+            _ => false
+        };
+
+    public static string[] ExpectedSourceAnchorIds(
+        string buildMethod,
+        string settingsProfileId)
+    {
+        if (!IsExactCanonicalTuple(buildMethod, settingsProfileId))
+            return [];
+
+        string settingsAnchor = $"settings.xml#setting:{settingsProfileId}";
+        return buildMethod is CharacterCreationBuildMethods.Priority
+                or CharacterCreationBuildMethods.SumToTen
+            ? ["metatypes.xml", "priorities.xml", settingsAnchor, "skills.xml"]
+            : ["metatypes.xml", settingsAnchor];
+    }
+
+    public static bool HasExactCanonicalSourceAnchors(
+        string buildMethod,
+        string settingsProfileId,
+        IReadOnlyList<string>? sourceAnchorIds)
+    {
+        string[] expected = ExpectedSourceAnchorIds(buildMethod, settingsProfileId);
+        return expected.Length > 0
+               && sourceAnchorIds is not null
+               && sourceAnchorIds.Count == expected.Length
+               && sourceAnchorIds.SequenceEqual(expected, StringComparer.Ordinal);
+    }
 }
 
 public static class CharacterCreationBootstrapXml
@@ -60,6 +132,7 @@ public static class CharacterCreationBootstrapBlockers
     public const string SourceProfileInvalid = "creation-bootstrap-source-profile-invalid";
     public const string MetatypeAuthorityUnavailable = "creation-bootstrap-metatype-authority-unavailable";
     public const string PrerequisiteAuthorityUnavailable = "creation-bootstrap-prerequisite-authority-unavailable";
+    public const string SourceAnchorsInvalid = "creation-bootstrap-source-anchors-invalid";
     public const string AtomicCreateUnavailable = "creation-bootstrap-atomic-create-unavailable";
     public const string WorkspaceCreateFailed = "creation-bootstrap-workspace-create-failed";
 }
@@ -85,11 +158,14 @@ public sealed record CharacterCreationBootstrapBinding(
     string RulesetId,
     string BuildMethod,
     string SettingsProfileId,
+    long InitialContentRevision,
+    long InitialSavedRevision,
     string RawCharacterXmlDigest,
     string RawProfileInputsDigest,
     string MetatypeAuthorityDigest,
     string PrerequisiteAuthorityDigest,
     string SettingsSourceAnchor,
+    IReadOnlyList<string> SourceAnchorIds,
     string BindingDigest);
 
 public sealed record CharacterCreationBootstrapPreparation(
@@ -105,7 +181,8 @@ public sealed record CharacterCreationBootstrapReceipt(
     long SavedRevision,
     CharacterFileSummary Summary,
     CharacterCreationBootstrapBinding Binding,
-    IReadOnlyList<string> SourceAnchorIds);
+    IReadOnlyList<string> SourceAnchorIds,
+    string ReceiptDigest);
 
 public sealed record CharacterCreationBootstrapResult<T>(
     string Outcome,
@@ -145,6 +222,38 @@ public static class CharacterCreationBootstrapBindingDigest
 
     public static bool IsValid(CharacterCreationBootstrapBinding? binding)
         => binding is not null
+           && string.Equals(
+               binding.Schema,
+               CharacterCreationBootstrapSchemas.BindingV1,
+               StringComparison.Ordinal)
+           && string.Equals(
+               binding.Stage,
+               CharacterCreationBootstrapStages.AwaitingFoundationSelection,
+               StringComparison.Ordinal)
+           && !string.IsNullOrWhiteSpace(binding.WorkspaceId.Value)
+           && string.Equals(binding.RulesetId, RulesetDefaults.Sr5, StringComparison.Ordinal)
+           && CharacterCreationBootstrapProfiles.IsExactCanonicalTuple(
+               binding.BuildMethod,
+               binding.SettingsProfileId)
+           && binding.InitialContentRevision
+               == CharacterCreationBootstrapRevisions.InitialContentRevision
+           && binding.InitialSavedRevision
+               == CharacterCreationBootstrapRevisions.InitialSavedRevision
+           && IsCanonical(binding.RawCharacterXmlDigest)
+           && IsCanonical(binding.RawProfileInputsDigest)
+           && IsCanonical(binding.MetatypeAuthorityDigest)
+           && (binding.BuildMethod is CharacterCreationBuildMethods.Priority
+                   or CharacterCreationBuildMethods.SumToTen
+               ? IsCanonical(binding.PrerequisiteAuthorityDigest)
+               : string.IsNullOrEmpty(binding.PrerequisiteAuthorityDigest))
+           && string.Equals(
+               binding.SettingsSourceAnchor,
+               $"settings.xml#setting:{binding.SettingsProfileId}",
+               StringComparison.Ordinal)
+           && CharacterCreationBootstrapProfiles.HasExactCanonicalSourceAnchors(
+               binding.BuildMethod,
+               binding.SettingsProfileId,
+               binding.SourceAnchorIds)
            && IsCanonical(binding.BindingDigest)
            && FixedTimeEquals(binding.BindingDigest, Compute(binding));
 
@@ -194,6 +303,91 @@ public static class CharacterCreationBootstrapBindingDigest
                 break;
             default:
                 throw new InvalidOperationException("Unsupported bootstrap binding JSON value kind.");
+        }
+    }
+}
+
+public static class CharacterCreationBootstrapReceiptDigest
+{
+    private const string Prefix = "sha256:";
+
+    public static string Compute(CharacterCreationBootstrapReceipt receipt)
+    {
+        ArgumentNullException.ThrowIfNull(receipt);
+        JsonElement root = JsonSerializer.SerializeToElement(
+            receipt with { ReceiptDigest = string.Empty });
+        ArrayBufferWriter<byte> buffer = new();
+        using (var writer = new Utf8JsonWriter(buffer))
+        {
+            WriteCanonical(root, writer);
+        }
+
+        return Prefix + Convert.ToHexStringLower(SHA256.HashData(buffer.WrittenSpan));
+    }
+
+    public static bool IsValid(CharacterCreationBootstrapReceipt? receipt)
+        => receipt is not null
+           && string.Equals(
+               receipt.Schema,
+               CharacterCreationBootstrapSchemas.ReceiptV1,
+               StringComparison.Ordinal)
+           && CharacterCreationBootstrapBindingDigest.IsValid(receipt.Binding)
+           && receipt.WorkspaceId == receipt.Binding.WorkspaceId
+           && receipt.ContentRevision == receipt.Binding.InitialContentRevision
+           && receipt.SavedRevision == receipt.Binding.InitialSavedRevision
+           && receipt.ContentRevision == CharacterCreationBootstrapRevisions.InitialContentRevision
+           && receipt.SavedRevision == CharacterCreationBootstrapRevisions.InitialSavedRevision
+           && CharacterCreationBootstrapProfiles.HasExactCanonicalSourceAnchors(
+               receipt.Binding.BuildMethod,
+               receipt.Binding.SettingsProfileId,
+               receipt.SourceAnchorIds)
+           && receipt.SourceAnchorIds.SequenceEqual(
+               receipt.Binding.SourceAnchorIds,
+               StringComparer.Ordinal)
+           && CharacterCreationBootstrapBindingDigest.IsCanonical(receipt.ReceiptDigest)
+           && CharacterCreationBootstrapBindingDigest.FixedTimeEquals(
+               receipt.ReceiptDigest,
+               Compute(receipt));
+
+    private static void WriteCanonical(JsonElement element, Utf8JsonWriter writer)
+    {
+        switch (element.ValueKind)
+        {
+            case JsonValueKind.Object:
+                writer.WriteStartObject();
+                foreach (JsonProperty property in element.EnumerateObject()
+                             .OrderBy(property => property.Name, StringComparer.Ordinal))
+                {
+                    writer.WritePropertyName(property.Name);
+                    WriteCanonical(property.Value, writer);
+                }
+                writer.WriteEndObject();
+                break;
+            case JsonValueKind.Array:
+                writer.WriteStartArray();
+                foreach (JsonElement item in element.EnumerateArray())
+                    WriteCanonical(item, writer);
+                writer.WriteEndArray();
+                break;
+            case JsonValueKind.String:
+                writer.WriteStringValue(element.GetString());
+                break;
+            case JsonValueKind.Number:
+                writer.WriteRawValue(element.GetRawText(), skipInputValidation: true);
+                break;
+            case JsonValueKind.True:
+                writer.WriteBooleanValue(true);
+                break;
+            case JsonValueKind.False:
+                writer.WriteBooleanValue(false);
+                break;
+            case JsonValueKind.Null:
+            case JsonValueKind.Undefined:
+                writer.WriteNullValue();
+                break;
+            default:
+                throw new InvalidOperationException(
+                    "Unsupported bootstrap receipt JSON value kind.");
         }
     }
 }

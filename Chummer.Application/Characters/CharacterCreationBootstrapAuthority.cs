@@ -235,6 +235,16 @@ public static class CharacterCreationBootstrapAuthority
             .Distinct(StringComparer.Ordinal)
             .OrderBy(anchor => anchor, StringComparer.Ordinal)
             .ToArray();
+        if (!CharacterCreationBootstrapProfiles.HasExactCanonicalSourceAnchors(
+                shape.BuildMethod,
+                shape.SettingsProfileId,
+                anchors))
+        {
+            binding = EmptyBinding(workspaceId);
+            sourceAnchorIds = [];
+            blockers = [CharacterCreationBootstrapBlockers.SourceAnchorsInvalid];
+            return false;
+        }
         var unsigned = new CharacterCreationBootstrapBinding(
             Schema: CharacterCreationBootstrapSchemas.BindingV1,
             Stage: CharacterCreationBootstrapStages.AwaitingFoundationSelection,
@@ -242,12 +252,15 @@ public static class CharacterCreationBootstrapAuthority
             RulesetId: RulesetDefaults.Sr5,
             BuildMethod: shape.BuildMethod,
             SettingsProfileId: shape.SettingsProfileId,
+            InitialContentRevision: CharacterCreationBootstrapRevisions.InitialContentRevision,
+            InitialSavedRevision: CharacterCreationBootstrapRevisions.InitialSavedRevision,
             RawCharacterXmlDigest: CharacterCreationFoundationDraftLedgerIntegrity
                 .ComputeRawCharacterXmlDigest(document.Content),
             RawProfileInputsDigest: sourceProfile.RawProfileInputsDigest,
             MetatypeAuthorityDigest: metatypeAuthority.SourceContext.AuthorityDigest,
             PrerequisiteAuthorityDigest: prerequisiteAuthorityDigest,
             SettingsSourceAnchor: settingsAnchor,
+            SourceAnchorIds: anchors,
             BindingDigest: string.Empty);
         binding = unsigned with
         {
@@ -272,16 +285,9 @@ public static class CharacterCreationBootstrapAuthority
             return false;
         }
 
-        if (!CharacterCreationBootstrapBindingDigest.IsValid(persisted)
-            || persisted.WorkspaceId != workspace.Id
-            || !string.Equals(
-                persisted.Schema,
-                CharacterCreationBootstrapSchemas.BindingV1,
-                StringComparison.Ordinal)
-            || !string.Equals(
-                persisted.Stage,
-                CharacterCreationBootstrapStages.AwaitingFoundationSelection,
-                StringComparison.Ordinal))
+        if (!CharacterCreationBootstrapStoreIntegrity.IsValidBinding(
+                workspace.Id,
+                persisted))
         {
             blockers = [CharacterCreationBootstrapBlockers.BindingInvalid];
             return false;
@@ -394,6 +400,13 @@ public static class CharacterCreationBootstrapAuthority
             blockers.Add(CharacterCreationBootstrapBlockers.SettingsProfileInvalid);
         }
 
+        if (!CharacterCreationBootstrapProfiles.IsExactCanonicalTuple(
+                buildMethod,
+                settingsProfileId))
+        {
+            blockers.Add(CharacterCreationBootstrapBlockers.SettingsProfileInvalid);
+        }
+
         if (!string.Equals(
                 ReadExactlyOne(character, "gameedition", blockers),
                 "SR5",
@@ -431,18 +444,21 @@ public static class CharacterCreationBootstrapAuthority
 
     private static CharacterCreationBootstrapBinding EmptyBinding(CharacterWorkspaceId id)
         => new(
-            CharacterCreationBootstrapSchemas.BindingV1,
-            CharacterCreationBootstrapStages.AwaitingFoundationSelection,
-            id,
-            string.Empty,
-            string.Empty,
-            string.Empty,
-            string.Empty,
-            string.Empty,
-            string.Empty,
-            string.Empty,
-            string.Empty,
-            string.Empty);
+            Schema: CharacterCreationBootstrapSchemas.BindingV1,
+            Stage: CharacterCreationBootstrapStages.AwaitingFoundationSelection,
+            WorkspaceId: id,
+            RulesetId: string.Empty,
+            BuildMethod: string.Empty,
+            SettingsProfileId: string.Empty,
+            InitialContentRevision: CharacterCreationBootstrapRevisions.InitialContentRevision,
+            InitialSavedRevision: CharacterCreationBootstrapRevisions.InitialSavedRevision,
+            RawCharacterXmlDigest: string.Empty,
+            RawProfileInputsDigest: string.Empty,
+            MetatypeAuthorityDigest: string.Empty,
+            PrerequisiteAuthorityDigest: string.Empty,
+            SettingsSourceAnchor: string.Empty,
+            SourceAnchorIds: [],
+            BindingDigest: string.Empty);
 
     private static string[] Normalize(IEnumerable<string> blockers)
         => blockers.Distinct(StringComparer.Ordinal).OrderBy(value => value, StringComparer.Ordinal).ToArray();
