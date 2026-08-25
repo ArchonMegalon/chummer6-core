@@ -1498,6 +1498,33 @@ public sealed class FileWorkspaceStore :
             && attributes.SourceAnchorIds is { Count: > 0 }
             && !attributes.CharacterEffectsApplied
             && IsFoundationSha256(attributes.DraftDigest);
+        CharacterCreationSkillsDraft? skills = state.CharacterCreationSkillsDraft;
+        IReadOnlyList<CharacterCreationSkillsReceipt>? skillReceipts = state.CharacterCreationSkillsReceipts;
+        bool skillsValid = skills is null
+            ? skillReceipts is null
+            : skillReceipts is { Count: > 0 }
+              && CharacterCreationSkillsDigest.IsCanonical(skills.DraftDigest)
+              && CharacterCreationSkillsDraftIntegrity.IsValidReceiptLedger(
+                  skillReceipts,
+                  workspaceId,
+                  currentContentRevision)
+              && skillReceipts[^1].DraftRevision == skills.DraftRevision
+              && CharacterCreationSkillsDigest.EqualsFixedTime(skillReceipts[^1].DraftDigest, skills.DraftDigest)
+              && CharacterCreationSkillsDigest.EqualsFixedTime(
+                  skillReceipts[^1].IdempotencyKeyDigest,
+                  skills.LastIdempotencyKeyDigest)
+              && CharacterCreationSkillsDigest.EqualsFixedTime(
+                  skillReceipts[^1].PreviewDigest,
+                  skills.LastPreviewDigest)
+              && CharacterCreationSkillsDigest.EqualsFixedTime(
+                  skillReceipts[^1].CommandDigest,
+                  skills.LastCommandDigest)
+              && CharacterCreationSkillsDigest.EqualsFixedTime(
+                  skillReceipts[^1].SkillsAuthorityDigest,
+                  skills.SkillsAuthorityDigest)
+              && CharacterCreationSkillsDigest.EqualsFixedTime(
+                  skillReceipts[^1].RuntimeDigest,
+                  skills.RuntimeDigest);
         IReadOnlyList<CharacterCreationContactReceiptLedgerEntry>? contactReceipts =
             state.CharacterCreationContactReceipts;
         bool contactReceiptsValid = contactReceipts is null
@@ -1512,6 +1539,7 @@ public sealed class FileWorkspaceStore :
         return foundationValid
                && prerequisiteValid
                && attributesValid
+               && skillsValid
                && contactReceiptsValid
                && bootstrapValid;
     }
@@ -1543,6 +1571,14 @@ public sealed class FileWorkspaceStore :
             replacementState.CharacterCreationAttributesDraft;
         CharacterCreationAttributesDraft? currentAttributes =
             currentState.CharacterCreationAttributesDraft;
+        CharacterCreationSkillsDraft? replacementSkills =
+            replacementState.CharacterCreationSkillsDraft;
+        CharacterCreationSkillsDraft? currentSkills =
+            currentState.CharacterCreationSkillsDraft;
+        IReadOnlyList<CharacterCreationSkillsReceipt>? replacementSkillReceipts =
+            replacementState.CharacterCreationSkillsReceipts;
+        IReadOnlyList<CharacterCreationSkillsReceipt>? currentSkillReceipts =
+            currentState.CharacterCreationSkillsReceipts;
         IReadOnlyList<CharacterCreationContactReceiptLedgerEntry>? replacementContactReceipts =
             replacementState.CharacterCreationContactReceipts;
         IReadOnlyList<CharacterCreationContactReceiptLedgerEntry>? currentContactReceipts =
@@ -1561,6 +1597,11 @@ public sealed class FileWorkspaceStore :
         bool attributesUnchanged = HasSameAttributesDraft(
             currentAttributes,
             replacementAttributes);
+        bool skillsUnchanged = HasSameSkillsLane(
+            currentSkills,
+            currentSkillReceipts,
+            replacementSkills,
+            replacementSkillReceipts);
         bool contactReceiptsUnchanged = HasSameContactReceiptLedger(
             currentContactReceipts,
             replacementContactReceipts);
@@ -1570,6 +1611,7 @@ public sealed class FileWorkspaceStore :
         int changedLaneCount = (foundationUnchanged ? 0 : 1)
                                + (prerequisiteUnchanged ? 0 : 1)
                                + (attributesUnchanged ? 0 : 1)
+                               + (skillsUnchanged ? 0 : 1)
                                + (contactReceiptsUnchanged ? 0 : 1)
                                + (bootstrapUnchanged ? 0 : 1);
         if (changedLaneCount != 1)
@@ -1599,6 +1641,17 @@ public sealed class FileWorkspaceStore :
                 currentAttributes,
                 replacementAttributes,
                 previousContentRevision);
+        }
+        if (!skillsUnchanged)
+        {
+            return IsValidSkillsTransition(
+                workspaceId,
+                currentSkills,
+                currentSkillReceipts,
+                replacementSkills,
+                replacementSkillReceipts,
+                previousContentRevision,
+                nextContentRevision);
         }
         if (!bootstrapUnchanged)
         {
@@ -1683,6 +1736,58 @@ public sealed class FileWorkspaceStore :
               && replacement.BaseContentRevision == previousContentRevision;
     }
 
+    private static bool IsValidSkillsTransition(
+        CharacterWorkspaceId workspaceId,
+        CharacterCreationSkillsDraft? current,
+        IReadOnlyList<CharacterCreationSkillsReceipt>? currentReceipts,
+        CharacterCreationSkillsDraft? replacement,
+        IReadOnlyList<CharacterCreationSkillsReceipt>? replacementReceipts,
+        long previousContentRevision,
+        long nextContentRevision)
+    {
+        if (replacement is null
+            || replacementReceipts is null
+            || nextContentRevision != previousContentRevision + 1
+            || replacement.BaseContentRevision != previousContentRevision
+            || replacement.DraftRevision != (current?.DraftRevision + 1 ?? 1)
+            || replacementReceipts.Count != (currentReceipts?.Count ?? 0) + 1)
+            return false;
+        if (currentReceipts is not null
+            && !currentReceipts.Zip(replacementReceipts.Take(currentReceipts.Count))
+                .All(pair => CharacterCreationSkillsDigest.EqualsFixedTime(
+                    pair.First.ReceiptDigest,
+                    pair.Second.ReceiptDigest)))
+            return false;
+        CharacterCreationSkillsReceipt receipt = replacementReceipts[^1];
+        return receipt.WorkspaceId == workspaceId
+               && receipt.PreviousContentRevision == previousContentRevision
+               && receipt.ContentRevision == nextContentRevision
+               && receipt.DraftRevision == replacement.DraftRevision
+               && CharacterCreationSkillsDigest.EqualsFixedTime(receipt.DraftDigest, replacement.DraftDigest)
+               && CharacterCreationSkillsDigest.EqualsFixedTime(
+                   receipt.IdempotencyKeyDigest,
+                   replacement.LastIdempotencyKeyDigest)
+               && CharacterCreationSkillsDigest.EqualsFixedTime(
+                   receipt.PreviewDigest,
+                   replacement.LastPreviewDigest)
+               && CharacterCreationSkillsDigest.EqualsFixedTime(
+                   receipt.CommandDigest,
+                   replacement.LastCommandDigest)
+               && CharacterCreationSkillsDigest.EqualsFixedTime(
+                   receipt.PreviousReceiptDigest,
+                   currentReceipts is { Count: > 0 }
+                       ? currentReceipts[^1].ReceiptDigest
+                       : CharacterCreationSkillsDigest.ReceiptLedgerRootDigest)
+               && receipt.ActivePointsRemaining == replacement.ActivePointTotal - replacement.ActivePointUsed
+               && receipt.SkillGroupPointsRemaining == replacement.SkillGroupPointTotal - replacement.SkillGroupPointUsed
+               && receipt.KnowledgePointsRemaining == replacement.KnowledgePointTotal - replacement.KnowledgePointUsed
+               && receipt.KnowledgePointOverflowToActive == replacement.KnowledgePointOverflowToActive
+               && (currentReceipts is null
+                   || currentReceipts.All(existing => !CharacterCreationSkillsDigest.EqualsFixedTime(
+                       existing.IdempotencyKeyDigest,
+                       receipt.IdempotencyKeyDigest)));
+    }
+
     private static bool HasSameFoundationDraft(
         CharacterCreationFoundationDraftLedger? left,
         CharacterCreationFoundationDraftLedger? right) =>
@@ -1721,6 +1826,22 @@ public sealed class FileWorkspaceStore :
                     CharacterCreationFoundationDraft: null,
                     CharacterCreationPrerequisiteDraft: null,
                     CharacterCreationAttributesDraft: right)),
+            StringComparison.Ordinal);
+
+    private static bool HasSameSkillsLane(
+        CharacterCreationSkillsDraft? leftDraft,
+        IReadOnlyList<CharacterCreationSkillsReceipt>? leftReceipts,
+        CharacterCreationSkillsDraft? rightDraft,
+        IReadOnlyList<CharacterCreationSkillsReceipt>? rightReceipts) =>
+        string.Equals(
+            WorkspaceDocumentAuxiliaryStateDigest.Compute(
+                new WorkspaceDocumentAuxiliaryState(
+                    CharacterCreationSkillsDraft: leftDraft,
+                    CharacterCreationSkillsReceipts: leftReceipts)),
+            WorkspaceDocumentAuxiliaryStateDigest.Compute(
+                new WorkspaceDocumentAuxiliaryState(
+                    CharacterCreationSkillsDraft: rightDraft,
+                    CharacterCreationSkillsReceipts: rightReceipts)),
             StringComparison.Ordinal);
 
     private static bool HasSameContactReceiptLedger(

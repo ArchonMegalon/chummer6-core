@@ -63,7 +63,16 @@ public sealed record CharacterCreationAttributeProjection(
     int KarmaCost,
     bool IsEnabled,
     IReadOnlyList<string> DisableReasons,
-    IReadOnlyList<string> SourceAnchorIds);
+    IReadOnlyList<string> SourceAnchorIds)
+{
+    /// <summary>
+    /// Creation drafts contain only metatype minimum plus authoritative priority/karma
+    /// allocations. AugmentedMaximum is a cap, never a current-value contribution.
+    /// Downstream creation rules use this explicit projection instead of accepting a
+    /// client or post-create augmented value.
+    /// </summary>
+    public int UnaugmentedCurrent => Current;
+}
 
 public sealed record CharacterCreationAttributesBinding(
     CharacterWorkspaceId WorkspaceId,

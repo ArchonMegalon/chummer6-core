@@ -282,6 +282,8 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
 
             return new SourceDataContext(
                 catalog,
+                new XElement(character),
+                CharacterCreationSkillsDigest.ComputeUtf8(characterXml),
                 enabledDirectories,
                 enabledSourcebooks,
                 settingsKey,
@@ -887,6 +889,8 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
     private sealed class SourceDataContext : ICharacterSourceDataContext
     {
         private readonly ContentOverlayCatalog _catalog;
+        private readonly XElement _character;
+        private readonly string _rawCharacterXmlDigest;
         private readonly IReadOnlyList<CustomDirectory> _customDirectories;
         private readonly IReadOnlySet<string> _enabledSourcebooks;
         private readonly string _settingsProfileId;
@@ -931,6 +935,8 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
 
         public SourceDataContext(
             ContentOverlayCatalog catalog,
+            XElement character,
+            string rawCharacterXmlDigest,
             IReadOnlyList<CustomDirectory> customDirectories,
             IReadOnlyList<string> enabledSourcebooks,
             string settingsProfileId,
@@ -974,6 +980,8 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             string specializationRuleState)
         {
             _catalog = catalog;
+            _character = character;
+            _rawCharacterXmlDigest = rawCharacterXmlDigest;
             _customDirectories = customDirectories;
             _enabledSourcebooks = enabledSourcebooks.ToHashSet(StringComparer.OrdinalIgnoreCase);
             _settingsProfileId = settingsProfileId;
@@ -1240,6 +1248,629 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 skillsDocument,
                 projectionContext);
             return true;
+        }
+
+        public bool TryResolveCreationSkillsAuthority(
+            out CharacterCreationSkillsAuthority authority)
+        {
+            authority = CharacterCreationSkillsAuthority.Unavailable;
+            var blockers = new List<string>();
+            if (string.IsNullOrWhiteSpace(_settingsProfileId)
+                || !CharacterCreationSkillsDigest.IsCanonical(_effectiveSkillsInputsDigest)
+                || !CharacterCreationSkillsDigest.IsCanonical(_rawProfileInputsDigest)
+                || !CharacterCreationSkillsDigest.IsCanonical(_rawCharacterXmlDigest)
+                || !TryComputeEffectiveInputDigest(
+                    _catalog,
+                    "skills.xml",
+                    out string currentSkillsInputsDigest)
+                || !TryComputeEffectiveInputDigest(
+                    _catalog,
+                    "settings.xml",
+                    out string currentSettingsInputsDigest)
+                || !TryResolveTarget(
+                    "settings.xml",
+                    ["settings"],
+                    "setting",
+                    _settingsProfileId,
+                    string.Empty,
+                    out XElement? settings)
+                || settings is null
+                || !TryEnumerateTargets(
+                    "skills.xml",
+                    ["skills"],
+                    "skill",
+                    out XElement[] activeRows)
+                || !TryEnumerateTargets(
+                    "skills.xml",
+                    ["knowledgeskills"],
+                    "skill",
+                    out XElement[] knowledgeRows))
+            {
+                return false;
+            }
+
+            if (!string.Equals(
+                    currentSkillsInputsDigest,
+                    _effectiveSkillsInputsDigest,
+                    StringComparison.Ordinal))
+            {
+                blockers.Add(CharacterCreationSkillsBlockers.SkillsSourceDrift);
+            }
+            if (!string.Equals(
+                    BindSelectedProfile(currentSettingsInputsDigest, _settingsProfileId),
+                    _rawProfileInputsDigest,
+                    StringComparison.Ordinal))
+            {
+                blockers.Add(CharacterCreationSkillsBlockers.SkillsSourceDrift);
+            }
+            if (!TryHasSelectedCustomDataInputFor(
+                    _customDirectories,
+                    "skills.xml",
+                    out bool hasSkillCustomData)
+                || hasSkillCustomData)
+            {
+                // The prerequisite authority currently rejects custom Skills rows. Keep
+                // this projection aligned until the same overlay compiler owns both paths.
+                blockers.Add(CharacterCreationSkillsBlockers.SkillsSourceDrift);
+            }
+
+            string knowledgeExpression = ReadUniqueScalar(
+                settings,
+                "knowledgepointsexpression",
+                out bool expressionValid);
+            bool usePointsOnBrokenGroups = ReadUniqueBoolean(
+                settings,
+                "usepointsonbrokengroups",
+                defaultWhenMissing: false,
+                out bool useBrokenValid);
+            bool strictGroups = ReadUniqueBoolean(
+                settings,
+                "breakskillgroupsincreatemode",
+                defaultWhenMissing: false,
+                out bool strictValid);
+            bool specializationsBreakGroups = ReadUniqueBoolean(
+                settings,
+                "specializationsbreakskillgroups",
+                defaultWhenMissing: true,
+                out bool specializationsBreakValid);
+            if (!expressionValid
+                || !string.Equals(
+                    knowledgeExpression,
+                    CharacterCreationStandardPrioritySkillsRules.KnowledgePointsExpression,
+                    StringComparison.Ordinal)
+                || !useBrokenValid
+                || !strictValid
+                || !specializationsBreakValid
+                || usePointsOnBrokenGroups
+                || strictGroups
+                || !specializationsBreakGroups)
+            {
+                blockers.Add(CharacterCreationSkillsBlockers.AuthorityUnavailable);
+            }
+
+            CharacterCreationSkillCatalogEntry[] active = ProjectSkills(
+                activeRows,
+                CharacterCreationSkillKinds.Active,
+                blockers);
+            CharacterCreationSkillCatalogEntry[] knowledge = ProjectSkills(
+                knowledgeRows,
+                CharacterCreationSkillKinds.Knowledge,
+                blockers);
+            CharacterCreationKnowledgePointContribution[] knowledgeContributions =
+                ProjectKnowledgePointContributions(blockers);
+            if (active.Length == 0 || knowledge.Length == 0)
+                blockers.Add(CharacterCreationSkillsBlockers.AuthorityUnavailable);
+            if (active.Concat(knowledge)
+                .Select(skill => string.Concat(skill.Kind, "\0", skill.Name))
+                .Distinct(StringComparer.Ordinal).Count() != active.Length + knowledge.Length)
+            {
+                blockers.Add(CharacterCreationSkillsBlockers.AuthorityUnavailable);
+            }
+
+            CharacterCreationSkillGroupCatalogEntry[] groups = active
+                .Where(skill => !string.IsNullOrWhiteSpace(skill.SkillGroup))
+                .GroupBy(skill => skill.SkillGroup!, StringComparer.Ordinal)
+                .Select(group =>
+                {
+                    string[] members = group.Select(skill => skill.SourceSkillId)
+                        .OrderBy(id => id, StringComparer.Ordinal)
+                        .ToArray();
+                    string digest = CharacterCreationSkillsDigest.Compute(new
+                    {
+                        Schema = "chummer.sr5.creation-skill-group-source.v1",
+                        Name = group.Key,
+                        MemberSkillSourceIds = members,
+                        EffectiveSkillsInputsDigest = _effectiveSkillsInputsDigest
+                    });
+                    return new CharacterCreationSkillGroupCatalogEntry(
+                        GroupId: digest,
+                        Name: group.Key,
+                        MemberSkillSourceIds: members,
+                        GroupDigest: digest,
+                        SourceAnchorIds: [$"skills.xml#skillgroup:{group.Key}"]);
+                })
+                .OrderBy(group => group.Name, StringComparer.Ordinal)
+                .ThenBy(group => group.GroupId, StringComparer.Ordinal)
+                .ToArray();
+            if (groups.Any(group => group.MemberSkillSourceIds.Count < 2)
+                || groups.Select(group => group.GroupId)
+                    .Distinct(StringComparer.Ordinal).Count() != groups.Length)
+            {
+                blockers.Add(CharacterCreationSkillsBlockers.AuthorityUnavailable);
+            }
+
+            string runtimeDigest = CharacterCreationStandardPrioritySkillsRules.ComputeRuntimeDigest(
+                usePointsOnBrokenGroups,
+                strictGroups,
+                specializationsBreakGroups);
+            string[] orderedBlockers = blockers.Distinct(StringComparer.Ordinal)
+                .OrderBy(blocker => blocker, StringComparer.Ordinal)
+                .ToArray();
+            var projected = new CharacterCreationSkillsAuthority(
+                Schema: CharacterCreationSkillsSchemas.AuthorityV1,
+                SettingsProfileId: _settingsProfileId,
+                EffectiveSkillsInputsDigest: _effectiveSkillsInputsDigest,
+                RawProfileInputsDigest: _rawProfileInputsDigest,
+                KnowledgePointsExpression: knowledgeExpression,
+                MaxActiveSkillRatingCreate: CharacterCreationStandardPrioritySkillsRules.MaximumRatingAtCreation,
+                MaxKnowledgeSkillRatingCreate: CharacterCreationStandardPrioritySkillsRules.MaximumRatingAtCreation,
+                MaxSkillGroupRatingCreate: CharacterCreationStandardPrioritySkillsRules.MaximumRatingAtCreation,
+                BaseNativeLanguageLimit: CharacterCreationStandardPrioritySkillsRules.BaseNativeLanguageCount,
+                UsePointsOnBrokenGroups: usePointsOnBrokenGroups,
+                StrictSkillGroupsInCreateMode: strictGroups,
+                SpecializationsBreakSkillGroups: specializationsBreakGroups,
+                ActiveSkills: active,
+                KnowledgeSkills: knowledge,
+                SkillGroups: groups,
+                KnowledgePointContributions: knowledgeContributions,
+                SourceAnchorIds: knowledgeContributions.Length == 0
+                    ?
+                    [
+                        "priorities.xml#category:Skills",
+                        $"settings.xml#setting:{_settingsProfileId}",
+                        "skills.xml"
+                    ]
+                    :
+                    [
+                        "character.xml#improvements",
+                        "priorities.xml#category:Skills",
+                        $"settings.xml#setting:{_settingsProfileId}",
+                        "skills.xml"
+                    ],
+                Blockers: orderedBlockers,
+                IsAuthoritative: orderedBlockers.Length == 0,
+                RuntimeDigest: runtimeDigest,
+                AuthorityDigest: string.Empty);
+            authority = projected with
+            {
+                AuthorityDigest = CharacterCreationSkillsDigest.Compute(
+                    projected with { AuthorityDigest = string.Empty })
+            };
+            return true;
+        }
+
+        /// <summary>
+        /// Projects only the exact unconditional FreeKnowledgeSkills subset used by
+        /// Chummer5's ValueOf path. Unsupported precedence, custom, conditional, or
+        /// fractional rows fail the Skills authority closed instead of being guessed.
+        /// Every contribution is bound to the exact raw character XML digest.
+        /// </summary>
+        private CharacterCreationKnowledgePointContribution[] ProjectKnowledgePointContributions(
+            ICollection<string> blockers)
+        {
+            XElement[] containers = _character.Elements("improvements").Take(2).ToArray();
+            if (containers.Length == 0)
+                return [];
+            if (containers.Length != 1
+                || containers[0].HasAttributes
+                || containers[0].Elements().Any(element =>
+                    element.Name.LocalName != "improvement"))
+            {
+                blockers.Add(CharacterCreationSkillsBlockers.KnowledgeContributionAuthorityUnsupported);
+                return [];
+            }
+
+            var projected = new List<CharacterCreationKnowledgePointContribution>();
+            int sourceIndex = 0;
+            foreach (XElement improvement in containers[0].Elements("improvement"))
+            {
+                if (!HasStrictAllowedShape(improvement, AllowedKnowledgeContributionChildren))
+                {
+                    blockers.Add(CharacterCreationSkillsBlockers.KnowledgeContributionAuthorityUnsupported);
+                    continue;
+                }
+                XElement[] typeNodes = improvement.Elements("improvementttype").Take(2).ToArray();
+                bool mentionsFreeKnowledge = typeNodes.Any(node => string.Equals(
+                    node.Value.Trim(),
+                    "FreeKnowledgeSkills",
+                    StringComparison.Ordinal));
+                if (typeNodes.Length != 1
+                    || typeNodes[0].HasAttributes
+                    || typeNodes[0].HasElements
+                    || !string.Equals(typeNodes[0].Value, typeNodes[0].Value.Trim(), StringComparison.Ordinal))
+                {
+                    if (mentionsFreeKnowledge)
+                        blockers.Add(CharacterCreationSkillsBlockers.KnowledgeContributionAuthorityUnsupported);
+                    continue;
+                }
+                if (!string.Equals(typeNodes[0].Value, "FreeKnowledgeSkills", StringComparison.Ordinal))
+                    continue;
+
+                if (!TryReadImprovementBoolean(improvement, "enabled", defaultWhenMissing: true, out bool enabled)
+                    || !TryReadImprovementBoolean(improvement, "addtorating", defaultWhenMissing: false, out bool addToRating)
+                    || !TryReadImprovementBoolean(improvement, "custom", defaultWhenMissing: false, out bool custom)
+                    || !TryReadOptionalCanonicalScalar(improvement, "condition", out string condition)
+                    || !TryReadOptionalCanonicalScalar(improvement, "unique", out string unique))
+                {
+                    blockers.Add(CharacterCreationSkillsBlockers.KnowledgeContributionAuthorityUnsupported);
+                    continue;
+                }
+                if (!enabled || addToRating)
+                    continue;
+                if (custom || condition.Length != 0 || unique.Length != 0)
+                {
+                    blockers.Add(CharacterCreationSkillsBlockers.KnowledgeContributionAuthorityUnsupported);
+                    continue;
+                }
+
+                XElement[] values = improvement.Elements("val").Take(2).ToArray();
+                if (values.Length != 1
+                    || values[0].HasAttributes
+                    || values[0].HasElements
+                    || !string.Equals(values[0].Value, values[0].Value.Trim(), StringComparison.Ordinal)
+                    || !decimal.TryParse(values[0].Value, NumberStyles.Number,
+                        CultureInfo.InvariantCulture, out decimal parsed)
+                    || parsed < 0
+                    || parsed != decimal.Truncate(parsed)
+                    || parsed > int.MaxValue)
+                {
+                    blockers.Add(CharacterCreationSkillsBlockers.KnowledgeContributionAuthorityUnsupported);
+                    continue;
+                }
+
+                string rawNode = improvement.ToString(SaveOptions.DisableFormatting);
+                string nodeDigest = CharacterCreationSkillsDigest.ComputeUtf8(rawNode);
+                string contributionId = string.Concat(
+                    "free-knowledge:",
+                    sourceIndex.ToString(CultureInfo.InvariantCulture),
+                    ":",
+                    nodeDigest["sha256:".Length..]);
+                string[] anchors = [$"character.xml#improvement:{contributionId}"];
+                int points = (int)parsed;
+                string sourceDigest = CharacterCreationSkillsDigest.Compute(new
+                {
+                    Schema = "chummer.sr5.creation-knowledge-point-contribution.v1",
+                    ContributionId = contributionId,
+                    Points = points,
+                    SourceCharacterXmlDigest = _rawCharacterXmlDigest,
+                    SourceAnchorIds = anchors
+                });
+                projected.Add(new CharacterCreationKnowledgePointContribution(
+                    contributionId,
+                    points,
+                    _rawCharacterXmlDigest,
+                    sourceDigest,
+                    anchors));
+                sourceIndex++;
+            }
+
+            return projected.OrderBy(item => item.ContributionId, StringComparer.Ordinal).ToArray();
+        }
+
+        private static bool TryReadImprovementBoolean(
+            XElement parent,
+            string name,
+            bool defaultWhenMissing,
+            out bool value)
+        {
+            XElement[] matches = parent.Elements(name).Take(2).ToArray();
+            if (matches.Length == 0)
+            {
+                value = defaultWhenMissing;
+                return true;
+            }
+            value = false;
+            if (matches.Length != 1
+                || matches[0].HasAttributes
+                || matches[0].HasElements
+                || !string.Equals(matches[0].Value, matches[0].Value.Trim(), StringComparison.Ordinal))
+                return false;
+            return matches[0].Value switch
+            {
+                "True" or "true" or "1" => (value = true),
+                "False" or "false" or "0" => !(value = false),
+                _ => false
+            };
+        }
+
+        private static bool TryReadOptionalCanonicalScalar(
+            XElement parent,
+            string name,
+            out string value)
+        {
+            XElement[] matches = parent.Elements(name).Take(2).ToArray();
+            if (matches.Length == 0)
+            {
+                value = string.Empty;
+                return true;
+            }
+            value = matches[0].Value;
+            return matches.Length == 1
+                   && !matches[0].HasAttributes
+                   && !matches[0].HasElements
+                   && string.Equals(value, value.Trim(), StringComparison.Ordinal);
+        }
+
+        private CharacterCreationSkillCatalogEntry[] ProjectSkills(
+            IReadOnlyList<XElement> rows,
+            string kind,
+            ICollection<string> blockers)
+        {
+            var projected = new List<CharacterCreationSkillCatalogEntry>();
+            var identities = new HashSet<string>(StringComparer.Ordinal);
+            foreach (XElement row in rows)
+            {
+                if (!HasStrictAllowedShape(row, AllowedSkillRowChildren, "specs")
+                    || !HasStrictSpecializationShape(row))
+                {
+                    blockers.Add(CharacterCreationSkillsBlockers.AuthorityUnavailable);
+                    continue;
+                }
+                bool scalarShapeValid = TryReadRequiredCanonicalScalar(row, "id", out string id);
+                scalarShapeValid &= TryReadRequiredCanonicalScalar(row, "name", out string name);
+                scalarShapeValid &= TryReadRequiredCanonicalScalar(row, "category", out string category);
+                scalarShapeValid &= TryReadRequiredCanonicalScalar(row, "attribute", out string attribute);
+                scalarShapeValid &= TryReadRequiredCanonicalScalar(row, "source", out string sourceBook);
+                scalarShapeValid &= TryReadRequiredStrictBoolean(row, "default", out bool canDefault);
+                scalarShapeValid &= TryReadRequiredCanonicalScalarAllowEmpty(
+                    row,
+                    "skillgroup",
+                    out string rawSkillGroup);
+                string? skillGroup = rawSkillGroup.Length == 0 ? null : rawSkillGroup;
+                bool isExotic = false;
+                scalarShapeValid &= TryReadOptionalStrictBoolean(
+                    row,
+                    "exotic",
+                    defaultWhenMissing: false,
+                    out isExotic);
+                scalarShapeValid &= TryReadOptionalStrictBoolean(
+                    row, "hide", defaultWhenMissing: false, out bool hidden);
+                scalarShapeValid &= TryReadOptionalStrictBoolean(
+                    row, "ignoresourcedisabled", defaultWhenMissing: false, out bool ignoresSourceDisabled);
+                scalarShapeValid &= TryReadOptionalStrictBoolean(
+                    row, "requiresgroundmovement", defaultWhenMissing: false, out bool requiresGroundMovement);
+                scalarShapeValid &= TryReadOptionalStrictBoolean(
+                    row, "requiresswimmovement", defaultWhenMissing: false, out bool requiresSwimMovement);
+                scalarShapeValid &= TryReadOptionalStrictBoolean(
+                    row, "requiresflymovement", defaultWhenMissing: false, out bool requiresFlyMovement);
+                if (!string.Equals(kind, CharacterCreationSkillKinds.Active, StringComparison.Ordinal)
+                    && (skillGroup is not null || isExotic))
+                    scalarShapeValid = false;
+                if (!scalarShapeValid
+                    || !Guid.TryParseExact(id, "D", out Guid parsedId)
+                    || parsedId == Guid.Empty
+                    || string.IsNullOrWhiteSpace(name)
+                    || string.IsNullOrWhiteSpace(category)
+                    || string.IsNullOrWhiteSpace(attribute)
+                    || !CharacterCreationStandardPrioritySkillsRules.IsSupportedCategory(kind, category)
+                    || !CharacterCreationStandardPrioritySkillsRules.IsSupportedAttribute(attribute)
+                    || (!ignoresSourceDisabled && !IsEnabledSource(sourceBook))
+                    || !identities.Add(parsedId.ToString("D")))
+                {
+                    if (!string.IsNullOrWhiteSpace(sourceBook)
+                        && !ignoresSourceDisabled
+                        && !IsEnabledSource(sourceBook))
+                        continue;
+                    blockers.Add(CharacterCreationSkillsBlockers.AuthorityUnavailable);
+                    continue;
+                }
+                if (hidden || requiresGroundMovement || requiresSwimMovement || requiresFlyMovement)
+                    continue;
+
+                CharacterCareerSkillKind careerKind = string.Equals(
+                    kind,
+                    CharacterCreationSkillKinds.Active,
+                    StringComparison.Ordinal)
+                        ? CharacterCareerSkillKind.Active
+                        : CharacterCareerSkillKind.Knowledge;
+                if (!TryResolveCareerSkillSpecializationSource(
+                        parsedId.ToString("D"),
+                        careerKind,
+                        out CharacterCareerSkillSpecializationSource specializationSource))
+                {
+                    blockers.Add(CharacterCreationSkillsBlockers.AuthorityUnavailable);
+                    continue;
+                }
+                CharacterCreationSkillSpecializationOption[] specializations = specializationSource.Options
+                    .Select(option => new CharacterCreationSkillSpecializationOption(
+                        option.OptionIdentity,
+                        option.Name,
+                        option.SourceAnchor))
+                    .OrderBy(option => option.Name, StringComparer.Ordinal)
+                    .ThenBy(option => option.OptionId, StringComparer.Ordinal)
+                    .ToArray();
+                if (specializations.Select(option => option.Name)
+                    .Distinct(StringComparer.Ordinal).Count() != specializations.Length)
+                {
+                    blockers.Add(CharacterCreationSkillsBlockers.AuthorityUnavailable);
+                    continue;
+                }
+                string sourceSkillId = parsedId.ToString("D");
+                string[] sourceAnchors = [$"skills.xml#skill:{parsedId:D}"];
+                projected.Add(new CharacterCreationSkillCatalogEntry(
+                    SourceSkillId: sourceSkillId,
+                    Kind: kind,
+                    Name: name,
+                    Category: category,
+                    DefaultAttribute: attribute,
+                    SkillGroup: skillGroup,
+                    IsExotic: isExotic,
+                    SourceNodeDigest: CharacterCreationStandardPrioritySkillsRules.ComputeCatalogProjectionDigest(
+                        _effectiveSkillsInputsDigest,
+                        sourceSkillId,
+                        kind,
+                        name,
+                        category,
+                        attribute,
+                        skillGroup,
+                        isExotic,
+                        specializations,
+                        sourceAnchors,
+                        canDefault,
+                        ignoresSourceDisabled),
+                    Specializations: specializations,
+                    SourceAnchorIds: sourceAnchors)
+                {
+                    CanDefault = canDefault,
+                    IgnoresSourceDisabled = ignoresSourceDisabled
+                });
+            }
+
+            CharacterCreationSkillCatalogEntry[] ordered = projected
+                .OrderBy(skill => skill.Name, StringComparer.Ordinal)
+                .ThenBy(skill => skill.SourceSkillId, StringComparer.Ordinal)
+                .ToArray();
+            if (ordered.Select(skill => skill.SourceSkillId)
+                    .Distinct(StringComparer.Ordinal).Count() != ordered.Length
+                || ordered.Select(skill => skill.Name)
+                    .Distinct(StringComparer.Ordinal).Count() != ordered.Length)
+            {
+                blockers.Add(CharacterCreationSkillsBlockers.AuthorityUnavailable);
+            }
+            return ordered;
+        }
+
+        private static bool TryReadRequiredCanonicalScalar(
+            XElement parent,
+            string name,
+            out string value)
+        {
+            XElement[] matches = parent.Elements(name).Take(2).ToArray();
+            value = matches.Length == 1 ? matches[0].Value : string.Empty;
+            return matches.Length == 1
+                   && !matches[0].HasAttributes
+                   && !matches[0].HasElements
+                   && value.Length != 0
+                   && string.Equals(value, value.Trim(), StringComparison.Ordinal);
+        }
+
+        private static bool TryReadRequiredCanonicalScalarAllowEmpty(
+            XElement parent,
+            string name,
+            out string value)
+        {
+            XElement[] matches = parent.Elements(name).Take(2).ToArray();
+            value = matches.Length == 1 ? matches[0].Value : string.Empty;
+            return matches.Length == 1
+                   && !matches[0].HasAttributes
+                   && !matches[0].HasElements
+                   && string.Equals(value, value.Trim(), StringComparison.Ordinal);
+        }
+
+        private static bool TryReadOptionalStrictBoolean(
+            XElement parent,
+            string name,
+            bool defaultWhenMissing,
+            out bool value)
+        {
+            XElement[] matches = parent.Elements(name).Take(2).ToArray();
+            if (matches.Length == 0)
+            {
+                value = defaultWhenMissing;
+                return true;
+            }
+            value = false;
+            return matches.Length == 1
+                   && TryParseStrictBoolElement(matches[0], out value);
+        }
+
+        private static bool TryReadRequiredStrictBoolean(
+            XElement parent,
+            string name,
+            out bool value)
+        {
+            XElement[] matches = parent.Elements(name).Take(2).ToArray();
+            value = false;
+            return matches.Length == 1
+                   && TryParseStrictBoolElement(matches[0], out value);
+        }
+
+        private static readonly IReadOnlySet<string> AllowedSkillRowChildren =
+            new HashSet<string>(StringComparer.Ordinal)
+            {
+                "id", "name", "hide", "ignoresourcedisabled", "attribute", "category",
+                "default", "exotic", "skillgroup", "requiresgroundmovement",
+                "requiresswimmovement", "requiresflymovement", "specs", "source", "page"
+            };
+
+        private static readonly IReadOnlySet<string> AllowedKnowledgeContributionChildren =
+            new HashSet<string>(StringComparer.Ordinal)
+            {
+                "improvementttype", "val", "addtorating", "enabled", "custom", "condition",
+                "unique"
+            };
+
+        private static bool HasStrictAllowedShape(
+            XElement element,
+            IReadOnlySet<string> allowedChildren,
+            params string[] structuredChildren)
+        {
+            if (element.HasAttributes)
+                return false;
+            var structured = structuredChildren.ToHashSet(StringComparer.Ordinal);
+            XElement[] children = element.Elements().ToArray();
+            if (children.Any(child => !allowedChildren.Contains(child.Name.LocalName))
+                || children.GroupBy(child => child.Name.LocalName, StringComparer.Ordinal)
+                    .Any(group => group.Count() != 1))
+                return false;
+            return children.Where(child => !structured.Contains(child.Name.LocalName)).All(child =>
+                !child.HasAttributes
+                && !child.HasElements
+                && string.Equals(child.Value, child.Value.Trim(), StringComparison.Ordinal));
+        }
+
+        private static bool HasStrictSpecializationShape(XElement row)
+        {
+            XElement[] containers = row.Elements("specs").Take(2).ToArray();
+            if (containers.Length != 1 || containers[0].HasAttributes)
+                return false;
+            XElement[] entries = containers[0].Elements().ToArray();
+            return entries.All(entry => entry.Name.LocalName == "spec"
+                                        && !entry.HasAttributes
+                                        && !entry.HasElements
+                                        && entry.Value.Length != 0
+                                        && string.Equals(entry.Value, entry.Value.Trim(), StringComparison.Ordinal));
+        }
+
+        private static string ReadUniqueScalar(
+            XElement parent,
+            string name,
+            out bool valid)
+        {
+            XElement[] matches = parent.Elements(name).Take(2).ToArray();
+            valid = matches.Length == 1
+                    && !matches[0].HasAttributes
+                    && !matches[0].HasElements
+                    && string.Equals(matches[0].Value, matches[0].Value.Trim(), StringComparison.Ordinal);
+            return valid ? matches[0].Value : string.Empty;
+        }
+
+        private static bool ReadUniqueBoolean(
+            XElement parent,
+            string name,
+            bool defaultWhenMissing,
+            out bool valid)
+        {
+            XElement[] matches = parent.Elements(name).Take(2).ToArray();
+            if (matches.Length == 0)
+            {
+                valid = true;
+                return defaultWhenMissing;
+            }
+            bool value = false;
+            valid = matches.Length == 1
+                    && TryParseStrictBoolElement(matches[0], out value);
+            return valid && value;
         }
 
         public bool TryResolveCreationMetatypeCatalog(
