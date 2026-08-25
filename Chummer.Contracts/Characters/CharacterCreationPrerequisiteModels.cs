@@ -160,7 +160,11 @@ public sealed record CharacterCreationPriorityHeritageOptionProjection(
     string MetatypeSourceNodeDigest,
     bool IsEnabled,
     IReadOnlyList<string> Blockers,
-    IReadOnlyList<string> SourceAnchorIds);
+    IReadOnlyList<string> SourceAnchorIds)
+{
+    public CharacterCreationMetatypeMovementProjection Movement { get; init; } =
+        CharacterCreationMetatypeMovementProjection.Unavailable;
+}
 
 public sealed record CharacterCreationPriorityTalentOptionProjection(
     string SelectionId,
@@ -503,7 +507,11 @@ public sealed record CharacterCreationPriorityHeritageSelection(
     IReadOnlyList<CharacterCreationMetatypeAttributeProjection> Attributes,
     string PriorityChildNodeDigest,
     string MetatypeSourceNodeDigest,
-    IReadOnlyList<string> SourceAnchorIds);
+    IReadOnlyList<string> SourceAnchorIds)
+{
+    public CharacterCreationMetatypeMovementProjection Movement { get; init; } =
+        CharacterCreationMetatypeMovementProjection.Unavailable;
+}
 
 public sealed record CharacterCreationPriorityTalentSelection(
     string SelectionId,

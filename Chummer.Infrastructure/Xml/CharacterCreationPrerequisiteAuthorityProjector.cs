@@ -1130,20 +1130,24 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
         string metatypeSourceId = string.Empty;
         string? metavariantSourceId = null;
         CharacterCreationMetatypeAttributeProjection[] attributes = [];
+        CharacterCreationMetatypeMovementProjection movement =
+            CharacterCreationMetatypeMovementProjection.Unavailable;
         bool halves = false;
         string sourceDigest = string.Empty;
+        if (sourceNode is not null)
+            sourceDigest = RawDigest(sourceNode.ToString(SaveOptions.DisableFormatting));
         if (sourceNode is null
             || !TryReadNormalizedScalar(sourceNode, "id", out string rawSourceId)
             || !Guid.TryParseExact(rawSourceId, "D", out Guid parsedSourceId)
             || parsedSourceId == Guid.Empty
             || !TryReadAttributes(sourceNode, out attributes)
-            || !TryReadEmptyMarker(sourceNode, "halveattributepoints", out halves))
+            || !TryReadEmptyMarker(sourceNode, "halveattributepoints", out halves)
+            || !TryReadMovement(sourceNode, out movement))
         {
             blockers.Add(CharacterCreationPrerequisiteBlockers.HeritageSelectionUnsupported);
         }
         else
         {
-            sourceDigest = RawDigest(sourceNode.ToString(SaveOptions.DisableFormatting));
             if (!TryReadNormalizedScalar(sourceNode, "source", out string sourceBook)
                 || !enabledSourcebooks.Contains(sourceBook, StringComparer.OrdinalIgnoreCase))
             {
@@ -1216,7 +1220,10 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
             sourceDigest,
             IsEnabled: normalized.Length == 0,
             Blockers: normalized,
-            SourceAnchorIds: anchors);
+            SourceAnchorIds: anchors)
+        {
+            Movement = movement
+        };
     }
 
     private static bool TryProjectTalentOptions(
@@ -1371,7 +1378,7 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
         new[]
         {
             "id", "name", "karma", "category", "inimin", "inimax", "iniaug",
-            "walk", "run", "sprint", "qualities", "bonus", "source", "page",
+            "walk", "run", "sprint", "movement", "qualities", "bonus", "source", "page",
             "metavariants", "halveattributepoints"
         }.Concat(s_AttributeFields.SelectMany(field => new[]
         {
@@ -1398,6 +1405,60 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
             result.Add(new CharacterCreationMetatypeAttributeProjection(id, minimum, maximum, augmented));
         }
         attributes = result.ToArray();
+        return true;
+    }
+
+    private static bool TryReadMovement(
+        XElement sourceNode,
+        out CharacterCreationMetatypeMovementProjection movement)
+    {
+        movement = CharacterCreationMetatypeMovementProjection.Unavailable;
+        XElement[] special = sourceNode.Elements("movement").Take(2).ToArray();
+        if (special.Length != 0)
+        {
+            if (special.Length != 1
+                || special[0].HasAttributes
+                || special[0].HasElements
+                || !string.Equals(special[0].Value, "Special", StringComparison.Ordinal)
+                || sourceNode.Elements("walk").Any()
+                || sourceNode.Elements("run").Any()
+                || sourceNode.Elements("sprint").Any())
+            {
+                return false;
+            }
+            movement = CharacterCreationMetatypeMovementProjection.Special;
+            return true;
+        }
+        if (!TryReadMovementRate(sourceNode, "walk", out CharacterCreationMetatypeMovementRate walk)
+            || !TryReadMovementRate(sourceNode, "run", out CharacterCreationMetatypeMovementRate run)
+            || !TryReadMovementRate(sourceNode, "sprint", out CharacterCreationMetatypeMovementRate sprint))
+        {
+            return false;
+        }
+        movement = new CharacterCreationMetatypeMovementProjection(walk, run, sprint);
+        return true;
+    }
+
+    private static bool TryReadMovementRate(
+        XElement sourceNode,
+        string field,
+        out CharacterCreationMetatypeMovementRate rate)
+    {
+        rate = new CharacterCreationMetatypeMovementRate(0m, 0m, 0m);
+        if (!TryReadNormalizedScalar(sourceNode, field, out string raw))
+            return false;
+        string[] parts = raw.Split('/', StringSplitOptions.None);
+        if (parts.Length != 3
+            || !decimal.TryParse(parts[0], NumberStyles.Number, CultureInfo.InvariantCulture, out decimal ground)
+            || !decimal.TryParse(parts[1], NumberStyles.Number, CultureInfo.InvariantCulture, out decimal swim)
+            || !decimal.TryParse(parts[2], NumberStyles.Number, CultureInfo.InvariantCulture, out decimal fly)
+            || ground < 0m
+            || swim < 0m
+            || fly < 0m)
+        {
+            return false;
+        }
+        rate = new CharacterCreationMetatypeMovementRate(ground, swim, fly);
         return true;
     }
 

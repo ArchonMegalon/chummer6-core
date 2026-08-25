@@ -57,7 +57,10 @@ public static class CharacterCreationStandardPrioritySkillsRules
         IReadOnlyList<CharacterCreationSkillSpecializationOption> specializations,
         IReadOnlyList<string> sourceAnchorIds,
         bool canDefault = false,
-        bool ignoresSourceDisabled = false) => CharacterCreationSkillsDigest.Compute(new
+        bool ignoresSourceDisabled = false,
+        bool requiresGroundMovement = false,
+        bool requiresSwimMovement = false,
+        bool requiresFlyMovement = false) => CharacterCreationSkillsDigest.Compute(new
         {
             Schema = "chummer.sr5.creation-skill-catalog-projection.v1",
             EffectiveSkillsInputsDigest = effectiveSkillsInputsDigest,
@@ -70,6 +73,9 @@ public static class CharacterCreationStandardPrioritySkillsRules
             IsExotic = isExotic,
             CanDefault = canDefault,
             IgnoresSourceDisabled = ignoresSourceDisabled,
+            RequiresGroundMovement = requiresGroundMovement,
+            RequiresSwimMovement = requiresSwimMovement,
+            RequiresFlyMovement = requiresFlyMovement,
             Specializations = specializations.ToArray(),
             SourceAnchorIds = sourceAnchorIds.ToArray()
         });
@@ -159,6 +165,7 @@ public static class CharacterCreationSkillsBlockers
     public const string IdempotencyKeyInvalid = "creation-skills-idempotency-key-invalid";
     public const string KnowledgeBudgetExceeded = "creation-skills-knowledge-budget-exceeded";
     public const string KnowledgeContributionAuthorityUnsupported = "creation-skills-knowledge-contribution-authority-unsupported";
+    public const string MovementRequirementUnmet = "creation-skills-movement-requirement-unmet";
     public const string NativeLanguageInvalid = "creation-skills-native-language-invalid";
     public const string NativeLanguageLimitExceeded = "creation-skills-native-language-limit-exceeded";
     public const string NativeLanguageRequired = "creation-skills-native-language-required";
@@ -197,7 +204,18 @@ public sealed record CharacterCreationSkillCatalogEntry(
     public bool CanDefault { get; init; }
 
     public bool IgnoresSourceDisabled { get; init; }
+
+    public bool RequiresGroundMovement { get; init; }
+
+    public bool RequiresSwimMovement { get; init; }
+
+    public bool RequiresFlyMovement { get; init; }
 }
+
+public sealed record CharacterCreationMovementCapability(
+    bool Ground,
+    bool Swim,
+    bool Fly);
 
 public sealed record CharacterCreationSkillGroupCatalogEntry(
     string GroupId,
@@ -382,6 +400,7 @@ public sealed record CharacterCreationSkillsState(
 {
     public int SelectedActiveSkillPoints { get; init; }
     public int SelectedSkillGroupPoints { get; init; }
+    public CharacterCreationMovementCapability MovementCapability { get; init; } = new(false, false, false);
 }
 
 public sealed record CharacterCreationSkillsPreview(

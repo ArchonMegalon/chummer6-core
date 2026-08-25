@@ -1620,7 +1620,14 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 scalarShapeValid &= TryReadRequiredCanonicalScalar(row, "name", out string name);
                 scalarShapeValid &= TryReadRequiredCanonicalScalar(row, "category", out string category);
                 scalarShapeValid &= TryReadRequiredCanonicalScalar(row, "attribute", out string attribute);
-                scalarShapeValid &= TryReadRequiredCanonicalScalar(row, "source", out string sourceBook);
+                // Chummer5's canonical knowledge-skill rows are core entries and
+                // intentionally omit <source>.  Absence therefore means the
+                // built-in source, while a present value must still be a single,
+                // canonical scalar and is checked against the enabled books.
+                scalarShapeValid &= TryReadOptionalCanonicalScalar(
+                    row,
+                    "source",
+                    out string sourceBook);
                 scalarShapeValid &= TryReadRequiredStrictBoolean(row, "default", out bool canDefault);
                 scalarShapeValid &= TryReadRequiredCanonicalScalarAllowEmpty(
                     row,
@@ -1664,7 +1671,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                     blockers.Add(CharacterCreationSkillsBlockers.AuthorityUnavailable);
                     continue;
                 }
-                if (hidden || requiresGroundMovement || requiresSwimMovement || requiresFlyMovement)
+                if (hidden)
                     continue;
 
                 CharacterCareerSkillKind careerKind = string.Equals(
@@ -1682,6 +1689,11 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                     continue;
                 }
                 CharacterCreationSkillSpecializationOption[] specializations = specializationSource.Options
+                    .GroupBy(option => option.Name, StringComparer.Ordinal)
+                    .Select(group => group
+                        .OrderBy(option => option.Kind)
+                        .ThenBy(option => option.OptionIdentity, StringComparer.Ordinal)
+                        .First())
                     .Select(option => new CharacterCreationSkillSpecializationOption(
                         option.OptionIdentity,
                         option.Name,
@@ -1717,12 +1729,18 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                         specializations,
                         sourceAnchors,
                         canDefault,
-                        ignoresSourceDisabled),
+                        ignoresSourceDisabled,
+                        requiresGroundMovement,
+                        requiresSwimMovement,
+                        requiresFlyMovement),
                     Specializations: specializations,
                     SourceAnchorIds: sourceAnchors)
                 {
                     CanDefault = canDefault,
-                    IgnoresSourceDisabled = ignoresSourceDisabled
+                    IgnoresSourceDisabled = ignoresSourceDisabled,
+                    RequiresGroundMovement = requiresGroundMovement,
+                    RequiresSwimMovement = requiresSwimMovement,
+                    RequiresFlyMovement = requiresFlyMovement
                 });
             }
 
@@ -1838,8 +1856,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             return entries.All(entry => entry.Name.LocalName == "spec"
                                         && !entry.HasAttributes
                                         && !entry.HasElements
-                                        && entry.Value.Length != 0
-                                        && string.Equals(entry.Value, entry.Value.Trim(), StringComparison.Ordinal));
+                                        && !string.IsNullOrWhiteSpace(entry.Value));
         }
 
         private static string ReadUniqueScalar(

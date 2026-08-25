@@ -55,7 +55,20 @@ public sealed record CharacterCreationMetatypeMovementRate(
 public sealed record CharacterCreationMetatypeMovementProjection(
     CharacterCreationMetatypeMovementRate Walk,
     CharacterCreationMetatypeMovementRate Run,
-    CharacterCreationMetatypeMovementRate Sprint);
+    CharacterCreationMetatypeMovementRate Sprint)
+{
+    public bool IsSpecial { get; init; }
+
+    public static CharacterCreationMetatypeMovementProjection Unavailable { get; } = new(
+        new CharacterCreationMetatypeMovementRate(0m, 0m, 0m),
+        new CharacterCreationMetatypeMovementRate(0m, 0m, 0m),
+        new CharacterCreationMetatypeMovementRate(0m, 0m, 0m));
+
+    public static CharacterCreationMetatypeMovementProjection Special { get; } = Unavailable with
+    {
+        IsSpecial = true
+    };
+}
 
 public sealed record CharacterCreationMetatypeGrantedQualityProjection(
     string Name,

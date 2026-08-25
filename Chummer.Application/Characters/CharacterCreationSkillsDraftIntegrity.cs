@@ -342,7 +342,10 @@ public static class CharacterCreationSkillsDraftIntegrity
                    skill.Specializations,
                    skill.SourceAnchorIds,
                    skill.CanDefault,
-                   skill.IgnoresSourceDisabled));
+                   skill.IgnoresSourceDisabled,
+                   skill.RequiresGroundMovement,
+                   skill.RequiresSwimMovement,
+                   skill.RequiresFlyMovement));
 
     private static bool IsValidGroup(
         CharacterCreationSkillGroupCatalogEntry group,

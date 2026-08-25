@@ -155,7 +155,10 @@ internal static class CharacterCreationPrerequisiteDraftIntegrity
                     heritageMatches[0].Attributes.ToArray(),
                     heritageMatches[0].PriorityChildNodeDigest,
                     heritageMatches[0].MetatypeSourceNodeDigest,
-                    heritageMatches[0].SourceAnchorIds.ToArray()))
+                    heritageMatches[0].SourceAnchorIds.ToArray())
+                {
+                    Movement = heritageMatches[0].Movement
+                })
             || draft.CreationKarmaUsed != heritageMatches[0].KarmaCost
             || !CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(
                 draft.TalentSelection,

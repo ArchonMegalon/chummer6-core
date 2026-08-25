@@ -68,6 +68,9 @@ public sealed class FileSystemCharacterSourceDataResolverTests
         Assert.AreEqual("Professional", source.SkillCategory);
         Assert.AreEqual("LOG", source.DefaultAttribute);
         StringAssert.Contains(source.RawSourceXml, "<name>Administration</name>");
+        Assert.IsNull(
+            XElement.Parse(source.RawSourceXml).Element("source"),
+            "Canonical source-less knowledge skills are built-in enabled authority.");
 
         Assert.IsFalse(context.TryResolveKnowledgeSkillSource(
             "11111111-1111-1111-1111-111111111111",
@@ -75,6 +78,34 @@ public sealed class FileSystemCharacterSourceDataResolverTests
         Assert.IsFalse(context.TryResolveKnowledgeSkillSource(
             Guid.Empty.ToString("D"),
             out _));
+    }
+
+    [TestMethod]
+    public void Canonical_creation_skill_catalog_sources_resolve_every_row()
+    {
+        string coreRoot = FindCoreRoot();
+        ICharacterSourceDataContext context = CreateContext(
+            coreRoot,
+            $"<character><settings>{SettingsId}</settings></character>")!;
+        XDocument skills = XDocument.Load(Path.Combine(coreRoot, "Chummer", "data", "skills.xml"));
+
+        string[] unresolvedActive = skills.Root?.Element("skills")?.Elements("skill")
+            .Where(row => !context.TryResolveCareerSkillSpecializationSource(
+                row.Element("id")?.Value ?? string.Empty,
+                CharacterCareerSkillKind.Active,
+                out _))
+            .Select(row => $"{row.Element("id")?.Value}:{row.Element("name")?.Value}")
+            .ToArray() ?? [];
+        string[] unresolvedKnowledge = skills.Root?.Element("knowledgeskills")?.Elements("skill")
+            .Where(row => !context.TryResolveCareerSkillSpecializationSource(
+                row.Element("id")?.Value ?? string.Empty,
+                CharacterCareerSkillKind.Knowledge,
+                out _))
+            .Select(row => $"{row.Element("id")?.Value}:{row.Element("name")?.Value}")
+            .ToArray() ?? [];
+
+        Assert.AreEqual(0, unresolvedActive.Length, string.Join(",", unresolvedActive));
+        Assert.AreEqual(0, unresolvedKnowledge.Length, string.Join(",", unresolvedKnowledge));
     }
 
     [TestMethod]
@@ -111,8 +142,8 @@ public sealed class FileSystemCharacterSourceDataResolverTests
                     + "<karmaknospecialization>5</karmaknospecialization>",
                     StringComparison.Ordinal)
                 .Replace(
-                    "<karmacost>",
-                    "<specializationsbreakskillgroups>False</specializationsbreakskillgroups><karmacost>",
+                    "<specializationsbreakskillgroups>True</specializationsbreakskillgroups>",
+                    "<specializationsbreakskillgroups>False</specializationsbreakskillgroups>",
                     StringComparison.Ordinal);
             File.WriteAllText(settingsPath, settingsXml);
 
@@ -176,6 +207,19 @@ public sealed class FileSystemCharacterSourceDataResolverTests
         Assert.AreEqual("Administration", knowledge.Name);
         Assert.IsFalse(knowledge.Options.Any(option =>
             option.Kind == CharacterCareerSkillSpecializationOptionKind.CombatWeapon));
+
+        Assert.IsTrue(context.TryResolveCareerSkillSpecializationSource(
+            "8db5cc64-5dc4-4ae9-a56b-e0c54a6e2413",
+            CharacterCareerSkillKind.Knowledge,
+            out CharacterCareerSkillSpecializationSource saederKrupp));
+        Assert.IsTrue(saederKrupp.Options.Any(option =>
+            option.Name == "Saeder-Krupp Prime"));
+        Assert.IsFalse(saederKrupp.Options.Any(option =>
+            option.Name != option.Name.Trim()));
+        Assert.AreEqual(
+            saederKrupp.Options.Count,
+            saederKrupp.Options.Select(option => option.Name)
+                .Distinct(StringComparer.Ordinal).Count());
 
         Assert.IsFalse(context.TryResolveCareerSkillSpecializationSource(
             active.SourceSkillId,
@@ -261,7 +305,26 @@ public sealed class FileSystemCharacterSourceDataResolverTests
         }
         Assert.IsTrue(context.TryResolveCreationSkillsAuthority(
             out CharacterCreationSkillsAuthority skillsAuthority));
-        Assert.IsTrue(skillsAuthority.IsAuthoritative, string.Join(",", skillsAuthority.Blockers));
+        Assert.IsTrue(
+            skillsAuthority.IsAuthoritative,
+            $"{string.Join(",", skillsAuthority.Blockers)}; active={skillsAuthority.ActiveSkills.Count}; "
+            + $"knowledge={skillsAuthority.KnowledgeSkills.Count}; groups={skillsAuthority.SkillGroups.Count}; "
+            + $"expression={skillsAuthority.KnowledgePointsExpression}");
+        Assert.AreEqual(76, skillsAuthority.ActiveSkills.Count);
+        Assert.AreEqual(195, skillsAuthority.KnowledgeSkills.Count);
+        Assert.IsTrue(skillsAuthority.ActiveSkills.Concat(skillsAuthority.KnowledgeSkills).All(skill =>
+            skill.Specializations.Select(option => option.Name)
+                .Distinct(StringComparer.Ordinal)
+                .Count() == skill.Specializations.Count));
+        CharacterCreationSkillCatalogEntry running = skillsAuthority.ActiveSkills.Single(skill =>
+            string.Equals(skill.Name, "Running", StringComparison.Ordinal));
+        CharacterCreationSkillCatalogEntry swimming = skillsAuthority.ActiveSkills.Single(skill =>
+            string.Equals(skill.Name, "Swimming", StringComparison.Ordinal));
+        CharacterCreationSkillCatalogEntry flight = skillsAuthority.ActiveSkills.Single(skill =>
+            string.Equals(skill.Name, "Flight", StringComparison.Ordinal));
+        Assert.IsTrue(running.RequiresGroundMovement);
+        Assert.IsTrue(swimming.RequiresSwimMovement);
+        Assert.IsTrue(flight.RequiresFlyMovement);
         Assert.AreEqual("({INTUnaug} + {LOGUnaug}) * 2", skillsAuthority.KnowledgePointsExpression);
         Assert.AreEqual(6, skillsAuthority.MaxActiveSkillRatingCreate);
         Assert.AreEqual(6, skillsAuthority.MaxKnowledgeSkillRatingCreate);
@@ -277,6 +340,34 @@ public sealed class FileSystemCharacterSourceDataResolverTests
         Assert.IsTrue(human.IsEnabled, string.Join(",", human.Blockers));
         Assert.AreEqual(1, human.SpecialAttributePoints);
         Assert.IsFalse(human.HalvesNormalAttributePoints);
+        Assert.IsTrue(human.Movement.Walk.Ground > 0m);
+        Assert.IsTrue(human.Movement.Walk.Swim > 0m);
+        Assert.AreEqual(0m, human.Movement.Walk.Fly);
+        CharacterCreationPrerequisiteAuthority movementDrift = authority with
+        {
+            Options = authority.Options.Select(option => option.SourceId == heritageE.SourceId
+                ? option with
+                {
+                    HeritageOptions = option.HeritageOptions.Select(heritage =>
+                        heritage.SelectionId == human.SelectionId
+                            ? heritage with
+                            {
+                                Movement = heritage.Movement with
+                                {
+                                    Walk = heritage.Movement.Walk with
+                                    {
+                                        Fly = heritage.Movement.Walk.Fly + 1m
+                                    }
+                                }
+                            }
+                            : heritage).ToArray()
+                }
+                : option).ToArray(),
+            AuthorityDigest = string.Empty
+        };
+        Assert.AreNotEqual(
+            authority.AuthorityDigest,
+            CharacterCreationPrerequisiteAuthorityDigest.Compute(movementDrift));
         Assert.HasCount(13, human.Attributes);
         CharacterCreationPriorityHeritageOptionProjection oni = authority.Options.Single(option =>
                 option.CategoryId == CharacterCreationPriorityCategoryIds.Heritage
@@ -360,6 +451,49 @@ public sealed class FileSystemCharacterSourceDataResolverTests
     }
 
     [TestMethod]
+    public void Priority_authority_projects_special_movement_without_invalidating_heritage()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            WriteBaseContent(
+                root,
+                string.Empty,
+                "<buildmethod>Priority</buildmethod><buildpoints>25</buildpoints>"
+                + "<priorityarray>ABCDE</priorityarray><prioritytable>Standard</prioritytable>"
+                + "<sumtoten>10</sumtoten>");
+            WritePriorityFixture(root);
+            string metatypesPath = Path.Combine(root, "data", "metatypes.xml");
+            string original = File.ReadAllText(metatypesPath);
+            string special = original.Replace(
+                "<bonus/><source>SR5</source>",
+                "<movement>Special</movement><bonus/><source>SR5</source>",
+                StringComparison.Ordinal);
+            Assert.AreNotEqual(original, special);
+            File.WriteAllText(metatypesPath, special);
+
+            ICharacterSourceDataContext context = CreateContext(root, CharacterXml())!;
+            Assert.IsTrue(context.TryResolveCreationPrerequisiteAuthority(
+                out CharacterCreationPrerequisiteAuthority authority));
+            Assert.IsTrue(authority.IsAuthoritative, string.Join(",", authority.Blockers));
+            CharacterCreationPriorityHeritageOptionProjection[] humans = authority.Options
+                .Where(option => option.CategoryId == CharacterCreationPriorityCategoryIds.Heritage)
+                .SelectMany(option => option.HeritageOptions)
+                .Where(heritage => heritage.MetatypeName == "Human")
+                .ToArray();
+            Assert.IsGreaterThan(0, humans.Length);
+            Assert.IsTrue(humans.All(heritage => heritage.IsEnabled));
+            Assert.IsTrue(humans.All(heritage => heritage.Movement.IsSpecial));
+            Assert.IsTrue(humans.All(heritage => heritage.Movement ==
+                CharacterCreationMetatypeMovementProjection.Special));
+        }
+        finally
+        {
+            DeleteTempDirectory(root);
+        }
+    }
+
+    [TestMethod]
     public void Creation_skills_projects_enabled_free_knowledge_points_bound_to_exact_character_xml()
     {
         string characterXml = CharacterXml(
@@ -373,7 +507,11 @@ public sealed class FileSystemCharacterSourceDataResolverTests
 
         Assert.IsTrue(context.TryResolveCreationSkillsAuthority(
             out CharacterCreationSkillsAuthority authority));
-        Assert.IsTrue(authority.IsAuthoritative, string.Join(",", authority.Blockers));
+        Assert.IsTrue(
+            authority.IsAuthoritative,
+            $"{string.Join(",", authority.Blockers)}; active={authority.ActiveSkills.Count}; "
+            + $"knowledge={authority.KnowledgeSkills.Count}; groups={authority.SkillGroups.Count}; "
+            + $"contributions={authority.KnowledgePointContributions.Count}");
         Assert.IsTrue(CharacterCreationSkillsDraftIntegrity.IsValidAuthority(authority));
         CharacterCreationKnowledgePointContribution contribution =
             authority.KnowledgePointContributions.Single();
@@ -2119,7 +2257,7 @@ public sealed class FileSystemCharacterSourceDataResolverTests
         Directory.CreateDirectory(data);
         File.WriteAllText(
             Path.Combine(data, "settings.xml"),
-            $"<chummer><settings><setting><id>{SettingsId}</id><nuyenformat>#,0.###</nuyenformat><karmajoingroup>5</karmajoingroup><karmaleavegroup>1</karmaleavegroup><nuyenperbpwftp>1500</nuyenperbpwftp><nuyenperbpwftm>2000</nuyenperbpwftm><books><book>SR5</book><book>SG</book></books><customdatadirectorynames>{customDataSetting}</customdatadirectorynames>{buildAuthorityXml}<knowledgepointsexpression>({INTUnaug} + {LOGUnaug}) * 2</knowledgepointsexpression><usepointsonbrokengroups>False</usepointsonbrokengroups><breakskillgroupsincreatemode>False</breakskillgroupsincreatemode><specializationsbreakskillgroups>True</specializationsbreakskillgroups><alternatemetatypeattributekarma>False</alternatemetatypeattributekarma><reverseattributepriorityorder>False</reverseattributepriorityorder><karmacost><karmaattribute>5</karmaattribute></karmacost></setting></settings></chummer>");
+            $"<chummer><settings><setting><id>{SettingsId}</id><nuyenformat>#,0.###</nuyenformat><karmajoingroup>5</karmajoingroup><karmaleavegroup>1</karmaleavegroup><nuyenperbpwftp>1500</nuyenperbpwftp><nuyenperbpwftm>2000</nuyenperbpwftm><books><book>SR5</book><book>SG</book></books><customdatadirectorynames>{customDataSetting}</customdatadirectorynames>{buildAuthorityXml}<knowledgepointsexpression>({{INTUnaug}} + {{LOGUnaug}}) * 2</knowledgepointsexpression><usepointsonbrokengroups>False</usepointsonbrokengroups><breakskillgroupsincreatemode>False</breakskillgroupsincreatemode><specializationsbreakskillgroups>True</specializationsbreakskillgroups><alternatemetatypeattributekarma>False</alternatemetatypeattributekarma><reverseattributepriorityorder>False</reverseattributepriorityorder><karmacost><karmaattribute>5</karmaattribute></karmacost></setting></settings></chummer>");
         File.WriteAllText(
             Path.Combine(data, "metatypes.xml"),
             "<chummer><metatypes><metatype><id>a53d885d-a4a4-443d-b6a6-b0a55b0a96c7</id>"

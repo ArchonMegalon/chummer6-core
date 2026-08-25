@@ -114,6 +114,187 @@ public sealed class CharacterCreationSkillsServiceTests
     }
 
     [TestMethod]
+    public void Movement_gated_skill_is_visible_but_rejected_for_incompatible_metatype()
+    {
+        WithReadySkillsContext((store, service, id, skillsAuthority, prerequisiteAuthority, resolver) =>
+        {
+            CharacterCreationSkillsState state = Load(service, id);
+            Assert.IsTrue(state.MovementCapability.Ground);
+            Assert.IsTrue(state.MovementCapability.Swim);
+            Assert.IsFalse(state.MovementCapability.Fly);
+            CharacterCreationSkillCatalogEntry flight = state.Authority.ActiveSkills.Single(skill =>
+                skill.RequiresFlyMovement);
+
+            CharacterCreationFoundationResult<CharacterCreationSkillsPreview> result = service.Preview(
+                new CharacterCreationSkillsPreviewRequest(
+                    state.Binding,
+                    [
+                        new CharacterCreationSkillAllocation(
+                            flight.SourceSkillId,
+                            CharacterCreationSkillKinds.Active,
+                            1,
+                            null,
+                            false),
+                        new CharacterCreationSkillAllocation(
+                            LanguageId,
+                            CharacterCreationSkillKinds.Knowledge,
+                            null,
+                            null,
+                            true)
+                    ],
+                    []));
+
+            Assert.AreEqual(CharacterCreationFoundationOutcomes.Blocked, result.Outcome);
+            CollectionAssert.Contains(
+                result.Blockers.ToList(),
+                CharacterCreationSkillsBlockers.MovementRequirementUnmet);
+
+            var restarted = new CharacterCreationSkillsService(store, resolver);
+            CharacterCreationSkillsState reloaded = Load(restarted, id);
+            Assert.AreEqual(state.MovementCapability, reloaded.MovementCapability);
+            Assert.AreEqual(
+                state.Binding.PrerequisiteAuthorityDigest,
+                reloaded.Binding.PrerequisiteAuthorityDigest);
+
+            CharacterCreationPrerequisiteAuthority driftedPrerequisite = prerequisiteAuthority with
+            {
+                Options = prerequisiteAuthority.Options.Select(option => option with
+                {
+                    HeritageOptions = option.HeritageOptions.Select(heritage => heritage with
+                    {
+                        Movement = heritage.Movement with
+                        {
+                            Walk = heritage.Movement.Walk with
+                            {
+                                Fly = heritage.Movement.Walk.Fly + 1m
+                            }
+                        }
+                    }).ToArray()
+                }).ToArray(),
+                AuthorityDigest = string.Empty
+            };
+            driftedPrerequisite = driftedPrerequisite with
+            {
+                AuthorityDigest = CharacterCreationPrerequisiteAuthorityDigest.Compute(driftedPrerequisite)
+            };
+            Assert.AreNotEqual(
+                prerequisiteAuthority.AuthorityDigest,
+                driftedPrerequisite.AuthorityDigest);
+
+            var drifted = new CharacterCreationSkillsService(
+                store,
+                CreateResolver(driftedPrerequisite, skillsAuthority));
+            CharacterCreationFoundationResult<CharacterCreationSkillsState> driftedState =
+                drifted.Load(new(id));
+            Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, driftedState.Outcome);
+            Assert.IsNotNull(driftedState.Value);
+            Assert.IsFalse(driftedState.Value.CanEdit);
+            CollectionAssert.Contains(
+                driftedState.Blockers.ToList(),
+                CharacterCreationSkillsBlockers.PrerequisiteSourceDrift);
+            CharacterCreationFoundationResult<CharacterCreationSkillsPreview> stalePreview = drifted.Preview(
+                new CharacterCreationSkillsPreviewRequest(state.Binding, [], []));
+            Assert.AreEqual(CharacterCreationFoundationOutcomes.Blocked, stalePreview.Outcome);
+            CollectionAssert.Contains(
+                stalePreview.Blockers.ToList(),
+                CharacterCreationSkillsBlockers.PrerequisiteSourceDrift);
+        });
+    }
+
+    [TestMethod]
+    public void Group_retains_canonical_membership_when_only_one_member_is_movement_enabled()
+    {
+        WithReadySkills((_, service, id, authority) =>
+        {
+            CharacterCreationSkillsState state = Load(service, id);
+            CharacterCreationSkillGroupCatalogEntry group = authority.SkillGroups.Single();
+            Assert.HasCount(2, group.MemberSkillSourceIds);
+            Assert.AreEqual(1, group.MemberSkillSourceIds.Count(memberId =>
+                authority.ActiveSkills.Single(skill => skill.SourceSkillId == memberId) is { } skill
+                && (!skill.RequiresFlyMovement || state.MovementCapability.Fly)));
+
+            CharacterCreationSkillsPreview preview = service.Preview(new(
+                state.Binding,
+                [new(LanguageId, CharacterCreationSkillKinds.Knowledge, null, null, true)],
+                [new CharacterCreationSkillGroupAllocation(group.GroupId, 1)])).Value!;
+
+            Assert.IsTrue(preview.CanConfirm, string.Join(",", preview.Blockers));
+            CharacterCreationSkillGroupProjection projected = preview.SkillGroups.Single();
+            CollectionAssert.AreEqual(
+                group.MemberSkillSourceIds.ToArray(),
+                projected.MemberSkillSourceIds.ToArray());
+        });
+    }
+
+    [TestMethod]
+    public void Movement_capability_uses_any_numeric_rate_and_special_disables_every_domain()
+    {
+        var mixedRates = new CharacterCreationMetatypeMovementProjection(
+            new CharacterCreationMetatypeMovementRate(0m, 0m, 0m),
+            new CharacterCreationMetatypeMovementRate(0m, 0m, 1m),
+            new CharacterCreationMetatypeMovementRate(1m, 0m, 0m));
+        WithReadySkillsContext((_, service, id, _) =>
+        {
+            CharacterCreationSkillsState state = Load(service, id);
+            Assert.IsTrue(state.MovementCapability.Ground);
+            Assert.IsFalse(state.MovementCapability.Swim);
+            Assert.IsTrue(state.MovementCapability.Fly);
+        }, prerequisiteTransform: authority => WithHeritageMovement(authority, mixedRates));
+
+        WithReadySkillsContext((_, service, id, _) =>
+        {
+            CharacterCreationSkillsState state = Load(service, id);
+            Assert.IsTrue(state.CanEdit, string.Join(",", state.Blockers));
+            Assert.IsTrue(state.PrerequisiteDraft!.HeritageSelection!.Movement.IsSpecial);
+            Assert.AreEqual(
+                new CharacterCreationMovementCapability(false, false, false),
+                state.MovementCapability);
+        }, prerequisiteTransform: authority => WithHeritageMovement(
+            authority,
+            CharacterCreationMetatypeMovementProjection.Special));
+    }
+
+    [TestMethod]
+    public void Preview_without_prerequisite_or_attribute_draft_is_blocked()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), $"chummer-skills-empty-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            CharacterCreationPrerequisiteAuthority prerequisite = CreatePrerequisiteAuthority();
+            CharacterCreationSkillsAuthority skills = CreateSkillsAuthority(prerequisite);
+            var store = new FileWorkspaceStore(directory);
+            CharacterWorkspaceId id = new("skills-empty-runner");
+            Assert.IsTrue(store.CreateWorkspaceDocument(
+                id,
+                new WorkspaceDocument(ReadyXml, RulesetDefaults.Sr5)).Success);
+            var service = new CharacterCreationSkillsService(
+                store,
+                CreateResolver(prerequisite, skills));
+            CharacterCreationSkillsState state = Load(service, id);
+            Assert.IsFalse(state.CanEdit);
+
+            CharacterCreationFoundationResult<CharacterCreationSkillsPreview> preview = service.Preview(new(
+                state.Binding,
+                [],
+                []));
+
+            Assert.AreEqual(CharacterCreationFoundationOutcomes.Blocked, preview.Outcome);
+            Assert.IsNull(preview.Value);
+            CollectionAssert.Contains(
+                preview.Blockers.ToList(),
+                CharacterCreationSkillsBlockers.PrerequisiteSourceDrift);
+            CollectionAssert.Contains(
+                preview.Blockers.ToList(),
+                CharacterCreationSkillsBlockers.AttributesDraftRequired);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [TestMethod]
     public void Confirm_is_atomic_replayable_after_restart_and_old_receipt_cannot_overwrite_newer_revision()
     {
         WithReadySkills((store, service, id, authority) =>
@@ -440,12 +621,38 @@ public sealed class CharacterCreationSkillsServiceTests
     private static void WithReadySkills(
         Action<FileWorkspaceStore, ICharacterCreationSkillsService, CharacterWorkspaceId, CharacterCreationSkillsAuthority> action,
         IFileWorkspaceStoreFaultInjector? faultInjector = null)
+        => WithReadySkillsContext(
+            (store, service, id, skillsAuthority, _, _) =>
+                action(store, service, id, skillsAuthority),
+            faultInjector);
+
+    private static void WithReadySkillsContext(
+        Action<FileWorkspaceStore, ICharacterCreationSkillsService, CharacterWorkspaceId,
+            CharacterCreationSkillsAuthority> action,
+        IFileWorkspaceStoreFaultInjector? faultInjector = null,
+        Func<CharacterCreationPrerequisiteAuthority, CharacterCreationPrerequisiteAuthority>?
+            prerequisiteTransform = null)
+        => WithReadySkillsContext(
+            (store, service, id, skillsAuthority, _, _) =>
+                action(store, service, id, skillsAuthority),
+            faultInjector,
+            prerequisiteTransform);
+
+    private static void WithReadySkillsContext(
+        Action<FileWorkspaceStore, ICharacterCreationSkillsService, CharacterWorkspaceId,
+            CharacterCreationSkillsAuthority, CharacterCreationPrerequisiteAuthority,
+            CharacterCreationAttributesServiceTests.StubSourceResolver> action,
+        IFileWorkspaceStoreFaultInjector? faultInjector = null,
+        Func<CharacterCreationPrerequisiteAuthority, CharacterCreationPrerequisiteAuthority>?
+            prerequisiteTransform = null)
     {
         string directory = Path.Combine(Path.GetTempPath(), $"chummer-skills-{Guid.NewGuid():N}");
         Directory.CreateDirectory(directory);
         try
         {
             CharacterCreationPrerequisiteAuthority prerequisiteAuthority = CreatePrerequisiteAuthority();
+            prerequisiteAuthority = prerequisiteTransform?.Invoke(prerequisiteAuthority)
+                                    ?? prerequisiteAuthority;
             CharacterCreationSkillsAuthority skillsAuthority = CreateSkillsAuthority(prerequisiteAuthority);
             CharacterCreationAttributesServiceTests.StubSourceResolver resolver =
                 CreateResolver(prerequisiteAuthority, skillsAuthority);
@@ -476,7 +683,13 @@ public sealed class CharacterCreationSkillsServiceTests
             Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, attributes.Confirm(new(
                 attributePreview.Binding, allocations, attributePreview.PreviewDigest, true)).Outcome);
 
-            action(store, new CharacterCreationSkillsService(store, resolver), id, skillsAuthority);
+            action(
+                store,
+                new CharacterCreationSkillsService(store, resolver),
+                id,
+                skillsAuthority,
+                prerequisiteAuthority,
+                resolver);
         }
         finally { Directory.Delete(directory, recursive: true); }
     }
@@ -487,14 +700,50 @@ public sealed class CharacterCreationSkillsServiceTests
             CharacterCreationBuildMethods.Priority, ["A", "B", "C", "D", "E"]);
         CharacterCreationPriorityOptionProjection[] options = authority.Options.Select(option =>
         {
-            if (option.CategoryId != CharacterCreationPriorityCategoryIds.Skills)
-                return option;
-            (int active, int groups) = option.Rank switch
-            { "A" => (46, 10), "B" => (36, 5), "C" => (28, 2), "D" => (22, 0), "E" => (18, 0), _ => (-1, -1) };
-            return option with { BaseActiveSkillPoints = active, BaseSkillGroupPoints = groups };
+            if (option.CategoryId == CharacterCreationPriorityCategoryIds.Skills)
+            {
+                (int active, int groups) = option.Rank switch
+                { "A" => (46, 10), "B" => (36, 5), "C" => (28, 2), "D" => (22, 0), "E" => (18, 0), _ => (-1, -1) };
+                return option with { BaseActiveSkillPoints = active, BaseSkillGroupPoints = groups };
+            }
+            if (option.CategoryId == CharacterCreationPriorityCategoryIds.Heritage)
+            {
+                return option with
+                {
+                    HeritageOptions = option.HeritageOptions.Select(heritage => heritage with
+                    {
+                        Movement = new CharacterCreationMetatypeMovementProjection(
+                            new CharacterCreationMetatypeMovementRate(2m, 1m, 0m),
+                            new CharacterCreationMetatypeMovementRate(4m, 0m, 0m),
+                            new CharacterCreationMetatypeMovementRate(2m, 1m, 0m))
+                    }).ToArray()
+                };
+            }
+            return option;
         }).ToArray();
         authority = authority with { Options = options, AuthorityDigest = string.Empty };
         return authority with { AuthorityDigest = CharacterCreationPrerequisiteAuthorityDigest.Compute(authority) };
+    }
+
+    private static CharacterCreationPrerequisiteAuthority WithHeritageMovement(
+        CharacterCreationPrerequisiteAuthority authority,
+        CharacterCreationMetatypeMovementProjection movement)
+    {
+        CharacterCreationPrerequisiteAuthority changed = authority with
+        {
+            Options = authority.Options.Select(option => option with
+            {
+                HeritageOptions = option.HeritageOptions.Select(heritage => heritage with
+                {
+                    Movement = movement
+                }).ToArray()
+            }).ToArray(),
+            AuthorityDigest = string.Empty
+        };
+        return changed with
+        {
+            AuthorityDigest = CharacterCreationPrerequisiteAuthorityDigest.Compute(changed)
+        };
     }
 
     private static CharacterCreationSkillsAuthority CreateSkillsAuthority(
@@ -507,7 +756,12 @@ public sealed class CharacterCreationSkillsServiceTests
             false, CharacterCreationSkillsDigest.ComputeUtf8($"active-{index}"),
             [new CharacterCreationSkillSpecializationOption($"spec-{index}", $"Spec {index}", $"skills.xml#spec:{index}")],
             [$"skills.xml#skill:{id}"])).ToArray();
-        active = active.Select(skill => SealCatalog(skill, effectiveSkillsInputsDigest)).ToArray();
+        active = active.Select((skill, index) => skill with
+            {
+                RequiresFlyMovement = index == 1
+            })
+            .Select(skill => SealCatalog(skill, effectiveSkillsInputsDigest))
+            .ToArray();
         CharacterCreationSkillCatalogEntry[] knowledge =
         [
             .. KnowledgeIds.Select((id, index) => new CharacterCreationSkillCatalogEntry(
@@ -574,7 +828,12 @@ public sealed class CharacterCreationSkillsServiceTests
             skill.SkillGroup,
             skill.IsExotic,
             skill.Specializations,
-            skill.SourceAnchorIds)
+            skill.SourceAnchorIds,
+            skill.CanDefault,
+            skill.IgnoresSourceDisabled,
+            skill.RequiresGroundMovement,
+            skill.RequiresSwimMovement,
+            skill.RequiresFlyMovement)
     };
 
     private static CharacterCreationAttributesServiceTests.StubSourceResolver CreateResolver(

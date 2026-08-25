@@ -275,7 +275,23 @@ internal static class CharacterCreationMetatypeCatalogProjector
         XElement entry,
         out CharacterCreationMetatypeMovementProjection movement)
     {
-        movement = null!;
+        movement = CharacterCreationMetatypeMovementProjection.Unavailable;
+        XElement[] special = entry.Elements("movement").Take(2).ToArray();
+        if (special.Length != 0)
+        {
+            if (special.Length != 1
+                || special[0].HasAttributes
+                || special[0].HasElements
+                || !string.Equals(special[0].Value, "Special", StringComparison.Ordinal)
+                || entry.Elements("walk").Any()
+                || entry.Elements("run").Any()
+                || entry.Elements("sprint").Any())
+            {
+                return false;
+            }
+            movement = CharacterCreationMetatypeMovementProjection.Special;
+            return true;
+        }
         if (!TryReadMovementRate(entry, "walk", out CharacterCreationMetatypeMovementRate? walk)
             || !TryReadMovementRate(entry, "run", out CharacterCreationMetatypeMovementRate? run)
             || !TryReadMovementRate(entry, "sprint", out CharacterCreationMetatypeMovementRate? sprint))

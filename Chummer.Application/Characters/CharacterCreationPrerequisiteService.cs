@@ -593,7 +593,10 @@ public sealed class CharacterCreationPrerequisiteService :
             selected.Attributes.ToArray(),
             selected.PriorityChildNodeDigest,
             selected.MetatypeSourceNodeDigest,
-            selected.SourceAnchorIds.ToArray());
+            selected.SourceAnchorIds.ToArray())
+        {
+            Movement = selected.Movement
+        };
     }
 
     private static CharacterCreationPriorityTalentSelection? ResolveTalentSelection(
@@ -1097,6 +1100,7 @@ public sealed class CharacterCreationPrerequisiteService :
                    && !option.IsEnabled
                    && option.Blockers is { Count: > 0 })
                && option.Attributes is not null
+               && IsValidMovement(option.Movement)
                && option.Blockers is not null
                && option.IsEnabled == (option.Blockers.Count == 0)
                && option.SourceAnchorIds is { Count: > 0 }
@@ -1115,6 +1119,23 @@ public sealed class CharacterCreationPrerequisiteService :
                                                     && item.Minimum <= item.Maximum
                                                     && item.Maximum <= item.AugmentedMaximum));
     }
+
+    private static bool IsValidMovement(CharacterCreationMetatypeMovementProjection? movement)
+    {
+        if (movement?.Walk is null || movement.Run is null || movement.Sprint is null)
+            return false;
+        bool ratesAreNonNegative = IsValidMovementRate(movement.Walk)
+                                   && IsValidMovementRate(movement.Run)
+                                   && IsValidMovementRate(movement.Sprint);
+        if (!ratesAreNonNegative || !movement.IsSpecial)
+            return ratesAreNonNegative;
+        return movement.Walk == new CharacterCreationMetatypeMovementRate(0m, 0m, 0m)
+               && movement.Run == new CharacterCreationMetatypeMovementRate(0m, 0m, 0m)
+               && movement.Sprint == new CharacterCreationMetatypeMovementRate(0m, 0m, 0m);
+    }
+
+    private static bool IsValidMovementRate(CharacterCreationMetatypeMovementRate rate) =>
+        rate.Ground >= 0m && rate.Swim >= 0m && rate.Fly >= 0m;
 
     private static bool IsValidTalentOption(
         CharacterCreationPriorityTalentOptionProjection? option,

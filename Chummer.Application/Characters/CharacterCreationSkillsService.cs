@@ -199,7 +199,12 @@ public sealed class CharacterCreationSkillsService : ICharacterCreationSkillsSer
         if (stateResult.Value is not { } state
             || state.PrerequisiteDraft is not { } prerequisite
             || state.AttributesDraft is not { } attributes)
-            return new(new(stateResult.Outcome, null, stateResult.Blockers), null, null);
+            return new(new(
+                stateResult.Outcome == CharacterCreationFoundationOutcomes.Success
+                    ? CharacterCreationFoundationOutcomes.Blocked
+                    : stateResult.Outcome,
+                null,
+                stateResult.Blockers), null, null);
         string? mismatch = CompareBinding(state.Binding, request.Binding);
         if (mismatch is not null)
             return new(Blocked<CharacterCreationSkillsPreview>(CharacterCreationFoundationOutcomes.Conflict, mismatch), null, null);
@@ -211,6 +216,7 @@ public sealed class CharacterCreationSkillsService : ICharacterCreationSkillsSer
             state.SelectedSkillGroupPoints,
             state.IntuitionUnaugmented,
             state.LogicUnaugmented,
+            state.MovementCapability,
             request.Allocations,
             request.GroupAllocations,
             blockers);
@@ -315,6 +321,8 @@ public sealed class CharacterCreationSkillsService : ICharacterCreationSkillsSer
         }
         int intuition = attributes?.Attributes.SingleOrDefault(item => item.AttributeId == "INT")?.UnaugmentedCurrent ?? 0;
         int logic = attributes?.Attributes.SingleOrDefault(item => item.AttributeId == "LOG")?.UnaugmentedCurrent ?? 0;
+        CharacterCreationMovementCapability movementCapability = ResolveMovementCapability(
+            prerequisite?.HeritageSelection?.Movement);
         CharacterCreationKnowledgePointContribution[] contributions = authority.KnowledgePointContributions
             .OrderBy(item => item.ContributionId, StringComparer.Ordinal)
             .ToArray();
@@ -383,6 +391,7 @@ public sealed class CharacterCreationSkillsService : ICharacterCreationSkillsSer
             groupTotal,
             intuition,
             logic,
+            movementCapability,
             pending?.Allocations ?? [],
             pending?.GroupAllocations ?? [],
             pendingBlockers);
@@ -457,7 +466,8 @@ public sealed class CharacterCreationSkillsService : ICharacterCreationSkillsSer
             SnapshotDigest: string.Empty)
         {
             SelectedActiveSkillPoints = activeTotal,
-            SelectedSkillGroupPoints = groupTotal
+            SelectedSkillGroupPoints = groupTotal,
+            MovementCapability = movementCapability
         };
         state = state with
         {
@@ -472,6 +482,7 @@ public sealed class CharacterCreationSkillsService : ICharacterCreationSkillsSer
         int groupTotal,
         int intuition,
         int logic,
+        CharacterCreationMovementCapability movementCapability,
         IReadOnlyList<CharacterCreationSkillAllocation>? requested,
         IReadOnlyList<CharacterCreationSkillGroupAllocation>? requestedGroups,
         ICollection<string> blockers)
@@ -511,10 +522,17 @@ public sealed class CharacterCreationSkillsService : ICharacterCreationSkillsSer
         {
             CharacterCreationSkillGroupCatalogEntry? source = authority.SkillGroups.SingleOrDefault(item =>
                 item.GroupId == allocation.GroupId);
+            string[] availableMemberIds = source?.MemberSkillSourceIds
+                .Where(id => authority.ActiveSkills.SingleOrDefault(skill =>
+                    string.Equals(skill.SourceSkillId, id, StringComparison.Ordinal)) is { } skill
+                    && IsMovementAvailable(skill, movementCapability))
+                .ToArray() ?? [];
             var local = new List<string>();
-            if (source is null || allocation.Rating < 1 || allocation.Rating > authority.MaxSkillGroupRatingCreate)
+            if (source is null
+                || allocation.Rating < 1
+                || allocation.Rating > authority.MaxSkillGroupRatingCreate)
                 local.Add(CharacterCreationSkillsBlockers.GroupInvalid);
-            if (source is not null && source.MemberSkillSourceIds.Any(id =>
+            if (source is not null && availableMemberIds.Any(id =>
                     allocationMap.ContainsKey((CharacterCreationSkillKinds.Active, id))))
                 local.Add(CharacterCreationSkillsBlockers.GroupBroken);
             AddAll(blockers, local);
@@ -552,6 +570,8 @@ public sealed class CharacterCreationSkillsService : ICharacterCreationSkillsSer
                 local.Add(CharacterCreationSkillsBlockers.AllocationInvalid);
             if (source?.IsExotic == true)
                 local.Add(CharacterCreationSkillsBlockers.ExoticSkillUnsupported);
+            if (source is not null && !IsMovementAvailable(source, movementCapability))
+                local.Add(CharacterCreationSkillsBlockers.MovementRequirementUnmet);
             if (allocation.IsNativeLanguage)
             {
                 nativeCount++;
@@ -572,6 +592,9 @@ public sealed class CharacterCreationSkillsService : ICharacterCreationSkillsSer
             if (allocation.SpecializationOptionId is not null && specialization is null)
                 local.Add(CharacterCreationSkillsBlockers.SpecializationInvalid);
             if (source?.SkillGroup is not null
+                // Chummer5 ignores disabled skills when deciding whether a
+                // group is broken, while retaining the canonical membership.
+                && IsMovementAvailable(source, movementCapability)
                 && groups.Any(group => group.MemberSkillSourceIds.Contains(
                     source.SourceSkillId,
                     StringComparer.Ordinal)))
@@ -643,6 +666,24 @@ public sealed class CharacterCreationSkillsService : ICharacterCreationSkillsSer
                 CharacterCreationSkillsBlockers.KnowledgeBudgetExceeded),
             overflow);
     }
+
+    private static CharacterCreationMovementCapability ResolveMovementCapability(
+        CharacterCreationMetatypeMovementProjection? movement)
+    {
+        if (movement is null || movement.IsSpecial)
+            return new CharacterCreationMovementCapability(false, false, false);
+        return new CharacterCreationMovementCapability(
+            movement.Walk.Ground > 0m || movement.Run.Ground > 0m || movement.Sprint.Ground > 0m,
+            movement.Walk.Swim > 0m || movement.Run.Swim > 0m || movement.Sprint.Swim > 0m,
+            movement.Walk.Fly > 0m || movement.Run.Fly > 0m || movement.Sprint.Fly > 0m);
+    }
+
+    private static bool IsMovementAvailable(
+        CharacterCreationSkillCatalogEntry skill,
+        CharacterCreationMovementCapability capability)
+        => (!skill.RequiresGroundMovement || capability.Ground)
+           && (!skill.RequiresSwimMovement || capability.Swim)
+           && (!skill.RequiresFlyMovement || capability.Fly);
 
     private static CharacterCreationSkillsDraft BuildDraft(
         WorkspaceStoredDocument workspace,
