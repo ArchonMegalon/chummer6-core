@@ -165,6 +165,22 @@ public sealed class CharacterCareerActiveSkillAdvanceRulesTests
         Assert.AreNotEqual(original.SourceRevision, sourceChanged.SourceRevision);
         Assert.AreNotEqual(original.RuleDigest, rulesChanged.RuleDigest);
 
+        CharacterCareerActiveSkillAdvanceQuote savedSuccessor = Quote(
+            input with
+            {
+                KarmaPoints = input.KarmaPoints + 1,
+                TotalBaseRating = input.TotalBaseRating + 1,
+                AvailableKarma = input.AvailableKarma - original.KarmaCost
+            });
+        Assert.AreEqual(
+            original.RuleDigest,
+            savedSuccessor.RuleDigest,
+            "The rule-environment digest must survive the exact rating/Karma mutation it authorizes.");
+        Assert.AreNotEqual(
+            original.LogicalRevision,
+            savedSuccessor.LogicalRevision,
+            "The quote revision must still bind mutable runner state independently.");
+
         Assert.IsFalse(CharacterCareerActiveSkillAdvanceRules.TryCreateQuote(
             input with
             {
