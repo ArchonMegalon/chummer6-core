@@ -12,7 +12,52 @@ public sealed record CharacterCareerKarmaExpenseEntry(
     bool ForceCareerVisible,
     bool KarmaUndoTypeElementPresent,
     string? RawKarmaUndoType,
-    bool AmountEditable);
+    bool AmountEditable)
+{
+    /// <summary>
+    /// Presence-aware values read from the saved expense XML. These values do
+    /// not change the legacy editor's behavior, but allow higher-level
+    /// transaction receipts to prove the whole saved expense record.
+    /// </summary>
+    public CharacterCareerKarmaExpenseSourceAuthority SourceAuthority { get; init; }
+        = CharacterCareerKarmaExpenseSourceAuthority.Unavailable;
+}
+
+public sealed record CharacterCareerKarmaExpenseSourceAuthority(
+    bool ExpenseTypeElementPresent,
+    string? RawExpenseType,
+    bool RefundElementPresent,
+    bool ForceCareerVisibleElementPresent,
+    bool NuyenUndoTypeElementPresent,
+    string? RawNuyenUndoType,
+    bool UndoObjectIdElementPresent,
+    string? RawUndoObjectId,
+    bool UndoQuantityElementPresent,
+    decimal? UndoQuantity,
+    bool UndoExtraElementPresent,
+    string? RawUndoExtra)
+{
+    public static CharacterCareerKarmaExpenseSourceAuthority Unavailable { get; } = new(
+        ExpenseTypeElementPresent: false,
+        RawExpenseType: null,
+        RefundElementPresent: false,
+        ForceCareerVisibleElementPresent: false,
+        NuyenUndoTypeElementPresent: false,
+        RawNuyenUndoType: null,
+        UndoObjectIdElementPresent: false,
+        RawUndoObjectId: null,
+        UndoQuantityElementPresent: false,
+        UndoQuantity: null,
+        UndoExtraElementPresent: false,
+        RawUndoExtra: null);
+
+    public bool IsCoherent()
+        => ExpenseTypeElementPresent == (RawExpenseType is not null)
+           && NuyenUndoTypeElementPresent == (RawNuyenUndoType is not null)
+           && UndoObjectIdElementPresent == (RawUndoObjectId is not null)
+           && UndoQuantityElementPresent == UndoQuantity.HasValue
+           && UndoExtraElementPresent == (RawUndoExtra is not null);
+}
 
 public sealed record CharacterCareerKarmaExpenseEditResult(
     CharacterCareerKarmaExpenseEntry Expense,
@@ -69,8 +114,32 @@ public static class CharacterCareerKarmaExpenseEditRules
         bool karmaUndoTypeElementPresent,
         string? rawKarmaUndoType,
         out CharacterCareerKarmaExpenseEntry? entry)
+        => TryCreateEntry(
+            expenseId,
+            expenseDateLocal,
+            amount,
+            reason,
+            refund,
+            forceCareerVisible,
+            karmaUndoTypeElementPresent,
+            rawKarmaUndoType,
+            CharacterCareerKarmaExpenseSourceAuthority.Unavailable,
+            out entry);
+
+    public static bool TryCreateEntry(
+        Guid expenseId,
+        DateTime expenseDateLocal,
+        decimal amount,
+        string? reason,
+        bool refund,
+        bool forceCareerVisible,
+        bool karmaUndoTypeElementPresent,
+        string? rawKarmaUndoType,
+        CharacterCareerKarmaExpenseSourceAuthority sourceAuthority,
+        out CharacterCareerKarmaExpenseEntry? entry)
     {
         entry = null;
+        ArgumentNullException.ThrowIfNull(sourceAuthority);
         string? normalizedRawKarmaUndoType = karmaUndoTypeElementPresent
             ? rawKarmaUndoType ?? string.Empty
             : rawKarmaUndoType;
@@ -83,7 +152,10 @@ public static class CharacterCareerKarmaExpenseEditRules
             forceCareerVisible,
             karmaUndoTypeElementPresent,
             normalizedRawKarmaUndoType,
-            IsAmountEditable(karmaUndoTypeElementPresent, normalizedRawKarmaUndoType));
+            IsAmountEditable(karmaUndoTypeElementPresent, normalizedRawKarmaUndoType))
+        {
+            SourceAuthority = sourceAuthority
+        };
         if (!IsCoherentEntry(candidate))
         {
             return false;
@@ -167,6 +239,8 @@ public static class CharacterCareerKarmaExpenseEditRules
             && entry.Amount <= MaximumAmount
             && entry.Reason is not null
             && entry.Reason.Length <= MaximumReasonLength
+            && entry.SourceAuthority is not null
+            && entry.SourceAuthority.IsCoherent()
             && TryResolveAmountEditable(
                 entry.KarmaUndoTypeElementPresent,
                 entry.RawKarmaUndoType,

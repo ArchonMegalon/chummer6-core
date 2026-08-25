@@ -380,4 +380,55 @@ public sealed class CharacterCareerKarmaExpenseEditRulesTests
                 out _));
         }
     }
+
+    [TestMethod]
+    public void Presence_aware_saved_source_authority_is_retained_and_fail_closed()
+    {
+        DateTime date = new(2081, 5, 12);
+        CharacterCareerKarmaExpenseSourceAuthority authority = new(
+            ExpenseTypeElementPresent: true,
+            RawExpenseType: "Karma",
+            RefundElementPresent: true,
+            ForceCareerVisibleElementPresent: true,
+            NuyenUndoTypeElementPresent: true,
+            RawNuyenUndoType: "AddCyberware",
+            UndoObjectIdElementPresent: true,
+            RawUndoObjectId: ExpenseId.ToString("D"),
+            UndoQuantityElementPresent: true,
+            UndoQuantity: 0m,
+            UndoExtraElementPresent: true,
+            RawUndoExtra: string.Empty);
+
+        Assert.IsTrue(CharacterCareerKarmaExpenseEditRules.TryCreateEntry(
+            ExpenseId,
+            date,
+            -4m,
+            "Active Skill",
+            refund: false,
+            forceCareerVisible: false,
+            karmaUndoTypeElementPresent: true,
+            rawKarmaUndoType: "ImproveSkill",
+            authority,
+            out CharacterCareerKarmaExpenseEntry? entry));
+        Assert.AreEqual(authority, entry!.SourceAuthority);
+        Assert.IsTrue(CharacterCareerKarmaExpenseEditRules.TryEdit(
+            entry,
+            entry.Amount,
+            "Renamed",
+            entry.ExpenseDateLocal,
+            out CharacterCareerKarmaExpenseEditResult? edited));
+        Assert.AreEqual(authority, edited!.Expense.SourceAuthority);
+
+        Assert.IsFalse(CharacterCareerKarmaExpenseEditRules.TryCreateEntry(
+            ExpenseId,
+            date,
+            -4m,
+            "Active Skill",
+            refund: false,
+            forceCareerVisible: false,
+            karmaUndoTypeElementPresent: true,
+            rawKarmaUndoType: "ImproveSkill",
+            authority with { UndoExtraElementPresent = false },
+            out _));
+    }
 }
