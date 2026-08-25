@@ -79,6 +79,17 @@ public interface ICharacterSourceDataContext
     }
 
     /// <summary>
+    /// Resolves the exact SR5 Priority Skills catalog and creation policies from the
+    /// runner's saved profile and effective Skills overlay. False means the Skills
+    /// wizard must remain unavailable rather than using UI defaults.
+    /// </summary>
+    bool TryResolveCreationSkillsAuthority(out CharacterCreationSkillsAuthority authority)
+    {
+        authority = CharacterCreationSkillsAuthority.Unavailable;
+        return false;
+    }
+
+    /// <summary>
     /// Projects the bounded, digest-bound metatype choices proven by the saved
     /// character's source profile. False means no catalog authority exists;
     /// callers must never substitute their own source filters or defaults.

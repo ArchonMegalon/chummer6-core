@@ -331,6 +331,14 @@ public sealed record CharacterCreationPriorityOptionProjection(
     string SourceNodeDigest,
     IReadOnlyList<string> SourceAnchorIds)
 {
+    /// <summary>
+    /// Exact values from the selected Skills priority row. They remain null for every
+    /// non-Skills category so a client cannot infer a budget from the display label.
+    /// </summary>
+    public int? BaseActiveSkillPoints { get; init; }
+
+    public int? BaseSkillGroupPoints { get; init; }
+
     public IReadOnlyList<CharacterCreationPriorityHeritageOptionProjection> HeritageOptions
         { get; init; } = [];
 

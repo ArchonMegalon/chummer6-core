@@ -249,6 +249,26 @@ public sealed class FileSystemCharacterSourceDataResolverTests
             option.CategoryId == CharacterCreationPriorityCategoryIds.Attributes
             && option.Rank == "A");
         Assert.AreEqual(24, attributesA.BaseNormalAttributePoints);
+        int[] expectedActive = [46, 36, 28, 22, 18];
+        int[] expectedGroups = [10, 5, 2, 0, 0];
+        for (int index = 0; index < authority.PriorityArray.Count; index++)
+        {
+            CharacterCreationPriorityOptionProjection skills = authority.Options.Single(option =>
+                option.CategoryId == CharacterCreationPriorityCategoryIds.Skills
+                && option.Rank == authority.PriorityArray[index]);
+            Assert.AreEqual(expectedActive[index], skills.BaseActiveSkillPoints);
+            Assert.AreEqual(expectedGroups[index], skills.BaseSkillGroupPoints);
+        }
+        Assert.IsTrue(context.TryResolveCreationSkillsAuthority(
+            out CharacterCreationSkillsAuthority skillsAuthority));
+        Assert.IsTrue(skillsAuthority.IsAuthoritative, string.Join(",", skillsAuthority.Blockers));
+        Assert.AreEqual("({INTUnaug} + {LOGUnaug}) * 2", skillsAuthority.KnowledgePointsExpression);
+        Assert.AreEqual(6, skillsAuthority.MaxActiveSkillRatingCreate);
+        Assert.AreEqual(6, skillsAuthority.MaxKnowledgeSkillRatingCreate);
+        Assert.AreEqual(6, skillsAuthority.MaxSkillGroupRatingCreate);
+        Assert.AreEqual(1, skillsAuthority.BaseNativeLanguageLimit);
+        Assert.IsTrue(CharacterCreationSkillsDigest.IsCanonical(skillsAuthority.AuthorityDigest));
+        Assert.IsTrue(CharacterCreationSkillsDraftIntegrity.IsValidAuthority(skillsAuthority));
         CharacterCreationPriorityOptionProjection heritageE = authority.Options.Single(option =>
             option.CategoryId == CharacterCreationPriorityCategoryIds.Heritage
             && option.Rank == "E");
@@ -299,6 +319,183 @@ public sealed class FileSystemCharacterSourceDataResolverTests
             new[] { "B", "C", "D", "E", "E" },
             streetScum.PriorityArray.ToArray());
         Assert.HasCount(20, streetScum.Options);
+    }
+
+    [TestMethod]
+    public void Standard_priority_skills_matrix_tampering_is_not_authoritative()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            WriteBaseContent(
+                root,
+                string.Empty,
+                "<buildmethod>Priority</buildmethod><buildpoints>25</buildpoints>"
+                + "<priorityarray>ABCDE</priorityarray><prioritytable>Standard</prioritytable>"
+                + "<sumtoten>10</sumtoten>");
+            WritePriorityFixture(root);
+            string path = Path.Combine(root, "data", "priorities.xml");
+            string original = File.ReadAllText(path);
+            string tampered = original.Replace(
+                "<skills>46</skills>",
+                "<skills>45</skills>",
+                StringComparison.Ordinal);
+            Assert.AreNotEqual(original, tampered);
+            File.WriteAllText(path, tampered);
+
+            ICharacterSourceDataContext context = CreateContext(root, CharacterXml())!;
+            Assert.IsTrue(context.TryResolveCreationPrerequisiteAuthority(
+                out CharacterCreationPrerequisiteAuthority authority));
+            Assert.IsFalse(authority.IsAuthoritative);
+            Assert.IsTrue(
+                authority.Blockers.Contains(
+                    CharacterCreationPrerequisiteBlockers.PriorityRowsInvalid,
+                    StringComparer.Ordinal),
+                string.Join(",", authority.Blockers));
+        }
+        finally
+        {
+            DeleteTempDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public void Creation_skills_projects_enabled_free_knowledge_points_bound_to_exact_character_xml()
+    {
+        string characterXml = CharacterXml(
+            "<improvements>"
+            + "<improvement><val>3</val><condition/><improvementttype>FreeKnowledgeSkills</improvementttype>"
+            + "<custom>False</custom><addtorating>False</addtorating><enabled>True</enabled></improvement>"
+            + "<improvement><val>99</val><condition/><improvementttype>FreeKnowledgeSkills</improvementttype>"
+            + "<custom>False</custom><addtorating>False</addtorating><enabled>False</enabled></improvement>"
+            + "</improvements>");
+        ICharacterSourceDataContext context = CreateContext(FindCoreRoot(), characterXml)!;
+
+        Assert.IsTrue(context.TryResolveCreationSkillsAuthority(
+            out CharacterCreationSkillsAuthority authority));
+        Assert.IsTrue(authority.IsAuthoritative, string.Join(",", authority.Blockers));
+        Assert.IsTrue(CharacterCreationSkillsDraftIntegrity.IsValidAuthority(authority));
+        CharacterCreationKnowledgePointContribution contribution =
+            authority.KnowledgePointContributions.Single();
+        Assert.AreEqual(3, contribution.Points);
+        Assert.AreEqual(
+            CharacterCreationFoundationDraftLedgerIntegrity.ComputeRawCharacterXmlDigest(characterXml),
+            contribution.SourceCharacterXmlDigest);
+        Assert.IsTrue(CharacterCreationSkillsDigest.IsCanonical(contribution.SourceDigest));
+        CollectionAssert.Contains(authority.SourceAnchorIds.ToList(), "character.xml#improvements");
+    }
+
+    [TestMethod]
+    public void Creation_skills_rejects_free_knowledge_points_with_unproven_scope_fields()
+    {
+        string characterXml = CharacterXml(
+            "<improvements><improvement><val>3</val><target>forged-scope</target>"
+            + "<condition/><improvementttype>FreeKnowledgeSkills</improvementttype>"
+            + "<custom>False</custom><addtorating>False</addtorating><enabled>True</enabled>"
+            + "</improvement></improvements>");
+        ICharacterSourceDataContext context = CreateContext(FindCoreRoot(), characterXml)!;
+
+        Assert.IsTrue(context.TryResolveCreationSkillsAuthority(
+            out CharacterCreationSkillsAuthority authority));
+        Assert.IsFalse(authority.IsAuthoritative);
+        CollectionAssert.Contains(
+            authority.Blockers.ToList(),
+            CharacterCreationSkillsBlockers.KnowledgeContributionAuthorityUnsupported);
+    }
+
+    [TestMethod]
+    public void Creation_skills_rejects_malformed_or_ambiguous_projected_scalars()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            WriteBaseContent(
+                root,
+                string.Empty,
+                "<buildmethod>Priority</buildmethod><buildpoints>25</buildpoints>"
+                + "<priorityarray>ABCDE</priorityarray><prioritytable>Standard</prioritytable>"
+                + "<sumtoten>10</sumtoten>");
+            WritePriorityFixture(root);
+            string[] malformedActiveRows =
+            [
+                "<id>30000000-0000-0000-0000-000000000001</id>"
+                + "<name>Running</name><name>Forged Running</name><attribute>AGI</attribute>"
+                + "<category>Physical Active</category><default>True</default>"
+                + "<skillgroup>Athletics</skillgroup><exotic>False</exotic><specs/>"
+                + "<source>SR5</source>",
+                "<id>30000000-0000-0000-0000-000000000001</id>"
+                + "<name>Running</name><attribute>AGI</attribute><category>Physical Active</category>"
+                + "<default>True</default><skillgroup>Athletics</skillgroup>"
+                + "<exotic>not-a-boolean</exotic><specs/><source>SR5</source>",
+                "<id>30000000-0000-0000-0000-000000000001</id>"
+                + "<name>Running</name><attribute>AGI</attribute><category>Physical Active</category>"
+                + "<default>True</default><skillgroup> </skillgroup><exotic>False</exotic>"
+                + "<specs/><source>SR5</source>",
+                "<id>30000000-0000-0000-0000-000000000001</id>"
+                + "<name>Running</name><attribute code=\"forged\">AGI</attribute>"
+                + "<category>Physical Active</category><default>True</default>"
+                + "<skillgroup>Athletics</skillgroup><exotic>False</exotic><specs/>"
+                + "<source>SR5</source>"
+            ];
+            foreach (string malformed in malformedActiveRows)
+            {
+                WriteSkillsAuthorityFixture(root, malformed);
+                ICharacterSourceDataContext context = CreateContext(root, CharacterXml())!;
+                Assert.IsNotNull(context);
+                Assert.IsTrue(context.TryResolveCreationSkillsAuthority(
+                    out CharacterCreationSkillsAuthority authority));
+                Assert.IsFalse(authority.IsAuthoritative);
+                CollectionAssert.Contains(
+                    authority.Blockers.ToList(),
+                    CharacterCreationSkillsBlockers.AuthorityUnavailable);
+            }
+        }
+        finally
+        {
+            DeleteTempDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public void Creation_skills_rejects_selected_custom_skills_overlay()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            const string directoryName = "Skill Rules";
+            WriteBaseContent(
+                root,
+                $"<customdatadirectoryname><directoryname>{directoryName}</directoryname>"
+                + "<order>0</order><enabled>True</enabled></customdatadirectoryname>",
+                "<buildmethod>Priority</buildmethod><buildpoints>25</buildpoints>"
+                + "<priorityarray>ABCDE</priorityarray><prioritytable>Standard</prioritytable>"
+                + "<sumtoten>10</sumtoten>");
+            WritePriorityFixture(root);
+            WriteSkillsAuthorityFixture(root);
+            string customRoot = Path.Combine(root, "customdata", directoryName);
+            Directory.CreateDirectory(customRoot);
+            File.WriteAllText(
+                Path.Combine(customRoot, "custom_skills.xml"),
+                "<chummer><skills><skill><id>30000000-0000-0000-0000-000000000099</id>"
+                + "<name>Forged Skill</name><attribute>AGI</attribute><category>Physical Active</category>"
+                + "<source>SR5</source></skill></skills></chummer>");
+
+            ICharacterSourceDataContext context = CreateContext(
+                root,
+                CharacterXml($"<customdatadirectorynames><directoryname>{directoryName}</directoryname>"
+                             + "</customdatadirectorynames>"))!;
+            Assert.IsNotNull(context);
+            Assert.IsTrue(context.TryResolveCreationSkillsAuthority(
+                out CharacterCreationSkillsAuthority authority));
+            Assert.IsFalse(authority.IsAuthoritative);
+            CollectionAssert.Contains(
+                authority.Blockers.ToList(),
+                CharacterCreationSkillsBlockers.SkillsSourceDrift);
+        }
+        finally
+        {
+            DeleteTempDirectory(root);
+        }
     }
 
     [TestMethod]
@@ -1922,7 +2119,7 @@ public sealed class FileSystemCharacterSourceDataResolverTests
         Directory.CreateDirectory(data);
         File.WriteAllText(
             Path.Combine(data, "settings.xml"),
-            $"<chummer><settings><setting><id>{SettingsId}</id><nuyenformat>#,0.###</nuyenformat><karmajoingroup>5</karmajoingroup><karmaleavegroup>1</karmaleavegroup><nuyenperbpwftp>1500</nuyenperbpwftp><nuyenperbpwftm>2000</nuyenperbpwftm><books><book>SR5</book><book>SG</book></books><customdatadirectorynames>{customDataSetting}</customdatadirectorynames>{buildAuthorityXml}<alternatemetatypeattributekarma>False</alternatemetatypeattributekarma><reverseattributepriorityorder>False</reverseattributepriorityorder><karmacost><karmaattribute>5</karmaattribute></karmacost></setting></settings></chummer>");
+            $"<chummer><settings><setting><id>{SettingsId}</id><nuyenformat>#,0.###</nuyenformat><karmajoingroup>5</karmajoingroup><karmaleavegroup>1</karmaleavegroup><nuyenperbpwftp>1500</nuyenperbpwftp><nuyenperbpwftm>2000</nuyenperbpwftm><books><book>SR5</book><book>SG</book></books><customdatadirectorynames>{customDataSetting}</customdatadirectorynames>{buildAuthorityXml}<knowledgepointsexpression>({INTUnaug} + {LOGUnaug}) * 2</knowledgepointsexpression><usepointsonbrokengroups>False</usepointsonbrokengroups><breakskillgroupsincreatemode>False</breakskillgroupsincreatemode><specializationsbreakskillgroups>True</specializationsbreakskillgroups><alternatemetatypeattributekarma>False</alternatemetatypeattributekarma><reverseattributepriorityorder>False</reverseattributepriorityorder><karmacost><karmaattribute>5</karmaattribute></karmacost></setting></settings></chummer>");
         File.WriteAllText(
             Path.Combine(data, "metatypes.xml"),
             "<chummer><metatypes><metatype><id>a53d885d-a4a4-443d-b6a6-b0a55b0a96c7</id>"
@@ -1956,6 +2153,27 @@ public sealed class FileSystemCharacterSourceDataResolverTests
         File.WriteAllText(
             Path.Combine(data, "vehicles.xml"),
             $"<chummer><mods><mod><id>{VehicleModId}</id><name>Gyro-Stabilization</name><bonus><body>Rating + 1</body><devicerating>2</devicerating><matrixcmbonus>3</matrixcmbonus></bonus><wirelessbonus><body>1</body><devicerating>4</devicerating><matrixcmbonus>5</matrixcmbonus></wirelessbonus></mod></mods></chummer>");
+    }
+
+    private static void WriteSkillsAuthorityFixture(string root, string? firstActiveBody = null)
+    {
+        firstActiveBody ??=
+            "<id>30000000-0000-0000-0000-000000000001</id><name>Running</name>"
+            + "<attribute>AGI</attribute><category>Physical Active</category>"
+            + "<default>True</default><skillgroup>Athletics</skillgroup><exotic>False</exotic>"
+            + "<specs/><source>SR5</source>";
+        File.WriteAllText(
+            Path.Combine(root, "data", "skills.xml"),
+            "<chummer><skills><skill>" + firstActiveBody + "</skill><skill>"
+            + "<id>30000000-0000-0000-0000-000000000002</id><name>Gymnastics</name>"
+            + "<attribute>AGI</attribute><category>Physical Active</category>"
+            + "<default>True</default><skillgroup>Athletics</skillgroup><exotic>False</exotic>"
+            + "<specs/><source>SR5</source>"
+            + "</skill></skills><knowledgeskills><skill>"
+            + "<id>40000000-0000-0000-0000-000000000001</id><name>English</name>"
+            + "<attribute>INT</attribute><category>Language</category><default>False</default>"
+            + "<skillgroup/><specs/><source>SR5</source>"
+            + "</skill></knowledgeskills></chummer>");
     }
 
     private static void WriteOverlay(string amendsRoot, string id, int priority, int deviceRating)
@@ -2002,6 +2220,14 @@ public sealed class FileSystemCharacterSourceDataResolverTests
             ["D"] = 14,
             ["E"] = 12
         };
+        Dictionary<string, (int Active, int Groups)> skillPoints = new(StringComparer.Ordinal)
+        {
+            ["A"] = (46, 10),
+            ["B"] = (36, 5),
+            ["C"] = (28, 2),
+            ["D"] = (22, 0),
+            ["E"] = (18, 0)
+        };
         int sequence = 1;
         string rows = string.Concat(categories.SelectMany(category => ranks.Select(rank =>
         {
@@ -2011,7 +2237,10 @@ public sealed class FileSystemCharacterSourceDataResolverTests
                     ? "<metatypes><metatype><name>Human</name><value>1</value><karma>0</karma></metatype></metatypes>"
                     : category == "Talent"
                         ? talentXml
-                        : string.Empty;
+                        : category == "Skills"
+                            ? $"<skills>{skillPoints[rank].Active}</skills>"
+                              + $"<skillgroups>{skillPoints[rank].Groups}</skillgroups>"
+                            : string.Empty;
             string id = $"00000000-0000-0000-0000-{sequence++:000000000000}";
             return $"<priority><id>{id}</id><name>{category}-{rank}</name><value>{rank}</value>"
                    + $"<category>{category}</category>{attributes}</priority>";

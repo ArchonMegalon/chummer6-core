@@ -327,29 +327,47 @@ public sealed class CharacterCreationAttributesServiceTests
 
     private static string Digest(char value) => "sha256:" + new string(value, 64);
 
-    private sealed class StubSourceResolver : ICharacterSourceDataResolver
+    internal sealed class StubSourceResolver : ICharacterSourceDataResolver
     {
         private readonly CharacterCreationPrerequisiteAuthority _authority;
+        private readonly CharacterCreationSkillsAuthority? _skillsAuthority;
 
-        public StubSourceResolver(CharacterCreationPrerequisiteAuthority authority) =>
+        public StubSourceResolver(
+            CharacterCreationPrerequisiteAuthority authority,
+            CharacterCreationSkillsAuthority? skillsAuthority = null)
+        {
             _authority = authority;
+            _skillsAuthority = skillsAuthority;
+        }
 
         public ICharacterSourceDataContext TryCreateContext(string characterXml) =>
-            new StubSourceContext(_authority);
+            new StubSourceContext(_authority, _skillsAuthority);
     }
 
-    private sealed class StubSourceContext : ICharacterSourceDataContext
+    internal sealed class StubSourceContext : ICharacterSourceDataContext
     {
         private readonly CharacterCreationPrerequisiteAuthority _authority;
+        private readonly CharacterCreationSkillsAuthority? _skillsAuthority;
 
-        public StubSourceContext(CharacterCreationPrerequisiteAuthority authority) =>
+        public StubSourceContext(
+            CharacterCreationPrerequisiteAuthority authority,
+            CharacterCreationSkillsAuthority? skillsAuthority = null)
+        {
             _authority = authority;
+            _skillsAuthority = skillsAuthority;
+        }
 
         public bool TryResolveCreationPrerequisiteAuthority(
             out CharacterCreationPrerequisiteAuthority authority)
         {
             authority = _authority;
             return true;
+        }
+
+        public bool TryResolveCreationSkillsAuthority(out CharacterCreationSkillsAuthority authority)
+        {
+            authority = _skillsAuthority ?? CharacterCreationSkillsAuthority.Unavailable;
+            return _skillsAuthority is not null;
         }
 
         public bool TryResolveCyberwareGradeDeviceRating(
@@ -371,7 +389,7 @@ public sealed class CharacterCreationAttributesServiceTests
         }
     }
 
-    private sealed class StubCharacterQueries : ICharacterFileQueries
+    internal sealed class StubCharacterQueries : ICharacterFileQueries
     {
         public CharacterFileSummary ParseSummary(CharacterDocument document)
         {

@@ -19,6 +19,8 @@ public static class CharacterCreationBootstrapStoreIntegrity
             || auxiliary.CharacterCreationFoundationDraft is not null
             || auxiliary.CharacterCreationPrerequisiteDraft is not null
             || auxiliary.CharacterCreationAttributesDraft is not null
+            || auxiliary.CharacterCreationSkillsDraft is not null
+            || auxiliary.CharacterCreationSkillsReceipts is not null
             || auxiliary.CharacterCreationContactReceipts is not null
             || !IsValidBinding(workspaceId, binding)
             || !string.Equals(document.RulesetId, RulesetDefaults.Sr5, StringComparison.Ordinal)

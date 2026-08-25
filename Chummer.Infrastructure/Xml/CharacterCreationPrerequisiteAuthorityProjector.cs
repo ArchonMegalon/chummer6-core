@@ -174,6 +174,11 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
                         categoryName,
                         rank,
                         weights[rank].Value,
+                        string.Equals(
+                            context.BuildMethod,
+                            CharacterCreationBuildMethods.Priority,
+                            StringComparison.Ordinal)
+                        && string.Equals(context.PriorityTable, "Standard", StringComparison.Ordinal),
                         sourceIds,
                         metatypesDocument,
                         talentSkillCatalog,
@@ -267,6 +272,7 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
         string categoryName,
         string rank,
         int sumToTenValue,
+        bool requireExactStandardSkillsBudget,
         ISet<string> sourceIds,
         XDocument metatypesDocument,
         TalentSkillCatalog? talentSkillCatalog,
@@ -306,6 +312,8 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
         if (!sourceIds.Add(sourceId))
             return false;
         int? baseNormalAttributePoints = null;
+        int? baseActiveSkillPoints = null;
+        int? baseSkillGroupPoints = null;
         XElement[] attributes = row.Elements("attributes").Take(2).ToArray();
         if (string.Equals(
                 categoryId,
@@ -335,6 +343,35 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
             return false;
         }
 
+        XElement[] skills = row.Elements("skills").Take(2).ToArray();
+        XElement[] skillGroups = row.Elements("skillgroups").Take(2).ToArray();
+        if (string.Equals(
+                categoryId,
+                CharacterCreationPriorityCategoryIds.Skills,
+                StringComparison.Ordinal))
+        {
+            if (skills.Length != 1
+                || skillGroups.Length != 1
+                || !TryReadNonNegativeIntElement(skills[0], out int parsedSkills)
+                || !TryReadNonNegativeIntElement(skillGroups[0], out int parsedGroups)
+                || requireExactStandardSkillsBudget
+                   && (!CharacterCreationStandardPrioritySkillsRules.TryGetBudget(
+                           rank,
+                           out int expectedSkills,
+                           out int expectedGroups)
+                       || parsedSkills != expectedSkills
+                       || parsedGroups != expectedGroups))
+            {
+                return false;
+            }
+            baseActiveSkillPoints = parsedSkills;
+            baseSkillGroupPoints = parsedGroups;
+        }
+        else if (skills.Length != 0 || skillGroups.Length != 0)
+        {
+            return false;
+        }
+
         string sourceNodeDigest = RawDigest(row.ToString(SaveOptions.DisableFormatting));
         var projected = new CharacterCreationPriorityOptionProjection(
             categoryId,
@@ -345,7 +382,11 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
             sumToTenValue,
             baseNormalAttributePoints,
             sourceNodeDigest,
-            [$"priorities.xml#priority:{sourceId}"]);
+            [$"priorities.xml#priority:{sourceId}"])
+        {
+            BaseActiveSkillPoints = baseActiveSkillPoints,
+            BaseSkillGroupPoints = baseSkillGroupPoints
+        };
         if (string.Equals(categoryId, CharacterCreationPriorityCategoryIds.Heritage, StringComparison.Ordinal))
         {
             if (!TryProjectHeritageOptions(
