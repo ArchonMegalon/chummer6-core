@@ -18,10 +18,12 @@
     "Chummer.Contracts/Chummer.Contracts.csproj",
     "Chummer.GmCharacterEdits/Chummer.GmCharacterEdits.csproj",
     "Chummer.Infrastructure/Chummer.Infrastructure.csproj",
+    "Chummer.Infrastructure/Xml/CharacterFileService.cs",
     "Chummer.Rulesets.Hosting/Chummer.Rulesets.Hosting.csproj",
     "Chummer.Rulesets.Sr4/Chummer.Rulesets.Sr4.csproj",
     "Chummer.Rulesets.Sr5/Chummer.Rulesets.Sr5.csproj",
     "Chummer.Rulesets.Sr6/Chummer.Rulesets.Sr6.csproj",
+    "Chummer.Tests/CharacterFileServiceTests.cs",
     "docs/runtime-package-public-handoff.md",
     "eng/android-content-plane.lock.json",
     "eng/runtime-package-plane.lock.json",
@@ -45,7 +47,7 @@
     {"path": "scripts/ai/bootstrap-contracts-feed.sh", "sha256": "8b0c25566398f3b222ffbdd23a8244fb27d4f7ce8a65c15a9678a6a63d1a88e6"},
     {"path": "scripts/ai/bootstrap-owner-contracts-feed.py", "sha256": "5beffe15d1708f4cf2c096f376822cd48b9502b5fb1acb69b95db3c86c474786"},
     {"path": "scripts/ai/public-runtime-package-handoff.py", "sha256": "7f99ec73e6f8b0e6543603069593b06b6ae910edfd2df62ad45a9e14f4c67229"},
-    {"path": "scripts/ai/runtime-package-plane.py", "sha256": "c30b8ec3a93b43d5d69250cf6e35efeaab91abd858012863b7056c490c7b431a"},
+    {"path": "scripts/ai/runtime-package-plane.py", "sha256": "fc10cef00819ed6f1a1ca5cb53678e4bee901f2415cf0c78ec30f7599835e218"},
     {"path": "scripts/ai/verify-no-siblings-package-plane.sh", "sha256": "dce5211365f6ecb67f59a2e12ef71c06743170f2e728ee2bd77f2d3b39869105"}
   ],
   "external_owner_packages": [
