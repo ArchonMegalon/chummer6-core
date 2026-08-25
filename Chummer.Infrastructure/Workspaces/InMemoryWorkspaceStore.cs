@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Collections.Immutable;
+using System.Text.Json;
 using Chummer.Application.Workspaces;
 using Chummer.Contracts.Owners;
 using Chummer.Contracts.Workspaces;
@@ -8,12 +9,20 @@ namespace Chummer.Infrastructure.Workspaces;
 
 public sealed class InMemoryWorkspaceStore :
     IWorkspaceStore,
-    ICharacterCreationBootstrapAtomicCreateCapability
+    ICharacterCreationBootstrapAtomicCreateCapability,
+    IRunnerLibraryStore
 {
     private const long InitialContentRevision = 1;
     private const long InitialSavedRevision = 0;
     private const int MaximumDelegatedEditAuditEntries = 4096;
     private readonly ConcurrentDictionary<string, ConcurrentDictionary<string, WorkspaceEntry>> _documentsByOwner = new(StringComparer.Ordinal);
+    private readonly object _runnerLibraryMutationGate = new();
+    private readonly TimeProvider _timeProvider;
+
+    public InMemoryWorkspaceStore(TimeProvider? timeProvider = null)
+    {
+        _timeProvider = timeProvider ?? TimeProvider.System;
+    }
 
     public bool SupportsCharacterCreationBootstrapAtomicCreate => true;
 
@@ -117,12 +126,14 @@ public sealed class InMemoryWorkspaceStore :
 
         while (true)
         {
+            DateTimeOffset createdAtUtc = DateTimeOffset.UtcNow;
             WorkspaceEntry entry = new(
                 document,
-                DateTimeOffset.UtcNow,
+                createdAtUtc,
                 InitialContentRevision,
                 InitialSavedRevision,
-                EmptyDelegatedEditLedger());
+                EmptyDelegatedEditLedger(),
+                RunnerLibraryStoreStateMachine.CreateLegacy(id, createdAtUtc));
             if (documents.TryAdd(id.Value, entry))
             {
                 return SuccessfulMutation(id, entry);
@@ -156,7 +167,8 @@ public sealed class InMemoryWorkspaceStore :
             .Where(pair => IsValidWorkspaceEntry(
                 owner,
                 new CharacterWorkspaceId(pair.Key),
-                pair.Value))
+                pair.Value)
+                && !IsRunnerDeleted(pair.Value))
             .OrderByDescending(pair => pair.Value.LastUpdatedUtc)
             .Select(pair => ToStoreEntry(new CharacterWorkspaceId(pair.Key), pair.Value))
             .ToArray();
@@ -212,6 +224,13 @@ public sealed class InMemoryWorkspaceStore :
             if (!IsValidWorkspaceEntry(owner, id, entry))
             {
                 return CorruptRead();
+            }
+
+            if (IsRunnerDeleted(entry))
+            {
+                return new WorkspaceStoreReadResult(
+                    WorkspaceOperationOutcome.Missing,
+                    Error: "Workspace is in the recoverable-delete lifecycle.");
             }
 
             return new WorkspaceStoreReadResult(
@@ -319,6 +338,11 @@ public sealed class InMemoryWorkspaceStore :
                 return CorruptMutation();
             }
 
+            if (IsRunnerDeleted(current))
+            {
+                return MissingMutation();
+            }
+
             if (current.ContentRevision != expectedContentRevision)
             {
                 return ConflictMutation(id, current);
@@ -341,7 +365,8 @@ public sealed class InMemoryWorkspaceStore :
                 DateTimeOffset.UtcNow,
                 current.ContentRevision + 1,
                 current.SavedRevision,
-                current.DelegatedGmCharacterEdits);
+                current.DelegatedGmCharacterEdits,
+                current.RunnerLibraryState);
             if (documents.TryUpdate(id.Value, replacement, current))
             {
                 return SuccessfulMutation(id, replacement);
@@ -386,6 +411,11 @@ public sealed class InMemoryWorkspaceStore :
             if (!IsValidWorkspaceEntry(owner, id, current))
             {
                 return CorruptMutation();
+            }
+
+            if (IsRunnerDeleted(current))
+            {
+                return MissingMutation();
             }
 
             if (current.ContentRevision != expectedContentRevision)
@@ -434,11 +464,14 @@ public sealed class InMemoryWorkspaceStore :
         CharacterWorkspaceId id,
         long expectedContentRevision)
     {
-        return DeleteCore(
-            GetLocalDocuments(),
-            OwnerScope.LocalSingleUser,
-            id,
-            expectedContentRevision);
+        lock (_runnerLibraryMutationGate)
+        {
+            return DeleteCore(
+                GetLocalDocuments(),
+                OwnerScope.LocalSingleUser,
+                id,
+                expectedContentRevision);
+        }
     }
 
     public WorkspaceStoreMutationResult Delete(
@@ -446,9 +479,15 @@ public sealed class InMemoryWorkspaceStore :
         CharacterWorkspaceId id,
         long expectedContentRevision)
     {
-        return IsInvalidScopedOwner(owner)
-            ? InvalidOwnerMutation()
-            : DeleteCore(GetOwnerDocuments(owner), owner, id, expectedContentRevision);
+        if (IsInvalidScopedOwner(owner))
+        {
+            return InvalidOwnerMutation();
+        }
+
+        lock (_runnerLibraryMutationGate)
+        {
+            return DeleteCore(GetOwnerDocuments(owner), owner, id, expectedContentRevision);
+        }
     }
 
     public DelegatedGmCharacterEditStoreResult LookupDelegatedGmCharacterEdit(
@@ -476,6 +515,12 @@ public sealed class InMemoryWorkspaceStore :
         if (!IsValidWorkspaceEntry(owner, id, current))
         {
             return DelegatedEditCorrupt(current.ContentRevision);
+        }
+
+        if (IsRunnerDeleted(current))
+        {
+            return new DelegatedGmCharacterEditStoreResult(
+                DelegatedGmCharacterEditStoreOutcome.WorkspaceMissing);
         }
 
         return ResolveDelegatedEditReplay(
@@ -518,6 +563,12 @@ public sealed class InMemoryWorkspaceStore :
             if (!IsValidWorkspaceEntry(owner, id, current))
             {
                 return DelegatedEditCorrupt(current.ContentRevision);
+            }
+
+            if (IsRunnerDeleted(current))
+            {
+                return new DelegatedGmCharacterEditStoreResult(
+                    DelegatedGmCharacterEditStoreOutcome.WorkspaceMissing);
             }
 
             DelegatedGmCharacterEditStoreResult replay = ResolveDelegatedEditReplay(
@@ -570,7 +621,8 @@ public sealed class InMemoryWorkspaceStore :
                 DateTimeOffset.UtcNow,
                 nextContentRevision,
                 current.SavedRevision,
-                updatedLedger);
+                updatedLedger,
+                current.RunnerLibraryState);
             if (documents.TryUpdate(id.Value, replacement, current))
             {
                 return new DelegatedGmCharacterEditStoreResult(
@@ -599,6 +651,11 @@ public sealed class InMemoryWorkspaceStore :
                 return CorruptMutation();
             }
 
+            if (IsRunnerDeleted(current))
+            {
+                return MissingMutation();
+            }
+
             if (current.ContentRevision != expectedContentRevision)
             {
                 return ConflictMutation(id, current);
@@ -611,6 +668,513 @@ public sealed class InMemoryWorkspaceStore :
                 return SuccessfulMutation(id, current);
             }
         }
+    }
+
+    public RunnerLibraryListResult ListRunners(
+        OwnerScope owner,
+        RunnerLibraryListQuery query)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+        if (!TryGetRunnerLibraryDocuments(owner, out ConcurrentDictionary<string, WorkspaceEntry> documents))
+        {
+            return RunnerLibraryInvalidList("Owner scope is invalid.");
+        }
+
+        List<RunnerLibraryItem> items = [];
+        foreach ((string idValue, WorkspaceEntry entry) in documents)
+        {
+            CharacterWorkspaceId id = new(idValue);
+            if (!IsValidWorkspaceEntry(owner, id, entry))
+            {
+                return new RunnerLibraryListResult(
+                    RunnerLibraryOperationOutcome.Corrupt,
+                    [],
+                    "Runner Library state is corrupt.");
+            }
+
+            RunnerLibraryStoreState state = entry.RunnerLibraryState
+                ?? RunnerLibraryStoreStateMachine.CreateLegacy(id, entry.LastUpdatedUtc);
+            if (!Includes(query.Lifecycles, state.Lifecycle)
+                || (query.NameContains is not null
+                    && !state.DisplayName.Contains(
+                        query.NameContains,
+                        StringComparison.OrdinalIgnoreCase)))
+            {
+                continue;
+            }
+
+            string contentDigest = RunnerLibraryCanonical.ComputeContentDigest(entry.Document);
+            items.Add(RunnerLibraryStoreStateMachine.ToItem(
+                id,
+                state,
+                entry.ContentRevision,
+                entry.SavedRevision,
+                contentDigest,
+                entry.LastUpdatedUtc));
+        }
+
+        return new RunnerLibraryListResult(
+            RunnerLibraryOperationOutcome.Success,
+            items
+                .OrderBy(item => item.DisplayName, StringComparer.Ordinal)
+                .ThenBy(item => item.Id.Value, StringComparer.Ordinal)
+                .ToArray());
+    }
+
+    public RunnerLibraryMutationResult ApplyRunnerLibraryMutation(
+        OwnerScope owner,
+        RunnerLibraryStoreMutation mutation)
+    {
+        ArgumentNullException.ThrowIfNull(mutation);
+        if (!RunnerLibraryCanonical.IsValidStoreMutation(mutation))
+        {
+            return RunnerLibraryInvalidMutation("Runner Library store mutation is invalid.");
+        }
+
+        if (!TryGetRunnerLibraryDocuments(owner, out ConcurrentDictionary<string, WorkspaceEntry> documents))
+        {
+            return RunnerLibraryInvalidMutation("Owner scope is invalid.");
+        }
+
+        lock (_runnerLibraryMutationGate)
+        {
+            return mutation.Kind == RunnerLibraryMutationKind.Duplicate
+                ? DuplicateRunner(documents, owner, mutation)
+                : MutateRunner(documents, owner, mutation);
+        }
+    }
+
+    private RunnerLibraryMutationResult MutateRunner(
+        ConcurrentDictionary<string, WorkspaceEntry> documents,
+        OwnerScope owner,
+        RunnerLibraryStoreMutation mutation)
+    {
+        while (true)
+        {
+            if (!documents.TryGetValue(mutation.RunnerId.Value, out WorkspaceEntry? current))
+            {
+                return RunnerLibraryMissingMutation();
+            }
+
+            if (!IsValidWorkspaceEntry(owner, mutation.RunnerId, current))
+            {
+                return RunnerLibraryCorruptMutation();
+            }
+
+            RunnerLibraryStoreState state = current.RunnerLibraryState
+                ?? RunnerLibraryStoreStateMachine.CreateLegacy(
+                    mutation.RunnerId,
+                    current.LastUpdatedUtc);
+            string contentDigest = RunnerLibraryCanonical.ComputeContentDigest(current.Document);
+            RunnerLibraryMutationResult? replay =
+                RunnerLibraryStoreStateMachine.ResolveReplayOrConflict(
+                    mutation.RunnerId,
+                    state,
+                    mutation,
+                    () => RunnerLibraryStoreStateMachine.ToItem(
+                        mutation.RunnerId,
+                        state,
+                        current.ContentRevision,
+                        current.SavedRevision,
+                        contentDigest,
+                        current.LastUpdatedUtc));
+            if (replay is not null)
+            {
+                return replay;
+            }
+
+            if (current.ContentRevision != mutation.ExpectedContentRevision
+                || !string.Equals(
+                    contentDigest,
+                    mutation.ExpectedContentDigestSha256,
+                    StringComparison.Ordinal))
+            {
+                return new RunnerLibraryMutationResult(
+                    RunnerLibraryOperationOutcome.Conflict,
+                    RunnerLibraryStoreStateMachine.ToItem(
+                        mutation.RunnerId,
+                        state,
+                        current.ContentRevision,
+                        current.SavedRevision,
+                        contentDigest,
+                        current.LastUpdatedUtc),
+                    CurrentLifecycleRevision: state.LifecycleRevision,
+                    Error: "Runner content revision or digest does not match the expected snapshot.");
+            }
+
+            if (!RunnerLibraryStoreStateMachine.TryApply(
+                    mutation.RunnerId,
+                    state,
+                    mutation,
+                    current.ContentRevision,
+                    contentDigest,
+                    _timeProvider.GetUtcNow(),
+                    out RunnerLibraryStoreState replacementState,
+                    out RunnerLibraryMutationReceipt receipt,
+                    out string? error))
+            {
+                return new RunnerLibraryMutationResult(
+                    RunnerLibraryOperationOutcome.Conflict,
+                    RunnerLibraryStoreStateMachine.ToItem(
+                        mutation.RunnerId,
+                        state,
+                        current.ContentRevision,
+                        current.SavedRevision,
+                        contentDigest,
+                        current.LastUpdatedUtc),
+                    CurrentLifecycleRevision: state.LifecycleRevision,
+                    Error: error);
+            }
+
+            WorkspaceEntry replacement = current with { RunnerLibraryState = replacementState };
+            if (documents.TryUpdate(mutation.RunnerId.Value, replacement, current))
+            {
+                return new RunnerLibraryMutationResult(
+                    RunnerLibraryOperationOutcome.Applied,
+                    RunnerLibraryStoreStateMachine.ToItem(
+                        mutation.RunnerId,
+                        replacementState,
+                        replacement.ContentRevision,
+                        replacement.SavedRevision,
+                        contentDigest,
+                        replacement.LastUpdatedUtc),
+                    receipt,
+                    replacementState.LifecycleRevision);
+            }
+        }
+    }
+
+    private RunnerLibraryMutationResult DuplicateRunner(
+        ConcurrentDictionary<string, WorkspaceEntry> documents,
+        OwnerScope owner,
+        RunnerLibraryStoreMutation mutation)
+    {
+        if (mutation.NewRunnerId is not CharacterWorkspaceId newRunnerId
+            || mutation.DisplayName is null)
+        {
+            return RunnerLibraryInvalidMutation("Duplicate runner command is incomplete.");
+        }
+
+        if (!documents.TryGetValue(mutation.RunnerId.Value, out WorkspaceEntry? source))
+        {
+            return RunnerLibraryMissingMutation();
+        }
+
+        if (!IsValidWorkspaceEntry(owner, mutation.RunnerId, source))
+        {
+            return RunnerLibraryCorruptMutation();
+        }
+
+        RunnerLibraryStoreState sourceState = source.RunnerLibraryState
+            ?? RunnerLibraryStoreStateMachine.CreateLegacy(
+                mutation.RunnerId,
+                source.LastUpdatedUtc);
+        RunnerLibraryMutationLedgerEntry? sourceReplay = sourceState.MutationLedger.FirstOrDefault(
+            entry => string.Equals(
+                entry.IdempotencyKeyDigestSha256,
+                mutation.IdempotencyKeyDigestSha256,
+                StringComparison.Ordinal));
+        if (sourceReplay is not null)
+        {
+            if (!string.Equals(
+                    sourceReplay.CommandDigestSha256,
+                    mutation.CommandDigestSha256,
+                    StringComparison.Ordinal))
+            {
+                return new RunnerLibraryMutationResult(
+                    RunnerLibraryOperationOutcome.Conflict,
+                    CurrentLifecycleRevision: sourceState.LifecycleRevision,
+                    Error: "Idempotency key was already used for a different Runner Library mutation.");
+            }
+
+            return documents.TryGetValue(newRunnerId.Value, out WorkspaceEntry? replayTarget)
+                ? ResolveExistingDuplicate(owner, newRunnerId, replayTarget, mutation)
+                : RunnerLibraryCorruptMutation();
+        }
+
+        string sourceContentDigest = RunnerLibraryCanonical.ComputeContentDigest(source.Document);
+        if (sourceState.Lifecycle == RunnerLibraryLifecycle.Deleted
+            || sourceState.LifecycleRevision != mutation.ExpectedLifecycleRevision
+            || source.ContentRevision != mutation.ExpectedContentRevision
+            || !string.Equals(
+                sourceContentDigest,
+                mutation.ExpectedContentDigestSha256,
+                StringComparison.Ordinal))
+        {
+            return new RunnerLibraryMutationResult(
+                RunnerLibraryOperationOutcome.Conflict,
+                CurrentLifecycleRevision: sourceState.LifecycleRevision,
+                Error: "Source runner lifecycle, content revision, or digest does not allow duplication.");
+        }
+
+        if (documents.TryGetValue(newRunnerId.Value, out WorkspaceEntry? existing))
+        {
+            RunnerLibraryMutationResult existingResult = ResolveExistingDuplicate(
+                owner,
+                newRunnerId,
+                existing,
+                mutation);
+            if (existingResult.Outcome == RunnerLibraryOperationOutcome.Replayed
+                && existingResult.Receipt is RunnerLibraryMutationReceipt existingReceipt)
+            {
+                return AttachDuplicateReceiptToSource(
+                    documents,
+                    owner,
+                    mutation.RunnerId,
+                    mutation,
+                    existingReceipt,
+                    existingResult);
+            }
+
+            return existingResult;
+        }
+
+        DateTimeOffset committedAtUtc = _timeProvider.GetUtcNow();
+        if (!RunnerLibraryStoreStateMachine.TryCreateDuplicate(
+                mutation.RunnerId,
+                newRunnerId,
+                sourceState.DisplayName,
+                sourceState.Lifecycle,
+                sourceState.LifecycleBeforeDelete,
+                mutation.DisplayName,
+                sourceState.LifecycleRevision,
+                sourceState.Provenance,
+                source.ContentRevision,
+                sourceContentDigest,
+                mutation,
+                committedAtUtc,
+                out RunnerLibraryStoreState duplicateState,
+                out RunnerLibraryMutationReceipt receipt)
+            || !RunnerLibraryStoreStateMachine.TryAddDuplicateReceipt(
+                mutation.RunnerId,
+                sourceState,
+                receipt,
+                out _))
+        {
+            return RunnerLibraryUnavailableMutation();
+        }
+        WorkspaceDocument duplicateDocument = DeepClone(source.Document);
+        WorkspaceEntry duplicate = new(
+            duplicateDocument,
+            committedAtUtc,
+            InitialContentRevision,
+            InitialContentRevision,
+            EmptyDelegatedEditLedger(),
+            duplicateState);
+        if (!documents.TryAdd(newRunnerId.Value, duplicate))
+        {
+            if (!documents.TryGetValue(newRunnerId.Value, out existing))
+            {
+                return RunnerLibraryUnavailableMutation();
+            }
+
+            RunnerLibraryMutationResult raced = ResolveExistingDuplicate(
+                owner,
+                newRunnerId,
+                existing,
+                mutation);
+            return raced.Outcome == RunnerLibraryOperationOutcome.Replayed
+                   && raced.Receipt is RunnerLibraryMutationReceipt racedReceipt
+                ? AttachDuplicateReceiptToSource(
+                    documents,
+                    owner,
+                    mutation.RunnerId,
+                    mutation,
+                    racedReceipt,
+                    raced)
+                : raced;
+        }
+
+        RunnerLibraryMutationResult applied = new(
+            RunnerLibraryOperationOutcome.Applied,
+            RunnerLibraryStoreStateMachine.ToItem(
+                newRunnerId,
+                duplicateState,
+                duplicate.ContentRevision,
+                duplicate.SavedRevision,
+                sourceContentDigest,
+                duplicate.LastUpdatedUtc),
+            receipt,
+            duplicateState.LifecycleRevision);
+        return AttachDuplicateReceiptToSource(
+            documents,
+            owner,
+            mutation.RunnerId,
+            mutation,
+            receipt,
+            applied);
+    }
+
+    private static RunnerLibraryMutationResult AttachDuplicateReceiptToSource(
+        ConcurrentDictionary<string, WorkspaceEntry> documents,
+        OwnerScope owner,
+        CharacterWorkspaceId sourceRunnerId,
+        RunnerLibraryStoreMutation mutation,
+        RunnerLibraryMutationReceipt receipt,
+        RunnerLibraryMutationResult completedResult)
+    {
+        while (true)
+        {
+            if (!documents.TryGetValue(sourceRunnerId.Value, out WorkspaceEntry? source)
+                || !IsValidWorkspaceEntry(owner, sourceRunnerId, source))
+            {
+                return RunnerLibraryCorruptMutation();
+            }
+
+            RunnerLibraryStoreState state = source.RunnerLibraryState
+                ?? RunnerLibraryStoreStateMachine.CreateLegacy(
+                    sourceRunnerId,
+                    source.LastUpdatedUtc);
+            RunnerLibraryMutationLedgerEntry? existing = state.MutationLedger.FirstOrDefault(
+                entry => string.Equals(
+                    entry.IdempotencyKeyDigestSha256,
+                    mutation.IdempotencyKeyDigestSha256,
+                    StringComparison.Ordinal));
+            if (existing is not null)
+            {
+                return string.Equals(
+                    existing.CommandDigestSha256,
+                    mutation.CommandDigestSha256,
+                    StringComparison.Ordinal)
+                    ? completedResult
+                    : new RunnerLibraryMutationResult(
+                        RunnerLibraryOperationOutcome.Conflict,
+                        CurrentLifecycleRevision: state.LifecycleRevision,
+                        Error: "Idempotency key was already used for a different Runner Library mutation.");
+            }
+
+            if (!RunnerLibraryStoreStateMachine.TryAddDuplicateReceipt(
+                    sourceRunnerId,
+                    state,
+                    receipt,
+                    out RunnerLibraryStoreState replacementState))
+            {
+                return RunnerLibraryUnavailableMutation();
+            }
+
+            if (documents.TryUpdate(
+                    sourceRunnerId.Value,
+                    source with { RunnerLibraryState = replacementState },
+                    source))
+            {
+                return completedResult;
+            }
+        }
+    }
+
+    private static RunnerLibraryMutationResult ResolveExistingDuplicate(
+        OwnerScope owner,
+        CharacterWorkspaceId newRunnerId,
+        WorkspaceEntry existing,
+        RunnerLibraryStoreMutation mutation)
+    {
+        if (!IsValidWorkspaceEntry(owner, newRunnerId, existing))
+        {
+            return RunnerLibraryCorruptMutation();
+        }
+
+        RunnerLibraryStoreState state = existing.RunnerLibraryState
+            ?? RunnerLibraryStoreStateMachine.CreateLegacy(newRunnerId, existing.LastUpdatedUtc);
+        string contentDigest = RunnerLibraryCanonical.ComputeContentDigest(existing.Document);
+        RunnerLibraryMutationResult? replay =
+            RunnerLibraryStoreStateMachine.ResolveReplayOrConflict(
+                newRunnerId,
+                state,
+                mutation,
+                () => RunnerLibraryStoreStateMachine.ToItem(
+                    newRunnerId,
+                    state,
+                    existing.ContentRevision,
+                    existing.SavedRevision,
+                    contentDigest,
+                    existing.LastUpdatedUtc));
+        return replay ?? new RunnerLibraryMutationResult(
+            RunnerLibraryOperationOutcome.Conflict,
+            CurrentLifecycleRevision: state.LifecycleRevision,
+            Error: "Duplicate target runner already exists.");
+    }
+
+    private static WorkspaceDocument DeepClone(WorkspaceDocument document)
+    {
+        byte[] auxiliaryBytes = JsonSerializer.SerializeToUtf8Bytes(document.AuxiliaryState);
+        WorkspaceDocumentAuxiliaryState auxiliaryState =
+            JsonSerializer.Deserialize<WorkspaceDocumentAuxiliaryState>(auxiliaryBytes)
+            ?? throw new InvalidOperationException(
+                "Runner auxiliary-state clone could not be materialized.");
+        WorkspaceDocumentState state = new(
+            document.RulesetId,
+            document.SchemaVersion,
+            document.PayloadKind,
+            string.Concat(document.Content))
+        {
+            AuxiliaryState = auxiliaryState
+        };
+        return new WorkspaceDocument(state, document.Format);
+    }
+
+    private bool TryGetRunnerLibraryDocuments(
+        OwnerScope owner,
+        out ConcurrentDictionary<string, WorkspaceEntry> documents)
+    {
+        if (owner.IsLocalSingleUser)
+        {
+            documents = GetLocalDocuments();
+            return true;
+        }
+
+        if (IsInvalidScopedOwner(owner))
+        {
+            documents = null!;
+            return false;
+        }
+
+        documents = GetOwnerDocuments(owner);
+        return true;
+    }
+
+    private static bool Includes(
+        RunnerLibraryLifecycleFilter filter,
+        RunnerLibraryLifecycle lifecycle)
+    {
+        RunnerLibraryLifecycleFilter flag = lifecycle switch
+        {
+            RunnerLibraryLifecycle.Active => RunnerLibraryLifecycleFilter.Active,
+            RunnerLibraryLifecycle.Archived => RunnerLibraryLifecycleFilter.Archived,
+            RunnerLibraryLifecycle.Deleted => RunnerLibraryLifecycleFilter.Deleted,
+            _ => RunnerLibraryLifecycleFilter.None
+        };
+        return (filter & flag) != 0;
+    }
+
+    private static RunnerLibraryListResult RunnerLibraryInvalidList(string error)
+    {
+        return new RunnerLibraryListResult(RunnerLibraryOperationOutcome.Invalid, [], error);
+    }
+
+    private static RunnerLibraryMutationResult RunnerLibraryMissingMutation()
+    {
+        return new RunnerLibraryMutationResult(
+            RunnerLibraryOperationOutcome.Missing,
+            Error: "Runner not found.");
+    }
+
+    private static RunnerLibraryMutationResult RunnerLibraryInvalidMutation(string error)
+    {
+        return new RunnerLibraryMutationResult(RunnerLibraryOperationOutcome.Invalid, Error: error);
+    }
+
+    private static RunnerLibraryMutationResult RunnerLibraryCorruptMutation()
+    {
+        return new RunnerLibraryMutationResult(
+            RunnerLibraryOperationOutcome.Corrupt,
+            Error: "Runner Library state is corrupt.");
+    }
+
+    private static RunnerLibraryMutationResult RunnerLibraryUnavailableMutation()
+    {
+        return new RunnerLibraryMutationResult(
+            RunnerLibraryOperationOutcome.Unavailable,
+            Error: "Runner Library store is unavailable.");
     }
 
     private static WorkspaceStoreEntry ToStoreEntry(
@@ -790,10 +1354,17 @@ public sealed class InMemoryWorkspaceStore :
         WorkspaceEntry entry)
     {
         return DelegatedGmCharacterEditLedgerValidator.IsValidLedger(
-            owner,
-            id,
-            entry.ContentRevision,
-            entry.DelegatedGmCharacterEdits);
+                   owner,
+                   id,
+                   entry.ContentRevision,
+                   entry.DelegatedGmCharacterEdits)
+               && (entry.RunnerLibraryState is null
+                   || RunnerLibraryStoreStateMachine.IsValid(id, entry.RunnerLibraryState));
+    }
+
+    private static bool IsRunnerDeleted(WorkspaceEntry entry)
+    {
+        return entry.RunnerLibraryState?.Lifecycle == RunnerLibraryLifecycle.Deleted;
     }
 
     private static bool IsSupportedWorkspaceId(CharacterWorkspaceId id)
@@ -819,7 +1390,8 @@ public sealed class InMemoryWorkspaceStore :
         DateTimeOffset LastUpdatedUtc,
         long ContentRevision,
         long SavedRevision,
-        ImmutableArray<DelegatedGmCharacterEditLedgerEntry> DelegatedGmCharacterEdits);
+        ImmutableArray<DelegatedGmCharacterEditLedgerEntry> DelegatedGmCharacterEdits,
+        RunnerLibraryStoreState? RunnerLibraryState = null);
 
     private ConcurrentDictionary<string, WorkspaceEntry> GetLocalDocuments()
     {

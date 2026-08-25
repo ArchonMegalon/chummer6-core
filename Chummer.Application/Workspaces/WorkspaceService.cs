@@ -208,13 +208,13 @@ public sealed class WorkspaceService : IWorkspaceService
             OperationOutcome: WorkspaceOperationOutcome.Success);
     }
 
-    [Obsolete("Compatibility close reads once and performs one CAS delete. Pass expectedContentRevision; removal is queued for Stage C.")]
+    [Obsolete("Destructive compatibility teardown reads once and performs one CAS delete. Runner Library UI must use IRunnerLibraryService.Delete.")]
     public bool Close(CharacterWorkspaceId id)
     {
         return CloseCompatibility(LocalStoreAccess(), id);
     }
 
-    [Obsolete("Compatibility close reads once and performs one CAS delete. Pass expectedContentRevision; removal is queued for Stage C.")]
+    [Obsolete("Destructive compatibility teardown reads once and performs one CAS delete. Runner Library UI must use IRunnerLibraryService.Delete.")]
     public bool Close(OwnerScope owner, CharacterWorkspaceId id)
     {
         return CloseCompatibility(ScopedStoreAccess(owner), id);
@@ -231,6 +231,11 @@ public sealed class WorkspaceService : IWorkspaceService
         return access.Delete(id, current.ContentRevision).Success;
     }
 
+    /// <summary>
+    /// Physically tears down a workspace for explicit legacy or administrative flows. This is not
+    /// a Runner Library remove operation; user-facing deletion must use
+    /// <see cref="IRunnerLibraryService.Delete"/> so it remains recoverable.
+    /// </summary>
     public CommandResult<WorkspaceRevisionReceipt> Close(
         CharacterWorkspaceId id,
         long expectedContentRevision)

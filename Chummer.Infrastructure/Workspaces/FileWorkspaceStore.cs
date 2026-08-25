@@ -16,7 +16,8 @@ public sealed class FileWorkspaceStore :
     IWorkspaceStore,
     IWorkspaceStoreReadinessProbe,
     IWorkspaceAuxiliaryStateAtomicCommitCapability,
-    ICharacterCreationBootstrapAtomicCreateCapability
+    ICharacterCreationBootstrapAtomicCreateCapability,
+    IRunnerLibraryStore
 {
     private const int CurrentWorkspaceSchemaVersion = 1;
     private const int CurrentWorkspaceRecordSchemaVersion = 2;
@@ -26,6 +27,8 @@ public sealed class FileWorkspaceStore :
     private const long LegacyMigratedRevision = 1;
     private const string LockFileSuffix = ".lock";
     private const string TempFileMarker = ".tmp.";
+    private const string RunnerLibraryFileSuffix = ".runner-library.json";
+    private const string RunnerLibraryPendingFileSuffix = ".runner-library.pending.json";
     private const int FileBufferSize = 16 * 1024;
     private const int MaximumDelegatedEditAuditEntries = 4096;
     private static readonly TimeSpan DefaultWorkspaceOperationTimeout = TimeSpan.FromSeconds(5);
@@ -58,20 +61,27 @@ public sealed class FileWorkspaceStore :
     private readonly string _stateDirectory;
     private readonly IFileWorkspaceStoreFaultInjector _faultInjector;
     private readonly TimeSpan _workspaceOperationTimeout;
+    private readonly TimeProvider _timeProvider;
 
     public FileWorkspaceStore(string? stateDirectory = null)
-        : this(stateDirectory, FileWorkspaceStoreFaultInjector.None, DefaultWorkspaceOperationTimeout)
+        : this(
+            stateDirectory,
+            FileWorkspaceStoreFaultInjector.None,
+            DefaultWorkspaceOperationTimeout,
+            TimeProvider.System)
     {
     }
 
     internal FileWorkspaceStore(
         string? stateDirectory,
         IFileWorkspaceStoreFaultInjector faultInjector,
-        TimeSpan? workspaceOperationTimeout = null)
+        TimeSpan? workspaceOperationTimeout = null,
+        TimeProvider? timeProvider = null)
     {
         string configuredDirectory = stateDirectory ?? Path.Combine(Path.GetTempPath(), "chummer-state");
         _stateDirectory = Path.GetFullPath(configuredDirectory);
         _faultInjector = faultInjector ?? throw new ArgumentNullException(nameof(faultInjector));
+        _timeProvider = timeProvider ?? TimeProvider.System;
         _workspaceOperationTimeout = workspaceOperationTimeout ?? DefaultWorkspaceOperationTimeout;
         if (_workspaceOperationTimeout <= TimeSpan.Zero
             || _workspaceOperationTimeout.TotalMilliseconds > int.MaxValue)
@@ -225,7 +235,8 @@ public sealed class FileWorkspaceStore :
         }
 
         string? path = TryGetPath(owner, workspaceId);
-        if (path is null)
+        string? runnerStatePath = TryGetRunnerLibraryPath(owner, workspaceId);
+        if (path is null || runnerStatePath is null)
         {
             return UnavailableMutation("Workspace id contains unsupported characters.");
         }
@@ -235,7 +246,7 @@ public sealed class FileWorkspaceStore :
             EnsureWorkspaceDirectory(owner);
             using WorkspaceOperationLease operation = AcquireWorkspaceOperation(path);
             ThrowIfLinkOrReparsePoint(path, "workspace target");
-            if (File.Exists(path))
+            if (File.Exists(path) || File.Exists(runnerStatePath))
             {
                 return new WorkspaceStoreMutationResult(
                     WorkspaceOperationOutcome.Conflict,
@@ -250,6 +261,13 @@ public sealed class FileWorkspaceStore :
                 path,
                 record,
                 WorkspaceWriteDisposition.CreateNew);
+            RunnerLibraryStoreState runnerState =
+                RunnerLibraryStoreStateMachine.CreateLegacy(workspaceId, committedAtUtc);
+            _ = WriteJsonAtomically(
+                runnerStatePath,
+                runnerState,
+                WorkspaceWriteDisposition.CreateNew,
+                committedAtUtc);
             return SuccessfulMutation(
                 workspaceId,
                 committedAtUtc,
@@ -815,9 +833,18 @@ public sealed class FileWorkspaceStore :
         WorkspaceWriteDisposition disposition,
         DateTimeOffset? logicalLastUpdatedUtc = null)
     {
+        return WriteJsonAtomically(path, record, disposition, logicalLastUpdatedUtc);
+    }
+
+    private DateTimeOffset WriteJsonAtomically<T>(
+        string path,
+        T value,
+        WorkspaceWriteDisposition disposition,
+        DateTimeOffset? logicalLastUpdatedUtc = null)
+    {
         string normalizedPath = Path.GetFullPath(path);
         EnsurePathContained(_stateDirectory, normalizedPath, "workspace target");
-        byte[] serialized = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(record));
+        byte[] serialized = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(value));
         string tempPath = Path.GetFullPath($"{normalizedPath}{TempFileMarker}{Guid.NewGuid():N}");
         EnsurePathContained(_stateDirectory, tempPath, "workspace temporary file");
         if (!PathComparer.Equals(Path.GetDirectoryName(normalizedPath), Path.GetDirectoryName(tempPath)))
@@ -826,7 +853,7 @@ public sealed class FileWorkspaceStore :
         }
 
         DateTimeOffset committedAtUtc = logicalLastUpdatedUtc?.ToUniversalTime()
-            ?? DateTimeOffset.UtcNow;
+            ?? _timeProvider.GetUtcNow();
         bool targetReplaced = false;
 
         try
@@ -1131,6 +1158,14 @@ public sealed class FileWorkspaceStore :
             }
 
             File.Delete(path);
+            if (TryGetRunnerLibraryPath(owner, id) is string statePath)
+            {
+                DeleteRegularFileIfPresent(statePath, "runner library state");
+            }
+            if (TryGetRunnerLibraryPendingPath(owner, id) is string pendingPath)
+            {
+                DeleteRegularFileIfPresent(pendingPath, "runner library pending state");
+            }
             return new WorkspaceStoreMutationResult(
                 WorkspaceOperationOutcome.Success,
                 ToEntry(current));
@@ -1145,6 +1180,847 @@ public sealed class FileWorkspaceStore :
         }
     }
 
+    public RunnerLibraryListResult ListRunners(
+        OwnerScope owner,
+        RunnerLibraryListQuery query)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+        if ((!owner.IsLocalSingleUser && IsInvalidScopedOwner(owner))
+            || !TrySecureExistingWorkspaceDirectory(owner))
+        {
+            return new RunnerLibraryListResult(
+                RunnerLibraryOperationOutcome.Invalid,
+                [],
+                "Owner scope is invalid or unavailable.");
+        }
+
+        try
+        {
+            List<RunnerLibraryItem> items = [];
+            foreach (string path in Directory.EnumerateFiles(
+                         GetWorkspaceDirectory(owner),
+                         "*.json",
+                         SearchOption.TopDirectoryOnly))
+            {
+                string fileName = Path.GetFileNameWithoutExtension(path);
+                CharacterWorkspaceId id = new(fileName);
+                string? expectedPath = TryGetPath(owner, id);
+                if (expectedPath is null || !PathComparer.Equals(path, expectedPath))
+                {
+                    continue;
+                }
+
+                using WorkspaceOperationLease operation = AcquireWorkspaceOperation(path);
+                WorkspaceStoreReadResult read = ReadWorkspaceUnderLease(
+                    owner,
+                    id,
+                    path,
+                    out _,
+                    includeRecoverablyDeleted: true);
+                if (!read.Success || read.Value is not WorkspaceStoredDocument current)
+                {
+                    return new RunnerLibraryListResult(
+                        read.Outcome == WorkspaceOperationOutcome.Corrupt
+                            ? RunnerLibraryOperationOutcome.Corrupt
+                            : RunnerLibraryOperationOutcome.Unavailable,
+                        [],
+                        read.Error ?? "Runner Library workspace could not be read.");
+                }
+
+                RunnerLibraryStateReadResult stateRead = ReadRunnerLibraryStateUnderLease(
+                    id,
+                    path,
+                    current.LastUpdatedUtc);
+                if (!stateRead.Success || stateRead.State is not RunnerLibraryStoreState state)
+                {
+                    return FileRunnerLibraryCorruptList();
+                }
+
+                if (!Includes(query.Lifecycles, state.Lifecycle)
+                    || (query.NameContains is not null
+                        && !state.DisplayName.Contains(
+                            query.NameContains,
+                            StringComparison.OrdinalIgnoreCase)))
+                {
+                    continue;
+                }
+
+                string contentDigest = RunnerLibraryCanonical.ComputeContentDigest(current.Document);
+                items.Add(RunnerLibraryStoreStateMachine.ToItem(
+                    id,
+                    state,
+                    current.ContentRevision,
+                    current.SavedRevision,
+                    contentDigest,
+                    current.LastUpdatedUtc));
+            }
+
+            return new RunnerLibraryListResult(
+                RunnerLibraryOperationOutcome.Success,
+                items
+                    .OrderBy(item => item.DisplayName, StringComparer.Ordinal)
+                    .ThenBy(item => item.Id.Value, StringComparer.Ordinal)
+                    .ToArray());
+        }
+        catch (IOException)
+        {
+            return FileRunnerLibraryUnavailableList();
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return FileRunnerLibraryUnavailableList();
+        }
+    }
+
+    public RunnerLibraryMutationResult ApplyRunnerLibraryMutation(
+        OwnerScope owner,
+        RunnerLibraryStoreMutation mutation)
+    {
+        ArgumentNullException.ThrowIfNull(mutation);
+        if (!RunnerLibraryCanonical.IsValidStoreMutation(mutation))
+        {
+            return FileRunnerLibraryInvalidMutation("Runner Library store mutation is invalid.");
+        }
+
+        if (!owner.IsLocalSingleUser && IsInvalidScopedOwner(owner))
+        {
+            return FileRunnerLibraryInvalidMutation("Owner scope is invalid.");
+        }
+
+        return mutation.Kind == RunnerLibraryMutationKind.Duplicate
+            ? DuplicateRunner(owner, mutation)
+            : MutateRunner(owner, mutation);
+    }
+
+    private RunnerLibraryMutationResult MutateRunner(
+        OwnerScope owner,
+        RunnerLibraryStoreMutation mutation)
+    {
+        string? path = TryGetPath(owner, mutation.RunnerId);
+        string? statePath = TryGetRunnerLibraryPath(owner, mutation.RunnerId);
+        if (path is null || statePath is null)
+        {
+            return FileRunnerLibraryInvalidMutation("Runner id is invalid.");
+        }
+
+        try
+        {
+            EnsureWorkspaceDirectory(owner);
+            using WorkspaceOperationLease operation = AcquireWorkspaceOperation(path);
+            WorkspaceStoreReadResult read = ReadWorkspaceUnderLease(
+                owner,
+                mutation.RunnerId,
+                path,
+                out _,
+                includeRecoverablyDeleted: true);
+            if (!read.Success || read.Value is not WorkspaceStoredDocument current)
+            {
+                return FileRunnerLibraryFromRead(read);
+            }
+
+            RunnerLibraryStateReadResult stateRead = ReadRunnerLibraryStateUnderLease(
+                mutation.RunnerId,
+                path,
+                current.LastUpdatedUtc);
+            if (!stateRead.Success || stateRead.State is not RunnerLibraryStoreState state)
+            {
+                return FileRunnerLibraryCorruptMutation();
+            }
+
+            string contentDigest = RunnerLibraryCanonical.ComputeContentDigest(current.Document);
+            RunnerLibraryMutationResult? replay =
+                RunnerLibraryStoreStateMachine.ResolveReplayOrConflict(
+                    mutation.RunnerId,
+                    state,
+                    mutation,
+                    () => RunnerLibraryStoreStateMachine.ToItem(
+                        mutation.RunnerId,
+                        state,
+                        current.ContentRevision,
+                        current.SavedRevision,
+                        contentDigest,
+                        current.LastUpdatedUtc));
+            if (replay is not null)
+            {
+                return replay;
+            }
+
+            if (current.ContentRevision != mutation.ExpectedContentRevision
+                || !string.Equals(
+                    contentDigest,
+                    mutation.ExpectedContentDigestSha256,
+                    StringComparison.Ordinal))
+            {
+                return FileRunnerLibraryContentConflict(current, state, contentDigest);
+            }
+
+            if (!RunnerLibraryStoreStateMachine.TryApply(
+                    mutation.RunnerId,
+                    state,
+                    mutation,
+                    current.ContentRevision,
+                    contentDigest,
+                    _timeProvider.GetUtcNow(),
+                    out RunnerLibraryStoreState replacement,
+                    out RunnerLibraryMutationReceipt receipt,
+                    out string? error))
+            {
+                return new RunnerLibraryMutationResult(
+                    RunnerLibraryOperationOutcome.Conflict,
+                    RunnerLibraryStoreStateMachine.ToItem(
+                        mutation.RunnerId,
+                        state,
+                        current.ContentRevision,
+                        current.SavedRevision,
+                        contentDigest,
+                        current.LastUpdatedUtc),
+                    CurrentLifecycleRevision: state.LifecycleRevision,
+                    Error: error);
+            }
+
+            _ = WriteJsonAtomically(
+                statePath,
+                replacement,
+                File.Exists(statePath)
+                    ? WorkspaceWriteDisposition.ReplaceExisting
+                    : WorkspaceWriteDisposition.CreateNew,
+                replacement.LastLifecycleUpdatedUtc);
+            return new RunnerLibraryMutationResult(
+                RunnerLibraryOperationOutcome.Applied,
+                RunnerLibraryStoreStateMachine.ToItem(
+                    mutation.RunnerId,
+                    replacement,
+                    current.ContentRevision,
+                    current.SavedRevision,
+                    contentDigest,
+                    current.LastUpdatedUtc),
+                receipt,
+                replacement.LifecycleRevision);
+        }
+        catch (IOException)
+        {
+            return FileRunnerLibraryUnavailableMutation();
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return FileRunnerLibraryUnavailableMutation();
+        }
+    }
+
+    private RunnerLibraryMutationResult DuplicateRunner(
+        OwnerScope owner,
+        RunnerLibraryStoreMutation mutation)
+    {
+        if (mutation.NewRunnerId is not CharacterWorkspaceId newRunnerId
+            || mutation.DisplayName is null)
+        {
+            return FileRunnerLibraryInvalidMutation("Duplicate runner command is incomplete.");
+        }
+
+        string? sourcePath = TryGetPath(owner, mutation.RunnerId);
+        string? sourceStatePath = TryGetRunnerLibraryPath(owner, mutation.RunnerId);
+        string? targetPath = TryGetPath(owner, newRunnerId);
+        string? targetStatePath = TryGetRunnerLibraryPath(owner, newRunnerId);
+        string? pendingPath = TryGetRunnerLibraryPendingPath(owner, newRunnerId);
+        if (sourcePath is null || sourceStatePath is null || targetPath is null
+            || targetStatePath is null || pendingPath is null
+            || PathComparer.Equals(sourcePath, targetPath))
+        {
+            return FileRunnerLibraryInvalidMutation("Duplicate runner ids are invalid.");
+        }
+
+        try
+        {
+            EnsureWorkspaceDirectory(owner);
+            string firstPath = PathComparer.Compare(sourcePath, targetPath) <= 0
+                ? sourcePath
+                : targetPath;
+            string secondPath = PathComparer.Equals(firstPath, sourcePath)
+                ? targetPath
+                : sourcePath;
+            using WorkspaceOperationLease first = AcquireWorkspaceOperation(firstPath);
+            using WorkspaceOperationLease second = AcquireWorkspaceOperation(secondPath);
+
+            WorkspaceStoreReadResult sourceRead = ReadWorkspaceUnderLease(
+                owner,
+                mutation.RunnerId,
+                sourcePath,
+                out _,
+                includeRecoverablyDeleted: true);
+            if (!sourceRead.Success || sourceRead.Value is not WorkspaceStoredDocument source)
+            {
+                return FileRunnerLibraryFromRead(sourceRead);
+            }
+
+            RunnerLibraryStateReadResult sourceStateRead = ReadRunnerLibraryStateUnderLease(
+                mutation.RunnerId,
+                sourcePath,
+                source.LastUpdatedUtc);
+            if (!sourceStateRead.Success
+                || sourceStateRead.State is not RunnerLibraryStoreState sourceState)
+            {
+                return FileRunnerLibraryCorruptMutation();
+            }
+
+            RunnerLibraryMutationLedgerEntry? sourceReplay = sourceState.MutationLedger
+                .FirstOrDefault(entry => string.Equals(
+                    entry.IdempotencyKeyDigestSha256,
+                    mutation.IdempotencyKeyDigestSha256,
+                    StringComparison.Ordinal));
+            if (sourceReplay is not null)
+            {
+                if (!string.Equals(
+                        sourceReplay.CommandDigestSha256,
+                        mutation.CommandDigestSha256,
+                        StringComparison.Ordinal))
+                {
+                    return new RunnerLibraryMutationResult(
+                        RunnerLibraryOperationOutcome.Conflict,
+                        CurrentLifecycleRevision: sourceState.LifecycleRevision,
+                        Error: "Idempotency key was already used for a different Runner Library mutation.");
+                }
+
+                RunnerLibraryMutationResult replay = ResolveExistingFileDuplicate(
+                    owner,
+                    newRunnerId,
+                    targetPath,
+                    mutation,
+                    deleteMatchingPending: true);
+                return replay.Outcome == RunnerLibraryOperationOutcome.Missing
+                    ? FileRunnerLibraryCorruptMutation()
+                    : replay;
+            }
+
+            if (File.Exists(targetStatePath))
+            {
+                RunnerLibraryMutationResult existing = ResolveExistingFileDuplicate(
+                    owner,
+                    newRunnerId,
+                    targetPath,
+                    mutation,
+                    deleteMatchingPending: false);
+                if (existing.Outcome == RunnerLibraryOperationOutcome.Replayed
+                    && existing.Receipt is RunnerLibraryMutationReceipt existingReceipt)
+                {
+                    RunnerLibraryMutationResult attached = AttachDuplicateReceiptToSourceFile(
+                        sourceStatePath,
+                        sourceState,
+                        existingReceipt,
+                        existing);
+                    return attached.Success
+                           && DeleteMatchingPendingDuplicate(owner, newRunnerId, mutation)
+                        ? attached
+                        : attached.Success
+                            ? FileRunnerLibraryCorruptMutation()
+                            : attached;
+                }
+
+                return existing;
+            }
+
+            PersistedRunnerLibraryDuplicatePending? pending = File.Exists(pendingPath)
+                ? ReadPendingDuplicate(pendingPath)
+                : null;
+            if (File.Exists(pendingPath)
+                && (pending is null || !IsMatchingPending(pending, mutation, newRunnerId)))
+            {
+                return new RunnerLibraryMutationResult(
+                    RunnerLibraryOperationOutcome.Conflict,
+                    CurrentLifecycleRevision: sourceState.LifecycleRevision,
+                    Error: "Duplicate target has a different pending mutation.");
+            }
+
+            string sourceContentDigest = RunnerLibraryCanonical.ComputeContentDigest(source.Document);
+            if (pending is null
+                && (sourceState.Lifecycle == RunnerLibraryLifecycle.Deleted
+                    || sourceState.LifecycleRevision != mutation.ExpectedLifecycleRevision
+                    || source.ContentRevision != mutation.ExpectedContentRevision
+                    || !string.Equals(
+                        sourceContentDigest,
+                        mutation.ExpectedContentDigestSha256,
+                        StringComparison.Ordinal)))
+            {
+                return new RunnerLibraryMutationResult(
+                    RunnerLibraryOperationOutcome.Conflict,
+                    CurrentLifecycleRevision: sourceState.LifecycleRevision,
+                    Error: "Source runner lifecycle, content revision, or digest does not allow duplication.");
+            }
+
+            RunnerLibraryStoreState targetState;
+            RunnerLibraryMutationReceipt receipt;
+            if (pending is null)
+            {
+                DateTimeOffset committedAtUtc = _timeProvider.GetUtcNow();
+                if (!RunnerLibraryStoreStateMachine.TryCreateDuplicate(
+                        mutation.RunnerId,
+                        newRunnerId,
+                        sourceState.DisplayName,
+                        sourceState.Lifecycle,
+                        sourceState.LifecycleBeforeDelete,
+                        mutation.DisplayName,
+                        sourceState.LifecycleRevision,
+                        sourceState.Provenance,
+                        source.ContentRevision,
+                        sourceContentDigest,
+                        mutation,
+                        committedAtUtc,
+                        out targetState,
+                        out receipt)
+                    || !RunnerLibraryStoreStateMachine.TryAddDuplicateReceipt(
+                        mutation.RunnerId,
+                        sourceState,
+                        receipt,
+                        out _))
+                {
+                    return FileRunnerLibraryUnavailableMutation();
+                }
+                pending = new PersistedRunnerLibraryDuplicatePending(
+                    1,
+                    mutation.RunnerId,
+                    newRunnerId,
+                    mutation.IdempotencyKeyDigestSha256,
+                    mutation.CommandDigestSha256,
+                    mutation.ExpectedContentRevision,
+                    mutation.ExpectedContentDigestSha256,
+                    targetState);
+                _ = WriteJsonAtomically(
+                    pendingPath,
+                    pending,
+                    WorkspaceWriteDisposition.CreateNew,
+                    committedAtUtc);
+            }
+            else
+            {
+                targetState = pending.TargetState;
+                receipt = targetState.MutationLedger[0].Receipt;
+            }
+
+            if (!File.Exists(targetPath))
+            {
+                if (source.ContentRevision != mutation.ExpectedContentRevision
+                    || !string.Equals(
+                        sourceContentDigest,
+                        mutation.ExpectedContentDigestSha256,
+                        StringComparison.Ordinal))
+                {
+                    return new RunnerLibraryMutationResult(
+                        RunnerLibraryOperationOutcome.Conflict,
+                        CurrentLifecycleRevision: sourceState.LifecycleRevision,
+                        Error: "Pending duplicate cannot be completed from a changed source snapshot.");
+                }
+
+                PersistedWorkspaceRecord duplicateRecord = BuildPersistedRecord(
+                    source.Document,
+                    InitialContentRevision,
+                    InitialContentRevision);
+                _ = WriteRecordAtomically(
+                    targetPath,
+                    duplicateRecord,
+                    WorkspaceWriteDisposition.CreateNew,
+                    receipt.CommittedAtUtc);
+                _faultInjector.OnStage(
+                    FileWorkspaceStoreFaultStage.AfterDuplicateWorkspaceCreatedBeforeLibraryState,
+                    targetPath,
+                    pendingPath);
+            }
+
+            WorkspaceStoreReadResult targetRead = ReadWorkspaceUnderLease(
+                owner,
+                newRunnerId,
+                targetPath,
+                out _,
+                includeRecoverablyDeleted: true,
+                skipRunnerLibraryStateValidation: true);
+            if (!targetRead.Success || targetRead.Value is not WorkspaceStoredDocument target
+                || target.ContentRevision != InitialContentRevision
+                || !string.Equals(
+                    RunnerLibraryCanonical.ComputeContentDigest(target.Document),
+                    receipt.ContentDigestSha256,
+                    StringComparison.Ordinal))
+            {
+                return FileRunnerLibraryCorruptMutation();
+            }
+
+            _ = WriteJsonAtomically(
+                targetStatePath,
+                targetState,
+                WorkspaceWriteDisposition.CreateNew,
+                receipt.CommittedAtUtc);
+            _faultInjector.OnStage(
+                FileWorkspaceStoreFaultStage.AfterDuplicateLifecycleStateCreatedBeforeSourceReceipt,
+                targetStatePath,
+                pendingPath);
+            RunnerLibraryMutationResult applied = new(
+                RunnerLibraryOperationOutcome.Applied,
+                RunnerLibraryStoreStateMachine.ToItem(
+                    newRunnerId,
+                    targetState,
+                    target.ContentRevision,
+                    target.SavedRevision,
+                    receipt.ContentDigestSha256,
+                    target.LastUpdatedUtc),
+                receipt,
+                targetState.LifecycleRevision);
+            RunnerLibraryMutationResult attachedResult = AttachDuplicateReceiptToSourceFile(
+                sourceStatePath,
+                sourceState,
+                receipt,
+                applied);
+            if (!attachedResult.Success)
+            {
+                return attachedResult;
+            }
+
+            return DeleteMatchingPendingDuplicate(owner, newRunnerId, mutation)
+                ? attachedResult
+                : FileRunnerLibraryCorruptMutation();
+        }
+        catch (IOException)
+        {
+            return FileRunnerLibraryUnavailableMutation();
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return FileRunnerLibraryUnavailableMutation();
+        }
+    }
+
+    private RunnerLibraryMutationResult ResolveExistingFileDuplicate(
+        OwnerScope owner,
+        CharacterWorkspaceId targetId,
+        string targetPath,
+        RunnerLibraryStoreMutation mutation,
+        bool deleteMatchingPending)
+    {
+        WorkspaceStoreReadResult targetRead = ReadWorkspaceUnderLease(
+            owner,
+            targetId,
+            targetPath,
+            out _,
+            includeRecoverablyDeleted: true);
+        if (!targetRead.Success || targetRead.Value is not WorkspaceStoredDocument target)
+        {
+            return FileRunnerLibraryFromRead(targetRead);
+        }
+
+        RunnerLibraryStateReadResult stateRead = ReadRunnerLibraryStateUnderLease(
+            targetId,
+            targetPath,
+            target.LastUpdatedUtc);
+        if (!stateRead.Success || stateRead.State is not RunnerLibraryStoreState state)
+        {
+            return FileRunnerLibraryCorruptMutation();
+        }
+
+        string contentDigest = RunnerLibraryCanonical.ComputeContentDigest(target.Document);
+        RunnerLibraryMutationResult? replay =
+            RunnerLibraryStoreStateMachine.ResolveReplayOrConflict(
+                targetId,
+                state,
+                mutation,
+                () => RunnerLibraryStoreStateMachine.ToItem(
+                    targetId,
+                    state,
+                    target.ContentRevision,
+                    target.SavedRevision,
+                    contentDigest,
+                    target.LastUpdatedUtc));
+        if (replay is null)
+        {
+            return new RunnerLibraryMutationResult(
+                RunnerLibraryOperationOutcome.Conflict,
+                CurrentLifecycleRevision: state.LifecycleRevision,
+                Error: "Duplicate target runner already exists.");
+        }
+
+        if (replay.Outcome == RunnerLibraryOperationOutcome.Replayed
+            && replay.Receipt?.SourceRunnerId == mutation.RunnerId
+            && deleteMatchingPending
+            && !DeleteMatchingPendingDuplicate(owner, targetId, mutation))
+        {
+            return FileRunnerLibraryCorruptMutation();
+        }
+
+        return replay;
+    }
+
+    private bool DeleteMatchingPendingDuplicate(
+        OwnerScope owner,
+        CharacterWorkspaceId targetId,
+        RunnerLibraryStoreMutation mutation)
+    {
+        if (TryGetRunnerLibraryPendingPath(owner, targetId) is not string pendingPath
+            || !File.Exists(pendingPath))
+        {
+            return true;
+        }
+
+        PersistedRunnerLibraryDuplicatePending? pending = ReadPendingDuplicate(pendingPath);
+        if (pending is null || !IsMatchingPending(pending, mutation, targetId))
+        {
+            return false;
+        }
+
+        DeleteRegularFileIfPresent(pendingPath, "runner library pending state");
+        return true;
+    }
+
+    private RunnerLibraryMutationResult AttachDuplicateReceiptToSourceFile(
+        string sourceStatePath,
+        RunnerLibraryStoreState sourceState,
+        RunnerLibraryMutationReceipt receipt,
+        RunnerLibraryMutationResult completedResult)
+    {
+        RunnerLibraryMutationLedgerEntry? existing = sourceState.MutationLedger
+            .FirstOrDefault(entry => string.Equals(
+                entry.IdempotencyKeyDigestSha256,
+                receipt.IdempotencyKeyDigestSha256,
+                StringComparison.Ordinal));
+        if (existing is not null)
+        {
+            return string.Equals(
+                existing.CommandDigestSha256,
+                receipt.CommandDigestSha256,
+                StringComparison.Ordinal)
+                ? completedResult
+                : new RunnerLibraryMutationResult(
+                    RunnerLibraryOperationOutcome.Conflict,
+                    CurrentLifecycleRevision: sourceState.LifecycleRevision,
+                    Error: "Idempotency key was already used for a different Runner Library mutation.");
+        }
+
+        if (!RunnerLibraryStoreStateMachine.TryAddDuplicateReceipt(
+                receipt.SourceRunnerId ?? receipt.RunnerId,
+                sourceState,
+                receipt,
+                out RunnerLibraryStoreState replacement))
+        {
+            return FileRunnerLibraryUnavailableMutation();
+        }
+
+        _ = WriteJsonAtomically(
+            sourceStatePath,
+            replacement,
+            File.Exists(sourceStatePath)
+                ? WorkspaceWriteDisposition.ReplaceExisting
+                : WorkspaceWriteDisposition.CreateNew,
+            replacement.LastLifecycleUpdatedUtc);
+        _faultInjector.OnStage(
+            FileWorkspaceStoreFaultStage.AfterDuplicateSourceReceiptCreatedBeforePendingCleanup,
+            sourceStatePath,
+            sourceStatePath);
+        return completedResult;
+    }
+
+    private PersistedRunnerLibraryDuplicatePending? ReadPendingDuplicate(string path)
+    {
+        ThrowIfLinkOrReparsePoint(path, "runner library pending state");
+        try
+        {
+            SetSecureFileMode(path);
+            using FileStream stream = new(
+                path,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.Read,
+                FileBufferSize,
+                FileOptions.SequentialScan);
+            return JsonSerializer.Deserialize<PersistedRunnerLibraryDuplicatePending>(stream);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    private static bool IsMatchingPending(
+        PersistedRunnerLibraryDuplicatePending pending,
+        RunnerLibraryStoreMutation mutation,
+        CharacterWorkspaceId targetId)
+    {
+        return pending.SchemaVersion == 1
+               && pending.SourceRunnerId == mutation.RunnerId
+               && pending.TargetRunnerId == targetId
+               && string.Equals(
+                   pending.IdempotencyKeyDigestSha256,
+                   mutation.IdempotencyKeyDigestSha256,
+                   StringComparison.Ordinal)
+               && string.Equals(
+                   pending.CommandDigestSha256,
+                   mutation.CommandDigestSha256,
+                   StringComparison.Ordinal)
+               && pending.ExpectedSourceContentRevision == mutation.ExpectedContentRevision
+               && string.Equals(
+                   pending.ExpectedSourceContentDigestSha256,
+                   mutation.ExpectedContentDigestSha256,
+                   StringComparison.Ordinal)
+               && IsCanonicalPending(pending, targetId)
+               && string.Equals(
+                   pending.TargetState.MutationLedger[0].CommandDigestSha256,
+                   mutation.CommandDigestSha256,
+                   StringComparison.Ordinal);
+    }
+
+    private static bool IsCanonicalPendingForPersistedTarget(
+        PersistedRunnerLibraryDuplicatePending? pending,
+        CharacterWorkspaceId targetId,
+        RunnerLibraryStoreState persistedTargetState)
+    {
+        return pending is not null
+               && IsCanonicalPending(pending, targetId)
+               && AreEquivalentRunnerLibraryStates(
+                   pending.TargetState,
+                   persistedTargetState);
+    }
+
+    private static bool IsCanonicalPending(
+        PersistedRunnerLibraryDuplicatePending pending,
+        CharacterWorkspaceId targetId)
+    {
+        if (pending.SchemaVersion != 1
+            || pending.TargetRunnerId != targetId
+            || pending.SourceRunnerId == targetId
+            || !RunnerLibraryCanonical.IsSupportedRunnerId(pending.SourceRunnerId)
+            || !RunnerLibraryCanonical.IsSha256(pending.IdempotencyKeyDigestSha256)
+            || !RunnerLibraryCanonical.IsSha256(pending.CommandDigestSha256)
+            || pending.ExpectedSourceContentRevision <= 0
+            || !RunnerLibraryCanonical.IsSha256(pending.ExpectedSourceContentDigestSha256)
+            || !RunnerLibraryStoreStateMachine.IsValid(targetId, pending.TargetState)
+            || pending.TargetState.MutationLedger.Length != 1)
+        {
+            return false;
+        }
+
+        RunnerLibraryMutationReceipt receipt = pending.TargetState.MutationLedger[0].Receipt;
+        return receipt.Kind == RunnerLibraryMutationKind.Duplicate
+               && receipt.RunnerId == targetId
+               && receipt.SourceRunnerId == pending.SourceRunnerId
+               && receipt.AfterProvenance is RunnerLibraryProvenance provenance
+               && provenance.SourceRunnerId == pending.SourceRunnerId
+               && provenance.SourceContentRevision == pending.ExpectedSourceContentRevision
+               && string.Equals(
+                   provenance.SourceContentDigestSha256,
+                   pending.ExpectedSourceContentDigestSha256,
+                   StringComparison.Ordinal)
+               && string.Equals(
+                   receipt.ContentDigestSha256,
+                   pending.ExpectedSourceContentDigestSha256,
+                   StringComparison.Ordinal)
+               && string.Equals(
+                   receipt.IdempotencyKeyDigestSha256,
+                   pending.IdempotencyKeyDigestSha256,
+                   StringComparison.Ordinal)
+               && string.Equals(
+                   receipt.CommandDigestSha256,
+                   pending.CommandDigestSha256,
+                   StringComparison.Ordinal)
+               && string.Equals(
+                   pending.CommandDigestSha256,
+                   RunnerLibraryCanonical.ComputeCommandDigest(
+                       RunnerLibraryMutationKind.Duplicate,
+                       pending.SourceRunnerId,
+                       pending.TargetRunnerId,
+                       receipt.BeforeLifecycleRevision,
+                       pending.ExpectedSourceContentRevision,
+                       pending.ExpectedSourceContentDigestSha256,
+                       receipt.AfterDisplayName,
+                       pending.IdempotencyKeyDigestSha256),
+                   StringComparison.Ordinal);
+    }
+
+    private static bool AreEquivalentRunnerLibraryStates(
+        RunnerLibraryStoreState first,
+        RunnerLibraryStoreState second)
+    {
+        return first.DisplayName == second.DisplayName
+               && first.Lifecycle == second.Lifecycle
+               && first.LifecycleBeforeDelete == second.LifecycleBeforeDelete
+               && first.LifecycleRevision == second.LifecycleRevision
+               && first.LastLifecycleUpdatedUtc == second.LastLifecycleUpdatedUtc
+               && Equals(first.Provenance, second.Provenance)
+               && first.MutationLedger.SequenceEqual(second.MutationLedger);
+    }
+
+    private static bool Includes(
+        RunnerLibraryLifecycleFilter filter,
+        RunnerLibraryLifecycle lifecycle)
+    {
+        RunnerLibraryLifecycleFilter flag = lifecycle switch
+        {
+            RunnerLibraryLifecycle.Active => RunnerLibraryLifecycleFilter.Active,
+            RunnerLibraryLifecycle.Archived => RunnerLibraryLifecycleFilter.Archived,
+            RunnerLibraryLifecycle.Deleted => RunnerLibraryLifecycleFilter.Deleted,
+            _ => RunnerLibraryLifecycleFilter.None
+        };
+        return (filter & flag) != 0;
+    }
+
+    private static RunnerLibraryMutationResult FileRunnerLibraryFromRead(
+        WorkspaceStoreReadResult read)
+    {
+        RunnerLibraryOperationOutcome outcome = read.Outcome switch
+        {
+            WorkspaceOperationOutcome.Missing => RunnerLibraryOperationOutcome.Missing,
+            WorkspaceOperationOutcome.Conflict => RunnerLibraryOperationOutcome.Conflict,
+            WorkspaceOperationOutcome.Corrupt => RunnerLibraryOperationOutcome.Corrupt,
+            _ => RunnerLibraryOperationOutcome.Unavailable
+        };
+        return new RunnerLibraryMutationResult(outcome, Error: read.Error);
+    }
+
+    private static RunnerLibraryMutationResult FileRunnerLibraryContentConflict(
+        WorkspaceStoredDocument current,
+        RunnerLibraryStoreState state,
+        string contentDigest)
+    {
+        return new RunnerLibraryMutationResult(
+            RunnerLibraryOperationOutcome.Conflict,
+            RunnerLibraryStoreStateMachine.ToItem(
+                current.Id,
+                state,
+                current.ContentRevision,
+                current.SavedRevision,
+                contentDigest,
+                current.LastUpdatedUtc),
+            CurrentLifecycleRevision: state.LifecycleRevision,
+            Error: "Runner content revision or digest does not match the expected snapshot.");
+    }
+
+    private static RunnerLibraryMutationResult FileRunnerLibraryInvalidMutation(string error)
+    {
+        return new RunnerLibraryMutationResult(RunnerLibraryOperationOutcome.Invalid, Error: error);
+    }
+
+    private static RunnerLibraryMutationResult FileRunnerLibraryCorruptMutation()
+    {
+        return new RunnerLibraryMutationResult(
+            RunnerLibraryOperationOutcome.Corrupt,
+            Error: "Runner Library state is corrupt.");
+    }
+
+    private static RunnerLibraryMutationResult FileRunnerLibraryUnavailableMutation()
+    {
+        return new RunnerLibraryMutationResult(
+            RunnerLibraryOperationOutcome.Unavailable,
+            Error: "Runner Library storage is unavailable.");
+    }
+
+    private static RunnerLibraryListResult FileRunnerLibraryCorruptList()
+    {
+        return new RunnerLibraryListResult(
+            RunnerLibraryOperationOutcome.Corrupt,
+            [],
+            "Runner Library state is corrupt.");
+    }
+
+    private static RunnerLibraryListResult FileRunnerLibraryUnavailableList()
+    {
+        return new RunnerLibraryListResult(
+            RunnerLibraryOperationOutcome.Unavailable,
+            [],
+            "Runner Library storage is unavailable.");
+    }
+
     private WorkspaceStoreReadResult ReadWorkspaceUnderLease(
         OwnerScope owner,
         CharacterWorkspaceId id,
@@ -1157,7 +2033,9 @@ public sealed class FileWorkspaceStore :
         OwnerScope owner,
         CharacterWorkspaceId id,
         string path,
-        out IReadOnlyList<DelegatedGmCharacterEditLedgerEntry> delegatedEditLedger)
+        out IReadOnlyList<DelegatedGmCharacterEditLedgerEntry> delegatedEditLedger,
+        bool includeRecoverablyDeleted = false,
+        bool skipRunnerLibraryStateValidation = false)
     {
         delegatedEditLedger = [];
         ThrowIfLinkOrReparsePoint(path, "workspace target");
@@ -1224,6 +2102,26 @@ public sealed class FileWorkspaceStore :
         }
 
         DateTimeOffset lastUpdatedUtc = migratedAtUtc ?? persistedLastUpdatedUtc;
+        if (!skipRunnerLibraryStateValidation)
+        {
+            RunnerLibraryStateReadResult runnerStateRead = ReadRunnerLibraryStateUnderLease(
+                id,
+                path,
+                lastUpdatedUtc);
+            if (!runnerStateRead.Success)
+            {
+                return CorruptRead();
+            }
+
+            if (!includeRecoverablyDeleted
+                && runnerStateRead.State?.Lifecycle == RunnerLibraryLifecycle.Deleted)
+            {
+                return new WorkspaceStoreReadResult(
+                    WorkspaceOperationOutcome.Missing,
+                    Error: "Workspace is in the recoverable-delete lifecycle.");
+            }
+        }
+
         return new WorkspaceStoreReadResult(
             WorkspaceOperationOutcome.Success,
             new WorkspaceStoredDocument(
@@ -1909,6 +2807,94 @@ public sealed class FileWorkspaceStore :
         return IsPathContained(workspaceDirectory, candidate) ? candidate : null;
     }
 
+    private string? TryGetRunnerLibraryPath(OwnerScope owner, CharacterWorkspaceId id)
+    {
+        if (!RunnerLibraryCanonical.IsSupportedRunnerId(id))
+        {
+            return null;
+        }
+
+        string workspaceDirectory = Path.GetFullPath(GetWorkspaceDirectory(owner));
+        string candidate = Path.GetFullPath(Path.Combine(
+            workspaceDirectory,
+            id.Value + RunnerLibraryFileSuffix));
+        return IsPathContained(workspaceDirectory, candidate) ? candidate : null;
+    }
+
+    private string? TryGetRunnerLibraryPendingPath(OwnerScope owner, CharacterWorkspaceId id)
+    {
+        if (!RunnerLibraryCanonical.IsSupportedRunnerId(id))
+        {
+            return null;
+        }
+
+        string workspaceDirectory = Path.GetFullPath(GetWorkspaceDirectory(owner));
+        string candidate = Path.GetFullPath(Path.Combine(
+            workspaceDirectory,
+            id.Value + RunnerLibraryPendingFileSuffix));
+        return IsPathContained(workspaceDirectory, candidate) ? candidate : null;
+    }
+
+    private RunnerLibraryStateReadResult ReadRunnerLibraryStateUnderLease(
+        CharacterWorkspaceId id,
+        string workspacePath,
+        DateTimeOffset legacyLastUpdatedUtc)
+    {
+        string directory = Path.GetDirectoryName(workspacePath)
+            ?? throw new IOException("Workspace path has no containing directory.");
+        string statePath = Path.GetFullPath(Path.Combine(
+            directory,
+            id.Value + RunnerLibraryFileSuffix));
+        string pendingPath = Path.GetFullPath(Path.Combine(
+            directory,
+            id.Value + RunnerLibraryPendingFileSuffix));
+        EnsurePathContained(directory, statePath, "runner library state");
+        EnsurePathContained(directory, pendingPath, "runner library pending state");
+        ThrowIfLinkOrReparsePoint(statePath, "runner library state");
+        ThrowIfLinkOrReparsePoint(pendingPath, "runner library pending state");
+
+        if (!File.Exists(statePath))
+        {
+            return File.Exists(pendingPath)
+                ? new RunnerLibraryStateReadResult(false, null)
+                : new RunnerLibraryStateReadResult(
+                    true,
+                    RunnerLibraryStoreStateMachine.CreateLegacy(id, legacyLastUpdatedUtc));
+        }
+
+        try
+        {
+            SetSecureFileMode(statePath);
+            using FileStream stream = new(
+                statePath,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.Read,
+                FileBufferSize,
+                FileOptions.SequentialScan);
+            RunnerLibraryStoreState? state = JsonSerializer.Deserialize<RunnerLibraryStoreState>(stream);
+            if (state is null || !RunnerLibraryStoreStateMachine.IsValid(id, state))
+            {
+                return new RunnerLibraryStateReadResult(false, null);
+            }
+
+            if (File.Exists(pendingPath))
+            {
+                PersistedRunnerLibraryDuplicatePending? pending = ReadPendingDuplicate(pendingPath);
+                if (!IsCanonicalPendingForPersistedTarget(pending, id, state))
+                {
+                    return new RunnerLibraryStateReadResult(false, null);
+                }
+            }
+
+            return new RunnerLibraryStateReadResult(true, state);
+        }
+        catch (JsonException)
+        {
+            return new RunnerLibraryStateReadResult(false, null);
+        }
+    }
+
     private string GetWorkspaceDirectory(OwnerScope owner)
     {
         string ownerDirectory = OwnerScopedStatePath.ResolveWorkspaceOwnerDirectory(_stateDirectory, owner);
@@ -2561,6 +3547,20 @@ public sealed class FileWorkspaceStore :
         public string? Xml { get; init; }
     }
 
+    private sealed record RunnerLibraryStateReadResult(
+        bool Success,
+        RunnerLibraryStoreState? State);
+
+    private sealed record PersistedRunnerLibraryDuplicatePending(
+        int SchemaVersion,
+        CharacterWorkspaceId SourceRunnerId,
+        CharacterWorkspaceId TargetRunnerId,
+        string IdempotencyKeyDigestSha256,
+        string CommandDigestSha256,
+        long ExpectedSourceContentRevision,
+        string ExpectedSourceContentDigestSha256,
+        RunnerLibraryStoreState TargetState);
+
     private enum WorkspaceWriteDisposition
     {
         CreateNew,
@@ -2617,7 +3617,10 @@ public sealed class FileWorkspaceStore :
 internal enum FileWorkspaceStoreFaultStage
 {
     AfterTempFileFlushed,
-    AfterTargetReplaced
+    AfterTargetReplaced,
+    AfterDuplicateWorkspaceCreatedBeforeLibraryState,
+    AfterDuplicateLifecycleStateCreatedBeforeSourceReceipt,
+    AfterDuplicateSourceReceiptCreatedBeforePendingCleanup
 }
 
 internal interface IFileWorkspaceStoreFaultInjector

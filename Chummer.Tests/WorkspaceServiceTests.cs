@@ -301,6 +301,11 @@ public class WorkspaceServiceTests
         bool closed = workspaceService.Close(imported.Id);
         Assert.IsTrue(closed);
         Assert.IsFalse(workspaceService.List().Any(item => string.Equals(item.Id.Value, imported.Id.Value, StringComparison.Ordinal)));
+        RunnerLibraryListResult afterDestructiveTeardown = new RunnerLibraryService(store).List(
+            OwnerScope.LocalSingleUser,
+            new RunnerLibraryListQuery(RunnerLibraryLifecycleFilter.All));
+        Assert.IsTrue(afterDestructiveTeardown.Success);
+        Assert.IsFalse(afterDestructiveTeardown.Items.Any(item => item.Id == imported.Id));
     }
 
     [TestMethod]
