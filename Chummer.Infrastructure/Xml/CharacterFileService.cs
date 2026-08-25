@@ -54,7 +54,10 @@ public sealed class CharacterFileService : ICharacterFileService
 
         XElement character = document.Root;
         ValidateRequiredNode(character, "name", issues, fallbackNodeName: "alias");
-        ValidateRequiredNode(character, "metatype", issues);
+        if (!IsPendingTypedPrioritySetup(character))
+        {
+            ValidateRequiredNode(character, "metatype", issues);
+        }
         ValidateRequiredNode(character, "buildmethod", issues);
         ValidateRequiredNode(character, "createdversion", issues);
         ValidateRequiredNode(character, "appversion", issues);
@@ -65,6 +68,19 @@ public sealed class CharacterFileService : ICharacterFileService
         return new CharacterValidationResult(
             IsValid: issues.All(x => !string.Equals(x.Severity, "Error", StringComparison.Ordinal)),
             Issues: issues);
+    }
+
+    private static bool IsPendingTypedPrioritySetup(XElement character)
+    {
+        if (character.Element("metatype") is not null
+            || !bool.TryParse(ReadValue(character, "created"), out bool created)
+            || created)
+        {
+            return false;
+        }
+
+        return ReadValue(character, "buildmethod") is CharacterCreationBuildMethods.Priority
+            or CharacterCreationBuildMethods.SumToTen;
     }
 
     public string ApplyMetadataUpdate(string xml, CharacterMetadataUpdate update)

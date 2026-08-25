@@ -41,6 +41,43 @@ public class CharacterFileServiceTests
         Assert.IsTrue(validation.Issues.Any(issue => issue.Code == "InvalidDecimal"));
     }
 
+    [DataTestMethod]
+    [DataRow(CharacterCreationBuildMethods.Priority)]
+    [DataRow(CharacterCreationBuildMethods.SumToTen)]
+    public void ValidateXml_accepts_omitted_metatype_only_for_pending_typed_priority_setup(
+        string buildMethod)
+    {
+        var service = new CharacterFileService();
+
+        CharacterValidationResult validation = service.ValidateXml(
+            CreateValidationXml(buildMethod, created: false, metatypeElement: null));
+
+        Assert.IsTrue(validation.IsValid);
+        Assert.AreEqual(0, validation.Issues.Count);
+    }
+
+    [DataTestMethod]
+    [DataRow(CharacterCreationBuildMethods.Priority, true, null)]
+    [DataRow(CharacterCreationBuildMethods.Karma, false, null)]
+    [DataRow("priority", false, null)]
+    [DataRow(CharacterCreationBuildMethods.Priority, false, "<metatype />")]
+    public void ValidateXml_rejects_missing_or_empty_metatype_outside_exact_pending_typed_setup(
+        string buildMethod,
+        bool created,
+        string? metatypeElement)
+    {
+        var service = new CharacterFileService();
+
+        CharacterValidationResult validation = service.ValidateXml(
+            CreateValidationXml(buildMethod, created, metatypeElement));
+
+        Assert.IsFalse(validation.IsValid);
+        CharacterValidationIssue issue = validation.Issues.Single(item =>
+            string.Equals(item.Code, "MissingRequiredNode", StringComparison.Ordinal)
+            && string.Equals(item.Path, "/character/metatype", StringComparison.Ordinal));
+        Assert.AreEqual("Required node 'metatype' is missing or empty.", issue.Message);
+    }
+
     [TestMethod]
     public void ParseSummaryFromXml_defaults_missing_numeric_and_created_fields_for_minimal_imports()
     {
@@ -114,4 +151,21 @@ public class CharacterFileServiceTests
 
         throw new FileNotFoundException("Could not locate test character file.", fileName);
     }
+
+    private static string CreateValidationXml(
+        string buildMethod,
+        bool created,
+        string? metatypeElement)
+        => $"""
+           <character>
+             <name>Pending Runner</name>
+             {metatypeElement}
+             <buildmethod>{buildMethod}</buildmethod>
+             <createdversion>5.225.0</createdversion>
+             <appversion>5.225.0</appversion>
+             <karma>0</karma>
+             <nuyen>0</nuyen>
+             <created>{created}</created>
+           </character>
+           """;
 }
