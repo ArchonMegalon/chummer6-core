@@ -90,6 +90,17 @@ public interface ICharacterSourceDataContext
     }
 
     /// <summary>
+    /// Resolves the SR5 Priority creation-quality catalog, profile limits and exact
+    /// source/runtime binding. Catalog entries with unresolved requirements or follow-up
+    /// prompts remain visible but disabled; callers must never invent a selectable fallback.
+    /// </summary>
+    bool TryResolveCreationQualitiesAuthority(out CharacterCreationQualitiesAuthority authority)
+    {
+        authority = CharacterCreationQualitiesAuthority.Unavailable;
+        return false;
+    }
+
+    /// <summary>
     /// Projects the bounded, digest-bound metatype choices proven by the saved
     /// character's source profile. False means no catalog authority exists;
     /// callers must never substitute their own source filters or defaults.

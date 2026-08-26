@@ -1449,6 +1449,264 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             return true;
         }
 
+        public bool TryResolveCreationQualitiesAuthority(
+            out CharacterCreationQualitiesAuthority authority)
+        {
+            authority = CharacterCreationQualitiesAuthority.Unavailable;
+            if (string.IsNullOrWhiteSpace(_settingsProfileId)
+                || !string.Equals(_buildMethod, CharacterCreationBuildMethods.Priority, StringComparison.Ordinal)
+                || !TryComputeEffectiveInputDigest(
+                    _catalog,
+                    "qualities.xml",
+                    out string sourceDigest)
+                || !TryComputeEffectiveInputDigest(
+                    _catalog,
+                    "settings.xml",
+                    out string settingsInputsDigest)
+                || !TryResolveTarget(
+                    "settings.xml",
+                    ["settings"],
+                    "setting",
+                    _settingsProfileId,
+                    string.Empty,
+                    out XElement? settings)
+                || settings is null
+                || !TryEnumerateTargets(
+                    "qualities.xml",
+                    ["qualities"],
+                    "quality",
+                    out XElement[] rows)
+                || !TryReadNonNegativeInt(settings, "qualitykarmalimit", out int qualityKarmaLimit)
+                || !TryReadSingleBool(settings, "exceedpositivequalities", out bool exceedPositive)
+                || !TryReadSingleBool(settings, "exceednegativequalities", out bool exceedNegative))
+            {
+                return false;
+            }
+
+            string metagenicLimitText = ReadValue(_character, "metageniclimit");
+            int metagenicLimit = 0;
+            bool metagenicLimitExact = string.IsNullOrWhiteSpace(metagenicLimitText)
+                || int.TryParse(
+                    metagenicLimitText,
+                    NumberStyles.Integer,
+                    CultureInfo.InvariantCulture,
+                    out metagenicLimit) && metagenicLimit >= 0;
+            if (!metagenicLimitExact)
+                return false;
+
+            var blockers = new List<string>();
+            if (!string.Equals(
+                    BindSelectedProfile(settingsInputsDigest, _settingsProfileId),
+                    _rawProfileInputsDigest,
+                    StringComparison.Ordinal))
+            {
+                blockers.Add(CharacterCreationQualitiesBlockers.AuthorityUnavailable);
+            }
+            if (!TryHasSelectedCustomDataInputFor(
+                    _customDirectories,
+                    "qualities.xml",
+                    out bool hasQualityCustomData))
+            {
+                return false;
+            }
+            if (hasQualityCustomData)
+            {
+                // The overlay loader proves source ordering, but creation-quality effect and
+                // requirement parity for arbitrary custom rows is not complete yet.
+                blockers.Add(CharacterCreationQualitiesBlockers.AuthorityUnavailable);
+            }
+            if (_character.Element("qualities")?.Elements("quality").Any() == true)
+            {
+                // Existing/granted instances need a separate origin-aware projection; an
+                // empty grant list would undercount both limits, so this path fails closed.
+                blockers.Add(CharacterCreationQualitiesBlockers.AuthorityUnavailable);
+            }
+            if (_character.Element("qualityrestriction") is not null)
+            {
+                // Metatype-specific allowlists are character authority, not a UI filter.
+                // Keep the catalog closed until that graph is projected by stable source id.
+                blockers.Add(CharacterCreationQualitiesBlockers.AuthorityUnavailable);
+            }
+
+            var options = new List<CharacterCreationQualityCatalogOption>();
+            foreach (XElement row in rows.OrderBy(
+                         static item => ReadValue(item, "id"),
+                         StringComparer.Ordinal))
+            {
+                if (!Guid.TryParse(ReadValue(row, "id"), out Guid sourceId)
+                    || sourceId == Guid.Empty)
+                    continue;
+                string name = ReadValue(row, "name");
+                string category = ReadValue(row, "category");
+                string karmaText = ReadValue(row, "karma");
+                bool hasVariableCost = karmaText.StartsWith("Variable(", StringComparison.Ordinal);
+                int baseKarma = 0;
+                if (string.IsNullOrWhiteSpace(name)
+                    || category is not ("Positive" or "Negative")
+                    || !hasVariableCost && !int.TryParse(
+                        karmaText,
+                        NumberStyles.Integer,
+                        CultureInfo.InvariantCulture,
+                        out baseKarma))
+                    continue;
+
+                CharacterCreationQualityType type = category == "Positive"
+                    ? CharacterCreationQualityType.Positive
+                    : CharacterCreationQualityType.Negative;
+                if (type == CharacterCreationQualityType.Positive && baseKarma < 0
+                    || type == CharacterCreationQualityType.Negative && baseKarma > 0)
+                    continue;
+                string sourceBook = ReadValue(row, "source");
+                bool sourceEnabled = !string.IsNullOrWhiteSpace(sourceBook)
+                    && _enabledSourcebooks.Contains(sourceBook);
+                bool implemented = !row.Elements("implemented").Any()
+                    || ParseBool(ReadValue(row, "implemented"));
+                bool careerOnly = ParseBool(ReadValue(row, "careeronly"));
+                bool onlyPriorityGiven = ParseBool(ReadValue(row, "onlyprioritygiven"));
+                bool noLevels = row.Element("nolevels") is not null;
+                int maximumRating = 1;
+                string limit = ReadValue(row, "limit");
+                bool hasVariableRatingLimit = false;
+                if (!noLevels
+                    && !string.IsNullOrWhiteSpace(limit)
+                    && !string.Equals(limit, "False", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (!int.TryParse(
+                            limit,
+                            NumberStyles.Integer,
+                            CultureInfo.InvariantCulture,
+                            out maximumRating)
+                        || maximumRating <= 0
+                        || maximumRating > 100)
+                    {
+                        maximumRating = 1;
+                        hasVariableRatingLimit = true;
+                    }
+                }
+                bool hasRequirementGraph = row.Elements("required").Any()
+                    || row.Elements("forbidden").Any();
+                bool hasCostDiscount = row.Elements("costdiscount").Any();
+                bool hasFollowUpPrompt = row.Descendants().Any(element =>
+                    element.Name.LocalName.StartsWith("select", StringComparison.OrdinalIgnoreCase));
+                bool selectable = sourceEnabled
+                    && implemented
+                    && !careerOnly
+                    && !onlyPriorityGiven
+                    && !hasRequirementGraph
+                    && !hasCostDiscount
+                    && !hasFollowUpPrompt
+                    && !hasVariableCost
+                    && !hasVariableRatingLimit;
+                string? disabledReason = selectable
+                    ? null
+                    : !sourceEnabled
+                        ? "creation-qualities-source-disabled"
+                        : !implemented
+                            ? "creation-qualities-unimplemented"
+                            : careerOnly
+                                ? "creation-qualities-career-only"
+                                : onlyPriorityGiven
+                                    ? "creation-qualities-grant-only"
+                                    : hasRequirementGraph
+                                        ? "creation-qualities-requirement-projection-pending"
+                                        : hasCostDiscount
+                                            ? "creation-qualities-cost-discount-projection-pending"
+                                        : hasFollowUpPrompt
+                                            ? "creation-qualities-followup-projection-pending"
+                                            : hasVariableCost
+                                                ? "creation-qualities-variable-cost-projection-pending"
+                                                : "creation-qualities-rating-limit-projection-pending";
+                bool metagenic = ParseBool(ReadValue(row, "metagenic"))
+                    || ParseBool(ReadValue(row, "metagenetic"));
+                bool contributesToLimit = !row.Elements("contributetolimit").Any()
+                    || ParseBool(ReadValue(row, "contributetolimit"));
+                bool contributesToKarma = !row.Elements("contributetobp").Any()
+                    || ParseBool(ReadValue(row, "contributetobp"));
+                string anchor = $"qualities.xml#quality:{sourceId:D}";
+                for (int rating = 1; rating <= maximumRating; rating++)
+                {
+                    int cost;
+                    try { cost = checked(baseKarma * rating); }
+                    catch (OverflowException) { break; }
+                    var option = new CharacterCreationQualityCatalogOption(
+                        OptionId: $"quality:{sourceId:D}:rating:{rating}",
+                        SourceId: sourceId,
+                        SelectionKey: sourceId.ToString("D"),
+                        Name: name,
+                        Type: type,
+                        Rating: rating,
+                        KarmaCost: cost,
+                        MaximumSelections: 1,
+                        IsMetagenic: metagenic,
+                        CountsAgainstQualityLimit: contributesToLimit,
+                        CountsAgainstKarma: contributesToKarma,
+                        IsFreeOrGranted: false,
+                        IsSelectable: selectable,
+                        EligibilityIsExact: !hasRequirementGraph
+                            && !hasCostDiscount
+                            && !hasFollowUpPrompt
+                            && !hasVariableCost
+                            && !hasVariableRatingLimit,
+                        DisableReasonKey: disabledReason,
+                        FollowUpChoiceId: null,
+                        FollowUpChoiceLabel: null,
+                        SourceAnchorIds: [anchor],
+                        OptionDigest: string.Empty);
+                    options.Add(option with
+                    {
+                        OptionDigest = CharacterCreationQualitiesRules.ComputeOptionDigest(option)
+                    });
+                }
+            }
+
+            if (options.Count == 0)
+                blockers.Add(CharacterCreationQualitiesBlockers.AuthorityUnavailable);
+            string gmPolicyDigest = CharacterCreationSkillsDigest.Compute(new
+            {
+                Schema = "chummer.sr5.priority-creation-qualities-gm-policy.v1",
+                QualityKarmaLimit = qualityKarmaLimit,
+                MayExceedPositive = exceedPositive,
+                MayExceedNegative = exceedNegative,
+                MetagenicLimit = metagenicLimit
+            });
+            string runtimeDigest = CharacterCreationSkillsDigest.Compute(new
+            {
+                Schema = "chummer.sr5.priority-creation-qualities-runtime.v1",
+                SourceSelectionByStableOptionId = true,
+                RequirementAndFollowUpChoicesFailClosed = true,
+                NoCharacterWriteBeforeFinalization = true
+            });
+            var candidate = new CharacterCreationQualitiesAuthority(
+                CharacterCreationQualitiesSchemas.AuthorityV1,
+                "sr5",
+                _settingsProfileId,
+                qualityKarmaLimit,
+                exceedPositive,
+                exceedNegative,
+                metagenicLimit,
+                options,
+                GrantedQualities: [],
+                SourceAnchorIds:
+                [
+                    "qualities.xml",
+                    $"settings.xml#setting:{_settingsProfileId}"
+                ],
+                Blockers: blockers.Distinct(StringComparer.Ordinal)
+                    .OrderBy(static item => item, StringComparer.Ordinal)
+                    .ToArray(),
+                IsAuthoritative: blockers.Count == 0,
+                SourceDigest: sourceDigest,
+                ProfileDigest: _rawProfileInputsDigest,
+                GmPolicyDigest: gmPolicyDigest,
+                RuntimeDigest: runtimeDigest,
+                AuthorityDigest: string.Empty);
+            authority = candidate with
+            {
+                AuthorityDigest = CharacterCreationQualitiesRules.ComputeAuthorityDigest(candidate)
+            };
+            return true;
+        }
+
         /// <summary>
         /// Projects only the exact unconditional FreeKnowledgeSkills subset used by
         /// Chummer5's ValueOf path. Unsupported precedence, custom, conditional, or

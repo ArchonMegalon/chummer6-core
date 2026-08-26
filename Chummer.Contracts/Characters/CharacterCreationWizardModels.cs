@@ -49,6 +49,8 @@ public static class CharacterCreationWizardStepStatuses
 public static class CharacterCreationBudgetIds
 {
     public const string Karma = "karma";
+    public const string PositiveQualities = "positive-qualities";
+    public const string NegativeQualities = "negative-qualities";
     public const string NormalAttributes = "normal-attributes";
     public const string SpecialAttributes = "special-attributes";
     public const string ActiveSkills = "active-skills";
@@ -138,4 +140,3 @@ public sealed record CharacterCreationWizardSnapshot(
     IReadOnlyList<string> Warnings,
     bool CanFinalize,
     string SnapshotDigest);
-

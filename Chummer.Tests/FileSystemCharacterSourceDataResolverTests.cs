@@ -524,6 +524,31 @@ public sealed class FileSystemCharacterSourceDataResolverTests
     }
 
     [TestMethod]
+    public void Creation_qualities_projects_profile_caps_stable_options_and_fail_closed_rows()
+    {
+        ICharacterSourceDataContext context = CreateContext(FindCoreRoot(), CharacterXml())!;
+
+        Assert.IsTrue(context.TryResolveCreationQualitiesAuthority(
+            out CharacterCreationQualitiesAuthority authority));
+        Assert.IsTrue(authority.IsAuthoritative, string.Join(",", authority.Blockers));
+        Assert.IsGreaterThan(0, authority.QualityKarmaLimit);
+        Assert.IsGreaterThan(0, authority.Options.Count);
+        Assert.IsTrue(authority.Options.Any(static option => option.IsSelectable));
+        Assert.IsTrue(authority.Options.Any(static option => !option.IsSelectable));
+        Assert.AreEqual(
+            authority.Options.Count,
+            authority.Options.Select(static option => option.OptionId)
+                .Distinct(StringComparer.Ordinal).Count());
+        Assert.IsTrue(authority.Options.All(option =>
+            CharacterCreationQualitiesRules.DigestsEqual(
+                option.OptionDigest,
+                CharacterCreationQualitiesRules.ComputeOptionDigest(option))));
+        Assert.IsTrue(CharacterCreationQualitiesRules.DigestsEqual(
+            authority.AuthorityDigest,
+            CharacterCreationQualitiesRules.ComputeAuthorityDigest(authority)));
+    }
+
+    [TestMethod]
     public void Creation_skills_rejects_free_knowledge_points_with_unproven_scope_fields()
     {
         string characterXml = CharacterXml(
