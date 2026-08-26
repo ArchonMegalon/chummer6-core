@@ -1707,6 +1707,473 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             return true;
         }
 
+        public bool TryResolveCreationLifestylesAuthority(
+            out CharacterCreationLifestylesAuthority authority)
+        {
+            authority = CharacterCreationLifestylesAuthority.Unavailable;
+            if (string.IsNullOrWhiteSpace(_settingsProfileId)
+                || !CharacterCreationBuildMethods.IsSupported(_prerequisiteBuildMethod)
+                || !TryComputeEffectiveInputDigest(_catalog, "lifestyles.xml", out string sourceDigest)
+                || !TryComputeEffectiveInputDigest(_catalog, "settings.xml", out string settingsDigest)
+                || !TryResolveTarget(
+                    "settings.xml",
+                    ["settings"],
+                    "setting",
+                    _settingsProfileId,
+                    string.Empty,
+                    out XElement? settings)
+                || settings is null
+                || !TryEnumerateTargets(
+                    "lifestyles.xml",
+                    ["lifestyles"],
+                    "lifestyle",
+                    out XElement[] lifestyleRows)
+                || !TryEnumerateTargets(
+                    "lifestyles.xml",
+                    ["qualities"],
+                    "quality",
+                    out XElement[] qualityRows)
+                || !TryEnumerateTargets(
+                    "lifestyles.xml",
+                    ["comforts"],
+                    "comfort",
+                    out XElement[] comfortRows)
+                || !TryEnumerateTargets(
+                    "lifestyles.xml",
+                    ["neighborhoods"],
+                    "neighborhood",
+                    out XElement[] areaRows)
+                || !TryEnumerateTargets(
+                    "lifestyles.xml",
+                    ["securities"],
+                    "security",
+                    out XElement[] securityRows))
+            {
+                return false;
+            }
+
+            var blockers = new List<string>();
+            if (!string.Equals(
+                    BindSelectedProfile(settingsDigest, _settingsProfileId),
+                    _rawProfileInputsDigest,
+                    StringComparison.Ordinal))
+            {
+                blockers.Add(CharacterCreationLifestylesBlockers.AuthorityUnavailable);
+            }
+            if (!TryHasSelectedCustomDataInputFor(
+                    _customDirectories,
+                    "lifestyles.xml",
+                    out _))
+            {
+                return false;
+            }
+
+            bool freeGridsEnabled = ParseBool(ReadValue(settings, "allowfreegrids"))
+                || _enabledSourcebooks.Contains("HT");
+            int trustFundLevel = 0;
+            XElement[] improvements = _character.Element("improvements")?.Elements("improvement").ToArray()
+                ?? [];
+            foreach (XElement improvement in improvements)
+            {
+                if (!IsCreationImprovementActive(improvement))
+                    continue;
+                string improvementType = ReadValue(improvement, "improvementttype");
+                if (string.Equals(improvementType, "TrustFund", StringComparison.Ordinal))
+                {
+                    if (!int.TryParse(
+                            ReadValue(improvement, "val"),
+                            NumberStyles.Integer,
+                            CultureInfo.InvariantCulture,
+                            out int value)
+                        || value is < 1 or > 4
+                        || trustFundLevel != 0)
+                    {
+                        blockers.Add(CharacterCreationLifestylesBlockers.AuthorityUnavailable);
+                    }
+                    else
+                    {
+                        trustFundLevel = value;
+                    }
+                }
+                else if (improvementType is "LifestyleCost" or "BasicLifestyleCost")
+                {
+                    // Chummer5 distributes recurring and unique one-off percentage modifiers
+                    // across the complete lifestyle set. Until every source/origin precedence is
+                    // projected, refusing the lane is safer than pricing only the target row.
+                    blockers.Add(CharacterCreationLifestylesBlockers.UnsupportedSemantics);
+                }
+            }
+
+            var qualities = new List<CharacterCreationLifestyleQualityCatalogOption>();
+            foreach (XElement row in qualityRows.OrderBy(
+                         item => ReadValue(item, "id"),
+                         StringComparer.Ordinal))
+            {
+                if (!Guid.TryParse(ReadValue(row, "id"), out Guid sourceId)
+                    || sourceId == Guid.Empty)
+                {
+                    continue;
+                }
+                string name = ReadValue(row, "name");
+                string category = ReadValue(row, "category");
+                string qualityType = ResolveLifestyleQualityType(category);
+                string sourceBook = ReadValue(row, "source");
+                string page = ReadValue(row, "page");
+                bool sourceEnabled = !string.IsNullOrWhiteSpace(sourceBook)
+                    && _enabledSourcebooks.Contains(sourceBook);
+                bool implemented = !row.Elements("implemented").Any()
+                    || ParseBool(ReadValue(row, "implemented"));
+                bool careerOnly = ParseBool(ReadValue(row, "careeronly"));
+                bool hasRequirements = row.Elements("required").Any()
+                    || row.Elements("forbidden").Any();
+                bool hasUnboundedPrompt = row.Descendants().Any(element =>
+                    element.Name.LocalName.StartsWith("select", StringComparison.OrdinalIgnoreCase));
+                int lp = 0;
+                decimal flatCost = 0m;
+                decimal multiplier = 0m;
+                decimal baseMultiplier = 0m;
+                int area = 0;
+                int comforts = 0;
+                int security = 0;
+                int areaMaximum = 0;
+                int comfortsMaximum = 0;
+                int securityMaximum = 0;
+                bool numericExact = TryReadOptionalInt(row, "lp", out lp);
+                numericExact &= TryReadOptionalDecimal(row, "cost", out flatCost);
+                numericExact &= TryReadOptionalDecimal(row, "multiplier", out multiplier);
+                numericExact &= TryReadOptionalDecimal(row, "multiplierbaseonly", out baseMultiplier);
+                numericExact &= TryReadOptionalInt(row, "area", out area);
+                numericExact &= TryReadOptionalInt(row, "comforts", out comforts);
+                numericExact &= TryReadOptionalInt(row, "security", out security);
+                numericExact &= TryReadOptionalInt(row, "areamaximum", out areaMaximum);
+                numericExact &= TryReadOptionalInt(row, "comfortsmaximum", out comfortsMaximum);
+                numericExact &= TryReadOptionalInt(row, "securitymaximum", out securityMaximum);
+                bool eligibilityExact = numericExact
+                    && !hasRequirements
+                    && !hasUnboundedPrompt
+                    && !string.IsNullOrWhiteSpace(page);
+                bool selectable = !string.IsNullOrWhiteSpace(name)
+                    && !string.IsNullOrWhiteSpace(qualityType)
+                    && sourceEnabled
+                    && implemented
+                    && !careerOnly
+                    && eligibilityExact;
+                string[] optionBlockers = selectable
+                    ? []
+                    : !sourceEnabled
+                        ? [CharacterCreationLifestylesBlockers.SourceDisabled]
+                        : [CharacterCreationLifestylesBlockers.UnsupportedSemantics];
+                string optionId = $"lifestyle-quality:{sourceId:D}";
+                string anchor = $"lifestyles.xml#quality:{sourceId:D}";
+                var candidate = new CharacterCreationLifestyleQualityCatalogOption(
+                    optionId,
+                    sourceId,
+                    name,
+                    category,
+                    sourceBook,
+                    page,
+                    qualityType,
+                    numericExact ? lp : 0,
+                    numericExact ? flatCost : 0m,
+                    numericExact ? multiplier : 0m,
+                    numericExact ? baseMultiplier : 0m,
+                    numericExact ? area : 0,
+                    numericExact ? comforts : 0,
+                    numericExact ? security : 0,
+                    numericExact ? areaMaximum : 0,
+                    numericExact ? comfortsMaximum : 0,
+                    numericExact ? securityMaximum : 0,
+                    row.Element("allowedfreelifestyles")?.Elements("lifestyle")
+                        .Select(item => item.Value.Trim())
+                        .Where(item => item.Length > 0)
+                        .Distinct(StringComparer.Ordinal)
+                        .OrderBy(item => item, StringComparer.Ordinal)
+                        .ToArray() ?? [],
+                    selectable,
+                    eligibilityExact,
+                    optionBlockers,
+                    [anchor],
+                    string.Empty);
+                qualities.Add(candidate with
+                {
+                    OptionDigest = CharacterCreationLifestylesRules.ComputeQualityOptionDigest(candidate)
+                });
+            }
+
+            Dictionary<string, CharacterCreationLifestyleQualityCatalogOption[]> qualitiesByName = qualities
+                .GroupBy(option => option.Name, StringComparer.Ordinal)
+                .ToDictionary(group => group.Key, group => group.ToArray(), StringComparer.Ordinal);
+            var lifestyles = new List<CharacterCreationLifestyleCatalogOption>();
+            foreach (XElement row in lifestyleRows.OrderBy(
+                         item => ReadValue(item, "id"),
+                         StringComparer.Ordinal))
+            {
+                if (!Guid.TryParse(ReadValue(row, "id"), out Guid sourceId)
+                    || sourceId == Guid.Empty
+                    || row.Element("hide") is not null)
+                {
+                    continue;
+                }
+                string name = ReadValue(row, "name");
+                string sourceBook = ReadValue(row, "source");
+                string page = ReadValue(row, "page");
+                bool sourceEnabled = !string.IsNullOrWhiteSpace(sourceBook)
+                    && _enabledSourcebooks.Contains(sourceBook);
+                decimal cost = 0m;
+                int dice = 0;
+                decimal nuyenMultiplier = 0m;
+                int lp = 0;
+                decimal costForArea = 0m;
+                decimal costForComforts = 0m;
+                decimal costForSecurity = 0m;
+                bool numericExact = TryReadRequiredNonNegativeDecimal(row, "cost", out cost);
+                numericExact &= TryReadRequiredNonNegativeInt(row, "dice", out dice);
+                numericExact &= TryReadRequiredNonNegativeDecimal(row, "multiplier", out nuyenMultiplier);
+                numericExact &= TryReadOptionalNonNegativeInt(row, "lp", out lp);
+                numericExact &= TryReadOptionalNonNegativeDecimal(row, "costforarea", out costForArea);
+                numericExact &= TryReadOptionalNonNegativeDecimal(row, "costforcomforts", out costForComforts);
+                numericExact &= TryReadOptionalNonNegativeDecimal(row, "costforsecurity", out costForSecurity);
+                int baseComfort = 0;
+                int maxComfort = 0;
+                int baseArea = 0;
+                int maxArea = 0;
+                int baseSecurity = 0;
+                int maxSecurity = 0;
+                bool aspectsExact = TryResolveLifestyleAspect(comfortRows, name, out baseComfort, out maxComfort);
+                aspectsExact &= TryResolveLifestyleAspect(areaRows, name, out baseArea, out maxArea);
+                aspectsExact &= TryResolveLifestyleAspect(securityRows, name, out baseSecurity, out maxSecurity);
+                if (!aspectsExact)
+                {
+                    baseComfort = 0;
+                    maxComfort = 0;
+                    baseArea = 0;
+                    maxArea = 0;
+                    baseSecurity = 0;
+                    maxSecurity = 0;
+                    // Hospital and other fixed standard rows have no advanced aspect rows.
+                    aspectsExact = !row.Elements("lp").Any()
+                        || ReadValue(row, "lp") == "0";
+                }
+
+                var builtIns = new List<CharacterCreationLifestyleBuiltInQuality>();
+                bool builtInsExact = true;
+                if (freeGridsEnabled)
+                {
+                    foreach (XElement freeGrid in row.Element("freegrids")?.Elements("freegrid") ?? [])
+                    {
+                        string qualityName = freeGrid.Value.Trim();
+                        string extra = freeGrid.Attribute("select")?.Value.Trim() ?? string.Empty;
+                        if (!qualitiesByName.TryGetValue(
+                                qualityName,
+                                out CharacterCreationLifestyleQualityCatalogOption[]? matches)
+                            || matches.Length != 1)
+                        {
+                            builtInsExact = false;
+                            continue;
+                        }
+                        builtIns.Add(new CharacterCreationLifestyleBuiltInQuality(
+                            matches[0].OptionId,
+                            extra,
+                            matches[0].SourceAnchorIds));
+                    }
+                }
+
+                string increment = ReadValue(row, "increment").ToLowerInvariant() switch
+                {
+                    "day" => CharacterCreationLifestyleIncrementIds.Day,
+                    "week" => CharacterCreationLifestyleIncrementIds.Week,
+                    _ => CharacterCreationLifestyleIncrementIds.Month
+                };
+                bool exact = numericExact
+                    && aspectsExact
+                    && builtInsExact
+                    && !string.IsNullOrWhiteSpace(name)
+                    && !string.IsNullOrWhiteSpace(page);
+                bool selectable = sourceEnabled && exact;
+                string[] optionBlockers = selectable
+                    ? []
+                    : !sourceEnabled
+                        ? [CharacterCreationLifestylesBlockers.SourceDisabled]
+                        : [CharacterCreationLifestylesBlockers.UnsupportedSemantics];
+                string optionId = $"lifestyle:{sourceId:D}";
+                string anchor = $"lifestyles.xml#lifestyle:{sourceId:D}";
+                var candidate = new CharacterCreationLifestyleCatalogOption(
+                    optionId,
+                    sourceId,
+                    name,
+                    numericExact ? cost : 0m,
+                    numericExact ? dice : 0,
+                    numericExact ? nuyenMultiplier : 0m,
+                    numericExact ? lp : 0,
+                    numericExact ? costForArea : 0m,
+                    numericExact ? costForComforts : 0m,
+                    numericExact ? costForSecurity : 0m,
+                    baseArea,
+                    maxArea,
+                    baseComfort,
+                    maxComfort,
+                    baseSecurity,
+                    maxSecurity,
+                    ParseBool(ReadValue(row, "allowbonuslp")),
+                    increment,
+                    sourceBook,
+                    page,
+                    builtIns,
+                    selectable,
+                    exact,
+                    optionBlockers,
+                    [anchor],
+                    string.Empty);
+                lifestyles.Add(candidate with
+                {
+                    OptionDigest = CharacterCreationLifestylesRules.ComputeOptionDigest(candidate)
+                });
+            }
+
+            if (lifestyles.Count == 0 || qualities.Count == 0)
+                blockers.Add(CharacterCreationLifestylesBlockers.AuthorityUnavailable);
+            string gmPolicyDigest = CharacterCreationSkillsDigest.Compute(new
+            {
+                Schema = "chummer.sr5.creation-lifestyles-gm-policy.v1",
+                _settingsProfileId,
+                EnabledBooks = _enabledSourcebooks.OrderBy(item => item, StringComparer.Ordinal).ToArray(),
+                FreeGridsEnabled = freeGridsEnabled,
+                TrustFundLevel = trustFundLevel
+            });
+            string runtimeDigest = CharacterCreationSkillsDigest.Compute(new
+            {
+                CharacterCreationLifestylesSchemas.RuntimeV1,
+                StableOptionIdentity = true,
+                Chummer5CostLayerOrder = true,
+                UnsupportedImprovementPrecedenceFailsClosed = true,
+                AtomicCreateEditDelete = true
+            });
+            string[] normalized = blockers.Distinct(StringComparer.Ordinal)
+                .OrderBy(item => item, StringComparer.Ordinal)
+                .ToArray();
+            var projected = new CharacterCreationLifestylesAuthority(
+                CharacterCreationLifestylesSchemas.AuthorityV1,
+                "sr5",
+                _settingsProfileId,
+                lifestyles,
+                qualities,
+                trustFundLevel,
+                freeGridsEnabled,
+                [
+                    "lifestyles.xml",
+                    $"settings.xml#setting:{_settingsProfileId}",
+                    "character.xml#improvements"
+                ],
+                normalized,
+                normalized.Length == 0,
+                sourceDigest,
+                _rawProfileInputsDigest,
+                gmPolicyDigest,
+                runtimeDigest,
+                string.Empty);
+            authority = projected with
+            {
+                AuthorityDigest = CharacterCreationLifestylesRules.ComputeAuthorityDigest(projected)
+            };
+            return true;
+        }
+
+        private static bool IsCreationImprovementActive(XElement improvement)
+        {
+            string enabledText = ReadValue(improvement, "enabled");
+            bool enabled = enabledText.Length == 0
+                || int.TryParse(
+                    enabledText,
+                    NumberStyles.Integer,
+                    CultureInfo.InvariantCulture,
+                    out int parsed) && parsed > 0;
+            string condition = ReadValue(improvement, "condition");
+            return enabled && (condition.Length == 0
+                || string.Equals(condition, "create", StringComparison.Ordinal)
+                || string.Equals(condition, "once", StringComparison.Ordinal));
+        }
+
+        private static string ResolveLifestyleQualityType(string category) =>
+            category switch
+            {
+                "Positive" => CharacterCreationLifestyleQualityTypes.Positive,
+                "Negative" => CharacterCreationLifestyleQualityTypes.Negative,
+                "Contracts" => CharacterCreationLifestyleQualityTypes.Contracts,
+                _ when category.StartsWith("Entertainment", StringComparison.Ordinal) =>
+                    CharacterCreationLifestyleQualityTypes.Entertainment,
+                _ => string.Empty
+            };
+
+        private static bool TryReadOptionalInt(XElement row, string name, out int value)
+        {
+            string text = ReadValue(row, name);
+            if (text.Length == 0)
+            {
+                value = 0;
+                return true;
+            }
+            return int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out value);
+        }
+
+        private static bool TryReadOptionalDecimal(XElement row, string name, out decimal value)
+        {
+            string text = ReadValue(row, name);
+            if (text.Length == 0)
+            {
+                value = 0m;
+                return true;
+            }
+            return decimal.TryParse(text, NumberStyles.Number, CultureInfo.InvariantCulture, out value);
+        }
+
+        private static bool TryReadRequiredNonNegativeInt(XElement row, string name, out int value) =>
+            int.TryParse(
+                ReadValue(row, name),
+                NumberStyles.Integer,
+                CultureInfo.InvariantCulture,
+                out value)
+            && value >= 0;
+
+        private static bool TryReadRequiredNonNegativeDecimal(
+            XElement row,
+            string name,
+            out decimal value) =>
+            decimal.TryParse(
+                ReadValue(row, name),
+                NumberStyles.Number,
+                CultureInfo.InvariantCulture,
+                out value)
+            && value >= 0m;
+
+        private static bool TryReadOptionalNonNegativeInt(XElement row, string name, out int value) =>
+            TryReadOptionalInt(row, name, out value) && value >= 0;
+
+        private static bool TryReadOptionalNonNegativeDecimal(
+            XElement row,
+            string name,
+            out decimal value) =>
+            TryReadOptionalDecimal(row, name, out value) && value >= 0m;
+
+        private static bool TryResolveLifestyleAspect(
+            IReadOnlyList<XElement> rows,
+            string name,
+            out int minimum,
+            out int maximum)
+        {
+            minimum = 0;
+            maximum = 0;
+            XElement[] matches = rows.Where(row => string.Equals(
+                    ReadValue(row, "name"),
+                    name,
+                    StringComparison.Ordinal))
+                .Take(2)
+                .ToArray();
+            return matches.Length == 1
+                && TryReadRequiredNonNegativeInt(matches[0], "minimum", out minimum)
+                && TryReadRequiredNonNegativeInt(matches[0], "limit", out maximum)
+                && maximum >= minimum;
+        }
+
 
         public bool TryResolveCreationMagicResonanceAuthority(
             out CharacterCreationMagicResonanceAuthority authority)

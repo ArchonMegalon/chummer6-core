@@ -101,6 +101,18 @@ public interface ICharacterSourceDataContext
     }
 
     /// <summary>
+    /// Resolves the exact enabled SR5 lifestyle and lifestyle-quality catalog for the
+    /// saved creation profile. False means the Contacts/Lifestyles step must expose no
+    /// mutation route; callers may not substitute labels, prices, or unfiltered XML rows.
+    /// </summary>
+    bool TryResolveCreationLifestylesAuthority(
+        out CharacterCreationLifestylesAuthority authority)
+    {
+        authority = CharacterCreationLifestylesAuthority.Unavailable;
+        return false;
+    }
+
+    /// <summary>
     /// Resolves the exact SR5 Standard Priority Talent, tradition, stream, adept-power,
     /// spell, and complex-form catalogs from the saved profile and effective overlays.
     /// Missing or unsupported source semantics must leave the step unavailable.

@@ -1577,6 +1577,13 @@ public sealed class FileWorkspaceStore :
                 workspaceId,
                 currentContentRevision,
                 contactReceipts);
+        IReadOnlyList<CharacterCreationLifestyleReceiptLedgerEntry>? lifestyleReceipts =
+            state.CharacterCreationLifestyleReceipts;
+        bool lifestyleReceiptsValid = lifestyleReceipts is null
+            || CharacterCreationLifestyleReceiptLedgerIntegrity.IsValidLedger(
+                workspaceId,
+                currentContentRevision,
+                lifestyleReceipts);
         IReadOnlyList<CharacterAfterRunSettlementReceiptLedgerEntry>? afterRunReceipts =
             state.CharacterAfterRunSettlementReceipts;
         bool afterRunReceiptsValid = afterRunReceipts is null
@@ -1594,6 +1601,7 @@ public sealed class FileWorkspaceStore :
                && skillsValid
                && magicResonanceValid
                && contactReceiptsValid
+               && lifestyleReceiptsValid
                && afterRunReceiptsValid
                && bootstrapValid;
     }
@@ -1645,6 +1653,10 @@ public sealed class FileWorkspaceStore :
             replacementState.CharacterCreationContactReceipts;
         IReadOnlyList<CharacterCreationContactReceiptLedgerEntry>? currentContactReceipts =
             currentState.CharacterCreationContactReceipts;
+        IReadOnlyList<CharacterCreationLifestyleReceiptLedgerEntry>? replacementLifestyleReceipts =
+            replacementState.CharacterCreationLifestyleReceipts;
+        IReadOnlyList<CharacterCreationLifestyleReceiptLedgerEntry>? currentLifestyleReceipts =
+            currentState.CharacterCreationLifestyleReceipts;
         CharacterCreationQualitiesDraft? replacementQualities =
             replacementState.CharacterCreationQualitiesDraft;
         CharacterCreationQualitiesDraft? currentQualities =
@@ -1684,6 +1696,9 @@ public sealed class FileWorkspaceStore :
         bool contactReceiptsUnchanged = HasSameContactReceiptLedger(
             currentContactReceipts,
             replacementContactReceipts);
+        bool lifestyleReceiptsUnchanged = HasSameLifestyleReceiptLedger(
+            currentLifestyleReceipts,
+            replacementLifestyleReceipts);
         bool qualitiesUnchanged = HasSameQualitiesLane(
             currentQualities,
             currentQualityReceipts,
@@ -1701,6 +1716,7 @@ public sealed class FileWorkspaceStore :
                                + (skillsUnchanged ? 0 : 1)
                                + (magicResonanceUnchanged ? 0 : 1)
                                + (contactReceiptsUnchanged ? 0 : 1)
+                               + (lifestyleReceiptsUnchanged ? 0 : 1)
                                + (qualitiesUnchanged ? 0 : 1)
                                + (afterRunReceiptsUnchanged ? 0 : 1)
                                + (bootstrapUnchanged ? 0 : 1);
@@ -1780,6 +1796,21 @@ public sealed class FileWorkspaceStore :
                     replacementAfterRunReceipts,
                     currentDocument.Content,
                     replacementDocument.Content);
+        }
+        if (!lifestyleReceiptsUnchanged)
+        {
+            return CharacterCreationLifestyleReceiptLedgerIntegrity.IsValidAppendTransition(
+                       workspaceId,
+                       previousContentRevision,
+                       previousSavedRevision,
+                       nextContentRevision,
+                       currentLifestyleReceipts,
+                       replacementLifestyleReceipts)
+                   && replacementLifestyleReceipts is { Count: > 0 }
+                   && CharacterCreationLifestyleReceiptLedgerIntegrity.HasValidContentTransition(
+                       replacementLifestyleReceipts[^1],
+                       currentDocument,
+                       replacementDocument);
         }
         return CharacterCreationContactReceiptLedgerIntegrity.IsValidAppendTransition(
                    workspaceId,
@@ -2052,6 +2083,18 @@ public sealed class FileWorkspaceStore :
             WorkspaceDocumentAuxiliaryStateDigest.Compute(
                 new WorkspaceDocumentAuxiliaryState(
                     CharacterCreationContactReceipts: right)),
+            StringComparison.Ordinal);
+
+    private static bool HasSameLifestyleReceiptLedger(
+        IReadOnlyList<CharacterCreationLifestyleReceiptLedgerEntry>? left,
+        IReadOnlyList<CharacterCreationLifestyleReceiptLedgerEntry>? right) =>
+        string.Equals(
+            WorkspaceDocumentAuxiliaryStateDigest.Compute(
+                new WorkspaceDocumentAuxiliaryState(
+                    CharacterCreationLifestyleReceipts: left)),
+            WorkspaceDocumentAuxiliaryStateDigest.Compute(
+                new WorkspaceDocumentAuxiliaryState(
+                    CharacterCreationLifestyleReceipts: right)),
             StringComparison.Ordinal);
 
     private static bool HasSameQualitiesLane(
