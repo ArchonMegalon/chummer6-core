@@ -1709,6 +1709,8 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 }
                 string sourceSkillId = parsedId.ToString("D");
                 string[] sourceAnchors = [$"skills.xml#skill:{parsedId:D}"];
+                bool canBeNativeLanguage =
+                    CharacterCreationStandardPrioritySkillsRules.CanBeNativeLanguage(kind, category);
                 projected.Add(new CharacterCreationSkillCatalogEntry(
                     SourceSkillId: sourceSkillId,
                     Kind: kind,
@@ -1732,7 +1734,8 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                         ignoresSourceDisabled,
                         requiresGroundMovement,
                         requiresSwimMovement,
-                        requiresFlyMovement),
+                        requiresFlyMovement,
+                        canBeNativeLanguage),
                     Specializations: specializations,
                     SourceAnchorIds: sourceAnchors)
                 {
@@ -1740,7 +1743,8 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                     IgnoresSourceDisabled = ignoresSourceDisabled,
                     RequiresGroundMovement = requiresGroundMovement,
                     RequiresSwimMovement = requiresSwimMovement,
-                    RequiresFlyMovement = requiresFlyMovement
+                    RequiresFlyMovement = requiresFlyMovement,
+                    CanBeNativeLanguage = canBeNativeLanguage
                 });
             }
 

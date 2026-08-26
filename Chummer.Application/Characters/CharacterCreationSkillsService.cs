@@ -575,8 +575,7 @@ public sealed class CharacterCreationSkillsService : ICharacterCreationSkillsSer
             if (allocation.IsNativeLanguage)
             {
                 nativeCount++;
-                if (allocation.Kind != CharacterCreationSkillKinds.Knowledge
-                    || !string.Equals(source?.Category, "Language", StringComparison.Ordinal)
+                if (source?.CanBeNativeLanguage != true
                     || allocation.Rating is not null
                     || allocation.SpecializationOptionId is not null)
                     local.Add(CharacterCreationSkillsBlockers.NativeLanguageInvalid);

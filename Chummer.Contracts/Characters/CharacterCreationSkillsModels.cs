@@ -9,6 +9,7 @@ namespace Chummer.Contracts.Characters;
 public static class CharacterCreationSkillsSchemas
 {
     public const string AuthorityV1 = "chummer.character_creation_skills_authority.v1";
+    public const string CatalogProjectionV2 = "chummer.sr5.creation-skill-catalog-projection.v2";
     public const string SnapshotV1 = "chummer.character_creation_skills_snapshot.v1";
     public const string PreviewV1 = "chummer.character_creation_skills_preview.v1";
     public const string DraftV1 = "chummer.character_creation_skills_draft.v1";
@@ -45,6 +46,14 @@ public static class CharacterCreationStandardPrioritySkillsRules
         _ => false
     };
 
+    /// <summary>
+    /// SR5 native-language eligibility is a rules identity, not a localized UI label.
+    /// Clients consume the projected capability and never infer it from Category.
+    /// </summary>
+    public static bool CanBeNativeLanguage(string? kind, string? category) =>
+        string.Equals(kind, CharacterCreationSkillKinds.Knowledge, StringComparison.Ordinal)
+        && string.Equals(category, "Language", StringComparison.Ordinal);
+
     public static string ComputeCatalogProjectionDigest(
         string effectiveSkillsInputsDigest,
         string sourceSkillId,
@@ -60,9 +69,10 @@ public static class CharacterCreationStandardPrioritySkillsRules
         bool ignoresSourceDisabled = false,
         bool requiresGroundMovement = false,
         bool requiresSwimMovement = false,
-        bool requiresFlyMovement = false) => CharacterCreationSkillsDigest.Compute(new
+        bool requiresFlyMovement = false,
+        bool canBeNativeLanguage = false) => CharacterCreationSkillsDigest.Compute(new
         {
-            Schema = "chummer.sr5.creation-skill-catalog-projection.v1",
+            Schema = CharacterCreationSkillsSchemas.CatalogProjectionV2,
             EffectiveSkillsInputsDigest = effectiveSkillsInputsDigest,
             SourceSkillId = sourceSkillId,
             Kind = kind,
@@ -76,6 +86,7 @@ public static class CharacterCreationStandardPrioritySkillsRules
             RequiresGroundMovement = requiresGroundMovement,
             RequiresSwimMovement = requiresSwimMovement,
             RequiresFlyMovement = requiresFlyMovement,
+            CanBeNativeLanguage = canBeNativeLanguage,
             Specializations = specializations.ToArray(),
             SourceAnchorIds = sourceAnchorIds.ToArray()
         });
@@ -210,6 +221,8 @@ public sealed record CharacterCreationSkillCatalogEntry(
     public bool RequiresSwimMovement { get; init; }
 
     public bool RequiresFlyMovement { get; init; }
+
+    public bool CanBeNativeLanguage { get; init; }
 }
 
 public sealed record CharacterCreationMovementCapability(

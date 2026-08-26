@@ -311,6 +311,10 @@ public static class CharacterCreationSkillsDraftIntegrity
            && IsCanonicalLabel(skill.DefaultAttribute)
            && (skill.SkillGroup is null || IsCanonicalLabel(skill.SkillGroup))
            && CharacterCreationStandardPrioritySkillsRules.IsSupportedCategory(skill.Kind, skill.Category)
+           && skill.CanBeNativeLanguage
+                == CharacterCreationStandardPrioritySkillsRules.CanBeNativeLanguage(
+                    skill.Kind,
+                    skill.Category)
            && CharacterCreationStandardPrioritySkillsRules.IsSupportedAttribute(skill.DefaultAttribute)
            && CharacterCreationSkillsDigest.IsCanonical(skill.SourceNodeDigest)
            && skill.Specializations is not null
@@ -345,7 +349,8 @@ public static class CharacterCreationSkillsDraftIntegrity
                    skill.IgnoresSourceDisabled,
                    skill.RequiresGroundMovement,
                    skill.RequiresSwimMovement,
-                   skill.RequiresFlyMovement));
+                   skill.RequiresFlyMovement,
+                   skill.CanBeNativeLanguage));
 
     private static bool IsValidGroup(
         CharacterCreationSkillGroupCatalogEntry group,

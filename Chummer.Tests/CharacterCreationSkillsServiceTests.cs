@@ -746,6 +746,34 @@ public sealed class CharacterCreationSkillsServiceTests
         };
     }
 
+    [TestMethod]
+    public void Authority_rejects_forged_native_language_capability()
+    {
+        CharacterCreationSkillsAuthority authority = CreateSkillsAuthority();
+        CharacterCreationSkillCatalogEntry language = authority.KnowledgeSkills.Single(skill =>
+            skill.SourceSkillId == LanguageId);
+        CharacterCreationSkillCatalogEntry hiddenLanguageIdentity = SealCatalog(
+            language with { CanBeNativeLanguage = false },
+            authority.EffectiveSkillsInputsDigest);
+        CharacterCreationSkillsAuthority missingCapability = Reseal(authority with
+        {
+            KnowledgeSkills = authority.KnowledgeSkills.Select(skill =>
+                skill.SourceSkillId == LanguageId ? hiddenLanguageIdentity : skill).ToArray()
+        });
+        Assert.IsFalse(CharacterCreationSkillsDraftIntegrity.IsValidAuthority(missingCapability));
+
+        CharacterCreationSkillCatalogEntry active = authority.ActiveSkills[0];
+        CharacterCreationSkillCatalogEntry forgedActive = SealCatalog(
+            active with { CanBeNativeLanguage = true },
+            authority.EffectiveSkillsInputsDigest);
+        CharacterCreationSkillsAuthority widenedCapability = Reseal(authority with
+        {
+            ActiveSkills = authority.ActiveSkills.Select(skill =>
+                skill.SourceSkillId == active.SourceSkillId ? forgedActive : skill).ToArray()
+        });
+        Assert.IsFalse(CharacterCreationSkillsDraftIntegrity.IsValidAuthority(widenedCapability));
+    }
+
     private static CharacterCreationSkillsAuthority CreateSkillsAuthority(
         CharacterCreationPrerequisiteAuthority? prerequisite = null)
     {
@@ -767,8 +795,20 @@ public sealed class CharacterCreationSkillsServiceTests
             .. KnowledgeIds.Select((id, index) => new CharacterCreationSkillCatalogEntry(
                 id, CharacterCreationSkillKinds.Knowledge, $"Knowledge {index}", "Academic", "LOG", null,
                 false, CharacterCreationSkillsDigest.ComputeUtf8($"knowledge-{index}"), [], [$"skills.xml#skill:{id}"])),
-            new(LanguageId, CharacterCreationSkillKinds.Knowledge, "English", "Language", "INT", null,
-                false, CharacterCreationSkillsDigest.ComputeUtf8("language"), [], [$"skills.xml#skill:{LanguageId}"])
+            new CharacterCreationSkillCatalogEntry(
+                LanguageId,
+                CharacterCreationSkillKinds.Knowledge,
+                "English",
+                "Language",
+                "INT",
+                null,
+                false,
+                CharacterCreationSkillsDigest.ComputeUtf8("language"),
+                [],
+                [$"skills.xml#skill:{LanguageId}"])
+            {
+                CanBeNativeLanguage = true
+            }
         ];
         knowledge = knowledge.OrderBy(skill => skill.Name, StringComparer.Ordinal)
             .ThenBy(skill => skill.SourceSkillId, StringComparer.Ordinal).ToArray();
@@ -833,7 +873,8 @@ public sealed class CharacterCreationSkillsServiceTests
             skill.IgnoresSourceDisabled,
             skill.RequiresGroundMovement,
             skill.RequiresSwimMovement,
-            skill.RequiresFlyMovement)
+            skill.RequiresFlyMovement,
+            skill.CanBeNativeLanguage)
     };
 
     private static CharacterCreationAttributesServiceTests.StubSourceResolver CreateResolver(
