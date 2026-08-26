@@ -46,27 +46,29 @@ public static class CharacterCreationBootstrapProfiles
     public const string LifeModulesSettingsProfileId =
         "8a31af6d-7137-4284-872b-7d8087e156c6";
 
-    public static bool IsExactCanonicalTuple(string? buildMethod, string? settingsProfileId)
-        => buildMethod switch
+    /// <summary>
+    /// Resolves the one canonical settings profile that Core permits for a
+    /// supported SR5 creation method. Presentation callers must use this
+    /// mapping instead of copying profile identifiers into a UI repository.
+    /// </summary>
+    public static bool TryResolveCanonicalSettingsProfileId(
+        string? buildMethod,
+        out string settingsProfileId)
+    {
+        settingsProfileId = buildMethod switch
         {
-            CharacterCreationBuildMethods.Priority => string.Equals(
-                settingsProfileId,
-                PrioritySettingsProfileId,
-                StringComparison.Ordinal),
-            CharacterCreationBuildMethods.SumToTen => string.Equals(
-                settingsProfileId,
-                SumToTenSettingsProfileId,
-                StringComparison.Ordinal),
-            CharacterCreationBuildMethods.Karma => string.Equals(
-                settingsProfileId,
-                KarmaSettingsProfileId,
-                StringComparison.Ordinal),
-            CharacterCreationBuildMethods.LifeModules => string.Equals(
-                settingsProfileId,
-                LifeModulesSettingsProfileId,
-                StringComparison.Ordinal),
-            _ => false
+            CharacterCreationBuildMethods.Priority => PrioritySettingsProfileId,
+            CharacterCreationBuildMethods.SumToTen => SumToTenSettingsProfileId,
+            CharacterCreationBuildMethods.Karma => KarmaSettingsProfileId,
+            CharacterCreationBuildMethods.LifeModules => LifeModulesSettingsProfileId,
+            _ => string.Empty
         };
+        return settingsProfileId.Length != 0;
+    }
+
+    public static bool IsExactCanonicalTuple(string? buildMethod, string? settingsProfileId)
+        => TryResolveCanonicalSettingsProfileId(buildMethod, out string expected)
+           && string.Equals(settingsProfileId, expected, StringComparison.Ordinal);
 
     public static string[] ExpectedSourceAnchorIds(
         string buildMethod,

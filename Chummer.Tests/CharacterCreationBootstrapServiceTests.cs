@@ -26,6 +26,29 @@ public sealed class CharacterCreationBootstrapServiceTests
     private const string CanonicalLifeModulesSettingsId =
         CharacterCreationBootstrapProfiles.LifeModulesSettingsProfileId;
 
+    [DataTestMethod]
+    [DataRow(CharacterCreationBuildMethods.Priority, CanonicalPrioritySettingsId)]
+    [DataRow(CharacterCreationBuildMethods.SumToTen, CanonicalSumToTenSettingsId)]
+    [DataRow(CharacterCreationBuildMethods.Karma, CanonicalKarmaSettingsId)]
+    [DataRow(CharacterCreationBuildMethods.LifeModules, CanonicalLifeModulesSettingsId)]
+    public void Canonical_profile_resolution_is_the_single_source_of_method_tuple_truth(
+        string buildMethod,
+        string expectedSettingsProfileId)
+    {
+        Assert.IsTrue(CharacterCreationBootstrapProfiles.TryResolveCanonicalSettingsProfileId(
+            buildMethod,
+            out string settingsProfileId));
+        Assert.AreEqual(expectedSettingsProfileId, settingsProfileId);
+        Assert.IsTrue(CharacterCreationBootstrapProfiles.IsExactCanonicalTuple(
+            buildMethod,
+            settingsProfileId));
+
+        Assert.IsFalse(CharacterCreationBootstrapProfiles.TryResolveCanonicalSettingsProfileId(
+            buildMethod.ToLowerInvariant(),
+            out string unsupportedProfileId));
+        Assert.AreEqual(string.Empty, unsupportedProfileId);
+    }
+
     [TestMethod]
     public void Generic_character_validation_remains_strict_for_marker_bearing_xml()
     {
