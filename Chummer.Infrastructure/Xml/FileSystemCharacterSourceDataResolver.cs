@@ -1707,6 +1707,84 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             return true;
         }
 
+
+        public bool TryResolveCreationMagicResonanceAuthority(
+            out CharacterCreationMagicResonanceAuthority authority)
+        {
+            authority = CharacterCreationMagicResonanceAuthority.Unavailable;
+            if (!TryResolveCreationPrerequisiteAuthority(out CharacterCreationPrerequisiteAuthority prerequisite)
+                || !string.Equals(prerequisite.BuildMethod, CharacterCreationBuildMethods.Priority, StringComparison.Ordinal)
+                || !string.Equals(prerequisite.PriorityTable, "Standard", StringComparison.Ordinal)
+                || !TryComputeEffectiveInputDigest(_catalog, "priorities.xml", out string prioritiesDigest)
+                || !TryComputeEffectiveInputDigest(_catalog, "metatypes.xml", out string metatypesDigest)
+                || !TryComputeEffectiveInputDigest(_catalog, "traditions.xml", out string traditionsDigest)
+                || !TryComputeEffectiveInputDigest(_catalog, "streams.xml", out string streamsDigest)
+                || !TryComputeEffectiveInputDigest(_catalog, "powers.xml", out string powersDigest)
+                || !TryComputeEffectiveInputDigest(_catalog, "spells.xml", out string spellsDigest)
+                || !TryComputeEffectiveInputDigest(_catalog, "complexforms.xml", out string complexFormsDigest)
+                || !TryComputeSelectedCustomDataInputsDigest(
+                    _customDirectories, out string customDataInputsDigest)
+                || !TryEnumerateTargets("metatypes.xml", ["metatypes"], "metatype", out XElement[] metatypes)
+                || !TryEnumerateTargets("traditions.xml", ["traditions"], "tradition", out XElement[] traditions)
+                || !TryEnumerateTargets("streams.xml", ["traditions"], "tradition", out XElement[] streams)
+                || !TryEnumerateTargets("powers.xml", ["powers"], "power", out XElement[] powers)
+                || !TryEnumerateTargets("spells.xml", ["spells"], "spell", out XElement[] spells)
+                || !TryEnumerateTargets("complexforms.xml", ["complexforms"], "complexform", out XElement[] forms))
+            {
+                return false;
+            }
+
+            var blockers = new List<string>();
+            if (!CharacterCreationMagicResonanceDigest.EqualsFixedTime(
+                    prioritiesDigest, _effectivePrioritiesInputsDigest)
+                || !CharacterCreationMagicResonanceDigest.EqualsFixedTime(
+                    metatypesDigest, _effectiveMetatypesInputsDigest))
+            {
+                blockers.Add(CharacterCreationMagicResonanceBlockers.SourceDrift);
+            }
+            if (!CharacterCreationMagicResonanceDigest.EqualsFixedTime(
+                    customDataInputsDigest, _selectedCustomDataInputsDigest))
+            {
+                blockers.Add(CharacterCreationMagicResonanceBlockers.CustomDataDrift);
+            }
+            if (prerequisite.Blockers.Count != 0 || !prerequisite.IsAuthoritative)
+                blockers.Add(CharacterCreationMagicResonanceBlockers.PrerequisiteSourceDrift);
+
+            var projectionContext = new CharacterCreationMagicResonanceProjectionContext(
+                _settingsProfileId,
+                prerequisite,
+                prioritiesDigest,
+                metatypesDigest,
+                traditionsDigest,
+                streamsDigest,
+                powersDigest,
+                spellsDigest,
+                complexFormsDigest,
+                customDataInputsDigest,
+                _enabledSourcebooks.OrderBy(item => item, StringComparer.OrdinalIgnoreCase).ToArray(),
+                [
+                    $"settings.xml#setting:{_settingsProfileId}",
+                    "priorities.xml#category:Talent",
+                    "metatypes.xml",
+                    "traditions.xml",
+                    "streams.xml",
+                    "powers.xml",
+                    "spells.xml",
+                    "complexforms.xml",
+                    .. _customDirectories.Select(directory => $"customdata:{directory.Name}")
+                ],
+                blockers);
+            authority = CharacterCreationMagicResonanceAuthorityProjector.Project(
+                metatypes,
+                traditions,
+                streams,
+                powers,
+                spells,
+                forms,
+                projectionContext);
+            return true;
+        }
+
         /// <summary>
         /// Projects only the exact unconditional FreeKnowledgeSkills subset used by
         /// Chummer5's ValueOf path. Unsupported precedence, custom, conditional, or

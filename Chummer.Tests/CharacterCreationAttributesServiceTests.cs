@@ -331,30 +331,36 @@ public sealed class CharacterCreationAttributesServiceTests
     {
         private readonly CharacterCreationPrerequisiteAuthority _authority;
         private readonly CharacterCreationSkillsAuthority? _skillsAuthority;
+        private readonly CharacterCreationMagicResonanceAuthority? _magicResonanceAuthority;
 
         public StubSourceResolver(
             CharacterCreationPrerequisiteAuthority authority,
-            CharacterCreationSkillsAuthority? skillsAuthority = null)
+            CharacterCreationSkillsAuthority? skillsAuthority = null,
+            CharacterCreationMagicResonanceAuthority? magicResonanceAuthority = null)
         {
             _authority = authority;
             _skillsAuthority = skillsAuthority;
+            _magicResonanceAuthority = magicResonanceAuthority;
         }
 
         public ICharacterSourceDataContext TryCreateContext(string characterXml) =>
-            new StubSourceContext(_authority, _skillsAuthority);
+            new StubSourceContext(_authority, _skillsAuthority, _magicResonanceAuthority);
     }
 
     internal sealed class StubSourceContext : ICharacterSourceDataContext
     {
         private readonly CharacterCreationPrerequisiteAuthority _authority;
         private readonly CharacterCreationSkillsAuthority? _skillsAuthority;
+        private readonly CharacterCreationMagicResonanceAuthority? _magicResonanceAuthority;
 
         public StubSourceContext(
             CharacterCreationPrerequisiteAuthority authority,
-            CharacterCreationSkillsAuthority? skillsAuthority = null)
+            CharacterCreationSkillsAuthority? skillsAuthority = null,
+            CharacterCreationMagicResonanceAuthority? magicResonanceAuthority = null)
         {
             _authority = authority;
             _skillsAuthority = skillsAuthority;
+            _magicResonanceAuthority = magicResonanceAuthority;
         }
 
         public bool TryResolveCreationPrerequisiteAuthority(
@@ -368,6 +374,13 @@ public sealed class CharacterCreationAttributesServiceTests
         {
             authority = _skillsAuthority ?? CharacterCreationSkillsAuthority.Unavailable;
             return _skillsAuthority is not null;
+        }
+
+        public bool TryResolveCreationMagicResonanceAuthority(
+            out CharacterCreationMagicResonanceAuthority authority)
+        {
+            authority = _magicResonanceAuthority ?? CharacterCreationMagicResonanceAuthority.Unavailable;
+            return _magicResonanceAuthority is not null;
         }
 
         public bool TryResolveCyberwareGradeDeviceRating(

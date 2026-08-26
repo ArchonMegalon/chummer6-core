@@ -191,6 +191,8 @@ public static class ServiceCollectionExtensions
             CharacterCreationSkillsService>();
         services.AddSingleton<ICharacterCreationQualitiesService,
             CharacterCreationQualitiesService>();
+        services.AddSingleton<ICharacterCreationMagicResonanceService,
+            CharacterCreationMagicResonanceService>();
         services.AddSingleton<ICharacterCreationContactsService,
             CharacterCreationContactsService>();
         services.TryAddSingleton<ICharacterCareerSkillGroupAdvanceWorkspace,

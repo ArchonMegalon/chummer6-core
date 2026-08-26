@@ -1257,18 +1257,9 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
             string[] qualities = talent.Element("qualities")?.Elements("quality")
                 .Select(element => element.Value.Trim())
                 .ToArray() ?? [];
-            bool exactMundane = string.Equals(name, "Mundane", StringComparison.Ordinal)
-                                && string.Equals(value, "Mundane", StringComparison.Ordinal)
-                                && specialPoints == 0
-                                && magic is null
-                                && resonance is null
-                                && depth is null
-                                && qualities.Length == 0
-                                && HasExactMundaneRestriction(talent)
-                                && talent.Elements().All(element =>
-                                    element.Name.NamespaceName.Length == 0
-                                    && (element.Name.LocalName is "name" or "value" or "forbidden"));
-            string[] blockers = exactMundane
+            bool exactSupportedTalent = IsExactSupportedTalentWithoutGrant(
+                talent, name, value, specialPoints, magic, resonance, depth, qualities);
+            string[] blockers = exactSupportedTalent
                 ? []
                 : [CharacterCreationPrerequisiteBlockers.TalentSelectionUnsupported];
             string selectionId = $"{prioritySourceId}:talent:{order}";
@@ -1283,7 +1274,7 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
                 depth,
                 qualities,
                 CharacterCreationTalentGrantAuthorityDigest.ComputeRawTalentNode(rawTalentNode),
-                IsEnabled: exactMundane,
+                IsEnabled: exactSupportedTalent,
                 Blockers: blockers,
                 SourceAnchorIds: [$"priorities.xml#priority:{prioritySourceId}:talent:{order}"])
             {
@@ -1364,6 +1355,72 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
                && oneOf[0].Elements().Count() == 1
                && TryReadNormalizedScalar(oneOf[0], "metatype", out string metatype)
                && string.Equals(metatype, "A.I.", StringComparison.Ordinal);
+    }
+
+    private static bool IsExactSupportedTalentWithoutGrant(
+        XElement talent,
+        string name,
+        string value,
+        int specialPoints,
+        int? magic,
+        int? resonance,
+        int? depth,
+        IReadOnlyList<string> qualities)
+    {
+        if (talent.Elements("skillqty").Any()
+            || talent.Elements("skillgroupqty").Any()
+            || talent.Elements("skillchoices").Any()
+            || talent.Elements("skillgroupchoices").Any())
+            return false;
+        if (specialPoints < 0
+            || qualities.Any(string.IsNullOrWhiteSpace)
+            || !HasExactTalentRestriction(talent.Element("required"), allowCategory: true)
+            || !HasExactTalentRestriction(talent.Element("forbidden"), allowCategory: false))
+            return false;
+
+        bool supportedIdentity = value switch
+        {
+            "Mundane" => string.Equals(name, "Mundane", StringComparison.Ordinal)
+                         && magic is null && resonance is null && depth is null
+                         && qualities.Count == 0 && HasExactMundaneRestriction(talent),
+            "Adept" => magic > 0 && resonance is null && depth is null,
+            "Magician" or "Mystic Adept" or "Aspected Magician" =>
+                magic > 0 && resonance is null && depth is null,
+            "Technomancer" => resonance > 0 && magic is null && depth is null,
+            // Depth creation remains a separate Matrix/AI authority. Do not make
+            // the prerequisite step imply support merely because the source row is exact.
+            "A.I." => false,
+            _ => false
+        };
+        if (!supportedIdentity)
+            return false;
+
+        string[] knownFields =
+        [
+            "name", "value", "qualities", "specialattribpoints", "magic", "resonance",
+            "depth", "spells", "cfp", "required", "forbidden"
+        ];
+        return talent.Elements().All(element =>
+            element.Name.NamespaceName.Length == 0
+            && knownFields.Contains(element.Name.LocalName, StringComparer.Ordinal));
+    }
+
+    private static bool HasExactTalentRestriction(XElement? restriction, bool allowCategory)
+    {
+        if (restriction is null)
+            return true;
+        XElement[] oneOf = restriction.Elements("oneof").Take(2).ToArray();
+        return !restriction.HasAttributes
+               && oneOf.Length == 1
+               && !oneOf[0].HasAttributes
+               && oneOf[0].Elements().Any()
+               && oneOf[0].Elements().All(element =>
+                   !element.HasAttributes
+                   && !element.HasElements
+                   && !string.IsNullOrWhiteSpace(element.Value)
+                   && (string.Equals(element.Name.LocalName, "metatype", StringComparison.Ordinal)
+                       || allowCategory
+                          && string.Equals(element.Name.LocalName, "metatypecategory", StringComparison.Ordinal)));
     }
 
     private static readonly (string Id, string Prefix)[] s_AttributeFields =

@@ -1525,6 +1525,51 @@ public sealed class FileWorkspaceStore :
               && CharacterCreationSkillsDigest.EqualsFixedTime(
                   skillReceipts[^1].RuntimeDigest,
                   skills.RuntimeDigest);
+        CharacterCreationMagicResonanceDraft? magicResonance =
+            state.CharacterCreationMagicResonanceDraft;
+        IReadOnlyList<CharacterCreationMagicResonanceReceipt>? magicResonanceReceipts =
+            state.CharacterCreationMagicResonanceReceipts;
+        bool magicResonanceValid = magicResonance is null
+            ? magicResonanceReceipts is null
+            : magicResonanceReceipts is { Count: > 0 }
+              && CharacterCreationMagicResonanceDigest.IsCanonical(magicResonance.DraftDigest)
+              && CharacterCreationMagicResonanceDraftIntegrity.IsValidReceiptLedger(
+                  magicResonanceReceipts,
+                  workspaceId,
+                  currentContentRevision)
+              && magicResonanceReceipts[^1].DraftRevision == magicResonance.DraftRevision
+              && CharacterCreationMagicResonanceDigest.EqualsFixedTime(
+                  magicResonanceReceipts[^1].DraftDigest, magicResonance.DraftDigest)
+              && CharacterCreationMagicResonanceDigest.EqualsFixedTime(
+                  magicResonanceReceipts[^1].IdempotencyKeyDigest,
+                  magicResonance.LastIdempotencyKeyDigest)
+              && CharacterCreationMagicResonanceDigest.EqualsFixedTime(
+                  magicResonanceReceipts[^1].PreviewDigest,
+                  magicResonance.LastPreviewDigest)
+              && CharacterCreationMagicResonanceDigest.EqualsFixedTime(
+                  magicResonanceReceipts[^1].CommandDigest,
+                  magicResonance.LastCommandDigest)
+              && CharacterCreationMagicResonanceDigest.EqualsFixedTime(
+                  magicResonanceReceipts[^1].AuthorityDigest,
+                  magicResonance.AuthorityDigest)
+              && CharacterCreationMagicResonanceDigest.EqualsFixedTime(
+                  magicResonanceReceipts[^1].SourceInputsDigest,
+                  magicResonance.SourceInputsDigest)
+              && CharacterCreationMagicResonanceDigest.EqualsFixedTime(
+                  magicResonanceReceipts[^1].CustomDataInputsDigest,
+                  magicResonance.CustomDataInputsDigest)
+              && CharacterCreationMagicResonanceDigest.EqualsFixedTime(
+                  magicResonanceReceipts[^1].GmPolicyDigest,
+                  magicResonance.GmPolicyDigest)
+              && CharacterCreationMagicResonanceDigest.EqualsFixedTime(
+                  magicResonanceReceipts[^1].RuntimeDigest,
+                  magicResonance.RuntimeDigest)
+              && magicResonanceReceipts[^1].AdeptPowerPointsRemaining
+                  == magicResonance.AdeptPowerPointBudget.Remaining
+              && magicResonanceReceipts[^1].SpellsRemaining
+                  == magicResonance.SpellBudget.Remaining
+              && magicResonanceReceipts[^1].ComplexFormsRemaining
+                  == magicResonance.ComplexFormBudget.Remaining;
         IReadOnlyList<CharacterCreationContactReceiptLedgerEntry>? contactReceipts =
             state.CharacterCreationContactReceipts;
         bool contactReceiptsValid = contactReceipts is null
@@ -1540,6 +1585,7 @@ public sealed class FileWorkspaceStore :
                && prerequisiteValid
                && attributesValid
                && skillsValid
+               && magicResonanceValid
                && contactReceiptsValid
                && bootstrapValid;
     }
@@ -1579,6 +1625,14 @@ public sealed class FileWorkspaceStore :
             replacementState.CharacterCreationSkillsReceipts;
         IReadOnlyList<CharacterCreationSkillsReceipt>? currentSkillReceipts =
             currentState.CharacterCreationSkillsReceipts;
+        CharacterCreationMagicResonanceDraft? replacementMagicResonance =
+            replacementState.CharacterCreationMagicResonanceDraft;
+        CharacterCreationMagicResonanceDraft? currentMagicResonance =
+            currentState.CharacterCreationMagicResonanceDraft;
+        IReadOnlyList<CharacterCreationMagicResonanceReceipt>? replacementMagicResonanceReceipts =
+            replacementState.CharacterCreationMagicResonanceReceipts;
+        IReadOnlyList<CharacterCreationMagicResonanceReceipt>? currentMagicResonanceReceipts =
+            currentState.CharacterCreationMagicResonanceReceipts;
         IReadOnlyList<CharacterCreationContactReceiptLedgerEntry>? replacementContactReceipts =
             replacementState.CharacterCreationContactReceipts;
         IReadOnlyList<CharacterCreationContactReceiptLedgerEntry>? currentContactReceipts =
@@ -1602,6 +1656,11 @@ public sealed class FileWorkspaceStore :
             currentSkillReceipts,
             replacementSkills,
             replacementSkillReceipts);
+        bool magicResonanceUnchanged = HasSameMagicResonanceLane(
+            currentMagicResonance,
+            currentMagicResonanceReceipts,
+            replacementMagicResonance,
+            replacementMagicResonanceReceipts);
         bool contactReceiptsUnchanged = HasSameContactReceiptLedger(
             currentContactReceipts,
             replacementContactReceipts);
@@ -1612,6 +1671,7 @@ public sealed class FileWorkspaceStore :
                                + (prerequisiteUnchanged ? 0 : 1)
                                + (attributesUnchanged ? 0 : 1)
                                + (skillsUnchanged ? 0 : 1)
+                               + (magicResonanceUnchanged ? 0 : 1)
                                + (contactReceiptsUnchanged ? 0 : 1)
                                + (bootstrapUnchanged ? 0 : 1);
         if (changedLaneCount != 1)
@@ -1650,6 +1710,17 @@ public sealed class FileWorkspaceStore :
                 currentSkillReceipts,
                 replacementSkills,
                 replacementSkillReceipts,
+                previousContentRevision,
+                nextContentRevision);
+        }
+        if (!magicResonanceUnchanged)
+        {
+            return IsValidMagicResonanceTransition(
+                workspaceId,
+                currentMagicResonance,
+                currentMagicResonanceReceipts,
+                replacementMagicResonance,
+                replacementMagicResonanceReceipts,
                 previousContentRevision,
                 nextContentRevision);
         }
@@ -1788,6 +1859,68 @@ public sealed class FileWorkspaceStore :
                        receipt.IdempotencyKeyDigest)));
     }
 
+    private static bool IsValidMagicResonanceTransition(
+        CharacterWorkspaceId workspaceId,
+        CharacterCreationMagicResonanceDraft? current,
+        IReadOnlyList<CharacterCreationMagicResonanceReceipt>? currentReceipts,
+        CharacterCreationMagicResonanceDraft? replacement,
+        IReadOnlyList<CharacterCreationMagicResonanceReceipt>? replacementReceipts,
+        long previousContentRevision,
+        long nextContentRevision)
+    {
+        if (replacement is null
+            || replacementReceipts is null
+            || nextContentRevision != previousContentRevision + 1
+            || replacement.BaseContentRevision != previousContentRevision
+            || replacement.DraftRevision != (current?.DraftRevision + 1 ?? 1)
+            || replacementReceipts.Count != (currentReceipts?.Count ?? 0) + 1)
+            return false;
+        if (currentReceipts is not null
+            && !currentReceipts.Zip(replacementReceipts.Take(currentReceipts.Count))
+                .All(pair => CharacterCreationMagicResonanceDigest.EqualsFixedTime(
+                    pair.First.ReceiptDigest,
+                    pair.Second.ReceiptDigest)))
+            return false;
+        CharacterCreationMagicResonanceReceipt receipt = replacementReceipts[^1];
+        return receipt.WorkspaceId == workspaceId
+               && receipt.PreviousContentRevision == previousContentRevision
+               && receipt.ContentRevision == nextContentRevision
+               && receipt.DraftRevision == replacement.DraftRevision
+               && CharacterCreationMagicResonanceDigest.EqualsFixedTime(
+                   receipt.DraftDigest, replacement.DraftDigest)
+               && CharacterCreationMagicResonanceDigest.EqualsFixedTime(
+                   receipt.IdempotencyKeyDigest, replacement.LastIdempotencyKeyDigest)
+               && CharacterCreationMagicResonanceDigest.EqualsFixedTime(
+                   receipt.PreviewDigest, replacement.LastPreviewDigest)
+               && CharacterCreationMagicResonanceDigest.EqualsFixedTime(
+                   receipt.CommandDigest, replacement.LastCommandDigest)
+               && CharacterCreationMagicResonanceDigest.EqualsFixedTime(
+                   receipt.PreviousReceiptDigest,
+                   currentReceipts is { Count: > 0 }
+                       ? currentReceipts[^1].ReceiptDigest
+                       : CharacterCreationMagicResonanceDigest.ReceiptLedgerRootDigest)
+               && CharacterCreationMagicResonanceDigest.EqualsFixedTime(
+                   receipt.AuthorityDigest, replacement.AuthorityDigest)
+               && CharacterCreationMagicResonanceDigest.EqualsFixedTime(
+                   receipt.SourceInputsDigest, replacement.SourceInputsDigest)
+               && CharacterCreationMagicResonanceDigest.EqualsFixedTime(
+                   receipt.CustomDataInputsDigest, replacement.CustomDataInputsDigest)
+               && CharacterCreationMagicResonanceDigest.EqualsFixedTime(
+                   receipt.GmPolicyDigest, replacement.GmPolicyDigest)
+               && CharacterCreationMagicResonanceDigest.EqualsFixedTime(
+                   receipt.RuntimeDigest, replacement.RuntimeDigest)
+               && receipt.TalentKind == replacement.TalentKind
+               && receipt.AdeptPowerPointsRemaining == replacement.AdeptPowerPointBudget.Remaining
+               && receipt.SpellsRemaining == replacement.SpellBudget.Remaining
+               && receipt.ComplexFormsRemaining == replacement.ComplexFormBudget.Remaining
+               && !receipt.CharacterDocumentChanged
+               && (currentReceipts is null
+                   || currentReceipts.All(existing =>
+                       !CharacterCreationMagicResonanceDigest.EqualsFixedTime(
+                           existing.IdempotencyKeyDigest,
+                           receipt.IdempotencyKeyDigest)));
+    }
+
     private static bool HasSameFoundationDraft(
         CharacterCreationFoundationDraftLedger? left,
         CharacterCreationFoundationDraftLedger? right) =>
@@ -1842,6 +1975,22 @@ public sealed class FileWorkspaceStore :
                 new WorkspaceDocumentAuxiliaryState(
                     CharacterCreationSkillsDraft: rightDraft,
                     CharacterCreationSkillsReceipts: rightReceipts)),
+            StringComparison.Ordinal);
+
+    private static bool HasSameMagicResonanceLane(
+        CharacterCreationMagicResonanceDraft? leftDraft,
+        IReadOnlyList<CharacterCreationMagicResonanceReceipt>? leftReceipts,
+        CharacterCreationMagicResonanceDraft? rightDraft,
+        IReadOnlyList<CharacterCreationMagicResonanceReceipt>? rightReceipts) =>
+        string.Equals(
+            WorkspaceDocumentAuxiliaryStateDigest.Compute(
+                new WorkspaceDocumentAuxiliaryState(
+                    CharacterCreationMagicResonanceDraft: leftDraft,
+                    CharacterCreationMagicResonanceReceipts: leftReceipts)),
+            WorkspaceDocumentAuxiliaryStateDigest.Compute(
+                new WorkspaceDocumentAuxiliaryState(
+                    CharacterCreationMagicResonanceDraft: rightDraft,
+                    CharacterCreationMagicResonanceReceipts: rightReceipts)),
             StringComparison.Ordinal);
 
     private static bool HasSameContactReceiptLedger(
