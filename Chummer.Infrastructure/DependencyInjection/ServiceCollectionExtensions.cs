@@ -20,6 +20,7 @@ using Chummer.Infrastructure.Xml;
 using Chummer.Rulesets.Hosting;
 using Chummer.Rulesets.Sr5;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace Chummer.Infrastructure.DependencyInjection;
 
@@ -190,6 +191,10 @@ public static class ServiceCollectionExtensions
             CharacterCreationSkillsService>();
         services.AddSingleton<ICharacterCreationContactsService,
             CharacterCreationContactsService>();
+        services.TryAddSingleton<ICharacterCareerSkillGroupAdvanceWorkspace,
+            UnavailableCharacterCareerSkillGroupAdvanceWorkspace>();
+        services.TryAddSingleton<ICharacterCareerSkillGroupAdvanceService,
+            CharacterCareerSkillGroupAdvanceService>();
 
         return services;
     }
