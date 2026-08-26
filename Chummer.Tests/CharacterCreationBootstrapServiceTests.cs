@@ -50,7 +50,7 @@ public sealed class CharacterCreationBootstrapServiceTests
     }
 
     [TestMethod]
-    public void Generic_character_validation_remains_strict_for_marker_bearing_xml()
+    public void Generic_character_validation_accepts_the_pending_priority_shape_without_trusting_the_marker()
     {
         string xml = MinimalMarkerXml();
         var files = new CharacterFileService();
@@ -58,10 +58,9 @@ public sealed class CharacterCreationBootstrapServiceTests
         CharacterValidationResult validation = files.ValidateXml(xml);
         CharacterFileSummary summary = files.ParseSummaryFromXml(xml);
 
-        Assert.IsFalse(validation.IsValid);
-        CharacterValidationIssue missingMetatype = validation.Issues.Single(issue =>
-            issue.Severity == "Error" && issue.Path == "/character/metatype");
-        Assert.AreEqual("MissingRequiredNode", missingMetatype.Code);
+        Assert.IsTrue(validation.IsValid, string.Join(",", validation.Issues.Select(issue => issue.Code)));
+        Assert.IsFalse(validation.Issues.Any(issue =>
+            issue.Severity == "Error" && issue.Path == "/character/metatype"));
         Assert.AreEqual(string.Empty, summary.Metatype);
         Assert.IsFalse(summary.Created);
 
@@ -70,9 +69,8 @@ public sealed class CharacterCreationBootstrapServiceTests
             "unknown-marker",
             StringComparison.Ordinal);
         CharacterValidationResult unknownValidation = files.ValidateXml(unknownMarker);
-        Assert.IsFalse(unknownValidation.IsValid);
-        Assert.IsTrue(unknownValidation.Issues.Any(issue =>
-            issue.Path == "/character/metatype"));
+        Assert.IsTrue(unknownValidation.IsValid,
+            "Generic shape validation is not marker authority; the bootstrap service validates the marker binding.");
     }
 
     [TestMethod]
@@ -134,9 +132,10 @@ public sealed class CharacterCreationBootstrapServiceTests
         Assert.IsFalse(xml.Root.Elements().Any(element =>
             element.Name.LocalName.StartsWith("priority", StringComparison.Ordinal)));
         Assert.IsNull(xml.Root.Element("lifemodules"));
-        Assert.IsFalse(CreateFileQueries().Validate(
+        Assert.IsTrue(CreateFileQueries().Validate(
             new CharacterDocument(workspace.Document.Content)).IsValid,
-            "The generic file contract must continue rejecting a missing metatype.");
+            "The generic file contract accepts the pending typed Priority shape; "
+            + "the bootstrap binding remains the authority for its incomplete state.");
         Assert.IsTrue(CharacterCreationBootstrapAuthority.TryValidatePending(
             workspace,
             sourceResolver,
