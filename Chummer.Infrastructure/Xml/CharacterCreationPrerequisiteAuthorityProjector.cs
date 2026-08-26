@@ -1285,11 +1285,8 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
             string[] qualities = talent.Element("qualities")?.Elements("quality")
                 .Select(element => element.Value.Trim())
                 .ToArray() ?? [];
-            bool exactSupportedTalent = IsExactSupportedTalentWithoutGrant(
+            bool exactSupportedTalentShape = IsExactSupportedTalentShape(
                 talent, name, value, specialPoints, magic, resonance, depth, qualities);
-            string[] blockers = exactSupportedTalent
-                ? []
-                : [CharacterCreationPrerequisiteBlockers.TalentSelectionUnsupported];
             string selectionId = $"{prioritySourceId}:talent:{order}";
             string rawTalentNode = talent.ToString(SaveOptions.DisableFormatting);
             CharacterCreationPriorityTalentOptionProjection projection = new(
@@ -1302,8 +1299,8 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
                 depth,
                 qualities,
                 CharacterCreationTalentGrantAuthorityDigest.ComputeRawTalentNode(rawTalentNode),
-                IsEnabled: exactSupportedTalent,
-                Blockers: blockers,
+                IsEnabled: false,
+                Blockers: [CharacterCreationPrerequisiteBlockers.TalentSelectionUnsupported],
                 SourceAnchorIds: [$"priorities.xml#priority:{prioritySourceId}:talent:{order}"])
             {
                 RawTalentNode = rawTalentNode
@@ -1360,8 +1357,23 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
                 if (!projectedGrant)
                     return false;
             }
+            bool grantSupported = !hasGrantPrompt
+                                  || activeSkillGrant is
+                                      { IsSupported: true, Blockers: { Count: 0 } }
+                                     && activeSkillGrant.BaseRating > 0
+                                     && activeSkillGrant.Options.Count(option => option.IsEnabled)
+                                     >= activeSkillGrant.Quantity
+                                  || skillGroupGrant is
+                                      { IsSupported: true, Blockers: { Count: 0 } }
+                                     && skillGroupGrant.BaseRating > 0
+                                     && skillGroupGrant.Options.Count >= skillGroupGrant.Quantity;
+            bool exactSupportedTalent = exactSupportedTalentShape && grantSupported;
             projected.Add(projection with
             {
+                IsEnabled = exactSupportedTalent,
+                Blockers = exactSupportedTalent
+                    ? []
+                    : [CharacterCreationPrerequisiteBlockers.TalentSelectionUnsupported],
                 ActiveSkillGrant = activeSkillGrant,
                 SkillGroupGrant = skillGroupGrant
             });
@@ -1385,7 +1397,7 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
                && string.Equals(metatype, "A.I.", StringComparison.Ordinal);
     }
 
-    private static bool IsExactSupportedTalentWithoutGrant(
+    private static bool IsExactSupportedTalentShape(
         XElement talent,
         string name,
         string value,
@@ -1395,11 +1407,6 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
         int? depth,
         IReadOnlyList<string> qualities)
     {
-        if (talent.Elements("skillqty").Any()
-            || talent.Elements("skillgroupqty").Any()
-            || talent.Elements("skillchoices").Any()
-            || talent.Elements("skillgroupchoices").Any())
-            return false;
         if (specialPoints < 0
             || qualities.Any(string.IsNullOrWhiteSpace)
             || !HasExactTalentRestriction(talent.Element("required"), allowCategory: true)
@@ -1426,7 +1433,9 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
         string[] knownFields =
         [
             "name", "value", "qualities", "specialattribpoints", "magic", "resonance",
-            "depth", "spells", "cfp", "required", "forbidden"
+            "depth", "spells", "cfp", "required", "forbidden", "skillqty",
+            "skillgroupqty", "skillval", "skillgroupval", "skilltype", "skillgrouptype",
+            "skillchoices", "skillgroupchoices"
         ];
         return talent.Elements().All(element =>
             element.Name.NamespaceName.Length == 0

@@ -1158,8 +1158,16 @@ public sealed class CharacterCreationPrerequisiteService :
                && IsValidSkillGroupGrant(option.SkillGroupGrant, effectiveSkillsInputsDigest)
                && (!option.IsEnabled
                    || option.Blockers.Count == 0
-                   && option.ActiveSkillGrant is null
-                   && option.SkillGroupGrant is null);
+                   && (option.ActiveSkillGrant is null && option.SkillGroupGrant is null
+                       || option.ActiveSkillGrant is
+                           { IsSupported: true, Blockers: { Count: 0 } } activeGrant
+                          && activeGrant.BaseRating > 0
+                          && activeGrant.Options.Count(item => item.IsEnabled)
+                          >= activeGrant.Quantity
+                       || option.SkillGroupGrant is
+                           { IsSupported: true, Blockers: { Count: 0 } } groupGrant
+                          && groupGrant.BaseRating > 0
+                          && groupGrant.Options.Count >= groupGrant.Quantity));
     }
 
     private static bool HasValidTalentGrantSourceBinding(
@@ -1472,6 +1480,7 @@ public sealed class CharacterCreationPrerequisiteService :
         return CharacterCreationPrerequisiteAuthorityDigest.IsCanonical(effectiveSkillsInputsDigest)
                && grant.Quantity > 0
                && grant.Quantity <= CharacterCreationTalentSkillGrantTypes.MaximumPromptSlots
+               && grant.BaseRating >= 0
                && IsValidTalentGrantImprovementKind(grant.ImprovementKind)
                && IsNormalizedLowerToken(grant.SkillType)
                && HasValidTalentGrantSelectorTypeProvenance(
@@ -1720,6 +1729,7 @@ public sealed class CharacterCreationPrerequisiteService :
         return CharacterCreationPrerequisiteAuthorityDigest.IsCanonical(effectiveSkillsInputsDigest)
                && grant.Quantity > 0
                && grant.Quantity <= CharacterCreationTalentSkillGrantTypes.MaximumPromptSlots
+               && grant.BaseRating >= 0
                && IsValidTalentGrantImprovementKind(grant.ImprovementKind)
                && IsNormalizedLowerToken(grant.SkillGroupType)
                && HasValidTalentGrantSelectorTypeProvenance(

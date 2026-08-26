@@ -519,6 +519,133 @@ public sealed class CharacterCreationPrerequisiteServiceTests
     }
 
     [TestMethod]
+    public void Confirmed_active_skill_grant_plan_survives_authoritative_reload()
+    {
+        const string spellcastingId = "40c72109-8924-45ca-a4d7-255b75e6a6b0";
+        const string arcanaId = "74a68a9e-8c5b-4998-8dbb-08c1e768afc3";
+        CharacterCreationPrerequisiteAuthority authority = EnableOnlyTalentOption(
+            WithActiveSkillTalentGrant(
+                CreateAuthority(CharacterCreationBuildMethods.Priority, ["A", "B", "C", "D", "E"]),
+                spellcastingId,
+                arcanaId,
+                "a1366ec2-772d-4f08-8c65-5f79464d975b"));
+        WithWorkspace(
+            CharacterCreationBuildMethods.Priority,
+            authority,
+            (store, service, id) =>
+            {
+                CharacterCreationPrerequisiteState state = Load(service, id);
+                IReadOnlyDictionary<string, string> ranks = Assign("A", "E", "B", "C", "D");
+                var request = new CharacterCreationPrerequisitePreviewRequest(state.Binding, ranks)
+                {
+                    HeritageSelectionId = "human",
+                    TalentSelectionId = "adept",
+                    TalentActiveSkillSelectionIds = [arcanaId, spellcastingId]
+                };
+                CharacterCreationPrerequisitePreview preview = service.Preview(request).Value!;
+                Assert.IsTrue(preview.CanConfirm, string.Join(",", preview.Blockers));
+
+                CharacterCreationFoundationResult<CharacterCreationPrerequisiteReceipt> confirmed =
+                    service.Confirm(new CharacterCreationPrerequisiteConfirmRequest(
+                        preview.Binding,
+                        ranks,
+                        preview.PreviewDigest,
+                        ExplicitlyConfirmed: true)
+                    {
+                        HeritageSelectionId = request.HeritageSelectionId,
+                        TalentSelectionId = request.TalentSelectionId,
+                        TalentActiveSkillSelectionIds = request.TalentActiveSkillSelectionIds
+                    });
+
+                Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, confirmed.Outcome);
+                CharacterCreationPrerequisiteState resumed = Load(service, id);
+                Assert.IsTrue(resumed.CanEnterAttributes, string.Join(",", resumed.Blockers));
+                Assert.IsFalse(resumed.Blockers.Contains(
+                    CharacterCreationPrerequisiteBlockers.DraftInvalid));
+                CollectionAssert.AreEqual(
+                    new[] { arcanaId, spellcastingId },
+                    resumed.PendingDraft!.TalentSelection!.GrantPlan!.ActiveSkills
+                        .Select(entry => entry.SelectionId).ToArray());
+                WorkspaceStoredDocument persisted = store.Get(id).Value!;
+                Assert.AreEqual(2L, persisted.ContentRevision);
+                CharacterCreationPrerequisiteDraft forged = resumed.PendingDraft with
+                {
+                    TalentSelection = resumed.PendingDraft.TalentSelection with
+                    {
+                        GrantPlan = resumed.PendingDraft.TalentSelection.GrantPlan with
+                        {
+                            ActiveSkills = null!
+                        }
+                    },
+                    DraftDigest = string.Empty
+                };
+                forged = forged with
+                {
+                    DraftDigest = CharacterCreationPrerequisiteDraftIntegrity.ComputeDigest(forged)
+                };
+                Assert.IsFalse(CharacterCreationPrerequisiteDraftIntegrity.IsValidPending(
+                    forged,
+                    id,
+                    persisted.ContentRevision,
+                    CharacterCreationFoundationDraftLedgerIntegrity.ComputeRawCharacterXmlDigest(
+                        persisted.Document.Content),
+                    authority));
+            });
+    }
+
+    [TestMethod]
+    public void Confirmed_skill_group_grant_plan_survives_authoritative_reload()
+    {
+        CharacterCreationPrerequisiteAuthority authority = EnableOnlyTalentOption(
+            WithSkillGroupTalentGrant(
+                CreateAuthority(CharacterCreationBuildMethods.Priority, ["A", "B", "C", "D", "E"])));
+        CharacterCreationTalentSkillGroupGrantProjection grant = authority.Options.Single(option =>
+                option.CategoryId == CharacterCreationPriorityCategoryIds.Talent
+                && option.Rank == "E")
+            .TalentOptions.Single().SkillGroupGrant!;
+        string[] selectionIds = grant.Options.Reverse()
+            .Select(option => option.SelectionId).ToArray();
+        WithWorkspace(
+            CharacterCreationBuildMethods.Priority,
+            authority,
+            (_, service, id) =>
+            {
+                CharacterCreationPrerequisiteState state = Load(service, id);
+                IReadOnlyDictionary<string, string> ranks = Assign("A", "E", "B", "C", "D");
+                var request = new CharacterCreationPrerequisitePreviewRequest(state.Binding, ranks)
+                {
+                    HeritageSelectionId = "human",
+                    TalentSelectionId = "aspected",
+                    TalentSkillGroupSelectionIds = selectionIds
+                };
+                CharacterCreationPrerequisitePreview preview = service.Preview(request).Value!;
+                Assert.IsTrue(preview.CanConfirm, string.Join(",", preview.Blockers));
+
+                CharacterCreationFoundationResult<CharacterCreationPrerequisiteReceipt> confirmed =
+                    service.Confirm(new CharacterCreationPrerequisiteConfirmRequest(
+                        preview.Binding,
+                        ranks,
+                        preview.PreviewDigest,
+                        ExplicitlyConfirmed: true)
+                    {
+                        HeritageSelectionId = request.HeritageSelectionId,
+                        TalentSelectionId = request.TalentSelectionId,
+                        TalentSkillGroupSelectionIds = request.TalentSkillGroupSelectionIds
+                    });
+
+                Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, confirmed.Outcome);
+                CharacterCreationPrerequisiteState resumed = Load(service, id);
+                Assert.IsTrue(resumed.CanEnterAttributes, string.Join(",", resumed.Blockers));
+                Assert.IsFalse(resumed.Blockers.Contains(
+                    CharacterCreationPrerequisiteBlockers.DraftInvalid));
+                CollectionAssert.AreEqual(
+                    selectionIds,
+                    resumed.PendingDraft!.TalentSelection!.GrantPlan!.SkillGroups
+                        .Select(entry => entry.SelectionId).ToArray());
+            });
+    }
+
+    [TestMethod]
     public void Forged_talent_skill_grant_above_projected_three_slot_cap_is_rejected()
     {
         const string arcanaId = "74a68a9e-8c5b-4998-8dbb-08c1e768afc3";
@@ -1757,6 +1884,16 @@ public sealed class CharacterCreationPrerequisiteServiceTests
             AuthorityDigest = CharacterCreationPrerequisiteAuthorityDigest.Compute(authority)
         };
     }
+
+    private static CharacterCreationPrerequisiteAuthority EnableOnlyTalentOption(
+        CharacterCreationPrerequisiteAuthority authority) =>
+        MutateTalentOption(
+            authority,
+            talent => talent with
+            {
+                IsEnabled = true,
+                Blockers = []
+            });
 
     private static void AssertAuthorityUnavailable(
         CharacterCreationPrerequisiteAuthority authority)

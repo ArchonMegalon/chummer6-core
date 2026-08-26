@@ -838,6 +838,7 @@ public sealed class FileSystemCharacterSourceDataResolverTests
             .TalentOptions.Single(option => option.Value == "Adept");
         CharacterCreationTalentActiveSkillChoiceProjection[] exoticOptions = adept.ActiveSkillGrant!
             .Options.Where(option => option.IsExotic).ToArray();
+        Assert.IsTrue(adept.IsEnabled, string.Join(",", adept.Blockers));
         Assert.IsTrue(exoticOptions.Length > 0);
         Assert.IsTrue(exoticOptions.All(option => !option.IsEnabled
             && option.Blockers.SequenceEqual(
@@ -880,6 +881,7 @@ public sealed class FileSystemCharacterSourceDataResolverTests
                 && option.Rank == "B")
             .TalentOptions.Single(option => option.Value == "Aspected Magician");
         CharacterCreationTalentSkillGroupGrantProjection groupGrant = aspected.SkillGroupGrant!;
+        Assert.IsTrue(aspected.IsEnabled, string.Join(",", aspected.Blockers));
         Assert.AreEqual(1, groupGrant.Quantity);
         Assert.AreEqual(4, groupGrant.BaseRating);
         Assert.AreEqual(CharacterCreationTalentSkillGrantTypes.Grouped, groupGrant.SkillGroupType);

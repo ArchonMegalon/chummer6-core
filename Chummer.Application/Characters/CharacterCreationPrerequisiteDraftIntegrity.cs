@@ -133,6 +133,13 @@ internal static class CharacterCreationPrerequisiteDraftIntegrity
                 StringComparison.Ordinal))
             .Take(2)
             .ToArray();
+        CharacterCreationPriorityTalentSelection? expectedTalentSelection =
+            talentMatches.Length == 1
+                ? BuildExpectedTalentSelection(
+                    talentMatches[0],
+                    talentAssignment.SourceId,
+                    draft.TalentSelection.GrantPlan)
+                : null;
         if (heritageMatches.Length != 1
             || talentMatches.Length != 1
             || !heritageMatches[0].IsEnabled
@@ -160,20 +167,10 @@ internal static class CharacterCreationPrerequisiteDraftIntegrity
                     Movement = heritageMatches[0].Movement
                 })
             || draft.CreationKarmaUsed != heritageMatches[0].KarmaCost
+            || expectedTalentSelection is null
             || !CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(
                 draft.TalentSelection,
-                new CharacterCreationPriorityTalentSelection(
-                    talentMatches[0].SelectionId,
-                    talentAssignment.SourceId,
-                    talentMatches[0].Name,
-                    talentMatches[0].Value,
-                    talentMatches[0].SpecialAttributePoints,
-                    talentMatches[0].Magic,
-                    talentMatches[0].Resonance,
-                    talentMatches[0].Depth,
-                    talentMatches[0].GrantedQualities.ToArray(),
-                    talentMatches[0].PriorityChildNodeDigest,
-                    talentMatches[0].SourceAnchorIds.ToArray())))
+                expectedTalentSelection))
         {
             return false;
         }
@@ -204,6 +201,174 @@ internal static class CharacterCreationPrerequisiteDraftIntegrity
 
         return IsSelectionValid(draft, authority);
     }
+
+    private static CharacterCreationPriorityTalentSelection? BuildExpectedTalentSelection(
+        CharacterCreationPriorityTalentOptionProjection option,
+        string prioritySourceId,
+        CharacterCreationTalentGrantPlanContribution? persistedPlan)
+    {
+        CharacterCreationTalentGrantPlanContribution? expectedPlan = BuildExpectedGrantPlan(
+            option,
+            persistedPlan);
+        bool requiresPlan = option.ActiveSkillGrant is not null || option.SkillGroupGrant is not null;
+        if (requiresPlan != (expectedPlan is not null))
+            return null;
+
+        return new CharacterCreationPriorityTalentSelection(
+            option.SelectionId,
+            prioritySourceId,
+            option.Name,
+            option.Value,
+            option.SpecialAttributePoints,
+            option.Magic,
+            option.Resonance,
+            option.Depth,
+            option.GrantedQualities.ToArray(),
+            option.PriorityChildNodeDigest,
+            option.SourceAnchorIds
+                .Concat(expectedPlan?.SourceAnchorIds ?? [])
+                .Distinct(StringComparer.Ordinal)
+                .ToArray())
+        {
+            GrantPlan = expectedPlan
+        };
+    }
+
+    private static CharacterCreationTalentGrantPlanContribution? BuildExpectedGrantPlan(
+        CharacterCreationPriorityTalentOptionProjection talent,
+        CharacterCreationTalentGrantPlanContribution? persistedPlan)
+    {
+        if (talent.ActiveSkillGrant is null && talent.SkillGroupGrant is null)
+            return persistedPlan is null ? null : InvalidPlan();
+        if (persistedPlan is null
+            || talent.ActiveSkillGrant is not null && talent.SkillGroupGrant is not null
+            || persistedPlan.ActiveSkills is null
+            || persistedPlan.SkillGroups is null
+            || persistedPlan.SourceAnchorIds is null
+            || persistedPlan.ActiveSkills.Any(entry => entry is null)
+            || persistedPlan.SkillGroups.Any(entry => entry is null)
+            || persistedPlan.SourceAnchorIds.Any(anchor => !IsNormalizedNonEmpty(anchor))
+            || !string.Equals(
+                persistedPlan.Schema,
+                CharacterCreationPrerequisiteSchemas.TalentGrantPlanV1,
+                StringComparison.Ordinal)
+            || !CharacterCreationFoundationDraftLedgerIntegrity.IsCanonicalDigest(
+                persistedPlan.PlanDigest)
+            || !FixedTimeEquals(
+                persistedPlan.PlanDigest,
+                CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(
+                    persistedPlan with { PlanDigest = string.Empty })))
+        {
+            return InvalidPlan();
+        }
+
+        var activeEntries = new List<CharacterCreationTalentActiveSkillGrantPlanEntry>();
+        var groupEntries = new List<CharacterCreationTalentSkillGroupGrantPlanEntry>();
+        if (talent.ActiveSkillGrant is { } activeGrant)
+        {
+            if (!activeGrant.IsSupported
+                || activeGrant.Blockers.Count != 0
+                || activeGrant.Quantity <= 0
+                || persistedPlan.SkillGroups.Count != 0
+                || persistedPlan.ActiveSkills.Count != activeGrant.Quantity
+                || persistedPlan.ActiveSkills.Select(entry => entry.SelectionId)
+                    .Distinct(StringComparer.Ordinal).Count() != activeGrant.Quantity)
+            {
+                return InvalidPlan();
+            }
+
+            foreach (CharacterCreationTalentActiveSkillGrantPlanEntry persistedEntry
+                     in persistedPlan.ActiveSkills)
+            {
+                CharacterCreationTalentActiveSkillChoiceProjection[] matches = activeGrant.Options
+                    .Where(option => string.Equals(
+                        option.SelectionId,
+                        persistedEntry.SelectionId,
+                        StringComparison.Ordinal))
+                    .Take(2)
+                    .ToArray();
+                if (matches is not [{ IsEnabled: true, Blockers: { Count: 0 } }])
+                    return InvalidPlan();
+                CharacterCreationTalentActiveSkillChoiceProjection option = matches[0];
+                activeEntries.Add(new CharacterCreationTalentActiveSkillGrantPlanEntry(
+                    option.SelectionId,
+                    "active-skill",
+                    option.SourceId,
+                    option.CanonicalName,
+                    option.Category,
+                    option.SkillGroup,
+                    activeGrant.BaseRating,
+                    activeGrant.ImprovementKind,
+                    option.SourceNodeDigest,
+                    option.SkillsSourceDigest,
+                    option.SourceAnchorIds.ToArray()));
+            }
+        }
+        else if (talent.SkillGroupGrant is { } groupGrant)
+        {
+            if (!groupGrant.IsSupported
+                || groupGrant.Blockers.Count != 0
+                || groupGrant.Quantity <= 0
+                || persistedPlan.ActiveSkills.Count != 0
+                || persistedPlan.SkillGroups.Count != groupGrant.Quantity
+                || persistedPlan.SkillGroups.Select(entry => entry.SelectionId)
+                    .Distinct(StringComparer.Ordinal).Count() != groupGrant.Quantity)
+            {
+                return InvalidPlan();
+            }
+
+            foreach (CharacterCreationTalentSkillGroupGrantPlanEntry persistedEntry
+                     in persistedPlan.SkillGroups)
+            {
+                CharacterCreationTalentSkillGroupChoiceProjection[] matches = groupGrant.Options
+                    .Where(option => string.Equals(
+                        option.SelectionId,
+                        persistedEntry.SelectionId,
+                        StringComparison.Ordinal))
+                    .Take(2)
+                    .ToArray();
+                if (matches.Length != 1)
+                    return InvalidPlan();
+                CharacterCreationTalentSkillGroupChoiceProjection option = matches[0];
+                groupEntries.Add(new CharacterCreationTalentSkillGroupGrantPlanEntry(
+                    option.SelectionId,
+                    "skill-group",
+                    option.CanonicalName,
+                    option.MemberSkillSourceIds.ToArray(),
+                    groupGrant.BaseRating,
+                    groupGrant.ImprovementKind,
+                    option.GroupDigest,
+                    option.SkillsSourceDigest,
+                    option.SourceAnchorIds.ToArray()));
+            }
+        }
+
+        string[] anchors = activeEntries.SelectMany(entry => entry.SourceAnchorIds)
+            .Concat(groupEntries.SelectMany(entry => entry.SourceAnchorIds))
+            .Concat(talent.ActiveSkillGrant?.SourceAnchorIds ?? [])
+            .Concat(talent.SkillGroupGrant?.SourceAnchorIds ?? [])
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(anchor => anchor, StringComparer.Ordinal)
+            .ToArray();
+        var expected = new CharacterCreationTalentGrantPlanContribution(
+            CharacterCreationPrerequisiteSchemas.TalentGrantPlanV1,
+            activeEntries.ToArray(),
+            groupEntries.ToArray(),
+            anchors,
+            PlanDigest: string.Empty);
+        expected = expected with
+        {
+            PlanDigest = CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(
+                expected)
+        };
+        return CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(
+            persistedPlan,
+            expected)
+            ? expected
+            : InvalidPlan();
+    }
+
+    private static CharacterCreationTalentGrantPlanContribution? InvalidPlan() => null;
 
     public static bool HasSameLogicalPayload(
         CharacterCreationPrerequisiteDraft left,
