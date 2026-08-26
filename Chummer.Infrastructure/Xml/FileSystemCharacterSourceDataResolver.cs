@@ -167,6 +167,14 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 out string priorityTable,
                 out int? sumToTenTarget,
                 out string[] prerequisiteProfileBlockers);
+            ResolveCreationResourcesProfileAuthority(
+                settings,
+                out decimal? creationKarmaToNuyenRate,
+                out int? creationMaximumKarmaInvestment,
+                out decimal? creationNuyenCarryover,
+                out int? creationMaximumAvailability,
+                out bool? creationUnrestrictedNuyen,
+                out string[] creationResourcesProfileBlockers);
             ResolveCreationAttributeProfileAuthority(
                 settings,
                 out int? maxNumberMaxAttributesCreate,
@@ -305,6 +313,12 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 priorityTable,
                 sumToTenTarget,
                 prerequisiteProfileBlockers,
+                creationKarmaToNuyenRate,
+                creationMaximumKarmaInvestment,
+                creationNuyenCarryover,
+                creationMaximumAvailability,
+                creationUnrestrictedNuyen,
+                creationResourcesProfileBlockers,
                 maxNumberMaxAttributesCreate,
                 karmaAttribute,
                 alternateMetatypeAttributeKarma,
@@ -347,6 +361,111 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
         int separator = format.IndexOf('.');
         decimalPlaces = separator < 0 ? 0 : format.Length - separator - 1;
         return decimalPlaces is >= 0 and <= 28;
+    }
+
+    private static void ResolveCreationResourcesProfileAuthority(
+        XElement settings,
+        out decimal? karmaToNuyenRate,
+        out int? maximumKarmaInvestment,
+        out decimal? nuyenCarryover,
+        out int? maximumAvailability,
+        out bool? unrestrictedNuyen,
+        out string[] blockers)
+    {
+        var findings = new List<string>();
+        string[] expressions = settings.Elements("chargenkarmatonuyenexpression")
+            .Take(2)
+            .Select(element => element.Value)
+            .ToArray();
+        string compactExpression = expressions.Length == 1
+            ? string.Concat(expressions[0].Where(character => !char.IsWhiteSpace(character)))
+            : string.Empty;
+        const string expressionPrefix = "{Karma}*";
+        const string expressionSuffix = "+{PriorityNuyen}";
+        string rateText = compactExpression.StartsWith(expressionPrefix, StringComparison.Ordinal)
+                          && compactExpression.EndsWith(expressionSuffix, StringComparison.Ordinal)
+            ? compactExpression[expressionPrefix.Length..^expressionSuffix.Length]
+            : string.Empty;
+        if (decimal.TryParse(
+                rateText,
+                NumberStyles.Number,
+                CultureInfo.InvariantCulture,
+                out decimal parsedRate)
+            && parsedRate > 0m)
+        {
+            karmaToNuyenRate = parsedRate;
+        }
+        else if (expressions.Length == 0
+                 && TryReadPositiveDecimal(
+                     settings,
+                     "nuyenperbpwftm",
+                     out decimal legacyRate))
+        {
+            // CharacterSettings uses the Working-for-the-Man rate for this exact
+            // legacy profile shim when chargenkarmatonuyenexpression is absent.
+            karmaToNuyenRate = legacyRate;
+        }
+        else
+        {
+            karmaToNuyenRate = null;
+            findings.Add(CharacterCreationResourcesBlockers.SettingsSemanticsUnsupported);
+        }
+
+        maximumKarmaInvestment = TryReadNonNegativeInt(
+            settings,
+            "nuyenmaxbp",
+            out int parsedMaximum)
+            ? parsedMaximum
+            : null;
+        if (maximumKarmaInvestment is null)
+            findings.Add(CharacterCreationResourcesBlockers.SettingsSemanticsUnsupported);
+
+        XElement[] carryoverNodes = settings.Elements("nuyencarryover").Take(2).ToArray();
+        if (carryoverNodes.Length == 0)
+        {
+            // Exact legacy default when the old settings document omits the optional field.
+            nuyenCarryover = 5000m;
+        }
+        else if (carryoverNodes.Length == 1
+                 && !carryoverNodes[0].HasAttributes
+                 && !carryoverNodes[0].HasElements
+                 && decimal.TryParse(
+                     carryoverNodes[0].Value,
+                     NumberStyles.Number,
+                     CultureInfo.InvariantCulture,
+                     out decimal parsedCarryover)
+                 && parsedCarryover >= 0m)
+        {
+            nuyenCarryover = parsedCarryover;
+        }
+        else
+        {
+            nuyenCarryover = null;
+            findings.Add(CharacterCreationResourcesBlockers.SettingsSemanticsUnsupported);
+        }
+
+        maximumAvailability = TryReadNonNegativeInt(
+            settings,
+            "availability",
+            out int parsedAvailability)
+            ? parsedAvailability
+            : null;
+        if (maximumAvailability is null)
+            findings.Add(CharacterCreationResourcesBlockers.SettingsSemanticsUnsupported);
+
+        XElement[] unrestrictedNodes = settings.Elements("unrestrictednuyen").Take(2).ToArray();
+        unrestrictedNuyen = unrestrictedNodes.Length == 0
+            ? false
+            : unrestrictedNodes.Length == 1
+              && TryParseStrictBoolElement(unrestrictedNodes[0], out bool parsedUnrestricted)
+                ? parsedUnrestricted
+                : null;
+        if (unrestrictedNuyen is null || unrestrictedNuyen == true)
+            findings.Add(CharacterCreationResourcesBlockers.SettingsSemanticsUnsupported);
+
+        blockers = findings.Distinct(StringComparer.Ordinal)
+            .OrderBy(item => item, StringComparer.Ordinal)
+            .ToArray();
     }
 
     private static void ResolveLifeModuleBudgetAuthority(
@@ -912,6 +1031,12 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
         private readonly string _priorityTable;
         private readonly int? _sumToTenTarget;
         private readonly IReadOnlyList<string> _prerequisiteProfileBlockers;
+        private readonly decimal? _creationKarmaToNuyenRate;
+        private readonly int? _creationMaximumKarmaInvestment;
+        private readonly decimal? _creationNuyenCarryover;
+        private readonly int? _creationMaximumAvailability;
+        private readonly bool? _creationUnrestrictedNuyen;
+        private readonly IReadOnlyList<string> _creationResourcesProfileBlockers;
         private readonly int? _maxNumberMaxAttributesCreate;
         private readonly int? _karmaAttribute;
         private readonly bool? _alternateMetatypeAttributeKarma;
@@ -958,6 +1083,12 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             string priorityTable,
             int? sumToTenTarget,
             IReadOnlyList<string> prerequisiteProfileBlockers,
+            decimal? creationKarmaToNuyenRate,
+            int? creationMaximumKarmaInvestment,
+            decimal? creationNuyenCarryover,
+            int? creationMaximumAvailability,
+            bool? creationUnrestrictedNuyen,
+            IReadOnlyList<string> creationResourcesProfileBlockers,
             int? maxNumberMaxAttributesCreate,
             int? karmaAttribute,
             bool? alternateMetatypeAttributeKarma,
@@ -1003,6 +1134,12 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             _priorityTable = priorityTable;
             _sumToTenTarget = sumToTenTarget;
             _prerequisiteProfileBlockers = prerequisiteProfileBlockers;
+            _creationKarmaToNuyenRate = creationKarmaToNuyenRate;
+            _creationMaximumKarmaInvestment = creationMaximumKarmaInvestment;
+            _creationNuyenCarryover = creationNuyenCarryover;
+            _creationMaximumAvailability = creationMaximumAvailability;
+            _creationUnrestrictedNuyen = creationUnrestrictedNuyen;
+            _creationResourcesProfileBlockers = creationResourcesProfileBlockers;
             _maxNumberMaxAttributesCreate = maxNumberMaxAttributesCreate;
             _karmaAttribute = karmaAttribute;
             _alternateMetatypeAttributeKarma = alternateMetatypeAttributeKarma;
@@ -1247,6 +1384,122 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 metatypesDocument,
                 skillsDocument,
                 projectionContext);
+            return true;
+        }
+
+        public bool TryResolveCreationResourcesAuthority(
+            out CharacterCreationResourcesAuthority authority)
+        {
+            authority = CharacterCreationResourcesAuthority.Unavailable;
+            if (!TryResolveCreationPrerequisiteAuthority(
+                    out CharacterCreationPrerequisiteAuthority prerequisite)
+                || _creationKarmaToNuyenRate is not decimal rate
+                || _creationMaximumKarmaInvestment is not int maximumInvestment
+                || _creationNuyenCarryover is not decimal carryover
+                || _creationMaximumAvailability is not int maximumAvailability
+                || _creationUnrestrictedNuyen is not bool unrestricted)
+            {
+                return false;
+            }
+
+            var blockers = new List<string>(_creationResourcesProfileBlockers);
+            blockers.AddRange(prerequisite.Blockers);
+            if (!prerequisite.IsAuthoritative)
+                blockers.Add(CharacterCreationResourcesBlockers.AuthorityUnavailable);
+            if (prerequisite.BuildMethod is not (CharacterCreationBuildMethods.Priority
+                or CharacterCreationBuildMethods.SumToTen))
+                blockers.Add(CharacterCreationResourcesBlockers.BuildMethodUnsupported);
+            if (unrestricted)
+                blockers.Add(CharacterCreationResourcesBlockers.SettingsSemanticsUnsupported);
+
+            CharacterCreationPriorityOptionProjection[] projected = prerequisite.Options
+                .Where(option => string.Equals(
+                    option.CategoryId,
+                    CharacterCreationPriorityCategoryIds.Resources,
+                    StringComparison.Ordinal))
+                .OrderBy(option => option.Rank, StringComparer.Ordinal)
+                .ToArray();
+            var resourceOptions = new List<CharacterCreationResourcePriorityOption>();
+            foreach (CharacterCreationPriorityOptionProjection option in projected)
+            {
+                if (option.BaseResourceNuyen is not decimal baseNuyen || baseNuyen < 0m)
+                {
+                    blockers.Add(CharacterCreationResourcesBlockers.AuthorityUnavailable);
+                    continue;
+                }
+                var candidate = new CharacterCreationResourcePriorityOption(
+                    option.SourceId,
+                    option.Rank,
+                    baseNuyen,
+                    option.SourceNodeDigest,
+                    option.SourceAnchorIds
+                        .Concat([CharacterCreationResourcesSourceAnchors.PriorityCatalog])
+                        .Distinct(StringComparer.Ordinal)
+                        .OrderBy(anchor => anchor, StringComparer.Ordinal)
+                        .ToArray(),
+                    OptionDigest: string.Empty);
+                resourceOptions.Add(candidate with
+                {
+                    OptionDigest = CharacterCreationResourcesRules.ComputePriorityOptionDigest(candidate)
+                });
+            }
+            if (resourceOptions.Count != prerequisite.PriorityArray.Distinct(StringComparer.Ordinal).Count())
+                blockers.Add(CharacterCreationResourcesBlockers.AuthorityUnavailable);
+
+            string sourceDigest = CharacterCreationResourcesRules.Compute(new
+            {
+                prerequisite.RawPrioritiesXmlDigest,
+                prerequisite.EffectivePrioritiesInputsDigest,
+                prerequisite.SelectedPriorityCustomDataInputsDigest,
+                Options = resourceOptions
+            });
+            string rulesDigest = CharacterCreationResourcesRules.Compute(new
+            {
+                CharacterCreationResourcesSchemas.RulesV1,
+                Rate = rate,
+                MaximumInvestment = maximumInvestment,
+                Carryover = carryover,
+                MaximumAvailability = maximumAvailability,
+                Unrestricted = unrestricted
+            });
+            string runtimeDigest = CharacterCreationResourcesRules.ComputeUtf8(
+                CharacterCreationResourcesSchemas.RuntimeV1);
+            string[] normalized = blockers.Distinct(StringComparer.Ordinal)
+                .OrderBy(item => item, StringComparer.Ordinal)
+                .ToArray();
+            string[] anchors = prerequisite.SourceAnchorIds
+                .Concat(CharacterCreationResourcesSourceAnchors.All)
+                .Concat([$"settings.xml#setting:{_settingsProfileId}:chargenkarmatonuyenexpression",
+                    $"settings.xml#setting:{_settingsProfileId}:nuyenperbpwftm",
+                    $"settings.xml#setting:{_settingsProfileId}:nuyenmaxbp",
+                    $"settings.xml#setting:{_settingsProfileId}:availability"])
+                .Distinct(StringComparer.Ordinal)
+                .OrderBy(anchor => anchor, StringComparer.Ordinal)
+                .ToArray();
+            var candidateAuthority = new CharacterCreationResourcesAuthority(
+                CharacterCreationResourcesSchemas.AuthorityV1,
+                "sr5",
+                _settingsProfileId,
+                prerequisite.BuildMethod,
+                rate,
+                maximumInvestment,
+                carryover,
+                maximumAvailability,
+                unrestricted,
+                resourceOptions,
+                anchors,
+                normalized,
+                IsAuthoritative: normalized.Length == 0,
+                SourceDigest: sourceDigest,
+                ProfileDigest: prerequisite.RawProfileInputsDigest,
+                RulesDigest: rulesDigest,
+                RuntimeDigest: runtimeDigest,
+                AuthorityDigest: string.Empty);
+            authority = candidateAuthority with
+            {
+                AuthorityDigest = CharacterCreationResourcesRules.ComputeAuthorityDigest(
+                    candidateAuthority)
+            };
             return true;
         }
 

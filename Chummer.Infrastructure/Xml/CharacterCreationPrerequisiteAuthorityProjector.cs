@@ -314,6 +314,7 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
         int? baseNormalAttributePoints = null;
         int? baseActiveSkillPoints = null;
         int? baseSkillGroupPoints = null;
+        decimal? baseResourceNuyen = null;
         XElement[] attributes = row.Elements("attributes").Take(2).ToArray();
         if (string.Equals(
                 categoryId,
@@ -372,6 +373,32 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
             return false;
         }
 
+        XElement[] resources = row.Elements("resources").Take(2).ToArray();
+        if (string.Equals(
+                categoryId,
+                CharacterCreationPriorityCategoryIds.Resources,
+                StringComparison.Ordinal))
+        {
+            if (resources.Length != 1
+                || resources[0].HasAttributes
+                || resources[0].HasElements
+                || !string.Equals(resources[0].Value, resources[0].Value.Trim(), StringComparison.Ordinal)
+                || !decimal.TryParse(
+                    resources[0].Value,
+                    NumberStyles.Number,
+                    CultureInfo.InvariantCulture,
+                    out decimal parsedResources)
+                || parsedResources < 0m)
+            {
+                return false;
+            }
+            baseResourceNuyen = parsedResources;
+        }
+        else if (resources.Length != 0)
+        {
+            return false;
+        }
+
         string sourceNodeDigest = RawDigest(row.ToString(SaveOptions.DisableFormatting));
         var projected = new CharacterCreationPriorityOptionProjection(
             categoryId,
@@ -385,7 +412,8 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
             [$"priorities.xml#priority:{sourceId}"])
         {
             BaseActiveSkillPoints = baseActiveSkillPoints,
-            BaseSkillGroupPoints = baseSkillGroupPoints
+            BaseSkillGroupPoints = baseSkillGroupPoints,
+            BaseResourceNuyen = baseResourceNuyen
         };
         if (string.Equals(categoryId, CharacterCreationPriorityCategoryIds.Heritage, StringComparison.Ordinal))
         {

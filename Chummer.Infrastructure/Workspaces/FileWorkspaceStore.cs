@@ -1584,6 +1584,15 @@ public sealed class FileWorkspaceStore :
                 workspaceId,
                 currentContentRevision,
                 lifestyleReceipts);
+        CharacterCreationResourcesDraft? resourcesDraft =
+            state.CharacterCreationResourcesDraft;
+        IReadOnlyList<CharacterCreationResourcesReceiptLedgerEntry>? resourcesReceipts =
+            state.CharacterCreationResourcesReceipts;
+        bool resourcesValid = CharacterCreationResourcesReceiptLedgerIntegrity.IsValidLedger(
+            workspaceId,
+            currentContentRevision,
+            resourcesDraft,
+            resourcesReceipts);
         IReadOnlyList<CharacterAfterRunSettlementReceiptLedgerEntry>? afterRunReceipts =
             state.CharacterAfterRunSettlementReceipts;
         bool afterRunReceiptsValid = afterRunReceipts is null
@@ -1602,6 +1611,7 @@ public sealed class FileWorkspaceStore :
                && magicResonanceValid
                && contactReceiptsValid
                && lifestyleReceiptsValid
+               && resourcesValid
                && afterRunReceiptsValid
                && bootstrapValid;
     }
@@ -1657,6 +1667,14 @@ public sealed class FileWorkspaceStore :
             replacementState.CharacterCreationLifestyleReceipts;
         IReadOnlyList<CharacterCreationLifestyleReceiptLedgerEntry>? currentLifestyleReceipts =
             currentState.CharacterCreationLifestyleReceipts;
+        CharacterCreationResourcesDraft? replacementResourcesDraft =
+            replacementState.CharacterCreationResourcesDraft;
+        CharacterCreationResourcesDraft? currentResourcesDraft =
+            currentState.CharacterCreationResourcesDraft;
+        IReadOnlyList<CharacterCreationResourcesReceiptLedgerEntry>? replacementResourcesReceipts =
+            replacementState.CharacterCreationResourcesReceipts;
+        IReadOnlyList<CharacterCreationResourcesReceiptLedgerEntry>? currentResourcesReceipts =
+            currentState.CharacterCreationResourcesReceipts;
         CharacterCreationQualitiesDraft? replacementQualities =
             replacementState.CharacterCreationQualitiesDraft;
         CharacterCreationQualitiesDraft? currentQualities =
@@ -1699,6 +1717,11 @@ public sealed class FileWorkspaceStore :
         bool lifestyleReceiptsUnchanged = HasSameLifestyleReceiptLedger(
             currentLifestyleReceipts,
             replacementLifestyleReceipts);
+        bool resourcesUnchanged = HasSameResourcesLane(
+            currentResourcesDraft,
+            currentResourcesReceipts,
+            replacementResourcesDraft,
+            replacementResourcesReceipts);
         bool qualitiesUnchanged = HasSameQualitiesLane(
             currentQualities,
             currentQualityReceipts,
@@ -1717,6 +1740,7 @@ public sealed class FileWorkspaceStore :
                                + (magicResonanceUnchanged ? 0 : 1)
                                + (contactReceiptsUnchanged ? 0 : 1)
                                + (lifestyleReceiptsUnchanged ? 0 : 1)
+                               + (resourcesUnchanged ? 0 : 1)
                                + (qualitiesUnchanged ? 0 : 1)
                                + (afterRunReceiptsUnchanged ? 0 : 1)
                                + (bootstrapUnchanged ? 0 : 1);
@@ -1811,6 +1835,20 @@ public sealed class FileWorkspaceStore :
                        replacementLifestyleReceipts[^1],
                        currentDocument,
                        replacementDocument);
+        }
+        if (!resourcesUnchanged)
+        {
+            return CharacterCreationResourcesReceiptLedgerIntegrity.IsValidAppendTransition(
+                workspaceId,
+                previousContentRevision,
+                previousSavedRevision,
+                nextContentRevision,
+                currentResourcesDraft,
+                currentResourcesReceipts,
+                replacementResourcesDraft,
+                replacementResourcesReceipts,
+                currentDocument,
+                replacementDocument);
         }
         return CharacterCreationContactReceiptLedgerIntegrity.IsValidAppendTransition(
                    workspaceId,
@@ -2095,6 +2133,22 @@ public sealed class FileWorkspaceStore :
             WorkspaceDocumentAuxiliaryStateDigest.Compute(
                 new WorkspaceDocumentAuxiliaryState(
                     CharacterCreationLifestyleReceipts: right)),
+            StringComparison.Ordinal);
+
+    private static bool HasSameResourcesLane(
+        CharacterCreationResourcesDraft? leftDraft,
+        IReadOnlyList<CharacterCreationResourcesReceiptLedgerEntry>? leftReceipts,
+        CharacterCreationResourcesDraft? rightDraft,
+        IReadOnlyList<CharacterCreationResourcesReceiptLedgerEntry>? rightReceipts) =>
+        string.Equals(
+            WorkspaceDocumentAuxiliaryStateDigest.Compute(
+                new WorkspaceDocumentAuxiliaryState(
+                    CharacterCreationResourcesDraft: leftDraft,
+                    CharacterCreationResourcesReceipts: leftReceipts)),
+            WorkspaceDocumentAuxiliaryStateDigest.Compute(
+                new WorkspaceDocumentAuxiliaryState(
+                    CharacterCreationResourcesDraft: rightDraft,
+                    CharacterCreationResourcesReceipts: rightReceipts)),
             StringComparison.Ordinal);
 
     private static bool HasSameQualitiesLane(

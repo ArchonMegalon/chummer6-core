@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <IsTestProject>true</IsTestProject>
+    <IsPackable>false</IsPackable>
+    <AssemblyName>Chummer.Tests</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="CharacterCreationResourcesServiceTests.cs" />
+    <Compile Include="CharacterCreationPrerequisiteServiceTests.cs" />
+    <ProjectReference Include="../Chummer.Application/Chummer.Application.csproj" />
+    <ProjectReference Include="../Chummer.Contracts/Chummer.Contracts.csproj" />
+    <ProjectReference Include="../Chummer.Infrastructure/Chummer.Infrastructure.csproj" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.0.1" />
+    <PackageReference Include="MSTest.TestAdapter" Version="4.1.0" />
+    <PackageReference Include="MSTest.TestFramework" Version="4.1.0" />
+  </ItemGroup>
+</Project>

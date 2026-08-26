@@ -113,6 +113,18 @@ public interface ICharacterSourceDataContext
     }
 
     /// <summary>
+    /// Resolves the exact SR5 Priority/Sum-to-Ten Resources grants and the active
+    /// profile's creation Karma-to-nuyen, maximum-investment, carryover, and
+    /// availability settings. False means the Resources step must fail closed.
+    /// </summary>
+    bool TryResolveCreationResourcesAuthority(
+        out CharacterCreationResourcesAuthority authority)
+    {
+        authority = CharacterCreationResourcesAuthority.Unavailable;
+        return false;
+    }
+
+    /// <summary>
     /// Resolves the exact SR5 Standard Priority Talent, tradition, stream, adept-power,
     /// spell, and complex-form catalogs from the saved profile and effective overlays.
     /// Missing or unsupported source semantics must leave the step unavailable.

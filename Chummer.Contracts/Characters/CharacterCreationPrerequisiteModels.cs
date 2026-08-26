@@ -343,6 +343,12 @@ public sealed record CharacterCreationPriorityOptionProjection(
 
     public int? BaseSkillGroupPoints { get; init; }
 
+    /// <summary>
+    /// Exact starting-nuyen grant from the Resources priority row. It is null for
+    /// every non-Resources category; callers must never parse the display label.
+    /// </summary>
+    public decimal? BaseResourceNuyen { get; init; }
+
     public IReadOnlyList<CharacterCreationPriorityHeritageOptionProjection> HeritageOptions
         { get; init; } = [];
 
