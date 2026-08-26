@@ -125,11 +125,13 @@ public sealed class CharacterCareerQualityRulesTests
         Assert.AreEqual(0, typed.RuleKarmaCost);
         Assert.AreEqual(CharacterCareerQualityRules.AcquireUndoType,
             typed.KarmaUndoType);
+#pragma warning disable MSTEST0032 // Intentional wire-literal contract assertions.
         Assert.AreEqual("AddQuality", CharacterCareerQualityRules.AcquireUndoType);
         Assert.AreEqual("RemoveQuality", CharacterCareerQualityRules.RemoveUndoType);
         Assert.AreEqual("Karma", CharacterCareerQualityRules.KarmaExpenseType);
         Assert.AreEqual("AddCyberware",
             CharacterCareerQualityRules.DefaultNuyenUndoType);
+#pragma warning restore MSTEST0032
     }
 
     [TestMethod]
