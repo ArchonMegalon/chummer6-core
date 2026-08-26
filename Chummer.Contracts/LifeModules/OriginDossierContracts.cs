@@ -25,13 +25,13 @@ public sealed record OriginTechnicalPublicationMetadata
     public const string ChummerRunId = "chummer.run";
     public const string ChummerRunDisplayName = "Chummer.run";
 
-    public string AuthorId => ChummerRunId;
+    public string AuthorId { get; } = ChummerRunId;
 
-    public string AuthorDisplayName => ChummerRunDisplayName;
+    public string AuthorDisplayName { get; } = ChummerRunDisplayName;
 
-    public string PublisherId => ChummerRunId;
+    public string PublisherId { get; } = ChummerRunId;
 
-    public string PublisherDisplayName => ChummerRunDisplayName;
+    public string PublisherDisplayName { get; } = ChummerRunDisplayName;
 }
 
 public static class OriginNarrativeLayerKinds
@@ -121,7 +121,7 @@ public sealed record LifeModuleNarrativeChoiceSeed(
     IReadOnlyList<string> Blockers,
     bool IsLegal)
 {
-    public bool WithholdsContinuationUntilAccepted => true;
+    public bool WithholdsContinuationUntilAccepted { get; } = true;
 }
 
 /// <summary>
@@ -156,9 +156,9 @@ public sealed record LifeModuleNarrativeTurnSeed(
     string RuntimeDigest,
     string SeedDigest)
 {
-    public bool StoryEndsAtDecisionPoint => true;
+    public bool StoryEndsAtDecisionPoint { get; } = true;
 
-    public string MechanicsAuthority => OriginNarrativeAuthorityKinds.AcceptedLifeModuleDecisionsOnly;
+    public string MechanicsAuthority { get; } = OriginNarrativeAuthorityKinds.AcceptedLifeModuleDecisionsOnly;
 }
 
 /// <summary>
@@ -174,9 +174,9 @@ public sealed record OriginCanonicalNarrativeLayer(
     string MechanicsSnapshotDigest,
     string LayerDigest)
 {
-    public string LayerKind => OriginNarrativeLayerKinds.Canonical;
+    public string LayerKind { get; } = OriginNarrativeLayerKinds.Canonical;
 
-    public string MechanicsAuthority => OriginNarrativeAuthorityKinds.AcceptedLifeModuleDecisionsOnly;
+    public string MechanicsAuthority { get; } = OriginNarrativeAuthorityKinds.AcceptedLifeModuleDecisionsOnly;
 }
 
 public sealed record OriginPlayerNarrativeContribution(
@@ -196,11 +196,11 @@ public sealed record OriginPlayerNarrativeLayer(
     string BoundDecisionGraphDigest,
     string LayerDigest)
 {
-    public string LayerKind => OriginNarrativeLayerKinds.Player;
+    public string LayerKind { get; } = OriginNarrativeLayerKinds.Player;
 
-    public string MechanicsAuthority => OriginNarrativeAuthorityKinds.PresentationOnly;
+    public string MechanicsAuthority { get; } = OriginNarrativeAuthorityKinds.PresentationOnly;
 
-    public bool AffectsMechanics => false;
+    public bool AffectsMechanics { get; }
 }
 
 public sealed record OriginProviderNarrativePassage(
@@ -223,11 +223,11 @@ public sealed record OriginProviderNarrativeLayer(
     string BoundDecisionGraphDigest,
     string LayerDigest)
 {
-    public string LayerKind => OriginNarrativeLayerKinds.Provider;
+    public string LayerKind { get; } = OriginNarrativeLayerKinds.Provider;
 
-    public string MechanicsAuthority => OriginNarrativeAuthorityKinds.PresentationOnly;
+    public string MechanicsAuthority { get; } = OriginNarrativeAuthorityKinds.PresentationOnly;
 
-    public bool AffectsMechanics => false;
+    public bool AffectsMechanics { get; }
 }
 
 public sealed record OriginNarrativeChapterProjection(
@@ -279,11 +279,11 @@ public sealed record OriginStoryArcProposal(
     IReadOnlyList<string> ValidationBlockers,
     string ProposalDigest)
 {
-    public string MechanicsAuthority => OriginNarrativeAuthorityKinds.PresentationOnly;
+    public string MechanicsAuthority { get; } = OriginNarrativeAuthorityKinds.PresentationOnly;
 
-    public bool CanAddLifeModuleChoices => false;
+    public bool CanAddLifeModuleChoices { get; }
 
-    public bool AffectsMechanics => false;
+    public bool AffectsMechanics { get; }
 }
 
 /// <summary>
@@ -299,11 +299,11 @@ public sealed record OriginRunnerAttribution(
     string AttributionLabelKey,
     string AttributionDigest)
 {
-    public string Placement => "cover-primary";
+    public string Placement { get; } = "cover-primary";
 
-    public bool IsProminent => true;
+    public bool IsProminent { get; } = true;
 
-    public bool IsTechnicalAuthor => false;
+    public bool IsTechnicalAuthor { get; }
 }
 
 /// <summary>
@@ -319,23 +319,23 @@ public sealed record OriginNarrativeMechanicsIsolationProof(
     string MechanicsSnapshotDigest,
     string ProofDigest)
 {
-    public string SoleMechanicsInputAuthority => OriginNarrativeAuthorityKinds.AcceptedLifeModuleDecisionsOnly;
+    public string SoleMechanicsInputAuthority { get; } = OriginNarrativeAuthorityKinds.AcceptedLifeModuleDecisionsOnly;
 
-    public IReadOnlyList<string> ExcludedInputKinds => OriginNarrativeNonMechanicsInputKinds.All;
+    public IReadOnlyList<string> ExcludedInputKinds { get; } = OriginNarrativeNonMechanicsInputKinds.All;
 
-    public bool PlayerNarrativeAffectsMechanics => false;
+    public bool PlayerNarrativeAffectsMechanics { get; }
 
-    public bool ProviderNarrativeAffectsMechanics => false;
+    public bool ProviderNarrativeAffectsMechanics { get; }
 
-    public bool VotesAffectMechanics => false;
+    public bool VotesAffectMechanics { get; }
 
-    public bool RankAffectsMechanics => false;
+    public bool RankAffectsMechanics { get; }
 
-    public bool RecognitionAffectsMechanics => false;
+    public bool RecognitionAffectsMechanics { get; }
 
-    public bool PublicRewardsAffectMechanics => false;
+    public bool PublicRewardsAffectMechanics { get; }
 
-    public bool ArtifactUnlocksAffectMechanics => false;
+    public bool ArtifactUnlocksAffectMechanics { get; }
 }
 
 public sealed record OriginStoryReleaseConsent(
@@ -393,9 +393,9 @@ public sealed record OriginPublicRecognitionSnapshot(
     IReadOnlyList<string> UnlockedArtifactKinds,
     string RecognitionDigest)
 {
-    public string MechanicsAuthority => OriginNarrativeAuthorityKinds.PresentationOnly;
+    public string MechanicsAuthority { get; } = OriginNarrativeAuthorityKinds.PresentationOnly;
 
-    public bool AffectsMechanics => false;
+    public bool AffectsMechanics { get; }
 }
 
 public sealed record OriginPublicArtifactManifest(
@@ -411,7 +411,7 @@ public sealed record OriginPublicArtifactManifest(
     IReadOnlyList<OriginPublicArtifactDescriptor> Artifacts,
     string ManifestDigest)
 {
-    public bool RequiresExplicitOwnerRelease => true;
+    public bool RequiresExplicitOwnerRelease { get; } = true;
 
-    public bool PublicMetricsAffectMechanics => false;
+    public bool PublicMetricsAffectMechanics { get; }
 }

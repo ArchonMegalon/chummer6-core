@@ -28,8 +28,8 @@ class OriginDossierContractTests(unittest.TestCase):
         self.assertIn("string VisibleStoryMarkdown", turn)
         self.assertIn("string DecisionPrompt", turn)
         self.assertIn("IReadOnlyList<LifeModuleNarrativeChoiceSeed> LegalChoices", turn)
-        self.assertIn("public bool StoryEndsAtDecisionPoint => true", turn)
-        self.assertIn("public bool WithholdsContinuationUntilAccepted => true", choice)
+        self.assertIn("public bool StoryEndsAtDecisionPoint { get; } = true", turn)
+        self.assertIn("public bool WithholdsContinuationUntilAccepted { get; } = true", choice)
 
     def test_story_arc_provider_can_only_propose_for_existing_choices(self) -> None:
         seed = self.record_body("OriginStoryArcSeed")
@@ -37,8 +37,8 @@ class OriginDossierContractTests(unittest.TestCase):
 
         self.assertIn("IReadOnlyList<string> AllowedChoiceIds", seed)
         self.assertIn("string BoundSeedDigest", proposal)
-        self.assertIn("public bool CanAddLifeModuleChoices => false", proposal)
-        self.assertIn("public bool AffectsMechanics => false", proposal)
+        self.assertIn("public bool CanAddLifeModuleChoices { get; }", proposal)
+        self.assertIn("public bool AffectsMechanics { get; }", proposal)
 
     def test_narrative_layers_are_separate_and_noncanonical_layers_have_no_authority(self) -> None:
         canonical = self.record_body("OriginCanonicalNarrativeLayer")
@@ -51,19 +51,19 @@ class OriginDossierContractTests(unittest.TestCase):
         self.assertNotIn("MechanicsSnapshotDigest", provider)
         self.assertIn("PresentationOnly", player)
         self.assertIn("PresentationOnly", provider)
-        self.assertIn("public bool AffectsMechanics => false", player)
-        self.assertIn("public bool AffectsMechanics => false", provider)
+        self.assertIn("public bool AffectsMechanics { get; }", player)
+        self.assertIn("public bool AffectsMechanics { get; }", provider)
 
     def test_publication_identity_is_fixed_while_runner_is_prominent(self) -> None:
         metadata = self.record_body("OriginTechnicalPublicationMetadata")
         attribution = self.record_body("OriginRunnerAttribution")
 
         self.assertIn('public const string ChummerRunId = "chummer.run"', metadata)
-        self.assertIn("public string AuthorId => ChummerRunId", metadata)
-        self.assertIn("public string PublisherId => ChummerRunId", metadata)
-        self.assertIn('public string Placement => "cover-primary"', attribution)
-        self.assertIn("public bool IsProminent => true", attribution)
-        self.assertIn("public bool IsTechnicalAuthor => false", attribution)
+        self.assertIn("public string AuthorId { get; } = ChummerRunId", metadata)
+        self.assertIn("public string PublisherId { get; } = ChummerRunId", metadata)
+        self.assertIn('public string Placement { get; } = "cover-primary"', attribution)
+        self.assertIn("public bool IsProminent { get; } = true", attribution)
+        self.assertIn("public bool IsTechnicalAuthor { get; }", attribution)
 
     def test_votes_and_artifact_rewards_cannot_enter_mechanics(self) -> None:
         proof = self.record_body("OriginNarrativeMechanicsIsolationProof")
@@ -74,11 +74,11 @@ class OriginDossierContractTests(unittest.TestCase):
         self.assertNotIn("VoteCount", proof)
         self.assertNotIn("PublicRank", proof)
         self.assertNotIn("UnlockedArtifactKinds", proof)
-        self.assertIn("public bool VotesAffectMechanics => false", proof)
-        self.assertIn("public bool PublicRewardsAffectMechanics => false", proof)
-        self.assertIn("public bool ArtifactUnlocksAffectMechanics => false", proof)
-        self.assertIn("public bool AffectsMechanics => false", recognition)
-        self.assertIn("public bool PublicMetricsAffectMechanics => false", manifest)
+        self.assertIn("public bool VotesAffectMechanics { get; }", proof)
+        self.assertIn("public bool PublicRewardsAffectMechanics { get; }", proof)
+        self.assertIn("public bool ArtifactUnlocksAffectMechanics { get; }", proof)
+        self.assertIn("public bool AffectsMechanics { get; }", recognition)
+        self.assertIn("public bool PublicMetricsAffectMechanics { get; }", manifest)
 
     def test_public_release_requires_explicit_owner_consent_and_supports_downloads(self) -> None:
         consent = self.record_body("OriginStoryReleaseConsent")
@@ -89,7 +89,7 @@ class OriginDossierContractTests(unittest.TestCase):
         self.assertIn("bool ApprovedForPublicDownload", consent)
         self.assertIn("bool CanView", artifact)
         self.assertIn("bool CanDownload", artifact)
-        self.assertIn("public bool RequiresExplicitOwnerRelease => true", manifest)
+        self.assertIn("public bool RequiresExplicitOwnerRelease { get; } = true", manifest)
 
     def test_public_reward_artifacts_are_provider_neutral(self) -> None:
         artifact_kinds = self.source[
