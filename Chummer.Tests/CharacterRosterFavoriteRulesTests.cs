@@ -263,4 +263,34 @@ public sealed class CharacterRosterFavoriteRulesTests
             Directory.Delete(directory, recursive: true);
         }
     }
+
+    [TestMethod]
+    public void File_store_fails_closed_when_primary_and_backup_are_invalid()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), "chummer-roster-invalid-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        try
+        {
+            FileCharacterRosterFavoriteStore store = new(directory);
+            CharacterRosterDocumentIdentity runner = new("content://runner/alpha", "Alpha");
+            CharacterRosterFavoriteState favorite = CharacterRosterFavoriteRules.Apply(
+                store.Load(),
+                new CharacterRosterFavoriteMutation(runner, IsFavorite: true, ExpectedRevision: 0));
+            store.Save(0, favorite);
+            CharacterRosterFavoriteState recent = CharacterRosterFavoriteRules.Apply(
+                store.Load(),
+                new CharacterRosterFavoriteMutation(runner, IsFavorite: false, ExpectedRevision: 1));
+            store.Save(1, recent);
+
+            string primary = Directory.GetFiles(directory, "roster-favorites.json", SearchOption.AllDirectories).Single();
+            File.WriteAllText(primary, "{broken-primary");
+            File.WriteAllText(primary + ".bak", "{broken-backup");
+
+            Assert.Throws<InvalidDataException>(() => store.Load());
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
 }

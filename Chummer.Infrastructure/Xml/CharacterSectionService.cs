@@ -519,7 +519,8 @@ public sealed class CharacterSectionService : ICharacterSectionService
         Dictionary<XElement, CharacterGearMergeIdentity> mergeIdentities = [];
         foreach (XElement item in topLevelGear)
         {
-            if (TryBuildGearMergeIdentity(item, out CharacterGearMergeIdentity? identity))
+            if (TryBuildGearMergeIdentity(item, out CharacterGearMergeIdentity? identity)
+                && identity is not null)
             {
                 mergeIdentities[item] = identity;
             }

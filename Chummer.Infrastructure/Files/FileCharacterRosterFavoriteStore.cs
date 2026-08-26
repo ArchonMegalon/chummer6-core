@@ -91,9 +91,9 @@ public sealed class FileCharacterRosterFavoriteStore : ICharacterRosterFavoriteS
     private CharacterRosterFavoriteState LoadCore(OwnerScope owner)
     {
         string path = GetPath(owner);
-        if (TryLoad(path, out CharacterRosterFavoriteState? current))
+        if (TryLoad(path, out CharacterRosterFavoriteState? current) && current is not null)
             return current;
-        if (TryLoad(path + ".bak", out CharacterRosterFavoriteState? recovered))
+        if (TryLoad(path + ".bak", out CharacterRosterFavoriteState? recovered) && recovered is not null)
         {
             RecoverPrimary(path);
             return recovered;
