@@ -7,6 +7,9 @@ namespace Chummer.Contracts.LifeModules;
 /// </summary>
 public static class OriginDossierSchemas
 {
+    public const string DecisionAuthorityStepV1 = "chummer.origin_dossier.life_module_decision_authority_step.v1";
+    public const string DecisionAcceptanceCommandV1 = "chummer.origin_dossier.life_module_decision_acceptance_command.v1";
+    public const string AcceptedDecisionReceiptV1 = "chummer.origin_dossier.life_module_accepted_decision_receipt.v1";
     public const string NarrativeTurnSeedV1 = "chummer.origin_dossier.narrative_turn_seed.v1";
     public const string StoryArcSeedV1 = "chummer.origin_dossier.story_arc_seed.v1";
     public const string StoryArcProposalV1 = "chummer.origin_dossier.story_arc_proposal.v1";
@@ -108,6 +111,166 @@ public sealed record OriginCanonicalNarrativeFact(
     string FactDigest);
 
 /// <summary>
+/// One deterministic, player-facing mechanical consequence. It deliberately
+/// omits raw source XML and narrative continuation text.
+/// </summary>
+public sealed record LifeModuleMechanicsPreviewItem(
+    string EffectId,
+    string Domain,
+    string TargetId,
+    string BeforeValue,
+    string AfterValue,
+    decimal BudgetDelta,
+    IReadOnlyList<string> SourceAnchorIds,
+    string ItemDigest);
+
+/// <summary>
+/// Core-owned mechanics summary for one already-legal choice. Narrative
+/// consumers may display this projection but cannot submit replacement costs,
+/// effects, follow-ups, or source anchors.
+/// </summary>
+public sealed record LifeModuleMechanicsPreview(
+    decimal KarmaCost,
+    string KarmaRaw,
+    bool KarmaIsExact,
+    IReadOnlyList<LifeModuleMechanicsPreviewItem> Items,
+    IReadOnlyList<string> PendingFollowUpIds,
+    IReadOnlyList<string> SourceAnchorIds,
+    string PreviewDigest);
+
+public static class LifeModuleOriginDossierOutcomes
+{
+    public const string Success = "success";
+    public const string Blocked = "blocked";
+    public const string Conflict = "conflict";
+    public const string Missing = "missing";
+    public const string Invalid = "invalid";
+}
+
+public static class LifeModuleOriginDossierBlockers
+{
+    public const string AuthorityInvalid = "origin-dossier-life-module-authority-invalid";
+    public const string ExplicitAcceptanceRequired = "origin-dossier-explicit-acceptance-required";
+    public const string IdempotencyConflict = "origin-dossier-idempotency-conflict";
+    public const string IdempotencyKeyInvalid = "origin-dossier-idempotency-key-invalid";
+    public const string IllegalChoice = "origin-dossier-illegal-life-module-choice";
+    public const string ProjectionInvalid = "origin-dossier-projection-invalid";
+    public const string WorkspaceStale = "origin-dossier-workspace-stale";
+    public const string SourceStale = "origin-dossier-source-stale";
+    public const string RulesStale = "origin-dossier-rules-stale";
+    public const string RuntimeStale = "origin-dossier-runtime-stale";
+    public const string DecisionStale = "origin-dossier-decision-stale";
+}
+
+/// <summary>
+/// A choice projected by the existing Life Module legality authority. The
+/// application service never turns presentation-submitted mechanics into one.
+/// </summary>
+public sealed record LifeModuleDecisionAuthorityChoice(
+    string ChoiceId,
+    string Label,
+    string Source,
+    string PageReference,
+    string DecisionCommandDigest,
+    LifeModuleMechanicsPreview MechanicsPreview,
+    IReadOnlyList<string> SourceAnchorIds,
+    IReadOnlyList<string> Blockers,
+    bool IsLegal);
+
+/// <summary>
+/// Read model returned by the existing Life Module decision authority. Scene
+/// text is deterministic local copy and ends before any selected consequence.
+/// </summary>
+public sealed record LifeModuleDecisionAuthorityStep(
+    string Schema,
+    string RulesetId,
+    string WorkspaceId,
+    long WorkspaceRevision,
+    string OwnerId,
+    string RunnerId,
+    string RunnerDisplayName,
+    string Locale,
+    string JourneyId,
+    string StageId,
+    int StageOrder,
+    string TurnId,
+    int TurnSequence,
+    string DecisionLeadInMarkdown,
+    string DecisionPrompt,
+    IReadOnlyList<LifeModuleDecisionAuthorityChoice> LegalChoices,
+    IReadOnlyList<OriginCanonicalNarrativeFact> CanonicalFacts,
+    IReadOnlyList<string> AcceptedDecisionIds,
+    string PreviousTurnDigest,
+    string DecisionGraphDigest,
+    string DecisionDigest,
+    string ContentDigest,
+    string SourceDigest,
+    string RulesDigest,
+    string RuntimeDigest,
+    string MechanicsSnapshotDigest);
+
+/// <summary>
+/// The only write-shaped value emitted by the dossier service. An adapter must
+/// pass it to the existing accepted Life Module command; it must not implement
+/// a second mechanics mutation path.
+/// </summary>
+public sealed record LifeModuleDecisionAcceptanceCommand(
+    string Schema,
+    string WorkspaceId,
+    long WorkspaceRevision,
+    string ChoiceId,
+    string DecisionCommandDigest,
+    string ExpectedContentDigest,
+    string ExpectedSourceDigest,
+    string ExpectedRulesDigest,
+    string ExpectedRuntimeDigest,
+    string ExpectedDecisionGraphDigest,
+    string ExpectedDecisionDigest,
+    string ExpectedMechanicsSnapshotDigest,
+    string ExpectedTurnSeedDigest,
+    string IdempotencyKey,
+    string IdempotencyKeyDigest);
+
+public sealed record LifeModuleAcceptedDecisionReceipt(
+    string Schema,
+    string DecisionId,
+    string ChoiceId,
+    string DecisionCommandDigest,
+    string IdempotencyKeyDigest,
+    long PreviousWorkspaceRevision,
+    long WorkspaceRevision,
+    string PreviousContentDigest,
+    string ContentDigest,
+    string SourceDigest,
+    string RulesDigest,
+    string RuntimeDigest,
+    string PreviousDecisionDigest,
+    string PreviousMechanicsSnapshotDigest,
+    string AcceptedDecisionGraphDigest,
+    string MechanicsSnapshotDigest,
+    string ConsequenceMarkdown,
+    IReadOnlyList<OriginCanonicalNarrativeFact> CanonicalFacts,
+    string ReceiptDigest);
+
+public sealed record LifeModuleDecisionAcceptance(
+    LifeModuleAcceptedDecisionReceipt Receipt,
+    LifeModuleDecisionAuthorityStep NextStep);
+
+public sealed record LifeModuleDecisionAuthorityResult<T>(
+    string Outcome,
+    T? Value,
+    IReadOnlyList<string> Blockers);
+
+public sealed record LifeModuleOriginDossierResult<T>(
+    string Outcome,
+    T? Value,
+    IReadOnlyList<string> Blockers);
+
+public sealed record LifeModuleOriginDossierAdvance(
+    OriginStoryArcSeed Projection,
+    LifeModuleAcceptedDecisionReceipt AcceptedDecision);
+
+/// <summary>
 /// A choice the engine has already found legal. The next story passage is
 /// deliberately absent: the reader sees the story only through the current
 /// decision point and the continuation is projected after acceptance.
@@ -115,11 +278,15 @@ public sealed record OriginCanonicalNarrativeFact(
 public sealed record LifeModuleNarrativeChoiceSeed(
     string ChoiceId,
     string Label,
+    string Source,
+    string PageReference,
     string DecisionCommandDigest,
+    LifeModuleMechanicsPreview MechanicsPreview,
     string MechanicsPreviewDigest,
     IReadOnlyList<string> SourceAnchorIds,
     IReadOnlyList<string> Blockers,
-    bool IsLegal)
+    bool IsLegal,
+    string ChoiceDigest)
 {
     public bool WithholdsContinuationUntilAccepted { get; } = true;
 }
@@ -150,6 +317,7 @@ public sealed record LifeModuleNarrativeTurnSeed(
     IReadOnlyList<string> AcceptedDecisionIds,
     string PreviousTurnDigest,
     string DecisionGraphDigest,
+    string DecisionDigest,
     string ContentDigest,
     string SourceDigest,
     string RulesDigest,

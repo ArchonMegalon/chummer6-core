@@ -24,11 +24,19 @@ class OriginDossierContractTests(unittest.TestCase):
     def test_live_turn_reads_to_decision_and_withholds_continuation(self) -> None:
         turn = self.record_body("LifeModuleNarrativeTurnSeed")
         choice = self.record_body("LifeModuleNarrativeChoiceSeed")
+        preview = self.record_body("LifeModuleMechanicsPreview")
 
         self.assertIn("string VisibleStoryMarkdown", turn)
         self.assertIn("string DecisionPrompt", turn)
         self.assertIn("IReadOnlyList<LifeModuleNarrativeChoiceSeed> LegalChoices", turn)
+        self.assertIn("string DecisionDigest", turn)
         self.assertIn("public bool StoryEndsAtDecisionPoint { get; } = true", turn)
+        self.assertIn("string Source", choice)
+        self.assertIn("string PageReference", choice)
+        self.assertIn("LifeModuleMechanicsPreview MechanicsPreview", choice)
+        self.assertIn("string MechanicsPreviewDigest", choice)
+        self.assertIn("string ChoiceDigest", choice)
+        self.assertIn("IReadOnlyList<LifeModuleMechanicsPreviewItem> Items", preview)
         self.assertIn("public bool WithholdsContinuationUntilAccepted { get; } = true", choice)
 
     def test_story_arc_provider_can_only_propose_for_existing_choices(self) -> None:
