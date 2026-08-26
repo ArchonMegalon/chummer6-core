@@ -23,6 +23,9 @@ public sealed class CharacterCareerKnowledgeSkillAdvanceRulesTests
         DateTime requestedDate = new(2081, 5, 12, 14, 30, 0, DateTimeKind.Local);
         Assert.IsTrue(CharacterCareerKnowledgeSkillAdvanceRules.TryPlanAdvance(
             quote,
+            quote.CharacterRevision,
+            quote.LogicalRevision,
+            quote.SourceRevision,
             quote.RuleDigest,
             confirmed: true,
             expenseId,
@@ -40,7 +43,10 @@ public sealed class CharacterCareerKnowledgeSkillAdvanceRulesTests
         Assert.AreEqual(CustomIdentity.SkillId.ToString("D"), plan.UndoObjectId);
         Assert.AreEqual(0m, plan.UndoQuantity);
         Assert.AreEqual(string.Empty, plan.UndoExtra);
-        Assert.AreEqual(quote.RuleDigest, plan.RuleDigest);
+        Assert.AreEqual(plan.ExpectedCharacterRevision, quote.CharacterRevision);
+        Assert.AreEqual(plan.ExpectedLogicalRevision, quote.LogicalRevision);
+        Assert.AreEqual(plan.ExpectedSourceRevision, quote.SourceRevision);
+        Assert.AreEqual(plan.ExpectedRuleDigest, quote.RuleDigest);
     }
 
     [TestMethod]
@@ -59,6 +65,9 @@ public sealed class CharacterCareerKnowledgeSkillAdvanceRulesTests
 
         Assert.IsTrue(CharacterCareerKnowledgeSkillAdvanceRules.TryPlanAdvance(
             quote,
+            quote.CharacterRevision,
+            quote.LogicalRevision,
+            quote.SourceRevision,
             quote.RuleDigest,
             true,
             Guid.Parse("33333333-3333-3333-3333-333333333333"),
@@ -143,7 +152,8 @@ public sealed class CharacterCareerKnowledgeSkillAdvanceRulesTests
         CharacterCareerKnowledgeSkillAdvanceQuote poor = Quote(Input(3, 1, 3));
         Assert.AreEqual(CharacterCareerKnowledgeSkillAdvanceBlocker.InsufficientKarma, poor.Blocker);
         Assert.IsFalse(CharacterCareerKnowledgeSkillAdvanceRules.TryPlanAdvance(
-            poor, poor.RuleDigest, true, Guid.NewGuid(), new DateTime(2081, 5, 12), out _));
+            poor, poor.CharacterRevision, poor.LogicalRevision, poor.SourceRevision,
+            poor.RuleDigest, true, Guid.NewGuid(), new DateTime(2081, 5, 12), out _));
     }
 
     [TestMethod]
@@ -186,9 +196,11 @@ public sealed class CharacterCareerKnowledgeSkillAdvanceRulesTests
                 Identity = new CharacterCareerKnowledgeSkillIdentity(CustomIdentity.SkillId, Guid.Empty)
             },
             out _));
-        Assert.IsFalse(CharacterCareerKnowledgeSkillAdvanceRules.TryCreateQuote(
-            Input(3, 1, 20) with { IsKnowledgeSkill = false },
-            out _));
+        CharacterCareerKnowledgeSkillAdvanceQuote foreignKind = Quote(
+            Input(3, 1, 20) with { IsKnowledgeSkill = false });
+        Assert.AreEqual(
+            CharacterCareerKnowledgeSkillAdvanceBlocker.NotKnowledgeSkill,
+            foreignKind.Blocker);
 
         CharacterCareerKnowledgeSkillKarmaModifier duplicate = Modifier(
             '9',
@@ -230,6 +242,11 @@ public sealed class CharacterCareerKnowledgeSkillAdvanceRulesTests
             AllowUpgrade = false
         });
         Assert.AreNotEqual(original.SourceRevision, sourceChanged.SourceRevision);
+        CharacterCareerKnowledgeSkillAdvanceQuote characterChanged = Quote(input with
+        {
+            RawCharacterState = input.RawCharacterState + " "
+        });
+        Assert.AreNotEqual(original.CharacterRevision, characterChanged.CharacterRevision);
         Assert.AreNotEqual(original.RuleDigest, rulesChanged.RuleDigest);
         Assert.AreNotEqual(original.RuleDigest, policyChanged.RuleDigest);
     }
@@ -240,13 +257,95 @@ public sealed class CharacterCareerKnowledgeSkillAdvanceRulesTests
         CharacterCareerKnowledgeSkillAdvanceQuote quote = Quote(Input(3, 1, 20));
         DateTime validDate = new(2081, 5, 12);
         Assert.IsFalse(CharacterCareerKnowledgeSkillAdvanceRules.TryPlanAdvance(
-            quote, quote.RuleDigest, false, Guid.NewGuid(), validDate, out _));
+            quote, quote.CharacterRevision, quote.LogicalRevision, quote.SourceRevision,
+            quote.RuleDigest, false, Guid.NewGuid(), validDate, out _));
         Assert.IsFalse(CharacterCareerKnowledgeSkillAdvanceRules.TryPlanAdvance(
-            quote, new string('0', 64), true, Guid.NewGuid(), validDate, out _));
+            quote, new string('0', 64), quote.LogicalRevision, quote.SourceRevision,
+            quote.RuleDigest, true, Guid.NewGuid(), validDate, out _));
         Assert.IsFalse(CharacterCareerKnowledgeSkillAdvanceRules.TryPlanAdvance(
-            quote, quote.RuleDigest, true, Guid.Empty, validDate, out _));
+            quote, quote.CharacterRevision, new string('0', 64), quote.SourceRevision,
+            quote.RuleDigest, true, Guid.NewGuid(), validDate, out _));
         Assert.IsFalse(CharacterCareerKnowledgeSkillAdvanceRules.TryPlanAdvance(
-            quote, quote.RuleDigest, true, Guid.NewGuid(), new DateTime(1752, 12, 31), out _));
+            quote, quote.CharacterRevision, quote.LogicalRevision, new string('0', 64),
+            quote.RuleDigest, true, Guid.NewGuid(), validDate, out _));
+        Assert.IsFalse(CharacterCareerKnowledgeSkillAdvanceRules.TryPlanAdvance(
+            quote, quote.CharacterRevision, quote.LogicalRevision, quote.SourceRevision,
+            new string('0', 64), true, Guid.NewGuid(), validDate, out _));
+        Assert.IsFalse(CharacterCareerKnowledgeSkillAdvanceRules.TryPlanAdvance(
+            quote, quote.CharacterRevision, quote.LogicalRevision, quote.SourceRevision,
+            quote.RuleDigest, true, Guid.Empty, validDate, out _));
+        Assert.IsFalse(CharacterCareerKnowledgeSkillAdvanceRules.TryPlanAdvance(
+            quote, quote.CharacterRevision, quote.LogicalRevision, quote.SourceRevision,
+            quote.RuleDigest, true, Guid.NewGuid(), new DateTime(1752, 12, 31), out _));
+    }
+
+    [TestMethod]
+    public void Prerequisites_keep_sr5_knowledge_language_truth_explicit_and_digest_bound()
+    {
+        CharacterCareerKnowledgeSkillAdvanceQuote language = Quote(Input(2, 1, 20) with
+        {
+            SkillType = "Language",
+            SkillCategory = "Language"
+        });
+        CollectionAssert.AreEqual(
+            Enum.GetValues<CharacterCareerKnowledgeSkillAdvancePrerequisite>().ToList(),
+            language.Prerequisites.Select(static value => value.Prerequisite).ToList());
+        Assert.IsTrue(language.Prerequisites.Single(value => value.Prerequisite
+            == CharacterCareerKnowledgeSkillAdvancePrerequisite.NotNativeLanguage).Satisfied);
+        Assert.AreEqual(TimeSpan.Zero, language.ApplicationDuration);
+        Assert.AreEqual(
+            CharacterCareerKnowledgeSkillTimeAuthority.ImmediateChummerPersistence,
+            language.TimeAuthority);
+
+        CharacterCareerKnowledgeSkillAdvanceQuote native = Quote(Input(0, 0, 20) with
+        {
+            SkillType = "Language",
+            SkillCategory = "Language",
+            IsNativeLanguage = true
+        });
+        Assert.AreEqual(CharacterCareerKnowledgeSkillAdvanceBlocker.NativeLanguage, native.Blocker);
+        Assert.IsFalse(native.Prerequisites.Single(value => value.Prerequisite
+            == CharacterCareerKnowledgeSkillAdvancePrerequisite.NotNativeLanguage).Satisfied);
+
+        CharacterCareerKnowledgeSkillAdvanceQuote wrongRuleset = Quote(Input(2, 1, 20) with
+        {
+            RulesetId = "sr6"
+        });
+        Assert.AreEqual(
+            CharacterCareerKnowledgeSkillAdvanceBlocker.UnsupportedRuleset,
+            wrongRuleset.Blocker);
+    }
+
+    [TestMethod]
+    public void Receipt_is_atomic_idempotency_authority_and_rejects_forged_observed_state()
+    {
+        CharacterCareerKnowledgeSkillAdvanceQuote quote = Quote(Input(3, 1, 20));
+        Guid transactionId = Guid.Parse("44444444-4444-4444-4444-444444444444");
+        Assert.IsTrue(CharacterCareerKnowledgeSkillAdvanceRules.TryPlanAdvance(
+            quote, quote.CharacterRevision, quote.LogicalRevision, quote.SourceRevision,
+            quote.RuleDigest, true, transactionId, new DateTime(2081, 5, 12),
+            out CharacterCareerKnowledgeSkillAdvancePlan plan));
+        Assert.IsTrue(CharacterCareerKnowledgeSkillAdvanceRules.IsCoherent(plan));
+        Assert.IsTrue(CharacterCareerKnowledgeSkillAdvanceRules.TryCreateReceipt(
+            transactionId, quote, plan, plan.SavedSkillKarmaPoints,
+            plan.SavedCharacterKarma, expenseExistsExactlyOnce: true,
+            out CharacterCareerKnowledgeSkillAdvanceReceipt receipt));
+        Assert.IsTrue(CharacterCareerKnowledgeSkillAdvanceRules.IsCoherent(receipt));
+        Assert.AreEqual(transactionId, receipt.TransactionId);
+        Assert.AreEqual(transactionId, receipt.ExpenseId);
+        Assert.AreEqual(64, receipt.ReceiptDigest.Length);
+
+        Assert.IsFalse(CharacterCareerKnowledgeSkillAdvanceRules.TryCreateReceipt(
+            Guid.NewGuid(), quote, plan, plan.SavedSkillKarmaPoints,
+            plan.SavedCharacterKarma, true, out _));
+        Assert.IsFalse(CharacterCareerKnowledgeSkillAdvanceRules.TryCreateReceipt(
+            transactionId, quote, plan, plan.SavedSkillKarmaPoints + 1,
+            plan.SavedCharacterKarma, true, out _));
+        Assert.IsFalse(CharacterCareerKnowledgeSkillAdvanceRules.TryCreateReceipt(
+            transactionId, quote, plan, plan.SavedSkillKarmaPoints,
+            plan.SavedCharacterKarma, false, out _));
+        Assert.IsFalse(CharacterCareerKnowledgeSkillAdvanceRules.IsCoherent(
+            receipt with { ReceiptDigest = new string('0', 64) }));
     }
 
     [TestMethod]
@@ -591,6 +690,7 @@ public sealed class CharacterCareerKnowledgeSkillAdvanceRulesTests
         => new(
             CustomIdentity,
             Created: true,
+            RulesetId: CharacterCareerKnowledgeSkillAdvanceRules.RulesetId,
             IsKnowledgeSkill: true,
             AllowUpgrade: true,
             IsNativeLanguage: false,
@@ -607,6 +707,7 @@ public sealed class CharacterCareerKnowledgeSkillAdvanceRulesTests
                 KarmaNewKnowledgeSkill: 2,
                 KarmaImproveKnowledgeSkill: 1),
             Modifiers: [],
+            RawCharacterState: "<character><created>True</created><karma>20</karma></character>",
             RawSourceState: "<skill><guid>11111111-1111-1111-1111-111111111111</guid><isknowledge>True</isknowledge></skill>",
             RawRuleState: "settings:v1");
 

@@ -34,9 +34,27 @@ public sealed record CharacterCareerKnowledgeSkillKarmaModifier(
     int Maximum,
     decimal Value);
 
+public enum CharacterCareerKnowledgeSkillAdvancePrerequisite
+{
+    CareerCharacter,
+    Sr5Ruleset,
+    KnowledgeSkill,
+    ExactIdentity,
+    UpgradeAllowed,
+    NotNativeLanguage,
+    BelowMaximum,
+    SufficientKarma
+}
+
+public sealed record CharacterCareerKnowledgeSkillAdvancePrerequisiteResult(
+    CharacterCareerKnowledgeSkillAdvancePrerequisite Prerequisite,
+    bool Satisfied,
+    string Authority);
+
 public sealed record CharacterCareerKnowledgeSkillAdvanceInput(
     CharacterCareerKnowledgeSkillIdentity Identity,
     bool Created,
+    string RulesetId,
     bool IsKnowledgeSkill,
     bool AllowUpgrade,
     bool IsNativeLanguage,
@@ -51,16 +69,26 @@ public sealed record CharacterCareerKnowledgeSkillAdvanceInput(
     int AvailableKarma,
     CharacterCareerKnowledgeSkillAdvanceSettings Settings,
     IReadOnlyList<CharacterCareerKnowledgeSkillKarmaModifier> Modifiers,
+    string RawCharacterState,
     string RawSourceState,
     string RawRuleState);
 
 public enum CharacterCareerKnowledgeSkillAdvanceBlocker
 {
     None,
+    NotCareerCharacter,
+    UnsupportedRuleset,
+    NotKnowledgeSkill,
+    ForeignIdentity,
     UpgradeDisallowed,
     NativeLanguage,
     AtMaximum,
     InsufficientKarma
+}
+
+public enum CharacterCareerKnowledgeSkillTimeAuthority
+{
+    ImmediateChummerPersistence
 }
 
 public sealed record CharacterCareerKnowledgeSkillAdvanceQuote(
@@ -76,8 +104,12 @@ public sealed record CharacterCareerKnowledgeSkillAdvanceQuote(
     int RatingMaximum,
     int AvailableKarma,
     int KarmaCost,
+    TimeSpan ApplicationDuration,
+    CharacterCareerKnowledgeSkillTimeAuthority TimeAuthority,
+    IReadOnlyList<CharacterCareerKnowledgeSkillAdvancePrerequisiteResult> Prerequisites,
     bool CanAdvance,
     CharacterCareerKnowledgeSkillAdvanceBlocker Blocker,
+    string CharacterRevision,
     string LogicalRevision,
     string SourceRevision,
     string RuleDigest);
@@ -95,7 +127,27 @@ public sealed record CharacterCareerKnowledgeSkillAdvancePlan(
     string UndoObjectId,
     decimal UndoQuantity,
     string UndoExtra,
-    string RuleDigest);
+    string ExpectedCharacterRevision,
+    string ExpectedLogicalRevision,
+    string ExpectedSourceRevision,
+    string ExpectedRuleDigest);
+
+public sealed record CharacterCareerKnowledgeSkillAdvanceReceipt(
+    Guid TransactionId,
+    CharacterCareerKnowledgeSkillIdentity Identity,
+    string Name,
+    string SkillType,
+    int SkillKarmaBefore,
+    int SkillKarmaAfter,
+    int CharacterKarmaBefore,
+    int CharacterKarmaAfter,
+    Guid ExpenseId,
+    int ExpenseAmount,
+    string CharacterRevision,
+    string LogicalRevision,
+    string SourceRevision,
+    string RuleDigest,
+    string ReceiptDigest);
 
 /// <summary>
 /// Deterministic Chummer5 authority for raising one saved knowledge skill in Career mode.
@@ -111,6 +163,7 @@ public static class CharacterCareerKnowledgeSkillAdvanceRules
     public const int MaximumKarma = 9_999_999;
     public const int MaximumNameLength = 512;
     public const int MaximumRuleTextLength = 1_048_576;
+    public const string RulesetId = "sr5";
     public static readonly DateTime MinimumExpenseDate = new(1753, 1, 1);
     public static readonly DateTime MaximumExpenseDate = new(9998, 12, 31, 23, 59, 59);
 
@@ -135,14 +188,32 @@ public static class CharacterCareerKnowledgeSkillAdvanceRules
             return false;
         }
 
-        CharacterCareerKnowledgeSkillAdvanceBlocker blocker = ExpectedBlocker(
-            validInput.AllowUpgrade,
-            validInput.IsNativeLanguage,
-            validInput.TotalBaseRating,
-            validInput.RatingMaximum,
-            validInput.AvailableKarma,
-            karmaCost);
+        CharacterCareerKnowledgeSkillAdvanceBlocker blocker = ExpectedBlocker(validInput, karmaCost);
         bool canAdvance = blocker == CharacterCareerKnowledgeSkillAdvanceBlocker.None;
+        CharacterCareerKnowledgeSkillAdvancePrerequisiteResult[] prerequisites =
+        [
+            new(CharacterCareerKnowledgeSkillAdvancePrerequisite.CareerCharacter,
+                validInput.Created, "character.created"),
+            new(CharacterCareerKnowledgeSkillAdvancePrerequisite.Sr5Ruleset,
+                string.Equals(validInput.RulesetId, RulesetId, StringComparison.Ordinal),
+                "ruleset.sr5"),
+            new(CharacterCareerKnowledgeSkillAdvancePrerequisite.KnowledgeSkill,
+                validInput.IsKnowledgeSkill, "newskills.knoskills"),
+            new(CharacterCareerKnowledgeSkillAdvancePrerequisite.ExactIdentity,
+                IsValidIdentity(validInput.Identity),
+                $"knowledge-skill.instance:{validInput.Identity.SkillId:D}"),
+            new(CharacterCareerKnowledgeSkillAdvancePrerequisite.UpgradeAllowed,
+                validInput.AllowUpgrade, "knowledge-skill.disableupgrades"),
+            new(CharacterCareerKnowledgeSkillAdvancePrerequisite.NotNativeLanguage,
+                !validInput.IsNativeLanguage, "knowledge-skill.isnativelanguage"),
+            new(CharacterCareerKnowledgeSkillAdvancePrerequisite.BelowMaximum,
+                validInput.TotalBaseRating < validInput.RatingMaximum,
+                "knowledge-skill.rating-maximum"),
+            new(CharacterCareerKnowledgeSkillAdvancePrerequisite.SufficientKarma,
+                karmaCost >= 0 && validInput.AvailableKarma >= karmaCost,
+                "character.karma")
+        ];
+        string characterRevision = Sha256(validInput.RawCharacterState);
         string sourceRevision = Sha256(validInput.RawSourceState);
         string ruleDigest = CalculateRuleDigest(validInput);
         string logicalRevision = CalculateLogicalRevision(
@@ -158,8 +229,10 @@ public static class CharacterCareerKnowledgeSkillAdvanceRules
             validInput.RatingMaximum,
             validInput.AvailableKarma,
             karmaCost,
+            prerequisites,
             canAdvance,
             blocker,
+            characterRevision,
             sourceRevision,
             ruleDigest);
 
@@ -176,8 +249,12 @@ public static class CharacterCareerKnowledgeSkillAdvanceRules
             validInput.RatingMaximum,
             validInput.AvailableKarma,
             karmaCost,
+            TimeSpan.Zero,
+            CharacterCareerKnowledgeSkillTimeAuthority.ImmediateChummerPersistence,
+            prerequisites,
             canAdvance,
             blocker,
+            characterRevision,
             logicalRevision,
             sourceRevision,
             ruleDigest);
@@ -186,6 +263,9 @@ public static class CharacterCareerKnowledgeSkillAdvanceRules
 
     public static bool TryPlanAdvance(
         CharacterCareerKnowledgeSkillAdvanceQuote? current,
+        string? expectedCharacterRevision,
+        string? expectedLogicalRevision,
+        string? expectedSourceRevision,
         string? expectedRuleDigest,
         bool confirmed,
         Guid expenseId,
@@ -197,6 +277,9 @@ public static class CharacterCareerKnowledgeSkillAdvanceRules
         if (!confirmed
             || !IsCoherent(current)
             || !current!.CanAdvance
+            || !RevisionMatches(current.CharacterRevision, expectedCharacterRevision)
+            || !RevisionMatches(current.LogicalRevision, expectedLogicalRevision)
+            || !RevisionMatches(current.SourceRevision, expectedSourceRevision)
             || !RevisionMatches(current.RuleDigest, expectedRuleDigest)
             || expenseId == Guid.Empty
             || normalizedDate < MinimumExpenseDate
@@ -223,6 +306,9 @@ public static class CharacterCareerKnowledgeSkillAdvanceRules
                 current.Identity.SkillId.ToString("D"),
                 0m,
                 string.Empty,
+                current.CharacterRevision,
+                current.LogicalRevision,
+                current.SourceRevision,
                 current.RuleDigest);
             return true;
         }
@@ -230,6 +316,58 @@ public static class CharacterCareerKnowledgeSkillAdvanceRules
         {
             return false;
         }
+    }
+
+    public static bool TryCreateReceipt(
+        Guid transactionId,
+        CharacterCareerKnowledgeSkillAdvanceQuote? reviewed,
+        CharacterCareerKnowledgeSkillAdvancePlan? plan,
+        int observedSkillKarma,
+        int observedCharacterKarma,
+        bool expenseExistsExactlyOnce,
+        out CharacterCareerKnowledgeSkillAdvanceReceipt receipt)
+    {
+        receipt = UnavailableReceipt();
+        if (transactionId == Guid.Empty
+            || !IsCoherent(reviewed)
+            || !IsCoherent(plan)
+            || reviewed!.Identity != plan!.Identity
+            || transactionId != plan.ExpenseId
+            || !RevisionMatches(reviewed.CharacterRevision, plan.ExpectedCharacterRevision)
+            || !RevisionMatches(reviewed.LogicalRevision, plan.ExpectedLogicalRevision)
+            || !RevisionMatches(reviewed.SourceRevision, plan.ExpectedSourceRevision)
+            || !RevisionMatches(reviewed.RuleDigest, plan.ExpectedRuleDigest)
+            || !PlanMatchesQuote(reviewed, plan)
+            || observedSkillKarma != plan.SavedSkillKarmaPoints
+            || observedCharacterKarma != plan.SavedCharacterKarma
+            || !expenseExistsExactlyOnce)
+        {
+            return false;
+        }
+
+        string digest = CalculateReceiptDigest(
+            transactionId, reviewed.Identity, reviewed.Name, reviewed.SkillType,
+            reviewed.KarmaPoints, observedSkillKarma, reviewed.AvailableKarma,
+            observedCharacterKarma, plan.ExpenseId, plan.ExpenseAmount,
+            reviewed.CharacterRevision, reviewed.LogicalRevision,
+            reviewed.SourceRevision, reviewed.RuleDigest);
+        receipt = new CharacterCareerKnowledgeSkillAdvanceReceipt(
+            transactionId,
+            reviewed.Identity,
+            reviewed.Name,
+            reviewed.SkillType,
+            reviewed.KarmaPoints,
+            observedSkillKarma,
+            reviewed.AvailableKarma,
+            observedCharacterKarma,
+            plan.ExpenseId,
+            plan.ExpenseAmount,
+            reviewed.CharacterRevision,
+            reviewed.LogicalRevision,
+            reviewed.SourceRevision,
+            reviewed.RuleDigest,
+            digest);
+        return true;
     }
 
     public static bool IsCoherent(CharacterCareerKnowledgeSkillAdvanceQuote? quote)
@@ -244,14 +382,13 @@ public static class CharacterCareerKnowledgeSkillAdvanceRules
             && quote.RatingMaximum is >= 0 and <= MaximumRating
             && quote.AvailableKarma is >= 0 and <= MaximumKarma
             && quote.KarmaCost is >= -1 and <= MaximumKarma
+            && quote.ApplicationDuration == TimeSpan.Zero
+            && quote.TimeAuthority == CharacterCareerKnowledgeSkillTimeAuthority.ImmediateChummerPersistence
+            && IsCoherentPrerequisites(quote.Prerequisites)
+            && PrerequisitesMatchQuote(quote)
             && quote.CanAdvance == (quote.Blocker == CharacterCareerKnowledgeSkillAdvanceBlocker.None)
-            && quote.Blocker == ExpectedBlocker(
-                quote.AllowUpgrade,
-                quote.IsNativeLanguage,
-                quote.TotalBaseRating,
-                quote.RatingMaximum,
-                quote.AvailableKarma,
-                quote.KarmaCost)
+            && quote.Blocker == ExpectedBlocker(quote)
+            && IsLowerHexRevision(quote.CharacterRevision)
             && IsLowerHexRevision(quote.SourceRevision)
             && IsLowerHexRevision(quote.RuleDigest)
             && RevisionMatches(
@@ -268,35 +405,145 @@ public static class CharacterCareerKnowledgeSkillAdvanceRules
                     quote.RatingMaximum,
                     quote.AvailableKarma,
                     quote.KarmaCost,
+                    quote.Prerequisites,
                     quote.CanAdvance,
                     quote.Blocker,
+                    quote.CharacterRevision,
                     quote.SourceRevision,
                     quote.RuleDigest),
                 quote.LogicalRevision);
 
+    public static bool IsCoherent(CharacterCareerKnowledgeSkillAdvancePlan? plan)
+        => plan is not null
+            && IsValidIdentity(plan.Identity)
+            && plan.SavedSkillKarmaPoints is >= 0 and <= MaximumRating
+            && plan.SavedCharacterKarma is >= 0 and <= MaximumKarma
+            && plan.ExpenseAmount is <= 0 and >= -MaximumKarma
+            && !string.IsNullOrWhiteSpace(plan.ExpenseReason)
+            && plan.ExpenseReason.Length <= MaximumNameLength
+            && plan.ExpenseDateLocal.Kind == DateTimeKind.Unspecified
+            && plan.ExpenseDateLocal >= MinimumExpenseDate
+            && plan.ExpenseDateLocal <= MaximumExpenseDate
+            && plan.ExpenseId != Guid.Empty
+            && plan.KarmaUndoType is "AddSkill" or "ImproveSkill"
+            && plan.NuyenUndoType == "AddCyberware"
+            && plan.UndoObjectId == plan.Identity.SkillId.ToString("D")
+            && plan.UndoQuantity == 0m
+            && plan.UndoExtra == string.Empty
+            && IsLowerHexRevision(plan.ExpectedCharacterRevision)
+            && IsLowerHexRevision(plan.ExpectedLogicalRevision)
+            && IsLowerHexRevision(plan.ExpectedSourceRevision)
+            && IsLowerHexRevision(plan.ExpectedRuleDigest);
+
+    public static bool IsCoherent(CharacterCareerKnowledgeSkillAdvanceReceipt? receipt)
+        => receipt is not null
+            && receipt.TransactionId != Guid.Empty
+            && receipt.TransactionId == receipt.ExpenseId
+            && IsValidIdentity(receipt.Identity)
+            && IsBoundedRequiredText(receipt.Name)
+            && IsBoundedOptionalText(receipt.SkillType)
+            && receipt.SkillKarmaBefore is >= 0 and <= MaximumRating
+            && receipt.SkillKarmaAfter == receipt.SkillKarmaBefore + 1
+            && receipt.CharacterKarmaBefore is >= 0 and <= MaximumKarma
+            && receipt.CharacterKarmaAfter is >= 0 and <= MaximumKarma
+            && receipt.ExpenseAmount is <= 0 and >= -MaximumKarma
+            && receipt.CharacterKarmaAfter == receipt.CharacterKarmaBefore + receipt.ExpenseAmount
+            && IsLowerHexRevision(receipt.CharacterRevision)
+            && IsLowerHexRevision(receipt.LogicalRevision)
+            && IsLowerHexRevision(receipt.SourceRevision)
+            && IsLowerHexRevision(receipt.RuleDigest)
+            && RevisionMatches(
+                CalculateReceiptDigest(
+                    receipt.TransactionId, receipt.Identity, receipt.Name, receipt.SkillType,
+                    receipt.SkillKarmaBefore, receipt.SkillKarmaAfter,
+                    receipt.CharacterKarmaBefore, receipt.CharacterKarmaAfter,
+                    receipt.ExpenseId, receipt.ExpenseAmount, receipt.CharacterRevision,
+                    receipt.LogicalRevision, receipt.SourceRevision, receipt.RuleDigest),
+                receipt.ReceiptDigest);
+
     private static CharacterCareerKnowledgeSkillAdvanceBlocker ExpectedBlocker(
-        bool allowUpgrade,
-        bool isNativeLanguage,
-        int rating,
-        int maximum,
-        int availableKarma,
+        CharacterCareerKnowledgeSkillAdvanceInput input,
         int karmaCost)
-        => isNativeLanguage
-            ? CharacterCareerKnowledgeSkillAdvanceBlocker.NativeLanguage
-            : !allowUpgrade
-                ? CharacterCareerKnowledgeSkillAdvanceBlocker.UpgradeDisallowed
-                : karmaCost < 0 || rating >= maximum
-                    ? CharacterCareerKnowledgeSkillAdvanceBlocker.AtMaximum
-                    : availableKarma < karmaCost
-                        ? CharacterCareerKnowledgeSkillAdvanceBlocker.InsufficientKarma
-                        : CharacterCareerKnowledgeSkillAdvanceBlocker.None;
+    {
+        if (!input.Created)
+        {
+            return CharacterCareerKnowledgeSkillAdvanceBlocker.NotCareerCharacter;
+        }
+        if (!string.Equals(input.RulesetId, RulesetId, StringComparison.Ordinal))
+        {
+            return CharacterCareerKnowledgeSkillAdvanceBlocker.UnsupportedRuleset;
+        }
+        if (!input.IsKnowledgeSkill)
+        {
+            return CharacterCareerKnowledgeSkillAdvanceBlocker.NotKnowledgeSkill;
+        }
+        if (!IsValidIdentity(input.Identity))
+        {
+            return CharacterCareerKnowledgeSkillAdvanceBlocker.ForeignIdentity;
+        }
+        if (input.IsNativeLanguage)
+        {
+            return CharacterCareerKnowledgeSkillAdvanceBlocker.NativeLanguage;
+        }
+        if (!input.AllowUpgrade)
+        {
+            return CharacterCareerKnowledgeSkillAdvanceBlocker.UpgradeDisallowed;
+        }
+        if (karmaCost < 0 || input.TotalBaseRating >= input.RatingMaximum)
+        {
+            return CharacterCareerKnowledgeSkillAdvanceBlocker.AtMaximum;
+        }
+        return input.AvailableKarma < karmaCost
+            ? CharacterCareerKnowledgeSkillAdvanceBlocker.InsufficientKarma
+            : CharacterCareerKnowledgeSkillAdvanceBlocker.None;
+    }
+
+    private static CharacterCareerKnowledgeSkillAdvanceBlocker ExpectedBlocker(
+        CharacterCareerKnowledgeSkillAdvanceQuote quote)
+    {
+        Dictionary<CharacterCareerKnowledgeSkillAdvancePrerequisite, bool> prerequisites =
+            quote.Prerequisites.ToDictionary(
+                static value => value.Prerequisite,
+                static value => value.Satisfied);
+        if (!prerequisites[CharacterCareerKnowledgeSkillAdvancePrerequisite.CareerCharacter])
+        {
+            return CharacterCareerKnowledgeSkillAdvanceBlocker.NotCareerCharacter;
+        }
+        if (!prerequisites[CharacterCareerKnowledgeSkillAdvancePrerequisite.Sr5Ruleset])
+        {
+            return CharacterCareerKnowledgeSkillAdvanceBlocker.UnsupportedRuleset;
+        }
+        if (!prerequisites[CharacterCareerKnowledgeSkillAdvancePrerequisite.KnowledgeSkill])
+        {
+            return CharacterCareerKnowledgeSkillAdvanceBlocker.NotKnowledgeSkill;
+        }
+        if (!prerequisites[CharacterCareerKnowledgeSkillAdvancePrerequisite.ExactIdentity])
+        {
+            return CharacterCareerKnowledgeSkillAdvanceBlocker.ForeignIdentity;
+        }
+        if (!prerequisites[CharacterCareerKnowledgeSkillAdvancePrerequisite.NotNativeLanguage])
+        {
+            return CharacterCareerKnowledgeSkillAdvanceBlocker.NativeLanguage;
+        }
+        if (!prerequisites[CharacterCareerKnowledgeSkillAdvancePrerequisite.UpgradeAllowed])
+        {
+            return CharacterCareerKnowledgeSkillAdvanceBlocker.UpgradeDisallowed;
+        }
+        if (!prerequisites[CharacterCareerKnowledgeSkillAdvancePrerequisite.BelowMaximum]
+            || quote.KarmaCost < 0)
+        {
+            return CharacterCareerKnowledgeSkillAdvanceBlocker.AtMaximum;
+        }
+        return prerequisites[CharacterCareerKnowledgeSkillAdvancePrerequisite.SufficientKarma]
+            ? CharacterCareerKnowledgeSkillAdvanceBlocker.None
+            : CharacterCareerKnowledgeSkillAdvanceBlocker.InsufficientKarma;
+    }
 
     private static bool IsValidInput(CharacterCareerKnowledgeSkillAdvanceInput? input)
     {
         if (input is null
-            || !input.Created
-            || !input.IsKnowledgeSkill
             || !IsValidIdentity(input.Identity)
+            || input.RulesetId is null or { Length: > MaximumNameLength }
             || !IsBoundedRequiredText(input.Name)
             || !IsBoundedOptionalText(input.SkillType)
             || !IsBoundedOptionalText(input.SkillCategory)
@@ -308,6 +555,8 @@ public static class CharacterCareerKnowledgeSkillAdvanceRules
             || input.AvailableKarma is < 0 or > MaximumKarma
             || !IsValidSettings(input.Settings)
             || input.Modifiers is null
+            || string.IsNullOrWhiteSpace(input.RawCharacterState)
+            || input.RawCharacterState.Length > MaximumRuleTextLength
             || string.IsNullOrWhiteSpace(input.RawSourceState)
             || input.RawSourceState.Length > MaximumRuleTextLength
             || string.IsNullOrWhiteSpace(input.RawRuleState)
@@ -431,6 +680,72 @@ public static class CharacterCareerKnowledgeSkillAdvanceRules
     private static bool IsBoundedOptionalText(string? value)
         => value is not null && value.Length <= MaximumNameLength;
 
+    private static bool IsCoherentPrerequisites(
+        IReadOnlyList<CharacterCareerKnowledgeSkillAdvancePrerequisiteResult>? prerequisites)
+    {
+        if (prerequisites is null
+            || prerequisites.Count != Enum.GetValues<CharacterCareerKnowledgeSkillAdvancePrerequisite>().Length)
+        {
+            return false;
+        }
+
+        CharacterCareerKnowledgeSkillAdvancePrerequisiteResult?[] values = prerequisites.ToArray();
+        CharacterCareerKnowledgeSkillAdvancePrerequisite[] expected =
+            Enum.GetValues<CharacterCareerKnowledgeSkillAdvancePrerequisite>();
+        return !values.Any(static value => value is null)
+            && values.Select(static value => value!.Prerequisite).SequenceEqual(expected)
+            && values.All(static value => value is not null
+                && Enum.IsDefined(value.Prerequisite)
+                && !string.IsNullOrWhiteSpace(value.Authority)
+                && value.Authority.Length <= MaximumNameLength);
+    }
+
+    private static bool PrerequisitesMatchQuote(CharacterCareerKnowledgeSkillAdvanceQuote quote)
+    {
+        CharacterCareerKnowledgeSkillAdvancePrerequisiteResult[] values =
+            quote.Prerequisites.ToArray();
+        return values[0].Authority == "character.created"
+            && values[1].Authority == "ruleset.sr5"
+            && values[2].Authority == "newskills.knoskills"
+            && values[3].Authority == $"knowledge-skill.instance:{quote.Identity.SkillId:D}"
+            && values[3].Satisfied
+            && values[4].Authority == "knowledge-skill.disableupgrades"
+            && values[4].Satisfied == quote.AllowUpgrade
+            && values[5].Authority == "knowledge-skill.isnativelanguage"
+            && values[5].Satisfied == !quote.IsNativeLanguage
+            && values[6].Authority == "knowledge-skill.rating-maximum"
+            && values[6].Satisfied == (quote.TotalBaseRating < quote.RatingMaximum)
+            && values[7].Authority == "character.karma"
+            && values[7].Satisfied == (quote.KarmaCost >= 0
+                && quote.AvailableKarma >= quote.KarmaCost);
+    }
+
+    private static bool PlanMatchesQuote(
+        CharacterCareerKnowledgeSkillAdvanceQuote quote,
+        CharacterCareerKnowledgeSkillAdvancePlan plan)
+    {
+        try
+        {
+            int targetRating = checked(quote.TotalBaseRating + 1);
+            return plan.SavedSkillKarmaPoints == checked(quote.KarmaPoints + 1)
+                && plan.SavedCharacterKarma == checked(quote.AvailableKarma - quote.KarmaCost)
+                && plan.ExpenseAmount == checked(-quote.KarmaCost)
+                && string.Equals(
+                    plan.ExpenseReason,
+                    $"Knowledge Skill {quote.Name} {quote.TotalBaseRating.ToString(CultureInfo.InvariantCulture)} -> {targetRating.ToString(CultureInfo.InvariantCulture)}",
+                    StringComparison.Ordinal)
+                && plan.KarmaUndoType == (quote.TotalBaseRating == 0 ? "AddSkill" : "ImproveSkill")
+                && plan.NuyenUndoType == "AddCyberware"
+                && plan.UndoObjectId == quote.Identity.SkillId.ToString("D")
+                && plan.UndoQuantity == 0m
+                && plan.UndoExtra == string.Empty;
+        }
+        catch (OverflowException)
+        {
+            return false;
+        }
+    }
+
     private static string CalculateRuleDigest(CharacterCareerKnowledgeSkillAdvanceInput input)
     {
         IEnumerable<string> modifiers = input.Modifiers
@@ -443,8 +758,12 @@ public static class CharacterCareerKnowledgeSkillAdvanceRules
                 modifier.Maximum.ToString(CultureInfo.InvariantCulture),
                 modifier.Value.ToString(CultureInfo.InvariantCulture)));
         return Sha256(string.Join('\0',
+            "chummer5a.knowledge-skill-upgrade/v2",
             input.Identity.SkillId.ToString("D"),
             FormatSourceSkillId(input.Identity.SourceSkillId),
+            input.Created.ToString(CultureInfo.InvariantCulture),
+            input.RulesetId,
+            input.IsKnowledgeSkill.ToString(CultureInfo.InvariantCulture),
             input.AllowUpgrade.ToString(CultureInfo.InvariantCulture),
             input.IsNativeLanguage.ToString(CultureInfo.InvariantCulture),
             input.DictionaryKey,
@@ -472,8 +791,10 @@ public static class CharacterCareerKnowledgeSkillAdvanceRules
         int maximum,
         int availableKarma,
         int karmaCost,
+        IReadOnlyList<CharacterCareerKnowledgeSkillAdvancePrerequisiteResult> prerequisites,
         bool canAdvance,
         CharacterCareerKnowledgeSkillAdvanceBlocker blocker,
+        string characterRevision,
         string sourceRevision,
         string ruleDigest)
         => Sha256(string.Join('\0',
@@ -490,10 +811,40 @@ public static class CharacterCareerKnowledgeSkillAdvanceRules
             maximum.ToString(CultureInfo.InvariantCulture),
             availableKarma.ToString(CultureInfo.InvariantCulture),
             karmaCost.ToString(CultureInfo.InvariantCulture),
+            string.Join("|", prerequisites.Select(prerequisite => string.Join(":",
+                prerequisite.Prerequisite.ToString(),
+                prerequisite.Satisfied.ToString(CultureInfo.InvariantCulture),
+                prerequisite.Authority))),
             canAdvance.ToString(CultureInfo.InvariantCulture),
             blocker.ToString(),
+            characterRevision,
             sourceRevision,
             ruleDigest));
+
+    private static string CalculateReceiptDigest(
+        Guid transactionId,
+        CharacterCareerKnowledgeSkillIdentity identity,
+        string name,
+        string skillType,
+        int skillKarmaBefore,
+        int skillKarmaAfter,
+        int characterKarmaBefore,
+        int characterKarmaAfter,
+        Guid expenseId,
+        int expenseAmount,
+        string characterRevision,
+        string logicalRevision,
+        string sourceRevision,
+        string ruleDigest)
+        => Sha256(string.Join('\0',
+            transactionId.ToString("D"), identity.SkillId.ToString("D"),
+            FormatSourceSkillId(identity.SourceSkillId), name, skillType,
+            skillKarmaBefore.ToString(CultureInfo.InvariantCulture),
+            skillKarmaAfter.ToString(CultureInfo.InvariantCulture),
+            characterKarmaBefore.ToString(CultureInfo.InvariantCulture),
+            characterKarmaAfter.ToString(CultureInfo.InvariantCulture),
+            expenseId.ToString("D"), expenseAmount.ToString(CultureInfo.InvariantCulture),
+            characterRevision, logicalRevision, sourceRevision, ruleDigest));
 
     private static string FormatSourceSkillId(Guid? sourceSkillId)
         => sourceSkillId?.ToString("D") ?? "custom";
@@ -524,8 +875,12 @@ public static class CharacterCareerKnowledgeSkillAdvanceRules
             0,
             0,
             -1,
+            TimeSpan.Zero,
+            CharacterCareerKnowledgeSkillTimeAuthority.ImmediateChummerPersistence,
+            [],
             false,
-            CharacterCareerKnowledgeSkillAdvanceBlocker.UpgradeDisallowed,
+            CharacterCareerKnowledgeSkillAdvanceBlocker.ForeignIdentity,
+            string.Empty,
             string.Empty,
             string.Empty,
             string.Empty);
@@ -543,6 +898,27 @@ public static class CharacterCareerKnowledgeSkillAdvanceRules
             string.Empty,
             string.Empty,
             0m,
+            string.Empty,
+            string.Empty,
+            string.Empty,
+            string.Empty,
+            string.Empty);
+
+    private static CharacterCareerKnowledgeSkillAdvanceReceipt UnavailableReceipt()
+        => new(
+            Guid.Empty,
+            new CharacterCareerKnowledgeSkillIdentity(Guid.Empty, null),
+            string.Empty,
+            string.Empty,
+            0,
+            0,
+            0,
+            0,
+            Guid.Empty,
+            0,
+            string.Empty,
+            string.Empty,
+            string.Empty,
             string.Empty,
             string.Empty);
 }
