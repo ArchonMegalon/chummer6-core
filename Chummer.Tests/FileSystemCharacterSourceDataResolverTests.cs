@@ -2393,6 +2393,14 @@ public sealed class FileSystemCharacterSourceDataResolverTests
             ["D"] = (22, 0),
             ["E"] = (18, 0)
         };
+        Dictionary<string, int> resourceNuyen = new(StringComparer.Ordinal)
+        {
+            ["A"] = 450000,
+            ["B"] = 275000,
+            ["C"] = 140000,
+            ["D"] = 50000,
+            ["E"] = 6000
+        };
         int sequence = 1;
         string rows = string.Concat(categories.SelectMany(category => ranks.Select(rank =>
         {
@@ -2405,7 +2413,9 @@ public sealed class FileSystemCharacterSourceDataResolverTests
                         : category == "Skills"
                             ? $"<skills>{skillPoints[rank].Active}</skills>"
                               + $"<skillgroups>{skillPoints[rank].Groups}</skillgroups>"
-                            : string.Empty;
+                            : category == "Resources"
+                                ? $"<resources>{resourceNuyen[rank]}</resources>"
+                                : string.Empty;
             string id = $"00000000-0000-0000-0000-{sequence++:000000000000}";
             return $"<priority><id>{id}</id><name>{category}-{rank}</name><value>{rank}</value>"
                    + $"<category>{category}</category>{attributes}</priority>";
