@@ -199,7 +199,36 @@ public static class ServiceCollectionExtensions
             UnavailableCharacterCareerSkillGroupAdvanceWorkspace>();
         services.TryAddSingleton<ICharacterCareerSkillGroupAdvanceService,
             CharacterCareerSkillGroupAdvanceService>();
+        services.AddCharacterAfterRunSettlementPersistence();
 
+        return services;
+    }
+
+    /// <summary>
+    /// Composes the saved-character After Run adapter without inventing a run
+    /// proposal backend. Hosts may register their authoritative proposal source
+    /// before this call; otherwise projection remains explicitly unavailable.
+    /// </summary>
+    public static IServiceCollection AddCharacterAfterRunSettlementPersistence(
+        this IServiceCollection services)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        services.TryAddSingleton<
+            ICharacterAfterRunSettlementProposalProjectionSource,
+            UnavailableCharacterAfterRunSettlementProposalProjectionSource>();
+        services.TryAddSingleton<ICharacterAfterRunSettlementWorkspace>(provider =>
+        {
+            IWorkspaceStore store = provider.GetRequiredService<IWorkspaceStore>();
+            return store is IWorkspaceAuxiliaryStateAtomicCommitCapability
+                   { SupportsWorkspaceAuxiliaryStateAtomicCommit: true }
+                ? new WorkspaceCharacterAfterRunSettlementWorkspace(
+                    store,
+                    provider.GetRequiredService<
+                        ICharacterAfterRunSettlementProposalProjectionSource>())
+                : new UnavailableCharacterAfterRunSettlementWorkspace();
+        });
+        services.TryAddSingleton<ICharacterAfterRunSettlementService,
+            CharacterAfterRunSettlementService>();
         return services;
     }
 

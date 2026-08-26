@@ -1577,6 +1577,13 @@ public sealed class FileWorkspaceStore :
                 workspaceId,
                 currentContentRevision,
                 contactReceipts);
+        IReadOnlyList<CharacterAfterRunSettlementReceiptLedgerEntry>? afterRunReceipts =
+            state.CharacterAfterRunSettlementReceipts;
+        bool afterRunReceiptsValid = afterRunReceipts is null
+            || CharacterAfterRunSettlementReceiptLedgerIntegrity.IsValidLedger(
+                workspaceId,
+                currentContentRevision,
+                afterRunReceipts);
         CharacterCreationBootstrapBinding? bootstrap =
             state.CharacterCreationBootstrapBinding;
         bool bootstrapValid = bootstrap is null
@@ -1587,6 +1594,7 @@ public sealed class FileWorkspaceStore :
                && skillsValid
                && magicResonanceValid
                && contactReceiptsValid
+               && afterRunReceiptsValid
                && bootstrapValid;
     }
 
@@ -1637,6 +1645,18 @@ public sealed class FileWorkspaceStore :
             replacementState.CharacterCreationContactReceipts;
         IReadOnlyList<CharacterCreationContactReceiptLedgerEntry>? currentContactReceipts =
             currentState.CharacterCreationContactReceipts;
+        CharacterCreationQualitiesDraft? replacementQualities =
+            replacementState.CharacterCreationQualitiesDraft;
+        CharacterCreationQualitiesDraft? currentQualities =
+            currentState.CharacterCreationQualitiesDraft;
+        IReadOnlyList<CharacterCreationQualitiesDraftReceipt>? replacementQualityReceipts =
+            replacementState.CharacterCreationQualitiesReceipts;
+        IReadOnlyList<CharacterCreationQualitiesDraftReceipt>? currentQualityReceipts =
+            currentState.CharacterCreationQualitiesReceipts;
+        IReadOnlyList<CharacterAfterRunSettlementReceiptLedgerEntry>? replacementAfterRunReceipts =
+            replacementState.CharacterAfterRunSettlementReceipts;
+        IReadOnlyList<CharacterAfterRunSettlementReceiptLedgerEntry>? currentAfterRunReceipts =
+            currentState.CharacterAfterRunSettlementReceipts;
         CharacterCreationBootstrapBinding? replacementBootstrap =
             replacementState.CharacterCreationBootstrapBinding;
         CharacterCreationBootstrapBinding? currentBootstrap =
@@ -1664,6 +1684,14 @@ public sealed class FileWorkspaceStore :
         bool contactReceiptsUnchanged = HasSameContactReceiptLedger(
             currentContactReceipts,
             replacementContactReceipts);
+        bool qualitiesUnchanged = HasSameQualitiesLane(
+            currentQualities,
+            currentQualityReceipts,
+            replacementQualities,
+            replacementQualityReceipts);
+        bool afterRunReceiptsUnchanged = HasSameAfterRunReceiptLedger(
+            currentAfterRunReceipts,
+            replacementAfterRunReceipts);
         bool bootstrapUnchanged = HasSameBootstrapBinding(
             currentBootstrap,
             replacementBootstrap);
@@ -1673,6 +1701,8 @@ public sealed class FileWorkspaceStore :
                                + (skillsUnchanged ? 0 : 1)
                                + (magicResonanceUnchanged ? 0 : 1)
                                + (contactReceiptsUnchanged ? 0 : 1)
+                               + (qualitiesUnchanged ? 0 : 1)
+                               + (afterRunReceiptsUnchanged ? 0 : 1)
                                + (bootstrapUnchanged ? 0 : 1);
         if (changedLaneCount != 1)
         {
@@ -1731,6 +1761,25 @@ public sealed class FileWorkspaceStore :
                 replacementBootstrap,
                 currentDocument,
                 replacementDocument);
+        }
+        if (!qualitiesUnchanged)
+        {
+            // Qualities owns its own typed draft transition. This store must still
+            // count and preserve that sibling lane so another authority cannot
+            // smuggle a quality mutation into an After Run CAS.
+            return false;
+        }
+        if (!afterRunReceiptsUnchanged)
+        {
+            return CharacterAfterRunSettlementReceiptLedgerIntegrity
+                .IsValidAppendTransition(
+                    workspaceId,
+                    previousContentRevision,
+                    nextContentRevision,
+                    currentAfterRunReceipts,
+                    replacementAfterRunReceipts,
+                    currentDocument.Content,
+                    replacementDocument.Content);
         }
         return CharacterCreationContactReceiptLedgerIntegrity.IsValidAppendTransition(
                    workspaceId,
@@ -2003,6 +2052,34 @@ public sealed class FileWorkspaceStore :
             WorkspaceDocumentAuxiliaryStateDigest.Compute(
                 new WorkspaceDocumentAuxiliaryState(
                     CharacterCreationContactReceipts: right)),
+            StringComparison.Ordinal);
+
+    private static bool HasSameQualitiesLane(
+        CharacterCreationQualitiesDraft? leftDraft,
+        IReadOnlyList<CharacterCreationQualitiesDraftReceipt>? leftReceipts,
+        CharacterCreationQualitiesDraft? rightDraft,
+        IReadOnlyList<CharacterCreationQualitiesDraftReceipt>? rightReceipts) =>
+        string.Equals(
+            WorkspaceDocumentAuxiliaryStateDigest.Compute(
+                new WorkspaceDocumentAuxiliaryState(
+                    CharacterCreationQualitiesDraft: leftDraft,
+                    CharacterCreationQualitiesReceipts: leftReceipts)),
+            WorkspaceDocumentAuxiliaryStateDigest.Compute(
+                new WorkspaceDocumentAuxiliaryState(
+                    CharacterCreationQualitiesDraft: rightDraft,
+                    CharacterCreationQualitiesReceipts: rightReceipts)),
+            StringComparison.Ordinal);
+
+    private static bool HasSameAfterRunReceiptLedger(
+        IReadOnlyList<CharacterAfterRunSettlementReceiptLedgerEntry>? left,
+        IReadOnlyList<CharacterAfterRunSettlementReceiptLedgerEntry>? right) =>
+        string.Equals(
+            WorkspaceDocumentAuxiliaryStateDigest.Compute(
+                new WorkspaceDocumentAuxiliaryState(
+                    CharacterAfterRunSettlementReceipts: left)),
+            WorkspaceDocumentAuxiliaryStateDigest.Compute(
+                new WorkspaceDocumentAuxiliaryState(
+                    CharacterAfterRunSettlementReceipts: right)),
             StringComparison.Ordinal);
 
     private static bool HasSameBootstrapBinding(

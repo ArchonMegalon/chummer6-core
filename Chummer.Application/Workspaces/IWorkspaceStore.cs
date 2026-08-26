@@ -56,8 +56,10 @@ public sealed record DelegatedGmCharacterEditStoreResult(
     string? Error = null);
 
 /// <summary>
-/// Explicit capability advertised only by stores that implement the auxiliary-state
-/// compare-and-swap and checkpoint as one durable transaction.
+/// Explicit capability advertised only by stores that implement the governed
+/// auxiliary-state compare-and-swap and checkpoint as one durable transaction.
+/// Each typed creation or career lane must still be validated independently by
+/// the store; this capability is never a generic auxiliary-state write grant.
 /// </summary>
 public interface IWorkspaceAuxiliaryStateAtomicCommitCapability
 {
@@ -153,7 +155,7 @@ public interface IWorkspaceStore
             Error: "Atomic workspace replacement and checkpoint is unavailable.");
 
     /// <summary>
-    /// Creation-authority-only atomic replacement. The implementation must compare both
+    /// Governed-authority-only atomic replacement. The implementation must compare both
     /// the content revision and the digest of the currently persisted auxiliary state,
     /// then replace the document and checkpoint the new revision in one durable commit.
     /// Generic replacement APIs must not change auxiliary state.
@@ -165,10 +167,10 @@ public interface IWorkspaceStore
         WorkspaceDocument document)
         => new(
             WorkspaceOperationOutcome.Unavailable,
-            Error: "Creation-authority workspace replacement is unavailable.");
+            Error: "Governed-authority workspace replacement is unavailable.");
 
     /// <summary>
-    /// Owner-scoped creation-authority-only atomic replacement. Implementations must not
+    /// Owner-scoped governed-authority-only atomic replacement. Implementations must not
     /// route this method to local state or compose it from separate writes.
     /// </summary>
     WorkspaceStoreMutationResult ReplaceWorkspaceDocumentAndAuxiliaryStateAndCheckpoint(
@@ -179,7 +181,7 @@ public interface IWorkspaceStore
         WorkspaceDocument document)
         => new(
             WorkspaceOperationOutcome.Unavailable,
-            Error: "Creation-authority workspace replacement is unavailable.");
+            Error: "Governed-authority workspace replacement is unavailable.");
 
     WorkspaceStoreMutationResult SaveCheckpoint(
         CharacterWorkspaceId id,

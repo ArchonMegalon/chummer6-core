@@ -31,7 +31,9 @@ public sealed record WorkspaceDocumentAuxiliaryState(
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     CharacterCreationQualitiesDraft? CharacterCreationQualitiesDraft = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    IReadOnlyList<CharacterCreationQualitiesDraftReceipt>? CharacterCreationQualitiesReceipts = null)
+    IReadOnlyList<CharacterCreationQualitiesDraftReceipt>? CharacterCreationQualitiesReceipts = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    IReadOnlyList<CharacterAfterRunSettlementReceiptLedgerEntry>? CharacterAfterRunSettlementReceipts = null)
 {
     public static WorkspaceDocumentAuxiliaryState Empty { get; } = new();
 
@@ -45,7 +47,8 @@ public sealed record WorkspaceDocumentAuxiliaryState(
                            && CharacterCreationContactReceipts is null
                            && CharacterCreationBootstrapBinding is null
                            && CharacterCreationQualitiesDraft is null
-                           && CharacterCreationQualitiesReceipts is null;
+                           && CharacterCreationQualitiesReceipts is null
+                           && CharacterAfterRunSettlementReceipts is null;
 }
 
 public static class WorkspaceDocumentAuxiliaryStateDigest
