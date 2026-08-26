@@ -105,6 +105,34 @@ public sealed class CharacterCareerQualityRulesTests
     }
 
     [TestMethod]
+    public void Mentor_spirit_way_free_cost_is_typed_and_never_inferred_from_name()
+    {
+        CharacterCareerQualityInput namedOnly = Input() with
+        {
+            HasMentorSpiritWay = true,
+            Definition = Definition() with { Name = "Mentor Spirit" }
+        };
+        Assert.AreEqual(10, Quote(namedOnly).RuleKarmaCost,
+            "A display label must never grant SR5 free-cost authority.");
+
+        CharacterCareerQualityQuote typed = Quote(namedOnly with
+        {
+            Definition = namedOnly.Definition with
+            {
+                MentorSpiritWayFreeCostEligible = true
+            }
+        });
+        Assert.AreEqual(0, typed.RuleKarmaCost);
+        Assert.AreEqual(CharacterCareerQualityRules.AcquireUndoType,
+            typed.KarmaUndoType);
+        Assert.AreEqual("AddQuality", CharacterCareerQualityRules.AcquireUndoType);
+        Assert.AreEqual("RemoveQuality", CharacterCareerQualityRules.RemoveUndoType);
+        Assert.AreEqual("Karma", CharacterCareerQualityRules.KarmaExpenseType);
+        Assert.AreEqual("AddCyberware",
+            CharacterCareerQualityRules.DefaultNuyenUndoType);
+    }
+
+    [TestMethod]
     public void Staged_purchase_may_enter_karma_debt_but_nonstaged_purchase_cannot()
     {
         CharacterCareerQualityInput insufficient = Input() with

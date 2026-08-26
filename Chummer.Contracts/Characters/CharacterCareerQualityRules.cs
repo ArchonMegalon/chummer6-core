@@ -67,7 +67,8 @@ public sealed record CharacterCareerQualityDefinition(
     bool CostDiscountDefined,
     bool CostDiscountProjectionIsExact,
     bool CostDiscountRequirementsMet,
-    int CostDiscountValue);
+    int CostDiscountValue,
+    bool MentorSpiritWayFreeCostEligible = false);
 
 public sealed record CharacterCareerQualityEligibilityProjection(
     bool IsExact,
@@ -378,6 +379,12 @@ public static class CharacterCareerQualityRules
     public const int MaximumReasonLength = 1024;
     public const int MaximumRuleTextLength = 1_048_576;
     public const long MaximumRevision = 9_007_199_254_740_991;
+    public const int CareerDoubleMultiplier = 2;
+    public const int DefaultLevelLimit = 1;
+    public const string KarmaExpenseType = "Karma";
+    public const string AcquireUndoType = "AddQuality";
+    public const string RemoveUndoType = "RemoveQuality";
+    public const string DefaultNuyenUndoType = "AddCyberware";
     public static readonly DateTime MinimumExpenseDate = new(1753, 1, 1);
     public static readonly DateTime MaximumExpenseDate = new(9998, 12, 31, 23, 59, 59);
 
@@ -423,8 +430,8 @@ public static class CharacterCareerQualityRules
         string reason = ExpenseReason(valid.Operation, valid.Definition.Type,
             valid.Definition.Name);
         string karmaUndoType = valid.Operation == CharacterCareerQualityOperation.AcquireLevel
-            ? "AddQuality"
-            : "RemoveQuality";
+            ? AcquireUndoType
+            : RemoveUndoType;
         string undoObjectId = valid.Operation == CharacterCareerQualityOperation.AcquireLevel
             ? valid.Identity.InternalId.ToString("D")
             : valid.Identity.SourceId.ToString("D");
@@ -516,8 +523,8 @@ public static class CharacterCareerQualityRules
             current.AffectedInternalIds.ToArray(), savedKarma,
             current.CreatesExpense, expenseId, normalizedDate,
             current.CharacterKarmaDelta, current.ExpenseReason,
-            current.ExpenseRefund, "Karma", false, current.KarmaUndoType,
-            "AddCyberware", current.UndoObjectId, 0m, current.UndoExtra,
+            current.ExpenseRefund, KarmaExpenseType, false, current.KarmaUndoType,
+            DefaultNuyenUndoType, current.UndoObjectId, 0m, current.UndoExtra,
             current.Binding.OwnerId, current.Binding.WorkspaceId,
             current.Binding.WorkspaceRevision,
             current.Binding.WorkspaceRevision + 1,
@@ -715,7 +722,7 @@ public static class CharacterCareerQualityRules
             || quote.RuleKarmaCost is < -MaximumKarma or > MaximumKarma
             || quote.CharacterKarmaDelta is < -MaximumKarma or > MaximumKarma
             || !IsValidReason(quote.ExpenseReason)
-            || quote.KarmaUndoType is not ("AddQuality" or "RemoveQuality")
+            || quote.KarmaUndoType is not (AcquireUndoType or RemoveUndoType)
             || !IsValidText(quote.UndoObjectId, false)
             || !IsValidText(quote.UndoExtra, true)
             || !QuoteOperationSemanticsMatch(quote)
@@ -774,10 +781,10 @@ public static class CharacterCareerQualityRules
             && plan.ExpenseDateLocal <= MaximumExpenseDate
             && plan.ExpenseAmount is >= -MaximumKarma and <= MaximumKarma
             && IsValidReason(plan.ExpenseReason)
-            && plan.ExpenseType == "Karma"
+            && plan.ExpenseType == KarmaExpenseType
             && !plan.ForceCareerVisible
-            && plan.KarmaUndoType is "AddQuality" or "RemoveQuality"
-            && plan.NuyenUndoType == "AddCyberware"
+            && plan.KarmaUndoType is AcquireUndoType or RemoveUndoType
+            && plan.NuyenUndoType == DefaultNuyenUndoType
             && IsValidText(plan.UndoObjectId, false)
             && IsValidText(plan.UndoExtra, true)
             && plan.UndoQuantity == 0m
@@ -1231,7 +1238,7 @@ public static class CharacterCareerQualityRules
 
         int limit = input.Definition.LevelLimit > 0
             ? input.Definition.LevelLimit
-            : 1;
+            : DefaultLevelLimit;
         return levelBefore < limit;
     }
 
@@ -1286,7 +1293,7 @@ public static class CharacterCareerQualityRules
     {
         bool free = gmFreeCostApproved
             || definition.Metagenic && metagenicLimit > 0
-            || definition.Name == "Mentor Spirit" && hasMentorSpiritWay;
+            || definition.MentorSpiritWayFreeCostEligible && hasMentorSpiritWay;
         int qualityKarma = free ? 0 : definition.BaseKarma;
         if (!free
             && definition.CostDiscountDefined
@@ -1303,7 +1310,7 @@ public static class CharacterCareerQualityRules
             if (!settings.DontDoubleQualityPurchases
                 && definition.DoubleCostCareer)
             {
-                ruleKarmaCost = checked(ruleKarmaCost * 2);
+                ruleKarmaCost = checked(ruleKarmaCost * CareerDoubleMultiplier);
             }
 
             if (definition.Type == CharacterCareerQualityType.Positive)
@@ -1331,7 +1338,7 @@ public static class CharacterCareerQualityRules
                 if (!settings.DontDoubleQualityPurchases
                     && definition.DoubleCostCareer)
                 {
-                    refund = checked(refund * 2);
+                    refund = checked(refund * CareerDoubleMultiplier);
                 }
 
                 ruleKarmaCost = checked(-refund);
@@ -1354,7 +1361,7 @@ public static class CharacterCareerQualityRules
             * settings.KarmaQuality);
         if (!settings.DontDoubleQualityRefunds)
         {
-            buyoff = checked(buyoff * 2);
+            buyoff = checked(buyoff * CareerDoubleMultiplier);
         }
 
         if (operation == CharacterCareerQualityOperation.RemoveAllLevels)
@@ -1439,7 +1446,7 @@ public static class CharacterCareerQualityRules
     {
         if (plan.Operation == CharacterCareerQualityOperation.AcquireLevel)
         {
-            if (plan.KarmaUndoType != "AddQuality"
+            if (plan.KarmaUndoType != AcquireUndoType
                 || plan.UndoObjectId != plan.Identity.InternalId.ToString("D")
                 || plan.UndoExtra != string.Empty
                 || plan.ExpenseRefund)
@@ -1453,7 +1460,7 @@ public static class CharacterCareerQualityRules
                     && (plan.CreatesExpense || plan.ExpenseAmount == 0);
         }
 
-        if (plan.KarmaUndoType != "RemoveQuality"
+        if (plan.KarmaUndoType != RemoveUndoType
             || plan.UndoObjectId != plan.Identity.SourceId.ToString("D")
             || plan.UndoExtra != plan.Extra)
         {
@@ -1479,7 +1486,7 @@ public static class CharacterCareerQualityRules
     {
         if (quote.Operation == CharacterCareerQualityOperation.AcquireLevel)
         {
-            if (quote.KarmaUndoType != "AddQuality"
+            if (quote.KarmaUndoType != AcquireUndoType
                 || quote.UndoObjectId != quote.Identity.InternalId.ToString("D")
                 || quote.UndoExtra != string.Empty
                 || quote.ExpenseRefund)
@@ -1494,7 +1501,7 @@ public static class CharacterCareerQualityRules
                         || quote.CharacterKarmaDelta == 0);
         }
 
-        if (quote.KarmaUndoType != "RemoveQuality"
+        if (quote.KarmaUndoType != RemoveUndoType
             || quote.UndoObjectId != quote.Identity.SourceId.ToString("D")
             || quote.UndoExtra != quote.Extra)
         {
@@ -1749,14 +1756,14 @@ public static class CharacterCareerQualityRules
             && expense.ExpenseDateLocal == receipt.ExpenseDateLocal
             && expense.Amount == receipt.ExpenseAmount
             && expense.Reason == receipt.ExpenseReason
-            && expense.ExpenseType == "Karma"
+            && expense.ExpenseType == KarmaExpenseType
             && expense.Refund == receipt.ExpenseRefund
             && !expense.ForceCareerVisible
             && expense.KarmaUndoType == (receipt.Operation
                 == CharacterCareerQualityOperation.AcquireLevel
-                    ? "AddQuality"
-                    : "RemoveQuality")
-            && expense.NuyenUndoType == "AddCyberware"
+                    ? AcquireUndoType
+                    : RemoveUndoType)
+            && expense.NuyenUndoType == DefaultNuyenUndoType
             && expense.UndoObjectId == (receipt.Operation
                 == CharacterCareerQualityOperation.AcquireLevel
                     ? receipt.Identity.InternalId.ToString("D")
@@ -1796,9 +1803,9 @@ public static class CharacterCareerQualityRules
             && expense.ExpenseDateLocal <= MaximumExpenseDate
             && expense.Amount is >= -MaximumKarma and <= MaximumKarma
             && IsValidReason(expense.Reason)
-            && expense.ExpenseType == "Karma"
-            && expense.KarmaUndoType is "AddQuality" or "RemoveQuality"
-            && expense.NuyenUndoType == "AddCyberware"
+            && expense.ExpenseType == KarmaExpenseType
+            && expense.KarmaUndoType is AcquireUndoType or RemoveUndoType
+            && expense.NuyenUndoType == DefaultNuyenUndoType
             && IsValidText(expense.UndoObjectId, false)
             && IsValidText(expense.UndoExtra, true)
             && expense.UndoQuantity == 0m;
@@ -1827,7 +1834,7 @@ public static class CharacterCareerQualityRules
         bool targetExact = quote.TargetIdentityResolved;
         int levelLimit = quote.Definition.LevelLimit > 0
             ? quote.Definition.LevelLimit
-            : 1;
+            : DefaultLevelLimit;
         bool legalLevel = quote.Operation == CharacterCareerQualityOperation.AcquireLevel
             ? quote.Definition.NoLevels
                 ? quote.LevelBefore == 0
@@ -2176,7 +2183,8 @@ public static class CharacterCareerQualityRules
             value.CostDiscountDefined.ToString(CultureInfo.InvariantCulture),
             value.CostDiscountProjectionIsExact.ToString(CultureInfo.InvariantCulture),
             value.CostDiscountRequirementsMet.ToString(CultureInfo.InvariantCulture),
-            value.CostDiscountValue.ToString(CultureInfo.InvariantCulture));
+            value.CostDiscountValue.ToString(CultureInfo.InvariantCulture),
+            value.MentorSpiritWayFreeCostEligible.ToString(CultureInfo.InvariantCulture));
 
     private static string EligibilityCanonical(
         CharacterCareerQualityEligibilityProjection value)
