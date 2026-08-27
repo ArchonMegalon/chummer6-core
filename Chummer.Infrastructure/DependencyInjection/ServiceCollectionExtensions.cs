@@ -108,6 +108,8 @@ public static class ServiceCollectionExtensions
             FileSystemCharacterCyberwarePurchaseAuthority>();
         services.AddSingleton<ICharacterCustomDrugAuthority,
             FileSystemCharacterCustomDrugAuthority>();
+        services.AddSingleton<ICharacterVehicleWorkshopAuthority,
+            CharacterVehicleWorkshopAuthority>();
         services.AddSingleton<IBuildKitRegistryService, DefaultBuildKitRegistryService>();
         services.AddSingleton<INpcVaultRegistryService, DefaultNpcVaultRegistryService>();
         services.AddSingleton<IOppositionPacketContractService, DefaultOppositionPacketContractService>();

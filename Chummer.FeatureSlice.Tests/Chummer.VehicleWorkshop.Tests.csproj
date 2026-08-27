@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <AssemblyAttribute Include="Microsoft.VisualStudio.TestTools.UnitTesting.DoNotParallelizeAttribute" />
+    <Compile Include="..\Chummer.Tests\CharacterVehicleWorkshopAuthorityTests.cs"
+             Link="CharacterVehicleWorkshopAuthorityTests.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Chummer.Application\Chummer.Application.csproj" />
+    <ProjectReference Include="..\Chummer.Contracts\Chummer.Contracts.csproj" />
+    <ProjectReference Include="..\Chummer.Infrastructure\Chummer.Infrastructure.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="MSTest" Version="4.0.2" />
+  </ItemGroup>
+</Project>
