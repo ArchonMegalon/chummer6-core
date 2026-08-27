@@ -543,6 +543,11 @@ public sealed class FileSystemCharacterSourceDataResolverTests
             CharacterCreationQualitiesRules.DigestsEqual(
                 option.OptionDigest,
                 CharacterCreationQualitiesRules.ComputeOptionDigest(option))));
+        Assert.IsTrue(authority.Options.All(option =>
+            CharacterCreationQualitiesRules.DigestsEqual(
+                option.SourceNodeDigest,
+                CharacterCreationQualitiesRules.ComputeSourceNodeDigest(
+                    option.SourceNodeXml))));
         Assert.IsTrue(CharacterCreationQualitiesRules.DigestsEqual(
             authority.AuthorityDigest,
             CharacterCreationQualitiesRules.ComputeAuthorityDigest(authority)));

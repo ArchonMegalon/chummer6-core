@@ -23,6 +23,7 @@ public static class CharacterCreationQualitiesBlockers
     public const string DraftInvalid = "creation-qualities-draft-invalid";
     public const string DuplicateSelection = "creation-qualities-duplicate-selection";
     public const string EligibilityUnresolved = "creation-qualities-eligibility-unresolved";
+    public const string EffectsNotProjectable = "creation-qualities-effects-not-projectable";
     public const string ExplicitConfirmationRequired = "creation-qualities-explicit-confirmation-required";
     public const string IdempotencyConflict = "creation-qualities-idempotency-conflict";
     public const string IdempotencyKeyInvalid = "creation-qualities-idempotency-key-invalid";
@@ -71,6 +72,8 @@ public sealed record CharacterCreationQualityCatalogOption(
     string? FollowUpChoiceId,
     string? FollowUpChoiceLabel,
     IReadOnlyList<string> SourceAnchorIds,
+    string SourceNodeXml,
+    string SourceNodeDigest,
     string OptionDigest);
 
 /// <summary>
@@ -183,6 +186,8 @@ public sealed record CharacterCreationQualitySelection(
     string? FollowUpChoiceId,
     string? FollowUpChoiceLabel,
     IReadOnlyList<string> SourceAnchorIds,
+    string SourceNodeXml,
+    string SourceNodeDigest,
     string OptionDigest);
 
 public sealed record CharacterCreationQualitiesBudget(
@@ -297,9 +302,17 @@ public sealed record CharacterCreationQualitiesDraftReceipt(
 /// </summary>
 public static class CharacterCreationQualitiesRules
 {
+    public const int MaximumSourceNodeLength = 1_000_000;
     public static string ReceiptLedgerRootDigest { get; } =
         CharacterCreationQualitiesDigest.ComputeUtf8(
             "chummer.sr5.priority-creation-qualities-receipt-ledger.root.v1");
+
+    public static string ComputeSourceNodeDigest(string sourceNodeXml) =>
+        CharacterCreationQualitiesDigest.Compute(new
+        {
+            Schema = "chummer.sr5.priority-creation-quality-source-node.v1",
+            Xml = sourceNodeXml ?? string.Empty
+        });
 
     public static CharacterCreationQualitiesPreview Evaluate(CharacterCreationQualitiesInput input)
     {
@@ -703,6 +716,11 @@ public static class CharacterCreationQualitiesRules
                ? option.KarmaCost >= 0
                : option.KarmaCost <= 0)
            && option.SourceAnchorIds.Count > 0
+           && option.SourceNodeXml is { Length: > 0 and <= MaximumSourceNodeLength }
+           && CharacterCreationQualitiesDigest.IsCanonical(option.SourceNodeDigest)
+           && CharacterCreationQualitiesDigest.EqualsFixedTime(
+               option.SourceNodeDigest,
+               ComputeSourceNodeDigest(option.SourceNodeXml))
            && (option.EligibilityIsExact || !option.IsSelectable)
            && CharacterCreationQualitiesDigest.EqualsFixedTime(
                option.OptionDigest,
@@ -741,6 +759,8 @@ public static class CharacterCreationQualitiesRules
         option.FollowUpChoiceId,
         option.FollowUpChoiceLabel,
         option.SourceAnchorIds,
+        option.SourceNodeXml,
+        option.SourceNodeDigest,
         option.OptionDigest);
 
     private static CostProjection ToCost(CharacterCreationQualitySelection item) => new(

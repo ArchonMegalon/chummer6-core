@@ -1584,6 +1584,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                     "F" => CharacterCreationGearLegality.Forbidden,
                     _ => CharacterCreationGearLegality.Legal
                 };
+                string sourceNodeXml = row.ToString(SaveOptions.DisableFormatting);
                 bool hasUnsupportedSemantics = row.Element("hide") is not null
                     || row.Element("requireparent") is not null
                     || row.Element("required") is not null
@@ -1595,7 +1596,8 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                     || row.Element("flechetteweaponbonus") is not null
                     || row.Elements().Any(element =>
                         element.Name.LocalName.StartsWith("select", StringComparison.OrdinalIgnoreCase)
-                        || element.Name.LocalName.StartsWith("add", StringComparison.OrdinalIgnoreCase));
+                        || element.Name.LocalName.StartsWith("add", StringComparison.OrdinalIgnoreCase))
+                    || !CharacterCreationLegacySourceProjector.IsGearSourceProjectable(sourceNodeXml);
                 bool exact = fixedRating
                     && fixedCost
                     && fixedPackage
@@ -1617,11 +1619,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                     .ToArray();
                 string optionId = $"gear:{sourceId:D}";
                 string anchor = $"gear.xml#gear:{sourceId:D}";
-                string nodeDigest = CharacterCreationGearRules.Compute(new
-                {
-                    Schema = "chummer.sr5.creation-gear.source-node.v1",
-                    Xml = row.ToString(SaveOptions.DisableFormatting)
-                });
+                string nodeDigest = CharacterCreationGearRules.ComputeSourceNodeDigest(sourceNodeXml);
                 var candidate = new CharacterCreationGearCatalogOption(
                     optionId,
                     sourceId,
@@ -1638,6 +1636,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                     AvailabilityIsExact: fixedAvailability,
                     Blockers: normalizedOptionBlockers,
                     SourceAnchorIds: [anchor],
+                    SourceNodeXml: sourceNodeXml,
                     SourceNodeDigest: nodeDigest,
                     OptionDigest: string.Empty);
                 options.Add(candidate with
@@ -1661,7 +1660,9 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 FixedNumericCostOnly = true,
                 FixedNumericAvailabilityOnly = true,
                 RatingZeroOnly = true,
-                NoModifiersOrFollowUpPrompts = true
+                NoModifiersOrFollowUpPrompts = true,
+                FullLegacySourceNodeCaptured = true,
+                SourceNodeDigestBoundToLine = true
             });
             string runtimeDigest = CharacterCreationGearRules.Compute(new
             {
@@ -1669,7 +1670,8 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 StableOptionIdentity = true,
                 DraftOnlyUntilFinalization = true,
                 AtomicAuxiliaryStateCas = true,
-                CharacterXmlBytePreservation = true
+                CharacterXmlBytePreservation = true,
+                CanonicalLegacyGearFinalization = true
             });
             var candidateAuthority = new CharacterCreationGearAuthority(
                 CharacterCreationGearSchemas.AuthorityV1,
@@ -2296,6 +2298,9 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 bool hasCostDiscount = row.Elements("costdiscount").Any();
                 bool hasFollowUpPrompt = row.Descendants().Any(element =>
                     element.Name.LocalName.StartsWith("select", StringComparison.OrdinalIgnoreCase));
+                string sourceNodeXml = row.ToString(SaveOptions.DisableFormatting);
+                bool effectsProjectable =
+                    CharacterCreationLegacySourceProjector.IsQualitySourceProjectable(sourceNodeXml);
                 bool selectable = sourceEnabled
                     && implemented
                     && !careerOnly
@@ -2304,7 +2309,8 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                     && !hasCostDiscount
                     && !hasFollowUpPrompt
                     && !hasVariableCost
-                    && !hasVariableRatingLimit;
+                    && !hasVariableRatingLimit
+                    && effectsProjectable;
                 string? disabledReason = selectable
                     ? null
                     : !sourceEnabled
@@ -2323,7 +2329,9 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                                             ? "creation-qualities-followup-projection-pending"
                                             : hasVariableCost
                                                 ? "creation-qualities-variable-cost-projection-pending"
-                                                : "creation-qualities-rating-limit-projection-pending";
+                                                : hasVariableRatingLimit
+                                                    ? "creation-qualities-rating-limit-projection-pending"
+                                                    : CharacterCreationQualitiesBlockers.EffectsNotProjectable;
                 bool metagenic = ParseBool(ReadValue(row, "metagenic"))
                     || ParseBool(ReadValue(row, "metagenetic"));
                 bool contributesToLimit = !row.Elements("contributetolimit").Any()
@@ -2331,6 +2339,8 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 bool contributesToKarma = !row.Elements("contributetobp").Any()
                     || ParseBool(ReadValue(row, "contributetobp"));
                 string anchor = $"qualities.xml#quality:{sourceId:D}";
+                string sourceNodeDigest = CharacterCreationQualitiesRules.ComputeSourceNodeDigest(
+                    sourceNodeXml);
                 for (int rating = 1; rating <= maximumRating; rating++)
                 {
                     int cost;
@@ -2354,11 +2364,14 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                             && !hasCostDiscount
                             && !hasFollowUpPrompt
                             && !hasVariableCost
-                            && !hasVariableRatingLimit,
+                            && !hasVariableRatingLimit
+                            && effectsProjectable,
                         DisableReasonKey: disabledReason,
                         FollowUpChoiceId: null,
                         FollowUpChoiceLabel: null,
                         SourceAnchorIds: [anchor],
+                        SourceNodeXml: sourceNodeXml,
+                        SourceNodeDigest: sourceNodeDigest,
                         OptionDigest: string.Empty);
                     options.Add(option with
                     {
@@ -2382,7 +2395,16 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 Schema = "chummer.sr5.priority-creation-qualities-runtime.v1",
                 SourceSelectionByStableOptionId = true,
                 RequirementAndFollowUpChoicesFailClosed = true,
-                NoCharacterWriteBeforeFinalization = true
+                NoCharacterWriteBeforeFinalization = true,
+                FullLegacySourceNodeCaptured = true,
+                SourceNodeDigestBoundToSelection = true,
+                SupportedLegacyEffects = new[]
+                {
+                    "ambidextrous:v1",
+                    "friendsinhighplaces:v1",
+                    "erased:v1",
+                    "overclocker:v1"
+                }
             });
             var candidate = new CharacterCreationQualitiesAuthority(
                 CharacterCreationQualitiesSchemas.AuthorityV1,

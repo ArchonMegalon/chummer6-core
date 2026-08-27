@@ -10,6 +10,7 @@ using Chummer.Infrastructure.Xml;
 using Chummer.Rulesets.Hosting;
 using Chummer.Rulesets.Sr5;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using System.Xml.Linq;
 
 namespace Chummer.Tests;
 
@@ -174,6 +175,194 @@ public sealed class CharacterCreationFinalizationServiceTests
     }
 
     [TestMethod]
+    public void Nonempty_quality_and_gear_are_source_bound_atomically_finalized_and_reopened()
+    {
+        using ReadyContext context = ReadyContext.Create(
+            includeGearReview: true,
+            includeNonEmptyPurchases: true);
+        WorkspaceStoredDocument before = context.Store.Get(context.WorkspaceId).Value!;
+        CharacterCreationQualitiesDraft qualityDraft = before.Document.AuxiliaryState
+            .CharacterCreationQualitiesDraft!;
+        CharacterCreationGearDraft gearDraft = before.Document.AuxiliaryState
+            .CharacterCreationGearDraft!;
+        Assert.HasCount(1, qualityDraft.Selections);
+        Assert.HasCount(1, gearDraft.Lines);
+        CharacterCreationQualitySelection selectedQuality = qualityDraft.Selections.Single();
+        CharacterCreationGearLine selectedGear = gearDraft.Lines.Single();
+
+        CharacterCreationFinalizationState state = AssertAvailable(
+            context.Finalizer.Load(new(context.WorkspaceId)));
+        CharacterCreationFinalizationReview review = AssertAvailable(
+            context.Finalizer.Review(new(state.Binding)));
+        Assert.IsTrue(review.OrderedDeltas.Any(delta =>
+            delta.Kind == CharacterCreationFinalizationDeltaKinds.Quality
+            && delta.TargetId == selectedQuality.SourceId.ToString("D")));
+        Assert.IsTrue(review.OrderedDeltas.Any(delta =>
+            delta.Kind == CharacterCreationFinalizationDeltaKinds.Gear
+            && delta.TargetId == selectedGear.SourceId.ToString("D")));
+
+        CharacterCreationQualitySelection tamperedSelection = selectedQuality with
+        {
+            SourceNodeXml = selectedQuality.SourceNodeXml.Replace(
+                selectedQuality.Name,
+                selectedQuality.Name + " tampered",
+                StringComparison.Ordinal)
+        };
+        WorkspaceStoredDocument tamperedWorkspace = before with
+        {
+            Document = before.Document with
+            {
+                State = before.Document.State with
+                {
+                    AuxiliaryState = before.Document.AuxiliaryState with
+                    {
+                        CharacterCreationQualitiesDraft = qualityDraft with
+                        {
+                            Selections = [tamperedSelection]
+                        }
+                    }
+                }
+            }
+        };
+        Assert.IsFalse(CharacterCreationFinalizationProjector.TryProject(
+            tamperedWorkspace,
+            out _, out _, out _, out _, out _, out _, out string[] tamperBlockers));
+        CollectionAssert.Contains(
+            tamperBlockers.ToList(),
+            CharacterCreationFinalizationBlockers.DraftAuthorityInvalid);
+        CharacterCreationGearLine tamperedGear = selectedGear with
+        {
+            SourceNodeXml = selectedGear.SourceNodeXml.Replace(
+                selectedGear.Name,
+                selectedGear.Name + " tampered",
+                StringComparison.Ordinal)
+        };
+        WorkspaceStoredDocument gearTamperedWorkspace = before with
+        {
+            Document = before.Document with
+            {
+                State = before.Document.State with
+                {
+                    AuxiliaryState = before.Document.AuxiliaryState with
+                    {
+                        CharacterCreationGearDraft = gearDraft with
+                        {
+                            Lines = [tamperedGear],
+                            FinalizationContribution = gearDraft.FinalizationContribution with
+                            {
+                                Lines = [tamperedGear]
+                            }
+                        }
+                    }
+                }
+            }
+        };
+        Assert.IsFalse(CharacterCreationFinalizationProjector.TryProject(
+            gearTamperedWorkspace,
+            out _, out _, out _, out _, out _, out _, out string[] gearTamperBlockers));
+        CollectionAssert.Contains(
+            gearTamperBlockers.ToList(),
+            CharacterCreationFinalizationBlockers.DraftAuthorityInvalid);
+
+        const string key = "finalize-priority-nonempty-quality-gear-0001";
+        CharacterCreationFinalizationConfirmRequest command = new(
+            state.Binding,
+            review.PreviewDigest,
+            review.Plan!.PlanDigest,
+            key,
+            ExplicitlyConfirmed: true);
+        CharacterCreationFinalizationResult<CharacterCreationFinalizationReceipt> applied =
+            context.Finalizer.Confirm(command);
+        Assert.AreEqual(CharacterCreationFinalizationOutcomes.Applied, applied.Outcome,
+            string.Join(",", applied.Blockers));
+        Assert.AreEqual(CharacterCreationFinalizationOutcomes.Replayed,
+            context.Finalizer.Confirm(command).Outcome);
+
+        using ReadyContext restarted = context.Restart();
+        WorkspaceStoredDocument reopened = restarted.Store.Get(restarted.WorkspaceId).Value!;
+        XDocument document = XDocument.Parse(reopened.Document.Content, LoadOptions.None);
+        XElement root = document.Root!;
+        XElement[] qualities = root.Element("qualities")!.Elements("quality").ToArray();
+        XElement[] gears = root.Element("gears")!.Elements("gear").ToArray();
+        Assert.HasCount(1, qualities);
+        Assert.HasCount(1, gears);
+        XElement quality = qualities.Single();
+        XElement gear = gears.Single();
+        Assert.AreEqual(selectedQuality.SourceId.ToString("D"), quality.Element("sourceid")!.Value);
+        Assert.AreEqual(selectedQuality.Name, quality.Element("name")!.Value);
+        Assert.IsNotNull(quality.Element("bonus"));
+        Assert.IsNotNull(quality.Element("firstlevelbonus"));
+        XElement[] qualityImprovements = (root.Element("improvements")
+                ?.Elements("improvement") ?? Enumerable.Empty<XElement>())
+            .Where(item => item.Element("sourcename")?.Value == quality.Element("guid")!.Value)
+            .ToArray();
+        Assert.IsTrue(qualityImprovements.Length <= 1);
+        Assert.AreEqual(selectedGear.SourceId.ToString("D"), gear.Element("sourceid")!.Value);
+        Assert.AreEqual(selectedGear.Name, gear.Element("name")!.Value);
+        Assert.AreEqual(selectedGear.Quantity, int.Parse(gear.Element("qty")!.Value));
+        Assert.IsNotNull(gear.Element("children"));
+        Assert.IsNotNull(gear.Element("wirelessbonus"));
+        Assert.IsTrue(restarted.Queries.ParseSummary(new(reopened.Document.Content)).Created);
+        Assert.AreEqual(CharacterCreationFinalizationOutcomes.Replayed,
+            restarted.Finalizer.LookupReceipt(new(restarted.WorkspaceId, key)).Outcome);
+    }
+
+    [TestMethod]
+    public void Supported_quality_effect_projects_the_complete_legacy_quality_and_improvement_graph()
+    {
+        Guid sourceId = Guid.Parse("68cfe94a-fa7e-4129-a9b9-b5d73e3ced99");
+        string sourceNodeXml = $"<quality><id>{sourceId:D}</id><name>Exact Ambidextrous</name><karma>4</karma><category>Positive</category><implemented>True</implemented><contributetobp>True</contributetobp><contributetolimit>True</contributetolimit><doublecareer>True</doublecareer><bonus><ambidextrous /></bonus><firstlevelbonus /><source>SR5</source><page>71</page><notes>source note</notes><notesColor>#010203</notesColor></quality>";
+        string sourceNodeDigest = CharacterCreationQualitiesRules.ComputeSourceNodeDigest(
+            sourceNodeXml);
+        var selection = new CharacterCreationQualitySelection(
+            "quality:exact-ambidextrous:rating:1",
+            sourceId,
+            sourceId.ToString("D"),
+            "Exact Ambidextrous",
+            CharacterCreationQualityType.Positive,
+            Rating: 1,
+            KarmaCost: 4,
+            IsMetagenic: false,
+            CountsAgainstQualityLimit: true,
+            CountsAgainstKarma: true,
+            IsFreeOrGranted: false,
+            FollowUpChoiceId: null,
+            FollowUpChoiceLabel: null,
+            SourceAnchorIds: [$"qualities.xml#quality:{sourceId:D}"],
+            SourceNodeXml: sourceNodeXml,
+            SourceNodeDigest: sourceNodeDigest,
+            OptionDigest: CharacterCreationFinalizationDigest.ComputeUtf8("option"));
+        string draftDigest = CharacterCreationFinalizationDigest.ComputeUtf8("quality-draft");
+
+        Assert.IsTrue(CharacterCreationLegacySourceProjector.IsQualitySourceProjectable(
+            sourceNodeXml));
+        Assert.IsTrue(CharacterCreationLegacySourceProjector.TryBuildQualityGraph(
+            selection,
+            draftDigest,
+            out XElement[] qualities,
+            out XElement[] improvements));
+        Assert.HasCount(1, qualities);
+        Assert.HasCount(1, improvements);
+        XElement quality = qualities.Single();
+        XElement improvement = improvements.Single();
+        Assert.AreEqual(sourceId.ToString("D"), quality.Element("sourceid")!.Value);
+        Assert.AreEqual("4", quality.Element("bp")!.Value);
+        Assert.AreEqual("Selected", quality.Element("qualitysource")!.Value);
+        Assert.AreEqual("source note", quality.Element("notes")!.Value);
+        Assert.AreEqual("#010203", quality.Element("notesColor")!.Value);
+        Assert.IsNotNull(quality.Element("bonus")!.Element("ambidextrous"));
+        Assert.AreEqual("Ambidextrous", improvement.Element("improvementttype")!.Value);
+        Assert.AreEqual("Quality", improvement.Element("improvementsource")!.Value);
+        Assert.AreEqual(quality.Element("guid")!.Value, improvement.Element("sourcename")!.Value);
+        Assert.AreEqual("1", improvement.Element("enabled")!.Value);
+        Assert.IsFalse(CharacterCreationLegacySourceProjector.TryBuildQualityGraph(
+            selection with { SourceNodeDigest = CharacterCreationFinalizationDigest.ComputeUtf8("tampered") },
+            draftDigest,
+            out _,
+            out _));
+    }
+
+    [TestMethod]
     public void SumToTen_whole_build_finalization_remains_fail_closed_until_its_typed_lanes_exist()
     {
         using ReadyContext context = ReadyContext.CreateUnprepared(
@@ -225,7 +414,9 @@ public sealed class CharacterCreationFinalizationServiceTests
         public ICharacterSourceDataResolver Resolver => _resolver;
         public ICharacterCreationFinalizationService Finalizer { get; }
 
-        public static ReadyContext Create(bool includeGearReview)
+        public static ReadyContext Create(
+            bool includeGearReview,
+            bool includeNonEmptyPurchases = false)
         {
             string directory = Path.Combine(
                 Path.GetTempPath(),
@@ -237,7 +428,13 @@ public sealed class CharacterCreationFinalizationServiceTests
             ICharacterFileQueries queries = new XmlCharacterFileQueries(new CharacterFileService());
             var store = new FileWorkspaceStore(directory);
             CharacterWorkspaceId workspaceId = Bootstrap(store, queries, resolver);
-            CompleteDrafts(store, workspaceId, queries, resolver, includeGearReview);
+            CompleteDrafts(
+                store,
+                workspaceId,
+                queries,
+                resolver,
+                includeGearReview,
+                includeNonEmptyPurchases);
             return new ReadyContext(
                 directory,
                 store,
@@ -318,7 +515,8 @@ public sealed class CharacterCreationFinalizationServiceTests
             CharacterWorkspaceId workspaceId,
             ICharacterFileQueries queries,
             ICharacterSourceDataResolver resolver,
-            bool includeGearReview)
+            bool includeGearReview,
+            bool includeNonEmptyPurchases)
         {
             var prerequisites = new CharacterCreationPrerequisiteService(store, queries, resolver);
             CharacterCreationPrerequisiteState prerequisite = prerequisites.Load(new(workspaceId)).Value!;
@@ -405,13 +603,22 @@ public sealed class CharacterCreationFinalizationServiceTests
             var qualities = new CharacterCreationQualitiesService(
                 store, resolver, prerequisites, attributes);
             CharacterCreationQualitiesState qualityState = qualities.Load(new(workspaceId)).Value!;
+            string[] selectedQualityIds = includeNonEmptyPurchases
+                ?
+                [qualityState.Authority.Options
+                    .Where(static option => option.IsSelectable)
+                    .Where(static option => option.KarmaCost is >= 0 and <= 25)
+                    .OrderBy(static option => option.KarmaCost)
+                    .ThenBy(static option => option.OptionId, StringComparer.Ordinal)
+                    .First().OptionId]
+                : [];
             CharacterCreationQualitiesPreview qualityPreview = qualities.Preview(new(
                 qualityState.Binding,
-                [])).Value!;
+                selectedQualityIds)).Value!;
             CharacterCreationFoundationResult<CharacterCreationQualitiesDraftReceipt> qualityReceipt =
                 qualities.Confirm(new(
                     qualityPreview.Binding,
-                    [],
+                    selectedQualityIds,
                     qualityPreview.PreviewDigest,
                     "qualities-finalization-test",
                     Guid.NewGuid(),
@@ -439,13 +646,26 @@ public sealed class CharacterCreationFinalizationServiceTests
                 return;
             var gear = new CharacterCreationGearService(store, resolver);
             CharacterCreationGearState gearState = gear.Load(new(workspaceId)).Value!;
+            CharacterCreationGearSelection[] basket = includeNonEmptyPurchases
+                ?
+                [new CharacterCreationGearSelection(
+                    gearState.Authority.Options
+                        .Where(static option => option.IsSelectable)
+                        .Where(option => option.PackageQuantity == 1
+                                         && option.PackageCost > 0m
+                                         && option.PackageCost <= gearState.Budget.TotalStartingNuyen)
+                        .OrderBy(static option => option.PackageCost)
+                        .ThenBy(static option => option.OptionId, StringComparer.Ordinal)
+                        .First().OptionId,
+                    Quantity: 1)]
+                : [];
             CharacterCreationGearPreview gearPreview = gear.Preview(new(
                 gearState.Binding,
-                [])).Value!;
+                basket)).Value!;
             Assert.AreEqual(CharacterCreationGearOutcomes.Applied,
                 gear.Confirm(new(
                     gearPreview.Binding,
-                    [],
+                    basket,
                     gearPreview.PreviewDigest,
                     "gear-finalization-test",
                     ExplicitlyConfirmed: true)).Outcome);

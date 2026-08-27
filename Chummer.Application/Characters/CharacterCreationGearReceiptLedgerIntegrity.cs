@@ -165,6 +165,12 @@ public static class CharacterCreationGearReceiptLedgerIntegrity
         && line.TotalCost == expectedCost
         && line.Availability >= 0
         && line.SourceAnchorIds is { Count: > 0 }
+        && line.SourceNodeXml is
+            { Length: > 0 and <= CharacterCreationGearRules.MaximumSourceNodeLength }
+        && CharacterCreationGearRules.IsCanonicalDigest(line.SourceNodeDigest)
+        && CharacterCreationGearRules.DigestsEqual(
+            line.SourceNodeDigest,
+            CharacterCreationGearRules.ComputeSourceNodeDigest(line.SourceNodeXml))
         && CharacterCreationGearRules.IsCanonicalDigest(line.LineDigest)
         && CharacterCreationGearRules.DigestsEqual(
             line.LineDigest,

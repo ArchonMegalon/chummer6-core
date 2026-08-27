@@ -69,6 +69,8 @@ public static class CharacterCreationFinalizationDeltaKinds
     public const string Attribute = "attribute";
     public const string Skill = "skill";
     public const string SkillGroup = "skill-group";
+    public const string Quality = "quality";
+    public const string Gear = "gear";
     public const string Resources = "resources";
     public const string Lifecycle = "lifecycle";
 }

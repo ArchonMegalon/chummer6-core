@@ -146,6 +146,12 @@ public static class CharacterCreationQualitiesReceiptLedgerIntegrity
             && !string.IsNullOrWhiteSpace(selection.SelectionKey)
             && !string.IsNullOrWhiteSpace(selection.Name)
             && selection.Rating > 0
+            && selection.SourceNodeXml is
+                { Length: > 0 and <= CharacterCreationQualitiesRules.MaximumSourceNodeLength }
+            && CharacterCreationQualitiesRules.IsCanonicalDigest(selection.SourceNodeDigest)
+            && CharacterCreationQualitiesRules.DigestsEqual(
+                selection.SourceNodeDigest,
+                CharacterCreationQualitiesRules.ComputeSourceNodeDigest(selection.SourceNodeXml))
             && CharacterCreationQualitiesRules.IsCanonicalDigest(selection.OptionDigest))
         && draft.PositiveKarmaUsed >= 0
         && draft.NegativeKarmaUsed >= 0

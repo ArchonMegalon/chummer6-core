@@ -29,5 +29,6 @@
   <ItemGroup>
     <InternalsVisibleTo Include="Chummer.FeatureSlice.Tests" />
     <InternalsVisibleTo Include="Chummer.Tests" />
+    <InternalsVisibleTo Include="Chummer.CreationFinalization.Tests" />
   </ItemGroup>
 </Project>

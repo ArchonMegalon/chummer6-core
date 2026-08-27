@@ -410,6 +410,12 @@ public sealed class CharacterCreationQualitiesService : ICharacterCreationQualit
            && draft.KarmaRemaining == preview.KarmaRemaining
            && draft.SelectedOptionIds.SequenceEqual(
                preview.Selections.Select(static selection => selection.OptionId),
+               StringComparer.Ordinal)
+           && CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(
+               draft.Selections,
+               preview.Selections)
+           && draft.SourceAnchorIds.SequenceEqual(
+               preview.SourceAnchorIds,
                StringComparer.Ordinal);
 
     private static bool IsValidLedger(

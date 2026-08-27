@@ -472,6 +472,12 @@ public sealed class CharacterCreationGearService : ICharacterCreationGearService
         {
             blockers.Add(CharacterCreationGearBlockers.StaleResourcesDraft);
         }
+        else if (pending is not null
+                 && resourcesDraft is not null
+                 && !PendingMatchesCurrentAuthority(pending, authority, resourcesDraft))
+        {
+            blockers.Add(CharacterCreationGearBlockers.StaleSourceDigest);
+        }
 
         decimal total = resourcesDraft?.Budget.TotalStartingNuyen ?? 0m;
         decimal cost = pending?.Budget.BasketCost ?? 0m;
@@ -502,6 +508,56 @@ public sealed class CharacterCreationGearService : ICharacterCreationGearService
             budget,
             binding,
             Normalize(blockers));
+    }
+
+    private static bool PendingMatchesCurrentAuthority(
+        CharacterCreationGearDraft pending,
+        CharacterCreationGearAuthority authority,
+        CharacterCreationResourcesDraft resourcesDraft)
+    {
+        CharacterCreationGearSelection[] requested = pending.Lines
+            .Select(static line => new CharacterCreationGearSelection(
+                line.OptionId,
+                line.Quantity))
+            .ToArray();
+        if (!CharacterCreationGearRules.TryProjectBasket(
+                requested,
+                authority,
+                resourcesDraft.Budget.TotalStartingNuyen,
+                out CharacterCreationGearLine[] expectedLines,
+                out CharacterCreationGearBudget expectedBudget,
+                out string[] blockers)
+            || blockers.Length != 0
+            || !CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(
+                pending.Lines,
+                expectedLines)
+            || !CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(
+                pending.Budget,
+                expectedBudget))
+            return false;
+
+        string[] expectedAnchors = expectedLines.SelectMany(static line => line.SourceAnchorIds)
+            .Concat(CharacterCreationGearSourceAnchors.All)
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(static anchor => anchor, StringComparer.Ordinal)
+            .ToArray();
+        var contributionCandidate = new CharacterCreationGearFinalizationContribution(
+            CharacterCreationGearSchemas.ContributionV1,
+            pending.BaseRawCharacterXmlDigest,
+            resourcesDraft.DraftRevision,
+            resourcesDraft.DraftDigest,
+            expectedLines,
+            expectedBudget.BasketCost,
+            expectedAnchors,
+            string.Empty);
+        CharacterCreationGearFinalizationContribution expectedContribution = contributionCandidate with
+        {
+            ContributionDigest = CharacterCreationGearRules.ComputeContributionDigest(
+                contributionCandidate)
+        };
+        return CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(
+            pending.FinalizationContribution,
+            expectedContribution);
     }
 
     private CharacterCreationGearResult<CharacterCreationGearReceipt>? ResolveReplay(

@@ -8,9 +8,16 @@ namespace Chummer.Contracts.Characters;
 public static class CharacterCreationGearRules
 {
     private const string Prefix = "sha256:";
+    public const int MaximumSourceNodeLength = 1_000_000;
 
     public static string ReceiptLedgerRootDigest { get; } = ComputeUtf8(
         "chummer.sr5.creation-gear-receipt-ledger.root.v1");
+
+    public static string ComputeSourceNodeDigest(string sourceNodeXml) => Compute(new
+    {
+        Schema = "chummer.sr5.creation-gear.source-node.v1",
+        Xml = sourceNodeXml ?? string.Empty
+    });
 
     public static string ComputeOptionDigest(CharacterCreationGearCatalogOption value) =>
         Compute(value with { OptionDigest = string.Empty });
@@ -124,6 +131,8 @@ public static class CharacterCreationGearRules
                     option.SourceBook,
                     option.Page,
                     option.SourceAnchorIds,
+                    option.SourceNodeXml,
+                    option.SourceNodeDigest,
                     string.Empty);
                 projected.Add(candidate with { LineDigest = ComputeLineDigest(candidate) });
             }
@@ -204,7 +213,9 @@ public static class CharacterCreationGearRules
         && option.Blockers.All(blocker => !string.IsNullOrWhiteSpace(blocker))
         && option.SourceAnchorIds is { Count: > 0 }
         && option.SourceAnchorIds.All(anchor => !string.IsNullOrWhiteSpace(anchor))
+        && option.SourceNodeXml is { Length: > 0 and <= MaximumSourceNodeLength }
         && IsCanonicalDigest(option.SourceNodeDigest)
+        && DigestsEqual(option.SourceNodeDigest, ComputeSourceNodeDigest(option.SourceNodeXml))
         && IsCanonicalDigest(option.OptionDigest)
         && DigestsEqual(option.OptionDigest, ComputeOptionDigest(option));
 

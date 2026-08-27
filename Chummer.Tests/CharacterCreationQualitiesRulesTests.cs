@@ -202,9 +202,12 @@ public sealed class CharacterCreationQualitiesRulesTests
         int cost,
         bool metagenic = false)
     {
+        Guid sourceId = Guid.NewGuid();
+        string category = type == CharacterCreationQualityType.Positive ? "Positive" : "Negative";
+        string sourceNodeXml = $"<quality><id>{sourceId:D}</id><name>{id}</name><karma>{cost}</karma><category>{category}</category><bonus /><source>SR5</source><page>1</page></quality>";
         var option = new CharacterCreationQualityCatalogOption(
             id,
-            Guid.NewGuid(),
+            sourceId,
             id,
             id,
             type,
@@ -221,6 +224,8 @@ public sealed class CharacterCreationQualitiesRulesTests
             FollowUpChoiceId: null,
             FollowUpChoiceLabel: null,
             SourceAnchorIds: [$"qualities.xml#quality:{id}"],
+            SourceNodeXml: sourceNodeXml,
+            SourceNodeDigest: CharacterCreationQualitiesRules.ComputeSourceNodeDigest(sourceNodeXml),
             OptionDigest: string.Empty);
         return option with
         {

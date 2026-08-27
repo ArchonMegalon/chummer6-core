@@ -162,7 +162,11 @@ public sealed partial class CharacterCreationResourcesServiceTests
         Assert.IsTrue(authority.Options.Where(option => option.IsSelectable)
             .All(option => option.Availability <= authority.MaximumAvailability
                            && option.PricingIsExact
-                           && option.AvailabilityIsExact));
+                           && option.AvailabilityIsExact
+                           && CharacterCreationGearRules.DigestsEqual(
+                               option.SourceNodeDigest,
+                               CharacterCreationGearRules.ComputeSourceNodeDigest(
+                                   option.SourceNodeXml))));
     }
 
     [TestMethod]
@@ -231,6 +235,7 @@ public sealed partial class CharacterCreationResourcesServiceTests
         bool pricingExact = true,
         bool availabilityExact = true)
     {
+        string sourceNodeXml = $"<gear><id>{id:D}</id><name>{name}</name><category>Biotech</category><rating>0</rating><avail>{availability}</avail><costfor>{costFor}</costfor><cost>{cost}</cost><source>SR5</source><page>450</page></gear>";
         var candidate = new CharacterCreationGearCatalogOption(
             $"gear:{id:D}",
             id,
@@ -247,7 +252,8 @@ public sealed partial class CharacterCreationResourcesServiceTests
             availabilityExact,
             blockers,
             [$"gear.xml#gear:{id:D}"],
-            Digest('8'),
+            sourceNodeXml,
+            CharacterCreationGearRules.ComputeSourceNodeDigest(sourceNodeXml),
             string.Empty);
         return candidate with
         {

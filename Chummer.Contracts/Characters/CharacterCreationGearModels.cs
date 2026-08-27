@@ -96,6 +96,7 @@ public sealed record CharacterCreationGearCatalogOption(
     bool AvailabilityIsExact,
     IReadOnlyList<string> Blockers,
     IReadOnlyList<string> SourceAnchorIds,
+    string SourceNodeXml,
     string SourceNodeDigest,
     string OptionDigest);
 
@@ -150,6 +151,8 @@ public sealed record CharacterCreationGearLine(
     string SourceBook,
     string Page,
     IReadOnlyList<string> SourceAnchorIds,
+    string SourceNodeXml,
+    string SourceNodeDigest,
     string LineDigest);
 
 public sealed record CharacterCreationGearBudget(

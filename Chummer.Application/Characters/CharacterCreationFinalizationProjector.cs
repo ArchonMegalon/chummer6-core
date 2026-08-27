@@ -70,10 +70,6 @@ public static class CharacterCreationFinalizationProjector
             failures.Add(CharacterCreationFinalizationBlockers.BuildMethodNotReady);
         if (prerequisite.HeritageSelection is null || prerequisite.TalentSelection is null)
             failures.Add(CharacterCreationFinalizationBlockers.DraftAuthorityInvalid);
-        if (qualities!.Selections.Count != 0)
-            failures.Add(CharacterCreationFinalizationBlockers.QualityEffectsNotProjectable);
-        if (gear!.Lines.Count != 0)
-            failures.Add(CharacterCreationFinalizationBlockers.GearEffectsNotProjectable);
         if (magic is not null
             && (!string.Equals(magic.TalentKind, CharacterCreationMagicResonanceKinds.Mundane,
                     StringComparison.Ordinal)
@@ -87,11 +83,11 @@ public static class CharacterCreationFinalizationProjector
             { ActiveSkills: { Count: > 0 } } or { SkillGroups: { Count: > 0 } })
             failures.Add(CharacterCreationFinalizationBlockers.TalentGrantsNotProjectable);
 
-        karmaRemaining = checked(qualities.KarmaRemaining - resources!.KarmaInvestment);
+        karmaRemaining = checked(qualities!.KarmaRemaining - resources!.KarmaInvestment);
         if (karmaRemaining < 0)
             failures.Add(CharacterCreationFinalizationBlockers.GlobalKarmaExceeded);
         startingNuyen = resources.FinalizationContribution.StartingNuyen;
-        nuyenRemaining = gear.Budget.RemainingNuyen;
+        nuyenRemaining = gear!.Budget.RemainingNuyen;
         if (failures.Count != 0)
         {
             blockers = Normalize(failures);
@@ -110,6 +106,8 @@ public static class CharacterCreationFinalizationProjector
             {
                 throw new InvalidDataException("Character is not an uncreated Chummer document.");
             }
+            EnsureEmptyOwnedContainer(root, "qualities");
+            EnsureEmptyOwnedContainer(root, "gears");
 
             CharacterCreationPriorityHeritageSelection heritage = prerequisite.HeritageSelection!;
             var projected = new List<CharacterCreationFinalizationDelta>();
@@ -158,8 +156,12 @@ public static class CharacterCreationFinalizationProjector
             SetDirect(root, "magician", "False");
             SetDirect(root, "technomancer", "False");
             SetDirect(root, "ai", "False");
-            ReplaceDirect(root, new XElement("qualities"));
-            ReplaceDirect(root, new XElement("gears"));
+            BuildQualityAndEffectGraph(
+                root,
+                qualities,
+                projected,
+                ref order);
+            ReplaceDirect(root, BuildGearGraph(gear, projected, ref order));
             SetDirect(root, "karma", karmaRemaining.ToString(CultureInfo.InvariantCulture));
             SetDirect(root, "nuyen", nuyenRemaining.ToString(CultureInfo.InvariantCulture));
             SetDirect(root, "startingnuyen", startingNuyen.ToString(CultureInfo.InvariantCulture));
@@ -286,6 +288,75 @@ public static class CharacterCreationFinalizationProjector
             groups);
     }
 
+    private static void BuildQualityAndEffectGraph(
+        XElement root,
+        CharacterCreationQualitiesDraft draft,
+        ICollection<CharacterCreationFinalizationDelta> deltas,
+        ref int order)
+    {
+        var qualityContainer = new XElement("qualities");
+        var improvements = new List<XElement>();
+        foreach (CharacterCreationQualitySelection selection in draft.Selections
+                     .OrderBy(static item => item.OptionId, StringComparer.Ordinal))
+        {
+            if (!CharacterCreationLegacySourceProjector.TryBuildQualityGraph(
+                    selection,
+                    draft.DraftDigest,
+                    out XElement[] projectedQualities,
+                    out XElement[] projectedImprovements))
+                throw new InvalidDataException("Selected Quality source cannot be projected exactly.");
+            qualityContainer.Add(projectedQualities);
+            improvements.AddRange(projectedImprovements);
+            AddDelta(
+                deltas,
+                ref order,
+                $"quality:{selection.OptionId}",
+                CharacterCreationFinalizationDeltaKinds.Quality,
+                selection.SourceId.ToString("D", CultureInfo.InvariantCulture),
+                null,
+                selection.Rating.ToString(CultureInfo.InvariantCulture),
+                selection.KarmaCost,
+                0,
+                selection.SourceAnchorIds);
+        }
+        ReplaceDirect(root, qualityContainer);
+        if (improvements.Count != 0)
+        {
+            XElement improvementContainer = GetOrCreateDirectContainer(root, "improvements");
+            improvementContainer.Add(improvements);
+        }
+    }
+
+    private static XElement BuildGearGraph(
+        CharacterCreationGearDraft draft,
+        ICollection<CharacterCreationFinalizationDelta> deltas,
+        ref int order)
+    {
+        var container = new XElement("gears");
+        foreach (CharacterCreationGearLine line in draft.Lines
+                     .OrderBy(static item => item.OptionId, StringComparer.Ordinal))
+        {
+            if (!CharacterCreationLegacySourceProjector.TryBuildGear(
+                    line,
+                    draft.DraftDigest,
+                    out XElement projected))
+                throw new InvalidDataException("Selected Gear source cannot be projected exactly.");
+            container.Add(projected);
+            AddDelta(
+                deltas,
+                ref order,
+                $"gear:{line.OptionId}",
+                CharacterCreationFinalizationDeltaKinds.Gear,
+                line.SourceId.ToString("D", CultureInfo.InvariantCulture),
+                null,
+                line.Quantity.ToString(CultureInfo.InvariantCulture),
+                0,
+                line.TotalCost,
+                line.SourceAnchorIds);
+        }
+        return container;
+    }
+
     private static XElement BuildSkill(CharacterCreationSkillProjection skill, string draftDigest)
     {
         var node = new XElement("skill",
@@ -362,6 +433,25 @@ public static class CharacterCreationFinalizationProjector
             nodes[0].ReplaceWith(replacement);
         else
             root.Add(replacement);
+    }
+
+    private static XElement GetOrCreateDirectContainer(XElement root, string name)
+    {
+        XElement[] nodes = root.Elements(name).Take(2).ToArray();
+        if (nodes.Length > 1)
+            throw new InvalidDataException($"Duplicate {name} node.");
+        if (nodes.Length == 1)
+            return nodes[0];
+        var created = new XElement(name);
+        root.Add(created);
+        return created;
+    }
+
+    private static void EnsureEmptyOwnedContainer(XElement root, string name)
+    {
+        XElement[] nodes = root.Elements(name).Take(2).ToArray();
+        if (nodes.Length > 1 || nodes.SingleOrDefault()?.Elements().Any() == true)
+            throw new InvalidDataException($"Existing {name} graph is not draft-owned.");
     }
 
     private static void AddDelta(
