@@ -4,6 +4,7 @@ using Chummer.Contracts.Rulesets;
 using Chummer.Contracts.Workspaces;
 using Chummer.Infrastructure.Workspaces;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using System.Xml.Linq;
 
 namespace Chummer.Tests;
 
@@ -86,6 +87,18 @@ public sealed class CharacterCreationMagicResonanceServiceTests
                 selections)).Value!;
             Assert.IsTrue(preview.CanConfirm, string.Join(",", preview.Blockers));
             Assert.AreEqual(0m, preview.SpellBudget.Remaining);
+            Assert.IsNotNull(preview.FinalizationContribution);
+            CharacterCreationMagicResonanceFinalizationContribution previewContribution =
+                preview.FinalizationContribution!;
+            Assert.AreEqual(CharacterCreationMagicResonanceKinds.Magician,
+                previewContribution.Talent.Kind);
+            Assert.AreEqual(TraditionId, previewContribution.Tradition!.Identity.SourceId);
+            Assert.AreEqual(SpellId, previewContribution.Spells.Single().Identity.SourceId);
+            Assert.AreEqual("Acid Stream", previewContribution.Spells.Single().Name);
+            Assert.IsTrue(CharacterCreationMagicResonanceDigest.EqualsFixedTime(
+                previewContribution.ContributionDigest,
+                CharacterCreationMagicResonanceFinalizationRules.ComputeContributionDigest(
+                    previewContribution)));
 
             var request = new CharacterCreationMagicResonanceConfirmRequest(
                 preview.Binding,
@@ -99,8 +112,39 @@ public sealed class CharacterCreationMagicResonanceServiceTests
             Assert.IsFalse(confirmed.Value!.CharacterDocumentChanged);
             Assert.AreEqual(before, store.Get(id).Value!.Document.Content);
             Assert.IsNotNull(store.Get(id).Value!.Document.AuxiliaryState.CharacterCreationMagicResonanceDraft);
+            CharacterCreationMagicResonanceDraft confirmedDraft = store.Get(id).Value!.Document
+                .AuxiliaryState.CharacterCreationMagicResonanceDraft!;
+            Assert.AreEqual(previewContribution.ContributionDigest,
+                confirmedDraft.FinalizationContribution!.ContributionDigest);
             Assert.HasCount(1, store.Get(id).Value!.Document.AuxiliaryState
                 .CharacterCreationMagicResonanceReceipts!);
+
+            CharacterCreationMagicResonanceOptionFinalizationSource tamperedSpell =
+                previewContribution.Spells.Single() with
+                {
+                    Name = "Acid Bolt",
+                    ProjectionDigest = string.Empty
+                };
+            tamperedSpell = tamperedSpell with
+            {
+                ProjectionDigest = CharacterCreationMagicResonanceFinalizationRules
+                    .ComputeOptionProjectionDigest(tamperedSpell)
+            };
+            CharacterCreationMagicResonanceFinalizationContribution tamperedContribution =
+                previewContribution with
+                {
+                    Spells = [tamperedSpell],
+                    ContributionDigest = string.Empty
+                };
+            tamperedContribution = tamperedContribution with
+            {
+                ContributionDigest = CharacterCreationMagicResonanceFinalizationRules
+                    .ComputeContributionDigest(tamperedContribution)
+            };
+            Assert.IsFalse(CharacterCreationMagicResonanceFinalizationRules.IsValidContribution(
+                tamperedContribution,
+                confirmedDraft,
+                authority));
 
             CharacterCreationFoundationResult<CharacterCreationMagicResonanceReceipt> replay =
                 service.Confirm(request);
@@ -120,6 +164,8 @@ public sealed class CharacterCreationMagicResonanceServiceTests
             CharacterCreationMagicResonanceState reopened = restarted.Load(new(id)).Value!;
             Assert.AreEqual(1L, reopened.PendingDraft!.DraftRevision);
             Assert.AreEqual(confirmed.Value.DraftDigest, reopened.PendingDraft.DraftDigest);
+            Assert.AreEqual(previewContribution.ContributionDigest,
+                reopened.PendingDraft.FinalizationContribution!.ContributionDigest);
         }
         finally
         {
@@ -140,6 +186,120 @@ public sealed class CharacterCreationMagicResonanceServiceTests
         Assert.AreEqual(1m, budget.Remaining);
         CollectionAssert.Contains(budget.Blockers.ToList(),
             CharacterCreationMagicResonanceBlockers.SpellBudgetIncomplete);
+    }
+
+    [TestMethod]
+    public void Authority_rejects_rehashed_outer_digest_when_typed_source_projection_is_tampered()
+    {
+        CharacterCreationPrerequisiteAuthority prerequisite = CreatePrerequisiteAuthority();
+        CharacterCreationMagicResonanceAuthority authority = CreateMagicAuthority(prerequisite);
+        CharacterCreationMagicResonanceCatalogOption spell = authority.Spells.Single() with
+        {
+            PointCost = 2m
+        };
+        CharacterCreationMagicResonanceAuthority tampered = authority with
+        {
+            Spells = [spell],
+            AuthorityDigest = string.Empty
+        };
+        tampered = tampered with
+        {
+            AuthorityDigest = CharacterCreationMagicResonanceDigest.Compute(tampered)
+        };
+
+        Assert.IsFalse(CharacterCreationMagicResonanceDraftIntegrity.IsValidAuthority(tampered));
+    }
+
+    [TestMethod]
+    public void Finalization_contribution_rederives_exact_source_bound_selection_and_rejects_rehashed_tamper()
+    {
+        CharacterCreationPrerequisiteAuthority prerequisite = CreatePrerequisiteAuthority();
+        CharacterCreationMagicResonanceAuthority authority = CreateMagicAuthority(prerequisite);
+        string rawDigest = CharacterCreationMagicResonanceDigest.ComputeUtf8("raw-character");
+        string prerequisiteDigest = CharacterCreationMagicResonanceDigest.ComputeUtf8("prerequisite-draft");
+        string attributesDigest = CharacterCreationMagicResonanceDigest.ComputeUtf8("attributes-draft");
+        var selections = new CharacterCreationMagicResonanceSelections(
+            new(CharacterCreationMagicResonanceKinds.Tradition, TraditionId),
+            null,
+            [],
+            [new(CharacterCreationMagicResonanceKinds.Spell, SpellId)],
+            []);
+
+        Assert.IsTrue(CharacterCreationMagicResonanceFinalizationRules.TryCreate(
+            rawDigest,
+            prerequisiteDraftRevision: 4,
+            prerequisiteDigest,
+            attributesDraftRevision: 5,
+            attributesDigest,
+            authority,
+            authority.Talents.Single(),
+            selections,
+            out CharacterCreationMagicResonanceFinalizationContribution contribution,
+            out string[] blockers), string.Join(",", blockers));
+        Assert.AreEqual(SpellId, contribution.Spells.Single().Identity.SourceId);
+        Assert.AreEqual(authority.Spells.Single().CanonicalSourceXml,
+            contribution.Spells.Single().CanonicalSourceXml);
+
+        var budget = new CharacterCreationMagicResonanceBudgetState(
+            "test", 0m, 0m, 0m, []);
+        var draft = new CharacterCreationMagicResonanceDraft(
+            CharacterCreationMagicResonanceSchemas.DraftV1,
+            new("unit-finalization"),
+            DraftRevision: 1,
+            BaseContentRevision: 1,
+            rawDigest,
+            PrerequisiteDraftRevision: 4,
+            prerequisiteDigest,
+            prerequisite.AuthorityDigest,
+            AttributesDraftRevision: 5,
+            attributesDigest,
+            authority.AuthorityDigest,
+            authority.SourceInputsDigest,
+            authority.CustomDataInputsDigest,
+            authority.GmPolicyDigest,
+            authority.RuntimeDigest,
+            authority.Talents.Single().Identity,
+            authority.Talents.Single().Kind,
+            authority.Talents.Single().Magic,
+            authority.Talents.Single().Resonance,
+            authority.Talents.Single().Depth,
+            selections,
+            budget,
+            budget,
+            budget,
+            budget,
+            budget,
+            contribution.SourceAnchorIds,
+            CharacterEffectsApplied: false,
+            CharacterCreationMagicResonanceDigest.ComputeUtf8("idempotency"),
+            CharacterCreationMagicResonanceDigest.ComputeUtf8("preview"),
+            CharacterCreationMagicResonanceDigest.ComputeUtf8("command"),
+            CharacterCreationMagicResonanceDigest.ComputeUtf8("draft"))
+        {
+            FinalizationContribution = contribution
+        };
+        Assert.IsTrue(CharacterCreationMagicResonanceFinalizationRules.IsValidContribution(
+            contribution, draft, authority));
+
+        CharacterCreationMagicResonanceOptionFinalizationSource tamperedSpell =
+            contribution.Spells.Single() with { Name = "Acid Bolt", ProjectionDigest = string.Empty };
+        tamperedSpell = tamperedSpell with
+        {
+            ProjectionDigest = CharacterCreationMagicResonanceFinalizationRules
+                .ComputeOptionProjectionDigest(tamperedSpell)
+        };
+        CharacterCreationMagicResonanceFinalizationContribution tampered = contribution with
+        {
+            Spells = [tamperedSpell],
+            ContributionDigest = string.Empty
+        };
+        tampered = tampered with
+        {
+            ContributionDigest = CharacterCreationMagicResonanceFinalizationRules
+                .ComputeContributionDigest(tampered)
+        };
+        Assert.IsFalse(CharacterCreationMagicResonanceFinalizationRules.IsValidContribution(
+            tampered, draft, authority));
     }
 
     private static CharacterCreationPrerequisiteAuthority CreatePrerequisiteAuthority()
@@ -208,7 +368,18 @@ public sealed class CharacterCreationMagicResonanceServiceTests
             sourceTalent.PriorityChildNodeDigest,
             sourceTalent.SourceAnchorIds,
             Blockers: [],
-            IsEnabled: true);
+            IsEnabled: true)
+        {
+            CanonicalSourceXml = XElement.Parse(sourceTalent.RawTalentNode)
+                .ToString(SaveOptions.DisableFormatting),
+            CanonicalSourceXmlDigest = CharacterCreationMagicResonanceDigest.ComputeUtf8(
+                XElement.Parse(sourceTalent.RawTalentNode).ToString(SaveOptions.DisableFormatting))
+        };
+        const string traditionXml = "<tradition><id>30000000-0000-0000-0000-000000000001</id>"
+                                      + "<name>Hermetic</name><drain>{WIL} + {LOG}</drain>"
+                                      + "<source>SR5</source><page>279</page><spirits /></tradition>";
+        string canonicalTraditionXml = XElement.Parse(traditionXml)
+            .ToString(SaveOptions.DisableFormatting);
         var tradition = new CharacterCreationMagicResonanceCatalogOption(
             CharacterCreationMagicResonanceSchemas.CatalogOptionV1,
             new(CharacterCreationMagicResonanceKinds.Tradition, TraditionId),
@@ -223,8 +394,17 @@ public sealed class CharacterCreationMagicResonanceServiceTests
             [],
             true)
         {
-            DrainExpression = "{WIL} + {LOG}"
+            DrainExpression = "{WIL} + {LOG}",
+            CanonicalSourceXml = canonicalTraditionXml,
+            CanonicalSourceXmlDigest = CharacterCreationMagicResonanceDigest
+                .ComputeUtf8(canonicalTraditionXml)
         };
+        const string spellXml = "<spell><id>30000000-0000-0000-0000-000000000002</id>"
+                                + "<name>Acid Stream</name><page>283</page><source>SR5</source>"
+                                + "<category>Combat</category><damage>P</damage>"
+                                + "<descriptor>Indirect, Elemental</descriptor><duration>I</duration>"
+                                + "<dv>F-3</dv><range>LOS</range><type>P</type></spell>";
+        string canonicalSpellXml = XElement.Parse(spellXml).ToString(SaveOptions.DisableFormatting);
         var spell = new CharacterCreationMagicResonanceCatalogOption(
             CharacterCreationMagicResonanceSchemas.CatalogOptionV1,
             new(CharacterCreationMagicResonanceKinds.Spell, SpellId),
@@ -237,7 +417,12 @@ public sealed class CharacterCreationMagicResonanceServiceTests
             CharacterCreationMagicResonanceDigest.ComputeUtf8("spell-source"),
             [$"spells.xml#spell:{SpellId}"],
             [],
-            true);
+            true)
+        {
+            CanonicalSourceXml = canonicalSpellXml,
+            CanonicalSourceXmlDigest = CharacterCreationMagicResonanceDigest
+                .ComputeUtf8(canonicalSpellXml)
+        };
         var authority = new CharacterCreationMagicResonanceAuthority(
             CharacterCreationMagicResonanceSchemas.AuthorityV1,
             prerequisite.SettingsProfileId,

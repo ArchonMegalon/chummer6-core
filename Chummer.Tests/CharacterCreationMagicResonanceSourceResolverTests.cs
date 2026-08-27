@@ -40,23 +40,30 @@ public sealed class CharacterCreationMagicResonanceSourceResolverTests
         Assert.IsTrue(magician.RequiresTradition);
         Assert.IsTrue(magician.AllowsSpells);
         Assert.IsTrue(magician.IsEnabled, string.Join(",", magician.Blockers));
+        Assert.IsTrue(CharacterCreationMagicResonanceFinalizationRules.HasValidTalentPayload(magician));
+        Assert.IsTrue(CharacterCreationMagicResonanceDigest.EqualsFixedTime(
+            magician.CanonicalSourceXmlDigest,
+            CharacterCreationMagicResonanceDigest.ComputeUtf8(magician.CanonicalSourceXml)));
 
         CharacterCreationMagicResonanceTalentOption adept = authority.Talents.Single(item =>
             item.Rank == "D" && item.Kind == CharacterCreationMagicResonanceKinds.Adept);
         Assert.AreEqual(2m, adept.AdeptPowerPointBudget);
         Assert.IsTrue(adept.AllowsAdeptPowers);
+        Assert.IsTrue(CharacterCreationMagicResonanceFinalizationRules.HasValidTalentPayload(adept));
 
         CharacterCreationMagicResonanceCatalogOption acidStream = authority.Spells.Single(item =>
             item.Name == "Acid Stream");
         Assert.IsTrue(acidStream.IsEnabled, string.Join(",", acidStream.Blockers));
         Assert.AreEqual("Combat", acidStream.Category);
         Assert.AreEqual("SR5", acidStream.SourceBook);
+        Assert.IsTrue(CharacterCreationMagicResonanceFinalizationRules.HasValidOptionPayload(acidStream));
 
         CharacterCreationMagicResonanceCatalogOption selectablePower = authority.AdeptPowers.Single(item =>
             item.Name == "Adrenaline Boost");
         Assert.IsTrue(selectablePower.IsEnabled, string.Join(",", selectablePower.Blockers));
         Assert.AreEqual(0.25m, selectablePower.PointCost);
         Assert.AreEqual(1, selectablePower.MaximumLevels);
+        Assert.IsTrue(CharacterCreationMagicResonanceFinalizationRules.HasValidOptionPayload(selectablePower));
 
         CharacterCreationMagicResonanceCatalogOption unsupportedPower = authority.AdeptPowers.Single(item =>
             item.Name == "Astral Perception");

@@ -91,6 +91,9 @@ internal static class CharacterCreationMagicResonanceAuthorityProjector
             BuildMethod = CharacterCreationBuildMethods.Priority,
             PriorityTable = "Standard",
             CharacterDocumentMutation = false,
+            FinalizationContribution =
+                CharacterCreationMagicResonanceSchemas.FinalizationContributionV1,
+            CanonicalSourcePayload = "effective-row-digest-bound-no-direct-append",
             AdeptPowerPointBudget = "assigned-magic",
             MysticAdeptPowerPointPurchase = "unsupported-fail-closed",
             Confirmation = "explicit-atomic-auxiliary-cas"
@@ -186,7 +189,7 @@ internal static class CharacterCreationMagicResonanceAuthorityProjector
                     || (forms > 0 && !allowsForms))
                     local.Add(CharacterCreationMagicResonanceBlockers.TalentUnsupported);
                 string[] normalized = Normalize(local);
-                result.Add(new(
+                var option = new CharacterCreationMagicResonanceTalentOption(
                     new(priority.SourceId, talent.SelectionId, talent.Value),
                     priority.Rank,
                     talent.Name,
@@ -209,7 +212,18 @@ internal static class CharacterCreationMagicResonanceAuthorityProjector
                     talent.SourceAnchorIds.Distinct(StringComparer.Ordinal)
                         .OrderBy(item => item, StringComparer.Ordinal).ToArray(),
                     normalized,
-                    IsEnabled: normalized.Length == 0));
+                    IsEnabled: normalized.Length == 0);
+                if (raw is not null)
+                {
+                    string canonicalSourceXml = raw.ToString(SaveOptions.DisableFormatting);
+                    option = option with
+                    {
+                        CanonicalSourceXml = canonicalSourceXml,
+                        CanonicalSourceXmlDigest = CharacterCreationMagicResonanceDigest
+                            .ComputeUtf8(canonicalSourceXml)
+                    };
+                }
+                result.Add(option);
             }
         }
         if (result.Count == 0)
@@ -310,6 +324,7 @@ internal static class CharacterCreationMagicResonanceAuthorityProjector
 
             string anchor = $"{FileName(kind)}#{kind}:{id}";
             string[] normalized = Normalize(local);
+            string canonicalSourceXml = row.ToString(SaveOptions.DisableFormatting);
             result.Add(new(
                 CharacterCreationMagicResonanceSchemas.CatalogOptionV1,
                 new(kind, id),
@@ -324,7 +339,10 @@ internal static class CharacterCreationMagicResonanceAuthorityProjector
                 normalized,
                 IsEnabled: normalized.Length == 0)
             {
-                DrainExpression = ReadOptionalScalar(row, "drain", string.Empty)
+                DrainExpression = ReadOptionalScalar(row, "drain", string.Empty),
+                CanonicalSourceXml = canonicalSourceXml,
+                CanonicalSourceXmlDigest = CharacterCreationMagicResonanceDigest
+                    .ComputeUtf8(canonicalSourceXml)
             });
         }
         if (result.Select(item => item.Identity.SourceId)

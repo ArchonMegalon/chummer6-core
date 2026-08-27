@@ -15,6 +15,10 @@ public static class CharacterCreationMagicResonanceSchemas
     public const string DraftV1 = "chummer.character_creation_magic_resonance_draft.v1";
     public const string ReceiptV1 = "chummer.character_creation_magic_resonance_receipt.v1";
     public const string RuntimeV1 = "chummer.sr5.standard_priority_magic_resonance_runtime.v1";
+    public const string FinalizationSourceV1 =
+        "chummer.character_creation_magic_resonance_finalization_source.v1";
+    public const string FinalizationContributionV1 =
+        "chummer.character_creation_magic_resonance_finalization_contribution.v1";
 }
 
 public static class CharacterCreationMagicResonanceKinds
@@ -45,6 +49,10 @@ public static class CharacterCreationMagicResonanceBlockers
     public const string DraftDuplicate = "creation-magic-resonance-draft-duplicate";
     public const string DraftInvalid = "creation-magic-resonance-draft-invalid";
     public const string ExplicitConfirmationRequired = "creation-magic-resonance-explicit-confirmation-required";
+    public const string FinalizationContributionInvalid =
+        "creation-magic-resonance-finalization-contribution-invalid";
+    public const string FinalizationPayloadInvalid =
+        "creation-magic-resonance-finalization-payload-invalid";
     public const string GmPolicyDrift = "creation-magic-resonance-gm-policy-drift";
     public const string IdempotencyConflict = "creation-magic-resonance-idempotency-conflict";
     public const string IdempotencyKeyInvalid = "creation-magic-resonance-idempotency-key-invalid";
@@ -121,7 +129,17 @@ public sealed record CharacterCreationMagicResonanceTalentOption(
     string SourceNodeDigest,
     IReadOnlyList<string> SourceAnchorIds,
     IReadOnlyList<string> Blockers,
-    bool IsEnabled);
+    bool IsEnabled)
+{
+    /// <summary>
+    /// Canonical effective priorities.xml talent node. It is evidence only: a
+    /// finalizer must parse the typed contribution and must never append this
+    /// source node directly to a character document.
+    /// </summary>
+    public string CanonicalSourceXml { get; init; } = string.Empty;
+
+    public string CanonicalSourceXmlDigest { get; init; } = string.Empty;
+}
 
 public sealed record CharacterCreationMagicResonanceCatalogOption(
     string Schema,
@@ -138,6 +156,14 @@ public sealed record CharacterCreationMagicResonanceCatalogOption(
     bool IsEnabled)
 {
     public string DrainExpression { get; init; } = string.Empty;
+
+    /// <summary>
+    /// Canonical effective source row used to derive this option. The row is
+    /// digest-bound to the authority so source/custom-data drift fails closed.
+    /// </summary>
+    public string CanonicalSourceXml { get; init; } = string.Empty;
+
+    public string CanonicalSourceXmlDigest { get; init; } = string.Empty;
 }
 
 public sealed record CharacterCreationMagicResonanceAuthority(
@@ -191,6 +217,60 @@ public sealed record CharacterCreationMagicResonanceBudgetState(
     decimal Used,
     decimal Remaining,
     IReadOnlyList<string> Blockers);
+
+public sealed record CharacterCreationMagicResonanceTalentFinalizationSource(
+    string Schema,
+    CharacterCreationMagicResonanceTalentIdentity Identity,
+    string Kind,
+    int AssignedMagic,
+    int AssignedResonance,
+    int AssignedDepth,
+    string SourceNodeDigest,
+    string CanonicalSourceXml,
+    string CanonicalSourceXmlDigest,
+    IReadOnlyList<string> SourceAnchorIds,
+    string ProjectionDigest);
+
+public sealed record CharacterCreationMagicResonanceOptionFinalizationSource(
+    string Schema,
+    CharacterCreationMagicResonanceOptionIdentity Identity,
+    string Name,
+    string Category,
+    int Levels,
+    decimal PointCost,
+    string SourceBook,
+    string Page,
+    string SourceNodeDigest,
+    string CanonicalSourceXml,
+    string CanonicalSourceXmlDigest,
+    IReadOnlyList<string> SourceAnchorIds,
+    string ProjectionDigest);
+
+/// <summary>
+/// Source-bound input for the later whole-character finalizer. This is not a
+/// write plan: it deliberately contains no generated character GUIDs and no
+/// permission to mutate the character document.
+/// </summary>
+public sealed record CharacterCreationMagicResonanceFinalizationContribution(
+    string Schema,
+    string ExpectedRawCharacterXmlDigest,
+    long PrerequisiteDraftRevision,
+    string PrerequisiteDraftDigest,
+    long AttributesDraftRevision,
+    string AttributesDraftDigest,
+    string AuthorityDigest,
+    string SourceInputsDigest,
+    string CustomDataInputsDigest,
+    string GmPolicyDigest,
+    string RuntimeDigest,
+    CharacterCreationMagicResonanceTalentFinalizationSource Talent,
+    CharacterCreationMagicResonanceOptionFinalizationSource? Tradition,
+    CharacterCreationMagicResonanceOptionFinalizationSource? Stream,
+    IReadOnlyList<CharacterCreationMagicResonanceOptionFinalizationSource> AdeptPowers,
+    IReadOnlyList<CharacterCreationMagicResonanceOptionFinalizationSource> Spells,
+    IReadOnlyList<CharacterCreationMagicResonanceOptionFinalizationSource> ComplexForms,
+    IReadOnlyList<string> SourceAnchorIds,
+    string ContributionDigest);
 
 public sealed record CharacterCreationMagicResonanceBinding(
     CharacterWorkspaceId WorkspaceId,
@@ -255,7 +335,14 @@ public sealed record CharacterCreationMagicResonanceDraft(
     string LastIdempotencyKeyDigest,
     string LastPreviewDigest,
     string LastCommandDigest,
-    string DraftDigest);
+    string DraftDigest)
+{
+    public CharacterCreationMagicResonanceFinalizationContribution? FinalizationContribution
+    {
+        get;
+        init;
+    }
+}
 
 public sealed record CharacterCreationMagicResonanceState(
     string Schema,
@@ -288,7 +375,14 @@ public sealed record CharacterCreationMagicResonancePreview(
     IReadOnlyList<string> Blockers,
     bool RequiresExplicitConfirmation,
     bool CanConfirm,
-    string PreviewDigest);
+    string PreviewDigest)
+{
+    public CharacterCreationMagicResonanceFinalizationContribution? FinalizationContribution
+    {
+        get;
+        init;
+    }
+}
 
 public sealed record CharacterCreationMagicResonanceReceipt(
     string Schema,

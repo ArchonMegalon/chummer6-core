@@ -234,7 +234,14 @@ public sealed class CharacterCreationMagicResonanceService : ICharacterCreationM
         var blockers = new List<string>(state.Blockers);
         SelectionEvaluation projected = EvaluateSelections(state.Authority, talent, request.Selections, blockers);
         CharacterCreationMagicResonanceDraft? draft = blockers.Count == 0
-            ? BuildDraft(workspace, prerequisite, attributes, state.Authority, talent, projected)
+            ? BuildDraft(
+                workspace,
+                prerequisite,
+                attributes,
+                state.Authority,
+                talent,
+                projected,
+                blockers)
             : null;
         if (draft is not null && state.PendingDraft is { } current)
         {
@@ -259,6 +266,7 @@ public sealed class CharacterCreationMagicResonanceService : ICharacterCreationM
             RequiresExplicitConfirmation: true,
             CanConfirm: normalized.Length == 0 && draft is not null,
             PreviewDigest: string.Empty);
+        preview = preview with { FinalizationContribution = draft?.FinalizationContribution };
         preview = preview with
         {
             PreviewDigest = CharacterCreationMagicResonanceDigest.Compute(
@@ -658,25 +666,43 @@ public sealed class CharacterCreationMagicResonanceService : ICharacterCreationM
         return selections.Count;
     }
 
-    private static CharacterCreationMagicResonanceDraft BuildDraft(
+    private static CharacterCreationMagicResonanceDraft? BuildDraft(
         WorkspaceStoredDocument workspace,
         CharacterCreationPrerequisiteDraft prerequisite,
         CharacterCreationAttributesDraft attributes,
         CharacterCreationMagicResonanceAuthority authority,
         CharacterCreationMagicResonanceTalentOption talent,
-        SelectionEvaluation evaluation)
+        SelectionEvaluation evaluation,
+        ICollection<string> blockers)
     {
         CharacterCreationMagicResonanceDraft? current = workspace.Document.AuxiliaryState
             .CharacterCreationMagicResonanceDraft;
         long next = current is null || current.DraftRevision == long.MaxValue
             ? current is null ? 1 : long.MaxValue
             : current.DraftRevision + 1;
+        string rawCharacterXmlDigest = CharacterCreationFoundationDraftLedgerIntegrity
+            .ComputeRawCharacterXmlDigest(workspace.Document.Content);
+        if (!CharacterCreationMagicResonanceFinalizationRules.TryCreate(
+                rawCharacterXmlDigest,
+                prerequisite.DraftRevision,
+                prerequisite.DraftDigest,
+                attributes.DraftRevision,
+                attributes.DraftDigest,
+                authority,
+                talent,
+                evaluation.Selections,
+                out CharacterCreationMagicResonanceFinalizationContribution contribution,
+                out string[] contributionBlockers))
+        {
+            AddAll(blockers, contributionBlockers);
+            return null;
+        }
         var draft = new CharacterCreationMagicResonanceDraft(
             CharacterCreationMagicResonanceSchemas.DraftV1,
             workspace.Id,
             next,
             workspace.ContentRevision,
-            CharacterCreationFoundationDraftLedgerIntegrity.ComputeRawCharacterXmlDigest(workspace.Document.Content),
+            rawCharacterXmlDigest,
             prerequisite.DraftRevision,
             prerequisite.DraftDigest,
             prerequisite.AuthorityDigest,
@@ -704,6 +730,7 @@ public sealed class CharacterCreationMagicResonanceService : ICharacterCreationM
             LastPreviewDigest: CharacterCreationMagicResonanceDigest.ComputeUtf8("pending"),
             LastCommandDigest: CharacterCreationMagicResonanceDigest.ComputeUtf8("pending"),
             DraftDigest: string.Empty);
+        draft = draft with { FinalizationContribution = contribution };
         return draft with { DraftDigest = CharacterCreationMagicResonanceDraftIntegrity.ComputeDigest(draft) };
     }
 

@@ -109,6 +109,10 @@ public static class CharacterCreationMagicResonanceDraftIntegrity
            && IsValidBudget(draft.SpellBudget)
            && IsValidBudget(draft.ComplexFormBudget)
            && IsCanonicalSet(draft.SourceAnchorIds)
+           && CharacterCreationMagicResonanceFinalizationRules.IsValidContribution(
+               draft.FinalizationContribution,
+               draft,
+               authority)
            && !draft.CharacterEffectsApplied
            && CharacterCreationMagicResonanceDigest.IsCanonical(draft.LastIdempotencyKeyDigest)
            && CharacterCreationMagicResonanceDigest.IsCanonical(draft.LastPreviewDigest)
@@ -189,6 +193,7 @@ public static class CharacterCreationMagicResonanceDraftIntegrity
         && item.ComplexFormBudget >= 0
         && item.AdeptPowerPointBudget >= 0m
         && CharacterCreationMagicResonanceDigest.IsCanonical(item.SourceNodeDigest)
+        && CharacterCreationMagicResonanceFinalizationRules.HasValidTalentPayload(item)
         && IsCanonicalSet(item.SourceAnchorIds)
         && item.Blockers is not null
         && item.IsEnabled == (item.Blockers.Count == 0);
@@ -210,6 +215,7 @@ public static class CharacterCreationMagicResonanceDraftIntegrity
                && IsLabel(item.SourceBook)
                && IsLabel(item.Page)
                && CharacterCreationMagicResonanceDigest.IsCanonical(item.SourceNodeDigest)
+               && CharacterCreationMagicResonanceFinalizationRules.HasValidOptionPayload(item)
                && IsCanonicalSet(item.SourceAnchorIds)
                && item.Blockers is not null
                && item.IsEnabled == (item.Blockers.Count == 0));
