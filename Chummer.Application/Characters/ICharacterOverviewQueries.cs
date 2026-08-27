@@ -4,6 +4,16 @@ namespace Chummer.Application.Characters;
 
 public interface ICharacterOverviewQueries
 {
+    CharacterOverviewProjection ParseOverview(CharacterDocument document)
+        => new(
+            Profile: ParseProfile(document),
+            Progress: ParseProgress(document),
+            Skills: ParseSkills(document),
+            Rules: ParseRules(document),
+            Build: ParseBuild(document),
+            Movement: ParseMovement(document),
+            Awakening: ParseAwakening(document));
+
     CharacterProfileSection ParseProfile(CharacterDocument document);
 
     CharacterProgressSection ParseProgress(CharacterDocument document);

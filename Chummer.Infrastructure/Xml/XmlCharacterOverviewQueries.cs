@@ -12,6 +12,9 @@ public sealed class XmlCharacterOverviewQueries : ICharacterOverviewQueries
         _characterSectionService = characterSectionService;
     }
 
+    public CharacterOverviewProjection ParseOverview(CharacterDocument document)
+        => _characterSectionService.ParseOverview(document.Content);
+
     public CharacterProfileSection ParseProfile(CharacterDocument document) => _characterSectionService.ParseProfile(document.Content);
 
     public CharacterProgressSection ParseProgress(CharacterDocument document) => _characterSectionService.ParseProgress(document.Content);

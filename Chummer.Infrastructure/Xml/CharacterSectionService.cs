@@ -22,6 +22,19 @@ public sealed class CharacterSectionService : ICharacterSectionService
         _sourceDataResolver = sourceDataResolver;
     }
 
+    public CharacterOverviewProjection ParseOverview(string xml)
+    {
+        XElement character = LoadCharacterRoot(xml);
+        return new CharacterOverviewProjection(
+            Profile: ParseProfile(character),
+            Progress: ParseProgress(character),
+            Skills: ParseSkills(character),
+            Rules: ParseRules(character),
+            Build: ParseBuild(character),
+            Movement: ParseMovement(character),
+            Awakening: ParseAwakening(character));
+    }
+
     public CharacterAttributesSection ParseAttributes(string xml)
     {
         XElement character = LoadCharacterRoot(xml);
@@ -165,8 +178,10 @@ public sealed class CharacterSectionService : ICharacterSectionService
     }
 
     public CharacterProfileSection ParseProfile(string xml)
+        => ParseProfile(LoadCharacterRoot(xml));
+
+    private static CharacterProfileSection ParseProfile(XElement character)
     {
-        XElement character = LoadCharacterRoot(xml);
         int mugshotCount = character.Element("mugshots")?.Elements("mugshot").Count() ?? 0;
         string alias = ReadValue(character, "alias");
         string name = ReadValue(character, "name");
@@ -218,8 +233,10 @@ public sealed class CharacterSectionService : ICharacterSectionService
     }
 
     public CharacterProgressSection ParseProgress(string xml)
+        => ParseProgress(LoadCharacterRoot(xml));
+
+    private static CharacterProgressSection ParseProgress(XElement character)
     {
-        XElement character = LoadCharacterRoot(xml);
         return new CharacterProgressSection(
             Karma: ParseDecimal(ReadValue(character, "karma")),
             Nuyen: ParseDecimal(ReadValue(character, "nuyen")),
@@ -267,8 +284,10 @@ public sealed class CharacterSectionService : ICharacterSectionService
     }
 
     public CharacterRulesSection ParseRules(string xml)
+        => ParseRules(LoadCharacterRoot(xml));
+
+    private static CharacterRulesSection ParseRules(XElement character)
     {
-        XElement character = LoadCharacterRoot(xml);
         IReadOnlyList<string> bannedWareGrades = character
             .Element("bannedwaregrades")?
             .Elements("grade")
@@ -289,8 +308,10 @@ public sealed class CharacterSectionService : ICharacterSectionService
     }
 
     public CharacterBuildSection ParseBuild(string xml)
+        => ParseBuild(LoadCharacterRoot(xml));
+
+    private static CharacterBuildSection ParseBuild(XElement character)
     {
-        XElement character = LoadCharacterRoot(xml);
         return new CharacterBuildSection(
             BuildMethod: ReadValue(character, "buildmethod"),
             PriorityMetatype: ReadValue(character, "prioritymetatype"),
@@ -308,8 +329,10 @@ public sealed class CharacterSectionService : ICharacterSectionService
     }
 
     public CharacterMovementSection ParseMovement(string xml)
+        => ParseMovement(LoadCharacterRoot(xml));
+
+    private static CharacterMovementSection ParseMovement(XElement character)
     {
-        XElement character = LoadCharacterRoot(xml);
         return new CharacterMovementSection(
             Walk: ReadValue(character, "walk"),
             Run: ReadValue(character, "run"),
@@ -322,8 +345,10 @@ public sealed class CharacterSectionService : ICharacterSectionService
     }
 
     public CharacterAwakeningSection ParseAwakening(string xml)
+        => ParseAwakening(LoadCharacterRoot(xml));
+
+    private static CharacterAwakeningSection ParseAwakening(XElement character)
     {
-        XElement character = LoadCharacterRoot(xml);
         return new CharacterAwakeningSection(
             MagEnabled: ParseBool(ReadValue(character, "magenabled")),
             ResEnabled: ParseBool(ReadValue(character, "resenabled")),
@@ -1558,8 +1583,10 @@ public sealed class CharacterSectionService : ICharacterSectionService
     }
 
     public CharacterSkillsSection ParseSkills(string xml)
+        => ParseSkills(LoadCharacterRoot(xml));
+
+    private static CharacterSkillsSection ParseSkills(XElement character)
     {
-        XElement character = LoadCharacterRoot(xml);
         IReadOnlyList<CharacterSkillSummary> skills = character
             .Element("newskills")?
             .Element("skills")?

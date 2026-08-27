@@ -1,4 +1,5 @@
 using Chummer.Contracts.Api;
+using Chummer.Application.Characters;
 using Chummer.Contracts.Characters;
 using Chummer.Contracts.Rulesets;
 using Chummer.Contracts.Workspaces;
@@ -19,6 +20,18 @@ public interface IRulesetWorkspaceCodec
 
     object ParseSection(string sectionId, WorkspacePayloadEnvelope envelope);
 
+    CharacterOverviewProjection ParseOverview(WorkspacePayloadEnvelope envelope)
+    {
+        return new CharacterOverviewProjection(
+            Profile: RequireSection<CharacterProfileSection>("profile", envelope),
+            Progress: RequireSection<CharacterProgressSection>("progress", envelope),
+            Skills: RequireSection<CharacterSkillsSection>("skills", envelope),
+            Rules: RequireSection<CharacterRulesSection>("rules", envelope),
+            Build: RequireSection<CharacterBuildSection>("build", envelope),
+            Movement: RequireSection<CharacterMovementSection>("movement", envelope),
+            Awakening: RequireSection<CharacterAwakeningSection>("awakening", envelope));
+    }
+
     CharacterValidationResult Validate(WorkspacePayloadEnvelope envelope);
 
     WorkspacePayloadEnvelope UpdateMetadata(WorkspacePayloadEnvelope envelope, UpdateWorkspaceMetadata command);
@@ -29,4 +42,12 @@ public interface IRulesetWorkspaceCodec
         WorkspaceDocumentFormat format);
 
     DataExportBundle BuildExportBundle(WorkspacePayloadEnvelope envelope);
+
+    private TSection RequireSection<TSection>(
+        string sectionId,
+        WorkspacePayloadEnvelope envelope)
+        where TSection : class
+        => ParseSection(sectionId, envelope) as TSection
+            ?? throw new InvalidOperationException(
+                $"Ruleset '{RulesetId}' section '{sectionId}' did not return {typeof(TSection).Name}.");
 }

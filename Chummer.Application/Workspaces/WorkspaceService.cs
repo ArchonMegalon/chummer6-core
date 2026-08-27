@@ -208,6 +208,69 @@ public sealed class WorkspaceService : IWorkspaceService
             OperationOutcome: WorkspaceOperationOutcome.Success);
     }
 
+    public CommandResult<WorkspaceOverviewProjection> GetOverview(CharacterWorkspaceId id)
+    {
+        return GetOverviewCore(LocalStoreAccess(), id);
+    }
+
+    public CommandResult<WorkspaceOverviewProjection> GetOverview(
+        OwnerScope owner,
+        CharacterWorkspaceId id)
+    {
+        return GetOverviewCore(ScopedStoreAccess(owner), id);
+    }
+
+    private CommandResult<WorkspaceOverviewProjection> GetOverviewCore(
+        WorkspaceStoreAccess access,
+        CharacterWorkspaceId id)
+    {
+        WorkspaceStoreReadResult read = access.Get(id);
+        if (!read.Success || read.Value is not WorkspaceStoredDocument stored)
+        {
+            return StoreFailure<WorkspaceOverviewProjection>(read);
+        }
+
+        CharacterValidationResult validation = ValidateDocument(id, stored.Document);
+        if (!validation.IsValid)
+        {
+            return new CommandResult<WorkspaceOverviewProjection>(
+                Success: false,
+                Value: null,
+                Error: "Workspace document was not accepted by its canonical ruleset loader.",
+                OperationOutcome: WorkspaceOperationOutcome.Corrupt);
+        }
+
+        try
+        {
+            WorkspacePayloadEnvelope envelope = ResolveEnvelope(stored.Document);
+            IRulesetWorkspaceCodec codec = _workspaceCodecResolver.Resolve(envelope.RulesetId);
+            CharacterOverviewProjection overview = codec.ParseOverview(envelope);
+            WorkspaceDocumentSnapshot snapshot = new(
+                Id: id,
+                Document: stored.Document,
+                LastUpdatedUtc: stored.LastUpdatedUtc,
+                ContentRevision: stored.ContentRevision,
+                SavedRevision: stored.SavedRevision);
+            return new CommandResult<WorkspaceOverviewProjection>(
+                Success: true,
+                Value: new WorkspaceOverviewProjection(snapshot, overview, validation),
+                Error: null,
+                OperationOutcome: WorkspaceOperationOutcome.Success);
+        }
+        catch (Exception ex) when (ex is ArgumentException
+            or FormatException
+            or InvalidDataException
+            or InvalidOperationException
+            or JsonException)
+        {
+            return new CommandResult<WorkspaceOverviewProjection>(
+                Success: false,
+                Value: null,
+                Error: "Workspace overview could not be projected by its canonical ruleset codec.",
+                OperationOutcome: WorkspaceOperationOutcome.Corrupt);
+        }
+    }
+
     [Obsolete("Compatibility close reads once and performs one CAS delete. Pass expectedContentRevision; removal is queued for Stage C.")]
     public bool Close(CharacterWorkspaceId id)
     {
@@ -358,7 +421,13 @@ public sealed class WorkspaceService : IWorkspaceService
             return null;
         }
 
-        WorkspaceDocument document = stored.Document;
+        return ValidateDocument(id, stored.Document);
+    }
+
+    private CharacterValidationResult ValidateDocument(
+        CharacterWorkspaceId id,
+        WorkspaceDocument document)
+    {
         try
         {
             if (document.State is null || !Enum.IsDefined(document.Format))

@@ -116,4 +116,7 @@ public sealed class XmlCharacterSectionQueries : ICharacterSectionQueries
             _ => throw new InvalidOperationException($"Unsupported section '{sectionId}'.")
         };
     }
+
+    public CharacterOverviewProjection ParseOverview(CharacterDocument document)
+        => _overviewQueries.ParseOverview(document);
 }

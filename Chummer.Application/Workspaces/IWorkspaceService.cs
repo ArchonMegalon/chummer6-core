@@ -33,6 +33,24 @@ public interface IWorkspaceService
             WorkspaceOperationOutcome.Unavailable);
     }
 
+    CommandResult<WorkspaceOverviewProjection> GetOverview(CharacterWorkspaceId id)
+    {
+        return new CommandResult<WorkspaceOverviewProjection>(
+            false,
+            null,
+            "Snapshot-bound workspace overview projection is unavailable on this compatibility implementation.",
+            WorkspaceOperationOutcome.Unavailable);
+    }
+
+    CommandResult<WorkspaceOverviewProjection> GetOverview(OwnerScope owner, CharacterWorkspaceId id)
+    {
+        return new CommandResult<WorkspaceOverviewProjection>(
+            false,
+            null,
+            "Snapshot-bound workspace overview projection is unavailable on this compatibility implementation.",
+            WorkspaceOperationOutcome.Unavailable);
+    }
+
     [Obsolete("Compatibility close reads once and performs one CAS delete. Pass expectedContentRevision; removal is queued for Stage C.")]
     bool Close(CharacterWorkspaceId id);
 

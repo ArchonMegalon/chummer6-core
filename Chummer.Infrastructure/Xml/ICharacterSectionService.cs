@@ -1,9 +1,12 @@
 using Chummer.Contracts.Characters;
+using Chummer.Application.Characters;
 
 namespace Chummer.Infrastructure.Xml;
 
 public interface ICharacterSectionService
 {
+    CharacterOverviewProjection ParseOverview(string xml);
+
     CharacterAttributesSection ParseAttributes(string xml);
     CharacterAttributeDetailsSection ParseAttributeDetails(string xml);
 

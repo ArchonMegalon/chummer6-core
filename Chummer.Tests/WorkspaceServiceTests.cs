@@ -186,6 +186,29 @@ public class WorkspaceServiceTests
             WorkspaceDocumentFormat.NativeXml);
 
     [TestMethod]
+    public void GetOverview_reads_one_immutable_store_snapshot_and_returns_all_exact_sections()
+    {
+        TrackingWorkspaceStore store = new();
+        WorkspaceService workspaceService = CreateWorkspaceService(
+            store,
+            new XmlCharacterFileQueries(new CharacterFileService()),
+            new XmlCharacterSectionQueries(new CharacterSectionService()),
+            new XmlCharacterMetadataCommands(new CharacterFileService()));
+        WorkspaceImportResult imported = workspaceService.Import(CreateScopedImportDocument("Batch"));
+
+        CommandResult<WorkspaceOverviewProjection> result = workspaceService.GetOverview(imported.Id);
+
+        Assert.IsTrue(result.Success, result.Error);
+        Assert.IsNotNull(result.Value);
+        Assert.AreEqual(1, store.GetCallCount);
+        Assert.AreEqual(imported.Id, result.Value.Workspace.Id);
+        Assert.AreEqual(imported.ContentRevision, result.Value.Workspace.ContentRevision);
+        Assert.AreEqual("Batch", result.Value.Overview.Profile.Name);
+        Assert.AreEqual("Priority", result.Value.Overview.Build.BuildMethod);
+        Assert.IsTrue(result.Value.Validation.IsValid);
+    }
+
+    [TestMethod]
     public void Import_get_profile_update_and_save_roundtrip()
     {
         const string xml = "<character><name>Neo</name><alias>The One</alias><metatype>Human</metatype><buildmethod>Priority</buildmethod><createdversion>1.0</createdversion><appversion>1.0</appversion><karma>15</karma><nuyen>2500</nuyen><created>True</created><gameedition>SR5</gameedition><settings>default.xml</settings><gameplayoption>Standard</gameplayoption><gameplayoptionqualitylimit>25</gameplayoptionqualitylimit><maxnuyen>10</maxnuyen><maxkarma>25</maxkarma><contactmultiplier>3</contactmultiplier><walk>2/1/0</walk><run>4/0/0</run><sprint>2/1/0</sprint><walkalt>2/1/0</walkalt><runalt>4/0/0</runalt><sprintalt>2/1/0</sprintalt><magenabled>False</magenabled><resenabled>False</resenabled><depenabled>False</depenabled><newskills><skills><skill><guid>s1</guid><suid>suid1</suid><skillcategory>Combat</skillcategory><isknowledge>False</isknowledge><base>6</base><karma>0</karma></skill></skills></newskills></character>";
@@ -1125,6 +1148,8 @@ public class WorkspaceServiceTests
 
         public int CreateCallCount { get; private set; }
 
+        public int GetCallCount { get; private set; }
+
         public OwnerScope? LastCreateOwner { get; private set; }
 
         public WorkspaceStoreMutationResult CreateWorkspaceDocument(WorkspaceDocument document)
@@ -1170,9 +1195,17 @@ public class WorkspaceServiceTests
             return _inner.List(owner);
         }
 
-        public WorkspaceStoreReadResult Get(CharacterWorkspaceId id) => _inner.Get(id);
+        public WorkspaceStoreReadResult Get(CharacterWorkspaceId id)
+        {
+            GetCallCount++;
+            return _inner.Get(id);
+        }
 
-        public WorkspaceStoreReadResult Get(OwnerScope owner, CharacterWorkspaceId id) => _inner.Get(owner, id);
+        public WorkspaceStoreReadResult Get(OwnerScope owner, CharacterWorkspaceId id)
+        {
+            GetCallCount++;
+            return _inner.Get(owner, id);
+        }
 
         public WorkspaceStoreMutationResult ReplaceWorkspaceDocument(CharacterWorkspaceId id, long expectedContentRevision, WorkspaceDocument document)
             => _inner.ReplaceWorkspaceDocument(id, expectedContentRevision, document);

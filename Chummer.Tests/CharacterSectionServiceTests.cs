@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text.Json;
 using System.Xml.Linq;
 using Chummer.Application.Characters;
 using Chummer.Contracts.Characters;
@@ -14,6 +15,75 @@ namespace Chummer.Tests;
 public class CharacterSectionServiceTests
 {
     private const string ResolverVehicleModId = "f89a112e-600a-4278-8731-9b14cf3737c9";
+
+    [TestMethod]
+    public void Overview_projection_is_exactly_equivalent_to_the_seven_individual_sections()
+    {
+        const string xml = """
+            <character>
+              <name>Batch Runner</name><alias>BATCH</alias><playername>Player</playername>
+              <metatype>Human</metatype><metavariant>Baseline</metavariant><sex>F</sex>
+              <age>27</age><height>175</height><weight>68</weight><hair>Blonde</hair>
+              <eyes>Blue</eyes><skin>Fair</skin><concept>Infiltrator</concept>
+              <description>Description</description><background>Background</background>
+              <createdversion>1.0</createdversion><appversion>2.0</appversion>
+              <buildmethod>Priority</buildmethod><gameplayoption>Standard</gameplayoption>
+              <created>False</created><adept>True</adept><magician>False</magician>
+              <technomancer>False</technomancer><ai>False</ai>
+              <primaryarm>Left</primaryarm><mainmugshotindex>1</mainmugshotindex>
+              <mugshots><mugshot>one</mugshot><mugshot>two</mugshot></mugshots>
+              <notes>Character</notes><gamenotes>Game</gamenotes><groupnotes>Group</groupnotes>
+              <karma>13</karma><nuyen>2400</nuyen><startingnuyen>900</startingnuyen>
+              <streetcred>2</streetcred><notoriety>1</notoriety><publicawareness>3</publicawareness>
+              <burntstreetcred>1</burntstreetcred><buildkarma>25</buildkarma>
+              <totalattributes>22</totalattributes><totalspecial>5</totalspecial>
+              <physicalcmfilled>2</physicalcmfilled><stuncmfilled>1</stuncmfilled>
+              <totaless>5.7</totaless><initiategrade>1</initiategrade><submersiongrade>0</submersiongrade>
+              <magenabled>True</magenabled><resenabled>False</resenabled><depenabled>False</depenabled>
+              <baseastralreputation>4</baseastralreputation><basewildreputation>5</basewildreputation>
+              <currentliftcarryhits>2</currentliftcarryhits>
+              <gameedition>SR5</gameedition><settings>default.xml</settings>
+              <gameplayoptionqualitylimit>25</gameplayoptionqualitylimit><maxnuyen>10</maxnuyen>
+              <maxkarma>25</maxkarma><contactmultiplier>3</contactmultiplier>
+              <bannedwaregrades><grade>Used</grade></bannedwaregrades>
+              <prioritymetatype>A</prioritymetatype><priorityattributes>B</priorityattributes>
+              <priorityspecial>C</priorityspecial><priorityskills>D</priorityskills>
+              <priorityresources>E</priorityresources><prioritytalent>C</prioritytalent>
+              <sumtoten>10</sumtoten><special>4</special><contactpoints>9</contactpoints>
+              <contactpointsused>7</contactpointsused>
+              <walk>10/25</walk><run>20/50</run><sprint>2</sprint>
+              <walkalt>8/20</walkalt><runalt>16/40</runalt><sprintalt>1</sprintalt>
+              <tradition>Hermetic</tradition><traditionname>Hermeticism</traditionname>
+              <traditiondrain>LOG + WIL</traditiondrain><spiritcombat>Fire</spiritcombat>
+              <spiritdetection>Air</spiritdetection><spirithealth>Earth</spirithealth>
+              <spiritillusion>Water</spiritillusion><spiritmanipulation>Man</spiritmanipulation>
+              <stream>None</stream><streamdrain>LOG + WIL</streamdrain>
+              <currentcounterspellingdice>7</currentcounterspellingdice><spelllimit>8</spelllimit>
+              <cfplimit>0</cfplimit><ainormalprogramlimit>0</ainormalprogramlimit>
+              <aiadvancedprogramlimit>0</aiadvancedprogramlimit>
+              <newskills><skills><skill><guid>skill-guid</guid><suid>stealth</suid>
+                <name>Sneaking</name><skillcategory>Physical</skillcategory><isknowledge>False</isknowledge>
+                <base>6</base><karma>1</karma><notes>Quiet</notes><extra>Urban</extra>
+                <specs><spec><name>Urban</name></spec></specs>
+              </skill></skills></newskills>
+              <improvements><improvement><improvementttype>Ambidextrous</improvementttype><enabled>1</enabled></improvement></improvements>
+            </character>
+            """;
+        CharacterSectionService service = new();
+
+        CharacterOverviewProjection overview = service.ParseOverview(xml);
+
+        AssertJsonEqual(service.ParseProfile(xml), overview.Profile);
+        AssertJsonEqual(service.ParseProgress(xml), overview.Progress);
+        AssertJsonEqual(service.ParseSkills(xml), overview.Skills);
+        AssertJsonEqual(service.ParseRules(xml), overview.Rules);
+        AssertJsonEqual(service.ParseBuild(xml), overview.Build);
+        AssertJsonEqual(service.ParseMovement(xml), overview.Movement);
+        AssertJsonEqual(service.ParseAwakening(xml), overview.Awakening);
+    }
+
+    private static void AssertJsonEqual<T>(T expected, T actual)
+        => Assert.AreEqual(JsonSerializer.Serialize(expected), JsonSerializer.Serialize(actual));
 
     [TestMethod]
     public void Condition_monitor_preserves_career_editability_and_filled_tracks()

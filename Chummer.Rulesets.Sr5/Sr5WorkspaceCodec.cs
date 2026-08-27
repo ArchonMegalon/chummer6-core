@@ -54,6 +54,10 @@ public sealed class Sr5WorkspaceCodec : IRulesetWorkspaceCodec
         return _characterSectionQueries.ParseSection(sectionId, new CharacterDocument(ToXmlContent(envelope.Payload, WorkspaceDocumentFormat.NativeXml)));
     }
 
+    public CharacterOverviewProjection ParseOverview(WorkspacePayloadEnvelope envelope)
+        => _characterSectionQueries.ParseOverview(
+            new CharacterDocument(ToXmlContent(envelope.Payload, WorkspaceDocumentFormat.NativeXml)));
+
     public CharacterValidationResult Validate(WorkspacePayloadEnvelope envelope)
     {
         return _characterFileQueries.Validate(new CharacterDocument(ToXmlContent(envelope.Payload, WorkspaceDocumentFormat.NativeXml)));
