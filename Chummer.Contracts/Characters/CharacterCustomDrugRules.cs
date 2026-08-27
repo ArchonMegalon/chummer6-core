@@ -16,6 +16,12 @@ public enum CharacterCustomDrugContext
     Career = 1
 }
 
+public enum CharacterCustomDrugQuotePurpose
+{
+    RecipeDefinition = 0,
+    QuantityPurchase = 1
+}
+
 public enum CharacterCustomDrugComponentCategory
 {
     Foundation = 0,
@@ -116,6 +122,7 @@ public sealed record CharacterCustomDrugPreparation(
     bool Exact,
     IReadOnlyList<string> Blockers,
     CharacterCustomDrugContext Context,
+    CharacterCustomDrugQuotePurpose Purpose,
     long ContentRevision,
     string CharacterDigest,
     string CatalogDigest,
@@ -190,9 +197,7 @@ public sealed record CharacterCustomDrugCommitCommand(
     string IdempotencyKey,
     CharacterCustomDrugSelection Selection,
     CharacterCustomDrugInstanceId NewDrugInstanceId,
-    IReadOnlyList<Guid> NewComponentInstanceIds,
-    Guid NewExpenseId,
-    DateTimeOffset ExpenseDate);
+    IReadOnlyList<Guid> NewComponentInstanceIds);
 
 public sealed record CharacterCustomDrugCommitReceipt(
     long PreviousContentRevision,
@@ -206,11 +211,11 @@ public sealed record CharacterCustomDrugCommitReceipt(
     string IdempotencyKeyDigest,
     CharacterCustomDrugInstanceId DrugInstanceId,
     IReadOnlyList<Guid> ComponentInstanceIds,
-    Guid ExpenseId,
-    decimal NuyenDelta,
     string DrugXmlDigest,
-    string ExpenseXmlDigest,
     string ReceiptDigest);
+
+public sealed record CharacterCustomDrugUndoCommand(
+    CharacterCustomDrugCommitReceipt? Receipt);
 
 public sealed record CharacterCustomDrugCommitResult(
     bool Committed,
@@ -236,12 +241,18 @@ public static class CharacterCustomDrugBlockers
     public const string ComponentUnavailable = "A selected custom-drug component or effect level is absent or ambiguous.";
     public const string FoundationConflict = "A level-three Block cannot raise an attribute reduced by the selected Foundation.";
     public const string InsufficientFunds = "The custom-drug purchase exceeds the available Nuyen bound to the quote.";
+    public const string RecipeDefinitionOptions = "A custom-drug recipe definition creates exactly one unstolen initial dose without markup or purchase expense.";
+    public const string NotCreation = "Custom-drug creation authority requires a saved creation-mode character with created=false.";
+    public const string NotCareer = "Custom-drug Career authority requires a saved Career character with created=true.";
+    public const string CreationMutationRequiresFinalizer = "Creation-mode custom-drug recipes must be committed by the atomic whole-character finalizer.";
+    public const string InvalidIdempotencyKey = "The custom-drug idempotency key is missing or outside the bounded authority.";
     public const string ArithmeticOverflow = "Custom-drug arithmetic exceeded the exact supported range.";
     public const string StaleRevision = "The character content revision changed after the custom drug was prepared.";
     public const string StaleCharacter = "The character bytes changed after the custom drug was prepared.";
     public const string StaleCatalog = "The custom-drug catalog changed after the custom drug was prepared.";
     public const string StaleRules = "The custom-drug calculation policy changed after the custom drug was prepared.";
     public const string StaleQuote = "The custom-drug quote changed after confirmation.";
+    public const string StaleReceipt = "The custom-drug commit receipt is stale, altered, or no longer matches the saved recipe.";
 }
 
 public static class CharacterCustomDrugLegacyAuthority
@@ -272,6 +283,7 @@ public static class CharacterCustomDrugRules
     public static CharacterCustomDrugPreparation BindPreparation(
         CharacterCustomDrugCatalogAuthority? authority,
         CharacterCustomDrugContext context,
+        CharacterCustomDrugQuotePurpose purpose,
         long contentRevision,
         string characterDigest,
         decimal availableNuyen)
@@ -287,6 +299,7 @@ public static class CharacterCustomDrugRules
                     ? authority.Blockers
                     : [CharacterCustomDrugBlockers.AuthorityUnavailable],
                 context,
+                purpose,
                 Math.Max(0, contentRevision),
                 IsCanonicalDigest(characterDigest) ? characterDigest : string.Empty,
                 authority?.CatalogDigest ?? string.Empty,
@@ -301,6 +314,7 @@ public static class CharacterCustomDrugRules
             Exact: true,
             Blockers: [],
             context,
+            purpose,
             contentRevision,
             characterDigest,
             authority!.CatalogDigest,
@@ -332,6 +346,14 @@ public static class CharacterCustomDrugRules
             return Blocked(selection, CharacterCustomDrugBlockers.InvalidQuantity);
         if (!IsValidMarkup(selection.MarkupPercent))
             return Blocked(selection, CharacterCustomDrugBlockers.InvalidMarkup);
+        if (preparation.Purpose == CharacterCustomDrugQuotePurpose.RecipeDefinition
+            && (selection.Quantity != 1m
+                || selection.Stolen
+                || selection.FreeCost
+                || selection.MarkupPercent != 0m))
+        {
+            return Blocked(selection, CharacterCustomDrugBlockers.RecipeDefinitionOptions);
+        }
         if (selection.Components.Count == 0
             || selection.Components.Count > preparation.Policy.MaximumComponents)
             return Blocked(selection, CharacterCustomDrugBlockers.ComponentLimit);
@@ -437,11 +459,16 @@ public static class CharacterCustomDrugRules
             decimal unitCost = preparation.Policy.ApplyGradeCostMultiplier
                 ? checked(componentCost * grade.CostMultiplier)
                 : componentCost;
-            decimal chargedCost = checked(unitCost * selection.Quantity);
-            if (selection.MarkupPercent != 0m)
-                chargedCost = checked(chargedCost * (1m + selection.MarkupPercent / 100m));
-            if (selection.FreeCost)
-                chargedCost = 0m;
+            decimal chargedCost = preparation.Purpose == CharacterCustomDrugQuotePurpose.RecipeDefinition
+                ? 0m
+                : checked(unitCost * selection.Quantity);
+            if (preparation.Purpose == CharacterCustomDrugQuotePurpose.QuantityPurchase)
+            {
+                if (selection.MarkupPercent != 0m)
+                    chargedCost = checked(chargedCost * (1m + selection.MarkupPercent / 100m));
+                if (selection.FreeCost)
+                    chargedCost = 0m;
+            }
             if (chargedCost < 0m || chargedCost > preparation.AvailableNuyen)
                 return Blocked(selection, CharacterCustomDrugBlockers.InsufficientFunds);
 
@@ -482,6 +509,8 @@ public static class CharacterCustomDrugRules
             || !preparation.Exact
             || preparation.Blockers.Count != 0
             || preparation.ContentRevision < 0
+            || !Enum.IsDefined(preparation.Context)
+            || !Enum.IsDefined(preparation.Purpose)
             || preparation.AvailableNuyen < 0m
             || string.IsNullOrWhiteSpace(preparation.SettingsProfileId)
             || !IsCanonicalDigest(preparation.CharacterDigest)
@@ -621,16 +650,14 @@ public static class CharacterCustomDrugRules
     public static string ComputeCommandDigest(CharacterCustomDrugCommitCommand command)
     {
         ArgumentNullException.ThrowIfNull(command);
-        var canonical = new StringBuilder("career-custom-drug-command-v1\n")
+        var canonical = new StringBuilder("custom-drug-recipe-command-v2\n")
             .Append(command.ExpectedContentRevision.ToString(CultureInfo.InvariantCulture)).Append('\n')
             .Append(command.ExpectedCharacterDigest).Append('\n')
             .Append(command.ExpectedCatalogDigest).Append('\n')
             .Append(command.ExpectedRulesDigest).Append('\n')
             .Append(command.ExpectedQuoteDigest).Append('\n')
             .Append(command.IdempotencyKey).Append('\n')
-            .Append(command.NewDrugInstanceId.Value.ToString("D")).Append('\n')
-            .Append(command.NewExpenseId.ToString("D")).Append('\n')
-            .Append(command.ExpenseDate.ToString("O", CultureInfo.InvariantCulture)).Append('\n');
+            .Append(command.NewDrugInstanceId.Value.ToString("D")).Append('\n');
         AppendSelection(canonical, command.Selection);
         foreach (Guid value in command.NewComponentInstanceIds)
             canonical.Append(value.ToString("D")).Append('\n');
@@ -640,7 +667,7 @@ public static class CharacterCustomDrugRules
     public static string ComputeReceiptDigest(CharacterCustomDrugCommitReceipt receipt)
     {
         ArgumentNullException.ThrowIfNull(receipt);
-        var canonical = new StringBuilder("career-custom-drug-receipt-v1\n")
+        var canonical = new StringBuilder("custom-drug-recipe-receipt-v2\n")
             .Append(receipt.PreviousContentRevision.ToString(CultureInfo.InvariantCulture)).Append('\n')
             .Append(receipt.ContentRevision.ToString(CultureInfo.InvariantCulture)).Append('\n')
             .Append(receipt.PreviousCharacterDigest).Append('\n')
@@ -651,14 +678,14 @@ public static class CharacterCustomDrugRules
             .Append(receipt.CommandDigest).Append('\n')
             .Append(receipt.IdempotencyKeyDigest).Append('\n')
             .Append(receipt.DrugInstanceId.Value.ToString("D")).Append('\n')
-            .Append(receipt.ExpenseId.ToString("D")).Append('\n')
-            .Append(receipt.NuyenDelta.ToString(CultureInfo.InvariantCulture)).Append('\n')
-            .Append(receipt.DrugXmlDigest).Append('\n')
-            .Append(receipt.ExpenseXmlDigest).Append('\n');
+            .Append(receipt.DrugXmlDigest).Append('\n');
         foreach (Guid value in receipt.ComponentInstanceIds)
             canonical.Append(value.ToString("D")).Append('\n');
         return Hex(SHA256.HashData(Encoding.UTF8.GetBytes(canonical.ToString())));
     }
+
+    public static string ComputeIdempotencyKeyDigest(string value)
+        => Hex(SHA256.HashData(Encoding.UTF8.GetBytes(value ?? string.Empty)));
 
     private static bool IsValidComponent(CharacterCustomDrugComponentSource? source)
     {
@@ -788,8 +815,9 @@ public static class CharacterCustomDrugRules
         CharacterCustomDrugSelection selection,
         CharacterCustomDrugQuote quote)
     {
-        var canonical = new StringBuilder("custom-drug-quote-v1\n")
+        var canonical = new StringBuilder("custom-drug-quote-v2\n")
             .Append(preparation.Context).Append('\n')
+            .Append(preparation.Purpose).Append('\n')
             .Append(preparation.ContentRevision.ToString(CultureInfo.InvariantCulture)).Append('\n')
             .Append(preparation.CharacterDigest).Append('\n')
             .Append(preparation.CatalogDigest).Append('\n')

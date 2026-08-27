@@ -76,6 +76,7 @@ public sealed class CharacterCustomDrugSourceResolverTests
         CharacterCustomDrugPreparation preparation = CharacterCustomDrugRules.BindPreparation(
             authority,
             CharacterCustomDrugContext.Career,
+            CharacterCustomDrugQuotePurpose.QuantityPurchase,
             contentRevision: 17,
             CharacterCustomDrugRules.ComputeCharacterDigest(characterXml),
             availableNuyen: 5_000m);

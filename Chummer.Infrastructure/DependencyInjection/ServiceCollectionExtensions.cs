@@ -106,6 +106,8 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IContentOverlayCatalogService>(overlays);
         services.AddSingleton<ICharacterCyberwarePurchaseAuthority,
             FileSystemCharacterCyberwarePurchaseAuthority>();
+        services.AddSingleton<ICharacterCustomDrugAuthority,
+            FileSystemCharacterCustomDrugAuthority>();
         services.AddSingleton<IBuildKitRegistryService, DefaultBuildKitRegistryService>();
         services.AddSingleton<INpcVaultRegistryService, DefaultNpcVaultRegistryService>();
         services.AddSingleton<IOppositionPacketContractService, DefaultOppositionPacketContractService>();

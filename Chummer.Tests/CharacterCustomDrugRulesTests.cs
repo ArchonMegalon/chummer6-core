@@ -66,6 +66,33 @@ public sealed class CharacterCustomDrugRulesTests
     }
 
     [TestMethod]
+    public void Recipe_definition_preserves_legacy_free_initial_dose_without_hiding_unit_cost()
+    {
+        CharacterCustomDrugPreparation preparation = Preparation(LegacyPolicy()) with
+        {
+            Purpose = CharacterCustomDrugQuotePurpose.RecipeDefinition
+        };
+        CharacterCustomDrugSelection selection = Selection(
+            new CharacterCustomDrugComponentSelection(s_Tank, 0),
+            new CharacterCustomDrugComponentSelection(s_Crush, 1)) with { Quantity = 1m };
+
+        CharacterCustomDrugQuote quote = CharacterCustomDrugRules.Quote(preparation, selection);
+
+        Assert.IsTrue(quote.Exact, quote.BlockReason);
+        Assert.AreEqual(95m, quote.UnitCost);
+        Assert.AreEqual(0m, quote.ChargedCost);
+        Assert.AreEqual(0m, quote.NuyenDelta);
+        AssertBlocked(
+            preparation,
+            selection with { Quantity = 2m },
+            CharacterCustomDrugBlockers.RecipeDefinitionOptions);
+        AssertBlocked(
+            preparation,
+            selection with { Stolen = true },
+            CharacterCustomDrugBlockers.RecipeDefinitionOptions);
+    }
+
+    [TestMethod]
     public void Recipe_requires_exactly_one_foundation_and_enforces_component_limits()
     {
         CharacterCustomDrugPreparation preparation = Preparation(LegacyPolicy());
@@ -198,9 +225,7 @@ public sealed class CharacterCustomDrugRulesTests
             IdempotencyKey: "recipe:44:nonce",
             selection,
             new CharacterCustomDrugInstanceId(Guid.Parse("11111111-1111-4111-8111-111111111111")),
-            [Guid.Parse("22222222-2222-4222-8222-222222222222"), Guid.Parse("33333333-3333-4333-8333-333333333333")],
-            Guid.Parse("44444444-4444-4444-8444-444444444444"),
-            DateTimeOffset.Parse("2026-08-27T12:00:00Z", System.Globalization.CultureInfo.InvariantCulture));
+            [Guid.Parse("22222222-2222-4222-8222-222222222222"), Guid.Parse("33333333-3333-4333-8333-333333333333")]);
         string commandDigest = CharacterCustomDrugRules.ComputeCommandDigest(command);
         Assert.AreEqual(64, commandDigest.Length);
         Assert.AreNotEqual(commandDigest, CharacterCustomDrugRules.ComputeCommandDigest(command with
@@ -220,10 +245,7 @@ public sealed class CharacterCustomDrugRulesTests
             new string('f', 64),
             command.NewDrugInstanceId,
             command.NewComponentInstanceIds,
-            command.NewExpenseId,
-            -190m,
             new string('1', 64),
-            new string('2', 64),
             ReceiptDigest: string.Empty);
         Assert.AreEqual(64, CharacterCustomDrugRules.ComputeReceiptDigest(receipt).Length);
     }
@@ -265,6 +287,7 @@ public sealed class CharacterCustomDrugRulesTests
             Exact: true,
             Blockers: [],
             CharacterCustomDrugContext.Career,
+            CharacterCustomDrugQuotePurpose.QuantityPurchase,
             ContentRevision: 44,
             CharacterDigest: new string('a', 64),
             CatalogDigest: new string('b', 64),

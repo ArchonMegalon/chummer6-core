@@ -70,6 +70,10 @@ public class HeadlessCoreContentBundleValidationTests
                 provider.GetRequiredService<ICharacterCyberwarePurchaseAuthority>();
             ICharacterCyberwarePurchaseAuthority resolvedAgain =
                 provider.GetRequiredService<ICharacterCyberwarePurchaseAuthority>();
+            ICharacterCustomDrugAuthority customDrug =
+                provider.GetRequiredService<ICharacterCustomDrugAuthority>();
+            ICharacterCustomDrugAuthority customDrugAgain =
+                provider.GetRequiredService<ICharacterCustomDrugAuthority>();
             IOwnerContextAccessor ownerContextAccessor = provider.GetRequiredService<IOwnerContextAccessor>();
             IRulesetPlugin[] plugins = provider.GetServices<IRulesetPlugin>().ToArray();
             string resolved = overlays.ResolveDataFile("lifemodules.xml");
@@ -77,6 +81,9 @@ public class HeadlessCoreContentBundleValidationTests
             Assert.IsInstanceOfType<FileSystemCharacterCyberwarePurchaseAuthority>(cyberwarePurchase);
             Assert.AreSame(cyberwarePurchase, resolvedAgain,
                 "Local-runtime and Android content-bundle compositions must share one purchase authority.");
+            Assert.IsInstanceOfType<FileSystemCharacterCustomDrugAuthority>(customDrug);
+            Assert.AreSame(customDrug, customDrugAgain,
+                "Local-runtime and Android content-bundle compositions must share one custom-drug authority.");
             Assert.AreEqual(OwnerScope.LocalSingleUser.NormalizedValue, ownerContextAccessor.Current.NormalizedValue);
             Assert.IsFalse(plugins.Any(plugin => string.Equals(plugin.Id.NormalizedValue, RulesetDefaults.Sr4, StringComparison.Ordinal)));
             Assert.IsTrue(plugins.Any(plugin => string.Equals(plugin.Id.NormalizedValue, RulesetDefaults.Sr5, StringComparison.Ordinal)));
