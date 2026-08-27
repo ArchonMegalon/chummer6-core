@@ -216,6 +216,7 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<ICharacterCareerSkillGroupAdvanceService,
             CharacterCareerSkillGroupAdvanceService>();
         services.AddCharacterAfterRunSettlementPersistence();
+        services.AddCharacterSr5DowntimeHealingPersistence();
 
         return services;
     }
@@ -245,6 +246,26 @@ public static class ServiceCollectionExtensions
         });
         services.TryAddSingleton<ICharacterAfterRunSettlementService,
             CharacterAfterRunSettlementService>();
+        return services;
+    }
+
+    /// <summary>
+    /// Composes exact SR5 natural-healing workspace projection and terminal activity
+    /// persistence only when the configured store advertises the governed atomic
+    /// auxiliary-state checkpoint capability.
+    /// </summary>
+    public static IServiceCollection AddCharacterSr5DowntimeHealingPersistence(
+        this IServiceCollection services)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        services.TryAddSingleton<ICharacterSr5DowntimeHealingWorkspace>(provider =>
+        {
+            IWorkspaceStore store = provider.GetRequiredService<IWorkspaceStore>();
+            return store is IWorkspaceAuxiliaryStateAtomicCommitCapability
+                   { SupportsWorkspaceAuxiliaryStateAtomicCommit: true }
+                ? new WorkspaceCharacterSr5DowntimeHealingWorkspace(store)
+                : new UnavailableCharacterSr5DowntimeHealingWorkspace();
+        });
         return services;
     }
 

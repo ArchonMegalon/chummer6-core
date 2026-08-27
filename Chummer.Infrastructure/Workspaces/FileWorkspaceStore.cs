@@ -1626,6 +1626,13 @@ public sealed class FileWorkspaceStore :
                 workspaceId,
                 currentContentRevision,
                 afterRunReceipts);
+        IReadOnlyList<CharacterSr5HealingActivityLedgerEntry>? healingActivities =
+            state.CharacterSr5HealingActivities;
+        bool healingActivitiesValid = healingActivities is null
+            || CharacterSr5HealingActivityLedgerIntegrity.IsValidLedger(
+                workspaceId,
+                currentContentRevision,
+                healingActivities);
         CharacterCreationBootstrapBinding? bootstrap =
             state.CharacterCreationBootstrapBinding;
         bool bootstrapValid = bootstrap is null
@@ -1656,6 +1663,7 @@ public sealed class FileWorkspaceStore :
                && customDrugContributionValid
                && qualitiesValid
                && afterRunReceiptsValid
+               && healingActivitiesValid
                && bootstrapValid
                && lifeModuleAcceptancesValid
                && finalizationReceiptsValid;
@@ -1767,6 +1775,10 @@ public sealed class FileWorkspaceStore :
             replacementState.CharacterAfterRunSettlementReceipts;
         IReadOnlyList<CharacterAfterRunSettlementReceiptLedgerEntry>? currentAfterRunReceipts =
             currentState.CharacterAfterRunSettlementReceipts;
+        IReadOnlyList<CharacterSr5HealingActivityLedgerEntry>? replacementHealingActivities =
+            replacementState.CharacterSr5HealingActivities;
+        IReadOnlyList<CharacterSr5HealingActivityLedgerEntry>? currentHealingActivities =
+            currentState.CharacterSr5HealingActivities;
         CharacterCreationBootstrapBinding? replacementBootstrap =
             replacementState.CharacterCreationBootstrapBinding;
         CharacterCreationBootstrapBinding? currentBootstrap =
@@ -1820,6 +1832,9 @@ public sealed class FileWorkspaceStore :
         bool afterRunReceiptsUnchanged = HasSameAfterRunReceiptLedger(
             currentAfterRunReceipts,
             replacementAfterRunReceipts);
+        bool healingActivitiesUnchanged = HasSameSr5HealingActivityLedger(
+            currentHealingActivities,
+            replacementHealingActivities);
         bool bootstrapUnchanged = HasSameBootstrapBinding(
             currentBootstrap,
             replacementBootstrap);
@@ -1835,6 +1850,7 @@ public sealed class FileWorkspaceStore :
                                + (customDrugUnchanged ? 0 : 1)
                                + (qualitiesUnchanged ? 0 : 1)
                                + (afterRunReceiptsUnchanged ? 0 : 1)
+                               + (healingActivitiesUnchanged ? 0 : 1)
                                + (bootstrapUnchanged ? 0 : 1);
         if (changedLaneCount != 1)
         {
@@ -1923,6 +1939,17 @@ public sealed class FileWorkspaceStore :
                     replacementAfterRunReceipts,
                     currentDocument.Content,
                     replacementDocument.Content);
+        }
+        if (!healingActivitiesUnchanged)
+        {
+            return CharacterSr5HealingActivityLedgerIntegrity.IsValidAppendTransition(
+                workspaceId,
+                previousContentRevision,
+                nextContentRevision,
+                currentHealingActivities,
+                replacementHealingActivities,
+                currentDocument.Content,
+                replacementDocument.Content);
         }
         if (!lifestyleReceiptsUnchanged)
         {
@@ -2395,6 +2422,18 @@ public sealed class FileWorkspaceStore :
             WorkspaceDocumentAuxiliaryStateDigest.Compute(
                 new WorkspaceDocumentAuxiliaryState(
                     CharacterAfterRunSettlementReceipts: right)),
+            StringComparison.Ordinal);
+
+    private static bool HasSameSr5HealingActivityLedger(
+        IReadOnlyList<CharacterSr5HealingActivityLedgerEntry>? left,
+        IReadOnlyList<CharacterSr5HealingActivityLedgerEntry>? right) =>
+        string.Equals(
+            WorkspaceDocumentAuxiliaryStateDigest.Compute(
+                new WorkspaceDocumentAuxiliaryState(
+                    CharacterSr5HealingActivities: left)),
+            WorkspaceDocumentAuxiliaryStateDigest.Compute(
+                new WorkspaceDocumentAuxiliaryState(
+                    CharacterSr5HealingActivities: right)),
             StringComparison.Ordinal);
 
     private static bool HasSameBootstrapBinding(
