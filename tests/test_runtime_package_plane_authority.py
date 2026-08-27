@@ -45,6 +45,12 @@ class RuntimePackageLockTests(unittest.TestCase):
         with self.assertRaisesRegex(runtime.RuntimePackagePlaneError, "version is not exact"):
             runtime.validate_lock_payload(altered)
 
+    def test_candidate_version_is_bound_to_runtime_source_prefix(self) -> None:
+        self.assertEqual(
+            f"0.0.0-packageplane.candidate.sh{runtime.SOURCE_COMMIT[:13]}",
+            runtime.PACKAGE_VERSION,
+        )
+
     def test_sdk_archive_authority_is_fail_closed(self) -> None:
         for field, altered_value in (
             ("version", "10.0.104"),
