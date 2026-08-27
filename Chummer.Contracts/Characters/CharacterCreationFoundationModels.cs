@@ -202,7 +202,17 @@ public sealed record CharacterCreationFoundationConfirmRequest(
     CharacterCreationFoundationSelection Selection,
     string PreviewDigest,
     bool ExplicitlyConfirmed,
-    IReadOnlyDictionary<string, string>? FollowUpValues = null);
+    IReadOnlyDictionary<string, string>? FollowUpValues = null)
+{
+    /// <summary>
+    /// Optional sealed Origin decision command.  Foundation remains the sole
+    /// mechanics authority; this binding only lets the same atomic commit append
+    /// the restart/idempotency receipt used by the narrative projection.
+    /// </summary>
+    public LifeModuleDecisionAcceptanceCommand? OriginDecisionCommand { get; init; }
+
+    public LifeModuleDecisionAuthorityStep? OriginDecisionStep { get; init; }
+}
 
 public sealed record CharacterCreationFoundationFinalizationPreviewRequest(
     CharacterCreationFoundationBinding Binding,
@@ -386,7 +396,10 @@ public sealed record CharacterCreationFoundationApplyReceipt(
     string Metatype,
     long DraftRevision,
     string DraftDigest,
-    bool CharacterEffectsApplied);
+    bool CharacterEffectsApplied)
+{
+    public LifeModuleDecisionAcceptance? OriginDecisionAcceptance { get; init; }
+}
 
 public sealed record CharacterCreationFoundationResult<T>(
     string Outcome,

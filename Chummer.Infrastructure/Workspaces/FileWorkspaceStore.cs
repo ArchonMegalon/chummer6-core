@@ -3,8 +3,10 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Chummer.Application.Characters;
+using Chummer.Application.LifeModules;
 using Chummer.Application.Workspaces;
 using Chummer.Contracts.Characters;
+using Chummer.Contracts.LifeModules;
 using Chummer.Contracts.Owners;
 using Chummer.Contracts.Rulesets;
 using Chummer.Contracts.Workspaces;
@@ -1612,6 +1614,13 @@ public sealed class FileWorkspaceStore :
             state.CharacterCreationBootstrapBinding;
         bool bootstrapValid = bootstrap is null
             || CharacterCreationBootstrapStoreIntegrity.IsValidBinding(workspaceId, bootstrap);
+        IReadOnlyList<LifeModuleDecisionAcceptance>? lifeModuleAcceptances =
+            state.LifeModuleDecisionAcceptances;
+        bool lifeModuleAcceptancesValid = lifeModuleAcceptances is null
+            || LifeModuleDecisionAcceptanceIntegrity.TryValidateLedger(
+                workspaceId,
+                currentContentRevision,
+                lifeModuleAcceptances);
         return foundationValid
                && prerequisiteValid
                && attributesValid
@@ -1622,7 +1631,8 @@ public sealed class FileWorkspaceStore :
                && resourcesValid
                && gearValid
                && afterRunReceiptsValid
-               && bootstrapValid;
+               && bootstrapValid
+               && lifeModuleAcceptancesValid;
     }
 
     private static bool IsValidAuxiliaryStateTransition(
@@ -1644,6 +1654,10 @@ public sealed class FileWorkspaceStore :
             replacementState.CharacterCreationFoundationDraft;
         CharacterCreationFoundationDraftLedger? currentFoundation =
             currentState.CharacterCreationFoundationDraft;
+        IReadOnlyList<LifeModuleDecisionAcceptance>? replacementLifeModuleAcceptances =
+            replacementState.LifeModuleDecisionAcceptances;
+        IReadOnlyList<LifeModuleDecisionAcceptance>? currentLifeModuleAcceptances =
+            currentState.LifeModuleDecisionAcceptances;
         CharacterCreationPrerequisiteDraft? replacementPrerequisite =
             replacementState.CharacterCreationPrerequisiteDraft;
         CharacterCreationPrerequisiteDraft? currentPrerequisite =
@@ -1709,9 +1723,11 @@ public sealed class FileWorkspaceStore :
         CharacterCreationBootstrapBinding? currentBootstrap =
             currentState.CharacterCreationBootstrapBinding;
 
-        bool foundationUnchanged = HasSameFoundationDraft(
+        bool foundationUnchanged = HasSameFoundationLane(
             currentFoundation,
-            replacementFoundation);
+            currentLifeModuleAcceptances,
+            replacementFoundation,
+            replacementLifeModuleAcceptances);
         bool prerequisiteUnchanged = HasSamePrerequisiteDraft(
             currentPrerequisite,
             replacementPrerequisite);
@@ -1779,7 +1795,11 @@ public sealed class FileWorkspaceStore :
             return IsValidFoundationTransition(
                 currentFoundation,
                 replacementFoundation,
-                previousContentRevision);
+                currentLifeModuleAcceptances,
+                replacementLifeModuleAcceptances,
+                workspaceId,
+                previousContentRevision,
+                nextContentRevision);
         }
         if (!prerequisiteUnchanged)
         {
@@ -1920,16 +1940,34 @@ public sealed class FileWorkspaceStore :
     private static bool IsValidFoundationTransition(
         CharacterCreationFoundationDraftLedger? current,
         CharacterCreationFoundationDraftLedger? replacement,
-        long previousContentRevision)
+        IReadOnlyList<LifeModuleDecisionAcceptance>? currentAcceptances,
+        IReadOnlyList<LifeModuleDecisionAcceptance>? replacementAcceptances,
+        CharacterWorkspaceId workspaceId,
+        long previousContentRevision,
+        long nextContentRevision)
     {
         if (replacement is null)
             return current is not null;
-        return current is null
+        bool draftValid = current is null
             ? replacement.DraftRevision == 1
               && replacement.BaseContentRevision == previousContentRevision
             : current.DraftRevision < long.MaxValue
               && replacement.DraftRevision == current.DraftRevision + 1
               && replacement.BaseContentRevision == previousContentRevision;
+        if (!draftValid)
+            return false;
+        if (HasSameLifeModuleAcceptanceLedger(currentAcceptances, replacementAcceptances))
+            return true;
+        if ((currentAcceptances?.Count ?? 0) != 0
+            || replacementAcceptances is not { Count: 1 }
+            || nextContentRevision != previousContentRevision + 1)
+            return false;
+        return LifeModuleDecisionAcceptanceIntegrity.TryValidateLedger(
+            workspaceId,
+            nextContentRevision,
+            replacementAcceptances)
+               && replacementAcceptances[0].Receipt.PreviousWorkspaceRevision
+               == previousContentRevision;
     }
 
     private static bool IsValidPrerequisiteTransition(
@@ -2076,14 +2114,30 @@ public sealed class FileWorkspaceStore :
                            receipt.IdempotencyKeyDigest)));
     }
 
-    private static bool HasSameFoundationDraft(
+    private static bool HasSameFoundationLane(
         CharacterCreationFoundationDraftLedger? left,
-        CharacterCreationFoundationDraftLedger? right) =>
+        IReadOnlyList<LifeModuleDecisionAcceptance>? leftAcceptances,
+        CharacterCreationFoundationDraftLedger? right,
+        IReadOnlyList<LifeModuleDecisionAcceptance>? rightAcceptances) =>
         string.Equals(
             WorkspaceDocumentAuxiliaryStateDigest.Compute(
-                new WorkspaceDocumentAuxiliaryState(left)),
+                new WorkspaceDocumentAuxiliaryState(
+                    CharacterCreationFoundationDraft: left,
+                    LifeModuleDecisionAcceptances: leftAcceptances)),
             WorkspaceDocumentAuxiliaryStateDigest.Compute(
-                new WorkspaceDocumentAuxiliaryState(right)),
+                new WorkspaceDocumentAuxiliaryState(
+                    CharacterCreationFoundationDraft: right,
+                    LifeModuleDecisionAcceptances: rightAcceptances)),
+            StringComparison.Ordinal);
+
+    private static bool HasSameLifeModuleAcceptanceLedger(
+        IReadOnlyList<LifeModuleDecisionAcceptance>? left,
+        IReadOnlyList<LifeModuleDecisionAcceptance>? right) =>
+        string.Equals(
+            WorkspaceDocumentAuxiliaryStateDigest.Compute(
+                new WorkspaceDocumentAuxiliaryState(LifeModuleDecisionAcceptances: left)),
+            WorkspaceDocumentAuxiliaryStateDigest.Compute(
+                new WorkspaceDocumentAuxiliaryState(LifeModuleDecisionAcceptances: right)),
             StringComparison.Ordinal);
 
     private static bool HasSamePrerequisiteDraft(

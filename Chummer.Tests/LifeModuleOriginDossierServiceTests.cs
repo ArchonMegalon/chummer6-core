@@ -99,6 +99,34 @@ public class LifeModuleOriginDossierServiceTests
     }
 
     [TestMethod]
+    public void Accept_allows_a_source_bound_terminal_turn_after_the_atomic_foundation_decision()
+    {
+        var authority = new FakeDecisionAuthority(CreateInitialStep(
+            CreateChoice("choice-a", "Take the street path")))
+        {
+            TerminalOnAccept = true
+        };
+        var interaction = new LifeModuleOriginDossierInteractionService(
+            new LifeModuleOriginDossierService(authority));
+        LifeModuleOriginDossierDraftCheckpoint prepared = AssertSuccess(
+            interaction.Prepare(
+                AssertSuccess(interaction.Start("workspace-1")),
+                "choice-a"));
+
+        LifeModuleOriginDossierInteractionAdvance result = AssertSuccess(
+            interaction.Confirm(
+                prepared,
+                prepared.PendingPreview!.PreviewDigest,
+                "terminal-origin-turn",
+                explicitlyConfirmed: true));
+
+        Assert.IsTrue(result.Checkpoint.Projection.CurrentTurn.IsTerminal);
+        Assert.HasCount(0, result.Checkpoint.Projection.CurrentTurn.LegalChoices);
+        Assert.HasCount(1, result.Checkpoint.Projection.VisibleChapters);
+        Assert.AreEqual(1, authority.MechanicsMutationCount);
+    }
+
+    [TestMethod]
     public void Accept_rejects_an_invented_choice_without_calling_the_mechanics_command()
     {
         var authority = new FakeDecisionAuthority(CreateInitialStep(
@@ -531,6 +559,8 @@ public class LifeModuleOriginDossierServiceTests
 
         public int MechanicsMutationCount { get; private set; }
 
+        public bool TerminalOnAccept { get; init; }
+
         public LifeModuleDecisionAuthorityResult<LifeModuleDecisionAuthorityStep> Load(
             string workspaceId)
             => string.Equals(Current.WorkspaceId, workspaceId, StringComparison.Ordinal)
@@ -642,6 +672,18 @@ public class LifeModuleOriginDossierServiceTests
                 ContentDigest = nextContentDigest,
                 MechanicsSnapshotDigest = mechanicsDigest
             };
+            if (TerminalOnAccept)
+            {
+                next = next with
+                {
+                    StageId = "nationality-accepted",
+                    StageOrder = Current.StageOrder,
+                    DecisionLeadInMarkdown = receipt.ConsequenceMarkdown,
+                    DecisionPrompt = "Continue character creation.",
+                    LegalChoices = [],
+                    IsTerminal = true
+                };
+            }
             var acceptance = new LifeModuleDecisionAcceptance(receipt, next);
             _accepted.Add(command.IdempotencyKeyDigest, acceptance);
             Current = next;

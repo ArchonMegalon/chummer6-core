@@ -467,13 +467,15 @@ public sealed class LifeModuleOriginDossierService
             || string.IsNullOrWhiteSpace(step.DecisionLeadInMarkdown)
             || string.IsNullOrWhiteSpace(step.DecisionPrompt)
             || step.LegalChoices is null
-            || step.LegalChoices.Count == 0
+            || (!step.IsTerminal && step.LegalChoices.Count == 0)
+            || (step.IsTerminal && step.LegalChoices.Count != 0)
             || step.LegalChoices.Count > MaxChoices
             || step.LegalChoices.Any(static choice => choice is null)
             || step.CanonicalFacts is null
             || step.CanonicalFacts.Count > MaxFacts
             || step.CanonicalFacts.Any(static fact => fact is null)
             || step.AcceptedDecisionIds is null
+            || (step.IsTerminal && step.AcceptedDecisionIds.Count == 0)
             || step.AcceptedDecisionIds.Count > MaxChapters
             || !IsCanonicalDigest(step.PreviousTurnDigest)
             || !IsCanonicalDigest(step.DecisionGraphDigest)
@@ -543,7 +545,10 @@ public sealed class LifeModuleOriginDossierService
             step.SourceDigest,
             step.RulesDigest,
             step.RuntimeDigest,
-            string.Empty);
+            string.Empty)
+        {
+            IsTerminal = step.IsTerminal
+        };
         turn = candidate with { SeedDigest = ComputeTurnSeedDigest(candidate) };
         return true;
     }
@@ -685,7 +690,9 @@ public sealed class LifeModuleOriginDossierService
             || turn.LegalChoices is null
             || turn.CanonicalFacts is null
             || turn.AcceptedDecisionIds is null
-            || turn.LegalChoices.Count == 0
+            || (!turn.IsTerminal && turn.LegalChoices.Count == 0)
+            || (turn.IsTerminal && (turn.LegalChoices.Count != 0
+                                    || turn.AcceptedDecisionIds.Count == 0))
             || turn.LegalChoices.Count > MaxChoices
             || turn.CanonicalFacts.Count > MaxFacts
             || turn.AcceptedDecisionIds.Count > MaxChapters
@@ -847,6 +854,7 @@ public sealed class LifeModuleOriginDossierService
             writer.WriteNumber("stageOrder", turn.StageOrder);
             writer.WriteString("turnId", turn.TurnId);
             writer.WriteNumber("turnSequence", turn.TurnSequence);
+            writer.WriteBoolean("isTerminal", turn.IsTerminal);
             writer.WriteString("visibleStoryMarkdown", turn.VisibleStoryMarkdown);
             writer.WriteString("decisionPrompt", turn.DecisionPrompt);
             WriteStringArray(writer, "choiceDigests", turn.LegalChoices.Select(static choice => choice.ChoiceDigest));

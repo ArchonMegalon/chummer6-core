@@ -216,7 +216,15 @@ public sealed record LifeModuleDecisionAuthorityStep(
     string SourceDigest,
     string RulesDigest,
     string RuntimeDigest,
-    string MechanicsSnapshotDigest);
+    string MechanicsSnapshotDigest)
+{
+    /// <summary>
+    /// A terminal turn contains the source-bound consequence of the last accepted
+    /// decision but no further mechanics choice.  It is valid only after at least
+    /// one accepted decision and can never be projected as a fresh journey start.
+    /// </summary>
+    public bool IsTerminal { get; init; }
+}
 
 /// <summary>
 /// The only write-shaped value emitted by the dossier service. An adapter must
@@ -427,6 +435,8 @@ public sealed record LifeModuleNarrativeTurnSeed(
     public bool StoryEndsAtDecisionPoint { get; } = true;
 
     public string MechanicsAuthority { get; } = OriginNarrativeAuthorityKinds.AcceptedLifeModuleDecisionsOnly;
+
+    public bool IsTerminal { get; init; }
 }
 
 /// <summary>

@@ -35,7 +35,12 @@ public sealed record CharacterCreationFoundationAuthorityContext(
     CharacterCreationBudgetState LifeModuleBudgetBefore,
     CharacterCreationChoiceCost SelectionCost,
     CharacterCreationBudgetState LifeModuleBudgetAfter,
-    string SourceDigest);
+    string SourceDigest)
+{
+    public LifeModuleDecisionAcceptanceCommand? OriginDecisionCommand { get; init; }
+
+    public LifeModuleDecisionAuthorityStep? OriginDecisionStep { get; init; }
+}
 
 public sealed record CharacterCreationFoundationAuthorityPreview(
     IReadOnlyList<CharacterCreationFoundationDiffEntry> Diff,

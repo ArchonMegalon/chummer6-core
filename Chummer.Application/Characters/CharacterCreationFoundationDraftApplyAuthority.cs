@@ -1,4 +1,5 @@
 using System.Globalization;
+using Chummer.Application.LifeModules;
 using Chummer.Application.Workspaces;
 using Chummer.Contracts.Characters;
 using Chummer.Contracts.LifeModules;
@@ -137,13 +138,41 @@ public sealed class CharacterCreationFoundationDraftApplyAuthority :
 
         CharacterCreationFoundationDraftLedger proposed = BuildProposedLedger(context);
         WorkspaceDocument currentDocument = context.Workspace.Document;
+        LifeModuleDecisionAcceptance? originAcceptance = null;
+        IReadOnlyList<LifeModuleDecisionAcceptance>? originLedger = currentDocument
+            .AuxiliaryState.LifeModuleDecisionAcceptances;
+        if (context.OriginDecisionCommand is not null || context.OriginDecisionStep is not null)
+        {
+            if (context.OriginDecisionCommand is null
+                || context.OriginDecisionStep is null
+                || context.Workspace.ContentRevision == long.MaxValue
+                || (originLedger?.Count ?? 0) != 0)
+            {
+                return Blocked(
+                    CharacterCreationFoundationOutcomes.Conflict,
+                    LifeModuleOriginDossierBlockers.AuthorityInvalid);
+            }
+            originAcceptance =
+                CharacterCreationFoundationLifeModuleDecisionAuthority.CreateAcceptance(
+                    context,
+                    proposed,
+                    context.Workspace.ContentRevision + 1);
+            if (originAcceptance is null)
+            {
+                return Blocked(
+                    CharacterCreationFoundationOutcomes.Conflict,
+                    LifeModuleOriginDossierBlockers.AuthorityInvalid);
+            }
+            originLedger = [originAcceptance];
+        }
         WorkspaceDocument replacement = currentDocument with
         {
             State = currentDocument.State with
             {
                 AuxiliaryState = currentDocument.AuxiliaryState with
                 {
-                    CharacterCreationFoundationDraft = proposed
+                    CharacterCreationFoundationDraft = proposed,
+                    LifeModuleDecisionAcceptances = originLedger
                 }
             }
         };
@@ -170,7 +199,10 @@ public sealed class CharacterCreationFoundationDraftApplyAuthority :
                 Metatype: proposed.RequestedMetatype,
                 DraftRevision: proposed.DraftRevision,
                 DraftDigest: proposed.DraftDigest,
-                CharacterEffectsApplied: false),
+                CharacterEffectsApplied: false)
+            {
+                OriginDecisionAcceptance = originAcceptance
+            },
             Blockers: []);
     }
 

@@ -13,6 +13,8 @@
     <Compile Include="..\Chummer.Tests\SessionActionBudgetServiceTests.cs" Link="SessionActionBudgetServiceTests.cs" />
     <Compile Include="..\Chummer.Tests\CalculationReportServiceTests.cs" Link="CalculationReportServiceTests.cs" />
     <Compile Include="..\Chummer.Tests\LifeModulesServiceTests.cs" Link="LifeModulesServiceTests.cs" />
+    <Compile Include="..\Chummer.Tests\LifeModuleOriginDossierServiceTests.cs" Link="LifeModuleOriginDossierServiceTests.cs" />
+    <Compile Include="..\Chummer.Tests\CharacterCreationFoundationLifeModuleDecisionAuthorityTests.cs" Link="CharacterCreationFoundationLifeModuleDecisionAuthorityTests.cs" />
     <Compile Include="..\Chummer.Tests\CharacterCreationFoundationServiceTests.cs" Link="CharacterCreationFoundationServiceTests.cs" />
     <Compile Include="..\Chummer.Tests\CharacterCreationPrerequisiteServiceTests.cs" Link="CharacterCreationPrerequisiteServiceTests.cs" />
     <Compile Include="..\Chummer.Tests\CharacterCreationAttributesServiceTests.cs" Link="CharacterCreationAttributesServiceTests.cs" />

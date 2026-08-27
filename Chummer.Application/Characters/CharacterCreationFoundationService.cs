@@ -98,6 +98,11 @@ public sealed class CharacterCreationFoundationService : ICharacterCreationFound
                 Blockers: preview.AuthorityBlockers);
         }
 
+        context = context with
+        {
+            OriginDecisionCommand = request.OriginDecisionCommand,
+            OriginDecisionStep = request.OriginDecisionStep
+        };
         return _applyAuthority.ApplyAndCheckpoint(context, preview.PreviewDigest);
     }
 
