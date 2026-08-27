@@ -1697,6 +1697,97 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             return true;
         }
 
+        public bool TryResolveVehicleWorkshopCatalog(out CharacterVehicleWorkshopCatalog catalog)
+        {
+            catalog = new CharacterVehicleWorkshopCatalog(
+                new CharacterVehicleWorkshopSourceBinding(
+                    string.Empty, string.Empty, string.Empty, string.Empty, string.Empty,
+                    string.Empty, string.Empty, false, 0m, false, 0m, false),
+                [], [], [], string.Empty);
+            if (!_droneMods.HasValue
+                || string.IsNullOrWhiteSpace(_settingsProfileId)
+                || !TryComputeEffectiveInputDigest(_catalog, "vehicles.xml", out string vehiclesDigest)
+                || !TryComputeEffectiveInputDigest(_catalog, "weapons.xml", out string weaponsDigest)
+                || !TryComputeSelectedCustomDataInputsDigestFor(
+                    _customDirectories,
+                    "vehicles.xml",
+                    out string vehicleCustomDigest)
+                || !TryComputeSelectedCustomDataInputsDigestFor(
+                    _customDirectories,
+                    "weapons.xml",
+                    out string weaponCustomDigest)
+                || !TryEnumerateTargets("vehicles.xml", ["vehicles"], "vehicle", out XElement[] vehicleRows)
+                || !TryEnumerateTargets("vehicles.xml", ["mods"], "mod", out XElement[] modificationRows)
+                || !TryEnumerateTargets(
+                    "vehicles.xml",
+                    ["weaponmounts"],
+                    "weaponmount",
+                    out XElement[] weaponMountRows)
+                || !TryLoadEffectiveDocument(_catalog, "settings.xml", out XDocument? settingsDocument)
+                || settingsDocument?.Root is null)
+            {
+                return false;
+            }
+
+            XElement[] profileRows = settingsDocument.Root.Element("settings")?
+                .Elements("setting")
+                .Where(row => string.Equals(
+                    ReadValue(row, "id"),
+                    _settingsProfileId,
+                    StringComparison.Ordinal))
+                .Take(2)
+                .ToArray()
+                ?? [];
+            if (profileRows.Length != 1
+                || !TryReadStrictBool(profileRows[0], "multiplyrestrictedcost", out bool multiplyRestricted)
+                || !TryReadPositiveDecimal(
+                    profileRows[0],
+                    "restrictedcostmultiplier",
+                    out decimal restrictedMultiplier)
+                || !TryReadStrictBool(profileRows[0], "multiplyforbiddencost", out bool multiplyForbidden)
+                || !TryReadPositiveDecimal(
+                    profileRows[0],
+                    "forbiddencostmultiplier",
+                    out decimal forbiddenMultiplier))
+            {
+                return false;
+            }
+
+            string overlayDigest = CharacterVehicleWorkshopRules.ComputeCharacterDigest(string.Join(
+                '\0',
+                "sr5-vehicle-workshop-overlay-binding-v1",
+                _selectedCustomDataInputsDigest,
+                vehicleCustomDigest,
+                weaponCustomDigest,
+                vehiclesDigest,
+                weaponsDigest));
+            return CharacterVehicleWorkshopCatalogProjector.TryProject(
+                _settingsProfileId,
+                CharacterVehicleWorkshopRules.ComputeCharacterDigest(string.Join(
+                    '\0',
+                    "sr5-vehicle-workshop-profile-binding-v1",
+                    _rawProfileInputsDigest)),
+                CharacterVehicleWorkshopRules.ComputeCharacterDigest(string.Join(
+                    '\0',
+                    "sr5-vehicle-workshop-vehicles-binding-v1",
+                    vehiclesDigest)),
+                CharacterVehicleWorkshopRules.ComputeCharacterDigest(string.Join(
+                    '\0',
+                    "sr5-vehicle-workshop-weapons-binding-v1",
+                    weaponsDigest)),
+                overlayDigest,
+                _droneMods.Value,
+                multiplyRestricted,
+                restrictedMultiplier,
+                multiplyForbidden,
+                forbiddenMultiplier,
+                vehicleRows,
+                modificationRows,
+                weaponMountRows,
+                IsEnabledSource,
+                out catalog);
+        }
+
         public bool TryResolveCustomDrugCatalog(out CharacterCustomDrugCatalogAuthority authority)
         {
             authority = CharacterCustomDrugCatalogAuthority.Unavailable;
@@ -5129,6 +5220,59 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 foreach (string path in Directory.EnumerateFiles(directory.Path, "*.xml", SearchOption.AllDirectories)
                              .Where(path => IsLegacyCustomDataInputFor(path, "metatypes.xml"))
                              .OrderBy(path => Path.GetRelativePath(directory.Path, path), StringComparer.Ordinal))
+                {
+                    string relativePath = Path.GetRelativePath(directory.Path, path).Replace('\\', '/');
+                    AppendFramed(hash, Encoding.UTF8.GetBytes(relativePath));
+                    AppendFramed(hash, File.ReadAllBytes(path));
+                }
+            }
+            digest = "sha256:" + Convert.ToHexString(hash.GetHashAndReset()).ToLowerInvariant();
+            return true;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
+
+    private static bool TryComputeSelectedCustomDataInputsDigestFor(
+        IReadOnlyList<CustomDirectory> directories,
+        string targetFileName,
+        out string digest)
+    {
+        digest = string.Empty;
+        if (string.IsNullOrWhiteSpace(targetFileName)
+            || !string.Equals(targetFileName, Path.GetFileName(targetFileName), StringComparison.Ordinal))
+        {
+            return false;
+        }
+        try
+        {
+            using IncrementalHash hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+            AppendFramed(hash, Encoding.UTF8.GetBytes("selected-custom-data-inputs-for-v1"));
+            AppendFramed(hash, Encoding.UTF8.GetBytes(targetFileName));
+            foreach (CustomDirectory directory in directories)
+            {
+                AppendFramed(hash, Encoding.UTF8.GetBytes(directory.Name));
+                AppendFramed(hash, Encoding.UTF8.GetBytes(
+                    directory.ManifestId?.ToString("D") ?? string.Empty));
+                AppendFramed(hash, Encoding.UTF8.GetBytes(string.Join('.', directory.Version.Parts)));
+
+                string manifestPath = Path.Combine(directory.Path, "manifest.xml");
+                if (File.Exists(manifestPath))
+                {
+                    AppendFramed(hash, Encoding.UTF8.GetBytes("manifest.xml"));
+                    AppendFramed(hash, File.ReadAllBytes(manifestPath));
+                }
+
+                foreach (string path in Directory.EnumerateFiles(
+                             directory.Path,
+                             "*.xml",
+                             SearchOption.AllDirectories)
+                         .Where(path => IsLegacyCustomDataInputFor(path, targetFileName))
+                         .OrderBy(
+                             path => Path.GetRelativePath(directory.Path, path),
+                             StringComparer.Ordinal))
                 {
                     string relativePath = Path.GetRelativePath(directory.Path, path).Replace('\\', '/');
                     AppendFramed(hash, Encoding.UTF8.GetBytes(relativePath));

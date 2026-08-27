@@ -148,6 +148,22 @@ public interface ICharacterSourceDataContext
     }
 
     /// <summary>
+    /// Projects the effective SR5 vehicles.xml catalog through the runner's exact
+    /// enabled-book, settings, overlay, and ordered custom-data profile. Rows whose
+    /// formulas, prerequisites, or factory children cannot yet be persisted losslessly
+    /// remain present with Unsupported posture; callers must never make them selectable.
+    /// </summary>
+    bool TryResolveVehicleWorkshopCatalog(out CharacterVehicleWorkshopCatalog catalog)
+    {
+        catalog = new CharacterVehicleWorkshopCatalog(
+            new CharacterVehicleWorkshopSourceBinding(
+                string.Empty, string.Empty, string.Empty, string.Empty, string.Empty,
+                string.Empty, string.Empty, false, 0m, false, 0m, false),
+            [], [], [], string.Empty);
+        return false;
+    }
+
+    /// <summary>
     /// Resolves the exact SR5 Standard Priority Talent, tradition, stream, adept-power,
     /// spell, and complex-form catalogs from the saved profile and effective overlays.
     /// Missing or unsupported source semantics must leave the step unavailable.

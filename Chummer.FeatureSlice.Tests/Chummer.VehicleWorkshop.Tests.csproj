@@ -10,6 +10,8 @@
     <AssemblyAttribute Include="Microsoft.VisualStudio.TestTools.UnitTesting.DoNotParallelizeAttribute" />
     <Compile Include="..\Chummer.Tests\CharacterVehicleWorkshopAuthorityTests.cs"
              Link="CharacterVehicleWorkshopAuthorityTests.cs" />
+    <Compile Include="..\Chummer.Tests\CharacterVehicleWorkshopSourceResolverTests.cs"
+             Link="CharacterVehicleWorkshopSourceResolverTests.cs" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\Chummer.Application\Chummer.Application.csproj" />
