@@ -51,6 +51,10 @@ public readonly record struct CharacterVehicleFactoryGearProjectionId(Guid Value
 
 public readonly record struct CharacterVehicleFactoryGearSourceId(Guid Value);
 
+public readonly record struct CharacterVehicleFactoryModificationInstructionId(Guid Value);
+
+public readonly record struct CharacterVehicleFactoryModificationSourceId(Guid Value);
+
 public readonly record struct CharacterVehicleInstanceId(Guid Value);
 
 public readonly record struct CharacterVehicleModificationInstanceId(Guid Value);
@@ -60,6 +64,8 @@ public readonly record struct CharacterVehicleWeaponMountInstanceId(Guid Value);
 public readonly record struct CharacterVehicleWeaponMountComponentInstanceId(Guid Value);
 
 public readonly record struct CharacterVehicleFactoryGearInstanceId(Guid Value);
+
+public readonly record struct CharacterVehicleFactoryModificationInstanceId(Guid Value);
 
 public sealed record CharacterVehicleWorkshopAvailability(
     int Value,
@@ -111,7 +117,8 @@ public sealed record CharacterVehicleWorkshopChassisEntry(
     string GmAuthorityDigest,
     CharacterVehicleWorkshopProjectionStatus ProjectionStatus,
     string UnsupportedReason,
-    IReadOnlyList<CharacterVehicleWorkshopFactoryGearEntry> FactoryGears);
+    IReadOnlyList<CharacterVehicleWorkshopFactoryGearEntry> FactoryGears,
+    IReadOnlyList<CharacterVehicleWorkshopFactoryModificationEntry> FactoryModifications);
 
 /// <summary>
 /// A factory-installed child projected from one vehicle instruction and one
@@ -136,6 +143,42 @@ public sealed record CharacterVehicleWorkshopFactoryGearEntry(
     string SourceBook,
     string Page,
     bool ConsumeCapacity,
+    string SourceNodeDigest,
+    string InstructionNodeDigest,
+    CharacterVehicleWorkshopProjectionStatus ProjectionStatus,
+    string UnsupportedReason);
+
+/// <summary>
+/// One factory-installed vehicle modification projected from a chassis instruction
+/// and its unique enabled effective vehicles.xml modification source row. The
+/// instruction identity is source-stable; the saved instance identity is derived
+/// from it and the new vehicle identity at commit.
+/// </summary>
+public sealed record CharacterVehicleWorkshopFactoryModificationEntry(
+    CharacterVehicleFactoryModificationInstructionId InstructionId,
+    CharacterVehicleChassisSourceId ChassisSourceId,
+    int Ordinal,
+    CharacterVehicleFactoryModificationSourceId SourceId,
+    string Name,
+    string Category,
+    string Limit,
+    string Slots,
+    string Capacity,
+    int Rating,
+    string MaximumRating,
+    string RatingLabel,
+    int ConditionMonitor,
+    CharacterVehicleWorkshopAvailability Availability,
+    string Cost,
+    string Extra,
+    string SourceBook,
+    string Page,
+    string Subsystems,
+    string WeaponMountCategories,
+    decimal AmmoBonus,
+    decimal AmmoBonusPercent,
+    string AmmoReplace,
+    bool UseOwnAttributesForWeapon,
     string SourceNodeDigest,
     string InstructionNodeDigest,
     CharacterVehicleWorkshopProjectionStatus ProjectionStatus,

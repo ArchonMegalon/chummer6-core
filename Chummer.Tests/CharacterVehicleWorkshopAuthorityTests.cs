@@ -14,6 +14,7 @@ public sealed class CharacterVehicleWorkshopAuthorityTests
     private static readonly CharacterVehicleModificationSourceId s_UnsupportedMod = new(Guid.Parse("20000000-0000-4000-8000-000000000002"));
     private static readonly CharacterVehicleModificationSourceId s_FixedMod = new(Guid.Parse("20000000-0000-4000-8000-000000000003"));
     private static readonly CharacterVehicleFactoryGearSourceId s_SensorArraySource = new(Guid.Parse("2ca81a10-d0f7-4b39-ac93-a84f2f69f9d9"));
+    private static readonly CharacterVehicleFactoryModificationSourceId s_ImprovedEconomySource = new(Guid.Parse("20083c34-5008-4647-9d9e-9ed230e4efe1"));
     private static readonly CharacterVehicleInstanceId s_VehicleInstance = new(Guid.Parse("30000000-0000-4000-8000-000000000001"));
     private static readonly CharacterVehicleModificationInstanceId s_ModInstance = new(Guid.Parse("30000000-0000-4000-8000-000000000002"));
     private static readonly CharacterVehicleWeaponMountInstanceId s_MountInstance = new(Guid.Parse("30000000-0000-4000-8000-000000000003"));
@@ -93,7 +94,23 @@ public sealed class CharacterVehicleWorkshopAuthorityTests
         Assert.AreEqual(1, XDocument.Parse(committed.CharacterXml).Descendants("vehicle").Count());
         Assert.AreEqual(1, XDocument.Parse(committed.CharacterXml).Descendants("expense").Count());
         Assert.AreEqual("AddVehicle", XDocument.Parse(committed.CharacterXml).Descendants("nuyentype").Single().Value);
-        Assert.AreEqual("+4R", XDocument.Parse(committed.CharacterXml).Descendants("mod").Single().Element("avail")!.Value);
+        XDocument committedDocument = XDocument.Parse(committed.CharacterXml);
+        XElement selectedModification = committedDocument.Descendants("mod")
+            .Single(item => item.Element("included")?.Value == "False");
+        Assert.AreEqual("+4R", selectedModification.Element("avail")!.Value);
+        XElement factoryModification = committedDocument.Descendants("mod")
+            .Single(item => item.Element("included")?.Value == "True");
+        CharacterVehicleWorkshopFactoryModificationEntry projectedModification = Catalog().Chassis
+            .Single(item => item.SourceId == s_StockChassis).FactoryModifications.Single();
+        CharacterVehicleFactoryModificationInstanceId expectedModificationId = CharacterVehicleWorkshopRules
+            .DeriveFactoryModificationInstanceId(s_VehicleInstance, projectedModification.InstructionId);
+        Assert.AreEqual(s_ImprovedEconomySource.Value.ToString("D"), factoryModification.Element("sourceid")!.Value);
+        Assert.AreEqual(expectedModificationId.Value.ToString("D"), factoryModification.Element("guid")!.Value);
+        Assert.AreEqual("Improved Economy", factoryModification.Element("name")!.Value);
+        Assert.AreEqual("2", factoryModification.Element("slots")!.Value);
+        Assert.AreEqual("0", factoryModification.Element("rating")!.Value);
+        Assert.AreEqual("0", factoryModification.Element("maxrating")!.Value);
+        Assert.AreEqual("7500", factoryModification.Element("cost")!.Value);
         XElement factoryGear = XDocument.Parse(committed.CharacterXml).Root!
             .Element("vehicles")!.Element("vehicle")!.Element("gears")!.Elements("gear").Single();
         CharacterVehicleWorkshopFactoryGearEntry projectedGear = Catalog().Chassis
@@ -130,6 +147,18 @@ public sealed class CharacterVehicleWorkshopAuthorityTests
         Assert.AreEqual(CharacterVehicleWorkshopCommitStatus.Blocked, tamperedRecovery.Status);
         Assert.AreEqual(CharacterVehicleWorkshopBlockers.StaleReceipt, tamperedRecovery.BlockReason);
         Assert.AreEqual(tamperedXml, tamperedRecovery.CharacterXml);
+
+        XDocument tamperedFactoryModificationDocument = XDocument.Parse(committed.CharacterXml);
+        tamperedFactoryModificationDocument.Descendants("mod")
+            .Single(item => item.Element("included")?.Value == "True")
+            .Element("slots")!.Value = "3";
+        string tamperedFactoryModificationXml = tamperedFactoryModificationDocument.ToString(SaveOptions.DisableFormatting);
+        CharacterVehicleWorkshopCommitResult tamperedFactoryModificationRecovery = authority.Recover(
+            tamperedFactoryModificationXml, committed.NewContentRevision, catalog, command);
+        Assert.AreEqual(CharacterVehicleWorkshopCommitStatus.Blocked, tamperedFactoryModificationRecovery.Status);
+        Assert.AreEqual(CharacterVehicleWorkshopBlockers.StaleReceipt,
+            tamperedFactoryModificationRecovery.BlockReason);
+        Assert.AreEqual(tamperedFactoryModificationXml, tamperedFactoryModificationRecovery.CharacterXml);
 
         CharacterVehicleWorkshopCommitResult conflict = authority.Commit(
             committed.CharacterXml,
@@ -258,6 +287,20 @@ public sealed class CharacterVehicleWorkshopAuthorityTests
         Assert.AreEqual(CharacterVehicleWorkshopBlockers.StaleCatalog, staleGearCatalog.BlockReason);
         Assert.AreEqual(before, staleGearCatalog.CharacterXml);
 
+        CharacterVehicleWorkshopCatalog changedOverlay = catalog with
+        {
+            Binding = catalog.Binding with { OverlayDigest = Digest("changed-effective-custom-data-overlay") }
+        };
+        changedOverlay = changedOverlay with
+        {
+            DeclaredCatalogDigest = CharacterVehicleWorkshopRules.ComputeCatalogDigest(changedOverlay)
+        };
+        CharacterVehicleWorkshopCommitResult staleOverlayCatalog = authority.Commit(
+            before, 5, changedOverlay, command);
+        Assert.AreEqual(CharacterVehicleWorkshopCommitStatus.Blocked, staleOverlayCatalog.Status);
+        Assert.AreEqual(CharacterVehicleWorkshopBlockers.StaleCatalog, staleOverlayCatalog.BlockReason);
+        Assert.AreEqual(before, staleOverlayCatalog.CharacterXml);
+
         CharacterVehicleWorkshopCommitResult committed = authority.Commit(before, 5, catalog, command);
         CharacterVehicleWorkshopCommitReceipt tampered = committed.Receipt! with
         {
@@ -302,6 +345,30 @@ public sealed class CharacterVehicleWorkshopAuthorityTests
         Assert.IsFalse(alteredCatalog.Exact);
         CollectionAssert.Contains(alteredCatalog.Blockers.ToArray(), CharacterVehicleWorkshopBlockers.CatalogAltered);
 
+        CharacterVehicleWorkshopCatalog changedFactoryModification = catalog with
+        {
+            Chassis = catalog.Chassis.Select(item => item.SourceId == s_StockChassis
+                ? item with
+                {
+                    FactoryModifications = item.FactoryModifications.Select(modification =>
+                        modification with { Slots = "3" }).ToArray()
+                }
+                : item).ToArray()
+        };
+        changedFactoryModification = changedFactoryModification with
+        {
+            DeclaredCatalogDigest = CharacterVehicleWorkshopRules.ComputeCatalogDigest(changedFactoryModification)
+        };
+        CharacterVehicleWorkshopPreparation changedPreparation = authority.Prepare(
+            CharacterXml(), 5, changedFactoryModification);
+        CharacterVehicleWorkshopQuote originalQuote = authority.Quote(
+            authority.Prepare(CharacterXml(), 5, catalog), StockSelection());
+        CharacterVehicleWorkshopQuote changedQuote = authority.Quote(changedPreparation, StockSelection());
+        Assert.IsTrue(changedPreparation.Exact, string.Join("; ", changedPreparation.Blockers));
+        Assert.IsTrue(changedQuote.Exact, string.Join("; ", changedQuote.Blockers));
+        Assert.AreNotEqual(catalog.DeclaredCatalogDigest, changedFactoryModification.DeclaredCatalogDigest);
+        Assert.AreNotEqual(originalQuote.QuoteDigest, changedQuote.QuoteDigest);
+
         CharacterVehicleWorkshopCatalog wrongProfile = catalog with
         {
             Binding = catalog.Binding with { ProfileId = "different-profile" }
@@ -337,11 +404,12 @@ public sealed class CharacterVehicleWorkshopAuthorityTests
                 "GMC Test Roadmaster", "Trucks", 3, 2, 2, 1, 4, 3, 3, 12, 6, 10, 3,
                 8, 6, 5_000m, new CharacterVehicleWorkshopAvailability(4, CharacterVehicleWorkshopLegality.Legal, false),
                 "SR5", "462", string.Empty, CharacterVehicleWorkshopProjectionStatus.Exact, string.Empty,
-                [FactoryGear(s_StockChassis)]),
+                [FactoryGear(s_StockChassis)],
+                [FactoryModification(s_StockChassis)]),
             new(s_CustomChassis, CharacterVehicleChassisKind.Drone, CharacterVehicleChassisPosture.GmApprovedCustom,
                 "GM Custom Drone", "Drones: Small", 4, 4, 3, 3, 3, 3, 3, 3, 0, 2, 3,
                 4, 4, 1_000m, new CharacterVehicleWorkshopAvailability(0, CharacterVehicleWorkshopLegality.Legal, false),
-                "CUSTOM", "GM", s_GmDigest, CharacterVehicleWorkshopProjectionStatus.Exact, string.Empty, [])
+                "CUSTOM", "GM", s_GmDigest, CharacterVehicleWorkshopProjectionStatus.Exact, string.Empty, [], [])
         ];
         CharacterVehicleWorkshopModificationEntry[] modifications =
         [
@@ -399,6 +467,47 @@ public sealed class CharacterVehicleWorkshopAuthorityTests
             InstructionNodeDigest: instructionDigest,
             CharacterVehicleWorkshopProjectionStatus.Exact,
             UnsupportedReason: string.Empty);
+    }
+
+    private static CharacterVehicleWorkshopFactoryModificationEntry FactoryModification(
+        CharacterVehicleChassisSourceId chassisSourceId)
+    {
+        string instructionDigest = Digest("<name>Improved Economy</name>");
+        CharacterVehicleFactoryModificationInstructionId instructionId = CharacterVehicleWorkshopRules
+            .DeriveFactoryModificationInstructionId(
+                chassisSourceId,
+                s_ImprovedEconomySource,
+                0,
+                instructionDigest);
+        return new CharacterVehicleWorkshopFactoryModificationEntry(
+            instructionId,
+            chassisSourceId,
+            0,
+            s_ImprovedEconomySource,
+            "Improved Economy",
+            "Powertrain",
+            string.Empty,
+            "2",
+            string.Empty,
+            0,
+            "0",
+            "String_Rating",
+            0,
+            new CharacterVehicleWorkshopAvailability(4, CharacterVehicleWorkshopLegality.Legal, false),
+            "7500",
+            string.Empty,
+            "R5",
+            "154",
+            string.Empty,
+            string.Empty,
+            0m,
+            0m,
+            string.Empty,
+            false,
+            Digest("improved-economy-source"),
+            instructionDigest,
+            CharacterVehicleWorkshopProjectionStatus.Exact,
+            string.Empty);
     }
 
     private static CharacterVehicleWeaponMountComponentEntry Component(

@@ -14,7 +14,7 @@ internal static class CharacterVehicleWorkshopCatalogProjector
     private static readonly IReadOnlySet<string> ChassisFields = new HashSet<string>(StringComparer.Ordinal)
     {
         "id", "name", "page", "source", "accel", "armor", "avail", "body", "category",
-        "cost", "handling", "pilot", "sensor", "speed", "seats", "addslots", "modslots", "gears"
+        "cost", "handling", "pilot", "sensor", "speed", "seats", "addslots", "modslots", "gears", "mods"
     };
 
     private static readonly IReadOnlySet<string> FactoryGearSourceFields = new HashSet<string>(StringComparer.Ordinal)
@@ -32,6 +32,18 @@ internal static class CharacterVehicleWorkshopCatalogProjector
     private static readonly IReadOnlySet<string> FactoryGearInstructionAttributes = new HashSet<string>(StringComparer.Ordinal)
     {
         "rating", "qty", "consumecapacity"
+    };
+
+    private static readonly IReadOnlySet<string> FactoryModificationSourceFields = new HashSet<string>(StringComparer.Ordinal)
+    {
+        "id", "name", "page", "source", "avail", "category", "cost", "rating", "slots",
+        "limit", "capacity", "ratinglabel", "conditionmonitor", "weaponmountcategories",
+        "ammoreplace", "ammobonus", "ammobonuspercent", "useownattributesforweapon"
+    };
+
+    private static readonly IReadOnlySet<string> FactoryModificationInstructionFields = new HashSet<string>(StringComparer.Ordinal)
+    {
+        "name", "rating"
     };
 
     private static readonly IReadOnlySet<string> ModificationFields = new HashSet<string>(StringComparer.Ordinal)
@@ -92,6 +104,7 @@ internal static class CharacterVehicleWorkshopCatalogProjector
         var componentIds = new HashSet<Guid>();
         var factoryGearSources = new List<FactoryGearSourceRow>();
         var factoryGearSourceIds = new HashSet<Guid>();
+        var factoryModificationSources = new List<FactoryModificationSourceRow>();
 
         foreach (XElement row in gearRows.OrderBy(RowIdText, StringComparer.Ordinal))
         {
@@ -108,17 +121,6 @@ internal static class CharacterVehicleWorkshopCatalogProjector
                     row.ToString(SaveOptions.DisableFormatting))));
         }
 
-        foreach (XElement row in vehicleRows.OrderBy(RowIdText, StringComparer.Ordinal))
-        {
-            if (!TryReadEnabledIdentity(row, isSourceEnabled, out SourceIdentity identity, out bool enabled))
-                return false;
-            if (!enabled)
-                continue;
-            if (!chassisIds.Add(identity.Id))
-                return false;
-            chassis.Add(ProjectChassis(row, identity, droneMods, factoryGearSources));
-        }
-
         foreach (XElement row in modificationRows.OrderBy(RowIdText, StringComparer.Ordinal))
         {
             if (!TryReadEnabledIdentity(row, isSourceEnabled, out SourceIdentity identity, out bool enabled))
@@ -127,7 +129,23 @@ internal static class CharacterVehicleWorkshopCatalogProjector
                 continue;
             if (!modificationIds.Add(identity.Id))
                 return false;
+            factoryModificationSources.Add(new FactoryModificationSourceRow(
+                identity,
+                row,
+                CharacterVehicleWorkshopRules.ComputeCharacterDigest(
+                    row.ToString(SaveOptions.DisableFormatting))));
             modifications.Add(ProjectModification(row, identity));
+        }
+
+        foreach (XElement row in vehicleRows.OrderBy(RowIdText, StringComparer.Ordinal))
+        {
+            if (!TryReadEnabledIdentity(row, isSourceEnabled, out SourceIdentity identity, out bool enabled))
+                return false;
+            if (!enabled)
+                continue;
+            if (!chassisIds.Add(identity.Id))
+                return false;
+            chassis.Add(ProjectChassis(row, identity, droneMods, factoryGearSources, factoryModificationSources));
         }
 
         foreach (XElement row in weaponMountRows.OrderBy(RowIdText, StringComparer.Ordinal))
@@ -172,7 +190,8 @@ internal static class CharacterVehicleWorkshopCatalogProjector
         XElement row,
         SourceIdentity identity,
         bool droneMods,
-        IReadOnlyList<FactoryGearSourceRow> factoryGearSources)
+        IReadOnlyList<FactoryGearSourceRow> factoryGearSources,
+        IReadOnlyList<FactoryModificationSourceRow> factoryModificationSources)
     {
         var issues = DirectFieldIssues(row, ChassisFields);
         IReadOnlyList<CharacterVehicleWorkshopFactoryGearEntry> factoryGears = ProjectFactoryGears(
@@ -180,6 +199,12 @@ internal static class CharacterVehicleWorkshopCatalogProjector
             new CharacterVehicleChassisSourceId(identity.Id),
             factoryGearSources,
             issues);
+        IReadOnlyList<CharacterVehicleWorkshopFactoryModificationEntry> factoryModifications =
+            ProjectFactoryModifications(
+                row,
+                new CharacterVehicleChassisSourceId(identity.Id),
+                factoryModificationSources,
+                issues);
         string category = RequiredText(row, "category", issues);
         string page = RequiredText(row, "page", issues);
         int body = RequiredNonNegativeInt(row, "body", issues);
@@ -244,7 +269,8 @@ internal static class CharacterVehicleWorkshopCatalogProjector
             GmAuthorityDigest: string.Empty,
             status,
             UnsupportedReason(issues),
-            factoryGears);
+            factoryGears,
+            factoryModifications);
     }
 
     private static IReadOnlyList<CharacterVehicleWorkshopFactoryGearEntry> ProjectFactoryGears(
@@ -617,6 +643,365 @@ internal static class CharacterVehicleWorkshopCatalogProjector
     {
         int slash = value.IndexOf("/[", StringComparison.Ordinal);
         return slash < 0 ? "[0]" : value[..slash] + "/[0]";
+    }
+
+    private static IReadOnlyList<CharacterVehicleWorkshopFactoryModificationEntry> ProjectFactoryModifications(
+        XElement vehicleRow,
+        CharacterVehicleChassisSourceId chassisSourceId,
+        IReadOnlyList<FactoryModificationSourceRow> sourceRows,
+        ICollection<string> chassisIssues)
+    {
+        XElement[] containers = vehicleRow.Elements("mods").Take(2).ToArray();
+        if (containers.Length == 0)
+            return [];
+        if (containers.Length != 1
+            || containers[0].HasAttributes
+            || containers[0].Nodes().OfType<XText>().Any(text => !string.IsNullOrWhiteSpace(text.Value)))
+        {
+            chassisIssues.Add("The factory modification container is ambiguous or contains unsupported content.");
+            return [];
+        }
+
+        string[] unsupportedChildren = containers[0].Elements()
+            .Where(child => child.Name.LocalName is not ("name" or "mod" or "addslots"))
+            .Select(child => child.Name.LocalName)
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(name => name, StringComparer.Ordinal)
+            .ToArray();
+        if (unsupportedChildren.Length != 0)
+        {
+            chassisIssues.Add("The factory modification container has unsupported instruction kinds: "
+                + string.Join(", ", unsupportedChildren) + ".");
+        }
+        if (containers[0].Elements("addslots").Any())
+        {
+            chassisIssues.Add("A nested factory add-slots instruction is not projected by this increment.");
+        }
+
+        CharacterVehicleWorkshopFactoryModificationEntry[] projected = containers[0]
+            .Elements()
+            .Where(instruction => instruction.Name.LocalName is "name" or "mod")
+            .Select((instruction, ordinal) => ProjectFactoryModification(
+                instruction,
+                chassisSourceId,
+                ordinal,
+                sourceRows))
+            .ToArray();
+        foreach (CharacterVehicleWorkshopFactoryModificationEntry item in projected.Where(item =>
+                     item.ProjectionStatus == CharacterVehicleWorkshopProjectionStatus.Unsupported))
+        {
+            chassisIssues.Add($"Factory modification #{item.Ordinal + 1} ({item.Name}) is unsupported: {item.UnsupportedReason}");
+        }
+        return projected;
+    }
+
+    private static CharacterVehicleWorkshopFactoryModificationEntry ProjectFactoryModification(
+        XElement instruction,
+        CharacterVehicleChassisSourceId chassisSourceId,
+        int ordinal,
+        IReadOnlyList<FactoryModificationSourceRow> sourceRows)
+    {
+        var issues = new List<string>();
+        string instructionDigest = CharacterVehicleWorkshopRules.ComputeCharacterDigest(
+            instruction.ToString(SaveOptions.DisableFormatting));
+        string reference = ReadFactoryModificationReference(instruction, issues);
+        FactoryModificationSourceRow[] matches = Guid.TryParse(reference, out Guid requestedId)
+            ? sourceRows.Where(row => row.Identity.Id == requestedId).Take(2).ToArray()
+            : sourceRows.Where(row => string.Equals(row.Identity.Name, reference, StringComparison.Ordinal)).Take(2).ToArray();
+        FactoryModificationSourceRow? source = matches.Length == 1 ? matches[0] : null;
+        if (source is null)
+            issues.Add("The factory modification reference does not resolve to one enabled effective vehicles.xml modification row.");
+
+        CharacterVehicleFactoryModificationSourceId sourceId = new(source?.Identity.Id ?? Guid.Empty);
+        CharacterVehicleFactoryModificationInstructionId instructionId = CharacterVehicleWorkshopRules
+            .DeriveFactoryModificationInstructionId(chassisSourceId, sourceId, ordinal, instructionDigest);
+        string name = source?.Identity.Name ?? reference;
+        string category = string.Empty;
+        string limit = string.Empty;
+        string slots = string.Empty;
+        string capacity = string.Empty;
+        int rating = 0;
+        string maximumRating = string.Empty;
+        string ratingLabel = "String_Rating";
+        int conditionMonitor = 0;
+        CharacterVehicleWorkshopAvailability availability = new(0, CharacterVehicleWorkshopLegality.Legal, false);
+        string cost = string.Empty;
+        string extra = string.Empty;
+        string sourceBook = source?.Identity.SourceBook ?? string.Empty;
+        string page = string.Empty;
+        string subsystems = string.Empty;
+        string weaponMountCategories = string.Empty;
+        decimal ammoBonus = 0m;
+        decimal ammoBonusPercent = 0m;
+        string ammoReplace = string.Empty;
+        bool useOwnAttributesForWeapon = false;
+        string sourceNodeDigest = source?.NodeDigest ?? string.Empty;
+
+        if (source is not null)
+        {
+            AddFactoryModificationSourceIssues(source.Row, issues);
+            category = RequiredText(source.Row, "category", issues);
+            page = RequiredText(source.Row, "page", issues);
+            availability = RequiredAvailability(source.Row, "avail", issues);
+            limit = ReadOptionalSafeText(source.Row, "limit", string.Empty, issues);
+            slots = ReadRequiredFixedNonNegativeText(source.Row, "slots", issues);
+            capacity = ReadOptionalFixedCapacityText(source.Row, "capacity", issues);
+            cost = ReadRequiredFixedNonNegativeDecimalText(source.Row, "cost", issues);
+            maximumRating = ReadRequiredFixedNonNegativeText(source.Row, "rating", issues);
+            if (!int.TryParse(maximumRating, NumberStyles.None, CultureInfo.InvariantCulture, out int maximum))
+                maximum = 0;
+            int requested = ReadFactoryModificationRating(instruction, issues);
+            rating = maximum == 0 ? 0 : Math.Min(Math.Max(requested, 1), maximum);
+            ratingLabel = ReadOptionalSafeText(source.Row, "ratinglabel", "String_Rating", issues);
+            conditionMonitor = ReadOptionalNonNegativeInt(source.Row, "conditionmonitor", issues);
+            weaponMountCategories = ReadOptionalSafeText(source.Row, "weaponmountcategories", string.Empty, issues);
+            ammoReplace = ReadOptionalSafeText(source.Row, "ammoreplace", string.Empty, issues);
+            ammoBonus = ReadOptionalNonNegativeDecimal(source.Row, "ammobonus", issues);
+            ammoBonusPercent = ReadOptionalNonNegativeDecimal(source.Row, "ammobonuspercent", issues);
+            useOwnAttributesForWeapon = ReadOptionalBoolean(source.Row, "useownattributesforweapon", issues);
+        }
+
+        CharacterVehicleWorkshopProjectionStatus status = Status(issues);
+        return new CharacterVehicleWorkshopFactoryModificationEntry(
+            instructionId,
+            chassisSourceId,
+            ordinal,
+            sourceId,
+            name,
+            category,
+            limit,
+            slots,
+            capacity,
+            rating,
+            maximumRating,
+            ratingLabel,
+            conditionMonitor,
+            availability,
+            cost,
+            extra,
+            sourceBook,
+            page,
+            subsystems,
+            weaponMountCategories,
+            ammoBonus,
+            ammoBonusPercent,
+            ammoReplace,
+            useOwnAttributesForWeapon,
+            sourceNodeDigest,
+            instructionDigest,
+            status,
+            UnsupportedReason(issues));
+    }
+
+    private static string ReadFactoryModificationReference(XElement instruction, ICollection<string> issues)
+    {
+        if (instruction.Name.LocalName == "name")
+        {
+            string[] unsupportedAttributes = instruction.Attributes()
+                .Where(attribute => attribute.Name.LocalName != "rating")
+                .Select(attribute => attribute.Name.LocalName)
+                .Distinct(StringComparer.Ordinal)
+                .OrderBy(name => name, StringComparer.Ordinal)
+                .ToArray();
+            if (unsupportedAttributes.Length != 0)
+            {
+                issues.Add("Factory modification attributes require prompts or unprojected behavior: "
+                    + string.Join(", ", unsupportedAttributes) + ".");
+            }
+            if (instruction.HasElements || !ValidText(instruction.Value))
+            {
+                issues.Add("The factory modification name instruction is structured, missing, or unsafe.");
+                return string.Empty;
+            }
+            return instruction.Value;
+        }
+
+        if (instruction.HasAttributes
+            || instruction.Nodes().OfType<XText>().Any(text => !string.IsNullOrWhiteSpace(text.Value)))
+        {
+            issues.Add("The structured factory modification instruction has attributes or direct text.");
+        }
+        string[] unsupportedFields = instruction.Elements()
+            .Where(element => !FactoryModificationInstructionFields.Contains(element.Name.LocalName))
+            .Select(element => element.Name.LocalName)
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(name => name, StringComparer.Ordinal)
+            .ToArray();
+        if (unsupportedFields.Length != 0)
+        {
+            issues.Add("Nested factory modification fields are not projected losslessly: "
+                + string.Join(", ", unsupportedFields) + ".");
+        }
+        string[] duplicateFields = instruction.Elements()
+            .Where(element => FactoryModificationInstructionFields.Contains(element.Name.LocalName))
+            .GroupBy(element => element.Name.LocalName, StringComparer.Ordinal)
+            .Where(group => group.Count() != 1)
+            .Select(group => group.Key)
+            .OrderBy(name => name, StringComparer.Ordinal)
+            .ToArray();
+        if (duplicateFields.Length != 0)
+        {
+            issues.Add("Factory modification instruction fields are ambiguous because they occur more than once: "
+                + string.Join(", ", duplicateFields) + ".");
+        }
+        XElement[] names = instruction.Elements("name").Take(2).ToArray();
+        if (names.Length == 1 && TryReadScalarElement(names[0], out string value) && ValidText(value))
+            return value;
+        issues.Add("The structured factory modification instruction has no unique safe name.");
+        return string.Empty;
+    }
+
+    private static void AddFactoryModificationSourceIssues(XElement row, ICollection<string> issues)
+    {
+        if (row.HasAttributes)
+            issues.Add("The effective factory modification source row has unprojected attributes.");
+        string[] unsupported = row.Elements()
+            .Select(element => element.Name.LocalName)
+            .Where(name => !FactoryModificationSourceFields.Contains(name))
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(name => name, StringComparer.Ordinal)
+            .ToArray();
+        if (unsupported.Length != 0)
+        {
+            issues.Add("Factory modification source fields require prompts, nested children, bonuses, dynamic evaluation, or unprojected behavior: "
+                + string.Join(", ", unsupported) + ".");
+        }
+        string[] duplicates = row.Elements()
+            .Where(element => FactoryModificationSourceFields.Contains(element.Name.LocalName))
+            .GroupBy(element => element.Name.LocalName, StringComparer.Ordinal)
+            .Where(group => group.Count() != 1)
+            .Select(group => group.Key)
+            .OrderBy(name => name, StringComparer.Ordinal)
+            .ToArray();
+        if (duplicates.Length != 0)
+        {
+            issues.Add("Factory modification source fields are ambiguous because they occur more than once: "
+                + string.Join(", ", duplicates) + ".");
+        }
+    }
+
+    private static int ReadFactoryModificationRating(XElement instruction, ICollection<string> issues)
+    {
+        string text = "0";
+        if (instruction.Name.LocalName == "name")
+        {
+            XAttribute? attribute = instruction.Attribute("rating");
+            if (attribute is not null)
+                text = attribute.Value;
+        }
+        else
+        {
+            XElement[] ratings = instruction.Elements("rating").Take(2).ToArray();
+            if (ratings.Length == 1 && TryReadScalarElement(ratings[0], out string value))
+                text = value;
+            else if (ratings.Length > 1)
+                issues.Add("The factory modification rating instruction is ambiguous.");
+        }
+        if (int.TryParse(text, NumberStyles.None, CultureInfo.InvariantCulture, out int rating) && rating >= 0)
+            return rating;
+        issues.Add("The factory modification rating is not one fixed non-negative integer.");
+        return 0;
+    }
+
+    private static string ReadRequiredFixedNonNegativeText(
+        XElement row,
+        string field,
+        ICollection<string> issues)
+    {
+        if (TryReadScalar(row, field, out string text)
+            && int.TryParse(text, NumberStyles.None, CultureInfo.InvariantCulture, out int value)
+            && value >= 0)
+        {
+            return text;
+        }
+        issues.Add($"The factory modification {field} is not one fixed non-negative integer.");
+        return string.Empty;
+    }
+
+    private static string ReadRequiredFixedNonNegativeDecimalText(
+        XElement row,
+        string field,
+        ICollection<string> issues)
+    {
+        if (TryReadScalar(row, field, out string text)
+            && decimal.TryParse(text, NumberStyles.Number, CultureInfo.InvariantCulture, out decimal value)
+            && value >= 0m)
+        {
+            return text;
+        }
+        issues.Add($"The factory modification {field} is not one fixed non-negative number.");
+        return string.Empty;
+    }
+
+    private static string ReadOptionalFixedCapacityText(XElement row, string field, ICollection<string> issues)
+    {
+        XElement[] nodes = row.Elements(field).Take(2).ToArray();
+        if (nodes.Length == 0)
+            return string.Empty;
+        if (nodes.Length == 1 && TryReadScalarElement(nodes[0], out string text) && IsFixedCapacity(text))
+            return text;
+        issues.Add($"The factory modification {field} is not one fixed capacity value.");
+        return string.Empty;
+    }
+
+    private static string ReadOptionalSafeText(
+        XElement row,
+        string field,
+        string fallback,
+        ICollection<string> issues)
+    {
+        XElement[] nodes = row.Elements(field).Take(2).ToArray();
+        if (nodes.Length == 0)
+            return fallback;
+        if (nodes.Length == 1 && TryReadScalarElement(nodes[0], out string value)
+            && value.IndexOfAny(['\0', '\r', '\n']) < 0)
+        {
+            return value;
+        }
+        issues.Add($"The optional factory modification {field} text is ambiguous, structured, or unsafe.");
+        return fallback;
+    }
+
+    private static int ReadOptionalNonNegativeInt(XElement row, string field, ICollection<string> issues)
+    {
+        XElement[] nodes = row.Elements(field).Take(2).ToArray();
+        if (nodes.Length == 0)
+            return 0;
+        if (nodes.Length == 1 && TryReadScalarElement(nodes[0], out string text)
+            && int.TryParse(text, NumberStyles.None, CultureInfo.InvariantCulture, out int value) && value >= 0)
+        {
+            return value;
+        }
+        issues.Add($"The optional factory modification {field} is not one fixed non-negative integer.");
+        return 0;
+    }
+
+    private static decimal ReadOptionalNonNegativeDecimal(XElement row, string field, ICollection<string> issues)
+    {
+        XElement[] nodes = row.Elements(field).Take(2).ToArray();
+        if (nodes.Length == 0)
+            return 0m;
+        if (nodes.Length == 1 && TryReadScalarElement(nodes[0], out string text)
+            && decimal.TryParse(text, NumberStyles.Number, CultureInfo.InvariantCulture, out decimal value) && value >= 0m)
+        {
+            return value;
+        }
+        issues.Add($"The optional factory modification {field} is not one fixed non-negative number.");
+        return 0m;
+    }
+
+    private static bool ReadOptionalBoolean(XElement row, string field, ICollection<string> issues)
+    {
+        XElement[] nodes = row.Elements(field).Take(2).ToArray();
+        if (nodes.Length == 0)
+            return false;
+        if (nodes.Length == 1 && TryReadScalarElement(nodes[0], out string text)
+            && bool.TryParse(text, out bool value))
+        {
+            return value;
+        }
+        issues.Add($"The optional factory modification {field} is not one fixed boolean.");
+        return false;
     }
 
     private static CharacterVehicleWorkshopModificationEntry ProjectModification(
@@ -1013,6 +1398,11 @@ internal static class CharacterVehicleWorkshopCatalogProjector
     private readonly record struct SourceIdentity(Guid Id, string Name, string SourceBook);
 
     private sealed record FactoryGearSourceRow(
+        SourceIdentity Identity,
+        XElement Row,
+        string NodeDigest);
+
+    private sealed record FactoryModificationSourceRow(
         SourceIdentity Identity,
         XElement Row,
         string NodeDigest);
