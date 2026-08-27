@@ -1,6 +1,8 @@
 using Chummer.Application.LifeModules;
 using Chummer.Application.Workspaces;
 using Chummer.Contracts.Owners;
+using Chummer.Contracts.LifeModules;
+using Chummer.Contracts.Characters;
 using Chummer.Contracts.Workspaces;
 
 namespace Chummer.Application.Characters;
@@ -36,10 +38,16 @@ public sealed class CharacterCreationBootstrapActivationProjector :
 
     public CharacterCreationInitialProjection Project(
         WorkspaceStoredDocument workspace,
-        ICharacterSourceDataContext sourceContext)
+        CharacterCreationBootstrapSourceSnapshot sourceSnapshot)
     {
         ArgumentNullException.ThrowIfNull(workspace);
-        ArgumentNullException.ThrowIfNull(sourceContext);
+        ArgumentNullException.ThrowIfNull(sourceSnapshot);
+
+        if (!TryCaptureLifeModules(sourceSnapshot, out FrozenLifeModulesSnapshot lifeModules))
+        {
+            throw new InvalidDataException(
+                "Life Module source authority changed while Creation activation was captured.");
+        }
 
         var frozenStore = new FrozenWorkspaceStore(
             workspace,
@@ -49,7 +57,7 @@ public sealed class CharacterCreationBootstrapActivationProjector :
             });
         var frozenResolver = new FrozenSourceDataResolver(
             workspace.Document.Content,
-            sourceContext);
+            sourceSnapshot.CreateFrozenContext());
         var prerequisiteService = new CharacterCreationPrerequisiteService(
             frozenStore,
             _characterFileQueries,
@@ -61,7 +69,7 @@ public sealed class CharacterCreationBootstrapActivationProjector :
             frozenStore,
             _characterFileQueries,
             frozenResolver,
-            _lifeModulesCatalog,
+            new FrozenLifeModulesCatalogService(lifeModules),
             _foundationApplyAuthority);
         var contactsService = new CharacterCreationContactsService(frozenStore);
         var qualitiesService = new CharacterCreationQualitiesService(
@@ -73,8 +81,11 @@ public sealed class CharacterCreationBootstrapActivationProjector :
             frozenStore,
             frozenResolver);
 
+        CharacterCreationBootstrapSourceAuthorityBinding sourceAuthority =
+            CreateSourceAuthorityBinding(sourceSnapshot, lifeModules);
         return new CharacterCreationInitialProjection(
             CharacterCreationBootstrapActivationSchemas.InitialProjectionV1,
+            sourceAuthority,
             foundationService.Load(new(workspace.Id)),
             prerequisiteService.Load(new(workspace.Id)),
             attributesService.Load(new(workspace.Id)),
@@ -82,6 +93,92 @@ public sealed class CharacterCreationBootstrapActivationProjector :
             qualitiesService.Load(new(workspace.Id)),
             magicService.Load(new(workspace.Id)));
     }
+
+    public bool IsCurrent(
+        CharacterCreationInitialProjection projection,
+        ICharacterSourceDataContext sourceContext,
+        string characterXml)
+    {
+        ArgumentNullException.ThrowIfNull(projection);
+        ArgumentNullException.ThrowIfNull(sourceContext);
+        return CharacterCreationBootstrapSourceSnapshot.TryCapture(
+                   sourceContext,
+                   characterXml,
+                   out CharacterCreationBootstrapSourceSnapshot current)
+               && TryCaptureLifeModules(current, out FrozenLifeModulesSnapshot lifeModules)
+               && CharacterCreationBootstrapBindingDigest.FixedTimeEquals(
+                   projection.SourceAuthority.AggregateDigest,
+                   CreateSourceAuthorityBinding(current, lifeModules).AggregateDigest);
+    }
+
+    private bool TryCaptureLifeModules(
+        CharacterCreationBootstrapSourceSnapshot sourceSnapshot,
+        out FrozenLifeModulesSnapshot snapshot)
+    {
+        snapshot = FrozenLifeModulesSnapshot.Empty;
+        string[] sources = sourceSnapshot.SourceProfile.EnabledSourcebooks
+            .Where(static value => !string.IsNullOrWhiteSpace(value))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(static value => value, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        try
+        {
+            LifeModuleCatalogAuthorityDto authority = _lifeModulesCatalog.GetAuthority();
+            IReadOnlyList<LifeModuleLegalOptionDto> options =
+                _lifeModulesCatalog.GetOptionProjections("Nationality", sources);
+            var captured = new FrozenLifeModulesSnapshot(
+                authority,
+                options.ToArray(),
+                sources,
+                string.Empty);
+            snapshot = captured with { SnapshotDigest = ComputeLifeModulesDigest(captured) };
+            return CharacterCreationPrerequisiteAuthorityDigest.IsCanonical(
+                snapshot.Authority.RawXmlDigest);
+        }
+        catch (Exception exception) when (exception is ArgumentException
+                                           or FormatException
+                                           or IOException
+                                           or InvalidDataException
+                                           or InvalidOperationException
+                                           or UnauthorizedAccessException
+                                           or System.Xml.XmlException)
+        {
+            return false;
+        }
+    }
+
+    private static CharacterCreationBootstrapSourceAuthorityBinding
+        CreateSourceAuthorityBinding(
+            CharacterCreationBootstrapSourceSnapshot sourceSnapshot,
+            FrozenLifeModulesSnapshot lifeModules)
+    {
+        string sourceProfileDigest = CharacterCreationFoundationDraftLedgerIntegrity
+            .ComputeCanonicalDigest(sourceSnapshot.SourceProfile);
+        var unsigned = new CharacterCreationBootstrapSourceAuthorityBinding(
+            CharacterCreationBootstrapActivationSchemas.SourceAuthorityV1,
+            sourceSnapshot.RawCharacterXmlDigest,
+            sourceSnapshot.SnapshotDigest,
+            sourceProfileDigest,
+            sourceSnapshot.Metatypes.SourceContext.AuthorityDigest,
+            sourceSnapshot.Prerequisite.AuthorityDigest,
+            sourceSnapshot.Qualities.AuthorityDigest,
+            sourceSnapshot.MagicResonance.AuthorityDigest,
+            lifeModules.SnapshotDigest,
+            string.Empty);
+        return unsigned with
+        {
+            AggregateDigest = CharacterCreationFoundationDraftLedgerIntegrity
+                .ComputeCanonicalDigest(unsigned with { AggregateDigest = string.Empty })
+        };
+    }
+
+    private static string ComputeLifeModulesDigest(FrozenLifeModulesSnapshot snapshot)
+        => CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(new
+        {
+            snapshot.Authority,
+            snapshot.Nationalities,
+            snapshot.EnabledSources
+        });
 
     private sealed class FrozenSourceDataResolver : ICharacterSourceDataResolver
     {
@@ -100,6 +197,56 @@ public sealed class CharacterCreationBootstrapActivationProjector :
             => string.Equals(characterXml, _characterXml, StringComparison.Ordinal)
                 ? _context
                 : null;
+    }
+
+    private sealed record FrozenLifeModulesSnapshot(
+        LifeModuleCatalogAuthorityDto Authority,
+        IReadOnlyList<LifeModuleLegalOptionDto> Nationalities,
+        IReadOnlyList<string> EnabledSources,
+        string SnapshotDigest)
+    {
+        public static FrozenLifeModulesSnapshot Empty { get; } = new(
+            new LifeModuleCatalogAuthorityDto(string.Empty, string.Empty, []),
+            [],
+            [],
+            string.Empty);
+    }
+
+    private sealed class FrozenLifeModulesCatalogService : ILifeModulesCatalogService
+    {
+        private readonly FrozenLifeModulesSnapshot _snapshot;
+
+        public FrozenLifeModulesCatalogService(FrozenLifeModulesSnapshot snapshot)
+        {
+            _snapshot = snapshot;
+        }
+
+        public LifeModuleCatalogAuthorityDto GetAuthority() => _snapshot.Authority;
+
+        public IReadOnlyList<LifeModuleStageDto> GetStages() => [];
+
+        public IReadOnlyList<LifeModuleSummaryDto> GetModules(string? stage = null) => [];
+
+        public IReadOnlyList<LifeModuleLegalOptionDto> GetOptionProjections(
+            string? stage = null,
+            IReadOnlyCollection<string>? enabledSources = null)
+        {
+            string[] requested = (enabledSources ?? [])
+                .Where(static value => !string.IsNullOrWhiteSpace(value))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(static value => value, StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+            if (!string.Equals(stage, "Nationality", StringComparison.Ordinal)
+                || !requested.SequenceEqual(
+                    _snapshot.EnabledSources,
+                    StringComparer.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException(
+                    "Frozen Creation activation Life Module authority was queried outside its captured scope.");
+            }
+
+            return _snapshot.Nationalities;
+        }
     }
 
     private sealed class FrozenWorkspaceStore :

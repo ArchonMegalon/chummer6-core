@@ -1,7 +1,9 @@
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using Chummer.Application.Workspaces;
 using Chummer.Contracts.Characters;
+using Chummer.Contracts.LifeModules;
 using Chummer.Contracts.Workspaces;
 
 namespace Chummer.Application.Characters;
@@ -13,7 +15,21 @@ public static class CharacterCreationBootstrapActivationSchemas
         "chummer.character-creation-bootstrap-recovery-binding.v1";
     public const string InitialProjectionV1 =
         "chummer.character-creation-bootstrap-initial-projection.v1";
+    public const string SourceAuthorityV1 =
+        "chummer.character-creation-bootstrap-source-authority.v1";
 }
+
+public sealed record CharacterCreationBootstrapSourceAuthorityBinding(
+    string Schema,
+    string RawCharacterXmlDigest,
+    string SourceSnapshotDigest,
+    string SourceProfileDigest,
+    string MetatypeAuthorityDigest,
+    string PrerequisiteAuthorityDigest,
+    string QualitiesAuthorityDigest,
+    string MagicResonanceAuthorityDigest,
+    string LifeModulesAuthorityDigest,
+    string AggregateDigest);
 
 /// <summary>
 /// Exact recovery and source authority carried from the atomic creation commit.
@@ -27,6 +43,7 @@ public sealed record CharacterCreationBootstrapRecoveryBinding(
     long ContentRevision,
     long SavedRevision,
     string WorkspaceDocumentDigest,
+    string WorkspaceOverviewDigest,
     string RawCharacterXmlDigest,
     string AuxiliaryStateDigest,
     string BootstrapBindingDigest,
@@ -43,6 +60,7 @@ public sealed record CharacterCreationBootstrapRecoveryBinding(
 /// </summary>
 public sealed record CharacterCreationInitialProjection(
     string Schema,
+    CharacterCreationBootstrapSourceAuthorityBinding SourceAuthority,
     CharacterCreationFoundationResult<CharacterCreationFoundationState> Foundation,
     CharacterCreationFoundationResult<CharacterCreationPrerequisiteState> Prerequisite,
     CharacterCreationFoundationResult<CharacterCreationAttributesState> Attributes,
@@ -67,19 +85,34 @@ public sealed record CharacterCreationBootstrapActivationAttempt(
     string Outcome,
     CharacterCreationBootstrapReceipt? Receipt,
     CharacterCreationBootstrapActivationBundle? Bundle,
-    IReadOnlyList<string> Blockers);
+    IReadOnlyList<string> Blockers)
+{
+    public bool CreatedRequiresReload =>
+        string.Equals(Outcome, CharacterCreationBootstrapOutcomes.Success, StringComparison.Ordinal)
+        && Receipt is not null
+        && Bundle is null;
+}
 
 public interface ICharacterCreationBootstrapActivationService
 {
     CharacterCreationBootstrapActivationAttempt CreateActivation(
         CharacterCreationBootstrapRequest request);
+
+    bool TryValidateCurrent(
+        CharacterCreationBootstrapActivationBundle activation,
+        out IReadOnlyList<string> blockers);
 }
 
 public interface ICharacterCreationBootstrapActivationProjector
 {
     CharacterCreationInitialProjection Project(
         WorkspaceStoredDocument workspace,
-        ICharacterSourceDataContext sourceContext);
+        CharacterCreationBootstrapSourceSnapshot sourceSnapshot);
+
+    bool IsCurrent(
+        CharacterCreationInitialProjection projection,
+        ICharacterSourceDataContext sourceContext,
+        string characterXml);
 }
 
 public static class CharacterCreationBootstrapActivationIntegrity
@@ -88,6 +121,12 @@ public static class CharacterCreationBootstrapActivationIntegrity
     {
         ArgumentNullException.ThrowIfNull(document);
         return CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(document);
+    }
+
+    public static string ComputeOverviewDigest(CharacterOverviewProjection overview)
+    {
+        ArgumentNullException.ThrowIfNull(overview);
+        return CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(overview);
     }
 
     public static string ComputeBundleDigest(CharacterCreationBootstrapActivationBundle bundle)
@@ -99,7 +138,24 @@ public static class CharacterCreationBootstrapActivationIntegrity
 
     public static bool IsValid(CharacterCreationBootstrapActivationBundle? bundle)
     {
+        try
+        {
+            return IsValidCore(bundle);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static bool IsValidCore(CharacterCreationBootstrapActivationBundle? bundle)
+    {
         if (bundle is null
+            || bundle.Receipt is null
+            || bundle.WorkspaceProjection is null
+            || bundle.RecoveryBinding is null
+            || bundle.InitialCreation is null
+            || bundle.InitialCreation.SourceAuthority is null
             || !string.Equals(
                 bundle.Schema,
                 CharacterCreationBootstrapActivationSchemas.BundleV1,
@@ -114,7 +170,21 @@ public static class CharacterCreationBootstrapActivationIntegrity
         WorkspaceDocumentSnapshot snapshot = bundle.WorkspaceProjection.Workspace;
         CharacterCreationBootstrapRecoveryBinding recovery = bundle.RecoveryBinding;
         CharacterCreationBootstrapReceipt receipt = bundle.Receipt;
-        if (!string.Equals(
+        CharacterCreationBootstrapBinding? documentBootstrapBinding =
+            snapshot?.Document?.AuxiliaryState?.CharacterCreationBootstrapBinding;
+        if (snapshot is null
+            || snapshot.Document is null
+            || bundle.WorkspaceProjection.Overview is null
+            || bundle.WorkspaceProjection.Validation is null
+            || recovery.SourceAnchorIds is null
+            || receipt.SourceAnchorIds is null
+            || receipt.Binding is null
+            || documentBootstrapBinding is null
+            || !CharacterCreationBootstrapBindingDigest.IsValid(documentBootstrapBinding)
+            || !FixedTimeEquals(
+                documentBootstrapBinding.BindingDigest,
+                receipt.Binding.BindingDigest)
+            || !string.Equals(
                 recovery.Schema,
                 CharacterCreationBootstrapActivationSchemas.RecoveryBindingV1,
                 StringComparison.Ordinal)
@@ -132,6 +202,9 @@ public static class CharacterCreationBootstrapActivationIntegrity
             || !FixedTimeEquals(
                 recovery.WorkspaceDocumentDigest,
                 ComputeDocumentDigest(snapshot.Document))
+            || !FixedTimeEquals(
+                recovery.WorkspaceOverviewDigest,
+                ComputeOverviewDigest(bundle.WorkspaceProjection.Overview))
             || !FixedTimeEquals(
                 recovery.RawCharacterXmlDigest,
                 CharacterCreationFoundationDraftLedgerIntegrity.ComputeRawCharacterXmlDigest(
@@ -162,13 +235,93 @@ public static class CharacterCreationBootstrapActivationIntegrity
             return false;
         }
 
-        return ResultsAreInternallyBound(bundle.InitialCreation, snapshot);
+        return SourceAuthorityIsValid(bundle.InitialCreation, receipt)
+               && ResultsAreInternallyBound(bundle.InitialCreation, snapshot);
+    }
+
+    private static bool SourceAuthorityIsValid(
+        CharacterCreationInitialProjection projection,
+        CharacterCreationBootstrapReceipt receipt)
+    {
+        CharacterCreationBootstrapSourceAuthorityBinding source = projection.SourceAuthority;
+        if (!string.Equals(
+                source.Schema,
+                CharacterCreationBootstrapActivationSchemas.SourceAuthorityV1,
+                StringComparison.Ordinal)
+            || !IsCanonicalDigest(source.RawCharacterXmlDigest)
+            || !IsCanonicalDigest(source.SourceSnapshotDigest)
+            || !IsCanonicalDigest(source.SourceProfileDigest)
+            || !IsCanonicalDigest(source.MetatypeAuthorityDigest)
+            || !IsCanonicalDigest(source.PrerequisiteAuthorityDigest)
+            || !IsCanonicalDigest(source.QualitiesAuthorityDigest)
+            || !IsCanonicalDigest(source.MagicResonanceAuthorityDigest)
+            || !IsCanonicalDigest(source.LifeModulesAuthorityDigest)
+            || !IsCanonicalDigest(source.AggregateDigest)
+            || !FixedTimeEquals(
+                source.AggregateDigest,
+                CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(
+                    source with { AggregateDigest = string.Empty }))
+            || !FixedTimeEquals(source.RawCharacterXmlDigest, receipt.Binding.RawCharacterXmlDigest)
+            || !FixedTimeEquals(source.MetatypeAuthorityDigest, receipt.Binding.MetatypeAuthorityDigest)
+            || !FixedTimeEquals(
+                source.PrerequisiteAuthorityDigest,
+                receipt.Binding.PrerequisiteAuthorityDigest))
+        {
+            return false;
+        }
+
+        CharacterCreationQualitiesAuthority? qualities = projection.Qualities?.Value?.Authority;
+        CharacterCreationMagicResonanceAuthority? magic = projection.MagicResonance?.Value?.Authority;
+        return qualities is not null
+               && magic is not null
+               && FixedTimeEquals(source.QualitiesAuthorityDigest, qualities.AuthorityDigest)
+               && FixedTimeEquals(source.MagicResonanceAuthorityDigest, magic.AuthorityDigest);
     }
 
     private static bool ResultsAreInternallyBound(
         CharacterCreationInitialProjection projection,
         WorkspaceDocumentSnapshot snapshot)
     {
+        if (projection.Foundation is null
+            || projection.Prerequisite is null
+            || projection.Attributes is null
+            || projection.Contacts is null
+            || projection.Qualities is null
+            || projection.MagicResonance is null
+            || projection.Foundation.Blockers is null
+            || projection.Prerequisite.Blockers is null
+            || projection.Attributes.Blockers is null
+            || projection.Contacts.Blockers is null
+            || projection.Qualities.Blockers is null
+            || projection.MagicResonance.Blockers is null
+            || !string.Equals(
+                projection.Foundation.Outcome,
+                CharacterCreationFoundationOutcomes.Success,
+                StringComparison.Ordinal)
+            || !string.Equals(
+                projection.Prerequisite.Outcome,
+                CharacterCreationFoundationOutcomes.Success,
+                StringComparison.Ordinal)
+            || !string.Equals(
+                projection.Attributes.Outcome,
+                CharacterCreationFoundationOutcomes.Success,
+                StringComparison.Ordinal)
+            || !string.Equals(
+                projection.Contacts.Outcome,
+                CharacterCreationContactOutcomes.Available,
+                StringComparison.Ordinal)
+            || !string.Equals(
+                projection.Qualities.Outcome,
+                CharacterCreationFoundationOutcomes.Success,
+                StringComparison.Ordinal)
+            || !string.Equals(
+                projection.MagicResonance.Outcome,
+                CharacterCreationFoundationOutcomes.Success,
+                StringComparison.Ordinal))
+        {
+            return false;
+        }
+
         CharacterCreationFoundationState? foundation = projection.Foundation.Value;
         CharacterCreationPrerequisiteState? prerequisite = projection.Prerequisite.Value;
         CharacterCreationAttributesState? attributes = projection.Attributes.Value;
@@ -191,7 +344,24 @@ public static class CharacterCreationBootstrapActivationIntegrity
         string rawDigest = CharacterCreationFoundationDraftLedgerIntegrity
             .ComputeRawCharacterXmlDigest(snapshot.Document.Content);
         string auxiliaryDigest = snapshot.Document.AuxiliaryStateDigest;
-        return foundation.Binding.WorkspaceId == id
+        return foundation.Binding is not null
+            && prerequisite.Binding is not null
+            && attributes.Binding is not null
+            && contacts.Binding is not null
+            && qualities.Binding is not null
+            && qualities.Authority is not null
+            && qualities.Authority.Options is not null
+            && qualities.Authority.GrantedQualities is not null
+            && magic.Binding is not null
+            && magic.Authority is not null
+            && prerequisite.Authority is not null
+            && foundation.AuthorityBlockers is not null
+            && prerequisite.Blockers is not null
+            && attributes.Blockers is not null
+            && contacts.Blockers is not null
+            && qualities.Blockers is not null
+            && magic.Blockers is not null
+            && foundation.Binding.WorkspaceId == id
             && foundation.Binding.ContentRevision == contentRevision
             && foundation.Binding.SavedRevision == savedRevision
             && FixedTimeEquals(foundation.Binding.RawCharacterXmlDigest, rawDigest)
@@ -220,6 +390,49 @@ public static class CharacterCreationBootstrapActivationIntegrity
             && magic.Binding.SavedRevision == savedRevision
             && FixedTimeEquals(magic.Binding.RawCharacterXmlDigest, rawDigest)
             && FixedTimeEquals(magic.Binding.AuxiliaryStateDigest, auxiliaryDigest)
+            && FixedTimeEquals(
+                foundation.SnapshotDigest,
+                ComputeFoundationStateDigest(foundation))
+            && FixedTimeEquals(
+                prerequisite.SnapshotDigest,
+                CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(
+                    prerequisite with { SnapshotDigest = string.Empty }))
+            && FixedTimeEquals(
+                attributes.SnapshotDigest,
+                CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(
+                    attributes with { SnapshotDigest = string.Empty }))
+            && FixedTimeEquals(
+                contacts.SnapshotDigest,
+                CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(
+                    contacts with { SnapshotDigest = string.Empty }))
+            && FixedTimeEquals(
+                qualities.Authority.AuthorityDigest,
+                CharacterCreationQualitiesRules.ComputeAuthorityDigest(qualities.Authority))
+            && qualities.Authority.Options.All(option =>
+                option is not null
+                && FixedTimeEquals(
+                    option.OptionDigest,
+                    CharacterCreationQualitiesRules.ComputeOptionDigest(option)))
+            && qualities.Authority.GrantedQualities.All(grant =>
+                grant is not null
+                && FixedTimeEquals(
+                    grant.GrantDigest,
+                    CharacterCreationQualitiesRules.ComputeGrantDigest(grant)))
+            && FixedTimeEquals(
+                qualities.SnapshotDigest,
+                CharacterCreationQualitiesRules.ComputeStateDigest(qualities))
+            && FixedTimeEquals(
+                magic.Authority.AuthorityDigest,
+                CharacterCreationMagicResonanceDigest.Compute(
+                    magic.Authority with { AuthorityDigest = string.Empty }))
+            && FixedTimeEquals(
+                magic.SnapshotDigest,
+                CharacterCreationMagicResonanceDigest.Compute(
+                    magic with { SnapshotDigest = string.Empty }))
+            && FixedTimeEquals(
+                prerequisite.Authority.AuthorityDigest,
+                CharacterCreationPrerequisiteAuthorityDigest.Compute(
+                    prerequisite.Authority))
             && BlockersMatch(projection.Foundation.Blockers, foundation.AuthorityBlockers)
             && BlockersMatch(projection.Prerequisite.Blockers, prerequisite.Blockers)
             && BlockersMatch(projection.Attributes.Blockers, attributes.Blockers)
@@ -228,10 +441,31 @@ public static class CharacterCreationBootstrapActivationIntegrity
             && BlockersMatch(projection.MagicResonance.Blockers, magic.Blockers);
     }
 
+    private static string ComputeFoundationStateDigest(CharacterCreationFoundationState state)
+    {
+        byte[] bytes = JsonSerializer.SerializeToUtf8Bytes(new
+        {
+            state.Schema,
+            state.Binding,
+            state.RulesetId,
+            Metatype = state.CurrentMetatype,
+            state.BuildMethod,
+            Created = state.CharacterCreated,
+            Metatypes = state.MetatypeOptions,
+            Nationalities = state.NationalityOptions,
+            state.LifeModuleBudget,
+            state.PendingDraft,
+            Blockers = state.AuthorityBlockers
+        });
+        return "sha256:" + Convert.ToHexStringLower(SHA256.HashData(bytes));
+    }
+
     private static bool BlockersMatch(
         IReadOnlyList<string> resultBlockers,
         IReadOnlyList<string> stateBlockers)
-        => resultBlockers
+        => resultBlockers is not null
+           && stateBlockers is not null
+           && resultBlockers
             .Where(static blocker => !string.IsNullOrWhiteSpace(blocker))
             .ToHashSet(StringComparer.Ordinal)
             .SetEquals(stateBlockers.Where(static blocker =>

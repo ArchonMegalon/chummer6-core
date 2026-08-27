@@ -19,6 +19,8 @@ public sealed class CharacterCreationBootstrapService :
     private readonly ICharacterFileQueries _characterFileQueries;
     private readonly ICharacterSourceDataResolver _sourceDataResolver;
     private readonly ICharacterCreationBootstrapActivationProjector? _activationProjector;
+    private readonly object _activationSync = new();
+    private readonly HashSet<string> _pendingActivationDigests = new(StringComparer.Ordinal);
 
     public CharacterCreationBootstrapService(
         IWorkspaceStore workspaceStore,
@@ -57,6 +59,64 @@ public sealed class CharacterCreationBootstrapService :
             creation.Blockers);
     }
 
+    public bool TryValidateCurrent(
+        CharacterCreationBootstrapActivationBundle activation,
+        out IReadOnlyList<string> blockers)
+    {
+        ArgumentNullException.ThrowIfNull(activation);
+        blockers = [CharacterCreationBootstrapBlockers.ActivationProjectionUnavailable];
+        if (_activationProjector is null
+            || !CharacterCreationBootstrapActivationIntegrity.IsValid(activation))
+        {
+            return false;
+        }
+
+        lock (_activationSync)
+        {
+            if (!_pendingActivationDigests.Remove(activation.BundleDigest))
+                return false;
+        }
+
+        try
+        {
+            WorkspaceDocument document = activation.WorkspaceProjection.Workspace.Document;
+            IRulesetWorkspaceCodec codec = _codecResolver.Resolve(document.RulesetId);
+            CharacterValidationResult validation = codec.Validate(document.PayloadEnvelope);
+            if (!validation.IsValid
+                || !CharacterCreationBootstrapBindingDigest.FixedTimeEquals(
+                    activation.RecoveryBinding.WorkspaceOverviewDigest,
+                    CharacterCreationBootstrapActivationIntegrity.ComputeOverviewDigest(
+                        codec.ParseOverview(document.PayloadEnvelope))))
+            {
+                return false;
+            }
+
+            ICharacterSourceDataContext? current = _sourceDataResolver.TryCreateContext(
+                document.Content);
+            if (current is null
+                || !_activationProjector.IsCurrent(
+                    activation.InitialCreation,
+                    current,
+                    document.Content))
+            {
+                return false;
+            }
+
+            blockers = [];
+            return true;
+        }
+        catch (Exception exception) when (exception is ArgumentException
+                                           or FormatException
+                                           or IOException
+                                           or InvalidDataException
+                                           or InvalidOperationException
+                                           or UnauthorizedAccessException
+                                           or System.Xml.XmlException)
+        {
+            return false;
+        }
+    }
+
     private BootstrapCreation CreateCore(
         CharacterCreationBootstrapRequest request,
         bool includeActivation)
@@ -66,7 +126,8 @@ public sealed class CharacterCreationBootstrapService :
         if (requestBlockers.Length != 0)
             return InvalidCreation(requestBlockers);
         if (includeActivation && _activationProjector is null)
-            return UnavailableCreation(CharacterCreationBootstrapBlockers.AtomicCreateUnavailable);
+            return UnavailableCreation(
+                CharacterCreationBootstrapBlockers.ActivationProjectionUnavailable);
 
         string characterXml = BuildCharacterXml(request);
         IRulesetWorkspaceCodec codec;
@@ -158,11 +219,19 @@ public sealed class CharacterCreationBootstrapService :
         }
         if (sourceContext is null)
             return InvalidCreation(CharacterCreationBootstrapBlockers.SourceContextUnavailable);
+        if (!CharacterCreationBootstrapSourceSnapshot.TryCapture(
+                sourceContext,
+                document.Content,
+                out CharacterCreationBootstrapSourceSnapshot sourceSnapshot))
+        {
+            return InvalidCreation(CharacterCreationBootstrapBlockers.SourceContextUnavailable);
+        }
+        ICharacterSourceDataContext frozenSourceContext = sourceSnapshot.CreateFrozenContext();
 
         if (!CharacterCreationBootstrapAuthority.TryPrepareBinding(
                 workspaceId,
                 document,
-                sourceContext,
+                frozenSourceContext,
                 out CharacterCreationBootstrapBinding binding,
                 out IReadOnlyList<string> sourceAnchorIds,
                 out IReadOnlyList<string> authorityBlockers))
@@ -227,6 +296,15 @@ public sealed class CharacterCreationBootstrapService :
                 []);
         }
 
+        if (!sourceSnapshot.CanProjectCompleteInitialCreation)
+        {
+            return new BootstrapCreation(
+                CharacterCreationBootstrapOutcomes.Success,
+                receipt,
+                null,
+                [CharacterCreationBootstrapBlockers.ActivationProjectionUnavailable]);
+        }
+
         CharacterCreationBootstrapActivationBundle activation;
         try
         {
@@ -255,30 +333,14 @@ public sealed class CharacterCreationBootstrapService :
                 entry.LastUpdatedUtc);
             CharacterCreationInitialProjection initial = _activationProjector!.Project(
                 stored,
-                sourceContext);
-            if (!CharacterCreationBootstrapAuthority.TryPrepareBinding(
-                    workspaceId,
-                    boundDocument,
-                    sourceContext,
-                    out CharacterCreationBootstrapBinding sourceReadback,
-                    out IReadOnlyList<string> sourceReadbackAnchors,
-                    out _)
-                || !CharacterCreationBootstrapBindingDigest.FixedTimeEquals(
-                    binding.BindingDigest,
-                    sourceReadback.BindingDigest)
-                || !sourceReadbackAnchors.SequenceEqual(
-                    receipt.SourceAnchorIds,
-                    StringComparer.Ordinal))
-            {
-                throw new InvalidOperationException(
-                    "Creation source authority changed while the activation bundle was projected.");
-            }
+                sourceSnapshot);
             var recovery = new CharacterCreationBootstrapRecoveryBinding(
                 CharacterCreationBootstrapActivationSchemas.RecoveryBindingV1,
                 workspaceId,
                 entry.ContentRevision,
                 entry.SavedRevision,
                 CharacterCreationBootstrapActivationIntegrity.ComputeDocumentDigest(boundDocument),
+                CharacterCreationBootstrapActivationIntegrity.ComputeOverviewDigest(overview),
                 binding.RawCharacterXmlDigest,
                 boundDocument.AuxiliaryStateDigest,
                 binding.BindingDigest,
@@ -312,7 +374,7 @@ public sealed class CharacterCreationBootstrapService :
                 CharacterCreationBootstrapOutcomes.Success,
                 receipt,
                 null,
-                [CharacterCreationBootstrapBlockers.WorkspaceCreateFailed]);
+                [CharacterCreationBootstrapBlockers.ActivationProjectionUnavailable]);
         }
         if (!CharacterCreationBootstrapActivationIntegrity.IsValid(activation))
         {
@@ -320,7 +382,16 @@ public sealed class CharacterCreationBootstrapService :
                 CharacterCreationBootstrapOutcomes.Success,
                 receipt,
                 null,
-                [CharacterCreationBootstrapBlockers.WorkspaceCreateFailed]);
+                [CharacterCreationBootstrapBlockers.ActivationProjectionUnavailable]);
+        }
+
+        lock (_activationSync)
+        {
+            _pendingActivationDigests.Add(activation.BundleDigest);
+            if (_pendingActivationDigests.Count > 64)
+            {
+                _pendingActivationDigests.Remove(_pendingActivationDigests.First());
+            }
         }
 
         return new BootstrapCreation(

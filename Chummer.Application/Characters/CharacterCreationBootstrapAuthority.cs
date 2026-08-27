@@ -106,7 +106,7 @@ public static class CharacterCreationBootstrapAuthority
     /// used only by atomic creation so the context that proved source authority
     /// can also project the first screen without re-reading the source corpus.
     /// </summary>
-    public static bool TryPrepareBinding(
+    internal static bool TryPrepareBinding(
         CharacterWorkspaceId workspaceId,
         WorkspaceDocument document,
         ICharacterSourceDataContext sourceContext,
