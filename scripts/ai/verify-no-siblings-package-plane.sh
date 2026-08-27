@@ -13,8 +13,8 @@ inventory_name="chummer-owner-contracts.inventory.json"
 candidate_inventory_name="chummer-core-candidate-engine-contract.inventory.json"
 candidate_runtime_inventory_name="chummer-core-candidate-gm-edit-runtime.inventory.json"
 runtime_inventory_name="chummer-core-runtime-packages.inventory.json"
-candidate_version="0.0.0-packageplane.candidate.shabc08228d3ce0"
-runtime_source_commit="bc08228d3ce06410ca97ada63a5af41a2eaa91bf"
+candidate_version="0.0.0-packageplane.candidate.sh7599f9f5d460"
+runtime_source_commit="7599f9f5d46073b589612473472fccb445512fb1"
 candidate_id="Chummer.Engine.Contracts"
 candidate_runtime_id="Chummer.Engine.GmCharacterEdits"
 candidate_repository="https://github.com/ArchonMegalon/chummer6-core.git"
@@ -349,7 +349,12 @@ spec.loader.exec_module(module)
 package_path = feed / f"{package_id}.{version}.nupkg"
 module.canonicalize_nupkg(package_path)
 expected_assemblies = {
+    "lib/net10.0/Chummer.Application.dll",
     "lib/net10.0/Chummer.Engine.GmCharacterEdits.dll",
+    "lib/net10.0/Chummer.Infrastructure.dll",
+    "lib/net10.0/Chummer.Rulesets.Hosting.dll",
+    "lib/net10.0/Chummer.Rulesets.Sr5.dll",
+    "lib/net10.0/Chummer.Rulesets.Sr6.dll",
 }
 with zipfile.ZipFile(package_path) as archive:
     names = archive.namelist()
@@ -619,7 +624,7 @@ if candidate_inventory.get("contract") != "chummer-core.candidate-engine-contrac
     raise SystemExit("candidate Engine Contracts inventory contract is invalid")
 if candidate_inventory.get("role") != "current_core_candidate":
     raise SystemExit("candidate Engine Contracts inventory role is invalid")
-expected_candidate_version = "0.0.0-packageplane.candidate.shabc08228d3ce0"
+expected_candidate_version = "0.0.0-packageplane.candidate.sh7599f9f5d460"
 if (
     candidate.get("id") != "Chummer.Engine.Contracts"
     or candidate.get("version") != expected_candidate_version
@@ -627,7 +632,7 @@ if (
     raise SystemExit("candidate Engine Contracts identity is invalid")
 expected_candidate_metadata = {
     "repository": "https://github.com/ArchonMegalon/chummer6-core.git",
-    "commit": "bc08228d3ce06410ca97ada63a5af41a2eaa91bf",
+    "commit": "7599f9f5d46073b589612473472fccb445512fb1",
     "project": "Chummer.Contracts/Chummer.Contracts.csproj",
     "file_name": f"Chummer.Engine.Contracts.{expected_candidate_version}.nupkg",
 }
@@ -638,7 +643,7 @@ for key, expected in expected_candidate_metadata.items():
         )
 if (
     candidate_inventory.get("runtime_source_commit")
-    != "bc08228d3ce06410ca97ada63a5af41a2eaa91bf"
+    != "7599f9f5d46073b589612473472fccb445512fb1"
     or candidate_inventory.get("package_recipe_commit") != commit
 ):
     raise SystemExit("candidate Engine Contracts inventory authority is invalid")
@@ -655,7 +660,7 @@ if (
     != "chummer-core.candidate-gm-edit-runtime-package-inventory/v2"
     or candidate_runtime_inventory.get("role") != "current_core_candidate"
     or candidate_runtime_inventory.get("runtime_source_commit")
-    != "bc08228d3ce06410ca97ada63a5af41a2eaa91bf"
+    != "7599f9f5d46073b589612473472fccb445512fb1"
     or candidate_runtime_inventory.get("package_recipe_commit") != commit
 ):
     raise SystemExit("candidate GM edit runtime inventory authority is invalid")
@@ -663,7 +668,7 @@ expected_runtime_metadata = {
     "id": "Chummer.Engine.GmCharacterEdits",
     "version": expected_candidate_version,
     "repository": "https://github.com/ArchonMegalon/chummer6-core.git",
-    "commit": "bc08228d3ce06410ca97ada63a5af41a2eaa91bf",
+    "commit": "7599f9f5d46073b589612473472fccb445512fb1",
     "project": "Chummer.GmCharacterEdits/Chummer.GmCharacterEdits.csproj",
     "file_name": f"Chummer.Engine.GmCharacterEdits.{expected_candidate_version}.nupkg",
 }
@@ -682,7 +687,7 @@ if (
     runtime_inventory.get("contract") != "chummer-core.runtime-package-inventory/v1"
     or runtime_inventory.get("package_version") != expected_candidate_version
     or runtime_inventory.get("runtime_source_commit")
-    != "bc08228d3ce06410ca97ada63a5af41a2eaa91bf"
+    != "7599f9f5d46073b589612473472fccb445512fb1"
     or runtime_inventory.get("package_recipe_commit") != commit
 ):
     raise SystemExit("unified runtime package inventory authority is invalid")

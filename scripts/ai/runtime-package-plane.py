@@ -34,9 +34,9 @@ INVENTORY_NAME = "chummer-core-runtime-packages.inventory.json"
 OWNER_INVENTORY_NAME = "chummer-owner-contracts.inventory.json"
 CANDIDATE_ENGINE_INVENTORY_NAME = "chummer-core-candidate-engine-contract.inventory.json"
 CANDIDATE_GM_INVENTORY_NAME = "chummer-core-candidate-gm-edit-runtime.inventory.json"
-PACKAGE_VERSION = "0.0.0-packageplane.candidate.shabc08228d3ce0"
+PACKAGE_VERSION = "0.0.0-packageplane.candidate.sh7599f9f5d460"
 SOURCE_REPOSITORY = "https://github.com/ArchonMegalon/chummer6-core.git"
-SOURCE_COMMIT = "bc08228d3ce06410ca97ada63a5af41a2eaa91bf"
+SOURCE_COMMIT = "7599f9f5d46073b589612473472fccb445512fb1"
 SDK_VERSION = "10.0.103"
 SDK_RID = "linux-x64"
 SDK_ARCHIVE_URL = (
@@ -97,7 +97,7 @@ PACKAGE_SPECS = (
     PackageSpec(
         "Chummer.Application",
         "Chummer.Application/Chummer.Application.csproj",
-        "cf5fc7f7f7d25c2ab20ba7719f3a60929cd78b205b9a43683b4a7048fcf0c19a",
+        "289b245ed773af33b114ceb9ed51e667801ff202f79ccee35a32ecc410da88fb",
         "Chummer.Application.dll",
         (
             "Chummer.Engine.Contracts",
@@ -174,7 +174,7 @@ PACKAGE_SPECS = (
     PackageSpec(
         "Chummer.Engine.GmCharacterEdits",
         "Chummer.GmCharacterEdits/Chummer.GmCharacterEdits.csproj",
-        "7c2508ce3ee1c64338cc80df71e3a98487c5c8323db9bccb68e740f13f3db6a6",
+        "527b68de82b36057747c55b124d4bcd89be6a3daee66856db5db8c986a44b641",
         "Chummer.Engine.GmCharacterEdits.dll",
         (
             "Chummer.Application",
@@ -200,29 +200,18 @@ PROJECT_VARIABLE_DEPENDENCIES = {
     "$(ChummerLocalRunContractsProject)": "Chummer.Run.Contracts",
 }
 GM_PACKAGE_PLANE_CONDITION = "'$(ChummerRuntimePackagePlane)' != 'true'"
+GM_RUNTIME_ASSEMBLY_PATHS = (
+    "lib/net10.0/Chummer.Application.dll",
+    "lib/net10.0/Chummer.Engine.GmCharacterEdits.dll",
+    "lib/net10.0/Chummer.Infrastructure.dll",
+    "lib/net10.0/Chummer.Rulesets.Hosting.dll",
+    "lib/net10.0/Chummer.Rulesets.Sr5.dll",
+    "lib/net10.0/Chummer.Rulesets.Sr6.dll",
+)
 ALLOWED_RECIPE_DELTA = (
-    ".github/workflows/android-content-plane.yml",
-    ".github/workflows/package-plane.yml",
-    "Chummer.Application/Chummer.Application.csproj",
-    "Chummer.Contracts/Chummer.Contracts.csproj",
-    "Chummer.GmCharacterEdits/Chummer.GmCharacterEdits.csproj",
-    "Chummer.Infrastructure/Chummer.Infrastructure.csproj",
-    "Chummer.Infrastructure/Xml/CharacterFileService.cs",
-    "Chummer.Rulesets.Hosting/Chummer.Rulesets.Hosting.csproj",
-    "Chummer.Rulesets.Sr4/Chummer.Rulesets.Sr4.csproj",
-    "Chummer.Rulesets.Sr5/Chummer.Rulesets.Sr5.csproj",
-    "Chummer.Rulesets.Sr6/Chummer.Rulesets.Sr6.csproj",
-    "Chummer.Tests/CharacterFileServiceTests.cs",
-    "docs/runtime-package-public-handoff.md",
-    "eng/android-content-plane.lock.json",
     "eng/runtime-package-plane.lock.json",
-    "scripts/ai/android-content-plane.py",
-    "scripts/ai/public-runtime-package-handoff.py",
     "scripts/ai/runtime-package-plane.py",
     "scripts/ai/verify-no-siblings-package-plane.sh",
-    "tests/test_android_content_plane.py",
-    "tests/test_package_plane.py",
-    "tests/test_public_runtime_package_handoff.py",
     "tests/test_runtime_package_plane_authority.py",
 )
 BUILD_AUTHORITY_PATHS = (
@@ -726,13 +715,32 @@ def validate_repository(repo_root: Path, lock: dict[str, Any]) -> None:
                 f"{spec.project} dependency drift: expected {sorted(spec.dependencies)}, "
                 f"observed {sorted(dependencies)}"
             )
-        for element in root.iter():
-            if _local_name(element.tag) == "BuildOutputInPackage":
-                raise RuntimePackagePlaneError(f"{spec.package_id} bundles a foreign build output")
-            if _local_name(element.tag) == "Target" and "RuntimeAssembl" in (
-                element.attrib.get("Name") or ""
-            ):
-                raise RuntimePackagePlaneError(f"{spec.package_id} contains a runtime bundling target")
+        runtime_outputs = [
+            element
+            for element in root.iter()
+            if _local_name(element.tag) == "BuildOutputInPackage"
+        ]
+        runtime_targets = [
+            element
+            for element in root.iter()
+            if _local_name(element.tag) == "Target"
+            and "RuntimeAssembl" in (element.attrib.get("Name") or "")
+        ]
+        if spec.package_id == "Chummer.Engine.GmCharacterEdits":
+            if _property_values(root, "TargetsForTfmSpecificBuildOutput") != [
+                "$(TargetsForTfmSpecificBuildOutput);IncludeCoreGmRuntimeAssemblies"
+            ]:
+                raise RuntimePackagePlaneError(
+                    "GM runtime package target registration is not exact"
+                )
+            if len(runtime_outputs) != 1 or len(runtime_targets) != 1:
+                raise RuntimePackagePlaneError(
+                    "GM runtime package bundling authority is not exact"
+                )
+        elif runtime_outputs or runtime_targets:
+            raise RuntimePackagePlaneError(
+                f"{spec.package_id} contains an unauthorized runtime bundling target"
+            )
 
 
 def _canonicalizer(repo_root: Path, lock: dict[str, Any]):
@@ -854,16 +862,21 @@ def inspect_packages(feed: Path) -> list[dict[str, Any]]:
                 ]
         except (OSError, zipfile.BadZipFile) as exc:
             raise RuntimePackagePlaneError(f"cannot inspect {path.name}: {exc}") from exc
-        expected_dll = f"lib/net10.0/{spec.assembly}"
-        if dlls != [expected_dll]:
+        expected_dlls = (
+            list(GM_RUNTIME_ASSEMBLY_PATHS)
+            if spec.package_id == "Chummer.Engine.GmCharacterEdits"
+            else [f"lib/net10.0/{spec.assembly}"]
+        )
+        if dlls != expected_dlls:
             raise RuntimePackagePlaneError(
-                f"{spec.package_id} must own only {expected_dll}; observed {dlls}"
+                f"{spec.package_id} runtime assembly set differs from authority; "
+                f"expected {expected_dlls}, observed {dlls}"
             )
         allowed_entries = {
             "_rels/.rels",
             "[Content_Types].xml",
             f"{spec.package_id}.nuspec",
-            expected_dll,
+            *expected_dlls,
         }
         if spec.package_id == "Chummer.Engine.Contracts":
             allowed_entries.add("README.md")
@@ -1079,9 +1092,7 @@ def _candidate_inventory_digest(
         "size_bytes": package_size,
     }
     if gm_runtime:
-        expected_package["runtime_assemblies"] = [
-            "lib/net10.0/Chummer.Engine.GmCharacterEdits.dll"
-        ]
+        expected_package["runtime_assemblies"] = list(GM_RUNTIME_ASSEMBLY_PATHS)
     expected = {
         "contract": (
             "chummer-core.candidate-gm-edit-runtime-package-inventory/v2"
