@@ -150,7 +150,7 @@ public interface ICharacterSourceDataContext
     /// <summary>
     /// Projects the effective SR5 vehicles.xml catalog through the runner's exact
     /// enabled-book, settings, overlay, and ordered custom-data profile. Rows whose
-    /// formulas, prerequisites, or factory children cannot yet be persisted losslessly
+    /// formulas, prerequisites, or complex factory children cannot be persisted losslessly
     /// remain present with Unsupported posture; callers must never make them selectable.
     /// </summary>
     bool TryResolveVehicleWorkshopCatalog(out CharacterVehicleWorkshopCatalog catalog)
@@ -158,7 +158,7 @@ public interface ICharacterSourceDataContext
         catalog = new CharacterVehicleWorkshopCatalog(
             new CharacterVehicleWorkshopSourceBinding(
                 string.Empty, string.Empty, string.Empty, string.Empty, string.Empty,
-                string.Empty, string.Empty, false, 0m, false, 0m, false),
+                string.Empty, string.Empty, string.Empty, false, 0m, false, 0m, false),
             [], [], [], string.Empty);
         return false;
     }

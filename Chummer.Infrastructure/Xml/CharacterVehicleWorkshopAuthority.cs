@@ -48,7 +48,7 @@ public sealed class CharacterVehicleWorkshopAuthority : ICharacterVehicleWorksho
 
         CharacterVehicleWorkshopSourceBinding binding = catalog?.Binding
             ?? new CharacterVehicleWorkshopSourceBinding(string.Empty, string.Empty, string.Empty,
-                string.Empty, string.Empty, string.Empty, string.Empty,
+                string.Empty, string.Empty, string.Empty, string.Empty, string.Empty,
                 false, 0m, false, 0m, false);
         IReadOnlyList<CharacterVehicleWorkshopChassisEntry> chassis = catalog?.Chassis ?? [];
         IReadOnlyList<CharacterVehicleWorkshopModificationEntry> modifications = catalog?.Modifications ?? [];
@@ -56,7 +56,8 @@ public sealed class CharacterVehicleWorkshopAuthority : ICharacterVehicleWorksho
         string catalogDigest = catalog is null ? string.Empty : CharacterVehicleWorkshopRules.ComputeCatalogDigest(catalog);
         if (catalog is not null
             && (catalog.Binding is null || catalog.Chassis is null || catalog.Modifications is null
-                || catalog.WeaponMountComponents is null))
+                || catalog.WeaponMountComponents is null
+                || catalog.Chassis.Any(item => item?.FactoryGears is null)))
         {
             blockers.Add("The typed workshop catalog contains null authority collections.");
         }
@@ -71,8 +72,12 @@ public sealed class CharacterVehicleWorkshopAuthority : ICharacterVehicleWorksho
 
         CharacterVehicleWorkshopUnsupportedRow[] unsupported = chassis
             .Where(item => item.ProjectionStatus == CharacterVehicleWorkshopProjectionStatus.Unsupported)
-            .Select(item => new CharacterVehicleWorkshopUnsupportedRow(
-                "chassis", item.SourceId.Value, item.Name, item.UnsupportedReason))
+                .Select(item => new CharacterVehicleWorkshopUnsupportedRow(
+                    "chassis", item.SourceId.Value, item.Name, item.UnsupportedReason))
+            .Concat(chassis.SelectMany(item => item.FactoryGears ?? [])
+                .Where(item => item.ProjectionStatus == CharacterVehicleWorkshopProjectionStatus.Unsupported)
+                .Select(item => new CharacterVehicleWorkshopUnsupportedRow(
+                    "factory-gear", item.SourceId.Value, item.Name, item.UnsupportedReason)))
             .Concat(modifications
                 .Where(item => item.ProjectionStatus == CharacterVehicleWorkshopProjectionStatus.Unsupported)
                 .Select(item => new CharacterVehicleWorkshopUnsupportedRow(
@@ -146,15 +151,18 @@ public sealed class CharacterVehicleWorkshopAuthority : ICharacterVehicleWorksho
         {
             XDocument document = XDocument.Parse(characterXml, LoadOptions.None);
             XElement root = document.Root!;
-            if (CommandInstanceIdentities(command).Append(command.NewExpenseId)
+            CharacterVehicleWorkshopChassisEntry chassis = preparation.Chassis.Single(item =>
+                item.SourceId == command.Selection.ChassisSourceId);
+            Guid[] factoryGearInstanceIds = FactoryGearInstanceIdentities(
+                chassis,
+                command.Selection.NewVehicleInstanceId).ToArray();
+            if (CommandInstanceIdentities(command).Concat(factoryGearInstanceIds).Append(command.NewExpenseId)
                 .Any(identity => ContainsGuid(root, identity)))
             {
                 return Blocked(characterXml, currentContentRevision, command.Selection.NewVehicleInstanceId,
                     command.NewExpenseId, CharacterVehicleWorkshopBlockers.IdentityInvalid);
             }
 
-            CharacterVehicleWorkshopChassisEntry chassis = preparation.Chassis.Single(item =>
-                item.SourceId == command.Selection.ChassisSourceId);
             XElement vehicle = CreateVehicle(preparation, chassis, quote, command, keyDigest, commandDigest);
             XElement expense = CreateExpense(chassis, quote, command);
             XElement vehicles = GetOrCreateUniqueContainer(root, "vehicles");
@@ -323,6 +331,31 @@ public sealed class CharacterVehicleWorkshopAuthority : ICharacterVehicleWorksho
             return Blocked(characterXml, currentContentRevision, command.Selection.NewVehicleInstanceId,
                 command.NewExpenseId, CharacterVehicleWorkshopBlockers.StaleCatalog);
         }
+        CharacterVehicleWorkshopPreparation historicalPreparation = currentPreparation with
+        {
+            ContentRevision = metadata.PreviousRevision,
+            CharacterDigest = metadata.PreviousCharacterDigest,
+            AvailableNuyen = metadata.PreviousNuyen
+        };
+        CharacterVehicleWorkshopQuote historicalQuote = Quote(historicalPreparation, command.Selection);
+        CharacterVehicleWorkshopChassisEntry historicalChassis = historicalPreparation.Chassis.Single(item =>
+            item.SourceId == command.Selection.ChassisSourceId);
+        XElement expectedVehicle = CreateVehicle(
+            historicalPreparation,
+            historicalChassis,
+            historicalQuote,
+            command,
+            keyDigest,
+            commandDigest);
+        if (!historicalQuote.Exact
+            || !CharacterVehicleWorkshopRules.FixedEquals(historicalQuote.QuoteDigest, metadata.QuoteDigest)
+            || !CharacterVehicleWorkshopRules.FixedEquals(
+                ElementDigest(expectedVehicle),
+                ElementDigest(transaction.Vehicle!)))
+        {
+            return Blocked(characterXml, currentContentRevision, command.Selection.NewVehicleInstanceId,
+                command.NewExpenseId, CharacterVehicleWorkshopBlockers.StaleReceipt);
+        }
         XElement root = transaction.Vehicle!.Document?.Root!;
         XElement[] expenses = FindByGuid(root, "expenses", "expense", metadata.ExpenseId);
         if (expenses.Length != 1 || !TryReadDecimal(expenses[0], "amount", out decimal amount)
@@ -369,6 +402,12 @@ public sealed class CharacterVehicleWorkshopAuthority : ICharacterVehicleWorksho
         XElement mounts = new("weaponmounts");
         foreach (CharacterVehicleWeaponMountSelection selected in command.Selection.WeaponMounts)
             mounts.Add(CreateWeaponMount(preparation, selected));
+        XElement gears = new("gears");
+        foreach (CharacterVehicleWorkshopFactoryGearEntry factoryGear in chassis.FactoryGears
+                     .OrderBy(item => item.Ordinal))
+        {
+            gears.Add(CreateFactoryGear(factoryGear, command.Selection.NewVehicleInstanceId));
+        }
 
         return new XElement("vehicle",
             Scalar("sourceid", chassis.SourceId.Value.ToString("D")),
@@ -387,7 +426,7 @@ public sealed class CharacterVehicleWorkshopAuthority : ICharacterVehicleWorksho
             Scalar("source", chassis.SourceBook), Scalar("page", chassis.Page), Scalar("parentid", string.Empty),
             Scalar("sortorder", 0), Scalar("stolen", false), Scalar("physicalcmfilled", 0),
             Scalar("matrixcmfilled", 0), Scalar("vehiclename", command.Selection.CustomName),
-            mods, mounts, new XElement("gears"), new XElement("weapons"), Scalar("location", string.Empty),
+            mods, mounts, gears, new XElement("weapons"), Scalar("location", string.Empty),
             Scalar("notes", string.Empty), Scalar("notesColor", "Chocolate"), Scalar("discountedcost", false),
             Scalar("dealerconnection", false), Scalar("active", false), Scalar("homenode", false),
             Scalar("devicerating", chassis.Pilot), Scalar("programlimit", string.Empty), Scalar("overclocked", "None"),
@@ -406,6 +445,70 @@ public sealed class CharacterVehicleWorkshopAuthority : ICharacterVehicleWorksho
                 Scalar("commitrevision", checked(preparation.ContentRevision + 1)),
                 Scalar("vehicleid", command.Selection.NewVehicleInstanceId.Value.ToString("D")),
                 Scalar("expenseid", command.NewExpenseId.ToString("D")), Scalar("nuyendelta", quote.NuyenDelta)));
+    }
+
+    private static XElement CreateFactoryGear(
+        CharacterVehicleWorkshopFactoryGearEntry entry,
+        CharacterVehicleInstanceId vehicleInstanceId)
+    {
+        CharacterVehicleFactoryGearInstanceId instanceId =
+            CharacterVehicleWorkshopRules.DeriveFactoryGearInstanceId(vehicleInstanceId, entry.ProjectionId);
+        return new XElement("gear",
+            Scalar("sourceid", entry.SourceId.Value.ToString("D")),
+            Scalar("guid", instanceId.Value.ToString("D")),
+            Scalar("name", entry.Name),
+            Scalar("category", entry.Category),
+            Scalar("capacity", entry.Capacity),
+            Scalar("armorcapacity", entry.ArmorCapacity),
+            Scalar("minrating", entry.MinimumRating),
+            Scalar("maxrating", entry.MaximumRating),
+            Scalar("rating", entry.Rating),
+            Scalar("qty", entry.Quantity),
+            Scalar("avail", FormatAvailability(entry.Availability)),
+            Scalar("cost", 0),
+            Scalar("weight", entry.Weight),
+            Scalar("extra", string.Empty),
+            Scalar("bonded", false),
+            Scalar("equipped", true),
+            Scalar("wirelesson", false),
+            Scalar("stolen", false),
+            Scalar("bonus", string.Empty),
+            Scalar("wirelessbonus", string.Empty),
+            Scalar("weaponbonus", string.Empty),
+            Scalar("flechetteweaponbonus", string.Empty),
+            Scalar("source", entry.SourceBook),
+            Scalar("page", entry.Page),
+            Scalar("isflechetteammo", false),
+            Scalar("ammoforweapontype", string.Empty),
+            Scalar("canformpersona", string.Empty),
+            Scalar("devicerating", string.Empty),
+            Scalar("gearname", string.Empty),
+            Scalar("forcedvalue", string.Empty),
+            Scalar("matrixcmfilled", 0),
+            Scalar("matrixcmbonus", 0),
+            Scalar("parentid", vehicleInstanceId.Value.ToString("D")),
+            Scalar("allowrename", false),
+            new XElement("children"),
+            Scalar("location", string.Empty),
+            Scalar("notes", string.Empty),
+            Scalar("notesColor", "Chocolate"),
+            Scalar("discountedcost", false),
+            Scalar("programlimit", string.Empty),
+            Scalar("overclocked", "None"),
+            Scalar("attack", string.Empty),
+            Scalar("sleaze", string.Empty),
+            Scalar("dataprocessing", string.Empty),
+            Scalar("firewall", string.Empty),
+            Scalar("attributearray", string.Empty),
+            Scalar("modattack", string.Empty),
+            Scalar("modsleaze", string.Empty),
+            Scalar("moddataprocessing", string.Empty),
+            Scalar("modfirewall", string.Empty),
+            Scalar("modattributearray", string.Empty),
+            Scalar("canswapattributes", false),
+            Scalar("active", false),
+            Scalar("homenode", false),
+            Scalar("sortorder", 0));
     }
 
     private static XElement CreateModification(
@@ -496,9 +599,18 @@ public sealed class CharacterVehicleWorkshopAuthority : ICharacterVehicleWorksho
             return quote.Blockers.FirstOrDefault() ?? CharacterVehicleWorkshopBlockers.UnsupportedSelection;
         if (!CharacterVehicleWorkshopRules.FixedEquals(command.ExpectedQuoteDigest, quote.QuoteDigest))
             return CharacterVehicleWorkshopBlockers.StaleQuote;
+        CharacterVehicleWorkshopChassisEntry? chassis = preparation.Chassis.SingleOrDefault(item =>
+            item.SourceId == command.Selection.ChassisSourceId);
+        IReadOnlyList<Guid> commandIdentities = CommandInstanceIdentities(command);
+        Guid[] factoryGearIdentities = chassis is null
+            ? []
+            : FactoryGearInstanceIdentities(chassis, command.Selection.NewVehicleInstanceId).ToArray();
+        Guid[] allIdentities = commandIdentities.Concat(factoryGearIdentities).Append(command.NewExpenseId).ToArray();
         if (command.NewExpenseId == Guid.Empty || command.ExpenseDate.Offset != TimeSpan.Zero
-            || CommandInstanceIdentities(command).Append(command.NewExpenseId).Distinct().Count()
-               != CommandInstanceIdentities(command).Count() + 1)
+            || chassis is null
+            || allIdentities.Any(identity => identity == Guid.Empty)
+            || allIdentities.Distinct().Count() != allIdentities.Length
+            || chassis.FactoryGears.Select(item => item.SourceId.Value).Intersect(allIdentities).Any())
             return CharacterVehicleWorkshopBlockers.IdentityInvalid;
         return null;
     }
@@ -517,6 +629,7 @@ public sealed class CharacterVehicleWorkshopAuthority : ICharacterVehicleWorksho
             || !CharacterVehicleWorkshopRules.IsCanonicalDigest(binding.ProfileDigest)
             || !CharacterVehicleWorkshopRules.IsCanonicalDigest(binding.VehiclesDigest)
             || !CharacterVehicleWorkshopRules.IsCanonicalDigest(binding.WeaponsDigest)
+            || !CharacterVehicleWorkshopRules.IsCanonicalDigest(binding.GearDigest)
             || !CharacterVehicleWorkshopRules.IsCanonicalDigest(binding.OverlayDigest)
             || binding.RestrictedCostMultiplier < 0m || binding.ForbiddenCostMultiplier < 0m
             || binding.MultiplyRestrictedCost && binding.RestrictedCostMultiplier <= 0m
@@ -533,6 +646,8 @@ public sealed class CharacterVehicleWorkshopAuthority : ICharacterVehicleWorksho
         List<string> blockers)
     {
         if (chassis.Any(item => item is null) || modifications.Any(item => item is null) || components.Any(item => item is null)
+            || chassis.Any(item => item is not null && (item.FactoryGears is null
+                || item.FactoryGears.Any(gear => gear is null)))
             || modifications.Any(item => item is not null && item.AllowedChassis is null)
             || components.Any(item => item is not null
                 && (item.AllowedChassis is null || item.RequiredComponents is null || item.ForbiddenComponents is null))
@@ -545,12 +660,17 @@ public sealed class CharacterVehicleWorkshopAuthority : ICharacterVehicleWorksho
         }
         var chassisIds = chassis.Select(item => item.SourceId).ToHashSet();
         var componentIds = components.Select(item => item.SourceId).ToHashSet();
+        if (HasDuplicates(chassis.SelectMany(item => item.FactoryGears).Select(item => item.ProjectionId.Value)))
+            blockers.Add("Factory gear projection identities must be globally unique in the workshop catalog.");
         foreach (CharacterVehicleWorkshopChassisEntry item in chassis)
         {
             if (!ValidProjection(item.ProjectionStatus, item.UnsupportedReason)
                 || item.SourceId.Value == Guid.Empty || string.IsNullOrWhiteSpace(item.Name)
                 || !Enum.IsDefined(item.Kind) || !Enum.IsDefined(item.Posture)
-                || !ValidAvailability(item.Availability))
+                || !ValidAvailability(item.Availability)
+                || item.FactoryGears.Select(gear => gear.Ordinal).Distinct().Count() != item.FactoryGears.Count
+                || item.FactoryGears.OrderBy(gear => gear.Ordinal).Select(gear => gear.Ordinal)
+                    .Where((ordinal, index) => ordinal != index).Any())
             {
                 blockers.Add("A chassis catalog row is structurally invalid.");
             }
@@ -558,11 +678,49 @@ public sealed class CharacterVehicleWorkshopAuthority : ICharacterVehicleWorksho
                 && (item.Cost < 0m || item.ModificationSlots < 0 || item.ModificationCapacity < 0
                     || item.Body < 0 || item.Armor < 0 || item.Sensor < 0 || item.Pilot < 0
                     || item.Availability.AddToParent
+                    || item.FactoryGears.Any(gear =>
+                        gear.ProjectionStatus != CharacterVehicleWorkshopProjectionStatus.Exact)
                     || item.Posture == CharacterVehicleChassisPosture.Stock && item.GmAuthorityDigest.Length != 0
                     || item.Posture == CharacterVehicleChassisPosture.GmApprovedCustom
                        && !CharacterVehicleWorkshopRules.IsCanonicalDigest(item.GmAuthorityDigest)))
             {
                 blockers.Add("An exact chassis row has invalid cost, capacity, statistics, or GM posture.");
+            }
+            foreach (CharacterVehicleWorkshopFactoryGearEntry gear in item.FactoryGears)
+            {
+                CharacterVehicleFactoryGearProjectionId expectedProjectionId =
+                    CharacterVehicleWorkshopRules.DeriveFactoryGearProjectionId(
+                        item.SourceId,
+                        gear.SourceId,
+                        gear.Ordinal,
+                        gear.InstructionNodeDigest);
+                if (!ValidProjection(gear.ProjectionStatus, gear.UnsupportedReason)
+                    || gear.ProjectionId.Value == Guid.Empty
+                    || gear.ChassisSourceId != item.SourceId
+                    || gear.Ordinal < 0
+                    || gear.ProjectionId != expectedProjectionId
+                    || !ValidAvailability(gear.Availability)
+                    || !CharacterVehicleWorkshopRules.IsCanonicalDigest(gear.InstructionNodeDigest))
+                {
+                    blockers.Add("A factory gear catalog row is structurally invalid.");
+                }
+                if (gear.ProjectionStatus == CharacterVehicleWorkshopProjectionStatus.Exact
+                    && (gear.SourceId.Value == Guid.Empty
+                        || string.IsNullOrWhiteSpace(gear.Name)
+                        || string.IsNullOrWhiteSpace(gear.Category)
+                        || string.IsNullOrWhiteSpace(gear.SourceBook)
+                        || string.IsNullOrWhiteSpace(gear.Page)
+                        || gear.Quantity <= 0m
+                        || gear.Rating < 0
+                        || !ValidRatingText(gear.MinimumRating)
+                        || !ValidRatingText(gear.MaximumRating)
+                        || !ValidFixedCapacity(gear.Capacity)
+                        || !ValidFixedCapacity(gear.ArmorCapacity)
+                        || !ValidOptionalFixedDecimal(gear.Weight)
+                        || !CharacterVehicleWorkshopRules.IsCanonicalDigest(gear.SourceNodeDigest)))
+                {
+                    blockers.Add("An exact factory gear row has invalid saved fields or source bindings.");
+                }
             }
         }
         foreach (CharacterVehicleWorkshopModificationEntry item in modifications)
@@ -743,6 +901,12 @@ public sealed class CharacterVehicleWorkshopAuthority : ICharacterVehicleWorksho
         return result;
     }
 
+    private static IEnumerable<Guid> FactoryGearInstanceIdentities(
+        CharacterVehicleWorkshopChassisEntry chassis,
+        CharacterVehicleInstanceId vehicleInstanceId)
+        => chassis.FactoryGears.Select(item => CharacterVehicleWorkshopRules
+            .DeriveFactoryGearInstanceId(vehicleInstanceId, item.ProjectionId).Value);
+
     private static bool ContainsGuid(XElement root, Guid value)
         => root.Descendants().Any(node => node.Name.NamespaceName.Length == 0
             && node.Name.LocalName is "guid" or "id" or "sizeoptioninstance"
@@ -761,6 +925,42 @@ public sealed class CharacterVehicleWorkshopAuthority : ICharacterVehicleWorksho
 
     private static bool ValidAvailability(CharacterVehicleWorkshopAvailability availability)
         => availability is not null && availability.Value >= 0 && Enum.IsDefined(availability.Legality);
+
+    private static bool ValidRatingText(string value)
+        => value is not null
+           && (value.Length == 0
+               || int.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out int parsed)
+               && parsed >= 0);
+
+    private static bool ValidFixedCapacity(string value)
+    {
+        if (value is null)
+            return false;
+        if (value.Length == 0)
+            return true;
+        if (int.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out int scalar) && scalar >= 0)
+            return true;
+        if (ValidBracketedNonNegativeInt(value))
+            return true;
+        int slash = value.IndexOf("/[", StringComparison.Ordinal);
+        return slash > 0
+            && int.TryParse(value[..slash], NumberStyles.None, CultureInfo.InvariantCulture, out int prefix)
+            && prefix >= 0
+            && ValidBracketedNonNegativeInt(value[(slash + 1)..]);
+    }
+
+    private static bool ValidBracketedNonNegativeInt(string value)
+        => value.Length >= 3
+           && value[0] == '['
+           && value[^1] == ']'
+           && int.TryParse(value[1..^1], NumberStyles.None, CultureInfo.InvariantCulture, out int parsed)
+           && parsed >= 0;
+
+    private static bool ValidOptionalFixedDecimal(string value)
+        => value is not null
+           && (value.Length == 0
+               || decimal.TryParse(value, NumberStyles.Number, CultureInfo.InvariantCulture, out decimal parsed)
+               && parsed >= 0m);
 
     private static bool HasDuplicates(IEnumerable<Guid> values)
     {

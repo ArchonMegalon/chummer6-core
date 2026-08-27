@@ -14,7 +14,24 @@ internal static class CharacterVehicleWorkshopCatalogProjector
     private static readonly IReadOnlySet<string> ChassisFields = new HashSet<string>(StringComparer.Ordinal)
     {
         "id", "name", "page", "source", "accel", "armor", "avail", "body", "category",
-        "cost", "handling", "pilot", "sensor", "speed", "seats", "addslots", "modslots"
+        "cost", "handling", "pilot", "sensor", "speed", "seats", "addslots", "modslots", "gears"
+    };
+
+    private static readonly IReadOnlySet<string> FactoryGearSourceFields = new HashSet<string>(StringComparer.Ordinal)
+    {
+        "id", "name", "category", "rating", "minrating", "source", "page", "avail",
+        "capacity", "armorcapacity", "cost", "weight", "costfor", "addoncategory",
+        "requireparent", "ratinglabel"
+    };
+
+    private static readonly IReadOnlySet<string> FactoryGearInstructionFields = new HashSet<string>(StringComparer.Ordinal)
+    {
+        "id", "name", "rating", "capacity", "maxrating"
+    };
+
+    private static readonly IReadOnlySet<string> FactoryGearInstructionAttributes = new HashSet<string>(StringComparer.Ordinal)
+    {
+        "rating", "qty", "consumecapacity"
     };
 
     private static readonly IReadOnlySet<string> ModificationFields = new HashSet<string>(StringComparer.Ordinal)
@@ -33,6 +50,7 @@ internal static class CharacterVehicleWorkshopCatalogProjector
         string profileDigest,
         string vehiclesDigest,
         string weaponsDigest,
+        string gearDigest,
         string overlayDigest,
         bool droneMods,
         bool multiplyRestrictedCost,
@@ -40,6 +58,7 @@ internal static class CharacterVehicleWorkshopCatalogProjector
         bool multiplyForbiddenCost,
         decimal forbiddenCostMultiplier,
         IReadOnlyList<XElement> vehicleRows,
+        IReadOnlyList<XElement> gearRows,
         IReadOnlyList<XElement> modificationRows,
         IReadOnlyList<XElement> weaponMountRows,
         Func<string, bool> isSourceEnabled,
@@ -50,12 +69,14 @@ internal static class CharacterVehicleWorkshopCatalogProjector
             || !CharacterVehicleWorkshopRules.IsCanonicalDigest(profileDigest)
             || !CharacterVehicleWorkshopRules.IsCanonicalDigest(vehiclesDigest)
             || !CharacterVehicleWorkshopRules.IsCanonicalDigest(weaponsDigest)
+            || !CharacterVehicleWorkshopRules.IsCanonicalDigest(gearDigest)
             || !CharacterVehicleWorkshopRules.IsCanonicalDigest(overlayDigest)
             || restrictedCostMultiplier < 0m
             || forbiddenCostMultiplier < 0m
             || multiplyRestrictedCost && restrictedCostMultiplier <= 0m
             || multiplyForbiddenCost && forbiddenCostMultiplier <= 0m
             || vehicleRows is null
+            || gearRows is null
             || modificationRows is null
             || weaponMountRows is null
             || isSourceEnabled is null)
@@ -69,6 +90,23 @@ internal static class CharacterVehicleWorkshopCatalogProjector
         var chassisIds = new HashSet<Guid>();
         var modificationIds = new HashSet<Guid>();
         var componentIds = new HashSet<Guid>();
+        var factoryGearSources = new List<FactoryGearSourceRow>();
+        var factoryGearSourceIds = new HashSet<Guid>();
+
+        foreach (XElement row in gearRows.OrderBy(RowIdText, StringComparer.Ordinal))
+        {
+            if (!TryReadEnabledIdentity(row, isSourceEnabled, out SourceIdentity identity, out bool enabled))
+                return false;
+            if (!enabled)
+                continue;
+            if (!factoryGearSourceIds.Add(identity.Id))
+                return false;
+            factoryGearSources.Add(new FactoryGearSourceRow(
+                identity,
+                row,
+                CharacterVehicleWorkshopRules.ComputeCharacterDigest(
+                    row.ToString(SaveOptions.DisableFormatting))));
+        }
 
         foreach (XElement row in vehicleRows.OrderBy(RowIdText, StringComparer.Ordinal))
         {
@@ -78,7 +116,7 @@ internal static class CharacterVehicleWorkshopCatalogProjector
                 continue;
             if (!chassisIds.Add(identity.Id))
                 return false;
-            chassis.Add(ProjectChassis(row, identity, droneMods));
+            chassis.Add(ProjectChassis(row, identity, droneMods, factoryGearSources));
         }
 
         foreach (XElement row in modificationRows.OrderBy(RowIdText, StringComparer.Ordinal))
@@ -110,6 +148,7 @@ internal static class CharacterVehicleWorkshopCatalogProjector
             profileDigest,
             vehiclesDigest,
             weaponsDigest,
+            gearDigest,
             overlayDigest,
             multiplyRestrictedCost,
             restrictedCostMultiplier,
@@ -132,9 +171,15 @@ internal static class CharacterVehicleWorkshopCatalogProjector
     private static CharacterVehicleWorkshopChassisEntry ProjectChassis(
         XElement row,
         SourceIdentity identity,
-        bool droneMods)
+        bool droneMods,
+        IReadOnlyList<FactoryGearSourceRow> factoryGearSources)
     {
         var issues = DirectFieldIssues(row, ChassisFields);
+        IReadOnlyList<CharacterVehicleWorkshopFactoryGearEntry> factoryGears = ProjectFactoryGears(
+            row,
+            new CharacterVehicleChassisSourceId(identity.Id),
+            factoryGearSources,
+            issues);
         string category = RequiredText(row, "category", issues);
         string page = RequiredText(row, "page", issues);
         int body = RequiredNonNegativeInt(row, "body", issues);
@@ -198,7 +243,380 @@ internal static class CharacterVehicleWorkshopCatalogProjector
             page,
             GmAuthorityDigest: string.Empty,
             status,
+            UnsupportedReason(issues),
+            factoryGears);
+    }
+
+    private static IReadOnlyList<CharacterVehicleWorkshopFactoryGearEntry> ProjectFactoryGears(
+        XElement vehicleRow,
+        CharacterVehicleChassisSourceId chassisSourceId,
+        IReadOnlyList<FactoryGearSourceRow> sourceRows,
+        ICollection<string> chassisIssues)
+    {
+        XElement[] containers = vehicleRow.Elements("gears").Take(2).ToArray();
+        if (containers.Length == 0)
+            return [];
+        if (containers.Length != 1
+            || containers[0].HasAttributes
+            || containers[0].Elements().Any(child => child.Name.LocalName != "gear")
+            || containers[0].Nodes().OfType<XText>().Any(text => !string.IsNullOrWhiteSpace(text.Value)))
+        {
+            chassisIssues.Add("The factory gear container is ambiguous or contains unsupported content.");
+            return [];
+        }
+
+        CharacterVehicleWorkshopFactoryGearEntry[] projected = containers[0]
+            .Elements("gear")
+            .Select((instruction, ordinal) => ProjectFactoryGear(
+                instruction,
+                chassisSourceId,
+                ordinal,
+                sourceRows))
+            .ToArray();
+        foreach (CharacterVehicleWorkshopFactoryGearEntry item in projected.Where(item =>
+                     item.ProjectionStatus == CharacterVehicleWorkshopProjectionStatus.Unsupported))
+        {
+            chassisIssues.Add($"Factory gear #{item.Ordinal + 1} ({item.Name}) is unsupported: {item.UnsupportedReason}");
+        }
+        return projected;
+    }
+
+    private static CharacterVehicleWorkshopFactoryGearEntry ProjectFactoryGear(
+        XElement instruction,
+        CharacterVehicleChassisSourceId chassisSourceId,
+        int ordinal,
+        IReadOnlyList<FactoryGearSourceRow> sourceRows)
+    {
+        var issues = new List<string>();
+        string instructionDigest = CharacterVehicleWorkshopRules.ComputeCharacterDigest(
+            instruction.ToString(SaveOptions.DisableFormatting));
+        string[] unsupportedAttributes = instruction.Attributes()
+            .Where(attribute => !FactoryGearInstructionAttributes.Contains(attribute.Name.LocalName))
+            .Select(attribute => attribute.Name.LocalName)
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(name => name, StringComparer.Ordinal)
+            .ToArray();
+        if (unsupportedAttributes.Length != 0)
+        {
+            issues.Add("Factory instruction attributes require prompts or unprojected behavior: "
+                + string.Join(", ", unsupportedAttributes) + ".");
+        }
+        string[] unsupportedFields = instruction.Elements()
+            .Where(element => !FactoryGearInstructionFields.Contains(element.Name.LocalName))
+            .Select(element => element.Name.LocalName)
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(name => name, StringComparer.Ordinal)
+            .ToArray();
+        if (unsupportedFields.Length != 0)
+        {
+            issues.Add("Factory instruction fields are not projected losslessly: "
+                + string.Join(", ", unsupportedFields) + ".");
+        }
+        string[] duplicateFields = instruction.Elements()
+            .Where(element => FactoryGearInstructionFields.Contains(element.Name.LocalName))
+            .GroupBy(element => element.Name.LocalName, StringComparer.Ordinal)
+            .Where(group => group.Count() != 1)
+            .Select(group => group.Key)
+            .OrderBy(name => name, StringComparer.Ordinal)
+            .ToArray();
+        if (duplicateFields.Length != 0)
+        {
+            issues.Add("Factory instruction fields are ambiguous because they occur more than once: "
+                + string.Join(", ", duplicateFields) + ".");
+        }
+
+        string reference = ReadFactoryGearReference(instruction, issues);
+        FactoryGearSourceRow[] matches = Guid.TryParse(reference, out Guid requestedId)
+            ? sourceRows.Where(row => row.Identity.Id == requestedId).Take(2).ToArray()
+            : sourceRows.Where(row => string.Equals(row.Identity.Name, reference, StringComparison.Ordinal)).Take(2).ToArray();
+        FactoryGearSourceRow? source = matches.Length == 1 ? matches[0] : null;
+        if (source is null)
+            issues.Add("The factory gear reference does not resolve to one enabled effective gear.xml row.");
+
+        CharacterVehicleFactoryGearSourceId sourceId = new(source?.Identity.Id ?? Guid.Empty);
+        CharacterVehicleFactoryGearProjectionId projectionId =
+            CharacterVehicleWorkshopRules.DeriveFactoryGearProjectionId(
+                chassisSourceId,
+                sourceId,
+                ordinal,
+                instructionDigest);
+        string name = source?.Identity.Name ?? reference;
+        string category = string.Empty;
+        string capacity = string.Empty;
+        string armorCapacity = string.Empty;
+        string minimumRatingText = string.Empty;
+        string maximumRatingText = string.Empty;
+        int rating = 0;
+        decimal quantity = 1m;
+        CharacterVehicleWorkshopAvailability availability =
+            new(0, CharacterVehicleWorkshopLegality.Legal, false);
+        string weight = string.Empty;
+        string sourceBook = source?.Identity.SourceBook ?? string.Empty;
+        string page = string.Empty;
+        bool consumeCapacity = false;
+        string sourceNodeDigest = source?.NodeDigest ?? string.Empty;
+
+        if (source is not null)
+        {
+            AddFactoryGearSourceIssues(source.Row, issues);
+            category = RequiredText(source.Row, "category", issues);
+            page = RequiredText(source.Row, "page", issues);
+            availability = RequiredAvailability(source.Row, "avail", issues);
+            if (!TryReadScalar(source.Row, "rating", out string maximumText)
+                || !int.TryParse(maximumText, NumberStyles.None, CultureInfo.InvariantCulture, out int maximumRating)
+                || maximumRating < 0)
+            {
+                issues.Add("The factory gear maximum rating is not one fixed non-negative integer.");
+                maximumRating = 0;
+            }
+            maximumRatingText = maximumRating == 0
+                ? string.Empty
+                : maximumRating.ToString(CultureInfo.InvariantCulture);
+            int effectiveMinimum = maximumRating > 0 ? 1 : 0;
+            XElement[] minimumNodes = source.Row.Elements("minrating").Take(2).ToArray();
+            if (minimumNodes.Length == 1
+                && TryReadScalarElement(minimumNodes[0], out string minimumText)
+                && int.TryParse(minimumText, NumberStyles.None, CultureInfo.InvariantCulture, out int minimumRating)
+                && minimumRating >= 0
+                && (maximumRating == 0 || minimumRating <= maximumRating))
+            {
+                minimumRatingText = minimumText;
+                effectiveMinimum = minimumRating == 0 && maximumRating > 0 ? 1 : minimumRating;
+            }
+            else if (minimumNodes.Length != 0)
+            {
+                issues.Add("The factory gear minimum rating is not one fixed value inside its source range.");
+            }
+
+            int requestedRating = ReadFactoryInstructionRating(instruction, issues);
+            int effectiveMaximum = maximumRating == 0 ? int.MaxValue : maximumRating;
+            rating = Math.Max(Math.Min(requestedRating, effectiveMaximum), effectiveMinimum);
+            quantity = ReadFactoryInstructionQuantity(instruction, issues);
+            consumeCapacity = ReadFactoryConsumeCapacity(instruction, issues);
+            string rawCapacity = ReadOptionalCapacity(source.Row, "capacity", issues);
+            string rawArmorCapacity = ReadOptionalCapacity(source.Row, "armorcapacity", issues);
+            XElement[] capacityOverrides = instruction.Elements("capacity").Take(2).ToArray();
+            if (capacityOverrides.Length == 1
+                && TryReadScalarElement(capacityOverrides[0], out string overrideText)
+                && IsFixedCapacity(overrideText))
+            {
+                rawCapacity = overrideText;
+            }
+            else if (capacityOverrides.Length != 0)
+            {
+                issues.Add("The factory capacity override is not one fixed capacity value.");
+            }
+            capacity = consumeCapacity ? rawCapacity : ZeroConsumedCapacity(rawCapacity);
+            armorCapacity = consumeCapacity ? rawArmorCapacity : ZeroConsumedCapacity(rawArmorCapacity);
+            weight = ReadOptionalFixedDecimalText(source.Row, "weight", issues);
+
+            if (!TryReadScalar(source.Row, "cost", out string cost)
+                || (!decimal.TryParse(cost, NumberStyles.Number, CultureInfo.InvariantCulture, out decimal fixedCost)
+                    || fixedCost < 0m)
+                && !TryReadRatingFactor(cost, out _))
+            {
+                issues.Add("The factory gear cost would require an interactive or unbounded evaluation before it is zeroed.");
+            }
+            XElement[] costForNodes = source.Row.Elements("costfor").Take(2).ToArray();
+            if (costForNodes.Length == 1
+                && (!TryReadScalarElement(costForNodes[0], out string costForText)
+                    || !decimal.TryParse(costForText, NumberStyles.Number, CultureInfo.InvariantCulture, out decimal costFor)
+                    || costFor != 1m)
+                || costForNodes.Length > 1)
+            {
+                issues.Add("Factory gear with a non-unit source cost-for quantity is not projected yet.");
+            }
+            if (string.Equals(name, "Custom Item", StringComparison.Ordinal))
+                issues.Add("Factory Custom Item naming requires an interactive selection.");
+        }
+
+        CharacterVehicleWorkshopProjectionStatus status = Status(issues);
+        return new CharacterVehicleWorkshopFactoryGearEntry(
+            projectionId,
+            chassisSourceId,
+            ordinal,
+            sourceId,
+            name,
+            category,
+            capacity,
+            armorCapacity,
+            minimumRatingText,
+            maximumRatingText,
+            rating,
+            quantity,
+            availability,
+            weight,
+            sourceBook,
+            page,
+            consumeCapacity,
+            sourceNodeDigest,
+            instructionDigest,
+            status,
             UnsupportedReason(issues));
+    }
+
+    private static string ReadFactoryGearReference(XElement instruction, ICollection<string> issues)
+    {
+        XElement[] ids = instruction.Elements("id").Take(2).ToArray();
+        XElement[] names = instruction.Elements("name").Take(2).ToArray();
+        if (ids.Length + names.Length > 1)
+            issues.Add("The factory gear reference is ambiguous.");
+        if (ids.Length + names.Length == 1)
+        {
+            if (instruction.Nodes().OfType<XText>().Any(text => !string.IsNullOrWhiteSpace(text.Value)))
+                issues.Add("The factory gear reference mixes direct text and named fields.");
+            XElement reference = ids.Concat(names).Single();
+            if (TryReadScalarElement(reference, out string value) && ValidText(value))
+                return value;
+            issues.Add("The factory gear reference text is missing or unsafe.");
+            return string.Empty;
+        }
+        if (!instruction.HasElements)
+        {
+            string value = instruction.Value.Trim();
+            if (ValidText(value))
+                return value;
+        }
+        issues.Add("The factory gear instruction has no unique id, name, or direct-text reference.");
+        return string.Empty;
+    }
+
+    private static void AddFactoryGearSourceIssues(XElement row, ICollection<string> issues)
+    {
+        if (row.HasAttributes)
+            issues.Add("The effective factory gear source row has unprojected attributes.");
+        string[] unsupported = row.Elements()
+            .Select(element => element.Name.LocalName)
+            .Where(name => !FactoryGearSourceFields.Contains(name))
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(name => name, StringComparer.Ordinal)
+            .ToArray();
+        if (unsupported.Length != 0)
+        {
+            issues.Add("Factory gear source fields require prompts, children, weapons, bonuses, or matrix behavior: "
+                + string.Join(", ", unsupported) + ".");
+        }
+        string[] duplicates = row.Elements()
+            .Where(element => FactoryGearSourceFields.Contains(element.Name.LocalName)
+                && element.Name.LocalName != "addoncategory")
+            .GroupBy(element => element.Name.LocalName, StringComparer.Ordinal)
+            .Where(group => group.Count() != 1)
+            .Select(group => group.Key)
+            .OrderBy(name => name, StringComparer.Ordinal)
+            .ToArray();
+        if (duplicates.Length != 0)
+        {
+            issues.Add("Factory gear source fields are ambiguous because they occur more than once: "
+                + string.Join(", ", duplicates) + ".");
+        }
+        if (row.Elements("addoncategory").Any(element =>
+                !TryReadScalarElement(element, out string value) || !ValidText(value)))
+        {
+            issues.Add("A factory gear addon category contains unsafe or structured content.");
+        }
+        if (row.Elements("requireparent").Any(element => element.HasAttributes || element.HasElements
+                || !string.IsNullOrWhiteSpace(element.Value)))
+        {
+            issues.Add("The factory gear require-parent marker is not the inert empty form.");
+        }
+    }
+
+    private static int ReadFactoryInstructionRating(XElement instruction, ICollection<string> issues)
+    {
+        XAttribute? attribute = instruction.Attribute("rating");
+        XElement[] elements = instruction.Elements("rating").Take(2).ToArray();
+        if (attribute is not null && elements.Length != 0)
+            issues.Add("The factory gear rating is declared both as an attribute and an element.");
+        string text = attribute?.Value
+            ?? (elements.Length == 1 && TryReadScalarElement(elements[0], out string elementText)
+                ? elementText
+                : "0");
+        if (int.TryParse(text, NumberStyles.None, CultureInfo.InvariantCulture, out int value) && value >= 0)
+            return value;
+        issues.Add("The factory gear rating is not one fixed non-negative integer.");
+        return 0;
+    }
+
+    private static decimal ReadFactoryInstructionQuantity(XElement instruction, ICollection<string> issues)
+    {
+        XAttribute? attribute = instruction.Attribute("qty");
+        if (attribute is null)
+            return 1m;
+        if (decimal.TryParse(attribute.Value, NumberStyles.Number, CultureInfo.InvariantCulture, out decimal value)
+            && value > 0m)
+        {
+            return value;
+        }
+        issues.Add("The factory gear quantity is not one fixed positive number.");
+        return 1m;
+    }
+
+    private static bool ReadFactoryConsumeCapacity(XElement instruction, ICollection<string> issues)
+    {
+        XAttribute? attribute = instruction.Attribute("consumecapacity");
+        if (attribute is null)
+            return false;
+        if (bool.TryParse(attribute.Value, out bool value))
+            return value;
+        issues.Add("The factory gear consume-capacity marker is not a fixed boolean.");
+        return false;
+    }
+
+    private static string ReadOptionalCapacity(XElement row, string field, ICollection<string> issues)
+    {
+        XElement[] nodes = row.Elements(field).Take(2).ToArray();
+        if (nodes.Length == 0)
+            return string.Empty;
+        if (nodes.Length == 1
+            && TryReadScalarElement(nodes[0], out string text)
+            && IsFixedCapacity(text))
+        {
+            return text;
+        }
+        issues.Add($"The factory gear {field} is not one fixed capacity value.");
+        return string.Empty;
+    }
+
+    private static string ReadOptionalFixedDecimalText(XElement row, string field, ICollection<string> issues)
+    {
+        XElement[] nodes = row.Elements(field).Take(2).ToArray();
+        if (nodes.Length == 0)
+            return string.Empty;
+        if (nodes.Length == 1
+            && TryReadScalarElement(nodes[0], out string text)
+            && decimal.TryParse(text, NumberStyles.Number, CultureInfo.InvariantCulture, out decimal value)
+            && value >= 0m)
+        {
+            return text;
+        }
+        issues.Add($"The factory gear {field} is not one fixed non-negative number.");
+        return string.Empty;
+    }
+
+    private static bool IsFixedCapacity(string value)
+    {
+        if (int.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out int scalar) && scalar >= 0)
+            return true;
+        if (IsBracketedNonNegativeInt(value))
+            return true;
+        int slash = value.IndexOf("/[", StringComparison.Ordinal);
+        return slash > 0
+            && int.TryParse(value[..slash], NumberStyles.None, CultureInfo.InvariantCulture, out int prefix)
+            && prefix >= 0
+            && IsBracketedNonNegativeInt(value[(slash + 1)..]);
+    }
+
+    private static bool IsBracketedNonNegativeInt(string value)
+        => value.Length >= 3
+            && value[0] == '['
+            && value[^1] == ']'
+            && int.TryParse(value[1..^1], NumberStyles.None, CultureInfo.InvariantCulture, out int parsed)
+            && parsed >= 0;
+
+    private static string ZeroConsumedCapacity(string value)
+    {
+        int slash = value.IndexOf("/[", StringComparison.Ordinal);
+        return slash < 0 ? "[0]" : value[..slash] + "/[0]";
     }
 
     private static CharacterVehicleWorkshopModificationEntry ProjectModification(
@@ -589,8 +1007,13 @@ internal static class CharacterVehicleWorkshopCatalogProjector
         => new(
             new CharacterVehicleWorkshopSourceBinding(
                 string.Empty, string.Empty, string.Empty, string.Empty, string.Empty,
-                string.Empty, string.Empty, false, 0m, false, 0m, false),
+                string.Empty, string.Empty, string.Empty, false, 0m, false, 0m, false),
             [], [], [], string.Empty);
 
     private readonly record struct SourceIdentity(Guid Id, string Name, string SourceBook);
+
+    private sealed record FactoryGearSourceRow(
+        SourceIdentity Identity,
+        XElement Row,
+        string NodeDigest);
 }

@@ -1704,12 +1704,13 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             catalog = new CharacterVehicleWorkshopCatalog(
                 new CharacterVehicleWorkshopSourceBinding(
                     string.Empty, string.Empty, string.Empty, string.Empty, string.Empty,
-                    string.Empty, string.Empty, false, 0m, false, 0m, false),
+                    string.Empty, string.Empty, string.Empty, false, 0m, false, 0m, false),
                 [], [], [], string.Empty);
             if (!_droneMods.HasValue
                 || string.IsNullOrWhiteSpace(_settingsProfileId)
                 || !TryComputeEffectiveInputDigest(_catalog, "vehicles.xml", out string vehiclesDigest)
                 || !TryComputeEffectiveInputDigest(_catalog, "weapons.xml", out string weaponsDigest)
+                || !TryComputeEffectiveInputDigest(_catalog, "gear.xml", out string gearDigest)
                 || !TryComputeSelectedCustomDataInputsDigestFor(
                     _customDirectories,
                     "vehicles.xml",
@@ -1718,7 +1719,12 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                     _customDirectories,
                     "weapons.xml",
                     out string weaponCustomDigest)
+                || !TryComputeSelectedCustomDataInputsDigestFor(
+                    _customDirectories,
+                    "gear.xml",
+                    out string gearCustomDigest)
                 || !TryEnumerateTargets("vehicles.xml", ["vehicles"], "vehicle", out XElement[] vehicleRows)
+                || !TryEnumerateTargets("gear.xml", ["gears"], "gear", out XElement[] gearRows)
                 || !TryEnumerateTargets("vehicles.xml", ["mods"], "mod", out XElement[] modificationRows)
                 || !TryEnumerateTargets(
                     "vehicles.xml",
@@ -1761,8 +1767,10 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 _selectedCustomDataInputsDigest,
                 vehicleCustomDigest,
                 weaponCustomDigest,
+                gearCustomDigest,
                 vehiclesDigest,
-                weaponsDigest));
+                weaponsDigest,
+                gearDigest));
             return CharacterVehicleWorkshopCatalogProjector.TryProject(
                 _settingsProfileId,
                 CharacterVehicleWorkshopRules.ComputeCharacterDigest(string.Join(
@@ -1777,6 +1785,10 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                     '\0',
                     "sr5-vehicle-workshop-weapons-binding-v1",
                     weaponsDigest)),
+                CharacterVehicleWorkshopRules.ComputeCharacterDigest(string.Join(
+                    '\0',
+                    "sr5-vehicle-workshop-gear-binding-v1",
+                    gearDigest)),
                 overlayDigest,
                 _droneMods.Value,
                 multiplyRestricted,
@@ -1784,6 +1796,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 multiplyForbidden,
                 forbiddenMultiplier,
                 vehicleRows,
+                gearRows,
                 modificationRows,
                 weaponMountRows,
                 IsEnabledSource,

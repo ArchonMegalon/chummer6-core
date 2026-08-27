@@ -47,6 +47,10 @@ public readonly record struct CharacterVehicleModificationSourceId(Guid Value);
 
 public readonly record struct CharacterVehicleWeaponMountComponentSourceId(Guid Value);
 
+public readonly record struct CharacterVehicleFactoryGearProjectionId(Guid Value);
+
+public readonly record struct CharacterVehicleFactoryGearSourceId(Guid Value);
+
 public readonly record struct CharacterVehicleInstanceId(Guid Value);
 
 public readonly record struct CharacterVehicleModificationInstanceId(Guid Value);
@@ -54,6 +58,8 @@ public readonly record struct CharacterVehicleModificationInstanceId(Guid Value)
 public readonly record struct CharacterVehicleWeaponMountInstanceId(Guid Value);
 
 public readonly record struct CharacterVehicleWeaponMountComponentInstanceId(Guid Value);
+
+public readonly record struct CharacterVehicleFactoryGearInstanceId(Guid Value);
 
 public sealed record CharacterVehicleWorkshopAvailability(
     int Value,
@@ -71,6 +77,7 @@ public sealed record CharacterVehicleWorkshopSourceBinding(
     string ProfileDigest,
     string VehiclesDigest,
     string WeaponsDigest,
+    string GearDigest,
     string OverlayDigest,
     bool MultiplyRestrictedCost,
     decimal RestrictedCostMultiplier,
@@ -102,6 +109,35 @@ public sealed record CharacterVehicleWorkshopChassisEntry(
     string SourceBook,
     string Page,
     string GmAuthorityDigest,
+    CharacterVehicleWorkshopProjectionStatus ProjectionStatus,
+    string UnsupportedReason,
+    IReadOnlyList<CharacterVehicleWorkshopFactoryGearEntry> FactoryGears);
+
+/// <summary>
+/// A factory-installed child projected from one vehicle instruction and one
+/// effective gear.xml source row. ProjectionId is source-stable; the saved
+/// instance identity is derived from it and the new vehicle identity at commit.
+/// </summary>
+public sealed record CharacterVehicleWorkshopFactoryGearEntry(
+    CharacterVehicleFactoryGearProjectionId ProjectionId,
+    CharacterVehicleChassisSourceId ChassisSourceId,
+    int Ordinal,
+    CharacterVehicleFactoryGearSourceId SourceId,
+    string Name,
+    string Category,
+    string Capacity,
+    string ArmorCapacity,
+    string MinimumRating,
+    string MaximumRating,
+    int Rating,
+    decimal Quantity,
+    CharacterVehicleWorkshopAvailability Availability,
+    string Weight,
+    string SourceBook,
+    string Page,
+    bool ConsumeCapacity,
+    string SourceNodeDigest,
+    string InstructionNodeDigest,
     CharacterVehicleWorkshopProjectionStatus ProjectionStatus,
     string UnsupportedReason);
 

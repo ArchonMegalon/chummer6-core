@@ -24,6 +24,7 @@ public sealed class CharacterVehicleWorkshopSourceResolverTests
         Assert.IsTrue(CharacterVehicleWorkshopRules.IsCanonicalDigest(catalog.Binding.ProfileDigest));
         Assert.IsTrue(CharacterVehicleWorkshopRules.IsCanonicalDigest(catalog.Binding.VehiclesDigest));
         Assert.IsTrue(CharacterVehicleWorkshopRules.IsCanonicalDigest(catalog.Binding.WeaponsDigest));
+        Assert.IsTrue(CharacterVehicleWorkshopRules.IsCanonicalDigest(catalog.Binding.GearDigest));
         Assert.IsTrue(CharacterVehicleWorkshopRules.IsCanonicalDigest(catalog.Binding.OverlayDigest));
         Assert.AreEqual(
             CharacterVehicleWorkshopRules.ComputeCatalogDigest(catalog),
@@ -42,7 +43,7 @@ public sealed class CharacterVehicleWorkshopSourceResolverTests
     }
 
     [TestMethod]
-    public void Factory_children_dynamic_semantics_and_mount_constraints_remain_visible_but_fail_closed()
+    public void Supported_factory_gear_is_typed_while_dynamic_children_and_mount_constraints_fail_closed()
     {
         ICharacterSourceDataContext context = CreateContext(FullHouseCharacterXml());
         Assert.IsTrue(context.TryResolveVehicleWorkshopCatalog(out CharacterVehicleWorkshopCatalog catalog));
@@ -50,8 +51,28 @@ public sealed class CharacterVehicleWorkshopSourceResolverTests
         CharacterVehicleWorkshopChassisEntry scoot = catalog.Chassis.Single(item =>
             item.Name == "Dodge Scoot (Scooter)");
         Assert.AreEqual(CharacterVehicleWorkshopProjectionStatus.Unsupported, scoot.ProjectionStatus);
-        StringAssert.Contains(scoot.UnsupportedReason, "gears");
         StringAssert.Contains(scoot.UnsupportedReason, "mods");
+        Assert.HasCount(1, scoot.FactoryGears);
+        CharacterVehicleWorkshopFactoryGearEntry sensor = scoot.FactoryGears.Single();
+        Assert.AreEqual(CharacterVehicleWorkshopProjectionStatus.Exact, sensor.ProjectionStatus,
+            sensor.UnsupportedReason);
+        Assert.AreEqual(Guid.Parse("2ca81a10-d0f7-4b39-ac93-a84f2f69f9d9"), sensor.SourceId.Value);
+        Assert.AreEqual("Sensor Array", sensor.Name);
+        Assert.AreEqual(2, sensor.Rating);
+        Assert.AreEqual("8", sensor.MaximumRating);
+        Assert.AreEqual("8/[0]", sensor.Capacity);
+        Assert.AreEqual("[0]", sensor.ArmorCapacity);
+        Assert.IsTrue(CharacterVehicleWorkshopRules.IsCanonicalDigest(sensor.SourceNodeDigest));
+        Assert.IsTrue(CharacterVehicleWorkshopRules.IsCanonicalDigest(sensor.InstructionNodeDigest));
+        Assert.AreEqual(
+            CharacterVehicleWorkshopRules.DeriveFactoryGearProjectionId(
+                scoot.SourceId, sensor.SourceId, sensor.Ordinal, sensor.InstructionNodeDigest),
+            sensor.ProjectionId);
+
+        CharacterVehicleWorkshopFactoryGearEntry promptDriven = catalog.Chassis
+            .SelectMany(item => item.FactoryGears)
+            .First(item => item.UnsupportedReason.Contains("select", StringComparison.Ordinal));
+        Assert.AreEqual(CharacterVehicleWorkshopProjectionStatus.Unsupported, promptDriven.ProjectionStatus);
 
         CharacterVehicleWorkshopModificationEntry smartTires = catalog.Modifications.Single(item =>
             item.Name == "Smart Tires");

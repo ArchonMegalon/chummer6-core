@@ -13,6 +13,7 @@ public sealed class CharacterVehicleWorkshopAuthorityTests
     private static readonly CharacterVehicleModificationSourceId s_ArmorMod = new(Guid.Parse("20000000-0000-4000-8000-000000000001"));
     private static readonly CharacterVehicleModificationSourceId s_UnsupportedMod = new(Guid.Parse("20000000-0000-4000-8000-000000000002"));
     private static readonly CharacterVehicleModificationSourceId s_FixedMod = new(Guid.Parse("20000000-0000-4000-8000-000000000003"));
+    private static readonly CharacterVehicleFactoryGearSourceId s_SensorArraySource = new(Guid.Parse("2ca81a10-d0f7-4b39-ac93-a84f2f69f9d9"));
     private static readonly CharacterVehicleInstanceId s_VehicleInstance = new(Guid.Parse("30000000-0000-4000-8000-000000000001"));
     private static readonly CharacterVehicleModificationInstanceId s_ModInstance = new(Guid.Parse("30000000-0000-4000-8000-000000000002"));
     private static readonly CharacterVehicleWeaponMountInstanceId s_MountInstance = new(Guid.Parse("30000000-0000-4000-8000-000000000003"));
@@ -93,6 +94,19 @@ public sealed class CharacterVehicleWorkshopAuthorityTests
         Assert.AreEqual(1, XDocument.Parse(committed.CharacterXml).Descendants("expense").Count());
         Assert.AreEqual("AddVehicle", XDocument.Parse(committed.CharacterXml).Descendants("nuyentype").Single().Value);
         Assert.AreEqual("+4R", XDocument.Parse(committed.CharacterXml).Descendants("mod").Single().Element("avail")!.Value);
+        XElement factoryGear = XDocument.Parse(committed.CharacterXml).Root!
+            .Element("vehicles")!.Element("vehicle")!.Element("gears")!.Elements("gear").Single();
+        CharacterVehicleWorkshopFactoryGearEntry projectedGear = Catalog().Chassis
+            .Single(item => item.SourceId == s_StockChassis).FactoryGears.Single();
+        CharacterVehicleFactoryGearInstanceId expectedGearId = CharacterVehicleWorkshopRules
+            .DeriveFactoryGearInstanceId(s_VehicleInstance, projectedGear.ProjectionId);
+        Assert.AreEqual(s_SensorArraySource.Value.ToString("D"), factoryGear.Element("sourceid")!.Value);
+        Assert.AreEqual(expectedGearId.Value.ToString("D"), factoryGear.Element("guid")!.Value);
+        Assert.AreEqual(s_VehicleInstance.Value.ToString("D"), factoryGear.Element("parentid")!.Value);
+        Assert.AreEqual("2", factoryGear.Element("rating")!.Value);
+        Assert.AreEqual("8/[0]", factoryGear.Element("capacity")!.Value);
+        Assert.AreEqual("[0]", factoryGear.Element("armorcapacity")!.Value);
+        Assert.AreEqual("0", factoryGear.Element("cost")!.Value);
         Assert.IsNotNull(committed.Receipt);
         Assert.AreEqual(64, committed.Receipt.ReceiptDigest.Length);
 
@@ -107,6 +121,15 @@ public sealed class CharacterVehicleWorkshopAuthorityTests
             committed.CharacterXml, committed.NewContentRevision, catalog, command);
         Assert.AreEqual(CharacterVehicleWorkshopCommitStatus.Recovered, directRecovery.Status);
         Assert.AreEqual(committed.Receipt.ReceiptDigest, directRecovery.Receipt!.ReceiptDigest);
+
+        XDocument tamperedDocument = XDocument.Parse(committed.CharacterXml);
+        tamperedDocument.Descendants("gear").Single().Element("rating")!.Value = "3";
+        string tamperedXml = tamperedDocument.ToString(SaveOptions.DisableFormatting);
+        CharacterVehicleWorkshopCommitResult tamperedRecovery = authority.Recover(
+            tamperedXml, committed.NewContentRevision, catalog, command);
+        Assert.AreEqual(CharacterVehicleWorkshopCommitStatus.Blocked, tamperedRecovery.Status);
+        Assert.AreEqual(CharacterVehicleWorkshopBlockers.StaleReceipt, tamperedRecovery.BlockReason);
+        Assert.AreEqual(tamperedXml, tamperedRecovery.CharacterXml);
 
         CharacterVehicleWorkshopCommitResult conflict = authority.Commit(
             committed.CharacterXml,
@@ -221,6 +244,20 @@ public sealed class CharacterVehicleWorkshopAuthorityTests
         Assert.AreEqual(CharacterVehicleWorkshopBlockers.StaleRevision, stale.BlockReason);
         Assert.AreEqual(before, stale.CharacterXml);
 
+        CharacterVehicleWorkshopCatalog changedGearSource = catalog with
+        {
+            Binding = catalog.Binding with { GearDigest = Digest("changed-effective-gear.xml") }
+        };
+        changedGearSource = changedGearSource with
+        {
+            DeclaredCatalogDigest = CharacterVehicleWorkshopRules.ComputeCatalogDigest(changedGearSource)
+        };
+        CharacterVehicleWorkshopCommitResult staleGearCatalog = authority.Commit(
+            before, 5, changedGearSource, command);
+        Assert.AreEqual(CharacterVehicleWorkshopCommitStatus.Blocked, staleGearCatalog.Status);
+        Assert.AreEqual(CharacterVehicleWorkshopBlockers.StaleCatalog, staleGearCatalog.BlockReason);
+        Assert.AreEqual(before, staleGearCatalog.CharacterXml);
+
         CharacterVehicleWorkshopCommitResult committed = authority.Commit(before, 5, catalog, command);
         CharacterVehicleWorkshopCommitReceipt tampered = committed.Receipt! with
         {
@@ -287,6 +324,7 @@ public sealed class CharacterVehicleWorkshopAuthorityTests
             Digest("profile"),
             Digest("vehicles.xml"),
             Digest("weapons.xml"),
+            Digest("gear.xml"),
             Digest("ordered-overlay-set"),
             MultiplyRestrictedCost: false,
             RestrictedCostMultiplier: 1m,
@@ -298,11 +336,12 @@ public sealed class CharacterVehicleWorkshopAuthorityTests
             new(s_StockChassis, CharacterVehicleChassisKind.Vehicle, CharacterVehicleChassisPosture.Stock,
                 "GMC Test Roadmaster", "Trucks", 3, 2, 2, 1, 4, 3, 3, 12, 6, 10, 3,
                 8, 6, 5_000m, new CharacterVehicleWorkshopAvailability(4, CharacterVehicleWorkshopLegality.Legal, false),
-                "SR5", "462", string.Empty, CharacterVehicleWorkshopProjectionStatus.Exact, string.Empty),
+                "SR5", "462", string.Empty, CharacterVehicleWorkshopProjectionStatus.Exact, string.Empty,
+                [FactoryGear(s_StockChassis)]),
             new(s_CustomChassis, CharacterVehicleChassisKind.Drone, CharacterVehicleChassisPosture.GmApprovedCustom,
                 "GM Custom Drone", "Drones: Small", 4, 4, 3, 3, 3, 3, 3, 3, 0, 2, 3,
                 4, 4, 1_000m, new CharacterVehicleWorkshopAvailability(0, CharacterVehicleWorkshopLegality.Legal, false),
-                "CUSTOM", "GM", s_GmDigest, CharacterVehicleWorkshopProjectionStatus.Exact, string.Empty)
+                "CUSTOM", "GM", s_GmDigest, CharacterVehicleWorkshopProjectionStatus.Exact, string.Empty, [])
         ];
         CharacterVehicleWorkshopModificationEntry[] modifications =
         [
@@ -330,6 +369,36 @@ public sealed class CharacterVehicleWorkshopAuthorityTests
         ];
         var unbound = new CharacterVehicleWorkshopCatalog(binding, chassis, modifications, components, string.Empty);
         return unbound with { DeclaredCatalogDigest = CharacterVehicleWorkshopRules.ComputeCatalogDigest(unbound) };
+    }
+
+    private static CharacterVehicleWorkshopFactoryGearEntry FactoryGear(
+        CharacterVehicleChassisSourceId chassisSourceId)
+    {
+        string instructionDigest = Digest("<gear><name>Sensor Array</name><rating>1</rating></gear>");
+        CharacterVehicleFactoryGearProjectionId projectionId = CharacterVehicleWorkshopRules
+            .DeriveFactoryGearProjectionId(chassisSourceId, s_SensorArraySource, 0, instructionDigest);
+        return new CharacterVehicleWorkshopFactoryGearEntry(
+            projectionId,
+            chassisSourceId,
+            0,
+            s_SensorArraySource,
+            "Sensor Array",
+            "Sensors",
+            "8/[0]",
+            "[0]",
+            "2",
+            "8",
+            2,
+            1m,
+            new CharacterVehicleWorkshopAvailability(7, CharacterVehicleWorkshopLegality.Legal, false),
+            string.Empty,
+            "SR5",
+            "445",
+            ConsumeCapacity: false,
+            SourceNodeDigest: Digest("sensor-array-source"),
+            InstructionNodeDigest: instructionDigest,
+            CharacterVehicleWorkshopProjectionStatus.Exact,
+            UnsupportedReason: string.Empty);
     }
 
     private static CharacterVehicleWeaponMountComponentEntry Component(

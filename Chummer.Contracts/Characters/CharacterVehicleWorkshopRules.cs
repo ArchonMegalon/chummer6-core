@@ -27,7 +27,7 @@ public static class CharacterVehicleWorkshopBlockers
 public static class CharacterVehicleWorkshopRules
 {
     public const string RulesetId = "SR5";
-    public const string SemanticsVersion = "chummer-sr5-vehicle-workshop-v1";
+    public const string SemanticsVersion = "chummer-sr5-vehicle-workshop-v2";
     public const int MaximumIdempotencyKeyLength = 200;
     public const int MaximumCustomNameLength = 200;
 
@@ -231,17 +231,18 @@ public static class CharacterVehicleWorkshopRules
         ArgumentNullException.ThrowIfNull(catalog);
         CharacterVehicleWorkshopSourceBinding binding = catalog.Binding
             ?? new CharacterVehicleWorkshopSourceBinding(string.Empty, string.Empty, string.Empty,
-                string.Empty, string.Empty, string.Empty, string.Empty,
+                string.Empty, string.Empty, string.Empty, string.Empty, string.Empty,
                 false, 0m, false, 0m, false);
         var lines = new List<string>
         {
-            "sr5-vehicle-workshop-catalog-v1",
+            "sr5-vehicle-workshop-catalog-v2",
             binding.RulesetId,
             binding.ProfileId,
             binding.SemanticsVersion,
             binding.ProfileDigest,
             binding.VehiclesDigest,
             binding.WeaponsDigest,
+            binding.GearDigest,
             binding.OverlayDigest,
             binding.MultiplyRestrictedCost.ToString(CultureInfo.InvariantCulture),
             binding.RestrictedCostMultiplier.ToString(CultureInfo.InvariantCulture),
@@ -260,6 +261,26 @@ public static class CharacterVehicleWorkshopRules
 
     public static string ComputeCharacterDigest(string characterXml) => Digest(characterXml ?? string.Empty);
 
+    public static CharacterVehicleFactoryGearProjectionId DeriveFactoryGearProjectionId(
+        CharacterVehicleChassisSourceId chassisSourceId,
+        CharacterVehicleFactoryGearSourceId gearSourceId,
+        int ordinal,
+        string instructionNodeDigest)
+        => new(DeriveGuid(string.Join("\n",
+            "sr5-vehicle-workshop-factory-gear-projection-v1",
+            chassisSourceId.Value.ToString("D"),
+            gearSourceId.Value.ToString("D"),
+            ordinal.ToString(CultureInfo.InvariantCulture),
+            instructionNodeDigest ?? string.Empty)));
+
+    public static CharacterVehicleFactoryGearInstanceId DeriveFactoryGearInstanceId(
+        CharacterVehicleInstanceId vehicleInstanceId,
+        CharacterVehicleFactoryGearProjectionId projectionId)
+        => new(DeriveGuid(string.Join("\n",
+            "sr5-vehicle-workshop-factory-gear-instance-v1",
+            vehicleInstanceId.Value.ToString("D"),
+            projectionId.Value.ToString("D"))));
+
     public static string ComputeIdempotencyKeyDigest(string value) => Digest(value ?? string.Empty);
 
     public static string ComputeCommandDigest(CharacterVehicleWorkshopCommitCommand command)
@@ -268,7 +289,7 @@ public static class CharacterVehicleWorkshopRules
         CharacterVehicleWorkshopSelection selection = command.Selection;
         var lines = new List<string>
         {
-            "sr5-vehicle-workshop-command-v1",
+            "sr5-vehicle-workshop-command-v2",
             command.ExpectedContentRevision.ToString(CultureInfo.InvariantCulture),
             command.ExpectedCharacterDigest,
             command.ExpectedCatalogDigest,
@@ -297,7 +318,7 @@ public static class CharacterVehicleWorkshopRules
     {
         ArgumentNullException.ThrowIfNull(receipt);
         return Digest(string.Join("\n",
-            "sr5-vehicle-workshop-receipt-v1",
+            "sr5-vehicle-workshop-receipt-v2",
             receipt.ContentRevision.ToString(CultureInfo.InvariantCulture),
             receipt.CharacterDigest,
             receipt.PreviousContentRevision.ToString(CultureInfo.InvariantCulture),
@@ -374,7 +395,7 @@ public static class CharacterVehicleWorkshopRules
     {
         var lines = new List<string>
         {
-            "sr5-vehicle-workshop-quote-v1",
+            "sr5-vehicle-workshop-quote-v2",
             preparation.ContentRevision.ToString(CultureInfo.InvariantCulture),
             preparation.CharacterDigest,
             preparation.CatalogDigest,
@@ -403,13 +424,29 @@ public static class CharacterVehicleWorkshopRules
     {
         CharacterVehicleWorkshopAvailability availability = item.Availability
             ?? new CharacterVehicleWorkshopAvailability(-1, (CharacterVehicleWorkshopLegality)(-1), false);
-        return string.Join("|", "chassis", item.SourceId.Value.ToString("D"), item.Kind, item.Posture,
+        string chassis = string.Join("|", "chassis", item.SourceId.Value.ToString("D"), item.Kind, item.Posture,
             item.Name, item.Category, item.Handling, item.OffRoadHandling, item.Acceleration,
             item.OffRoadAcceleration, item.Speed, item.OffRoadSpeed, item.Pilot, item.Body,
             item.Seats, item.Armor, item.Sensor, item.ModificationSlots, item.ModificationCapacity,
             item.Cost.ToString(CultureInfo.InvariantCulture), availability.Value,
             availability.Legality, availability.AddToParent, item.SourceBook, item.Page, item.GmAuthorityDigest,
             item.ProjectionStatus, item.UnsupportedReason);
+        return string.Join("\n", new[] { chassis }.Concat((item.FactoryGears ?? [])
+            .OrderBy(gear => gear?.Ordinal ?? int.MinValue)
+            .Select(gear => gear is null ? "null-factory-gear" : CanonicalFactoryGear(gear))));
+    }
+
+    private static string CanonicalFactoryGear(CharacterVehicleWorkshopFactoryGearEntry item)
+    {
+        CharacterVehicleWorkshopAvailability availability = item.Availability
+            ?? new CharacterVehicleWorkshopAvailability(-1, (CharacterVehicleWorkshopLegality)(-1), false);
+        return string.Join("|", "factory-gear", item.ProjectionId.Value.ToString("D"),
+            item.ChassisSourceId.Value.ToString("D"), item.Ordinal, item.SourceId.Value.ToString("D"),
+            item.Name, item.Category, item.Capacity, item.ArmorCapacity, item.MinimumRating,
+            item.MaximumRating, item.Rating, item.Quantity.ToString(CultureInfo.InvariantCulture),
+            availability.Value, availability.Legality, availability.AddToParent, item.Weight,
+            item.SourceBook, item.Page, item.ConsumeCapacity, item.SourceNodeDigest,
+            item.InstructionNodeDigest, item.ProjectionStatus, item.UnsupportedReason);
     }
 
     private static string CanonicalModification(CharacterVehicleWorkshopModificationEntry item)
@@ -440,4 +477,12 @@ public static class CharacterVehicleWorkshopRules
 
     private static string Digest(string value)
         => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value))).ToLowerInvariant();
+
+    private static Guid DeriveGuid(string value)
+    {
+        byte[] bytes = SHA256.HashData(Encoding.UTF8.GetBytes(value));
+        bytes[6] = (byte)((bytes[6] & 0x0f) | 0x50);
+        bytes[8] = (byte)((bytes[8] & 0x3f) | 0x80);
+        return new Guid(bytes.AsSpan(0, 16));
+    }
 }
