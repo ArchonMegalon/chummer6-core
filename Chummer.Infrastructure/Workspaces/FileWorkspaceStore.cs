@@ -1603,6 +1603,13 @@ public sealed class FileWorkspaceStore :
             currentContentRevision,
             gearDraft,
             gearReceipts);
+        CharacterCreationCustomDrugFinalizationContribution? customDrugContribution =
+            state.CharacterCreationCustomDrugContribution;
+        bool customDrugContributionValid = customDrugContribution is null
+            || CharacterCreationCustomDrugContributionRules.IsPersistable(
+                customDrugContribution,
+                workspaceId,
+                currentContentRevision);
         CharacterCreationQualitiesDraft? qualitiesDraft =
             state.CharacterCreationQualitiesDraft;
         IReadOnlyList<CharacterCreationQualitiesDraftReceipt>? qualitiesReceipts =
@@ -1646,6 +1653,7 @@ public sealed class FileWorkspaceStore :
                && lifestyleReceiptsValid
                && resourcesValid
                && gearValid
+               && customDrugContributionValid
                && qualitiesValid
                && afterRunReceiptsValid
                && bootstrapValid
@@ -1743,6 +1751,10 @@ public sealed class FileWorkspaceStore :
             replacementState.CharacterCreationGearReceipts;
         IReadOnlyList<CharacterCreationGearReceiptLedgerEntry>? currentGearReceipts =
             currentState.CharacterCreationGearReceipts;
+        CharacterCreationCustomDrugFinalizationContribution? replacementCustomDrug =
+            replacementState.CharacterCreationCustomDrugContribution;
+        CharacterCreationCustomDrugFinalizationContribution? currentCustomDrug =
+            currentState.CharacterCreationCustomDrugContribution;
         CharacterCreationQualitiesDraft? replacementQualities =
             replacementState.CharacterCreationQualitiesDraft;
         CharacterCreationQualitiesDraft? currentQualities =
@@ -1797,6 +1809,9 @@ public sealed class FileWorkspaceStore :
             currentGearReceipts,
             replacementGearDraft,
             replacementGearReceipts);
+        bool customDrugUnchanged = HasSameCustomDrugContribution(
+            currentCustomDrug,
+            replacementCustomDrug);
         bool qualitiesUnchanged = HasSameQualitiesLane(
             currentQualities,
             currentQualityReceipts,
@@ -1817,6 +1832,7 @@ public sealed class FileWorkspaceStore :
                                + (lifestyleReceiptsUnchanged ? 0 : 1)
                                + (resourcesUnchanged ? 0 : 1)
                                + (gearUnchanged ? 0 : 1)
+                               + (customDrugUnchanged ? 0 : 1)
                                + (qualitiesUnchanged ? 0 : 1)
                                + (afterRunReceiptsUnchanged ? 0 : 1)
                                + (bootstrapUnchanged ? 0 : 1);
@@ -1951,6 +1967,18 @@ public sealed class FileWorkspaceStore :
                 currentDocument,
                 replacementDocument);
         }
+        if (!customDrugUnchanged)
+        {
+            return IsValidCustomDrugContributionTransition(
+                workspaceId,
+                previousContentRevision,
+                previousSavedRevision,
+                nextContentRevision,
+                currentCustomDrug,
+                replacementCustomDrug,
+                currentDocument,
+                replacementDocument);
+        }
         return CharacterCreationContactReceiptLedgerIntegrity.IsValidAppendTransition(
                    workspaceId,
                    previousContentRevision,
@@ -1963,6 +1991,45 @@ public sealed class FileWorkspaceStore :
                    replacementContactReceipts[^1],
                    currentDocument,
                    replacementDocument);
+    }
+
+    private static bool HasSameCustomDrugContribution(
+        CharacterCreationCustomDrugFinalizationContribution? current,
+        CharacterCreationCustomDrugFinalizationContribution? replacement) =>
+        current is null && replacement is null
+        || current is not null
+        && replacement is not null
+        && CharacterCreationFinalizationDigest.EqualsFixedTime(
+            current.ContributionDigest,
+            replacement.ContributionDigest);
+
+    private static bool IsValidCustomDrugContributionTransition(
+        CharacterWorkspaceId workspaceId,
+        long previousContentRevision,
+        long previousSavedRevision,
+        long nextContentRevision,
+        CharacterCreationCustomDrugFinalizationContribution? current,
+        CharacterCreationCustomDrugFinalizationContribution? replacement,
+        WorkspaceDocument currentDocument,
+        WorkspaceDocument replacementDocument)
+    {
+        _ = current;
+        return replacement is not null
+               && previousSavedRevision == previousContentRevision
+               && nextContentRevision == previousContentRevision + 1
+               && replacement.ExpectedContentRevision == nextContentRevision
+               && CharacterCreationCustomDrugContributionRules.IsValid(
+                   replacement,
+                   workspaceId,
+                   nextContentRevision)
+               && string.Equals(
+                   currentDocument.Content,
+                   replacementDocument.Content,
+                   StringComparison.Ordinal)
+               && string.Equals(
+                   replacement.ExpectedCharacterDigest,
+                   CharacterCustomDrugRules.ComputeCharacterDigest(currentDocument.Content),
+                   StringComparison.Ordinal);
     }
 
     private static bool IsValidBootstrapTransition(

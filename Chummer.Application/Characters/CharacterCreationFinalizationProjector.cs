@@ -43,6 +43,8 @@ public static class CharacterCreationFinalizationProjector
         CharacterCreationQualitiesDraft? qualities = auxiliary.CharacterCreationQualitiesDraft;
         CharacterCreationResourcesDraft? resources = auxiliary.CharacterCreationResourcesDraft;
         CharacterCreationGearDraft? gear = auxiliary.CharacterCreationGearDraft;
+        CharacterCreationCustomDrugFinalizationContribution? customDrug =
+            auxiliary.CharacterCreationCustomDrugContribution;
 
         if (prerequisite is null)
             failures.Add(CharacterCreationFinalizationBlockers.PrerequisiteDraftRequired);
@@ -59,6 +61,16 @@ public static class CharacterCreationFinalizationProjector
             failures.Add(CharacterCreationFinalizationBlockers.ResourcesDraftRequired);
         if (gear is null)
             failures.Add(CharacterCreationFinalizationBlockers.GearDraftRequired);
+        if (customDrug is not null
+            && (!CharacterCreationCustomDrugContributionRules.IsValid(
+                    customDrug,
+                    workspace.Id,
+                    workspace.ContentRevision)
+                || !string.Equals(
+                    customDrug.ExpectedCharacterDigest,
+                    CharacterCustomDrugRules.ComputeCharacterDigest(workspace.Document.Content),
+                    StringComparison.Ordinal)))
+            failures.Add(CharacterCreationFinalizationBlockers.CustomDrugContributionInvalid);
         if (failures.Count != 0)
         {
             blockers = Normalize(failures);
@@ -108,6 +120,8 @@ public static class CharacterCreationFinalizationProjector
             }
             EnsureEmptyOwnedContainer(root, "qualities");
             EnsureEmptyOwnedContainer(root, "gears");
+            if (customDrug is not null)
+                EnsureEmptyOwnedContainer(root, "drugs");
 
             CharacterCreationPriorityHeritageSelection heritage = prerequisite.HeritageSelection!;
             var projected = new List<CharacterCreationFinalizationDelta>();
@@ -162,6 +176,10 @@ public static class CharacterCreationFinalizationProjector
                 projected,
                 ref order);
             ReplaceDirect(root, BuildGearGraph(gear, projected, ref order));
+            if (customDrug is not null)
+            {
+                ReplaceDirect(root, BuildCustomDrugGraph(customDrug, projected, ref order));
+            }
             SetDirect(root, "karma", karmaRemaining.ToString(CultureInfo.InvariantCulture));
             SetDirect(root, "nuyen", nuyenRemaining.ToString(CultureInfo.InvariantCulture));
             SetDirect(root, "startingnuyen", startingNuyen.ToString(CultureInfo.InvariantCulture));
@@ -187,6 +205,8 @@ public static class CharacterCreationFinalizationProjector
                 .Concat(qualities.SourceAnchorIds)
                 .Concat(resources.SourceAnchorIds)
                 .Concat(gear.FinalizationContribution.SourceAnchorIds)
+                .Concat(customDrug?.Quote.Components
+                    .SelectMany(static component => component.SourceAnchorIds) ?? [])
                 .Distinct(StringComparer.Ordinal)
                 .OrderBy(static anchor => anchor, StringComparer.Ordinal)
                 .ToArray();
@@ -355,6 +375,37 @@ public static class CharacterCreationFinalizationProjector
                 line.SourceAnchorIds);
         }
         return container;
+    }
+
+    private static XElement BuildCustomDrugGraph(
+        CharacterCreationCustomDrugFinalizationContribution contribution,
+        ICollection<CharacterCreationFinalizationDelta> deltas,
+        ref int order)
+    {
+        XElement drug = XElement.Parse(contribution.ProjectedDrugXml, LoadOptions.None);
+        if (!string.Equals(
+                CharacterCustomDrugRules.ComputeCharacterDigest(
+                    drug.ToString(SaveOptions.DisableFormatting)),
+                contribution.ProjectedDrugXmlDigest,
+                StringComparison.Ordinal))
+            throw new InvalidDataException("Creation custom-drug projection digest is stale.");
+        string[] anchors = contribution.Quote.Components
+            .SelectMany(static component => component.SourceAnchorIds)
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(static anchor => anchor, StringComparer.Ordinal)
+            .ToArray();
+        AddDelta(
+            deltas,
+            ref order,
+            $"custom-drug:{contribution.NewDrugInstanceId.Value:D}",
+            CharacterCreationFinalizationDeltaKinds.CustomDrug,
+            contribution.NewDrugInstanceId.Value.ToString("D", CultureInfo.InvariantCulture),
+            null,
+            contribution.Quote.Name,
+            0,
+            contribution.Quote.ChargedCost,
+            anchors);
+        return new XElement("drugs", drug);
     }
 
     private static XElement BuildSkill(CharacterCreationSkillProjection skill, string draftDigest)

@@ -205,6 +205,8 @@ public static class ServiceCollectionExtensions
             CharacterCreationResourcesService>();
         services.AddSingleton<ICharacterCreationGearService,
             CharacterCreationGearService>();
+        services.AddSingleton<ICharacterCreationCustomDrugContributionService,
+            CharacterCreationCustomDrugContributionService>();
         services.AddSingleton<ICharacterCreationFinalizationService,
             CharacterCreationFinalizationService>();
         services.TryAddSingleton<ICharacterCareerSkillGroupAdvanceWorkspace,

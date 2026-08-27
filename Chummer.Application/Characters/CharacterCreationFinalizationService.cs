@@ -16,6 +16,7 @@ public sealed class CharacterCreationFinalizationService : ICharacterCreationFin
     private readonly ICharacterCreationMagicResonanceService _magicResonance;
     private readonly ICharacterCreationResourcesService _resources;
     private readonly ICharacterCreationGearService _gear;
+    private readonly ICharacterCustomDrugAuthority _customDrugs;
 
     public CharacterCreationFinalizationService(
         IWorkspaceStore store,
@@ -26,7 +27,8 @@ public sealed class CharacterCreationFinalizationService : ICharacterCreationFin
         ICharacterCreationQualitiesService qualities,
         ICharacterCreationMagicResonanceService magicResonance,
         ICharacterCreationResourcesService resources,
-        ICharacterCreationGearService gear)
+        ICharacterCreationGearService gear,
+        ICharacterCustomDrugAuthority customDrugs)
     {
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _characterFileQueries = characterFileQueries ?? throw new ArgumentNullException(nameof(characterFileQueries));
@@ -37,6 +39,7 @@ public sealed class CharacterCreationFinalizationService : ICharacterCreationFin
         _magicResonance = magicResonance ?? throw new ArgumentNullException(nameof(magicResonance));
         _resources = resources ?? throw new ArgumentNullException(nameof(resources));
         _gear = gear ?? throw new ArgumentNullException(nameof(gear));
+        _customDrugs = customDrugs ?? throw new ArgumentNullException(nameof(customDrugs));
     }
 
     public CharacterCreationFinalizationResult<CharacterCreationFinalizationState> Load(
@@ -64,6 +67,7 @@ public sealed class CharacterCreationFinalizationService : ICharacterCreationFin
                 CharacterCreationFinalizationOutcomes.Conflict,
                 BindingConflict(state.Binding, request.Binding));
 
+        string[] customDrugBlockers = ValidateCustomDrugContribution(workspace);
         bool projected = CharacterCreationFinalizationProjector.TryProject(
             workspace,
             out string resultXml,
@@ -73,7 +77,9 @@ public sealed class CharacterCreationFinalizationService : ICharacterCreationFin
             out decimal startingNuyen,
             out decimal nuyenRemaining,
             out string[] projectionBlockers);
-        string[] blockers = Normalize(evaluation.Blockers.Concat(projectionBlockers));
+        string[] blockers = Normalize(evaluation.Blockers
+            .Concat(customDrugBlockers)
+            .Concat(projectionBlockers));
         CharacterCreationFinalizationPlan? plan = null;
         if (projected && blockers.Length == 0)
         {
@@ -193,6 +199,11 @@ public sealed class CharacterCreationFinalizationService : ICharacterCreationFin
             return Blocked<CharacterCreationFinalizationReceipt>(
                 CharacterCreationFinalizationOutcomes.Blocked,
                 projectionBlockers);
+        string[] customDrugBlockers = ValidateCustomDrugContribution(workspace);
+        if (customDrugBlockers.Length != 0)
+            return Blocked<CharacterCreationFinalizationReceipt>(
+                CharacterCreationFinalizationOutcomes.Blocked,
+                customDrugBlockers);
         string resultDigest = CharacterCreationFinalizationProjector
             .ComputeRawCharacterXmlDigest(resultXml);
         if (!CharacterCreationFinalizationDigest.EqualsFixedTime(
@@ -460,6 +471,8 @@ public sealed class CharacterCreationFinalizationService : ICharacterCreationFin
         foreach (CharacterCreationFinalizationStep step in steps)
             blockers.AddRange(step.Blockers);
 
+        string[] customDrugBlockers = ValidateCustomDrugContribution(workspace);
+        blockers.AddRange(customDrugBlockers);
         _ = CharacterCreationFinalizationProjector.TryProject(
             workspace,
             out _, out _, out _, out _, out _, out _, out string[] projectionBlockers);
@@ -482,7 +495,9 @@ public sealed class CharacterCreationFinalizationService : ICharacterCreationFin
                 ? magic.Value?.SnapshotDigest
                 : "not-applicable:mundane",
             ResourcesSnapshotDigest = resources.Value?.SnapshotDigest,
-            GearSnapshotDigest = gear.Value?.SnapshotDigest
+            GearSnapshotDigest = gear.Value?.SnapshotDigest,
+            CustomDrugContributionDigest = workspace.Document.AuxiliaryState
+                .CharacterCreationCustomDrugContribution?.ContributionDigest
         });
         var binding = new CharacterCreationFinalizationBinding(
             workspace.Id,
@@ -513,6 +528,73 @@ public sealed class CharacterCreationFinalizationService : ICharacterCreationFin
             workspace,
             state,
             normalizedBlockers);
+    }
+
+    private string[] ValidateCustomDrugContribution(WorkspaceStoredDocument workspace)
+    {
+        CharacterCreationCustomDrugFinalizationContribution? contribution = workspace.Document
+            .AuxiliaryState.CharacterCreationCustomDrugContribution;
+        if (contribution is null)
+            return [];
+        if (!CharacterCreationCustomDrugContributionRules.IsValid(
+                contribution,
+                workspace.Id,
+                workspace.ContentRevision))
+            return [CharacterCreationFinalizationBlockers.CustomDrugContributionInvalid];
+
+        CharacterCustomDrugPreparation preparation = _customDrugs.Prepare(
+            workspace.Document.Content,
+            workspace.ContentRevision,
+            CharacterCustomDrugContext.Creation);
+        if (!preparation.Exact)
+            return Normalize(preparation.Blockers.Append(
+                CharacterCreationFinalizationBlockers.CustomDrugContributionInvalid));
+        if (!string.Equals(
+                preparation.CharacterDigest,
+                contribution.ExpectedCharacterDigest,
+                StringComparison.Ordinal)
+            || !string.Equals(
+                preparation.CatalogDigest,
+                contribution.ExpectedCatalogDigest,
+                StringComparison.Ordinal)
+            || !string.Equals(
+                preparation.RulesDigest,
+                contribution.ExpectedRulesDigest,
+                StringComparison.Ordinal))
+            return [CharacterCreationFinalizationBlockers.CustomDrugContributionInvalid];
+
+        CharacterCustomDrugQuote quote = _customDrugs.Quote(
+            preparation,
+            contribution.Selection);
+        if (!quote.Exact
+            || !string.Equals(
+                quote.QuoteDigest,
+                contribution.Quote.QuoteDigest,
+                StringComparison.Ordinal)
+            || !CharacterCreationFinalizationDigest.EqualsFixedTime(
+                CharacterCreationFinalizationDigest.Compute(quote),
+                CharacterCreationFinalizationDigest.Compute(contribution.Quote)))
+            return [CharacterCreationFinalizationBlockers.CustomDrugContributionInvalid];
+
+        CharacterCustomDrugCreationProjection projection = _customDrugs.ProjectCreation(
+            workspace.Document.Content,
+            workspace.ContentRevision,
+            contribution.ToVerificationCommand());
+        if (!projection.Exact
+            || !string.Equals(
+                projection.QuoteDigest,
+                contribution.Quote.QuoteDigest,
+                StringComparison.Ordinal)
+            || !string.Equals(
+                projection.DrugXmlDigest,
+                contribution.ProjectedDrugXmlDigest,
+                StringComparison.Ordinal)
+            || !string.Equals(
+                projection.DrugXml,
+                contribution.ProjectedDrugXml,
+                StringComparison.Ordinal))
+            return [CharacterCreationFinalizationBlockers.CustomDrugContributionInvalid];
+        return [];
     }
 
     private CharacterCreationFinalizationReceiptLedgerEntry? FindPersisted(

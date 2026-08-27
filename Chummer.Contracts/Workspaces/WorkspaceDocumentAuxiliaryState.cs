@@ -45,6 +45,9 @@ public sealed record WorkspaceDocumentAuxiliaryState(
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     IReadOnlyList<CharacterCreationGearReceiptLedgerEntry>? CharacterCreationGearReceipts = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    CharacterCreationCustomDrugFinalizationContribution?
+        CharacterCreationCustomDrugContribution = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     IReadOnlyList<Chummer.Contracts.LifeModules.LifeModuleDecisionAcceptance>? LifeModuleDecisionAcceptances = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     IReadOnlyList<CharacterCreationFinalizationReceiptLedgerEntry>? CharacterCreationFinalizationReceipts = null)
@@ -64,6 +67,7 @@ public sealed record WorkspaceDocumentAuxiliaryState(
                            && CharacterCreationResourcesReceipts is null
                            && CharacterCreationGearDraft is null
                            && CharacterCreationGearReceipts is null
+                           && CharacterCreationCustomDrugContribution is null
                            && LifeModuleDecisionAcceptances is null
                            && CharacterCreationBootstrapBinding is null
                            && CharacterCreationQualitiesDraft is null

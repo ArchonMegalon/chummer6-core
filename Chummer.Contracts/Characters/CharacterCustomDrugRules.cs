@@ -228,6 +228,17 @@ public sealed record CharacterCustomDrugCommitResult(
     string CharacterXml,
     CharacterCustomDrugCommitReceipt? Receipt);
 
+/// <summary>
+/// Exact legacy payload prepared for inclusion by the atomic Creation finalizer.
+/// This is a projection result, never a mutation receipt.
+/// </summary>
+public sealed record CharacterCustomDrugCreationProjection(
+    bool Exact,
+    string BlockReason,
+    string DrugXml,
+    string DrugXmlDigest,
+    string QuoteDigest);
+
 public static class CharacterCustomDrugBlockers
 {
     public const string AuthorityUnavailable = "The exact custom-drug authority is unavailable.";

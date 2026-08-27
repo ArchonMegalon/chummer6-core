@@ -42,6 +42,8 @@ public static class CharacterCreationFinalizationBlockers
     public const string QualitiesDraftRequired = "creation-finalization-qualities-draft-required";
     public const string ResourcesDraftRequired = "creation-finalization-resources-draft-required";
     public const string GearDraftRequired = "creation-finalization-gear-draft-required";
+    public const string CustomDrugContributionInvalid =
+        "creation-finalization-custom-drug-contribution-invalid";
     public const string DraftAuthorityInvalid = "creation-finalization-draft-authority-invalid";
     public const string QualityEffectsNotProjectable = "creation-finalization-quality-effects-not-projectable";
     public const string GearEffectsNotProjectable = "creation-finalization-gear-effects-not-projectable";
@@ -71,6 +73,7 @@ public static class CharacterCreationFinalizationDeltaKinds
     public const string SkillGroup = "skill-group";
     public const string Quality = "quality";
     public const string Gear = "gear";
+    public const string CustomDrug = "custom-drug";
     public const string Resources = "resources";
     public const string Lifecycle = "lifecycle";
 }

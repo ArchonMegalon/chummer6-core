@@ -18,6 +18,11 @@ public interface ICharacterCustomDrugAuthority
         CharacterCustomDrugPreparation preparation,
         CharacterCustomDrugSelection selection);
 
+    CharacterCustomDrugCreationProjection ProjectCreation(
+        string characterXml,
+        long currentContentRevision,
+        CharacterCustomDrugCommitCommand command);
+
     CharacterCustomDrugCommitResult Commit(
         string characterXml,
         long currentContentRevision,

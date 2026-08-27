@@ -88,6 +88,52 @@ public sealed class FileSystemCharacterCustomDrugAuthority : ICharacterCustomDru
         CharacterCustomDrugSelection selection)
         => CharacterCustomDrugRules.Quote(preparation, selection);
 
+    public CharacterCustomDrugCreationProjection ProjectCreation(
+        string characterXml,
+        long currentContentRevision,
+        CharacterCustomDrugCommitCommand command)
+    {
+        ArgumentNullException.ThrowIfNull(command);
+        CharacterCustomDrugPreparation preparation = Prepare(
+            characterXml,
+            currentContentRevision,
+            CharacterCustomDrugContext.Creation);
+        CharacterCustomDrugQuote quote = command.Selection is null
+            ? BlockedQuote(CharacterCustomDrugBlockers.InvalidIdentity)
+            : Quote(preparation, command.Selection);
+        string? blocker = ValidateCommit(preparation, quote, command, characterXml);
+        if (blocker is not null)
+            return BlockedProjection(blocker);
+
+        try
+        {
+            XDocument document = XDocument.Parse(characterXml, LoadOptions.None);
+            XElement root = document.Root!;
+            if (NewIdentities(command).Any(identity => ContainsInstanceIdentity(root, identity)))
+                return BlockedProjection(CharacterCustomDrugBlockers.InvalidIdentity);
+            XElement[] containers = root.Elements("drugs").Take(2).ToArray();
+            if (containers.Length > 1 || containers.SingleOrDefault()?.Elements().Any() == true)
+                return BlockedProjection(
+                    "The Creation custom-drug container is ambiguous or already populated.");
+
+            XElement projected = CreateSavedDrug(preparation, quote, command);
+            string payload = projected.ToString(SaveOptions.DisableFormatting);
+            return new CharacterCustomDrugCreationProjection(
+                Exact: true,
+                BlockReason: string.Empty,
+                payload,
+                ComputeElementDigest(projected),
+                quote.QuoteDigest);
+        }
+        catch (Exception exception) when (exception is InvalidOperationException
+                                          or OverflowException
+                                          or System.Xml.XmlException)
+        {
+            return BlockedProjection(
+                "The Creation custom-drug recipe cannot be projected into the exact saved XML shape.");
+        }
+    }
+
     public CharacterCustomDrugCommitResult Commit(
         string characterXml,
         long currentContentRevision,
@@ -591,6 +637,14 @@ public sealed class FileSystemCharacterCustomDrugAuthority : ICharacterCustomDru
             characterXml,
             Receipt: null);
     }
+
+    private static CharacterCustomDrugCreationProjection BlockedProjection(string? reason) =>
+        new(
+            Exact: false,
+            reason ?? string.Empty,
+            DrugXml: string.Empty,
+            DrugXmlDigest: string.Empty,
+            QuoteDigest: string.Empty);
 
     private static string[] Normalize(IEnumerable<string> blockers)
         => blockers.Where(value => !string.IsNullOrWhiteSpace(value))

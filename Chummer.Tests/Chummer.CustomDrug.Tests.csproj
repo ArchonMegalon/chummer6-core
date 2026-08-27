@@ -8,6 +8,7 @@
     <IsPackable>false</IsPackable>
   </PropertyGroup>
   <ItemGroup>
+    <Using Include="Microsoft.VisualStudio.TestTools.UnitTesting" />
     <Compile Include="CharacterCustomDrugRulesTests.cs" />
     <Compile Include="CharacterCustomDrugSourceResolverTests.cs" />
     <Compile Include="CharacterCustomDrugPersistenceTests.cs" />
