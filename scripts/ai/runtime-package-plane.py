@@ -34,9 +34,9 @@ INVENTORY_NAME = "chummer-core-runtime-packages.inventory.json"
 OWNER_INVENTORY_NAME = "chummer-owner-contracts.inventory.json"
 CANDIDATE_ENGINE_INVENTORY_NAME = "chummer-core-candidate-engine-contract.inventory.json"
 CANDIDATE_GM_INVENTORY_NAME = "chummer-core-candidate-gm-edit-runtime.inventory.json"
-PACKAGE_VERSION = "0.0.0-packageplane.candidate.shec649c01fbc2a"
+PACKAGE_VERSION = "0.0.0-packageplane.candidate.shfebd698752e19"
 SOURCE_REPOSITORY = "https://github.com/ArchonMegalon/chummer6-core.git"
-SOURCE_COMMIT = "ec649c01fbc2acb9f22f2005f09b4b39c239b278"
+SOURCE_COMMIT = "febd698752e195dceef79fbc3f83dc971564fe00"
 SDK_VERSION = "10.0.103"
 SDK_RID = "linux-x64"
 SDK_ARCHIVE_URL = (
@@ -227,6 +227,16 @@ BUILD_AUTHORITY_PATHS = (
     "scripts/ai/public-runtime-package-handoff.py",
     "scripts/ai/runtime-package-plane.py",
     "scripts/ai/verify-no-siblings-package-plane.sh",
+)
+CREATION_ACTIVATION_AUTHORITY_PATHS = (
+    "Chummer.Application/Characters/CharacterCreationBootstrapActivation.cs",
+    "Chummer.Application/Characters/CharacterCreationBootstrapActivationProjector.cs",
+    "Chummer.Application/Characters/CharacterCreationBootstrapAuthority.cs",
+    "Chummer.Application/Characters/CharacterCreationBootstrapService.cs",
+    "Chummer.Application/Characters/CharacterCreationBootstrapSourceSnapshot.cs",
+    "Chummer.Contracts/Characters/CharacterCreationBootstrapModels.cs",
+    "Chummer.Infrastructure/DependencyInjection/ServiceCollectionExtensions.cs",
+    "Chummer.Tests/CharacterCreationBootstrapServiceTests.cs",
 )
 
 
@@ -652,6 +662,8 @@ def validate_repository(repo_root: Path, lock: dict[str, Any]) -> None:
     if _run(("git", "cat-file", "-t", SOURCE_COMMIT), cwd=repo_root) != "commit":
         raise RuntimePackagePlaneError("runtime source commit is unavailable")
     _run(("git", "merge-base", "--is-ancestor", SOURCE_COMMIT, "HEAD"), cwd=repo_root)
+    for member in CREATION_ACTIVATION_AUTHORITY_PATHS:
+        _run(("git", "cat-file", "-e", f"{SOURCE_COMMIT}:{member}"), cwd=repo_root)
 
     changed = _run(
         ("git", "diff", "--name-only", SOURCE_COMMIT),

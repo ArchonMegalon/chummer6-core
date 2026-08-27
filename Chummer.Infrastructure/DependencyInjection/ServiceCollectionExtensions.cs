@@ -183,8 +183,13 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IWorkspaceImportRulesetDetector, WorkspaceImportRulesetDetector>();
         services.AddSingleton<IWorkspaceService, WorkspaceService>();
         services.AddCharacterCreationFoundationDraftPersistence();
-        services.AddSingleton<ICharacterCreationBootstrapService,
-            CharacterCreationBootstrapService>();
+        services.AddSingleton<ICharacterCreationBootstrapActivationProjector,
+            CharacterCreationBootstrapActivationProjector>();
+        services.AddSingleton<CharacterCreationBootstrapService>();
+        services.AddSingleton<ICharacterCreationBootstrapService>(provider =>
+            provider.GetRequiredService<CharacterCreationBootstrapService>());
+        services.AddSingleton<ICharacterCreationBootstrapActivationService>(provider =>
+            provider.GetRequiredService<CharacterCreationBootstrapService>());
         services.AddSingleton<ICharacterCreationFoundationService,
             CharacterCreationFoundationService>();
         services.AddSingleton<ICharacterCreationPrerequisiteService,

@@ -13,8 +13,8 @@ inventory_name="chummer-owner-contracts.inventory.json"
 candidate_inventory_name="chummer-core-candidate-engine-contract.inventory.json"
 candidate_runtime_inventory_name="chummer-core-candidate-gm-edit-runtime.inventory.json"
 runtime_inventory_name="chummer-core-runtime-packages.inventory.json"
-candidate_version="0.0.0-packageplane.candidate.shec649c01fbc2a"
-runtime_source_commit="ec649c01fbc2acb9f22f2005f09b4b39c239b278"
+candidate_version="0.0.0-packageplane.candidate.shfebd698752e19"
+runtime_source_commit="febd698752e195dceef79fbc3f83dc971564fe00"
 candidate_id="Chummer.Engine.Contracts"
 candidate_runtime_id="Chummer.Engine.GmCharacterEdits"
 candidate_repository="https://github.com/ArchonMegalon/chummer6-core.git"
@@ -29,6 +29,17 @@ python3 "$bootstrap_script" \
   --feed "$feed_root" \
   --validate-only
 
+temporary_root="$(mktemp -d "${TMPDIR:-/tmp}/chummer-core-package-plane.XXXXXX")"
+cleanup() {
+  case "$temporary_root" in
+    "${TMPDIR:-/tmp}"/chummer-core-package-plane.*) rm -rf "$temporary_root" ;;
+    *) echo "refusing to remove unexpected package-plane path: $temporary_root" >&2 ;;
+  esac
+}
+trap cleanup EXIT
+normal_packages="$temporary_root/normal-packages"
+mkdir -p "$normal_packages"
+
 # Prove the normal developer graph is coherent: the local Engine project at
 # 0.0.0-local must win while Registry/Play/Run resolve as the locked packages.
 dotnet restore "$repo_root/Chummer.Application/Chummer.Application.csproj" \
@@ -36,6 +47,7 @@ dotnet restore "$repo_root/Chummer.Application/Chummer.Application.csproj" \
   --no-cache \
   --nologo \
   -m:1 \
+  -p:RestorePackagesPath="$normal_packages" \
   -p:RuntimeIdentifiers=linux-x64 \
   -p:UseSharedCompilation=false
 
@@ -71,15 +83,6 @@ for log in payload.get("logs") or []:
         raise SystemExit(f"normal dependency graph restore error: {log}")
 print("normal-owner-contract-graph: ok (local Engine + locked owner packages)")
 PY
-
-temporary_root="$(mktemp -d "${TMPDIR:-/tmp}/chummer-core-package-plane.XXXXXX")"
-cleanup() {
-  case "$temporary_root" in
-    "${TMPDIR:-/tmp}"/chummer-core-package-plane.*) rm -rf "$temporary_root" ;;
-    *) echo "refusing to remove unexpected package-plane path: $temporary_root" >&2 ;;
-  esac
-}
-trap cleanup EXIT
 
 consumer_parent="$temporary_root/consumer"
 consumer_root="$consumer_parent/chummer6-core"
@@ -624,7 +627,7 @@ if candidate_inventory.get("contract") != "chummer-core.candidate-engine-contrac
     raise SystemExit("candidate Engine Contracts inventory contract is invalid")
 if candidate_inventory.get("role") != "current_core_candidate":
     raise SystemExit("candidate Engine Contracts inventory role is invalid")
-expected_candidate_version = "0.0.0-packageplane.candidate.shec649c01fbc2a"
+expected_candidate_version = "0.0.0-packageplane.candidate.shfebd698752e19"
 if (
     candidate.get("id") != "Chummer.Engine.Contracts"
     or candidate.get("version") != expected_candidate_version
@@ -632,7 +635,7 @@ if (
     raise SystemExit("candidate Engine Contracts identity is invalid")
 expected_candidate_metadata = {
     "repository": "https://github.com/ArchonMegalon/chummer6-core.git",
-    "commit": "ec649c01fbc2acb9f22f2005f09b4b39c239b278",
+    "commit": "febd698752e195dceef79fbc3f83dc971564fe00",
     "project": "Chummer.Contracts/Chummer.Contracts.csproj",
     "file_name": f"Chummer.Engine.Contracts.{expected_candidate_version}.nupkg",
 }
@@ -643,7 +646,7 @@ for key, expected in expected_candidate_metadata.items():
         )
 if (
     candidate_inventory.get("runtime_source_commit")
-    != "ec649c01fbc2acb9f22f2005f09b4b39c239b278"
+    != "febd698752e195dceef79fbc3f83dc971564fe00"
     or candidate_inventory.get("package_recipe_commit") != commit
 ):
     raise SystemExit("candidate Engine Contracts inventory authority is invalid")
@@ -660,7 +663,7 @@ if (
     != "chummer-core.candidate-gm-edit-runtime-package-inventory/v2"
     or candidate_runtime_inventory.get("role") != "current_core_candidate"
     or candidate_runtime_inventory.get("runtime_source_commit")
-    != "ec649c01fbc2acb9f22f2005f09b4b39c239b278"
+    != "febd698752e195dceef79fbc3f83dc971564fe00"
     or candidate_runtime_inventory.get("package_recipe_commit") != commit
 ):
     raise SystemExit("candidate GM edit runtime inventory authority is invalid")
@@ -668,7 +671,7 @@ expected_runtime_metadata = {
     "id": "Chummer.Engine.GmCharacterEdits",
     "version": expected_candidate_version,
     "repository": "https://github.com/ArchonMegalon/chummer6-core.git",
-    "commit": "ec649c01fbc2acb9f22f2005f09b4b39c239b278",
+    "commit": "febd698752e195dceef79fbc3f83dc971564fe00",
     "project": "Chummer.GmCharacterEdits/Chummer.GmCharacterEdits.csproj",
     "file_name": f"Chummer.Engine.GmCharacterEdits.{expected_candidate_version}.nupkg",
 }
@@ -687,7 +690,7 @@ if (
     runtime_inventory.get("contract") != "chummer-core.runtime-package-inventory/v1"
     or runtime_inventory.get("package_version") != expected_candidate_version
     or runtime_inventory.get("runtime_source_commit")
-    != "ec649c01fbc2acb9f22f2005f09b4b39c239b278"
+    != "febd698752e195dceef79fbc3f83dc971564fe00"
     or runtime_inventory.get("package_recipe_commit") != commit
 ):
     raise SystemExit("unified runtime package inventory authority is invalid")

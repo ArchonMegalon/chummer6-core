@@ -137,6 +137,8 @@ public static class CharacterCreationBootstrapBlockers
     public const string SourceAnchorsInvalid = "creation-bootstrap-source-anchors-invalid";
     public const string AtomicCreateUnavailable = "creation-bootstrap-atomic-create-unavailable";
     public const string WorkspaceCreateFailed = "creation-bootstrap-workspace-create-failed";
+    public const string ActivationProjectionUnavailable =
+        "creation-bootstrap-activation-projection-unavailable";
 }
 
 public sealed record CharacterCreationBootstrapRequest(
