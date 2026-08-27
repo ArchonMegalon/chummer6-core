@@ -390,6 +390,12 @@ public static class CharacterCreationBootstrapActivationIntegrity
             && magic.Binding.SavedRevision == savedRevision
             && FixedTimeEquals(magic.Binding.RawCharacterXmlDigest, rawDigest)
             && FixedTimeEquals(magic.Binding.AuxiliaryStateDigest, auxiliaryDigest)
+            && string.Equals(
+                foundation.ResumeStatus,
+                foundation.PendingDraft is null
+                    ? CharacterCreationFoundationResumeStatuses.AuthorityRequired
+                    : CharacterCreationFoundationResumeStatuses.PendingDraft,
+                StringComparison.Ordinal)
             && FixedTimeEquals(
                 foundation.SnapshotDigest,
                 ComputeFoundationStateDigest(foundation))

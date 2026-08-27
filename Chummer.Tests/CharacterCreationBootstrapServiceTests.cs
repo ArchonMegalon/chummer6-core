@@ -199,8 +199,9 @@ public sealed class CharacterCreationBootstrapServiceTests
         var store = new CountingWorkspaceStore();
         var sourceResolver = new CountingSourceDataResolver(CreateSourceResolver(coreRoot));
         ICharacterFileQueries queries = CreateFileQueries();
-        var lifeModules = new XmlLifeModulesCatalogService(
-            Path.Combine(coreRoot, "Chummer", "data", "lifemodules.xml"));
+        var lifeModules = new CountingLifeModulesCatalogService(
+            new XmlLifeModulesCatalogService(
+                Path.Combine(coreRoot, "Chummer", "data", "lifemodules.xml")));
         var applyAuthority = new UnavailableCharacterCreationFoundationApplyAuthority();
         var projector = new CharacterCreationBootstrapActivationProjector(
             store,
@@ -227,6 +228,8 @@ public sealed class CharacterCreationBootstrapServiceTests
         Assert.AreEqual(1, sourceResolver.PrerequisiteResolveCount);
         Assert.AreEqual(1, sourceResolver.QualitiesResolveCount);
         Assert.AreEqual(1, sourceResolver.MagicResolveCount);
+        Assert.AreEqual(1, lifeModules.AuthorityReadCount);
+        Assert.AreEqual(1, lifeModules.OptionProjectionCount);
         Assert.AreEqual(0, store.ReadCount,
             "The activation bundle must be projected from the atomic create result, not a store reread.");
         Assert.IsTrue(CharacterCreationBootstrapActivationIntegrity.IsValid(attempt.Bundle));
@@ -240,6 +243,8 @@ public sealed class CharacterCreationBootstrapServiceTests
         Assert.AreEqual(2, sourceResolver.PrerequisiteResolveCount);
         Assert.AreEqual(2, sourceResolver.QualitiesResolveCount);
         Assert.AreEqual(2, sourceResolver.MagicResolveCount);
+        Assert.AreEqual(2, lifeModules.AuthorityReadCount);
+        Assert.AreEqual(2, lifeModules.OptionProjectionCount);
         Assert.IsFalse(service.TryValidateCurrent(attempt.Bundle, out _),
             "Activation authority is one-shot and cannot be replayed.");
         Assert.AreEqual(2, sourceResolver.ContextCreateCount,
@@ -422,6 +427,21 @@ public sealed class CharacterCreationBootstrapServiceTests
                     Attributes = bundle.InitialCreation.Attributes with
                     {
                         Value = attributes with { CanEdit = !attributes.CanEdit }
+                    }
+                }
+            })));
+        CharacterCreationFoundationState foundation = bundle.InitialCreation.Foundation.Value!;
+        Assert.IsFalse(CharacterCreationBootstrapActivationIntegrity.IsValid(ResignActivation(
+            bundle with
+            {
+                InitialCreation = bundle.InitialCreation with
+                {
+                    Foundation = bundle.InitialCreation.Foundation with
+                    {
+                        Value = foundation with
+                        {
+                            ResumeStatus = CharacterCreationFoundationResumeStatuses.PendingDraft
+                        }
                     }
                 }
             })));
@@ -657,6 +677,53 @@ public sealed class CharacterCreationBootstrapServiceTests
             attempt.Blockers.ToList(),
             CharacterCreationBootstrapBlockers.ActivationProjectionUnavailable);
         Assert.HasCount(1, store.List());
+
+        CharacterWorkspaceId workspaceId = attempt.Receipt.WorkspaceId;
+        var lifeModules = new XmlLifeModulesCatalogService(
+            Path.Combine(coreRoot, "Chummer", "data", "lifemodules.xml"));
+        var applyAuthority = new UnavailableCharacterCreationFoundationApplyAuthority();
+        CharacterCreationFoundationResult<CharacterCreationFoundationState> foundation =
+            new CharacterCreationFoundationService(
+                store,
+                queries,
+                sourceResolver,
+                lifeModules,
+                applyAuthority).Load(new(workspaceId));
+        var prerequisites = new CharacterCreationPrerequisiteService(
+            store,
+            queries,
+            sourceResolver);
+        var attributes = new CharacterCreationAttributesService(store, sourceResolver);
+        CharacterCreationFoundationResult<CharacterCreationPrerequisiteState> prerequisite =
+            prerequisites.Load(new(workspaceId));
+        CharacterCreationFoundationResult<CharacterCreationAttributesState> attribute =
+            attributes.Load(new(workspaceId));
+        CharacterCreationContactResult<CharacterCreationContactsState> contacts =
+            new CharacterCreationContactsService(store).Load(new(workspaceId));
+        CharacterCreationFoundationResult<CharacterCreationQualitiesState> qualities =
+            new CharacterCreationQualitiesService(
+                store,
+                sourceResolver,
+                prerequisites,
+                attributes).Load(new(workspaceId));
+        CharacterCreationFoundationResult<CharacterCreationMagicResonanceState> magic =
+            new CharacterCreationMagicResonanceService(store, sourceResolver)
+                .Load(new(workspaceId));
+
+        Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, foundation.Outcome);
+        Assert.IsNotNull(foundation.Value);
+        Assert.AreEqual(buildMethod, foundation.Value.BuildMethod);
+        Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, prerequisite.Outcome);
+        Assert.IsNotNull(prerequisite.Value);
+        Assert.AreEqual(buildMethod, prerequisite.Value.BuildMethod);
+        Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, attribute.Outcome);
+        Assert.IsNotNull(attribute.Value);
+        Assert.AreEqual(CharacterCreationContactOutcomes.Available, contacts.Outcome);
+        Assert.IsNotNull(contacts.Value);
+        Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, qualities.Outcome);
+        Assert.IsNotNull(qualities.Value);
+        Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, magic.Outcome);
+        Assert.IsNotNull(magic.Value);
     }
 
     [TestMethod]
@@ -1655,6 +1722,39 @@ public sealed class CharacterCreationBootstrapServiceTests
             string? stage = null,
             IReadOnlyCollection<string>? enabledSources = null)
             => _inner.GetOptionProjections(stage, enabledSources);
+    }
+
+    private sealed class CountingLifeModulesCatalogService : ILifeModulesCatalogService
+    {
+        private readonly ILifeModulesCatalogService _inner;
+
+        public CountingLifeModulesCatalogService(ILifeModulesCatalogService inner)
+        {
+            _inner = inner;
+        }
+
+        public int AuthorityReadCount { get; private set; }
+
+        public int OptionProjectionCount { get; private set; }
+
+        public LifeModuleCatalogAuthorityDto GetAuthority()
+        {
+            AuthorityReadCount++;
+            return _inner.GetAuthority();
+        }
+
+        public IReadOnlyList<LifeModuleStageDto> GetStages() => _inner.GetStages();
+
+        public IReadOnlyList<LifeModuleSummaryDto> GetModules(string? stage = null)
+            => _inner.GetModules(stage);
+
+        public IReadOnlyList<LifeModuleLegalOptionDto> GetOptionProjections(
+            string? stage = null,
+            IReadOnlyCollection<string>? enabledSources = null)
+        {
+            OptionProjectionCount++;
+            return _inner.GetOptionProjections(stage, enabledSources);
+        }
     }
 
     private sealed class DriftingSourceDataContext : ICharacterSourceDataContext
