@@ -232,6 +232,11 @@ class RuntimePackageArchiveTests(unittest.TestCase):
         extra_payload: str | None = None,
     ) -> None:
         package_path = self.feed / f"{package.package_id}.{runtime.PACKAGE_VERSION}.nupkg"
+        runtime_assemblies = (
+            runtime.GM_RUNTIME_ASSEMBLY_PATHS
+            if package.package_id == "Chummer.Engine.GmCharacterEdits"
+            else (f"lib/net10.0/{package.assembly}",)
+        )
         entries = {
             f"{package.package_id}.nuspec": self._nuspec(
                 package,
@@ -240,7 +245,10 @@ class RuntimePackageArchiveTests(unittest.TestCase):
                 target_framework=target_framework,
                 omit_dependency_group=omit_dependency_group,
             ),
-            f"lib/net10.0/{package.assembly}": b"immutable-test-assembly",
+            **{
+                assembly: b"immutable-test-assembly"
+                for assembly in runtime_assemblies
+            },
         }
         if extra_dll is not None:
             entries[f"lib/net10.0/{extra_dll}"] = b"foreign-test-assembly"
@@ -250,15 +258,15 @@ class RuntimePackageArchiveTests(unittest.TestCase):
             for name in sorted(entries, key=lambda value: (value.casefold(), value)):
                 archive.writestr(name, entries[name])
 
-    def test_exact_thin_package_graph_is_accepted(self) -> None:
+    def test_exact_runtime_package_graph_is_accepted(self) -> None:
         rows = runtime.inspect_packages(self.feed)
         self.assertEqual([row["id"] for row in rows], [row.package_id for row in runtime.PACKAGE_SPECS])
         self.assertEqual({row["assembly"] for row in rows}, {row.assembly for row in runtime.PACKAGE_SPECS})
 
-    def test_fat_gm_package_is_rejected(self) -> None:
+    def test_foreign_gm_runtime_assembly_is_rejected(self) -> None:
         gm = runtime.PACKAGE_SPECS[-1]
-        self._write_package(gm, extra_dll="Chummer.Application.dll")
-        with self.assertRaisesRegex(runtime.RuntimePackagePlaneError, "must own only"):
+        self._write_package(gm, extra_dll="Foreign.dll")
+        with self.assertRaisesRegex(runtime.RuntimePackagePlaneError, "assembly set differs"):
             runtime.inspect_packages(self.feed)
 
     def test_missing_direct_dependency_is_rejected(self) -> None:
@@ -383,9 +391,7 @@ class RuntimePackageArchiveTests(unittest.TestCase):
                     "file_name": candidate_gm_row["file_name"],
                     "sha256": candidate_gm_row["sha256"],
                     "size_bytes": candidate_gm_row["size_bytes"],
-                    "runtime_assemblies": [
-                        "lib/net10.0/Chummer.Engine.GmCharacterEdits.dll"
-                    ],
+                    "runtime_assemblies": list(runtime.GM_RUNTIME_ASSEMBLY_PATHS),
                 },
             },
         )
