@@ -164,6 +164,18 @@ public interface ICharacterSourceDataContext
     }
 
     /// <summary>
+    /// Projects the exact effective SR5 bioware.xml catalog, selected legacy
+    /// custom-data amendments, enabled books, grades, and Career commerce
+    /// settings. False means callers must expose no purchasable Bioware rows.
+    /// </summary>
+    bool TryResolveBiowarePurchaseCatalog(
+        out CharacterBiowarePurchaseCatalogAuthority authority)
+    {
+        authority = CharacterBiowarePurchaseCatalogAuthority.Unavailable;
+        return false;
+    }
+
+    /// <summary>
     /// Resolves the exact SR5 Standard Priority Talent, tradition, stream, adept-power,
     /// spell, and complex-form catalogs from the saved profile and effective overlays.
     /// Missing or unsupported source semantics must leave the step unavailable.

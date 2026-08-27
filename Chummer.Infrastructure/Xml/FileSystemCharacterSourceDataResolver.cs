@@ -1803,6 +1803,155 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 out catalog);
         }
 
+        public bool TryResolveBiowarePurchaseCatalog(
+            out CharacterBiowarePurchaseCatalogAuthority authority)
+        {
+            authority = CharacterBiowarePurchaseCatalogAuthority.Unavailable;
+            if (_essenceDecimals is not int essenceDecimals
+                || string.IsNullOrWhiteSpace(_settingsProfileId)
+                || string.IsNullOrWhiteSpace(_rawProfileInputsDigest)
+                || !TryComputeRawBaseFileDigest(_catalog, "bioware.xml", out string rawBiowareDigest)
+                || !TryComputeEffectiveInputDigest(_catalog, "bioware.xml", out string effectiveBiowareDigest)
+                || !TryComputeSelectedCustomDataInputsDigestFor(
+                    _customDirectories,
+                    "bioware.xml",
+                    out string customBiowareDigest)
+                || !TryComputeEffectiveInputDigest(_catalog, "settings.xml", out string settingsDigest)
+                || !TryEnumerateTargets("bioware.xml", ["biowares"], "bioware", out XElement[] rows)
+                || !TryEnumerateTargets("bioware.xml", ["grades"], "grade", out XElement[] grades)
+                || !TryLoadEffectiveDocument(_catalog, "bioware.xml", out XDocument? biowareDocument)
+                || biowareDocument?.Root is null
+                || !TryLoadEffectiveDocument(_catalog, "settings.xml", out XDocument? settingsDocument)
+                || settingsDocument?.Root is null
+                || HasSelectedCustomBiowareCategories())
+            {
+                return false;
+            }
+
+            XElement[] categoryContainers = biowareDocument.Root.Elements("categories").Take(2).ToArray();
+            XElement[] profileRows = settingsDocument.Root.Element("settings")?
+                .Elements("setting")
+                .Where(row => string.Equals(
+                    ReadValue(row, "id"),
+                    _settingsProfileId,
+                    StringComparison.OrdinalIgnoreCase))
+                .Take(2)
+                .ToArray()
+                ?? [];
+            if (categoryContainers.Length != 1
+                || profileRows.Length != 1
+                || !TryReadStrictBool(profileRows[0], "allowcyberwareessdiscounts", out bool allowDiscounts)
+                || !TryReadStrictBool(profileRows[0], "multiplyrestrictedcost", out bool multiplyRestricted)
+                || !TryReadNonNegativeDecimalSetting(
+                    profileRows[0],
+                    "restrictedcostmultiplier",
+                    out decimal restrictedMultiplier)
+                || !TryReadStrictBool(profileRows[0], "multiplyforbiddencost", out bool multiplyForbidden)
+                || !TryReadNonNegativeDecimalSetting(
+                    profileRows[0],
+                    "forbiddencostmultiplier",
+                    out decimal forbiddenMultiplier)
+                || !TryReadStrictBool(profileRows[0], "donotroundessenceinternally", out bool doNotRound)
+                || !TryReadBiowareBannedGrades(profileRows[0], out string[] bannedGrades))
+            {
+                return false;
+            }
+
+            var binding = new CharacterBiowarePurchaseSourceBinding(
+                _settingsProfileId,
+                _rawProfileInputsDigest,
+                rawBiowareDigest,
+                effectiveBiowareDigest,
+                customBiowareDigest,
+                settingsDigest);
+            var settings = new CharacterBiowarePurchaseSettings(
+                allowDiscounts,
+                multiplyRestricted,
+                restrictedMultiplier,
+                multiplyForbidden,
+                forbiddenMultiplier,
+                essenceDecimals,
+                doNotRound,
+                bannedGrades);
+            return CharacterBiowarePurchaseCatalogProjector.TryProject(
+                binding,
+                settings,
+                rows,
+                grades,
+                categoryContainers[0].Elements("category").Select(row => new XElement(row)).ToArray(),
+                IsEnabledSource,
+                out authority);
+        }
+
+        private bool HasSelectedCustomBiowareCategories()
+        {
+            try
+            {
+                foreach (CustomDirectory directory in _customDirectories)
+                {
+                    foreach (string path in Directory.EnumerateFiles(
+                                 directory.Path,
+                                 "*.xml",
+                                 SearchOption.AllDirectories)
+                             .Where(path => IsLegacyCustomDataInputFor(path, "bioware.xml")))
+                    {
+                        if (!TryLoadXml(path, out XDocument? document) || document?.Root is null)
+                            return true;
+                        if (document.Root.Elements("categories").Any(container =>
+                                container.Elements("category").Any()))
+                            return true;
+                    }
+                }
+                return false;
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+            {
+                return true;
+            }
+        }
+
+        private static bool TryReadNonNegativeDecimalSetting(
+            XElement profile,
+            string elementName,
+            out decimal value)
+        {
+            value = 0m;
+            XElement[] matches = profile.Elements(elementName).Take(2).ToArray();
+            return matches.Length == 1
+                   && !matches[0].HasAttributes
+                   && !matches[0].HasElements
+                   && string.Equals(matches[0].Value, matches[0].Value.Trim(), StringComparison.Ordinal)
+                   && decimal.TryParse(
+                       matches[0].Value,
+                       NumberStyles.Number,
+                       CultureInfo.InvariantCulture,
+                       out value)
+                   && value >= 0m;
+        }
+
+        private static bool TryReadBiowareBannedGrades(XElement profile, out string[] grades)
+        {
+            grades = [];
+            XElement[] containers = profile.Elements("bannedwaregrades").Take(2).ToArray();
+            if (containers.Length > 1
+                || containers.Any(container => container.HasAttributes
+                    || container.Elements().Any(row => row.Name.NamespaceName.Length != 0
+                                                       || row.Name.LocalName != "grade"
+                                                       || row.HasAttributes
+                                                       || row.HasElements
+                                                       || !string.Equals(row.Value, row.Value.Trim(), StringComparison.Ordinal)
+                                                       || string.IsNullOrWhiteSpace(row.Value))))
+            {
+                return false;
+            }
+            grades = containers.SingleOrDefault()?.Elements("grade")
+                .Select(row => row.Value)
+                .Distinct(StringComparer.Ordinal)
+                .OrderBy(value => value, StringComparer.Ordinal)
+                .ToArray() ?? [];
+            return true;
+        }
+
         public bool TryResolveCustomDrugCatalog(out CharacterCustomDrugCatalogAuthority authority)
         {
             authority = CharacterCustomDrugCatalogAuthority.Unavailable;

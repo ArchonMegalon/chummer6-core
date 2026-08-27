@@ -106,6 +106,8 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IContentOverlayCatalogService>(overlays);
         services.AddSingleton<ICharacterCyberwarePurchaseAuthority,
             FileSystemCharacterCyberwarePurchaseAuthority>();
+        services.AddSingleton<ICharacterBiowarePurchaseAuthority,
+            FileSystemCharacterBiowarePurchaseAuthority>();
         services.AddSingleton<ICharacterCustomDrugAuthority,
             FileSystemCharacterCustomDrugAuthority>();
         services.AddSingleton<ICharacterVehicleWorkshopAuthority,
