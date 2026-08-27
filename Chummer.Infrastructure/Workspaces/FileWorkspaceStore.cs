@@ -1603,6 +1603,15 @@ public sealed class FileWorkspaceStore :
             currentContentRevision,
             gearDraft,
             gearReceipts);
+        CharacterCreationQualitiesDraft? qualitiesDraft =
+            state.CharacterCreationQualitiesDraft;
+        IReadOnlyList<CharacterCreationQualitiesDraftReceipt>? qualitiesReceipts =
+            state.CharacterCreationQualitiesReceipts;
+        bool qualitiesValid = CharacterCreationQualitiesReceiptLedgerIntegrity.IsValidLedger(
+            workspaceId,
+            currentContentRevision,
+            qualitiesDraft,
+            qualitiesReceipts);
         IReadOnlyList<CharacterAfterRunSettlementReceiptLedgerEntry>? afterRunReceipts =
             state.CharacterAfterRunSettlementReceipts;
         bool afterRunReceiptsValid = afterRunReceipts is null
@@ -1621,6 +1630,13 @@ public sealed class FileWorkspaceStore :
                 workspaceId,
                 currentContentRevision,
                 lifeModuleAcceptances);
+        IReadOnlyList<CharacterCreationFinalizationReceiptLedgerEntry>? finalizationReceipts =
+            state.CharacterCreationFinalizationReceipts;
+        bool finalizationReceiptsValid =
+            CharacterCreationFinalizationReceiptLedgerIntegrity.IsValidLedger(
+                workspaceId,
+                currentContentRevision,
+                finalizationReceipts);
         return foundationValid
                && prerequisiteValid
                && attributesValid
@@ -1630,9 +1646,11 @@ public sealed class FileWorkspaceStore :
                && lifestyleReceiptsValid
                && resourcesValid
                && gearValid
+               && qualitiesValid
                && afterRunReceiptsValid
                && bootstrapValid
-               && lifeModuleAcceptancesValid;
+               && lifeModuleAcceptancesValid
+               && finalizationReceiptsValid;
     }
 
     private static bool IsValidAuxiliaryStateTransition(
@@ -1648,6 +1666,25 @@ public sealed class FileWorkspaceStore :
         if (!IsValidAuxiliaryState(workspaceId, nextContentRevision, replacementState))
         {
             return false;
+        }
+
+        bool finalizationLedgerChanged = !string.Equals(
+            WorkspaceDocumentAuxiliaryStateDigest.Compute(new WorkspaceDocumentAuxiliaryState(
+                CharacterCreationFinalizationReceipts:
+                    currentState.CharacterCreationFinalizationReceipts)),
+            WorkspaceDocumentAuxiliaryStateDigest.Compute(new WorkspaceDocumentAuxiliaryState(
+                CharacterCreationFinalizationReceipts:
+                    replacementState.CharacterCreationFinalizationReceipts)),
+            StringComparison.Ordinal);
+        if (finalizationLedgerChanged)
+        {
+            return CharacterCreationFinalizationReceiptLedgerIntegrity.IsValidTransition(
+                workspaceId,
+                previousContentRevision,
+                previousSavedRevision,
+                nextContentRevision,
+                currentDocument,
+                replacementDocument);
         }
 
         CharacterCreationFoundationDraftLedger? replacementFoundation =
@@ -1847,10 +1884,17 @@ public sealed class FileWorkspaceStore :
         }
         if (!qualitiesUnchanged)
         {
-            // Qualities owns its own typed draft transition. This store must still
-            // count and preserve that sibling lane so another authority cannot
-            // smuggle a quality mutation into an After Run CAS.
-            return false;
+            return CharacterCreationQualitiesReceiptLedgerIntegrity.IsValidAppendTransition(
+                workspaceId,
+                previousContentRevision,
+                previousSavedRevision,
+                nextContentRevision,
+                currentQualities,
+                currentQualityReceipts,
+                replacementQualities,
+                replacementQualityReceipts,
+                currentDocument,
+                replacementDocument);
         }
         if (!afterRunReceiptsUnchanged)
         {

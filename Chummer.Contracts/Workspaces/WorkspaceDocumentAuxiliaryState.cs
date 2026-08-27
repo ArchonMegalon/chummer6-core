@@ -45,7 +45,9 @@ public sealed record WorkspaceDocumentAuxiliaryState(
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     IReadOnlyList<CharacterCreationGearReceiptLedgerEntry>? CharacterCreationGearReceipts = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    IReadOnlyList<Chummer.Contracts.LifeModules.LifeModuleDecisionAcceptance>? LifeModuleDecisionAcceptances = null)
+    IReadOnlyList<Chummer.Contracts.LifeModules.LifeModuleDecisionAcceptance>? LifeModuleDecisionAcceptances = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    IReadOnlyList<CharacterCreationFinalizationReceiptLedgerEntry>? CharacterCreationFinalizationReceipts = null)
 {
     public static WorkspaceDocumentAuxiliaryState Empty { get; } = new();
 
@@ -66,7 +68,8 @@ public sealed record WorkspaceDocumentAuxiliaryState(
                            && CharacterCreationBootstrapBinding is null
                            && CharacterCreationQualitiesDraft is null
                            && CharacterCreationQualitiesReceipts is null
-                           && CharacterAfterRunSettlementReceipts is null;
+                           && CharacterAfterRunSettlementReceipts is null
+                           && CharacterCreationFinalizationReceipts is null;
 }
 
 public static class WorkspaceDocumentAuxiliaryStateDigest

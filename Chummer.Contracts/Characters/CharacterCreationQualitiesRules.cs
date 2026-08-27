@@ -641,7 +641,8 @@ public static class CharacterCreationQualitiesRules
             || binding.SavedRevision <= 0
             || binding.ContentRevision != binding.SavedRevision
             || !CharacterCreationQualitiesDigest.IsCanonical(binding.RawCharacterXmlDigest)
-            || !CharacterCreationQualitiesDigest.IsCanonical(binding.AuxiliaryStateDigest))
+            || !CharacterCreationQualitiesDigest.IsCanonicalAuxiliaryStateDigest(
+                binding.AuxiliaryStateDigest))
             blockers.Add(CharacterCreationQualitiesBlockers.RevisionConflict);
         if (binding.CreationKarmaTotal < 0
             || binding.CreationKarmaUsedBeforeQualities < 0
@@ -814,6 +815,11 @@ internal static class CharacterCreationQualitiesDigest
     public static bool IsCanonical(string? value) => value is { Length: 71 }
         && value.StartsWith(Prefix, StringComparison.Ordinal)
         && value.AsSpan(Prefix.Length).ToArray().All(static character =>
+            character is >= '0' and <= '9' or >= 'a' and <= 'f');
+
+    public static bool IsCanonicalAuxiliaryStateDigest(string? value) =>
+        value is { Length: 64 }
+        && value.All(static character =>
             character is >= '0' and <= '9' or >= 'a' and <= 'f');
 
     public static bool EqualsFixedTime(string? left, string? right)

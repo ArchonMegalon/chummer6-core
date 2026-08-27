@@ -295,8 +295,7 @@ public sealed class CharacterCreationGearService : ICharacterCreationGearService
             out CharacterCreationGearBudget budgetAfter,
             out string[] projectionBlockers);
         blockers.AddRange(projectionBlockers);
-        if (context.PendingDraft is null && lines.Length == 0
-            || context.PendingDraft is not null
+        if (context.PendingDraft is not null
                && context.PendingDraft.Lines.Select(item => item.LineDigest)
                    .SequenceEqual(lines.Select(item => item.LineDigest), StringComparer.Ordinal))
             blockers.Add(CharacterCreationGearBlockers.NoChange);
