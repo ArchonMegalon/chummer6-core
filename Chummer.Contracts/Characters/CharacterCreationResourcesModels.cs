@@ -24,6 +24,7 @@ public static class CharacterCreationResourcesBlockers
     public const string IdempotencyConflict = "creation-resources-idempotency-conflict";
     public const string IdempotencyKeyInvalid = "creation-resources-idempotency-key-invalid";
     public const string InsufficientCreationKarma = "creation-resources-insufficient-creation-karma";
+    public const string InsufficientNuyen = "creation-resources-insufficient-nuyen";
     public const string InvalidOption = "creation-resources-invalid-option";
     public const string NoChange = "creation-resources-no-change";
     public const string PersistenceAuthorityRequired = "creation-resources-persistence-authority-required";

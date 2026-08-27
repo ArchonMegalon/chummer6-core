@@ -14,7 +14,7 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 namespace Chummer.Tests;
 
 [TestClass]
-public sealed class CharacterCreationResourcesServiceTests
+public sealed partial class CharacterCreationResourcesServiceTests
 {
     [TestMethod]
     public void Exact_priority_and_karma_catalog_projects_budget_and_carryover()
@@ -370,8 +370,9 @@ public sealed class CharacterCreationResourcesServiceTests
 
     private static ICharacterSourceDataResolver Resolver(
         CharacterCreationPrerequisiteAuthority prerequisite,
-        CharacterCreationResourcesAuthority resources) =>
-        new StubResolver(prerequisite, resources);
+        CharacterCreationResourcesAuthority resources,
+        CharacterCreationGearAuthority? gear = null) =>
+        new StubResolver(prerequisite, resources, gear);
 
     private static string FixtureXml() =>
         "<character><name>Resources Runner</name><alias>Priority</alias>"
@@ -399,15 +400,17 @@ public sealed class CharacterCreationResourcesServiceTests
 
     private sealed class StubResolver(
         CharacterCreationPrerequisiteAuthority prerequisite,
-        CharacterCreationResourcesAuthority resources) : ICharacterSourceDataResolver
+        CharacterCreationResourcesAuthority resources,
+        CharacterCreationGearAuthority? gear) : ICharacterSourceDataResolver
     {
         public ICharacterSourceDataContext TryCreateContext(string characterXml) =>
-            new StubContext(prerequisite, resources);
+            new StubContext(prerequisite, resources, gear);
     }
 
     private sealed class StubContext(
         CharacterCreationPrerequisiteAuthority prerequisite,
-        CharacterCreationResourcesAuthority resources) : ICharacterSourceDataContext
+        CharacterCreationResourcesAuthority resources,
+        CharacterCreationGearAuthority? gear) : ICharacterSourceDataContext
     {
         public bool TryResolveCreationPrerequisiteAuthority(
             out CharacterCreationPrerequisiteAuthority authority)
@@ -421,6 +424,12 @@ public sealed class CharacterCreationResourcesServiceTests
         {
             authority = resources;
             return true;
+        }
+
+        public bool TryResolveCreationGearAuthority(out CharacterCreationGearAuthority authority)
+        {
+            authority = gear ?? CharacterCreationGearAuthority.Unavailable;
+            return gear is not null;
         }
 
         public bool TryResolveCyberwareGradeDeviceRating(

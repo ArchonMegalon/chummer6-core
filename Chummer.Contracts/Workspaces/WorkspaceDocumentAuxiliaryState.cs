@@ -39,7 +39,11 @@ public sealed record WorkspaceDocumentAuxiliaryState(
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     CharacterCreationResourcesDraft? CharacterCreationResourcesDraft = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    IReadOnlyList<CharacterCreationResourcesReceiptLedgerEntry>? CharacterCreationResourcesReceipts = null)
+    IReadOnlyList<CharacterCreationResourcesReceiptLedgerEntry>? CharacterCreationResourcesReceipts = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    CharacterCreationGearDraft? CharacterCreationGearDraft = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    IReadOnlyList<CharacterCreationGearReceiptLedgerEntry>? CharacterCreationGearReceipts = null)
 {
     public static WorkspaceDocumentAuxiliaryState Empty { get; } = new();
 
@@ -54,6 +58,8 @@ public sealed record WorkspaceDocumentAuxiliaryState(
                            && CharacterCreationLifestyleReceipts is null
                            && CharacterCreationResourcesDraft is null
                            && CharacterCreationResourcesReceipts is null
+                           && CharacterCreationGearDraft is null
+                           && CharacterCreationGearReceipts is null
                            && CharacterCreationBootstrapBinding is null
                            && CharacterCreationQualitiesDraft is null
                            && CharacterCreationQualitiesReceipts is null

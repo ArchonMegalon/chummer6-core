@@ -10,6 +10,7 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="CharacterCreationResourcesServiceTests.cs" />
+    <Compile Include="CharacterCreationGearServiceTests.cs" />
     <Compile Include="CharacterCreationPrerequisiteServiceTests.cs" />
     <Compile Include="FileSystemCharacterSourceDataResolverTests.cs" />
     <ProjectReference Include="../Chummer.Application/Chummer.Application.csproj" />

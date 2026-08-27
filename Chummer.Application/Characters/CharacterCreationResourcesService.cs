@@ -320,6 +320,7 @@ public sealed class CharacterCreationResourcesService : ICharacterCreationResour
                 context.PriorityOption,
                 option,
                 context.PurchaseAuthorityExact,
+                context.KnownPurchaseCost,
                 blockers);
         blockers.AddRange(budgetAfter.Blockers);
         string rawDigest = context.Binding.RawCharacterXmlDigest;
@@ -500,6 +501,23 @@ public sealed class CharacterCreationResourcesService : ICharacterCreationResour
             blockers.Add(CharacterCreationResourcesBlockers.StalePrerequisiteDraft);
 
         bool purchaseAuthorityExact = !HasUnsupportedPurchases(root);
+        decimal knownPurchaseCost = 0m;
+        CharacterCreationGearDraft? gearDraft =
+            workspace.Document.AuxiliaryState.CharacterCreationGearDraft;
+        IReadOnlyList<CharacterCreationGearReceiptLedgerEntry> gearReceipts =
+            workspace.Document.AuxiliaryState.CharacterCreationGearReceipts ?? [];
+        if (!CharacterCreationGearReceiptLedgerIntegrity.IsValidLedger(
+                workspace.Id,
+                workspace.ContentRevision,
+                gearDraft,
+                gearReceipts))
+        {
+            purchaseAuthorityExact = false;
+        }
+        else if (gearDraft is not null)
+        {
+            knownPurchaseCost = gearDraft.Budget.BasketCost;
+        }
         if (!purchaseAuthorityExact)
             blockers.Add(CharacterCreationResourcesBlockers.PurchaseCostAuthorityRequired);
         int availableKarma = ResolveAvailableCreationKarma(
@@ -519,8 +537,14 @@ public sealed class CharacterCreationResourcesService : ICharacterCreationResour
         if (pending is not null && selected is null)
             blockers.Add(CharacterCreationResourcesBlockers.InvalidOption);
         CharacterCreationResourcesBudget budget = selected is null
-            ? EmptyBudget(authority, priorityOption, purchaseAuthorityExact)
-            : BuildBudget(authority, priorityOption, selected, purchaseAuthorityExact, blockers: null);
+            ? EmptyBudget(authority, priorityOption, purchaseAuthorityExact, knownPurchaseCost)
+            : BuildBudget(
+                authority,
+                priorityOption,
+                selected,
+                purchaseAuthorityExact,
+                knownPurchaseCost,
+                blockers: null);
 
         var binding = new CharacterCreationResourcesBinding(
             workspace.Id,
@@ -546,6 +570,7 @@ public sealed class CharacterCreationResourcesService : ICharacterCreationResour
             options,
             budget,
             purchaseAuthorityExact,
+            knownPurchaseCost,
             binding,
             Normalize(blockers));
     }
@@ -600,6 +625,7 @@ public sealed class CharacterCreationResourcesService : ICharacterCreationResour
         CharacterCreationResourcePriorityOption? priority,
         CharacterCreationResourceAllocationOption option,
         bool purchaseAuthorityExact,
+        decimal knownPurchaseCost,
         List<string>? blockers)
     {
         var findings = new List<string>();
@@ -608,8 +634,10 @@ public sealed class CharacterCreationResourcesService : ICharacterCreationResour
         if (!purchaseAuthorityExact)
             findings.Add(CharacterCreationResourcesBlockers.PurchaseCostAuthorityRequired);
         decimal priorityNuyen = priority?.BasePriorityNuyen ?? 0m;
-        decimal knownPurchaseCost = 0m;
-        decimal remaining = option.TotalStartingNuyen;
+        decimal remaining = option.TotalStartingNuyen - knownPurchaseCost;
+        decimal overspend = Math.Max(0m, -remaining);
+        if (overspend > 0m)
+            findings.Add(CharacterCreationResourcesBlockers.InsufficientNuyen);
         decimal carryover = Math.Max(0m, authority.NuyenCarryover);
         string[] normalized = Normalize(findings);
         blockers?.AddRange(normalized);
@@ -619,8 +647,8 @@ public sealed class CharacterCreationResourcesService : ICharacterCreationResour
             option.NuyenFromKarma,
             option.TotalStartingNuyen,
             knownPurchaseCost,
-            remaining,
-            Overspend: 0m,
+            Math.Max(0m, remaining),
+            Overspend: overspend,
             CarryoverLimit: carryover,
             CarryoverExcess: Math.Max(0m, remaining - carryover),
             IsExact: normalized.Length == 0,
@@ -631,24 +659,27 @@ public sealed class CharacterCreationResourcesService : ICharacterCreationResour
     private static CharacterCreationResourcesBudget EmptyBudget(
         CharacterCreationResourcesAuthority authority,
         CharacterCreationResourcePriorityOption? priority,
-        bool exact)
+        bool exact,
+        decimal knownPurchaseCost)
     {
         decimal total = priority?.BasePriorityNuyen ?? 0m;
-        string[] blockers = exact
-            ? []
-            : [CharacterCreationResourcesBlockers.PurchaseCostAuthorityRequired];
-        decimal excess = Math.Max(0m, total - Math.Max(0m, authority.NuyenCarryover));
+        decimal remaining = Math.Max(0m, total - knownPurchaseCost);
+        decimal overspend = Math.Max(0m, knownPurchaseCost - total);
+        string[] blockers = Normalize(
+            (exact ? Array.Empty<string>() : [CharacterCreationResourcesBlockers.PurchaseCostAuthorityRequired])
+            .Concat(overspend > 0m ? [CharacterCreationResourcesBlockers.InsufficientNuyen] : []));
+        decimal excess = Math.Max(0m, remaining - Math.Max(0m, authority.NuyenCarryover));
         return new CharacterCreationResourcesBudget(
             priority?.BasePriorityNuyen ?? 0m,
             0,
-            0m,
-            total,
-            0m,
+            knownPurchaseCost,
+            remaining,
+            overspend,
             total,
             0m,
             Math.Max(0m, authority.NuyenCarryover),
             excess,
-            exact,
+            exact && overspend == 0m,
             blockers,
             CharacterCreationResourcesSourceAnchors.All);
     }
@@ -800,6 +831,7 @@ public sealed class CharacterCreationResourcesService : ICharacterCreationResour
         IReadOnlyList<CharacterCreationResourceAllocationOption> Options,
         CharacterCreationResourcesBudget Budget,
         bool PurchaseAuthorityExact,
+        decimal KnownPurchaseCost,
         CharacterCreationResourcesBinding Binding,
         IReadOnlyList<string> Blockers);
 

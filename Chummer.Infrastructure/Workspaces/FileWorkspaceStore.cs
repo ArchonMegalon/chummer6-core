@@ -1593,6 +1593,14 @@ public sealed class FileWorkspaceStore :
             currentContentRevision,
             resourcesDraft,
             resourcesReceipts);
+        CharacterCreationGearDraft? gearDraft = state.CharacterCreationGearDraft;
+        IReadOnlyList<CharacterCreationGearReceiptLedgerEntry>? gearReceipts =
+            state.CharacterCreationGearReceipts;
+        bool gearValid = CharacterCreationGearReceiptLedgerIntegrity.IsValidLedger(
+            workspaceId,
+            currentContentRevision,
+            gearDraft,
+            gearReceipts);
         IReadOnlyList<CharacterAfterRunSettlementReceiptLedgerEntry>? afterRunReceipts =
             state.CharacterAfterRunSettlementReceipts;
         bool afterRunReceiptsValid = afterRunReceipts is null
@@ -1612,6 +1620,7 @@ public sealed class FileWorkspaceStore :
                && contactReceiptsValid
                && lifestyleReceiptsValid
                && resourcesValid
+               && gearValid
                && afterRunReceiptsValid
                && bootstrapValid;
     }
@@ -1675,6 +1684,14 @@ public sealed class FileWorkspaceStore :
             replacementState.CharacterCreationResourcesReceipts;
         IReadOnlyList<CharacterCreationResourcesReceiptLedgerEntry>? currentResourcesReceipts =
             currentState.CharacterCreationResourcesReceipts;
+        CharacterCreationGearDraft? replacementGearDraft =
+            replacementState.CharacterCreationGearDraft;
+        CharacterCreationGearDraft? currentGearDraft =
+            currentState.CharacterCreationGearDraft;
+        IReadOnlyList<CharacterCreationGearReceiptLedgerEntry>? replacementGearReceipts =
+            replacementState.CharacterCreationGearReceipts;
+        IReadOnlyList<CharacterCreationGearReceiptLedgerEntry>? currentGearReceipts =
+            currentState.CharacterCreationGearReceipts;
         CharacterCreationQualitiesDraft? replacementQualities =
             replacementState.CharacterCreationQualitiesDraft;
         CharacterCreationQualitiesDraft? currentQualities =
@@ -1722,6 +1739,11 @@ public sealed class FileWorkspaceStore :
             currentResourcesReceipts,
             replacementResourcesDraft,
             replacementResourcesReceipts);
+        bool gearUnchanged = HasSameGearLane(
+            currentGearDraft,
+            currentGearReceipts,
+            replacementGearDraft,
+            replacementGearReceipts);
         bool qualitiesUnchanged = HasSameQualitiesLane(
             currentQualities,
             currentQualityReceipts,
@@ -1741,6 +1763,7 @@ public sealed class FileWorkspaceStore :
                                + (contactReceiptsUnchanged ? 0 : 1)
                                + (lifestyleReceiptsUnchanged ? 0 : 1)
                                + (resourcesUnchanged ? 0 : 1)
+                               + (gearUnchanged ? 0 : 1)
                                + (qualitiesUnchanged ? 0 : 1)
                                + (afterRunReceiptsUnchanged ? 0 : 1)
                                + (bootstrapUnchanged ? 0 : 1);
@@ -1847,6 +1870,20 @@ public sealed class FileWorkspaceStore :
                 currentResourcesReceipts,
                 replacementResourcesDraft,
                 replacementResourcesReceipts,
+                currentDocument,
+                replacementDocument);
+        }
+        if (!gearUnchanged)
+        {
+            return CharacterCreationGearReceiptLedgerIntegrity.IsValidAppendTransition(
+                workspaceId,
+                previousContentRevision,
+                previousSavedRevision,
+                nextContentRevision,
+                currentGearDraft,
+                currentGearReceipts,
+                replacementGearDraft,
+                replacementGearReceipts,
                 currentDocument,
                 replacementDocument);
         }
@@ -2149,6 +2186,22 @@ public sealed class FileWorkspaceStore :
                 new WorkspaceDocumentAuxiliaryState(
                     CharacterCreationResourcesDraft: rightDraft,
                     CharacterCreationResourcesReceipts: rightReceipts)),
+            StringComparison.Ordinal);
+
+    private static bool HasSameGearLane(
+        CharacterCreationGearDraft? leftDraft,
+        IReadOnlyList<CharacterCreationGearReceiptLedgerEntry>? leftReceipts,
+        CharacterCreationGearDraft? rightDraft,
+        IReadOnlyList<CharacterCreationGearReceiptLedgerEntry>? rightReceipts) =>
+        string.Equals(
+            WorkspaceDocumentAuxiliaryStateDigest.Compute(
+                new WorkspaceDocumentAuxiliaryState(
+                    CharacterCreationGearDraft: leftDraft,
+                    CharacterCreationGearReceipts: leftReceipts)),
+            WorkspaceDocumentAuxiliaryStateDigest.Compute(
+                new WorkspaceDocumentAuxiliaryState(
+                    CharacterCreationGearDraft: rightDraft,
+                    CharacterCreationGearReceipts: rightReceipts)),
             StringComparison.Ordinal);
 
     private static bool HasSameQualitiesLane(

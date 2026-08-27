@@ -1503,6 +1503,200 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             return true;
         }
 
+        public bool TryResolveCreationGearAuthority(out CharacterCreationGearAuthority authority)
+        {
+            authority = CharacterCreationGearAuthority.Unavailable;
+            if (string.IsNullOrWhiteSpace(_settingsProfileId)
+                || _creationMaximumAvailability is not int maximumAvailability
+                || maximumAvailability < 0
+                || !CharacterCreationBuildMethods.IsSupported(_prerequisiteBuildMethod)
+                || !TryComputeEffectiveInputDigest(_catalog, "gear.xml", out string sourceDigest)
+                || !TryEnumerateTargets(
+                    "gear.xml",
+                    ["gears"],
+                    "gear",
+                    out XElement[] rows)
+                || !TryHasSelectedCustomDataInputFor(
+                    _customDirectories,
+                    "gear.xml",
+                    out _))
+            {
+                return false;
+            }
+
+            var options = new List<CharacterCreationGearCatalogOption>();
+            var identities = new HashSet<Guid>();
+            var authorityBlockers = new List<string>();
+            foreach (XElement row in rows.OrderBy(
+                         item => ReadValue(item, "id"),
+                         StringComparer.Ordinal))
+            {
+                if (!Guid.TryParse(ReadValue(row, "id"), out Guid sourceId)
+                    || sourceId == Guid.Empty
+                    || !identities.Add(sourceId))
+                {
+                    continue;
+                }
+
+                string name = ReadValue(row, "name");
+                string category = ReadValue(row, "category");
+                string sourceBook = ReadValue(row, "source");
+                string page = ReadValue(row, "page");
+                if (string.IsNullOrWhiteSpace(name) || string.IsNullOrWhiteSpace(category))
+                    continue;
+                bool sourceEnabled = !string.IsNullOrWhiteSpace(sourceBook)
+                    && _enabledSourcebooks.Contains(sourceBook);
+                bool fixedRating = string.Equals(ReadValue(row, "rating"), "0", StringComparison.Ordinal)
+                    && string.IsNullOrWhiteSpace(ReadValue(row, "minrating"));
+                bool fixedCost = decimal.TryParse(
+                    ReadValue(row, "cost"),
+                    NumberStyles.Number,
+                    CultureInfo.InvariantCulture,
+                    out decimal packageCost)
+                    && packageCost >= 0m;
+                bool fixedPackage = !row.Elements("costfor").Any();
+                int packageQuantity = 1;
+                if (row.Elements("costfor").Any())
+                {
+                    fixedPackage = int.TryParse(
+                        ReadValue(row, "costfor"),
+                        NumberStyles.None,
+                        CultureInfo.InvariantCulture,
+                        out packageQuantity)
+                        && packageQuantity > 0;
+                }
+
+                Match availabilityMatch = Regex.Match(
+                    ReadValue(row, "avail"),
+                    "^(?<value>[0-9]+)(?<legality>[RF]?)$",
+                    RegexOptions.CultureInvariant);
+                int availability = 0;
+                bool fixedAvailability = availabilityMatch.Success
+                    && int.TryParse(
+                        availabilityMatch.Groups["value"].Value,
+                        NumberStyles.None,
+                        CultureInfo.InvariantCulture,
+                        out availability)
+                    && availability >= 0;
+                string legality = availabilityMatch.Groups["legality"].Value switch
+                {
+                    "R" => CharacterCreationGearLegality.Restricted,
+                    "F" => CharacterCreationGearLegality.Forbidden,
+                    _ => CharacterCreationGearLegality.Legal
+                };
+                bool hasUnsupportedSemantics = row.Element("hide") is not null
+                    || row.Element("requireparent") is not null
+                    || row.Element("required") is not null
+                    || row.Element("forbidden") is not null
+                    || row.Element("gears") is not null
+                    || row.Element("bonus") is not null
+                    || row.Element("wirelessbonus") is not null
+                    || row.Element("weaponbonus") is not null
+                    || row.Element("flechetteweaponbonus") is not null
+                    || row.Elements().Any(element =>
+                        element.Name.LocalName.StartsWith("select", StringComparison.OrdinalIgnoreCase)
+                        || element.Name.LocalName.StartsWith("add", StringComparison.OrdinalIgnoreCase));
+                bool exact = fixedRating
+                    && fixedCost
+                    && fixedPackage
+                    && fixedAvailability
+                    && !hasUnsupportedSemantics
+                    && !string.IsNullOrWhiteSpace(name)
+                    && !string.IsNullOrWhiteSpace(category)
+                    && !string.IsNullOrWhiteSpace(page);
+                var optionBlockers = new List<string>();
+                if (!sourceEnabled)
+                    optionBlockers.Add(CharacterCreationGearBlockers.SourceDisabled);
+                if (fixedAvailability && availability > maximumAvailability)
+                    optionBlockers.Add(CharacterCreationGearBlockers.AvailabilityExceeded);
+                if (!exact)
+                    optionBlockers.Add(CharacterCreationGearBlockers.UnsupportedSemantics);
+                string[] normalizedOptionBlockers = optionBlockers
+                    .Distinct(StringComparer.Ordinal)
+                    .OrderBy(item => item, StringComparer.Ordinal)
+                    .ToArray();
+                string optionId = $"gear:{sourceId:D}";
+                string anchor = $"gear.xml#gear:{sourceId:D}";
+                string nodeDigest = CharacterCreationGearRules.Compute(new
+                {
+                    Schema = "chummer.sr5.creation-gear.source-node.v1",
+                    Xml = row.ToString(SaveOptions.DisableFormatting)
+                });
+                var candidate = new CharacterCreationGearCatalogOption(
+                    optionId,
+                    sourceId,
+                    name,
+                    category,
+                    fixedCost ? packageCost : 0m,
+                    fixedPackage ? packageQuantity : 1,
+                    fixedAvailability ? availability : 0,
+                    legality,
+                    sourceBook,
+                    page,
+                    IsSelectable: normalizedOptionBlockers.Length == 0,
+                    PricingIsExact: fixedCost && fixedPackage && fixedRating,
+                    AvailabilityIsExact: fixedAvailability,
+                    Blockers: normalizedOptionBlockers,
+                    SourceAnchorIds: [anchor],
+                    SourceNodeDigest: nodeDigest,
+                    OptionDigest: string.Empty);
+                options.Add(candidate with
+                {
+                    OptionDigest = CharacterCreationGearRules.ComputeOptionDigest(candidate)
+                });
+            }
+
+            if (options.Count == 0 || options.All(option => !option.IsSelectable))
+                authorityBlockers.Add(CharacterCreationGearBlockers.AuthorityUnavailable);
+            string[] normalized = authorityBlockers
+                .Distinct(StringComparer.Ordinal)
+                .OrderBy(item => item, StringComparer.Ordinal)
+                .ToArray();
+            string rulesDigest = CharacterCreationGearRules.Compute(new
+            {
+                CharacterCreationGearSchemas.RulesV1,
+                MaximumAvailability = maximumAvailability,
+                MaximumBasketLines = 4096,
+                MaximumQuantityPerLine = 1_000_000,
+                FixedNumericCostOnly = true,
+                FixedNumericAvailabilityOnly = true,
+                RatingZeroOnly = true,
+                NoModifiersOrFollowUpPrompts = true
+            });
+            string runtimeDigest = CharacterCreationGearRules.Compute(new
+            {
+                CharacterCreationGearSchemas.RuntimeV1,
+                StableOptionIdentity = true,
+                DraftOnlyUntilFinalization = true,
+                AtomicAuxiliaryStateCas = true,
+                CharacterXmlBytePreservation = true
+            });
+            var candidateAuthority = new CharacterCreationGearAuthority(
+                CharacterCreationGearSchemas.AuthorityV1,
+                "sr5",
+                _settingsProfileId,
+                maximumAvailability,
+                4096,
+                1_000_000,
+                options,
+                [
+                    CharacterCreationGearSourceAnchors.Catalog,
+                    $"settings.xml#setting:{_settingsProfileId}:availability"
+                ],
+                normalized,
+                IsAuthoritative: normalized.Length == 0,
+                SourceDigest: sourceDigest,
+                ProfileDigest: _rawProfileInputsDigest,
+                RulesDigest: rulesDigest,
+                RuntimeDigest: runtimeDigest,
+                AuthorityDigest: string.Empty);
+            authority = candidateAuthority with
+            {
+                AuthorityDigest = CharacterCreationGearRules.ComputeAuthorityDigest(candidateAuthority)
+            };
+            return true;
+        }
+
         public bool TryResolveCreationSkillsAuthority(
             out CharacterCreationSkillsAuthority authority)
         {

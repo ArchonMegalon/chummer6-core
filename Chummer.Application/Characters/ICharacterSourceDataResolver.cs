@@ -125,6 +125,17 @@ public interface ICharacterSourceDataContext
     }
 
     /// <summary>
+    /// Projects the exact enabled SR5 gear catalog for the creation Resources commerce
+    /// lane. Unsupported expressions, prompts, parent requirements, or side effects
+    /// remain visible but disabled and must never receive guessed prices or legality.
+    /// </summary>
+    bool TryResolveCreationGearAuthority(out CharacterCreationGearAuthority authority)
+    {
+        authority = CharacterCreationGearAuthority.Unavailable;
+        return false;
+    }
+
+    /// <summary>
     /// Resolves the exact SR5 Standard Priority Talent, tradition, stream, adept-power,
     /// spell, and complex-form catalogs from the saved profile and effective overlays.
     /// Missing or unsupported source semantics must leave the step unavailable.

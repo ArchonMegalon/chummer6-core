@@ -199,6 +199,8 @@ public static class ServiceCollectionExtensions
             CharacterCreationLifestylesService>();
         services.AddSingleton<ICharacterCreationResourcesService,
             CharacterCreationResourcesService>();
+        services.AddSingleton<ICharacterCreationGearService,
+            CharacterCreationGearService>();
         services.TryAddSingleton<ICharacterCareerSkillGroupAdvanceWorkspace,
             UnavailableCharacterCareerSkillGroupAdvanceWorkspace>();
         services.TryAddSingleton<ICharacterCareerSkillGroupAdvanceService,
