@@ -9,6 +9,7 @@
     <Version>0.0.0-local</Version>
     <PackageLicenseExpression>GPL-3.0-only</PackageLicenseExpression>
     <Description>Store-backed Core application boundary for delegated GM character edits.</Description>
+    <TargetsForTfmSpecificBuildOutput>$(TargetsForTfmSpecificBuildOutput);IncludeCoreGmRuntimeAssemblies</TargetsForTfmSpecificBuildOutput>
   </PropertyGroup>
 
   <ItemGroup Condition="'$(ChummerLocalContractsProject)' != '' and Exists('$(ChummerLocalContractsProject)')">
@@ -45,5 +46,19 @@
     <PackageReference Include="Chummer.Hub.Registry.Contracts" Version="$(ChummerHubRegistryContractsPackageVersion)" />
     <PackageReference Include="Chummer.Run.Contracts" Version="$(ChummerRunContractsPackageVersion)" />
   </ItemGroup>
+
+  <Target Name="IncludeCoreGmRuntimeAssemblies"
+          DependsOnTargets="BuildOnlySettings;ResolveReferences">
+    <ItemGroup>
+      <BuildOutputInPackage Include="@(ReferenceCopyLocalPaths)"
+          Condition="'%(Filename)' == 'Chummer.Application'
+                  or '%(Filename)' == 'Chummer.Infrastructure'
+                  or '%(Filename)' == 'Chummer.Rulesets.Hosting'
+                  or '%(Filename)' == 'Chummer.Rulesets.Sr5'
+                  or '%(Filename)' == 'Chummer.Rulesets.Sr6'">
+        <TargetPath>%(Filename)%(Extension)</TargetPath>
+      </BuildOutputInPackage>
+    </ItemGroup>
+  </Target>
 
 </Project>
