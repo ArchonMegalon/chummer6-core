@@ -89,6 +89,29 @@ public sealed record CharacterCustomDrugGrade(
     string SourceNodeDigest,
     IReadOnlyList<string> SourceAnchorIds);
 
+public sealed record CharacterCustomDrugCatalogAuthority(
+    bool Exact,
+    IReadOnlyList<string> Blockers,
+    string RulesetId,
+    string SettingsProfileId,
+    string CatalogDigest,
+    string RulesDigest,
+    CharacterCustomDrugCalculationPolicy Policy,
+    IReadOnlyList<CharacterCustomDrugGrade> Grades,
+    IReadOnlyList<CharacterCustomDrugComponentSource> Components)
+{
+    public static CharacterCustomDrugCatalogAuthority Unavailable { get; } = new(
+        Exact: false,
+        Blockers: [CharacterCustomDrugBlockers.AuthorityUnavailable],
+        RulesetId: string.Empty,
+        SettingsProfileId: string.Empty,
+        CatalogDigest: string.Empty,
+        RulesDigest: string.Empty,
+        Policy: new CharacterCustomDrugCalculationPolicy(false, false, false, 0, 0m, 0),
+        Grades: [],
+        Components: []);
+}
+
 public sealed record CharacterCustomDrugPreparation(
     bool Exact,
     IReadOnlyList<string> Blockers,
@@ -221,6 +244,15 @@ public static class CharacterCustomDrugBlockers
     public const string StaleQuote = "The custom-drug quote changed after confirmation.";
 }
 
+public static class CharacterCustomDrugLegacyAuthority
+{
+    public const string DrugComponentsXmlSha256 = "6c13869d5419ae65b402ee3d91b36bc1cf71c792c2e2cdacf914dbf5e3af1425";
+    public const string CreateCustomDrugSha256 = "9492046b4549cdaf6b6bdc8ab2956fe4c05701bac36009207dc756046cc6d482";
+    public const string DrugsSha256 = "f39f855ffdd90c5e42f61b542166c771468b4ee4a355377d18da294316ae951b";
+    public const string CharacterCreateSha256 = "78816501a56194ecc9d757c58c2a4e4e0b7916f55944d58b7d9a3b16761563db";
+    public const string CharacterCareerSha256 = "5594076cfe19ac8bfe832025040437ba079f46ef75473cfca0315bd6692da859";
+}
+
 /// <summary>
 /// Pure SR5 custom-drug recipe authority. Source projection and persistence are
 /// separate ports; callers cannot turn labels or raw XML into executable recipe
@@ -236,6 +268,49 @@ public static class CharacterCustomDrugRules
 
     private static readonly CharacterCustomDrugAggregateEffects s_EmptyEffects = new(
         [], [], [], [], 0, 0, 0, 0, 0);
+
+    public static CharacterCustomDrugPreparation BindPreparation(
+        CharacterCustomDrugCatalogAuthority? authority,
+        CharacterCustomDrugContext context,
+        long contentRevision,
+        string characterDigest,
+        decimal availableNuyen)
+    {
+        if (!IsValidCatalogAuthority(authority)
+            || contentRevision < 0
+            || !IsCanonicalDigest(characterDigest)
+            || availableNuyen < 0m)
+        {
+            return new CharacterCustomDrugPreparation(
+                Exact: false,
+                Blockers: authority?.Blockers is { Count: > 0 }
+                    ? authority.Blockers
+                    : [CharacterCustomDrugBlockers.AuthorityUnavailable],
+                context,
+                Math.Max(0, contentRevision),
+                IsCanonicalDigest(characterDigest) ? characterDigest : string.Empty,
+                authority?.CatalogDigest ?? string.Empty,
+                authority?.RulesDigest ?? string.Empty,
+                authority?.SettingsProfileId ?? string.Empty,
+                Math.Max(0m, availableNuyen),
+                authority?.Policy ?? CharacterCustomDrugCatalogAuthority.Unavailable.Policy,
+                authority?.Grades ?? [],
+                authority?.Components ?? []);
+        }
+        return new CharacterCustomDrugPreparation(
+            Exact: true,
+            Blockers: [],
+            context,
+            contentRevision,
+            characterDigest,
+            authority!.CatalogDigest,
+            authority.RulesDigest,
+            authority.SettingsProfileId,
+            availableNuyen,
+            authority.Policy,
+            authority.Grades,
+            authority.Components);
+    }
 
     public static CharacterCustomDrugQuote Quote(
         CharacterCustomDrugPreparation preparation,
@@ -423,6 +498,117 @@ public static class CharacterCustomDrugRules
             || preparation.Grades.Select(item => item.Id).Distinct().Count() != preparation.Grades.Count)
             return false;
         return preparation.Components.All(IsValidComponent) && preparation.Grades.All(IsValidGrade);
+    }
+
+    public static bool IsValidCatalogAuthority(CharacterCustomDrugCatalogAuthority? authority)
+    {
+        if (authority is null
+            || !authority.Exact
+            || authority.Blockers.Count != 0
+            || !string.Equals(authority.RulesetId, "sr5", StringComparison.OrdinalIgnoreCase)
+            || string.IsNullOrWhiteSpace(authority.SettingsProfileId)
+            || !IsCanonicalDigest(authority.CatalogDigest)
+            || !IsCanonicalDigest(authority.RulesDigest)
+            || authority.Policy is null
+            || authority.Policy.MaximumComponents is < 1 or > 256
+            || authority.Policy.MaximumQuantity <= 0m
+            || authority.Policy.QuantityDecimalPlaces is < 0 or > 6
+            || authority.Components is not { Count: > 0 and <= 4096 }
+            || authority.Grades is not { Count: > 0 and <= 128 }
+            || authority.Components.Select(item => item.Id).Distinct().Count() != authority.Components.Count
+            || authority.Grades.Select(item => item.Id).Distinct().Count() != authority.Grades.Count
+            || authority.Components.Any(item => !IsValidComponent(item))
+            || authority.Grades.Any(item => !IsValidGrade(item)))
+            return false;
+        return FixedEquals(authority.RulesDigest, ComputeRulesDigest(authority.Policy))
+               && FixedEquals(authority.CatalogDigest, ComputeCatalogDigest(
+                   authority.RulesetId,
+                   authority.SettingsProfileId,
+                   authority.RulesDigest,
+                   authority.Grades,
+                   authority.Components));
+    }
+
+    public static string ComputeRulesDigest(CharacterCustomDrugCalculationPolicy policy)
+    {
+        ArgumentNullException.ThrowIfNull(policy);
+        string canonical = string.Join(
+            "\n",
+            "sr5-custom-drug-rules-v1",
+            policy.MultiplyComponentCostByLevel.ToString(CultureInfo.InvariantCulture),
+            policy.ApplyGradeCostMultiplier.ToString(CultureInfo.InvariantCulture),
+            policy.ApplyGradeAddictionThresholdModifier.ToString(CultureInfo.InvariantCulture),
+            policy.MaximumComponents.ToString(CultureInfo.InvariantCulture),
+            policy.MaximumQuantity.ToString(CultureInfo.InvariantCulture),
+            policy.QuantityDecimalPlaces.ToString(CultureInfo.InvariantCulture),
+            CharacterCustomDrugLegacyAuthority.DrugComponentsXmlSha256,
+            CharacterCustomDrugLegacyAuthority.CreateCustomDrugSha256,
+            CharacterCustomDrugLegacyAuthority.DrugsSha256,
+            CharacterCustomDrugLegacyAuthority.CharacterCreateSha256,
+            CharacterCustomDrugLegacyAuthority.CharacterCareerSha256);
+        return Hex(SHA256.HashData(Encoding.UTF8.GetBytes(canonical)));
+    }
+
+    public static string ComputeCatalogDigest(
+        string rulesetId,
+        string settingsProfileId,
+        string rulesDigest,
+        IReadOnlyList<CharacterCustomDrugGrade> grades,
+        IReadOnlyList<CharacterCustomDrugComponentSource> components)
+    {
+        var canonical = new StringBuilder("sr5-custom-drug-catalog-v1\n")
+            .Append(rulesetId).Append('\n')
+            .Append(settingsProfileId).Append('\n')
+            .Append(rulesDigest).Append('\n');
+        foreach (CharacterCustomDrugGrade grade in grades.OrderBy(item => item.Id.Value))
+        {
+            canonical
+                .Append("grade|").Append(grade.Id.Value.ToString("D")).Append('|')
+                .Append(grade.Name).Append('|')
+                .Append(grade.CostMultiplier.ToString(CultureInfo.InvariantCulture)).Append('|')
+                .Append(grade.AddictionThresholdModifier.ToString(CultureInfo.InvariantCulture)).Append('|')
+                .Append(grade.SourceBook).Append('|')
+                .Append(grade.SourceNodeDigest).Append('\n');
+            foreach (string anchor in grade.SourceAnchorIds.OrderBy(value => value, StringComparer.Ordinal))
+                canonical.Append("anchor|").Append(anchor).Append('\n');
+        }
+        foreach (CharacterCustomDrugComponentSource component in components.OrderBy(item => item.Id.Value))
+        {
+            canonical
+                .Append("component|").Append(component.Id.Value.ToString("D")).Append('|')
+                .Append(component.Name).Append('|')
+                .Append(component.Category).Append('|')
+                .Append(component.Limit.ToString(CultureInfo.InvariantCulture)).Append('|')
+                .Append(component.AvailabilityModifier.ToString(CultureInfo.InvariantCulture)).Append('|')
+                .Append(component.Legality).Append('|')
+                .Append(component.CostPerLevel.ToString(CultureInfo.InvariantCulture)).Append('|')
+                .Append(component.AddictionRating.ToString(CultureInfo.InvariantCulture)).Append('|')
+                .Append(component.AddictionThreshold.ToString(CultureInfo.InvariantCulture)).Append('|')
+                .Append(component.SourceBook).Append('|')
+                .Append(component.Page).Append('|')
+                .Append(component.SourceNodeDigest).Append('\n');
+            foreach (string anchor in component.SourceAnchorIds.OrderBy(value => value, StringComparer.Ordinal))
+                canonical.Append("anchor|").Append(anchor).Append('\n');
+            foreach (CharacterCustomDrugEffectLevel effect in component.Effects.OrderBy(item => item.Level))
+            {
+                canonical
+                    .Append("effect|").Append(effect.Level.ToString(CultureInfo.InvariantCulture)).Append('|')
+                    .Append(effect.Initiative.ToString(CultureInfo.InvariantCulture)).Append('|')
+                    .Append(effect.InitiativeDice.ToString(CultureInfo.InvariantCulture)).Append('|')
+                    .Append(effect.CrashDamage.ToString(CultureInfo.InvariantCulture)).Append('|')
+                    .Append(effect.Speed.ToString(CultureInfo.InvariantCulture)).Append('|')
+                    .Append(effect.Duration.ToString(CultureInfo.InvariantCulture)).Append('\n');
+                foreach (CharacterCustomDrugAttributeEffect value in effect.Attributes.OrderBy(item => item.Attribute, StringComparer.Ordinal))
+                    canonical.Append("attribute|").Append(value.Attribute).Append('|').Append(value.Value.ToString(CultureInfo.InvariantCulture)).Append('\n');
+                foreach (CharacterCustomDrugLimitEffect value in effect.Limits.OrderBy(item => item.Limit, StringComparer.Ordinal))
+                    canonical.Append("limit|").Append(value.Limit).Append('|').Append(value.Value.ToString(CultureInfo.InvariantCulture)).Append('\n');
+                foreach (CharacterCustomDrugQualityEffect value in effect.Qualities.OrderBy(item => item.Name, StringComparer.Ordinal).ThenBy(item => item.Rating))
+                    canonical.Append("quality|").Append(value.Name).Append('|').Append(value.Rating.ToString(CultureInfo.InvariantCulture)).Append('\n');
+                foreach (string value in effect.Information.OrderBy(item => item, StringComparer.Ordinal))
+                    canonical.Append("info|").Append(value).Append('\n');
+            }
+        }
+        return Hex(SHA256.HashData(Encoding.UTF8.GetBytes(canonical.ToString())));
     }
 
     public static bool IsCanonicalDigest(string? digest)
@@ -665,4 +851,13 @@ public static class CharacterCustomDrugRules
     }
 
     private static string Hex(byte[] value) => Convert.ToHexString(value).ToLowerInvariant();
+
+    private static bool FixedEquals(string left, string right)
+    {
+        if (left.Length != right.Length)
+            return false;
+        return CryptographicOperations.FixedTimeEquals(
+            Encoding.ASCII.GetBytes(left),
+            Encoding.ASCII.GetBytes(right));
+    }
 }

@@ -136,6 +136,18 @@ public interface ICharacterSourceDataContext
     }
 
     /// <summary>
+    /// Projects the exact enabled SR5 drug grades, Foundation/Block/Enhancer
+    /// components and every source-defined effect level from the runner's
+    /// effective drugcomponents.xml overlay. Unknown effect semantics or an
+    /// ambiguous source identity make the complete catalog unavailable.
+    /// </summary>
+    bool TryResolveCustomDrugCatalog(out CharacterCustomDrugCatalogAuthority authority)
+    {
+        authority = CharacterCustomDrugCatalogAuthority.Unavailable;
+        return false;
+    }
+
+    /// <summary>
     /// Resolves the exact SR5 Standard Priority Talent, tradition, stream, adept-power,
     /// spell, and complex-form catalogs from the saved profile and effective overlays.
     /// Missing or unsupported source semantics must leave the step unavailable.

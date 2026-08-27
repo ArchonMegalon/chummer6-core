@@ -9,7 +9,10 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="CharacterCustomDrugRulesTests.cs" />
+    <Compile Include="CharacterCustomDrugSourceResolverTests.cs" />
+    <ProjectReference Include="..\Chummer.Application\Chummer.Application.csproj" />
     <ProjectReference Include="..\Chummer.Contracts\Chummer.Contracts.csproj" />
+    <ProjectReference Include="..\Chummer.Infrastructure\Chummer.Infrastructure.csproj" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.0.1" />
     <PackageReference Include="MSTest.TestAdapter" Version="4.1.0" />
     <PackageReference Include="MSTest.TestFramework" Version="4.1.0" />

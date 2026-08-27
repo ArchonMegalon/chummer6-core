@@ -1697,6 +1697,176 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             return true;
         }
 
+        public bool TryResolveCustomDrugCatalog(out CharacterCustomDrugCatalogAuthority authority)
+        {
+            authority = CharacterCustomDrugCatalogAuthority.Unavailable;
+            if (string.IsNullOrWhiteSpace(_settingsProfileId)
+                || !TryComputeEffectiveInputDigest(_catalog, "drugcomponents.xml", out _)
+                || !TryEnumerateTargets(
+                    "drugcomponents.xml",
+                    ["grades"],
+                    "grade",
+                    out XElement[] gradeRows)
+                || !TryEnumerateTargets(
+                    "drugcomponents.xml",
+                    ["drugcomponents"],
+                    "drugcomponent",
+                    out XElement[] componentRows)
+                || !TryHasSelectedCustomDataInputFor(
+                    _customDirectories,
+                    "drugcomponents.xml",
+                    out _))
+            {
+                return false;
+            }
+
+            var policy = new CharacterCustomDrugCalculationPolicy(
+                MultiplyComponentCostByLevel: false,
+                ApplyGradeCostMultiplier: false,
+                ApplyGradeAddictionThresholdModifier: false,
+                MaximumComponents: 32,
+                MaximumQuantity: 1_000_000m,
+                QuantityDecimalPlaces: 2);
+            string rulesDigest = CharacterCustomDrugRules.ComputeRulesDigest(policy);
+            var grades = new List<CharacterCustomDrugGrade>();
+            var components = new List<CharacterCustomDrugComponentSource>();
+            var gradeIds = new HashSet<Guid>();
+            var componentIds = new HashSet<Guid>();
+
+            foreach (XElement row in gradeRows.OrderBy(item => ReadValue(item, "id"), StringComparer.Ordinal))
+            {
+                if (!Guid.TryParseExact(ReadValue(row, "id"), "D", out Guid id)
+                    || id == Guid.Empty
+                    || !gradeIds.Add(id))
+                    return false;
+                string name = ReadValue(row, "name");
+                string sourceBook = ReadValue(row, "source");
+                if (string.IsNullOrWhiteSpace(name)
+                    || name.Length > CharacterCustomDrugRules.MaximumNameLength
+                    || name.IndexOfAny(['\0', '\r', '\n']) >= 0
+                    || !IsEnabledSource(sourceBook)
+                    || !decimal.TryParse(
+                        ReadValue(row, "cost"),
+                        NumberStyles.Number,
+                        CultureInfo.InvariantCulture,
+                        out decimal costMultiplier)
+                    || costMultiplier < 0m)
+                {
+                    continue;
+                }
+                int thresholdModifier = 0;
+                string thresholdText = ReadValue(row, "addictionthreshold");
+                if (thresholdText.Length != 0
+                    && !int.TryParse(
+                        thresholdText,
+                        NumberStyles.Integer,
+                        CultureInfo.InvariantCulture,
+                        out thresholdModifier))
+                {
+                    return false;
+                }
+                string nodeDigest = CharacterCustomDrugRules.ComputeCharacterDigest(
+                    row.ToString(SaveOptions.DisableFormatting));
+                grades.Add(new CharacterCustomDrugGrade(
+                    new CharacterCustomDrugGradeId(id),
+                    name,
+                    costMultiplier,
+                    thresholdModifier,
+                    sourceBook,
+                    nodeDigest,
+                    [$"drugcomponents.xml#grade:{id:D}"]));
+            }
+
+            foreach (XElement row in componentRows.OrderBy(item => ReadValue(item, "id"), StringComparer.Ordinal))
+            {
+                if (!Guid.TryParseExact(ReadValue(row, "id"), "D", out Guid id)
+                    || id == Guid.Empty
+                    || !componentIds.Add(id))
+                    return false;
+                string name = ReadValue(row, "name");
+                string sourceBook = ReadValue(row, "source");
+                string page = ReadValue(row, "page");
+                if (!IsEnabledSource(sourceBook))
+                    continue;
+                CharacterCustomDrugComponentCategory? category = ReadValue(row, "category") switch
+                {
+                    "Foundation" => CharacterCustomDrugComponentCategory.Foundation,
+                    "Block" => CharacterCustomDrugComponentCategory.Block,
+                    "Enhancer" => CharacterCustomDrugComponentCategory.Enhancer,
+                    _ => null
+                };
+                if (category is null
+                    || string.IsNullOrWhiteSpace(name)
+                    || name.Length > CharacterCustomDrugRules.MaximumNameLength
+                    || name.IndexOfAny(['\0', '\r', '\n']) >= 0
+                    || string.IsNullOrWhiteSpace(sourceBook)
+                    || string.IsNullOrWhiteSpace(page)
+                    || !decimal.TryParse(
+                        ReadValue(row, "cost"),
+                        NumberStyles.Number,
+                        CultureInfo.InvariantCulture,
+                        out decimal cost)
+                    || cost < 0m
+                    || !TryReadDrugOptionalNonNegativeInt(row, "rating", defaultValue: 0, out int rating)
+                    || !TryReadDrugOptionalNonNegativeInt(row, "threshold", defaultValue: 0, out int threshold)
+                    || !TryReadDrugOptionalNonNegativeInt(row, "limit", defaultValue: 1, out int limit)
+                    || !TryReadDrugAvailability(
+                        ReadValue(row, "availability"),
+                        out int availability,
+                        out CharacterCustomDrugLegality legality)
+                    || !TryProjectDrugEffects(row, out CharacterCustomDrugEffectLevel[] effects))
+                {
+                    return false;
+                }
+                string nodeDigest = CharacterCustomDrugRules.ComputeCharacterDigest(
+                    row.ToString(SaveOptions.DisableFormatting));
+                components.Add(new CharacterCustomDrugComponentSource(
+                    new CharacterCustomDrugComponentId(id),
+                    name,
+                    category.Value,
+                    limit,
+                    availability,
+                    legality,
+                    cost,
+                    rating,
+                    threshold,
+                    sourceBook,
+                    page,
+                    nodeDigest,
+                    [$"drugcomponents.xml#drugcomponent:{id:D}"],
+                    effects));
+            }
+
+            if (grades.Count == 0
+                || components.Count == 0
+                || components.All(item => item.Category != CharacterCustomDrugComponentCategory.Foundation))
+            {
+                return false;
+            }
+            CharacterCustomDrugGrade[] orderedGrades = grades.OrderBy(item => item.Id.Value).ToArray();
+            CharacterCustomDrugComponentSource[] orderedComponents = components.OrderBy(item => item.Id.Value).ToArray();
+            string catalogDigest = CharacterCustomDrugRules.ComputeCatalogDigest(
+                "sr5",
+                _settingsProfileId,
+                rulesDigest,
+                orderedGrades,
+                orderedComponents);
+            var candidate = new CharacterCustomDrugCatalogAuthority(
+                Exact: true,
+                Blockers: [],
+                RulesetId: "sr5",
+                _settingsProfileId,
+                catalogDigest,
+                rulesDigest,
+                policy,
+                orderedGrades,
+                orderedComponents);
+            if (!CharacterCustomDrugRules.IsValidCatalogAuthority(candidate))
+                return false;
+            authority = candidate;
+            return true;
+        }
+
         public bool TryResolveCreationSkillsAuthority(
             out CharacterCreationSkillsAuthority authority)
         {
@@ -4248,6 +4418,211 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                     locators.Add(locator);
                 }
             }
+        }
+
+        private static bool TryReadDrugOptionalNonNegativeInt(
+            XElement row,
+            string name,
+            int defaultValue,
+            out int value)
+        {
+            string text = ReadValue(row, name);
+            if (text.Length == 0)
+            {
+                value = defaultValue;
+                return true;
+            }
+            return int.TryParse(text, NumberStyles.None, CultureInfo.InvariantCulture, out value)
+                   && value >= 0;
+        }
+
+        private static bool TryReadDrugAvailability(
+            string text,
+            out int availability,
+            out CharacterCustomDrugLegality legality)
+        {
+            availability = 0;
+            legality = CharacterCustomDrugLegality.Legal;
+            Match match = Regex.Match(
+                text,
+                "^\\+(?<value>[0-9]+)(?<legality>[RF]?)$",
+                RegexOptions.CultureInvariant);
+            if (!match.Success
+                || !int.TryParse(
+                    match.Groups["value"].Value,
+                    NumberStyles.None,
+                    CultureInfo.InvariantCulture,
+                    out availability))
+            {
+                return false;
+            }
+            legality = match.Groups["legality"].Value switch
+            {
+                "R" => CharacterCustomDrugLegality.Restricted,
+                "F" => CharacterCustomDrugLegality.Forbidden,
+                _ => CharacterCustomDrugLegality.Legal
+            };
+            return true;
+        }
+
+        private static bool TryProjectDrugEffects(
+            XElement component,
+            out CharacterCustomDrugEffectLevel[] effects)
+        {
+            effects = [];
+            XElement[] containers = component.Elements("effects").Take(2).ToArray();
+            if (containers.Length != 1 || containers[0].HasAttributes)
+                return false;
+            var projected = new List<CharacterCustomDrugEffectLevel>();
+            var levels = new HashSet<int>();
+            foreach (XElement row in containers[0].Elements("effect"))
+            {
+                if (row.HasAttributes
+                    || !TryReadDrugOptionalNonNegativeInt(row, "level", defaultValue: 0, out int level)
+                    || !levels.Add(level))
+                {
+                    return false;
+                }
+                var attributes = new List<CharacterCustomDrugAttributeEffect>();
+                var limits = new List<CharacterCustomDrugLimitEffect>();
+                var qualities = new List<CharacterCustomDrugQualityEffect>();
+                var information = new List<string>();
+                int initiative = 0;
+                int initiativeDice = 0;
+                int crashDamage = 0;
+                int speed = 0;
+                int duration = 0;
+                foreach (XElement value in row.Elements())
+                {
+                    switch (value.Name.LocalName)
+                    {
+                        case "level":
+                            break;
+                        case "attribute":
+                            if (!TryReadDrugNamedDecimal(value, out string attribute, out decimal attributeValue))
+                                return false;
+                            attributes.Add(new CharacterCustomDrugAttributeEffect(attribute, attributeValue));
+                            break;
+                        case "limit":
+                            if (!TryReadDrugNamedInt(value, out string limitName, out int limitValue))
+                                return false;
+                            limits.Add(new CharacterCustomDrugLimitEffect(limitName, limitValue));
+                            break;
+                        case "quality":
+                            string qualityName = value.Value.Trim();
+                            if (qualityName.Length == 0
+                                || qualityName.Length > CharacterCustomDrugRules.MaximumNameLength
+                                || qualityName.IndexOfAny(['\0', '\r', '\n']) >= 0)
+                                return false;
+                            int qualityRating = 0;
+                            XAttribute? rating = value.Attribute("rating");
+                            if (value.Attributes().Any(attribute => attribute != rating)
+                                || rating is not null
+                                   && (!int.TryParse(
+                                           rating.Value,
+                                           NumberStyles.None,
+                                           CultureInfo.InvariantCulture,
+                                           out qualityRating)
+                                       || qualityRating < 0))
+                                return false;
+                            qualities.Add(new CharacterCustomDrugQualityEffect(qualityName, qualityRating));
+                            break;
+                        case "info":
+                            string info = value.Value;
+                            if (value.HasAttributes || value.HasElements || info.Length is 0 or > 512 || info.IndexOf('\0') >= 0)
+                                return false;
+                            information.Add(info);
+                            break;
+                        case "initiative":
+                            if (!TryReadDrugScalarInt(value, out initiative))
+                                return false;
+                            break;
+                        case "initiativedice":
+                            if (!TryReadDrugScalarInt(value, out initiativeDice))
+                                return false;
+                            break;
+                        case "crashdamage":
+                            if (!TryReadDrugScalarInt(value, out crashDamage))
+                                return false;
+                            break;
+                        case "speed":
+                            if (!TryReadDrugScalarInt(value, out speed))
+                                return false;
+                            break;
+                        case "duration":
+                            if (!TryReadDrugScalarInt(value, out duration))
+                                return false;
+                            break;
+                        default:
+                            return false;
+                    }
+                }
+                projected.Add(new CharacterCustomDrugEffectLevel(
+                    level,
+                    attributes.OrderBy(item => item.Attribute, StringComparer.Ordinal).ToArray(),
+                    limits.OrderBy(item => item.Limit, StringComparer.Ordinal).ToArray(),
+                    qualities.OrderBy(item => item.Name, StringComparer.Ordinal).ThenBy(item => item.Rating).ToArray(),
+                    information.OrderBy(item => item, StringComparer.Ordinal).ToArray(),
+                    initiative,
+                    initiativeDice,
+                    crashDamage,
+                    speed,
+                    duration));
+            }
+            effects = projected.OrderBy(item => item.Level).ToArray();
+            return effects.Length != 0;
+        }
+
+        private static bool TryReadDrugNamedDecimal(
+            XElement value,
+            out string name,
+            out decimal number)
+        {
+            name = ReadValue(value, "name");
+            number = 0m;
+            return !value.HasAttributes
+                   && value.Elements().All(child => child.Name.LocalName is "name" or "value")
+                   && value.Elements("name").Count() == 1
+                   && value.Elements("value").Count() == 1
+                   && name.Length is > 0 and <= CharacterCustomDrugRules.MaximumNameLength
+                   && name.IndexOfAny(['\0', '\r', '\n']) < 0
+                   && decimal.TryParse(
+                       ReadValue(value, "value"),
+                       NumberStyles.Number,
+                       CultureInfo.InvariantCulture,
+                       out number);
+        }
+
+        private static bool TryReadDrugNamedInt(
+            XElement value,
+            out string name,
+            out int number)
+        {
+            name = ReadValue(value, "name");
+            number = 0;
+            return !value.HasAttributes
+                   && value.Elements().All(child => child.Name.LocalName is "name" or "value")
+                   && value.Elements("name").Count() == 1
+                   && value.Elements("value").Count() == 1
+                   && name.Length is > 0 and <= CharacterCustomDrugRules.MaximumNameLength
+                   && name.IndexOfAny(['\0', '\r', '\n']) < 0
+                   && int.TryParse(
+                       ReadValue(value, "value"),
+                       NumberStyles.Integer,
+                       CultureInfo.InvariantCulture,
+                       out number);
+        }
+
+        private static bool TryReadDrugScalarInt(XElement value, out int number)
+        {
+            number = 0;
+            return !value.HasAttributes
+                   && !value.HasElements
+                   && int.TryParse(
+                       value.Value,
+                       NumberStyles.Integer,
+                       CultureInfo.InvariantCulture,
+                       out number);
         }
     }
 
