@@ -51,6 +51,15 @@ class RuntimePackageLockTests(unittest.TestCase):
             runtime.PACKAGE_VERSION,
         )
 
+    def test_creation_activation_members_are_bound_to_runtime_source(self) -> None:
+        self.assertEqual(8, len(runtime.CREATION_ACTIVATION_AUTHORITY_PATHS))
+        for member in runtime.CREATION_ACTIVATION_AUTHORITY_PATHS:
+            with self.subTest(member=member):
+                runtime._run(
+                    ("git", "cat-file", "-e", f"{runtime.SOURCE_COMMIT}:{member}"),
+                    cwd=REPO_ROOT,
+                )
+
     def test_sdk_archive_authority_is_fail_closed(self) -> None:
         for field, altered_value in (
             ("version", "10.0.104"),
