@@ -90,6 +90,64 @@ public static class CharacterCreationBootstrapAuthority
             return false;
         }
 
+        return TryPrepareBindingCore(
+            workspaceId,
+            document,
+            context,
+            shape,
+            failures,
+            out binding,
+            out sourceAnchorIds,
+            out blockers);
+    }
+
+    /// <summary>
+    /// Prepares the same binding from an already-created source context. This is
+    /// used only by atomic creation so the context that proved source authority
+    /// can also project the first screen without re-reading the source corpus.
+    /// </summary>
+    public static bool TryPrepareBinding(
+        CharacterWorkspaceId workspaceId,
+        WorkspaceDocument document,
+        ICharacterSourceDataContext sourceContext,
+        out CharacterCreationBootstrapBinding binding,
+        out IReadOnlyList<string> sourceAnchorIds,
+        out IReadOnlyList<string> blockers)
+    {
+        ArgumentNullException.ThrowIfNull(document);
+        ArgumentNullException.ThrowIfNull(sourceContext);
+        var failures = new List<string>();
+        if (!TryValidateDocumentShape(document, out BootstrapDocumentShape? shape, failures)
+            || shape is null)
+        {
+            binding = EmptyBinding(workspaceId);
+            sourceAnchorIds = [];
+            blockers = Normalize(failures);
+            return false;
+        }
+
+        return TryPrepareBindingCore(
+            workspaceId,
+            document,
+            sourceContext,
+            shape,
+            failures,
+            out binding,
+            out sourceAnchorIds,
+            out blockers);
+    }
+
+    private static bool TryPrepareBindingCore(
+        CharacterWorkspaceId workspaceId,
+        WorkspaceDocument document,
+        ICharacterSourceDataContext context,
+        BootstrapDocumentShape shape,
+        List<string> failures,
+        out CharacterCreationBootstrapBinding binding,
+        out IReadOnlyList<string> sourceAnchorIds,
+        out IReadOnlyList<string> blockers)
+    {
+
         CharacterCreationSourceProfileAuthority sourceProfile =
             CharacterCreationSourceProfileAuthority.Unavailable;
         CharacterCreationMetatypeCatalogAuthority metatypeAuthority =

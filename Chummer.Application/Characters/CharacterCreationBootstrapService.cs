@@ -7,7 +7,9 @@ using Chummer.Contracts.Workspaces;
 
 namespace Chummer.Application.Characters;
 
-public sealed class CharacterCreationBootstrapService : ICharacterCreationBootstrapService
+public sealed class CharacterCreationBootstrapService :
+    ICharacterCreationBootstrapService,
+    ICharacterCreationBootstrapActivationService
 {
     private const int MaximumDisplayIdentityLength = 256;
     private const string ChummerVersion = "5.225.0";
@@ -16,12 +18,14 @@ public sealed class CharacterCreationBootstrapService : ICharacterCreationBootst
     private readonly IRulesetWorkspaceCodecResolver _codecResolver;
     private readonly ICharacterFileQueries _characterFileQueries;
     private readonly ICharacterSourceDataResolver _sourceDataResolver;
+    private readonly ICharacterCreationBootstrapActivationProjector? _activationProjector;
 
     public CharacterCreationBootstrapService(
         IWorkspaceStore workspaceStore,
         IRulesetWorkspaceCodecResolver codecResolver,
         ICharacterFileQueries characterFileQueries,
-        ICharacterSourceDataResolver sourceDataResolver)
+        ICharacterSourceDataResolver sourceDataResolver,
+        ICharacterCreationBootstrapActivationProjector? activationProjector = null)
     {
         _workspaceStore = workspaceStore ?? throw new ArgumentNullException(nameof(workspaceStore));
         _codecResolver = codecResolver ?? throw new ArgumentNullException(nameof(codecResolver));
@@ -29,15 +33,40 @@ public sealed class CharacterCreationBootstrapService : ICharacterCreationBootst
                                 ?? throw new ArgumentNullException(nameof(characterFileQueries));
         _sourceDataResolver = sourceDataResolver
                               ?? throw new ArgumentNullException(nameof(sourceDataResolver));
+        _activationProjector = activationProjector;
     }
 
     public CharacterCreationBootstrapResult<CharacterCreationBootstrapReceipt> Create(
         CharacterCreationBootstrapRequest request)
     {
+        BootstrapCreation creation = CreateCore(request, includeActivation: false);
+        return new CharacterCreationBootstrapResult<CharacterCreationBootstrapReceipt>(
+            creation.Outcome,
+            creation.Receipt,
+            creation.Blockers);
+    }
+
+    public CharacterCreationBootstrapActivationAttempt CreateActivation(
+        CharacterCreationBootstrapRequest request)
+    {
+        BootstrapCreation creation = CreateCore(request, includeActivation: true);
+        return new CharacterCreationBootstrapActivationAttempt(
+            creation.Outcome,
+            creation.Receipt,
+            creation.Activation,
+            creation.Blockers);
+    }
+
+    private BootstrapCreation CreateCore(
+        CharacterCreationBootstrapRequest request,
+        bool includeActivation)
+    {
         ArgumentNullException.ThrowIfNull(request);
         string[] requestBlockers = ValidateRequest(request);
         if (requestBlockers.Length != 0)
-            return Invalid<CharacterCreationBootstrapReceipt>(requestBlockers);
+            return InvalidCreation(requestBlockers);
+        if (includeActivation && _activationProjector is null)
+            return UnavailableCreation(CharacterCreationBootstrapBlockers.AtomicCreateUnavailable);
 
         string characterXml = BuildCharacterXml(request);
         IRulesetWorkspaceCodec codec;
@@ -47,7 +76,7 @@ public sealed class CharacterCreationBootstrapService : ICharacterCreationBootst
             codec = _codecResolver.Resolve(request.RulesetId);
             if (!string.Equals(codec.RulesetId, RulesetDefaults.Sr5, StringComparison.Ordinal))
             {
-                return Invalid<CharacterCreationBootstrapReceipt>(
+                return InvalidCreation(
                     CharacterCreationBootstrapBlockers.RulesetSr5Required);
             }
 
@@ -62,7 +91,7 @@ public sealed class CharacterCreationBootstrapService : ICharacterCreationBootst
                                            or InvalidDataException
                                            or InvalidOperationException)
         {
-            return Invalid<CharacterCreationBootstrapReceipt>(
+            return InvalidCreation(
                 CharacterCreationBootstrapBlockers.CharacterDocumentInvalid);
         }
 
@@ -79,7 +108,7 @@ public sealed class CharacterCreationBootstrapService : ICharacterCreationBootst
                                            or InvalidDataException
                                            or InvalidOperationException)
         {
-            return Invalid<CharacterCreationBootstrapReceipt>(
+            return InvalidCreation(
                 CharacterCreationBootstrapBlockers.CharacterDocumentInvalid);
         }
 
@@ -106,21 +135,39 @@ public sealed class CharacterCreationBootstrapService : ICharacterCreationBootst
             || summary.Created
             || !string.Equals(summary.BuildMethod, request.BuildMethod, StringComparison.Ordinal))
         {
-            return Invalid<CharacterCreationBootstrapReceipt>(
+            return InvalidCreation(
                 CharacterCreationBootstrapBlockers.CharacterDocumentInvalid);
         }
 
         CharacterWorkspaceId workspaceId = new(Guid.NewGuid().ToString("N"));
         WorkspaceDocument document = new(envelope, WorkspaceDocumentFormat.NativeXml);
+        ICharacterSourceDataContext? sourceContext;
+        try
+        {
+            sourceContext = _sourceDataResolver.TryCreateContext(document.Content);
+        }
+        catch (Exception exception) when (exception is ArgumentException
+                                           or FormatException
+                                           or IOException
+                                           or InvalidDataException
+                                           or InvalidOperationException
+                                           or UnauthorizedAccessException
+                                           or System.Xml.XmlException)
+        {
+            return InvalidCreation(CharacterCreationBootstrapBlockers.SourceContextUnavailable);
+        }
+        if (sourceContext is null)
+            return InvalidCreation(CharacterCreationBootstrapBlockers.SourceContextUnavailable);
+
         if (!CharacterCreationBootstrapAuthority.TryPrepareBinding(
                 workspaceId,
                 document,
-                _sourceDataResolver,
+                sourceContext,
                 out CharacterCreationBootstrapBinding binding,
                 out IReadOnlyList<string> sourceAnchorIds,
                 out IReadOnlyList<string> authorityBlockers))
         {
-            return Invalid<CharacterCreationBootstrapReceipt>(authorityBlockers);
+            return InvalidCreation(authorityBlockers);
         }
 
         WorkspaceDocument boundDocument = document with
@@ -134,7 +181,7 @@ public sealed class CharacterCreationBootstrapService : ICharacterCreationBootst
         if (_workspaceStore is not ICharacterCreationBootstrapAtomicCreateCapability capability
             || !capability.SupportsCharacterCreationBootstrapAtomicCreate)
         {
-            return Unavailable<CharacterCreationBootstrapReceipt>(
+            return UnavailableCreation(
                 CharacterCreationBootstrapBlockers.AtomicCreateUnavailable);
         }
 
@@ -145,8 +192,9 @@ public sealed class CharacterCreationBootstrapService : ICharacterCreationBootst
             string outcome = created.Outcome == WorkspaceOperationOutcome.Conflict
                 ? CharacterCreationBootstrapOutcomes.Conflict
                 : CharacterCreationBootstrapOutcomes.Unavailable;
-            return new CharacterCreationBootstrapResult<CharacterCreationBootstrapReceipt>(
+            return new BootstrapCreation(
                 outcome,
+                null,
                 null,
                 [CharacterCreationBootstrapBlockers.WorkspaceCreateFailed]);
         }
@@ -166,13 +214,119 @@ public sealed class CharacterCreationBootstrapService : ICharacterCreationBootst
         };
         if (!CharacterCreationBootstrapReceiptDigest.IsValid(receipt))
         {
-            return Unavailable<CharacterCreationBootstrapReceipt>(
+            return UnavailableCreation(
                 CharacterCreationBootstrapBlockers.WorkspaceCreateFailed);
         }
 
-        return new CharacterCreationBootstrapResult<CharacterCreationBootstrapReceipt>(
+        if (!includeActivation)
+        {
+            return new BootstrapCreation(
+                CharacterCreationBootstrapOutcomes.Success,
+                receipt,
+                null,
+                []);
+        }
+
+        CharacterCreationBootstrapActivationBundle activation;
+        try
+        {
+            CharacterValidationResult activationValidation = codec.Validate(envelope);
+            if (!activationValidation.IsValid)
+            {
+                return new BootstrapCreation(
+                    CharacterCreationBootstrapOutcomes.Success,
+                    receipt,
+                    null,
+                    [CharacterCreationBootstrapBlockers.CharacterDocumentInvalid]);
+            }
+
+            CharacterOverviewProjection overview = codec.ParseOverview(envelope);
+            WorkspaceDocumentSnapshot snapshot = new(
+                workspaceId,
+                boundDocument,
+                entry.LastUpdatedUtc,
+                entry.ContentRevision,
+                entry.SavedRevision);
+            var stored = new WorkspaceStoredDocument(
+                workspaceId,
+                boundDocument,
+                entry.ContentRevision,
+                entry.SavedRevision,
+                entry.LastUpdatedUtc);
+            CharacterCreationInitialProjection initial = _activationProjector!.Project(
+                stored,
+                sourceContext);
+            if (!CharacterCreationBootstrapAuthority.TryPrepareBinding(
+                    workspaceId,
+                    boundDocument,
+                    sourceContext,
+                    out CharacterCreationBootstrapBinding sourceReadback,
+                    out IReadOnlyList<string> sourceReadbackAnchors,
+                    out _)
+                || !CharacterCreationBootstrapBindingDigest.FixedTimeEquals(
+                    binding.BindingDigest,
+                    sourceReadback.BindingDigest)
+                || !sourceReadbackAnchors.SequenceEqual(
+                    receipt.SourceAnchorIds,
+                    StringComparer.Ordinal))
+            {
+                throw new InvalidOperationException(
+                    "Creation source authority changed while the activation bundle was projected.");
+            }
+            var recovery = new CharacterCreationBootstrapRecoveryBinding(
+                CharacterCreationBootstrapActivationSchemas.RecoveryBindingV1,
+                workspaceId,
+                entry.ContentRevision,
+                entry.SavedRevision,
+                CharacterCreationBootstrapActivationIntegrity.ComputeDocumentDigest(boundDocument),
+                binding.RawCharacterXmlDigest,
+                boundDocument.AuxiliaryStateDigest,
+                binding.BindingDigest,
+                receipt.ReceiptDigest,
+                binding.RawProfileInputsDigest,
+                binding.MetatypeAuthorityDigest,
+                binding.PrerequisiteAuthorityDigest,
+                receipt.SourceAnchorIds);
+            var unsignedActivation = new CharacterCreationBootstrapActivationBundle(
+                CharacterCreationBootstrapActivationSchemas.BundleV1,
+                receipt,
+                new WorkspaceOverviewProjection(snapshot, overview, activationValidation),
+                recovery,
+                initial,
+                string.Empty);
+            activation = unsignedActivation with
+            {
+                BundleDigest = CharacterCreationBootstrapActivationIntegrity.ComputeBundleDigest(
+                    unsignedActivation)
+            };
+        }
+        catch (Exception exception) when (exception is ArgumentException
+                                           or FormatException
+                                           or IOException
+                                           or InvalidDataException
+                                           or InvalidOperationException
+                                           or UnauthorizedAccessException
+                                           or System.Xml.XmlException)
+        {
+            return new BootstrapCreation(
+                CharacterCreationBootstrapOutcomes.Success,
+                receipt,
+                null,
+                [CharacterCreationBootstrapBlockers.WorkspaceCreateFailed]);
+        }
+        if (!CharacterCreationBootstrapActivationIntegrity.IsValid(activation))
+        {
+            return new BootstrapCreation(
+                CharacterCreationBootstrapOutcomes.Success,
+                receipt,
+                null,
+                [CharacterCreationBootstrapBlockers.WorkspaceCreateFailed]);
+        }
+
+        return new BootstrapCreation(
             CharacterCreationBootstrapOutcomes.Success,
             receipt,
+            activation,
             []);
     }
 
@@ -242,15 +396,18 @@ public sealed class CharacterCreationBootstrapService : ICharacterCreationBootst
         return writer.ToString();
     }
 
-    private static CharacterCreationBootstrapResult<T> Invalid<T>(params string[] blockers)
-        where T : class
-        => new(CharacterCreationBootstrapOutcomes.Invalid, null, blockers);
+    private static BootstrapCreation InvalidCreation(params string[] blockers)
+        => new(CharacterCreationBootstrapOutcomes.Invalid, null, null, blockers);
 
-    private static CharacterCreationBootstrapResult<T> Invalid<T>(IReadOnlyList<string> blockers)
-        where T : class
-        => new(CharacterCreationBootstrapOutcomes.Invalid, null, blockers);
+    private static BootstrapCreation InvalidCreation(IReadOnlyList<string> blockers)
+        => new(CharacterCreationBootstrapOutcomes.Invalid, null, null, blockers);
 
-    private static CharacterCreationBootstrapResult<T> Unavailable<T>(params string[] blockers)
-        where T : class
-        => new(CharacterCreationBootstrapOutcomes.Unavailable, null, blockers);
+    private static BootstrapCreation UnavailableCreation(params string[] blockers)
+        => new(CharacterCreationBootstrapOutcomes.Unavailable, null, null, blockers);
+
+    private sealed record BootstrapCreation(
+        string Outcome,
+        CharacterCreationBootstrapReceipt? Receipt,
+        CharacterCreationBootstrapActivationBundle? Activation,
+        IReadOnlyList<string> Blockers);
 }

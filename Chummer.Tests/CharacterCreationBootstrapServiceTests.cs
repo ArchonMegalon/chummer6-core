@@ -1,4 +1,5 @@
 using System.Xml.Linq;
+using System.Text.Json;
 using Chummer.Application.Characters;
 using Chummer.Application.Workspaces;
 using Chummer.Contracts.Api;
@@ -185,6 +186,151 @@ public sealed class CharacterCreationBootstrapServiceTests
         CollectionAssert.DoesNotContain(
             prerequisiteState.Blockers.ToList(),
             CharacterCreationPrerequisiteBlockers.CharacterDocumentInvalid);
+    }
+
+    [TestMethod]
+    public void Activation_bundle_uses_one_source_context_no_store_read_and_matches_individual_loads()
+    {
+        string coreRoot = FindCoreRoot();
+        var store = new CountingWorkspaceStore();
+        var sourceResolver = new CountingSourceDataResolver(CreateSourceResolver(coreRoot));
+        ICharacterFileQueries queries = CreateFileQueries();
+        var lifeModules = new XmlLifeModulesCatalogService(
+            Path.Combine(coreRoot, "Chummer", "data", "lifemodules.xml"));
+        var applyAuthority = new UnavailableCharacterCreationFoundationApplyAuthority();
+        var projector = new CharacterCreationBootstrapActivationProjector(
+            store,
+            queries,
+            lifeModules,
+            applyAuthority);
+        CharacterCreationBootstrapService service = CreateService(
+            store,
+            sourceResolver,
+            queries,
+            projector);
+
+        CharacterCreationBootstrapActivationAttempt attempt = service.CreateActivation(
+            CanonicalRequest());
+
+        Assert.AreEqual(CharacterCreationBootstrapOutcomes.Success, attempt.Outcome,
+            string.Join(",", attempt.Blockers));
+        Assert.IsNotNull(attempt.Receipt);
+        Assert.IsNotNull(attempt.Bundle);
+        Assert.AreEqual(1, sourceResolver.ContextCreateCount,
+            "Atomic create and every frozen domain projection must share one source context.");
+        Assert.AreEqual(0, store.ReadCount,
+            "The activation bundle must be projected from the atomic create result, not a store reread.");
+        Assert.IsTrue(CharacterCreationBootstrapActivationIntegrity.IsValid(attempt.Bundle));
+
+        CharacterWorkspaceId workspaceId = attempt.Receipt.WorkspaceId;
+        CharacterCreationInitialProjection aggregate = attempt.Bundle.InitialCreation;
+        CharacterCreationFoundationResult<CharacterCreationFoundationState> foundation =
+            new CharacterCreationFoundationService(
+                store, queries, sourceResolver, lifeModules, applyAuthority)
+            .Load(new(workspaceId));
+        var prerequisites = new CharacterCreationPrerequisiteService(
+            store, queries, sourceResolver);
+        var attributes = new CharacterCreationAttributesService(store, sourceResolver);
+        CharacterCreationFoundationResult<CharacterCreationPrerequisiteState> prerequisite =
+            prerequisites.Load(new(workspaceId));
+        CharacterCreationFoundationResult<CharacterCreationAttributesState> attribute =
+            attributes.Load(new(workspaceId));
+        CharacterCreationContactResult<CharacterCreationContactsState> contacts =
+            new CharacterCreationContactsService(store).Load(new(workspaceId));
+        CharacterCreationFoundationResult<CharacterCreationQualitiesState> qualities =
+            new CharacterCreationQualitiesService(
+                store, sourceResolver, prerequisites, attributes)
+            .Load(new(workspaceId));
+        CharacterCreationFoundationResult<CharacterCreationMagicResonanceState> magic =
+            new CharacterCreationMagicResonanceService(store, sourceResolver)
+            .Load(new(workspaceId));
+
+        AssertJsonEqual(foundation, aggregate.Foundation);
+        AssertJsonEqual(prerequisite, aggregate.Prerequisite);
+        AssertJsonEqual(attribute, aggregate.Attributes);
+        AssertJsonEqual(contacts, aggregate.Contacts);
+        AssertJsonEqual(qualities, aggregate.Qualities);
+        AssertJsonEqual(magic, aggregate.MagicResonance);
+    }
+
+    [TestMethod]
+    public void Activation_bundle_rejects_recovery_source_and_aggregate_tampering()
+    {
+        string coreRoot = FindCoreRoot();
+        var store = new CountingWorkspaceStore();
+        var sourceResolver = new CountingSourceDataResolver(CreateSourceResolver(coreRoot));
+        ICharacterFileQueries queries = CreateFileQueries();
+        var projector = new CharacterCreationBootstrapActivationProjector(
+            store,
+            queries,
+            new XmlLifeModulesCatalogService(
+                Path.Combine(coreRoot, "Chummer", "data", "lifemodules.xml")),
+            new UnavailableCharacterCreationFoundationApplyAuthority());
+        CharacterCreationBootstrapActivationAttempt attempt = CreateService(
+            store,
+            sourceResolver,
+            queries,
+            projector).CreateActivation(CanonicalRequest());
+        CharacterCreationBootstrapActivationBundle bundle = attempt.Bundle!;
+        Assert.IsTrue(CharacterCreationBootstrapActivationIntegrity.IsValid(bundle));
+
+        Assert.IsFalse(CharacterCreationBootstrapActivationIntegrity.IsValid(bundle with
+        {
+            RecoveryBinding = bundle.RecoveryBinding with
+            {
+                AuxiliaryStateDigest = new string('0', 64)
+            }
+        }));
+        Assert.IsFalse(CharacterCreationBootstrapActivationIntegrity.IsValid(bundle with
+        {
+            RecoveryBinding = bundle.RecoveryBinding with
+            {
+                RawProfileInputsDigest = "sha256:" + new string('0', 64)
+            }
+        }));
+        Assert.IsFalse(CharacterCreationBootstrapActivationIntegrity.IsValid(bundle with
+        {
+            InitialCreation = bundle.InitialCreation with
+            {
+                Attributes = bundle.InitialCreation.Attributes with
+                {
+                    Blockers = ["invented-blocker"]
+                }
+            }
+        }));
+    }
+
+    [TestMethod]
+    public void Activation_fails_closed_to_the_created_receipt_when_source_authority_drifts()
+    {
+        string coreRoot = FindCoreRoot();
+        var store = new CountingWorkspaceStore();
+        var sourceResolver = new DriftingSourceDataResolver(CreateSourceResolver(coreRoot));
+        ICharacterFileQueries queries = CreateFileQueries();
+        var projector = new SourceDriftingProjector(
+            new CharacterCreationBootstrapActivationProjector(
+                store,
+                queries,
+                new XmlLifeModulesCatalogService(
+                    Path.Combine(coreRoot, "Chummer", "data", "lifemodules.xml")),
+                new UnavailableCharacterCreationFoundationApplyAuthority()));
+
+        CharacterCreationBootstrapActivationAttempt attempt = CreateService(
+            store,
+            sourceResolver,
+            queries,
+            projector).CreateActivation(CanonicalRequest());
+
+        Assert.AreEqual(CharacterCreationBootstrapOutcomes.Success, attempt.Outcome);
+        Assert.IsNotNull(attempt.Receipt,
+            "The already-committed workspace receipt must remain available for full fallback loading.");
+        Assert.IsNull(attempt.Bundle,
+            "A source-drifted aggregate must never receive activation authority.");
+        CollectionAssert.Contains(
+            attempt.Blockers.ToList(),
+            CharacterCreationBootstrapBlockers.WorkspaceCreateFailed);
+        Assert.AreEqual(1, sourceResolver.ContextCreateCount);
+        Assert.HasCount(1, store.List());
     }
 
     [TestMethod]
@@ -799,7 +945,8 @@ public sealed class CharacterCreationBootstrapServiceTests
     private static CharacterCreationBootstrapService CreateService(
         IWorkspaceStore store,
         ICharacterSourceDataResolver sourceResolver,
-        ICharacterFileQueries queries)
+        ICharacterFileQueries queries,
+        ICharacterCreationBootstrapActivationProjector? activationProjector = null)
     {
         var codec = new Sr5WorkspaceCodec(
             queries,
@@ -809,8 +956,14 @@ public sealed class CharacterCreationBootstrapServiceTests
             store,
             new RulesetWorkspaceCodecResolver([codec]),
             queries,
-            sourceResolver);
+            sourceResolver,
+            activationProjector);
     }
+
+    private static void AssertJsonEqual<T>(T expected, T actual)
+        => Assert.AreEqual(
+            JsonSerializer.Serialize(expected),
+            JsonSerializer.Serialize(actual));
 
     private static CharacterCreationBootstrapRequest CanonicalRequest()
         => new(
@@ -908,5 +1061,207 @@ public sealed class CharacterCreationBootstrapServiceTests
 
         throw new DirectoryNotFoundException(
             "Could not locate canonical Chummer/data/settings.xml.");
+    }
+
+    private sealed class CountingSourceDataResolver : ICharacterSourceDataResolver
+    {
+        private readonly ICharacterSourceDataResolver _inner;
+
+        public CountingSourceDataResolver(ICharacterSourceDataResolver inner)
+        {
+            _inner = inner;
+        }
+
+        public int ContextCreateCount { get; private set; }
+
+        public ICharacterSourceDataContext? TryCreateContext(string characterXml)
+        {
+            ContextCreateCount++;
+            return _inner.TryCreateContext(characterXml);
+        }
+    }
+
+    private sealed class DriftingSourceDataResolver : ICharacterSourceDataResolver
+    {
+        private readonly ICharacterSourceDataResolver _inner;
+
+        public DriftingSourceDataResolver(ICharacterSourceDataResolver inner)
+        {
+            _inner = inner;
+        }
+
+        public int ContextCreateCount { get; private set; }
+
+        public ICharacterSourceDataContext? TryCreateContext(string characterXml)
+        {
+            ContextCreateCount++;
+            ICharacterSourceDataContext? context = _inner.TryCreateContext(characterXml);
+            return context is null ? null : new DriftingSourceDataContext(context);
+        }
+    }
+
+    private sealed class DriftingSourceDataContext : ICharacterSourceDataContext
+    {
+        private readonly ICharacterSourceDataContext _inner;
+
+        public DriftingSourceDataContext(ICharacterSourceDataContext inner)
+        {
+            _inner = inner;
+        }
+
+        public bool Drifted { get; set; }
+
+        public bool TryResolveCreationSourceProfile(
+            out CharacterCreationSourceProfileAuthority authority)
+        {
+            bool resolved = _inner.TryResolveCreationSourceProfile(out authority);
+            if (resolved && Drifted)
+            {
+                authority = authority with
+                {
+                    RawProfileInputsDigest = "sha256:" + new string('0', 64)
+                };
+            }
+            return resolved;
+        }
+
+        public bool TryResolveCreationMetatypeCatalog(
+            out CharacterCreationMetatypeCatalogAuthority authority)
+            => _inner.TryResolveCreationMetatypeCatalog(out authority);
+
+        public bool TryResolveCreationPrerequisiteAuthority(
+            out CharacterCreationPrerequisiteAuthority authority)
+            => _inner.TryResolveCreationPrerequisiteAuthority(out authority);
+
+        public bool TryResolveCreationQualitiesAuthority(
+            out CharacterCreationQualitiesAuthority authority)
+            => _inner.TryResolveCreationQualitiesAuthority(out authority);
+
+        public bool TryResolveCreationMagicResonanceAuthority(
+            out CharacterCreationMagicResonanceAuthority authority)
+            => _inner.TryResolveCreationMagicResonanceAuthority(out authority);
+
+        public bool TryResolveCyberwareGradeDeviceRating(
+            string gradeName,
+            string improvementSource,
+            out int deviceRating)
+            => _inner.TryResolveCyberwareGradeDeviceRating(
+                gradeName,
+                improvementSource,
+                out deviceRating);
+
+        public bool TryResolveVehicleModBonuses(
+            string sourceId,
+            string name,
+            out CharacterVehicleModSourceBonuses bonuses)
+            => _inner.TryResolveVehicleModBonuses(sourceId, name, out bonuses);
+    }
+
+    private sealed class SourceDriftingProjector : ICharacterCreationBootstrapActivationProjector
+    {
+        private readonly ICharacterCreationBootstrapActivationProjector _inner;
+
+        public SourceDriftingProjector(ICharacterCreationBootstrapActivationProjector inner)
+        {
+            _inner = inner;
+        }
+
+        public CharacterCreationInitialProjection Project(
+            WorkspaceStoredDocument workspace,
+            ICharacterSourceDataContext sourceContext)
+        {
+            CharacterCreationInitialProjection projection = _inner.Project(workspace, sourceContext);
+            ((DriftingSourceDataContext)sourceContext).Drifted = true;
+            return projection;
+        }
+    }
+
+    private sealed class CountingWorkspaceStore :
+        IWorkspaceStore,
+        ICharacterCreationBootstrapAtomicCreateCapability
+    {
+        private readonly InMemoryWorkspaceStore _inner = new();
+
+        public int ReadCount { get; private set; }
+
+        public bool SupportsCharacterCreationBootstrapAtomicCreate => true;
+
+        public WorkspaceStoreMutationResult CreateCharacterCreationBootstrapWorkspaceDocument(
+            CharacterWorkspaceId id,
+            WorkspaceDocument document)
+            => _inner.CreateCharacterCreationBootstrapWorkspaceDocument(id, document);
+
+        public WorkspaceStoreMutationResult CreateWorkspaceDocument(WorkspaceDocument document)
+            => _inner.CreateWorkspaceDocument(document);
+
+        public WorkspaceStoreMutationResult CreateWorkspaceDocument(
+            Chummer.Contracts.Owners.OwnerScope owner,
+            WorkspaceDocument document)
+            => _inner.CreateWorkspaceDocument(owner, document);
+
+        public WorkspaceStoreMutationResult CreateWorkspaceDocument(
+            CharacterWorkspaceId id,
+            WorkspaceDocument document)
+            => _inner.CreateWorkspaceDocument(id, document);
+
+        public WorkspaceStoreMutationResult CreateWorkspaceDocument(
+            Chummer.Contracts.Owners.OwnerScope owner,
+            CharacterWorkspaceId id,
+            WorkspaceDocument document)
+            => _inner.CreateWorkspaceDocument(owner, id, document);
+
+        public IReadOnlyList<WorkspaceStoreEntry> List() => _inner.List();
+
+        public IReadOnlyList<WorkspaceStoreEntry> List(
+            Chummer.Contracts.Owners.OwnerScope owner) => _inner.List(owner);
+
+        public WorkspaceStoreReadResult Get(CharacterWorkspaceId id)
+        {
+            ReadCount++;
+            return _inner.Get(id);
+        }
+
+        public WorkspaceStoreReadResult Get(
+            Chummer.Contracts.Owners.OwnerScope owner,
+            CharacterWorkspaceId id)
+        {
+            ReadCount++;
+            return _inner.Get(owner, id);
+        }
+
+        public WorkspaceStoreMutationResult ReplaceWorkspaceDocument(
+            CharacterWorkspaceId id,
+            long expectedContentRevision,
+            WorkspaceDocument document)
+            => _inner.ReplaceWorkspaceDocument(id, expectedContentRevision, document);
+
+        public WorkspaceStoreMutationResult ReplaceWorkspaceDocument(
+            Chummer.Contracts.Owners.OwnerScope owner,
+            CharacterWorkspaceId id,
+            long expectedContentRevision,
+            WorkspaceDocument document)
+            => _inner.ReplaceWorkspaceDocument(owner, id, expectedContentRevision, document);
+
+        public WorkspaceStoreMutationResult SaveCheckpoint(
+            CharacterWorkspaceId id,
+            long expectedContentRevision)
+            => _inner.SaveCheckpoint(id, expectedContentRevision);
+
+        public WorkspaceStoreMutationResult SaveCheckpoint(
+            Chummer.Contracts.Owners.OwnerScope owner,
+            CharacterWorkspaceId id,
+            long expectedContentRevision)
+            => _inner.SaveCheckpoint(owner, id, expectedContentRevision);
+
+        public WorkspaceStoreMutationResult Delete(
+            CharacterWorkspaceId id,
+            long expectedContentRevision)
+            => _inner.Delete(id, expectedContentRevision);
+
+        public WorkspaceStoreMutationResult Delete(
+            Chummer.Contracts.Owners.OwnerScope owner,
+            CharacterWorkspaceId id,
+            long expectedContentRevision)
+            => _inner.Delete(owner, id, expectedContentRevision);
     }
 }
