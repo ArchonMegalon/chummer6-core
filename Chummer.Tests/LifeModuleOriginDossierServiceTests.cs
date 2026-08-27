@@ -279,6 +279,167 @@ public class LifeModuleOriginDossierServiceTests
             first.Projection.VisibleChapters[0].ProviderLayerDigest);
     }
 
+    [TestMethod]
+    public void Resume_rebinds_an_accepted_timeline_after_restart_and_rejects_stale_authority()
+    {
+        var authority = new FakeDecisionAuthority(CreateInitialStep(
+            CreateChoice("choice-a", "Take the street path")));
+        var service = new LifeModuleOriginDossierService(authority);
+        OriginStoryArcSeed initial = AssertSuccess(service.Project("workspace-1"));
+        OriginStoryArcSeed accepted = AssertSuccess(service.Accept(
+            initial,
+            "choice-a",
+            "resume-turn-1",
+            explicitlyAccepted: true)).Projection;
+
+        OriginStoryArcSeed resumed = AssertSuccess(service.Resume(accepted));
+
+        Assert.AreEqual(accepted.SeedDigest, resumed.SeedDigest);
+        CollectionAssert.AreEqual(
+            accepted.VisibleChapters.Select(static chapter => chapter.ChapterDigest).ToArray(),
+            resumed.VisibleChapters.Select(static chapter => chapter.ChapterDigest).ToArray());
+
+        authority.Current = authority.Current with
+        {
+            RuntimeDigest = Digest("changed-runtime")
+        };
+        LifeModuleOriginDossierResult<OriginStoryArcSeed> stale = service.Resume(accepted);
+        Assert.AreEqual(LifeModuleOriginDossierOutcomes.Conflict, stale.Outcome);
+        CollectionAssert.Contains(
+            stale.Blockers.ToArray(),
+            LifeModuleOriginDossierBlockers.RuntimeStale);
+    }
+
+    [TestMethod]
+    public void Interaction_checkpoint_projects_story_source_effects_and_explicit_no_ltd_provenance()
+    {
+        var authority = new FakeDecisionAuthority(CreateInitialStep(
+            CreateChoice("choice-a", "Take the street path")));
+        var interaction = new LifeModuleOriginDossierInteractionService(
+            new LifeModuleOriginDossierService(authority));
+
+        LifeModuleOriginDossierDraftCheckpoint started = AssertSuccess(
+            interaction.Start("workspace-1"));
+        LifeModuleOriginDossierDraftCheckpoint prepared = AssertSuccess(
+            interaction.Prepare(started, "choice-a"));
+
+        Assert.IsNotNull(prepared.PendingPreview);
+        Assert.IsTrue(prepared.PendingPreview.VisibleStoryMarkdown.EndsWith(
+            prepared.PendingPreview.DecisionPrompt,
+            StringComparison.Ordinal));
+        Assert.AreEqual("RF", prepared.PendingPreview.SelectedChoice.Source);
+        Assert.AreEqual("66", prepared.PendingPreview.SelectedChoice.PageReference);
+        Assert.HasCount(1, prepared.PendingPreview.SelectedChoice.MechanicsPreview.Items);
+        Assert.AreEqual(
+            "Etiquette",
+            prepared.PendingPreview.SelectedChoice.MechanicsPreview.Items[0].TargetId);
+        Assert.AreEqual(
+            OriginLtdProvenanceStates.NotRequested,
+            prepared.LtdProvenance.State);
+        Assert.IsFalse(prepared.LtdProvenance.IsVerified);
+        Assert.AreEqual(string.Empty, prepared.LtdProvenance.ProviderId);
+        Assert.IsFalse(prepared.PendingPreview.IncludesFutureBranchText);
+        Assert.IsTrue(prepared.PendingPreview.RequiresExplicitConfirmation);
+        Assert.IsTrue(prepared.IsUserOwnedDraft);
+    }
+
+    [TestMethod]
+    public void Interaction_checkpoint_round_trips_and_confirm_is_preview_bound_and_idempotent()
+    {
+        var authority = new FakeDecisionAuthority(CreateInitialStep(
+            CreateChoice("choice-a", "Take the street path")));
+        var interaction = new LifeModuleOriginDossierInteractionService(
+            new LifeModuleOriginDossierService(authority));
+        LifeModuleOriginDossierDraftCheckpoint prepared = AssertSuccess(
+            interaction.Prepare(
+                AssertSuccess(interaction.Start("workspace-1")),
+                "choice-a"));
+        string json = JsonSerializer.Serialize(prepared);
+        LifeModuleOriginDossierDraftCheckpoint restarted =
+            JsonSerializer.Deserialize<LifeModuleOriginDossierDraftCheckpoint>(json)!;
+
+        LifeModuleOriginDossierDraftCheckpoint restored = AssertSuccess(
+            interaction.Restore(restarted));
+        Assert.AreEqual(prepared.CheckpointDigest, restored.CheckpointDigest);
+
+        LifeModuleOriginDossierResult<LifeModuleOriginDossierInteractionAdvance> wrong =
+            interaction.Confirm(
+                restored,
+                Digest("wrong-preview"),
+                "interaction-turn-1",
+                explicitlyConfirmed: true);
+        Assert.AreEqual(LifeModuleOriginDossierOutcomes.Invalid, wrong.Outcome);
+        Assert.AreEqual(0, authority.MechanicsMutationCount);
+
+        LifeModuleOriginDossierResult<LifeModuleOriginDossierInteractionAdvance> notConfirmed =
+            interaction.Confirm(
+                restored,
+                restored.PendingPreview!.PreviewDigest,
+                "interaction-turn-1",
+                explicitlyConfirmed: false);
+        Assert.AreEqual(LifeModuleOriginDossierOutcomes.Invalid, notConfirmed.Outcome);
+        CollectionAssert.Contains(
+            notConfirmed.Blockers.ToArray(),
+            LifeModuleOriginDossierBlockers.ExplicitAcceptanceRequired);
+        Assert.AreEqual(0, authority.MechanicsMutationCount);
+
+        LifeModuleOriginDossierInteractionAdvance first = AssertSuccess(
+            interaction.Confirm(
+                restored,
+                restored.PendingPreview.PreviewDigest,
+                "interaction-turn-1",
+                explicitlyConfirmed: true));
+        LifeModuleOriginDossierInteractionAdvance replay = AssertSuccess(
+            interaction.Confirm(
+                restored,
+                restored.PendingPreview.PreviewDigest,
+                "interaction-turn-1",
+                explicitlyConfirmed: true));
+
+        Assert.AreEqual(1, authority.MechanicsMutationCount);
+        Assert.AreEqual(first.Checkpoint.CheckpointDigest, replay.Checkpoint.CheckpointDigest);
+        Assert.HasCount(1, first.Checkpoint.TimelineChapterDigests);
+        Assert.IsNull(first.Checkpoint.PendingPreview);
+        Assert.AreEqual(
+            OriginLtdProvenanceStates.NotRequested,
+            first.Checkpoint.LtdProvenance.State);
+    }
+
+    [TestMethod]
+    public void Interaction_restore_rejects_timeline_or_ltd_provenance_tampering()
+    {
+        var authority = new FakeDecisionAuthority(CreateInitialStep(
+            CreateChoice("choice-a", "Take the street path")));
+        var interaction = new LifeModuleOriginDossierInteractionService(
+            new LifeModuleOriginDossierService(authority));
+        LifeModuleOriginDossierDraftCheckpoint prepared = AssertSuccess(
+            interaction.Prepare(
+                AssertSuccess(interaction.Start("workspace-1")),
+                "choice-a"));
+
+        LifeModuleOriginDossierDraftCheckpoint timelineTampered = prepared with
+        {
+            TimelineChapterDigests = [Digest("invented-chapter")]
+        };
+        LifeModuleOriginDossierResult<LifeModuleOriginDossierDraftCheckpoint> timelineResult =
+            interaction.Restore(timelineTampered);
+        Assert.AreEqual(LifeModuleOriginDossierOutcomes.Invalid, timelineResult.Outcome);
+
+        LifeModuleOriginDossierDraftCheckpoint ltdTampered = prepared with
+        {
+            LtdProvenance = prepared.LtdProvenance with
+            {
+                State = OriginLtdProvenanceStates.VerifiedProposal,
+                ProviderId = "invented-provider",
+                IsVerified = true
+            }
+        };
+        LifeModuleOriginDossierResult<LifeModuleOriginDossierDraftCheckpoint> ltdResult =
+            interaction.Restore(ltdTampered);
+        Assert.AreEqual(LifeModuleOriginDossierOutcomes.Invalid, ltdResult.Outcome);
+        Assert.AreEqual(0, authority.MechanicsMutationCount);
+    }
+
     private static LifeModuleDecisionAuthorityStep CreateInitialStep(
         params LifeModuleDecisionAuthorityChoice[] choices)
         => new(

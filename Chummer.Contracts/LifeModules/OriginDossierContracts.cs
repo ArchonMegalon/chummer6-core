@@ -16,6 +16,15 @@ public static class OriginDossierSchemas
     public const string EditionSnapshotV1 = "chummer.origin_dossier.edition_snapshot.v1";
     public const string PublicArtifactManifestV1 = "chummer.origin_dossier.public_artifact_manifest.v1";
     public const string MechanicsIsolationProofV1 = "chummer.origin_dossier.mechanics_isolation_proof.v1";
+    public const string DecisionPreviewV1 = "chummer.origin_dossier.life_module_decision_preview.v1";
+    public const string DraftCheckpointV1 = "chummer.origin_dossier.life_module_draft_checkpoint.v1";
+    public const string LtdProvenanceV1 = "chummer.origin_dossier.ltd_provenance.v1";
+}
+
+public static class OriginLtdProvenanceStates
+{
+    public const string NotRequested = "not-requested";
+    public const string VerifiedProposal = "verified-proposal";
 }
 
 /// <summary>
@@ -268,6 +277,97 @@ public sealed record LifeModuleOriginDossierResult<T>(
 
 public sealed record LifeModuleOriginDossierAdvance(
     OriginStoryArcSeed Projection,
+    LifeModuleAcceptedDecisionReceipt AcceptedDecision);
+
+/// <summary>
+/// Non-authoritative provenance for an optional narrative extension. The
+/// default state contains no provider identity or receipt. A verified proposal
+/// is display metadata only and is always bound to the exact canonical seed.
+/// </summary>
+public sealed record OriginLtdNarrativeProvenance(
+    string Schema,
+    string State,
+    string ProviderId,
+    string ProviderModelId,
+    string ProviderRouteReceiptDigest,
+    string ProposalDigest,
+    string BoundSeedDigest,
+    bool IsVerified,
+    string ProvenanceDigest)
+{
+    public string MechanicsAuthority { get; } = OriginNarrativeAuthorityKinds.PresentationOnly;
+
+    public bool AffectsMechanics { get; }
+}
+
+/// <summary>
+/// Exact, source-bound card shown before a live decision. The mechanics value
+/// is the sealed Core preview; no presentation consumer may replace effects,
+/// costs, follow-ups, or source anchors.
+/// </summary>
+public sealed record LifeModuleOriginDossierChoiceCard(
+    string ChoiceId,
+    string Label,
+    string Source,
+    string PageReference,
+    LifeModuleMechanicsPreview MechanicsPreview,
+    IReadOnlyList<string> SourceAnchorIds,
+    string ChoiceDigest,
+    string CardDigest);
+
+/// <summary>
+/// Read-before-confirm projection. VisibleStoryMarkdown ends at the current
+/// decision point. ExpectedPreviewDigest must be returned unchanged alongside
+/// explicit user confirmation before the choice may advance.
+/// </summary>
+public sealed record LifeModuleOriginDossierDecisionPreview(
+    string Schema,
+    string OwnerId,
+    string WorkspaceId,
+    long WorkspaceRevision,
+    string TurnId,
+    string VisibleStoryMarkdown,
+    string DecisionPrompt,
+    LifeModuleOriginDossierChoiceCard SelectedChoice,
+    OriginLtdNarrativeProvenance LtdProvenance,
+    string BoundSeedDigest,
+    string BoundDecisionDigest,
+    string BoundMechanicsSnapshotDigest,
+    string PreviewDigest)
+{
+    public bool RequiresExplicitConfirmation { get; } = true;
+
+    public bool IncludesFutureBranchText { get; }
+}
+
+/// <summary>
+/// User-owned, append-only restart checkpoint. It persists the canonical
+/// projection the user actually saw, not a second rules ledger. Restore is
+/// valid only while all authority digests still match the live workspace.
+/// </summary>
+public sealed record LifeModuleOriginDossierDraftCheckpoint(
+    string Schema,
+    string OwnerId,
+    string WorkspaceId,
+    long WorkspaceRevision,
+    OriginStoryArcSeed Projection,
+    IReadOnlyList<string> TimelineChapterDigests,
+    LifeModuleOriginDossierDecisionPreview? PendingPreview,
+    OriginLtdNarrativeProvenance LtdProvenance,
+    string BoundSeedDigest,
+    string BoundDecisionGraphDigest,
+    string BoundContentDigest,
+    string BoundSourceDigest,
+    string BoundRulesDigest,
+    string BoundRuntimeDigest,
+    string BoundMechanicsSnapshotDigest,
+    string CheckpointDigest)
+{
+    public bool IsUserOwnedDraft { get; } = true;
+}
+
+public sealed record LifeModuleOriginDossierInteractionAdvance(
+    LifeModuleOriginDossierDraftCheckpoint Checkpoint,
     LifeModuleAcceptedDecisionReceipt AcceptedDecision);
 
 /// <summary>

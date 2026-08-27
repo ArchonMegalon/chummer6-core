@@ -76,6 +76,52 @@ public sealed class LifeModuleOriginDossierService
         return new(LifeModuleOriginDossierOutcomes.Success, projection, []);
     }
 
+    /// <summary>
+    /// Rebinds a persisted, user-owned story projection to the current decision
+    /// authority after a process restart. The persisted chapters remain the
+    /// timeline source, while the live authority must reproduce the exact
+    /// current turn and mechanics bindings before the projection is returned.
+    /// </summary>
+    public LifeModuleOriginDossierResult<OriginStoryArcSeed> Resume(
+        OriginStoryArcSeed persisted)
+    {
+        ArgumentNullException.ThrowIfNull(persisted);
+        if (!TryValidateProjection(persisted))
+            return Blocked<OriginStoryArcSeed>(
+                LifeModuleOriginDossierOutcomes.Invalid,
+                LifeModuleOriginDossierBlockers.ProjectionInvalid);
+
+        LifeModuleDecisionAuthorityResult<LifeModuleDecisionAuthorityStep> loaded =
+            _authority.Load(persisted.CurrentTurn.WorkspaceId);
+        if (!IsAuthoritySuccess(loaded.Outcome) || loaded.Value is not { } freshStep)
+            return FromAuthority<LifeModuleDecisionAuthorityStep, OriginStoryArcSeed>(loaded);
+        if (!TryCreateTurn(freshStep, out LifeModuleNarrativeTurnSeed? freshTurn)
+            || freshTurn is null)
+        {
+            return Blocked<OriginStoryArcSeed>(
+                LifeModuleOriginDossierOutcomes.Invalid,
+                LifeModuleOriginDossierBlockers.AuthorityInvalid);
+        }
+
+        string? staleBlocker = FindStaleBlocker(persisted.CurrentTurn, freshTurn);
+        if (staleBlocker is null
+            && !DigestsEqual(
+                persisted.CanonicalLayer.MechanicsSnapshotDigest,
+                freshStep.MechanicsSnapshotDigest))
+        {
+            staleBlocker = LifeModuleOriginDossierBlockers.DecisionStale;
+        }
+        if (staleBlocker is not null)
+            return Blocked<OriginStoryArcSeed>(
+                LifeModuleOriginDossierOutcomes.Conflict,
+                staleBlocker);
+
+        return new(
+            LifeModuleOriginDossierOutcomes.Success,
+            persisted,
+            []);
+    }
+
     public LifeModuleOriginDossierResult<LifeModuleOriginDossierAdvance> Accept(
         OriginStoryArcSeed current,
         string choiceId,
