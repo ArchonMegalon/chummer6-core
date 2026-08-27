@@ -23,6 +23,12 @@ public sealed class ApplicationDeleteConfirmationRulesTests
         Assert.IsTrue(ApplicationDeleteConfirmationState.Default.SearchInCategoryOnly);
         Assert.IsFalse(ApplicationDeleteConfirmationState.Default.AllowEasterEggs);
         Assert.IsFalse(ApplicationDeleteConfirmationState.Default.LiveUpdateCleanCharacterFiles);
+        Assert.IsFalse(ApplicationDeleteConfirmationState.Default.PrintToFileFirst);
+        Assert.IsTrue(ApplicationDeleteConfirmationState.Default.PrintSkillsWithZeroRating);
+        Assert.IsFalse(ApplicationDeleteConfirmationState.Default.PrintExpenses);
+        Assert.IsTrue(ApplicationDeleteConfirmationState.Default.PrintFreeExpenses);
+        Assert.IsFalse(ApplicationDeleteConfirmationState.Default.PrintNotes);
+        Assert.IsTrue(ApplicationDeleteConfirmationState.Default.InsertPdfNotesIfAvailable);
         Assert.AreEqual(0, ApplicationDeleteConfirmationState.Default.Revision);
         Assert.AreEqual("confirmdelete", ApplicationDeleteConfirmationRules.LegacyIdentity);
         Assert.AreEqual("confirmkarmaexpense", ApplicationDeleteConfirmationRules.LegacyKarmaExpenseIdentity);
@@ -38,6 +44,16 @@ public sealed class ApplicationDeleteConfirmationRulesTests
         Assert.AreEqual(
             "liveupdatecleancharacterfiles",
             ApplicationDeleteConfirmationRules.LegacyLiveUpdateCleanCharacterFilesIdentity);
+        Assert.AreEqual("printtofilefirst", ApplicationDeleteConfirmationRules.LegacyPrintToFileFirstIdentity);
+        Assert.AreEqual(
+            "printzeroratingskills",
+            ApplicationDeleteConfirmationRules.LegacyPrintSkillsWithZeroRatingIdentity);
+        Assert.AreEqual("printexpenses", ApplicationDeleteConfirmationRules.LegacyPrintExpensesIdentity);
+        Assert.AreEqual("printfreeexpenses", ApplicationDeleteConfirmationRules.LegacyPrintFreeExpensesIdentity);
+        Assert.AreEqual("printnotes", ApplicationDeleteConfirmationRules.LegacyPrintNotesIdentity);
+        Assert.AreEqual(
+            "insertpdfnotesifavailable",
+            ApplicationDeleteConfirmationRules.LegacyInsertPdfNotesIfAvailableIdentity);
     }
 
     [TestMethod]
@@ -172,6 +188,12 @@ public sealed class ApplicationDeleteConfirmationRulesTests
             Assert.IsTrue(migrated.SearchInCategoryOnly);
             Assert.IsFalse(migrated.AllowEasterEggs);
             Assert.IsFalse(migrated.LiveUpdateCleanCharacterFiles);
+            Assert.IsFalse(migrated.PrintToFileFirst);
+            Assert.IsTrue(migrated.PrintSkillsWithZeroRating);
+            Assert.IsFalse(migrated.PrintExpenses);
+            Assert.IsTrue(migrated.PrintFreeExpenses);
+            Assert.IsFalse(migrated.PrintNotes);
+            Assert.IsTrue(migrated.InsertPdfNotesIfAvailable);
         }
         finally
         {
@@ -216,6 +238,11 @@ public sealed class ApplicationDeleteConfirmationRulesTests
             File.WriteAllText(
                 path,
                 "{\"Revision\":0,\"ConfirmDelete\":true,\"LiveUpdateCleanCharacterFiles\":\"false\"}");
+            Assert.Throws<InvalidDataException>(() => new FileApplicationDeleteConfirmationStore(directory).Load());
+
+            File.WriteAllText(
+                path,
+                "{\"Revision\":0,\"ConfirmDelete\":true,\"PrintNotes\":\"false\"}");
             Assert.Throws<InvalidDataException>(() => new FileApplicationDeleteConfirmationStore(directory).Load());
         }
         finally
@@ -512,6 +539,80 @@ public sealed class ApplicationDeleteConfirmationRulesTests
         }
     }
 
+    [TestMethod]
+    public void Print_settings_snapshot_is_typed_atomic_restart_safe_and_preserves_expense_dependency()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            "chummer-print-settings-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        try
+        {
+            FileApplicationDeleteConfirmationStore store = new(directory);
+            ApplicationDeleteConfirmationState first =
+                ApplicationDeleteConfirmationRules.ApplyPrintSettingsSnapshot(
+                    store.Load(),
+                    PrintMutation(
+                        printToFileFirst: true,
+                        printSkillsWithZeroRating: false,
+                        printExpenses: true,
+                        printFreeExpenses: true,
+                        printNotes: true,
+                        insertPdfNotesIfAvailable: false,
+                        expectedRevision: 0));
+            store.Save(0, first);
+
+            ApplicationDeleteConfirmationState restarted =
+                new FileApplicationDeleteConfirmationStore(directory).Load();
+            Assert.AreEqual(first, restarted);
+            Assert.AreEqual(1, restarted.Revision);
+            Assert.IsTrue(restarted.PrintToFileFirst);
+            Assert.IsFalse(restarted.PrintSkillsWithZeroRating);
+            Assert.IsTrue(restarted.PrintExpenses);
+            Assert.IsTrue(restarted.PrintFreeExpenses);
+            Assert.IsTrue(restarted.PrintNotes);
+            Assert.IsFalse(restarted.InsertPdfNotesIfAvailable);
+
+            ApplicationDeleteConfirmationState second =
+                ApplicationDeleteConfirmationRules.ApplyPrintSettingsSnapshot(
+                    restarted,
+                    PrintMutation(
+                        printToFileFirst: false,
+                        printSkillsWithZeroRating: true,
+                        printExpenses: false,
+                        printFreeExpenses: true,
+                        printNotes: false,
+                        insertPdfNotesIfAvailable: true,
+                        expectedRevision: 1));
+            store.Save(1, second);
+            Assert.AreEqual(2, second.Revision);
+            Assert.IsFalse(second.PrintExpenses);
+            Assert.IsFalse(
+                second.PrintFreeExpenses,
+                "EditGlobalSettings clears the dependent free-expense option when expenses are disabled.");
+
+            string path = Path.Combine(directory, "application-delete-confirmation.json");
+            File.WriteAllText(path, "{");
+            Assert.AreEqual(first, new FileApplicationDeleteConfirmationStore(directory).Load());
+
+            ApplicationPrintSettingsMutation wrongIdentity = PrintMutation(
+                false, true, true, false, false, true, first.Revision) with
+            {
+                PrintNotes = new(ApplicationSettingIdentity.PrintExpenses, false)
+            };
+            Assert.Throws<ArgumentException>(() =>
+                ApplicationDeleteConfirmationRules.ApplyPrintSettingsSnapshot(first, wrongIdentity));
+            Assert.Throws<InvalidOperationException>(() =>
+                ApplicationDeleteConfirmationRules.ApplyPrintSettingsSnapshot(
+                    first,
+                    PrintMutation(false, true, true, false, false, true, expectedRevision: 0)));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
     private static ApplicationDateTimeSettingsMutation DateTimeMutation(
         bool useCustom,
         string dateFormat,
@@ -548,5 +649,26 @@ public sealed class ApplicationDeleteConfirmationRulesTests
             LiveUpdateCleanCharacterFiles: new(
                 ApplicationSettingIdentity.LiveUpdateCleanCharacterFiles,
                 liveUpdateCleanCharacterFiles),
+            ExpectedRevision: expectedRevision);
+
+    private static ApplicationPrintSettingsMutation PrintMutation(
+        bool printToFileFirst,
+        bool printSkillsWithZeroRating,
+        bool printExpenses,
+        bool printFreeExpenses,
+        bool printNotes,
+        bool insertPdfNotesIfAvailable,
+        long expectedRevision)
+        => new(
+            PrintToFileFirst: new(ApplicationSettingIdentity.PrintToFileFirst, printToFileFirst),
+            PrintSkillsWithZeroRating: new(
+                ApplicationSettingIdentity.PrintSkillsWithZeroRating,
+                printSkillsWithZeroRating),
+            PrintExpenses: new(ApplicationSettingIdentity.PrintExpenses, printExpenses),
+            PrintFreeExpenses: new(ApplicationSettingIdentity.PrintFreeExpenses, printFreeExpenses),
+            PrintNotes: new(ApplicationSettingIdentity.PrintNotes, printNotes),
+            InsertPdfNotesIfAvailable: new(
+                ApplicationSettingIdentity.InsertPdfNotesIfAvailable,
+                insertPdfNotesIfAvailable),
             ExpectedRevision: expectedRevision);
 }

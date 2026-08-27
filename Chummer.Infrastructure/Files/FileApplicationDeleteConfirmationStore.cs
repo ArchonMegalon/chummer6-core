@@ -191,6 +191,40 @@ public sealed class FileApplicationDeleteConfirmationStore : IApplicationDeleteC
                 liveUpdateCleanCharacterFiles = liveUpdateCleanCharacterFilesElement.GetBoolean();
             }
 
+            if (!TryReadOptionalBoolean(
+                    root,
+                    nameof(ApplicationDeleteConfirmationState.PrintToFileFirst),
+                    _defaultState.PrintToFileFirst,
+                    out bool printToFileFirst)
+                || !TryReadOptionalBoolean(
+                    root,
+                    nameof(ApplicationDeleteConfirmationState.PrintSkillsWithZeroRating),
+                    _defaultState.PrintSkillsWithZeroRating,
+                    out bool printSkillsWithZeroRating)
+                || !TryReadOptionalBoolean(
+                    root,
+                    nameof(ApplicationDeleteConfirmationState.PrintExpenses),
+                    _defaultState.PrintExpenses,
+                    out bool printExpenses)
+                || !TryReadOptionalBoolean(
+                    root,
+                    nameof(ApplicationDeleteConfirmationState.PrintFreeExpenses),
+                    _defaultState.PrintFreeExpenses,
+                    out bool printFreeExpenses)
+                || !TryReadOptionalBoolean(
+                    root,
+                    nameof(ApplicationDeleteConfirmationState.PrintNotes),
+                    _defaultState.PrintNotes,
+                    out bool printNotes)
+                || !TryReadOptionalBoolean(
+                    root,
+                    nameof(ApplicationDeleteConfirmationState.InsertPdfNotesIfAvailable),
+                    _defaultState.InsertPdfNotesIfAvailable,
+                    out bool insertPdfNotesIfAvailable))
+            {
+                return false;
+            }
+
             state = ApplicationDeleteConfirmationRules.Validate(new ApplicationDeleteConfirmationState(
                 revision,
                 confirmDeleteElement.GetBoolean(),
@@ -204,13 +238,34 @@ public sealed class FileApplicationDeleteConfirmationStore : IApplicationDeleteC
                 searchInCategoryOnly,
                 allowEasterEggs,
                 preferNightlyBuilds,
-                liveUpdateCleanCharacterFiles));
+                liveUpdateCleanCharacterFiles,
+                printToFileFirst,
+                printSkillsWithZeroRating,
+                printExpenses,
+                printFreeExpenses,
+                printNotes,
+                insertPdfNotesIfAvailable));
             return true;
         }
         catch (Exception exception) when (exception is JsonException or IOException or InvalidDataException)
         {
             return false;
         }
+    }
+
+    private static bool TryReadOptionalBoolean(
+        JsonElement root,
+        string propertyName,
+        bool defaultValue,
+        out bool value)
+    {
+        value = defaultValue;
+        if (!root.TryGetProperty(propertyName, out JsonElement element))
+            return true;
+        if (element.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+            return false;
+        value = element.GetBoolean();
+        return true;
     }
 
     private static void AtomicWrite(

@@ -17,7 +17,13 @@ public enum ApplicationSettingIdentity
     SearchInCategoryOnly,
     AllowEasterEggs,
     PreferNightlyBuilds,
-    LiveUpdateCleanCharacterFiles
+    LiveUpdateCleanCharacterFiles,
+    PrintToFileFirst,
+    PrintSkillsWithZeroRating,
+    PrintExpenses,
+    PrintFreeExpenses,
+    PrintNotes,
+    InsertPdfNotesIfAvailable
 }
 
 public sealed record ApplicationDeleteConfirmationState(
@@ -33,7 +39,13 @@ public sealed record ApplicationDeleteConfirmationState(
     bool SearchInCategoryOnly = true,
     bool AllowEasterEggs = false,
     bool PreferNightlyBuilds = false,
-    bool LiveUpdateCleanCharacterFiles = false)
+    bool LiveUpdateCleanCharacterFiles = false,
+    bool PrintToFileFirst = false,
+    bool PrintSkillsWithZeroRating = true,
+    bool PrintExpenses = false,
+    bool PrintFreeExpenses = true,
+    bool PrintNotes = false,
+    bool InsertPdfNotesIfAvailable = true)
 {
     public static ApplicationDeleteConfirmationState Default { get; } = ForApplicationVersion(
         typeof(ApplicationDeleteConfirmationState).Assembly.GetName().Version ?? new Version(0, 0));
@@ -113,6 +125,19 @@ public sealed record ApplicationSettingsSnapshotMutation(
     ApplicationSettingValue<bool> AllowEasterEggs,
     ApplicationSettingValue<bool> PreferNightlyBuilds,
     ApplicationSettingValue<bool> LiveUpdateCleanCharacterFiles,
+    long ExpectedRevision);
+
+/// <summary>
+/// One explicit-Save transaction for Chummer5's six print and PDF-note output options. The free
+/// expense option is dependent on PrintExpenses exactly as in EditGlobalSettings.
+/// </summary>
+public sealed record ApplicationPrintSettingsMutation(
+    ApplicationSettingValue<bool> PrintToFileFirst,
+    ApplicationSettingValue<bool> PrintSkillsWithZeroRating,
+    ApplicationSettingValue<bool> PrintExpenses,
+    ApplicationSettingValue<bool> PrintFreeExpenses,
+    ApplicationSettingValue<bool> PrintNotes,
+    ApplicationSettingValue<bool> InsertPdfNotesIfAvailable,
     long ExpectedRevision);
 
 public enum ApplicationDateTimeFormatPhase

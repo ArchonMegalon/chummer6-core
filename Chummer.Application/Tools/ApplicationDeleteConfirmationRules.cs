@@ -20,6 +20,12 @@ public static class ApplicationDeleteConfirmationRules
     public const string LegacyAllowEasterEggsIdentity = "alloweastereggs";
     public const string LegacyPreferNightlyBuildsIdentity = "prefernightlybuilds";
     public const string LegacyLiveUpdateCleanCharacterFilesIdentity = "liveupdatecleancharacterfiles";
+    public const string LegacyPrintToFileFirstIdentity = "printtofilefirst";
+    public const string LegacyPrintSkillsWithZeroRatingIdentity = "printzeroratingskills";
+    public const string LegacyPrintExpensesIdentity = "printexpenses";
+    public const string LegacyPrintFreeExpensesIdentity = "printfreeexpenses";
+    public const string LegacyPrintNotesIdentity = "printnotes";
+    public const string LegacyInsertPdfNotesIfAvailableIdentity = "insertpdfnotesifavailable";
 
     public static ApplicationDeleteConfirmationState Apply(
         ApplicationDeleteConfirmationState current,
@@ -49,6 +55,14 @@ public static class ApplicationDeleteConfirmationRules
             ApplicationSettingIdentity.PreferNightlyBuilds => mutation.Value == current.PreferNightlyBuilds,
             ApplicationSettingIdentity.LiveUpdateCleanCharacterFiles =>
                 mutation.Value == current.LiveUpdateCleanCharacterFiles,
+            ApplicationSettingIdentity.PrintToFileFirst => mutation.Value == current.PrintToFileFirst,
+            ApplicationSettingIdentity.PrintSkillsWithZeroRating =>
+                mutation.Value == current.PrintSkillsWithZeroRating,
+            ApplicationSettingIdentity.PrintExpenses => mutation.Value == current.PrintExpenses,
+            ApplicationSettingIdentity.PrintFreeExpenses => mutation.Value == current.PrintFreeExpenses,
+            ApplicationSettingIdentity.PrintNotes => mutation.Value == current.PrintNotes,
+            ApplicationSettingIdentity.InsertPdfNotesIfAvailable =>
+                mutation.Value == current.InsertPdfNotesIfAvailable,
             _ => throw new ArgumentOutOfRangeException(nameof(mutation), "A known application setting identity is required.")
         };
         if (unchanged)
@@ -106,6 +120,40 @@ public static class ApplicationDeleteConfirmationRules
                 Revision = current.Revision + 1,
                 LiveUpdateCleanCharacterFiles = mutation.Value
             },
+            ApplicationSettingIdentity.PrintToFileFirst => current with
+            {
+                Revision = current.Revision + 1,
+                PrintToFileFirst = mutation.Value
+            },
+            ApplicationSettingIdentity.PrintSkillsWithZeroRating => current with
+            {
+                Revision = current.Revision + 1,
+                PrintSkillsWithZeroRating = mutation.Value
+            },
+            ApplicationSettingIdentity.PrintExpenses => current with
+            {
+                Revision = current.Revision + 1,
+                PrintExpenses = mutation.Value,
+                PrintFreeExpenses = mutation.Value && current.PrintFreeExpenses
+            },
+            ApplicationSettingIdentity.PrintFreeExpenses
+                when current.PrintExpenses || !mutation.Value => current with
+            {
+                Revision = current.Revision + 1,
+                PrintFreeExpenses = mutation.Value
+            },
+            ApplicationSettingIdentity.PrintFreeExpenses => throw new InvalidOperationException(
+                "Free expenses cannot be enabled while expense printing is disabled."),
+            ApplicationSettingIdentity.PrintNotes => current with
+            {
+                Revision = current.Revision + 1,
+                PrintNotes = mutation.Value
+            },
+            ApplicationSettingIdentity.InsertPdfNotesIfAvailable => current with
+            {
+                Revision = current.Revision + 1,
+                InsertPdfNotesIfAvailable = mutation.Value
+            },
             _ => throw new ArgumentOutOfRangeException(nameof(mutation), "A known application setting identity is required.")
         };
     }
@@ -128,20 +176,12 @@ public static class ApplicationDeleteConfirmationRules
             return current;
         }
 
-        return new ApplicationDeleteConfirmationState(
-            current.Revision + 1,
-            mutation.ConfirmDelete,
-            mutation.ConfirmKarmaExpense,
-            current.CustomDateTimeFormats,
-            current.CustomDateFormat,
-            current.CustomTimeFormat,
-            current.DatesIncludeTime,
-            current.HideMasterIndex,
-            current.HideCharacterRoster,
-            current.SearchInCategoryOnly,
-            current.AllowEasterEggs,
-            current.PreferNightlyBuilds,
-            current.LiveUpdateCleanCharacterFiles);
+        return current with
+        {
+            Revision = current.Revision + 1,
+            ConfirmDelete = mutation.ConfirmDelete,
+            ConfirmKarmaExpense = mutation.ConfirmKarmaExpense
+        };
     }
 
     /// <summary>
@@ -242,6 +282,59 @@ public static class ApplicationDeleteConfirmationRules
             AllowEasterEggs = mutation.AllowEasterEggs.Value,
             PreferNightlyBuilds = mutation.PreferNightlyBuilds.Value,
             LiveUpdateCleanCharacterFiles = mutation.LiveUpdateCleanCharacterFiles.Value
+        };
+    }
+
+    /// <summary>
+    /// Applies the six Chummer5 print/PDF-note settings under one revision CAS. EditGlobalSettings
+    /// disables and clears PrintFreeExpenses whenever PrintExpenses is false; callers cannot
+    /// persist an impossible enabled child state.
+    /// </summary>
+    public static ApplicationDeleteConfirmationState ApplyPrintSettingsSnapshot(
+        ApplicationDeleteConfirmationState current,
+        ApplicationPrintSettingsMutation mutation)
+    {
+        ArgumentNullException.ThrowIfNull(current);
+        ArgumentNullException.ThrowIfNull(mutation);
+        Validate(current);
+        if (mutation.ExpectedRevision != current.Revision)
+        {
+            throw new InvalidOperationException(
+                $"Application settings changed at revision {current.Revision}; expected {mutation.ExpectedRevision}.");
+        }
+
+        RequireIdentity(mutation.PrintToFileFirst, ApplicationSettingIdentity.PrintToFileFirst);
+        RequireIdentity(
+            mutation.PrintSkillsWithZeroRating,
+            ApplicationSettingIdentity.PrintSkillsWithZeroRating);
+        RequireIdentity(mutation.PrintExpenses, ApplicationSettingIdentity.PrintExpenses);
+        RequireIdentity(mutation.PrintFreeExpenses, ApplicationSettingIdentity.PrintFreeExpenses);
+        RequireIdentity(mutation.PrintNotes, ApplicationSettingIdentity.PrintNotes);
+        RequireIdentity(
+            mutation.InsertPdfNotesIfAvailable,
+            ApplicationSettingIdentity.InsertPdfNotesIfAvailable);
+
+        bool printExpenses = mutation.PrintExpenses.Value;
+        bool printFreeExpenses = printExpenses && mutation.PrintFreeExpenses.Value;
+        if (mutation.PrintToFileFirst.Value == current.PrintToFileFirst
+            && mutation.PrintSkillsWithZeroRating.Value == current.PrintSkillsWithZeroRating
+            && printExpenses == current.PrintExpenses
+            && printFreeExpenses == current.PrintFreeExpenses
+            && mutation.PrintNotes.Value == current.PrintNotes
+            && mutation.InsertPdfNotesIfAvailable.Value == current.InsertPdfNotesIfAvailable)
+        {
+            return current;
+        }
+
+        return current with
+        {
+            Revision = current.Revision + 1,
+            PrintToFileFirst = mutation.PrintToFileFirst.Value,
+            PrintSkillsWithZeroRating = mutation.PrintSkillsWithZeroRating.Value,
+            PrintExpenses = printExpenses,
+            PrintFreeExpenses = printFreeExpenses,
+            PrintNotes = mutation.PrintNotes.Value,
+            InsertPdfNotesIfAvailable = mutation.InsertPdfNotesIfAvailable.Value
         };
     }
 
