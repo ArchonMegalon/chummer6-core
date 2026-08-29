@@ -34,9 +34,9 @@ INVENTORY_NAME = "chummer-core-runtime-packages.inventory.json"
 OWNER_INVENTORY_NAME = "chummer-owner-contracts.inventory.json"
 CANDIDATE_ENGINE_INVENTORY_NAME = "chummer-core-candidate-engine-contract.inventory.json"
 CANDIDATE_GM_INVENTORY_NAME = "chummer-core-candidate-gm-edit-runtime.inventory.json"
-PACKAGE_VERSION = "0.0.0-packageplane.candidate.shfebd698752e19"
+PACKAGE_VERSION = "0.0.0-packageplane.candidate.sh60112dccb6a3f"
 SOURCE_REPOSITORY = "https://github.com/ArchonMegalon/chummer6-core.git"
-SOURCE_COMMIT = "febd698752e195dceef79fbc3f83dc971564fe00"
+SOURCE_COMMIT = "60112dccb6a3faad330d32c3c98eef0aa81d97af"
 SDK_VERSION = "10.0.103"
 SDK_RID = "linux-x64"
 SDK_ARCHIVE_URL = (
@@ -237,6 +237,10 @@ CREATION_ACTIVATION_AUTHORITY_PATHS = (
     "Chummer.Contracts/Characters/CharacterCreationBootstrapModels.cs",
     "Chummer.Infrastructure/DependencyInjection/ServiceCollectionExtensions.cs",
     "Chummer.Tests/CharacterCreationBootstrapServiceTests.cs",
+)
+CREATION_SOURCE_INPUT_AUTHORITY_PATHS = (
+    "Chummer.Infrastructure/Xml/FileSystemCharacterSourceDataResolver.cs",
+    "Chummer.Tests/FileSystemCharacterSourceDataResolverTests.cs",
 )
 
 
@@ -663,6 +667,8 @@ def validate_repository(repo_root: Path, lock: dict[str, Any]) -> None:
         raise RuntimePackagePlaneError("runtime source commit is unavailable")
     _run(("git", "merge-base", "--is-ancestor", SOURCE_COMMIT, "HEAD"), cwd=repo_root)
     for member in CREATION_ACTIVATION_AUTHORITY_PATHS:
+        _run(("git", "cat-file", "-e", f"{SOURCE_COMMIT}:{member}"), cwd=repo_root)
+    for member in CREATION_SOURCE_INPUT_AUTHORITY_PATHS:
         _run(("git", "cat-file", "-e", f"{SOURCE_COMMIT}:{member}"), cwd=repo_root)
 
     changed = _run(
