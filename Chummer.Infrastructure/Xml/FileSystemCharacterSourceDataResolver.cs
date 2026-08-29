@@ -1,5 +1,7 @@
 using System.Buffers.Binary;
+using System.Diagnostics;
 using System.Globalization;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -14,6 +16,634 @@ namespace Chummer.Infrastructure.Xml;
 
 public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceDataResolver
 {
+    private static readonly AsyncLocal<SourceInputSnapshot?> ActiveSourceInputs = new();
+
+    private sealed class SourceInputSnapshot
+    {
+        private readonly object _sync = new();
+        private readonly Dictionary<string, byte[]> _bytes = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, XDocument> _documents = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, XDocument> _effectiveDocuments = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, string> _digests = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, FileSnapshot> _files = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, bool> _fileExistence = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, string> _contentDigests = new(StringComparer.Ordinal);
+        private readonly Dictionary<DirectoryInventoryKey, DirectoryInventorySnapshot> _directoryInventories = new();
+        private readonly HashSet<string> _driftedFiles = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, int> _physicalReads = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, int> _physicalParses = new(StringComparer.Ordinal);
+        private readonly Action<string>? _afterSourceBytesRead;
+        private readonly bool _useStrongChangeIdentity;
+        private readonly long _startedTimestamp = Stopwatch.GetTimestamp();
+        private string _catalogFingerprint = string.Empty;
+        private int _cacheHits;
+        private int _validationReadCount;
+        private long _validationBytesRead;
+        private int _directoryValidationCount;
+
+        public SourceInputSnapshot(
+            Action<string>? afterSourceBytesRead,
+            bool useStrongChangeIdentity)
+        {
+            _afterSourceBytesRead = afterSourceBytesRead;
+            _useStrongChangeIdentity = useStrongChangeIdentity;
+        }
+
+        public IDisposable Enter()
+        {
+            SourceInputSnapshot? previous = ActiveSourceInputs.Value;
+            if (!ReferenceEquals(previous, this))
+            {
+                lock (_sync)
+                {
+                    ValidateKnownInputs();
+                }
+            }
+            ActiveSourceInputs.Value = this;
+            return new Scope(previous);
+        }
+
+        public void BindCatalog(ContentOverlayCatalog catalog)
+        {
+            string fingerprint = ComputeCatalogFingerprint(catalog);
+            lock (_sync)
+            {
+                if (string.IsNullOrEmpty(_catalogFingerprint))
+                {
+                    _catalogFingerprint = fingerprint;
+                    return;
+                }
+
+                if (!string.Equals(_catalogFingerprint, fingerprint, StringComparison.Ordinal))
+                    _driftedFiles.Add("content-overlay-catalog");
+            }
+        }
+
+        public string CreateCacheKey(string kind, string identity)
+        {
+            lock (_sync)
+            {
+                if (string.IsNullOrEmpty(_catalogFingerprint))
+                    throw new InvalidOperationException("Source-input catalog is not bound.");
+                return $"{_catalogFingerprint}|{kind}|{identity}";
+            }
+        }
+
+        public byte[] ReadAllBytes(string path)
+        {
+            string identity = Path.GetFullPath(path);
+            lock (_sync)
+            {
+                if (_bytes.TryGetValue(identity, out byte[]? cached))
+                {
+                    _cacheHits++;
+                    return cached;
+                }
+
+                FileSnapshot before = CaptureFileSnapshot(identity);
+                byte[] bytes = File.ReadAllBytes(identity);
+                _afterSourceBytesRead?.Invoke(identity);
+                FileSnapshot after = CaptureFileSnapshot(identity);
+                if (!HasStableIdentity(before, after)
+                    || (_afterSourceBytesRead is not null
+                        || !before.ChangeIdentity.Available
+                        || !after.ChangeIdentity.Available)
+                    && !ValidateCapturedBytes(identity, bytes))
+                {
+                    throw new IOException($"Source input changed while it was captured: {identity}");
+                }
+                _bytes.Add(identity, bytes);
+                _files.Add(identity, after);
+                _physicalReads[identity] = 1;
+                return bytes;
+            }
+        }
+
+        public string[] EnumerateFiles(
+            string directory,
+            string searchPattern,
+            SearchOption searchOption)
+        {
+            var key = new DirectoryInventoryKey(
+                Path.GetFullPath(directory),
+                searchPattern,
+                searchOption,
+                DirectoryInventoryKind.Files);
+            lock (_sync)
+            {
+                if (_directoryInventories.TryGetValue(key, out DirectoryInventorySnapshot? cached)
+                    && cached is not null)
+                {
+                    _cacheHits++;
+                    return cached.Entries.ToArray();
+                }
+
+                DirectoryInventorySnapshot snapshot = CaptureDirectoryInventory(key);
+                _directoryInventories.Add(key, snapshot);
+                return snapshot.Entries.ToArray();
+            }
+        }
+
+        public string[] EnumerateDirectories(
+            string directory,
+            string searchPattern,
+            SearchOption searchOption)
+        {
+            var key = new DirectoryInventoryKey(
+                Path.GetFullPath(directory),
+                searchPattern,
+                searchOption,
+                DirectoryInventoryKind.Directories);
+            lock (_sync)
+            {
+                if (_directoryInventories.TryGetValue(key, out DirectoryInventorySnapshot? cached)
+                    && cached is not null)
+                {
+                    _cacheHits++;
+                    return cached.Entries.ToArray();
+                }
+
+                DirectoryInventorySnapshot snapshot = CaptureDirectoryInventory(key);
+                _directoryInventories.Add(key, snapshot);
+                return snapshot.Entries.ToArray();
+            }
+        }
+
+        public bool FileExists(string path)
+        {
+            string identity = Path.GetFullPath(path);
+            lock (_sync)
+            {
+                if (_fileExistence.TryGetValue(identity, out bool cached))
+                {
+                    _cacheHits++;
+                    return cached;
+                }
+
+                bool exists = File.Exists(identity);
+                if (exists)
+                    _ = ReadAllBytes(identity);
+                _fileExistence.Add(identity, exists);
+                return exists;
+            }
+        }
+
+        public bool DirectoryExists(string directory)
+        {
+            var key = new DirectoryInventoryKey(
+                Path.GetFullPath(directory),
+                "*",
+                SearchOption.TopDirectoryOnly,
+                DirectoryInventoryKind.Directories);
+            lock (_sync)
+            {
+                if (!_directoryInventories.TryGetValue(key, out DirectoryInventorySnapshot? snapshot)
+                    || snapshot is null)
+                {
+                    snapshot = CaptureDirectoryInventory(key);
+                    _directoryInventories.Add(key, snapshot);
+                }
+                else
+                {
+                    _cacheHits++;
+                }
+                return snapshot.Exists;
+            }
+        }
+
+        public bool TryLoadXml(string path, out XDocument? document)
+        {
+            string identity = Path.GetFullPath(path);
+            lock (_sync)
+            {
+                if (_documents.TryGetValue(identity, out XDocument? cached))
+                {
+                    _cacheHits++;
+                    document = new XDocument(cached);
+                    return document.Root is not null;
+                }
+
+                try
+                {
+                    byte[] bytes = ReadAllBytes(identity);
+                    XmlReaderSettings settings = new()
+                    {
+                        DtdProcessing = DtdProcessing.Prohibit,
+                        XmlResolver = null
+                    };
+                    using var stream = new MemoryStream(bytes, writable: false);
+                    using XmlReader reader = XmlReader.Create(stream, settings, identity);
+                    XDocument parsed = XDocument.Load(reader, LoadOptions.None);
+                    if (parsed.Root is null)
+                    {
+                        document = null;
+                        return false;
+                    }
+
+                    _documents.Add(identity, parsed);
+                    _physicalParses[identity] = 1;
+                    document = new XDocument(parsed);
+                    return true;
+                }
+                catch (Exception exception) when (exception is IOException
+                                                  or UnauthorizedAccessException
+                                                  or XmlException)
+                {
+                    document = null;
+                    return false;
+                }
+            }
+        }
+
+        public bool TryGetDigest(string key, out string digest)
+        {
+            lock (_sync)
+            {
+                if (_digests.TryGetValue(key, out string? cached))
+                {
+                    _cacheHits++;
+                    digest = cached;
+                    return true;
+                }
+            }
+
+            digest = string.Empty;
+            return false;
+        }
+
+        public bool HasSourceDrift
+        {
+            get
+            {
+                lock (_sync)
+                {
+                    return _driftedFiles.Count > 0;
+                }
+            }
+        }
+
+        public bool TryGetEffectiveDocument(string key, out XDocument? document)
+        {
+            lock (_sync)
+            {
+                if (_effectiveDocuments.TryGetValue(key, out XDocument? cached))
+                {
+                    _cacheHits++;
+                    document = new XDocument(cached);
+                    return true;
+                }
+            }
+
+            document = null;
+            return false;
+        }
+
+        public void SetEffectiveDocument(string key, XDocument document)
+        {
+            lock (_sync)
+            {
+                _effectiveDocuments[key] = new XDocument(document);
+            }
+        }
+
+        public void SetDigest(string key, string digest)
+        {
+            lock (_sync)
+            {
+                _digests[key] = digest;
+            }
+        }
+
+        public SourceInputSnapshotDiagnostics Diagnostics()
+        {
+            lock (_sync)
+            {
+                return new SourceInputSnapshotDiagnostics(
+                    _physicalReads.Values.Sum(),
+                    _physicalParses.Values.Sum(),
+                    _cacheHits,
+                    Stopwatch.GetElapsedTime(_startedTimestamp),
+                    new Dictionary<string, int>(_physicalReads, StringComparer.Ordinal),
+                    new Dictionary<string, int>(_physicalParses, StringComparer.Ordinal),
+                    _validationReadCount,
+                    _validationBytesRead,
+                    _directoryValidationCount,
+                    _driftedFiles.Count > 0,
+                    _driftedFiles.OrderBy(path => path, StringComparer.Ordinal).ToArray());
+            }
+        }
+
+        private void ValidateKnownInputs()
+        {
+            foreach ((string path, FileSnapshot snapshot) in _files)
+            {
+                try
+                {
+                    FileSnapshot current = CaptureFileSnapshot(path);
+                    if (!HasStableIdentity(snapshot, current)
+                        || (!snapshot.ChangeIdentity.Available || !current.ChangeIdentity.Available)
+                        && !ValidateCurrentContent(path))
+                    {
+                        _driftedFiles.Add(path);
+                    }
+                }
+                catch (Exception exception) when (exception is IOException
+                                                  or UnauthorizedAccessException)
+                {
+                    _driftedFiles.Add(path);
+                }
+            }
+
+            foreach ((string path, bool existed) in _fileExistence)
+            {
+                if (!existed && File.Exists(path))
+                    _driftedFiles.Add(path);
+            }
+
+            foreach ((DirectoryInventoryKey key, DirectoryInventorySnapshot snapshot) in _directoryInventories)
+            {
+                _directoryValidationCount++;
+                try
+                {
+                    DirectoryInventorySnapshot current = CaptureDirectoryInventory(key);
+                    if (snapshot.Exists != current.Exists
+                        || !snapshot.Entries.SequenceEqual(current.Entries, StringComparer.Ordinal))
+                    {
+                        _driftedFiles.Add(key.DriftIdentity);
+                    }
+                }
+                catch (Exception exception) when (exception is IOException
+                                                  or UnauthorizedAccessException)
+                {
+                    _driftedFiles.Add(key.DriftIdentity);
+                }
+            }
+        }
+
+        private bool ValidateCapturedBytes(string path, byte[] captured)
+        {
+            byte[] current = ReadValidationBytes(path);
+            return CryptographicOperations.FixedTimeEquals(
+                SHA256.HashData(captured),
+                SHA256.HashData(current));
+        }
+
+        private bool ValidateCurrentContent(string path)
+        {
+            if (!_contentDigests.TryGetValue(path, out string? expected))
+            {
+                expected = ComputeContentDigest(_bytes[path]);
+                _contentDigests.Add(path, expected);
+            }
+
+            FileSnapshot before = CaptureFileSnapshot(path);
+            byte[] current = ReadValidationBytes(path);
+            FileSnapshot after = CaptureFileSnapshot(path);
+            return HasStableIdentity(before, after)
+                   && string.Equals(expected, ComputeContentDigest(current), StringComparison.Ordinal);
+        }
+
+        private byte[] ReadValidationBytes(string path)
+        {
+            byte[] bytes = File.ReadAllBytes(path);
+            _validationReadCount++;
+            _validationBytesRead += bytes.LongLength;
+            return bytes;
+        }
+
+        private static string ComputeContentDigest(byte[] bytes)
+            => Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
+
+        private static string ComputeCatalogFingerprint(ContentOverlayCatalog catalog)
+        {
+            using IncrementalHash hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+            AppendFramed(hash, Encoding.UTF8.GetBytes(catalog.BaseDataPath));
+            AppendFramed(hash, Encoding.UTF8.GetBytes(catalog.BaseLanguagePath));
+            for (int index = 0; index < catalog.Overlays.Count; index++)
+            {
+                ContentOverlayPack pack = catalog.Overlays[index];
+                AppendFramed(hash, Encoding.UTF8.GetBytes(index.ToString(CultureInfo.InvariantCulture)));
+                AppendFramed(hash, Encoding.UTF8.GetBytes(pack.Id));
+                AppendFramed(hash, Encoding.UTF8.GetBytes(pack.Name));
+                AppendFramed(hash, Encoding.UTF8.GetBytes(pack.RootPath));
+                AppendFramed(hash, Encoding.UTF8.GetBytes(pack.DataPath));
+                AppendFramed(hash, Encoding.UTF8.GetBytes(pack.LanguagePath));
+                AppendFramed(hash, Encoding.UTF8.GetBytes(pack.Priority.ToString(CultureInfo.InvariantCulture)));
+                AppendFramed(hash, Encoding.UTF8.GetBytes(pack.Enabled ? "true" : "false"));
+                AppendFramed(hash, Encoding.UTF8.GetBytes(pack.Mode));
+                AppendFramed(hash, Encoding.UTF8.GetBytes(pack.Description));
+            }
+            return "sha256:" + Convert.ToHexString(hash.GetHashAndReset()).ToLowerInvariant();
+        }
+
+        private static bool HasStableIdentity(FileSnapshot before, FileSnapshot after)
+        {
+            if (before.Length != after.Length
+                || before.LastWriteTimeUtcTicks != after.LastWriteTimeUtcTicks
+                || before.Attributes != after.Attributes
+                || !string.Equals(before.LinkTarget, after.LinkTarget, StringComparison.Ordinal)
+                || !string.Equals(before.ResolvedTarget, after.ResolvedTarget, StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            return !before.ChangeIdentity.Available
+                   || !after.ChangeIdentity.Available
+                   || before.ChangeIdentity == after.ChangeIdentity;
+        }
+
+        private static DirectoryInventorySnapshot CaptureDirectoryInventory(DirectoryInventoryKey key)
+        {
+            bool exists = Directory.Exists(key.Directory);
+            if (!exists && key.Kind == DirectoryInventoryKind.Directories)
+                return new DirectoryInventorySnapshot(false, []);
+
+            IEnumerable<string> entries = key.Kind == DirectoryInventoryKind.Directories
+                ? Directory.EnumerateDirectories(key.Directory, key.SearchPattern, key.SearchOption)
+                : Directory.EnumerateFiles(key.Directory, key.SearchPattern, key.SearchOption);
+            return new DirectoryInventorySnapshot(
+                exists,
+                entries.Select(Path.GetFullPath)
+                    .OrderBy(path => path, StringComparer.Ordinal)
+                    .ToArray());
+        }
+
+        private FileSnapshot CaptureFileSnapshot(string path)
+        {
+            var info = new FileInfo(path);
+            info.Refresh();
+            if (!info.Exists)
+                throw new FileNotFoundException("Source input no longer exists.", path);
+
+            string linkTarget = string.Empty;
+            string resolvedTarget = string.Empty;
+            if ((info.Attributes & FileAttributes.ReparsePoint) != 0)
+            {
+                linkTarget = info.LinkTarget ?? string.Empty;
+                FileSystemInfo? target = info.ResolveLinkTarget(returnFinalTarget: true);
+                resolvedTarget = target is null ? string.Empty : Path.GetFullPath(target.FullName);
+            }
+            return new FileSnapshot(
+                info.Length,
+                info.LastWriteTimeUtc.Ticks,
+                info.Attributes,
+                linkTarget,
+                resolvedTarget,
+                _useStrongChangeIdentity
+                    ? TryCaptureChangeIdentity(path)
+                    : FileChangeIdentity.Unavailable);
+        }
+
+        private static FileChangeIdentity TryCaptureChangeIdentity(string path)
+        {
+            if (!OperatingSystem.IsLinux() && !OperatingSystem.IsAndroid())
+                return FileChangeIdentity.Unavailable;
+
+            try
+            {
+                const int atFdcwd = -100;
+                const uint statxBasicStats = 0x000007ff;
+                const uint statxChangeTime = 0x00000080;
+                const uint statxInode = 0x00000100;
+                if (NativeMethods.Statx(
+                        atFdcwd,
+                        path,
+                        0,
+                        statxBasicStats,
+                        out NativeStatx state) != 0
+                    || (state.Mask & (statxChangeTime | statxInode))
+                    != (statxChangeTime | statxInode))
+                {
+                    return FileChangeIdentity.Unavailable;
+                }
+
+                return new FileChangeIdentity(
+                    true,
+                    state.Inode,
+                    state.DeviceMajor,
+                    state.DeviceMinor,
+                    state.MountId,
+                    state.ChangeTime.Seconds,
+                    state.ChangeTime.Nanoseconds);
+            }
+            catch (Exception exception) when (exception is DllNotFoundException
+                                              or EntryPointNotFoundException
+                                              or PlatformNotSupportedException)
+            {
+                return FileChangeIdentity.Unavailable;
+            }
+        }
+
+        private sealed record FileSnapshot(
+            long Length,
+            long LastWriteTimeUtcTicks,
+            FileAttributes Attributes,
+            string LinkTarget,
+            string ResolvedTarget,
+            FileChangeIdentity ChangeIdentity);
+
+        private readonly record struct FileChangeIdentity(
+            bool Available,
+            ulong Inode,
+            uint DeviceMajor,
+            uint DeviceMinor,
+            ulong MountId,
+            long ChangeTimeSeconds,
+            uint ChangeTimeNanoseconds)
+        {
+            public static FileChangeIdentity Unavailable { get; } = new(
+                false, 0, 0, 0, 0, 0, 0);
+        }
+
+        private readonly record struct DirectoryInventoryKey(
+            string Directory,
+            string SearchPattern,
+            SearchOption SearchOption,
+            DirectoryInventoryKind Kind)
+        {
+            public string DriftIdentity =>
+                $"directory:{Kind}|{Directory}|{SearchPattern}|{SearchOption}";
+        }
+
+        private sealed record DirectoryInventorySnapshot(bool Exists, string[] Entries);
+
+        private enum DirectoryInventoryKind
+        {
+            Files,
+            Directories
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct NativeStatxTimestamp
+        {
+            public long Seconds;
+            public uint Nanoseconds;
+            private int _reserved;
+        }
+
+        [StructLayout(LayoutKind.Explicit, Size = 256)]
+        private struct NativeStatx
+        {
+            [FieldOffset(0)]
+            public uint Mask;
+
+            [FieldOffset(32)]
+            public ulong Inode;
+
+            [FieldOffset(96)]
+            public NativeStatxTimestamp ChangeTime;
+
+            [FieldOffset(136)]
+            public uint DeviceMajor;
+
+            [FieldOffset(140)]
+            public uint DeviceMinor;
+
+            [FieldOffset(144)]
+            public ulong MountId;
+        }
+
+        private static class NativeMethods
+        {
+            [DllImport("libc", EntryPoint = "statx", SetLastError = true)]
+            internal static extern int Statx(
+                int directoryFileDescriptor,
+                string path,
+                int flags,
+                uint mask,
+                out NativeStatx state);
+        }
+
+        private sealed class Scope(SourceInputSnapshot? previous) : IDisposable
+        {
+            private SourceInputSnapshot? _previous = previous;
+            private int _disposed;
+
+            public void Dispose()
+            {
+                if (Interlocked.Exchange(ref _disposed, 1) != 0)
+                    return;
+
+                SourceInputSnapshot? restore = _previous;
+                _previous = null;
+                ActiveSourceInputs.Value = restore;
+            }
+        }
+    }
+
+    internal sealed record SourceInputSnapshotDiagnostics(
+        int PhysicalReadCount,
+        int PhysicalXmlParseCount,
+        int CacheHitCount,
+        TimeSpan Elapsed,
+        IReadOnlyDictionary<string, int> PhysicalReadsByPath,
+        IReadOnlyDictionary<string, int> PhysicalXmlParsesByPath,
+        int ValidationReadCount,
+        long ValidationBytesRead,
+        int DirectoryValidationCount,
+        bool SourceDriftDetected,
+        IReadOnlyList<string> DriftedPaths);
+
     private sealed record CustomDirectory(
         string Name,
         string Path,
@@ -76,11 +706,34 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
     }
 
     private readonly IContentOverlayCatalogService _overlays;
+    private readonly Action<string>? _afterSourceBytesRead;
+    private readonly bool _useStrongChangeIdentity;
+    private SourceInputSnapshot? _lastSourceInputs;
 
     public FileSystemCharacterSourceDataResolver(IContentOverlayCatalogService overlays)
+        : this(overlays, null, true)
+    {
+    }
+
+    internal FileSystemCharacterSourceDataResolver(
+        IContentOverlayCatalogService overlays,
+        Action<string>? afterSourceBytesRead)
+        : this(overlays, afterSourceBytesRead, true)
+    {
+    }
+
+    internal FileSystemCharacterSourceDataResolver(
+        IContentOverlayCatalogService overlays,
+        Action<string>? afterSourceBytesRead,
+        bool useStrongChangeIdentity)
     {
         _overlays = overlays ?? throw new ArgumentNullException(nameof(overlays));
+        _afterSourceBytesRead = afterSourceBytesRead;
+        _useStrongChangeIdentity = useStrongChangeIdentity;
     }
+
+    internal SourceInputSnapshotDiagnostics? LastSourceInputSnapshotDiagnostics
+        => Volatile.Read(ref _lastSourceInputs)?.Diagnostics();
 
     public ICharacterSourceDataContext? TryCreateContext(string characterXml)
     {
@@ -89,6 +742,10 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             return null;
         }
 
+        var sourceInputs = new SourceInputSnapshot(
+            _afterSourceBytesRead,
+            _useStrongChangeIdentity);
+        using IDisposable sourceInputScope = sourceInputs.Enter();
         try
         {
             XDocument characterDocument = XDocument.Parse(characterXml, LoadOptions.None);
@@ -98,7 +755,8 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 return null;
             }
 
-            ContentOverlayCatalog catalog = _overlays.GetCatalog();
+            ContentOverlayCatalog catalog = FreezeContentOverlayCatalog(_overlays.GetCatalog());
+            sourceInputs.BindCatalog(catalog);
             if (!TryLoadEffectiveDocument(catalog, "settings.xml", out XDocument? settingsDocument)
                 || settingsDocument?.Root is null)
             {
@@ -288,8 +946,9 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 specializationsBreakSkillGroups?.ToString(CultureInfo.InvariantCulture) ?? "invalid",
                 boundProfileInputsDigest);
 
-            return new SourceDataContext(
+            var context = new SourceDataContext(
                 catalog,
+                sourceInputs,
                 new XElement(character),
                 CharacterCreationSkillsDigest.ComputeUtf8(characterXml),
                 enabledDirectories,
@@ -339,6 +998,8 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 karmaKnowledgeSpecialization,
                 specializationsBreakSkillGroups,
                 specializationRuleState);
+            Volatile.Write(ref _lastSourceInputs, sourceInputs);
+            return context;
         }
         catch (Exception exception) when (exception is IOException
                                           or UnauthorizedAccessException
@@ -348,6 +1009,25 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             return null;
         }
     }
+
+    private static ContentOverlayCatalog FreezeContentOverlayCatalog(ContentOverlayCatalog catalog)
+    {
+        ArgumentNullException.ThrowIfNull(catalog);
+        return new ContentOverlayCatalog(
+            NormalizeCatalogPath(catalog.BaseDataPath),
+            NormalizeCatalogPath(catalog.BaseLanguagePath),
+            catalog.Overlays
+                .Select(pack => pack with
+                {
+                    RootPath = NormalizeCatalogPath(pack.RootPath),
+                    DataPath = NormalizeCatalogPath(pack.DataPath),
+                    LanguagePath = NormalizeCatalogPath(pack.LanguagePath)
+                })
+                .ToArray());
+    }
+
+    private static string NormalizeCatalogPath(string path)
+        => string.IsNullOrWhiteSpace(path) ? string.Empty : Path.GetFullPath(path);
 
     private static bool TryReadMaximumNuyenDecimals(XElement settings, out int decimalPlaces)
     {
@@ -857,17 +1537,12 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
         List<CustomDirectory> result = [];
         foreach (string root in roots.OrderBy(path => path, StringComparer.Ordinal))
         {
-            if (!Directory.Exists(root))
-            {
-                continue;
-            }
-
-            foreach (string directory in Directory.EnumerateDirectories(root, "*", SearchOption.TopDirectoryOnly)
+            foreach (string directory in EnumerateSourceDirectories(root, "*", SearchOption.TopDirectoryOnly)
                          .OrderBy(path => path, StringComparer.Ordinal))
             {
                 string name = Path.GetFileName(directory);
                 string manifestPath = Path.Combine(directory, "manifest.xml");
-                if (!File.Exists(manifestPath))
+                if (!SourceFileExists(manifestPath))
                 {
                     result.Add(new CustomDirectory(name, directory, null, LegacyVersion.Default, ManifestValid: true));
                     continue;
@@ -1008,6 +1683,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
     private sealed class SourceDataContext : ICharacterSourceDataContext
     {
         private readonly ContentOverlayCatalog _catalog;
+        private readonly SourceInputSnapshot _sourceInputs;
         private readonly XElement _character;
         private readonly string _rawCharacterXmlDigest;
         private readonly IReadOnlyList<CustomDirectory> _customDirectories;
@@ -1060,6 +1736,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
 
         public SourceDataContext(
             ContentOverlayCatalog catalog,
+            SourceInputSnapshot sourceInputs,
             XElement character,
             string rawCharacterXmlDigest,
             IReadOnlyList<CustomDirectory> customDirectories,
@@ -1111,6 +1788,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             string specializationRuleState)
         {
             _catalog = catalog;
+            _sourceInputs = sourceInputs;
             _character = character;
             _rawCharacterXmlDigest = rawCharacterXmlDigest;
             _customDirectories = customDirectories;
@@ -1164,13 +1842,20 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
 
         public bool TryResolveMaxNuyenDecimals(out int decimalPlaces)
         {
+            using IDisposable sourceInputScope = _sourceInputs.Enter();
             decimalPlaces = _maximumNuyenDecimals.GetValueOrDefault();
-            return _maximumNuyenDecimals.HasValue;
+            return !_sourceInputs.HasSourceDrift && _maximumNuyenDecimals.HasValue;
         }
 
         public bool TryResolveCreationSourceProfile(
             out CharacterCreationSourceProfileAuthority authority)
         {
+            using IDisposable sourceInputScope = _sourceInputs.Enter();
+            if (_sourceInputs.HasSourceDrift)
+            {
+                authority = CharacterCreationSourceProfileAuthority.Unavailable;
+                return false;
+            }
             if (string.IsNullOrWhiteSpace(_settingsProfileId)
                 || string.IsNullOrWhiteSpace(_rawProfileInputsDigest))
             {
@@ -1196,6 +1881,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
         public bool TryResolveCreationPrerequisiteAuthority(
             out CharacterCreationPrerequisiteAuthority authority)
         {
+            using IDisposable sourceInputScope = _sourceInputs.Enter();
             authority = CharacterCreationPrerequisiteAuthority.Unavailable;
             if (string.IsNullOrWhiteSpace(_settingsProfileId)
                 || !TryComputeEffectiveInputDigest(
@@ -1266,6 +1952,8 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             }
 
             var blockers = new List<string>(_prerequisiteProfileBlockers);
+            if (_sourceInputs.HasSourceDrift)
+                blockers.Add(CharacterCreationPrerequisiteBlockers.AuthorityUnavailable);
             if (!string.Equals(
                     BindSelectedProfile(currentSettingsInputsDigest, _settingsProfileId),
                     _rawProfileInputsDigest,
@@ -1390,6 +2078,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
         public bool TryResolveCreationResourcesAuthority(
             out CharacterCreationResourcesAuthority authority)
         {
+            using IDisposable sourceInputScope = _sourceInputs.Enter();
             authority = CharacterCreationResourcesAuthority.Unavailable;
             if (!TryResolveCreationPrerequisiteAuthority(
                     out CharacterCreationPrerequisiteAuthority prerequisite)
@@ -1505,6 +2194,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
 
         public bool TryResolveCreationGearAuthority(out CharacterCreationGearAuthority authority)
         {
+            using IDisposable sourceInputScope = _sourceInputs.Enter();
             authority = CharacterCreationGearAuthority.Unavailable;
             if (string.IsNullOrWhiteSpace(_settingsProfileId)
                 || _creationMaximumAvailability is not int maximumAvailability
@@ -1527,6 +2217,8 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             var options = new List<CharacterCreationGearCatalogOption>();
             var identities = new HashSet<Guid>();
             var authorityBlockers = new List<string>();
+            if (_sourceInputs.HasSourceDrift)
+                authorityBlockers.Add(CharacterCreationGearBlockers.AuthorityUnavailable);
             foreach (XElement row in rows.OrderBy(
                          item => ReadValue(item, "id"),
                          StringComparer.Ordinal))
@@ -1701,11 +2393,14 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
 
         public bool TryResolveVehicleWorkshopCatalog(out CharacterVehicleWorkshopCatalog catalog)
         {
+            using IDisposable sourceInputScope = _sourceInputs.Enter();
             catalog = new CharacterVehicleWorkshopCatalog(
                 new CharacterVehicleWorkshopSourceBinding(
                     string.Empty, string.Empty, string.Empty, string.Empty, string.Empty,
                     string.Empty, string.Empty, string.Empty, false, 0m, false, 0m, false),
                 [], [], [], string.Empty);
+            if (_sourceInputs.HasSourceDrift)
+                return false;
             if (!_droneMods.HasValue
                 || string.IsNullOrWhiteSpace(_settingsProfileId)
                 || !TryComputeEffectiveInputDigest(_catalog, "vehicles.xml", out string vehiclesDigest)
@@ -1805,7 +2500,10 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
 
         public bool TryResolveCustomDrugCatalog(out CharacterCustomDrugCatalogAuthority authority)
         {
+            using IDisposable sourceInputScope = _sourceInputs.Enter();
             authority = CharacterCustomDrugCatalogAuthority.Unavailable;
+            if (_sourceInputs.HasSourceDrift)
+                return false;
             if (string.IsNullOrWhiteSpace(_settingsProfileId)
                 || !TryComputeEffectiveInputDigest(_catalog, "drugcomponents.xml", out _)
                 || !TryEnumerateTargets(
@@ -1976,8 +2674,11 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
         public bool TryResolveCreationSkillsAuthority(
             out CharacterCreationSkillsAuthority authority)
         {
+            using IDisposable sourceInputScope = _sourceInputs.Enter();
             authority = CharacterCreationSkillsAuthority.Unavailable;
             var blockers = new List<string>();
+            if (_sourceInputs.HasSourceDrift)
+                blockers.Add(CharacterCreationSkillsBlockers.SkillsSourceDrift);
             if (string.IsNullOrWhiteSpace(_settingsProfileId)
                 || !CharacterCreationSkillsDigest.IsCanonical(_effectiveSkillsInputsDigest)
                 || !CharacterCreationSkillsDigest.IsCanonical(_rawProfileInputsDigest)
@@ -2175,6 +2876,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
         public bool TryResolveCreationQualitiesAuthority(
             out CharacterCreationQualitiesAuthority authority)
         {
+            using IDisposable sourceInputScope = _sourceInputs.Enter();
             authority = CharacterCreationQualitiesAuthority.Unavailable;
             if (string.IsNullOrWhiteSpace(_settingsProfileId)
                 || !string.Equals(_buildMethod, CharacterCreationBuildMethods.Priority, StringComparison.Ordinal)
@@ -2218,6 +2920,8 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 return false;
 
             var blockers = new List<string>();
+            if (_sourceInputs.HasSourceDrift)
+                blockers.Add(CharacterCreationQualitiesBlockers.AuthorityUnavailable);
             if (!string.Equals(
                     BindSelectedProfile(settingsInputsDigest, _settingsProfileId),
                     _rawProfileInputsDigest,
@@ -2453,6 +3157,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
         public bool TryResolveCreationLifestylesAuthority(
             out CharacterCreationLifestylesAuthority authority)
         {
+            using IDisposable sourceInputScope = _sourceInputs.Enter();
             authority = CharacterCreationLifestylesAuthority.Unavailable;
             if (string.IsNullOrWhiteSpace(_settingsProfileId)
                 || !CharacterCreationBuildMethods.IsSupported(_prerequisiteBuildMethod)
@@ -2496,6 +3201,8 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             }
 
             var blockers = new List<string>();
+            if (_sourceInputs.HasSourceDrift)
+                blockers.Add(CharacterCreationLifestylesBlockers.AuthorityUnavailable);
             if (!string.Equals(
                     BindSelectedProfile(settingsDigest, _settingsProfileId),
                     _rawProfileInputsDigest,
@@ -2921,6 +3628,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
         public bool TryResolveCreationMagicResonanceAuthority(
             out CharacterCreationMagicResonanceAuthority authority)
         {
+            using IDisposable sourceInputScope = _sourceInputs.Enter();
             authority = CharacterCreationMagicResonanceAuthority.Unavailable;
             if (!TryResolveCreationPrerequisiteAuthority(out CharacterCreationPrerequisiteAuthority prerequisite)
                 || !string.Equals(prerequisite.BuildMethod, CharacterCreationBuildMethods.Priority, StringComparison.Ordinal)
@@ -2945,6 +3653,8 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             }
 
             var blockers = new List<string>();
+            if (_sourceInputs.HasSourceDrift)
+                blockers.Add(CharacterCreationMagicResonanceBlockers.SourceDrift);
             if (!CharacterCreationMagicResonanceDigest.EqualsFixedTime(
                     prioritiesDigest, _effectivePrioritiesInputsDigest)
                 || !CharacterCreationMagicResonanceDigest.EqualsFixedTime(
@@ -3443,6 +4153,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
         public bool TryResolveCreationMetatypeCatalog(
             out CharacterCreationMetatypeCatalogAuthority authority)
         {
+            using IDisposable sourceInputScope = _sourceInputs.Enter();
             authority = CharacterCreationMetatypeCatalogAuthority.Unavailable;
             if (string.IsNullOrWhiteSpace(_settingsProfileId)
                 || string.IsNullOrWhiteSpace(_rawProfileInputsDigest)
@@ -3470,6 +4181,8 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             }
 
             var blockers = new List<string>(_metatypeProfileBlockers);
+            if (_sourceInputs.HasSourceDrift)
+                blockers.Add(CharacterCreationMetatypeCatalogBlockers.AuthorityUnavailable);
             if (string.IsNullOrWhiteSpace(_rawMetatypesXmlDigest)
                 || string.IsNullOrWhiteSpace(_effectiveMetatypesInputsDigest))
             {
@@ -3558,16 +4271,22 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
 
         public bool TryResolveGroupMembershipKarmaCosts(out int joinCost, out int leaveCost)
         {
+            using IDisposable sourceInputScope = _sourceInputs.Enter();
             joinCost = _joinGroupKarma.GetValueOrDefault();
             leaveCost = _leaveGroupKarma.GetValueOrDefault();
-            return _joinGroupKarma.HasValue && _leaveGroupKarma.HasValue;
+            return !_sourceInputs.HasSourceDrift
+                   && _joinGroupKarma.HasValue
+                   && _leaveGroupKarma.HasValue;
         }
 
         public bool TryResolveActiveSkillSource(
             string sourceSkillId,
             out CharacterActiveSkillSource source)
         {
+            using IDisposable sourceInputScope = _sourceInputs.Enter();
             source = CharacterActiveSkillSource.Unavailable;
+            if (_sourceInputs.HasSourceDrift)
+                return false;
             if (!Guid.TryParse(sourceSkillId, out Guid parsedSourceId)
                 || parsedSourceId == Guid.Empty
                 || !TryResolveTarget(
@@ -3615,7 +4334,10 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             string sourceSkillId,
             out CharacterKnowledgeSkillSource source)
         {
+            using IDisposable sourceInputScope = _sourceInputs.Enter();
             source = CharacterKnowledgeSkillSource.Unavailable;
+            if (_sourceInputs.HasSourceDrift)
+                return false;
             if (!Guid.TryParse(sourceSkillId, out Guid parsedSourceId)
                 || parsedSourceId == Guid.Empty
                 || !TryResolveTarget(
@@ -3658,8 +4380,11 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             out CharacterCareerSkillSpecializationSettings settings,
             out string rawRuleState)
         {
+            using IDisposable sourceInputScope = _sourceInputs.Enter();
             settings = new CharacterCareerSkillSpecializationSettings(0, 0, false);
             rawRuleState = string.Empty;
+            if (_sourceInputs.HasSourceDrift)
+                return false;
             if (!_karmaActiveSpecialization.HasValue
                 || !_karmaKnowledgeSpecialization.HasValue
                 || !_specializationsBreakSkillGroups.HasValue
@@ -3681,7 +4406,10 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             CharacterCareerSkillKind kind,
             out CharacterCareerSkillSpecializationSource source)
         {
+            using IDisposable sourceInputScope = _sourceInputs.Enter();
             source = CharacterCareerSkillSpecializationSource.Unavailable;
+            if (_sourceInputs.HasSourceDrift)
+                return false;
             if (kind is not (CharacterCareerSkillKind.Active or CharacterCareerSkillKind.Knowledge)
                 || !Guid.TryParse(sourceSkillId, out Guid parsedSourceId)
                 || parsedSourceId == Guid.Empty
@@ -3834,15 +4562,19 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             out decimal workingForPeopleRate,
             out decimal workingForManRate)
         {
+            using IDisposable sourceInputScope = _sourceInputs.Enter();
             workingForPeopleRate = _workingForPeopleRate.GetValueOrDefault();
             workingForManRate = _workingForManRate.GetValueOrDefault();
-            return _workingForPeopleRate.HasValue && _workingForManRate.HasValue;
+            return !_sourceInputs.HasSourceDrift
+                   && _workingForPeopleRate.HasValue
+                   && _workingForManRate.HasValue;
         }
 
         public bool TryIsBookEnabled(string sourceCode, out bool enabled)
         {
+            using IDisposable sourceInputScope = _sourceInputs.Enter();
             enabled = false;
-            if (string.IsNullOrWhiteSpace(sourceCode))
+            if (_sourceInputs.HasSourceDrift || string.IsNullOrWhiteSpace(sourceCode))
             {
                 return false;
             }
@@ -3856,7 +4588,10 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             string improvementSource,
             out int deviceRating)
         {
+            using IDisposable sourceInputScope = _sourceInputs.Enter();
             deviceRating = 0;
+            if (_sourceInputs.HasSourceDrift)
+                return false;
             string fileName;
             if (string.Equals(improvementSource, "Cyberware", StringComparison.Ordinal))
             {
@@ -3908,7 +4643,10 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             string improvementSource,
             out CharacterCyberwareCommerceSource source)
         {
+            using IDisposable sourceInputScope = _sourceInputs.Enter();
             source = CharacterCyberwareCommerceSource.Unavailable;
+            if (_sourceInputs.HasSourceDrift)
+                return false;
             if (!string.Equals(improvementSource, "Cyberware", StringComparison.Ordinal)
                 || _customDirectories.Count != 0
                 || !TryLoadEffectiveDocument(_catalog, "cyberware.xml", out XDocument? document)
@@ -4023,7 +4761,10 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             string name,
             out CharacterQualityLevelSource source)
         {
+            using IDisposable sourceInputScope = _sourceInputs.Enter();
             source = CharacterQualityLevelSource.Unavailable;
+            if (_sourceInputs.HasSourceDrift)
+                return false;
             if (!TryResolveTarget(
                     "qualities.xml",
                     ["qualities"],
@@ -4073,7 +4814,10 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
 
         public bool TryResolveTraditionDrainExpressions(out IReadOnlyList<string> expressions)
         {
+            using IDisposable sourceInputScope = _sourceInputs.Enter();
             expressions = Array.Empty<string>();
+            if (_sourceInputs.HasSourceDrift)
+                return false;
             if (!TryLoadEffectiveDocument(_catalog, "traditions.xml", out XDocument? document)
                 || document?.Root is null)
             {
@@ -4112,7 +4856,10 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             string entityType,
             out IReadOnlyList<string> names)
         {
+            using IDisposable sourceInputScope = _sourceInputs.Enter();
             names = Array.Empty<string>();
+            if (_sourceInputs.HasSourceDrift)
+                return false;
             string fileName = entityType switch
             {
                 "Spirit" => "traditions.xml",
@@ -4184,8 +4931,10 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 string[] relevantFiles;
                 try
                 {
-                    relevantFiles = Directory
-                        .EnumerateFiles(directory.Path, $"*_{fileName}", SearchOption.AllDirectories)
+                    relevantFiles = EnumerateSourceFiles(
+                            directory.Path,
+                            $"*_{fileName}",
+                            SearchOption.AllDirectories)
                         .Where(path =>
                         {
                             string candidate = Path.GetFileName(path);
@@ -4276,7 +5025,10 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             string sourceId,
             out IReadOnlyList<string> names)
         {
+            using IDisposable sourceInputScope = _sourceInputs.Enter();
             names = Array.Empty<string>();
+            if (_sourceInputs.HasSourceDrift)
+                return false;
             string fileName = entityType switch
             {
                 "Spirit" => "traditions.xml",
@@ -4329,7 +5081,10 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             string name,
             out CharacterVehicleModSourceBonuses bonuses)
         {
+            using IDisposable sourceInputScope = _sourceInputs.Enter();
             bonuses = CharacterVehicleModSourceBonuses.Empty;
+            if (_sourceInputs.HasSourceDrift)
+                return false;
             if (!TryResolveTarget(
                     "vehicles.xml",
                     ["mods", "weaponmountmods"],
@@ -4380,8 +5135,10 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 string[] relevantFiles;
                 try
                 {
-                    relevantFiles = Directory
-                        .EnumerateFiles(directory.Path, $"*_{fileName}", SearchOption.AllDirectories)
+                    relevantFiles = EnumerateSourceFiles(
+                            directory.Path,
+                            $"*_{fileName}",
+                            SearchOption.AllDirectories)
                         .Where(path =>
                         {
                             string candidate = Path.GetFileName(path);
@@ -4451,8 +5208,10 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 string[] relevantFiles;
                 try
                 {
-                    relevantFiles = Directory
-                        .EnumerateFiles(directory.Path, $"*_{fileName}", SearchOption.AllDirectories)
+                    relevantFiles = EnumerateSourceFiles(
+                            directory.Path,
+                            $"*_{fileName}",
+                            SearchOption.AllDirectories)
                         .Where(path =>
                         {
                             string candidate = Path.GetFileName(path);
@@ -5090,9 +5849,16 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
         string fileName,
         out XDocument? document)
     {
+        string cacheKey = CreateSourceCacheKey("effective-document", fileName);
+        if (ActiveSourceInputs.Value is { } cachedInputs
+            && cachedInputs.TryGetEffectiveDocument(cacheKey, out document))
+        {
+            return document?.Root is not null;
+        }
+
         document = null;
         string basePath = Path.Combine(catalog.BaseDataPath, fileName);
-        if (File.Exists(basePath) && !TryLoadXml(basePath, out document))
+        if (SourceFileExists(basePath) && !TryLoadXml(basePath, out document))
         {
             return false;
         }
@@ -5102,7 +5868,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                      .OrderBy(pack => pack.Priority)
                      .ThenBy(pack => pack.Id, StringComparer.Ordinal))
         {
-            if (string.IsNullOrWhiteSpace(pack.DataPath) || !Directory.Exists(pack.DataPath))
+            if (string.IsNullOrWhiteSpace(pack.DataPath) || !SourceDirectoryExists(pack.DataPath))
             {
                 continue;
             }
@@ -5110,7 +5876,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             if (string.Equals(pack.Mode, ContentOverlayModes.ReplaceFile, StringComparison.Ordinal))
             {
                 string replacementPath = Path.Combine(pack.DataPath, fileName);
-                if (File.Exists(replacementPath) && !TryLoadXml(replacementPath, out document))
+                if (SourceFileExists(replacementPath) && !TryLoadXml(replacementPath, out document))
                 {
                     return false;
                 }
@@ -5122,7 +5888,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 return false;
             }
 
-            foreach (string fragmentPath in Directory.EnumerateFiles(pack.DataPath, "*.xml", SearchOption.TopDirectoryOnly)
+            foreach (string fragmentPath in EnumerateSourceFiles(pack.DataPath, "*.xml", SearchOption.TopDirectoryOnly)
                          .OrderBy(path => path, StringComparer.Ordinal))
             {
                 if (!string.Equals(ResolveCatalogTargetFileName(Path.GetFileName(fragmentPath)), fileName, StringComparison.OrdinalIgnoreCase))
@@ -5139,7 +5905,11 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             }
         }
 
-        return document?.Root is not null;
+        if (document?.Root is null)
+            return false;
+
+        ActiveSourceInputs.Value?.SetEffectiveDocument(cacheKey, document);
+        return true;
     }
 
     private static bool TryComputeEffectiveInputDigest(
@@ -5147,12 +5917,19 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
         string fileName,
         out string digest)
     {
+        string cacheKey = CreateSourceCacheKey("effective-input-digest", fileName);
+        if (ActiveSourceInputs.Value is { } cachedInputs
+            && cachedInputs.TryGetDigest(cacheKey, out digest))
+        {
+            return true;
+        }
+
         digest = string.Empty;
         try
         {
             var inputs = new List<(string AuthorityId, string Path)>();
             string basePath = Path.Combine(catalog.BaseDataPath, fileName);
-            if (File.Exists(basePath))
+            if (SourceFileExists(basePath))
                 inputs.Add(("base", basePath));
 
             foreach (ContentOverlayPack pack in catalog.Overlays
@@ -5160,13 +5937,13 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                          .OrderBy(pack => pack.Priority)
                          .ThenBy(pack => pack.Id, StringComparer.Ordinal))
             {
-                if (string.IsNullOrWhiteSpace(pack.DataPath) || !Directory.Exists(pack.DataPath))
+                if (string.IsNullOrWhiteSpace(pack.DataPath) || !SourceDirectoryExists(pack.DataPath))
                     continue;
 
                 if (string.Equals(pack.Mode, ContentOverlayModes.ReplaceFile, StringComparison.Ordinal))
                 {
                     string replacementPath = Path.Combine(pack.DataPath, fileName);
-                    if (File.Exists(replacementPath))
+                    if (SourceFileExists(replacementPath))
                         inputs.Add(($"overlay:{pack.Id}:replace", replacementPath));
                     continue;
                 }
@@ -5174,7 +5951,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 if (!string.Equals(pack.Mode, ContentOverlayModes.MergeCatalog, StringComparison.Ordinal))
                     return false;
 
-                foreach (string fragmentPath in Directory.EnumerateFiles(
+                foreach (string fragmentPath in EnumerateSourceFiles(
                              pack.DataPath,
                              "*.xml",
                              SearchOption.TopDirectoryOnly).OrderBy(path => path, StringComparer.Ordinal))
@@ -5196,10 +5973,11 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             foreach ((string authorityId, string path) in inputs)
             {
                 AppendFramed(hash, Encoding.UTF8.GetBytes(authorityId));
-                AppendFramed(hash, File.ReadAllBytes(path));
+                AppendFramed(hash, ReadSourceBytes(path));
             }
 
             digest = "sha256:" + Convert.ToHexString(hash.GetHashAndReset()).ToLowerInvariant();
+            ActiveSourceInputs.Value?.SetDigest(cacheKey, digest);
             return true;
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
@@ -5213,15 +5991,23 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
         string fileName,
         out string digest)
     {
+        string cacheKey = CreateSourceCacheKey("raw-base-digest", fileName);
+        if (ActiveSourceInputs.Value is { } cachedInputs
+            && cachedInputs.TryGetDigest(cacheKey, out digest))
+        {
+            return true;
+        }
+
         digest = string.Empty;
         try
         {
             string path = Path.Combine(catalog.BaseDataPath, fileName);
-            if (!File.Exists(path))
+            if (!SourceFileExists(path))
             {
                 return false;
             }
-            digest = "sha256:" + Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path))).ToLowerInvariant();
+            digest = "sha256:" + Convert.ToHexString(SHA256.HashData(ReadSourceBytes(path))).ToLowerInvariant();
+            ActiveSourceInputs.Value?.SetDigest(cacheKey, digest);
             return true;
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
@@ -5234,6 +6020,15 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
         IReadOnlyList<CustomDirectory> directories,
         out string digest)
     {
+        string cacheKey = CreateSourceCacheKey(
+            "selected-custom-data-inputs-digest",
+            "metatypes");
+        if (ActiveSourceInputs.Value is { } cachedInputs
+            && cachedInputs.TryGetDigest(cacheKey, out digest))
+        {
+            return true;
+        }
+
         digest = string.Empty;
         try
         {
@@ -5246,22 +6041,23 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 AppendFramed(hash, Encoding.UTF8.GetBytes(string.Join('.', directory.Version.Parts)));
 
                 string manifestPath = Path.Combine(directory.Path, "manifest.xml");
-                if (File.Exists(manifestPath))
+                if (SourceFileExists(manifestPath))
                 {
                     AppendFramed(hash, Encoding.UTF8.GetBytes("manifest.xml"));
-                    AppendFramed(hash, File.ReadAllBytes(manifestPath));
+                    AppendFramed(hash, ReadSourceBytes(manifestPath));
                 }
 
-                foreach (string path in Directory.EnumerateFiles(directory.Path, "*.xml", SearchOption.AllDirectories)
+                foreach (string path in EnumerateSourceFiles(directory.Path, "*.xml", SearchOption.AllDirectories)
                              .Where(path => IsLegacyCustomDataInputFor(path, "metatypes.xml"))
                              .OrderBy(path => Path.GetRelativePath(directory.Path, path), StringComparer.Ordinal))
                 {
                     string relativePath = Path.GetRelativePath(directory.Path, path).Replace('\\', '/');
                     AppendFramed(hash, Encoding.UTF8.GetBytes(relativePath));
-                    AppendFramed(hash, File.ReadAllBytes(path));
+                    AppendFramed(hash, ReadSourceBytes(path));
                 }
             }
             digest = "sha256:" + Convert.ToHexString(hash.GetHashAndReset()).ToLowerInvariant();
+            ActiveSourceInputs.Value?.SetDigest(cacheKey, digest);
             return true;
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
@@ -5275,6 +6071,15 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
         string targetFileName,
         out string digest)
     {
+        string cacheKey = CreateSourceCacheKey(
+            "selected-custom-data-inputs-digest",
+            targetFileName);
+        if (ActiveSourceInputs.Value is { } cachedInputs
+            && cachedInputs.TryGetDigest(cacheKey, out digest))
+        {
+            return true;
+        }
+
         digest = string.Empty;
         if (string.IsNullOrWhiteSpace(targetFileName)
             || !string.Equals(targetFileName, Path.GetFileName(targetFileName), StringComparison.Ordinal))
@@ -5294,13 +6099,13 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 AppendFramed(hash, Encoding.UTF8.GetBytes(string.Join('.', directory.Version.Parts)));
 
                 string manifestPath = Path.Combine(directory.Path, "manifest.xml");
-                if (File.Exists(manifestPath))
+                if (SourceFileExists(manifestPath))
                 {
                     AppendFramed(hash, Encoding.UTF8.GetBytes("manifest.xml"));
-                    AppendFramed(hash, File.ReadAllBytes(manifestPath));
+                    AppendFramed(hash, ReadSourceBytes(manifestPath));
                 }
 
-                foreach (string path in Directory.EnumerateFiles(
+                foreach (string path in EnumerateSourceFiles(
                              directory.Path,
                              "*.xml",
                              SearchOption.AllDirectories)
@@ -5311,10 +6116,11 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 {
                     string relativePath = Path.GetRelativePath(directory.Path, path).Replace('\\', '/');
                     AppendFramed(hash, Encoding.UTF8.GetBytes(relativePath));
-                    AppendFramed(hash, File.ReadAllBytes(path));
+                    AppendFramed(hash, ReadSourceBytes(path));
                 }
             }
             digest = "sha256:" + Convert.ToHexString(hash.GetHashAndReset()).ToLowerInvariant();
+            ActiveSourceInputs.Value?.SetDigest(cacheKey, digest);
             return true;
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
@@ -5327,6 +6133,15 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
         IReadOnlyList<CustomDirectory> directories,
         out string digest)
     {
+        string cacheKey = CreateSourceCacheKey(
+            "selected-priority-custom-data-inputs-digest",
+            "priorities.xml");
+        if (ActiveSourceInputs.Value is { } cachedInputs
+            && cachedInputs.TryGetDigest(cacheKey, out digest))
+        {
+            return true;
+        }
+
         digest = string.Empty;
         try
         {
@@ -5341,13 +6156,13 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                     string.Join('.', directory.Version.Parts)));
 
                 string manifestPath = Path.Combine(directory.Path, "manifest.xml");
-                if (File.Exists(manifestPath))
+                if (SourceFileExists(manifestPath))
                 {
                     AppendFramed(hash, Encoding.UTF8.GetBytes("manifest.xml"));
-                    AppendFramed(hash, File.ReadAllBytes(manifestPath));
+                    AppendFramed(hash, ReadSourceBytes(manifestPath));
                 }
 
-                foreach (string path in Directory.EnumerateFiles(
+                foreach (string path in EnumerateSourceFiles(
                              directory.Path,
                              "*.xml",
                              SearchOption.AllDirectories)
@@ -5359,11 +6174,12 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                     string relativePath = Path.GetRelativePath(directory.Path, path)
                         .Replace('\\', '/');
                     AppendFramed(hash, Encoding.UTF8.GetBytes(relativePath));
-                    AppendFramed(hash, File.ReadAllBytes(path));
+                    AppendFramed(hash, ReadSourceBytes(path));
                 }
             }
 
             digest = "sha256:" + Convert.ToHexString(hash.GetHashAndReset()).ToLowerInvariant();
+            ActiveSourceInputs.Value?.SetDigest(cacheKey, digest);
             return true;
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
@@ -5382,7 +6198,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
         {
             foreach (CustomDirectory directory in directories)
             {
-                if (Directory.EnumerateFiles(directory.Path, "*.xml", SearchOption.AllDirectories)
+                if (EnumerateSourceFiles(directory.Path, "*.xml", SearchOption.AllDirectories)
                     .Any(path => IsLegacyCustomDataInputFor(path, targetFileName)))
                 {
                     hasInput = true;
@@ -5417,7 +6233,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
         {
             foreach (CustomDirectory directory in directories)
             {
-                foreach (string path in Directory.EnumerateFiles(
+                foreach (string path in EnumerateSourceFiles(
                              directory.Path,
                              "*.xml",
                              SearchOption.AllDirectories)
@@ -5550,13 +6366,13 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
         {
             foreach (ContentOverlayPack pack in catalog.Overlays.Where(pack => pack.Enabled))
             {
-                if (string.IsNullOrWhiteSpace(pack.DataPath) || !Directory.Exists(pack.DataPath))
+                if (string.IsNullOrWhiteSpace(pack.DataPath) || !SourceDirectoryExists(pack.DataPath))
                 {
                     continue;
                 }
                 if (string.Equals(pack.Mode, ContentOverlayModes.ReplaceFile, StringComparison.Ordinal))
                 {
-                    if (File.Exists(Path.Combine(pack.DataPath, fileName)))
+                    if (SourceFileExists(Path.Combine(pack.DataPath, fileName)))
                     {
                         hasInput = true;
                         return true;
@@ -5567,7 +6383,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 {
                     return false;
                 }
-                if (Directory.EnumerateFiles(pack.DataPath, "*.xml", SearchOption.TopDirectoryOnly).Any(path =>
+                if (EnumerateSourceFiles(pack.DataPath, "*.xml", SearchOption.TopDirectoryOnly).Any(path =>
                         string.Equals(
                             ResolveCatalogTargetFileName(Path.GetFileName(path)),
                             fileName,
@@ -5722,6 +6538,9 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
 
     private static bool TryLoadXml(string path, out XDocument? document)
     {
+        if (ActiveSourceInputs.Value is { } sourceInputs)
+            return sourceInputs.TryLoadXml(path, out document);
+
         document = null;
         try
         {
@@ -5741,6 +6560,35 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             return false;
         }
     }
+
+    private static byte[] ReadSourceBytes(string path)
+        => ActiveSourceInputs.Value?.ReadAllBytes(path) ?? File.ReadAllBytes(path);
+
+    private static bool SourceFileExists(string path)
+        => ActiveSourceInputs.Value?.FileExists(path) ?? File.Exists(path);
+
+    private static bool SourceDirectoryExists(string path)
+        => ActiveSourceInputs.Value?.DirectoryExists(path) ?? Directory.Exists(path);
+
+    private static string CreateSourceCacheKey(string kind, string identity)
+        => ActiveSourceInputs.Value?.CreateCacheKey(kind, identity)
+           ?? $"{kind}|{identity}";
+
+    private static string[] EnumerateSourceFiles(
+        string directory,
+        string searchPattern,
+        SearchOption searchOption)
+        => ActiveSourceInputs.Value?.EnumerateFiles(directory, searchPattern, searchOption)
+           ?? Directory.EnumerateFiles(directory, searchPattern, searchOption).ToArray();
+
+    private static string[] EnumerateSourceDirectories(
+        string directory,
+        string searchPattern,
+        SearchOption searchOption)
+        => ActiveSourceInputs.Value?.EnumerateDirectories(directory, searchPattern, searchOption)
+           ?? (Directory.Exists(directory)
+               ? Directory.EnumerateDirectories(directory, searchPattern, searchOption).ToArray()
+               : []);
 
     private static string ReadValue(XElement? parent, XName name)
         => parent?.Element(name)?.Value.Trim() ?? string.Empty;

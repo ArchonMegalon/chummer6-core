@@ -4,6 +4,7 @@ using System;
 using System.IO;
 using System.Xml.Linq;
 using Chummer.Application.Characters;
+using Chummer.Application.Content;
 using Chummer.Contracts.Rulesets;
 using Chummer.Contracts.Characters;
 using Chummer.Contracts.Workspaces;
@@ -410,6 +411,808 @@ public sealed class FileSystemCharacterSourceDataResolverTests
             new[] { "B", "C", "D", "E", "E" },
             streetScum.PriorityArray.ToArray());
         Assert.HasCount(20, streetScum.Options);
+    }
+
+    [TestMethod]
+    public void Creation_source_context_opens_and_parses_each_physical_input_at_most_once()
+    {
+        string coreRoot = FindCoreRoot();
+        var overlays = new FileSystemContentOverlayCatalogService(coreRoot, coreRoot, null);
+        var resolver = new FileSystemCharacterSourceDataResolver(overlays);
+        ICharacterSourceDataContext context = resolver.TryCreateContext(CharacterXml())!;
+
+        Assert.IsNotNull(context);
+        Assert.IsTrue(context.TryResolveCreationSourceProfile(out _));
+        Assert.IsTrue(context.TryResolveCreationMetatypeCatalog(
+            out CharacterCreationMetatypeCatalogAuthority metatypes));
+        Assert.IsTrue(context.TryResolveCreationPrerequisiteAuthority(
+            out CharacterCreationPrerequisiteAuthority prerequisite));
+        Assert.IsTrue(context.TryResolveCreationQualitiesAuthority(
+            out CharacterCreationQualitiesAuthority qualities));
+        Assert.IsTrue(context.TryResolveCreationMagicResonanceAuthority(
+            out CharacterCreationMagicResonanceAuthority magic));
+
+        FileSystemCharacterSourceDataResolver.SourceInputSnapshotDiagnostics diagnostics =
+            resolver.LastSourceInputSnapshotDiagnostics!;
+        Assert.IsNotNull(diagnostics);
+        Assert.IsTrue(metatypes.IsAuthoritative, string.Join(",", metatypes.Blockers));
+        Assert.IsTrue(prerequisite.IsAuthoritative, string.Join(",", prerequisite.Blockers));
+        Assert.IsTrue(qualities.IsAuthoritative, string.Join(",", qualities.Blockers));
+        Assert.IsFalse(string.IsNullOrWhiteSpace(magic.Schema));
+        Assert.IsTrue(diagnostics.PhysicalReadCount > 0);
+        Assert.IsTrue(diagnostics.PhysicalXmlParseCount > 0);
+        Assert.IsTrue(diagnostics.CacheHitCount > 0);
+        if (OperatingSystem.IsLinux() || OperatingSystem.IsAndroid())
+        {
+            Assert.AreEqual(0, diagnostics.ValidationReadCount);
+            Assert.AreEqual(0L, diagnostics.ValidationBytesRead);
+        }
+        else
+        {
+            Assert.IsTrue(diagnostics.ValidationReadCount > 0);
+            Assert.IsTrue(diagnostics.ValidationBytesRead > 0L);
+        }
+        Assert.IsTrue(
+            diagnostics.PhysicalReadsByPath.Values.All(count => count == 1),
+            string.Join(",", diagnostics.PhysicalReadsByPath.Select(pair => $"{pair.Key}={pair.Value}")));
+        Assert.IsTrue(
+            diagnostics.PhysicalXmlParsesByPath.Values.All(count => count == 1),
+            string.Join(",", diagnostics.PhysicalXmlParsesByPath.Select(pair => $"{pair.Key}={pair.Value}")));
+        Assert.IsTrue(
+            diagnostics.PhysicalReadsByPath.Keys.Any(path =>
+                string.Equals(Path.GetFileName(path), "priorities.xml", StringComparison.Ordinal)));
+        Assert.IsTrue(
+            diagnostics.PhysicalReadsByPath.Keys.Any(path =>
+                string.Equals(Path.GetFileName(path), "metatypes.xml", StringComparison.Ordinal)));
+        Assert.IsTrue(
+            diagnostics.PhysicalReadsByPath.Keys.Any(path =>
+                string.Equals(Path.GetFileName(path), "qualities.xml", StringComparison.Ordinal)));
+        Console.WriteLine(
+            $"creation-source-input-snapshot reads={diagnostics.PhysicalReadCount} "
+            + $"parses={diagnostics.PhysicalXmlParseCount} hits={diagnostics.CacheHitCount} "
+            + $"validationReads={diagnostics.ValidationReadCount} "
+            + $"directoryValidations={diagnostics.DirectoryValidationCount} "
+            + $"elapsedMs={diagnostics.Elapsed.TotalMilliseconds:F3}");
+    }
+
+    [TestMethod]
+    public void Creation_source_context_freezes_cached_bytes_and_new_context_observes_drift()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            WriteBaseContent(
+                root,
+                string.Empty,
+                "<buildmethod>Priority</buildmethod><buildpoints>25</buildpoints>"
+                + "<priorityarray>ABCDE</priorityarray><prioritytable>Standard</prioritytable>"
+                + "<sumtoten>10</sumtoten>");
+            WritePriorityFixture(root);
+            var overlays = new FileSystemContentOverlayCatalogService(root, root, null);
+            var resolver = new FileSystemCharacterSourceDataResolver(overlays);
+            ICharacterSourceDataContext firstContext = resolver.TryCreateContext(CharacterXml())!;
+
+            Assert.IsTrue(firstContext.TryResolveCreationPrerequisiteAuthority(
+                out CharacterCreationPrerequisiteAuthority beforeDrift));
+            FileSystemCharacterSourceDataResolver.SourceInputSnapshotDiagnostics firstDiagnostics =
+                resolver.LastSourceInputSnapshotDiagnostics!;
+            string prioritiesPath = Path.Combine(root, "data", "priorities.xml");
+            File.WriteAllText(
+                prioritiesPath,
+                File.ReadAllText(prioritiesPath).Replace(
+                    "<attributes>24</attributes>",
+                    "<attributes>23</attributes>",
+                    StringComparison.Ordinal));
+
+            Assert.IsTrue(firstContext.TryResolveCreationPrerequisiteAuthority(
+                out CharacterCreationPrerequisiteAuthority frozen));
+            Assert.IsFalse(frozen.IsAuthoritative);
+            CollectionAssert.Contains(
+                frozen.Blockers.ToList(),
+                CharacterCreationPrerequisiteBlockers.AuthorityUnavailable);
+            Assert.AreEqual(
+                beforeDrift.EffectivePrioritiesInputsDigest,
+                frozen.EffectivePrioritiesInputsDigest);
+            Assert.AreEqual(
+                firstDiagnostics.PhysicalReadCount,
+                resolver.LastSourceInputSnapshotDiagnostics!.PhysicalReadCount);
+            Assert.IsTrue(resolver.LastSourceInputSnapshotDiagnostics!.SourceDriftDetected);
+            CollectionAssert.Contains(
+                resolver.LastSourceInputSnapshotDiagnostics!.DriftedPaths.ToList(),
+                prioritiesPath);
+            Assert.IsTrue(
+                resolver.LastSourceInputSnapshotDiagnostics!.PhysicalReadsByPath.Values
+                    .All(count => count == 1));
+
+            ICharacterSourceDataContext secondContext = resolver.TryCreateContext(CharacterXml())!;
+            Assert.IsTrue(secondContext.TryResolveCreationPrerequisiteAuthority(
+                out CharacterCreationPrerequisiteAuthority afterDrift));
+            Assert.AreNotEqual(beforeDrift.AuthorityDigest, afterDrift.AuthorityDigest);
+            Assert.AreNotEqual(
+                beforeDrift.EffectivePrioritiesInputsDigest,
+                afterDrift.EffectivePrioritiesInputsDigest);
+            Assert.IsTrue(
+                resolver.LastSourceInputSnapshotDiagnostics!.PhysicalReadsByPath.Values
+                    .All(count => count == 1));
+            Assert.IsTrue(
+                resolver.LastSourceInputSnapshotDiagnostics!.PhysicalXmlParsesByPath.Values
+                    .All(count => count == 1));
+        }
+        finally
+        {
+            DeleteTempDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public void Creation_source_context_rejects_same_length_bytes_with_restored_write_time()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            WriteBaseContent(
+                root,
+                string.Empty,
+                "<buildmethod>Priority</buildmethod><buildpoints>25</buildpoints>"
+                + "<priorityarray>ABCDE</priorityarray><prioritytable>Standard</prioritytable>"
+                + "<sumtoten>10</sumtoten>");
+            WritePriorityFixture(root);
+            string prioritiesPath = Path.Combine(root, "data", "priorities.xml");
+            var overlays = new FileSystemContentOverlayCatalogService(root, root, null);
+            var resolver = new FileSystemCharacterSourceDataResolver(overlays);
+            ICharacterSourceDataContext context = resolver.TryCreateContext(CharacterXml())!;
+
+            Assert.IsTrue(context.TryResolveCreationPrerequisiteAuthority(
+                out CharacterCreationPrerequisiteAuthority initial));
+            Assert.IsTrue(initial.IsAuthoritative, string.Join(",", initial.Blockers));
+            int readsBeforeDrift = resolver.LastSourceInputSnapshotDiagnostics!.PhysicalReadCount;
+            DateTime capturedWriteTime = File.GetLastWriteTimeUtc(prioritiesPath);
+            string original = File.ReadAllText(prioritiesPath);
+            string tampered = original.Replace(
+                "<attributes>24</attributes>",
+                "<attributes>23</attributes>",
+                StringComparison.Ordinal);
+            Assert.AreEqual(original.Length, tampered.Length);
+            File.WriteAllText(prioritiesPath, tampered);
+            File.SetLastWriteTimeUtc(prioritiesPath, capturedWriteTime);
+
+            Assert.IsTrue(context.TryResolveCreationPrerequisiteAuthority(
+                out CharacterCreationPrerequisiteAuthority drifted));
+
+            Assert.IsFalse(drifted.IsAuthoritative);
+            CollectionAssert.Contains(
+                drifted.Blockers.ToList(),
+                CharacterCreationPrerequisiteBlockers.AuthorityUnavailable);
+            Assert.AreEqual(
+                readsBeforeDrift,
+                resolver.LastSourceInputSnapshotDiagnostics!.PhysicalReadCount);
+            Assert.IsTrue(resolver.LastSourceInputSnapshotDiagnostics!.SourceDriftDetected);
+            CollectionAssert.Contains(
+                resolver.LastSourceInputSnapshotDiagnostics!.DriftedPaths.ToList(),
+                prioritiesPath);
+        }
+        finally
+        {
+            DeleteTempDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public void Creation_source_context_fallback_rehash_rejects_restored_metadata_bytes()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            WriteBaseContent(
+                root,
+                string.Empty,
+                "<buildmethod>Priority</buildmethod><buildpoints>25</buildpoints>"
+                + "<priorityarray>ABCDE</priorityarray><prioritytable>Standard</prioritytable>"
+                + "<sumtoten>10</sumtoten>");
+            WritePriorityFixture(root);
+            string prioritiesPath = Path.Combine(root, "data", "priorities.xml");
+            var overlays = new FileSystemContentOverlayCatalogService(root, root, null);
+            var resolver = new FileSystemCharacterSourceDataResolver(
+                overlays,
+                afterSourceBytesRead: null,
+                useStrongChangeIdentity: false);
+            ICharacterSourceDataContext context = resolver.TryCreateContext(CharacterXml())!;
+
+            Assert.IsTrue(context.TryResolveCreationPrerequisiteAuthority(
+                out CharacterCreationPrerequisiteAuthority initial));
+            Assert.IsTrue(initial.IsAuthoritative, string.Join(",", initial.Blockers));
+            int captureReads = resolver.LastSourceInputSnapshotDiagnostics!.PhysicalReadCount;
+            int validationReads = resolver.LastSourceInputSnapshotDiagnostics!.ValidationReadCount;
+            DateTime capturedWriteTime = File.GetLastWriteTimeUtc(prioritiesPath);
+            string original = File.ReadAllText(prioritiesPath);
+            File.WriteAllText(
+                prioritiesPath,
+                original.Replace(
+                    "<attributes>24</attributes>",
+                    "<attributes>23</attributes>",
+                    StringComparison.Ordinal));
+            File.SetLastWriteTimeUtc(prioritiesPath, capturedWriteTime);
+
+            Assert.IsTrue(context.TryResolveCreationPrerequisiteAuthority(
+                out CharacterCreationPrerequisiteAuthority drifted));
+
+            Assert.IsFalse(drifted.IsAuthoritative);
+            CollectionAssert.Contains(
+                drifted.Blockers.ToList(),
+                CharacterCreationPrerequisiteBlockers.AuthorityUnavailable);
+            Assert.AreEqual(
+                captureReads,
+                resolver.LastSourceInputSnapshotDiagnostics!.PhysicalReadCount);
+            Assert.IsTrue(
+                resolver.LastSourceInputSnapshotDiagnostics!.ValidationReadCount > validationReads);
+            Assert.IsTrue(resolver.LastSourceInputSnapshotDiagnostics!.ValidationBytesRead > 0L);
+            Assert.IsTrue(resolver.LastSourceInputSnapshotDiagnostics!.SourceDriftDetected);
+        }
+        finally
+        {
+            DeleteTempDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public void Creation_source_context_rejects_atomic_same_metadata_replacement()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            WriteBaseContent(
+                root,
+                string.Empty,
+                "<buildmethod>Priority</buildmethod><buildpoints>25</buildpoints>"
+                + "<priorityarray>ABCDE</priorityarray><prioritytable>Standard</prioritytable>"
+                + "<sumtoten>10</sumtoten>");
+            WritePriorityFixture(root);
+            string prioritiesPath = Path.Combine(root, "data", "priorities.xml");
+            var overlays = new FileSystemContentOverlayCatalogService(root, root, null);
+            var resolver = new FileSystemCharacterSourceDataResolver(overlays);
+            ICharacterSourceDataContext context = resolver.TryCreateContext(CharacterXml())!;
+
+            Assert.IsTrue(context.TryResolveCreationPrerequisiteAuthority(
+                out CharacterCreationPrerequisiteAuthority initial));
+            Assert.IsTrue(initial.IsAuthoritative, string.Join(",", initial.Blockers));
+            int readsBeforeDrift = resolver.LastSourceInputSnapshotDiagnostics!.PhysicalReadCount;
+            DateTime capturedWriteTime = File.GetLastWriteTimeUtc(prioritiesPath);
+            FileAttributes capturedAttributes = File.GetAttributes(prioritiesPath);
+            string original = File.ReadAllText(prioritiesPath);
+            string replacementPath = Path.Combine(root, "priorities-replacement.xml");
+            File.WriteAllText(
+                replacementPath,
+                original.Replace(
+                    "<attributes>24</attributes>",
+                    "<attributes>23</attributes>",
+                    StringComparison.Ordinal));
+            File.SetLastWriteTimeUtc(replacementPath, capturedWriteTime);
+            File.SetAttributes(replacementPath, capturedAttributes);
+            File.Move(replacementPath, prioritiesPath, overwrite: true);
+
+            Assert.IsTrue(context.TryResolveCreationPrerequisiteAuthority(
+                out CharacterCreationPrerequisiteAuthority drifted));
+
+            Assert.IsFalse(drifted.IsAuthoritative);
+            CollectionAssert.Contains(
+                drifted.Blockers.ToList(),
+                CharacterCreationPrerequisiteBlockers.AuthorityUnavailable);
+            Assert.AreEqual(
+                readsBeforeDrift,
+                resolver.LastSourceInputSnapshotDiagnostics!.PhysicalReadCount);
+            Assert.IsTrue(resolver.LastSourceInputSnapshotDiagnostics!.SourceDriftDetected);
+            CollectionAssert.Contains(
+                resolver.LastSourceInputSnapshotDiagnostics!.DriftedPaths.ToList(),
+                prioritiesPath);
+        }
+        finally
+        {
+            DeleteTempDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public void Creation_source_context_rejects_new_overlay_fragment_without_reading_it()
+    {
+        string root = CreateTempDirectory();
+        string amendsRoot = CreateTempDirectory();
+        try
+        {
+            WriteBaseContent(
+                root,
+                string.Empty,
+                "<buildmethod>Priority</buildmethod><buildpoints>25</buildpoints>"
+                + "<priorityarray>ABCDE</priorityarray><prioritytable>Standard</prioritytable>"
+                + "<sumtoten>10</sumtoten>");
+            WritePriorityFixture(root);
+            WriteOverlay(amendsRoot, "authorized-pack", priority: 10, deviceRating: 4);
+            var overlays = new FileSystemContentOverlayCatalogService(root, root, amendsRoot);
+            var resolver = new FileSystemCharacterSourceDataResolver(overlays);
+            ICharacterSourceDataContext context = resolver.TryCreateContext(CharacterXml())!;
+
+            Assert.IsTrue(context.TryResolveCreationPrerequisiteAuthority(
+                out CharacterCreationPrerequisiteAuthority initial));
+            Assert.IsTrue(initial.IsAuthoritative, string.Join(",", initial.Blockers));
+            int readsBeforeDrift = resolver.LastSourceInputSnapshotDiagnostics!.PhysicalReadCount;
+            string fragmentPath = Path.Combine(
+                amendsRoot,
+                "authorized-pack",
+                "data",
+                "priorities.fragment.xml");
+            File.WriteAllText(fragmentPath, "<chummer><priorities /></chummer>");
+
+            Assert.IsTrue(context.TryResolveCreationPrerequisiteAuthority(
+                out CharacterCreationPrerequisiteAuthority drifted));
+
+            Assert.IsFalse(drifted.IsAuthoritative);
+            CollectionAssert.Contains(
+                drifted.Blockers.ToList(),
+                CharacterCreationPrerequisiteBlockers.AuthorityUnavailable);
+            Assert.AreEqual(
+                readsBeforeDrift,
+                resolver.LastSourceInputSnapshotDiagnostics!.PhysicalReadCount);
+            Assert.IsTrue(resolver.LastSourceInputSnapshotDiagnostics!.SourceDriftDetected);
+            Assert.IsTrue(resolver.LastSourceInputSnapshotDiagnostics!.DirectoryValidationCount > 0);
+            Assert.IsFalse(
+                resolver.LastSourceInputSnapshotDiagnostics!.PhysicalReadsByPath.ContainsKey(fragmentPath));
+        }
+        finally
+        {
+            DeleteTempDirectory(amendsRoot);
+            DeleteTempDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public void Creation_source_context_rejects_new_custom_amendment_without_reading_it()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            const string customSetting =
+                "<customdatadirectoryname><directoryname>Authorized Custom</directoryname>"
+                + "<order>0</order><enabled>True</enabled></customdatadirectoryname>";
+            WriteBaseContent(
+                root,
+                customSetting,
+                "<buildmethod>Priority</buildmethod><buildpoints>25</buildpoints>"
+                + "<priorityarray>ABCDE</priorityarray><prioritytable>Standard</prioritytable>"
+                + "<sumtoten>10</sumtoten>");
+            WritePriorityFixture(root);
+            string customRoot = Path.Combine(root, "customdata", "Authorized Custom");
+            Directory.CreateDirectory(customRoot);
+            var overlays = new FileSystemContentOverlayCatalogService(root, root, null);
+            var resolver = new FileSystemCharacterSourceDataResolver(overlays);
+            ICharacterSourceDataContext context = resolver.TryCreateContext(
+                CharacterXml(
+                    "<customdatadirectorynames><directoryname>Authorized Custom</directoryname>"
+                    + "</customdatadirectorynames>"))!;
+
+            Assert.IsTrue(context.TryResolveCreationPrerequisiteAuthority(
+                out CharacterCreationPrerequisiteAuthority initial));
+            Assert.IsTrue(initial.IsAuthoritative, string.Join(",", initial.Blockers));
+            int readsBeforeDrift = resolver.LastSourceInputSnapshotDiagnostics!.PhysicalReadCount;
+            string amendmentPath = Path.Combine(customRoot, "amend_priorities.xml");
+            File.WriteAllText(
+                amendmentPath,
+                "<chummer><priortysumtotenvalues><A>5</A></priortysumtotenvalues></chummer>");
+
+            Assert.IsTrue(context.TryResolveCreationPrerequisiteAuthority(
+                out CharacterCreationPrerequisiteAuthority drifted));
+
+            Assert.IsFalse(drifted.IsAuthoritative);
+            CollectionAssert.Contains(
+                drifted.Blockers.ToList(),
+                CharacterCreationPrerequisiteBlockers.AuthorityUnavailable);
+            Assert.AreEqual(
+                readsBeforeDrift,
+                resolver.LastSourceInputSnapshotDiagnostics!.PhysicalReadCount);
+            Assert.IsTrue(resolver.LastSourceInputSnapshotDiagnostics!.SourceDriftDetected);
+            Assert.IsTrue(resolver.LastSourceInputSnapshotDiagnostics!.DirectoryValidationCount > 0);
+            Assert.IsFalse(
+                resolver.LastSourceInputSnapshotDiagnostics!.PhysicalReadsByPath.ContainsKey(amendmentPath));
+        }
+        finally
+        {
+            DeleteTempDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public void Creation_source_context_fails_closed_on_mid_capture_same_metadata_mutation()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            WriteBaseContent(
+                root,
+                string.Empty,
+                "<buildmethod>Priority</buildmethod><buildpoints>25</buildpoints>"
+                + "<priorityarray>ABCDE</priorityarray><prioritytable>Standard</prioritytable>"
+                + "<sumtoten>10</sumtoten>");
+            WritePriorityFixture(root);
+            bool mutated = false;
+            var overlays = new FileSystemContentOverlayCatalogService(root, root, null);
+            var resolver = new FileSystemCharacterSourceDataResolver(
+                overlays,
+                path =>
+                {
+                    if (mutated
+                        || !string.Equals(
+                            Path.GetFileName(path),
+                            "priorities.xml",
+                            StringComparison.Ordinal))
+                    {
+                        return;
+                    }
+
+                    mutated = true;
+                    DateTime capturedWriteTime = File.GetLastWriteTimeUtc(path);
+                    string original = File.ReadAllText(path);
+                    string tampered = original.Replace(
+                        "<attributes>24</attributes>",
+                        "<attributes>23</attributes>",
+                        StringComparison.Ordinal);
+                    Assert.AreEqual(original.Length, tampered.Length);
+                    File.WriteAllText(path, tampered);
+                    File.SetLastWriteTimeUtc(path, capturedWriteTime);
+                });
+
+            ICharacterSourceDataContext? context = resolver.TryCreateContext(CharacterXml());
+
+            Assert.IsTrue(mutated);
+            if (context is not null)
+            {
+                bool resolved = context.TryResolveCreationPrerequisiteAuthority(
+                    out CharacterCreationPrerequisiteAuthority authority);
+                Assert.IsTrue(!resolved || !authority.IsAuthoritative);
+            }
+        }
+        finally
+        {
+            DeleteTempDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public void Creation_source_context_preserves_byte_bound_quality_digest_but_rejects_unrelated_source_drift()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            CopyCanonicalDataFiles(
+                root,
+                "settings.xml",
+                "priorities.xml",
+                "metatypes.xml",
+                "skills.xml",
+                "qualities.xml");
+            string prioritiesPath = Path.Combine(root, "data", "priorities.xml");
+            var overlays = new FileSystemContentOverlayCatalogService(root, root, null);
+            var resolver = new FileSystemCharacterSourceDataResolver(overlays);
+            ICharacterSourceDataContext context = resolver.TryCreateContext(CharacterXml())!;
+
+            Assert.IsTrue(context.TryResolveCreationQualitiesAuthority(
+                out CharacterCreationQualitiesAuthority initial));
+            Assert.IsTrue(initial.IsAuthoritative, string.Join(",", initial.Blockers));
+            DateTime capturedWriteTime = File.GetLastWriteTimeUtc(prioritiesPath);
+            string original = File.ReadAllText(prioritiesPath);
+            string tampered = original.Replace(
+                "<attributes>24</attributes>",
+                "<attributes>23</attributes>",
+                StringComparison.Ordinal);
+            Assert.AreEqual(original.Length, tampered.Length);
+            Assert.AreNotEqual(original, tampered);
+            File.WriteAllText(prioritiesPath, tampered);
+            File.SetLastWriteTimeUtc(prioritiesPath, capturedWriteTime);
+
+            Assert.IsTrue(context.TryResolveCreationQualitiesAuthority(
+                out CharacterCreationQualitiesAuthority drifted));
+
+            Assert.IsFalse(drifted.IsAuthoritative);
+            CollectionAssert.Contains(
+                drifted.Blockers.ToList(),
+                CharacterCreationQualitiesBlockers.AuthorityUnavailable);
+            Assert.AreEqual(initial.SourceDigest, drifted.SourceDigest);
+            Assert.IsTrue(CharacterCreationQualitiesRules.DigestsEqual(
+                drifted.SourceDigest,
+                initial.SourceDigest));
+
+            var freshResolver = new FileSystemCharacterSourceDataResolver(overlays);
+            ICharacterSourceDataContext freshContext = freshResolver.TryCreateContext(CharacterXml())!;
+            Assert.IsTrue(freshContext.TryResolveCreationQualitiesAuthority(
+                out CharacterCreationQualitiesAuthority fresh));
+            Assert.IsTrue(fresh.IsAuthoritative, string.Join(",", fresh.Blockers));
+            Assert.AreEqual(fresh.SourceDigest, drifted.SourceDigest);
+        }
+        finally
+        {
+            DeleteTempDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public void Creation_source_context_rejects_skill_source_drift_for_creation_and_direct_skill_lookups()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            WriteBaseContent(
+                root,
+                string.Empty,
+                "<buildmethod>Priority</buildmethod><buildpoints>25</buildpoints>"
+                + "<priorityarray>ABCDE</priorityarray><prioritytable>Standard</prioritytable>"
+                + "<sumtoten>10</sumtoten>");
+            WritePriorityFixture(root);
+            WriteSkillsAuthorityFixture(root);
+            string skillsPath = Path.Combine(root, "data", "skills.xml");
+            var overlays = new FileSystemContentOverlayCatalogService(root, root, null);
+            var resolver = new FileSystemCharacterSourceDataResolver(overlays);
+            ICharacterSourceDataContext context = resolver.TryCreateContext(CharacterXml())!;
+
+            Assert.IsTrue(context.TryResolveCreationSkillsAuthority(
+                out CharacterCreationSkillsAuthority initial));
+            Assert.IsTrue(initial.IsAuthoritative, string.Join(",", initial.Blockers));
+            Assert.IsTrue(context.TryResolveActiveSkillSource(
+                "30000000-0000-0000-0000-000000000001",
+                out _));
+            int captureReads = resolver.LastSourceInputSnapshotDiagnostics!.PhysicalReadCount;
+            int captureParses = resolver.LastSourceInputSnapshotDiagnostics.PhysicalXmlParseCount;
+            DateTime capturedWriteTime = File.GetLastWriteTimeUtc(skillsPath);
+            string original = File.ReadAllText(skillsPath);
+            string tampered = original.Replace("<name>Running</name>", "<name>Runnong</name>", StringComparison.Ordinal);
+            Assert.AreEqual(original.Length, tampered.Length);
+            Assert.AreNotEqual(original, tampered);
+            File.WriteAllText(skillsPath, tampered);
+            File.SetLastWriteTimeUtc(skillsPath, capturedWriteTime);
+
+            Assert.IsTrue(context.TryResolveCreationSkillsAuthority(
+                out CharacterCreationSkillsAuthority drifted));
+            Assert.IsFalse(drifted.IsAuthoritative);
+            CollectionAssert.Contains(
+                drifted.Blockers.ToList(),
+                CharacterCreationSkillsBlockers.SkillsSourceDrift);
+            Assert.IsFalse(context.TryResolveActiveSkillSource(
+                "30000000-0000-0000-0000-000000000001",
+                out _));
+            Assert.AreEqual(
+                captureReads,
+                resolver.LastSourceInputSnapshotDiagnostics!.PhysicalReadCount);
+            Assert.AreEqual(
+                captureParses,
+                resolver.LastSourceInputSnapshotDiagnostics.PhysicalXmlParseCount);
+        }
+        finally
+        {
+            DeleteTempDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public void Creation_source_context_rejects_gear_source_drift_without_reopening_or_reparsing()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            CopyCanonicalDataFiles(
+                root,
+                "settings.xml",
+                "priorities.xml",
+                "metatypes.xml",
+                "skills.xml",
+                "gear.xml");
+            string gearPath = Path.Combine(root, "data", "gear.xml");
+            var overlays = new FileSystemContentOverlayCatalogService(root, root, null);
+            var resolver = new FileSystemCharacterSourceDataResolver(overlays);
+            ICharacterSourceDataContext context = resolver.TryCreateContext(CharacterXml())!;
+
+            Assert.IsTrue(context.TryResolveCreationGearAuthority(
+                out CharacterCreationGearAuthority initial));
+            Assert.IsTrue(initial.IsAuthoritative, string.Join(",", initial.Blockers));
+            int captureReads = resolver.LastSourceInputSnapshotDiagnostics!.PhysicalReadCount;
+            int captureParses = resolver.LastSourceInputSnapshotDiagnostics.PhysicalXmlParseCount;
+            RewriteFirstElementValueSameLength(gearPath, "name");
+
+            Assert.IsTrue(context.TryResolveCreationGearAuthority(
+                out CharacterCreationGearAuthority drifted));
+            Assert.IsFalse(drifted.IsAuthoritative);
+            CollectionAssert.Contains(
+                drifted.Blockers.ToList(),
+                CharacterCreationGearBlockers.AuthorityUnavailable);
+            Assert.AreEqual(initial.SourceDigest, drifted.SourceDigest);
+            Assert.AreEqual(
+                captureReads,
+                resolver.LastSourceInputSnapshotDiagnostics!.PhysicalReadCount);
+            Assert.AreEqual(
+                captureParses,
+                resolver.LastSourceInputSnapshotDiagnostics.PhysicalXmlParseCount);
+        }
+        finally
+        {
+            DeleteTempDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public void Creation_source_context_freezes_mutable_overlay_catalog_and_new_context_uses_replacement_graph()
+    {
+        string root = CreateTempDirectory();
+        string overlayRoot = CreateTempDirectory();
+        try
+        {
+            WriteBaseContent(
+                root,
+                string.Empty,
+                "<buildmethod>Priority</buildmethod><buildpoints>25</buildpoints>"
+                + "<priorityarray>ABCDE</priorityarray><prioritytable>Standard</prioritytable>"
+                + "<sumtoten>10</sumtoten>");
+            WritePriorityFixture(root);
+            string overlayData = Path.Combine(overlayRoot, "data");
+            Directory.CreateDirectory(overlayData);
+            string basePriorities = File.ReadAllText(Path.Combine(root, "data", "priorities.xml"));
+            string replacementPriorities = basePriorities.Replace(
+                "<attributes>24</attributes>",
+                "<attributes>23</attributes>",
+                StringComparison.Ordinal);
+            Assert.AreNotEqual(basePriorities, replacementPriorities);
+            File.WriteAllText(Path.Combine(overlayData, "priorities.xml"), replacementPriorities);
+            var mutablePacks = new List<ContentOverlayPack>
+            {
+                new(
+                    "replace-priorities",
+                    "Replace priorities",
+                    overlayRoot,
+                    overlayData,
+                    Path.Combine(overlayRoot, "lang"),
+                    100,
+                    true,
+                    ContentOverlayModes.ReplaceFile,
+                    string.Empty)
+            };
+            var overlays = new MutableContentOverlayCatalogService(
+                Path.Combine(root, "data"),
+                Path.Combine(root, "lang"),
+                mutablePacks);
+            var resolver = new FileSystemCharacterSourceDataResolver(overlays);
+            ICharacterSourceDataContext frozenContext = resolver.TryCreateContext(CharacterXml())!;
+
+            Assert.IsTrue(frozenContext.TryResolveCreationPrerequisiteAuthority(
+                out CharacterCreationPrerequisiteAuthority replacement));
+            Assert.IsTrue(replacement.IsAuthoritative, string.Join(",", replacement.Blockers));
+            mutablePacks.Clear();
+            Assert.IsTrue(frozenContext.TryResolveCreationPrerequisiteAuthority(
+                out CharacterCreationPrerequisiteAuthority stillReplacement));
+            Assert.IsTrue(stillReplacement.IsAuthoritative, string.Join(",", stillReplacement.Blockers));
+            Assert.AreEqual(replacement.AuthorityDigest, stillReplacement.AuthorityDigest);
+            Assert.AreEqual(
+                replacement.EffectivePrioritiesInputsDigest,
+                stillReplacement.EffectivePrioritiesInputsDigest);
+
+            ICharacterSourceDataContext baseContext = resolver.TryCreateContext(CharacterXml())!;
+            Assert.IsTrue(baseContext.TryResolveCreationPrerequisiteAuthority(
+                out CharacterCreationPrerequisiteAuthority baseAuthority));
+            Assert.IsTrue(baseAuthority.IsAuthoritative, string.Join(",", baseAuthority.Blockers));
+            Assert.AreNotEqual(
+                replacement.EffectivePrioritiesInputsDigest,
+                baseAuthority.EffectivePrioritiesInputsDigest);
+            Assert.AreNotEqual(replacement.AuthorityDigest, baseAuthority.AuthorityDigest);
+        }
+        finally
+        {
+            DeleteTempDirectory(overlayRoot);
+            DeleteTempDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public void Creation_source_context_rejects_new_higher_version_custom_directory_membership()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            const string customId = "4b3a4c48-d2af-4e46-9d27-9f06eab83c0c";
+            WriteBaseContent(
+                root,
+                $"<customdatadirectoryname><directoryname>{customId}&gt;1.0</directoryname>"
+                + "<order>0</order><enabled>True</enabled></customdatadirectoryname>",
+                "<buildmethod>Priority</buildmethod><buildpoints>25</buildpoints>"
+                + "<priorityarray>ABCDE</priorityarray><prioritytable>Standard</prioritytable>"
+                + "<sumtoten>10</sumtoten>");
+            WritePriorityFixture(root);
+            string customDataRoot = Path.Combine(root, "customdata");
+            string versionTwoRoot = Path.Combine(customDataRoot, "Rules v2");
+            Directory.CreateDirectory(versionTwoRoot);
+            File.WriteAllText(
+                Path.Combine(versionTwoRoot, "manifest.xml"),
+                $"<manifest><guid>{customId}</guid><version>2.0.0</version></manifest>");
+            var overlays = new FileSystemContentOverlayCatalogService(root, root, null);
+            var resolver = new FileSystemCharacterSourceDataResolver(overlays);
+            ICharacterSourceDataContext context = resolver.TryCreateContext(
+                CharacterXml(
+                    "<customdatadirectorynames><directoryname>Rules v2</directoryname>"
+                    + "</customdatadirectorynames>"))!;
+
+            Assert.IsTrue(context.TryResolveCreationSourceProfile(out _));
+            int readsBeforeDrift = resolver.LastSourceInputSnapshotDiagnostics!.PhysicalReadCount;
+            string versionThreeRoot = Path.Combine(customDataRoot, "Rules v3");
+            Directory.CreateDirectory(versionThreeRoot);
+            string manifestPath = Path.Combine(versionThreeRoot, "manifest.xml");
+            File.WriteAllText(
+                manifestPath,
+                $"<manifest><guid>{customId}</guid><version>3.0.0</version></manifest>");
+
+            Assert.IsFalse(context.TryResolveCreationSourceProfile(out _));
+            Assert.AreEqual(
+                readsBeforeDrift,
+                resolver.LastSourceInputSnapshotDiagnostics!.PhysicalReadCount);
+            Assert.IsTrue(resolver.LastSourceInputSnapshotDiagnostics.SourceDriftDetected);
+            Assert.IsTrue(resolver.LastSourceInputSnapshotDiagnostics.DirectoryValidationCount > 0);
+            Assert.IsFalse(
+                resolver.LastSourceInputSnapshotDiagnostics.PhysicalReadsByPath.ContainsKey(manifestPath));
+        }
+        finally
+        {
+            DeleteTempDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public void Creation_source_context_rejects_symlink_target_drift_without_reopening_cached_bytes()
+    {
+        if (OperatingSystem.IsWindows())
+            return;
+
+        string root = CreateTempDirectory();
+        try
+        {
+            WriteBaseContent(
+                root,
+                string.Empty,
+                "<buildmethod>Priority</buildmethod><buildpoints>25</buildpoints>"
+                + "<priorityarray>ABCDE</priorityarray><prioritytable>Standard</prioritytable>"
+                + "<sumtoten>10</sumtoten>");
+            WritePriorityFixture(root);
+            string prioritiesPath = Path.Combine(root, "data", "priorities.xml");
+            string firstTarget = Path.Combine(root, "data", "priorities-a.xml");
+            string secondTarget = Path.Combine(root, "data", "priorities-b.xml");
+            File.Move(prioritiesPath, firstTarget);
+            File.WriteAllText(
+                secondTarget,
+                File.ReadAllText(firstTarget).Replace(
+                    "<attributes>24</attributes>",
+                    "<attributes>23</attributes>",
+                    StringComparison.Ordinal));
+            File.CreateSymbolicLink(prioritiesPath, Path.GetFileName(firstTarget));
+            var overlays = new FileSystemContentOverlayCatalogService(root, root, null);
+            var resolver = new FileSystemCharacterSourceDataResolver(overlays);
+            ICharacterSourceDataContext context = resolver.TryCreateContext(CharacterXml())!;
+
+            Assert.IsTrue(context.TryResolveCreationPrerequisiteAuthority(
+                out CharacterCreationPrerequisiteAuthority initial));
+            Assert.IsTrue(initial.IsAuthoritative, string.Join(",", initial.Blockers));
+            int readsBeforeDrift = resolver.LastSourceInputSnapshotDiagnostics!.PhysicalReadCount;
+
+            File.Delete(prioritiesPath);
+            File.CreateSymbolicLink(prioritiesPath, Path.GetFileName(secondTarget));
+            Assert.IsTrue(context.TryResolveCreationPrerequisiteAuthority(
+                out CharacterCreationPrerequisiteAuthority drifted));
+
+            Assert.IsFalse(drifted.IsAuthoritative);
+            CollectionAssert.Contains(
+                drifted.Blockers.ToList(),
+                CharacterCreationPrerequisiteBlockers.AuthorityUnavailable);
+            Assert.AreEqual(
+                readsBeforeDrift,
+                resolver.LastSourceInputSnapshotDiagnostics!.PhysicalReadCount);
+            Assert.IsTrue(resolver.LastSourceInputSnapshotDiagnostics!.SourceDriftDetected);
+            CollectionAssert.Contains(
+                resolver.LastSourceInputSnapshotDiagnostics!.DriftedPaths.ToList(),
+                prioritiesPath);
+        }
+        finally
+        {
+            DeleteTempDirectory(root);
+        }
     }
 
     [TestMethod]
@@ -1264,7 +2067,7 @@ public sealed class FileSystemCharacterSourceDataResolverTests
             Assert.IsFalse(drifted.IsAuthoritative);
             CollectionAssert.Contains(
                 drifted.Blockers.ToList(),
-                CharacterCreationPrerequisiteBlockers.PrioritiesSourceDrift);
+                CharacterCreationPrerequisiteBlockers.AuthorityUnavailable);
         }
         finally
         {
@@ -1296,7 +2099,7 @@ public sealed class FileSystemCharacterSourceDataResolverTests
             Assert.IsFalse(drifted.IsAuthoritative);
             CollectionAssert.Contains(
                 drifted.Blockers.ToList(),
-                CharacterCreationPrerequisiteBlockers.SkillsSourceDrift);
+                CharacterCreationPrerequisiteBlockers.AuthorityUnavailable);
         }
         finally
         {
@@ -1837,7 +2640,7 @@ public sealed class FileSystemCharacterSourceDataResolverTests
             Assert.IsFalse(drifted.IsAuthoritative);
             CollectionAssert.Contains(
                 drifted.Blockers.ToList(),
-                CharacterCreationPrerequisiteBlockers.CustomDataDrift);
+                CharacterCreationPrerequisiteBlockers.AuthorityUnavailable);
         }
         finally
         {
@@ -2264,6 +3067,68 @@ public sealed class FileSystemCharacterSourceDataResolverTests
         var overlays = new FileSystemContentOverlayCatalogService(root, root, amendsRoot);
         var resolver = new FileSystemCharacterSourceDataResolver(overlays);
         return resolver.TryCreateContext(characterXml);
+    }
+
+    private static void CopyCanonicalDataFiles(string destinationRoot, params string[] fileNames)
+    {
+        string sourceData = Path.Combine(FindCoreRoot(), "Chummer", "data");
+        string destinationData = Path.Combine(destinationRoot, "data");
+        Directory.CreateDirectory(destinationData);
+        foreach (string fileName in fileNames)
+        {
+            File.Copy(
+                Path.Combine(sourceData, fileName),
+                Path.Combine(destinationData, fileName));
+        }
+    }
+
+    private static void RewriteFirstElementValueSameLength(string path, string elementName)
+    {
+        DateTime capturedWriteTime = File.GetLastWriteTimeUtc(path);
+        string original = File.ReadAllText(path);
+        string openingTag = $"<{elementName}>";
+        int valueStart = original.IndexOf(openingTag, StringComparison.Ordinal);
+        Assert.IsTrue(valueStart >= 0);
+        valueStart += openingTag.Length;
+        int valueEnd = original.IndexOf($"</{elementName}>", valueStart, StringComparison.Ordinal);
+        Assert.IsTrue(valueEnd > valueStart);
+        int characterIndex = Enumerable.Range(valueStart, valueEnd - valueStart)
+            .First(index => char.IsAsciiLetter(original[index]));
+        char replacement = original[characterIndex] == 'X' ? 'Y' : 'X';
+        string tampered = original[..characterIndex] + replacement + original[(characterIndex + 1)..];
+        Assert.AreEqual(original.Length, tampered.Length);
+        File.WriteAllText(path, tampered);
+        File.SetLastWriteTimeUtc(path, capturedWriteTime);
+    }
+
+    private sealed class MutableContentOverlayCatalogService(
+        string baseDataPath,
+        string baseLanguagePath,
+        IReadOnlyList<ContentOverlayPack> overlays) : IContentOverlayCatalogService
+    {
+        public ContentOverlayCatalog GetCatalog() => new(baseDataPath, baseLanguagePath, overlays);
+
+        public IReadOnlyList<string> GetDataDirectories() =>
+            [baseDataPath, .. overlays.Where(pack => pack.Enabled).Select(pack => pack.DataPath)];
+
+        public IReadOnlyList<string> GetLanguageDirectories() =>
+            [baseLanguagePath, .. overlays.Where(pack => pack.Enabled).Select(pack => pack.LanguagePath)];
+
+        public string ResolveDataFile(string fileName)
+        {
+            foreach (ContentOverlayPack pack in overlays
+                         .Where(pack => pack.Enabled
+                             && string.Equals(pack.Mode, ContentOverlayModes.ReplaceFile, StringComparison.Ordinal))
+                         .OrderByDescending(pack => pack.Priority)
+                         .ThenByDescending(pack => pack.Id, StringComparer.Ordinal))
+            {
+                string candidate = Path.Combine(pack.DataPath, fileName);
+                if (File.Exists(candidate))
+                    return candidate;
+            }
+
+            return Path.Combine(baseDataPath, fileName);
+        }
     }
 
     private static string CharacterXml(string extra = "")
