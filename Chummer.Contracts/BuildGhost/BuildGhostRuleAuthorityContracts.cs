@@ -52,6 +52,14 @@ public sealed record BuildGhostRuleIntentArgumentDescriptor(
     long? MinimumIntegerValue = null,
     long? MaximumIntegerValue = null);
 
+public sealed record BuildGhostRuleSourceReferenceDescriptor(
+    string AnchorId,
+    string SourcePackRef,
+    string Locale,
+    int ExpectedPage,
+    string ExpectedSectionHint,
+    string ReferenceId);
+
 public sealed record BuildGhostRuleIntentDescriptor(
     string IntentId,
     int IntentVersion,
@@ -61,7 +69,7 @@ public sealed record BuildGhostRuleIntentDescriptor(
     string InvocationKind,
     string RuleId,
     IReadOnlyList<BuildGhostRuleIntentArgumentDescriptor> Arguments,
-    IReadOnlyList<SourceAnchor> SourceAnchors);
+    IReadOnlyList<BuildGhostRuleSourceReferenceDescriptor> SourceReferences);
 
 public sealed record BuildGhostRuleAuthorityResolution(
     string Status,

@@ -5,6 +5,8 @@ using Chummer.Contracts.Rulesets;
 using Chummer.Rulesets.Hosting;
 using Chummer.Rulesets.Sr5;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using System.Security.Cryptography;
+using System.Text;
 using System.Xml.Linq;
 
 namespace Chummer.Tests;
@@ -108,7 +110,8 @@ public sealed class BuildGhostRuleAuthorityResolverTests
         DefaultBuildGhostRuleAuthorityResolver resolver = new(
             new FixedSubjectAuthorityResolver(authority),
             new DefaultBuildGhostRuleIntentCatalog(),
-            invoker);
+            invoker,
+            CreateSourceAnchorResolver(authority));
 
         BuildGhostRuleAuthorityResolution result = await resolver.ResolveAsync(
             CreateRequest(authority.Binding),
@@ -128,7 +131,8 @@ public sealed class BuildGhostRuleAuthorityResolverTests
         DefaultBuildGhostRuleAuthorityResolver resolver = new(
             new FixedSubjectAuthorityResolver(authority),
             new DefaultBuildGhostRuleIntentCatalog(),
-            invoker);
+            invoker,
+            CreateSourceAnchorResolver(authority));
         BuildGhostRuleAuthorityBinding stale = authority.Binding with { WorkspaceRevision = 416 };
 
         BuildGhostRuleAuthorityResolution result = await resolver.ResolveAsync(
@@ -157,16 +161,17 @@ public sealed class BuildGhostRuleAuthorityResolverTests
         DefaultBuildGhostRuleAuthorityResolver resolver = new(
             new FixedSubjectAuthorityResolver(authority),
             new DefaultBuildGhostRuleIntentCatalog(),
-            invoker);
+            invoker,
+            CreateSourceAnchorResolver(authority));
         BuildGhostRuleAuthorityBinding stale = changedDomain switch
         {
             "ruleset" => authority.Binding with { RulesetId = RulesetDefaults.Sr6 },
             "profile" => authority.Binding with { ProfileId = "official.sr5.alternate" },
-            "runtime" => authority.Binding with { RuntimeFingerprint = "sha256:other-runtime" },
-            "source" => authority.Binding with { SourceDigest = "sha256:other-source" },
-            "sourcebooks" => authority.Binding with { SourcebookFingerprint = "sha256:other-sourcebooks" },
-            "custom-data" => authority.Binding with { CustomDataFingerprint = "sha256:other-custom" },
-            "gm-policy" => authority.Binding with { GmPolicyFingerprint = "sha256:other-gm-policy" },
+            "runtime" => authority.Binding with { RuntimeFingerprint = Digest('f') },
+            "source" => authority.Binding with { SourceDigest = Digest('f') },
+            "sourcebooks" => authority.Binding with { SourcebookFingerprint = Digest('f') },
+            "custom-data" => authority.Binding with { CustomDataFingerprint = Digest('f') },
+            "gm-policy" => authority.Binding with { GmPolicyFingerprint = Digest('f') },
             "revision" => authority.Binding with { WorkspaceRevision = 416 },
             _ => throw new AssertFailedException($"Unknown binding domain: {changedDomain}")
         };
@@ -190,7 +195,8 @@ public sealed class BuildGhostRuleAuthorityResolverTests
         DefaultBuildGhostRuleAuthorityResolver resolver = new(
             new FixedSubjectAuthorityResolver(authority),
             new DefaultBuildGhostRuleIntentCatalog(),
-            invoker);
+            invoker,
+            CreateSourceAnchorResolver(authority));
         BuildGhostRuleAuthorityRequest request = CreateRequest(authority.Binding) with
         {
             Arguments =
@@ -259,7 +265,8 @@ public sealed class BuildGhostRuleAuthorityResolverTests
         DefaultBuildGhostRuleAuthorityResolver resolver = new(
             new FixedSubjectAuthorityResolver(authority),
             new DefaultBuildGhostRuleIntentCatalog(),
-            invoker);
+            invoker,
+            CreateSourceAnchorResolver(authority));
 
         BuildGhostRuleAuthorityResolution result = await resolver.ResolveAsync(
             CreateRequest(authority.Binding),
@@ -279,6 +286,27 @@ public sealed class BuildGhostRuleAuthorityResolverTests
         DefaultBuildGhostRuleAuthorityResolver resolver = new(
             new FixedSubjectAuthorityResolver(authority),
             new DefaultBuildGhostRuleIntentCatalog(),
+            invoker,
+            CreateSourceAnchorResolver(authority));
+
+        BuildGhostRuleAuthorityResolution result = await resolver.ResolveAsync(
+            CreateRequest(authority.Binding),
+            CancellationToken.None);
+
+        Assert.AreEqual(BuildGhostRuleAuthorityStatuses.Unresolved, result.Status);
+        Assert.AreEqual("page-backed-source-anchor-unavailable", result.UncertaintyReason);
+        Assert.AreEqual(0, invoker.InvocationCount);
+        Assert.IsEmpty(result.SourceAnchors);
+    }
+
+    [TestMethod]
+    public async Task Static_intent_metadata_cannot_resolve_without_runtime_source_authority()
+    {
+        BuildGhostActiveRuleAuthority authority = CreateAuthority();
+        RecordingInvoker invoker = new();
+        DefaultBuildGhostRuleAuthorityResolver resolver = new(
+            new FixedSubjectAuthorityResolver(authority),
+            new DefaultBuildGhostRuleIntentCatalog(),
             invoker);
 
         BuildGhostRuleAuthorityResolution result = await resolver.ResolveAsync(
@@ -289,6 +317,102 @@ public sealed class BuildGhostRuleAuthorityResolverTests
         Assert.AreEqual("page-backed-source-anchor-unavailable", result.UncertaintyReason);
         Assert.AreEqual(0, invoker.InvocationCount);
         Assert.IsEmpty(result.SourceAnchors);
+    }
+
+    [TestMethod]
+    public async Task Missing_or_digest_tampered_reference_document_fails_closed()
+    {
+        BuildGhostActiveRuleAuthority authority = CreateAuthority();
+        IBuildGhostRuleSourceAnchorAuthorityResolver[] sourceResolvers =
+        [
+            new XmlBuildGhostRuleSourceAnchorAuthorityResolver(
+                new FixedReferenceDocumentAuthorityProvider(null)),
+            CreateSourceAnchorResolver(
+                authority,
+                referenceDocument: ReferenceDocument(),
+                referenceDocumentDigest: Digest('f'))
+        ];
+
+        foreach (IBuildGhostRuleSourceAnchorAuthorityResolver sourceResolver in sourceResolvers)
+        {
+            RecordingInvoker invoker = new();
+            DefaultBuildGhostRuleAuthorityResolver resolver = new(
+                new FixedSubjectAuthorityResolver(authority),
+                new DefaultBuildGhostRuleIntentCatalog(),
+                invoker,
+                sourceResolver);
+
+            BuildGhostRuleAuthorityResolution result = await resolver.ResolveAsync(
+                CreateRequest(authority.Binding),
+                CancellationToken.None);
+
+            Assert.AreEqual(BuildGhostRuleAuthorityStatuses.Unresolved, result.Status);
+            Assert.AreEqual("page-backed-source-anchor-unavailable", result.UncertaintyReason);
+            Assert.AreEqual(0, invoker.InvocationCount);
+            Assert.IsEmpty(result.SourceAnchors);
+        }
+    }
+
+    [TestMethod]
+    public async Task Tampered_reference_row_fails_even_when_its_byte_digest_is_current()
+    {
+        BuildGhostActiveRuleAuthority authority = CreateAuthority();
+        byte[][] tamperedDocuments =
+        [
+            ReferenceDocument(page: "160"),
+            ReferenceDocument(name: "Initiative Guess"),
+            ReferenceDocument(source: "RUN_FASTER"),
+            ReferenceDocument(referenceId: "00000000-0000-0000-0000-000000000000")
+        ];
+
+        foreach (byte[] document in tamperedDocuments)
+        {
+            RecordingInvoker invoker = new();
+            DefaultBuildGhostRuleAuthorityResolver resolver = new(
+                new FixedSubjectAuthorityResolver(authority),
+                new DefaultBuildGhostRuleIntentCatalog(),
+                invoker,
+                CreateSourceAnchorResolver(authority, document));
+
+            BuildGhostRuleAuthorityResolution result = await resolver.ResolveAsync(
+                CreateRequest(authority.Binding),
+                CancellationToken.None);
+
+            Assert.AreEqual(BuildGhostRuleAuthorityStatuses.Unresolved, result.Status);
+            Assert.AreEqual("page-backed-source-anchor-unavailable", result.UncertaintyReason);
+            Assert.AreEqual(0, invoker.InvocationCount);
+            Assert.IsEmpty(result.SourceAnchors);
+        }
+    }
+
+    [TestMethod]
+    public async Task Reference_document_must_match_both_active_content_bindings()
+    {
+        BuildGhostActiveRuleAuthority authority = CreateAuthority();
+        IBuildGhostRuleSourceAnchorAuthorityResolver[] mismatchedResolvers =
+        [
+            CreateSourceAnchorResolver(authority, sourceDigest: Digest('f')),
+            CreateSourceAnchorResolver(authority, sourcebookFingerprint: Digest('f'))
+        ];
+
+        foreach (IBuildGhostRuleSourceAnchorAuthorityResolver sourceResolver in mismatchedResolvers)
+        {
+            RecordingInvoker invoker = new();
+            DefaultBuildGhostRuleAuthorityResolver resolver = new(
+                new FixedSubjectAuthorityResolver(authority),
+                new DefaultBuildGhostRuleIntentCatalog(),
+                invoker,
+                sourceResolver);
+
+            BuildGhostRuleAuthorityResolution result = await resolver.ResolveAsync(
+                CreateRequest(authority.Binding),
+                CancellationToken.None);
+
+            Assert.AreEqual(BuildGhostRuleAuthorityStatuses.Unresolved, result.Status);
+            Assert.AreEqual("page-backed-source-anchor-unavailable", result.UncertaintyReason);
+            Assert.AreEqual(0, invoker.InvocationCount);
+            Assert.IsEmpty(result.SourceAnchors);
+        }
     }
 
     [TestMethod]
@@ -328,7 +452,8 @@ public sealed class BuildGhostRuleAuthorityResolverTests
         DefaultBuildGhostRuleAuthorityResolver resolver = new(
             new FixedSubjectAuthorityResolver(authority),
             new DefaultBuildGhostRuleIntentCatalog(),
-            invoker);
+            invoker,
+            CreateSourceAnchorResolver(authority));
 
         BuildGhostRuleAuthorityResolution result = await resolver.ResolveAsync(
             CreateRequest(authority.Binding),
@@ -354,7 +479,8 @@ public sealed class BuildGhostRuleAuthorityResolverTests
         DefaultBuildGhostRuleAuthorityResolver resolver = new(
             new FixedSubjectAuthorityResolver(authority),
             new DefaultBuildGhostRuleIntentCatalog(),
-            invoker);
+            invoker,
+            CreateSourceAnchorResolver(authority));
 
         BuildGhostRuleAuthorityResolution result = await resolver.ResolveAsync(
             CreateRequest(authority.Binding),
@@ -427,7 +553,8 @@ public sealed class BuildGhostRuleAuthorityResolverTests
         DefaultBuildGhostRuleAuthorityResolver invocationFailureResolver = new(
             new FixedSubjectAuthorityResolver(authority),
             new DefaultBuildGhostRuleIntentCatalog(),
-            new ThrowingInvoker());
+            new ThrowingInvoker(),
+            CreateSourceAnchorResolver(authority));
 
         BuildGhostRuleAuthorityResolution invocationFailure = await invocationFailureResolver.ResolveAsync(
             CreateRequest(authority.Binding),
@@ -493,7 +620,28 @@ public sealed class BuildGhostRuleAuthorityResolverTests
         return new DefaultBuildGhostRuleAuthorityResolver(
             new FixedSubjectAuthorityResolver(authority),
             new DefaultBuildGhostRuleIntentCatalog(),
-            new RulesetPluginBuildGhostRuleCapabilityInvoker(plugins));
+            new RulesetPluginBuildGhostRuleCapabilityInvoker(plugins),
+            CreateSourceAnchorResolver(authority));
+    }
+
+    private static XmlBuildGhostRuleSourceAnchorAuthorityResolver CreateSourceAnchorResolver(
+        BuildGhostActiveRuleAuthority authority,
+        byte[]? referenceDocument = null,
+        string? referenceDocumentDigest = null,
+        string? sourceDigest = null,
+        string? sourcebookFingerprint = null)
+    {
+        byte[] bytes = referenceDocument ?? File.ReadAllBytes(
+            FindRepositoryFile("Chummer", "data", "references.xml"));
+        BuildGhostRuleReferenceDocumentAuthority document = new(
+            authority.Binding.RulesetId,
+            authority.Binding.ProfileId,
+            sourceDigest ?? authority.Binding.SourceDigest,
+            sourcebookFingerprint ?? authority.Binding.SourcebookFingerprint,
+            referenceDocumentDigest ?? ComputeDigest(bytes),
+            bytes);
+        return new XmlBuildGhostRuleSourceAnchorAuthorityResolver(
+            new FixedReferenceDocumentAuthorityProvider(document));
     }
 
     private static BuildGhostActiveRuleAuthority CreateAuthority(
@@ -504,13 +652,38 @@ public sealed class BuildGhostRuleAuthorityResolverTests
             new BuildGhostRuleAuthorityBinding(
                 rulesetId,
                 profileId,
-                RuntimeFingerprint: "sha256:runtime",
-                SourceDigest: "sha256:source",
-                SourcebookFingerprint: "sha256:sourcebooks",
-                CustomDataFingerprint: "sha256:custom",
-                GmPolicyFingerprint: "sha256:gm-policy",
+                RuntimeFingerprint: Digest('a'),
+                SourceDigest: Digest('b'),
+                SourcebookFingerprint: Digest('c'),
+                CustomDataFingerprint: Digest('d'),
+                GmPolicyFingerprint: Digest('e'),
                 WorkspaceRevision: 417),
             activeSourcebookIds ?? ["SR5"]);
+
+    private static string ComputeDigest(ReadOnlySpan<byte> bytes)
+        => "sha256:" + Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
+
+    private static string Digest(char value)
+        => "sha256:" + new string(value, 64);
+
+    private static byte[] ReferenceDocument(
+        string referenceId = "A5D18354-17D4-4102-9295-03E6D125CB67",
+        string name = "Initiative Score",
+        string source = "SR5",
+        string page = "159")
+        => Encoding.UTF8.GetBytes($$"""
+            <?xml version="1.0" encoding="utf-8"?>
+            <chummer>
+              <rules>
+                <rule>
+                  <id>{{referenceId}}</id>
+                  <name>{{name}}</name>
+                  <source>{{source}}</source>
+                  <page>{{page}}</page>
+                </rule>
+              </rules>
+            </chummer>
+            """);
 
     private static BuildGhostRuleAuthorityRequest CreateRequest(BuildGhostRuleAuthorityBinding binding)
         => new(
@@ -552,6 +725,20 @@ public sealed class BuildGhostRuleAuthorityResolverTests
             string subjectId,
             CancellationToken cancellationToken)
             => throw new ArithmeticException("hostile subject authority resolver");
+    }
+
+    private sealed class FixedReferenceDocumentAuthorityProvider(
+        BuildGhostRuleReferenceDocumentAuthority? document)
+        : IBuildGhostRuleReferenceDocumentAuthorityProvider
+    {
+        public ValueTask<BuildGhostRuleReferenceDocumentAuthority?> CaptureAsync(
+            string rulesetId,
+            string profileId,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return ValueTask.FromResult(document);
+        }
     }
 
     private sealed class FixedIntentCatalog(BuildGhostRuleIntentDescriptor descriptor) : IBuildGhostRuleIntentCatalog
