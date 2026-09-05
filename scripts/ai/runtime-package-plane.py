@@ -34,9 +34,9 @@ INVENTORY_NAME = "chummer-core-runtime-packages.inventory.json"
 OWNER_INVENTORY_NAME = "chummer-owner-contracts.inventory.json"
 CANDIDATE_ENGINE_INVENTORY_NAME = "chummer-core-candidate-engine-contract.inventory.json"
 CANDIDATE_GM_INVENTORY_NAME = "chummer-core-candidate-gm-edit-runtime.inventory.json"
-PACKAGE_VERSION = "0.0.0-packageplane.candidate.sh60112dccb6a3f"
+PACKAGE_VERSION = "0.0.0-packageplane.candidate.sh812e20c69f536"
 SOURCE_REPOSITORY = "https://github.com/ArchonMegalon/chummer6-core.git"
-SOURCE_COMMIT = "60112dccb6a3faad330d32c3c98eef0aa81d97af"
+SOURCE_COMMIT = "812e20c69f536a5f23ece6638f822f3f8b0639fb"
 SDK_VERSION = "10.0.103"
 SDK_RID = "linux-x64"
 SDK_ARCHIVE_URL = (
@@ -241,6 +241,13 @@ CREATION_ACTIVATION_AUTHORITY_PATHS = (
 CREATION_SOURCE_INPUT_AUTHORITY_PATHS = (
     "Chummer.Infrastructure/Xml/FileSystemCharacterSourceDataResolver.cs",
     "Chummer.Tests/FileSystemCharacterSourceDataResolverTests.cs",
+)
+ROOK_RULE_AUTHORITY_PATHS = (
+    "Chummer.Application/AvatarRules/BuildGhostRuleAuthorityResolver.cs",
+    "Chummer.Contracts/BuildGhost/BuildGhostRuleAuthorityContracts.cs",
+    "Chummer.Contracts/Rulesets/RulesetCapabilityContracts.cs",
+    "Chummer.Rulesets.Sr5/Sr5RulesetPlugin.cs",
+    "Chummer.Tests/BuildGhostRuleAuthorityResolverTests.cs",
 )
 
 
@@ -669,6 +676,8 @@ def validate_repository(repo_root: Path, lock: dict[str, Any]) -> None:
     for member in CREATION_ACTIVATION_AUTHORITY_PATHS:
         _run(("git", "cat-file", "-e", f"{SOURCE_COMMIT}:{member}"), cwd=repo_root)
     for member in CREATION_SOURCE_INPUT_AUTHORITY_PATHS:
+        _run(("git", "cat-file", "-e", f"{SOURCE_COMMIT}:{member}"), cwd=repo_root)
+    for member in ROOK_RULE_AUTHORITY_PATHS:
         _run(("git", "cat-file", "-e", f"{SOURCE_COMMIT}:{member}"), cwd=repo_root)
 
     changed = _run(
