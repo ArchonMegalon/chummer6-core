@@ -32,6 +32,16 @@ public sealed record RulesetCapabilityArgument(
     string Name,
     RulesetCapabilityValue Value);
 
+public sealed record RulesetCapabilityAuthorityBinding(
+    string RulesetId,
+    string ProfileId,
+    string RuntimeFingerprint,
+    string SourceDigest,
+    string SourcebookFingerprint,
+    string CustomDataFingerprint,
+    string GmPolicyFingerprint,
+    long WorkspaceRevision);
+
 public sealed record RulesetCapabilityValue(
     string Kind,
     string? StringValue = null,
@@ -55,7 +65,10 @@ public sealed record RulesetCapabilityInvocationRequest(
     IReadOnlyList<RulesetCapabilityArgument> Arguments,
     RulesetExecutionOptions? Options = null,
     string? ProviderId = null,
-    string? Source = null);
+    string? Source = null)
+{
+    public RulesetCapabilityAuthorityBinding? AuthorityBinding { get; init; }
+}
 
 public sealed record RulesetCapabilityInvocationResult(
     bool Success,
