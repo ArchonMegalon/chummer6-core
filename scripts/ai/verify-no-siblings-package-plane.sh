@@ -565,7 +565,9 @@ python3 - \
   "$isolated_feed/$runtime_inventory_name" \
   "$runtime_consumer_root/obj/project.assets.json" \
   "$isolated_feed" \
-  "$receipt_path" <<'PY'
+  "$receipt_path" \
+  "$candidate_version" \
+  "$runtime_source_commit" <<'PY'
 import hashlib
 import json
 import subprocess
@@ -585,6 +587,9 @@ from pathlib import Path
     isolated_feed,
     receipt_path,
 ) = map(Path, sys.argv[1:11])
+# Consume the same locked authority used by the pack invocations, never derive
+# expected identity from the candidate inventories being checked.
+expected_candidate_version, expected_runtime_source_commit = sys.argv[11:13]
 expected_package_root = package_root.resolve()
 asset_files = sorted(consumer_root.glob("**/obj/project.assets.json"))
 if not asset_files:
@@ -627,7 +632,6 @@ if candidate_inventory.get("contract") != "chummer-core.candidate-engine-contrac
     raise SystemExit("candidate Engine Contracts inventory contract is invalid")
 if candidate_inventory.get("role") != "current_core_candidate":
     raise SystemExit("candidate Engine Contracts inventory role is invalid")
-expected_candidate_version = "0.0.0-packageplane.candidate.sh60112dccb6a3f"
 if (
     candidate.get("id") != "Chummer.Engine.Contracts"
     or candidate.get("version") != expected_candidate_version
@@ -635,7 +639,7 @@ if (
     raise SystemExit("candidate Engine Contracts identity is invalid")
 expected_candidate_metadata = {
     "repository": "https://github.com/ArchonMegalon/chummer6-core.git",
-    "commit": "60112dccb6a3faad330d32c3c98eef0aa81d97af",
+    "commit": expected_runtime_source_commit,
     "project": "Chummer.Contracts/Chummer.Contracts.csproj",
     "file_name": f"Chummer.Engine.Contracts.{expected_candidate_version}.nupkg",
 }
@@ -646,7 +650,7 @@ for key, expected in expected_candidate_metadata.items():
         )
 if (
     candidate_inventory.get("runtime_source_commit")
-    != "60112dccb6a3faad330d32c3c98eef0aa81d97af"
+    != expected_runtime_source_commit
     or candidate_inventory.get("package_recipe_commit") != commit
 ):
     raise SystemExit("candidate Engine Contracts inventory authority is invalid")
@@ -663,7 +667,7 @@ if (
     != "chummer-core.candidate-gm-edit-runtime-package-inventory/v2"
     or candidate_runtime_inventory.get("role") != "current_core_candidate"
     or candidate_runtime_inventory.get("runtime_source_commit")
-    != "60112dccb6a3faad330d32c3c98eef0aa81d97af"
+    != expected_runtime_source_commit
     or candidate_runtime_inventory.get("package_recipe_commit") != commit
 ):
     raise SystemExit("candidate GM edit runtime inventory authority is invalid")
@@ -671,7 +675,7 @@ expected_runtime_metadata = {
     "id": "Chummer.Engine.GmCharacterEdits",
     "version": expected_candidate_version,
     "repository": "https://github.com/ArchonMegalon/chummer6-core.git",
-    "commit": "60112dccb6a3faad330d32c3c98eef0aa81d97af",
+    "commit": expected_runtime_source_commit,
     "project": "Chummer.GmCharacterEdits/Chummer.GmCharacterEdits.csproj",
     "file_name": f"Chummer.Engine.GmCharacterEdits.{expected_candidate_version}.nupkg",
 }
@@ -690,7 +694,7 @@ if (
     runtime_inventory.get("contract") != "chummer-core.runtime-package-inventory/v1"
     or runtime_inventory.get("package_version") != expected_candidate_version
     or runtime_inventory.get("runtime_source_commit")
-    != "60112dccb6a3faad330d32c3c98eef0aa81d97af"
+    != expected_runtime_source_commit
     or runtime_inventory.get("package_recipe_commit") != commit
 ):
     raise SystemExit("unified runtime package inventory authority is invalid")

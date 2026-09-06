@@ -5,6 +5,7 @@ import hashlib
 import importlib.util
 import io
 import json
+import re
 import sys
 import tarfile
 import tempfile
@@ -423,6 +424,71 @@ class RuntimePackageArchiveTests(unittest.TestCase):
                 REPO_ROOT / "eng/runtime-package-plane.lock.json",
                 self.feed,
             )
+
+    def _execute_late_receipt_validator(self, mutation: str | None = None) -> dict:
+        self._write_inventory_and_receipt()
+        inventory_path = self.feed / runtime.INVENTORY_NAME
+        inventory = json.loads(inventory_path.read_bytes())
+        owner_lock_path = REPO_ROOT / "eng/package-plane.lock.json"
+        owner_lock = json.loads(owner_lock_path.read_bytes())
+        consumer = self.feed / "receipt-consumer"
+        package_root = self.feed / "isolated-cache"
+        package_root.mkdir(exist_ok=True)
+        libraries = {
+            f"{row['id']}/{row['version']}": {"type": "package"}
+            for row in inventory["packages"]
+        }
+        libraries.update({
+            f"{row['id']}/{owner_lock['package_version']}": {"type": "package"}
+            for row in owner_lock["packages"] if row["id"] != "Chummer.Engine.Contracts"
+        })
+        assets = {"packageFolders": {str(package_root): {}}, "libraries": libraries}
+        runtime_assets = self.feed / "runtime-consumer.assets.json"
+        runtime._atomic_json(runtime_assets, assets)
+        runtime._atomic_json(consumer / "obj/project.assets.json", assets)
+        candidate_path = self.feed / runtime.CANDIDATE_ENGINE_INVENTORY_NAME
+        gm_path = self.feed / runtime.CANDIDATE_GM_INVENTORY_NAME
+        if mutation:
+            target = {"engine": candidate_path, "gm": gm_path, "runtime": inventory_path}[mutation.split("_")[0]]
+            changed = json.loads(target.read_bytes())
+            field = mutation.split("_", 1)[1]
+            if field in ("id", "version", "commit"):
+                changed["package"][field] = "foreign" if field != "commit" else "0" * 40
+            elif field == "source":
+                changed["runtime_source_commit"] = "0" * 40
+            elif field == "package_version":
+                changed["package_version"] = "foreign"
+            runtime._atomic_json(target, changed)
+        verifier = (REPO_ROOT / "scripts/ai/verify-no-siblings-package-plane.sh").read_text(encoding="utf-8")
+        source = verifier.rsplit("<<'PY'\n", 1)[1].split("\nPY\n", 1)[0]
+        version = re.search(r'^candidate_version="([^"]+)"$', verifier, re.MULTILINE).group(1)
+        source_commit = re.search(r'^runtime_source_commit="([^"]+)"$', verifier, re.MULTILINE).group(1)
+        receipt_path = self.feed / "executed-no-siblings-receipt.json"
+        arguments = ["late-receipt-validator", str(consumer), str(package_root), str(owner_lock_path),
+                     str(self.feed / runtime.OWNER_INVENTORY_NAME), str(candidate_path), str(gm_path),
+                     str(inventory_path), str(runtime_assets), str(self.feed), str(receipt_path),
+                     version, source_commit]
+        with mock.patch.object(sys, "argv", arguments), mock.patch(
+            "subprocess.check_output", return_value=inventory["package_recipe_commit"] + "\n"
+        ) as head, mock.patch("sys.stdout", new_callable=io.StringIO):
+            exec(compile(source, "verify-no-siblings-package-plane.sh:late-receipt", "exec"), {})
+        head.assert_called_once_with(["git", "-C", str(consumer), "rev-parse", "HEAD"], text=True)
+        return json.loads(receipt_path.read_bytes())
+
+    def test_real_late_receipt_validator_accepts_the_packed_candidate_authority(self) -> None:
+        receipt = self._execute_late_receipt_validator()
+        self.assertEqual("chummer-core.no-siblings-package-plane/v3", receipt["contract"])
+        self.assertEqual("pass", receipt["status"])
+        self.assertEqual(runtime.SOURCE_COMMIT, receipt["runtime_source_commit"])
+        self.assertEqual(runtime.PACKAGE_VERSION, receipt["candidate_package_version"])
+
+    def test_real_late_receipt_validator_rejects_wrong_candidate_or_source(self) -> None:
+        for mutation in ("engine_id", "engine_version", "engine_commit", "engine_source",
+                         "gm_version", "gm_commit", "gm_source", "runtime_source", "runtime_package_version"):
+            with self.subTest(mutation=mutation):
+                with self.assertRaises(SystemExit):
+                    self._execute_late_receipt_validator(mutation)
+                self.assertFalse((self.feed / "executed-no-siblings-receipt.json").exists())
 
     def _write_inventory_and_receipt(self) -> tuple[Path, dict]:
         lock_path = REPO_ROOT / "eng/runtime-package-plane.lock.json"
@@ -1149,6 +1215,14 @@ class SdkArchiveAuthorityTests(unittest.TestCase):
 
 
 class RuntimePackageWorkflowTests(unittest.TestCase):
+    def test_late_receipt_uses_the_same_locked_authority_as_packing(self) -> None:
+        verifier = (REPO_ROOT / "scripts/ai/verify-no-siblings-package-plane.sh").read_text(encoding="utf-8")
+        self.assertIn(f'candidate_version="{runtime.PACKAGE_VERSION}"', verifier)
+        self.assertIn(f'runtime_source_commit="{runtime.SOURCE_COMMIT}"', verifier)
+        self.assertEqual(1, verifier.count(runtime.PACKAGE_VERSION))
+        self.assertEqual(1, verifier.count(runtime.SOURCE_COMMIT))
+        self.assertIn('  "$receipt_path" \\\n  "$candidate_version" \\\n  "$runtime_source_commit" <<\'PY\'', verifier)
+
     def test_workflow_upload_is_pinned_and_fail_closed(self) -> None:
         workflow = (REPO_ROOT / ".github/workflows/package-plane.yml").read_text(encoding="utf-8")
         self.assertIn(
@@ -1224,7 +1298,7 @@ class RuntimePackageWorkflowTests(unittest.TestCase):
             encoding="utf-8"
         )
         final_validate = verifier.rfind("--validate-feed")
-        receipt = verifier.rfind('"$receipt_path" <<\'PY\'')
+        receipt = verifier.rfind('"$runtime_source_commit" <<\'PY\'')
         export = verifier.rfind("--export-bundle")
         self.assertGreater(final_validate, 0)
         self.assertGreater(receipt, final_validate)
