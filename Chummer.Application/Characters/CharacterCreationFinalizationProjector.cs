@@ -50,6 +50,11 @@ public static class CharacterCreationFinalizationProjector
         // whole-build transaction, nor interpreted as extra Priority bonuses.
         if (auxiliary.CharacterCreationFoundationDraft is not null)
             failures.Add(CharacterCreationFinalizationBlockers.FoundationDraftNotApplicable);
+        // Accepted Life Module decisions are durable provenance even when their
+        // Foundation draft is absent; Priority finalization cannot clear them.
+        if (auxiliary.LifeModuleDecisionAcceptances is not null)
+            failures.Add(
+                CharacterCreationFinalizationBlockers.LifeModuleDecisionHistoryNotApplicable);
 
         if (prerequisite is null)
             failures.Add(CharacterCreationFinalizationBlockers.PrerequisiteDraftRequired);

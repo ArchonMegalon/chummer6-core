@@ -43,6 +43,8 @@ public static class CharacterCreationFinalizationBlockers
     public const string ResourcesDraftRequired = "creation-finalization-resources-draft-required";
     public const string GearDraftRequired = "creation-finalization-gear-draft-required";
     public const string FoundationDraftNotApplicable = "creation-finalization-foundation-draft-not-applicable";
+    public const string LifeModuleDecisionHistoryNotApplicable =
+        "creation-finalization-life-module-decision-history-not-applicable";
     public const string DraftAuthorityInvalid = "creation-finalization-draft-authority-invalid";
     public const string QualityEffectsNotProjectable = "creation-finalization-quality-effects-not-projectable";
     public const string GearEffectsNotProjectable = "creation-finalization-gear-effects-not-projectable";

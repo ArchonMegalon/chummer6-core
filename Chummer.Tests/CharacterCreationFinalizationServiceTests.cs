@@ -1,6 +1,8 @@
 using Chummer.Application.Characters;
+using Chummer.Application.LifeModules;
 using Chummer.Application.Workspaces;
 using Chummer.Contracts.Characters;
+using Chummer.Contracts.LifeModules;
 using Chummer.Contracts.Owners;
 using Chummer.Contracts.Rulesets;
 using Chummer.Contracts.Workspaces;
@@ -115,6 +117,236 @@ public sealed class CharacterCreationFinalizationServiceTests
                 }
             }
         };
+    }
+
+    [TestMethod]
+    public void Priority_projection_cannot_discard_accepted_life_module_history()
+    {
+        using ReadyContext context = ReadyContext.Create(includeGearReview: true);
+        WorkspaceStoredDocument mixed = PersistAcceptedLifeModuleHistoryWithoutFoundation(context);
+        IReadOnlyList<LifeModuleDecisionAcceptance> history = mixed.Document.AuxiliaryState
+            .LifeModuleDecisionAcceptances!;
+        Assert.IsTrue(LifeModuleDecisionAcceptanceIntegrity.TryValidateLedger(
+            mixed.Id,
+            mixed.ContentRevision,
+            history),
+            "The regression input must be valid accepted history, not malformed foreign data.");
+
+        bool projected = CharacterCreationFinalizationProjector.TryProject(
+            mixed, out string xml, out var deltas, out var anchors,
+            out _, out _, out _, out string[] blockers);
+
+        Assert.IsFalse(projected);
+        CollectionAssert.Contains(blockers,
+            CharacterCreationFinalizationBlockers.LifeModuleDecisionHistoryNotApplicable);
+        Assert.AreEqual(string.Empty, xml);
+        Assert.IsEmpty(deltas);
+        Assert.IsEmpty(anchors);
+    }
+
+    [TestMethod]
+    public void Accepted_life_module_history_blocks_review_and_confirmation_without_a_write()
+    {
+        using ReadyContext context = ReadyContext.Create(includeGearReview: true);
+        WorkspaceStoredDocument before = PersistAcceptedLifeModuleHistoryWithoutFoundation(context);
+        var observedStore = new CommitThenReportUnavailableStore(context.Store);
+        ICharacterCreationFinalizationService finalizer = ReadyContext.BuildFinalizer(
+            observedStore, context.Queries, context.Resolver);
+
+        CharacterCreationFinalizationResult<CharacterCreationFinalizationState> loaded =
+            finalizer.Load(new(before.Id));
+        Assert.IsNotNull(loaded.Value);
+        CharacterCreationFinalizationResult<CharacterCreationFinalizationReview> review =
+            finalizer.Review(new(loaded.Value.Binding));
+        Assert.IsNotNull(review.Value);
+        CharacterCreationFinalizationResult<CharacterCreationFinalizationReceipt> confirmation =
+            finalizer.Confirm(new(
+                loaded.Value.Binding,
+                review.Value.PreviewDigest,
+                review.Value.Plan?.PlanDigest
+                ?? CharacterCreationFinalizationDigest.ComputeUtf8("no-projectable-plan"),
+                "accepted-life-module-history-must-not-finalize",
+                ExplicitlyConfirmed: true));
+
+        WorkspaceStoredDocument after = context.Store.Get(before.Id).Value!;
+        Assert.IsNotNull(after.Document.AuxiliaryState.LifeModuleDecisionAcceptances,
+            "Priority finalization must not erase accepted Life Module history.");
+        Assert.HasCount(1, after.Document.AuxiliaryState.LifeModuleDecisionAcceptances);
+        Assert.AreEqual(0, observedStore.AtomicCommitCount);
+        Assert.AreEqual(before.ContentRevision, after.ContentRevision);
+        Assert.AreEqual(before.SavedRevision, after.SavedRevision);
+        Assert.AreEqual(before.Document.Content, after.Document.Content);
+        Assert.AreEqual(before.Document.AuxiliaryStateDigest, after.Document.AuxiliaryStateDigest);
+        Assert.AreEqual(CharacterCreationFinalizationOutcomes.Blocked, loaded.Outcome);
+        Assert.IsFalse(loaded.Value.CanReview);
+        CollectionAssert.Contains(loaded.Blockers.ToList(),
+            CharacterCreationFinalizationBlockers.LifeModuleDecisionHistoryNotApplicable);
+        Assert.AreEqual(CharacterCreationFinalizationOutcomes.Blocked, review.Outcome);
+        Assert.IsFalse(review.Value.CanConfirm);
+        Assert.IsNull(review.Value.Plan);
+        CollectionAssert.Contains(review.Blockers.ToList(),
+            CharacterCreationFinalizationBlockers.LifeModuleDecisionHistoryNotApplicable);
+        Assert.AreEqual(CharacterCreationFinalizationOutcomes.Blocked, confirmation.Outcome);
+        Assert.IsNull(confirmation.Value);
+        CollectionAssert.Contains(confirmation.Blockers.ToList(),
+            CharacterCreationFinalizationBlockers.LifeModuleDecisionHistoryNotApplicable);
+    }
+
+    private static WorkspaceStoredDocument PersistAcceptedLifeModuleHistoryWithoutFoundation(
+        ReadyContext context)
+    {
+        WorkspaceStoredDocument current = context.Store.Get(context.WorkspaceId).Value!;
+        CharacterCreationFoundationDraftLedger foundation = PendingFoundationForTransition(current);
+        LifeModuleDecisionAcceptance acceptance = AcceptedLifeModuleHistory(
+            current.Id,
+            current.ContentRevision);
+        WorkspaceDocument withHistory = current.Document with
+        {
+            State = current.Document.State with
+            {
+                AuxiliaryState = current.Document.AuxiliaryState with
+                {
+                    CharacterCreationFoundationDraft = foundation,
+                    LifeModuleDecisionAcceptances = [acceptance]
+                }
+            }
+        };
+        WorkspaceStoreMutationResult accepted = context.Store
+            .ReplaceWorkspaceDocumentAndAuxiliaryStateAndCheckpoint(
+                current.Id,
+                current.ContentRevision,
+                current.Document.AuxiliaryStateDigest,
+                withHistory);
+        Assert.IsTrue(accepted.Success, accepted.Error);
+
+        WorkspaceStoredDocument persisted = context.Store.Get(current.Id).Value!;
+        WorkspaceDocument withoutFoundation = persisted.Document with
+        {
+            State = persisted.Document.State with
+            {
+                AuxiliaryState = persisted.Document.AuxiliaryState with
+                {
+                    CharacterCreationFoundationDraft = null
+                }
+            }
+        };
+        WorkspaceStoreMutationResult cleared = context.Store
+            .ReplaceWorkspaceDocumentAndAuxiliaryStateAndCheckpoint(
+                persisted.Id,
+                persisted.ContentRevision,
+                persisted.Document.AuxiliaryStateDigest,
+                withoutFoundation);
+        Assert.IsTrue(cleared.Success, cleared.Error);
+
+        WorkspaceStoredDocument result = context.Store.Get(current.Id).Value!;
+        Assert.IsNull(result.Document.AuxiliaryState.CharacterCreationFoundationDraft);
+        return result;
+    }
+
+    private static CharacterCreationFoundationDraftLedger PendingFoundationForTransition(
+        WorkspaceStoredDocument workspace)
+    {
+        var draft = new CharacterCreationFoundationDraftLedger(
+            CharacterCreationFoundationSchemas.DraftLedgerV1,
+            workspace.Id,
+            DraftRevision: 1,
+            BaseContentRevision: workspace.ContentRevision,
+            CharacterCreationFinalizationProjector.ComputeRawCharacterXmlDigest(
+                workspace.Document.Content),
+            CharacterCreationFinalizationDigest.ComputeUtf8("life-module-source-transition-test"),
+            "Human",
+            new CharacterCreationFoundationSelection("nationality-transition-test", null),
+            [], [], new Dictionary<string, string>(), ["source:life-module-transition-test"],
+            CharacterCreationFoundationDraftStatuses.PendingFinalization,
+            CharacterEffectsApplied: false,
+            DraftDigest: string.Empty);
+        return draft with
+        {
+            DraftDigest = CharacterCreationFoundationDraftLedgerIntegrity.ComputeDigest(draft)
+        };
+    }
+
+    private static LifeModuleDecisionAcceptance AcceptedLifeModuleHistory(
+        CharacterWorkspaceId workspaceId,
+        long previousWorkspaceRevision)
+    {
+        const string decisionId = "accepted-life-module-decision";
+        const string sourceAnchor = "lifemodules.xml#module:accepted-history-test";
+        string Digest(string value) =>
+            LifeModuleDecisionAcceptanceIntegrity.ComputeCanonicalDigest(value);
+        var fact = new OriginCanonicalNarrativeFact(
+            "accepted-life-module-fact",
+            "accepted-life-module",
+            "Accepted Life Module history.",
+            decisionId,
+            [sourceAnchor],
+            string.Empty);
+        fact = fact with
+        {
+            FactDigest = LifeModuleDecisionAcceptanceIntegrity.ComputeCanonicalDigest(
+                fact with { FactDigest = string.Empty })
+        };
+        string contentDigest = Digest("accepted-life-module-content");
+        string sourceDigest = Digest("accepted-life-module-source");
+        string rulesDigest = Digest("accepted-life-module-rules");
+        string runtimeDigest = Digest("accepted-life-module-runtime");
+        string graphDigest = Digest("accepted-life-module-graph");
+        string mechanicsDigest = Digest("accepted-life-module-mechanics");
+        var terminal = new LifeModuleDecisionAuthorityStep(
+            OriginDossierSchemas.DecisionAuthorityStepV1,
+            RulesetDefaults.Sr5,
+            workspaceId.Value,
+            previousWorkspaceRevision + 1,
+            "local-single-user",
+            "runner-accepted-history",
+            "Accepted History Runner",
+            "en-US",
+            "sr5-life-modules-foundation",
+            "nationality-accepted",
+            1,
+            "turn-accepted-history",
+            2,
+            "Accepted Life Module history.",
+            "Continue character creation.",
+            [],
+            [fact],
+            [decisionId],
+            Digest("accepted-life-module-previous-turn"),
+            graphDigest,
+            Digest("accepted-life-module-decision-step"),
+            contentDigest,
+            sourceDigest,
+            rulesDigest,
+            runtimeDigest,
+            mechanicsDigest)
+        {
+            IsTerminal = true
+        };
+        var receipt = new LifeModuleAcceptedDecisionReceipt(
+            OriginDossierSchemas.AcceptedDecisionReceiptV1,
+            decisionId,
+            "accepted-life-module-choice",
+            Digest("accepted-life-module-command"),
+            Digest("accepted-life-module-idempotency"),
+            previousWorkspaceRevision,
+            previousWorkspaceRevision + 1,
+            Digest("accepted-life-module-previous-content"),
+            contentDigest,
+            sourceDigest,
+            rulesDigest,
+            runtimeDigest,
+            Digest("accepted-life-module-previous-decision"),
+            Digest("accepted-life-module-previous-mechanics"),
+            graphDigest,
+            mechanicsDigest,
+            "Accepted Life Module history.",
+            [fact],
+            string.Empty);
+        receipt = receipt with
+        {
+            ReceiptDigest = LifeModuleDecisionAcceptanceIntegrity.ComputeReceiptDigest(receipt)
+        };
+        return new LifeModuleDecisionAcceptance(receipt, terminal);
     }
 
     [TestMethod]
