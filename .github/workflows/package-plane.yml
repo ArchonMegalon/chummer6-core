@@ -155,7 +155,7 @@ jobs:
           --disable-build-servers
           -m:1
           --filter
-          "FullyQualifiedName~CharacterFileServiceTests|FullyQualifiedName~CharacterCreationPrerequisiteServiceTests|FullyQualifiedName~CharacterCreationContactsServiceTests|FullyQualifiedName~FileSystemCharacterSourceDataResolverTests|FullyQualifiedName~CharacterCareerKarmaExpenseEditRulesTests|FullyQualifiedName~CharacterCareerNuyenExpenseEditRulesTests|FullyQualifiedName~CharacterCareerActiveSkillAdvanceRulesTests|FullyQualifiedName~CharacterCareerSkillGroupAdvanceRulesTests|FullyQualifiedName~CharacterCareerKnowledgeSkillAdvanceRulesTests"
+          "FullyQualifiedName~CharacterFileServiceTests|FullyQualifiedName~CharacterCreationPrerequisiteServiceTests|FullyQualifiedName~CharacterCreationContactsServiceTests|FullyQualifiedName~FileSystemCharacterSourceDataResolverTests|FullyQualifiedName~CharacterCareerKarmaExpenseEditRulesTests|FullyQualifiedName~CharacterCareerNuyenExpenseEditRulesTests|FullyQualifiedName~CharacterCareerActiveSkillAdvanceRulesTests|FullyQualifiedName~CharacterCareerSkillGroupAdvanceRulesTests|FullyQualifiedName~CharacterCareerKnowledgeSkillAdvanceRulesTests|FullyQualifiedName~CharacterCreationFinalizationServiceTests|FullyQualifiedName~WorkspaceCharacterAfterRunRewardTests|FullyQualifiedName~CharacterAfterRunSettlementRulesTests"
       - name: Restore deterministic feature-slice graph from exact sources
         run: |
           dotnet restore Chummer.FeatureSlice.Tests/Chummer.FeatureSlice.Tests.csproj \
