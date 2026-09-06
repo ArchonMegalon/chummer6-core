@@ -9,6 +9,7 @@ import sys
 import tarfile
 import tempfile
 import unittest
+from unittest import mock
 import xml.etree.ElementTree as ET
 import zipfile
 from pathlib import Path
@@ -50,6 +51,88 @@ class RuntimePackageLockTests(unittest.TestCase):
             f"0.0.0-packageplane.candidate.sh{runtime.SOURCE_COMMIT[:13]}",
             runtime.PACKAGE_VERSION,
         )
+
+    def test_next_wave_candidate_is_bound_to_reviewed_semantic_commit(self) -> None:
+        self.assertEqual("07a66baa25fb5c978097bd619591abd872613c06", runtime.SOURCE_COMMIT)
+        self.assertEqual("0.0.0-packageplane.candidate.sh07a66baa25fb5", runtime.PACKAGE_VERSION)
+
+    def test_finalization_members_are_bound_to_runtime_source(self) -> None:
+        self.assertEqual(4, len(runtime.CREATION_FINALIZATION_AUTHORITY_PATHS))
+        self.assertEqual(4, len(set(runtime.CREATION_FINALIZATION_AUTHORITY_PATHS)))
+        self.assertIn("Chummer.Tests/Chummer.CreationFinalization.Tests.csproj",
+                      runtime.CREATION_FINALIZATION_AUTHORITY_PATHS)
+        for member in runtime.CREATION_FINALIZATION_AUTHORITY_PATHS:
+            with self.subTest(member=member):
+                runtime._run(
+                    ("git", "cat-file", "-e", f"{runtime.SOURCE_COMMIT}:{member}"),
+                    cwd=REPO_ROOT,
+                )
+
+    def test_after_run_reward_members_are_bound_to_runtime_source(self) -> None:
+        self.assertEqual(11, len(runtime.AFTER_RUN_REWARD_AUTHORITY_PATHS))
+        self.assertEqual(11, len(set(runtime.AFTER_RUN_REWARD_AUTHORITY_PATHS)))
+        self.assertIn("Chummer.Contracts/Characters/CharacterAfterRunRewardContracts.cs",
+                      runtime.AFTER_RUN_REWARD_AUTHORITY_PATHS)
+        self.assertIn("Chummer.Infrastructure/DependencyInjection/ServiceCollectionExtensions.cs",
+                      runtime.AFTER_RUN_REWARD_AUTHORITY_PATHS)
+        self.assertIn("Chummer.Tests/CharacterAfterRunSettlementRulesTests.cs",
+                      runtime.AFTER_RUN_REWARD_AUTHORITY_PATHS)
+        for member in runtime.AFTER_RUN_REWARD_AUTHORITY_PATHS:
+            with self.subTest(member=member):
+                runtime._run(
+                    ("git", "cat-file", "-e", f"{runtime.SOURCE_COMMIT}:{member}"),
+                    cwd=REPO_ROOT,
+                )
+
+    def test_missing_finalization_or_reward_source_member_is_fail_closed(self) -> None:
+        real_run = runtime._run
+        for member in (*runtime.CREATION_FINALIZATION_AUTHORITY_PATHS,
+                       *runtime.AFTER_RUN_REWARD_AUTHORITY_PATHS):
+            def missing_member(command, *, cwd):
+                if tuple(command) == ("git", "cat-file", "-e", f"{runtime.SOURCE_COMMIT}:{member}"):
+                    raise runtime.RuntimePackagePlaneError("missing anchored semantic member")
+                return real_run(command, cwd=cwd)
+
+            with self.subTest(member=member), mock.patch.object(runtime, "_run", side_effect=missing_member):
+                with self.assertRaisesRegex(runtime.RuntimePackagePlaneError, "missing anchored semantic member"):
+                    runtime.validate_repository(REPO_ROOT, self.lock)
+
+    def test_finalization_and_reward_semantic_drift_cannot_hide_in_recipe(self) -> None:
+        real_run = runtime._run
+        for member in (*runtime.CREATION_FINALIZATION_AUTHORITY_PATHS,
+                       *runtime.AFTER_RUN_REWARD_AUTHORITY_PATHS):
+            def semantic_drift(command, *, cwd):
+                if tuple(command) == ("git", "diff", "--name-only", runtime.SOURCE_COMMIT):
+                    return "\n".join((*runtime.ALLOWED_RECIPE_DELTA, member))
+                return real_run(command, cwd=cwd)
+
+            with self.subTest(member=member), mock.patch.object(runtime, "_run", side_effect=semantic_drift):
+                with self.assertRaisesRegex(runtime.RuntimePackagePlaneError, "package recipe delta differs"):
+                    runtime.validate_repository(REPO_ROOT, self.lock)
+
+    def test_recipe_delta_requires_all_and_only_the_four_authorized_files(self) -> None:
+        self.assertEqual(
+            ("eng/runtime-package-plane.lock.json", "scripts/ai/runtime-package-plane.py",
+             "scripts/ai/verify-no-siblings-package-plane.sh", "tests/test_runtime_package_plane_authority.py"),
+            runtime.ALLOWED_RECIPE_DELTA,
+        )
+        real_run = runtime._run
+        for mutation in ("missing", "extra", "untracked"):
+            def altered_delta(command, *, cwd):
+                if tuple(command) == ("git", "diff", "--name-only", runtime.SOURCE_COMMIT):
+                    files = list(runtime.ALLOWED_RECIPE_DELTA)
+                    if mutation == "missing":
+                        files.pop()
+                    if mutation == "extra":
+                        files.append("Directory.Build.props")
+                    return "\n".join(files)
+                if tuple(command) == ("git", "ls-files", "--others", "--exclude-standard"):
+                    return "Chummer.Application/unreviewed.cs" if mutation == "untracked" else ""
+                return real_run(command, cwd=cwd)
+
+            with self.subTest(mutation=mutation), mock.patch.object(runtime, "_run", side_effect=altered_delta):
+                with self.assertRaisesRegex(runtime.RuntimePackagePlaneError, "package recipe delta differs"):
+                    runtime.validate_repository(REPO_ROOT, self.lock)
 
     def test_creation_activation_members_are_bound_to_runtime_source(self) -> None:
         self.assertEqual(8, len(runtime.CREATION_ACTIVATION_AUTHORITY_PATHS))
