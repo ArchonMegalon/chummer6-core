@@ -18,6 +18,106 @@ namespace Chummer.Tests;
 public sealed class CharacterCreationFinalizationServiceTests
 {
     [TestMethod]
+    [DataRow("Human")]
+    [DataRow("Elf")]
+    public void Priority_projection_cannot_discard_a_life_module_foundation(string metatype)
+    {
+        using ReadyContext context = ReadyContext.Create(includeGearReview: true);
+        WorkspaceStoredDocument original = context.Store.Get(context.WorkspaceId).Value!;
+        Assert.IsTrue(CharacterCreationFinalizationProjector.TryProject(
+            original, out _, out _, out _, out _, out _, out _, out _));
+        WorkspaceStoredDocument mixed = WithPendingFoundation(original, metatype);
+        string beforeDigest = mixed.Document.AuxiliaryStateDigest;
+
+        bool projected = CharacterCreationFinalizationProjector.TryProject(
+            mixed, out string xml, out var deltas, out var anchors,
+            out _, out _, out _, out string[] blockers);
+
+        Assert.IsFalse(projected,
+            "A stale cross-method draft is not permission to discard or grant Life Module effects.");
+        CollectionAssert.Contains(blockers, "creation-finalization-foundation-draft-not-applicable");
+        Assert.AreEqual(string.Empty, xml);
+        Assert.IsEmpty(deltas);
+        Assert.IsEmpty(anchors);
+        Assert.AreEqual(beforeDigest, mixed.Document.AuxiliaryStateDigest);
+        Assert.AreEqual(original.ContentRevision, context.Store.Get(context.WorkspaceId).Value!.ContentRevision);
+    }
+
+    [TestMethod]
+    public void Cross_method_foundation_blocks_review_and_confirmation_without_a_write()
+    {
+        using ReadyContext context = ReadyContext.Create(includeGearReview: true);
+        WorkspaceStoredDocument before = context.Store.Get(context.WorkspaceId).Value!;
+        var observedStore = new CommitThenReportUnavailableStore(context.Store)
+        {
+            ReadTransform = workspace => WithPendingFoundation(workspace, "Human")
+        };
+        ICharacterCreationFinalizationService finalizer = ReadyContext.BuildFinalizer(
+            observedStore, context.Queries, context.Resolver);
+        CharacterCreationFinalizationResult<CharacterCreationFinalizationState> loaded =
+            finalizer.Load(new(context.WorkspaceId));
+        Assert.AreEqual(CharacterCreationFinalizationOutcomes.Blocked, loaded.Outcome);
+        Assert.IsNotNull(loaded.Value);
+        Assert.IsFalse(loaded.Value.CanReview);
+        CollectionAssert.Contains(loaded.Blockers.ToList(),
+            "creation-finalization-foundation-draft-not-applicable");
+        CharacterCreationFinalizationResult<CharacterCreationFinalizationReview> review =
+            finalizer.Review(new(loaded.Value.Binding));
+        Assert.IsNotNull(review.Value);
+        Assert.IsFalse(review.Value.CanConfirm);
+        Assert.IsNull(review.Value.Plan);
+
+        CharacterCreationFinalizationResult<CharacterCreationFinalizationReceipt> confirmation =
+            finalizer.Confirm(new(
+                loaded.Value.Binding,
+                review.Value.PreviewDigest,
+                CharacterCreationFinalizationDigest.ComputeUtf8("no-projectable-plan"),
+                "cross-method-foundation-must-not-finalize",
+                ExplicitlyConfirmed: true));
+        Assert.AreEqual(CharacterCreationFinalizationOutcomes.Blocked, confirmation.Outcome);
+        Assert.IsNull(confirmation.Value);
+        Assert.AreEqual(0, observedStore.AtomicCommitCount);
+        WorkspaceStoredDocument after = context.Store.Get(context.WorkspaceId).Value!;
+        Assert.AreEqual(before.ContentRevision, after.ContentRevision);
+        Assert.AreEqual(before.Document.Content, after.Document.Content);
+        Assert.AreEqual(before.Document.AuxiliaryStateDigest, after.Document.AuxiliaryStateDigest);
+    }
+
+    private static WorkspaceStoredDocument WithPendingFoundation(
+        WorkspaceStoredDocument workspace, string metatype)
+    {
+        // This is deliberately a stale/mixed-method input, not a claim that the
+        // Foundation service lets a normal Priority user confirm a Life Module.
+        var draft = new CharacterCreationFoundationDraftLedger(
+            CharacterCreationFoundationSchemas.DraftLedgerV1,
+            workspace.Id,
+            DraftRevision: 1,
+            BaseContentRevision: workspace.ContentRevision - 1,
+            CharacterCreationFinalizationProjector.ComputeRawCharacterXmlDigest(workspace.Document.Content),
+            CharacterCreationFinalizationDigest.ComputeUtf8("life-module-source-test"),
+            metatype,
+            new CharacterCreationFoundationSelection("nationality-test", null),
+            [], [], new Dictionary<string, string>(), ["source:life-module-test"],
+            CharacterCreationFoundationDraftStatuses.PendingFinalization,
+            CharacterEffectsApplied: false,
+            DraftDigest: string.Empty);
+        draft = draft with { DraftDigest = CharacterCreationFoundationDraftLedgerIntegrity.ComputeDigest(draft) };
+        return workspace with
+        {
+            Document = workspace.Document with
+            {
+                State = workspace.Document.State with
+                {
+                    AuxiliaryState = workspace.Document.AuxiliaryState with
+                    {
+                        CharacterCreationFoundationDraft = draft
+                    }
+                }
+            }
+        };
+    }
+
+    [TestMethod]
     public void Missing_required_step_and_partial_composite_write_fail_closed()
     {
         using ReadyContext context = ReadyContext.Create(includeGearReview: false);
@@ -712,6 +812,7 @@ public sealed class CharacterCreationFinalizationServiceTests
         public CommitThenReportUnavailableStore(FileWorkspaceStore inner) => _inner = inner;
 
         public int AtomicCommitCount { get; private set; }
+        public Func<WorkspaceStoredDocument, WorkspaceStoredDocument>? ReadTransform { get; init; }
         public bool SupportsWorkspaceAuxiliaryStateAtomicCommit => true;
 
         public WorkspaceStoreMutationResult ReplaceWorkspaceDocumentAndAuxiliaryStateAndCheckpoint(
@@ -746,8 +847,12 @@ public sealed class CharacterCreationFinalizationServiceTests
             _inner.CreateWorkspaceDocument(owner, id, document);
         public IReadOnlyList<WorkspaceStoreEntry> List() => _inner.List();
         public IReadOnlyList<WorkspaceStoreEntry> List(OwnerScope owner) => _inner.List(owner);
-        public WorkspaceStoreReadResult Get(CharacterWorkspaceId id) => _inner.Get(id);
-        public WorkspaceStoreReadResult Get(OwnerScope owner, CharacterWorkspaceId id) => _inner.Get(owner, id);
+        public WorkspaceStoreReadResult Get(CharacterWorkspaceId id) => Transform(_inner.Get(id));
+        public WorkspaceStoreReadResult Get(OwnerScope owner, CharacterWorkspaceId id) => Transform(_inner.Get(owner, id));
+        private WorkspaceStoreReadResult Transform(WorkspaceStoreReadResult result) =>
+            result.Value is { } value && ReadTransform is { } transform
+                ? result with { Value = transform(value) }
+                : result;
         public WorkspaceStoreMutationResult ReplaceWorkspaceDocument(
             CharacterWorkspaceId id, long expectedContentRevision, WorkspaceDocument document) =>
             _inner.ReplaceWorkspaceDocument(id, expectedContentRevision, document);

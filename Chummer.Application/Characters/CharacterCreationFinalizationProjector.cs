@@ -44,6 +44,13 @@ public static class CharacterCreationFinalizationProjector
         CharacterCreationResourcesDraft? resources = auxiliary.CharacterCreationResourcesDraft;
         CharacterCreationGearDraft? gear = auxiliary.CharacterCreationGearDraft;
 
+        // Foundation is a Life Modules rules draft, not Priority biography.
+        // It cannot arise through normal Priority confirmation, but a stale or
+        // foreign auxiliary draft must never be silently cleared by this
+        // whole-build transaction, nor interpreted as extra Priority bonuses.
+        if (auxiliary.CharacterCreationFoundationDraft is not null)
+            failures.Add(CharacterCreationFinalizationBlockers.FoundationDraftNotApplicable);
+
         if (prerequisite is null)
             failures.Add(CharacterCreationFinalizationBlockers.PrerequisiteDraftRequired);
         if (attributes is null)
