@@ -217,7 +217,22 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<ICharacterCareerSkillGroupAdvanceService,
             CharacterCareerSkillGroupAdvanceService>();
         services.AddCharacterAfterRunSettlementPersistence();
+        services.AddCharacterAfterRunRewardPersistence();
 
+        return services;
+    }
+
+    /// <summary>
+    /// Composes local manual After Run rewards over the host's existing store.
+    /// Preview and Commit remain unavailable without that store's explicit
+    /// atomic document-and-auxiliary-state capability; no alternate store is made.
+    /// </summary>
+    public static IServiceCollection AddCharacterAfterRunRewardPersistence(
+        this IServiceCollection services)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        services.TryAddSingleton<ICharacterAfterRunRewardService,
+            WorkspaceCharacterAfterRunRewardService>();
         return services;
     }
 

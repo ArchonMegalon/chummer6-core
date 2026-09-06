@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <IsTestProject>true</IsTestProject>
+    <IsPackable>false</IsPackable>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>Chummer.Tests</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.0.1" />
+    <PackageReference Include="MSTest.TestAdapter" Version="4.1.0" />
+    <PackageReference Include="MSTest.TestFramework" Version="4.1.0" />
+    <ProjectReference Include="../Chummer.Contracts/Chummer.Contracts.csproj" />
+    <ProjectReference Include="../Chummer.Application/Chummer.Application.csproj" />
+    <ProjectReference Include="../Chummer.Infrastructure/Chummer.Infrastructure.csproj" />
+    <Compile Include="WorkspaceCharacterAfterRunRewardTests.cs" />
+    <Compile Include="CharacterAfterRunSettlementRulesTests.cs" />
+  </ItemGroup>
+</Project>
