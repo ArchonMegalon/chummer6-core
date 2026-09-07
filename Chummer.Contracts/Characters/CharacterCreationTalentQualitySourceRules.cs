@@ -59,7 +59,9 @@ public static class CharacterCreationTalentQualitySourceRules
             || !HasScalar(row, "source", source.SourceBook) || !HasScalar(row, "page", source.Page)
             || !MatchesQualityGear(source.CanonicalSourceXml, source.GrantedGearSources)
             || source.SourceAnchorIds is null
-            || !source.SourceAnchorIds.SequenceEqual(["qualities.xml#quality:" + source.SourceId], StringComparer.Ordinal))
+            || !source.SourceAnchorIds.SequenceEqual(new[] { "qualities.xml#quality:" + source.SourceId }
+                .Concat((source.GrantedGearSources ?? []).SelectMany(item => item.SourceAnchorIds))
+                .Distinct(StringComparer.Ordinal).OrderBy(item => item, StringComparer.Ordinal), StringComparer.Ordinal))
             return false;
         return source.Reference == source.Name
             || (Guid.TryParse(source.Reference, out Guid referenceId) && referenceId == id);

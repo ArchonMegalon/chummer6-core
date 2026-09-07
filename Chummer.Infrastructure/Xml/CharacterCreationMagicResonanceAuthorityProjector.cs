@@ -278,13 +278,15 @@ internal static class CharacterCreationMagicResonanceAuthorityProjector
                 continue;
             }
             string canonicalXml = CanonicalXml(matches[0]);
+            CharacterCreationTalentGearSource[] grantedGear = ResolveGrantedGear(canonicalXml, gear, context, blockers);
             var source = new CharacterCreationTalentQualitySource(reference, selection, sourceId, name, book, page,
                 context.QualitiesInputsDigest,
                 CharacterCreationTalentQualitySourceRules.ComputeSourceNodeDigest(context.QualitiesInputsDigest, sourceId, canonicalXml),
                 canonicalXml, CharacterCreationMagicResonanceDigest.ComputeUtf8(canonicalXml),
-                [$"qualities.xml#quality:{sourceId}"])
+                new[] { $"qualities.xml#quality:{sourceId}" }.Concat(grantedGear.SelectMany(item => item.SourceAnchorIds))
+                    .Distinct(StringComparer.Ordinal).OrderBy(item => item, StringComparer.Ordinal).ToArray())
             {
-                GrantedGearSources = ResolveGrantedGear(canonicalXml, gear, context, blockers)
+                GrantedGearSources = grantedGear
             };
             if (!CharacterCreationTalentQualitySourceRules.IsValidSource(source))
                 blockers.Add(CharacterCreationTalentQualitySourceRules.Unresolved);

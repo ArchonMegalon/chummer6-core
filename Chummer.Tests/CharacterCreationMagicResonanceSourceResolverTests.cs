@@ -203,6 +203,8 @@ public sealed class CharacterCreationMagicResonanceSourceResolverTests
         Assert.AreEqual("Living Persona", gear.Name);
         Assert.AreEqual("Commlinks", gear.Category);
         Assert.AreEqual("251", gear.Page);
+        CollectionAssert.IsSubsetOf(gear.SourceAnchorIds.ToArray(), quality.SourceAnchorIds.ToArray(),
+            "Nested grant sources must enter the shared quality/Talent/Magic review anchors.");
         Assert.IsTrue(CharacterCreationTalentQualitySourceRules.IsValidSource(quality));
         Assert.IsFalse(CharacterCreationTalentQualitySourceRules.IsValidSource(quality with { GrantedGearSources = null }));
         Assert.IsFalse(CharacterCreationTalentQualitySourceRules.IsValidSource(quality with { GrantedGearSources = [] }));

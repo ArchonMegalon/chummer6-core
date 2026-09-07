@@ -46,6 +46,14 @@ public sealed class CharacterCreationFinalizationServiceTests
         Assert.AreEqual(CharacterCreationFinalizationOutcomes.Available, state.Outcome, string.Join(",", state.Blockers));
         var review = context.Finalizer.Review(new(state.Value!.Binding));
         Assert.IsTrue(review.Value!.CanConfirm, string.Join(",", review.Blockers));
+        if (talentValue == "Technomancer")
+        {
+            string[] gearAnchors = magic.FinalizationContribution!.Talent.GrantedQualitySources!.Single()
+                .GrantedGearSources!.Single().SourceAnchorIds.ToArray();
+            CollectionAssert.IsSubsetOf(gearAnchors, magic.SourceAnchorIds.ToArray());
+            CollectionAssert.IsSubsetOf(gearAnchors, magic.FinalizationContribution.SourceAnchorIds.ToArray());
+            CollectionAssert.IsSubsetOf(gearAnchors, review.Value.Plan!.SourceAnchorIds.ToArray());
+        }
         var command = new CharacterCreationFinalizationConfirmRequest(state.Value.Binding,
             review.Value.PreviewDigest, review.Value.Plan!.PlanDigest, "actual-awakened-finalization", true);
         Assert.AreNotEqual(CharacterCreationFinalizationOutcomes.Applied,
