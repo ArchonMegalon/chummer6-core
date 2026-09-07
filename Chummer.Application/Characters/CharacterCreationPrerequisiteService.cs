@@ -1166,7 +1166,7 @@ public sealed class CharacterCreationPrerequisiteService :
                           >= activeGrant.Quantity
                        || option.SkillGroupGrant is
                            { IsSupported: true, Blockers: { Count: 0 } } groupGrant
-                          && groupGrant.BaseRating > 0
+                          && groupGrant.BaseRating >= 0
                           && groupGrant.Options.Count >= groupGrant.Quantity));
     }
 

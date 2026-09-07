@@ -24,6 +24,24 @@ The normal preview, explicit confirmation, atomic save and receipt recovery
 rules are unchanged. A rehashed forged granted rating is not source authority.
 Character XML is not changed while confirming a Skills draft.
 
+## Selection-only groups
+
+Canonical SR5 Priority D Aspected Magician requires one choice from Conjuring,
+Enchanting or Sorcery, but its source `skillgroupval` is zero. The existing
+Priority group prompt must collect that choice; it must not silently select an
+aspect or add a second independent choice in the Magic wizard.
+
+The zero-rated entry remains in the validated Priority plan and determines the
+source quality's `unlockskills` choice at finalization. It creates neither an
+initial Skills row nor a Heritage `SkillGroupBase` improvement. Purchasing
+levels later costs the ordinary group points. Negative values, duplicate
+choices and rehashed ratings inconsistent with the raw source remain invalid.
+This admission does not enable zero-rated active-skill grants.
+
+Native tests distinguish cold Priority restoration before Attributes from the
+intentional dependent-draft edit lock afterward. Both must preserve the saved
+choice. These managed tests do not establish Activity/process-death authority.
+
 ## Verification and remaining integration
 
 Actual canonical Human/Priority-B Magician, Aspected Magician, Adept,
@@ -36,12 +54,13 @@ its draft from the Core snapshot rather than requiring a previously saved
 Skills draft. Native packet, source-composition and device evidence are
 separate requirements.
 
-Whole-character awakened finalization is **still incomplete**. The finalizer
-still blocks talent-grant and awakened-effect projection. It must eventually
-write paid base values separately from their Heritage improvements, not write
-the total rating and then add the grant again. Magic/talent-quality/power,
-spell and tradition effects must all join the same atomic finalization plan.
-No finalizer gate was removed by this change.
+Whole-character finalization now projects the supported, source-bound Talent
+qualities and grants atomically, with paid base values separate from Heritage
+improvements. Actual-source tests also cover all three Priority D Aspected
+choices, zero free levels, explicit final confirmation, cold saved character
+effects and replay. This is not exhaustive awakened legality or device proof:
+magical/resonance skill purchase eligibility, separate MAGAdept allocation,
+other Talent variants and explicit upstream re-review remain separate work.
 
 Historical Skills drafts created before grant integration may no longer match
 the current projection. They fail closed rather than silently changing cost or

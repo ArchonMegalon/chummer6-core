@@ -176,7 +176,9 @@ internal static class CharacterCreationAwakenedLegacyProjector
     {
         var plan = prerequisite.TalentSelection!.GrantPlan;
         var active = plan?.ActiveSkills ?? [];
-        var groups = plan?.SkillGroups ?? [];
+        Require(plan?.SkillGroups.All(item => item.BaseRating >= 0) ?? true);
+        IReadOnlyList<CharacterCreationTalentSkillGroupGrantPlanEntry> groups =
+            plan?.SkillGroups.Where(item => item.BaseRating > 0).ToArray() ?? [];
         Require(Equal(skills.PrerequisiteDraftDigest, prerequisite.DraftDigest)
             && skills.PrerequisiteDraftRevision == prerequisite.DraftRevision
             && (plan is null || Equal(plan.PlanDigest,
@@ -275,8 +277,8 @@ internal static class CharacterCreationAwakenedLegacyProjector
                         && choices.All(choice => choice is "Magician" or "Adept" or "Technomancer" or "Sorcery" or "Conjuring" or "Enchanting"));
                     string[] chosenGroups = prerequisite.TalentSelection!.GrantPlan?.SkillGroups.Select(item => item.CanonicalName).ToArray() ?? [];
                     string chosen = choices.Length == 1 ? choices[0] : chosenGroups.Length == 1 ? chosenGroups[0] : string.Empty;
-                    // Aspected Priority B/C pushes the chosen free group into the
-                    // legacy unlock prompt. No group/explicit choice means unresolved.
+                    // Aspected Priority B/C/D pushes the explicit group choice into
+                    // the legacy unlock prompt, including D's selection-only rating zero.
                     Require(choices.Contains(chosen, StringComparer.Ordinal));
                     if (forced.Length > 0) { Require(forced == chosen); usedForced = true; }
                     improvements.Add(Improvement("SpecialSkills", chosen, id, "Quality"));

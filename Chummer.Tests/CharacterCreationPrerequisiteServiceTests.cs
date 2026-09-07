@@ -594,11 +594,13 @@ public sealed class CharacterCreationPrerequisiteServiceTests
     }
 
     [TestMethod]
-    public void Confirmed_skill_group_grant_plan_survives_authoritative_reload()
+    [DataRow(4)]
+    [DataRow(0)]
+    public void Confirmed_skill_group_grant_plan_survives_authoritative_reload(int rating)
     {
         CharacterCreationPrerequisiteAuthority authority = EnableOnlyTalentOption(
             WithSkillGroupTalentGrant(
-                CreateAuthority(CharacterCreationBuildMethods.Priority, ["A", "B", "C", "D", "E"])));
+                CreateAuthority(CharacterCreationBuildMethods.Priority, ["A", "B", "C", "D", "E"]), rating: rating));
         CharacterCreationTalentSkillGroupGrantProjection grant = authority.Options.Single(option =>
                 option.CategoryId == CharacterCreationPriorityCategoryIds.Talent
                 && option.Rank == "E")
@@ -642,7 +644,30 @@ public sealed class CharacterCreationPrerequisiteServiceTests
                     selectionIds,
                     resumed.PendingDraft!.TalentSelection!.GrantPlan!.SkillGroups
                         .Select(entry => entry.SelectionId).ToArray());
+                Assert.IsTrue(resumed.PendingDraft.TalentSelection.GrantPlan.SkillGroups.All(entry => entry.BaseRating == rating));
             });
+    }
+
+    [TestMethod]
+    [DataRow(-1)]
+    [DataRow(1)]
+    public void Zero_rating_group_choice_rejects_rehashed_rating_not_bound_to_source(int forgedRating)
+    {
+        var authority = EnableOnlyTalentOption(WithSkillGroupTalentGrant(
+            CreateAuthority(CharacterCreationBuildMethods.Priority, ["A", "B", "C", "D", "E"]), rating: 0));
+        authority = MutateTalentOption(authority, talent =>
+        {
+            var grant = talent.SkillGroupGrant!;
+            return talent with { SkillGroupGrant = grant with
+            {
+                BaseRating = forgedRating,
+                GrantDigest = CharacterCreationTalentGrantAuthorityDigest.ComputeSkillGroupGrant(
+                    grant.Quantity, forgedRating, grant.SkillGroupType, grant.ImprovementKind,
+                    grant.RawSelectorType, grant.SelectorTypeSource, grant.RawSelectorTypeQuery,
+                    authority.EffectiveSkillsInputsDigest, grant.Options.Select(option => option.SelectionId))
+            } };
+        });
+        AssertAuthorityUnavailable(authority);
     }
 
     [TestMethod]
@@ -1708,7 +1733,8 @@ public sealed class CharacterCreationPrerequisiteServiceTests
     private static CharacterCreationPrerequisiteAuthority WithSkillGroupTalentGrant(
         CharacterCreationPrerequisiteAuthority authority,
         string skillGroupType = CharacterCreationTalentSkillGrantTypes.Choices,
-        string improvementKind = CharacterCreationTalentGrantImprovementKinds.SkillGroupBase)
+        string improvementKind = CharacterCreationTalentGrantImprovementKinds.SkillGroupBase,
+        int rating = 4)
     {
         string skillsDigest = authority.EffectiveSkillsInputsDigest;
         CharacterCreationTalentSkillGroupChoiceProjection Group(
@@ -1750,18 +1776,18 @@ public sealed class CharacterCreationPrerequisiteServiceTests
             ];
         string rawTalentNode = SkillGroupTalentRaw(
             quantity: 2,
-            rating: 4,
+            rating: rating,
             selectorType: skillGroupType,
             improvementKind: improvementKind,
             groupNames: groupOptions.Select(option => option.CanonicalName));
         CharacterCreationTalentSkillGroupGrantProjection grant = new(
             2,
-            4,
+            rating,
             skillGroupType,
             groupOptions,
             CharacterCreationTalentGrantAuthorityDigest.ComputeSkillGroupGrant(
                 2,
-                4,
+                rating,
                 skillGroupType,
                 improvementKind,
                 skillGroupType,

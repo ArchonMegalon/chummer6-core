@@ -20,6 +20,44 @@ namespace Chummer.Tests;
 public sealed class CharacterCreationFinalizationServiceTests
 {
     [TestMethod]
+    [DataRow("Conjuring")]
+    [DataRow("Enchanting")]
+    [DataRow("Sorcery")]
+    public void Aspected_priority_zero_rating_prompt_preserves_the_choice_without_granting_free_levels(string aspect)
+    {
+        using ReadyContext context = ReadyContext.Create(true, talentValue: "Aspected Magician",
+            talentRank: "D", talentGroupName: aspect);
+        var before = context.Store.Get(context.WorkspaceId).Value!;
+        var prerequisite = before.Document.AuxiliaryState.CharacterCreationPrerequisiteDraft!;
+        var choice = prerequisite.TalentSelection!.GrantPlan!.SkillGroups.Single();
+        Assert.AreEqual(aspect, choice.CanonicalName);
+        Assert.AreEqual(0, choice.BaseRating);
+        Assert.AreEqual(0, before.Document.AuxiliaryState.CharacterCreationSkillsDraft!.SkillGroups.Count,
+            "A selection-only prompt must not add a zero-rated purchased or granted skill-group row.");
+        var state = context.Finalizer.Load(new(context.WorkspaceId)).Value!;
+        var preview = context.Finalizer.Review(new(state.Binding)).Value!;
+        Assert.IsTrue(preview.CanConfirm, string.Join(",", preview.Blockers));
+        var command = new CharacterCreationFinalizationConfirmRequest(state.Binding, preview.PreviewDigest,
+            preview.Plan!.PlanDigest, "aspected-zero-rating-choice", true);
+        Assert.AreNotEqual(CharacterCreationFinalizationOutcomes.Applied,
+            context.Finalizer.Confirm(command with { ExplicitlyConfirmed = false }).Outcome);
+        Assert.AreEqual(before.ContentRevision, context.Store.Get(context.WorkspaceId).Value!.ContentRevision);
+        Assert.AreEqual(before.Document.Content, context.Store.Get(context.WorkspaceId).Value!.Document.Content);
+        var confirmed = context.Finalizer.Confirm(command);
+        Assert.AreEqual(CharacterCreationFinalizationOutcomes.Applied, confirmed.Outcome, string.Join(",", confirmed.Blockers));
+        using ReadyContext cold = context.Restart();
+        var after = cold.Store.Get(context.WorkspaceId).Value!;
+        var improvements = XElement.Parse(after.Document.Content).Element("improvements")!.Elements("improvement").ToArray();
+        Assert.IsTrue(improvements.Any(item => item.Element("improvementttype")?.Value == "SpecialSkills"
+            && item.Element("improvedname")?.Value == aspect));
+        Assert.IsFalse(improvements.Any(item => item.Element("improvementttype")?.Value == "SkillGroupBase"),
+            "The source choice has no free skill-group levels.");
+        Assert.AreEqual(confirmed.Value!.ReceiptDigest, cold.Finalizer.Confirm(command).Value!.ReceiptDigest);
+        Assert.AreEqual(after.ContentRevision, cold.Store.Get(context.WorkspaceId).Value!.ContentRevision);
+        Assert.AreEqual(after.Document.Content, cold.Store.Get(context.WorkspaceId).Value!.Document.Content);
+    }
+
+    [TestMethod]
     [DataRow(0)]
     [DataRow(1)]
     [DataRow(4)]
@@ -1425,7 +1463,9 @@ public sealed class CharacterCreationFinalizationServiceTests
             Action<XElement>? beforeDrafts = null,
             string? talentValue = null,
             int mysticPowerPoints = 0,
-            Action<XElement>? amendSettings = null)
+            Action<XElement>? amendSettings = null,
+            string talentRank = "B",
+            string? talentGroupName = null)
         {
             string directory = Path.Combine(
                 Path.GetTempPath(),
@@ -1464,7 +1504,7 @@ public sealed class CharacterCreationFinalizationServiceTests
                     resolver,
                     includeGearReview,
                     includeNonEmptyPurchases,
-                    replayChecks, talentValue, mysticPowerPoints);
+                    replayChecks, talentValue, mysticPowerPoints, talentRank, talentGroupName);
                 return new ReadyContext(
                     directory,
                     store,
@@ -1592,7 +1632,9 @@ public sealed class CharacterCreationFinalizationServiceTests
             bool includeNonEmptyPurchases,
             ICollection<Action<IWorkspaceStore>>? replayChecks = null,
             string? talentValue = null,
-            int mysticPowerPoints = 0)
+            int mysticPowerPoints = 0,
+            string talentPriorityRank = "B",
+            string? talentGroupName = null)
         {
             var prerequisites = new CharacterCreationPrerequisiteService(store, queries, resolver);
             CharacterCreationPrerequisiteState prerequisite = prerequisites.Load(new(workspaceId)).Value!;
@@ -1600,10 +1642,10 @@ public sealed class CharacterCreationFinalizationServiceTests
                 StringComparer.Ordinal)
             {
                 [CharacterCreationPriorityCategoryIds.Heritage] = talentValue is null ? "A" : "E",
-                [CharacterCreationPriorityCategoryIds.Talent] = talentValue is null ? "E" : "B",
+                [CharacterCreationPriorityCategoryIds.Talent] = talentValue is null ? "E" : talentPriorityRank,
                 [CharacterCreationPriorityCategoryIds.Attributes] = talentValue is null ? "B" : "A",
                 [CharacterCreationPriorityCategoryIds.Skills] = "C",
-                [CharacterCreationPriorityCategoryIds.Resources] = "D"
+                [CharacterCreationPriorityCategoryIds.Resources] = talentValue is not null && talentPriorityRank == "D" ? "B" : "D"
             };
             CharacterCreationPriorityOptionProjection heritageRank = prerequisite.Authority.Options.Single(
                 option => option.CategoryId == CharacterCreationPriorityCategoryIds.Heritage
@@ -1630,6 +1672,7 @@ public sealed class CharacterCreationFinalizationServiceTests
             string[] talentSkills = talent.ActiveSkillGrant?.Options.Where(item => item.IsEnabled)
                 .Take(talent.ActiveSkillGrant.Quantity).Select(item => item.SelectionId).ToArray() ?? [];
             string[] talentGroups = talent.SkillGroupGrant?.Options
+                .Where(item => talentGroupName is null || item.CanonicalName == talentGroupName)
                 .Take(talent.SkillGroupGrant.Quantity).Select(item => item.SelectionId).ToArray() ?? [];
             var prerequisiteRequest = new CharacterCreationPrerequisitePreviewRequest(
                 prerequisite.Binding,

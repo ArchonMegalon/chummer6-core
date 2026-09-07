@@ -42,20 +42,25 @@ internal sealed record CharacterCreationTalentSkillGrants(
                 || !skills.TryAdd(grant.SourceId, grant))
                 return false;
         }
+        var selectedGroups = new HashSet<string>(StringComparer.Ordinal);
         foreach (var grant in plan.SkillGroups)
         {
             if (grant is null) return false;
             var matches = authority.SkillGroups.Where(item => item.Name == grant.CanonicalName).Take(2).ToArray();
             if (matches.Length != 1 || grant.TargetKind != "skill-group"
                 || grant.ImprovementKind != CharacterCreationTalentGrantImprovementKinds.SkillGroupBase
-                || grant.BaseRating < 1 || grant.BaseRating > authority.MaxSkillGroupRatingCreate
+                || grant.BaseRating < 0 || grant.BaseRating > authority.MaxSkillGroupRatingCreate
                 || grant.MemberSkillSourceIds is not { Count: > 0 }
                 || grant.SourceAnchorIds is not { Count: > 0 }
                 || !grant.MemberSkillSourceIds.OrderBy(id => id, StringComparer.Ordinal).SequenceEqual(
                     matches[0].MemberSkillSourceIds.OrderBy(id => id, StringComparer.Ordinal), StringComparer.Ordinal)
                 || !CharacterCreationSkillsDigest.EqualsFixedTime(grant.SkillsSourceDigest, authority.EffectiveSkillsInputsDigest)
-                || !groups.TryAdd(matches[0].GroupId, grant))
+                || !selectedGroups.Add(matches[0].GroupId))
                 return false;
+            // Zero-rated entries remain in the validated Priority choice plan,
+            // but do not create skill rows or consume/grant any skill points.
+            if (grant.BaseRating > 0)
+                groups.Add(matches[0].GroupId, grant);
         }
         return true;
     }
