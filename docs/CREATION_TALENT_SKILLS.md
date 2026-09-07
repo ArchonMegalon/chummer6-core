@@ -24,6 +24,15 @@ The normal preview, explicit confirmation, atomic save and receipt recovery
 rules are unchanged. A rehashed forged granted rating is not source authority.
 Character XML is not changed while confirming a Skills draft.
 
+Returning to Skills after saving another wizard step must remain editable.
+Skills receipts form a contiguous **Skills draft/hash chain**, not a contiguous
+global workspace-revision chain: a Magic save can legitimately sit between two
+Skills saves. Every individual receipt still advances exactly one workspace
+revision, the next Skills receipt cannot overlap an earlier one, and the atomic
+store checks the current workspace revision and auxiliary digest at commit.
+Cold reopen and retry preserve both domains' receipts; retrying an older command
+returns its historical receipt without restoring an older draft or writing again.
+
 ## Selection-only groups
 
 Canonical SR5 Priority D Aspected Magician requires one choice from Conjuring,

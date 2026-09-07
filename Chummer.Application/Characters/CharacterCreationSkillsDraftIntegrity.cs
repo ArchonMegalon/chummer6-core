@@ -310,7 +310,10 @@ public static class CharacterCreationSkillsDraftIntegrity
             return false;
         return receipts.Zip(receipts.Skip(1)).All(pair =>
             pair.First.ContentRevision < pair.Second.ContentRevision
-            && pair.Second.PreviousContentRevision == pair.First.ContentRevision
+            // Workspace revisions belong to every wizard, not just Skills.
+            // Other domains may commit between these two Skills receipts;
+            // Skills draft revisions and receipt hashes must remain contiguous.
+            && pair.Second.PreviousContentRevision >= pair.First.ContentRevision
             && pair.First.DraftRevision < long.MaxValue
             && pair.Second.DraftRevision == pair.First.DraftRevision + 1
             && CharacterCreationSkillsDigest.EqualsFixedTime(

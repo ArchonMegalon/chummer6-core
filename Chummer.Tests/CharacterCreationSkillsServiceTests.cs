@@ -314,6 +314,108 @@ public sealed class CharacterCreationSkillsServiceTests
         });
     }
 
+    [TestMethod]
+    public void Actual_skills_revisit_after_magic_preserves_gapped_receipts_and_cold_replay()
+    {
+        WithRealTalentSkills("Aspected Magician", (directory, store, resolver, service, id) =>
+        {
+            var initial = Load(service, id);
+            var language = initial.Authority.KnowledgeSkills.First(item => item.CanBeNativeLanguage);
+            var arcana = initial.Authority.ActiveSkills.Single(item => item.Name == "Arcana");
+            CharacterCreationSkillAllocation[] firstChoices =
+                [new(language.SourceSkillId, CharacterCreationSkillKinds.Knowledge, null, null, true),
+                    new(arcana.SourceSkillId, CharacterCreationSkillKinds.Active, 1, null, false)];
+            var firstPreview = service.Preview(new(initial.Binding, firstChoices, [])).Value!;
+            Assert.IsTrue(firstPreview.CanConfirm, string.Join(",", firstPreview.Blockers));
+            var firstCommand = new CharacterCreationSkillsConfirmRequest(firstPreview.Binding, firstChoices, [],
+                firstPreview.PreviewDigest, "skills-before-magic", true);
+            var firstResult = service.Confirm(firstCommand);
+            Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, firstResult.Outcome, string.Join(",", firstResult.Blockers));
+            var first = firstResult.Value!;
+
+            var magic = new CharacterCreationMagicResonanceService(store, resolver);
+            var magicState = magic.Load(new(id)).Value!;
+            var tradition = magicState.Authority.Traditions.First(item => item.IsEnabled);
+            var selections = new CharacterCreationMagicResonanceSelections(tradition.Identity, null, [], [], []);
+            var magicPreview = magic.Preview(new(magicState.Binding, selections)).Value!;
+            Assert.IsTrue(magicPreview.CanConfirm, string.Join(",", magicPreview.Blockers));
+            var magicSaved = magic.Confirm(new(magicPreview.Binding, selections, magicPreview.PreviewDigest,
+                "magic-between-skills", true));
+            Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, magicSaved.Outcome, string.Join(",", magicSaved.Blockers));
+            var beforeRevisit = store.Get(id).Value!;
+            var returning = Load(service, id);
+            Assert.IsTrue(returning.CanEdit, string.Join(",", returning.Blockers));
+            CharacterCreationSkillAllocation[] secondChoices = firstChoices.Select(item => item.SourceSkillId == arcana.SourceSkillId
+                ? item with { Rating = 2 } : item).ToArray();
+            var secondPreview = service.Preview(new(returning.Binding, secondChoices, [])).Value!;
+            Assert.IsTrue(secondPreview.CanConfirm, string.Join(",", secondPreview.Blockers));
+            var secondCommand = new CharacterCreationSkillsConfirmRequest(secondPreview.Binding, secondChoices, [],
+                secondPreview.PreviewDigest, "skills-after-magic", true);
+            var secondResult = service.Confirm(secondCommand);
+            Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, secondResult.Outcome, string.Join(",", secondResult.Blockers));
+            var second = secondResult.Value!;
+            Assert.IsGreaterThan(first.ContentRevision, second.PreviousContentRevision,
+                "The real Magic confirmation must sit between these Skills receipts.");
+            var coldStore = new FileWorkspaceStore(directory);
+            var coldService = new CharacterCreationSkillsService(coldStore, resolver);
+            var reopened = Load(coldService, id);
+            Assert.IsTrue(reopened.CanEdit, string.Join(",", reopened.Blockers));
+            Assert.IsTrue(CharacterCreationSkillsDraftIntegrity.IsValidStateProjection(reopened));
+            Assert.AreEqual(first.ReceiptDigest, coldService.Confirm(firstCommand).Value!.ReceiptDigest);
+            Assert.AreEqual(second.ReceiptDigest, coldService.Confirm(secondCommand).Value!.ReceiptDigest);
+            var after = coldStore.Get(id).Value!;
+            Assert.AreEqual(second.ContentRevision, after.ContentRevision);
+            Assert.AreEqual(beforeRevisit.Document.Content, after.Document.Content);
+            Assert.AreEqual(beforeRevisit.Document.AuxiliaryState.CharacterCreationMagicResonanceDraft!.DraftDigest,
+                after.Document.AuxiliaryState.CharacterCreationMagicResonanceDraft!.DraftDigest);
+            Assert.AreEqual(magicSaved.Value!.ReceiptDigest,
+                after.Document.AuxiliaryState.CharacterCreationMagicResonanceReceipts!.Single().ReceiptDigest);
+
+            var ledger = after.Document.AuxiliaryState.CharacterCreationSkillsReceipts!;
+            Assert.HasCount(2, ledger);
+            Assert.AreEqual(first.ReceiptDigest, ledger[0].ReceiptDigest);
+            Assert.AreEqual(second.ReceiptDigest, ledger[1].ReceiptDigest);
+            Assert.IsTrue(CharacterCreationSkillsDraftIntegrity.IsValidReceiptLedger(ledger, id, after.ContentRevision));
+            // Each rehashed receipt below is individually well formed. Only
+            // the per-domain history can detect its overlap or broken chain.
+            CharacterCreationSkillsReceipt[] brokenChains =
+            [
+                second with { PreviousContentRevision = first.PreviousContentRevision,
+                    ContentRevision = first.ContentRevision, SavedRevision = first.ContentRevision },
+                second with { PreviousContentRevision = first.PreviousContentRevision - 1,
+                    ContentRevision = first.PreviousContentRevision, SavedRevision = first.PreviousContentRevision },
+                second with { DraftRevision = first.DraftRevision },
+                second with { DraftRevision = second.DraftRevision + 1 },
+                second with { PreviousReceiptDigest = CharacterCreationSkillsDigest.ReceiptLedgerRootDigest },
+                second with { IdempotencyKeyDigest = first.IdempotencyKeyDigest }
+            ];
+            foreach (var broken in brokenChains)
+            {
+                var rehashed = broken with { ReceiptDigest = CharacterCreationSkillsDigest.ComputeReceipt(broken) };
+                Assert.IsTrue(CharacterCreationSkillsDigest.IsValidReceipt(rehashed, id, after.ContentRevision));
+                Assert.IsFalse(CharacterCreationSkillsDraftIntegrity.IsValidReceiptLedger([first, rehashed], id, after.ContentRevision));
+            }
+            var skippedWorkspaceRevision = second with { PreviousContentRevision = second.PreviousContentRevision - 1 };
+            skippedWorkspaceRevision = skippedWorkspaceRevision with
+                { ReceiptDigest = CharacterCreationSkillsDigest.ComputeReceipt(skippedWorkspaceRevision) };
+            Assert.IsFalse(CharacterCreationSkillsDraftIntegrity.IsValidReceiptLedger(
+                [first, skippedWorkspaceRevision], id, after.ContentRevision),
+                "An individual mutation must still advance exactly one global workspace revision.");
+            Assert.IsFalse(CharacterCreationSkillsDraftIntegrity.IsValidReceiptLedger(ledger, id, after.ContentRevision - 1));
+
+            Assert.AreEqual(CharacterCreationFoundationOutcomes.Conflict,
+                coldService.Confirm(firstCommand with { Allocations = secondChoices }).Outcome);
+            Assert.AreNotEqual(CharacterCreationFoundationOutcomes.Success,
+                coldService.Confirm(secondCommand with { ExplicitlyConfirmed = false }).Outcome);
+            Assert.AreNotEqual(CharacterCreationFoundationOutcomes.Success,
+                coldService.Confirm(firstCommand with { IdempotencyKey = "new-command-with-stale-binding" }).Outcome);
+            var afterRejectedCalls = coldStore.Get(id).Value!;
+            Assert.AreEqual(after.ContentRevision, afterRejectedCalls.ContentRevision);
+            Assert.AreEqual(after.Document.AuxiliaryStateDigest, afterRejectedCalls.Document.AuxiliaryStateDigest);
+            Assert.AreEqual(after.Document.Content, afterRejectedCalls.Document.Content);
+        });
+    }
+
     private static void WithRealTalentSkills(string talentValue,
         Action<string, FileWorkspaceStore, ICharacterSourceDataResolver,
             ICharacterCreationSkillsService, CharacterWorkspaceId> action)
