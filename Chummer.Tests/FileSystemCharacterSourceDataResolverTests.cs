@@ -580,7 +580,7 @@ public sealed class FileSystemCharacterSourceDataResolverTests
     }
 
     [TestMethod]
-    public void Creation_source_context_opens_and_parses_each_physical_input_at_most_once()
+    public void Creation_source_context_captures_and_parses_once_but_revalidates_content_bytes()
     {
         string coreRoot = FindCoreRoot();
         var overlays = new FileSystemContentOverlayCatalogService(coreRoot, coreRoot, null);
@@ -608,16 +608,10 @@ public sealed class FileSystemCharacterSourceDataResolverTests
         Assert.IsTrue(diagnostics.PhysicalReadCount > 0);
         Assert.IsTrue(diagnostics.PhysicalXmlParseCount > 0);
         Assert.IsTrue(diagnostics.CacheHitCount > 0);
-        if (OperatingSystem.IsLinux() || OperatingSystem.IsAndroid())
-        {
-            Assert.AreEqual(0, diagnostics.ValidationReadCount);
-            Assert.AreEqual(0L, diagnostics.ValidationBytesRead);
-        }
-        else
-        {
-            Assert.IsTrue(diagnostics.ValidationReadCount > 0);
-            Assert.IsTrue(diagnostics.ValidationBytesRead > 0L);
-        }
+        // statx ctime is a timestamp, not a collision-free write generation.
+        // Unchanged metadata must never exempt source bytes from validation.
+        Assert.IsTrue(diagnostics.ValidationReadCount > 0);
+        Assert.IsTrue(diagnostics.ValidationBytesRead > 0L);
         Assert.IsTrue(
             diagnostics.PhysicalReadsByPath.Values.All(count => count == 1),
             string.Join(",", diagnostics.PhysicalReadsByPath.Select(pair => $"{pair.Key}={pair.Value}")));
@@ -1124,6 +1118,11 @@ public sealed class FileSystemCharacterSourceDataResolverTests
                 out _));
             int captureReads = resolver.LastSourceInputSnapshotDiagnostics!.PhysicalReadCount;
             int captureParses = resolver.LastSourceInputSnapshotDiagnostics.PhysicalXmlParseCount;
+            int validationReads = resolver.LastSourceInputSnapshotDiagnostics.ValidationReadCount;
+            Assert.IsTrue(context.TryResolveCreationSkillsAuthority(out var unchanged));
+            Assert.IsTrue(unchanged.IsAuthoritative, string.Join(",", unchanged.Blockers));
+            Assert.IsTrue(resolver.LastSourceInputSnapshotDiagnostics.ValidationReadCount > validationReads,
+                "Even unchanged native metadata needs byte validation; coarse ctime can repeat between writes.");
             DateTime capturedWriteTime = File.GetLastWriteTimeUtc(skillsPath);
             string original = File.ReadAllText(skillsPath);
             string tampered = original.Replace("<name>Running</name>", "<name>Runnong</name>", StringComparison.Ordinal);

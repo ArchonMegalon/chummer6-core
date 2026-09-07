@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Buffers.Binary;
 using System.Diagnostics;
 using System.Globalization;
@@ -105,10 +106,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 _afterSourceBytesRead?.Invoke(identity);
                 FileSnapshot after = CaptureFileSnapshot(identity);
                 if (!HasStableIdentity(before, after)
-                    || (_afterSourceBytesRead is not null
-                        || !before.ChangeIdentity.Available
-                        || !after.ChangeIdentity.Available)
-                    && !ValidateCapturedBytes(identity, bytes))
+                    || !ValidateCapturedBytes(identity, bytes))
                 {
                     throw new IOException($"Source input changed while it was captured: {identity}");
                 }
@@ -340,9 +338,11 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 try
                 {
                     FileSnapshot current = CaptureFileSnapshot(path);
+                    // Even statx ctime can repeat for multiple writes within a
+                    // filesystem clock tick. Metadata detects obvious drift;
+                    // equality is not evidence that cached bytes are unchanged.
                     if (!HasStableIdentity(snapshot, current)
-                        || (!snapshot.ChangeIdentity.Available || !current.ChangeIdentity.Available)
-                        && !ValidateCurrentContent(path))
+                        || !ValidateCurrentContent(path))
                     {
                         _driftedFiles.Add(path);
                     }
@@ -380,13 +380,8 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             }
         }
 
-        private bool ValidateCapturedBytes(string path, byte[] captured)
-        {
-            byte[] current = ReadValidationBytes(path);
-            return CryptographicOperations.FixedTimeEquals(
-                SHA256.HashData(captured),
-                SHA256.HashData(current));
-        }
+        private bool ValidateCapturedBytes(string path, byte[] captured) =>
+            ValidateContentDigest(path, captured.LongLength, ComputeContentDigest(captured));
 
         private bool ValidateCurrentContent(string path)
         {
@@ -396,19 +391,52 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 _contentDigests.Add(path, expected);
             }
 
-            FileSnapshot before = CaptureFileSnapshot(path);
-            byte[] current = ReadValidationBytes(path);
-            FileSnapshot after = CaptureFileSnapshot(path);
-            return HasStableIdentity(before, after)
-                   && string.Equals(expected, ComputeContentDigest(current), StringComparison.Ordinal);
+            return ValidateContentDigest(path, _bytes[path].LongLength, expected);
         }
 
-        private byte[] ReadValidationBytes(string path)
+        private bool ValidateContentDigest(string path, long expectedLength, string expectedDigest)
         {
-            byte[] bytes = File.ReadAllBytes(path);
+            FileSnapshot before = CaptureFileSnapshot(path);
+            // FileInfo.Length may describe the symlink itself. The bounded
+            // stream below checks the actual content length; link/target
+            // identities are independently compared before and after reading.
+            string? digest = ReadValidationDigest(path, expectedLength);
+            FileSnapshot after = CaptureFileSnapshot(path);
+            return HasStableIdentity(before, after)
+                   && string.Equals(expectedDigest, digest, StringComparison.Ordinal);
+        }
+
+        private string? ReadValidationDigest(string path, long expectedLength)
+        {
+            // Reuse parsed snapshots; validation is streaming and bounded to
+            // the captured length plus one byte, even if a writer keeps growing
+            // the file. Do not allocate another full XML byte array per lookup.
+            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read,
+                FileShare.ReadWrite | FileShare.Delete, 4096, FileOptions.SequentialScan);
+            using IncrementalHash hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+            byte[] buffer = ArrayPool<byte>.Shared.Rent(64 * 1024);
+            long total = 0;
             _validationReadCount++;
-            _validationBytesRead += bytes.LongLength;
-            return bytes;
+            try
+            {
+                while (total <= expectedLength)
+                {
+                    int requested = (int)Math.Min(buffer.Length, expectedLength - total + 1);
+                    int count = stream.Read(buffer, 0, requested);
+                    if (count == 0)
+                        break;
+                    total += count;
+                    _validationBytesRead += count;
+                    hash.AppendData(buffer, 0, count);
+                }
+                return total == expectedLength
+                    ? Convert.ToHexString(hash.GetHashAndReset()).ToLowerInvariant()
+                    : null;
+            }
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(buffer, clearArray: true);
+            }
         }
 
         private static string ComputeContentDigest(byte[] bytes)
