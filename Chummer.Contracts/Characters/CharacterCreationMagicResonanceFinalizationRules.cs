@@ -381,7 +381,8 @@ public static class CharacterCreationMagicResonanceFinalizationRules
                 expectedRoot,
                 out XElement? source)
             || source is null
-            || !string.Equals(Read(source, "id"), option.Identity.SourceId, StringComparison.Ordinal)
+            || !Guid.TryParseExact(Read(source, "id"), "D", out Guid sourceId)
+            || !string.Equals(sourceId.ToString("D"), option.Identity.SourceId, StringComparison.Ordinal)
             || !string.Equals(Read(source, "name"), option.Name, StringComparison.Ordinal)
             || !string.Equals(Read(source, "source"), option.SourceBook, StringComparison.Ordinal)
             || !string.Equals(Read(source, "page"), option.Page, StringComparison.Ordinal)
@@ -404,7 +405,10 @@ public static class CharacterCreationMagicResonanceFinalizationRules
             talent.CanonicalSourceXml,
             talent.CanonicalSourceXmlDigest,
             talent.SourceAnchorIds,
-            string.Empty);
+            string.Empty)
+        {
+            GrantedQualitySources = talent.GrantedQualitySources
+        };
         return candidate with { ProjectionDigest = ComputeTalentProjectionDigest(candidate) };
     }
 
@@ -481,6 +485,7 @@ public static class CharacterCreationMagicResonanceFinalizationRules
     private static bool HasSupportedTalentPayload(
         CharacterCreationMagicResonanceTalentOption talent) =>
         HasValidTalentPayload(talent)
+        && CharacterCreationTalentQualitySourceRules.MatchesTalent(talent.CanonicalSourceXml, talent.GrantedQualitySources)
         && TryParseCanonicalPayload(
             talent.CanonicalSourceXml,
             talent.CanonicalSourceXmlDigest,
@@ -614,7 +619,9 @@ public static class CharacterCreationMagicResonanceFinalizationRules
             case CharacterCreationMagicResonanceKinds.AdeptPower:
                 if (!decimal.TryParse(Read(source, "points"), NumberStyles.Number,
                         CultureInfo.InvariantCulture, out decimal points)
-                    || points <= 0m)
+                    || points < 0m
+                    || (points == 0m && (option.IsEnabled || !option.Blockers.Contains(
+                        CharacterCreationMagicResonanceBlockers.OptionSemanticsUnsupported, StringComparer.Ordinal))))
                     return false;
                 XElement[] levelsElements = source.Elements().Where(element =>
                         string.Equals(element.Name.LocalName, "levels", StringComparison.Ordinal))

@@ -134,6 +134,8 @@ public sealed class CharacterCreationMagicResonanceServiceTests
             CharacterCreationMagicResonanceDraft confirmed = cold.PendingDraft!;
             CharacterCreationAttributesDraft confirmedAttributes = cold.AttributesDraft!;
             CharacterCreationMagicResonanceFinalizationContribution contribution = confirmed.FinalizationContribution!;
+            Assert.AreEqual("Adept", contribution.Talent.GrantedQualitySources!.Single().Name);
+            Assert.IsTrue(contribution.Talent.GrantedQualitySources.Single().CanonicalSourceXml.Contains("<limitspellcategory>Rituals</limitspellcategory>", StringComparison.Ordinal));
             Assert.IsTrue(CharacterCreationMagicResonanceFinalizationRules.IsValidContribution(
                 contribution, confirmed, authority, confirmedAttributes));
             Assert.IsFalse(CharacterCreationMagicResonanceFinalizationRules.IsValidContribution(
@@ -409,6 +411,9 @@ public sealed class CharacterCreationMagicResonanceServiceTests
         Assert.AreEqual(SpellId, contribution.Spells.Single().Identity.SourceId);
         Assert.AreEqual(authority.Spells.Single().CanonicalSourceXml,
             contribution.Spells.Single().CanonicalSourceXml);
+        Assert.IsNotNull(contribution.Talent.GrantedQualitySources);
+        Assert.AreEqual(authority.Talents.Single().GrantedQualitySources!.Single().CanonicalSourceXml,
+            contribution.Talent.GrantedQualitySources.Single().CanonicalSourceXml);
 
         var budget = new CharacterCreationMagicResonanceBudgetState(
             "test", 0m, 0m, 0m, []);
@@ -450,6 +455,27 @@ public sealed class CharacterCreationMagicResonanceServiceTests
         };
         Assert.IsTrue(CharacterCreationMagicResonanceFinalizationRules.IsValidContribution(
             contribution, draft, authority));
+
+        var originalQuality = contribution.Talent.GrantedQualitySources!.Single();
+        string changedXml = originalQuality.CanonicalSourceXml.Replace("<name>MAG</name>", "<name>DEP</name>", StringComparison.Ordinal);
+        Assert.AreNotEqual(originalQuality.CanonicalSourceXml, changedXml);
+        var changedQuality = originalQuality with
+        {
+            CanonicalSourceXml = changedXml,
+            CanonicalSourceXmlDigest = CharacterCreationMagicResonanceDigest.ComputeUtf8(changedXml),
+            SourceNodeDigest = CharacterCreationTalentQualitySourceRules.ComputeSourceNodeDigest(
+                originalQuality.EffectiveSourceDigest, originalQuality.SourceId, changedXml)
+        };
+        // Even an internally consistent self-rehashed source is not the independent current authority.
+        Assert.IsTrue(CharacterCreationTalentQualitySourceRules.IsValidSource(changedQuality));
+        foreach (var invalidSources in new IReadOnlyList<CharacterCreationTalentQualitySource>?[] { null, [], [changedQuality] })
+        {
+            var alteredTalent = contribution.Talent with { GrantedQualitySources = invalidSources, ProjectionDigest = string.Empty };
+            alteredTalent = alteredTalent with { ProjectionDigest = CharacterCreationMagicResonanceFinalizationRules.ComputeTalentProjectionDigest(alteredTalent) };
+            var altered = contribution with { Talent = alteredTalent, ContributionDigest = string.Empty };
+            altered = altered with { ContributionDigest = CharacterCreationMagicResonanceFinalizationRules.ComputeContributionDigest(altered) };
+            Assert.IsFalse(CharacterCreationMagicResonanceFinalizationRules.IsValidContribution(altered, draft, authority));
+        }
 
         CharacterCreationMagicResonanceOptionFinalizationSource tamperedSpell =
             contribution.Spells.Single() with { Name = "Acid Bolt", ProjectionDigest = string.Empty };
@@ -543,7 +569,8 @@ public sealed class CharacterCreationMagicResonanceServiceTests
             CanonicalSourceXml = XElement.Parse(sourceTalent.RawTalentNode)
                 .ToString(SaveOptions.DisableFormatting),
             CanonicalSourceXmlDigest = CharacterCreationMagicResonanceDigest.ComputeUtf8(
-                XElement.Parse(sourceTalent.RawTalentNode).ToString(SaveOptions.DisableFormatting))
+                XElement.Parse(sourceTalent.RawTalentNode).ToString(SaveOptions.DisableFormatting)),
+            GrantedQualitySources = CreateTalentQualitySources(sourceTalent.RawTalentNode)
         };
         const string traditionXml = "<tradition><id>30000000-0000-0000-0000-000000000001</id>"
                                       + "<name>Hermetic</name><drain>{WIL} + {LOG}</drain>"
@@ -626,5 +653,27 @@ public sealed class CharacterCreationMagicResonanceServiceTests
         {
             AuthorityDigest = CharacterCreationMagicResonanceDigest.Compute(authority)
         };
+    }
+
+    private static CharacterCreationTalentQualitySource[] CreateTalentQualitySources(string rawTalent)
+    {
+        DirectoryInfo? root = new(AppDomain.CurrentDomain.BaseDirectory);
+        while (root is not null && !File.Exists(Path.Combine(root.FullName, "Chummer", "data", "qualities.xml")))
+            root = root.Parent;
+        Assert.IsNotNull(root);
+        string path = Path.Combine(root.FullName, "Chummer", "data", "qualities.xml");
+        string digest = CharacterCreationMagicResonanceDigest.ComputeUtf8(File.ReadAllText(path));
+        XElement[] rows = XDocument.Load(path).Root!.Element("qualities")!.Elements("quality").ToArray();
+        Assert.IsTrue(CharacterCreationTalentQualitySourceRules.TryReadReferences(rawTalent, out var references));
+        return references.Select(reference =>
+        {
+            XElement row = rows.Single(item => item.Element("name")!.Value == reference.Reference);
+            string id = row.Element("id")!.Value;
+            string xml = row.ToString(SaveOptions.DisableFormatting);
+            return new CharacterCreationTalentQualitySource(reference.Reference, reference.Selection,
+                id, row.Element("name")!.Value, row.Element("source")!.Value, row.Element("page")!.Value,
+                digest, CharacterCreationTalentQualitySourceRules.ComputeSourceNodeDigest(digest, id, xml),
+                xml, CharacterCreationMagicResonanceDigest.ComputeUtf8(xml), [$"qualities.xml#quality:{id}"]);
+        }).ToArray();
     }
 }

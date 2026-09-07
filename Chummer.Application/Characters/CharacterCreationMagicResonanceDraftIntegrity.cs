@@ -195,6 +195,8 @@ public static class CharacterCreationMagicResonanceDraftIntegrity
         && item.AdeptPowerPointBudget >= 0m
         && CharacterCreationMagicResonanceDigest.IsCanonical(item.SourceNodeDigest)
         && CharacterCreationMagicResonanceFinalizationRules.HasValidTalentPayload(item)
+        && (!item.IsEnabled || CharacterCreationTalentQualitySourceRules.MatchesTalent(
+            item.CanonicalSourceXml, item.GrantedQualitySources))
         && IsCanonicalSet(item.SourceAnchorIds)
         && item.Blockers is not null
         && item.IsEnabled == (item.Blockers.Count == 0);

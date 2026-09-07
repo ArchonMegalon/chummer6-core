@@ -23,6 +23,7 @@
     <Compile Include="CharacterCreationAttributesServiceTests.cs" />
     <Compile Include="CharacterCreationSkillsServiceTests.cs" />
     <Compile Include="CharacterCreationMagicResonanceServiceTests.cs" />
+    <Compile Include="CharacterCreationMagicResonanceSourceResolverTests.cs" />
     <Compile Include="CharacterCreationQualitiesRulesTests.cs" />
     <Compile Include="CharacterCreationResourcesServiceTests.cs" />
     <Compile Include="CharacterCreationGearServiceTests.cs" />

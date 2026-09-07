@@ -3685,6 +3685,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 || !TryComputeEffectiveInputDigest(_catalog, "powers.xml", out string powersDigest)
                 || !TryComputeEffectiveInputDigest(_catalog, "spells.xml", out string spellsDigest)
                 || !TryComputeEffectiveInputDigest(_catalog, "complexforms.xml", out string complexFormsDigest)
+                || !TryComputeEffectiveInputDigest(_catalog, "qualities.xml", out string qualitiesDigest)
                 || !TryComputeSelectedCustomDataInputsDigest(
                     _customDirectories, out string customDataInputsDigest)
                 || !TryEnumerateTargets("metatypes.xml", ["metatypes"], "metatype", out XElement[] metatypes)
@@ -3692,7 +3693,8 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 || !TryEnumerateTargets("streams.xml", ["traditions"], "tradition", out XElement[] streams)
                 || !TryEnumerateTargets("powers.xml", ["powers"], "power", out XElement[] powers)
                 || !TryEnumerateTargets("spells.xml", ["spells"], "spell", out XElement[] spells)
-                || !TryEnumerateTargets("complexforms.xml", ["complexforms"], "complexform", out XElement[] forms))
+                || !TryEnumerateTargets("complexforms.xml", ["complexforms"], "complexform", out XElement[] forms)
+                || !TryEnumerateTargets("qualities.xml", ["qualities"], "quality", out XElement[] qualities))
             {
                 return false;
             }
@@ -3725,6 +3727,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 powersDigest,
                 spellsDigest,
                 complexFormsDigest,
+                qualitiesDigest,
                 customDataInputsDigest,
                 _enabledSourcebooks.OrderBy(item => item, StringComparer.OrdinalIgnoreCase).ToArray(),
                 [
@@ -3736,6 +3739,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                     "powers.xml",
                     "spells.xml",
                     "complexforms.xml",
+                    "qualities.xml",
                     .. _customDirectories.Select(directory => $"customdata:{directory.Name}")
                 ],
                 blockers);
@@ -3746,6 +3750,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 powers,
                 spells,
                 forms,
+                qualities,
                 projectionContext);
             return true;
         }

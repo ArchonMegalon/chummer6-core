@@ -139,7 +139,27 @@ public sealed record CharacterCreationMagicResonanceTalentOption(
     public string CanonicalSourceXml { get; init; } = string.Empty;
 
     public string CanonicalSourceXmlDigest { get; init; } = string.Empty;
+
+    /// <summary>Effective quality definitions referenced by this talent, in source order.
+    /// Null denotes a historical, unresolved payload; it cannot authorize finalization.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<CharacterCreationTalentQualitySource>? GrantedQualitySources { get; init; }
 }
+
+/// <summary>Source evidence, not a saved quality or an executable improvement plan.
+/// Bonus, prerequisite and nested grant semantics must still be projected by Core.</summary>
+public sealed record CharacterCreationTalentQualitySource(
+    string Reference,
+    string ForcedSelection,
+    string SourceId,
+    string Name,
+    string SourceBook,
+    string Page,
+    string EffectiveSourceDigest,
+    string SourceNodeDigest,
+    string CanonicalSourceXml,
+    string CanonicalSourceXmlDigest,
+    IReadOnlyList<string> SourceAnchorIds);
 
 public sealed record CharacterCreationMagicResonanceCatalogOption(
     string Schema,
@@ -229,7 +249,11 @@ public sealed record CharacterCreationMagicResonanceTalentFinalizationSource(
     string CanonicalSourceXml,
     string CanonicalSourceXmlDigest,
     IReadOnlyList<string> SourceAnchorIds,
-    string ProjectionDigest);
+    string ProjectionDigest)
+{
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<CharacterCreationTalentQualitySource>? GrantedQualitySources { get; init; }
+}
 
 public sealed record CharacterCreationMagicResonanceOptionFinalizationSource(
     string Schema,
