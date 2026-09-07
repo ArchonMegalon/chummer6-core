@@ -54,8 +54,8 @@ class RuntimePackageLockTests(unittest.TestCase):
         )
 
     def test_next_wave_candidate_is_bound_to_reviewed_semantic_commit(self) -> None:
-        self.assertEqual("07a66baa25fb5c978097bd619591abd872613c06", runtime.SOURCE_COMMIT)
-        self.assertEqual("0.0.0-packageplane.candidate.sh07a66baa25fb5", runtime.PACKAGE_VERSION)
+        self.assertEqual("b7297a346fe810a98ac1c632969dcce245370876", runtime.SOURCE_COMMIT)
+        self.assertEqual("0.0.0-packageplane.candidate.shb7297a346fe81", runtime.PACKAGE_VERSION)
 
     def test_finalization_members_are_bound_to_runtime_source(self) -> None:
         self.assertEqual(4, len(runtime.CREATION_FINALIZATION_AUTHORITY_PATHS))
@@ -1215,6 +1215,16 @@ class SdkArchiveAuthorityTests(unittest.TestCase):
 
 
 class RuntimePackageWorkflowTests(unittest.TestCase):
+    def test_bootstrap_freshness_runs_in_the_affected_authority_filter(self) -> None:
+        workflow = (REPO_ROOT / ".github/workflows/package-plane.yml").read_text(encoding="utf-8")
+        affected_step = workflow.split("- name: Build and run affected authority tests", 1)[1]
+        affected_step = affected_step.split("- name:", 1)[0]
+        self.assertIn("dotnet test Chummer.Tests/Chummer.Tests.csproj", affected_step)
+        self.assertIn("FullyQualifiedName~CharacterCreationBootstrapServiceTests", affected_step)
+        self.assertIn("FullyQualifiedName~CharacterCreationFinalizationServiceTests", affected_step)
+        self.assertIn("FullyQualifiedName~WorkspaceCharacterAfterRunRewardTests", affected_step)
+        self.assertIn("FullyQualifiedName~CharacterAfterRunSettlementRulesTests", affected_step)
+
     def test_late_receipt_uses_the_same_locked_authority_as_packing(self) -> None:
         verifier = (REPO_ROOT / "scripts/ai/verify-no-siblings-package-plane.sh").read_text(encoding="utf-8")
         self.assertIn(f'candidate_version="{runtime.PACKAGE_VERSION}"', verifier)
