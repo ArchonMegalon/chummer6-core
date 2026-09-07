@@ -5,6 +5,7 @@ using System.IO;
 using System.Xml.Linq;
 using Chummer.Application.Characters;
 using Chummer.Application.Content;
+using Chummer.Application.Workspaces;
 using Chummer.Contracts.Rulesets;
 using Chummer.Contracts.Characters;
 using Chummer.Contracts.Workspaces;
@@ -118,6 +119,101 @@ public sealed class FileSystemCharacterSourceDataResolverTests
         Assert.IsFalse(settings.UseCalculatedPublicAwareness);
         StringAssert.Contains(rawRuleState, SettingsId);
         Assert.IsFalse(string.IsNullOrWhiteSpace(rawRuleState));
+    }
+
+    [TestMethod]
+    public void Career_reputation_reads_real_profile_and_saved_document_without_defaulting_missing_policy()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            WriteBaseContent(root, string.Empty);
+            string path = Path.Combine(root, "data", "settings.xml");
+            string profile = File.ReadAllText(path);
+            File.WriteAllText(path, profile.Replace("</setting>",
+                "<usecalculatedpublicawareness>True</usecalculatedpublicawareness></setting>", StringComparison.Ordinal));
+            var resolver = new FileSystemCharacterSourceDataResolver(new FileSystemContentOverlayCatalogService(root, root, null));
+            var saved = new WorkspaceStoredDocument(new CharacterWorkspaceId("real-reputation-profile"),
+                new WorkspaceDocument(CharacterXml("""
+                    <created>True</created><streetcred>1</streetcred><notoriety>2</notoriety>
+                    <publicawareness>1</publicawareness><burntstreetcred>0</burntstreetcred>
+                    <expenses><expense><type>Karma</type><amount>30</amount><refund>False</refund></expense></expenses>
+                    <improvements/>
+                    """), "sr5"), 7, 7, DateTimeOffset.UnixEpoch);
+            string storePath = Path.Combine(root, "workspaces");
+            var store = new FileWorkspaceStore(storePath);
+            Assert.IsTrue(store.CreateWorkspaceDocument(saved.Id, saved.Document).Success);
+            Assert.IsTrue(store.SaveCheckpoint(saved.Id, 1).Success);
+            saved = new FileWorkspaceStore(storePath).Get(saved.Id).Value!;
+            var beforeFiles = Directory.GetFiles(storePath, "*", SearchOption.AllDirectories)
+                .ToDictionary(file => file, File.ReadAllBytes, StringComparer.Ordinal);
+            Assert.IsTrue(CharacterCareerReputationProjector.TryRead(saved, resolver, out var calculated, out var error), error);
+            Assert.AreEqual(30, calculated!.Reputation.Inputs.CareerKarma);
+            Assert.AreEqual(3, calculated.Reputation.TotalPublicAwareness);
+            File.WriteAllText(path, profile.Replace("</setting>",
+                "<usecalculatedpublicawareness>False</usecalculatedpublicawareness></setting>", StringComparison.Ordinal));
+            Assert.IsTrue(CharacterCareerReputationProjector.TryRead(saved, resolver, out var manual, out error), error);
+            Assert.AreEqual(1, manual!.Reputation.TotalPublicAwareness);
+            Assert.AreNotEqual(calculated.RuleStateDigest, manual.RuleStateDigest);
+            Assert.AreEqual(calculated.SourceDigest, manual.SourceDigest);
+            File.WriteAllText(path, profile);
+            Assert.IsFalse(CharacterCareerReputationProjector.TryRead(saved, resolver, out var unavailable, out error));
+            Assert.IsNull(unavailable);
+            Assert.AreEqual("reputation_source_unavailable", error);
+            foreach (var file in beforeFiles)
+                CollectionAssert.AreEqual(file.Value, File.ReadAllBytes(file.Key), "Projection must not rewrite the saved workspace.");
+            Assert.AreEqual(beforeFiles.Count, Directory.GetFiles(storePath, "*", SearchOption.AllDirectories).Length);
+            Assert.AreEqual(1L, new FileWorkspaceStore(storePath).Get(saved.Id).Value!.ContentRevision);
+        }
+        finally { DeleteTempDirectory(root); }
+    }
+
+    [TestMethod]
+    public void Saved_after_run_reward_flows_into_reputation_and_burn_preview_without_recredit_or_mutation()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            WriteBaseContent(root, string.Empty);
+            string profilePath = Path.Combine(root, "data", "settings.xml");
+            File.WriteAllText(profilePath, File.ReadAllText(profilePath).Replace("</setting>",
+                "<usecalculatedpublicawareness>True</usecalculatedpublicawareness></setting>", StringComparison.Ordinal));
+            string storePath = Path.Combine(root, "reward-workspaces");
+            var store = new FileWorkspaceStore(storePath);
+            var id = new CharacterWorkspaceId("reputation-after-reward");
+            var document = new WorkspaceDocument(CharacterXml("""
+                <created>True</created><karma>100</karma><nuyen>1000</nuyen>
+                <streetcred>1</streetcred><notoriety>2</notoriety><publicawareness>1</publicawareness>
+                <burntstreetcred>0</burntstreetcred><expenses/><improvements/><notes>Preserve runner</notes>
+                """), "sr5");
+            Assert.IsTrue(store.CreateWorkspaceDocument(id, document).Success);
+            Assert.IsTrue(store.SaveCheckpoint(id, 1).Success);
+            var rewards = new WorkspaceCharacterAfterRunRewardService(store);
+            var preview = rewards.Preview(new CharacterAfterRunRewardPreviewRequest(id, Guid.NewGuid(), Guid.NewGuid(),
+                30, 12500, new DateTime(2078, 9, 7, 18, 0, 0), "Completed run"));
+            Assert.AreEqual(CharacterAfterRunRewardOutcome.Available, preview.Outcome, preview.Error);
+            var command = preview.Preview!.Command with { ExplicitlyConfirmed = true };
+            Assert.AreEqual(CharacterAfterRunRewardOutcome.Applied, rewards.Commit(command).Outcome);
+
+            var saved = new FileWorkspaceStore(storePath).Get(id).Value!;
+            var resolver = new FileSystemCharacterSourceDataResolver(new FileSystemContentOverlayCatalogService(root, root, null));
+            string before = System.Text.Json.JsonSerializer.Serialize(saved);
+            Assert.IsTrue(CharacterCareerReputationProjector.TryRead(saved, resolver, out var reputation, out var error), error);
+            Assert.AreEqual(30, reputation!.Reputation.Inputs.CareerKarma);
+            Assert.AreEqual(130, rewards.Read(id).Snapshot!.AvailableKarma);
+            Assert.AreEqual(4, reputation.Reputation.TotalStreetCred);
+            Assert.AreEqual(3, reputation.Reputation.TotalPublicAwareness);
+            Assert.IsTrue(CharacterCareerReputationRules.TryQuoteBurnStreetCred(reputation.Reputation.Inputs, out var burn));
+            Assert.AreEqual(2, burn!.After.TotalStreetCred);
+            Assert.AreEqual(1, burn.After.TotalNotoriety);
+            Assert.AreEqual(2, burn.After.TotalPublicAwareness);
+            var coldRewards = new WorkspaceCharacterAfterRunRewardService(new FileWorkspaceStore(storePath));
+            Assert.AreEqual(CharacterAfterRunRewardOutcome.Replayed, coldRewards.Commit(command).Outcome);
+            Assert.AreEqual(before, System.Text.Json.JsonSerializer.Serialize(new FileWorkspaceStore(storePath).Get(id).Value));
+            Assert.AreEqual(1, saved.Document.AuxiliaryState.CharacterAfterRunRewardReceipts!.Count);
+            Assert.AreEqual(2L, saved.ContentRevision);
+        }
+        finally { DeleteTempDirectory(root); }
     }
 
     [DataRow("<usecalculatedpublicawareness>True</usecalculatedpublicawareness>", true, true)]
