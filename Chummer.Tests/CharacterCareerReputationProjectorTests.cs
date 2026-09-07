@@ -69,6 +69,21 @@ public sealed class CharacterCareerReputationProjectorTests
     }
 
     [TestMethod]
+    public void Saved_group_and_unique_identity_is_not_trimmed_and_condition_matching_remains_exact()
+    {
+        var root = Root();
+        root.Element("improvements")!.Add(Improvement("StreetCred", "2", unique: "same", name: "runner"),
+            Improvement("StreetCred", "3", unique: "same", name: " runner "),
+            Improvement("StreetCred", "4", unique: "same ", name: "runner"),
+            Improvement("StreetCred", "100", condition: " career "));
+        var snapshot = Read(root);
+        Assert.AreEqual(9, snapshot.Reputation.Inputs.StreetCredImprovement);
+        Assert.AreEqual(" runner ", snapshot.Improvements[1].ImprovedName);
+        Assert.AreEqual("same ", snapshot.Improvements[2].UniqueName);
+        Assert.IsFalse(snapshot.Improvements[3].Applicable);
+    }
+
+    [TestMethod]
     [DataRow("precedence0", 8)]
     [DataRow("precedence1", 12)]
     public void Precedence_replaces_ordinary_sum_only_if_higher_and_excludes_other_unique_groups(string kind, int expected)

@@ -171,8 +171,9 @@ public static class CharacterCareerReputationProjector
             // but malformed/duplicate present values never invoke defaults.
             bool enabled = ReadInteger(row, "enabled", 1) > 0;
             bool addToRating = ReadInteger(row, "addtorating", 0) > 0;
-            string condition = Scalar(row, "condition", "");
-            result.Add(new(index, type, Scalar(row, "improvedname", ""), Scalar(row, "unique", ""),
+            string condition = Scalar(row, "condition", "", preserveWhitespace: true);
+            result.Add(new(index, type, Scalar(row, "improvedname", "", preserveWhitespace: true),
+                Scalar(row, "unique", "", preserveWhitespace: true),
                 ReadDecimal(row, "val"), ReadBoolean(row, "custom", false),
                 enabled && !addToRating && condition is "" or "career"));
         }
@@ -274,13 +275,13 @@ public static class CharacterCareerReputationProjector
         return matches.SingleOrDefault();
     }
 
-    private static string Scalar(XElement parent, string name, string? absent = null)
+    private static string Scalar(XElement parent, string name, string? absent = null, bool preserveWhitespace = false)
     {
         XElement? child = Child(parent, name);
         if (child is null) return absent ?? throw Invalid();
         if (child.HasAttributes || child.HasElements) throw Invalid();
         string value = child.Value;
-        if (!string.Equals(value, value.Trim(), StringComparison.Ordinal)) throw Invalid();
+        if (!preserveWhitespace && !string.Equals(value, value.Trim(), StringComparison.Ordinal)) throw Invalid();
         return value;
     }
 

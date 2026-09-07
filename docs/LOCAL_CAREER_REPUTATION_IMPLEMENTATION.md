@@ -48,7 +48,9 @@ profile twice and rejects observed drift; this is not a source reservation.
   amounts count only when explicitly forced career-visible. Available Karma and
   print/export totals are not used.
 - Relevant improvements use enabled and add-to-rating numeric flags, the exact
-  empty/`career` condition, and ordinal improved-name groups. Normal and custom
+  empty/`career` condition, and ordinal improved-name groups. Saved names and
+  unique keys retain their exact whitespace; conditions are never trimmed into
+  applicability. Normal and custom
   partitions stay separate. Ordinary values sum; unique names select the first
   highest row; normal `precedence0`, `precedence1`, and `precedence-1` preserve the
   pinned winner/stack/tie behavior. `customgroup` is a display group, not another
