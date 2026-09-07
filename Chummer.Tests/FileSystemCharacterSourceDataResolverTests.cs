@@ -1951,8 +1951,15 @@ public sealed class FileSystemCharacterSourceDataResolverTests
                 && option.Rank == "D")
             .TalentOptions.Single(option => option.Value == "Aspected Magician");
         Assert.AreEqual(0, aspectedD.SkillGroupGrant!.BaseRating);
-        Assert.IsFalse(aspectedD.IsEnabled,
-            "Grant authority must not make the remaining unsupported Talent ledgers writable.");
+        Assert.AreEqual(1, aspectedD.SkillGroupGrant.Quantity);
+        Assert.IsTrue(aspectedD.SkillGroupGrant.IsSupported, string.Join(",", aspectedD.SkillGroupGrant.Blockers));
+        Assert.IsTrue(aspectedD.IsEnabled, string.Join(",", aspectedD.Blockers));
+        CollectionAssert.AreEqual(new[] { "Conjuring", "Enchanting", "Sorcery" },
+            aspectedD.SkillGroupGrant.Options.Select(option => option.CanonicalName).ToArray());
+        Assert.IsFalse(artificialIntelligence.IsEnabled,
+            "A selection-only group must not enable the unsupported Depth ledger.");
+        Assert.IsFalse(explorer.IsEnabled,
+            "A selection-only group must not enable other unsupported Talent families.");
     }
 
     [TestMethod]
