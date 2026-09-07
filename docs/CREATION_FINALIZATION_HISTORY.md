@@ -71,7 +71,8 @@ The broadened suite exposed an existing Magician integration gap: the Attributes
 step admitted only Mundane talent. The follow-up in
 `CREATION_AWAKENED_ATTRIBUTES.md` implements source-bound special grants and costs;
 the positive Magician preview/confirm test remains enabled, not waived or replaced
-with a blocked-success claim. Awakened whole-character finalization and the
-binding of increased Magic to Adept power budgets still need implementation.
+with a blocked-success claim. Increased Magic is now separately bound to the
+Adept power budget; awakened whole-character finalization still needs complete
+effect and talent-grant projection.
 The historical Qualities unit fixture used a prefixed auxiliary digest; it now
 uses the existing raw 64-character workspace-digest contract.

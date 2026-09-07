@@ -246,6 +246,14 @@ public sealed record CharacterCreationMagicResonanceOptionFinalizationSource(
     IReadOnlyList<string> SourceAnchorIds,
     string ProjectionDigest);
 
+/// <summary>Derived from the independently validated, digest-bound attribute draft;
+/// distinct from the immutable source talent grants.</summary>
+public sealed record CharacterCreationMagicResonanceEffectiveAttributes(
+    int Magic,
+    int Resonance,
+    int Depth,
+    decimal AdeptPowerPointBudget);
+
 /// <summary>
 /// Source-bound input for the later whole-character finalizer. This is not a
 /// write plan: it deliberately contains no generated character GUIDs and no
@@ -270,7 +278,11 @@ public sealed record CharacterCreationMagicResonanceFinalizationContribution(
     IReadOnlyList<CharacterCreationMagicResonanceOptionFinalizationSource> Spells,
     IReadOnlyList<CharacterCreationMagicResonanceOptionFinalizationSource> ComplexForms,
     IReadOnlyList<string> SourceAnchorIds,
-    string ContributionDigest);
+    string ContributionDigest)
+{
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationMagicResonanceEffectiveAttributes? EffectiveAttributes { get; init; }
+}
 
 public sealed record CharacterCreationMagicResonanceBinding(
     CharacterWorkspaceId WorkspaceId,

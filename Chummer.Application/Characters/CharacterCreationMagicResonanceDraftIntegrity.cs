@@ -112,7 +112,8 @@ public static class CharacterCreationMagicResonanceDraftIntegrity
            && CharacterCreationMagicResonanceFinalizationRules.IsValidContribution(
                draft.FinalizationContribution,
                draft,
-               authority)
+               authority,
+               attributes)
            && !draft.CharacterEffectsApplied
            && CharacterCreationMagicResonanceDigest.IsCanonical(draft.LastIdempotencyKeyDigest)
            && CharacterCreationMagicResonanceDigest.IsCanonical(draft.LastPreviewDigest)

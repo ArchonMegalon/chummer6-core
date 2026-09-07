@@ -46,11 +46,21 @@ The existing full Magician selection/confirmation/replay test stays enabled.
 
 This is an attribute-stage fix, not completion of awakened finalization.
 `CharacterCreationFinalizationProjector` still rejects awakened effects and
-talent skill-grant application. `CharacterCreationMagicResonanceService` and its
-contribution contract still derive Adept power-point budget from the source
-talent, rather than an increased confirmed Magic projection. That budget binding
-and complete source-backed effect projection must be implemented and tested
-before claiming that an ordinary awakened runner can finish Creation correctly.
+talent skill-grant application. The Adept budget follow-up now derives power
+points from the independently validated attribute draft rather than the unchanged
+source talent grant. The contribution optionally carries effective special values
+when they differ from the source. Its validator requires the actual matching
+attribute draft to recompute them; source grant and source payload validation are
+not rewritten. The null field is omitted so unchanged/legacy contribution JSON
+remains stable. Tests cover increased budget, under/overspend, source identity
+preservation, confirmation, cold reopen, original receipt replay, rehashed
+effective-value tamper and wrong/changed attribute bindings. A later attribute
+choice cannot reuse the older Magic budget to confirm a new command.
+
+Complete source-backed effect projection is still required before an ordinary
+awakened runner can finish Creation correctly. Revising an upstream attribute
+after confirming Magic also still needs a first-class re-review/replacement UX;
+old receipt recovery is not authority to reuse its superseded selections.
 
 Creation contacts/lifestyles, non-Human attribute authority, the other build
 methods, package reseals, downstream source inventories/pins, real Android

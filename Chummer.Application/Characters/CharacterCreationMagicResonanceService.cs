@@ -233,7 +233,7 @@ public sealed class CharacterCreationMagicResonanceService : ICharacterCreationM
                 CharacterCreationFoundationOutcomes.Conflict, mismatch), null, null);
 
         var blockers = new List<string>(state.Blockers);
-        SelectionEvaluation projected = EvaluateSelections(state.Authority, talent, request.Selections, blockers);
+        SelectionEvaluation projected = EvaluateSelections(state.Authority, talent, attributes, request.Selections, blockers);
         CharacterCreationMagicResonanceDraft? draft = blockers.Count == 0
             ? BuildDraft(
                 workspace,
@@ -359,7 +359,10 @@ public sealed class CharacterCreationMagicResonanceService : ICharacterCreationM
         if (talent is not null)
         {
             var pendingBlockers = new List<string>();
-            projected = EvaluateSelections(authority, talent, pending?.Selections, pendingBlockers);
+            projected = EvaluateSelections(authority, talent, attributes, pending?.Selections, pendingBlockers);
+            if (attributes is not null
+                && pendingBlockers.Contains(CharacterCreationMagicResonanceBlockers.AttributesDraftInvalid))
+                blockers.Add(CharacterCreationMagicResonanceBlockers.AttributesDraftInvalid);
             if (pending is not null
                 && (pendingBlockers.Count != 0
                     || pending.TalentIdentity != talent.Identity
@@ -487,11 +490,19 @@ public sealed class CharacterCreationMagicResonanceService : ICharacterCreationM
     private static SelectionEvaluation EvaluateSelections(
         CharacterCreationMagicResonanceAuthority authority,
         CharacterCreationMagicResonanceTalentOption talent,
+        CharacterCreationAttributesDraft? attributes,
         CharacterCreationMagicResonanceSelections? requested,
         ICollection<string> blockers)
     {
         requested ??= new(null, null, [], [], []);
         CharacterCreationMagicResonanceSelections selections = NormalizeSelections(requested);
+        decimal powerPointTotal = 0m;
+        if (attributes is null
+            || !CharacterCreationMagicResonanceFinalizationRules.TryResolveEffectiveAttributes(
+                talent, attributes, out CharacterCreationMagicResonanceEffectiveAttributes effective))
+            blockers.Add(CharacterCreationMagicResonanceBlockers.AttributesDraftInvalid);
+        else
+            powerPointTotal = effective.AdeptPowerPointBudget;
 
         CharacterCreationMagicResonanceCatalogOption? tradition = ResolveSingle(
             selections.Tradition,
@@ -575,7 +586,7 @@ public sealed class CharacterCreationMagicResonanceService : ICharacterCreationM
             CharacterCreationMagicResonanceBlockers.StreamRequired);
         CharacterCreationMagicResonanceBudgetState powerBudget = Budget(
             CharacterCreationMagicResonanceKinds.AdeptPower,
-            talent.AdeptPowerPointBudget,
+            powerPointTotal,
             powerUsed,
             CharacterCreationMagicResonanceBlockers.PowerBudgetExceeded);
         CharacterCreationMagicResonanceBudgetState spellBudget = Budget(
@@ -589,7 +600,7 @@ public sealed class CharacterCreationMagicResonanceService : ICharacterCreationM
             formUsed,
             CharacterCreationMagicResonanceBlockers.ComplexFormBudgetExceeded);
         if (talent.AllowsAdeptPowers
-            && talent.AdeptPowerPointBudget > 0m
+            && powerPointTotal > 0m
             && powerBudget.Remaining != 0m)
             blockers.Add(CharacterCreationMagicResonanceBlockers.PowerBudgetIncomplete);
         if (talent.AllowsSpells && spellBudget.Remaining != 0m)
@@ -692,6 +703,7 @@ public sealed class CharacterCreationMagicResonanceService : ICharacterCreationM
                 authority,
                 talent,
                 evaluation.Selections,
+                attributes,
                 out CharacterCreationMagicResonanceFinalizationContribution contribution,
                 out string[] contributionBlockers))
         {
