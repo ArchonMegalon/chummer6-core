@@ -99,6 +99,8 @@ internal static class CharacterCreationMagicResonanceAuthorityProjector
                 CharacterCreationMagicResonanceSchemas.FinalizationContributionV1,
             CanonicalSourcePayload = "effective-row-digest-bound-no-direct-append",
             AdeptPowerPointBudget = "validated-effective-magic-source-grant-unchanged",
+            AdeptPowerRatingLimit = "min-source-maxlevel-or-maxlevels-and-current-magic-not-instance-limit",
+            AdeptWay = "source-eligibility-retained-no-discount-applied",
             TalentQualitySources = "effective-qualities-source-order-reference-and-digest-bound",
             MysticAdeptPowerPointPurchase = "unsupported-fail-closed",
             Confirmation = "explicit-atomic-auxiliary-cas"
@@ -359,13 +361,8 @@ internal static class CharacterCreationMagicResonanceAuthorityProjector
             {
                 if (!TryReadNonNegativeDecimal(row, "points", out pointCost) || pointCost <= 0m)
                     local.Add(CharacterCreationMagicResonanceBlockers.OptionSemanticsUnsupported);
-                bool levels = TryReadBoolean(row, "levels", out bool parsedLevels) && parsedLevels;
-                if (levels)
-                {
-                    if (!TryReadPositiveInt(row, "limit", out maximumLevels))
-                        local.Add(CharacterCreationMagicResonanceBlockers.OptionSemanticsUnsupported);
-                }
-                if (row.Element("bonus") is not null || row.Element("adeptwayrequires") is not null)
+                if (!CharacterCreationAdeptPowerSourceRules.TryReadMaximumLevels(row, out maximumLevels, out _)
+                    || !CharacterCreationAdeptPowerSourceRules.IsUndiscountedPayloadSupported(row))
                     local.Add(CharacterCreationMagicResonanceBlockers.OptionSemanticsUnsupported);
             }
             else if ((kind is CharacterCreationMagicResonanceKinds.Spell

@@ -15,6 +15,37 @@ public sealed class CharacterCreationMagicResonanceSourceResolverTests
     private const string StandardPrioritySettingsId = "223a11ff-80e0-428b-89a9-6ef1c243b8b6";
 
     [TestMethod]
+    public void Actual_power_ratings_use_magic_and_maxlevels_not_instance_limit_and_keep_way_metadata()
+    {
+        string root = FindCoreRoot();
+        var resolver = new FileSystemCharacterSourceDataResolver(new FileSystemContentOverlayCatalogService(root, root, null));
+        var context = resolver.TryCreateContext($"<character><settings>{StandardPrioritySettingsId}</settings></character>")!;
+        Assert.IsTrue(context.TryResolveCreationMagicResonanceAuthority(out var authority));
+        var adrenaline = authority.AdeptPowers.Single(item => item.Name == "Adrenaline Boost");
+        Assert.IsTrue(adrenaline.IsEnabled, string.Join(",", adrenaline.Blockers));
+        Assert.AreEqual("1", XElement.Parse(adrenaline.CanonicalSourceXml).Element("limit")!.Value);
+        Assert.AreEqual(int.MaxValue, adrenaline.MaximumLevels);
+        Assert.AreEqual(6, CharacterCreationAdeptPowerSourceRules.EffectiveMaximumLevels(adrenaline, 6));
+        Assert.AreEqual(3, CharacterCreationAdeptPowerSourceRules.EffectiveMaximumLevels(adrenaline, 3));
+        Assert.AreEqual(0, CharacterCreationAdeptPowerSourceRules.EffectiveMaximumLevels(adrenaline, 0));
+        var reflexes = authority.AdeptPowers.Single(item => item.Name == "Improved Reflexes");
+        Assert.AreEqual(3, reflexes.MaximumLevels);
+        Assert.IsFalse(reflexes.IsEnabled, "Rating cap support must not enable uncompiled bonus/extra-cost semantics.");
+        var walk = authority.AdeptPowers.Single(item => item.Name == "Traceless Walk");
+        Assert.IsTrue(walk.IsEnabled, string.Join(",", walk.Blockers));
+        Assert.AreEqual(1m, walk.PointCost, "Eligibility metadata cannot authorize the 0.5 Way discount.");
+        var node = XElement.Parse(walk.CanonicalSourceXml);
+        Assert.IsNotNull(node.Element("adeptwayrequires"));
+        Assert.IsTrue(CharacterCreationAdeptPowerSourceRules.IsUndiscountedPayloadSupported(node));
+        node.Add(new XElement("bonus", new XElement("unknown-effect")));
+        Assert.IsFalse(CharacterCreationAdeptPowerSourceRules.IsUndiscountedPayloadSupported(node));
+        foreach (string malformed in new[] { "<maxlevels>-1</maxlevels>", "<maxlevels>3</maxlevels><maxlevels>4</maxlevels>",
+            "<maxlevel>2</maxlevel><maxlevels>3</maxlevels>", "<levels>invalid</levels>" })
+            Assert.IsFalse(CharacterCreationAdeptPowerSourceRules.TryReadMaximumLevels(
+                XElement.Parse("<power>" + malformed + "</power>"), out _, out _));
+    }
+
+    [TestMethod]
     public void Talent_quality_sources_reject_missing_ambiguous_inactive_and_malformed_rows()
     {
         string root = FindCoreRoot();
@@ -229,7 +260,9 @@ public sealed class CharacterCreationMagicResonanceSourceResolverTests
             item.Name == "Adrenaline Boost");
         Assert.IsTrue(selectablePower.IsEnabled, string.Join(",", selectablePower.Blockers));
         Assert.AreEqual(0.25m, selectablePower.PointCost);
-        Assert.AreEqual(1, selectablePower.MaximumLevels);
+        Assert.AreEqual(int.MaxValue, selectablePower.MaximumLevels,
+            "Source instance limit 1 is not the maximum rating; the effective cap is current MAG.");
+        Assert.AreEqual(2, CharacterCreationAdeptPowerSourceRules.EffectiveMaximumLevels(selectablePower, adept.Magic));
         Assert.IsTrue(CharacterCreationMagicResonanceFinalizationRules.HasValidOptionPayload(selectablePower));
 
         CharacterCreationMagicResonanceCatalogOption unsupportedPower = authority.AdeptPowers.Single(item =>

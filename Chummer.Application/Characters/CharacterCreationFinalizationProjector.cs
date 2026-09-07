@@ -82,18 +82,6 @@ public static class CharacterCreationFinalizationProjector
             failures.Add(CharacterCreationFinalizationBlockers.BuildMethodNotReady);
         if (prerequisite.HeritageSelection is null || prerequisite.TalentSelection is null)
             failures.Add(CharacterCreationFinalizationBlockers.DraftAuthorityInvalid);
-        if (magic is not null
-            && (!string.Equals(magic.TalentKind, CharacterCreationMagicResonanceKinds.Mundane,
-                    StringComparison.Ordinal)
-                || magic.Selections.Tradition is not null
-                || magic.Selections.Stream is not null
-                || magic.Selections.AdeptPowers.Count != 0
-                || magic.Selections.Spells.Count != 0
-                || magic.Selections.ComplexForms.Count != 0))
-            failures.Add(CharacterCreationFinalizationBlockers.AwakenedEffectsNotProjectable);
-        if (prerequisite.TalentSelection?.GrantPlan is
-            { ActiveSkills: { Count: > 0 } } or { SkillGroups: { Count: > 0 } })
-            failures.Add(CharacterCreationFinalizationBlockers.TalentGrantsNotProjectable);
 
         karmaRemaining = checked(qualities!.KarmaRemaining - resources!.KarmaInvestment);
         if (karmaRemaining < 0)
@@ -178,6 +166,12 @@ public static class CharacterCreationFinalizationProjector
                 projected,
                 ref order);
             ReplaceDirect(root, BuildGearGraph(gear, projected, ref order));
+            if (!CharacterCreationAwakenedLegacyProjector.TryApply(root, prerequisite, attributes!, skills!, magic,
+                    projected, ref order))
+            {
+                blockers = [CharacterCreationFinalizationBlockers.AwakenedEffectsNotProjectable];
+                return false;
+            }
             SetDirect(root, "karma", karmaRemaining.ToString(CultureInfo.InvariantCulture));
             SetDirect(root, "nuyen", nuyenRemaining.ToString(CultureInfo.InvariantCulture));
             SetDirect(root, "startingnuyen", startingNuyen.ToString(CultureInfo.InvariantCulture));
@@ -289,7 +283,7 @@ public static class CharacterCreationFinalizationProjector
         {
             groups.Add(new XElement("group",
                 new XElement("karma", 0),
-                new XElement("base", group.Rating),
+                new XElement("base", checked(group.Rating - group.GrantedRating)),
                 new XElement("id", StableGuid($"group:{group.GroupId}:{draft.DraftDigest}")),
                 new XElement("name", group.Name)));
             AddDelta(deltas, ref order, $"skill-group:{group.GroupId}",
@@ -385,7 +379,7 @@ public static class CharacterCreationFinalizationProjector
             new XElement("isknowledge", skill.Kind == CharacterCreationSkillKinds.Knowledge),
             new XElement("skillcategory", skill.Category),
             new XElement("karma", 0),
-            new XElement("base", skill.IsNativeLanguage ? 0 : skill.EffectiveRating.GetValueOrDefault()),
+            new XElement("base", skill.IsNativeLanguage ? 0 : checked(skill.EffectiveRating.GetValueOrDefault() - skill.GrantedRating)),
             new XElement("notes"));
         if (skill.SpecializationName is not null)
         {
@@ -413,7 +407,7 @@ public static class CharacterCreationFinalizationProjector
         "DEP" => 12, "ESS" => 13, _ => 100
     };
 
-    private static Guid StableGuid(string seed)
+    internal static Guid StableGuid(string seed)
     {
         byte[] bytes = SHA256.HashData(Encoding.UTF8.GetBytes(seed));
         Span<byte> guid = stackalloc byte[16];
@@ -472,7 +466,7 @@ public static class CharacterCreationFinalizationProjector
             throw new InvalidDataException($"Existing {name} graph is not draft-owned.");
     }
 
-    private static void AddDelta(
+    internal static void AddDelta(
         ICollection<CharacterCreationFinalizationDelta> deltas,
         ref int order,
         string deltaId,

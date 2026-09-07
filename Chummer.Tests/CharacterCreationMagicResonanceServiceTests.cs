@@ -44,7 +44,7 @@ public sealed class CharacterCreationMagicResonanceServiceTests
             prerequisite = prerequisite with { AuthorityDigest = CharacterCreationPrerequisiteAuthorityDigest.Compute(prerequisite) };
             CharacterCreationMagicResonanceAuthority authority = CreateMagicAuthority(prerequisite);
             string powerXml = $"<power><id>{PowerId}</id><name>Fixture Power</name><points>1</points>"
-                + "<levels>True</levels><limit>6</limit><source>SR5</source><page>1</page></power>";
+                + "<levels>True</levels><limit>1</limit><maxlevels>6</maxlevels><source>SR5</source><page>1</page></power>";
             powerXml = XElement.Parse(powerXml).ToString(SaveOptions.DisableFormatting);
             var power = new CharacterCreationMagicResonanceCatalogOption(
                 CharacterCreationMagicResonanceSchemas.CatalogOptionV1,
@@ -56,6 +56,18 @@ public sealed class CharacterCreationMagicResonanceServiceTests
                 CanonicalSourceXml = powerXml,
                 CanonicalSourceXmlDigest = CharacterCreationMagicResonanceDigest.ComputeUtf8(powerXml)
             };
+            const string secondPowerId = "30000000-0000-0000-0000-000000000004";
+            string secondPowerXml = powerXml.Replace(PowerId, secondPowerId, StringComparison.Ordinal)
+                .Replace("Fixture Power", "Second Power", StringComparison.Ordinal);
+            var secondPower = power with
+            {
+                Identity = new(CharacterCreationMagicResonanceKinds.AdeptPower, secondPowerId),
+                Name = "Second Power",
+                SourceNodeDigest = CharacterCreationMagicResonanceDigest.ComputeUtf8("second-power-source"),
+                SourceAnchorIds = [$"powers.xml#power:{secondPowerId}"],
+                CanonicalSourceXml = secondPowerXml,
+                CanonicalSourceXmlDigest = CharacterCreationMagicResonanceDigest.ComputeUtf8(secondPowerXml)
+            };
             authority = authority with
             {
                 Talents = [authority.Talents.Single() with
@@ -64,7 +76,7 @@ public sealed class CharacterCreationMagicResonanceServiceTests
                     SpellBudget = 0, AdeptPowerPointBudget = 3m,
                     RequiresTradition = false, AllowsAdeptPowers = true, AllowsSpells = false
                 }],
-                AdeptPowers = [power],
+                AdeptPowers = [power, secondPower],
                 Spells = [], Traditions = [], AuthorityDigest = string.Empty
             };
             authority = authority with { AuthorityDigest = CharacterCreationMagicResonanceDigest.Compute(authority) };
@@ -106,8 +118,14 @@ public sealed class CharacterCreationMagicResonanceServiceTests
                 Assert.IsFalse(invalid.CanConfirm);
                 CollectionAssert.Contains(invalid.Blockers.ToList(), invalidSpend < 4
                     ? CharacterCreationMagicResonanceBlockers.PowerBudgetIncomplete
-                    : CharacterCreationMagicResonanceBlockers.PowerBudgetExceeded);
+                    : CharacterCreationMagicResonanceBlockers.OptionInvalid);
             }
+            // Each rating is legal; the combined spend, independently, exceeds the budget.
+            var overspent = service.Preview(new(state.Binding, selections with
+                { AdeptPowers = [new(power.Identity, 3), new(secondPower.Identity, 2)] })).Value!;
+            Assert.IsFalse(overspent.CanConfirm);
+            CollectionAssert.Contains(overspent.Blockers.ToList(), CharacterCreationMagicResonanceBlockers.PowerBudgetExceeded);
+            CollectionAssert.DoesNotContain(overspent.Blockers.ToList(), CharacterCreationMagicResonanceBlockers.OptionInvalid);
             CharacterCreationMagicResonancePreview preview = service.Preview(new(state.Binding, selections)).Value!;
             Assert.IsTrue(preview.CanConfirm, string.Join(",", preview.Blockers));
             Assert.AreEqual(4m, preview.AdeptPowerPointBudget.Used);

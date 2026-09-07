@@ -73,6 +73,7 @@ public static class CharacterCreationFinalizationDeltaKinds
     public const string Skill = "skill";
     public const string SkillGroup = "skill-group";
     public const string Quality = "quality";
+    public const string MagicResonance = "magic-resonance";
     public const string Gear = "gear";
     public const string Resources = "resources";
     public const string Lifecycle = "lifecycle";

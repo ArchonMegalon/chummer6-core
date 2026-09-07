@@ -172,6 +172,7 @@ public static class CharacterCreationMagicResonanceFinalizationRules
         if (powers.Length != selections.AdeptPowers.Count
             || spells.Length != selections.Spells.Count
             || forms.Length != selections.ComplexForms.Count
+            || powers.Any(item => item.Levels > effective.Magic)
             || powers.Select(item => item.Identity).Distinct().Count() != powers.Length
             || spells.Select(item => item.Identity).Distinct().Count() != spells.Length
             || forms.Select(item => item.Identity).Distinct().Count() != forms.Length
@@ -625,22 +626,7 @@ public static class CharacterCreationMagicResonanceFinalizationRules
                     || (points == 0m && (option.IsEnabled || !option.Blockers.Contains(
                         CharacterCreationMagicResonanceBlockers.OptionSemanticsUnsupported, StringComparer.Ordinal))))
                     return false;
-                XElement[] levelsElements = source.Elements().Where(element =>
-                        string.Equals(element.Name.LocalName, "levels", StringComparison.Ordinal))
-                    .Take(2)
-                    .ToArray();
-                if (levelsElements.Length > 1)
-                    return false;
-                bool hasLevels = levelsElements.Length == 1;
-                bool parsedLevels = false;
-                if (hasLevels && !bool.TryParse(levelsElements[0].Value, out parsedLevels))
-                    return false;
-                bool usesLevels = hasLevels && parsedLevels;
-                int maximumLevels = 1;
-                if (usesLevels
-                    && (!int.TryParse(Read(source, "limit"), NumberStyles.Integer,
-                            CultureInfo.InvariantCulture, out maximumLevels)
-                        || maximumLevels <= 0))
+                if (!CharacterCreationAdeptPowerSourceRules.TryReadMaximumLevels(source, out int maximumLevels, out _))
                     return false;
                 return string.Equals(option.Category, "adept-power", StringComparison.Ordinal)
                        && option.PointCost == points
@@ -844,7 +830,7 @@ public static class CharacterCreationMagicResonanceFinalizationRules
     private static readonly string[] PowerElements =
     [
         "id", "name", "points", "levels", "limit", "source", "page", "action", "adeptway",
-        "adeptwayrequires", "bonus", "required", "forbidden"
+        "adeptwayrequires", "bonus", "required", "forbidden", "maxlevel", "maxlevels"
     ];
 
     private static readonly string[] SpellElements =

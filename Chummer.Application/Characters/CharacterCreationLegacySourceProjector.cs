@@ -181,6 +181,30 @@ public static class CharacterCreationLegacySourceProjector
         return true;
     }
 
+    // Instance serialization only. The caller must first compile and validate every
+    // original bonus and restriction. Keep the purchased-quality path unchanged.
+    internal static bool TryBuildHeritageQualityInstance(CharacterCreationTalentQualitySource input,
+        string qualityId, string extra, out XElement saved)
+    {
+        saved = new XElement("quality");
+        if (!CharacterCreationTalentQualitySourceRules.IsValidSource(input)) return false;
+        XElement source = XElement.Parse(input.CanonicalSourceXml);
+        XElement metadata = new(source);
+        metadata.Elements("bonus").Remove();
+        metadata.Elements("forbidden").Remove();
+        metadata.Elements("nameonpage").Remove();
+        if (source.Elements("bonus").Count() > 1 || source.Elements("forbidden").Count() > 1
+            || source.Elements("nameonpage").Count() > 1
+            || ParseBoundedSource(metadata.ToString(SaveOptions.DisableFormatting), "quality", s_QualitySourceChildren) is null
+            || !TryReadQualityDefinition(metadata, out var definition)
+            || definition.FirstLevelEffects.Count != 0)
+            return false;
+        saved = BuildSavedQuality(source, definition, qualityId);
+        saved.Element("qualitysource")!.Value = "Heritage";
+        saved.Element("extra")!.Value = extra;
+        return true;
+    }
+
     private static XElement? ParseBoundedSource(
         string sourceNodeXml,
         string expectedName,

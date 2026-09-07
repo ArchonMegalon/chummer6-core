@@ -497,12 +497,16 @@ public sealed class CharacterCreationMagicResonanceService : ICharacterCreationM
         requested ??= new(null, null, [], [], []);
         CharacterCreationMagicResonanceSelections selections = NormalizeSelections(requested);
         decimal powerPointTotal = 0m;
+        int effectiveMagic = 0;
         if (attributes is null
             || !CharacterCreationMagicResonanceFinalizationRules.TryResolveEffectiveAttributes(
                 talent, attributes, out CharacterCreationMagicResonanceEffectiveAttributes effective))
             blockers.Add(CharacterCreationMagicResonanceBlockers.AttributesDraftInvalid);
         else
+        {
             powerPointTotal = effective.AdeptPowerPointBudget;
+            effectiveMagic = effective.Magic;
+        }
 
         CharacterCreationMagicResonanceCatalogOption? tradition = ResolveSingle(
             selections.Tradition,
@@ -543,7 +547,8 @@ public sealed class CharacterCreationMagicResonanceService : ICharacterCreationM
                 blockers);
             if (!talent.AllowsAdeptPowers)
                 blockers.Add(CharacterCreationMagicResonanceBlockers.PowerSelectionNotAllowed);
-            if (source is null || allocation.Levels < 1 || allocation.Levels > source.MaximumLevels)
+            if (source is null || allocation.Levels < 1
+                || allocation.Levels > CharacterCreationAdeptPowerSourceRules.EffectiveMaximumLevels(source, effectiveMagic))
             {
                 blockers.Add(CharacterCreationMagicResonanceBlockers.OptionInvalid);
                 continue;

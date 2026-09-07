@@ -296,13 +296,6 @@ public sealed class CharacterCreationQualitiesService : ICharacterCreationQualit
             blockers.Add(CharacterCreationQualitiesBlockers.PrerequisiteDraftRequired);
             prerequisite = null;
         }
-        if (prerequisite?.TalentSelection?.GrantedQualities.Count > 0)
-        {
-            // Priority Talent grants are free/origin-sensitive instances. Until their
-            // stable source identities and limit-contribution flags are projected, an
-            // empty grant list would undercount the quality and Karma budgets.
-            blockers.Add(CharacterCreationQualitiesBlockers.AuthorityUnavailable);
-        }
         CharacterCreationAttributesState? attributesState =
             _attributes.Load(new CharacterCreationAttributesLoadRequest(workspace.Id)).Value;
         CharacterCreationAttributesDraft? attributes = attributesState?.PendingDraft;
@@ -321,6 +314,10 @@ public sealed class CharacterCreationQualitiesService : ICharacterCreationQualit
             || !CharacterCreationQualitiesRules.DigestsEqual(
                 authority.ProfileDigest,
                 prerequisiteState.Authority.RawProfileInputsDigest))
+            blockers.Add(CharacterCreationQualitiesBlockers.AuthorityUnavailable);
+
+        if (context is not null && prerequisite is not null && authority.IsAuthoritative
+            && !CharacterCreationTalentQualityGrants.TryBind(prerequisite, context, authority, out authority))
             blockers.Add(CharacterCreationQualitiesBlockers.AuthorityUnavailable);
 
         string rawDigest = CharacterCreationFoundationDraftLedgerIntegrity

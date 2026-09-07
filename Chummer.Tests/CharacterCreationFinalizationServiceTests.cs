@@ -20,6 +20,144 @@ namespace Chummer.Tests;
 public sealed class CharacterCreationFinalizationServiceTests
 {
     [TestMethod]
+    [DataRow("Magician")]
+    [DataRow("Aspected Magician")]
+    [DataRow("Mystic Adept")]
+    [DataRow("Adept")]
+    public void Actual_awakened_priority_finishes_and_cold_reopens_without_losing_talent_effects(string talentValue)
+    {
+        using ReadyContext context = ReadyContext.Create(includeGearReview: true, talentValue: talentValue);
+        var before = context.Store.Get(context.WorkspaceId).Value!;
+        var magic = before.Document.AuxiliaryState.CharacterCreationMagicResonanceDraft!;
+        var skills = before.Document.AuxiliaryState.CharacterCreationSkillsDraft!;
+        var qualityService = new CharacterCreationQualitiesService(context.Store, context.Resolver,
+            new CharacterCreationPrerequisiteService(context.Store, context.Queries, context.Resolver),
+            new CharacterCreationAttributesService(context.Store, context.Resolver));
+        var qualityState = qualityService.Load(new(context.WorkspaceId)).Value!;
+        Assert.IsTrue(qualityState.CanEdit, string.Join(",", qualityState.Blockers));
+        Assert.AreEqual(1, qualityState.Preview.GrantedQualities.Count);
+        Assert.AreEqual(0, qualityState.Preview.PositiveQualityBudget.Used);
+        Assert.IsFalse(qualityState.Preview.GrantedQualities.Single().CountsAgainstKarma);
+        Assert.IsTrue(qualityState.Preview.GrantedQualities.Single().KarmaCost > 0);
+        if (talentValue == "Magician") AssertAwakenedForgeryRejected(before);
+        var state = context.Finalizer.Load(new(context.WorkspaceId));
+        Assert.AreEqual(CharacterCreationFinalizationOutcomes.Available, state.Outcome, string.Join(",", state.Blockers));
+        var review = context.Finalizer.Review(new(state.Value!.Binding));
+        Assert.IsTrue(review.Value!.CanConfirm, string.Join(",", review.Blockers));
+        var command = new CharacterCreationFinalizationConfirmRequest(state.Value.Binding,
+            review.Value.PreviewDigest, review.Value.Plan!.PlanDigest, "actual-awakened-finalization", true);
+        Assert.AreNotEqual(CharacterCreationFinalizationOutcomes.Applied,
+            context.Finalizer.Confirm(command with { ExplicitlyConfirmed = false }).Outcome);
+        Assert.AreEqual(before.Document.Content, context.Store.Get(context.WorkspaceId).Value!.Document.Content);
+        var confirmed = context.Finalizer.Confirm(command);
+        Assert.AreEqual(CharacterCreationFinalizationOutcomes.Applied, confirmed.Outcome, string.Join(",", confirmed.Blockers));
+        using ReadyContext cold = context.Restart();
+        var after = cold.Store.Get(context.WorkspaceId).Value!;
+        XElement root = XElement.Parse(after.Document.Content);
+        Assert.AreEqual("True", root.Element("created")!.Value);
+        Assert.AreEqual("True", root.Element("magenabled")!.Value);
+        Assert.AreEqual(talentValue is "Adept" or "Mystic Adept" ? "True" : "False", root.Element("adept")!.Value);
+        Assert.AreEqual(talentValue == "Adept" ? "False" : "True", root.Element("magician")!.Value);
+        XElement heritage = root.Element("qualities")!.Elements("quality").Single(item => item.Element("qualitysource")?.Value == "Heritage");
+        Assert.AreEqual(talentValue, heritage.Element("name")!.Value);
+        var source = magic.FinalizationContribution!.Talent.GrantedQualitySources!.Single();
+        Assert.AreEqual(source.SourceId, heritage.Element("sourceid")!.Value);
+        XElement[] improvements = root.Element("improvements")!.Elements("improvement").ToArray();
+        Assert.IsTrue(improvements.Any(item => item.Element("improvementttype")?.Value == "Attribute"
+            && item.Element("improvedname")?.Value == "MAG" && item.Element("unique")?.Value == "enableattribute"));
+        foreach (var grant in skills.Skills.Where(item => item.GrantedRating > 0))
+        {
+            XElement saved = root.Element("newskills")!.Element("skills")!.Elements("skill")
+                .Single(item => item.Element("suid")?.Value == grant.SourceSkillId);
+            Assert.AreEqual(grant.Rating - grant.GrantedRating, (int?)saved.Element("base"));
+            Assert.IsTrue(improvements.Any(item => item.Element("improvementttype")?.Value == "SkillBase"
+                && item.Element("improvementsource")?.Value == "Heritage"
+                && item.Element("improvedname")?.Value == grant.Name && (int?)item.Element("val") == grant.GrantedRating));
+        }
+        foreach (var grant in skills.SkillGroups.Where(item => item.GrantedRating > 0))
+        {
+            XElement saved = root.Element("newskills")!.Element("groups")!.Elements("group")
+                .Single(item => item.Element("name")?.Value == grant.Name);
+            Assert.AreEqual(grant.Rating - grant.GrantedRating, (int?)saved.Element("base"));
+            Assert.IsTrue(improvements.Any(item => item.Element("improvementttype")?.Value == "SkillGroupBase"
+                && item.Element("improvedname")?.Value == grant.Name && (int?)item.Element("val") == grant.GrantedRating));
+            if (talentValue == "Aspected Magician")
+                Assert.IsTrue(improvements.Any(item => item.Element("improvementttype")?.Value == "SpecialSkills"
+                    && item.Element("improvedname")?.Value == grant.Name));
+        }
+        Assert.AreEqual(magic.Selections.Spells.Count, root.Element("spells")!.Elements("spell").Count());
+        Assert.AreEqual(magic.Selections.AdeptPowers.Count, root.Element("powers")!.Elements("power").Count());
+        foreach (var power in magic.FinalizationContribution!.AdeptPowers)
+        {
+            XElement saved = root.Element("powers")!.Elements("power").Single(item => item.Element("sourceid")!.Value == power.Identity.SourceId);
+            XElement definition = XElement.Parse(power.CanonicalSourceXml);
+            Assert.AreEqual("False", saved.Element("discounted")!.Value);
+            Assert.AreEqual(definition.Element("points")!.Value, saved.Element("pointsperlevel")!.Value);
+            Assert.AreEqual((definition.Element("adeptwayrequires") ?? new XElement("adeptwayrequires")).ToString(SaveOptions.DisableFormatting),
+                saved.Element("adeptwayrequires")!.ToString(SaveOptions.DisableFormatting));
+        }
+        if (magic.Selections.Tradition is not null)
+        {
+            XElement tradition = root.Element("tradition")!;
+            Assert.AreEqual("Hermetic", tradition.Element("name")!.Value);
+            Assert.AreEqual("{WIL} + {LOG}", tradition.Element("drain")!.Value);
+            Assert.AreEqual("Spirit of Fire", tradition.Element("spiritcombat")!.Value);
+        }
+        Assert.IsNotNull(after.Document.AuxiliaryState.CharacterCreationFinalizationArchive);
+        Assert.IsTrue(CharacterCreationFinalizationReceiptLedgerIntegrity.IsValidTransition(context.WorkspaceId,
+            before.ContentRevision, before.SavedRevision, after.ContentRevision, before.Document, after.Document));
+        Assert.AreEqual(confirmed.Value!.ReceiptDigest, cold.Finalizer.Confirm(command).Value!.ReceiptDigest);
+        Assert.AreEqual(after.ContentRevision, cold.Store.Get(context.WorkspaceId).Value!.ContentRevision);
+        Assert.AreEqual(after.Document.Content, cold.Store.Get(context.WorkspaceId).Value!.Document.Content);
+    }
+
+    private static void AssertAwakenedForgeryRejected(WorkspaceStoredDocument original)
+    {
+        var magic = original.Document.AuxiliaryState.CharacterCreationMagicResonanceDraft!;
+        var contribution = magic.FinalizationContribution!;
+        var source = contribution.Talent.GrantedQualitySources!.Single();
+        foreach (Action<XElement> change in new Action<XElement>[]
+        {
+            node => node.Element("bonus")!.Add(new XElement("invented-effect")),
+            node => node.Element("bonus")!.ReplaceWith(new XElement("bonus")),
+            node => node.Element("bonus")!.Add(new XText("uncompiled instructions")),
+            node => node.Element("bonus")!.Element("enableattribute")!.Element("name")!.Value = "DEP",
+            node => node.Element("forbidden")!.Element("oneof")!.Add(new XElement("quality", "Magician")),
+            node => node.Add(new XElement("firstlevelbonus", new XElement("ambidextrous")))
+        })
+        {
+            XElement node = XElement.Parse(source.CanonicalSourceXml);
+            change(node);
+            string xml = node.ToString(SaveOptions.DisableFormatting);
+            var forgedSource = source with { CanonicalSourceXml = xml,
+                CanonicalSourceXmlDigest = CharacterCreationMagicResonanceDigest.ComputeUtf8(xml),
+                SourceNodeDigest = CharacterCreationTalentQualitySourceRules.ComputeSourceNodeDigest(source.EffectiveSourceDigest, source.SourceId, xml) };
+            var forgedTalent = contribution.Talent with { GrantedQualitySources = [forgedSource] };
+            forgedTalent = forgedTalent with { ProjectionDigest = CharacterCreationMagicResonanceFinalizationRules.ComputeTalentProjectionDigest(forgedTalent) };
+            var forged = contribution with { Talent = forgedTalent };
+            forged = forged with { ContributionDigest = CharacterCreationMagicResonanceFinalizationRules.ComputeContributionDigest(forged) };
+            var draft = magic with { FinalizationContribution = forged };
+            draft = draft with { DraftDigest = CharacterCreationMagicResonanceDraftIntegrity.ComputeDigest(draft) };
+            var document = original.Document with { State = original.Document.State with
+            { AuxiliaryState = original.Document.AuxiliaryState with { CharacterCreationMagicResonanceDraft = draft } } };
+            Assert.IsFalse(CharacterCreationFinalizationProjector.TryProject(original with { Document = document },
+                out var output, out var deltas, out _, out _, out _, out _, out _));
+            Assert.AreEqual(string.Empty, output);
+            Assert.IsEmpty(deltas);
+        }
+        var skills = original.Document.AuxiliaryState.CharacterCreationSkillsDraft!;
+        foreach (int grant in new[] { 0, 99 })
+        {
+            var changed = skills with { Skills = skills.Skills.Select(item => item.GrantedRating > 0 ? item with { GrantedRating = grant } : item).ToArray() };
+            changed = changed with { DraftDigest = CharacterCreationSkillsDraftIntegrity.ComputeDigest(changed) };
+            var document = original.Document with { State = original.Document.State with
+            { AuxiliaryState = original.Document.AuxiliaryState with { CharacterCreationSkillsDraft = changed } } };
+            Assert.IsFalse(CharacterCreationFinalizationProjector.TryProject(original with { Document = document },
+                out _, out _, out _, out _, out _, out _, out _));
+        }
+    }
+
+    [TestMethod]
     public void Finalization_keeps_confirmed_step_history_while_consuming_only_pending_drafts()
     {
         using ReadyContext context = ReadyContext.Create(includeGearReview: true, includeNonEmptyPurchases: true);
@@ -1081,7 +1219,8 @@ public sealed class CharacterCreationFinalizationServiceTests
         public static ReadyContext Create(
             bool includeGearReview,
             bool includeNonEmptyPurchases = false,
-            Action<XElement>? beforeDrafts = null)
+            Action<XElement>? beforeDrafts = null,
+            string? talentValue = null)
         {
             string directory = Path.Combine(
                 Path.GetTempPath(),
@@ -1105,7 +1244,7 @@ public sealed class CharacterCreationFinalizationServiceTests
                     resolver,
                     includeGearReview,
                     includeNonEmptyPurchases,
-                    replayChecks);
+                    replayChecks, talentValue);
                 return new ReadyContext(
                     directory,
                     store,
@@ -1231,30 +1370,33 @@ public sealed class CharacterCreationFinalizationServiceTests
             ICharacterSourceDataResolver resolver,
             bool includeGearReview,
             bool includeNonEmptyPurchases,
-            ICollection<Action<IWorkspaceStore>>? replayChecks = null)
+            ICollection<Action<IWorkspaceStore>>? replayChecks = null,
+            string? talentValue = null)
         {
             var prerequisites = new CharacterCreationPrerequisiteService(store, queries, resolver);
             CharacterCreationPrerequisiteState prerequisite = prerequisites.Load(new(workspaceId)).Value!;
             IReadOnlyDictionary<string, string> ranks = new Dictionary<string, string>(
                 StringComparer.Ordinal)
             {
-                [CharacterCreationPriorityCategoryIds.Heritage] = "A",
-                [CharacterCreationPriorityCategoryIds.Talent] = "E",
-                [CharacterCreationPriorityCategoryIds.Attributes] = "B",
+                [CharacterCreationPriorityCategoryIds.Heritage] = talentValue is null ? "A" : "E",
+                [CharacterCreationPriorityCategoryIds.Talent] = talentValue is null ? "E" : "B",
+                [CharacterCreationPriorityCategoryIds.Attributes] = talentValue is null ? "B" : "A",
                 [CharacterCreationPriorityCategoryIds.Skills] = "C",
                 [CharacterCreationPriorityCategoryIds.Resources] = "D"
             };
             CharacterCreationPriorityOptionProjection heritageRank = prerequisite.Authority.Options.Single(
                 option => option.CategoryId == CharacterCreationPriorityCategoryIds.Heritage
-                          && option.Rank == "A");
+                          && option.Rank == ranks[CharacterCreationPriorityCategoryIds.Heritage]);
             CharacterCreationPriorityHeritageOptionProjection heritage = heritageRank.HeritageOptions.First(
                 static option => option.IsEnabled
                                  && option.MetavariantSourceId is null
                                  && option.MetatypeName == "Human");
             CharacterCreationPriorityOptionProjection talentRank = prerequisite.Authority.Options.Single(
                 option => option.CategoryId == CharacterCreationPriorityCategoryIds.Talent
-                          && option.Rank == "E");
-            CharacterCreationPriorityTalentOptionProjection talent = talentRank.TalentOptions.First(
+                          && option.Rank == ranks[CharacterCreationPriorityCategoryIds.Talent]);
+            CharacterCreationPriorityTalentOptionProjection talent = talentValue is not null
+                ? talentRank.TalentOptions.First(option => option.IsEnabled && option.Value == talentValue)
+                : talentRank.TalentOptions.First(
                 static option => option.IsEnabled
                                  && string.Equals(option.Value,
                                      CharacterCreationMagicResonanceKinds.Mundane,
@@ -1264,12 +1406,17 @@ public sealed class CharacterCreationFinalizationServiceTests
                                  && option.Depth is null
                                  && option.ActiveSkillGrant is null
                                  && option.SkillGroupGrant is null);
+            string[] talentSkills = talent.ActiveSkillGrant?.Options.Where(item => item.IsEnabled)
+                .Take(talent.ActiveSkillGrant.Quantity).Select(item => item.SelectionId).ToArray() ?? [];
+            string[] talentGroups = talent.SkillGroupGrant?.Options
+                .Take(talent.SkillGroupGrant.Quantity).Select(item => item.SelectionId).ToArray() ?? [];
             var prerequisiteRequest = new CharacterCreationPrerequisitePreviewRequest(
                 prerequisite.Binding,
                 ranks)
             {
                 HeritageSelectionId = heritage.SelectionId,
-                TalentSelectionId = talent.SelectionId
+                TalentSelectionId = talent.SelectionId,
+                TalentActiveSkillSelectionIds = talentSkills, TalentSkillGroupSelectionIds = talentGroups
             };
             CharacterCreationPrerequisitePreview prerequisitePreview =
                 prerequisites.Preview(prerequisiteRequest).Value!;
@@ -1281,7 +1428,8 @@ public sealed class CharacterCreationFinalizationServiceTests
                     ExplicitlyConfirmed: true)
                 {
                     HeritageSelectionId = heritage.SelectionId,
-                    TalentSelectionId = talent.SelectionId
+                    TalentSelectionId = talent.SelectionId,
+                    TalentActiveSkillSelectionIds = talentSkills, TalentSkillGroupSelectionIds = talentGroups
                 }).Outcome);
 
             var attributes = new CharacterCreationAttributesService(store, resolver);
@@ -1326,6 +1474,36 @@ public sealed class CharacterCreationFinalizationServiceTests
                 Assert.AreNotEqual(CharacterCreationFoundationOutcomes.Success,
                     service.Confirm(skillCommand with { IdempotencyKey = "new-career-skill-command" }).Outcome);
             });
+
+            if (talentValue is not null)
+            {
+                var magicService = new CharacterCreationMagicResonanceService(store, resolver);
+                var magicState = magicService.Load(new(workspaceId)).Value!;
+                Assert.IsTrue(magicState.CanEdit, string.Join(",", magicState.Blockers));
+                var selected = magicState.SelectedTalent!;
+                var powers = new List<CharacterCreationAdeptPowerAllocation>();
+                decimal remaining = magicState.AdeptPowerPointBudget.Total;
+                foreach (var power in magicState.Authority.AdeptPowers.Where(item => item.IsEnabled && item.PointCost > 0)
+                    .OrderByDescending(item => item.PointCost))
+                {
+                    int levels = (int)Math.Min(CharacterCreationAdeptPowerSourceRules.EffectiveMaximumLevels(power, selected.Magic),
+                        decimal.Floor(remaining / power.PointCost));
+                    if (levels == 0) continue;
+                    powers.Add(new(power.Identity, levels));
+                    remaining -= levels * power.PointCost;
+                }
+                Assert.AreEqual(0m, remaining);
+                var selections = new CharacterCreationMagicResonanceSelections(
+                    selected.RequiresTradition ? magicState.Authority.Traditions.Single(item => item.Name == "Hermetic").Identity : null,
+                    selected.RequiresStream ? magicState.Authority.Streams.Single(item => item.Name == "Default").Identity : null,
+                    powers,
+                    magicState.Authority.Spells.Where(item => item.IsEnabled).Take(selected.SpellBudget).Select(item => item.Identity).ToArray(),
+                    magicState.Authority.ComplexForms.Where(item => item.IsEnabled).Take(selected.ComplexFormBudget).Select(item => item.Identity).ToArray());
+                var preview = magicService.Preview(new(magicState.Binding, selections)).Value!;
+                Assert.IsTrue(preview.CanConfirm, string.Join(",", preview.Blockers));
+                Assert.AreEqual(CharacterCreationFoundationOutcomes.Success,
+                    magicService.Confirm(new(preview.Binding, selections, preview.PreviewDigest, "finalize-magic-source", true)).Outcome);
+            }
 
             var qualities = new CharacterCreationQualitiesService(
                 store, resolver, prerequisites, attributes);
