@@ -20,6 +20,234 @@ namespace Chummer.Tests;
 public sealed class CharacterCreationFinalizationServiceTests
 {
     [TestMethod]
+    [DataRow(false, false)]
+    [DataRow(true, false)]
+    [DataRow(false, true)]
+    [DataRow(true, true)]
+    public void Actual_priority_creation_reopens_with_usable_reputation_and_preserves_finalization_receipts(
+        bool includePurchases, bool olderDraft)
+    {
+        using ReadyContext context = ReadyContext.Create(includeGearReview: true, includeNonEmptyPurchases: includePurchases,
+            beforeDrafts: olderDraft ? root =>
+            {
+                foreach (string field in CareerBaselineFields) root.Elements(field).Remove();
+            } : null);
+        var original = context.Store.Get(context.WorkspaceId).Value!;
+        var state = AssertAvailable(context.Finalizer.Load(new(context.WorkspaceId)));
+        var review = AssertAvailable(context.Finalizer.Review(new(state.Binding)));
+        Assert.AreEqual(original.Document.Content, context.Store.Get(context.WorkspaceId).Value!.Document.Content,
+            "Reading or previewing an older draft must not initialize persisted state.");
+        var initialization = review.OrderedDeltas.Where(delta => delta.DeltaId.StartsWith("career-initialization:", StringComparison.Ordinal)).ToArray();
+        Assert.HasCount(olderDraft ? 7 : 0, initialization);
+        foreach (var delta in initialization)
+        {
+            Assert.IsNull(delta.BeforeValue);
+            Assert.AreEqual(0m, delta.KarmaCost);
+            Assert.AreEqual(0m, delta.NuyenCost);
+            Assert.AreEqual(CareerBaselineFields.Take(4).Contains(delta.TargetId) ? "0" : "", delta.AfterValue);
+        }
+        const string finalizeKey = "creation-to-local-reputation";
+        var finalized = context.Finalizer.Confirm(new(state.Binding, review.PreviewDigest,
+            review.Plan!.PlanDigest, finalizeKey, ExplicitlyConfirmed: true));
+        Assert.AreEqual(CharacterCreationFinalizationOutcomes.Applied, finalized.Outcome,
+            string.Join(",", finalized.Blockers));
+        using ReadyContext reopened = context.Restart();
+        var before = reopened.Store.Get(reopened.WorkspaceId).Value!;
+        var reputation = new WorkspaceCharacterCareerReputationService(reopened.Store, reopened.Resolver);
+        var read = reputation.Read(reopened.WorkspaceId);
+        Assert.AreEqual(CharacterCareerReputationOutcome.Available, read.Outcome,
+            "Actual Bootstrap + confirmed drafts + finalization produced unusable Career input: " + read.Error);
+        Assert.IsNotNull(read.Snapshot);
+        Assert.AreEqual(0, read.Snapshot.Reputation.Inputs.StreetCred);
+        Assert.AreEqual(0, read.Snapshot.Reputation.Inputs.Notoriety);
+        Assert.AreEqual(0, read.Snapshot.Reputation.Inputs.PublicAwareness);
+        Assert.AreEqual(0, read.Snapshot.Reputation.Inputs.BurntStreetCred);
+        Assert.AreEqual(0, read.Snapshot.Reputation.Inputs.CareerKarma);
+        var request = new CharacterCareerReputationRequest(reopened.WorkspaceId, Guid.NewGuid(),
+            CharacterCareerReputationOperation.AdjustManualAwards, new(1, null, null), "First local Career reputation decision");
+        var preview = reputation.Preview(request);
+        Assert.AreEqual(CharacterCareerReputationOutcome.Available, preview.Outcome, preview.Error);
+        Assert.IsNotNull(preview.Preview);
+        Assert.AreEqual(before.Document.Content, reopened.Store.Get(reopened.WorkspaceId).Value!.Document.Content);
+        var command = preview.Preview.Command with { ExplicitlyConfirmed = true };
+        var applied = reputation.Commit(command);
+        Assert.AreEqual(CharacterCareerReputationOutcome.Applied, applied.Outcome, applied.Error);
+        var after = reopened.Store.Get(reopened.WorkspaceId).Value!;
+        Assert.AreEqual(before.ContentRevision + 1, after.ContentRevision);
+        Assert.AreEqual(after.ContentRevision, after.SavedRevision);
+        Assert.HasCount(1, after.Document.AuxiliaryState.CharacterCreationFinalizationReceipts!);
+        Assert.HasCount(1, after.Document.AuxiliaryState.CharacterCareerReputationReceipts!);
+        var beforeXml = XDocument.Parse(before.Document.Content).Root!;
+        var afterXml = XDocument.Parse(after.Document.Content).Root!;
+        foreach (string field in new[] { "karma", "nuyen", "settings", "qualities", "gears", "improvements", "expenses" })
+            Assert.IsTrue(XNode.DeepEquals(beforeXml.Element(field), afterXml.Element(field)),
+                "Reputation changed another finalized domain: " + field);
+        var cold = new WorkspaceCharacterCareerReputationService(new FileWorkspaceStore(context.Directory), reopened.Resolver);
+        Assert.AreEqual(1, cold.Read(reopened.WorkspaceId).Snapshot!.Reputation.Inputs.StreetCred);
+        Assert.AreEqual(CharacterCareerReputationOutcome.Replayed, cold.Commit(command).Outcome);
+        var recoveredFinalization = reopened.Finalizer.LookupReceipt(new(reopened.WorkspaceId, finalizeKey));
+        Assert.AreEqual(CharacterCreationFinalizationOutcomes.Replayed, recoveredFinalization.Outcome);
+        Assert.AreEqual(finalized.Value!.ReceiptDigest, recoveredFinalization.Value!.ReceiptDigest);
+        Assert.AreEqual(after.ContentRevision, reopened.Store.Get(reopened.WorkspaceId).Value!.ContentRevision);
+
+        // A real first After Run grant must also work on this created runner,
+        // and earned Career Karma must not include leftover Creation Karma.
+        var rewards = new WorkspaceCharacterAfterRunRewardService(new FileWorkspaceStore(context.Directory));
+        var rewardRead = rewards.Read(reopened.WorkspaceId);
+        Assert.AreEqual(CharacterAfterRunRewardOutcome.Available, rewardRead.Outcome, rewardRead.Error);
+        Assert.IsEmpty(rewardRead.Snapshot!.Expenses);
+        var rewardPreview = rewards.Preview(new(reopened.WorkspaceId, Guid.NewGuid(), Guid.NewGuid(),
+            8, 12500, new DateTime(2078, 9, 7, 18, 0, 0), "First locally recorded run"));
+        Assert.AreEqual(CharacterAfterRunRewardOutcome.Available, rewardPreview.Outcome, rewardPreview.Error);
+        Assert.AreEqual(review.Plan.KarmaRemaining + 8, rewardPreview.Preview!.KarmaAfter);
+        Assert.AreEqual(review.Plan.NuyenRemaining + 12500, rewardPreview.Preview.NuyenAfter);
+        var rewardCommand = rewardPreview.Preview.Command with { ExplicitlyConfirmed = true };
+        var rewardCommit = rewards.Commit(rewardCommand);
+        Assert.AreEqual(CharacterAfterRunRewardOutcome.Applied, rewardCommit.Outcome, rewardCommit.Error);
+        var afterRun = new FileWorkspaceStore(context.Directory).Get(reopened.WorkspaceId).Value!;
+        Assert.AreEqual(after.ContentRevision + 1, afterRun.ContentRevision);
+        Assert.AreEqual(8, cold.Read(reopened.WorkspaceId).Snapshot!.Reputation.Inputs.CareerKarma);
+        Assert.AreEqual(1, cold.Read(reopened.WorkspaceId).Snapshot!.Reputation.Inputs.StreetCred);
+        Assert.AreEqual(CharacterCareerReputationOutcome.Replayed, cold.Commit(command).Outcome);
+        Assert.AreEqual(CharacterAfterRunRewardOutcome.Replayed, rewards.Commit(rewardCommand).Outcome);
+        Assert.AreEqual(finalized.Value.ReceiptDigest,
+            reopened.Finalizer.LookupReceipt(new(reopened.WorkspaceId, finalizeKey)).Value!.ReceiptDigest);
+        Assert.AreEqual(afterRun.ContentRevision, reopened.Store.Get(reopened.WorkspaceId).Value!.ContentRevision);
+    }
+
+    private static readonly string[] CareerBaselineFields =
+        ["streetcred", "notoriety", "publicawareness", "burntstreetcred", "expenses", "improvements", "contacts"];
+
+    [TestMethod]
+    public void Malformed_persisted_career_value_blocks_review_and_confirm_without_writing()
+    {
+        using ReadyContext context = ReadyContext.Create(includeGearReview: true,
+            beforeDrafts: root => root.SetElementValue("streetcred", "invalid"));
+        var before = context.Store.Get(context.WorkspaceId).Value!;
+        var loaded = context.Finalizer.Load(new(context.WorkspaceId));
+        Assert.AreEqual(CharacterCreationFinalizationOutcomes.Blocked, loaded.Outcome);
+        Assert.IsNotNull(loaded.Value);
+        Assert.IsFalse(loaded.Value.CanReview);
+        CollectionAssert.Contains(loaded.Blockers.ToList(), CharacterCreationFinalizationBlockers.DraftAuthorityInvalid);
+        var review = context.Finalizer.Review(new(loaded.Value.Binding));
+        Assert.IsNotNull(review.Value);
+        Assert.IsFalse(review.Value.CanConfirm);
+        Assert.IsNull(review.Value.Plan);
+        var confirmed = context.Finalizer.Confirm(new(loaded.Value.Binding, review.Value.PreviewDigest,
+            CharacterCreationFinalizationDigest.ComputeUtf8("no-valid-career-plan"),
+            "malformed-career-must-not-finalize", ExplicitlyConfirmed: true));
+        Assert.AreEqual(CharacterCreationFinalizationOutcomes.Blocked, confirmed.Outcome);
+        Assert.IsNull(confirmed.Value);
+        var after = new FileWorkspaceStore(context.Directory).Get(context.WorkspaceId).Value!;
+        Assert.AreEqual(before.Document.Content, after.Document.Content);
+        Assert.AreEqual(before.Document.AuxiliaryStateDigest, after.Document.AuxiliaryStateDigest);
+        Assert.AreEqual(before.ContentRevision, after.ContentRevision);
+        Assert.AreEqual(before.SavedRevision, after.SavedRevision);
+    }
+
+    [TestMethod]
+    public void Finalization_preserves_present_manual_reputation_and_career_history()
+    {
+        using ReadyContext context = ReadyContext.Create(includeGearReview: true, beforeDrafts: root =>
+        {
+            foreach ((string field, int value) in new[]
+                     { ("streetcred", 3), ("notoriety", 4), ("publicawareness", 5), ("burntstreetcred", 2) })
+                root.SetElementValue(field, value);
+            root.Element("expenses")!.Add(XElement.Parse(
+                "<expense><guid>11111111-1111-4111-8111-111111111111</guid><date>2078-09-07T18:00:00</date>"
+                + "<type>Karma</type><amount>20</amount><refund>False</refund><forcecareervisible>False</forcecareervisible></expense>"));
+            root.Element("contacts")!.Add(XElement.Parse("<contact><name>Existing contact</name></contact>"));
+        });
+        var before = context.Store.Get(context.WorkspaceId).Value!;
+        var state = AssertAvailable(context.Finalizer.Load(new(context.WorkspaceId)));
+        var review = AssertAvailable(context.Finalizer.Review(new(state.Binding)));
+        var result = context.Finalizer.Confirm(new(state.Binding, review.PreviewDigest,
+            review.Plan!.PlanDigest, "preserve-career-inputs", ExplicitlyConfirmed: true));
+        Assert.AreEqual(CharacterCreationFinalizationOutcomes.Applied, result.Outcome, string.Join(",", result.Blockers));
+        var after = context.Store.Get(context.WorkspaceId).Value!;
+        var beforeRoot = XDocument.Parse(before.Document.Content).Root!;
+        var afterRoot = XDocument.Parse(after.Document.Content).Root!;
+        foreach (string field in CareerBaselineFields)
+            Assert.IsTrue(XNode.DeepEquals(beforeRoot.Element(field), afterRoot.Element(field)), field);
+        var read = new WorkspaceCharacterCareerReputationService(new FileWorkspaceStore(context.Directory), context.Resolver)
+            .Read(context.WorkspaceId);
+        Assert.AreEqual(CharacterCareerReputationOutcome.Available, read.Outcome, read.Error);
+        Assert.AreEqual(20, read.Snapshot!.Reputation.Inputs.CareerKarma);
+        Assert.AreEqual(0, read.Snapshot.Reputation.Inputs.NotorietyImprovement);
+        Assert.AreEqual(3, read.Snapshot.Reputation.Inputs.StreetCred);
+        Assert.AreEqual(2, read.Snapshot.Reputation.Inputs.BurntStreetCred);
+    }
+
+    [TestMethod]
+    public void Projection_preserves_existing_effect_rows_when_adding_confirmed_quality_effects()
+    {
+        using ReadyContext context = ReadyContext.Create(includeGearReview: true, includeNonEmptyPurchases: true);
+        var saved = context.Store.Get(context.WorkspaceId).Value!;
+        var root = XDocument.Parse(saved.Document.Content).Root!;
+        var existing = XElement.Parse("<improvement><improvementttype>Notoriety</improvementttype><val>2</val><enabled>1</enabled></improvement>");
+        root.Element("improvements")!.Add(existing);
+        // Projector preservation only. An imported nonempty effect graph before
+        // attribute allocation is deliberately rejected by the Creation service;
+        // this test must not claim that unsupported full-service route works.
+        var projectedInput = saved with { Document = WithCharacterXml(saved.Document, root) };
+        Assert.IsTrue(CharacterCreationFinalizationProjector.TryProject(projectedInput,
+            out string xml, out _, out _, out _, out _, out _, out var blockers), string.Join(",", blockers));
+        var output = XDocument.Parse(xml).Root!.Element("improvements")!;
+        Assert.HasCount(1, output.Elements().Where(row => XNode.DeepEquals(existing, row)).ToArray());
+        Assert.AreEqual(saved.Document.Content, context.Store.Get(context.WorkspaceId).Value!.Document.Content);
+    }
+
+    [TestMethod]
+    public void Malformed_present_career_inputs_fail_projection_without_repair_or_output()
+    {
+        using ReadyContext context = ReadyContext.Create(includeGearReview: true);
+        var stored = context.Store.Get(context.WorkspaceId).Value!;
+        string[] invalidNodes =
+        [
+            "<streetcred />", "<streetcred> 0</streetcred>", "<streetcred>1.5</streetcred>",
+            "<streetcred><value>0</value></streetcred>", "<streetcred extra='0'>0</streetcred>",
+            "<streetcred>2147483648</streetcred>", "<burntstreetcred>-1</burntstreetcred>",
+            "<expenses>lost history</expenses>", "<expenses><wrong /></expenses>",
+            "<expenses><expense><type>Karma</type><amount>bad</amount></expense></expenses>",
+            "<expenses><expense><type>Karma</type><amount>2147483648</amount></expense></expenses>",
+            "<improvements><improvement><improvementttype>Notoriety</improvementttype><val>bad</val></improvement></improvements>",
+            "<contacts>lost contact</contacts>", "<contacts><wrong /></contacts>"
+        ];
+        foreach (string invalid in invalidNodes)
+        {
+            XElement root = XDocument.Parse(stored.Document.Content).Root!;
+            XElement replacement = XElement.Parse(invalid);
+            root.Element(replacement.Name)!.ReplaceWith(replacement);
+            AssertInvalidCareerProjection(stored, root, invalid);
+        }
+        foreach (string field in CareerBaselineFields)
+        {
+            XElement root = XDocument.Parse(stored.Document.Content).Root!;
+            root.Add(new XElement(root.Element(field)!));
+            AssertInvalidCareerProjection(stored, root, "duplicate " + field);
+            root = XDocument.Parse(stored.Document.Content).Root!;
+            root.Element(field)!.Name = XName.Get(field, "urn:foreign");
+            AssertInvalidCareerProjection(stored, root, "foreign namespace " + field);
+        }
+        Assert.AreEqual(stored.Document.Content, context.Store.Get(context.WorkspaceId).Value!.Document.Content);
+        Assert.AreEqual(stored.ContentRevision, context.Store.Get(context.WorkspaceId).Value!.ContentRevision);
+    }
+
+    private static void AssertInvalidCareerProjection(WorkspaceStoredDocument stored, XElement root, string reason)
+    {
+        var changed = stored with { Document = WithCharacterXml(stored.Document, root) };
+        Assert.IsFalse(CharacterCreationFinalizationProjector.TryProject(changed,
+            out string xml, out var deltas, out var anchors, out _, out _, out _, out var blockers), reason);
+        Assert.AreEqual("", xml, reason);
+        Assert.IsEmpty(deltas, reason);
+        Assert.IsEmpty(anchors, reason);
+        CollectionAssert.Contains(blockers, CharacterCreationFinalizationBlockers.DraftAuthorityInvalid, reason);
+    }
+
+    private static WorkspaceDocument WithCharacterXml(WorkspaceDocument document, XElement root)
+        => document with { State = document.State with { Payload = root.ToString(SaveOptions.DisableFormatting) } };
+
+    [TestMethod]
     [DataRow("Human")]
     [DataRow("Elf")]
     public void Priority_projection_cannot_discard_a_life_module_foundation(string metatype)
@@ -748,32 +976,43 @@ public sealed class CharacterCreationFinalizationServiceTests
 
         public static ReadyContext Create(
             bool includeGearReview,
-            bool includeNonEmptyPurchases = false)
+            bool includeNonEmptyPurchases = false,
+            Action<XElement>? beforeDrafts = null)
         {
             string directory = Path.Combine(
                 Path.GetTempPath(),
                 $"chummer-creation-finalization-{Guid.NewGuid():N}");
             System.IO.Directory.CreateDirectory(directory);
-            string coreRoot = FindCoreRoot();
-            ICharacterSourceDataResolver resolver = new FileSystemCharacterSourceDataResolver(
-                new FileSystemContentOverlayCatalogService(coreRoot, coreRoot, null));
-            ICharacterFileQueries queries = new XmlCharacterFileQueries(new CharacterFileService());
-            var store = new FileWorkspaceStore(directory);
-            CharacterWorkspaceId workspaceId = Bootstrap(store, queries, resolver);
-            CompleteDrafts(
-                store,
-                workspaceId,
-                queries,
-                resolver,
-                includeGearReview,
-                includeNonEmptyPurchases);
-            return new ReadyContext(
-                directory,
-                store,
-                workspaceId,
-                queries,
-                resolver,
-                ownsDirectory: true);
+            try
+            {
+                string coreRoot = FindCoreRoot();
+                ICharacterSourceDataResolver resolver = new FileSystemCharacterSourceDataResolver(
+                    new FileSystemContentOverlayCatalogService(coreRoot, coreRoot, null));
+                ICharacterFileQueries queries = new XmlCharacterFileQueries(new CharacterFileService());
+                var store = new FileWorkspaceStore(directory);
+                CharacterWorkspaceId workspaceId = beforeDrafts is null
+                    ? Bootstrap(store, queries, resolver)
+                    : BootstrapPersistedShapeFixture(store, resolver, beforeDrafts);
+                CompleteDrafts(
+                    store,
+                    workspaceId,
+                    queries,
+                    resolver,
+                    includeGearReview,
+                    includeNonEmptyPurchases);
+                return new ReadyContext(
+                    directory,
+                    store,
+                    workspaceId,
+                    queries,
+                    resolver,
+                    ownsDirectory: true);
+            }
+            catch
+            {
+                System.IO.Directory.Delete(directory, recursive: true);
+                throw;
+            }
         }
 
         public static ReadyContext CreateUnprepared(string buildMethod)
@@ -840,6 +1079,43 @@ public sealed class CharacterCreationFinalizationServiceTests
             Assert.AreEqual(CharacterCreationBootstrapOutcomes.Success, result.Outcome,
                 string.Join(",", result.Blockers));
             return result.Value!.WorkspaceId;
+        }
+
+        private static CharacterWorkspaceId BootstrapPersistedShapeFixture(
+            FileWorkspaceStore store, ICharacterSourceDataResolver resolver, Action<XElement> configure)
+        {
+            // Captured pre-decision SR5 shape for legacy/custom-data cases only.
+            // Bind it through the real authority and atomic-create capability;
+            // changing XML after bootstrap would correctly invalidate its digest.
+            // Ordinary new-runner cases above use the actual Bootstrap service.
+            var root = XElement.Parse($"""
+                <character>
+                  <name>Finalization Runner</name><alias>Finalizer</alias><buildmethod>Priority</buildmethod>
+                  <createdversion>5.225.0</createdversion><appversion>5.225.0</appversion>
+                  <karma>0</karma><nuyen>0</nuyen><created>False</created><gameedition>SR5</gameedition>
+                  <settings>{CharacterCreationBootstrapProfiles.PrioritySettingsProfileId}</settings>
+                  <{CharacterCreationBootstrapXml.MarkerElement}>
+                    <{CharacterCreationBootstrapXml.SchemaElement}>{CharacterCreationBootstrapSchemas.MarkerV1}</{CharacterCreationBootstrapXml.SchemaElement}>
+                    <{CharacterCreationBootstrapXml.StageElement}>{CharacterCreationBootstrapStages.AwaitingFoundationSelection}</{CharacterCreationBootstrapXml.StageElement}>
+                  </{CharacterCreationBootstrapXml.MarkerElement}>
+                  <streetcred>0</streetcred><notoriety>0</notoriety><publicawareness>0</publicawareness><burntstreetcred>0</burntstreetcred>
+                  <expenses /><improvements /><contacts />
+                </character>
+                """);
+            configure(root);
+            var id = new CharacterWorkspaceId(Guid.NewGuid().ToString("N"));
+            var document = new WorkspaceDocument(new WorkspacePayloadEnvelope("sr5", 1,
+                "sr5/chum5-xml", root.ToString(SaveOptions.DisableFormatting)));
+            Assert.IsTrue(CharacterCreationBootstrapAuthority.TryPrepareBinding(id, document, resolver,
+                out var binding, out _, out var blockers), string.Join(",", blockers));
+            document = document with { State = document.State with
+            {
+                AuxiliaryState = new WorkspaceDocumentAuxiliaryState(CharacterCreationBootstrapBinding: binding)
+            } };
+            var created = ((ICharacterCreationBootstrapAtomicCreateCapability)store)
+                .CreateCharacterCreationBootstrapWorkspaceDocument(id, document);
+            Assert.IsTrue(created.Success, created.Error);
+            return id;
         }
 
         private static void CompleteDrafts(

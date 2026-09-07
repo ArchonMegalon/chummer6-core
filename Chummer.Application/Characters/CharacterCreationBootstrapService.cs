@@ -481,6 +481,7 @@ public sealed class CharacterCreationBootstrapService :
                     new XElement(
                         CharacterCreationBootstrapXml.StageElement,
                         CharacterCreationBootstrapStages.AwaitingFoundationSelection))));
+        CharacterCreationCareerBaseline.InitializeMissing(document.Root!);
         using StringWriter writer = new(CultureInfo.InvariantCulture);
         document.Save(writer, SaveOptions.DisableFormatting);
         return writer.ToString();

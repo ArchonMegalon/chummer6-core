@@ -129,6 +129,22 @@ public static class CharacterCareerReputationProjector
         }
     }
 
+    // Creation uses the same strict input parsers after materializing its
+    // draft graph. Never let finalization turn malformed present data into
+    // defaults or certify an unreadable persisted reputation/history shape.
+    // This checks saved input shape, not settings/effect recalculation authority.
+    internal static void ValidateSavedInputShape(XElement root)
+    {
+        if (root.Name != "character" || root.HasAttributes) throw Invalid();
+        _ = ReadInteger(root, "streetcred");
+        _ = ReadInteger(root, "notoriety");
+        _ = ReadInteger(root, "publicawareness");
+        if (ReadInteger(root, "burntstreetcred") < 0) throw Invalid();
+        _ = ReadCareerKarma(root, out _);
+        _ = ReadImprovements(root);
+        _ = Rows(root, "contacts", "contact");
+    }
+
     private static int ReadCareerKarma(
         XElement root, out CharacterCareerReputationExpenseContribution[] trace)
     {

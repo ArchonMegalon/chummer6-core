@@ -124,6 +124,10 @@ public static class CharacterCreationFinalizationProjector
             CharacterCreationPriorityHeritageSelection heritage = prerequisite.HeritageSelection!;
             var projected = new List<CharacterCreationFinalizationDelta>();
             int order = 0;
+            foreach (string field in CharacterCreationCareerBaseline.InitializeMissing(root))
+                AddDelta(projected, ref order, $"career-initialization:{field}",
+                    CharacterCreationFinalizationDeltaKinds.Lifecycle, field, null,
+                    ReadDirect(root, field), 0, 0, []);
             AddDelta(projected, ref order, "lifecycle:created",
                 CharacterCreationFinalizationDeltaKinds.Lifecycle, "created", "False", "True", 0, 0,
                 prerequisite.SourceAnchorIds);
@@ -179,6 +183,7 @@ public static class CharacterCreationFinalizationProjector
             SetDirect(root, "startingnuyen", startingNuyen.ToString(CultureInfo.InvariantCulture));
             SetDirect(root, "nuyenbp", resources.KarmaInvestment.ToString(CultureInfo.InvariantCulture));
             SetDirect(root, "created", "True");
+            CharacterCareerReputationProjector.ValidateSavedInputShape(root);
             root.Elements(CharacterCreationBootstrapXml.MarkerElement).Remove();
 
             AddDelta(projected, ref order, "resources:starting-nuyen",
@@ -206,6 +211,7 @@ public static class CharacterCreationFinalizationProjector
             return true;
         }
         catch (Exception exception) when (exception is InvalidDataException
+                                          or OverflowException
                                           or InvalidOperationException
                                           or XmlException)
         {

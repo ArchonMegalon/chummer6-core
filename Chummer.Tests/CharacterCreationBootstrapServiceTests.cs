@@ -31,6 +31,31 @@ public sealed class CharacterCreationBootstrapServiceTests
     private const string CanonicalLifeModulesSettingsId =
         CharacterCreationBootstrapProfiles.LifeModulesSettingsProfileId;
 
+    [TestMethod]
+    [DataRow(CharacterCreationBuildMethods.Priority, CanonicalPrioritySettingsId)]
+    [DataRow(CharacterCreationBuildMethods.SumToTen, CanonicalSumToTenSettingsId)]
+    [DataRow(CharacterCreationBuildMethods.Karma, CanonicalKarmaSettingsId)]
+    [DataRow(CharacterCreationBuildMethods.LifeModules, CanonicalLifeModulesSettingsId)]
+    public void A_new_sr5_runner_owns_explicit_zero_reputation_and_empty_career_history(string method, string settings)
+    {
+        var store = new InMemoryWorkspaceStore();
+        var service = CreateService(store, CreateSourceResolver(FindCoreRoot()), CreateFileQueries());
+        var result = service.Create(CanonicalRequest() with { BuildMethod = method, SettingsProfileId = settings });
+        Assert.AreEqual(CharacterCreationBootstrapOutcomes.Success, result.Outcome, string.Join(",", result.Blockers));
+        var root = XDocument.Parse(store.Get(result.Value!.WorkspaceId).Value!.Document.Content).Root!;
+        foreach (string field in new[] { "streetcred", "notoriety", "publicawareness", "burntstreetcred" })
+        {
+            Assert.HasCount(1, root.Elements(field).ToArray(), field);
+            Assert.AreEqual("0", root.Element(field)!.Value, field);
+        }
+        foreach (string container in new[] { "expenses", "improvements", "contacts" })
+        {
+            Assert.HasCount(1, root.Elements(container).ToArray(), container);
+            Assert.IsFalse(root.Element(container)!.Nodes().Any(), container);
+        }
+        Assert.AreEqual("False", root.Element("created")!.Value);
+    }
+
     [DataTestMethod]
     [DataRow(CharacterCreationBuildMethods.Priority, CanonicalPrioritySettingsId)]
     [DataRow(CharacterCreationBuildMethods.SumToTen, CanonicalSumToTenSettingsId)]
