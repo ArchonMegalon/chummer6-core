@@ -5,6 +5,10 @@ using Chummer.Contracts.Owners;
 using Chummer.Contracts.Rulesets;
 using Chummer.Contracts.Workspaces;
 using Chummer.Infrastructure.Workspaces;
+using Chummer.Infrastructure.Files;
+using Chummer.Infrastructure.Xml;
+using Chummer.Rulesets.Hosting;
+using Chummer.Rulesets.Sr5;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace Chummer.Tests;
@@ -15,6 +19,210 @@ public sealed class CharacterCreationSkillsServiceTests
     private const string ReadyXml = "<character><name>Skills Runner</name><alias>Priority</alias>"
                                     + "<buildmethod>Priority</buildmethod><created>false</created>"
                                     + "<karma>25</karma><nuyen>0</nuyen></character>";
+
+    [TestMethod]
+    [DataRow("Magician")]
+    [DataRow("Aspected Magician")]
+    [DataRow("Adept")]
+    [DataRow("Mystic Adept")]
+    [DataRow("Technomancer")]
+    public void Actual_priority_talent_grants_are_free_visible_and_preserved_on_cold_reopen(string talentValue)
+    {
+        WithRealTalentSkills(talentValue, (directory, store, resolver, service, id) =>
+        {
+            var state = Load(service, id);
+            Assert.IsTrue(state.CanEdit, string.Join(",", state.Blockers));
+            var plan = state.PrerequisiteDraft!.TalentSelection!.GrantPlan!;
+            Assert.IsNotNull(plan);
+            Assert.IsTrue(plan.ActiveSkills.Count + plan.SkillGroups.Count > 0);
+            Assert.HasCount(plan.ActiveSkills.Count, state.Skills);
+            Assert.HasCount(plan.SkillGroups.Count, state.SkillGroups);
+            Assert.AreEqual(0m, state.ActiveSkillPointBudget.Used);
+            Assert.AreEqual(0m, state.SkillGroupPointBudget.Used);
+            Assert.IsTrue(CharacterCreationSkillsDraftIntegrity.IsValidStateProjection(state));
+            var native = state.Authority.KnowledgeSkills.First(item => item.CanBeNativeLanguage);
+            CharacterCreationSkillAllocation[] allocations =
+                [new(native.SourceSkillId, CharacterCreationSkillKinds.Knowledge, null, null, true)];
+            CharacterCreationSkillGroupAllocation[] groups = [];
+            if (plan.ActiveSkills.Count > 0)
+            {
+                var grant = plan.ActiveSkills[0];
+                allocations = [.. allocations, new(grant.SourceId, CharacterCreationSkillKinds.Active,
+                    grant.BaseRating + 1, null, false)];
+            }
+            else
+            {
+                var grant = plan.SkillGroups[0];
+                var group = state.Authority.SkillGroups.Single(item => item.Name == grant.CanonicalName);
+                groups = [new(group.GroupId, grant.BaseRating + 1)];
+            }
+            var preview = service.Preview(new(state.Binding, allocations, groups)).Value!;
+            Assert.IsTrue(preview.CanConfirm, string.Join(",", preview.Blockers));
+            Assert.AreEqual(plan.ActiveSkills.Count > 0 ? 1m : 0m, preview.ActiveSkillPointBudget.Used);
+            Assert.AreEqual(plan.SkillGroups.Count > 0 ? 1m : 0m, preview.SkillGroupPointBudget.Used);
+            foreach (var grant in plan.ActiveSkills)
+            {
+                var skill = preview.Skills.Single(item => item.SourceSkillId == grant.SourceId);
+                Assert.IsTrue(skill.EffectiveRating >= grant.BaseRating);
+                Assert.IsTrue(grant.SourceAnchorIds.All(skill.SourceAnchorIds.Contains));
+            }
+            foreach (var grant in plan.SkillGroups)
+            {
+                var group = preview.SkillGroups.Single(item => item.Name == grant.CanonicalName);
+                Assert.AreEqual(grant.BaseRating + 1, group.Rating);
+                Assert.IsTrue(grant.SourceAnchorIds.All(group.SourceAnchorIds.Contains));
+            }
+            string originalXml = store.Get(id).Value!.Document.Content;
+            var command = new CharacterCreationSkillsConfirmRequest(preview.Binding, allocations, groups,
+                preview.PreviewDigest, "actual-talent-grants", ExplicitlyConfirmed: true);
+            var confirmed = service.Confirm(command);
+            Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, confirmed.Outcome,
+                string.Join(",", confirmed.Blockers));
+            var coldStore = new FileWorkspaceStore(directory);
+            var coldService = new CharacterCreationSkillsService(coldStore, resolver);
+            var cold = Load(coldService, id);
+            Assert.IsTrue(cold.CanEdit, string.Join(",", cold.Blockers));
+            Assert.IsTrue(CharacterCreationSkillsDraftIntegrity.IsValidStateProjection(cold));
+            Assert.AreEqual(CharacterCreationSkillsDigest.Compute(preview.Skills),
+                CharacterCreationSkillsDigest.Compute(cold.Skills));
+            Assert.AreEqual(CharacterCreationSkillsDigest.Compute(preview.SkillGroups),
+                CharacterCreationSkillsDigest.Compute(cold.SkillGroups));
+            Assert.AreEqual(originalXml, coldStore.Get(id).Value!.Document.Content,
+                "Confirming a wizard draft must not apply its effects to XML yet.");
+            long revision = coldStore.Get(id).Value!.ContentRevision;
+            Assert.AreEqual(confirmed.Value!.ReceiptDigest, coldService.Confirm(command).Value!.ReceiptDigest);
+            Assert.AreEqual(revision, coldStore.Get(id).Value!.ContentRevision);
+
+            // Leaving out a free row resets only purchased increases, not the grant.
+            var reset = coldService.Preview(new(cold.Binding,
+                [new(native.SourceSkillId, CharacterCreationSkillKinds.Knowledge, null, null, true)], [])).Value!;
+            Assert.IsTrue(reset.CanConfirm, string.Join(",", reset.Blockers));
+            Assert.AreEqual(0m, reset.ActiveSkillPointBudget.Used);
+            Assert.AreEqual(0m, reset.SkillGroupPointBudget.Used);
+            foreach (var grant in plan.ActiveSkills)
+                Assert.AreEqual(grant.BaseRating, reset.Skills.Single(item => item.SourceSkillId == grant.SourceId).Rating);
+            foreach (var grant in plan.SkillGroups)
+                Assert.AreEqual(grant.BaseRating, reset.SkillGroups.Single(item => item.Name == grant.CanonicalName).Rating);
+
+            CharacterCreationSkillAllocation[] belowMinimum = allocations;
+            CharacterCreationSkillGroupAllocation[] belowMinimumGroups = groups;
+            if (plan.ActiveSkills.Count > 0)
+                belowMinimum = [new(plan.ActiveSkills[0].SourceId, CharacterCreationSkillKinds.Active,
+                    plan.ActiveSkills[0].BaseRating - 1, null, false),
+                    new(native.SourceSkillId, CharacterCreationSkillKinds.Knowledge, null, null, true)];
+            else
+                belowMinimumGroups = [groups[0] with { Rating = plan.SkillGroups[0].BaseRating - 1 }];
+            var invalid = coldService.Preview(new(cold.Binding, belowMinimum, belowMinimumGroups));
+            Assert.AreEqual(CharacterCreationFoundationOutcomes.Blocked, invalid.Outcome);
+            Assert.IsTrue(invalid.Blockers.Contains(plan.ActiveSkills.Count > 0
+                ? CharacterCreationSkillsBlockers.RatingInvalid : CharacterCreationSkillsBlockers.GroupInvalid));
+            Assert.AreEqual(revision, coldStore.Get(id).Value!.ContentRevision);
+
+            // Rehashing a forged free rating does not give it source authority.
+            var draft = cold.PendingDraft!;
+            var forged = draft with
+            {
+                Skills = draft.Skills.Select(item => item.GrantedRating > 0
+                    ? item with { GrantedRating = item.GrantedRating + 1 } : item).ToArray(),
+                SkillGroups = draft.SkillGroups.Select(item => item.GrantedRating > 0
+                    ? item with { GrantedRating = item.GrantedRating + 1 } : item).ToArray()
+            };
+            forged = forged with { DraftDigest = CharacterCreationSkillsDraftIntegrity.ComputeDigest(forged) };
+            Assert.IsFalse(CharacterCreationSkillsDraftIntegrity.IsStructurallyValidPending(forged, id,
+                cold.Binding.ContentRevision, cold.Binding.RawCharacterXmlDigest, cold.PrerequisiteDraft!,
+                cold.AttributesDraft!, cold.Authority, cold.Binding.ContributionInputsDigest));
+            // Hostile persisted arrays must fail closed, not throw while trying
+            // to enumerate a forged free-grant projection.
+            CharacterCreationSkillsDraft[] malformed =
+            [
+                draft with { Skills = [null!] },
+                draft with { SkillGroups = [null!] },
+                draft with { Skills = draft.Skills.Select(item => item with { SourceAnchorIds = null! }).ToArray() },
+                draft with
+                {
+                    Skills = draft.Skills.Select(item => item.GrantedRating > 0
+                        ? item with { PointCost = item.PointCost + 1 } : item).ToArray(),
+                    SkillGroups = draft.SkillGroups.Select(item => item.GrantedRating > 0
+                        ? item with { PointCost = item.PointCost + 1 } : item).ToArray()
+                }
+            ];
+            foreach (var candidate in malformed)
+            {
+                var rehashed = candidate with { DraftDigest = CharacterCreationSkillsDraftIntegrity.ComputeDigest(candidate) };
+                Assert.IsFalse(CharacterCreationSkillsDraftIntegrity.IsStructurallyValidPending(rehashed, id,
+                    cold.Binding.ContentRevision, cold.Binding.RawCharacterXmlDigest, cold.PrerequisiteDraft!,
+                    cold.AttributesDraft!, cold.Authority, cold.Binding.ContributionInputsDigest));
+            }
+            var ordinary = cold.Skills.Single(item => item.IsNativeLanguage);
+            Assert.AreEqual(0, ordinary.GrantedRating);
+            Assert.IsFalse(System.Text.Json.JsonSerializer.Serialize(ordinary)
+                .Contains(nameof(CharacterCreationSkillProjection.GrantedRating), StringComparison.Ordinal),
+                "Zero grants must preserve the existing non-grant JSON shape.");
+        });
+    }
+
+    private static void WithRealTalentSkills(string talentValue,
+        Action<string, FileWorkspaceStore, ICharacterSourceDataResolver,
+            ICharacterCreationSkillsService, CharacterWorkspaceId> action)
+    {
+        string directory = Path.Combine(Path.GetTempPath(), $"chummer-real-talent-skills-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            DirectoryInfo? core = new(AppContext.BaseDirectory);
+            while (core is not null && !File.Exists(Path.Combine(core.FullName, "Chummer", "data", "priorities.xml")))
+                core = core.Parent;
+            Assert.IsNotNull(core);
+            ICharacterSourceDataResolver resolver = new FileSystemCharacterSourceDataResolver(
+                new FileSystemContentOverlayCatalogService(core.FullName, core.FullName, null));
+            ICharacterFileQueries queries = new XmlCharacterFileQueries(new CharacterFileService());
+            var store = new FileWorkspaceStore(directory);
+            var codec = new Sr5WorkspaceCodec(queries,
+                new XmlCharacterSectionQueries(new CharacterSectionService(resolver)),
+                new XmlCharacterMetadataCommands(new CharacterFileService()));
+            var bootstrap = new CharacterCreationBootstrapService(store,
+                new RulesetWorkspaceCodecResolver([codec]), queries, resolver);
+            var created = bootstrap.Create(new(CharacterCreationBootstrapSchemas.RequestV1,
+                CharacterCreationBootstrapStages.AwaitingFoundationSelection, RulesetDefaults.Sr5,
+                "Talent skills runner", "Talent", CharacterCreationBuildMethods.Priority,
+                CharacterCreationBootstrapProfiles.PrioritySettingsProfileId));
+            Assert.AreEqual(CharacterCreationBootstrapOutcomes.Success, created.Outcome,
+                string.Join(",", created.Blockers));
+            var id = created.Value!.WorkspaceId;
+            var prerequisites = new CharacterCreationPrerequisiteService(store, queries, resolver);
+            var state = prerequisites.Load(new(id)).Value!;
+            var ranks = CharacterCreationPrerequisiteServiceTests.Assign("E", "B", "A", "C", "D");
+            var heritage = state.Authority.Options.Single(item => item.CategoryId == "heritage" && item.Rank == "E")
+                .HeritageOptions.First(item => item.MetatypeName == "Human" && item.MetavariantSourceId is null && item.IsEnabled);
+            var talent = state.Authority.Options.Single(item => item.CategoryId == "talent" && item.Rank == "B")
+                .TalentOptions.First(item => item.Value == talentValue && item.IsEnabled);
+            string[] skills = talent.ActiveSkillGrant?.Options.Where(item => item.IsEnabled)
+                .Take(talent.ActiveSkillGrant.Quantity).Select(item => item.SelectionId).ToArray() ?? [];
+            string[] groups = talent.SkillGroupGrant?.Options.Take(talent.SkillGroupGrant.Quantity)
+                .Select(item => item.SelectionId).ToArray() ?? [];
+            var preview = prerequisites.Preview(new(state.Binding, ranks)
+            {
+                HeritageSelectionId = heritage.SelectionId, TalentSelectionId = talent.SelectionId,
+                TalentActiveSkillSelectionIds = skills, TalentSkillGroupSelectionIds = groups
+            }).Value!;
+            Assert.IsTrue(preview.CanConfirm, string.Join(",", preview.Blockers));
+            var confirmed = prerequisites.Confirm(new(preview.Binding, ranks, preview.PreviewDigest, true)
+            {
+                HeritageSelectionId = heritage.SelectionId, TalentSelectionId = talent.SelectionId,
+                TalentActiveSkillSelectionIds = skills, TalentSkillGroupSelectionIds = groups
+            });
+            Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, confirmed.Outcome,
+                string.Join(",", confirmed.Blockers));
+            var attributes = new CharacterCreationAttributesService(store, resolver);
+            var attributeState = attributes.Load(new(id)).Value!;
+            var attributePreview = attributes.Preview(new(attributeState.Binding, [])).Value!;
+            Assert.IsTrue(attributePreview.CanConfirm, string.Join(",", attributePreview.Blockers));
+            Assert.AreEqual(CharacterCreationFoundationOutcomes.Success,
+                attributes.Confirm(new(attributePreview.Binding, [], attributePreview.PreviewDigest, true)).Outcome);
+            action(directory, store, resolver, new CharacterCreationSkillsService(store, resolver), id);
+        }
+        finally { Directory.Delete(directory, recursive: true); }
+    }
 
     [TestMethod]
     public void Preview_uses_selected_priority_and_unaugmented_attributes_plus_authoritative_contributions()

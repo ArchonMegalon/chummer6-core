@@ -213,6 +213,7 @@ public sealed class CharacterCreationSkillsService : ICharacterCreationSkillsSer
         var blockers = new List<string>(state.Blockers);
         SkillEvaluation projected = EvaluateAllocations(
             state.Authority,
+            prerequisite,
             state.SelectedActiveSkillPoints,
             state.SelectedSkillGroupPoints,
             state.IntuitionUnaugmented,
@@ -365,6 +366,9 @@ public sealed class CharacterCreationSkillsService : ICharacterCreationSkillsSer
 
         CharacterCreationSkillsDraft? pending =
             workspace.Document.AuxiliaryState.CharacterCreationSkillsDraft;
+        if (prerequisite is not null
+            && !CharacterCreationTalentSkillGrants.TryResolve(prerequisite, authority, out _))
+            blockers.Add(CharacterCreationSkillsBlockers.PrerequisiteSourceDrift);
         IReadOnlyList<CharacterCreationSkillsReceipt>? receipts =
             workspace.Document.AuxiliaryState.CharacterCreationSkillsReceipts;
         if (!CharacterCreationSkillsDraftIntegrity.IsValidReceiptLedger(
@@ -388,6 +392,7 @@ public sealed class CharacterCreationSkillsService : ICharacterCreationSkillsSer
         var pendingBlockers = new List<string>();
         SkillEvaluation projected = EvaluateAllocations(
             authority,
+            prerequisite,
             activeTotal,
             groupTotal,
             intuition,
@@ -479,6 +484,7 @@ public sealed class CharacterCreationSkillsService : ICharacterCreationSkillsSer
 
     private static SkillEvaluation EvaluateAllocations(
         CharacterCreationSkillsAuthority authority,
+        CharacterCreationPrerequisiteDraft? prerequisite,
         int activeTotal,
         int groupTotal,
         int intuition,
@@ -490,6 +496,8 @@ public sealed class CharacterCreationSkillsService : ICharacterCreationSkillsSer
     {
         requested ??= [];
         requestedGroups ??= [];
+        if (!CharacterCreationTalentSkillGrants.TryResolve(prerequisite, authority, out var grants))
+            blockers.Add(CharacterCreationSkillsBlockers.PrerequisiteSourceDrift);
         var allocationMap = new Dictionary<(string Kind, string SourceId), CharacterCreationSkillAllocation>();
         foreach (CharacterCreationSkillAllocation? allocation in requested)
         {
@@ -517,6 +525,13 @@ public sealed class CharacterCreationSkillsService : ICharacterCreationSkillsSer
         }
 
         var groups = new List<CharacterCreationSkillGroupProjection>();
+        // Omitting a talent-granted row never deletes the free rating. Requests
+        // describe the desired total rating; only increases consume points.
+        foreach (var grant in grants.Skills)
+            allocationMap.TryAdd((CharacterCreationSkillKinds.Active, grant.Key),
+                new(grant.Key, CharacterCreationSkillKinds.Active, grant.Value.BaseRating, null, false));
+        foreach (var grant in grants.Groups)
+            groupMap.TryAdd(grant.Key, new(grant.Key, grant.Value.BaseRating));
         int groupUsed = 0;
         foreach (CharacterCreationSkillGroupAllocation allocation in groupMap.Values
                      .OrderBy(item => item.GroupId, StringComparer.Ordinal))
@@ -529,8 +544,11 @@ public sealed class CharacterCreationSkillsService : ICharacterCreationSkillsSer
                     && IsMovementAvailable(skill, movementCapability))
                 .ToArray() ?? [];
             var local = new List<string>();
+            grants.Groups.TryGetValue(allocation.GroupId, out var grant);
+            int grantedRating = grant?.BaseRating ?? 0;
             if (source is null
                 || allocation.Rating < 1
+                || allocation.Rating < grantedRating
                 || allocation.Rating > authority.MaxSkillGroupRatingCreate)
                 local.Add(CharacterCreationSkillsBlockers.GroupInvalid);
             if (source is not null && availableMemberIds.Any(id =>
@@ -538,16 +556,17 @@ public sealed class CharacterCreationSkillsService : ICharacterCreationSkillsSer
                 local.Add(CharacterCreationSkillsBlockers.GroupBroken);
             AddAll(blockers, local);
             if (source is not null)
-                groupUsed = SafeAdd(groupUsed, allocation.Rating, blockers);
+                groupUsed = SafeAdd(groupUsed, Math.Max(0, allocation.Rating - grantedRating), blockers);
             groups.Add(new(
                 allocation.GroupId,
                 source?.Name ?? string.Empty,
                 allocation.Rating,
-                Math.Max(0, allocation.Rating),
+                Math.Max(0, allocation.Rating - grantedRating),
                 source?.MemberSkillSourceIds ?? [],
                 local.Count == 0,
                 Normalize(local),
-                source?.SourceAnchorIds ?? []));
+                CharacterCreationTalentSkillGrants.Anchors(source?.SourceAnchorIds ?? [], grant?.SourceAnchorIds))
+                { GrantedRating = grantedRating });
         }
 
         var skills = new List<CharacterCreationSkillProjection>();
@@ -564,6 +583,9 @@ public sealed class CharacterCreationSkillsService : ICharacterCreationSkillsSer
                     : authority.KnowledgeSkills).SingleOrDefault(item =>
                         item.SourceSkillId == allocation.SourceSkillId);
             var local = new List<string>();
+            var grant = allocation.Kind == CharacterCreationSkillKinds.Active
+                ? grants.Skills.GetValueOrDefault(allocation.SourceSkillId) : null;
+            int grantedRating = grant?.BaseRating ?? 0;
             int max = allocation.Kind == CharacterCreationSkillKinds.Active
                 ? authority.MaxActiveSkillRatingCreate
                 : authority.MaxKnowledgeSkillRatingCreate;
@@ -581,7 +603,7 @@ public sealed class CharacterCreationSkillsService : ICharacterCreationSkillsSer
                     || allocation.SpecializationOptionId is not null)
                     local.Add(CharacterCreationSkillsBlockers.NativeLanguageInvalid);
             }
-            else if (allocation.Rating is not int rating || rating < 1 || rating > max)
+            else if (allocation.Rating is not int rating || rating < 1 || rating < grantedRating || rating > max)
                 local.Add(CharacterCreationSkillsBlockers.RatingInvalid);
 
             CharacterCreationSkillSpecializationOption? specialization =
@@ -602,7 +624,7 @@ public sealed class CharacterCreationSkillsService : ICharacterCreationSkillsSer
 
             int cost = allocation.IsNativeLanguage
                 ? 0
-                : Math.Max(0, allocation.Rating.GetValueOrDefault()) + (specialization is null ? 0 : 1);
+                : Math.Max(0, allocation.Rating.GetValueOrDefault() - grantedRating) + (specialization is null ? 0 : 1);
             if (allocation.Kind == CharacterCreationSkillKinds.Active)
                 activeUsed = SafeAdd(activeUsed, cost, blockers);
             else
@@ -625,7 +647,8 @@ public sealed class CharacterCreationSkillsService : ICharacterCreationSkillsSer
                 allocation.IsNativeLanguage,
                 local.Count == 0,
                 Normalize(local),
-                source?.SourceAnchorIds ?? []));
+                CharacterCreationTalentSkillGrants.Anchors(source?.SourceAnchorIds ?? [], grant?.SourceAnchorIds))
+                { GrantedRating = grantedRating });
         }
         if (nativeCount > authority.BaseNativeLanguageLimit)
             blockers.Add(CharacterCreationSkillsBlockers.NativeLanguageLimitExceeded);

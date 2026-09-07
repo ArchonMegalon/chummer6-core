@@ -317,7 +317,13 @@ public sealed record CharacterCreationSkillProjection(
     bool IsNativeLanguage,
     bool IsEnabled,
     IReadOnlyList<string> Blockers,
-    IReadOnlyList<string> SourceAnchorIds);
+    IReadOnlyList<string> SourceAnchorIds)
+{
+    /// <summary>Source-bound free base rating already included in Rating/EffectiveRating;
+    /// never spendable points. Zero is omitted to preserve existing draft bytes.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public int GrantedRating { get; init; }
+}
 
 public sealed record CharacterCreationSkillGroupProjection(
     string GroupId,
@@ -327,7 +333,11 @@ public sealed record CharacterCreationSkillGroupProjection(
     IReadOnlyList<string> MemberSkillSourceIds,
     bool IsEnabled,
     IReadOnlyList<string> Blockers,
-    IReadOnlyList<string> SourceAnchorIds);
+    IReadOnlyList<string> SourceAnchorIds)
+{
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public int GrantedRating { get; init; }
+}
 
 public sealed record CharacterCreationSkillsBinding(
     CharacterWorkspaceId WorkspaceId,
