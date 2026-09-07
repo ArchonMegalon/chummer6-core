@@ -267,7 +267,9 @@ public sealed class CharacterCreationQualitiesRulesTests
         ContentRevision: 7,
         SavedRevision: 7,
         RawCharacterXmlDigest: Digest('5'),
-        AuxiliaryStateDigest: Digest('6'),
+        // Workspace auxiliary digests are raw lowercase SHA-256, unlike
+        // Resources/Qualities-owned digests. Keep this fixture contract-exact.
+        AuxiliaryStateDigest: new string('6', 64),
         PrerequisiteDraftRevision: 2,
         PrerequisiteDraftDigest: Digest('7'),
         AttributesDraftRevision: 3,
