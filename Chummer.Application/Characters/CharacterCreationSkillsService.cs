@@ -310,6 +310,9 @@ public sealed class CharacterCreationSkillsService : ICharacterCreationSkillsSer
             blockers.Add(CharacterCreationSkillsBlockers.PrerequisiteSourceDrift);
             prerequisite = null;
         }
+        if (prerequisite is not null && authorityReady
+            && !CharacterCreationSkillsAccessRules.TryBind(prerequisite, context!, authority, out authority))
+            blockers.Add(CharacterCreationSkillsBlockers.TalentAccessRequired);
         CharacterCreationAttributesState? attributeState =
             new CharacterCreationAttributesService(_store, _resolver)
                 .Load(new CharacterCreationAttributesLoadRequest(workspace.Id)).Value;
@@ -401,6 +404,8 @@ public sealed class CharacterCreationSkillsService : ICharacterCreationSkillsSer
             pending?.Allocations ?? [],
             pending?.GroupAllocations ?? [],
             pendingBlockers);
+        if (pendingBlockers.Contains(CharacterCreationSkillsBlockers.TalentAccessRequired))
+            blockers.Add(CharacterCreationSkillsBlockers.TalentAccessRequired);
         if (pending is not null
             && (pendingBlockers.Count != 0
                 || !CharacterCreationSkillsDigest.EqualsFixedTime(
@@ -541,7 +546,8 @@ public sealed class CharacterCreationSkillsService : ICharacterCreationSkillsSer
             string[] availableMemberIds = source?.MemberSkillSourceIds
                 .Where(id => authority.ActiveSkills.SingleOrDefault(skill =>
                     string.Equals(skill.SourceSkillId, id, StringComparison.Ordinal)) is { } skill
-                    && IsMovementAvailable(skill, movementCapability))
+                    && IsMovementAvailable(skill, movementCapability)
+                    && CharacterCreationSkillsAccessRules.IsSkillAvailable(authority, id))
                 .ToArray() ?? [];
             var local = new List<string>();
             grants.Groups.TryGetValue(allocation.GroupId, out var grant);
@@ -551,6 +557,8 @@ public sealed class CharacterCreationSkillsService : ICharacterCreationSkillsSer
                 || allocation.Rating < grantedRating
                 || allocation.Rating > authority.MaxSkillGroupRatingCreate)
                 local.Add(CharacterCreationSkillsBlockers.GroupInvalid);
+            if (source is not null && !CharacterCreationSkillsAccessRules.IsGroupAvailable(authority, source.GroupId))
+                local.Add(CharacterCreationSkillsBlockers.TalentAccessRequired);
             if (source is not null && availableMemberIds.Any(id =>
                     allocationMap.ContainsKey((CharacterCreationSkillKinds.Active, id))))
                 local.Add(CharacterCreationSkillsBlockers.GroupBroken);
@@ -595,6 +603,9 @@ public sealed class CharacterCreationSkillsService : ICharacterCreationSkillsSer
                 local.Add(CharacterCreationSkillsBlockers.ExoticSkillUnsupported);
             if (source is not null && !IsMovementAvailable(source, movementCapability))
                 local.Add(CharacterCreationSkillsBlockers.MovementRequirementUnmet);
+            if (source is not null && allocation.Kind == CharacterCreationSkillKinds.Active
+                && !CharacterCreationSkillsAccessRules.IsSkillAvailable(authority, source.SourceSkillId))
+                local.Add(CharacterCreationSkillsBlockers.TalentAccessRequired);
             if (allocation.IsNativeLanguage)
             {
                 nativeCount++;

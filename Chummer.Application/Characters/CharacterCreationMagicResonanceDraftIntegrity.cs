@@ -179,7 +179,7 @@ public static class CharacterCreationMagicResonanceDraftIntegrity
                 pair.Second.PreviousReceiptDigest, pair.First.ReceiptDigest));
     }
 
-    private static bool IsValidTalent(CharacterCreationMagicResonanceTalentOption item) =>
+    internal static bool IsValidTalent(CharacterCreationMagicResonanceTalentOption item) =>
         IsGuid(item.Identity.PrioritySourceId)
         && IsLabel(item.Identity.TalentSelectionId)
         && IsLabel(item.Identity.TalentValue)

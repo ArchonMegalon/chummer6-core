@@ -44,6 +44,30 @@ choice. These managed tests do not establish Activity/process-death authority.
 
 ## Verification and remaining integration
 
+The Skills service now binds a separate `TalentAccessV1` policy to the validated
+Priority draft. It resolves the selected Talent's effective quality definitions
+from the same source-data context, through the shared Quality/Talent source join.
+`unlockskills` effects, including the explicit Aspected group choice, determine
+available active skills and groups. Core's compatibility oracle is
+`SkillsSection.SkillFilter`: ordinary skills exclude Magical Active and
+Resonance Active; ungrouped magical skills remain available to the relevant
+source filters. Group membership stays canonical while unavailable members do
+not break a group. Unknown or unresolved unlock semantics do not grant access.
+
+The catalog is not destructively filtered. Android displays Core's permitted
+IDs, rejects hidden entries in its draft, and still requests a Core preview for
+each adjustment. No Android Talent-name or skill-category rules are duplicated.
+Core rejects unauthorized purchases both at preview and confirmation and
+revalidates persisted drafts before finalization. Rehashing a policy's allowed
+IDs, source page, prerequisite binding or schema does not authorize a change.
+
+The new policy has its own version and digest inside the Skills authority.
+The unchanged point-cost runtime and null-policy JSON shape remain stable for
+ordinary runners; no irrelevant field is added to their saved authority.
+Missing policy never means unrestricted special-skill access. Previously saved
+awakened drafts without the new source binding require explicit re-review; they
+are not automatically migrated or rewritten.
+
 Actual canonical Human/Priority-B Magician, Aspected Magician, Adept,
 Mystic Adept and Technomancer tests run
 Bootstrap, Prerequisites, Attributes, Skills review/confirm, cold file-store
@@ -58,9 +82,11 @@ Whole-character finalization now projects the supported, source-bound Talent
 qualities and grants atomically, with paid base values separate from Heritage
 improvements. Actual-source tests also cover all three Priority D Aspected
 choices, zero free levels, explicit final confirmation, cold saved character
-effects and replay. This is not exhaustive awakened legality or device proof:
-magical/resonance skill purchase eligibility, separate MAGAdept allocation,
-other Talent variants and explicit upstream re-review remain separate work.
+effects and replay. Source-owned skill purchase access now has actual-source
+positive, negative, cold-reopen and hostile-packet coverage. This is not
+exhaustive awakened legality or device proof: separate MAGAdept allocation,
+other Talent variants, additional purchased-quality unlocks and explicit
+upstream re-review remain separate work.
 
 Historical Skills drafts created before grant integration may no longer match
 the current projection. They fail closed rather than silently changing cost or

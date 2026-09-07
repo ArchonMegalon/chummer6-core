@@ -271,15 +271,10 @@ internal static class CharacterCreationAwakenedLegacyProjector
                     }
                     break;
                 case "unlockskills":
-                    Require(!effect.HasElements);
-                    string[] choices = effect.Value.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
-                    Require(choices.Length > 0 && choices.Distinct(StringComparer.Ordinal).Count() == choices.Length
-                        && choices.All(choice => choice is "Magician" or "Adept" or "Technomancer" or "Sorcery" or "Conjuring" or "Enchanting"));
                     string[] chosenGroups = prerequisite.TalentSelection!.GrantPlan?.SkillGroups.Select(item => item.CanonicalName).ToArray() ?? [];
-                    string chosen = choices.Length == 1 ? choices[0] : chosenGroups.Length == 1 ? chosenGroups[0] : string.Empty;
                     // Aspected Priority B/C/D pushes the explicit group choice into
                     // the legacy unlock prompt, including D's selection-only rating zero.
-                    Require(choices.Contains(chosen, StringComparer.Ordinal));
+                    Require(CharacterCreationSkillsAccessRules.TryChooseUnlock(effect, chosenGroups, forced, out string chosen));
                     if (forced.Length > 0) { Require(forced == chosen); usedForced = true; }
                     improvements.Add(Improvement("SpecialSkills", chosen, id, "Quality"));
                     break;

@@ -21,6 +21,159 @@ public sealed class CharacterCreationSkillsServiceTests
                                     + "<karma>25</karma><nuyen>0</nuyen></character>";
 
     [TestMethod]
+    [DataRow("Magician", "Compiling", "Tasking")]
+    [DataRow("Mystic Adept", "Compiling", "Tasking")]
+    [DataRow("Adept", "Spellcasting", "Sorcery")]
+    [DataRow("Aspected Magician", "Spellcasting", "Sorcery")]
+    [DataRow("Technomancer", "Spellcasting", "Sorcery")]
+    public void Actual_talent_rejects_skill_and_group_purchases_outside_source_unlocks(
+        string talentValue, string forbiddenSkill, string forbiddenGroup)
+    {
+        WithRealTalentSkills(talentValue, (directory, store, resolver, service, id) =>
+        {
+            var state = Load(service, id);
+            Assert.IsTrue(state.CanEdit, string.Join(",", state.Blockers));
+            var before = store.Get(id).Value!;
+            var native = state.Authority.KnowledgeSkills.First(item => item.CanBeNativeLanguage);
+            var skill = state.Authority.ActiveSkills.Single(item => item.Name == forbiddenSkill);
+            var group = state.Authority.SkillGroups.Single(item => item.Name == forbiddenGroup);
+            CharacterCreationSkillAllocation language = new(native.SourceSkillId,
+                CharacterCreationSkillKinds.Knowledge, null, null, true);
+            CharacterCreationSkillAllocation[] forbidden =
+                [language, new(skill.SourceSkillId, CharacterCreationSkillKinds.Active, 1, null, false)];
+            var preview = service.Preview(new(state.Binding, forbidden, [])).Value!;
+            Assert.IsFalse(preview.CanConfirm,
+                $"{talentValue} must not purchase {forbiddenSkill} without a source-owned unlock.");
+            Assert.IsFalse(preview.Skills.Single(item => item.SourceSkillId == skill.SourceSkillId).IsEnabled);
+            CollectionAssert.Contains(preview.Blockers.ToArray(), CharacterCreationSkillsBlockers.TalentAccessRequired);
+            var rejected = service.Confirm(new(preview.Binding, forbidden, [], preview.PreviewDigest,
+                "forbidden-talent-skill", ExplicitlyConfirmed: true));
+            Assert.AreEqual(CharacterCreationFoundationOutcomes.Blocked, rejected.Outcome);
+
+            var groupPreview = service.Preview(new(state.Binding, [language], [new(group.GroupId, 1)])).Value!;
+            Assert.IsFalse(groupPreview.CanConfirm,
+                $"{talentValue} must not purchase {forbiddenGroup} without a source-owned unlock.");
+            Assert.IsFalse(groupPreview.SkillGroups.Single(item => item.GroupId == group.GroupId).IsEnabled);
+            CollectionAssert.Contains(groupPreview.Blockers.ToArray(), CharacterCreationSkillsBlockers.TalentAccessRequired);
+            Assert.AreEqual(CharacterCreationFoundationOutcomes.Blocked, service.Confirm(new(groupPreview.Binding,
+                [language], [new(group.GroupId, 1)], groupPreview.PreviewDigest, "forbidden-talent-group", true)).Outcome);
+            Assert.AreEqual(before.ContentRevision, store.Get(id).Value!.ContentRevision);
+            Assert.AreEqual(before.Document.Content, store.Get(id).Value!.Document.Content);
+            Assert.AreEqual(before.Document.AuxiliaryStateDigest, store.Get(id).Value!.Document.AuxiliaryStateDigest);
+
+            var access = state.Authority.TalentAccess!;
+            Assert.IsNotNull(access);
+            CharacterCreationTalentSkillAccess?[] forgedAccess =
+            [
+                null,
+                access with { Schema = "invented-policy-version" },
+                access with { Talent = null! },
+                access with { AllowedActiveSkillSourceIds = access.AllowedActiveSkillSourceIds.Append(skill.SourceSkillId)
+                    .OrderBy(item => item, StringComparer.Ordinal).ToArray() },
+                access with { AllowedSkillGroupIds = access.AllowedSkillGroupIds.Append(group.GroupId)
+                    .OrderBy(item => item, StringComparer.Ordinal).ToArray() },
+                access with { PrerequisiteDraftDigest = Digest('f') },
+                access with { SelectedGroupNames = ["invented-aspect"] },
+                access with { SelectedGroupNames = null! },
+                access with { Talent = access.Talent with { GrantedQualitySources = [] } },
+                access with { Talent = access.Talent with { GrantedQualitySources =
+                    access.Talent.GrantedQualitySources!.Select(item => item with { Page = "999" }).ToArray() } }
+            ];
+            foreach (var forgery in forgedAccess)
+            {
+                var rehashed = forgery is null ? null : forgery with
+                { AccessDigest = CharacterCreationSkillsDigest.Compute(forgery with { AccessDigest = string.Empty }) };
+                var authority = Reseal(state.Authority with { TalentAccess = rehashed });
+                var altered = state with { Authority = authority,
+                    Binding = state.Binding with { SkillsAuthorityDigest = authority.AuthorityDigest }, SnapshotDigest = string.Empty };
+                altered = altered with { SnapshotDigest = CharacterCreationSkillsDigest.Compute(altered) };
+                Assert.IsFalse(CharacterCreationSkillsDraftIntegrity.IsValidStateProjection(altered),
+                    "Outer digest recomputation cannot authorize altered source access.");
+            }
+
+            // A correct restriction must still permit source-enabled purchases.
+            var allowed = state.Authority.ActiveSkills.Single(item => item.Name ==
+                (talentValue == "Technomancer" ? "Compiling" : "Arcana"));
+            int minimum = state.Skills.SingleOrDefault(item => item.SourceSkillId == allowed.SourceSkillId)?.GrantedRating ?? 0;
+            CharacterCreationSkillAllocation[] legal =
+                [language, new(allowed.SourceSkillId, CharacterCreationSkillKinds.Active, minimum + 1, null, false)];
+            var legalPreview = service.Preview(new(state.Binding, legal, [])).Value!;
+            Assert.IsTrue(legalPreview.CanConfirm, string.Join(",", legalPreview.Blockers));
+            var command = new CharacterCreationSkillsConfirmRequest(legalPreview.Binding, legal, [],
+                legalPreview.PreviewDigest, "legal-talent-skill", true);
+            var committed = service.Confirm(command);
+            Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, committed.Outcome, string.Join(",", committed.Blockers));
+            var coldStore = new FileWorkspaceStore(directory);
+            var coldService = new CharacterCreationSkillsService(coldStore, resolver);
+            var cold = Load(coldService, id);
+            Assert.IsTrue(cold.CanEdit && CharacterCreationSkillsDraftIntegrity.IsValidStateProjection(cold));
+            Assert.AreEqual(access.AccessDigest, cold.Authority.TalentAccess!.AccessDigest);
+            Assert.AreEqual(minimum + 1, cold.Skills.Single(item => item.SourceSkillId == allowed.SourceSkillId).Rating);
+            Assert.AreEqual(committed.Value!.ReceiptDigest, coldService.Confirm(command).Value!.ReceiptDigest);
+            Assert.AreEqual(committed.Value.ContentRevision, coldStore.Get(id).Value!.ContentRevision);
+
+            // With the same runner and Skills source, losing the separate Talent
+            // source authority must not fall back to either a permissive catalog
+            // or a cached permission packet, nor replay a new mutation.
+            var context = resolver.TryCreateContext(coldStore.Get(id).Value!.Document.Content)!;
+            Assert.IsTrue(context.TryResolveCreationPrerequisiteAuthority(out var priorityAuthority));
+            Assert.IsTrue(context.TryResolveCreationSkillsAuthority(out var skillsAuthority));
+            var missingTalentResolver = new CharacterCreationAttributesServiceTests.StubSourceResolver(
+                priorityAuthority, skillsAuthority);
+            var unavailable = new CharacterCreationSkillsService(coldStore, missingTalentResolver);
+            var unavailableState = Load(unavailable, id);
+            Assert.IsFalse(unavailableState.CanEdit);
+            CollectionAssert.Contains(unavailableState.Blockers.ToArray(), CharacterCreationSkillsBlockers.TalentAccessRequired);
+            var lostSourcePreview = unavailable.Preview(new(cold.Binding, legal, []));
+            Assert.IsFalse(lostSourcePreview.Value?.CanConfirm == true);
+            Assert.AreEqual(committed.Value.ContentRevision, coldStore.Get(id).Value!.ContentRevision);
+        });
+    }
+
+    [TestMethod]
+    [DataRow("Spellcasting", "Sorcery")]
+    [DataRow("Compiling", "Tasking")]
+    public void Actual_mundane_priority_has_no_implicit_special_skill_access(string skillName, string groupName)
+    {
+        WithRealTalentSkills("Mundane", (_, store, _, service, id) =>
+        {
+            var state = Load(service, id);
+            Assert.IsTrue(state.CanEdit, string.Join(",", state.Blockers));
+            Assert.IsNull(state.Authority.TalentAccess);
+            var skill = state.Authority.ActiveSkills.Single(item => item.Name == skillName);
+            var group = state.Authority.SkillGroups.Single(item => item.Name == groupName);
+            var language = state.Authority.KnowledgeSkills.First(item => item.CanBeNativeLanguage);
+            var allocations = new[]
+            {
+                new CharacterCreationSkillAllocation(language.SourceSkillId, CharacterCreationSkillKinds.Knowledge, null, null, true),
+                new CharacterCreationSkillAllocation(skill.SourceSkillId, CharacterCreationSkillKinds.Active, 1, null, false)
+            };
+            var revision = store.Get(id).Value!.ContentRevision;
+            var preview = service.Preview(new(state.Binding, allocations, [])).Value!;
+            Assert.IsFalse(preview.CanConfirm);
+            CollectionAssert.Contains(preview.Blockers.ToArray(), CharacterCreationSkillsBlockers.TalentAccessRequired);
+            Assert.IsFalse(service.Preview(new(state.Binding, [allocations[0]], [new(group.GroupId, 1)])).Value!.CanConfirm);
+            var ordinary = state.Authority.ActiveSkills.Single(item => item.Name == "Running");
+            CharacterCreationSkillAllocation[] legal =
+                [allocations[0], new(ordinary.SourceSkillId, CharacterCreationSkillKinds.Active, 1, null, false)];
+            var legalPreview = service.Preview(new(state.Binding, legal, [])).Value!;
+            Assert.IsTrue(legalPreview.CanConfirm);
+            Assert.AreEqual(revision, store.Get(id).Value!.ContentRevision);
+            Assert.IsFalse(System.Text.Json.JsonSerializer.Serialize(state.Authority).Contains("TalentAccess", StringComparison.Ordinal),
+                "Ordinary authority bytes must not acquire an irrelevant optional policy field.");
+            var command = new CharacterCreationSkillsConfirmRequest(legalPreview.Binding, legal, [],
+                legalPreview.PreviewDigest, "mundane-skill-access", true);
+            var confirmed = service.Confirm(command);
+            Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, confirmed.Outcome);
+            var reopened = Load(service, id);
+            Assert.IsTrue(reopened.CanEdit && CharacterCreationSkillsDraftIntegrity.IsValidStateProjection(reopened));
+            Assert.IsNull(reopened.Authority.TalentAccess);
+            Assert.AreEqual(state.Authority.AuthorityDigest, reopened.Authority.AuthorityDigest);
+            Assert.AreEqual(confirmed.Value!.ReceiptDigest, service.Confirm(command).Value!.ReceiptDigest);
+        });
+    }
+
+    [TestMethod]
     [DataRow("Magician")]
     [DataRow("Aspected Magician")]
     [DataRow("Adept")]
@@ -191,10 +344,12 @@ public sealed class CharacterCreationSkillsServiceTests
             var id = created.Value!.WorkspaceId;
             var prerequisites = new CharacterCreationPrerequisiteService(store, queries, resolver);
             var state = prerequisites.Load(new(id)).Value!;
-            var ranks = CharacterCreationPrerequisiteServiceTests.Assign("E", "B", "A", "C", "D");
-            var heritage = state.Authority.Options.Single(item => item.CategoryId == "heritage" && item.Rank == "E")
+            string heritageRank = talentValue == "Mundane" ? "D" : "E";
+            string talentRank = talentValue == "Mundane" ? "E" : "B";
+            var ranks = CharacterCreationPrerequisiteServiceTests.Assign(heritageRank, talentRank, "A", "C", talentValue == "Mundane" ? "B" : "D");
+            var heritage = state.Authority.Options.Single(item => item.CategoryId == "heritage" && item.Rank == heritageRank)
                 .HeritageOptions.First(item => item.MetatypeName == "Human" && item.MetavariantSourceId is null && item.IsEnabled);
-            var talent = state.Authority.Options.Single(item => item.CategoryId == "talent" && item.Rank == "B")
+            var talent = state.Authority.Options.Single(item => item.CategoryId == "talent" && item.Rank == talentRank)
                 .TalentOptions.First(item => item.Value == talentValue && item.IsEnabled);
             string[] skills = talent.ActiveSkillGrant?.Options.Where(item => item.IsEnabled)
                 .Take(talent.ActiveSkillGrant.Quantity).Select(item => item.SelectionId).ToArray() ?? [];

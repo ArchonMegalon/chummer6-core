@@ -10,6 +10,7 @@ public static class CharacterCreationSkillsDraftIntegrity
         if (state is null
             || !string.Equals(state.Schema, CharacterCreationSkillsSchemas.SnapshotV1, StringComparison.Ordinal)
             || !IsValidAuthority(state.Authority)
+            || !CharacterCreationSkillsAccessRules.MatchesPrerequisite(state.Authority, state.PrerequisiteDraft)
             || !CharacterCreationSkillsDigest.EqualsFixedTime(
                 state.Binding.SkillsAuthorityDigest,
                 state.Authority.AuthorityDigest)
@@ -200,7 +201,7 @@ public static class CharacterCreationSkillsDraftIntegrity
         {
             return false;
         }
-        return true;
+        return CharacterCreationSkillsAccessRules.IsValid(authority);
     }
 
     public static string ComputeDigest(CharacterCreationSkillsDraft draft)
@@ -249,6 +250,10 @@ public static class CharacterCreationSkillsDraftIntegrity
            && draft.SkillGroups is not null
            && CharacterCreationTalentSkillGrants.TryResolve(prerequisite, authority, out var grants)
            && grants.IsValidProjection(draft.Skills, draft.SkillGroups)
+           && CharacterCreationSkillsAccessRules.MatchesPrerequisite(authority, prerequisite)
+           && draft.Skills.All(item => item.Kind != CharacterCreationSkillKinds.Active
+               || CharacterCreationSkillsAccessRules.IsSkillAvailable(authority, item.SourceSkillId))
+           && draft.SkillGroups.All(item => CharacterCreationSkillsAccessRules.IsGroupAvailable(authority, item.GroupId))
            && draft.KnowledgePointContributions is not null
            && draft.SourceAnchorIds is { Count: > 0 }
            && !draft.CharacterEffectsApplied

@@ -22,27 +22,9 @@ internal static class CharacterCreationTalentQualityGrants
             return false;
         if (selected.GrantedQualities.Count == 0)
             return true;
-        if (!context.TryResolveCreationMagicResonanceAuthority(out var magic)
-            || !CharacterCreationMagicResonanceDraftIntegrity.IsValidAuthority(magic)
-            || !magic.IsAuthoritative || magic.Blockers.Count != 0)
-            return false;
-        var assignments = prerequisite.Assignments.Where(item =>
-            item.CategoryId == CharacterCreationPriorityCategoryIds.Talent).Take(2).ToArray();
-        if (assignments.Length != 1) return false;
-        var matches = magic.Talents.Where(item => item.Identity.PrioritySourceId == assignments[0].SourceId
-            && item.Rank == assignments[0].Rank
-            && item.Identity.TalentSelectionId == selected.SelectionId
-            && item.Identity.TalentValue == selected.Value
-            && CharacterCreationMagicResonanceDigest.EqualsFixedTime(
-                item.SourceNodeDigest, selected.PriorityChildNodeDigest)).Take(2).ToArray();
-        if (matches.Length != 1 || !matches[0].IsEnabled || matches[0].Blockers.Count != 0
-            || !CharacterCreationTalentQualitySourceRules.MatchesTalent(
-                matches[0].CanonicalSourceXml, matches[0].GrantedQualitySources)
-            || !selected.GrantedQualities.SequenceEqual(
-                matches[0].GrantedQualitySources!.Select(item => item.Reference), StringComparer.Ordinal))
-            return false;
+        if (!TryResolveTalent(prerequisite, context, out var magic, out var talent)) return false;
         var grants = new List<CharacterCreationGrantedQuality>();
-        foreach (var source in matches[0].GrantedQualitySources!)
+        foreach (var source in talent.GrantedQualitySources!)
         {
             if (!TryProject(source, prerequisite.DraftDigest, out var grant)) return false;
             grants.Add(grant);
@@ -61,12 +43,44 @@ internal static class CharacterCreationTalentQualityGrants
                 Schema = "chummer.sr5.creation_quality_talent_budget/v1",
                 BaseRuntimeDigest = original.RuntimeDigest,
                 TalentRuntimeDigest = magic.RuntimeDigest,
-                TalentSourceDigest = matches[0].SourceNodeDigest,
+                TalentSourceDigest = talent.SourceNodeDigest,
                 GrantDigests = grants.Select(item => item.GrantDigest).ToArray()
             }),
             AuthorityDigest = string.Empty
         };
         authority = authority with { AuthorityDigest = CharacterCreationQualitiesRules.ComputeAuthorityDigest(authority) };
+        return true;
+    }
+
+    // Shared source join for Quality budgets and Skills access. Neither caller
+    // may infer permissions from a Talent's display name or cached UI state.
+    internal static bool TryResolveTalent(CharacterCreationPrerequisiteDraft prerequisite,
+        ICharacterSourceDataContext context, out CharacterCreationMagicResonanceAuthority magic,
+        out CharacterCreationMagicResonanceTalentOption talent)
+    {
+        magic = null!;
+        talent = null!;
+        if (prerequisite.TalentSelection is not { GrantedQualities: not null } selected
+            || !context.TryResolveCreationMagicResonanceAuthority(out magic)
+            || !CharacterCreationMagicResonanceDraftIntegrity.IsValidAuthority(magic)
+            || !magic.IsAuthoritative || magic.Blockers.Count != 0)
+            return false;
+        var assignments = prerequisite.Assignments.Where(item =>
+            item.CategoryId == CharacterCreationPriorityCategoryIds.Talent).Take(2).ToArray();
+        if (assignments.Length != 1) return false;
+        var matches = magic.Talents.Where(item => item.Identity.PrioritySourceId == assignments[0].SourceId
+            && item.Rank == assignments[0].Rank
+            && item.Identity.TalentSelectionId == selected.SelectionId
+            && item.Identity.TalentValue == selected.Value
+            && CharacterCreationMagicResonanceDigest.EqualsFixedTime(
+                item.SourceNodeDigest, selected.PriorityChildNodeDigest)).Take(2).ToArray();
+        if (matches.Length != 1 || !matches[0].IsEnabled || matches[0].Blockers.Count != 0
+            || !CharacterCreationTalentQualitySourceRules.MatchesTalent(
+                matches[0].CanonicalSourceXml, matches[0].GrantedQualitySources)
+            || !selected.GrantedQualities.SequenceEqual(
+                matches[0].GrantedQualitySources!.Select(item => item.Reference), StringComparer.Ordinal))
+            return false;
+        talent = matches[0];
         return true;
     }
 
