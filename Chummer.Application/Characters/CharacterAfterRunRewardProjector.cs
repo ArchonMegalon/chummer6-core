@@ -46,7 +46,10 @@ public static class CharacterAfterRunRewardProjector
         => document.Format == WorkspaceDocumentFormat.NativeXml
            && string.Equals(document.RulesetId, "sr5", StringComparison.Ordinal)
            && document.SchemaVersion == 1
-           && string.Equals(document.PayloadKind, "workspace", StringComparison.Ordinal);
+           // WorkspaceService imports use Sr5WorkspaceCodec's typed envelope.
+           // Keep the legacy WorkspaceDocument constructor supported, without
+           // normalizing either identity or accepting another edition's kind.
+           && document.PayloadKind is "workspace" or "sr5/chum5-xml";
 
     public static string ReceiptDigest(CharacterAfterRunRewardReceipt receipt)
         => PayloadDigest(ReceiptSchema + "\0" + JsonSerializer.Serialize(

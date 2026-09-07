@@ -15,6 +15,7 @@
     <ProjectReference Include="../Chummer.Contracts/Chummer.Contracts.csproj" />
     <ProjectReference Include="../Chummer.Application/Chummer.Application.csproj" />
     <ProjectReference Include="../Chummer.Infrastructure/Chummer.Infrastructure.csproj" />
+    <ProjectReference Include="../Chummer.Rulesets.Sr5/Chummer.Rulesets.Sr5.csproj" />
     <Compile Include="WorkspaceCharacterAfterRunRewardTests.cs" />
     <Compile Include="CharacterAfterRunSettlementRulesTests.cs" />
   </ItemGroup>

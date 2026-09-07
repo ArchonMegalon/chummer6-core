@@ -7,6 +7,7 @@ using Chummer.Contracts.Owners;
 using Chummer.Contracts.Workspaces;
 using Chummer.Infrastructure.DependencyInjection;
 using Chummer.Infrastructure.Workspaces;
+using Chummer.Rulesets.Sr5;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -20,6 +21,58 @@ public sealed class WorkspaceCharacterAfterRunRewardTests
     private static readonly Guid OperationId = Guid.Parse("11111111-1111-4111-8111-111111111111");
     private static readonly Guid RewardId = Guid.Parse("22222222-2222-4222-8222-222222222222");
     private static readonly DateTime ExpenseDate = new(2078, 9, 6, 18, 30, 0);
+
+    [TestMethod]
+    public void Real_sr5_import_envelope_can_preview_commit_and_cold_replay_without_retyping_payload()
+    {
+        // WrapImport is the actual codec used by WorkspaceService.Import.
+        // Its query collaborators are not used by this bounded codec operation.
+        var codec = new Sr5WorkspaceCodec(null!, null!, null!);
+        var envelope = codec.WrapImport("sr5", new WorkspaceImportDocument(Document().Content, "sr5"));
+        Assert.AreEqual("sr5/chum5-xml", envelope.PayloadKind);
+        using var fixture = new Fixture(new WorkspaceDocument(envelope, WorkspaceDocumentFormat.NativeXml));
+        var service = new WorkspaceCharacterAfterRunRewardService(fixture.Store);
+        var command = Command(service);
+        var committed = service.Commit(command);
+        Assert.AreEqual(CharacterAfterRunRewardOutcome.Applied, committed.Outcome, committed.Error);
+        var coldStore = new FileWorkspaceStore(fixture.DirectoryPath);
+        var saved = coldStore.Get(WorkspaceId).Value!;
+        Assert.AreEqual(envelope.PayloadKind, saved.Document.PayloadKind);
+        Assert.AreEqual(envelope.SchemaVersion, saved.Document.SchemaVersion);
+        Assert.AreEqual(envelope.RulesetId, saved.Document.RulesetId);
+        Assert.AreEqual(2L, saved.SavedRevision);
+        var cold = new WorkspaceCharacterAfterRunRewardService(coldStore);
+        Assert.AreEqual(38, cold.Read(WorkspaceId).Snapshot!.AvailableKarma);
+        Assert.AreEqual(13500m, cold.Read(WorkspaceId).Snapshot!.AvailableNuyen);
+        Assert.AreEqual(2, cold.Read(WorkspaceId).Snapshot!.Expenses.Count);
+        Assert.AreEqual(CharacterAfterRunRewardOutcome.Replayed, cold.Commit(command).Outcome);
+        Assert.AreEqual(committed.Receipt!.ReceiptDigest,
+            cold.Lookup(WorkspaceId, OperationId, command.CommandDigest()).Receipt!.ReceiptDigest);
+        Assert.AreEqual(2L, coldStore.Get(WorkspaceId).Value!.ContentRevision);
+    }
+
+    [TestMethod]
+    [DataRow("sr5", 1, "sr6/chum6-xml", 0)]
+    [DataRow("sr5", 1, "SR5/CHUM5-XML", 0)]
+    [DataRow("sr5", 1, "sr5/chum5-xml ", 0)]
+    [DataRow("sr5", 1, "unknown", 0)]
+    [DataRow("sr6", 1, "sr5/chum5-xml", 0)]
+    [DataRow("sr4", 1, "sr5/chum5-xml", 0)]
+    [DataRow("SR5", 1, "sr5/chum5-xml", 0)]
+    [DataRow("sr5", 2, "sr5/chum5-xml", 0)]
+    [DataRow("sr5", 1, "sr5/chum5-xml", 999)]
+    public void Codec_support_does_not_accept_foreign_or_noncanonical_envelopes(
+        string ruleset, int schema, string kind, int format)
+    {
+        var document = Document() with
+        {
+            State = Document().State with { RulesetId = ruleset, SchemaVersion = schema, PayloadKind = kind },
+            Format = (WorkspaceDocumentFormat)format
+        };
+        Assert.IsFalse(CharacterAfterRunRewardProjector.IsSupportedDocument(document));
+        var saved = new WorkspaceStoredDocument(WorkspaceId, document, 1, 1, DateTimeOffset.UnixEpoch);
+        Assert.IsFalse(CharacterAfterRunRewardProjector.TryRead(saved, out _, out _));
+    }
 
     [TestMethod]
     public void Oversized_reason_is_rejected_before_store_reads_or_writes_at_both_boundaries()
