@@ -67,10 +67,11 @@ store fault-injection tests without making those hooks public.
 Core package reseal, downstream dependency pins, Android inventory regeneration,
 APK/lifecycle proof and Play publication are separate, still-required work.
 
-The broadened suite also exposes the existing Magician integration gap:
-`CharacterCreationAttributesService.ValidatePrerequisiteAttributeAuthority`
-explicitly accepts only Mundane talent. The positive Magician preview/confirm
-test must remain in the suite and red until the actual special-attribute rules
-are implemented; do not waive it or replace it with a blocked-success claim.
+The broadened suite exposed an existing Magician integration gap: the Attributes
+step admitted only Mundane talent. The follow-up in
+`CREATION_AWAKENED_ATTRIBUTES.md` implements source-bound special grants and costs;
+the positive Magician preview/confirm test remains enabled, not waived or replaced
+with a blocked-success claim. Awakened whole-character finalization and the
+binding of increased Magic to Adept power budgets still need implementation.
 The historical Qualities unit fixture used a prefixed auxiliary digest; it now
 uses the existing raw 64-character workspace-digest contract.

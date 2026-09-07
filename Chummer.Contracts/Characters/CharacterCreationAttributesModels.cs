@@ -66,8 +66,9 @@ public sealed record CharacterCreationAttributeProjection(
     IReadOnlyList<string> SourceAnchorIds)
 {
     /// <summary>
-    /// Creation drafts contain only metatype minimum plus authoritative priority/karma
-    /// allocations. AugmentedMaximum is a cap, never a current-value contribution.
+    /// Creation drafts contain the source-bound starting minimum (metatype or
+    /// awakened talent grant) plus authoritative priority/karma allocations.
+    /// AugmentedMaximum is a cap, never a current-value contribution.
     /// Downstream creation rules use this explicit projection instead of accepting a
     /// client or post-create augmented value.
     /// </summary>

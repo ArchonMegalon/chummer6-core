@@ -1636,6 +1636,81 @@ public sealed class FileSystemCharacterSourceDataResolverTests
     }
 
     [TestMethod]
+    public void Canonical_magician_attributes_confirm_and_cold_reopen_with_source_bound_grant()
+    {
+        string coreRoot = FindCoreRoot();
+        var resolver = new FileSystemCharacterSourceDataResolver(
+            new FileSystemContentOverlayCatalogService(coreRoot, coreRoot, null));
+        string workspaceRoot = CreateTempDirectory();
+        try
+        {
+            var store = new FileWorkspaceStore(workspaceRoot);
+            var id = new CharacterWorkspaceId("canonical-magician-attributes");
+            string xml = $"<character><name>Magician</name><alias>Source-bound test</alias><metatype>Human</metatype>"
+                + "<buildmethod>Priority</buildmethod><createdversion>5.225.0</createdversion><appversion>5.225.0</appversion>"
+                + $"<created>false</created><karma>25</karma><nuyen>0</nuyen><settings>{SettingsId}</settings></character>";
+            Assert.IsTrue(store.CreateWorkspaceDocument(id, new WorkspaceDocument(xml, RulesetDefaults.Sr5)).Success);
+            var prerequisiteService = new CharacterCreationPrerequisiteService(
+                store, new XmlCharacterFileQueries(new CharacterFileService()), resolver);
+            CharacterCreationFoundationResult<CharacterCreationPrerequisiteState> loaded = prerequisiteService.Load(new(id));
+            Assert.IsNotNull(loaded.Value, $"{loaded.Outcome}: {string.Join(",", loaded.Blockers)}");
+            CharacterCreationPrerequisiteState state = loaded.Value;
+            Assert.HasCount(0, state.Blockers);
+            CharacterCreationPriorityHeritageOptionProjection human = state.Authority.Options
+                .Single(o => o.CategoryId == CharacterCreationPriorityCategoryIds.Heritage && o.Rank == "E")
+                .HeritageOptions.Single(h => h.MetatypeName == "Human" && h.MetavariantName is null);
+            CharacterCreationPriorityTalentOptionProjection magician = state.Authority.Options
+                .Single(o => o.CategoryId == CharacterCreationPriorityCategoryIds.Talent && o.Rank == "C")
+                .TalentOptions.Single(t => t.Value == "Magician");
+            Assert.AreEqual(3, magician.Magic);
+            IReadOnlyDictionary<string, string> ranks = CharacterCreationPrerequisiteServiceTests.Assign("E", "C", "A", "B", "D");
+            CharacterCreationPrerequisitePreview prerequisite = prerequisiteService.Preview(new(state.Binding, ranks)
+            {
+                HeritageSelectionId = human.SelectionId,
+                TalentSelectionId = magician.SelectionId
+            }).Value!;
+            Assert.IsTrue(prerequisite.CanConfirm, string.Join(",", prerequisite.Blockers));
+            Assert.AreEqual(CharacterCreationFoundationOutcomes.Success,
+                prerequisiteService.Confirm(new(prerequisite.Binding, ranks, prerequisite.PreviewDigest, true)
+                {
+                    HeritageSelectionId = human.SelectionId,
+                    TalentSelectionId = magician.SelectionId
+                }).Outcome);
+
+            var service = new CharacterCreationAttributesService(store, resolver);
+            CharacterCreationAttributesState attributes = service.Load(new(id)).Value!;
+            Assert.IsTrue(attributes.CanEdit, string.Join(",", attributes.Blockers));
+            CharacterCreationAttributeAllocation[] allocations = [new("MAG", 1, 0)];
+            CharacterCreationAttributesPreview preview = service.Preview(new(attributes.Binding, allocations)).Value!;
+            Assert.IsTrue(preview.CanConfirm, string.Join(",", preview.Blockers));
+            Assert.AreEqual(CharacterCreationFoundationOutcomes.Success,
+                service.Confirm(new(preview.Binding, allocations, preview.PreviewDigest, true)).Outcome);
+            WorkspaceStoredDocument saved = store.Get(id).Value!;
+
+            var coldStore = new FileWorkspaceStore(workspaceRoot);
+            var coldResolver = new FileSystemCharacterSourceDataResolver(
+                new FileSystemContentOverlayCatalogService(coreRoot, coreRoot, null));
+            CharacterCreationAttributesState cold = new CharacterCreationAttributesService(coldStore, coldResolver)
+                .Load(new(id)).Value!;
+            Assert.IsTrue(cold.CanEdit, string.Join(",", cold.Blockers));
+            Assert.IsNotNull(cold.PendingDraft);
+            CharacterCreationAttributeProjection magic = cold.Attributes.Single(a => a.AttributeId == "MAG");
+            Assert.AreEqual(3, magic.Minimum);
+            Assert.AreEqual(4, magic.Current);
+            Assert.AreEqual(6, magic.Maximum);
+            Assert.AreEqual(1m, cold.SpecialPointBudget.Used);
+            CollectionAssert.IsSubsetOf(magician.SourceAnchorIds.ToArray(), magic.SourceAnchorIds.ToArray());
+            Assert.AreEqual(saved.ContentRevision, cold.Binding.ContentRevision);
+            Assert.AreEqual(saved.Document.AuxiliaryStateDigest, cold.Binding.AuxiliaryStateDigest);
+            Assert.AreEqual(xml, coldStore.Get(id).Value!.Document.Content);
+        }
+        finally
+        {
+            DeleteTempDirectory(workspaceRoot);
+        }
+    }
+
+    [TestMethod]
     public void Canonical_disabled_negative_oni_does_not_block_enabled_human_service_path()
     {
         string coreRoot = FindCoreRoot();
