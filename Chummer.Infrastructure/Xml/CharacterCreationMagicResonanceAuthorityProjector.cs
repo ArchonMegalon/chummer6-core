@@ -215,6 +215,9 @@ internal static class CharacterCreationMagicResonanceAuthorityProjector
                     local.Add(CharacterCreationMagicResonanceBlockers.TalentUnsupported);
                 CharacterCreationTalentQualitySource[] grantedQualities = ResolveTalentQualities(
                     raw, qualities, gear, context, local);
+                if (kind == CharacterCreationMagicResonanceKinds.MysticAdept
+                    && context.MysticAdeptPowerPointPolicy?.UsesSeparateMagicAttribute == true)
+                    local.Add(CharacterCreationMagicResonanceBlockers.PowerBudgetUnsupported);
                 string[] normalized = Normalize(local);
                 var option = new CharacterCreationMagicResonanceTalentOption(
                     new(priority.SourceId, talent.SelectionId, talent.Value),
@@ -237,6 +240,8 @@ internal static class CharacterCreationMagicResonanceAuthorityProjector
                     forbiddenNames,
                     talent.PriorityChildNodeDigest,
                     talent.SourceAnchorIds.Concat(grantedQualities.SelectMany(item => item.SourceAnchorIds))
+                        .Concat(kind == CharacterCreationMagicResonanceKinds.MysticAdept
+                            ? context.MysticAdeptPowerPointPolicy?.SourceAnchorIds ?? [] : [])
                         .Distinct(StringComparer.Ordinal)
                         .OrderBy(item => item, StringComparer.Ordinal).ToArray(),
                     normalized,

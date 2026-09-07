@@ -90,6 +90,41 @@ public sealed class CharacterCreationMagicResonanceSourceResolverTests
     }
 
     [TestMethod]
+    public void Separate_mystic_magic_profile_explains_unsupported_choice_before_any_pending_draft()
+    {
+        string root = Path.Combine(Path.GetTempPath(), $"chummer-separate-mystic-source-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(Path.Combine(root, "data"));
+        try
+        {
+            foreach (string file in new[] { "settings.xml", "priorities.xml", "metatypes.xml", "skills.xml", "qualities.xml",
+                "traditions.xml", "streams.xml", "powers.xml", "spells.xml", "complexforms.xml", "gear.xml" })
+                File.Copy(Path.Combine(FindCoreRoot(), "Chummer", "data", file), Path.Combine(root, "data", file));
+            string path = Path.Combine(root, "data", "settings.xml");
+            XDocument settings = XDocument.Load(path);
+            XElement profile = settings.Descendants("setting").Single(item =>
+                item.Element("id")?.Value == StandardPrioritySettingsId);
+            profile.Element("mysadeptsecondmagattribute")!.Value = "True";
+            settings.Save(path);
+            var resolver = new FileSystemCharacterSourceDataResolver(new FileSystemContentOverlayCatalogService(root, root, null));
+            var context = resolver.TryCreateContext($"<character><settings>{StandardPrioritySettingsId}</settings></character>")!;
+            Assert.IsTrue(context.TryResolveCreationMagicResonanceAuthority(out var authority));
+            Assert.IsTrue(authority.IsAuthoritative, string.Join(",", authority.Blockers));
+            Assert.IsTrue(authority.MysticAdeptPowerPointPolicy!.UsesSeparateMagicAttribute);
+            var mystics = authority.Talents.Where(item => item.Kind == CharacterCreationMagicResonanceKinds.MysticAdept).ToArray();
+            Assert.IsTrue(mystics.Length > 0);
+            foreach (var talent in mystics)
+            {
+                Assert.IsFalse(talent.IsEnabled, "An unresolved separate attribute must not look like an editable ordinary PP purchase.");
+                CollectionAssert.Contains(talent.Blockers.ToArray(), CharacterCreationMagicResonanceBlockers.PowerBudgetUnsupported);
+                CollectionAssert.IsSubsetOf(authority.MysticAdeptPowerPointPolicy.SourceAnchorIds.ToArray(), talent.SourceAnchorIds.ToArray());
+            }
+            Assert.IsTrue(authority.Talents.Any(item => item.Kind == CharacterCreationMagicResonanceKinds.Adept && item.IsEnabled),
+                "A Mystic-only house rule must not disable ordinary Adepts.");
+        }
+        finally { Directory.Delete(root, recursive: true); }
+    }
+
+    [TestMethod]
     public void Actual_power_ratings_use_magic_and_maxlevels_not_instance_limit_and_keep_way_metadata()
     {
         string root = FindCoreRoot();

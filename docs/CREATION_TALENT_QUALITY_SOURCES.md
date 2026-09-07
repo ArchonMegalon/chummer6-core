@@ -119,8 +119,10 @@ show the current Core cost before final confirmation.
 
 ## What this does not complete
 
-The separate `MAGAdept` attribute house rule remains unfinished and fails closed;
-it must not be treated as ordinary zero-cost purchased points. An Aspected path without a selected free group needs
+The separate `MAGAdept` attribute house rule remains unfinished and fails closed.
+Its source-bound Mystic Talent already carries `PowerBudgetUnsupported` and the
+settings anchors before any pending draft exists; ordinary Adepts remain usable.
+It must not be treated as ordinary zero-cost purchased points. An Aspected path without a selected free group needs
 an explicit user aspect choice; the finalizer never silently chooses Sorcery.
 Additional source bonus forms, prerequisites, discounts and enhancements need
 their own typed projections and tests. These are unfinished capabilities, not
