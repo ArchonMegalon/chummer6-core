@@ -1619,6 +1619,11 @@ public sealed class FileWorkspaceStore :
                 workspaceId,
                 currentContentRevision,
                 afterRunReceipts);
+        bool afterRunRewardReceiptsValid =
+            CharacterAfterRunRewardReceiptLedgerIntegrity.IsValidLedger(
+                workspaceId,
+                currentContentRevision,
+                state.CharacterAfterRunRewardReceipts);
         CharacterCreationBootstrapBinding? bootstrap =
             state.CharacterCreationBootstrapBinding;
         bool bootstrapValid = bootstrap is null
@@ -1648,6 +1653,7 @@ public sealed class FileWorkspaceStore :
                && gearValid
                && qualitiesValid
                && afterRunReceiptsValid
+               && afterRunRewardReceiptsValid
                && bootstrapValid
                && lifeModuleAcceptancesValid
                && finalizationReceiptsValid;
@@ -1666,6 +1672,36 @@ public sealed class FileWorkspaceStore :
         if (!IsValidAuxiliaryState(workspaceId, nextContentRevision, replacementState))
         {
             return false;
+        }
+
+        bool rewardLedgerChanged = !string.Equals(
+            WorkspaceDocumentAuxiliaryStateDigest.Compute(new WorkspaceDocumentAuxiliaryState(
+                CharacterAfterRunRewardReceipts: currentState.CharacterAfterRunRewardReceipts)),
+            WorkspaceDocumentAuxiliaryStateDigest.Compute(new WorkspaceDocumentAuxiliaryState(
+                CharacterAfterRunRewardReceipts: replacementState.CharacterAfterRunRewardReceipts)),
+            StringComparison.Ordinal);
+        if (rewardLedgerChanged)
+        {
+            // This independent career lane may advance only its own append-only
+            // receipt history. Check every sibling, including lanes with early
+            // returns below, before validating the exact reward payload change.
+            return string.Equals(
+                       WorkspaceDocumentAuxiliaryStateDigest.Compute(currentState with
+                       {
+                           CharacterAfterRunRewardReceipts = null
+                       }),
+                       WorkspaceDocumentAuxiliaryStateDigest.Compute(replacementState with
+                       {
+                           CharacterAfterRunRewardReceipts = null
+                       }),
+                       StringComparison.Ordinal)
+                   && CharacterAfterRunRewardReceiptLedgerIntegrity.IsValidAppendTransition(
+                       workspaceId,
+                       previousContentRevision,
+                       previousSavedRevision,
+                       nextContentRevision,
+                       currentDocument,
+                       replacementDocument);
         }
 
         bool finalizationLedgerChanged = !string.Equals(
