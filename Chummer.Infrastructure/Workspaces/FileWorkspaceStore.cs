@@ -1425,6 +1425,17 @@ public sealed partial class FileWorkspaceStore :
         long currentContentRevision,
         WorkspaceDocumentAuxiliaryState state)
     {
+        if (state.CharacterCreationFinalizationArchive is { } archive
+            && (!CharacterCreationFinalizationReceiptLedgerIntegrity.IsValidArchive(
+                    workspaceId, currentContentRevision, archive, state.CharacterCreationFinalizationReceipts)
+                || !IsValidAuxiliaryState(workspaceId,
+                    state.CharacterCreationFinalizationReceipts![0].Receipt.PreviousContentRevision,
+                    archive.State)))
+        {
+            // IsValidArchive forbids nesting before this single historical
+            // validation. Do not weaken active draft/receipt pairing rules.
+            return false;
+        }
         CharacterCreationFoundationDraftLedger? draft = state.CharacterCreationFoundationDraft;
         bool foundationValid = draft is null || string.Equals(
                    draft.Schema,
@@ -1678,6 +1689,18 @@ public sealed partial class FileWorkspaceStore :
     {
         if (!IsValidAuxiliaryState(workspaceId, nextContentRevision, replacementState))
         {
+            return false;
+        }
+
+        if (!string.Equals(
+                JsonSerializer.Serialize(currentState.CharacterCreationFinalizationArchive),
+                JsonSerializer.Serialize(replacementState.CharacterCreationFinalizationArchive),
+                StringComparison.Ordinal)
+            && (currentState.CharacterCreationFinalizationReceipts is not null
+                || replacementState.CharacterCreationFinalizationReceipts is not { Count: 1 }))
+        {
+            // A completed Creation history cannot be replaced or removed by a
+            // later Career mutation, including lanes with early returns below.
             return false;
         }
 

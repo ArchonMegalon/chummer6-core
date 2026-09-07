@@ -20,6 +20,104 @@ namespace Chummer.Tests;
 public sealed class CharacterCreationFinalizationServiceTests
 {
     [TestMethod]
+    public void Finalization_keeps_confirmed_step_history_while_consuming_only_pending_drafts()
+    {
+        using ReadyContext context = ReadyContext.Create(includeGearReview: true, includeNonEmptyPurchases: true);
+        WorkspaceStoredDocument before = context.Store.Get(context.WorkspaceId).Value!;
+        WorkspaceDocumentAuxiliaryState prior = before.Document.AuxiliaryState;
+        Assert.IsNotEmpty(prior.CharacterCreationSkillsReceipts!);
+        Assert.IsNotEmpty(prior.CharacterCreationQualitiesReceipts!);
+        Assert.IsNotEmpty(prior.CharacterCreationResourcesReceipts!);
+        Assert.IsNotEmpty(prior.CharacterCreationGearReceipts!);
+
+        var state = AssertAvailable(context.Finalizer.Load(new(context.WorkspaceId)));
+        var review = AssertAvailable(context.Finalizer.Review(new(state.Binding)));
+        var result = context.Finalizer.Confirm(new(state.Binding, review.PreviewDigest,
+            review.Plan!.PlanDigest, "keep-confirmed-step-history", ExplicitlyConfirmed: true));
+        Assert.AreEqual(CharacterCreationFinalizationOutcomes.Applied, result.Outcome,
+            string.Join(",", result.Blockers));
+        using ReadyContext cold = context.Restart();
+        WorkspaceStoredDocument after = cold.Store.Get(context.WorkspaceId).Value!;
+        var actual = after.Document.AuxiliaryState;
+        Assert.IsNotNull(actual.CharacterCreationFinalizationArchive);
+        Assert.IsFalse(actual.IsEmpty);
+        Assert.IsFalse(after.Document.Content.Contains(nameof(CharacterCreationFinalizationArchive), StringComparison.Ordinal),
+            "Build history stays in workspace storage, never in the downloadable runner XML.");
+        Assert.AreEqual(before.Document.AuxiliaryStateDigest,
+            WorkspaceDocumentAuxiliaryStateDigest.Compute(actual.CharacterCreationFinalizationArchive.State),
+            "Finishing Creation must not erase the user's confirmed step history.");
+        Assert.IsNull(actual.CharacterCreationBootstrapBinding);
+        Assert.IsNull(actual.CharacterCreationPrerequisiteDraft);
+        Assert.IsNull(actual.CharacterCreationAttributesDraft);
+        Assert.IsNull(actual.CharacterCreationSkillsDraft);
+        Assert.IsNull(actual.CharacterCreationSkillsReceipts);
+        Assert.IsNull(actual.CharacterCreationGearDraft);
+        Assert.IsNull(actual.CharacterCreationGearReceipts);
+        Assert.AreEqual(before.ContentRevision + 1, after.ContentRevision);
+        Assert.AreEqual(after.ContentRevision, after.SavedRevision);
+        Assert.AreEqual(result.Value!.ReceiptDigest,
+            cold.Finalizer.LookupReceipt(new(context.WorkspaceId, "keep-confirmed-step-history")).Value!.ReceiptDigest);
+        Assert.HasCount(4, context.ReplayChecks);
+        foreach (var verifyReplay in context.ReplayChecks)
+            verifyReplay(cold.Store);
+        Assert.AreEqual(after.ContentRevision, cold.Store.Get(context.WorkspaceId).Value!.ContentRevision,
+            "Recovering a confirmed Creation step in Career must never apply it again.");
+
+        Assert.IsTrue(CharacterCreationFinalizationReceiptLedgerIntegrity.IsValidTransition(
+            context.WorkspaceId, before.ContentRevision, before.SavedRevision, after.ContentRevision,
+            before.Document, after.Document));
+        foreach (var changed in new[]
+        {
+            new WorkspaceDocumentAuxiliaryState(CharacterCreationFinalizationReceipts: actual.CharacterCreationFinalizationReceipts),
+            actual with { CharacterCreationFinalizationArchive = null },
+            actual with { CharacterCreationFinalizationArchive = new(prior with { CharacterCreationGearReceipts = null }) },
+            actual with { CharacterCreationFinalizationArchive = new(prior with { CharacterCreationGearReceipts = [] }) },
+            actual with { CharacterCreationFinalizationArchive = new(prior with { CharacterCreationResourcesReceipts = null }) },
+            actual with { CharacterCreationFinalizationArchive = new(prior with { CharacterCreationSkillsReceipts = null }) },
+            actual with { CharacterCreationFinalizationArchive = new(prior with { CharacterCreationQualitiesReceipts = null }) },
+            actual with { CharacterCreationFinalizationArchive = new(prior with { CharacterCreationFinalizationArchive = new(prior) }) },
+            actual with { CharacterCreationFinalizationArchive = new(prior with { CharacterCreationFinalizationReceipts = actual.CharacterCreationFinalizationReceipts }) },
+            actual with { CharacterCreationFinalizationArchive = new(null!) },
+            actual with { CharacterCreationAttributesDraft = prior.CharacterCreationAttributesDraft },
+            actual with { CharacterCreationBootstrapBinding = prior.CharacterCreationBootstrapBinding }
+        })
+        {
+            Assert.IsFalse(CharacterCreationFinalizationReceiptLedgerIntegrity.IsValidTransition(
+                context.WorkspaceId, before.ContentRevision, before.SavedRevision, after.ContentRevision,
+                before.Document, after.Document with { State = after.Document.State with { AuxiliaryState = changed } }),
+                "The store boundary must reject dropped history or retained pending selections.");
+            var mutation = ((IWorkspaceAuxiliaryStateAtomicCommitCapability)cold.Store)
+                .ReplaceWorkspaceDocumentAndAuxiliaryStateAndCheckpoint(context.WorkspaceId,
+                    after.ContentRevision, after.Document.AuxiliaryStateDigest,
+                    after.Document with { State = after.Document.State with { AuxiliaryState = changed } });
+            Assert.IsFalse(mutation.Success,
+                "A later generic write must not strip, replace or reactivate completed Creation history.");
+            var unchanged = new FileWorkspaceStore(context.Directory).Get(context.WorkspaceId).Value!;
+            Assert.AreEqual(after.ContentRevision, unchanged.ContentRevision);
+            Assert.AreEqual(after.Document.AuxiliaryStateDigest, unchanged.Document.AuxiliaryStateDigest);
+        }
+    }
+
+    [TestMethod]
+    public void Finalization_archive_is_optional_for_legacy_state_but_never_accepts_nesting()
+    {
+        var empty = WorkspaceDocumentAuxiliaryState.Empty;
+        Assert.IsTrue(empty.IsEmpty);
+        Assert.AreEqual("{\"CharacterCreationFoundationDraft\":null,\"IsEmpty\":true}",
+            System.Text.Json.JsonSerializer.Serialize(empty),
+            "Adding optional build history must not change any pre-existing empty-state bytes.");
+        Assert.IsFalse((empty with { CharacterCreationFinalizationArchive = new(empty) }).IsEmpty);
+        Assert.IsFalse(CharacterCreationFinalizationReceiptLedgerIntegrity.IsValidArchive(
+            new("unfinalized"), 1, new(empty), null));
+        Assert.IsFalse(CharacterCreationFinalizationReceiptLedgerIntegrity.IsValidArchive(
+            new("nested"), 1, new(empty with { CharacterCreationFinalizationArchive = new(empty) }), []));
+        Assert.IsFalse(CharacterCreationFinalizationReceiptLedgerIntegrity.IsValidArchive(
+            new("null-entry"), 1, new(empty), [null!]));
+        Assert.IsFalse(CharacterCreationFinalizationReceiptLedgerIntegrity.IsValidLedger(
+            new("null-receipt"), 1, [new("", "", null!)]));
+    }
+
+    [TestMethod]
     [DataRow(false, false)]
     [DataRow(true, false)]
     [DataRow(false, true)]
@@ -77,6 +175,9 @@ public sealed class CharacterCreationFinalizationServiceTests
         Assert.AreEqual(after.ContentRevision, after.SavedRevision);
         Assert.HasCount(1, after.Document.AuxiliaryState.CharacterCreationFinalizationReceipts!);
         Assert.HasCount(1, after.Document.AuxiliaryState.CharacterCareerReputationReceipts!);
+        Assert.IsNotNull(before.Document.AuxiliaryState.CharacterCreationFinalizationArchive);
+        Assert.AreEqual(original.Document.AuxiliaryStateDigest,
+            WorkspaceDocumentAuxiliaryStateDigest.Compute(after.Document.AuxiliaryState.CharacterCreationFinalizationArchive!.State));
         var beforeXml = XDocument.Parse(before.Document.Content).Root!;
         var afterXml = XDocument.Parse(after.Document.Content).Root!;
         foreach (string field in new[] { "karma", "nuyen", "settings", "qualities", "gears", "improvements", "expenses" })
@@ -105,6 +206,8 @@ public sealed class CharacterCreationFinalizationServiceTests
         var rewardCommit = rewards.Commit(rewardCommand);
         Assert.AreEqual(CharacterAfterRunRewardOutcome.Applied, rewardCommit.Outcome, rewardCommit.Error);
         var afterRun = new FileWorkspaceStore(context.Directory).Get(reopened.WorkspaceId).Value!;
+        Assert.AreEqual(original.Document.AuxiliaryStateDigest,
+            WorkspaceDocumentAuxiliaryStateDigest.Compute(afterRun.Document.AuxiliaryState.CharacterCreationFinalizationArchive!.State));
         Assert.AreEqual(after.ContentRevision + 1, afterRun.ContentRevision);
         Assert.AreEqual(8, cold.Read(reopened.WorkspaceId).Snapshot!.Reputation.Inputs.CareerKarma);
         Assert.AreEqual(1, cold.Read(reopened.WorkspaceId).Snapshot!.Reputation.Inputs.StreetCred);
@@ -973,6 +1076,7 @@ public sealed class CharacterCreationFinalizationServiceTests
         public ICharacterFileQueries Queries { get; }
         public ICharacterSourceDataResolver Resolver => _resolver;
         public ICharacterCreationFinalizationService Finalizer { get; }
+        public IReadOnlyList<Action<IWorkspaceStore>> ReplayChecks { get; init; } = [];
 
         public static ReadyContext Create(
             bool includeGearReview,
@@ -993,20 +1097,22 @@ public sealed class CharacterCreationFinalizationServiceTests
                 CharacterWorkspaceId workspaceId = beforeDrafts is null
                     ? Bootstrap(store, queries, resolver)
                     : BootstrapPersistedShapeFixture(store, resolver, beforeDrafts);
+                var replayChecks = new List<Action<IWorkspaceStore>>();
                 CompleteDrafts(
                     store,
                     workspaceId,
                     queries,
                     resolver,
                     includeGearReview,
-                    includeNonEmptyPurchases);
+                    includeNonEmptyPurchases,
+                    replayChecks);
                 return new ReadyContext(
                     directory,
                     store,
                     workspaceId,
                     queries,
                     resolver,
-                    ownsDirectory: true);
+                    ownsDirectory: true) { ReplayChecks = replayChecks };
             }
             catch
             {
@@ -1124,7 +1230,8 @@ public sealed class CharacterCreationFinalizationServiceTests
             ICharacterFileQueries queries,
             ICharacterSourceDataResolver resolver,
             bool includeGearReview,
-            bool includeNonEmptyPurchases)
+            bool includeNonEmptyPurchases,
+            ICollection<Action<IWorkspaceStore>>? replayChecks = null)
         {
             var prerequisites = new CharacterCreationPrerequisiteService(store, queries, resolver);
             CharacterCreationPrerequisiteState prerequisite = prerequisites.Load(new(workspaceId)).Value!;
@@ -1199,14 +1306,26 @@ public sealed class CharacterCreationFinalizationServiceTests
                 skillsState.Binding,
                 skillAllocations,
                 [])).Value!;
-            Assert.AreEqual(CharacterCreationFoundationOutcomes.Success,
-                skills.Confirm(new(
+            var skillCommand = new CharacterCreationSkillsConfirmRequest(
                     skillsPreview.Binding,
                     skillAllocations,
                     [],
                     skillsPreview.PreviewDigest,
                     "skills-finalization-test",
-                    ExplicitlyConfirmed: true)).Outcome);
+                    ExplicitlyConfirmed: true);
+            var skillReceipt = skills.Confirm(skillCommand);
+            Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, skillReceipt.Outcome);
+            replayChecks?.Add(reopenedStore =>
+            {
+                var service = new CharacterCreationSkillsService(reopenedStore, resolver);
+                var replay = service.Confirm(skillCommand);
+                Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, replay.Outcome, string.Join(",", replay.Blockers));
+                Assert.AreEqual(skillReceipt.Value!.ReceiptDigest, replay.Value!.ReceiptDigest);
+                Assert.AreEqual(CharacterCreationFoundationOutcomes.Conflict,
+                    service.Confirm(skillCommand with { PreviewDigest = CharacterCreationFinalizationDigest.ComputeUtf8("changed-preview") }).Outcome);
+                Assert.AreNotEqual(CharacterCreationFoundationOutcomes.Success,
+                    service.Confirm(skillCommand with { IdempotencyKey = "new-career-skill-command" }).Outcome);
+            });
 
             var qualities = new CharacterCreationQualitiesService(
                 store, resolver, prerequisites, attributes);
@@ -1223,17 +1342,31 @@ public sealed class CharacterCreationFinalizationServiceTests
             CharacterCreationQualitiesPreview qualityPreview = qualities.Preview(new(
                 qualityState.Binding,
                 selectedQualityIds)).Value!;
-            CharacterCreationFoundationResult<CharacterCreationQualitiesDraftReceipt> qualityReceipt =
-                qualities.Confirm(new(
+            var qualityCommand = new CharacterCreationQualitiesConfirmRequest(
                     qualityPreview.Binding,
                     selectedQualityIds,
                     qualityPreview.PreviewDigest,
                     "qualities-finalization-test",
                     Guid.NewGuid(),
-                    ExplicitlyConfirmed: true));
+                    ExplicitlyConfirmed: true);
+            CharacterCreationFoundationResult<CharacterCreationQualitiesDraftReceipt> qualityReceipt =
+                qualities.Confirm(qualityCommand);
             Assert.AreEqual(CharacterCreationFoundationOutcomes.Success,
                 qualityReceipt.Outcome,
                 string.Join(",", qualityReceipt.Blockers));
+            replayChecks?.Add(reopenedStore =>
+            {
+                var service = new CharacterCreationQualitiesService(reopenedStore, resolver,
+                    new CharacterCreationPrerequisiteService(reopenedStore, queries, resolver),
+                    new CharacterCreationAttributesService(reopenedStore, resolver));
+                var replay = service.Confirm(qualityCommand);
+                Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, replay.Outcome, string.Join(",", replay.Blockers));
+                Assert.AreEqual(qualityReceipt.Value!.ReceiptDigest, replay.Value!.ReceiptDigest);
+                Assert.AreEqual(CharacterCreationFoundationOutcomes.Conflict,
+                    service.Confirm(qualityCommand with { PreviewDigest = CharacterCreationFinalizationDigest.ComputeUtf8("changed-preview") }).Outcome);
+                Assert.AreNotEqual(CharacterCreationFoundationOutcomes.Success,
+                    service.Confirm(qualityCommand with { IdempotencyKey = "new-career-quality-command" }).Outcome);
+            });
 
             var resources = new CharacterCreationResourcesService(store, resolver);
             CharacterCreationResourcesState resourcesState = resources.Load(new(workspaceId)).Value!;
@@ -1242,13 +1375,26 @@ public sealed class CharacterCreationFinalizationServiceTests
             CharacterCreationResourcesPreview resourcePreview = resources.Preview(new(
                 resourcesState.Binding,
                 zeroKarma.OptionId)).Value!;
-            Assert.AreEqual(CharacterCreationResourcesOutcomes.Applied,
-                resources.Confirm(new(
+            var resourceCommand = new CharacterCreationResourcesConfirmRequest(
                     resourcePreview.Binding,
                     zeroKarma.OptionId,
                     resourcePreview.PreviewDigest,
                     "resources-finalization-test",
-                    ExplicitlyConfirmed: true)).Outcome);
+                    ExplicitlyConfirmed: true);
+            var resourceReceipt = resources.Confirm(resourceCommand);
+            Assert.AreEqual(CharacterCreationResourcesOutcomes.Applied, resourceReceipt.Outcome);
+            replayChecks?.Add(reopenedStore =>
+            {
+                var service = new CharacterCreationResourcesService(reopenedStore, resolver);
+                var lookup = service.LookupReceipt(new(workspaceId, resourceCommand.IdempotencyKey));
+                Assert.AreEqual(CharacterCreationResourcesOutcomes.Available, lookup.Outcome, string.Join(",", lookup.Blockers));
+                Assert.AreEqual(resourceReceipt.Value!.ReceiptDigest, lookup.Value!.ReceiptDigest);
+                Assert.AreEqual(CharacterCreationResourcesOutcomes.Replayed, service.Confirm(resourceCommand).Outcome);
+                Assert.AreEqual(CharacterCreationResourcesOutcomes.Conflict,
+                    service.Confirm(resourceCommand with { PreviewDigest = CharacterCreationFinalizationDigest.ComputeUtf8("changed-preview") }).Outcome);
+                Assert.AreNotEqual(CharacterCreationResourcesOutcomes.Applied,
+                    service.Confirm(resourceCommand with { IdempotencyKey = "new-career-resource-command" }).Outcome);
+            });
 
             if (!includeGearReview)
                 return;
@@ -1270,13 +1416,26 @@ public sealed class CharacterCreationFinalizationServiceTests
             CharacterCreationGearPreview gearPreview = gear.Preview(new(
                 gearState.Binding,
                 basket)).Value!;
-            Assert.AreEqual(CharacterCreationGearOutcomes.Applied,
-                gear.Confirm(new(
+            var gearCommand = new CharacterCreationGearConfirmRequest(
                     gearPreview.Binding,
                     basket,
                     gearPreview.PreviewDigest,
                     "gear-finalization-test",
-                    ExplicitlyConfirmed: true)).Outcome);
+                    ExplicitlyConfirmed: true);
+            var gearReceipt = gear.Confirm(gearCommand);
+            Assert.AreEqual(CharacterCreationGearOutcomes.Applied, gearReceipt.Outcome);
+            replayChecks?.Add(reopenedStore =>
+            {
+                var service = new CharacterCreationGearService(reopenedStore, resolver);
+                var lookup = service.LookupReceipt(new(workspaceId, gearCommand.IdempotencyKey));
+                Assert.AreEqual(CharacterCreationGearOutcomes.Available, lookup.Outcome, string.Join(",", lookup.Blockers));
+                Assert.AreEqual(gearReceipt.Value!.ReceiptDigest, lookup.Value!.ReceiptDigest);
+                Assert.AreEqual(CharacterCreationGearOutcomes.Replayed, service.Confirm(gearCommand).Outcome);
+                Assert.AreEqual(CharacterCreationGearOutcomes.Conflict,
+                    service.Confirm(gearCommand with { PreviewDigest = CharacterCreationFinalizationDigest.ComputeUtf8("changed-preview") }).Outcome);
+                Assert.AreNotEqual(CharacterCreationGearOutcomes.Applied,
+                    service.Confirm(gearCommand with { IdempotencyKey = "new-career-gear-command" }).Outcome);
+            });
         }
 
         internal static ICharacterCreationFinalizationService BuildFinalizer(

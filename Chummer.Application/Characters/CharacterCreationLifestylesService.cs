@@ -246,11 +246,13 @@ public sealed class CharacterCreationLifestylesService : ICharacterCreationLifes
         WorkspaceStoreReadResult read = _workspaceStore.Get(request.WorkspaceId);
         if (!read.Success || read.Value is not WorkspaceStoredDocument workspace)
             return ReadFailure<CharacterCreationLifestyleReceipt>(read);
+        bool historyValid = CharacterCreationFinalizationReceiptLedgerIntegrity.TryReadReceiptHistory(
+            workspace, out var history, out long historyRevision);
         IReadOnlyList<CharacterCreationLifestyleReceiptLedgerEntry> ledger =
-            workspace.Document.AuxiliaryState.CharacterCreationLifestyleReceipts ?? [];
-        if (!CharacterCreationLifestyleReceiptLedgerIntegrity.IsValidLedger(
+            history.CharacterCreationLifestyleReceipts ?? [];
+        if (!historyValid || !CharacterCreationLifestyleReceiptLedgerIntegrity.IsValidLedger(
                 workspace.Id,
-                workspace.ContentRevision,
+                historyRevision,
                 ledger))
         {
             return Blocked<CharacterCreationLifestyleReceipt>(
@@ -965,11 +967,13 @@ public sealed class CharacterCreationLifestylesService : ICharacterCreationLifes
         string keyDigest,
         string commandDigest)
     {
+        bool historyValid = CharacterCreationFinalizationReceiptLedgerIntegrity.TryReadReceiptHistory(
+            workspace, out var history, out long historyRevision);
         IReadOnlyList<CharacterCreationLifestyleReceiptLedgerEntry> ledger =
-            workspace.Document.AuxiliaryState.CharacterCreationLifestyleReceipts ?? [];
-        if (!CharacterCreationLifestyleReceiptLedgerIntegrity.IsValidLedger(
+            history.CharacterCreationLifestyleReceipts ?? [];
+        if (!historyValid || !CharacterCreationLifestyleReceiptLedgerIntegrity.IsValidLedger(
                 workspace.Id,
-                workspace.ContentRevision,
+                historyRevision,
                 ledger))
             return Blocked<CharacterCreationLifestyleReceipt>(
                 CharacterCreationLifestyleOutcomes.Corrupt,

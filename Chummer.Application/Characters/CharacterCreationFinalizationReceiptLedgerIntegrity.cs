@@ -6,6 +6,49 @@ namespace Chummer.Application.Characters;
 
 public static class CharacterCreationFinalizationReceiptLedgerIntegrity
 {
+    /// <summary>
+    /// Archive the complete consumed Creation graph, including each step's
+    /// confirmation history. Active draft/receipt validators stay unchanged;
+    /// their exact original graph is validated at its original revision.
+    /// </summary>
+    internal static WorkspaceDocumentAuxiliaryState ConsumeDrafts(
+        WorkspaceDocumentAuxiliaryState current,
+        IReadOnlyList<CharacterCreationFinalizationReceiptLedgerEntry> finalizationReceipts) => new(
+            CharacterCreationFinalizationReceipts: finalizationReceipts,
+            CharacterCreationFinalizationArchive: new(current));
+
+    public static bool IsValidArchive(
+        CharacterWorkspaceId workspaceId,
+        long currentContentRevision,
+        CharacterCreationFinalizationArchive archive,
+        IReadOnlyList<CharacterCreationFinalizationReceiptLedgerEntry>? receipts)
+    {
+        ArgumentNullException.ThrowIfNull(archive);
+        return archive.State is not null
+               && archive.State.CharacterCreationFinalizationArchive is null
+               && archive.State.CharacterCreationFinalizationReceipts is null
+               && receipts is { Count: 1 }
+               && IsValidLedger(workspaceId, currentContentRevision, receipts)
+               && string.Equals(archive.State.ComputeDigest(),
+                   receipts[0].Receipt.PreviousAuxiliaryStateDigest, StringComparison.Ordinal);
+    }
+
+    /// <summary>Read-only receipt recovery. Never use historical drafts to evaluate a new mutation.</summary>
+    internal static bool TryReadReceiptHistory(WorkspaceStoredDocument workspace,
+        out WorkspaceDocumentAuxiliaryState history, out long historyRevision)
+    {
+        history = workspace.Document.AuxiliaryState;
+        historyRevision = workspace.ContentRevision;
+        if (history.CharacterCreationFinalizationArchive is not { } archive)
+            return true;
+        if (!IsValidArchive(workspace.Id, workspace.ContentRevision, archive,
+                history.CharacterCreationFinalizationReceipts))
+            return false;
+        historyRevision = history.CharacterCreationFinalizationReceipts![0].Receipt.PreviousContentRevision;
+        history = archive.State;
+        return true;
+    }
+
     public static bool IsValidLedger(
         CharacterWorkspaceId workspaceId,
         long persistedContentRevision,
@@ -15,13 +58,15 @@ public static class CharacterCreationFinalizationReceiptLedgerIntegrity
             return true;
         if (ledger.Count != 1)
             return false;
-        CharacterCreationFinalizationReceiptLedgerEntry entry = ledger[0];
+        CharacterCreationFinalizationReceiptLedgerEntry? entry = ledger[0];
+        if (entry?.Receipt is null)
+            return false;
         CharacterCreationFinalizationReceipt receipt = entry.Receipt;
         return receipt is not null
                && string.Equals(receipt.Schema, CharacterCreationFinalizationSchemas.ReceiptV1,
                    StringComparison.Ordinal)
                && receipt.WorkspaceId == workspaceId
-               && receipt.PreviousContentRevision > 0
+               && receipt.PreviousContentRevision is > 0 and < long.MaxValue
                && receipt.ContentRevision == receipt.PreviousContentRevision + 1
                && receipt.ContentRevision <= persistedContentRevision
                && receipt.SavedRevision == receipt.ContentRevision
@@ -66,13 +111,14 @@ public static class CharacterCreationFinalizationReceiptLedgerIntegrity
         IReadOnlyList<CharacterCreationFinalizationReceiptLedgerEntry>? replacementLedger =
             replacementDocument.AuxiliaryState.CharacterCreationFinalizationReceipts;
         if (currentLedger is not null
+            || currentDocument.AuxiliaryState.CharacterCreationFinalizationArchive is not null
             || replacementLedger is not { Count: 1 }
             || nextContentRevision != previousContentRevision + 1
             || !IsValidLedger(workspaceId, nextContentRevision, replacementLedger))
             return false;
 
-        WorkspaceDocumentAuxiliaryState expectedAuxiliary = new(
-            CharacterCreationFinalizationReceipts: replacementLedger);
+        WorkspaceDocumentAuxiliaryState expectedAuxiliary = ConsumeDrafts(
+            currentDocument.AuxiliaryState, replacementLedger);
         if (!string.Equals(
                 expectedAuxiliary.ComputeDigest(),
                 replacementDocument.AuxiliaryStateDigest,

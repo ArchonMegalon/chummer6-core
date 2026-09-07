@@ -276,11 +276,13 @@ public sealed class CharacterCreationContactsService : ICharacterCreationContact
         {
             return ReadFailure<CharacterCreationContactReceipt>(read);
         }
+        bool historyValid = CharacterCreationFinalizationReceiptLedgerIntegrity.TryReadReceiptHistory(
+            workspace, out var history, out long historyRevision);
         IReadOnlyList<CharacterCreationContactReceiptLedgerEntry> ledger =
-            workspace.Document.AuxiliaryState.CharacterCreationContactReceipts ?? [];
-        if (!CharacterCreationContactReceiptLedgerIntegrity.IsValidLedger(
+            history.CharacterCreationContactReceipts ?? [];
+        if (!historyValid || !CharacterCreationContactReceiptLedgerIntegrity.IsValidLedger(
                 workspace.Id,
-                workspace.ContentRevision,
+                historyRevision,
                 ledger))
         {
             return Blocked<CharacterCreationContactReceipt>(
@@ -1052,11 +1054,13 @@ public sealed class CharacterCreationContactsService : ICharacterCreationContact
         string idempotencyDigest,
         string commandDigest)
     {
+        bool historyValid = CharacterCreationFinalizationReceiptLedgerIntegrity.TryReadReceiptHistory(
+            workspace, out var history, out long historyRevision);
         IReadOnlyList<CharacterCreationContactReceiptLedgerEntry> ledger =
-            workspace.Document.AuxiliaryState.CharacterCreationContactReceipts ?? [];
-        if (!CharacterCreationContactReceiptLedgerIntegrity.IsValidLedger(
+            history.CharacterCreationContactReceipts ?? [];
+        if (!historyValid || !CharacterCreationContactReceiptLedgerIntegrity.IsValidLedger(
                 workspace.Id,
-                workspace.ContentRevision,
+                historyRevision,
                 ledger))
         {
             return Blocked<CharacterCreationContactReceipt>(

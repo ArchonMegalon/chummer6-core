@@ -248,8 +248,8 @@ public sealed class CharacterCreationFinalizationService : ICharacterCreationFin
             State = workspace.Document.State with
             {
                 Payload = resultXml,
-                AuxiliaryState = new WorkspaceDocumentAuxiliaryState(
-                    CharacterCreationFinalizationReceipts: [entry])
+                AuxiliaryState = CharacterCreationFinalizationReceiptLedgerIntegrity.ConsumeDrafts(
+                    workspace.Document.AuxiliaryState, [entry])
             }
         };
         WorkspaceStoreMutationResult committed = atomic

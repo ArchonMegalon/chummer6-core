@@ -65,10 +65,11 @@ public sealed class CharacterCreationMagicResonanceService : ICharacterCreationM
 
         string keyDigest = CharacterCreationMagicResonanceDigest.ComputeUtf8(request.IdempotencyKey);
         string commandDigest = ComputeCommandDigest(request);
-        IReadOnlyList<CharacterCreationMagicResonanceReceipt>? ledger = currentWorkspace.Document
-            .AuxiliaryState.CharacterCreationMagicResonanceReceipts;
-        if (!CharacterCreationMagicResonanceDraftIntegrity.IsValidReceiptLedger(
-                ledger, currentWorkspace.Id, currentWorkspace.ContentRevision))
+        bool historyValid = CharacterCreationFinalizationReceiptLedgerIntegrity.TryReadReceiptHistory(
+            currentWorkspace, out var history, out long historyRevision);
+        IReadOnlyList<CharacterCreationMagicResonanceReceipt>? ledger = history.CharacterCreationMagicResonanceReceipts;
+        if (!historyValid || !CharacterCreationMagicResonanceDraftIntegrity.IsValidReceiptLedger(
+                ledger, currentWorkspace.Id, historyRevision))
             return Blocked<CharacterCreationMagicResonanceReceipt>(
                 CharacterCreationFoundationOutcomes.Invalid,
                 CharacterCreationMagicResonanceBlockers.ReceiptLedgerInvalid);

@@ -253,13 +253,14 @@ public sealed class CharacterCreationResourcesService : ICharacterCreationResour
         WorkspaceStoreReadResult read = _workspaceStore.Get(request.WorkspaceId);
         if (!read.Success || read.Value is not WorkspaceStoredDocument workspace)
             return ReadFailure<CharacterCreationResourcesReceipt>(read);
-        CharacterCreationResourcesDraft? draft =
-            workspace.Document.AuxiliaryState.CharacterCreationResourcesDraft;
+        bool historyValid = CharacterCreationFinalizationReceiptLedgerIntegrity.TryReadReceiptHistory(
+            workspace, out var history, out long historyRevision);
+        CharacterCreationResourcesDraft? draft = history.CharacterCreationResourcesDraft;
         IReadOnlyList<CharacterCreationResourcesReceiptLedgerEntry> ledger =
-            workspace.Document.AuxiliaryState.CharacterCreationResourcesReceipts ?? [];
-        if (!CharacterCreationResourcesReceiptLedgerIntegrity.IsValidLedger(
+            history.CharacterCreationResourcesReceipts ?? [];
+        if (!historyValid || !CharacterCreationResourcesReceiptLedgerIntegrity.IsValidLedger(
                 workspace.Id,
-                workspace.ContentRevision,
+                historyRevision,
                 draft,
                 ledger))
         {
@@ -723,13 +724,14 @@ public sealed class CharacterCreationResourcesService : ICharacterCreationResour
         string keyDigest,
         string commandDigest)
     {
-        CharacterCreationResourcesDraft? draft =
-            workspace.Document.AuxiliaryState.CharacterCreationResourcesDraft;
+        bool historyValid = CharacterCreationFinalizationReceiptLedgerIntegrity.TryReadReceiptHistory(
+            workspace, out var history, out long historyRevision);
+        CharacterCreationResourcesDraft? draft = history.CharacterCreationResourcesDraft;
         IReadOnlyList<CharacterCreationResourcesReceiptLedgerEntry> ledger =
-            workspace.Document.AuxiliaryState.CharacterCreationResourcesReceipts ?? [];
-        if (!CharacterCreationResourcesReceiptLedgerIntegrity.IsValidLedger(
+            history.CharacterCreationResourcesReceipts ?? [];
+        if (!historyValid || !CharacterCreationResourcesReceiptLedgerIntegrity.IsValidLedger(
                 workspace.Id,
-                workspace.ContentRevision,
+                historyRevision,
                 draft,
                 ledger))
             return Blocked<CharacterCreationResourcesReceipt>(

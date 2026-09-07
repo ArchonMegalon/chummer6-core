@@ -102,9 +102,11 @@ public sealed class CharacterCreationQualitiesService : ICharacterCreationQualit
                 CharacterCreationFoundationOutcomes.Missing,
                 CharacterCreationQualitiesBlockers.RevisionConflict);
 
+        bool historyValid = CharacterCreationFinalizationReceiptLedgerIntegrity.TryReadReceiptHistory(
+            workspace, out var history, out long historyRevision);
         IReadOnlyList<CharacterCreationQualitiesDraftReceipt> ledger =
-            workspace.Document.AuxiliaryState.CharacterCreationQualitiesReceipts ?? [];
-        if (!IsValidLedger(ledger, workspace.Id, workspace.ContentRevision))
+            history.CharacterCreationQualitiesReceipts ?? [];
+        if (!historyValid || !IsValidLedger(ledger, workspace.Id, historyRevision))
             return Blocked<CharacterCreationQualitiesDraftReceipt>(
                 CharacterCreationFoundationOutcomes.Invalid,
                 CharacterCreationQualitiesBlockers.ReceiptLedgerInvalid);

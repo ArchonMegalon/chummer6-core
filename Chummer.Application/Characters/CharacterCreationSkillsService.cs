@@ -56,12 +56,13 @@ public sealed class CharacterCreationSkillsService : ICharacterCreationSkillsSer
 
         string keyDigest = CharacterCreationSkillsDigest.ComputeUtf8(request.IdempotencyKey);
         string commandDigest = ComputeCommandDigest(request);
-        IReadOnlyList<CharacterCreationSkillsReceipt>? ledger =
-            currentWorkspace.Document.AuxiliaryState.CharacterCreationSkillsReceipts;
-        if (!CharacterCreationSkillsDraftIntegrity.IsValidReceiptLedger(
+        bool historyValid = CharacterCreationFinalizationReceiptLedgerIntegrity.TryReadReceiptHistory(
+            currentWorkspace, out var history, out long historyRevision);
+        IReadOnlyList<CharacterCreationSkillsReceipt>? ledger = history.CharacterCreationSkillsReceipts;
+        if (!historyValid || !CharacterCreationSkillsDraftIntegrity.IsValidReceiptLedger(
                 ledger,
                 currentWorkspace.Id,
-                currentWorkspace.ContentRevision))
+                historyRevision))
             return Blocked<CharacterCreationSkillsReceipt>(CharacterCreationFoundationOutcomes.Invalid,
                 CharacterCreationSkillsBlockers.ReceiptLedgerInvalid);
         CharacterCreationSkillsReceipt? replay = ledger?.SingleOrDefault(receipt =>

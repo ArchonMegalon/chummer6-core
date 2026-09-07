@@ -1,0 +1,42 @@
+<Project>
+  <!-- Isolated restore/output paths: this directory hosts multiple test projects. -->
+  <PropertyGroup>
+    <BaseIntermediateOutputPath>obj/creation-history/</BaseIntermediateOutputPath>
+    <BaseOutputPath>bin/creation-history/</BaseOutputPath>
+  </PropertyGroup>
+  <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" />
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <IsTestProject>true</IsTestProject>
+    <IsPackable>false</IsPackable>
+    <!-- Existing store fault-injection tests use this established friend assembly. -->
+    <AssemblyName>Chummer.Tests</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <AssemblyAttribute Include="Microsoft.VisualStudio.TestTools.UnitTesting.DoNotParallelizeAttribute" />
+    <Compile Include="CharacterCreationBootstrapServiceTests.cs" />
+    <Compile Include="CharacterCreationFinalizationServiceTests.cs" />
+    <Compile Include="CharacterCreationPrerequisiteServiceTests.cs" />
+    <Compile Include="CharacterCreationAttributesServiceTests.cs" />
+    <Compile Include="CharacterCreationSkillsServiceTests.cs" />
+    <Compile Include="CharacterCreationMagicResonanceServiceTests.cs" />
+    <Compile Include="CharacterCreationQualitiesRulesTests.cs" />
+    <Compile Include="CharacterCreationResourcesServiceTests.cs" />
+    <Compile Include="CharacterCreationGearServiceTests.cs" />
+    <Compile Include="CharacterCreationContactsServiceTests.cs" />
+    <Compile Include="CharacterCreationLifestylesServiceTests.cs" />
+    <Compile Include="FileSystemCharacterSourceDataResolverTests.cs" />
+    <ProjectReference Include="../Chummer.Contracts/Chummer.Contracts.csproj" />
+    <ProjectReference Include="../Chummer.Application/Chummer.Application.csproj" />
+    <ProjectReference Include="../Chummer.Infrastructure/Chummer.Infrastructure.csproj" />
+    <ProjectReference Include="../Chummer.Rulesets.Hosting/Chummer.Rulesets.Hosting.csproj" />
+    <ProjectReference Include="../Chummer.Rulesets.Sr5/Chummer.Rulesets.Sr5.csproj" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.0.1" />
+    <PackageReference Include="MSTest.TestAdapter" Version="4.1.0" />
+    <PackageReference Include="MSTest.TestFramework" Version="4.1.0" />
+  </ItemGroup>
+  <Import Project="Sdk.targets" Sdk="Microsoft.NET.Sdk" />
+</Project>
