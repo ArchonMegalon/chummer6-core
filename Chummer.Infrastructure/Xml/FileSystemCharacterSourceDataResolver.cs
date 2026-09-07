@@ -946,6 +946,15 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 specializationsBreakSkillGroups?.ToString(CultureInfo.InvariantCulture) ?? "invalid",
                 boundProfileInputsDigest);
 
+            XElement[] awarenessNodes = settings.Elements("usecalculatedpublicawareness").Take(2).ToArray();
+            bool? useCalculatedPublicAwareness = awarenessNodes.Length == 1
+                && TryParseStrictBoolElement(awarenessNodes[0], out bool resolvedAwareness)
+                    ? resolvedAwareness : null;
+            string reputationRuleState = string.Join('\0',
+                settingsKey,
+                useCalculatedPublicAwareness?.ToString(CultureInfo.InvariantCulture) ?? "invalid",
+                boundProfileInputsDigest);
+
             var context = new SourceDataContext(
                 catalog,
                 sourceInputs,
@@ -997,7 +1006,9 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 karmaActiveSpecialization,
                 karmaKnowledgeSpecialization,
                 specializationsBreakSkillGroups,
-                specializationRuleState);
+                specializationRuleState,
+                useCalculatedPublicAwareness,
+                reputationRuleState);
             Volatile.Write(ref _lastSourceInputs, sourceInputs);
             return context;
         }
@@ -1733,6 +1744,8 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
         private readonly int? _karmaKnowledgeSpecialization;
         private readonly bool? _specializationsBreakSkillGroups;
         private readonly string _specializationRuleState;
+        private readonly bool? _useCalculatedPublicAwareness;
+        private readonly string _reputationRuleState;
 
         public SourceDataContext(
             ContentOverlayCatalog catalog,
@@ -1785,7 +1798,9 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             int? karmaActiveSpecialization,
             int? karmaKnowledgeSpecialization,
             bool? specializationsBreakSkillGroups,
-            string specializationRuleState)
+            string specializationRuleState,
+            bool? useCalculatedPublicAwareness,
+            string reputationRuleState)
         {
             _catalog = catalog;
             _sourceInputs = sourceInputs;
@@ -1838,6 +1853,8 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             _karmaKnowledgeSpecialization = karmaKnowledgeSpecialization;
             _specializationsBreakSkillGroups = specializationsBreakSkillGroups;
             _specializationRuleState = specializationRuleState;
+            _useCalculatedPublicAwareness = useCalculatedPublicAwareness;
+            _reputationRuleState = reputationRuleState;
         }
 
         public bool TryResolveMaxNuyenDecimals(out int decimalPlaces)
@@ -4373,6 +4390,21 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 category,
                 attribute,
                 skill.ToString(SaveOptions.DisableFormatting));
+            return true;
+        }
+
+        public bool TryResolveCareerReputationSettings(
+            out CharacterCareerReputationSettings settings,
+            out string rawRuleState)
+        {
+            using IDisposable sourceInputScope = _sourceInputs.Enter();
+            settings = new CharacterCareerReputationSettings(false);
+            rawRuleState = string.Empty;
+            if (_sourceInputs.HasSourceDrift || !_useCalculatedPublicAwareness.HasValue
+                || string.IsNullOrWhiteSpace(_reputationRuleState))
+                return false;
+            settings = new CharacterCareerReputationSettings(_useCalculatedPublicAwareness.Value);
+            rawRuleState = _reputationRuleState;
             return true;
         }
 

@@ -14,6 +14,20 @@ public interface ICharacterSourceDataResolver
 public interface ICharacterSourceDataContext
 {
     /// <summary>
+    /// Resolves the explicit public-awareness policy from the exact saved profile.
+    /// False means missing, malformed, ambiguous or stale authority; consumers
+    /// must not treat the returned placeholder as a default setting.
+    /// </summary>
+    bool TryResolveCareerReputationSettings(
+        out CharacterCareerReputationSettings settings,
+        out string rawRuleState)
+    {
+        settings = new CharacterCareerReputationSettings(false);
+        rawRuleState = string.Empty;
+        return false;
+    }
+
+    /// <summary>
     /// Resolves one saved active-skill source GUID through the runner's exact enabled-book and
     /// ordered custom-data profile. The saved instance GUID must never be substituted here.
     /// </summary>

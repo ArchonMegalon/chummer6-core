@@ -110,6 +110,76 @@ public sealed class FileSystemCharacterSourceDataResolverTests
     }
 
     [TestMethod]
+    public void Canonical_career_reputation_policy_is_profile_bound()
+    {
+        ICharacterSourceDataContext context = CreateContext(FindCoreRoot(),
+            $"<character><settings>{SettingsId}</settings></character>")!;
+        Assert.IsTrue(context.TryResolveCareerReputationSettings(out var settings, out string rawRuleState));
+        Assert.IsFalse(settings.UseCalculatedPublicAwareness);
+        StringAssert.Contains(rawRuleState, SettingsId);
+        Assert.IsFalse(string.IsNullOrWhiteSpace(rawRuleState));
+    }
+
+    [DataRow("<usecalculatedpublicawareness>True</usecalculatedpublicawareness>", true, true)]
+    [DataRow("<usecalculatedpublicawareness>False</usecalculatedpublicawareness>", true, false)]
+    [DataRow("", false, false)]
+    [DataRow("<usecalculatedpublicawareness/>", false, false)]
+    [DataRow("<usecalculatedpublicawareness>1</usecalculatedpublicawareness>", false, false)]
+    [DataRow("<usecalculatedpublicawareness>yes</usecalculatedpublicawareness>", false, false)]
+    [DataRow("<usecalculatedpublicawareness> True </usecalculatedpublicawareness>", false, false)]
+    [DataRow("<usecalculatedpublicawareness enabled=\"false\">True</usecalculatedpublicawareness>", false, false)]
+    [DataRow("<usecalculatedpublicawareness><value>True</value></usecalculatedpublicawareness>", false, false)]
+    [DataRow("<usecalculatedpublicawareness>True</usecalculatedpublicawareness><usecalculatedpublicawareness>False</usecalculatedpublicawareness>", false, false)]
+    [DataRow("<usecalculatedpublicawareness>True</usecalculatedpublicawareness><usecalculatedpublicawareness>True</usecalculatedpublicawareness>", false, false)]
+    [TestMethod]
+    public void Reputation_policy_requires_one_explicit_well_formed_value(string node, bool available, bool expected)
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            WriteBaseContent(root, string.Empty);
+            string path = Path.Combine(root, "data", "settings.xml");
+            File.WriteAllText(path, File.ReadAllText(path).Replace("</setting>", node + "</setting>", StringComparison.Ordinal));
+            ICharacterSourceDataContext context = CreateContext(root, CharacterXml())!;
+            Assert.AreEqual(available, context.TryResolveCareerReputationSettings(out var settings, out string raw));
+            Assert.AreEqual(expected, settings.UseCalculatedPublicAwareness);
+            Assert.AreEqual(available, !string.IsNullOrEmpty(raw));
+        }
+        finally { DeleteTempDirectory(root); }
+    }
+
+    [TestMethod]
+    public void Retained_reputation_context_rejects_changed_profile_and_new_context_binds_new_bytes()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            WriteBaseContent(root, string.Empty);
+            string path = Path.Combine(root, "data", "settings.xml");
+            string original = File.ReadAllText(path).Replace("</setting>",
+                "<usecalculatedpublicawareness>False</usecalculatedpublicawareness></setting>", StringComparison.Ordinal);
+            File.WriteAllText(path, original);
+            ICharacterSourceDataContext old = CreateContext(root, CharacterXml())!;
+            Assert.IsTrue(old.TryResolveCareerReputationSettings(out _, out string oldRuleState));
+            File.WriteAllText(path, original.Replace("<usecalculatedpublicawareness>False", "<usecalculatedpublicawareness>True", StringComparison.Ordinal));
+            Assert.IsFalse(old.TryResolveCareerReputationSettings(out _, out string stale));
+            Assert.AreEqual(string.Empty, stale);
+            ICharacterSourceDataContext fresh = CreateContext(root, CharacterXml())!;
+            Assert.IsTrue(fresh.TryResolveCareerReputationSettings(out var settings, out string currentRuleState));
+            Assert.IsTrue(settings.UseCalculatedPublicAwareness);
+            Assert.AreNotEqual(oldRuleState, currentRuleState);
+            File.WriteAllText(path, File.ReadAllText(path).Replace("#,0.###", "#,0.##", StringComparison.Ordinal));
+            ICharacterSourceDataContext samePolicyNewProfile = CreateContext(root, CharacterXml())!;
+            Assert.IsTrue(samePolicyNewProfile.TryResolveCareerReputationSettings(out var sameSettings, out string rebound));
+            Assert.AreEqual(settings, sameSettings);
+            Assert.AreNotEqual(currentRuleState, rebound, "Profile binding must cover raw profile inputs, not only the Boolean.");
+            File.WriteAllText(path, original);
+            Assert.IsFalse(old.TryResolveCareerReputationSettings(out _, out _), "Drifted context must not revive after A-to-B-to-A source changes.");
+        }
+        finally { DeleteTempDirectory(root); }
+    }
+
+    [TestMethod]
     public void Canonical_career_specialization_settings_preserve_profile_costs_and_default_group_policy()
     {
         string coreRoot = FindCoreRoot();
