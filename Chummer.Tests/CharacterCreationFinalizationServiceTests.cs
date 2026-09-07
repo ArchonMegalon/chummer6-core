@@ -20,6 +20,128 @@ namespace Chummer.Tests;
 public sealed class CharacterCreationFinalizationServiceTests
 {
     [TestMethod]
+    [DataRow(0)]
+    [DataRow(1)]
+    [DataRow(4)]
+    public void Mystic_adept_purchase_is_reviewed_charged_once_and_cold_saved(int powerPoints)
+    {
+        using ReadyContext context = ReadyContext.Create(true, talentValue: "Mystic Adept", mysticPowerPoints: powerPoints);
+        var before = context.Store.Get(context.WorkspaceId).Value!;
+        var auxiliary = before.Document.AuxiliaryState;
+        var magic = auxiliary.CharacterCreationMagicResonanceDraft!;
+        var purchase = magic.FinalizationContribution!.MysticAdeptPowerPoints!;
+        Assert.AreEqual(powerPoints, magic.Selections.MysticAdeptPowerPoints);
+        Assert.AreEqual(powerPoints, purchase.PowerPoints);
+        Assert.AreEqual(powerPoints * purchase.Policy.KarmaPerPowerPoint, purchase.KarmaCost);
+        Assert.AreEqual(0, purchase.ExchangedSpellSlots);
+        Assert.IsFalse(magic.CharacterEffectsApplied);
+        Assert.IsNull(XElement.Parse(before.Document.Content).Element("magsplitadept"));
+        var state = context.Finalizer.Load(new(context.WorkspaceId)).Value!;
+        var review = context.Finalizer.Review(new(state.Binding)).Value!;
+        Assert.IsTrue(review.CanConfirm, string.Join(",", review.Blockers));
+        Assert.AreEqual((decimal)(auxiliary.CharacterCreationQualitiesDraft!.KarmaRemaining
+            - auxiliary.CharacterCreationResourcesDraft!.KarmaInvestment - purchase.KarmaCost), review.Plan!.KarmaRemaining);
+        CollectionAssert.IsSubsetOf(purchase.Policy.SourceAnchorIds.ToArray(), review.Plan.SourceAnchorIds.ToArray());
+        var command = new CharacterCreationFinalizationConfirmRequest(state.Binding, review.PreviewDigest,
+            review.Plan.PlanDigest, "mystic-purchase-finalize", true);
+        Assert.AreNotEqual(CharacterCreationFinalizationOutcomes.Applied,
+            context.Finalizer.Confirm(command with { ExplicitlyConfirmed = false }).Outcome);
+        Assert.AreEqual(before.Document.Content, context.Store.Get(context.WorkspaceId).Value!.Document.Content);
+        var applied = context.Finalizer.Confirm(command);
+        Assert.AreEqual(CharacterCreationFinalizationOutcomes.Applied, applied.Outcome, string.Join(",", applied.Blockers));
+        using var cold = context.Restart();
+        var after = cold.Store.Get(context.WorkspaceId).Value!;
+        XElement saved = XElement.Parse(after.Document.Content);
+        Assert.AreEqual(powerPoints.ToString(System.Globalization.CultureInfo.InvariantCulture), saved.Element("magsplitadept")!.Value);
+        Assert.AreEqual(review.Plan.KarmaRemaining, decimal.Parse(saved.Element("karma")!.Value, System.Globalization.CultureInfo.InvariantCulture));
+        Assert.AreEqual(CharacterCreationFinalizationOutcomes.Replayed, cold.Finalizer.Confirm(command).Outcome);
+        Assert.AreEqual(after.ContentRevision, cold.Store.Get(context.WorkspaceId).Value!.ContentRevision);
+        Assert.AreEqual(after.Document.Content, cold.Store.Get(context.WorkspaceId).Value!.Document.Content);
+    }
+
+    [TestMethod]
+    [DataRow(false, 7, 3, true)]
+    [DataRow(false, 7, 4, false)]
+    [DataRow(true, 7, 4, true)]
+    [DataRow(false, 0, 4, true)]
+    public void Mystic_custom_profile_purchase_and_spell_exchange_reach_whole_build_budget(
+        bool exchange, int price, int powerPoints, bool canFinalize)
+    {
+        using ReadyContext context = ReadyContext.Create(true, talentValue: "Mystic Adept", mysticPowerPoints: powerPoints,
+            amendSettings: settings =>
+            {
+                settings.Element("priorityspellsasadeptpowers")!.Value = exchange.ToString();
+                settings.Element("karmacost")!.Element("karmamysadpp")!.Value = price.ToString();
+            });
+        var before = context.Store.Get(context.WorkspaceId).Value!;
+        var magic = before.Document.AuxiliaryState.CharacterCreationMagicResonanceDraft!;
+        var purchase = magic.FinalizationContribution!.MysticAdeptPowerPoints!;
+        Assert.AreEqual(price, purchase.Policy.KarmaPerPowerPoint);
+        Assert.AreEqual(exchange ? powerPoints : 0, purchase.ExchangedSpellSlots);
+        Assert.AreEqual(exchange ? 0 : price * powerPoints, purchase.KarmaCost);
+        Assert.AreEqual(purchase.SpellBudget, magic.Selections.Spells.Count);
+        var loaded = context.Finalizer.Load(new(context.WorkspaceId));
+        var review = context.Finalizer.Review(new(loaded.Value!.Binding));
+        Assert.AreEqual(canFinalize, review.Value?.CanConfirm == true, string.Join(",", review.Blockers));
+        if (!canFinalize)
+        {
+            CollectionAssert.Contains(review.Blockers.ToArray(), CharacterCreationFinalizationBlockers.GlobalKarmaExceeded);
+            Assert.AreEqual(before.ContentRevision, context.Store.Get(context.WorkspaceId).Value!.ContentRevision);
+            Assert.AreEqual(before.Document.Content, context.Store.Get(context.WorkspaceId).Value!.Document.Content);
+            return;
+        }
+        var plan = review.Value!.Plan!;
+        var command = new CharacterCreationFinalizationConfirmRequest(loaded.Value.Binding, review.Value.PreviewDigest,
+            plan.PlanDigest, "custom-profile-mystic-finalization", true);
+        Assert.AreEqual(CharacterCreationFinalizationOutcomes.Applied, context.Finalizer.Confirm(command).Outcome);
+        using var cold = context.Restart();
+        XElement saved = XElement.Parse(cold.Store.Get(context.WorkspaceId).Value!.Document.Content);
+        Assert.AreEqual(powerPoints.ToString(), saved.Element("magsplitadept")!.Value);
+        Assert.AreEqual(purchase.SpellBudget, saved.Element("spells")!.Elements("spell").Count());
+        Assert.AreEqual(plan.KarmaRemaining, decimal.Parse(saved.Element("karma")!.Value, System.Globalization.CultureInfo.InvariantCulture));
+    }
+
+    [TestMethod]
+    public void Mystic_purchase_rejects_rehashed_cost_budget_and_selection_forgery_without_persistence()
+    {
+        using ReadyContext context = ReadyContext.Create(true, talentValue: "Mystic Adept", mysticPowerPoints: 2);
+        var before = context.Store.Get(context.WorkspaceId).Value!;
+        var auxiliary = before.Document.AuxiliaryState;
+        var magic = auxiliary.CharacterCreationMagicResonanceDraft!;
+        var contribution = magic.FinalizationContribution!;
+        var service = new CharacterCreationMagicResonanceService(context.Store, context.Resolver);
+        var state = service.Load(new(context.WorkspaceId)).Value!;
+        foreach (var invalid in new[]
+        {
+            contribution with { MysticAdeptPowerPoints = contribution.MysticAdeptPowerPoints! with { KarmaCost = 0 } },
+            contribution with { MysticAdeptPowerPoints = contribution.MysticAdeptPowerPoints! with { PowerPoints = 3 } },
+            contribution with { MysticAdeptPowerPoints = contribution.MysticAdeptPowerPoints! with { ExchangedSpellSlots = 2 } },
+            contribution with { MysticAdeptPowerPoints = null }
+        })
+        {
+            var forgedContribution = invalid with { ContributionDigest = CharacterCreationMagicResonanceFinalizationRules.ComputeContributionDigest(invalid) };
+            var forgedDraft = magic with { FinalizationContribution = forgedContribution, DraftDigest = string.Empty };
+            forgedDraft = forgedDraft with { DraftDigest = CharacterCreationMagicResonanceDraftIntegrity.ComputeDigest(forgedDraft) };
+            Assert.IsFalse(CharacterCreationMagicResonanceFinalizationRules.IsValidContribution(forgedContribution,
+                forgedDraft, state.Authority, auxiliary.CharacterCreationAttributesDraft));
+            var forged = before with { Document = before.Document with { State = before.Document.State with
+                { AuxiliaryState = auxiliary with { CharacterCreationMagicResonanceDraft = forgedDraft } } } };
+            Assert.IsFalse(CharacterCreationFinalizationProjector.TryProject(forged, out string xml, out var changes,
+                out _, out _, out _, out _, out _));
+            Assert.AreEqual(string.Empty, xml);
+            Assert.IsEmpty(changes);
+        }
+        foreach (int invalid in new[] { -1, state.MysticAdeptPowerPoints!.MaximumPowerPoints + 1, int.MaxValue })
+        {
+            var preview = service.Preview(new(state.Binding, magic.Selections with { MysticAdeptPowerPoints = invalid })).Value!;
+            Assert.IsFalse(preview.CanConfirm);
+            Assert.IsNull(preview.FinalizationContribution);
+        }
+        Assert.AreEqual(before.ContentRevision, context.Store.Get(context.WorkspaceId).Value!.ContentRevision);
+        Assert.AreEqual(before.Document.Content, context.Store.Get(context.WorkspaceId).Value!.Document.Content);
+    }
+
+    [TestMethod]
     [DataRow("Magician")]
     [DataRow("Aspected Magician")]
     [DataRow("Mystic Adept")]
@@ -1301,7 +1423,9 @@ public sealed class CharacterCreationFinalizationServiceTests
             bool includeGearReview,
             bool includeNonEmptyPurchases = false,
             Action<XElement>? beforeDrafts = null,
-            string? talentValue = null)
+            string? talentValue = null,
+            int mysticPowerPoints = 0,
+            Action<XElement>? amendSettings = null)
         {
             string directory = Path.Combine(
                 Path.GetTempPath(),
@@ -1310,6 +1434,21 @@ public sealed class CharacterCreationFinalizationServiceTests
             try
             {
                 string coreRoot = FindCoreRoot();
+                if (amendSettings is not null)
+                {
+                    string sourceData = Path.Combine(coreRoot, "Chummer", "data");
+                    coreRoot = Path.Combine(directory, "source");
+                    string destination = Path.Combine(coreRoot, "data");
+                    System.IO.Directory.CreateDirectory(destination);
+                    foreach (string sourceFile in System.IO.Directory.EnumerateFiles(sourceData, "*.xml"))
+                        File.Copy(sourceFile, Path.Combine(destination, Path.GetFileName(sourceFile)));
+                    string settingsPath = Path.Combine(destination, "settings.xml");
+                    XDocument settingsDocument = XDocument.Load(settingsPath);
+                    XElement profile = settingsDocument.Root!.Element("settings")!.Elements("setting")
+                        .Single(item => item.Element("id")!.Value == CharacterCreationBootstrapProfiles.PrioritySettingsProfileId);
+                    amendSettings(profile);
+                    settingsDocument.Save(settingsPath);
+                }
                 ICharacterSourceDataResolver resolver = new FileSystemCharacterSourceDataResolver(
                     new FileSystemContentOverlayCatalogService(coreRoot, coreRoot, null));
                 ICharacterFileQueries queries = new XmlCharacterFileQueries(new CharacterFileService());
@@ -1325,7 +1464,7 @@ public sealed class CharacterCreationFinalizationServiceTests
                     resolver,
                     includeGearReview,
                     includeNonEmptyPurchases,
-                    replayChecks, talentValue);
+                    replayChecks, talentValue, mysticPowerPoints);
                 return new ReadyContext(
                     directory,
                     store,
@@ -1452,7 +1591,8 @@ public sealed class CharacterCreationFinalizationServiceTests
             bool includeGearReview,
             bool includeNonEmptyPurchases,
             ICollection<Action<IWorkspaceStore>>? replayChecks = null,
-            string? talentValue = null)
+            string? talentValue = null,
+            int mysticPowerPoints = 0)
         {
             var prerequisites = new CharacterCreationPrerequisiteService(store, queries, resolver);
             CharacterCreationPrerequisiteState prerequisite = prerequisites.Load(new(workspaceId)).Value!;
@@ -1562,8 +1702,12 @@ public sealed class CharacterCreationFinalizationServiceTests
                 var magicState = magicService.Load(new(workspaceId)).Value!;
                 Assert.IsTrue(magicState.CanEdit, string.Join(",", magicState.Blockers));
                 var selected = magicState.SelectedTalent!;
+                Assert.IsTrue(CharacterCreationMysticAdeptPowerPointRules.TryEvaluate(magicState.Authority.MysticAdeptPowerPointPolicy,
+                    selected.Kind, magicState.AttributesDraft!.Attributes.Single(item => item.AttributeId == "MAG").Current,
+                    selected.SpellBudget, mysticPowerPoints, out var mysticPurchase));
                 var powers = new List<CharacterCreationAdeptPowerAllocation>();
-                decimal remaining = magicState.AdeptPowerPointBudget.Total;
+                decimal remaining = selected.Kind == CharacterCreationMagicResonanceKinds.MysticAdept
+                    ? mysticPowerPoints : magicState.AdeptPowerPointBudget.Total;
                 foreach (var power in magicState.Authority.AdeptPowers.Where(item => item.IsEnabled && item.PointCost > 0)
                     .OrderByDescending(item => item.PointCost))
                 {
@@ -1578,8 +1722,11 @@ public sealed class CharacterCreationFinalizationServiceTests
                     selected.RequiresTradition ? magicState.Authority.Traditions.Single(item => item.Name == "Hermetic").Identity : null,
                     selected.RequiresStream ? magicState.Authority.Streams.Single(item => item.Name == "Default").Identity : null,
                     powers,
-                    magicState.Authority.Spells.Where(item => item.IsEnabled).Take(selected.SpellBudget).Select(item => item.Identity).ToArray(),
-                    magicState.Authority.ComplexForms.Where(item => item.IsEnabled).Take(selected.ComplexFormBudget).Select(item => item.Identity).ToArray());
+                    magicState.Authority.Spells.Where(item => item.IsEnabled).Take(mysticPurchase?.SpellBudget ?? selected.SpellBudget).Select(item => item.Identity).ToArray(),
+                    magicState.Authority.ComplexForms.Where(item => item.IsEnabled).Take(selected.ComplexFormBudget).Select(item => item.Identity).ToArray())
+                {
+                    MysticAdeptPowerPoints = mysticPowerPoints
+                };
                 var preview = magicService.Preview(new(magicState.Binding, selections)).Value!;
                 Assert.IsTrue(preview.CanConfirm, string.Join(",", preview.Blockers));
                 Assert.AreEqual(CharacterCreationFoundationOutcomes.Success,

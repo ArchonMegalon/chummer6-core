@@ -13,6 +13,34 @@ namespace Chummer.Application.Characters;
 /// </summary>
 internal static class CharacterCreationAwakenedLegacyProjector
 {
+    internal static bool TryResolvePowerPointPurchase(CharacterCreationMagicResonanceDraft? magic,
+        CharacterCreationAttributesDraft attributes, out CharacterCreationMysticAdeptPowerPointAllocation? allocation)
+    {
+        allocation = null;
+        if (magic is null) return true;
+        var contribution = magic.FinalizationContribution;
+        if (contribution is null || magic.Selections is null) return false;
+        if (contribution.MysticAdeptPowerPoints is not { } recorded)
+            return magic.Selections.MysticAdeptPowerPoints == 0;
+        try
+        {
+            Require(magic.TalentKind == CharacterCreationMagicResonanceKinds.MysticAdept);
+            XElement source = Parse(contribution.Talent.CanonicalSourceXml, "talent");
+            Require(int.TryParse(Scalar(source, "spells"), NumberStyles.None, CultureInfo.InvariantCulture, out int spells));
+            var mag = attributes.Attributes.Single(item => item.AttributeId == "MAG");
+            Require(CharacterCreationMysticAdeptPowerPointRules.TryEvaluate(recorded.Policy, magic.TalentKind,
+                mag.Current, spells, magic.Selections.MysticAdeptPowerPoints, out allocation));
+            Require(allocation is not null && Equal(CharacterCreationMagicResonanceDigest.Compute(allocation),
+                    CharacterCreationMagicResonanceDigest.Compute(recorded))
+                && magic.AdeptPowerPointBudget.Total == allocation!.PowerPoints
+                && magic.SpellBudget.Total == allocation.SpellBudget
+                && magic.Selections.Spells.Count == allocation.SpellBudget);
+            return true;
+        }
+        catch (Exception exception) when (exception is InvalidDataException or InvalidOperationException
+            or XmlException or ArgumentException) { allocation = null; return false; }
+    }
+
     internal static bool TryApply(XElement root, CharacterCreationPrerequisiteDraft prerequisite,
         CharacterCreationAttributesDraft attributes, CharacterCreationSkillsDraft skills,
         CharacterCreationMagicResonanceDraft? magic, ICollection<CharacterCreationFinalizationDelta> deltas,
@@ -44,6 +72,16 @@ internal static class CharacterCreationAwakenedLegacyProjector
                 && CharacterCreationTalentQualitySourceRules.MatchesTalent(
                     contribution.Talent.CanonicalSourceXml, contribution.Talent.GrantedQualitySources));
             var source = contribution!;
+            Require(TryResolvePowerPointPurchase(magic, attributes, out var purchasedPowerPoints));
+            if (purchasedPowerPoints is not null)
+            {
+                Set(root, "magsplitadept", purchasedPowerPoints.PowerPoints.ToString(CultureInfo.InvariantCulture));
+                Set(root, "magsplitmagician", "0");
+                CharacterCreationFinalizationProjector.AddDelta(deltas, ref order, "mystic-adept:power-points",
+                    CharacterCreationFinalizationDeltaKinds.MagicResonance, "magsplitadept", "0",
+                    purchasedPowerPoints.PowerPoints.ToString(CultureInfo.InvariantCulture),
+                    purchasedPowerPoints.KarmaCost, 0, purchasedPowerPoints.Policy.SourceAnchorIds);
+            }
             Require(source.Talent.Identity.TalentSelectionId == prerequisite.TalentSelection!.SelectionId
                 && source.Talent.Identity.TalentValue == prerequisite.TalentSelection.Value
                 && Equal(source.Talent.SourceNodeDigest, prerequisite.TalentSelection.PriorityChildNodeDigest)

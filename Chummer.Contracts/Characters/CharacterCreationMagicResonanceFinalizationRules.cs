@@ -114,6 +114,12 @@ public static class CharacterCreationMagicResonanceFinalizationRules
         bool hasEffectiveChange = effective.Magic != talent.Magic
             || effective.Resonance != talent.Resonance || effective.Depth != talent.Depth
             || effective.AdeptPowerPointBudget != talent.AdeptPowerPointBudget;
+        if (!CharacterCreationMysticAdeptPowerPointRules.TryEvaluate(authority.MysticAdeptPowerPointPolicy,
+                talent.Kind, effective.Magic, talent.SpellBudget, selections.MysticAdeptPowerPoints,
+                out var mysticPowerPoints))
+            failures.Add(CharacterCreationMagicResonanceBlockers.PowerBudgetUnsupported);
+        decimal availablePowerPoints = mysticPowerPoints?.PowerPoints ?? effective.AdeptPowerPointBudget;
+        int availableSpells = mysticPowerPoints?.SpellBudget ?? talent.SpellBudget;
 
         CharacterCreationMagicResonanceTalentFinalizationSource? talentSource =
             HasSupportedTalentPayload(talent) ? ProjectTalent(talent) : null;
@@ -180,8 +186,8 @@ public static class CharacterCreationMagicResonanceFinalizationRules
             || (!talent.AllowsSpells && spells.Length != 0)
             || (!talent.AllowsComplexForms && forms.Length != 0)
             || !hasValidPowerCost
-            || powerCost != effective.AdeptPowerPointBudget
-            || spells.Length != talent.SpellBudget
+            || powerCost != availablePowerPoints
+            || spells.Length != availableSpells
             || forms.Length != talent.ComplexFormBudget)
             failures.Add(CharacterCreationMagicResonanceBlockers.FinalizationContributionInvalid);
 
@@ -199,6 +205,7 @@ public static class CharacterCreationMagicResonanceFinalizationRules
             .Concat(spells.SelectMany(item => item.SourceAnchorIds))
             .Concat(forms.SelectMany(item => item.SourceAnchorIds))
             .Concat(hasEffectiveChange ? attributes!.SourceAnchorIds : [])
+            .Concat(mysticPowerPoints?.Policy.SourceAnchorIds ?? [])
             .Distinct(StringComparer.Ordinal)
             .OrderBy(item => item, StringComparer.Ordinal)
             .ToArray();
@@ -223,7 +230,8 @@ public static class CharacterCreationMagicResonanceFinalizationRules
             anchors,
             string.Empty)
         {
-            EffectiveAttributes = hasEffectiveChange ? effective : null
+            EffectiveAttributes = hasEffectiveChange ? effective : null,
+            MysticAdeptPowerPoints = mysticPowerPoints
         };
         contribution = candidate with
         {
@@ -317,7 +325,8 @@ public static class CharacterCreationMagicResonanceFinalizationRules
             catch (OverflowException) { return false; }
             values.Add(projection.Current);
         }
-        effective = new(values[0], values[1], values[2], talent.AllowsAdeptPowers ? values[0] : 0m);
+        effective = new(values[0], values[1], values[2],
+            talent.Kind == CharacterCreationMagicResonanceKinds.Adept ? values[0] : 0m);
         return true;
     }
 
@@ -349,7 +358,10 @@ public static class CharacterCreationMagicResonanceFinalizationRules
             or CharacterCreationMagicResonanceKinds.MysticAdept
             or CharacterCreationMagicResonanceKinds.AspectedMagician;
         bool requiresStream = kind == CharacterCreationMagicResonanceKinds.Technomancer;
-        bool allowsAdeptPowers = kind == CharacterCreationMagicResonanceKinds.Adept;
+        // Historical Mystic source authorities disabled this selector entirely.
+        // Current authorities enable it, but only a separately validated profile can fund it.
+        bool allowsAdeptPowers = kind == CharacterCreationMagicResonanceKinds.Adept
+            || kind == CharacterCreationMagicResonanceKinds.MysticAdept && talent.AllowsAdeptPowers;
         bool allowsSpells = kind is CharacterCreationMagicResonanceKinds.Magician
             or CharacterCreationMagicResonanceKinds.MysticAdept;
         bool allowsComplexForms = kind == CharacterCreationMagicResonanceKinds.Technomancer;
@@ -359,7 +371,7 @@ public static class CharacterCreationMagicResonanceFinalizationRules
             || talent.AllowsAdeptPowers != allowsAdeptPowers
             || talent.AllowsSpells != allowsSpells
             || talent.AllowsComplexForms != allowsComplexForms
-            || talent.AdeptPowerPointBudget != (allowsAdeptPowers ? talent.Magic : 0m))
+            || talent.AdeptPowerPointBudget != (kind == CharacterCreationMagicResonanceKinds.Adept ? talent.Magic : 0m))
             return false;
         return CharacterCreationMagicResonanceDigest.IsCanonical(talent.SourceNodeDigest);
     }

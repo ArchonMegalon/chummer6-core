@@ -3687,6 +3687,10 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 || !TryComputeEffectiveInputDigest(_catalog, "complexforms.xml", out string complexFormsDigest)
                 || !TryComputeEffectiveInputDigest(_catalog, "qualities.xml", out string qualitiesDigest)
                 || !TryComputeEffectiveInputDigest(_catalog, "gear.xml", out string gearDigest)
+                || !TryComputeEffectiveInputDigest(_catalog, "settings.xml", out string magicSettingsDigest)
+                || !TryResolveTarget("settings.xml", ["settings"], "setting", _settingsProfileId,
+                    string.Empty, out XElement? magicSettings)
+                || magicSettings is null
                 || !TryComputeSelectedCustomDataInputsDigest(
                     _customDirectories, out string customDataInputsDigest)
                 || !TryEnumerateTargets("metatypes.xml", ["metatypes"], "metatype", out XElement[] metatypes)
@@ -3702,6 +3706,12 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             }
 
             var blockers = new List<string>();
+            if (!string.Equals(BindSelectedProfile(magicSettingsDigest, _settingsProfileId),
+                    _rawProfileInputsDigest, StringComparison.Ordinal))
+                blockers.Add(CharacterCreationMagicResonanceBlockers.SourceDrift);
+            if (!CharacterCreationMysticAdeptPowerPointRules.TryCreatePolicy(_settingsProfileId,
+                    magicSettingsDigest, magicSettings.ToString(SaveOptions.DisableFormatting), out var powerPointPolicy))
+                blockers.Add(CharacterCreationMagicResonanceBlockers.PowerBudgetUnsupported);
             if (_sourceInputs.HasSourceDrift)
                 blockers.Add(CharacterCreationMagicResonanceBlockers.SourceDrift);
             if (!CharacterCreationMagicResonanceDigest.EqualsFixedTime(
@@ -3746,7 +3756,10 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                     "gear.xml",
                     .. _customDirectories.Select(directory => $"customdata:{directory.Name}")
                 ],
-                blockers);
+                blockers)
+            {
+                MysticAdeptPowerPointPolicy = powerPointPolicy
+            };
             authority = CharacterCreationMagicResonanceAuthorityProjector.Project(
                 metatypes,
                 traditions,

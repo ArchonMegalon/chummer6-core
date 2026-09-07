@@ -19,7 +19,10 @@ internal sealed record CharacterCreationMagicResonanceProjectionContext(
     string CustomDataInputsDigest,
     IReadOnlyList<string> EnabledSourcebooks,
     IReadOnlyList<string> SourceAnchorIds,
-    IReadOnlyList<string> Blockers);
+    IReadOnlyList<string> Blockers)
+{
+    public CharacterCreationMysticAdeptPowerPointPolicy? MysticAdeptPowerPointPolicy { get; init; }
+}
 
 /// <summary>
 /// Strict projection of the source catalogs used by the SR5 Standard Priority
@@ -81,7 +84,8 @@ internal static class CharacterCreationMagicResonanceAuthorityProjector
             context.SpellsInputsDigest,
             context.ComplexFormsInputsDigest,
             context.QualitiesInputsDigest,
-            context.GearInputsDigest
+            context.GearInputsDigest,
+            context.MysticAdeptPowerPointPolicy
         });
         string gmPolicyDigest = CharacterCreationMagicResonanceDigest.Compute(new
         {
@@ -107,11 +111,13 @@ internal static class CharacterCreationMagicResonanceAuthorityProjector
             AdeptWay = "source-eligibility-retained-no-discount-applied",
             TalentQualitySources = "effective-qualities-source-order-reference-and-digest-bound",
             TalentGearSources = "independent-effective-gear-name-category-source-order-and-digest-bound",
-            MysticAdeptPowerPointPurchase = "unsupported-fail-closed",
+            MysticAdeptPowerPointPurchase = "effective-profile-explicit-purchase-spell-exchange-global-karma",
+            MysticAdeptSeparateMagic = "requires-separate-attribute-allocation-fail-closed",
             Confirmation = "explicit-atomic-auxiliary-cas"
         });
         string[] normalizedBlockers = Normalize(blockers);
         string[] anchors = context.SourceAnchorIds
+            .Concat(context.MysticAdeptPowerPointPolicy?.SourceAnchorIds ?? [])
             .Concat(talentOptions.SelectMany(item => item.SourceAnchorIds))
             .Concat(metatypeOptions.SelectMany(item => item.SourceAnchorIds))
             .Concat(traditionOptions.SelectMany(item => item.SourceAnchorIds))
@@ -140,7 +146,10 @@ internal static class CharacterCreationMagicResonanceAuthorityProjector
             anchors,
             normalizedBlockers,
             IsAuthoritative: normalizedBlockers.Length == 0,
-            AuthorityDigest: string.Empty);
+            AuthorityDigest: string.Empty)
+        {
+            MysticAdeptPowerPointPolicy = context.MysticAdeptPowerPointPolicy
+        };
         return authority with
         {
             AuthorityDigest = CharacterCreationMagicResonanceDigest.Compute(
@@ -190,7 +199,8 @@ internal static class CharacterCreationMagicResonanceAuthorityProjector
                     or CharacterCreationMagicResonanceKinds.MysticAdept
                     or CharacterCreationMagicResonanceKinds.AspectedMagician;
                 bool stream = kind == CharacterCreationMagicResonanceKinds.Technomancer;
-                bool adeptPowers = kind == CharacterCreationMagicResonanceKinds.Adept;
+                bool adeptPowers = kind is CharacterCreationMagicResonanceKinds.Adept
+                    or CharacterCreationMagicResonanceKinds.MysticAdept;
                 bool allowsSpells = kind is CharacterCreationMagicResonanceKinds.Magician
                     or CharacterCreationMagicResonanceKinds.MysticAdept;
                 bool allowsForms = kind == CharacterCreationMagicResonanceKinds.Technomancer;
@@ -216,7 +226,7 @@ internal static class CharacterCreationMagicResonanceAuthorityProjector
                     depth,
                     spells,
                     forms,
-                    adeptPowers ? magic : 0m,
+                    kind == CharacterCreationMagicResonanceKinds.Adept ? magic : 0m,
                     tradition,
                     stream,
                     adeptPowers,

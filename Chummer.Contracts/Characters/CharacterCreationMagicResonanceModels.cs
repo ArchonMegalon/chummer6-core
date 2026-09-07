@@ -217,6 +217,9 @@ public sealed record CharacterCreationMagicResonanceAuthority(
     bool IsAuthoritative,
     string AuthorityDigest)
 {
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationMysticAdeptPowerPointPolicy? MysticAdeptPowerPointPolicy { get; init; }
+
     public static CharacterCreationMagicResonanceAuthority Unavailable { get; } = new(
         CharacterCreationMagicResonanceSchemas.AuthorityV1,
         string.Empty,
@@ -240,7 +243,12 @@ public sealed record CharacterCreationMagicResonanceSelections(
     CharacterCreationMagicResonanceOptionIdentity? Stream,
     IReadOnlyList<CharacterCreationAdeptPowerAllocation> AdeptPowers,
     IReadOnlyList<CharacterCreationMagicResonanceOptionIdentity> Spells,
-    IReadOnlyList<CharacterCreationMagicResonanceOptionIdentity> ComplexForms);
+    IReadOnlyList<CharacterCreationMagicResonanceOptionIdentity> ComplexForms)
+{
+    // Explicit total purchased PP, including slots exchanged under the active house rule.
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public int MysticAdeptPowerPoints { get; init; }
+}
 
 public sealed record CharacterCreationMagicResonanceBudgetState(
     string Kind,
@@ -317,6 +325,9 @@ public sealed record CharacterCreationMagicResonanceFinalizationContribution(
 {
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public CharacterCreationMagicResonanceEffectiveAttributes? EffectiveAttributes { get; init; }
+
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationMysticAdeptPowerPointAllocation? MysticAdeptPowerPoints { get; init; }
 }
 
 public sealed record CharacterCreationMagicResonanceBinding(
@@ -406,7 +417,11 @@ public sealed record CharacterCreationMagicResonanceState(
     CharacterCreationMagicResonanceBudgetState ComplexFormBudget,
     IReadOnlyList<string> Blockers,
     bool CanEdit,
-    string SnapshotDigest);
+    string SnapshotDigest)
+{
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationMysticAdeptPowerPointAllocation? MysticAdeptPowerPoints { get; init; }
+}
 
 public sealed record CharacterCreationMagicResonancePreview(
     string Schema,
@@ -424,6 +439,9 @@ public sealed record CharacterCreationMagicResonancePreview(
     bool CanConfirm,
     string PreviewDigest)
 {
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationMysticAdeptPowerPointAllocation? MysticAdeptPowerPoints { get; init; }
+
     public CharacterCreationMagicResonanceFinalizationContribution? FinalizationContribution
     {
         get;

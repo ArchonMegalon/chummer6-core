@@ -55,7 +55,7 @@ Heritage grants; matching `SkillBase`/`SkillGroupBase` improvements retain the f
 ratings. Source XML is not appended as a saved quality or power instance.
 
 Actual-source tests exercise Priority Magician, Aspected Magician with a selected
-free group, Mystic Adept's spell-only path, Adept and Technomancer. They review and explicitly
+free group, Mystic Adept's spell and purchased-power paths, Adept and Technomancer. They review and explicitly
 confirm the composite write, reconstruct the file store, and verify the saved
 graph and idempotent replay. Invalid/uncompiled effects reject the complete
 projection, not just the offending effect. The independent source revalidation
@@ -93,9 +93,34 @@ budget while preserving the original Talent's starting MAG and source budget.
 Way eligibility metadata is retained, but no Way discount is applied. Powers
 requiring other bonus/choice or variable-cost semantics remain disabled.
 
+## Mystic Adept power point purchase
+
+The Magic authority now captures the selected effective settings row, including
+`karmacost/karmamysadpp`, `priorityspellsasadeptpowers` and
+`mysadeptsecondmagattribute`. The canonical row and settings input digest are
+bound into the authority; duplicate/malformed values do not fall back to a price.
+The purchase quote is recalculated by Core, capped by confirmed MAG and distinct
+from the original immutable Talent grant. A Mystic Adept receives no free PP
+merely because their MAG is greater than zero.
+
+The user explicitly selects total PP. With spell exchange enabled, the source
+priority spell allowance pays first; exchanged slots reduce spell selection
+capacity, and only remaining PP consume the profile's Karma price. The final
+review subtracts that cost once from the shared Karma balance after qualities
+and resource investment. An overspend blocks the whole character transaction.
+The saved legacy field is `magsplitadept`; the purchase does not reduce the
+ordinary MAG attribute. Preview/step confirmation still writes only the draft.
+
+Source-backed tests cover ordinary purchase, custom/zero prices, slot exchange,
+global overspend, same-length settings-byte drift, rehashed price/budget forgery,
+cold file-store reads and idempotent replay. Presentation and the Android chooser
+retain the explicit PP count while selecting traditions, spells and powers, and
+show the current Core cost before final confirmation.
+
 ## What this does not complete
 
-Mystic Adept purchased/split power points remain unfinished. An Aspected path without a selected free group needs
+The separate `MAGAdept` attribute house rule remains unfinished and fails closed;
+it must not be treated as ordinary zero-cost purchased points. An Aspected path without a selected free group needs
 an explicit user aspect choice; the finalizer never silently chooses Sorcery.
 Additional source bonus forms, prerequisites, discounts and enhancements need
 their own typed projections and tests. These are unfinished capabilities, not

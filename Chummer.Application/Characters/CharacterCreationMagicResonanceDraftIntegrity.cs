@@ -38,6 +38,12 @@ public static class CharacterCreationMagicResonanceDraftIntegrity
                 CharacterCreationMagicResonanceDigest.Compute(authority with { AuthorityDigest = string.Empty })))
             return false;
 
+        if (authority.MysticAdeptPowerPointPolicy is { } policy
+            && (!CharacterCreationMysticAdeptPowerPointRules.IsValidPolicy(policy)
+                || policy.SettingsProfileId != authority.SettingsProfileId
+                || policy.SourceAnchorIds.Any(anchor => !authority.SourceAnchorIds.Contains(anchor, StringComparer.Ordinal))))
+            return false;
+
         if (!IsCanonicalSet(authority.SourceAnchorIds)
             || authority.Talents.Count == 0
             || authority.Metatypes.Count == 0

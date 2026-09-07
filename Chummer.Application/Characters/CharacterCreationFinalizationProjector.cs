@@ -83,7 +83,9 @@ public static class CharacterCreationFinalizationProjector
         if (prerequisite.HeritageSelection is null || prerequisite.TalentSelection is null)
             failures.Add(CharacterCreationFinalizationBlockers.DraftAuthorityInvalid);
 
-        karmaRemaining = checked(qualities!.KarmaRemaining - resources!.KarmaInvestment);
+        if (!CharacterCreationAwakenedLegacyProjector.TryResolvePowerPointPurchase(magic, attributes!, out var powerPointPurchase))
+            failures.Add(CharacterCreationFinalizationBlockers.DraftAuthorityInvalid);
+        karmaRemaining = checked(qualities!.KarmaRemaining - resources!.KarmaInvestment - (powerPointPurchase?.KarmaCost ?? 0));
         if (karmaRemaining < 0)
             failures.Add(CharacterCreationFinalizationBlockers.GlobalKarmaExceeded);
         startingNuyen = resources.FinalizationContribution.StartingNuyen;

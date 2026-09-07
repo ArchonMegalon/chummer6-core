@@ -15,6 +15,81 @@ public sealed class CharacterCreationMagicResonanceSourceResolverTests
     private const string StandardPrioritySettingsId = "223a11ff-80e0-428b-89a9-6ef1c243b8b6";
 
     [TestMethod]
+    public void Mystic_power_point_policy_uses_profile_cost_exchange_and_current_magic_without_fallback_prices()
+    {
+        string root = FindCoreRoot();
+        var resolver = new FileSystemCharacterSourceDataResolver(new FileSystemContentOverlayCatalogService(root, root, null));
+        var context = resolver.TryCreateContext($"<character><settings>{StandardPrioritySettingsId}</settings></character>")!;
+        Assert.IsTrue(context.TryResolveCreationMagicResonanceAuthority(out var authority));
+        var original = authority.MysticAdeptPowerPointPolicy!;
+        Assert.IsNotNull(original);
+        Assert.IsTrue(CharacterCreationMysticAdeptPowerPointRules.IsValidPolicy(original));
+        Assert.AreEqual(5, original.KarmaPerPowerPoint);
+        CollectionAssert.IsSubsetOf(original.SourceAnchorIds.ToArray(), authority.SourceAnchorIds.ToArray());
+        foreach (bool exchange in new[] { false, true })
+        foreach (int price in new[] { 0, 3, 7 })
+        {
+            XElement settings = XElement.Parse(original.CanonicalSourceXml);
+            settings.Element("priorityspellsasadeptpowers")!.Value = exchange.ToString();
+            settings.Element("karmacost")!.Element("karmamysadpp")!.Value = price.ToString();
+            string xml = settings.ToString(SaveOptions.DisableFormatting);
+            Assert.IsTrue(CharacterCreationMysticAdeptPowerPointRules.TryCreatePolicy(original.SettingsProfileId,
+                CharacterCreationMagicResonanceDigest.ComputeUtf8(xml), xml, out var policy));
+            Assert.IsTrue(CharacterCreationMysticAdeptPowerPointRules.TryEvaluate(policy, "mystic-adept", 6, 2, 4, out var quote));
+            Assert.AreEqual(exchange ? 2 : 0, quote!.ExchangedSpellSlots);
+            Assert.AreEqual(exchange ? 0 : 2, quote.SpellBudget);
+            Assert.AreEqual((exchange ? 2 : 4) * price, quote.KarmaCost);
+            Assert.AreEqual(6, quote.MaximumPowerPoints);
+            foreach (int invalid in new[] { -1, 7, int.MaxValue })
+                Assert.IsFalse(CharacterCreationMysticAdeptPowerPointRules.TryEvaluate(policy, "mystic-adept", 6, 2, invalid, out _));
+            Assert.IsFalse(CharacterCreationMysticAdeptPowerPointRules.TryEvaluate(policy, "adept", 6, 2, 1, out _));
+            Assert.IsFalse(CharacterCreationMysticAdeptPowerPointRules.TryEvaluate(policy, "magician", 6, 2, 1, out _));
+            var forged = policy! with { KarmaPerPowerPoint = price + 1, PolicyDigest = string.Empty };
+            forged = forged with { PolicyDigest = CharacterCreationMysticAdeptPowerPointRules.ComputePolicyDigest(forged) };
+            Assert.IsFalse(CharacterCreationMysticAdeptPowerPointRules.IsValidPolicy(forged));
+        }
+        foreach (string replacement in new[] { "-1", "bad", "1.5", "2147483648" })
+        {
+            XElement settings = XElement.Parse(original.CanonicalSourceXml);
+            settings.Element("karmacost")!.Element("karmamysadpp")!.Value = replacement;
+            Assert.IsFalse(CharacterCreationMysticAdeptPowerPointRules.TryCreatePolicy(original.SettingsProfileId,
+                original.SettingsInputsDigest, settings.ToString(SaveOptions.DisableFormatting), out _));
+        }
+        XElement split = XElement.Parse(original.CanonicalSourceXml);
+        split.Element("mysadeptsecondmagattribute")!.Value = "True";
+        Assert.IsTrue(CharacterCreationMysticAdeptPowerPointRules.TryCreatePolicy(original.SettingsProfileId,
+            original.SettingsInputsDigest, split.ToString(SaveOptions.DisableFormatting), out var splitPolicy));
+        Assert.IsFalse(CharacterCreationMysticAdeptPowerPointRules.TryEvaluate(splitPolicy, "mystic-adept", 6, 2, 0, out _),
+            "Separate MAGAdept must not be misrepresented as zero ordinary purchased PP.");
+        Assert.IsFalse(CharacterCreationMysticAdeptPowerPointRules.TryEvaluate(null, "mystic-adept", 6, 2, 1, out _));
+        Action<XElement>[] malformedSettings =
+        [
+            settings => settings.Add(new XElement("priorityspellsasadeptpowers", "False")),
+            settings => settings.Element("mysadeptsecondmagattribute")!.Remove(),
+            settings => settings.Element("priorityspellsasadeptpowers")!.Add(new XAttribute("override", "true")),
+            settings => settings.Element("karmacost")!.Add(new XElement("karmamysadpp", "0")),
+            settings => settings.Add(new XElement(settings.Element("karmacost")!)),
+            settings => settings.Element("karmacost")!.Element("karmamysadpp")!.Add(new XElement("value", "0"))
+        ];
+        foreach (var change in malformedSettings)
+        {
+            XElement settings = XElement.Parse(original.CanonicalSourceXml);
+            change(settings);
+            Assert.IsFalse(CharacterCreationMysticAdeptPowerPointRules.TryCreatePolicy(original.SettingsProfileId,
+                original.SettingsInputsDigest, settings.ToString(SaveOptions.DisableFormatting), out _));
+        }
+        XElement overflow = XElement.Parse(original.CanonicalSourceXml);
+        overflow.Element("karmacost")!.Element("karmamysadpp")!.Value = "2147483647";
+        Assert.IsTrue(CharacterCreationMysticAdeptPowerPointRules.TryCreatePolicy(original.SettingsProfileId,
+            original.SettingsInputsDigest, overflow.ToString(SaveOptions.DisableFormatting), out var expensive));
+        Assert.IsFalse(CharacterCreationMysticAdeptPowerPointRules.TryEvaluate(expensive, "mystic-adept", 6, 2, 2, out _));
+        overflow.Element("karmacost")!.Element("karmamysadpp")!.Value = "  +7  ";
+        Assert.IsTrue(CharacterCreationMysticAdeptPowerPointRules.TryCreatePolicy(original.SettingsProfileId,
+            original.SettingsInputsDigest, overflow.ToString(SaveOptions.DisableFormatting), out var padded));
+        Assert.AreEqual(7, padded!.KarmaPerPowerPoint);
+    }
+
+    [TestMethod]
     public void Actual_power_ratings_use_magic_and_maxlevels_not_instance_limit_and_keep_way_metadata()
     {
         string root = FindCoreRoot();
@@ -145,6 +220,7 @@ public sealed class CharacterCreationMagicResonanceSourceResolverTests
     [TestMethod]
     [DataRow("qualities.xml")]
     [DataRow("gear.xml")]
+    [DataRow("settings.xml")]
     public void Existing_magic_context_rejects_quality_byte_drift_and_fresh_context_rebinds(string changedFile)
     {
         string root = Path.Combine(Path.GetTempPath(), $"chummer-magic-quality-source-{Guid.NewGuid():N}");
@@ -165,7 +241,9 @@ public sealed class CharacterCreationMagicResonanceSourceResolverTests
             string bytes = File.ReadAllText(path);
             string changed = changedFile == "qualities.xml"
                 ? bytes.Replace("<name>MAG</name>", "<name>DEP</name>", StringComparison.Ordinal)
-                : bytes.Replace("<firewall>{WIL}</firewall>", "<firewall>{LOG}</firewall>", StringComparison.Ordinal);
+                : changedFile == "settings.xml"
+                    ? bytes.Replace("<karmamysadpp>5</karmamysadpp>", "<karmamysadpp>7</karmamysadpp>", StringComparison.Ordinal)
+                    : bytes.Replace("<firewall>{WIL}</firewall>", "<firewall>{LOG}</firewall>", StringComparison.Ordinal);
             Assert.AreNotEqual(bytes, changed);
             Assert.AreEqual(bytes.Length, changed.Length);
             File.WriteAllText(path, changed);
@@ -180,6 +258,12 @@ public sealed class CharacterCreationMagicResonanceSourceResolverTests
             if (changedFile == "qualities.xml")
                 Assert.AreNotEqual(before.Talents.First(item => item.Kind == "magician").GrantedQualitySources!.Single().SourceNodeDigest,
                     after.Talents.First(item => item.Kind == "magician").GrantedQualitySources!.Single().SourceNodeDigest);
+            else if (changedFile == "settings.xml")
+            {
+                Assert.AreEqual(5, before.MysticAdeptPowerPointPolicy!.KarmaPerPowerPoint);
+                Assert.AreEqual(7, after.MysticAdeptPowerPointPolicy!.KarmaPerPowerPoint);
+                Assert.AreNotEqual(before.MysticAdeptPowerPointPolicy.PolicyDigest, after.MysticAdeptPowerPointPolicy.PolicyDigest);
+            }
             else
             {
                 var prior = before.Talents.First(item => item.Kind == "technomancer").GrantedQualitySources!.Single().GrantedGearSources!.Single();

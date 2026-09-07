@@ -267,7 +267,11 @@ public sealed class CharacterCreationMagicResonanceService : ICharacterCreationM
             RequiresExplicitConfirmation: true,
             CanConfirm: normalized.Length == 0 && draft is not null,
             PreviewDigest: string.Empty);
-        preview = preview with { FinalizationContribution = draft?.FinalizationContribution };
+        preview = preview with
+        {
+            FinalizationContribution = draft?.FinalizationContribution,
+            MysticAdeptPowerPoints = projected.MysticAdeptPowerPoints
+        };
         preview = preview with
         {
             PreviewDigest = CharacterCreationMagicResonanceDigest.Compute(
@@ -425,7 +429,10 @@ public sealed class CharacterCreationMagicResonanceService : ICharacterCreationM
                      && attributes is not null
                      && talent is not null
                      && normalized.Length == 0,
-            SnapshotDigest: string.Empty);
+            SnapshotDigest: string.Empty)
+        {
+            MysticAdeptPowerPoints = projected.MysticAdeptPowerPoints
+        };
         state = state with
         {
             SnapshotDigest = CharacterCreationMagicResonanceDigest.Compute(
@@ -507,6 +514,12 @@ public sealed class CharacterCreationMagicResonanceService : ICharacterCreationM
             powerPointTotal = effective.AdeptPowerPointBudget;
             effectiveMagic = effective.Magic;
         }
+        if (!CharacterCreationMysticAdeptPowerPointRules.TryEvaluate(authority.MysticAdeptPowerPointPolicy,
+                talent.Kind, effectiveMagic, talent.SpellBudget, selections.MysticAdeptPowerPoints,
+                out var mysticPowerPoints))
+            blockers.Add(CharacterCreationMagicResonanceBlockers.PowerBudgetUnsupported);
+        if (mysticPowerPoints is not null)
+            powerPointTotal = mysticPowerPoints.PowerPoints;
 
         CharacterCreationMagicResonanceCatalogOption? tradition = ResolveSingle(
             selections.Tradition,
@@ -560,10 +573,6 @@ public sealed class CharacterCreationMagicResonanceService : ICharacterCreationM
                 powerUsed = decimal.MaxValue;
             }
         }
-        if (talent.Kind == CharacterCreationMagicResonanceKinds.MysticAdept
-            && selections.AdeptPowers.Count != 0)
-            blockers.Add(CharacterCreationMagicResonanceBlockers.PowerBudgetUnsupported);
-
         int spellUsed = ValidateFlatSelections(
             selections.Spells,
             authority.Spells,
@@ -596,7 +605,7 @@ public sealed class CharacterCreationMagicResonanceService : ICharacterCreationM
             CharacterCreationMagicResonanceBlockers.PowerBudgetExceeded);
         CharacterCreationMagicResonanceBudgetState spellBudget = Budget(
             CharacterCreationMagicResonanceKinds.Spell,
-            talent.SpellBudget,
+            mysticPowerPoints?.SpellBudget ?? talent.SpellBudget,
             spellUsed,
             CharacterCreationMagicResonanceBlockers.SpellBudgetExceeded);
         CharacterCreationMagicResonanceBudgetState formBudget = Budget(
@@ -631,10 +640,14 @@ public sealed class CharacterCreationMagicResonanceService : ICharacterCreationM
                 .Where(item => item.Identity == identity)
                 .SelectMany(item => item.SourceAnchorIds)))
             .Concat(talent.SourceAnchorIds)
+            .Concat(mysticPowerPoints?.Policy.SourceAnchorIds ?? [])
             .Distinct(StringComparer.Ordinal)
             .OrderBy(item => item, StringComparer.Ordinal)
             .ToArray();
-        return new(selections, traditionBudget, streamBudget, powerBudget, spellBudget, formBudget, anchors);
+        return new(selections, traditionBudget, streamBudget, powerBudget, spellBudget, formBudget, anchors)
+        {
+            MysticAdeptPowerPoints = mysticPowerPoints
+        };
     }
 
     private static CharacterCreationMagicResonanceCatalogOption? ResolveSingle(
@@ -816,7 +829,10 @@ public sealed class CharacterCreationMagicResonanceService : ICharacterCreationM
             (selections.Spells ?? []).OrderBy(item => item.Kind, StringComparer.Ordinal)
                 .ThenBy(item => item.SourceId, StringComparer.Ordinal).ToArray(),
             (selections.ComplexForms ?? []).OrderBy(item => item.Kind, StringComparer.Ordinal)
-                .ThenBy(item => item.SourceId, StringComparer.Ordinal).ToArray());
+                .ThenBy(item => item.SourceId, StringComparer.Ordinal).ToArray())
+        {
+            MysticAdeptPowerPoints = selections.MysticAdeptPowerPoints
+        };
     }
 
     private static CharacterCreationMagicResonanceBudgetState Budget(
@@ -883,5 +899,8 @@ public sealed class CharacterCreationMagicResonanceService : ICharacterCreationM
         CharacterCreationMagicResonanceBudgetState PowerBudget,
         CharacterCreationMagicResonanceBudgetState SpellBudget,
         CharacterCreationMagicResonanceBudgetState FormBudget,
-        IReadOnlyList<string> SourceAnchorIds);
+        IReadOnlyList<string> SourceAnchorIds)
+    {
+        public CharacterCreationMysticAdeptPowerPointAllocation? MysticAdeptPowerPoints { get; init; }
+    }
 }
