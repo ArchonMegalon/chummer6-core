@@ -71,7 +71,10 @@ public sealed record CharacterCreationInitialProjection(
 /// <summary>
 /// Atomic creation output that can activate the newly-created workspace without
 /// immediately rebuilding it through the generic multi-read loader. Consumers
-/// must still perform one independent store read and exact-match it before use.
+/// must call the issuing service's TryValidateCurrent before use; it performs an
+/// independent current-store read after source validation and exact-matches the
+/// workspace identity, both revisions, and complete document digest. Acceptance
+/// is a point-in-time read, not a lease that authorizes later mutations.
 /// </summary>
 public sealed record CharacterCreationBootstrapActivationBundle(
     string Schema,
