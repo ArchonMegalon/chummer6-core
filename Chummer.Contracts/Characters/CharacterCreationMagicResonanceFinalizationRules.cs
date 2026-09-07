@@ -365,6 +365,8 @@ public static class CharacterCreationMagicResonanceFinalizationRules
 
     public static bool HasValidOptionPayload(CharacterCreationMagicResonanceCatalogOption option)
     {
+        if (option.Blockers is null)
+            return false;
         string expectedRoot = option.Identity.Kind switch
         {
             CharacterCreationMagicResonanceKinds.Tradition => "tradition",

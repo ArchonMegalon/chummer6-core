@@ -243,6 +243,8 @@ public sealed class CharacterCreationMagicResonanceSourceResolverTests
         Assert.IsFalse(zeroCost.IsEnabled);
         Assert.IsTrue(CharacterCreationMagicResonanceFinalizationRules.HasValidOptionPayload(zeroCost));
         Assert.IsFalse(CharacterCreationMagicResonanceFinalizationRules.HasValidOptionPayload(
+            zeroCost with { Blockers = null! }));
+        Assert.IsFalse(CharacterCreationMagicResonanceFinalizationRules.HasValidOptionPayload(
             zeroCost with { IsEnabled = true, Blockers = [] }));
         var toxic = authority.Traditions.Single(item => item.Name == "Toxic");
         Assert.AreEqual(Guid.Parse(XElement.Parse(toxic.CanonicalSourceXml).Element("id")!.Value).ToString("D"), toxic.Identity.SourceId);
