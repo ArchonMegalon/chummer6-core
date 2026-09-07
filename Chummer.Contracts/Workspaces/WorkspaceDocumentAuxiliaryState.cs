@@ -49,7 +49,9 @@ public sealed record WorkspaceDocumentAuxiliaryState(
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     IReadOnlyList<CharacterCreationFinalizationReceiptLedgerEntry>? CharacterCreationFinalizationReceipts = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    IReadOnlyList<CharacterAfterRunRewardReceipt>? CharacterAfterRunRewardReceipts = null)
+    IReadOnlyList<CharacterAfterRunRewardReceipt>? CharacterAfterRunRewardReceipts = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    IReadOnlyList<CharacterCareerReputationReceipt>? CharacterCareerReputationReceipts = null)
 {
     public static WorkspaceDocumentAuxiliaryState Empty { get; } = new();
 
@@ -72,7 +74,8 @@ public sealed record WorkspaceDocumentAuxiliaryState(
                            && CharacterCreationQualitiesReceipts is null
                            && CharacterAfterRunSettlementReceipts is null
                            && CharacterCreationFinalizationReceipts is null
-                           && CharacterAfterRunRewardReceipts is null;
+                           && CharacterAfterRunRewardReceipts is null
+                           && CharacterCareerReputationReceipts is null;
 }
 
 public static class WorkspaceDocumentAuxiliaryStateDigest

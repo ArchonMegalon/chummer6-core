@@ -1,0 +1,33 @@
+<Project>
+  <PropertyGroup>
+    <BaseIntermediateOutputPath>obj/career-reputation-persistence/</BaseIntermediateOutputPath>
+    <BaseOutputPath>bin/career-reputation-persistence/</BaseOutputPath>
+  </PropertyGroup>
+  <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" />
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <IsTestProject>true</IsTestProject>
+    <IsPackable>false</IsPackable>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>Chummer.Tests</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.0.1" />
+    <PackageReference Include="MSTest.TestAdapter" Version="4.1.0" />
+    <PackageReference Include="MSTest.TestFramework" Version="4.1.0" />
+    <ProjectReference Include="../Chummer.Contracts/Chummer.Contracts.csproj" />
+    <ProjectReference Include="../Chummer.Application/Chummer.Application.csproj" />
+    <ProjectReference Include="../Chummer.Infrastructure/Chummer.Infrastructure.csproj" />
+    <ProjectReference Include="../Chummer.Rulesets.Sr5/Chummer.Rulesets.Sr5.csproj" />
+    <Compile Include="WorkspaceCharacterCareerReputationTests.cs" />
+    <Compile Include="WorkspaceCharacterAfterRunRewardTests.cs" />
+    <Compile Include="CharacterAfterRunSettlementRulesTests.cs" />
+    <Compile Include="WorkspaceStoreTests.cs" />
+    <Compile Include="WorkspaceRevisionStoreTests.cs" />
+    <Compile Include="WorkspaceAtomicCheckpointStoreTests.cs" />
+    <Compile Include="GlobalUsings.cs" />
+  </ItemGroup>
+  <Import Project="Sdk.targets" Sdk="Microsoft.NET.Sdk" />
+</Project>

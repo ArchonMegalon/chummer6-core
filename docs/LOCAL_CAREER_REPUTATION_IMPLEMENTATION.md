@@ -1,8 +1,9 @@
 # Local SR5 Career reputation
 
-This branch adds Core-owned arithmetic, saved-character projection and exact
-profile policy for the normal After Run/Career wizard. It does **not** yet add a workspace mutation service,
-an Android input page, a package seal, or release authority. The existing grouped
+This branch adds Core-owned arithmetic, saved-character projection, exact
+profile policy and local atomic persistence for the normal After Run/Career
+wizard. It does **not** yet add an Android input page, a package seal, or release
+authority. The existing grouped
 After Run settlement remains a distinct, independently reviewed proposal flow.
 
 ## Canonical behavior
@@ -74,9 +75,60 @@ profile twice and rejects observed drift; this is not a source reservation.
   bounded to64Mi characters and100,000 rows per container.
 
 The projector reads the **saved** effect graph. It does not regenerate effects
-from changed quality/gear definitions, validate other domains' receipt ledgers,
-or bind the eventual mutation to an executable runtime build. Those checks and
-the explicit intent binding still belong to the upcoming persistence owner.
+from changed quality/gear definitions or validate other domains' receipt ledgers.
+The persistence path below supplies intent/runtime bindings and file-store
+validation of the other ledgers. Saved-effect reactivation remains separate,
+unfinished work; a profile digest is not evidence that changed effect definitions
+have been recompiled.
+
+## Local atomic persistence
+
+`ICharacterCareerReputationService` supplies Read, Preview, Commit and Lookup.
+The host must durably retain the exact confirmed command before sending it and
+recover an unknown result with that same operation identity, not a fresh award.
+The native journal and ordinary user input are not wired by this Core change.
+
+- Preview binds the complete snapshot, source/envelope, auxiliary state, rule
+  profile, workspace revision, exact requested deltas/reason and loaded local
+  mechanics runtime. It is unconfirmed and performs no write or reservation.
+- The local runtime digest identifies the loaded Contracts, Application and
+  Infrastructure module MVIDs. This is **not** a package seal, approved runtime
+  bundle, Android/AOT qualification, signing approval or provider authority.
+- `FileWorkspaceStore.CommitCareerReputation` shares the existing cross-process
+  workspace lease with all other mutations. Inside that lease it reloads the
+  actual saved character, resolves the source context, rebuilds the preview and
+  rejects drift. Only changed manual awards or the burnt counter are rewritten.
+- Character payload, checkpoint and appended receipt use one existing flushed
+  temporary-record/atomic-rename transaction. A private final fence rechecks
+  cancellation and the retained source context after temporary-file flush and
+  immediately before replacing the target. No serialized callback or generic
+  replacement document grants permission to append reputation history.
+- The generic auxiliary-state writer rejects **every** reputation-ledger change,
+  including removal and fully rehashed proposed receipts. The dedicated writer
+  preserves all other auxiliary fields and validates their existing ledgers.
+- Lookup occurs before current source/runtime revalidation for an already
+  recorded operation. Same-command retries return its historical receipt, not
+  another mutation; same operation with changed intent conflicts. A historical
+  quote is never presented as the character's current totals.
+- Both the file adapter and the public service independently reread the durable
+  receipt. An adapter's unwritten success is unavailable, while a lost response
+  after the actual rename is recovered. Cancellation cannot erase an observed
+  durable result. Failures before replacement leave the old workspace intact.
+- Receipts have an ordered previous-digest chain, unique operation identities,
+  exact arithmetic coherence and revision bounds. The latest same-revision
+  payload hash and saved checkpoint must agree. Admission is bounded by both
+  1,024 entries and 4 MiB encoded UTF-8; there is no pruning of replay evidence.
+  A future retention/compaction protocol must preserve idempotency rather than
+  dropping old operation IDs to regain capacity.
+- Headless DI uses the configured runtime workspace store. An alternate store
+  without the dedicated atomic capability fails closed; it cannot silently
+  create another local store or compose an edit followed by a separate save.
+
+This is a trusted **local single-user** Core operation. It does not invent a GM
+review, group permission or run proposal. Account-scoped/remote mutation needs a
+separate owner-aware composition. The underlying file store's documented
+directory-fsync/power-loss limits are unchanged; tests do not claim stronger
+filesystem durability or actual Android process-death recovery.
 
 ## Oracle inspected
 
@@ -99,13 +151,12 @@ provenance, not a rulebook page anchor or a claim that legacy Windows executed.
 1. Add separate source-enabled Astral/Wild reputation capabilities. The current
    saved projection covers Street Cred, Notoriety and Public Awareness; it does
    not declare those additional domains complete or remove them from the goal.
-2. Bind quotes to workspace ID, current/saved revision, complete document and
-   auxiliary state, active profile/custom-data/runtime inputs and the exact
-   intent. A caller-created input vector or quote alone must not authorize saving.
-3. Add an atomic Core persistence command/receipt with explicit confirmation,
-   shared mutation ownership, CAS, durable result lookup, and replay/conflict
-   recovery. Preserve unrelated XML, expenses, rewards, contacts and settlement
-   receipts. Re-read authority before committing; no quote reserves source state.
+2. Complete saved-effect reactivation against changed definitions and eventual
+   approved runtime-bundle composition. Local module/profile/saved-payload binding
+   is implemented; it must not be promoted into a broader engine-build claim.
+3. Integrate the new local command/receipt with the native shared Career owner,
+   durable journal and cancellation/recovery UX. Core file-store serialization
+   does not by itself prove Android cross-page ownership or lifecycle behavior.
 4. Wire ordinary local native choices and explain before/after totals separately
    from manual deltas. Never manufacture GM actor IDs, approvals or a run proposal.
 5. Prove real-file save/reopen/replay and Android process restart; then integrate
@@ -125,5 +176,17 @@ reward service: a30-Karma award produces130available Karma but only30earned
 Career Karma, then4Street Cred. A burn quote shows2Street Cred,1Notoriety and
 2Public Awareness without applying it. Reconstructing the file store and
 replaying the reward preserves the saved document, revision and single receipt.
-This proves the reward-to-reputation read/quote seam, **not** reputation saving or
-an Android user/device journey.
+That original test proves the reward-to-reputation read/quote seam, **not** an
+Android user/device journey.
+
+`Chummer.CareerReputation.Persistence.Tests.csproj` uses actual Core project
+references and isolated output/assets paths. Its real-file tests exercise manual
+awards, burns, concurrent retries, forged bindings, final source drift, canceled
+and lost responses, unwritten adapter success, corrupt histories and ordinary
+headless DI. A composed reward → reputation → reviewed contact settlement →
+later reward case preserves all three ledgers and cold historical replay. The
+GM inputs in that test are explicitly synthetic fixtures passed through the
+existing settlement source; they are not synthesized by the reputation service.
+Count/UTF-8 admission tests use deliberately synthetic, internally coherent
+histories and do not claim authorization or device endurance. Existing reward
+and settlement suites run in the same project as adjacent-lane regressions.

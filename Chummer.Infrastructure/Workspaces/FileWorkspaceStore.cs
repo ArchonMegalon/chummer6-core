@@ -14,11 +14,12 @@ using Chummer.Infrastructure.Files;
 
 namespace Chummer.Infrastructure.Workspaces;
 
-public sealed class FileWorkspaceStore :
+public sealed partial class FileWorkspaceStore :
     IWorkspaceStore,
     IWorkspaceStoreReadinessProbe,
     IWorkspaceAuxiliaryStateAtomicCommitCapability,
-    ICharacterCreationBootstrapAtomicCreateCapability
+    ICharacterCreationBootstrapAtomicCreateCapability,
+    ICharacterCareerReputationAtomicCommitCapability
 {
     private const int CurrentWorkspaceSchemaVersion = 1;
     private const int CurrentWorkspaceRecordSchemaVersion = 2;
@@ -815,7 +816,8 @@ public sealed class FileWorkspaceStore :
         string path,
         PersistedWorkspaceRecord record,
         WorkspaceWriteDisposition disposition,
-        DateTimeOffset? logicalLastUpdatedUtc = null)
+        DateTimeOffset? logicalLastUpdatedUtc = null,
+        Action? beforeTargetReplace = null)
     {
         string normalizedPath = Path.GetFullPath(path);
         EnsurePathContained(_stateDirectory, normalizedPath, "workspace target");
@@ -850,6 +852,9 @@ public sealed class FileWorkspaceStore :
             _faultInjector.OnStage(FileWorkspaceStoreFaultStage.AfterTempFileFlushed, normalizedPath, tempPath);
 
             ThrowIfLinkOrReparsePoint(normalizedPath, "workspace target");
+            // Private owner-supplied final fence. Never a serialized command or
+            // a caller-provided replacement-document authorization callback.
+            beforeTargetReplace?.Invoke();
             if (disposition == WorkspaceWriteDisposition.ReplaceExisting)
             {
                 // File.Replace requires the destination to still exist, so a delete that wins the
@@ -1654,6 +1659,8 @@ public sealed class FileWorkspaceStore :
                && qualitiesValid
                && afterRunReceiptsValid
                && afterRunRewardReceiptsValid
+               && CharacterCareerReputationTransaction.IsValidLedger(
+                   workspaceId, currentContentRevision, state.CharacterCareerReputationReceipts)
                && bootstrapValid
                && lifeModuleAcceptancesValid
                && finalizationReceiptsValid;
@@ -1673,6 +1680,15 @@ public sealed class FileWorkspaceStore :
         {
             return false;
         }
+
+        // Only CommitCareerReputation may append this ledger after reading its
+        // real source context inside the workspace lease. A rehashed receipt
+        // supplied to the generic auxiliary writer is never authorization.
+        if (!string.Equals(
+                JsonSerializer.Serialize(currentState.CharacterCareerReputationReceipts),
+                JsonSerializer.Serialize(replacementState.CharacterCareerReputationReceipts),
+                StringComparison.Ordinal))
+            return false;
 
         bool rewardLedgerChanged = !string.Equals(
             WorkspaceDocumentAuxiliaryStateDigest.Compute(new WorkspaceDocumentAuxiliaryState(

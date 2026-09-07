@@ -19,7 +19,7 @@ public sealed record CharacterCareerReputationImprovementContribution(
 /// <summary>
 /// Read-only projection of a clean saved workspace and its captured profile.
 /// Digests are content bindings, not signatures, approvals or write permission.
-/// A future persistence owner must reload all authority and perform atomic CAS.
+/// The persistence owner must reload all authority and perform atomic CAS.
 /// </summary>
 public sealed record CharacterCareerReputationSnapshot(
     CharacterWorkspaceId WorkspaceId, long ContentRevision, long SavedRevision,

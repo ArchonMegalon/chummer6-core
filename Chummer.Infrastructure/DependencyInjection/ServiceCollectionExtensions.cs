@@ -218,6 +218,7 @@ public static class ServiceCollectionExtensions
             CharacterCareerSkillGroupAdvanceService>();
         services.AddCharacterAfterRunSettlementPersistence();
         services.AddCharacterAfterRunRewardPersistence();
+        services.TryAddSingleton<ICharacterCareerReputationService, WorkspaceCharacterCareerReputationService>();
 
         return services;
     }
