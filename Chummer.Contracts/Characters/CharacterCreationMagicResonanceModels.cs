@@ -159,7 +159,18 @@ public sealed record CharacterCreationTalentQualitySource(
     string SourceNodeDigest,
     string CanonicalSourceXml,
     string CanonicalSourceXmlDigest,
-    IReadOnlyList<string> SourceAnchorIds);
+    IReadOnlyList<string> SourceAnchorIds)
+{
+    /// <summary>Independently resolved gear grants in bonus source order. Historical
+    /// null is valid only when the quality has no addgear effects.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<CharacterCreationTalentGearSource>? GrantedGearSources { get; init; }
+}
+
+public sealed record CharacterCreationTalentGearSource(
+    string SourceId, string Name, string Category, string SourceBook, string Page,
+    string EffectiveSourceDigest, string SourceNodeDigest, string CanonicalSourceXml,
+    string CanonicalSourceXmlDigest, IReadOnlyList<string> SourceAnchorIds);
 
 public sealed record CharacterCreationMagicResonanceCatalogOption(
     string Schema,

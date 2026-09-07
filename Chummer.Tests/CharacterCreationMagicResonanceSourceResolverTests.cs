@@ -62,9 +62,9 @@ public sealed class CharacterCreationMagicResonanceSourceResolverTests
         {
             string qualityDigest = CharacterCreationMagicResonanceDigest.ComputeUtf8(
                 new XElement("qualities", rows).ToString(SaveOptions.DisableFormatting));
-            return CharacterCreationMagicResonanceAuthorityProjector.Project(metatypes, [], [], [], [], [], rows,
+            return CharacterCreationMagicResonanceAuthorityProjector.Project(metatypes, [], [], [], [], [], rows, [],
                 new(prerequisite.SettingsProfileId, prerequisite, digest, digest, digest, digest, digest, digest,
-                    digest, qualityDigest, digest, books, ["qualities.xml"], []));
+                    digest, qualityDigest, digest, digest, books, ["qualities.xml"], []));
         }
         var control = Project(qualities, ["SR5"]);
         var controlTalent = control.Talents.First(item => item.Kind == "magician");
@@ -143,14 +143,16 @@ public sealed class CharacterCreationMagicResonanceSourceResolverTests
     }
 
     [TestMethod]
-    public void Existing_magic_context_rejects_quality_byte_drift_and_fresh_context_rebinds()
+    [DataRow("qualities.xml")]
+    [DataRow("gear.xml")]
+    public void Existing_magic_context_rejects_quality_byte_drift_and_fresh_context_rebinds(string changedFile)
     {
         string root = Path.Combine(Path.GetTempPath(), $"chummer-magic-quality-source-{Guid.NewGuid():N}");
         Directory.CreateDirectory(Path.Combine(root, "data"));
         try
         {
             foreach (string file in new[] { "settings.xml", "priorities.xml", "metatypes.xml", "skills.xml", "qualities.xml",
-                "traditions.xml", "streams.xml", "powers.xml", "spells.xml", "complexforms.xml" })
+                "traditions.xml", "streams.xml", "powers.xml", "spells.xml", "complexforms.xml", "gear.xml" })
                 File.Copy(Path.Combine(FindCoreRoot(), "Chummer", "data", file), Path.Combine(root, "data", file));
             var overlays = new FileSystemContentOverlayCatalogService(root, root, null);
             var resolver = new FileSystemCharacterSourceDataResolver(overlays);
@@ -158,10 +160,12 @@ public sealed class CharacterCreationMagicResonanceSourceResolverTests
             var context = resolver.TryCreateContext(character)!;
             Assert.IsTrue(context.TryResolveCreationMagicResonanceAuthority(out var before));
             Assert.IsTrue(before.IsAuthoritative, string.Join(",", before.Blockers));
-            string path = Path.Combine(root, "data", "qualities.xml");
+            string path = Path.Combine(root, "data", changedFile);
             DateTime modifiedAt = File.GetLastWriteTimeUtc(path);
             string bytes = File.ReadAllText(path);
-            string changed = bytes.Replace("<name>MAG</name>", "<name>DEP</name>", StringComparison.Ordinal);
+            string changed = changedFile == "qualities.xml"
+                ? bytes.Replace("<name>MAG</name>", "<name>DEP</name>", StringComparison.Ordinal)
+                : bytes.Replace("<firewall>{WIL}</firewall>", "<firewall>{LOG}</firewall>", StringComparison.Ordinal);
             Assert.AreNotEqual(bytes, changed);
             Assert.AreEqual(bytes.Length, changed.Length);
             File.WriteAllText(path, changed);
@@ -173,10 +177,97 @@ public sealed class CharacterCreationMagicResonanceSourceResolverTests
             Assert.IsTrue(after.IsAuthoritative, string.Join(",", after.Blockers));
             Assert.AreNotEqual(before.SourceInputsDigest, after.SourceInputsDigest);
             Assert.AreNotEqual(before.AuthorityDigest, after.AuthorityDigest);
-            Assert.AreNotEqual(before.Talents.First(item => item.Kind == "magician").GrantedQualitySources!.Single().SourceNodeDigest,
-                after.Talents.First(item => item.Kind == "magician").GrantedQualitySources!.Single().SourceNodeDigest);
+            if (changedFile == "qualities.xml")
+                Assert.AreNotEqual(before.Talents.First(item => item.Kind == "magician").GrantedQualitySources!.Single().SourceNodeDigest,
+                    after.Talents.First(item => item.Kind == "magician").GrantedQualitySources!.Single().SourceNodeDigest);
+            else
+            {
+                var prior = before.Talents.First(item => item.Kind == "technomancer").GrantedQualitySources!.Single().GrantedGearSources!.Single();
+                var current = after.Talents.First(item => item.Kind == "technomancer").GrantedQualitySources!.Single().GrantedGearSources!.Single();
+                Assert.AreNotEqual(prior.SourceNodeDigest, current.SourceNodeDigest);
+                Assert.AreEqual("{LOG}", XElement.Parse(current.CanonicalSourceXml).Element("firewall")!.Value);
+            }
         }
         finally { Directory.Delete(root, recursive: true); }
+    }
+
+    [TestMethod]
+    public void Talent_gear_source_rejects_missing_duplicate_foreign_and_rehashed_metadata()
+    {
+        string root = FindCoreRoot();
+        var resolver = new FileSystemCharacterSourceDataResolver(new FileSystemContentOverlayCatalogService(root, root, null));
+        var context = resolver.TryCreateContext($"<character><settings>{StandardPrioritySettingsId}</settings></character>")!;
+        Assert.IsTrue(context.TryResolveCreationMagicResonanceAuthority(out var authority));
+        var quality = authority.Talents.First(item => item.Kind == "technomancer").GrantedQualitySources!.Single();
+        var gear = quality.GrantedGearSources!.Single();
+        Assert.AreEqual("Living Persona", gear.Name);
+        Assert.AreEqual("Commlinks", gear.Category);
+        Assert.AreEqual("251", gear.Page);
+        Assert.IsTrue(CharacterCreationTalentQualitySourceRules.IsValidSource(quality));
+        Assert.IsFalse(CharacterCreationTalentQualitySourceRules.IsValidSource(quality with { GrantedGearSources = null }));
+        Assert.IsFalse(CharacterCreationTalentQualitySourceRules.IsValidSource(quality with { GrantedGearSources = [] }));
+        Assert.IsFalse(CharacterCreationTalentQualitySourceRules.IsValidSource(quality with { GrantedGearSources = [gear, gear] }));
+        foreach (var invalid in new[]
+        {
+            gear with { CanonicalSourceXml = null! }, gear with { CanonicalSourceXml = new string('x', 262145) },
+            gear with { SourceAnchorIds = null! }, gear with { SourceAnchorIds = ["gear.xml#gear:invented"] },
+            gear with { SourceId = Guid.NewGuid().ToString("D") }, gear with { Name = "other" },
+            gear with { Category = "other" }, gear with { SourceBook = "SG" }, gear with { Page = "999" },
+            gear with { EffectiveSourceDigest = CharacterCreationMagicResonanceDigest.ComputeUtf8("foreign") },
+            gear with { CanonicalSourceXml = gear.CanonicalSourceXml.Replace("{WIL}", "{LOG}", StringComparison.Ordinal) }
+        })
+        {
+            Assert.IsFalse(CharacterCreationTalentQualitySourceRules.IsValidGearSource(invalid));
+            Assert.IsFalse(CharacterCreationTalentQualitySourceRules.IsValidSource(quality with { GrantedGearSources = [invalid] }));
+        }
+        foreach (string reference in new[]
+        {
+            "<addgear><name>Living Persona</name></addgear>",
+            "<addgear><name>Living Persona</name><category>Commlinks</category><quantity>2</quantity></addgear>",
+            "<addgear rating='1'><name>Living Persona</name><category>Commlinks</category></addgear>",
+            "<addgear><name>Living Persona</name><category>Commlinks</category>hidden text</addgear>"
+        })
+            Assert.IsFalse(CharacterCreationTalentQualitySourceRules.TryReadGearReferences(
+                "<quality><bonus>" + reference + "</bonus></quality>", out _));
+    }
+
+    [TestMethod]
+    public void Talent_gear_resolution_requires_one_effective_enabled_book_source()
+    {
+        string root = FindCoreRoot();
+        var resolver = new FileSystemCharacterSourceDataResolver(new FileSystemContentOverlayCatalogService(root, root, null));
+        var context = resolver.TryCreateContext($"<character><settings>{StandardPrioritySettingsId}</settings></character>")!;
+        Assert.IsTrue(context.TryResolveCreationPrerequisiteAuthority(out var prerequisite));
+        XElement[] qualities = XDocument.Load(Path.Combine(root, "Chummer", "data", "qualities.xml"))
+            .Root!.Element("qualities")!.Elements("quality").ToArray();
+        XElement original = XDocument.Load(Path.Combine(root, "Chummer", "data", "gear.xml"))
+            .Root!.Element("gears")!.Elements("gear").Single(item => item.Element("name")?.Value == "Living Persona");
+        string digest = CharacterCreationMagicResonanceDigest.ComputeUtf8("independent-source-fixture");
+        CharacterCreationMagicResonanceAuthority Project(params XElement[] rows) =>
+            CharacterCreationMagicResonanceAuthorityProjector.Project([], [], [], [], [], [], qualities, rows,
+                new(prerequisite.SettingsProfileId, prerequisite, digest, digest, digest, digest, digest, digest,
+                    digest, digest, CharacterCreationMagicResonanceDigest.ComputeUtf8(new XElement("gears", rows).ToString(SaveOptions.DisableFormatting)),
+                    digest, ["SR5"], ["gear.xml"], []));
+        var control = Project(original).Talents.First(item => item.Kind == "technomancer");
+        Assert.IsTrue(control.IsEnabled, string.Join(",", control.Blockers));
+        XElement inactive = new(original);
+        inactive.Element("source")!.Value = "SG";
+        XElement malformed = new(original);
+        malformed.Add(new XElement("id", original.Element("id")!.Value));
+        foreach (var bad in new[] { Project(), Project(original, new XElement(original)), Project(inactive), Project(malformed) })
+        {
+            var talent = bad.Talents.First(item => item.Kind == "technomancer");
+            Assert.IsFalse(talent.IsEnabled);
+            Assert.IsNotEmpty(talent.Blockers);
+        }
+        XElement amended = new(original);
+        amended.Element("firewall")!.Value = "{LOG}";
+        var changed = Project(amended).Talents.First(item => item.Kind == "technomancer");
+        Assert.IsTrue(changed.IsEnabled);
+        var oldSource = control.GrantedQualitySources!.Single().GrantedGearSources!.Single();
+        var newSource = changed.GrantedQualitySources!.Single().GrantedGearSources!.Single();
+        Assert.AreNotEqual(oldSource.SourceNodeDigest, newSource.SourceNodeDigest);
+        Assert.AreEqual("{LOG}", XElement.Parse(newSource.CanonicalSourceXml).Element("firewall")!.Value);
     }
 
     [TestMethod]

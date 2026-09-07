@@ -15,6 +15,7 @@ internal sealed record CharacterCreationMagicResonanceProjectionContext(
     string SpellsInputsDigest,
     string ComplexFormsInputsDigest,
     string QualitiesInputsDigest,
+    string GearInputsDigest,
     string CustomDataInputsDigest,
     IReadOnlyList<string> EnabledSourcebooks,
     IReadOnlyList<string> SourceAnchorIds,
@@ -35,6 +36,7 @@ internal static class CharacterCreationMagicResonanceAuthorityProjector
         IReadOnlyList<XElement> spells,
         IReadOnlyList<XElement> complexForms,
         IReadOnlyList<XElement> qualities,
+        IReadOnlyList<XElement> gear,
         CharacterCreationMagicResonanceProjectionContext context)
     {
         ArgumentNullException.ThrowIfNull(metatypes);
@@ -44,11 +46,12 @@ internal static class CharacterCreationMagicResonanceAuthorityProjector
         ArgumentNullException.ThrowIfNull(spells);
         ArgumentNullException.ThrowIfNull(complexForms);
         ArgumentNullException.ThrowIfNull(qualities);
+        ArgumentNullException.ThrowIfNull(gear);
         ArgumentNullException.ThrowIfNull(context);
 
         var blockers = new List<string>(context.Blockers);
         CharacterCreationMagicResonanceTalentOption[] talentOptions = ProjectTalents(
-            context.PrerequisiteAuthority, qualities, context, blockers);
+            context.PrerequisiteAuthority, qualities, gear, context, blockers);
         CharacterCreationMagicResonanceMetatypeCapability[] metatypeOptions = ProjectMetatypes(
             metatypes, context.MetatypesInputsDigest, blockers);
         CharacterCreationMagicResonanceCatalogOption[] traditionOptions = ProjectCatalog(
@@ -77,7 +80,8 @@ internal static class CharacterCreationMagicResonanceAuthorityProjector
             context.PowersInputsDigest,
             context.SpellsInputsDigest,
             context.ComplexFormsInputsDigest,
-            context.QualitiesInputsDigest
+            context.QualitiesInputsDigest,
+            context.GearInputsDigest
         });
         string gmPolicyDigest = CharacterCreationMagicResonanceDigest.Compute(new
         {
@@ -102,6 +106,7 @@ internal static class CharacterCreationMagicResonanceAuthorityProjector
             AdeptPowerRatingLimit = "min-source-maxlevel-or-maxlevels-and-current-magic-not-instance-limit",
             AdeptWay = "source-eligibility-retained-no-discount-applied",
             TalentQualitySources = "effective-qualities-source-order-reference-and-digest-bound",
+            TalentGearSources = "independent-effective-gear-name-category-source-order-and-digest-bound",
             MysticAdeptPowerPointPurchase = "unsupported-fail-closed",
             Confirmation = "explicit-atomic-auxiliary-cas"
         });
@@ -146,6 +151,7 @@ internal static class CharacterCreationMagicResonanceAuthorityProjector
     private static CharacterCreationMagicResonanceTalentOption[] ProjectTalents(
         CharacterCreationPrerequisiteAuthority authority,
         IReadOnlyList<XElement> qualities,
+        IReadOnlyList<XElement> gear,
         CharacterCreationMagicResonanceProjectionContext context,
         ICollection<string> blockers)
     {
@@ -198,7 +204,7 @@ internal static class CharacterCreationMagicResonanceAuthorityProjector
                     || (forms > 0 && !allowsForms))
                     local.Add(CharacterCreationMagicResonanceBlockers.TalentUnsupported);
                 CharacterCreationTalentQualitySource[] grantedQualities = ResolveTalentQualities(
-                    raw, qualities, context, local);
+                    raw, qualities, gear, context, local);
                 string[] normalized = Normalize(local);
                 var option = new CharacterCreationMagicResonanceTalentOption(
                     new(priority.SourceId, talent.SelectionId, talent.Value),
@@ -247,7 +253,7 @@ internal static class CharacterCreationMagicResonanceAuthorityProjector
     }
 
     private static CharacterCreationTalentQualitySource[] ResolveTalentQualities(
-        XElement? talent, IReadOnlyList<XElement> qualities,
+        XElement? talent, IReadOnlyList<XElement> qualities, IReadOnlyList<XElement> gear,
         CharacterCreationMagicResonanceProjectionContext context, ICollection<string> blockers)
     {
         if (talent is null || !CharacterCreationTalentQualitySourceRules.TryReadReferences(
@@ -276,7 +282,10 @@ internal static class CharacterCreationMagicResonanceAuthorityProjector
                 context.QualitiesInputsDigest,
                 CharacterCreationTalentQualitySourceRules.ComputeSourceNodeDigest(context.QualitiesInputsDigest, sourceId, canonicalXml),
                 canonicalXml, CharacterCreationMagicResonanceDigest.ComputeUtf8(canonicalXml),
-                [$"qualities.xml#quality:{sourceId}"]);
+                [$"qualities.xml#quality:{sourceId}"])
+            {
+                GrantedGearSources = ResolveGrantedGear(canonicalXml, gear, context, blockers)
+            };
             if (!CharacterCreationTalentQualitySourceRules.IsValidSource(source))
                 blockers.Add(CharacterCreationTalentQualitySourceRules.Unresolved);
             if (!context.EnabledSourcebooks.Contains(book, StringComparer.OrdinalIgnoreCase))
@@ -286,6 +295,41 @@ internal static class CharacterCreationMagicResonanceAuthorityProjector
         if (!CharacterCreationTalentQualitySourceRules.MatchesTalent(talent.ToString(SaveOptions.DisableFormatting), sources))
             blockers.Add(CharacterCreationTalentQualitySourceRules.Unresolved);
         return sources.ToArray();
+    }
+
+    private static CharacterCreationTalentGearSource[] ResolveGrantedGear(string qualityXml,
+        IReadOnlyList<XElement> gear, CharacterCreationMagicResonanceProjectionContext context,
+        ICollection<string> blockers)
+    {
+        if (!CharacterCreationTalentQualitySourceRules.TryReadGearReferences(qualityXml, out var references))
+        {
+            blockers.Add(CharacterCreationTalentQualitySourceRules.Unresolved);
+            return [];
+        }
+        var result = new List<CharacterCreationTalentGearSource>();
+        foreach (var (name, category) in references)
+        {
+            XElement[] matches = gear.Where(row => row.Element("name")?.Value == name
+                && row.Element("category")?.Value == category).Take(2).ToArray();
+            if (matches.Length != 1 || !TryReadGuid(matches[0], "id", out string id)
+                || !TryReadScalar(matches[0], "source", out string book)
+                || !TryReadScalar(matches[0], "page", out string page))
+            {
+                blockers.Add(CharacterCreationTalentQualitySourceRules.Unresolved);
+                continue;
+            }
+            string xml = CanonicalXml(matches[0]);
+            var source = new CharacterCreationTalentGearSource(id, name, category, book, page,
+                context.GearInputsDigest,
+                CharacterCreationTalentQualitySourceRules.ComputeGearNodeDigest(context.GearInputsDigest, id, xml),
+                xml, CharacterCreationMagicResonanceDigest.ComputeUtf8(xml), [$"gear.xml#gear:{id}"]);
+            if (!CharacterCreationTalentQualitySourceRules.IsValidGearSource(source))
+                blockers.Add(CharacterCreationTalentQualitySourceRules.Unresolved);
+            if (!context.EnabledSourcebooks.Contains(book, StringComparer.OrdinalIgnoreCase))
+                blockers.Add(CharacterCreationMagicResonanceBlockers.OptionDisabled);
+            result.Add(source);
+        }
+        return result.ToArray();
     }
 
     private static CharacterCreationMagicResonanceMetatypeCapability[] ProjectMetatypes(

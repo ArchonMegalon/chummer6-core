@@ -2,8 +2,8 @@
 
 The SR5 Priority Magic/Resonance authority resolves `qualities.xml` through the
 same effective source context as priorities, metatypes, traditions, streams,
-powers, spells and complex forms. Its input digest includes the quality input
-digest. The effective rows (including custom-data changes) are not replaced by
+powers, spells, complex forms and granted gear. Its input digest includes the
+quality and gear input digests. The effective rows (including custom-data changes) are not replaced by
 hardcoded Magician/Adept/Technomancer effects.
 
 Each Talent carries its ordered `GrantedQualitySources`: the exact reference
@@ -55,11 +55,33 @@ Heritage grants; matching `SkillBase`/`SkillGroupBase` improvements retain the f
 ratings. Source XML is not appended as a saved quality or power instance.
 
 Actual-source tests exercise Priority Magician, Aspected Magician with a selected
-free group, Mystic Adept's spell-only path, and Adept. They review and explicitly
+free group, Mystic Adept's spell-only path, Adept and Technomancer. They review and explicitly
 confirm the composite write, reconstruct the file store, and verify the saved
 graph and idempotent replay. Invalid/uncompiled effects reject the complete
 projection, not just the offending effect. The independent source revalidation
 and atomic workspace write remain mandatory.
+
+## Technomancer grants
+
+Each quality's `GrantedGearSources` resolves the exact name/category pair in
+effective `gear.xml`, with independent source identity, book/page and byte/node
+digests. Missing, ambiguous or inactive-book rows disable the affected Talent.
+Historical null is unresolved when an addgear effect exists; it does not invent
+a Living Persona. The contribution validator compares nested sources against
+fresh independent authority even if a caller rehashes every outer digest.
+
+The bounded prompt-free addgear path saves one free instance, preserving source
+matrix expressions, stable instance identity, its Heritage quality parent and
+the corresponding Gear improvement. Original cost remains in source evidence;
+the instance has zero cost without spending the purchase budget. A persona-capable
+grant becomes active only if no existing saved gear is active. Unsupported nested
+bonuses, grant quantity/rating choices and other uncompiled semantics fail closed.
+
+Source `specificskill` integer bonuses preserve condition and apply-to-rating
+semantics. The actual Technomancer source therefore saves Computer +2 conditioned
+on Matrix Perception, not an unconditional base-rating increase. The default
+stream, Complex Forms, RES flag and Technomancer skill/tab unlocks survive the
+same explicit composite confirmation, fresh file-store read and idempotent retry.
 
 ## Adept power source limits
 
@@ -73,9 +95,7 @@ requiring other bonus/choice or variable-cost semantics remain disabled.
 
 ## What this does not complete
 
-Technomancer's Living Persona gear and conditional Computer bonus are still
-uncompiled and therefore block finalization. Mystic Adept purchased/split power
-points remain unfinished. An Aspected path without a selected free group needs
+Mystic Adept purchased/split power points remain unfinished. An Aspected path without a selected free group needs
 an explicit user aspect choice; the finalizer never silently chooses Sorcery.
 Additional source bonus forms, prerequisites, discounts and enhancements need
 their own typed projections and tests. These are unfinished capabilities, not

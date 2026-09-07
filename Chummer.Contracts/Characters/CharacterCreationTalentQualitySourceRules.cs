@@ -57,6 +57,7 @@ public static class CharacterCreationTalentQualitySourceRules
             || source.CanonicalSourceXml != row.ToString(SaveOptions.DisableFormatting)
             || !HasSourceIdentity(row, id) || !HasScalar(row, "name", source.Name)
             || !HasScalar(row, "source", source.SourceBook) || !HasScalar(row, "page", source.Page)
+            || !MatchesQualityGear(source.CanonicalSourceXml, source.GrantedGearSources)
             || source.SourceAnchorIds is null
             || !source.SourceAnchorIds.SequenceEqual(["qualities.xml#quality:" + source.SourceId], StringComparer.Ordinal))
             return false;
@@ -72,6 +73,63 @@ public static class CharacterCreationTalentQualitySourceRules
         // No alias may grant the same source/selection twice (e.g. once by name and once by ID).
         return sources.Select(item => (item.SourceId, item.ForcedSelection)).Distinct().Count() == sources.Count
             && sources.Select(item => (item.Reference, item.ForcedSelection)).SequenceEqual(references);
+    }
+
+    public static string ComputeGearNodeDigest(string inputsDigest, string sourceId, string canonicalXml) =>
+        CharacterCreationMagicResonanceDigest.Compute(new
+        {
+            Schema = "chummer.sr5.standard_priority_talent_gear_source.v1",
+            EffectiveInputsDigest = inputsDigest, SourceId = sourceId, RawNode = canonicalXml
+        });
+
+    public static bool TryReadGearReferences(string qualityXml, out (string Name, string Category)[] references)
+    {
+        references = [];
+        if (!TryParse(qualityXml, "quality", out var quality) || quality is null)
+            return false;
+        XElement[] bonuses = quality.Elements("bonus").Take(2).ToArray();
+        if (bonuses.Length == 0) return true;
+        if (bonuses.Length != 1) return false;
+        XElement[] grants = bonuses[0].Elements("addgear").Take(33).ToArray();
+        if (grants.Length > 32 || grants.Any(grant => grant.HasAttributes
+                || grant.Elements().Count() != 2
+                || grant.Elements().Any(item => item.Name != "name" && item.Name != "category")
+                || !HasScalar(grant, "name", grant.Element("name")?.Value ?? "")
+                || !HasScalar(grant, "category", grant.Element("category")?.Value ?? "")
+                || !IsLabel(grant.Element("name")?.Value) || !IsLabel(grant.Element("category")?.Value)
+                || grant.Nodes().OfType<XText>().Any(item => !string.IsNullOrWhiteSpace(item.Value))))
+            return false;
+        references = grants.Select(item => (item.Element("name")!.Value, item.Element("category")!.Value)).ToArray();
+        return references.Distinct().Count() == references.Length;
+    }
+
+    public static bool IsValidGearSource(CharacterCreationTalentGearSource? source)
+    {
+        return source is not null && IsLabel(source.Name) && IsLabel(source.Category)
+            && source.CanonicalSourceXml is { Length: > 0 and <= 262144 }
+            && IsLabel(source.SourceBook) && IsLabel(source.Page)
+            && Guid.TryParseExact(source.SourceId, "D", out Guid id) && id != Guid.Empty && source.SourceId == id.ToString("D")
+            && CharacterCreationMagicResonanceDigest.IsCanonical(source.EffectiveSourceDigest)
+            && CharacterCreationMagicResonanceDigest.EqualsFixedTime(source.SourceNodeDigest,
+                ComputeGearNodeDigest(source.EffectiveSourceDigest, source.SourceId, source.CanonicalSourceXml))
+            && !string.IsNullOrEmpty(source.CanonicalSourceXml)
+            && CharacterCreationMagicResonanceDigest.EqualsFixedTime(source.CanonicalSourceXmlDigest,
+                CharacterCreationMagicResonanceDigest.ComputeUtf8(source.CanonicalSourceXml))
+            && TryParse(source.CanonicalSourceXml, "gear", out var row) && row is not null
+            && source.CanonicalSourceXml == row.ToString(SaveOptions.DisableFormatting)
+            && HasSourceIdentity(row, id) && HasScalar(row, "name", source.Name)
+            && HasScalar(row, "category", source.Category) && HasScalar(row, "source", source.SourceBook)
+            && HasScalar(row, "page", source.Page) && source.SourceAnchorIds is not null
+            && source.SourceAnchorIds.SequenceEqual(["gear.xml#gear:" + source.SourceId], StringComparer.Ordinal);
+    }
+
+    public static bool MatchesQualityGear(string qualityXml, IReadOnlyList<CharacterCreationTalentGearSource>? sources)
+    {
+        if (!TryReadGearReferences(qualityXml, out var references)) return false;
+        if (sources is null) return references.Length == 0;
+        return sources.Count == references.Length && sources.All(IsValidGearSource)
+            && sources.Select(item => item.SourceId).Distinct(StringComparer.Ordinal).Count() == sources.Count
+            && references.SequenceEqual(sources.Select(item => (item.Name, item.Category)));
     }
 
     private static bool HasScalar(XElement row, string name, string expected)

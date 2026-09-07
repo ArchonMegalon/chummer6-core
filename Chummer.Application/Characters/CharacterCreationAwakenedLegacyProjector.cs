@@ -52,13 +52,14 @@ internal static class CharacterCreationAwakenedLegacyProjector
             var flags = new HashSet<string>(StringComparer.Ordinal);
             var projectedQualities = new List<XElement>();
             var improvements = new List<XElement>();
+            var projectedGear = new List<(XElement Saved, CharacterCreationTalentGearSource Source)>();
             foreach (var quality in source.Talent.GrantedQualitySources!)
             {
                 XElement definition = Parse(quality.CanonicalSourceXml, "quality");
                 string id = CharacterCreationFinalizationProjector.StableGuid(
                     $"heritage-quality:{quality.SourceId}:{quality.ForcedSelection}:{quality.SourceNodeDigest}:{magic.DraftDigest}").ToString("D");
                 string extra = CompileBonus(definition.Element("bonus"), quality.ForcedSelection,
-                    prerequisite, id, flags, improvements);
+                    prerequisite, quality, id, flags, improvements, projectedGear);
                 Require(CharacterCreationLegacySourceProjector.TryBuildHeritageQualityInstance(quality, id, extra, out var saved));
                 projectedQualities.Add(saved);
                 CharacterCreationFinalizationProjector.AddDelta(deltas, ref order, "talent-quality:" + id,
@@ -75,6 +76,18 @@ internal static class CharacterCreationAwakenedLegacyProjector
             }
             root.Element("qualities")!.Add(projectedQualities);
             Container(root, "improvements").Add(improvements);
+            XElement gears = Container(root, "gears");
+            foreach (var (saved, gearSource) in projectedGear)
+            {
+                bool hasActiveCommlink = gears.Elements("gear").Any(item => Boolean(item, "active", false));
+                if (!hasActiveCommlink && Scalar(saved, "canformpersona").Contains("Self", StringComparison.Ordinal))
+                    saved.Element("active")!.Value = "True";
+                gears.Add(saved);
+                CharacterCreationFinalizationProjector.AddDelta(deltas, ref order,
+                    "talent-gear:" + saved.Element("guid")!.Value,
+                    CharacterCreationFinalizationDeltaKinds.Gear, gearSource.SourceId, null, gearSource.Name,
+                    0, 0, gearSource.SourceAnchorIds);
+            }
             foreach (string flag in flags)
             {
                 Set(root, flag, "True");
@@ -160,7 +173,8 @@ internal static class CharacterCreationAwakenedLegacyProjector
     }
 
     private static string CompileBonus(XElement? bonus, string forced, CharacterCreationPrerequisiteDraft prerequisite,
-        string id, HashSet<string> flags, List<XElement> improvements)
+        CharacterCreationTalentQualitySource quality, string id, HashSet<string> flags, List<XElement> improvements,
+        List<(XElement Saved, CharacterCreationTalentGearSource Source)> gears)
     {
         string extra = string.Empty;
         if (bonus is null) { Require(forced.Length == 0); return extra; }
@@ -168,11 +182,37 @@ internal static class CharacterCreationAwakenedLegacyProjector
         Require(!bonus.Nodes().OfType<XText>().Any(item => !string.IsNullOrWhiteSpace(item.Value)));
         bool useSelected = bonus.Attribute("useselected") is not { } useSelectedAttribute || bool.Parse(useSelectedAttribute.Value);
         bool usedForced = false;
+        int gearIndex = 0;
         foreach (XElement effect in bonus.Elements())
         {
             Require(!effect.HasAttributes);
             switch (effect.Name.LocalName)
             {
+                case "addgear":
+                    Require(forced.Length == 0 && quality.GrantedGearSources is not null
+                        && gearIndex < quality.GrantedGearSources.Count);
+                    var gearSource = quality.GrantedGearSources[gearIndex++];
+                    Require(Scalar(effect, "name") == gearSource.Name && Scalar(effect, "category") == gearSource.Category);
+                    string gearId = CharacterCreationFinalizationProjector.StableGuid(
+                        $"talent-gear:{id}:{gearSource.SourceId}:{gearSource.SourceNodeDigest}:{gearIndex}").ToString("D");
+                    Require(CharacterCreationLegacySourceProjector.TryBuildGrantedGearInstance(gearSource, gearId, id, out var gear));
+                    gears.Add((gear, gearSource));
+                    improvements.Add(Improvement("Gear", gearId, id, "Quality"));
+                    break;
+                case "specificskill":
+                    Require(effect.Elements().All(item => item.Name.LocalName is "name" or "bonus" or "condition" or "applytorating")
+                        && !effect.Nodes().OfType<XText>().Any(item => !string.IsNullOrWhiteSpace(item.Value)));
+                    string skillName = Scalar(effect, "name");
+                    string condition = Scalar(effect, "condition");
+                    Require(!string.IsNullOrWhiteSpace(skillName)
+                        && int.TryParse(Scalar(effect, "bonus"), NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out _));
+                    int skillBonusValue = int.Parse(Scalar(effect, "bonus"), CultureInfo.InvariantCulture);
+                    bool addsToRating = Boolean(effect, "applytorating", false);
+                    XElement skillBonus = Improvement("Skill", skillName, id, "Quality", skillBonusValue);
+                    skillBonus.Element("condition")!.Value = condition;
+                    skillBonus.Element("addtorating")!.Value = addsToRating ? "1" : "0";
+                    improvements.Add(skillBonus);
+                    break;
                 case "enableattribute":
                     Require(effect.Elements().Count() == 1 && effect.Element("name") is not null);
                     string attribute = Scalar(effect, "name").ToUpperInvariant();
@@ -211,12 +251,10 @@ internal static class CharacterCreationAwakenedLegacyProjector
                     if (useSelected) extra = effect.Value;
                     break;
                 default:
-                    // Includes addgear: the Living Persona source/effects must be
-                    // resolved too before Technomancers can finish, never omitted.
                     throw new InvalidDataException("Uncompiled Talent bonus.");
             }
         }
-        Require(forced.Length == 0 || usedForced);
+        Require((forced.Length == 0 || usedForced) && gearIndex == (quality.GrantedGearSources?.Count ?? 0));
         return extra;
     }
 

@@ -3686,6 +3686,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 || !TryComputeEffectiveInputDigest(_catalog, "spells.xml", out string spellsDigest)
                 || !TryComputeEffectiveInputDigest(_catalog, "complexforms.xml", out string complexFormsDigest)
                 || !TryComputeEffectiveInputDigest(_catalog, "qualities.xml", out string qualitiesDigest)
+                || !TryComputeEffectiveInputDigest(_catalog, "gear.xml", out string gearDigest)
                 || !TryComputeSelectedCustomDataInputsDigest(
                     _customDirectories, out string customDataInputsDigest)
                 || !TryEnumerateTargets("metatypes.xml", ["metatypes"], "metatype", out XElement[] metatypes)
@@ -3694,7 +3695,8 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 || !TryEnumerateTargets("powers.xml", ["powers"], "power", out XElement[] powers)
                 || !TryEnumerateTargets("spells.xml", ["spells"], "spell", out XElement[] spells)
                 || !TryEnumerateTargets("complexforms.xml", ["complexforms"], "complexform", out XElement[] forms)
-                || !TryEnumerateTargets("qualities.xml", ["qualities"], "quality", out XElement[] qualities))
+                || !TryEnumerateTargets("qualities.xml", ["qualities"], "quality", out XElement[] qualities)
+                || !TryEnumerateTargets("gear.xml", ["gears"], "gear", out XElement[] grantedGear))
             {
                 return false;
             }
@@ -3728,6 +3730,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 spellsDigest,
                 complexFormsDigest,
                 qualitiesDigest,
+                gearDigest,
                 customDataInputsDigest,
                 _enabledSourcebooks.OrderBy(item => item, StringComparer.OrdinalIgnoreCase).ToArray(),
                 [
@@ -3740,6 +3743,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                     "spells.xml",
                     "complexforms.xml",
                     "qualities.xml",
+                    "gear.xml",
                     .. _customDirectories.Select(directory => $"customdata:{directory.Name}")
                 ],
                 blockers);
@@ -3751,6 +3755,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 spells,
                 forms,
                 qualities,
+                grantedGear,
                 projectionContext);
             return true;
         }

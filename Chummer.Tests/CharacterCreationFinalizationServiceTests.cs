@@ -24,6 +24,7 @@ public sealed class CharacterCreationFinalizationServiceTests
     [DataRow("Aspected Magician")]
     [DataRow("Mystic Adept")]
     [DataRow("Adept")]
+    [DataRow("Technomancer")]
     public void Actual_awakened_priority_finishes_and_cold_reopens_without_losing_talent_effects(string talentValue)
     {
         using ReadyContext context = ReadyContext.Create(includeGearReview: true, talentValue: talentValue);
@@ -40,6 +41,7 @@ public sealed class CharacterCreationFinalizationServiceTests
         Assert.IsFalse(qualityState.Preview.GrantedQualities.Single().CountsAgainstKarma);
         Assert.IsTrue(qualityState.Preview.GrantedQualities.Single().KarmaCost > 0);
         if (talentValue == "Magician") AssertAwakenedForgeryRejected(before);
+        if (talentValue == "Technomancer") AssertTechnomancerForgeryRejected(context, before);
         var state = context.Finalizer.Load(new(context.WorkspaceId));
         Assert.AreEqual(CharacterCreationFinalizationOutcomes.Available, state.Outcome, string.Join(",", state.Blockers));
         var review = context.Finalizer.Review(new(state.Value!.Binding));
@@ -55,16 +57,41 @@ public sealed class CharacterCreationFinalizationServiceTests
         var after = cold.Store.Get(context.WorkspaceId).Value!;
         XElement root = XElement.Parse(after.Document.Content);
         Assert.AreEqual("True", root.Element("created")!.Value);
-        Assert.AreEqual("True", root.Element("magenabled")!.Value);
+        Assert.AreEqual(talentValue == "Technomancer" ? "False" : "True", root.Element("magenabled")!.Value);
+        Assert.AreEqual(talentValue == "Technomancer" ? "True" : "False", root.Element("resenabled")!.Value);
         Assert.AreEqual(talentValue is "Adept" or "Mystic Adept" ? "True" : "False", root.Element("adept")!.Value);
-        Assert.AreEqual(talentValue == "Adept" ? "False" : "True", root.Element("magician")!.Value);
+        Assert.AreEqual(talentValue is "Adept" or "Technomancer" ? "False" : "True", root.Element("magician")!.Value);
         XElement heritage = root.Element("qualities")!.Elements("quality").Single(item => item.Element("qualitysource")?.Value == "Heritage");
         Assert.AreEqual(talentValue, heritage.Element("name")!.Value);
         var source = magic.FinalizationContribution!.Talent.GrantedQualitySources!.Single();
         Assert.AreEqual(source.SourceId, heritage.Element("sourceid")!.Value);
         XElement[] improvements = root.Element("improvements")!.Elements("improvement").ToArray();
         Assert.IsTrue(improvements.Any(item => item.Element("improvementttype")?.Value == "Attribute"
-            && item.Element("improvedname")?.Value == "MAG" && item.Element("unique")?.Value == "enableattribute"));
+            && item.Element("improvedname")?.Value == (talentValue == "Technomancer" ? "RES" : "MAG")
+            && item.Element("unique")?.Value == "enableattribute"));
+        if (talentValue == "Technomancer")
+        {
+            XElement persona = root.Element("gears")!.Elements("gear").Single(item => item.Element("name")?.Value == "Living Persona");
+            Assert.AreEqual("73b55822-dfb8-48f5-8ff8-37ef498ab9ef", persona.Element("sourceid")!.Value);
+            Assert.AreEqual(heritage.Element("guid")!.Value, persona.Element("parentid")!.Value);
+            Assert.AreEqual("0", persona.Element("cost")!.Value);
+            Assert.AreEqual("True", persona.Element("active")!.Value);
+            Assert.AreEqual("Self", persona.Element("canformpersona")!.Value);
+            foreach (var (field, value) in new[] { ("devicerating", "{RES}"), ("attack", "{CHA}"),
+                         ("sleaze", "{INT}"), ("dataprocessing", "{LOG}"), ("firewall", "{WIL}") })
+                Assert.AreEqual(value, persona.Element(field)!.Value);
+            Assert.IsTrue(improvements.Any(item => item.Element("improvementttype")?.Value == "Gear"
+                && item.Element("improvedname")?.Value == persona.Element("guid")!.Value
+                && item.Element("sourcename")?.Value == heritage.Element("guid")!.Value));
+            XElement perception = improvements.Single(item => item.Element("improvementttype")?.Value == "Skill"
+                && item.Element("improvedname")?.Value == "Computer");
+            Assert.AreEqual("2", perception.Element("val")!.Value);
+            Assert.AreEqual("Matrix Perception", perception.Element("condition")!.Value);
+            Assert.AreEqual("0", perception.Element("addtorating")!.Value);
+            Assert.AreEqual(heritage.Element("guid")!.Value, perception.Element("sourcename")!.Value);
+            Assert.AreEqual(magic.Selections.ComplexForms.Count, root.Element("complexforms")!.Elements("complexform").Count());
+            Assert.AreEqual("RES", root.Element("tradition")!.Element("traditiontype")!.Value);
+        }
         foreach (var grant in skills.Skills.Where(item => item.GrantedRating > 0))
         {
             XElement saved = root.Element("newskills")!.Element("skills")!.Elements("skill")
@@ -109,6 +136,52 @@ public sealed class CharacterCreationFinalizationServiceTests
         Assert.AreEqual(confirmed.Value!.ReceiptDigest, cold.Finalizer.Confirm(command).Value!.ReceiptDigest);
         Assert.AreEqual(after.ContentRevision, cold.Store.Get(context.WorkspaceId).Value!.ContentRevision);
         Assert.AreEqual(after.Document.Content, cold.Store.Get(context.WorkspaceId).Value!.Document.Content);
+    }
+
+    private static void AssertTechnomancerForgeryRejected(ReadyContext context, WorkspaceStoredDocument original)
+    {
+        var draft = original.Document.AuxiliaryState.CharacterCreationMagicResonanceDraft!;
+        var contribution = draft.FinalizationContribution!;
+        var quality = contribution.Talent.GrantedQualitySources!.Single();
+        var source = quality.GrantedGearSources!.Single();
+        var sourceContext = context.Resolver.TryCreateContext(original.Document.Content)!;
+        Assert.IsTrue(sourceContext.TryResolveCreationMagicResonanceAuthority(out var authority));
+        Assert.IsTrue(CharacterCreationMagicResonanceFinalizationRules.IsValidContribution(contribution, draft, authority));
+        foreach (var (change, unsupported) in new (Action<XElement>, bool)[]
+        {
+            (node => node.Element("firewall")!.Value = "{CHA}", false),
+            (node => node.Add(new XElement("bonus", new XElement("invented-effect"))), true),
+            (node => node.Add(new XElement("hide", "hidden instructions")), true),
+            (node => node.Add(new XText("uninterpreted source text")), true),
+            (node => node.Add(new XElement("attack", "99")), true)
+        })
+        {
+            XElement node = XElement.Parse(source.CanonicalSourceXml);
+            change(node);
+            string xml = node.ToString(SaveOptions.DisableFormatting);
+            var forgedSource = source with { CanonicalSourceXml = xml,
+                CanonicalSourceXmlDigest = CharacterCreationMagicResonanceDigest.ComputeUtf8(xml),
+                SourceNodeDigest = CharacterCreationTalentQualitySourceRules.ComputeGearNodeDigest(source.EffectiveSourceDigest, source.SourceId, xml) };
+            var changedQuality = quality with { GrantedGearSources = [forgedSource] };
+            var talent = contribution.Talent with { GrantedQualitySources = [changedQuality] };
+            talent = talent with { ProjectionDigest = CharacterCreationMagicResonanceFinalizationRules.ComputeTalentProjectionDigest(talent) };
+            var altered = contribution with { Talent = talent };
+            altered = altered with { ContributionDigest = CharacterCreationMagicResonanceFinalizationRules.ComputeContributionDigest(altered) };
+            var forgedDraft = draft with { FinalizationContribution = altered };
+            forgedDraft = forgedDraft with { DraftDigest = CharacterCreationMagicResonanceDraftIntegrity.ComputeDigest(forgedDraft) };
+            Assert.IsFalse(CharacterCreationMagicResonanceFinalizationRules.IsValidContribution(altered, forgedDraft, authority),
+                "Rehashing a nested gear source cannot replace independent current source authority.");
+            if (unsupported)
+            {
+                var forgedDocument = original.Document with { State = original.Document.State with
+                { AuxiliaryState = original.Document.AuxiliaryState with { CharacterCreationMagicResonanceDraft = forgedDraft } } };
+                Assert.IsFalse(CharacterCreationFinalizationProjector.TryProject(original with { Document = forgedDocument },
+                    out var output, out var deltas, out _, out _, out _, out _, out _));
+                Assert.AreEqual(string.Empty, output);
+                Assert.IsEmpty(deltas);
+            }
+        }
+        Assert.AreEqual(original.Document.Content, context.Store.Get(context.WorkspaceId).Value!.Document.Content);
     }
 
     private static void AssertAwakenedForgeryRejected(WorkspaceStoredDocument original)
