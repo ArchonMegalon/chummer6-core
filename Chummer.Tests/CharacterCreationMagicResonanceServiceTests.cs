@@ -153,7 +153,7 @@ public sealed class CharacterCreationMagicResonanceServiceTests
             CharacterCreationAttributesDraft confirmedAttributes = cold.AttributesDraft!;
             CharacterCreationMagicResonanceFinalizationContribution contribution = confirmed.FinalizationContribution!;
             Assert.AreEqual("Adept", contribution.Talent.GrantedQualitySources!.Single().Name);
-            Assert.IsTrue(contribution.Talent.GrantedQualitySources.Single().CanonicalSourceXml.Contains("<limitspellcategory>Rituals</limitspellcategory>", StringComparison.Ordinal));
+            Assert.IsTrue(contribution.Talent.GrantedQualitySources!.Single().CanonicalSourceXml.Contains("<limitspellcategory>Rituals</limitspellcategory>", StringComparison.Ordinal));
             Assert.IsTrue(CharacterCreationMagicResonanceFinalizationRules.IsValidContribution(
                 contribution, confirmed, authority, confirmedAttributes));
             Assert.IsFalse(CharacterCreationMagicResonanceFinalizationRules.IsValidContribution(

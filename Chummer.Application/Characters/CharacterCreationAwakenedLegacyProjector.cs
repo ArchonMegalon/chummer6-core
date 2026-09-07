@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Diagnostics.CodeAnalysis;
 using System.Xml;
 using System.Xml.Linq;
 using Chummer.Contracts.Characters;
@@ -376,7 +377,7 @@ internal static class CharacterCreationAwakenedLegacyProjector
         return value;
     }
     private static bool Equal(string a, string b) => CharacterCreationMagicResonanceDigest.EqualsFixedTime(a, b);
-    private static void Require(bool valid)
+    private static void Require([DoesNotReturnIf(false)] bool valid)
     {
         if (!valid) throw new InvalidDataException("Awakened saved graph is unresolved or inconsistent.");
     }
