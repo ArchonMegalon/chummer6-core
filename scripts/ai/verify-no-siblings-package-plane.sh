@@ -13,8 +13,8 @@ inventory_name="chummer-owner-contracts.inventory.json"
 candidate_inventory_name="chummer-core-candidate-engine-contract.inventory.json"
 candidate_runtime_inventory_name="chummer-core-candidate-gm-edit-runtime.inventory.json"
 runtime_inventory_name="chummer-core-runtime-packages.inventory.json"
-candidate_version="0.0.0-packageplane.candidate.shb7297a346fe81"
-runtime_source_commit="b7297a346fe810a98ac1c632969dcce245370876"
+candidate_version="0.0.0-packageplane.candidate.sh880e5df8ace98"
+runtime_source_commit="880e5df8ace981e9a60264d835329dd32f54a158"
 candidate_id="Chummer.Engine.Contracts"
 candidate_runtime_id="Chummer.Engine.GmCharacterEdits"
 candidate_repository="https://github.com/ArchonMegalon/chummer6-core.git"
@@ -476,8 +476,11 @@ cat >"$runtime_consumer_root/GmRuntimeConsumer.csproj" <<EOF
 </Project>
 EOF
 cat >"$runtime_consumer_root/BoundaryProbe.cs" <<'EOF'
+using Chummer.Application.Characters;
+using Chummer.Contracts.Characters;
 using Chummer.Contracts.Workspaces;
 using Chummer.Engine.GmCharacterEdits;
+using Chummer.Infrastructure.Workspaces;
 
 namespace GmRuntimeConsumer;
 
@@ -486,6 +489,28 @@ public static class BoundaryProbe
     public static Type ContractType => typeof(ICoreGmCharacterEditGateway);
 
     public static Type FactoryType => typeof(CoreGmCharacterEditGatewayFactory);
+
+    // Compile the exact wizard boundary from packages, not sibling projects.
+    // This proves exported type/member compatibility, not a device journey.
+    public static ICharacterCreationSkillsReReviewService SkillsReview(
+        CharacterCreationSkillsService service) => service;
+
+    public static CharacterCreationFoundationResult<CharacterCreationSkillsReceipt> ConfirmSkillsReview(
+        ICharacterCreationSkillsReReviewService service,
+        CharacterCreationSkillsReReviewConfirmRequest request) => service.ConfirmReReview(request);
+
+    public static bool RequiresBothExplicitReviews(CharacterCreationSkillsReReviewConfirmRequest request)
+        => request.ExplicitlyConfirmed && request.ExplicitlyReviewedChanges;
+
+    public static ICharacterCareerReputationService CareerReputation(
+        WorkspaceCharacterCareerReputationService service) => service;
+
+    public static CharacterCareerReputationResult CommitReputation(
+        ICharacterCareerReputationService service, CharacterCareerReputationCommand command,
+        CancellationToken cancellationToken) => service.Commit(command, cancellationToken);
+
+    public static CharacterCreationTalentSkillAccess? TalentAccess(CharacterCreationSkillsAuthority authority)
+        => authority.TalentAccess;
 }
 EOF
 

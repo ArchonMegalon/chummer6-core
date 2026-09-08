@@ -53,9 +53,42 @@ class RuntimePackageLockTests(unittest.TestCase):
             runtime.PACKAGE_VERSION,
         )
 
-    def test_next_wave_candidate_is_bound_to_reviewed_semantic_commit(self) -> None:
-        self.assertEqual("b7297a346fe810a98ac1c632969dcce245370876", runtime.SOURCE_COMMIT)
-        self.assertEqual("0.0.0-packageplane.candidate.shb7297a346fe81", runtime.PACKAGE_VERSION)
+    def test_next_wave_candidate_is_bound_to_locally_validated_semantic_commit(self) -> None:
+        self.assertEqual("880e5df8ace981e9a60264d835329dd32f54a158", runtime.SOURCE_COMMIT)
+        self.assertEqual("0.0.0-packageplane.candidate.sh880e5df8ace98", runtime.PACKAGE_VERSION)
+
+    def test_runtime_source_retains_real_sr5_reward_codec_regression(self) -> None:
+        def source(path: str) -> str:
+            return runtime._run(("git", "show", f"{runtime.SOURCE_COMMIT}:{path}"), cwd=REPO_ROOT)
+
+        self.assertIn('document.PayloadKind is "workspace" or "sr5/chum5-xml"', source(
+            "Chummer.Application/Characters/CharacterAfterRunRewardProjector.cs"))
+        self.assertIn("Real_sr5_import_envelope_can_preview_commit_and_cold_replay_without_retyping_payload", source(
+            "Chummer.Tests/WorkspaceCharacterAfterRunRewardTests.cs"))
+        self.assertIn("Codec_support_does_not_accept_foreign_or_noncanonical_envelopes", source(
+            "Chummer.Tests/WorkspaceCharacterAfterRunRewardTests.cs"))
+        self.assertIn('../Chummer.Rulesets.Sr5/Chummer.Rulesets.Sr5.csproj', source(
+            "Chummer.Tests/Chummer.AfterRunReward.Tests.csproj"))
+
+    def test_wizard_recovery_and_reputation_members_are_bound_to_runtime_source(self) -> None:
+        for members, count in ((runtime.CREATION_SKILLS_REVIEW_AUTHORITY_PATHS, 9),
+                               (runtime.CAREER_REPUTATION_AUTHORITY_PATHS, 12)):
+            self.assertEqual(count, len(members))
+            self.assertEqual(count, len(set(members)))
+            for member in members:
+                with self.subTest(member=member):
+                    runtime._run(("git", "cat-file", "-e", f"{runtime.SOURCE_COMMIT}:{member}"), cwd=REPO_ROOT)
+
+    def test_package_only_consumer_compiles_current_wizard_api(self) -> None:
+        script = (REPO_ROOT / "scripts/ai/verify-no-siblings-package-plane.sh").read_text(encoding="utf-8")
+        probe = script.split('cat >"$runtime_consumer_root/BoundaryProbe.cs" <<\'EOF\'\n', 1)[1].split('\nEOF', 1)[0]
+        for member in ("CharacterCreationSkillsService", "ICharacterCreationSkillsReReviewService",
+                       "CharacterCreationSkillsReReviewConfirmRequest", "service.ConfirmReReview(request)",
+                       "request.ExplicitlyConfirmed && request.ExplicitlyReviewedChanges",
+                       "WorkspaceCharacterCareerReputationService", "ICharacterCareerReputationService",
+                       "service.Commit(command, cancellationToken)", "authority.TalentAccess"):
+            with self.subTest(member=member):
+                self.assertIn(member, probe)
 
     def test_finalization_members_are_bound_to_runtime_source(self) -> None:
         self.assertEqual(4, len(runtime.CREATION_FINALIZATION_AUTHORITY_PATHS))
@@ -85,10 +118,12 @@ class RuntimePackageLockTests(unittest.TestCase):
                     cwd=REPO_ROOT,
                 )
 
-    def test_missing_finalization_or_reward_source_member_is_fail_closed(self) -> None:
+    def test_missing_wizard_source_member_is_fail_closed(self) -> None:
         real_run = runtime._run
         for member in (*runtime.CREATION_FINALIZATION_AUTHORITY_PATHS,
-                       *runtime.AFTER_RUN_REWARD_AUTHORITY_PATHS):
+                       *runtime.AFTER_RUN_REWARD_AUTHORITY_PATHS,
+                       *runtime.CREATION_SKILLS_REVIEW_AUTHORITY_PATHS,
+                       *runtime.CAREER_REPUTATION_AUTHORITY_PATHS):
             def missing_member(command, *, cwd):
                 if tuple(command) == ("git", "cat-file", "-e", f"{runtime.SOURCE_COMMIT}:{member}"):
                     raise runtime.RuntimePackagePlaneError("missing anchored semantic member")
@@ -98,10 +133,12 @@ class RuntimePackageLockTests(unittest.TestCase):
                 with self.assertRaisesRegex(runtime.RuntimePackagePlaneError, "missing anchored semantic member"):
                     runtime.validate_repository(REPO_ROOT, self.lock)
 
-    def test_finalization_and_reward_semantic_drift_cannot_hide_in_recipe(self) -> None:
+    def test_wizard_semantic_drift_cannot_hide_in_recipe(self) -> None:
         real_run = runtime._run
         for member in (*runtime.CREATION_FINALIZATION_AUTHORITY_PATHS,
-                       *runtime.AFTER_RUN_REWARD_AUTHORITY_PATHS):
+                       *runtime.AFTER_RUN_REWARD_AUTHORITY_PATHS,
+                       *runtime.CREATION_SKILLS_REVIEW_AUTHORITY_PATHS,
+                       *runtime.CAREER_REPUTATION_AUTHORITY_PATHS):
             def semantic_drift(command, *, cwd):
                 if tuple(command) == ("git", "diff", "--name-only", runtime.SOURCE_COMMIT):
                     return "\n".join((*runtime.ALLOWED_RECIPE_DELTA, member))
