@@ -10,6 +10,7 @@ public static class CharacterCreationSkillsDraftIntegrity
         if (state is null
             || !string.Equals(state.Schema, CharacterCreationSkillsSchemas.SnapshotV1, StringComparison.Ordinal)
             || !IsValidAuthority(state.Authority)
+            || !CharacterCreationSkillsAccessRules.MatchesPrerequisite(state.Authority, state.PrerequisiteDraft)
             || !CharacterCreationSkillsDigest.EqualsFixedTime(
                 state.Binding.SkillsAuthorityDigest,
                 state.Authority.AuthorityDigest)
@@ -38,7 +39,18 @@ public static class CharacterCreationSkillsDraftIntegrity
             return false;
 
         if (state.PendingDraft is null)
-            return state.Skills.Count == 0 && state.SkillGroups.Count == 0;
+        {
+            if (state.PrerequisiteDraft is { } initial
+                && (initial.WorkspaceId != state.Binding.WorkspaceId
+                    || initial.DraftRevision != state.Binding.PrerequisiteDraftRevision
+                    || !CharacterCreationSkillsDigest.EqualsFixedTime(initial.DraftDigest, state.Binding.PrerequisiteDraftDigest)))
+                return false;
+            return CharacterCreationTalentSkillGrants.TryResolve(state.PrerequisiteDraft, state.Authority, out var grants)
+                && CharacterCreationSkillsDigest.EqualsFixedTime(CharacterCreationSkillsDigest.Compute(state.Skills),
+                    CharacterCreationSkillsDigest.Compute(grants.InitialSkills(state.Authority)))
+                && CharacterCreationSkillsDigest.EqualsFixedTime(CharacterCreationSkillsDigest.Compute(state.SkillGroups),
+                    CharacterCreationSkillsDigest.Compute(grants.InitialGroups(state.Authority)));
+        }
         if (state.PrerequisiteDraft is not { } prerequisite
             || state.AttributesDraft is not { } attributes
             || !IsStructurallyValidPending(
@@ -189,7 +201,7 @@ public static class CharacterCreationSkillsDraftIntegrity
         {
             return false;
         }
-        return true;
+        return CharacterCreationSkillsAccessRules.IsValid(authority);
     }
 
     public static string ComputeDigest(CharacterCreationSkillsDraft draft)
@@ -236,6 +248,12 @@ public static class CharacterCreationSkillsDraftIntegrity
            && draft.GroupAllocations is not null
            && draft.Skills is not null
            && draft.SkillGroups is not null
+           && CharacterCreationTalentSkillGrants.TryResolve(prerequisite, authority, out var grants)
+           && grants.IsValidProjection(draft.Skills, draft.SkillGroups)
+           && CharacterCreationSkillsAccessRules.MatchesPrerequisite(authority, prerequisite)
+           && draft.Skills.All(item => item.Kind != CharacterCreationSkillKinds.Active
+               || CharacterCreationSkillsAccessRules.IsSkillAvailable(authority, item.SourceSkillId))
+           && draft.SkillGroups.All(item => CharacterCreationSkillsAccessRules.IsGroupAvailable(authority, item.GroupId))
            && draft.KnowledgePointContributions is not null
            && draft.SourceAnchorIds is { Count: > 0 }
            && !draft.CharacterEffectsApplied
@@ -292,7 +310,10 @@ public static class CharacterCreationSkillsDraftIntegrity
             return false;
         return receipts.Zip(receipts.Skip(1)).All(pair =>
             pair.First.ContentRevision < pair.Second.ContentRevision
-            && pair.Second.PreviousContentRevision == pair.First.ContentRevision
+            // Workspace revisions belong to every wizard, not just Skills.
+            // Other domains may commit between these two Skills receipts;
+            // Skills draft revisions and receipt hashes must remain contiguous.
+            && pair.Second.PreviousContentRevision >= pair.First.ContentRevision
             && pair.First.DraftRevision < long.MaxValue
             && pair.Second.DraftRevision == pair.First.DraftRevision + 1
             && CharacterCreationSkillsDigest.EqualsFixedTime(

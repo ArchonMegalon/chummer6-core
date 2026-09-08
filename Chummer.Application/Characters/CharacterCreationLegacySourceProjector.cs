@@ -181,6 +181,56 @@ public static class CharacterCreationLegacySourceProjector
         return true;
     }
 
+    internal static bool TryBuildGrantedGearInstance(CharacterCreationTalentGearSource input,
+        string gearId, string qualityId, out XElement saved)
+    {
+        saved = new XElement("gear");
+        if (!CharacterCreationTalentQualitySourceRules.IsValidGearSource(input)) return false;
+        XElement source = XElement.Parse(input.CanonicalSourceXml);
+        // Catalog visibility and permitted accessory categories are not saved
+        // instance fields. Validate them before removing them from this projection.
+        if (source.Nodes().OfType<XText>().Any(item => !string.IsNullOrWhiteSpace(item.Value))
+            || source.Elements("hide").Any(item => item.HasAttributes || item.HasElements || !string.IsNullOrWhiteSpace(item.Value))
+            || source.Elements("hide").Count() > 1
+            || source.Elements("addoncategory").Any(item => item.HasAttributes || item.HasElements || string.IsNullOrWhiteSpace(item.Value)))
+            return false;
+        source.Elements("hide").Remove();
+        source.Elements("addoncategory").Remove();
+        if (ParseBoundedSource(source.ToString(SaveOptions.DisableFormatting), "gear", s_GearSourceChildren) is null
+            || !TryReadGearDefinition(source, out var definition))
+            return false;
+        saved = BuildSavedGear(definition, gearId, 1);
+        // addgear without fullcost owns a free instance; retain original cost
+        // only in its independently validated source payload, not purchase budget.
+        saved.Element("cost")!.Value = "0";
+        saved.Element("parentid")!.Value = qualityId;
+        return true;
+    }
+
+    // Instance serialization only. The caller must first compile and validate every
+    // original bonus and restriction. Keep the purchased-quality path unchanged.
+    internal static bool TryBuildHeritageQualityInstance(CharacterCreationTalentQualitySource input,
+        string qualityId, string extra, out XElement saved)
+    {
+        saved = new XElement("quality");
+        if (!CharacterCreationTalentQualitySourceRules.IsValidSource(input)) return false;
+        XElement source = XElement.Parse(input.CanonicalSourceXml);
+        XElement metadata = new(source);
+        metadata.Elements("bonus").Remove();
+        metadata.Elements("forbidden").Remove();
+        metadata.Elements("nameonpage").Remove();
+        if (source.Elements("bonus").Count() > 1 || source.Elements("forbidden").Count() > 1
+            || source.Elements("nameonpage").Count() > 1
+            || ParseBoundedSource(metadata.ToString(SaveOptions.DisableFormatting), "quality", s_QualitySourceChildren) is null
+            || !TryReadQualityDefinition(metadata, out var definition)
+            || definition.FirstLevelEffects.Count != 0)
+            return false;
+        saved = BuildSavedQuality(source, definition, qualityId);
+        saved.Element("qualitysource")!.Value = "Heritage";
+        saved.Element("extra")!.Value = extra;
+        return true;
+    }
+
     private static XElement? ParseBoundedSource(
         string sourceNodeXml,
         string expectedName,

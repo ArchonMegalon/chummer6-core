@@ -1,0 +1,27 @@
+<Project>
+  <!-- This directory hosts multiple test projects. Set paths before SDK props
+       so restoring this suite cannot overwrite another suite's assets graph. -->
+  <PropertyGroup>
+    <BaseIntermediateOutputPath>obj/career-reputation/</BaseIntermediateOutputPath>
+    <BaseOutputPath>bin/career-reputation/</BaseOutputPath>
+  </PropertyGroup>
+  <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" />
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <IsTestProject>true</IsTestProject>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Chummer.Contracts/Chummer.Contracts.csproj" />
+    <ProjectReference Include="../Chummer.Application/Chummer.Application.csproj" />
+    <Compile Include="CharacterCareerReputationRulesTests.cs" />
+    <Compile Include="CharacterCareerReputationProjectorTests.cs" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.0.1" />
+    <PackageReference Include="MSTest.TestAdapter" Version="4.1.0" />
+    <PackageReference Include="MSTest.TestFramework" Version="4.1.0" />
+  </ItemGroup>
+  <Import Project="Sdk.targets" Sdk="Microsoft.NET.Sdk" />
+</Project>

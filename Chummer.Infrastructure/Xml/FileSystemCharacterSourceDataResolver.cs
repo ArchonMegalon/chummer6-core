@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Buffers.Binary;
 using System.Diagnostics;
 using System.Globalization;
@@ -105,10 +106,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 _afterSourceBytesRead?.Invoke(identity);
                 FileSnapshot after = CaptureFileSnapshot(identity);
                 if (!HasStableIdentity(before, after)
-                    || (_afterSourceBytesRead is not null
-                        || !before.ChangeIdentity.Available
-                        || !after.ChangeIdentity.Available)
-                    && !ValidateCapturedBytes(identity, bytes))
+                    || !ValidateCapturedBytes(identity, bytes))
                 {
                     throw new IOException($"Source input changed while it was captured: {identity}");
                 }
@@ -340,9 +338,11 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 try
                 {
                     FileSnapshot current = CaptureFileSnapshot(path);
+                    // Even statx ctime can repeat for multiple writes within a
+                    // filesystem clock tick. Metadata detects obvious drift;
+                    // equality is not evidence that cached bytes are unchanged.
                     if (!HasStableIdentity(snapshot, current)
-                        || (!snapshot.ChangeIdentity.Available || !current.ChangeIdentity.Available)
-                        && !ValidateCurrentContent(path))
+                        || !ValidateCurrentContent(path))
                     {
                         _driftedFiles.Add(path);
                     }
@@ -380,13 +380,8 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             }
         }
 
-        private bool ValidateCapturedBytes(string path, byte[] captured)
-        {
-            byte[] current = ReadValidationBytes(path);
-            return CryptographicOperations.FixedTimeEquals(
-                SHA256.HashData(captured),
-                SHA256.HashData(current));
-        }
+        private bool ValidateCapturedBytes(string path, byte[] captured) =>
+            ValidateContentDigest(path, captured.LongLength, ComputeContentDigest(captured));
 
         private bool ValidateCurrentContent(string path)
         {
@@ -396,19 +391,52 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 _contentDigests.Add(path, expected);
             }
 
-            FileSnapshot before = CaptureFileSnapshot(path);
-            byte[] current = ReadValidationBytes(path);
-            FileSnapshot after = CaptureFileSnapshot(path);
-            return HasStableIdentity(before, after)
-                   && string.Equals(expected, ComputeContentDigest(current), StringComparison.Ordinal);
+            return ValidateContentDigest(path, _bytes[path].LongLength, expected);
         }
 
-        private byte[] ReadValidationBytes(string path)
+        private bool ValidateContentDigest(string path, long expectedLength, string expectedDigest)
         {
-            byte[] bytes = File.ReadAllBytes(path);
+            FileSnapshot before = CaptureFileSnapshot(path);
+            // FileInfo.Length may describe the symlink itself. The bounded
+            // stream below checks the actual content length; link/target
+            // identities are independently compared before and after reading.
+            string? digest = ReadValidationDigest(path, expectedLength);
+            FileSnapshot after = CaptureFileSnapshot(path);
+            return HasStableIdentity(before, after)
+                   && string.Equals(expectedDigest, digest, StringComparison.Ordinal);
+        }
+
+        private string? ReadValidationDigest(string path, long expectedLength)
+        {
+            // Reuse parsed snapshots; validation is streaming and bounded to
+            // the captured length plus one byte, even if a writer keeps growing
+            // the file. Do not allocate another full XML byte array per lookup.
+            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read,
+                FileShare.ReadWrite | FileShare.Delete, 4096, FileOptions.SequentialScan);
+            using IncrementalHash hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+            byte[] buffer = ArrayPool<byte>.Shared.Rent(64 * 1024);
+            long total = 0;
             _validationReadCount++;
-            _validationBytesRead += bytes.LongLength;
-            return bytes;
+            try
+            {
+                while (total <= expectedLength)
+                {
+                    int requested = (int)Math.Min(buffer.Length, expectedLength - total + 1);
+                    int count = stream.Read(buffer, 0, requested);
+                    if (count == 0)
+                        break;
+                    total += count;
+                    _validationBytesRead += count;
+                    hash.AppendData(buffer, 0, count);
+                }
+                return total == expectedLength
+                    ? Convert.ToHexString(hash.GetHashAndReset()).ToLowerInvariant()
+                    : null;
+            }
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(buffer, clearArray: true);
+            }
         }
 
         private static string ComputeContentDigest(byte[] bytes)
@@ -946,6 +974,15 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 specializationsBreakSkillGroups?.ToString(CultureInfo.InvariantCulture) ?? "invalid",
                 boundProfileInputsDigest);
 
+            XElement[] awarenessNodes = settings.Elements("usecalculatedpublicawareness").Take(2).ToArray();
+            bool? useCalculatedPublicAwareness = awarenessNodes.Length == 1
+                && TryParseStrictBoolElement(awarenessNodes[0], out bool resolvedAwareness)
+                    ? resolvedAwareness : null;
+            string reputationRuleState = string.Join('\0',
+                settingsKey,
+                useCalculatedPublicAwareness?.ToString(CultureInfo.InvariantCulture) ?? "invalid",
+                boundProfileInputsDigest);
+
             var context = new SourceDataContext(
                 catalog,
                 sourceInputs,
@@ -997,7 +1034,9 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 karmaActiveSpecialization,
                 karmaKnowledgeSpecialization,
                 specializationsBreakSkillGroups,
-                specializationRuleState);
+                specializationRuleState,
+                useCalculatedPublicAwareness,
+                reputationRuleState);
             Volatile.Write(ref _lastSourceInputs, sourceInputs);
             return context;
         }
@@ -1733,6 +1772,8 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
         private readonly int? _karmaKnowledgeSpecialization;
         private readonly bool? _specializationsBreakSkillGroups;
         private readonly string _specializationRuleState;
+        private readonly bool? _useCalculatedPublicAwareness;
+        private readonly string _reputationRuleState;
 
         public SourceDataContext(
             ContentOverlayCatalog catalog,
@@ -1785,7 +1826,9 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             int? karmaActiveSpecialization,
             int? karmaKnowledgeSpecialization,
             bool? specializationsBreakSkillGroups,
-            string specializationRuleState)
+            string specializationRuleState,
+            bool? useCalculatedPublicAwareness,
+            string reputationRuleState)
         {
             _catalog = catalog;
             _sourceInputs = sourceInputs;
@@ -1838,6 +1881,8 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             _karmaKnowledgeSpecialization = karmaKnowledgeSpecialization;
             _specializationsBreakSkillGroups = specializationsBreakSkillGroups;
             _specializationRuleState = specializationRuleState;
+            _useCalculatedPublicAwareness = useCalculatedPublicAwareness;
+            _reputationRuleState = reputationRuleState;
         }
 
         public bool TryResolveMaxNuyenDecimals(out int decimalPlaces)
@@ -3640,6 +3685,12 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 || !TryComputeEffectiveInputDigest(_catalog, "powers.xml", out string powersDigest)
                 || !TryComputeEffectiveInputDigest(_catalog, "spells.xml", out string spellsDigest)
                 || !TryComputeEffectiveInputDigest(_catalog, "complexforms.xml", out string complexFormsDigest)
+                || !TryComputeEffectiveInputDigest(_catalog, "qualities.xml", out string qualitiesDigest)
+                || !TryComputeEffectiveInputDigest(_catalog, "gear.xml", out string gearDigest)
+                || !TryComputeEffectiveInputDigest(_catalog, "settings.xml", out string magicSettingsDigest)
+                || !TryResolveTarget("settings.xml", ["settings"], "setting", _settingsProfileId,
+                    string.Empty, out XElement? magicSettings)
+                || magicSettings is null
                 || !TryComputeSelectedCustomDataInputsDigest(
                     _customDirectories, out string customDataInputsDigest)
                 || !TryEnumerateTargets("metatypes.xml", ["metatypes"], "metatype", out XElement[] metatypes)
@@ -3647,12 +3698,20 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 || !TryEnumerateTargets("streams.xml", ["traditions"], "tradition", out XElement[] streams)
                 || !TryEnumerateTargets("powers.xml", ["powers"], "power", out XElement[] powers)
                 || !TryEnumerateTargets("spells.xml", ["spells"], "spell", out XElement[] spells)
-                || !TryEnumerateTargets("complexforms.xml", ["complexforms"], "complexform", out XElement[] forms))
+                || !TryEnumerateTargets("complexforms.xml", ["complexforms"], "complexform", out XElement[] forms)
+                || !TryEnumerateTargets("qualities.xml", ["qualities"], "quality", out XElement[] qualities)
+                || !TryEnumerateTargets("gear.xml", ["gears"], "gear", out XElement[] grantedGear))
             {
                 return false;
             }
 
             var blockers = new List<string>();
+            if (!string.Equals(BindSelectedProfile(magicSettingsDigest, _settingsProfileId),
+                    _rawProfileInputsDigest, StringComparison.Ordinal))
+                blockers.Add(CharacterCreationMagicResonanceBlockers.SourceDrift);
+            if (!CharacterCreationMysticAdeptPowerPointRules.TryCreatePolicy(_settingsProfileId,
+                    magicSettingsDigest, magicSettings.ToString(SaveOptions.DisableFormatting), out var powerPointPolicy))
+                blockers.Add(CharacterCreationMagicResonanceBlockers.PowerBudgetUnsupported);
             if (_sourceInputs.HasSourceDrift)
                 blockers.Add(CharacterCreationMagicResonanceBlockers.SourceDrift);
             if (!CharacterCreationMagicResonanceDigest.EqualsFixedTime(
@@ -3680,6 +3739,8 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 powersDigest,
                 spellsDigest,
                 complexFormsDigest,
+                qualitiesDigest,
+                gearDigest,
                 customDataInputsDigest,
                 _enabledSourcebooks.OrderBy(item => item, StringComparer.OrdinalIgnoreCase).ToArray(),
                 [
@@ -3691,9 +3752,14 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                     "powers.xml",
                     "spells.xml",
                     "complexforms.xml",
+                    "qualities.xml",
+                    "gear.xml",
                     .. _customDirectories.Select(directory => $"customdata:{directory.Name}")
                 ],
-                blockers);
+                blockers)
+            {
+                MysticAdeptPowerPointPolicy = powerPointPolicy
+            };
             authority = CharacterCreationMagicResonanceAuthorityProjector.Project(
                 metatypes,
                 traditions,
@@ -3701,6 +3767,8 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 powers,
                 spells,
                 forms,
+                qualities,
+                grantedGear,
                 projectionContext);
             return true;
         }
@@ -4373,6 +4441,21 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 category,
                 attribute,
                 skill.ToString(SaveOptions.DisableFormatting));
+            return true;
+        }
+
+        public bool TryResolveCareerReputationSettings(
+            out CharacterCareerReputationSettings settings,
+            out string rawRuleState)
+        {
+            using IDisposable sourceInputScope = _sourceInputs.Enter();
+            settings = new CharacterCareerReputationSettings(false);
+            rawRuleState = string.Empty;
+            if (_sourceInputs.HasSourceDrift || !_useCalculatedPublicAwareness.HasValue
+                || string.IsNullOrWhiteSpace(_reputationRuleState))
+                return false;
+            settings = new CharacterCareerReputationSettings(_useCalculatedPublicAwareness.Value);
+            rawRuleState = _reputationRuleState;
             return true;
         }
 

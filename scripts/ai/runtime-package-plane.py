@@ -34,9 +34,9 @@ INVENTORY_NAME = "chummer-core-runtime-packages.inventory.json"
 OWNER_INVENTORY_NAME = "chummer-owner-contracts.inventory.json"
 CANDIDATE_ENGINE_INVENTORY_NAME = "chummer-core-candidate-engine-contract.inventory.json"
 CANDIDATE_GM_INVENTORY_NAME = "chummer-core-candidate-gm-edit-runtime.inventory.json"
-PACKAGE_VERSION = "0.0.0-packageplane.candidate.sh60112dccb6a3f"
+PACKAGE_VERSION = "0.0.0-packageplane.candidate.sh880e5df8ace98"
 SOURCE_REPOSITORY = "https://github.com/ArchonMegalon/chummer6-core.git"
-SOURCE_COMMIT = "60112dccb6a3faad330d32c3c98eef0aa81d97af"
+SOURCE_COMMIT = "880e5df8ace981e9a60264d835329dd32f54a158"
 SDK_VERSION = "10.0.103"
 SDK_RID = "linux-x64"
 SDK_ARCHIVE_URL = (
@@ -241,6 +241,50 @@ CREATION_ACTIVATION_AUTHORITY_PATHS = (
 CREATION_SOURCE_INPUT_AUTHORITY_PATHS = (
     "Chummer.Infrastructure/Xml/FileSystemCharacterSourceDataResolver.cs",
     "Chummer.Tests/FileSystemCharacterSourceDataResolverTests.cs",
+)
+CREATION_FINALIZATION_AUTHORITY_PATHS = (
+    "Chummer.Application/Characters/CharacterCreationFinalizationProjector.cs",
+    "Chummer.Contracts/Characters/CharacterCreationFinalizationModels.cs",
+    "Chummer.Tests/CharacterCreationFinalizationServiceTests.cs",
+    "Chummer.Tests/Chummer.CreationFinalization.Tests.csproj",
+)
+AFTER_RUN_REWARD_AUTHORITY_PATHS = (
+    "Chummer.Application/Characters/CharacterAfterRunRewardProjector.cs",
+    "Chummer.Application/Characters/CharacterAfterRunRewardReceiptLedgerIntegrity.cs",
+    "Chummer.Application/Characters/ICharacterAfterRunRewardService.cs",
+    "Chummer.Contracts/Characters/CharacterAfterRunRewardContracts.cs",
+    "Chummer.Contracts/Workspaces/WorkspaceDocumentAuxiliaryState.cs",
+    "Chummer.Infrastructure/DependencyInjection/ServiceCollectionExtensions.cs",
+    "Chummer.Infrastructure/Workspaces/FileWorkspaceStore.cs",
+    "Chummer.Infrastructure/Workspaces/WorkspaceCharacterAfterRunRewardService.cs",
+    "Chummer.Tests/Chummer.AfterRunReward.Tests.csproj",
+    "Chummer.Tests/WorkspaceCharacterAfterRunRewardTests.cs",
+    "Chummer.Tests/CharacterAfterRunSettlementRulesTests.cs",
+)
+CREATION_SKILLS_REVIEW_AUTHORITY_PATHS = (
+    "Chummer.Contracts/Characters/CharacterCreationSkillsReReviewModels.cs",
+    "Chummer.Application/Characters/ICharacterCreationSkillsReReviewService.cs",
+    "Chummer.Application/Characters/CharacterCreationSkillsService.ReReview.cs",
+    "Chummer.Application/Characters/CharacterCreationSkillsService.cs",
+    "Chummer.Application/Characters/CharacterCreationSkillsAccessRules.cs",
+    "Chummer.Application/Characters/CharacterCreationSkillsDraftIntegrity.cs",
+    "Chummer.Application/Characters/CharacterCreationTalentSkillGrants.cs",
+    "Chummer.Tests/CharacterCreationSkillsServiceTests.cs",
+    "Chummer.Tests/Chummer.CreationHistory.Tests.csproj",
+)
+CAREER_REPUTATION_AUTHORITY_PATHS = (
+    "Chummer.Contracts/Characters/CharacterCareerReputationRules.cs",
+    "Chummer.Contracts/Characters/CharacterCareerReputationSnapshot.cs",
+    "Chummer.Contracts/Characters/CharacterCareerReputationPersistence.cs",
+    "Chummer.Application/Characters/ICharacterCareerReputationService.cs",
+    "Chummer.Application/Characters/CharacterCareerReputationProjector.cs",
+    "Chummer.Application/Characters/CharacterCareerReputationTransaction.cs",
+    "Chummer.Infrastructure/Workspaces/WorkspaceCharacterCareerReputationService.cs",
+    "Chummer.Infrastructure/Workspaces/FileWorkspaceStore.CareerReputation.cs",
+    "Chummer.Tests/CharacterCareerReputationProjectorTests.cs",
+    "Chummer.Tests/WorkspaceCharacterCareerReputationTests.cs",
+    "Chummer.Tests/Chummer.CareerReputation.Tests.csproj",
+    "Chummer.Tests/Chummer.CareerReputation.Persistence.Tests.csproj",
 )
 
 
@@ -669,6 +713,13 @@ def validate_repository(repo_root: Path, lock: dict[str, Any]) -> None:
     for member in CREATION_ACTIVATION_AUTHORITY_PATHS:
         _run(("git", "cat-file", "-e", f"{SOURCE_COMMIT}:{member}"), cwd=repo_root)
     for member in CREATION_SOURCE_INPUT_AUTHORITY_PATHS:
+        _run(("git", "cat-file", "-e", f"{SOURCE_COMMIT}:{member}"), cwd=repo_root)
+    for member in CREATION_FINALIZATION_AUTHORITY_PATHS:
+        _run(("git", "cat-file", "-e", f"{SOURCE_COMMIT}:{member}"), cwd=repo_root)
+    for member in AFTER_RUN_REWARD_AUTHORITY_PATHS:
+        _run(("git", "cat-file", "-e", f"{SOURCE_COMMIT}:{member}"), cwd=repo_root)
+    for member in (*CREATION_SKILLS_REVIEW_AUTHORITY_PATHS,
+                   *CAREER_REPUTATION_AUTHORITY_PATHS):
         _run(("git", "cat-file", "-e", f"{SOURCE_COMMIT}:{member}"), cwd=repo_root)
 
     changed = _run(

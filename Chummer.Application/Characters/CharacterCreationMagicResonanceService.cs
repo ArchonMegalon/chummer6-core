@@ -65,10 +65,11 @@ public sealed class CharacterCreationMagicResonanceService : ICharacterCreationM
 
         string keyDigest = CharacterCreationMagicResonanceDigest.ComputeUtf8(request.IdempotencyKey);
         string commandDigest = ComputeCommandDigest(request);
-        IReadOnlyList<CharacterCreationMagicResonanceReceipt>? ledger = currentWorkspace.Document
-            .AuxiliaryState.CharacterCreationMagicResonanceReceipts;
-        if (!CharacterCreationMagicResonanceDraftIntegrity.IsValidReceiptLedger(
-                ledger, currentWorkspace.Id, currentWorkspace.ContentRevision))
+        bool historyValid = CharacterCreationFinalizationReceiptLedgerIntegrity.TryReadReceiptHistory(
+            currentWorkspace, out var history, out long historyRevision);
+        IReadOnlyList<CharacterCreationMagicResonanceReceipt>? ledger = history.CharacterCreationMagicResonanceReceipts;
+        if (!historyValid || !CharacterCreationMagicResonanceDraftIntegrity.IsValidReceiptLedger(
+                ledger, currentWorkspace.Id, historyRevision))
             return Blocked<CharacterCreationMagicResonanceReceipt>(
                 CharacterCreationFoundationOutcomes.Invalid,
                 CharacterCreationMagicResonanceBlockers.ReceiptLedgerInvalid);
@@ -232,7 +233,7 @@ public sealed class CharacterCreationMagicResonanceService : ICharacterCreationM
                 CharacterCreationFoundationOutcomes.Conflict, mismatch), null, null);
 
         var blockers = new List<string>(state.Blockers);
-        SelectionEvaluation projected = EvaluateSelections(state.Authority, talent, request.Selections, blockers);
+        SelectionEvaluation projected = EvaluateSelections(state.Authority, talent, attributes, request.Selections, blockers);
         CharacterCreationMagicResonanceDraft? draft = blockers.Count == 0
             ? BuildDraft(
                 workspace,
@@ -266,7 +267,11 @@ public sealed class CharacterCreationMagicResonanceService : ICharacterCreationM
             RequiresExplicitConfirmation: true,
             CanConfirm: normalized.Length == 0 && draft is not null,
             PreviewDigest: string.Empty);
-        preview = preview with { FinalizationContribution = draft?.FinalizationContribution };
+        preview = preview with
+        {
+            FinalizationContribution = draft?.FinalizationContribution,
+            MysticAdeptPowerPoints = projected.MysticAdeptPowerPoints
+        };
         preview = preview with
         {
             PreviewDigest = CharacterCreationMagicResonanceDigest.Compute(
@@ -358,7 +363,10 @@ public sealed class CharacterCreationMagicResonanceService : ICharacterCreationM
         if (talent is not null)
         {
             var pendingBlockers = new List<string>();
-            projected = EvaluateSelections(authority, talent, pending?.Selections, pendingBlockers);
+            projected = EvaluateSelections(authority, talent, attributes, pending?.Selections, pendingBlockers);
+            if (attributes is not null
+                && pendingBlockers.Contains(CharacterCreationMagicResonanceBlockers.AttributesDraftInvalid))
+                blockers.Add(CharacterCreationMagicResonanceBlockers.AttributesDraftInvalid);
             if (pending is not null
                 && (pendingBlockers.Count != 0
                     || pending.TalentIdentity != talent.Identity
@@ -421,7 +429,10 @@ public sealed class CharacterCreationMagicResonanceService : ICharacterCreationM
                      && attributes is not null
                      && talent is not null
                      && normalized.Length == 0,
-            SnapshotDigest: string.Empty);
+            SnapshotDigest: string.Empty)
+        {
+            MysticAdeptPowerPoints = projected.MysticAdeptPowerPoints
+        };
         state = state with
         {
             SnapshotDigest = CharacterCreationMagicResonanceDigest.Compute(
@@ -486,11 +497,29 @@ public sealed class CharacterCreationMagicResonanceService : ICharacterCreationM
     private static SelectionEvaluation EvaluateSelections(
         CharacterCreationMagicResonanceAuthority authority,
         CharacterCreationMagicResonanceTalentOption talent,
+        CharacterCreationAttributesDraft? attributes,
         CharacterCreationMagicResonanceSelections? requested,
         ICollection<string> blockers)
     {
         requested ??= new(null, null, [], [], []);
         CharacterCreationMagicResonanceSelections selections = NormalizeSelections(requested);
+        decimal powerPointTotal = 0m;
+        int effectiveMagic = 0;
+        if (attributes is null
+            || !CharacterCreationMagicResonanceFinalizationRules.TryResolveEffectiveAttributes(
+                talent, attributes, out CharacterCreationMagicResonanceEffectiveAttributes effective))
+            blockers.Add(CharacterCreationMagicResonanceBlockers.AttributesDraftInvalid);
+        else
+        {
+            powerPointTotal = effective.AdeptPowerPointBudget;
+            effectiveMagic = effective.Magic;
+        }
+        if (!CharacterCreationMysticAdeptPowerPointRules.TryEvaluate(authority.MysticAdeptPowerPointPolicy,
+                talent.Kind, effectiveMagic, talent.SpellBudget, selections.MysticAdeptPowerPoints,
+                out var mysticPowerPoints))
+            blockers.Add(CharacterCreationMagicResonanceBlockers.PowerBudgetUnsupported);
+        if (mysticPowerPoints is not null)
+            powerPointTotal = mysticPowerPoints.PowerPoints;
 
         CharacterCreationMagicResonanceCatalogOption? tradition = ResolveSingle(
             selections.Tradition,
@@ -531,7 +560,8 @@ public sealed class CharacterCreationMagicResonanceService : ICharacterCreationM
                 blockers);
             if (!talent.AllowsAdeptPowers)
                 blockers.Add(CharacterCreationMagicResonanceBlockers.PowerSelectionNotAllowed);
-            if (source is null || allocation.Levels < 1 || allocation.Levels > source.MaximumLevels)
+            if (source is null || allocation.Levels < 1
+                || allocation.Levels > CharacterCreationAdeptPowerSourceRules.EffectiveMaximumLevels(source, effectiveMagic))
             {
                 blockers.Add(CharacterCreationMagicResonanceBlockers.OptionInvalid);
                 continue;
@@ -543,10 +573,6 @@ public sealed class CharacterCreationMagicResonanceService : ICharacterCreationM
                 powerUsed = decimal.MaxValue;
             }
         }
-        if (talent.Kind == CharacterCreationMagicResonanceKinds.MysticAdept
-            && selections.AdeptPowers.Count != 0)
-            blockers.Add(CharacterCreationMagicResonanceBlockers.PowerBudgetUnsupported);
-
         int spellUsed = ValidateFlatSelections(
             selections.Spells,
             authority.Spells,
@@ -574,12 +600,12 @@ public sealed class CharacterCreationMagicResonanceService : ICharacterCreationM
             CharacterCreationMagicResonanceBlockers.StreamRequired);
         CharacterCreationMagicResonanceBudgetState powerBudget = Budget(
             CharacterCreationMagicResonanceKinds.AdeptPower,
-            talent.AdeptPowerPointBudget,
+            powerPointTotal,
             powerUsed,
             CharacterCreationMagicResonanceBlockers.PowerBudgetExceeded);
         CharacterCreationMagicResonanceBudgetState spellBudget = Budget(
             CharacterCreationMagicResonanceKinds.Spell,
-            talent.SpellBudget,
+            mysticPowerPoints?.SpellBudget ?? talent.SpellBudget,
             spellUsed,
             CharacterCreationMagicResonanceBlockers.SpellBudgetExceeded);
         CharacterCreationMagicResonanceBudgetState formBudget = Budget(
@@ -588,7 +614,7 @@ public sealed class CharacterCreationMagicResonanceService : ICharacterCreationM
             formUsed,
             CharacterCreationMagicResonanceBlockers.ComplexFormBudgetExceeded);
         if (talent.AllowsAdeptPowers
-            && talent.AdeptPowerPointBudget > 0m
+            && powerPointTotal > 0m
             && powerBudget.Remaining != 0m)
             blockers.Add(CharacterCreationMagicResonanceBlockers.PowerBudgetIncomplete);
         if (talent.AllowsSpells && spellBudget.Remaining != 0m)
@@ -614,10 +640,14 @@ public sealed class CharacterCreationMagicResonanceService : ICharacterCreationM
                 .Where(item => item.Identity == identity)
                 .SelectMany(item => item.SourceAnchorIds)))
             .Concat(talent.SourceAnchorIds)
+            .Concat(mysticPowerPoints?.Policy.SourceAnchorIds ?? [])
             .Distinct(StringComparer.Ordinal)
             .OrderBy(item => item, StringComparer.Ordinal)
             .ToArray();
-        return new(selections, traditionBudget, streamBudget, powerBudget, spellBudget, formBudget, anchors);
+        return new(selections, traditionBudget, streamBudget, powerBudget, spellBudget, formBudget, anchors)
+        {
+            MysticAdeptPowerPoints = mysticPowerPoints
+        };
     }
 
     private static CharacterCreationMagicResonanceCatalogOption? ResolveSingle(
@@ -691,6 +721,7 @@ public sealed class CharacterCreationMagicResonanceService : ICharacterCreationM
                 authority,
                 talent,
                 evaluation.Selections,
+                attributes,
                 out CharacterCreationMagicResonanceFinalizationContribution contribution,
                 out string[] contributionBlockers))
         {
@@ -798,7 +829,10 @@ public sealed class CharacterCreationMagicResonanceService : ICharacterCreationM
             (selections.Spells ?? []).OrderBy(item => item.Kind, StringComparer.Ordinal)
                 .ThenBy(item => item.SourceId, StringComparer.Ordinal).ToArray(),
             (selections.ComplexForms ?? []).OrderBy(item => item.Kind, StringComparer.Ordinal)
-                .ThenBy(item => item.SourceId, StringComparer.Ordinal).ToArray());
+                .ThenBy(item => item.SourceId, StringComparer.Ordinal).ToArray())
+        {
+            MysticAdeptPowerPoints = selections.MysticAdeptPowerPoints
+        };
     }
 
     private static CharacterCreationMagicResonanceBudgetState Budget(
@@ -865,5 +899,8 @@ public sealed class CharacterCreationMagicResonanceService : ICharacterCreationM
         CharacterCreationMagicResonanceBudgetState PowerBudget,
         CharacterCreationMagicResonanceBudgetState SpellBudget,
         CharacterCreationMagicResonanceBudgetState FormBudget,
-        IReadOnlyList<string> SourceAnchorIds);
+        IReadOnlyList<string> SourceAnchorIds)
+    {
+        public CharacterCreationMysticAdeptPowerPointAllocation? MysticAdeptPowerPoints { get; init; }
+    }
 }

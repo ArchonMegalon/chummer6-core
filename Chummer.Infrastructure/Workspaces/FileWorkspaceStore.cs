@@ -14,11 +14,12 @@ using Chummer.Infrastructure.Files;
 
 namespace Chummer.Infrastructure.Workspaces;
 
-public sealed class FileWorkspaceStore :
+public sealed partial class FileWorkspaceStore :
     IWorkspaceStore,
     IWorkspaceStoreReadinessProbe,
     IWorkspaceAuxiliaryStateAtomicCommitCapability,
-    ICharacterCreationBootstrapAtomicCreateCapability
+    ICharacterCreationBootstrapAtomicCreateCapability,
+    ICharacterCareerReputationAtomicCommitCapability
 {
     private const int CurrentWorkspaceSchemaVersion = 1;
     private const int CurrentWorkspaceRecordSchemaVersion = 2;
@@ -815,7 +816,8 @@ public sealed class FileWorkspaceStore :
         string path,
         PersistedWorkspaceRecord record,
         WorkspaceWriteDisposition disposition,
-        DateTimeOffset? logicalLastUpdatedUtc = null)
+        DateTimeOffset? logicalLastUpdatedUtc = null,
+        Action? beforeTargetReplace = null)
     {
         string normalizedPath = Path.GetFullPath(path);
         EnsurePathContained(_stateDirectory, normalizedPath, "workspace target");
@@ -850,6 +852,9 @@ public sealed class FileWorkspaceStore :
             _faultInjector.OnStage(FileWorkspaceStoreFaultStage.AfterTempFileFlushed, normalizedPath, tempPath);
 
             ThrowIfLinkOrReparsePoint(normalizedPath, "workspace target");
+            // Private owner-supplied final fence. Never a serialized command or
+            // a caller-provided replacement-document authorization callback.
+            beforeTargetReplace?.Invoke();
             if (disposition == WorkspaceWriteDisposition.ReplaceExisting)
             {
                 // File.Replace requires the destination to still exist, so a delete that wins the
@@ -1420,6 +1425,17 @@ public sealed class FileWorkspaceStore :
         long currentContentRevision,
         WorkspaceDocumentAuxiliaryState state)
     {
+        if (state.CharacterCreationFinalizationArchive is { } archive
+            && (!CharacterCreationFinalizationReceiptLedgerIntegrity.IsValidArchive(
+                    workspaceId, currentContentRevision, archive, state.CharacterCreationFinalizationReceipts)
+                || !IsValidAuxiliaryState(workspaceId,
+                    state.CharacterCreationFinalizationReceipts![0].Receipt.PreviousContentRevision,
+                    archive.State)))
+        {
+            // IsValidArchive forbids nesting before this single historical
+            // validation. Do not weaken active draft/receipt pairing rules.
+            return false;
+        }
         CharacterCreationFoundationDraftLedger? draft = state.CharacterCreationFoundationDraft;
         bool foundationValid = draft is null || string.Equals(
                    draft.Schema,
@@ -1619,6 +1635,11 @@ public sealed class FileWorkspaceStore :
                 workspaceId,
                 currentContentRevision,
                 afterRunReceipts);
+        bool afterRunRewardReceiptsValid =
+            CharacterAfterRunRewardReceiptLedgerIntegrity.IsValidLedger(
+                workspaceId,
+                currentContentRevision,
+                state.CharacterAfterRunRewardReceipts);
         CharacterCreationBootstrapBinding? bootstrap =
             state.CharacterCreationBootstrapBinding;
         bool bootstrapValid = bootstrap is null
@@ -1648,6 +1669,9 @@ public sealed class FileWorkspaceStore :
                && gearValid
                && qualitiesValid
                && afterRunReceiptsValid
+               && afterRunRewardReceiptsValid
+               && CharacterCareerReputationTransaction.IsValidLedger(
+                   workspaceId, currentContentRevision, state.CharacterCareerReputationReceipts)
                && bootstrapValid
                && lifeModuleAcceptancesValid
                && finalizationReceiptsValid;
@@ -1666,6 +1690,57 @@ public sealed class FileWorkspaceStore :
         if (!IsValidAuxiliaryState(workspaceId, nextContentRevision, replacementState))
         {
             return false;
+        }
+
+        if (!string.Equals(
+                JsonSerializer.Serialize(currentState.CharacterCreationFinalizationArchive),
+                JsonSerializer.Serialize(replacementState.CharacterCreationFinalizationArchive),
+                StringComparison.Ordinal)
+            && (currentState.CharacterCreationFinalizationReceipts is not null
+                || replacementState.CharacterCreationFinalizationReceipts is not { Count: 1 }))
+        {
+            // A completed Creation history cannot be replaced or removed by a
+            // later Career mutation, including lanes with early returns below.
+            return false;
+        }
+
+        // Only CommitCareerReputation may append this ledger after reading its
+        // real source context inside the workspace lease. A rehashed receipt
+        // supplied to the generic auxiliary writer is never authorization.
+        if (!string.Equals(
+                JsonSerializer.Serialize(currentState.CharacterCareerReputationReceipts),
+                JsonSerializer.Serialize(replacementState.CharacterCareerReputationReceipts),
+                StringComparison.Ordinal))
+            return false;
+
+        bool rewardLedgerChanged = !string.Equals(
+            WorkspaceDocumentAuxiliaryStateDigest.Compute(new WorkspaceDocumentAuxiliaryState(
+                CharacterAfterRunRewardReceipts: currentState.CharacterAfterRunRewardReceipts)),
+            WorkspaceDocumentAuxiliaryStateDigest.Compute(new WorkspaceDocumentAuxiliaryState(
+                CharacterAfterRunRewardReceipts: replacementState.CharacterAfterRunRewardReceipts)),
+            StringComparison.Ordinal);
+        if (rewardLedgerChanged)
+        {
+            // This independent career lane may advance only its own append-only
+            // receipt history. Check every sibling, including lanes with early
+            // returns below, before validating the exact reward payload change.
+            return string.Equals(
+                       WorkspaceDocumentAuxiliaryStateDigest.Compute(currentState with
+                       {
+                           CharacterAfterRunRewardReceipts = null
+                       }),
+                       WorkspaceDocumentAuxiliaryStateDigest.Compute(replacementState with
+                       {
+                           CharacterAfterRunRewardReceipts = null
+                       }),
+                       StringComparison.Ordinal)
+                   && CharacterAfterRunRewardReceiptLedgerIntegrity.IsValidAppendTransition(
+                       workspaceId,
+                       previousContentRevision,
+                       previousSavedRevision,
+                       nextContentRevision,
+                       currentDocument,
+                       replacementDocument);
         }
 
         bool finalizationLedgerChanged = !string.Equals(

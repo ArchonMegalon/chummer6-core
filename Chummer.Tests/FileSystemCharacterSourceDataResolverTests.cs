@@ -5,6 +5,7 @@ using System.IO;
 using System.Xml.Linq;
 using Chummer.Application.Characters;
 using Chummer.Application.Content;
+using Chummer.Application.Workspaces;
 using Chummer.Contracts.Rulesets;
 using Chummer.Contracts.Characters;
 using Chummer.Contracts.Workspaces;
@@ -107,6 +108,171 @@ public sealed class FileSystemCharacterSourceDataResolverTests
 
         Assert.AreEqual(0, unresolvedActive.Length, string.Join(",", unresolvedActive));
         Assert.AreEqual(0, unresolvedKnowledge.Length, string.Join(",", unresolvedKnowledge));
+    }
+
+    [TestMethod]
+    public void Canonical_career_reputation_policy_is_profile_bound()
+    {
+        ICharacterSourceDataContext context = CreateContext(FindCoreRoot(),
+            $"<character><settings>{SettingsId}</settings></character>")!;
+        Assert.IsTrue(context.TryResolveCareerReputationSettings(out var settings, out string rawRuleState));
+        Assert.IsFalse(settings.UseCalculatedPublicAwareness);
+        StringAssert.Contains(rawRuleState, SettingsId);
+        Assert.IsFalse(string.IsNullOrWhiteSpace(rawRuleState));
+    }
+
+    [TestMethod]
+    public void Career_reputation_reads_real_profile_and_saved_document_without_defaulting_missing_policy()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            WriteBaseContent(root, string.Empty);
+            string path = Path.Combine(root, "data", "settings.xml");
+            string profile = File.ReadAllText(path);
+            File.WriteAllText(path, profile.Replace("</setting>",
+                "<usecalculatedpublicawareness>True</usecalculatedpublicawareness></setting>", StringComparison.Ordinal));
+            var resolver = new FileSystemCharacterSourceDataResolver(new FileSystemContentOverlayCatalogService(root, root, null));
+            var saved = new WorkspaceStoredDocument(new CharacterWorkspaceId("real-reputation-profile"),
+                new WorkspaceDocument(CharacterXml("""
+                    <created>True</created><streetcred>1</streetcred><notoriety>2</notoriety>
+                    <publicawareness>1</publicawareness><burntstreetcred>0</burntstreetcred>
+                    <expenses><expense><type>Karma</type><amount>30</amount><refund>False</refund></expense></expenses>
+                    <improvements/>
+                    """), "sr5"), 7, 7, DateTimeOffset.UnixEpoch);
+            string storePath = Path.Combine(root, "workspaces");
+            var store = new FileWorkspaceStore(storePath);
+            Assert.IsTrue(store.CreateWorkspaceDocument(saved.Id, saved.Document).Success);
+            Assert.IsTrue(store.SaveCheckpoint(saved.Id, 1).Success);
+            saved = new FileWorkspaceStore(storePath).Get(saved.Id).Value!;
+            var beforeFiles = Directory.GetFiles(storePath, "*", SearchOption.AllDirectories)
+                .ToDictionary(file => file, File.ReadAllBytes, StringComparer.Ordinal);
+            Assert.IsTrue(CharacterCareerReputationProjector.TryRead(saved, resolver, out var calculated, out var error), error);
+            Assert.AreEqual(30, calculated!.Reputation.Inputs.CareerKarma);
+            Assert.AreEqual(3, calculated.Reputation.TotalPublicAwareness);
+            File.WriteAllText(path, profile.Replace("</setting>",
+                "<usecalculatedpublicawareness>False</usecalculatedpublicawareness></setting>", StringComparison.Ordinal));
+            Assert.IsTrue(CharacterCareerReputationProjector.TryRead(saved, resolver, out var manual, out error), error);
+            Assert.AreEqual(1, manual!.Reputation.TotalPublicAwareness);
+            Assert.AreNotEqual(calculated.RuleStateDigest, manual.RuleStateDigest);
+            Assert.AreEqual(calculated.SourceDigest, manual.SourceDigest);
+            File.WriteAllText(path, profile);
+            Assert.IsFalse(CharacterCareerReputationProjector.TryRead(saved, resolver, out var unavailable, out error));
+            Assert.IsNull(unavailable);
+            Assert.AreEqual("reputation_source_unavailable", error);
+            foreach (var file in beforeFiles)
+                CollectionAssert.AreEqual(file.Value, File.ReadAllBytes(file.Key), "Projection must not rewrite the saved workspace.");
+            Assert.AreEqual(beforeFiles.Count, Directory.GetFiles(storePath, "*", SearchOption.AllDirectories).Length);
+            Assert.AreEqual(1L, new FileWorkspaceStore(storePath).Get(saved.Id).Value!.ContentRevision);
+        }
+        finally { DeleteTempDirectory(root); }
+    }
+
+    [TestMethod]
+    public void Saved_after_run_reward_flows_into_reputation_and_burn_preview_without_recredit_or_mutation()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            WriteBaseContent(root, string.Empty);
+            string profilePath = Path.Combine(root, "data", "settings.xml");
+            File.WriteAllText(profilePath, File.ReadAllText(profilePath).Replace("</setting>",
+                "<usecalculatedpublicawareness>True</usecalculatedpublicawareness></setting>", StringComparison.Ordinal));
+            string storePath = Path.Combine(root, "reward-workspaces");
+            var store = new FileWorkspaceStore(storePath);
+            var id = new CharacterWorkspaceId("reputation-after-reward");
+            var document = new WorkspaceDocument(CharacterXml("""
+                <created>True</created><karma>100</karma><nuyen>1000</nuyen>
+                <streetcred>1</streetcred><notoriety>2</notoriety><publicawareness>1</publicawareness>
+                <burntstreetcred>0</burntstreetcred><expenses/><improvements/><notes>Preserve runner</notes>
+                """), "sr5");
+            Assert.IsTrue(store.CreateWorkspaceDocument(id, document).Success);
+            Assert.IsTrue(store.SaveCheckpoint(id, 1).Success);
+            var rewards = new WorkspaceCharacterAfterRunRewardService(store);
+            var preview = rewards.Preview(new CharacterAfterRunRewardPreviewRequest(id, Guid.NewGuid(), Guid.NewGuid(),
+                30, 12500, new DateTime(2078, 9, 7, 18, 0, 0), "Completed run"));
+            Assert.AreEqual(CharacterAfterRunRewardOutcome.Available, preview.Outcome, preview.Error);
+            var command = preview.Preview!.Command with { ExplicitlyConfirmed = true };
+            Assert.AreEqual(CharacterAfterRunRewardOutcome.Applied, rewards.Commit(command).Outcome);
+
+            var saved = new FileWorkspaceStore(storePath).Get(id).Value!;
+            var resolver = new FileSystemCharacterSourceDataResolver(new FileSystemContentOverlayCatalogService(root, root, null));
+            string before = System.Text.Json.JsonSerializer.Serialize(saved);
+            Assert.IsTrue(CharacterCareerReputationProjector.TryRead(saved, resolver, out var reputation, out var error), error);
+            Assert.AreEqual(30, reputation!.Reputation.Inputs.CareerKarma);
+            Assert.AreEqual(130, rewards.Read(id).Snapshot!.AvailableKarma);
+            Assert.AreEqual(4, reputation.Reputation.TotalStreetCred);
+            Assert.AreEqual(3, reputation.Reputation.TotalPublicAwareness);
+            Assert.IsTrue(CharacterCareerReputationRules.TryQuoteBurnStreetCred(reputation.Reputation.Inputs, out var burn));
+            Assert.AreEqual(2, burn!.After.TotalStreetCred);
+            Assert.AreEqual(1, burn.After.TotalNotoriety);
+            Assert.AreEqual(2, burn.After.TotalPublicAwareness);
+            var coldRewards = new WorkspaceCharacterAfterRunRewardService(new FileWorkspaceStore(storePath));
+            Assert.AreEqual(CharacterAfterRunRewardOutcome.Replayed, coldRewards.Commit(command).Outcome);
+            Assert.AreEqual(before, System.Text.Json.JsonSerializer.Serialize(new FileWorkspaceStore(storePath).Get(id).Value));
+            Assert.AreEqual(1, saved.Document.AuxiliaryState.CharacterAfterRunRewardReceipts!.Count);
+            Assert.AreEqual(2L, saved.ContentRevision);
+        }
+        finally { DeleteTempDirectory(root); }
+    }
+
+    [DataRow("<usecalculatedpublicawareness>True</usecalculatedpublicawareness>", true, true)]
+    [DataRow("<usecalculatedpublicawareness>False</usecalculatedpublicawareness>", true, false)]
+    [DataRow("", false, false)]
+    [DataRow("<usecalculatedpublicawareness/>", false, false)]
+    [DataRow("<usecalculatedpublicawareness>1</usecalculatedpublicawareness>", false, false)]
+    [DataRow("<usecalculatedpublicawareness>yes</usecalculatedpublicawareness>", false, false)]
+    [DataRow("<usecalculatedpublicawareness> True </usecalculatedpublicawareness>", false, false)]
+    [DataRow("<usecalculatedpublicawareness enabled=\"false\">True</usecalculatedpublicawareness>", false, false)]
+    [DataRow("<usecalculatedpublicawareness><value>True</value></usecalculatedpublicawareness>", false, false)]
+    [DataRow("<usecalculatedpublicawareness>True</usecalculatedpublicawareness><usecalculatedpublicawareness>False</usecalculatedpublicawareness>", false, false)]
+    [DataRow("<usecalculatedpublicawareness>True</usecalculatedpublicawareness><usecalculatedpublicawareness>True</usecalculatedpublicawareness>", false, false)]
+    [TestMethod]
+    public void Reputation_policy_requires_one_explicit_well_formed_value(string node, bool available, bool expected)
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            WriteBaseContent(root, string.Empty);
+            string path = Path.Combine(root, "data", "settings.xml");
+            File.WriteAllText(path, File.ReadAllText(path).Replace("</setting>", node + "</setting>", StringComparison.Ordinal));
+            ICharacterSourceDataContext context = CreateContext(root, CharacterXml())!;
+            Assert.AreEqual(available, context.TryResolveCareerReputationSettings(out var settings, out string raw));
+            Assert.AreEqual(expected, settings.UseCalculatedPublicAwareness);
+            Assert.AreEqual(available, !string.IsNullOrEmpty(raw));
+        }
+        finally { DeleteTempDirectory(root); }
+    }
+
+    [TestMethod]
+    public void Retained_reputation_context_rejects_changed_profile_and_new_context_binds_new_bytes()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            WriteBaseContent(root, string.Empty);
+            string path = Path.Combine(root, "data", "settings.xml");
+            string original = File.ReadAllText(path).Replace("</setting>",
+                "<usecalculatedpublicawareness>False</usecalculatedpublicawareness></setting>", StringComparison.Ordinal);
+            File.WriteAllText(path, original);
+            ICharacterSourceDataContext old = CreateContext(root, CharacterXml())!;
+            Assert.IsTrue(old.TryResolveCareerReputationSettings(out _, out string oldRuleState));
+            File.WriteAllText(path, original.Replace("<usecalculatedpublicawareness>False", "<usecalculatedpublicawareness>True", StringComparison.Ordinal));
+            Assert.IsFalse(old.TryResolveCareerReputationSettings(out _, out string stale));
+            Assert.AreEqual(string.Empty, stale);
+            ICharacterSourceDataContext fresh = CreateContext(root, CharacterXml())!;
+            Assert.IsTrue(fresh.TryResolveCareerReputationSettings(out var settings, out string currentRuleState));
+            Assert.IsTrue(settings.UseCalculatedPublicAwareness);
+            Assert.AreNotEqual(oldRuleState, currentRuleState);
+            File.WriteAllText(path, File.ReadAllText(path).Replace("#,0.###", "#,0.##", StringComparison.Ordinal));
+            ICharacterSourceDataContext samePolicyNewProfile = CreateContext(root, CharacterXml())!;
+            Assert.IsTrue(samePolicyNewProfile.TryResolveCareerReputationSettings(out var sameSettings, out string rebound));
+            Assert.AreEqual(settings, sameSettings);
+            Assert.AreNotEqual(currentRuleState, rebound, "Profile binding must cover raw profile inputs, not only the Boolean.");
+            File.WriteAllText(path, original);
+            Assert.IsFalse(old.TryResolveCareerReputationSettings(out _, out _), "Drifted context must not revive after A-to-B-to-A source changes.");
+        }
+        finally { DeleteTempDirectory(root); }
     }
 
     [TestMethod]
@@ -414,7 +580,7 @@ public sealed class FileSystemCharacterSourceDataResolverTests
     }
 
     [TestMethod]
-    public void Creation_source_context_opens_and_parses_each_physical_input_at_most_once()
+    public void Creation_source_context_captures_and_parses_once_but_revalidates_content_bytes()
     {
         string coreRoot = FindCoreRoot();
         var overlays = new FileSystemContentOverlayCatalogService(coreRoot, coreRoot, null);
@@ -442,16 +608,10 @@ public sealed class FileSystemCharacterSourceDataResolverTests
         Assert.IsTrue(diagnostics.PhysicalReadCount > 0);
         Assert.IsTrue(diagnostics.PhysicalXmlParseCount > 0);
         Assert.IsTrue(diagnostics.CacheHitCount > 0);
-        if (OperatingSystem.IsLinux() || OperatingSystem.IsAndroid())
-        {
-            Assert.AreEqual(0, diagnostics.ValidationReadCount);
-            Assert.AreEqual(0L, diagnostics.ValidationBytesRead);
-        }
-        else
-        {
-            Assert.IsTrue(diagnostics.ValidationReadCount > 0);
-            Assert.IsTrue(diagnostics.ValidationBytesRead > 0L);
-        }
+        // statx ctime is a timestamp, not a collision-free write generation.
+        // Unchanged metadata must never exempt source bytes from validation.
+        Assert.IsTrue(diagnostics.ValidationReadCount > 0);
+        Assert.IsTrue(diagnostics.ValidationBytesRead > 0L);
         Assert.IsTrue(
             diagnostics.PhysicalReadsByPath.Values.All(count => count == 1),
             string.Join(",", diagnostics.PhysicalReadsByPath.Select(pair => $"{pair.Key}={pair.Value}")));
@@ -958,6 +1118,11 @@ public sealed class FileSystemCharacterSourceDataResolverTests
                 out _));
             int captureReads = resolver.LastSourceInputSnapshotDiagnostics!.PhysicalReadCount;
             int captureParses = resolver.LastSourceInputSnapshotDiagnostics.PhysicalXmlParseCount;
+            int validationReads = resolver.LastSourceInputSnapshotDiagnostics.ValidationReadCount;
+            Assert.IsTrue(context.TryResolveCreationSkillsAuthority(out var unchanged));
+            Assert.IsTrue(unchanged.IsAuthoritative, string.Join(",", unchanged.Blockers));
+            Assert.IsTrue(resolver.LastSourceInputSnapshotDiagnostics.ValidationReadCount > validationReads,
+                "Even unchanged native metadata needs byte validation; coarse ctime can repeat between writes.");
             DateTime capturedWriteTime = File.GetLastWriteTimeUtc(skillsPath);
             string original = File.ReadAllText(skillsPath);
             string tampered = original.Replace("<name>Running</name>", "<name>Runnong</name>", StringComparison.Ordinal);
@@ -1470,6 +1635,81 @@ public sealed class FileSystemCharacterSourceDataResolverTests
     }
 
     [TestMethod]
+    public void Canonical_magician_attributes_confirm_and_cold_reopen_with_source_bound_grant()
+    {
+        string coreRoot = FindCoreRoot();
+        var resolver = new FileSystemCharacterSourceDataResolver(
+            new FileSystemContentOverlayCatalogService(coreRoot, coreRoot, null));
+        string workspaceRoot = CreateTempDirectory();
+        try
+        {
+            var store = new FileWorkspaceStore(workspaceRoot);
+            var id = new CharacterWorkspaceId("canonical-magician-attributes");
+            string xml = $"<character><name>Magician</name><alias>Source-bound test</alias><metatype>Human</metatype>"
+                + "<buildmethod>Priority</buildmethod><createdversion>5.225.0</createdversion><appversion>5.225.0</appversion>"
+                + $"<created>false</created><karma>25</karma><nuyen>0</nuyen><settings>{SettingsId}</settings></character>";
+            Assert.IsTrue(store.CreateWorkspaceDocument(id, new WorkspaceDocument(xml, RulesetDefaults.Sr5)).Success);
+            var prerequisiteService = new CharacterCreationPrerequisiteService(
+                store, new XmlCharacterFileQueries(new CharacterFileService()), resolver);
+            CharacterCreationFoundationResult<CharacterCreationPrerequisiteState> loaded = prerequisiteService.Load(new(id));
+            Assert.IsNotNull(loaded.Value, $"{loaded.Outcome}: {string.Join(",", loaded.Blockers)}");
+            CharacterCreationPrerequisiteState state = loaded.Value;
+            Assert.HasCount(0, state.Blockers);
+            CharacterCreationPriorityHeritageOptionProjection human = state.Authority.Options
+                .Single(o => o.CategoryId == CharacterCreationPriorityCategoryIds.Heritage && o.Rank == "E")
+                .HeritageOptions.Single(h => h.MetatypeName == "Human" && h.MetavariantName is null);
+            CharacterCreationPriorityTalentOptionProjection magician = state.Authority.Options
+                .Single(o => o.CategoryId == CharacterCreationPriorityCategoryIds.Talent && o.Rank == "C")
+                .TalentOptions.Single(t => t.Value == "Magician");
+            Assert.AreEqual(3, magician.Magic);
+            IReadOnlyDictionary<string, string> ranks = CharacterCreationPrerequisiteServiceTests.Assign("E", "C", "A", "B", "D");
+            CharacterCreationPrerequisitePreview prerequisite = prerequisiteService.Preview(new(state.Binding, ranks)
+            {
+                HeritageSelectionId = human.SelectionId,
+                TalentSelectionId = magician.SelectionId
+            }).Value!;
+            Assert.IsTrue(prerequisite.CanConfirm, string.Join(",", prerequisite.Blockers));
+            Assert.AreEqual(CharacterCreationFoundationOutcomes.Success,
+                prerequisiteService.Confirm(new(prerequisite.Binding, ranks, prerequisite.PreviewDigest, true)
+                {
+                    HeritageSelectionId = human.SelectionId,
+                    TalentSelectionId = magician.SelectionId
+                }).Outcome);
+
+            var service = new CharacterCreationAttributesService(store, resolver);
+            CharacterCreationAttributesState attributes = service.Load(new(id)).Value!;
+            Assert.IsTrue(attributes.CanEdit, string.Join(",", attributes.Blockers));
+            CharacterCreationAttributeAllocation[] allocations = [new("MAG", 1, 0)];
+            CharacterCreationAttributesPreview preview = service.Preview(new(attributes.Binding, allocations)).Value!;
+            Assert.IsTrue(preview.CanConfirm, string.Join(",", preview.Blockers));
+            Assert.AreEqual(CharacterCreationFoundationOutcomes.Success,
+                service.Confirm(new(preview.Binding, allocations, preview.PreviewDigest, true)).Outcome);
+            WorkspaceStoredDocument saved = store.Get(id).Value!;
+
+            var coldStore = new FileWorkspaceStore(workspaceRoot);
+            var coldResolver = new FileSystemCharacterSourceDataResolver(
+                new FileSystemContentOverlayCatalogService(coreRoot, coreRoot, null));
+            CharacterCreationAttributesState cold = new CharacterCreationAttributesService(coldStore, coldResolver)
+                .Load(new(id)).Value!;
+            Assert.IsTrue(cold.CanEdit, string.Join(",", cold.Blockers));
+            Assert.IsNotNull(cold.PendingDraft);
+            CharacterCreationAttributeProjection magic = cold.Attributes.Single(a => a.AttributeId == "MAG");
+            Assert.AreEqual(3, magic.Minimum);
+            Assert.AreEqual(4, magic.Current);
+            Assert.AreEqual(6, magic.Maximum);
+            Assert.AreEqual(1m, cold.SpecialPointBudget.Used);
+            CollectionAssert.IsSubsetOf(magician.SourceAnchorIds.ToArray(), magic.SourceAnchorIds.ToArray());
+            Assert.AreEqual(saved.ContentRevision, cold.Binding.ContentRevision);
+            Assert.AreEqual(saved.Document.AuxiliaryStateDigest, cold.Binding.AuxiliaryStateDigest);
+            Assert.AreEqual(xml, coldStore.Get(id).Value!.Document.Content);
+        }
+        finally
+        {
+            DeleteTempDirectory(workspaceRoot);
+        }
+    }
+
+    [TestMethod]
     public void Canonical_disabled_negative_oni_does_not_block_enabled_human_service_path()
     {
         string coreRoot = FindCoreRoot();
@@ -1711,8 +1951,15 @@ public sealed class FileSystemCharacterSourceDataResolverTests
                 && option.Rank == "D")
             .TalentOptions.Single(option => option.Value == "Aspected Magician");
         Assert.AreEqual(0, aspectedD.SkillGroupGrant!.BaseRating);
-        Assert.IsFalse(aspectedD.IsEnabled,
-            "Grant authority must not make the remaining unsupported Talent ledgers writable.");
+        Assert.AreEqual(1, aspectedD.SkillGroupGrant.Quantity);
+        Assert.IsTrue(aspectedD.SkillGroupGrant.IsSupported, string.Join(",", aspectedD.SkillGroupGrant.Blockers));
+        Assert.IsTrue(aspectedD.IsEnabled, string.Join(",", aspectedD.Blockers));
+        CollectionAssert.AreEqual(new[] { "Conjuring", "Enchanting", "Sorcery" },
+            aspectedD.SkillGroupGrant.Options.Select(option => option.CanonicalName).ToArray());
+        Assert.IsFalse(artificialIntelligence.IsEnabled,
+            "A selection-only group must not enable the unsupported Depth ledger.");
+        Assert.IsFalse(explorer.IsEnabled,
+            "A selection-only group must not enable other unsupported Talent families.");
     }
 
     [TestMethod]

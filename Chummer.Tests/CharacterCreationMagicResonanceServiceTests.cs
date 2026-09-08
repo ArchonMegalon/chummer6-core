@@ -16,6 +16,193 @@ public sealed class CharacterCreationMagicResonanceServiceTests
                                     + "<karma>25</karma><nuyen>0</nuyen></character>";
     private const string TraditionId = "30000000-0000-0000-0000-000000000001";
     private const string SpellId = "30000000-0000-0000-0000-000000000002";
+    private const string PowerId = "30000000-0000-0000-0000-000000000003";
+
+    [TestMethod]
+    public void Adept_power_budget_uses_confirmed_magic_without_rewriting_the_source_talent()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), $"chummer-adept-budget-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            CharacterCreationPrerequisiteAuthority prerequisite = CreatePrerequisiteAuthority();
+            const string raw = "<talent><name>Adept - 3 Magic</name><value>Adept</value>"
+                + "<qualities><quality>Adept</quality></qualities><magic>3</magic>"
+                + "<forbidden><oneof><metatype>A.I.</metatype></oneof></forbidden></talent>";
+            prerequisite = prerequisite with
+            {
+                Options = prerequisite.Options.Select(option => option.CategoryId == CharacterCreationPriorityCategoryIds.Talent && option.Rank == "C"
+                    ? option with { TalentOptions = [option.TalentOptions.Single() with
+                    {
+                        Name = "Adept - 3 Magic", Value = "Adept", GrantedQualities = ["Adept"],
+                        RawTalentNode = raw,
+                        PriorityChildNodeDigest = CharacterCreationTalentGrantAuthorityDigest.ComputeRawTalentNode(raw)
+                    }] }
+                    : option).ToArray(),
+                AuthorityDigest = string.Empty
+            };
+            prerequisite = prerequisite with { AuthorityDigest = CharacterCreationPrerequisiteAuthorityDigest.Compute(prerequisite) };
+            CharacterCreationMagicResonanceAuthority authority = CreateMagicAuthority(prerequisite);
+            string powerXml = $"<power><id>{PowerId}</id><name>Fixture Power</name><points>1</points>"
+                + "<levels>True</levels><limit>1</limit><maxlevels>6</maxlevels><source>SR5</source><page>1</page></power>";
+            powerXml = XElement.Parse(powerXml).ToString(SaveOptions.DisableFormatting);
+            var power = new CharacterCreationMagicResonanceCatalogOption(
+                CharacterCreationMagicResonanceSchemas.CatalogOptionV1,
+                new(CharacterCreationMagicResonanceKinds.AdeptPower, PowerId),
+                "Fixture Power", "adept-power", 1m, 6, "SR5", "1",
+                CharacterCreationMagicResonanceDigest.ComputeUtf8("power-source"),
+                [$"powers.xml#power:{PowerId}"], [], true)
+            {
+                CanonicalSourceXml = powerXml,
+                CanonicalSourceXmlDigest = CharacterCreationMagicResonanceDigest.ComputeUtf8(powerXml)
+            };
+            const string secondPowerId = "30000000-0000-0000-0000-000000000004";
+            string secondPowerXml = powerXml.Replace(PowerId, secondPowerId, StringComparison.Ordinal)
+                .Replace("Fixture Power", "Second Power", StringComparison.Ordinal);
+            var secondPower = power with
+            {
+                Identity = new(CharacterCreationMagicResonanceKinds.AdeptPower, secondPowerId),
+                Name = "Second Power",
+                SourceNodeDigest = CharacterCreationMagicResonanceDigest.ComputeUtf8("second-power-source"),
+                SourceAnchorIds = [$"powers.xml#power:{secondPowerId}"],
+                CanonicalSourceXml = secondPowerXml,
+                CanonicalSourceXmlDigest = CharacterCreationMagicResonanceDigest.ComputeUtf8(secondPowerXml)
+            };
+            authority = authority with
+            {
+                Talents = [authority.Talents.Single() with
+                {
+                    Kind = CharacterCreationMagicResonanceKinds.Adept,
+                    SpellBudget = 0, AdeptPowerPointBudget = 3m,
+                    RequiresTradition = false, AllowsAdeptPowers = true, AllowsSpells = false
+                }],
+                AdeptPowers = [power, secondPower],
+                Spells = [], Traditions = [], AuthorityDigest = string.Empty
+            };
+            authority = authority with { AuthorityDigest = CharacterCreationMagicResonanceDigest.Compute(authority) };
+            Assert.IsTrue(CharacterCreationMagicResonanceDraftIntegrity.IsValidAuthority(authority));
+            string sourceDigest = CharacterCreationMagicResonanceDigest.Compute(authority.Talents.Single());
+            var resolver = new CharacterCreationAttributesServiceTests.StubSourceResolver(prerequisite, magicResonanceAuthority: authority);
+            var store = new FileWorkspaceStore(directory);
+            var id = new CharacterWorkspaceId("adept-budget");
+            Assert.IsTrue(store.CreateWorkspaceDocument(id, new WorkspaceDocument(ReadyXml, RulesetDefaults.Sr5)).Success);
+            var prerequisiteService = new CharacterCreationPrerequisiteService(store,
+                new CharacterCreationAttributesServiceTests.StubCharacterQueries(), resolver);
+            CharacterCreationPrerequisiteState initial = prerequisiteService.Load(new(id)).Value!;
+            IReadOnlyDictionary<string, string> ranks = CharacterCreationPrerequisiteServiceTests.Assign("E", "C", "B", "A", "D");
+            CharacterCreationPrerequisitePreview priorityPreview = prerequisiteService.Preview(new(initial.Binding, ranks)
+            { HeritageSelectionId = "human", TalentSelectionId = "magician-c" }).Value!;
+            Assert.IsTrue(priorityPreview.CanConfirm, string.Join(",", priorityPreview.Blockers));
+            Assert.AreEqual(CharacterCreationFoundationOutcomes.Success,
+                prerequisiteService.Confirm(new(priorityPreview.Binding, ranks, priorityPreview.PreviewDigest, true)
+                { HeritageSelectionId = "human", TalentSelectionId = "magician-c" }).Outcome);
+            var attributesService = new CharacterCreationAttributesService(store, resolver);
+            CharacterCreationAttributesState attributeState = attributesService.Load(new(id)).Value!;
+            CharacterCreationAttributeAllocation[] allocations = [new("MAG", 1, 0)];
+            CharacterCreationAttributesPreview attributePreview = attributesService.Preview(new(attributeState.Binding, allocations)).Value!;
+            Assert.IsTrue(attributePreview.CanConfirm, string.Join(",", attributePreview.Blockers));
+            Assert.AreEqual(CharacterCreationFoundationOutcomes.Success,
+                attributesService.Confirm(new(attributePreview.Binding, allocations, attributePreview.PreviewDigest, true)).Outcome);
+            var service = new CharacterCreationMagicResonanceService(store, resolver);
+            CharacterCreationMagicResonanceState state = service.Load(new(id)).Value!;
+            Assert.IsTrue(state.CanEdit, string.Join(",", state.Blockers));
+            Assert.AreEqual(3, state.SelectedTalent!.Magic);
+            Assert.AreEqual(4m, state.AdeptPowerPointBudget.Total);
+            Assert.AreEqual(sourceDigest, CharacterCreationMagicResonanceDigest.Compute(state.SelectedTalent));
+            var selections = new CharacterCreationMagicResonanceSelections(null, null,
+                [new(power.Identity, 4)], [], []);
+            foreach (int invalidSpend in new[] { 3, 5 })
+            {
+                var invalidSelections = selections with { AdeptPowers = [new(power.Identity, invalidSpend)] };
+                CharacterCreationMagicResonancePreview invalid = service.Preview(new(state.Binding, invalidSelections)).Value!;
+                Assert.IsFalse(invalid.CanConfirm);
+                CollectionAssert.Contains(invalid.Blockers.ToList(), invalidSpend < 4
+                    ? CharacterCreationMagicResonanceBlockers.PowerBudgetIncomplete
+                    : CharacterCreationMagicResonanceBlockers.OptionInvalid);
+            }
+            // Each rating is legal; the combined spend, independently, exceeds the budget.
+            var overspent = service.Preview(new(state.Binding, selections with
+                { AdeptPowers = [new(power.Identity, 3), new(secondPower.Identity, 2)] })).Value!;
+            Assert.IsFalse(overspent.CanConfirm);
+            CollectionAssert.Contains(overspent.Blockers.ToList(), CharacterCreationMagicResonanceBlockers.PowerBudgetExceeded);
+            CollectionAssert.DoesNotContain(overspent.Blockers.ToList(), CharacterCreationMagicResonanceBlockers.OptionInvalid);
+            CharacterCreationMagicResonancePreview preview = service.Preview(new(state.Binding, selections)).Value!;
+            Assert.IsTrue(preview.CanConfirm, string.Join(",", preview.Blockers));
+            Assert.AreEqual(4m, preview.AdeptPowerPointBudget.Used);
+            Assert.AreEqual(0m, preview.AdeptPowerPointBudget.Remaining);
+            Assert.IsNotNull(preview.FinalizationContribution);
+            Assert.AreEqual(3, preview.FinalizationContribution.Talent.AssignedMagic);
+            Assert.AreEqual(new CharacterCreationMagicResonanceEffectiveAttributes(4, 0, 0, 4m),
+                preview.FinalizationContribution.EffectiveAttributes);
+            var request = new CharacterCreationMagicResonanceConfirmRequest(preview.Binding, selections,
+                preview.PreviewDigest, "adept-command", true);
+            CharacterCreationMagicResonanceReceipt receipt = service.Confirm(request).Value!;
+            Assert.IsNotNull(receipt);
+            var coldStore = new FileWorkspaceStore(directory);
+            var coldService = new CharacterCreationMagicResonanceService(coldStore, resolver);
+            CharacterCreationMagicResonanceState cold = coldService.Load(new(id)).Value!;
+            Assert.IsTrue(cold.CanEdit, string.Join(",", cold.Blockers));
+            Assert.AreEqual(4m, cold.AdeptPowerPointBudget.Total);
+            Assert.AreEqual(4m, cold.AdeptPowerPointBudget.Used);
+            Assert.AreEqual(sourceDigest, CharacterCreationMagicResonanceDigest.Compute(cold.SelectedTalent));
+            Assert.AreEqual(receipt, coldService.Confirm(request).Value);
+            Assert.AreEqual(receipt.ContentRevision, coldStore.Get(id).Value!.ContentRevision);
+            Assert.AreEqual(ReadyXml, coldStore.Get(id).Value!.Document.Content);
+
+            CharacterCreationMagicResonanceDraft confirmed = cold.PendingDraft!;
+            CharacterCreationAttributesDraft confirmedAttributes = cold.AttributesDraft!;
+            CharacterCreationMagicResonanceFinalizationContribution contribution = confirmed.FinalizationContribution!;
+            Assert.AreEqual("Adept", contribution.Talent.GrantedQualitySources!.Single().Name);
+            Assert.IsTrue(contribution.Talent.GrantedQualitySources!.Single().CanonicalSourceXml.Contains("<limitspellcategory>Rituals</limitspellcategory>", StringComparison.Ordinal));
+            Assert.IsTrue(CharacterCreationMagicResonanceFinalizationRules.IsValidContribution(
+                contribution, confirmed, authority, confirmedAttributes));
+            Assert.IsFalse(CharacterCreationMagicResonanceFinalizationRules.IsValidContribution(
+                contribution, confirmed, authority), "Raised attribute values require the actual bound attribute draft.");
+            foreach (CharacterCreationMagicResonanceEffectiveAttributes? forged in new CharacterCreationMagicResonanceEffectiveAttributes?[]
+                { null, new(5, 0, 0, 5m), new(4, 0, 0, 6m), new(4, 1, 0, 4m), new(-1, 0, 0, 4m) })
+            {
+                CharacterCreationMagicResonanceFinalizationContribution changed = contribution with
+                { EffectiveAttributes = forged, ContributionDigest = string.Empty };
+                changed = changed with { ContributionDigest = CharacterCreationMagicResonanceFinalizationRules.ComputeContributionDigest(changed) };
+                Assert.IsFalse(CharacterCreationMagicResonanceFinalizationRules.IsValidContribution(
+                    changed, confirmed, authority, confirmedAttributes));
+            }
+            foreach (CharacterCreationAttributesDraft forged in new[]
+            {
+                confirmedAttributes with { DraftRevision = confirmedAttributes.DraftRevision + 1 },
+                confirmedAttributes with { WorkspaceId = new("another-runner") },
+                confirmedAttributes with { BaseRawCharacterXmlDigest = CharacterCreationMagicResonanceDigest.ComputeUtf8("different-document") },
+                confirmedAttributes with { PrerequisiteDraftDigest = CharacterCreationMagicResonanceDigest.ComputeUtf8("different-prerequisite") },
+                confirmedAttributes with { Attributes = confirmedAttributes.Attributes.Select(a => a.AttributeId == "MAG" ? a with { Current = 5 } : a).ToArray() }
+            })
+            {
+                CharacterCreationAttributesDraft rehashed = forged with { DraftDigest = string.Empty };
+                rehashed = rehashed with { DraftDigest = CharacterCreationAttributesDraftIntegrity.ComputeDigest(rehashed) };
+                Assert.IsFalse(CharacterCreationMagicResonanceFinalizationRules.IsValidContribution(
+                    contribution, confirmed, authority, rehashed));
+            }
+            Assert.AreEqual(receipt.ContentRevision, coldStore.Get(id).Value!.ContentRevision);
+
+            // An old receipt can be recovered after a later attribute decision,
+            // but its old budget is not authority to approve a new command.
+            var coldAttributesService = new CharacterCreationAttributesService(coldStore, resolver);
+            CharacterCreationAttributesState currentAttributes = coldAttributesService.Load(new(id)).Value!;
+            CharacterCreationAttributeAllocation[] newerAllocations = [new("MAG", 1, 1)];
+            CharacterCreationAttributesPreview newer = coldAttributesService.Preview(new(currentAttributes.Binding, newerAllocations)).Value!;
+            Assert.IsTrue(newer.CanConfirm, string.Join(",", newer.Blockers));
+            Assert.AreEqual(CharacterCreationFoundationOutcomes.Success,
+                coldAttributesService.Confirm(new(newer.Binding, newerAllocations, newer.PreviewDigest, true)).Outcome);
+            long changedRevision = coldStore.Get(id).Value!.ContentRevision;
+            Assert.AreEqual(receipt, coldService.Confirm(request).Value);
+            Assert.AreEqual(CharacterCreationFoundationOutcomes.Conflict,
+                coldService.Confirm(request with { IdempotencyKey = "new-command-with-stale-budget" }).Outcome);
+            Assert.AreEqual(changedRevision, coldStore.Get(id).Value!.ContentRevision);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
 
     [TestMethod]
     public void Magician_preview_confirm_reopen_and_idempotent_replay_are_atomic_and_xml_free()
@@ -236,9 +423,15 @@ public sealed class CharacterCreationMagicResonanceServiceTests
             selections,
             out CharacterCreationMagicResonanceFinalizationContribution contribution,
             out string[] blockers), string.Join(",", blockers));
+        Assert.IsNull(contribution.EffectiveAttributes);
+        Assert.IsFalse(System.Text.Json.JsonSerializer.Serialize(contribution)
+            .Contains("EffectiveAttributes", StringComparison.Ordinal));
         Assert.AreEqual(SpellId, contribution.Spells.Single().Identity.SourceId);
         Assert.AreEqual(authority.Spells.Single().CanonicalSourceXml,
             contribution.Spells.Single().CanonicalSourceXml);
+        Assert.IsNotNull(contribution.Talent.GrantedQualitySources);
+        Assert.AreEqual(authority.Talents.Single().GrantedQualitySources!.Single().CanonicalSourceXml,
+            contribution.Talent.GrantedQualitySources.Single().CanonicalSourceXml);
 
         var budget = new CharacterCreationMagicResonanceBudgetState(
             "test", 0m, 0m, 0m, []);
@@ -280,6 +473,27 @@ public sealed class CharacterCreationMagicResonanceServiceTests
         };
         Assert.IsTrue(CharacterCreationMagicResonanceFinalizationRules.IsValidContribution(
             contribution, draft, authority));
+
+        var originalQuality = contribution.Talent.GrantedQualitySources!.Single();
+        string changedXml = originalQuality.CanonicalSourceXml.Replace("<name>MAG</name>", "<name>DEP</name>", StringComparison.Ordinal);
+        Assert.AreNotEqual(originalQuality.CanonicalSourceXml, changedXml);
+        var changedQuality = originalQuality with
+        {
+            CanonicalSourceXml = changedXml,
+            CanonicalSourceXmlDigest = CharacterCreationMagicResonanceDigest.ComputeUtf8(changedXml),
+            SourceNodeDigest = CharacterCreationTalentQualitySourceRules.ComputeSourceNodeDigest(
+                originalQuality.EffectiveSourceDigest, originalQuality.SourceId, changedXml)
+        };
+        // Even an internally consistent self-rehashed source is not the independent current authority.
+        Assert.IsTrue(CharacterCreationTalentQualitySourceRules.IsValidSource(changedQuality));
+        foreach (var invalidSources in new IReadOnlyList<CharacterCreationTalentQualitySource>?[] { null, [], [changedQuality] })
+        {
+            var alteredTalent = contribution.Talent with { GrantedQualitySources = invalidSources, ProjectionDigest = string.Empty };
+            alteredTalent = alteredTalent with { ProjectionDigest = CharacterCreationMagicResonanceFinalizationRules.ComputeTalentProjectionDigest(alteredTalent) };
+            var altered = contribution with { Talent = alteredTalent, ContributionDigest = string.Empty };
+            altered = altered with { ContributionDigest = CharacterCreationMagicResonanceFinalizationRules.ComputeContributionDigest(altered) };
+            Assert.IsFalse(CharacterCreationMagicResonanceFinalizationRules.IsValidContribution(altered, draft, authority));
+        }
 
         CharacterCreationMagicResonanceOptionFinalizationSource tamperedSpell =
             contribution.Spells.Single() with { Name = "Acid Bolt", ProjectionDigest = string.Empty };
@@ -373,7 +587,8 @@ public sealed class CharacterCreationMagicResonanceServiceTests
             CanonicalSourceXml = XElement.Parse(sourceTalent.RawTalentNode)
                 .ToString(SaveOptions.DisableFormatting),
             CanonicalSourceXmlDigest = CharacterCreationMagicResonanceDigest.ComputeUtf8(
-                XElement.Parse(sourceTalent.RawTalentNode).ToString(SaveOptions.DisableFormatting))
+                XElement.Parse(sourceTalent.RawTalentNode).ToString(SaveOptions.DisableFormatting)),
+            GrantedQualitySources = CreateTalentQualitySources(sourceTalent.RawTalentNode)
         };
         const string traditionXml = "<tradition><id>30000000-0000-0000-0000-000000000001</id>"
                                       + "<name>Hermetic</name><drain>{WIL} + {LOG}</drain>"
@@ -456,5 +671,27 @@ public sealed class CharacterCreationMagicResonanceServiceTests
         {
             AuthorityDigest = CharacterCreationMagicResonanceDigest.Compute(authority)
         };
+    }
+
+    private static CharacterCreationTalentQualitySource[] CreateTalentQualitySources(string rawTalent)
+    {
+        DirectoryInfo? root = new(AppDomain.CurrentDomain.BaseDirectory);
+        while (root is not null && !File.Exists(Path.Combine(root.FullName, "Chummer", "data", "qualities.xml")))
+            root = root.Parent;
+        Assert.IsNotNull(root);
+        string path = Path.Combine(root.FullName, "Chummer", "data", "qualities.xml");
+        string digest = CharacterCreationMagicResonanceDigest.ComputeUtf8(File.ReadAllText(path));
+        XElement[] rows = XDocument.Load(path).Root!.Element("qualities")!.Elements("quality").ToArray();
+        Assert.IsTrue(CharacterCreationTalentQualitySourceRules.TryReadReferences(rawTalent, out var references));
+        return references.Select(reference =>
+        {
+            XElement row = rows.Single(item => item.Element("name")!.Value == reference.Reference);
+            string id = row.Element("id")!.Value;
+            string xml = row.ToString(SaveOptions.DisableFormatting);
+            return new CharacterCreationTalentQualitySource(reference.Reference, reference.Selection,
+                id, row.Element("name")!.Value, row.Element("source")!.Value, row.Element("page")!.Value,
+                digest, CharacterCreationTalentQualitySourceRules.ComputeSourceNodeDigest(digest, id, xml),
+                xml, CharacterCreationMagicResonanceDigest.ComputeUtf8(xml), [$"qualities.xml#quality:{id}"]);
+        }).ToArray();
     }
 }

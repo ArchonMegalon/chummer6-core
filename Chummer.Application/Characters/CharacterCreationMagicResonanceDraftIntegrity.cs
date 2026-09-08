@@ -38,6 +38,12 @@ public static class CharacterCreationMagicResonanceDraftIntegrity
                 CharacterCreationMagicResonanceDigest.Compute(authority with { AuthorityDigest = string.Empty })))
             return false;
 
+        if (authority.MysticAdeptPowerPointPolicy is { } policy
+            && (!CharacterCreationMysticAdeptPowerPointRules.IsValidPolicy(policy)
+                || policy.SettingsProfileId != authority.SettingsProfileId
+                || policy.SourceAnchorIds.Any(anchor => !authority.SourceAnchorIds.Contains(anchor, StringComparer.Ordinal))))
+            return false;
+
         if (!IsCanonicalSet(authority.SourceAnchorIds)
             || authority.Talents.Count == 0
             || authority.Metatypes.Count == 0
@@ -112,7 +118,8 @@ public static class CharacterCreationMagicResonanceDraftIntegrity
            && CharacterCreationMagicResonanceFinalizationRules.IsValidContribution(
                draft.FinalizationContribution,
                draft,
-               authority)
+               authority,
+               attributes)
            && !draft.CharacterEffectsApplied
            && CharacterCreationMagicResonanceDigest.IsCanonical(draft.LastIdempotencyKeyDigest)
            && CharacterCreationMagicResonanceDigest.IsCanonical(draft.LastPreviewDigest)
@@ -172,7 +179,7 @@ public static class CharacterCreationMagicResonanceDraftIntegrity
                 pair.Second.PreviousReceiptDigest, pair.First.ReceiptDigest));
     }
 
-    private static bool IsValidTalent(CharacterCreationMagicResonanceTalentOption item) =>
+    internal static bool IsValidTalent(CharacterCreationMagicResonanceTalentOption item) =>
         IsGuid(item.Identity.PrioritySourceId)
         && IsLabel(item.Identity.TalentSelectionId)
         && IsLabel(item.Identity.TalentValue)
@@ -194,6 +201,8 @@ public static class CharacterCreationMagicResonanceDraftIntegrity
         && item.AdeptPowerPointBudget >= 0m
         && CharacterCreationMagicResonanceDigest.IsCanonical(item.SourceNodeDigest)
         && CharacterCreationMagicResonanceFinalizationRules.HasValidTalentPayload(item)
+        && (!item.IsEnabled || CharacterCreationTalentQualitySourceRules.MatchesTalent(
+            item.CanonicalSourceXml, item.GrantedQualitySources))
         && IsCanonicalSet(item.SourceAnchorIds)
         && item.Blockers is not null
         && item.IsEnabled == (item.Blockers.Count == 0);

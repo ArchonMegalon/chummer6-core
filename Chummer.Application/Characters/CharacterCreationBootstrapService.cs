@@ -102,6 +102,25 @@ public sealed class CharacterCreationBootstrapService :
                 return false;
             }
 
+            // The bundle is an authentic create result, not a lease on the
+            // persisted workspace. Read after source validation so a deletion
+            // or edit during that work cannot activate the old snapshot.
+            WorkspaceStoreReadResult persisted = _workspaceStore.Get(activation.Receipt.WorkspaceId);
+            WorkspaceStoredDocument? stored = persisted.Value;
+            WorkspaceDocumentSnapshot expected = activation.WorkspaceProjection.Workspace;
+            if (!persisted.Success
+                || stored is null
+                || stored.Id != expected.Id
+                || stored.ContentRevision != expected.ContentRevision
+                || stored.SavedRevision != expected.SavedRevision
+                || stored.Document?.State is null
+                || !CharacterCreationBootstrapBindingDigest.FixedTimeEquals(
+                    activation.RecoveryBinding.WorkspaceDocumentDigest,
+                    CharacterCreationBootstrapActivationIntegrity.ComputeDocumentDigest(stored.Document)))
+            {
+                return false;
+            }
+
             blockers = [];
             return true;
         }
@@ -462,6 +481,7 @@ public sealed class CharacterCreationBootstrapService :
                     new XElement(
                         CharacterCreationBootstrapXml.StageElement,
                         CharacterCreationBootstrapStages.AwaitingFoundationSelection))));
+        CharacterCreationCareerBaseline.InitializeMissing(document.Root!);
         using StringWriter writer = new(CultureInfo.InvariantCulture);
         document.Save(writer, SaveOptions.DisableFormatting);
         return writer.ToString();

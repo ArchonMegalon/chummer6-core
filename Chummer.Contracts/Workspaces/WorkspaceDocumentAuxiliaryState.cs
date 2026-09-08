@@ -47,7 +47,13 @@ public sealed record WorkspaceDocumentAuxiliaryState(
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     IReadOnlyList<Chummer.Contracts.LifeModules.LifeModuleDecisionAcceptance>? LifeModuleDecisionAcceptances = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    IReadOnlyList<CharacterCreationFinalizationReceiptLedgerEntry>? CharacterCreationFinalizationReceipts = null)
+    IReadOnlyList<CharacterCreationFinalizationReceiptLedgerEntry>? CharacterCreationFinalizationReceipts = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    IReadOnlyList<CharacterAfterRunRewardReceipt>? CharacterAfterRunRewardReceipts = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    IReadOnlyList<CharacterCareerReputationReceipt>? CharacterCareerReputationReceipts = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    CharacterCreationFinalizationArchive? CharacterCreationFinalizationArchive = null)
 {
     public static WorkspaceDocumentAuxiliaryState Empty { get; } = new();
 
@@ -69,8 +75,20 @@ public sealed record WorkspaceDocumentAuxiliaryState(
                            && CharacterCreationQualitiesDraft is null
                            && CharacterCreationQualitiesReceipts is null
                            && CharacterAfterRunSettlementReceipts is null
-                           && CharacterCreationFinalizationReceipts is null;
+                           && CharacterCreationFinalizationReceipts is null
+                           && CharacterAfterRunRewardReceipts is null
+                           && CharacterCareerReputationReceipts is null
+                           && CharacterCreationFinalizationArchive is null;
 }
+
+/// <summary>
+/// The exact pre-finalization selection and receipt graph. It is history, never
+/// an active Creation draft or part of a downloadable character. Nested archives
+/// and pre-existing finalization receipts are forbidden by the store boundary.
+/// Its canonical digest must match the finalization receipt's previous auxiliary
+/// digest, which also binds the original workspace and revision.
+/// </summary>
+public sealed record CharacterCreationFinalizationArchive(WorkspaceDocumentAuxiliaryState State);
 
 public static class WorkspaceDocumentAuxiliaryStateDigest
 {

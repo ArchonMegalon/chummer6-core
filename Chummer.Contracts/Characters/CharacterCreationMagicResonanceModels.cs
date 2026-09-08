@@ -139,7 +139,38 @@ public sealed record CharacterCreationMagicResonanceTalentOption(
     public string CanonicalSourceXml { get; init; } = string.Empty;
 
     public string CanonicalSourceXmlDigest { get; init; } = string.Empty;
+
+    /// <summary>Effective quality definitions referenced by this talent, in source order.
+    /// Null denotes a historical, unresolved payload; it cannot authorize finalization.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<CharacterCreationTalentQualitySource>? GrantedQualitySources { get; init; }
 }
+
+/// <summary>Source evidence, not a saved quality or an executable improvement plan.
+/// Bonus, prerequisite and nested grant semantics must still be projected by Core.</summary>
+public sealed record CharacterCreationTalentQualitySource(
+    string Reference,
+    string ForcedSelection,
+    string SourceId,
+    string Name,
+    string SourceBook,
+    string Page,
+    string EffectiveSourceDigest,
+    string SourceNodeDigest,
+    string CanonicalSourceXml,
+    string CanonicalSourceXmlDigest,
+    IReadOnlyList<string> SourceAnchorIds)
+{
+    /// <summary>Independently resolved gear grants in bonus source order. Historical
+    /// null is valid only when the quality has no addgear effects.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<CharacterCreationTalentGearSource>? GrantedGearSources { get; init; }
+}
+
+public sealed record CharacterCreationTalentGearSource(
+    string SourceId, string Name, string Category, string SourceBook, string Page,
+    string EffectiveSourceDigest, string SourceNodeDigest, string CanonicalSourceXml,
+    string CanonicalSourceXmlDigest, IReadOnlyList<string> SourceAnchorIds);
 
 public sealed record CharacterCreationMagicResonanceCatalogOption(
     string Schema,
@@ -186,6 +217,9 @@ public sealed record CharacterCreationMagicResonanceAuthority(
     bool IsAuthoritative,
     string AuthorityDigest)
 {
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationMysticAdeptPowerPointPolicy? MysticAdeptPowerPointPolicy { get; init; }
+
     public static CharacterCreationMagicResonanceAuthority Unavailable { get; } = new(
         CharacterCreationMagicResonanceSchemas.AuthorityV1,
         string.Empty,
@@ -209,7 +243,12 @@ public sealed record CharacterCreationMagicResonanceSelections(
     CharacterCreationMagicResonanceOptionIdentity? Stream,
     IReadOnlyList<CharacterCreationAdeptPowerAllocation> AdeptPowers,
     IReadOnlyList<CharacterCreationMagicResonanceOptionIdentity> Spells,
-    IReadOnlyList<CharacterCreationMagicResonanceOptionIdentity> ComplexForms);
+    IReadOnlyList<CharacterCreationMagicResonanceOptionIdentity> ComplexForms)
+{
+    // Explicit total purchased PP, including slots exchanged under the active house rule.
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public int MysticAdeptPowerPoints { get; init; }
+}
 
 public sealed record CharacterCreationMagicResonanceBudgetState(
     string Kind,
@@ -229,7 +268,11 @@ public sealed record CharacterCreationMagicResonanceTalentFinalizationSource(
     string CanonicalSourceXml,
     string CanonicalSourceXmlDigest,
     IReadOnlyList<string> SourceAnchorIds,
-    string ProjectionDigest);
+    string ProjectionDigest)
+{
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<CharacterCreationTalentQualitySource>? GrantedQualitySources { get; init; }
+}
 
 public sealed record CharacterCreationMagicResonanceOptionFinalizationSource(
     string Schema,
@@ -245,6 +288,14 @@ public sealed record CharacterCreationMagicResonanceOptionFinalizationSource(
     string CanonicalSourceXmlDigest,
     IReadOnlyList<string> SourceAnchorIds,
     string ProjectionDigest);
+
+/// <summary>Derived from the independently validated, digest-bound attribute draft;
+/// distinct from the immutable source talent grants.</summary>
+public sealed record CharacterCreationMagicResonanceEffectiveAttributes(
+    int Magic,
+    int Resonance,
+    int Depth,
+    decimal AdeptPowerPointBudget);
 
 /// <summary>
 /// Source-bound input for the later whole-character finalizer. This is not a
@@ -270,7 +321,14 @@ public sealed record CharacterCreationMagicResonanceFinalizationContribution(
     IReadOnlyList<CharacterCreationMagicResonanceOptionFinalizationSource> Spells,
     IReadOnlyList<CharacterCreationMagicResonanceOptionFinalizationSource> ComplexForms,
     IReadOnlyList<string> SourceAnchorIds,
-    string ContributionDigest);
+    string ContributionDigest)
+{
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationMagicResonanceEffectiveAttributes? EffectiveAttributes { get; init; }
+
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationMysticAdeptPowerPointAllocation? MysticAdeptPowerPoints { get; init; }
+}
 
 public sealed record CharacterCreationMagicResonanceBinding(
     CharacterWorkspaceId WorkspaceId,
@@ -359,7 +417,11 @@ public sealed record CharacterCreationMagicResonanceState(
     CharacterCreationMagicResonanceBudgetState ComplexFormBudget,
     IReadOnlyList<string> Blockers,
     bool CanEdit,
-    string SnapshotDigest);
+    string SnapshotDigest)
+{
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationMysticAdeptPowerPointAllocation? MysticAdeptPowerPoints { get; init; }
+}
 
 public sealed record CharacterCreationMagicResonancePreview(
     string Schema,
@@ -377,6 +439,9 @@ public sealed record CharacterCreationMagicResonancePreview(
     bool CanConfirm,
     string PreviewDigest)
 {
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationMysticAdeptPowerPointAllocation? MysticAdeptPowerPoints { get; init; }
+
     public CharacterCreationMagicResonanceFinalizationContribution? FinalizationContribution
     {
         get;

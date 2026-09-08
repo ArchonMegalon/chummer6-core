@@ -394,12 +394,7 @@ public sealed class CharacterCreationAttributesService : ICharacterCreationAttri
         {
             blockers.Add(CharacterCreationAttributesBlockers.MetatypeAuthorityIncomplete);
         }
-        if (talent is null
-            || !string.Equals(talent.Value, "Mundane", StringComparison.Ordinal)
-            || talent.Magic is not null
-            || talent.Resonance is not null
-            || talent.Depth is not null
-            || talent.GrantedQualities.Count != 0)
+        if (!HasSupportedSpecialAttributeAuthority(talent))
         {
             blockers.Add(CharacterCreationAttributesBlockers.SpecialAttributeAuthorityIncomplete);
         }
@@ -413,6 +408,27 @@ public sealed class CharacterCreationAttributesService : ICharacterCreationAttri
         {
             blockers.Add(CharacterCreationAttributesBlockers.HouseRuleUnsupported);
         }
+    }
+
+    private static bool HasSupportedSpecialAttributeAuthority(CharacterCreationPriorityTalentSelection? talent)
+    {
+        if (talent is null || talent.Depth is not null || talent.GrantedQualities is null)
+            return false;
+        if (talent.Value == "Mundane")
+            return talent.Magic is null && talent.Resonance is null && talent.GrantedQualities.Count == 0;
+
+        // The prerequisite is independently revalidated against the active source
+        // authority before this check. Extra quality effects need their own attribute
+        // authority; a familiar talent label must not silently enable unknown effects.
+        if (talent.GrantedQualities.Count != 1 || talent.GrantedQualities[0] != talent.Value)
+            return false;
+        return talent.Value switch
+        {
+            "Adept" or "Magician" or "Mystic Adept" or "Aspected Magician" =>
+                talent.Magic > 0 && talent.Resonance is null,
+            "Technomancer" => talent.Resonance > 0 && talent.Magic is null,
+            _ => false
+        };
     }
 
     private static AttributeEvaluation EvaluateAllocations(
@@ -441,6 +457,8 @@ public sealed class CharacterCreationAttributesService : ICharacterCreationAttri
         }
 
         CharacterCreationPriorityHeritageSelection heritage = prerequisite.HeritageSelection!;
+        CharacterCreationPriorityTalentSelection? talent = prerequisite.TalentSelection;
+        bool supportedTalent = HasSupportedSpecialAttributeAuthority(talent);
         var projections = new List<CharacterCreationAttributeProjection>();
         int normalUsed = 0;
         int specialUsed = 0;
@@ -450,7 +468,10 @@ public sealed class CharacterCreationAttributesService : ICharacterCreationAttri
             bool normal = s_NormalAttributeIds.Contains(range.AttributeId, StringComparer.Ordinal);
             bool edge = string.Equals(range.AttributeId, "EDG", StringComparison.Ordinal);
             bool essence = string.Equals(range.AttributeId, "ESS", StringComparison.Ordinal);
-            bool enabled = normal || edge;
+            bool magic = range.AttributeId == "MAG" && supportedTalent && talent!.Magic > 0;
+            bool resonance = range.AttributeId == "RES" && supportedTalent && talent!.Resonance > 0;
+            bool awakened = magic || resonance;
+            bool enabled = normal || edge || awakened;
             string category = normal
                 ? CharacterCreationAttributeCategories.Normal
                 : CharacterCreationAttributeCategories.Special;
@@ -462,9 +483,18 @@ public sealed class CharacterCreationAttributesService : ICharacterCreationAttri
             if (!enabled && (allocation.PriorityPoints != 0 || allocation.KarmaLevels != 0))
                 blockers.Add(CharacterCreationAttributesBlockers.AttributeDisabled);
 
-            int minimum = enabled || essence ? range.Minimum : 0;
-            int maximum = enabled || essence ? range.Maximum : 0;
-            int augmentedMaximum = enabled || essence ? range.AugmentedMaximum : 0;
+            // Chummer5a SelectMetatypePriority assigns the source talent rating as
+            // the starting minimum, not a paid allocation or an addition to magmin.
+            // Supported priority rows have no maxmagic/maxresonance override (the
+            // source projector rejects those). Their special cap is max(racial cap,
+            // grant), with that same cap used for the augmented special attribute.
+            int minimum = magic ? talent!.Magic!.Value
+                : resonance ? talent!.Resonance!.Value
+                : enabled || essence ? range.Minimum : 0;
+            int maximum = awakened ? Math.Max(range.Maximum, minimum)
+                : enabled || essence ? range.Maximum : 0;
+            int augmentedMaximum = awakened ? maximum
+                : enabled || essence ? range.AugmentedMaximum : 0;
             int current = essence ? maximum : minimum;
             int karmaCost = 0;
             if (enabled)
@@ -489,7 +519,7 @@ public sealed class CharacterCreationAttributesService : ICharacterCreationAttri
             {
                 if (normal)
                     normalUsed = checked(normalUsed + allocation.PriorityPoints);
-                else if (edge)
+                else if (enabled)
                     specialUsed = checked(specialUsed + allocation.PriorityPoints);
                 karmaUsed = checked(karmaUsed + karmaCost);
             }
@@ -518,6 +548,7 @@ public sealed class CharacterCreationAttributesService : ICharacterCreationAttri
                 disableReasons,
                 heritage.SourceAnchorIds
                     .Concat([$"metatypes.xml#metatype:{heritage.MetatypeSourceId}:attribute:{range.AttributeId}"])
+                    .Concat(awakened ? talent!.SourceAnchorIds : [])
                     .Distinct(StringComparer.Ordinal)
                     .ToArray()));
         }
@@ -601,6 +632,8 @@ public sealed class CharacterCreationAttributesService : ICharacterCreationAttri
             evaluation.Attributes,
             prerequisite.SourceAnchorIds
                 .Concat(heritage.SourceAnchorIds)
+                .Concat(prerequisite.TalentSelection?.Magic > 0 || prerequisite.TalentSelection?.Resonance > 0
+                    ? prerequisite.TalentSelection.SourceAnchorIds : [])
                 .Distinct(StringComparer.Ordinal)
                 .ToArray(),
             CharacterEffectsApplied: false,

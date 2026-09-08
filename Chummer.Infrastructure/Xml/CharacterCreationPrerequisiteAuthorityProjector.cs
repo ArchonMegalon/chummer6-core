@@ -1365,7 +1365,9 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
                                      >= activeSkillGrant.Quantity
                                   || skillGroupGrant is
                                       { IsSupported: true, Blockers: { Count: 0 } }
-                                     && skillGroupGrant.BaseRating > 0
+                                     // Rating zero still carries a mandatory source-owned
+                                     // choice (for example Aspected Magician D).
+                                     && skillGroupGrant.BaseRating >= 0
                                      && skillGroupGrant.Options.Count >= skillGroupGrant.Quantity;
             bool exactSupportedTalent = exactSupportedTalentShape && grantSupported;
             projected.Add(projection with

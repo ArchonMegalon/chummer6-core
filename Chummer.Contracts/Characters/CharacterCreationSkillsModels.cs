@@ -9,6 +9,7 @@ namespace Chummer.Contracts.Characters;
 public static class CharacterCreationSkillsSchemas
 {
     public const string AuthorityV1 = "chummer.character_creation_skills_authority.v1";
+    public const string TalentAccessV1 = "chummer.sr5.creation-talent-skill-access.v1";
     public const string CatalogProjectionV2 = "chummer.sr5.creation-skill-catalog-projection.v2";
     public const string SnapshotV1 = "chummer.character_creation_skills_snapshot.v1";
     public const string PreviewV1 = "chummer.character_creation_skills_preview.v1";
@@ -190,6 +191,7 @@ public static class CharacterCreationSkillsBlockers
     public const string SkillsPriorityAuthorityInvalid = "creation-skills-priority-authority-invalid";
     public const string SkillsSourceDrift = "creation-skills-source-drift";
     public const string SpecializationInvalid = "creation-skills-specialization-invalid";
+    public const string TalentAccessRequired = "creation-skills-talent-access-required";
     public const string StaleRawCharacterXmlDigest = "creation-skills-stale-raw-character-xml-digest";
     public const string StaleWorkspaceRevision = "creation-skills-stale-workspace-revision";
     public const string WorkspaceUnavailable = "creation-skills-workspace-unavailable";
@@ -267,6 +269,12 @@ public sealed record CharacterCreationSkillsAuthority(
     string RuntimeDigest,
     string AuthorityDigest)
 {
+    /// <summary>Context-bound access derived by Core from the selected Talent's
+    /// effective quality definitions. Null is the ordinary non-special catalog,
+    /// never implicit permission to purchase magical or Resonance skills.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationTalentSkillAccess? TalentAccess { get; init; }
+
     public static CharacterCreationSkillsAuthority Unavailable { get; } = new(
         CharacterCreationSkillsSchemas.AuthorityV1,
         string.Empty,
@@ -290,6 +298,16 @@ public sealed record CharacterCreationSkillsAuthority(
         string.Empty,
         string.Empty);
 }
+
+public sealed record CharacterCreationTalentSkillAccess(
+    string Schema,
+    string PrerequisiteDraftDigest,
+    string TalentRuntimeDigest,
+    CharacterCreationMagicResonanceTalentOption Talent,
+    IReadOnlyList<string> SelectedGroupNames,
+    IReadOnlyList<string> AllowedActiveSkillSourceIds,
+    IReadOnlyList<string> AllowedSkillGroupIds,
+    string AccessDigest);
 
 public sealed record CharacterCreationSkillAllocation(
     string SourceSkillId,
@@ -317,7 +335,13 @@ public sealed record CharacterCreationSkillProjection(
     bool IsNativeLanguage,
     bool IsEnabled,
     IReadOnlyList<string> Blockers,
-    IReadOnlyList<string> SourceAnchorIds);
+    IReadOnlyList<string> SourceAnchorIds)
+{
+    /// <summary>Source-bound free base rating already included in Rating/EffectiveRating;
+    /// never spendable points. Zero is omitted to preserve existing draft bytes.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public int GrantedRating { get; init; }
+}
 
 public sealed record CharacterCreationSkillGroupProjection(
     string GroupId,
@@ -327,7 +351,11 @@ public sealed record CharacterCreationSkillGroupProjection(
     IReadOnlyList<string> MemberSkillSourceIds,
     bool IsEnabled,
     IReadOnlyList<string> Blockers,
-    IReadOnlyList<string> SourceAnchorIds);
+    IReadOnlyList<string> SourceAnchorIds)
+{
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public int GrantedRating { get; init; }
+}
 
 public sealed record CharacterCreationSkillsBinding(
     CharacterWorkspaceId WorkspaceId,

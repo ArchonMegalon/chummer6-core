@@ -8,6 +8,26 @@ namespace Chummer.Tests;
 public sealed class CharacterCreationQualitiesRulesTests
 {
     [TestMethod]
+    public void Heritage_quality_retains_source_cost_but_consumes_no_budget_and_cannot_be_bought_again()
+    {
+        var option = Option("heritage-source", CharacterCreationQualityType.Positive, 30, metagenic: true);
+        var grant = new CharacterCreationGrantedQuality("talent-quality", option.SourceId, option.SelectionKey,
+            option.Name, option.Type, 1, 30, true, false, false, "Heritage", option.SourceAnchorIds, string.Empty);
+        grant = grant with { GrantDigest = CharacterCreationQualitiesRules.ComputeGrantDigest(grant) };
+        var authority = Authority(option) with { GrantedQualities = [grant], AuthorityDigest = string.Empty };
+        authority = authority with { AuthorityDigest = CharacterCreationQualitiesRules.ComputeAuthorityDigest(authority) };
+        var preview = CharacterCreationQualitiesRules.Evaluate(new(Binding(authority, creationKarma: 25), authority, []));
+        Assert.IsTrue(preview.CanConfirm, string.Join(",", preview.Blockers));
+        Assert.AreEqual(25, preview.KarmaRemaining);
+        Assert.AreEqual(0, preview.PositiveQualityBudget.Used);
+        Assert.AreEqual(0, preview.MetagenicPositiveKarma);
+        Assert.AreEqual(30, preview.GrantedQualities.Single().KarmaCost);
+        var duplicate = CharacterCreationQualitiesRules.Evaluate(new(Binding(authority), authority, [option.OptionId]));
+        Assert.IsFalse(duplicate.CanConfirm);
+        CollectionAssert.Contains(duplicate.Blockers.ToArray(), CharacterCreationQualitiesBlockers.DuplicateSelection);
+    }
+
+    [TestMethod]
     public void Evaluate_resolves_only_stable_authority_options_and_computes_separate_limits()
     {
         CharacterCreationQualitiesAuthority authority = Authority(
@@ -267,7 +287,9 @@ public sealed class CharacterCreationQualitiesRulesTests
         ContentRevision: 7,
         SavedRevision: 7,
         RawCharacterXmlDigest: Digest('5'),
-        AuxiliaryStateDigest: Digest('6'),
+        // Workspace auxiliary digests are raw lowercase SHA-256, unlike
+        // Resources/Qualities-owned digests. Keep this fixture contract-exact.
+        AuxiliaryStateDigest: new string('6', 64),
         PrerequisiteDraftRevision: 2,
         PrerequisiteDraftDigest: Digest('7'),
         AttributesDraftRevision: 3,

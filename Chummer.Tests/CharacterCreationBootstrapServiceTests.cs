@@ -31,6 +31,31 @@ public sealed class CharacterCreationBootstrapServiceTests
     private const string CanonicalLifeModulesSettingsId =
         CharacterCreationBootstrapProfiles.LifeModulesSettingsProfileId;
 
+    [TestMethod]
+    [DataRow(CharacterCreationBuildMethods.Priority, CanonicalPrioritySettingsId)]
+    [DataRow(CharacterCreationBuildMethods.SumToTen, CanonicalSumToTenSettingsId)]
+    [DataRow(CharacterCreationBuildMethods.Karma, CanonicalKarmaSettingsId)]
+    [DataRow(CharacterCreationBuildMethods.LifeModules, CanonicalLifeModulesSettingsId)]
+    public void A_new_sr5_runner_owns_explicit_zero_reputation_and_empty_career_history(string method, string settings)
+    {
+        var store = new InMemoryWorkspaceStore();
+        var service = CreateService(store, CreateSourceResolver(FindCoreRoot()), CreateFileQueries());
+        var result = service.Create(CanonicalRequest() with { BuildMethod = method, SettingsProfileId = settings });
+        Assert.AreEqual(CharacterCreationBootstrapOutcomes.Success, result.Outcome, string.Join(",", result.Blockers));
+        var root = XDocument.Parse(store.Get(result.Value!.WorkspaceId).Value!.Document.Content).Root!;
+        foreach (string field in new[] { "streetcred", "notoriety", "publicawareness", "burntstreetcred" })
+        {
+            Assert.HasCount(1, root.Elements(field).ToArray(), field);
+            Assert.AreEqual("0", root.Element(field)!.Value, field);
+        }
+        foreach (string container in new[] { "expenses", "improvements", "contacts" })
+        {
+            Assert.HasCount(1, root.Elements(container).ToArray(), container);
+            Assert.IsFalse(root.Element(container)!.Nodes().Any(), container);
+        }
+        Assert.AreEqual("False", root.Element("created")!.Value);
+    }
+
     [DataTestMethod]
     [DataRow(CharacterCreationBuildMethods.Priority, CanonicalPrioritySettingsId)]
     [DataRow(CharacterCreationBuildMethods.SumToTen, CanonicalSumToTenSettingsId)]
@@ -245,8 +270,11 @@ public sealed class CharacterCreationBootstrapServiceTests
         Assert.AreEqual(2, sourceResolver.MagicResolveCount);
         Assert.AreEqual(2, lifeModules.AuthorityReadCount);
         Assert.AreEqual(2, lifeModules.OptionProjectionCount);
+        Assert.AreEqual(1, store.ReadCount,
+            "Consumer acceptance must independently bind to the current persisted workspace.");
         Assert.IsFalse(service.TryValidateCurrent(attempt.Bundle, out _),
             "Activation authority is one-shot and cannot be replayed.");
+        Assert.AreEqual(1, store.ReadCount, "Rejected replay must not reread the store.");
         Assert.AreEqual(2, sourceResolver.ContextCreateCount,
             "A rejected replay must not touch source authority.");
 
@@ -279,6 +307,102 @@ public sealed class CharacterCreationBootstrapServiceTests
         AssertJsonEqual(contacts, aggregate.Contacts);
         AssertJsonEqual(qualities, aggregate.Qualities);
         AssertJsonEqual(magic, aggregate.MagicResonance);
+    }
+
+    [TestMethod]
+    [DataRow("deleted")]
+    [DataRow("revision-advanced")]
+    public void Consumer_freshness_rejects_persisted_workspace_changes_before_activation(string change)
+    {
+        string coreRoot = FindCoreRoot();
+        string workspaceRoot = Path.Combine(Path.GetTempPath(), $"chummer-activation-freshness-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(workspaceRoot);
+        try
+        {
+            var store = new FileWorkspaceStore(workspaceRoot);
+            var resolver = CreateSourceResolver(coreRoot);
+            var queries = CreateFileQueries();
+            var projector = new CharacterCreationBootstrapActivationProjector(store, queries,
+                new XmlLifeModulesCatalogService(Path.Combine(coreRoot, "Chummer", "data", "lifemodules.xml")),
+                new UnavailableCharacterCreationFoundationApplyAuthority());
+            var service = CreateService(store, resolver, queries, projector);
+            var attempt = service.CreateActivation(CanonicalRequest());
+            Assert.IsNotNull(attempt.Bundle, string.Join(",", attempt.Blockers));
+            var bundle = attempt.Bundle;
+            var before = store.Get(bundle.Receipt.WorkspaceId).Value!;
+            WorkspaceStoreMutationResult mutation = change switch
+            {
+                "deleted" => store.Delete(before.Id, before.ContentRevision),
+                "revision-advanced" => store.ReplaceWorkspaceDocument(before.Id, before.ContentRevision, before.Document),
+                _ => throw new ArgumentOutOfRangeException(nameof(change))
+            };
+            Assert.IsTrue(mutation.Success, mutation.Error);
+            var changed = store.Get(before.Id);
+
+            Assert.IsFalse(service.TryValidateCurrent(bundle, out var blockers),
+                "An authentic unconsumed bundle cannot stand in for the current persisted workspace.");
+            CollectionAssert.Contains(blockers.ToList(), CharacterCreationBootstrapBlockers.ActivationProjectionUnavailable);
+            AssertJsonEqual(changed, store.Get(before.Id));
+            Assert.IsFalse(service.TryValidateCurrent(bundle, out _),
+                "Rejected activation must not restore a replayable pending capability.");
+        }
+        finally
+        {
+            // Only the newly allocated test store; never a supplied repository or user workspace.
+            Directory.Delete(workspaceRoot, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    [DataRow("unavailable")]
+    [DataRow("missing-value")]
+    [DataRow("other-workspace")]
+    [DataRow("content-revision")]
+    [DataRow("saved-revision")]
+    [DataRow("xml-at-same-revision")]
+    [DataRow("auxiliary-at-same-revision")]
+    [DataRow("null-document")]
+    [DataRow("null-state")]
+    [DataRow("io-failure")]
+    public void Consumer_freshness_rejects_untrusted_current_store_read(string fault)
+    {
+        string coreRoot = FindCoreRoot();
+        var store = new CountingWorkspaceStore();
+        var resolver = CreateSourceResolver(coreRoot);
+        var queries = CreateFileQueries();
+        var projector = new CharacterCreationBootstrapActivationProjector(store, queries,
+            new XmlLifeModulesCatalogService(Path.Combine(coreRoot, "Chummer", "data", "lifemodules.xml")),
+            new UnavailableCharacterCreationFoundationApplyAuthority());
+        var service = CreateService(store, resolver, queries, projector);
+        var bundle = service.CreateActivation(CanonicalRequest()).Bundle;
+        Assert.IsNotNull(bundle);
+        store.RewriteRead = read => fault switch
+        {
+            "unavailable" => new(WorkspaceOperationOutcome.Unavailable),
+            "missing-value" => new(WorkspaceOperationOutcome.Success),
+            "other-workspace" => read with { Value = read.Value! with { Id = new("other-workspace") } },
+            "content-revision" => read with { Value = read.Value! with { ContentRevision = read.Value.ContentRevision + 1 } },
+            "saved-revision" => read with { Value = read.Value! with { SavedRevision = read.Value.SavedRevision + 1 } },
+            "xml-at-same-revision" => read with { Value = read.Value! with
+                { Document = read.Value.Document with { State = read.Value.Document.State with
+                    { Payload = read.Value.Document.Content + " " } } } },
+            "auxiliary-at-same-revision" => read with { Value = read.Value! with
+                { Document = read.Value.Document with { State = read.Value.Document.State with
+                    { AuxiliaryState = WorkspaceDocumentAuxiliaryState.Empty } } } },
+            "null-document" => read with { Value = read.Value! with { Document = null! } },
+            "null-state" => read with { Value = read.Value! with
+                { Document = read.Value.Document with { State = null! } } },
+            "io-failure" => throw new IOException("Current store read unavailable."),
+            _ => throw new ArgumentOutOfRangeException(nameof(fault))
+        };
+
+        Assert.IsFalse(service.TryValidateCurrent(bundle, out var blockers), fault);
+        CollectionAssert.Contains(blockers.ToList(), CharacterCreationBootstrapBlockers.ActivationProjectionUnavailable);
+        Assert.AreEqual(1, store.ReadCount);
+        store.RewriteRead = null;
+        Assert.IsFalse(service.TryValidateCurrent(bundle, out _),
+            "A failed current-store check must consume the one-shot bundle, not admit a later replay.");
+        Assert.AreEqual(1, store.ReadCount);
     }
 
     [TestMethod]
@@ -1848,6 +1972,8 @@ public sealed class CharacterCreationBootstrapServiceTests
 
         public int ReadCount { get; private set; }
 
+        public Func<WorkspaceStoreReadResult, WorkspaceStoreReadResult>? RewriteRead { get; set; }
+
         public bool SupportsCharacterCreationBootstrapAtomicCreate => true;
 
         public WorkspaceStoreMutationResult CreateCharacterCreationBootstrapWorkspaceDocument(
@@ -1882,7 +2008,8 @@ public sealed class CharacterCreationBootstrapServiceTests
         public WorkspaceStoreReadResult Get(CharacterWorkspaceId id)
         {
             ReadCount++;
-            return _inner.Get(id);
+            WorkspaceStoreReadResult result = _inner.Get(id);
+            return RewriteRead?.Invoke(result) ?? result;
         }
 
         public WorkspaceStoreReadResult Get(

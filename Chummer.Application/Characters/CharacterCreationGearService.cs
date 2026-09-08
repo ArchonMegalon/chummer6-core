@@ -244,13 +244,14 @@ public sealed class CharacterCreationGearService : ICharacterCreationGearService
         WorkspaceStoreReadResult read = _workspaceStore.Get(request.WorkspaceId);
         if (!read.Success || read.Value is not WorkspaceStoredDocument workspace)
             return ReadFailure<CharacterCreationGearReceipt>(read);
-        CharacterCreationGearDraft? draft =
-            workspace.Document.AuxiliaryState.CharacterCreationGearDraft;
+        bool historyValid = CharacterCreationFinalizationReceiptLedgerIntegrity.TryReadReceiptHistory(
+            workspace, out var history, out long historyRevision);
+        CharacterCreationGearDraft? draft = history.CharacterCreationGearDraft;
         IReadOnlyList<CharacterCreationGearReceiptLedgerEntry> ledger =
-            workspace.Document.AuxiliaryState.CharacterCreationGearReceipts ?? [];
-        if (!CharacterCreationGearReceiptLedgerIntegrity.IsValidLedger(
+            history.CharacterCreationGearReceipts ?? [];
+        if (!historyValid || !CharacterCreationGearReceiptLedgerIntegrity.IsValidLedger(
                 workspace.Id,
-                workspace.ContentRevision,
+                historyRevision,
                 draft,
                 ledger))
         {
@@ -565,13 +566,14 @@ public sealed class CharacterCreationGearService : ICharacterCreationGearService
         string keyDigest,
         string commandDigest)
     {
-        CharacterCreationGearDraft? draft =
-            workspace.Document.AuxiliaryState.CharacterCreationGearDraft;
+        bool historyValid = CharacterCreationFinalizationReceiptLedgerIntegrity.TryReadReceiptHistory(
+            workspace, out var history, out long historyRevision);
+        CharacterCreationGearDraft? draft = history.CharacterCreationGearDraft;
         IReadOnlyList<CharacterCreationGearReceiptLedgerEntry> ledger =
-            workspace.Document.AuxiliaryState.CharacterCreationGearReceipts ?? [];
-        if (!CharacterCreationGearReceiptLedgerIntegrity.IsValidLedger(
+            history.CharacterCreationGearReceipts ?? [];
+        if (!historyValid || !CharacterCreationGearReceiptLedgerIntegrity.IsValidLedger(
                 workspace.Id,
-                workspace.ContentRevision,
+                historyRevision,
                 draft,
                 ledger))
         {

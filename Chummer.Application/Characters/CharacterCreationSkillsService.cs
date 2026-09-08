@@ -4,7 +4,7 @@ using Chummer.Contracts.Workspaces;
 
 namespace Chummer.Application.Characters;
 
-public sealed class CharacterCreationSkillsService : ICharacterCreationSkillsService
+public sealed partial class CharacterCreationSkillsService : ICharacterCreationSkillsService, ICharacterCreationSkillsReReviewService
 {
     private readonly IWorkspaceStore _store;
     private readonly ICharacterSourceDataResolver _resolver;
@@ -38,6 +38,11 @@ public sealed class CharacterCreationSkillsService : ICharacterCreationSkillsSer
 
     public CharacterCreationFoundationResult<CharacterCreationSkillsReceipt> Confirm(
         CharacterCreationSkillsConfirmRequest request)
+        => ConfirmCore(request, null);
+
+    private CharacterCreationFoundationResult<CharacterCreationSkillsReceipt> ConfirmCore(
+        CharacterCreationSkillsConfirmRequest request,
+        CharacterCreationSkillsReReviewBinding? reReview)
     {
         ArgumentNullException.ThrowIfNull(request);
         if (!request.ExplicitlyConfirmed)
@@ -55,13 +60,21 @@ public sealed class CharacterCreationSkillsService : ICharacterCreationSkillsSer
                 CharacterCreationSkillsBlockers.WorkspaceUnavailable);
 
         string keyDigest = CharacterCreationSkillsDigest.ComputeUtf8(request.IdempotencyKey);
-        string commandDigest = ComputeCommandDigest(request);
-        IReadOnlyList<CharacterCreationSkillsReceipt>? ledger =
-            currentWorkspace.Document.AuxiliaryState.CharacterCreationSkillsReceipts;
-        if (!CharacterCreationSkillsDraftIntegrity.IsValidReceiptLedger(
+        string commandDigest = reReview is null ? ComputeCommandDigest(request)
+            : CharacterCreationSkillsDigest.Compute(new
+            {
+                Schema = CharacterCreationSkillsReReviewSchemas.CommandV1,
+                ReReview = reReview,
+                CommandDigest = ComputeCommandDigest(request),
+                ExplicitlyReviewedChanges = true
+            });
+        bool historyValid = CharacterCreationFinalizationReceiptLedgerIntegrity.TryReadReceiptHistory(
+            currentWorkspace, out var history, out long historyRevision);
+        IReadOnlyList<CharacterCreationSkillsReceipt>? ledger = history.CharacterCreationSkillsReceipts;
+        if (!historyValid || !CharacterCreationSkillsDraftIntegrity.IsValidReceiptLedger(
                 ledger,
                 currentWorkspace.Id,
-                currentWorkspace.ContentRevision))
+                historyRevision))
             return Blocked<CharacterCreationSkillsReceipt>(CharacterCreationFoundationOutcomes.Invalid,
                 CharacterCreationSkillsBlockers.ReceiptLedgerInvalid);
         CharacterCreationSkillsReceipt? replay = ledger?.SingleOrDefault(receipt =>
@@ -75,12 +88,14 @@ public sealed class CharacterCreationSkillsService : ICharacterCreationSkillsSer
         PreviewEvaluation evaluation = Evaluate(new CharacterCreationSkillsPreviewRequest(
             request.Binding,
             request.Allocations,
-            request.GroupAllocations));
+            request.GroupAllocations), reReview);
         if (evaluation.Result.Value is not { } preview
             || evaluation.Workspace is not { } workspace
             || evaluation.Draft is not { } draft)
             return new(evaluation.Result.Outcome, null, evaluation.Result.Blockers);
-        if (!CharacterCreationSkillsDigest.EqualsFixedTime(preview.PreviewDigest, request.PreviewDigest))
+        string expectedPreviewDigest = reReview is null ? preview.PreviewDigest
+            : BuildReReviewPreview(reReview, workspace.Document.AuxiliaryState.CharacterCreationSkillsDraft!, preview).PreviewDigest;
+        if (!CharacterCreationSkillsDigest.EqualsFixedTime(expectedPreviewDigest, request.PreviewDigest))
             return Blocked<CharacterCreationSkillsReceipt>(CharacterCreationFoundationOutcomes.Conflict,
                 CharacterCreationSkillsBlockers.PreviewDigestMismatch);
         if (!preview.CanConfirm || preview.Blockers.Count != 0)
@@ -93,7 +108,7 @@ public sealed class CharacterCreationSkillsService : ICharacterCreationSkillsSer
         draft = draft with
         {
             LastIdempotencyKeyDigest = keyDigest,
-            LastPreviewDigest = preview.PreviewDigest,
+            LastPreviewDigest = expectedPreviewDigest,
             LastCommandDigest = commandDigest,
             DraftDigest = string.Empty
         };
@@ -113,7 +128,7 @@ public sealed class CharacterCreationSkillsService : ICharacterCreationSkillsSer
             nextContent,
             draft.DraftRevision,
             draft.DraftDigest,
-            preview.PreviewDigest,
+            expectedPreviewDigest,
             keyDigest,
             commandDigest,
             ledger is { Count: > 0 }
@@ -185,7 +200,8 @@ public sealed class CharacterCreationSkillsService : ICharacterCreationSkillsSer
         return new(CharacterCreationFoundationOutcomes.Success, receipt, []);
     }
 
-    private PreviewEvaluation Evaluate(CharacterCreationSkillsPreviewRequest request)
+    private PreviewEvaluation Evaluate(CharacterCreationSkillsPreviewRequest request,
+        CharacterCreationSkillsReReviewBinding? reReview = null)
     {
         WorkspaceStoreReadResult read = _store.Get(request.Binding.WorkspaceId);
         if (!read.Success || read.Value is not { } workspace)
@@ -195,7 +211,7 @@ public sealed class CharacterCreationSkillsService : ICharacterCreationSkillsSer
             || workspace.SavedRevision != request.Binding.SavedRevision)
             return new(Blocked<CharacterCreationSkillsPreview>(CharacterCreationFoundationOutcomes.Conflict,
                 CharacterCreationSkillsBlockers.StaleWorkspaceRevision), null, null);
-        CharacterCreationFoundationResult<CharacterCreationSkillsState> stateResult = BuildState(workspace);
+        CharacterCreationFoundationResult<CharacterCreationSkillsState> stateResult = BuildState(workspace, out var catalogAuthority);
         if (stateResult.Value is not { } state
             || state.PrerequisiteDraft is not { } prerequisite
             || state.AttributesDraft is not { } attributes)
@@ -210,8 +226,19 @@ public sealed class CharacterCreationSkillsService : ICharacterCreationSkillsSer
             return new(Blocked<CharacterCreationSkillsPreview>(CharacterCreationFoundationOutcomes.Conflict, mismatch), null, null);
 
         var blockers = new List<string>(state.Blockers);
+        if (reReview is not null)
+        {
+            if (!TryPrepareReReview(workspace, state, catalogAuthority, out var currentReview)
+                || !CharacterCreationSkillsDigest.EqualsFixedTime(
+                    CharacterCreationSkillsDigest.Compute(reReview), CharacterCreationSkillsDigest.Compute(currentReview)))
+                return new(Blocked<CharacterCreationSkillsPreview>(CharacterCreationFoundationOutcomes.Conflict,
+                    CharacterCreationSkillsReReviewSchemas.Stale), null, null);
+            blockers.RemoveAll(item => item is CharacterCreationSkillsBlockers.DraftInvalid
+                or CharacterCreationSkillsBlockers.TalentAccessRequired);
+        }
         SkillEvaluation projected = EvaluateAllocations(
             state.Authority,
+            prerequisite,
             state.SelectedActiveSkillPoints,
             state.SelectedSkillGroupPoints,
             state.IntuitionUnaugmented,
@@ -262,6 +289,10 @@ public sealed class CharacterCreationSkillsService : ICharacterCreationSkillsSer
 
     private CharacterCreationFoundationResult<CharacterCreationSkillsState> BuildState(
         WorkspaceStoredDocument workspace)
+        => BuildState(workspace, out _);
+
+    private CharacterCreationFoundationResult<CharacterCreationSkillsState> BuildState(
+        WorkspaceStoredDocument workspace, out CharacterCreationSkillsAuthority catalogAuthority)
     {
         var blockers = new List<string>();
         if (_store is not IWorkspaceAuxiliaryStateAtomicCommitCapability
@@ -308,6 +339,10 @@ public sealed class CharacterCreationSkillsService : ICharacterCreationSkillsSer
             blockers.Add(CharacterCreationSkillsBlockers.PrerequisiteSourceDrift);
             prerequisite = null;
         }
+        catalogAuthority = authority;
+        if (prerequisite is not null && authorityReady
+            && !CharacterCreationSkillsAccessRules.TryBind(prerequisite, context!, authority, out authority))
+            blockers.Add(CharacterCreationSkillsBlockers.TalentAccessRequired);
         CharacterCreationAttributesState? attributeState =
             new CharacterCreationAttributesService(_store, _resolver)
                 .Load(new CharacterCreationAttributesLoadRequest(workspace.Id)).Value;
@@ -364,6 +399,9 @@ public sealed class CharacterCreationSkillsService : ICharacterCreationSkillsSer
 
         CharacterCreationSkillsDraft? pending =
             workspace.Document.AuxiliaryState.CharacterCreationSkillsDraft;
+        if (prerequisite is not null
+            && !CharacterCreationTalentSkillGrants.TryResolve(prerequisite, authority, out _))
+            blockers.Add(CharacterCreationSkillsBlockers.PrerequisiteSourceDrift);
         IReadOnlyList<CharacterCreationSkillsReceipt>? receipts =
             workspace.Document.AuxiliaryState.CharacterCreationSkillsReceipts;
         if (!CharacterCreationSkillsDraftIntegrity.IsValidReceiptLedger(
@@ -387,6 +425,7 @@ public sealed class CharacterCreationSkillsService : ICharacterCreationSkillsSer
         var pendingBlockers = new List<string>();
         SkillEvaluation projected = EvaluateAllocations(
             authority,
+            prerequisite,
             activeTotal,
             groupTotal,
             intuition,
@@ -395,6 +434,8 @@ public sealed class CharacterCreationSkillsService : ICharacterCreationSkillsSer
             pending?.Allocations ?? [],
             pending?.GroupAllocations ?? [],
             pendingBlockers);
+        if (pendingBlockers.Contains(CharacterCreationSkillsBlockers.TalentAccessRequired))
+            blockers.Add(CharacterCreationSkillsBlockers.TalentAccessRequired);
         if (pending is not null
             && (pendingBlockers.Count != 0
                 || !CharacterCreationSkillsDigest.EqualsFixedTime(
@@ -478,6 +519,7 @@ public sealed class CharacterCreationSkillsService : ICharacterCreationSkillsSer
 
     private static SkillEvaluation EvaluateAllocations(
         CharacterCreationSkillsAuthority authority,
+        CharacterCreationPrerequisiteDraft? prerequisite,
         int activeTotal,
         int groupTotal,
         int intuition,
@@ -485,10 +527,13 @@ public sealed class CharacterCreationSkillsService : ICharacterCreationSkillsSer
         CharacterCreationMovementCapability movementCapability,
         IReadOnlyList<CharacterCreationSkillAllocation>? requested,
         IReadOnlyList<CharacterCreationSkillGroupAllocation>? requestedGroups,
-        ICollection<string> blockers)
+        ICollection<string> blockers,
+        SkillsEvaluationSemantics semantics = SkillsEvaluationSemantics.CurrentSourceBound)
     {
         requested ??= [];
         requestedGroups ??= [];
+        if (!CharacterCreationTalentSkillGrants.TryResolve(prerequisite, authority, out var grants))
+            blockers.Add(CharacterCreationSkillsBlockers.PrerequisiteSourceDrift);
         var allocationMap = new Dictionary<(string Kind, string SourceId), CharacterCreationSkillAllocation>();
         foreach (CharacterCreationSkillAllocation? allocation in requested)
         {
@@ -516,6 +561,13 @@ public sealed class CharacterCreationSkillsService : ICharacterCreationSkillsSer
         }
 
         var groups = new List<CharacterCreationSkillGroupProjection>();
+        // Omitting a talent-granted row never deletes the free rating. Requests
+        // describe the desired total rating; only increases consume points.
+        foreach (var grant in grants.Skills)
+            allocationMap.TryAdd((CharacterCreationSkillKinds.Active, grant.Key),
+                new(grant.Key, CharacterCreationSkillKinds.Active, grant.Value.BaseRating, null, false));
+        foreach (var grant in grants.Groups)
+            groupMap.TryAdd(grant.Key, new(grant.Key, grant.Value.BaseRating));
         int groupUsed = 0;
         foreach (CharacterCreationSkillGroupAllocation allocation in groupMap.Values
                      .OrderBy(item => item.GroupId, StringComparer.Ordinal))
@@ -525,28 +577,37 @@ public sealed class CharacterCreationSkillsService : ICharacterCreationSkillsSer
             string[] availableMemberIds = source?.MemberSkillSourceIds
                 .Where(id => authority.ActiveSkills.SingleOrDefault(skill =>
                     string.Equals(skill.SourceSkillId, id, StringComparison.Ordinal)) is { } skill
-                    && IsMovementAvailable(skill, movementCapability))
+                    && IsMovementAvailable(skill, movementCapability)
+                    && (semantics == SkillsEvaluationSemantics.PreTalentAccessHistory
+                        || CharacterCreationSkillsAccessRules.IsSkillAvailable(authority, id)))
                 .ToArray() ?? [];
             var local = new List<string>();
+            grants.Groups.TryGetValue(allocation.GroupId, out var grant);
+            int grantedRating = grant?.BaseRating ?? 0;
             if (source is null
                 || allocation.Rating < 1
+                || allocation.Rating < grantedRating
                 || allocation.Rating > authority.MaxSkillGroupRatingCreate)
                 local.Add(CharacterCreationSkillsBlockers.GroupInvalid);
+            if (source is not null && semantics == SkillsEvaluationSemantics.CurrentSourceBound
+                && !CharacterCreationSkillsAccessRules.IsGroupAvailable(authority, source.GroupId))
+                local.Add(CharacterCreationSkillsBlockers.TalentAccessRequired);
             if (source is not null && availableMemberIds.Any(id =>
                     allocationMap.ContainsKey((CharacterCreationSkillKinds.Active, id))))
                 local.Add(CharacterCreationSkillsBlockers.GroupBroken);
             AddAll(blockers, local);
             if (source is not null)
-                groupUsed = SafeAdd(groupUsed, allocation.Rating, blockers);
+                groupUsed = SafeAdd(groupUsed, Math.Max(0, allocation.Rating - grantedRating), blockers);
             groups.Add(new(
                 allocation.GroupId,
                 source?.Name ?? string.Empty,
                 allocation.Rating,
-                Math.Max(0, allocation.Rating),
+                Math.Max(0, allocation.Rating - grantedRating),
                 source?.MemberSkillSourceIds ?? [],
                 local.Count == 0,
                 Normalize(local),
-                source?.SourceAnchorIds ?? []));
+                CharacterCreationTalentSkillGrants.Anchors(source?.SourceAnchorIds ?? [], grant?.SourceAnchorIds))
+                { GrantedRating = grantedRating });
         }
 
         var skills = new List<CharacterCreationSkillProjection>();
@@ -563,6 +624,9 @@ public sealed class CharacterCreationSkillsService : ICharacterCreationSkillsSer
                     : authority.KnowledgeSkills).SingleOrDefault(item =>
                         item.SourceSkillId == allocation.SourceSkillId);
             var local = new List<string>();
+            var grant = allocation.Kind == CharacterCreationSkillKinds.Active
+                ? grants.Skills.GetValueOrDefault(allocation.SourceSkillId) : null;
+            int grantedRating = grant?.BaseRating ?? 0;
             int max = allocation.Kind == CharacterCreationSkillKinds.Active
                 ? authority.MaxActiveSkillRatingCreate
                 : authority.MaxKnowledgeSkillRatingCreate;
@@ -572,6 +636,10 @@ public sealed class CharacterCreationSkillsService : ICharacterCreationSkillsSer
                 local.Add(CharacterCreationSkillsBlockers.ExoticSkillUnsupported);
             if (source is not null && !IsMovementAvailable(source, movementCapability))
                 local.Add(CharacterCreationSkillsBlockers.MovementRequirementUnmet);
+            if (source is not null && semantics == SkillsEvaluationSemantics.CurrentSourceBound
+                && allocation.Kind == CharacterCreationSkillKinds.Active
+                && !CharacterCreationSkillsAccessRules.IsSkillAvailable(authority, source.SourceSkillId))
+                local.Add(CharacterCreationSkillsBlockers.TalentAccessRequired);
             if (allocation.IsNativeLanguage)
             {
                 nativeCount++;
@@ -580,7 +648,7 @@ public sealed class CharacterCreationSkillsService : ICharacterCreationSkillsSer
                     || allocation.SpecializationOptionId is not null)
                     local.Add(CharacterCreationSkillsBlockers.NativeLanguageInvalid);
             }
-            else if (allocation.Rating is not int rating || rating < 1 || rating > max)
+            else if (allocation.Rating is not int rating || rating < 1 || rating < grantedRating || rating > max)
                 local.Add(CharacterCreationSkillsBlockers.RatingInvalid);
 
             CharacterCreationSkillSpecializationOption? specialization =
@@ -601,7 +669,7 @@ public sealed class CharacterCreationSkillsService : ICharacterCreationSkillsSer
 
             int cost = allocation.IsNativeLanguage
                 ? 0
-                : Math.Max(0, allocation.Rating.GetValueOrDefault()) + (specialization is null ? 0 : 1);
+                : Math.Max(0, allocation.Rating.GetValueOrDefault() - grantedRating) + (specialization is null ? 0 : 1);
             if (allocation.Kind == CharacterCreationSkillKinds.Active)
                 activeUsed = SafeAdd(activeUsed, cost, blockers);
             else
@@ -624,7 +692,8 @@ public sealed class CharacterCreationSkillsService : ICharacterCreationSkillsSer
                 allocation.IsNativeLanguage,
                 local.Count == 0,
                 Normalize(local),
-                source?.SourceAnchorIds ?? []));
+                CharacterCreationTalentSkillGrants.Anchors(source?.SourceAnchorIds ?? [], grant?.SourceAnchorIds))
+                { GrantedRating = grantedRating });
         }
         if (nativeCount > authority.BaseNativeLanguageLimit)
             blockers.Add(CharacterCreationSkillsBlockers.NativeLanguageLimitExceeded);

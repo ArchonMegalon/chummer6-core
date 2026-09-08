@@ -13,8 +13,8 @@ inventory_name="chummer-owner-contracts.inventory.json"
 candidate_inventory_name="chummer-core-candidate-engine-contract.inventory.json"
 candidate_runtime_inventory_name="chummer-core-candidate-gm-edit-runtime.inventory.json"
 runtime_inventory_name="chummer-core-runtime-packages.inventory.json"
-candidate_version="0.0.0-packageplane.candidate.sh60112dccb6a3f"
-runtime_source_commit="60112dccb6a3faad330d32c3c98eef0aa81d97af"
+candidate_version="0.0.0-packageplane.candidate.sh880e5df8ace98"
+runtime_source_commit="880e5df8ace981e9a60264d835329dd32f54a158"
 candidate_id="Chummer.Engine.Contracts"
 candidate_runtime_id="Chummer.Engine.GmCharacterEdits"
 candidate_repository="https://github.com/ArchonMegalon/chummer6-core.git"
@@ -166,6 +166,7 @@ dotnet pack "$consumer_root/Chummer.Contracts/Chummer.Contracts.csproj" \
   -p:PackageVersion="$candidate_version" \
   -p:Version="$candidate_version" \
   -p:RepositoryCommit="$runtime_source_commit" \
+  -p:SourceRevisionId="$runtime_source_commit" \
   -p:RepositoryUrl="$candidate_repository" \
   -p:PublishRepositoryUrl=true \
   -p:ContinuousIntegrationBuild=true \
@@ -273,6 +274,7 @@ while IFS=$'\t' read -r package_id project_path; do
     -p:PackageVersion="$candidate_version" \
     -p:Version="$candidate_version" \
     -p:RepositoryCommit="$runtime_source_commit" \
+    -p:SourceRevisionId="$runtime_source_commit" \
     -p:RepositoryUrl="$candidate_repository" \
     -p:PublishRepositoryUrl=true \
     -p:ContinuousIntegrationBuild=true \
@@ -301,6 +303,7 @@ dotnet pack "$consumer_root/Chummer.GmCharacterEdits/Chummer.GmCharacterEdits.cs
   -p:PackageVersion="$candidate_version" \
   -p:Version="$candidate_version" \
   -p:RepositoryCommit="$runtime_source_commit" \
+  -p:SourceRevisionId="$runtime_source_commit" \
   -p:RepositoryUrl="$candidate_repository" \
   -p:PublishRepositoryUrl=true \
   -p:ContinuousIntegrationBuild=true \
@@ -464,6 +467,7 @@ mkdir -p "$runtime_consumer_root"
 cat >"$runtime_consumer_root/GmRuntimeConsumer.csproj" <<EOF
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
+    <OutputType>Exe</OutputType>
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
@@ -476,16 +480,74 @@ cat >"$runtime_consumer_root/GmRuntimeConsumer.csproj" <<EOF
 </Project>
 EOF
 cat >"$runtime_consumer_root/BoundaryProbe.cs" <<'EOF'
+using System.Reflection;
+using Chummer.Application.Characters;
+using Chummer.Contracts.Characters;
 using Chummer.Contracts.Workspaces;
 using Chummer.Engine.GmCharacterEdits;
+using Chummer.Infrastructure.Workspaces;
 
 namespace GmRuntimeConsumer;
 
 public static class BoundaryProbe
 {
+    // RepositoryCommit in the nuspec does not set the assembly's informational
+    // version. The SDK otherwise embeds the recipe HEAD (including ephemeral
+    // PR merge commits), changing DLL/package bytes for identical runtime input.
+    // Inspect the actual package assemblies, not generated AssemblyInfo source.
+    public static int Main(string[] args)
+    {
+        if (args.Length != 2)
+        {
+            Console.Error.WriteLine("Expected candidate version and semantic source commit.");
+            return 2;
+        }
+        string expected = args[0] + "+" + args[1];
+        string[] assemblies =
+        [
+            "Chummer.Engine.Contracts", "Chummer.Application", "Chummer.Infrastructure",
+            "Chummer.Rulesets.Hosting", "Chummer.Rulesets.Sr4", "Chummer.Rulesets.Sr5",
+            "Chummer.Rulesets.Sr6", "Chummer.Engine.GmCharacterEdits"
+        ];
+        foreach (string name in assemblies)
+        {
+            Assembly assembly = Assembly.Load(new AssemblyName(name));
+            string? actual = assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
+            if (!string.Equals(actual, expected, StringComparison.Ordinal))
+            {
+                Console.Error.WriteLine($"{name}: assembly semantic source mismatch: {actual}");
+                return 1;
+            }
+        }
+        Console.WriteLine("package-assembly-semantic-source: pass (8 assemblies)");
+        return 0;
+    }
+
     public static Type ContractType => typeof(ICoreGmCharacterEditGateway);
 
     public static Type FactoryType => typeof(CoreGmCharacterEditGatewayFactory);
+
+    // Compile the exact wizard boundary from packages, not sibling projects.
+    // This proves exported type/member compatibility, not a device journey.
+    public static ICharacterCreationSkillsReReviewService SkillsReview(
+        CharacterCreationSkillsService service) => service;
+
+    public static CharacterCreationFoundationResult<CharacterCreationSkillsReceipt> ConfirmSkillsReview(
+        ICharacterCreationSkillsReReviewService service,
+        CharacterCreationSkillsReReviewConfirmRequest request) => service.ConfirmReReview(request);
+
+    public static bool RequiresBothExplicitReviews(CharacterCreationSkillsReReviewConfirmRequest request)
+        => request.ExplicitlyConfirmed && request.ExplicitlyReviewedChanges;
+
+    public static ICharacterCareerReputationService CareerReputation(
+        WorkspaceCharacterCareerReputationService service) => service;
+
+    public static CharacterCareerReputationResult CommitReputation(
+        ICharacterCareerReputationService service, CharacterCareerReputationCommand command,
+        CancellationToken cancellationToken) => service.Commit(command, cancellationToken);
+
+    public static CharacterCreationTalentSkillAccess? TalentAccess(CharacterCreationSkillsAuthority authority)
+        => authority.TalentAccess;
 }
 EOF
 
@@ -501,6 +563,20 @@ dotnet build "$runtime_consumer_root/GmRuntimeConsumer.csproj" \
   --nologo \
   -m:1 \
   -p:UseSharedCompilation=false
+
+dotnet "$runtime_consumer_root/bin/Release/net10.0/GmRuntimeConsumer.dll" \
+  "$candidate_version" "$runtime_source_commit"
+if dotnet "$runtime_consumer_root/bin/Release/net10.0/GmRuntimeConsumer.dll" \
+  "$candidate_version" "0000000000000000000000000000000000000000"; then
+  echo "assembly metadata accepted a foreign semantic source" >&2
+  exit 1
+else
+  metadata_rejection_status=$?
+  if [[ "$metadata_rejection_status" != 1 ]]; then
+    echo "unexpected assembly metadata rejection status: $metadata_rejection_status" >&2
+    exit "$metadata_rejection_status"
+  fi
+fi
 
 common_properties=(
   "-p:ChummerLocalContractsProject=$missing_local_project"
@@ -565,7 +641,9 @@ python3 - \
   "$isolated_feed/$runtime_inventory_name" \
   "$runtime_consumer_root/obj/project.assets.json" \
   "$isolated_feed" \
-  "$receipt_path" <<'PY'
+  "$receipt_path" \
+  "$candidate_version" \
+  "$runtime_source_commit" <<'PY'
 import hashlib
 import json
 import subprocess
@@ -585,6 +663,9 @@ from pathlib import Path
     isolated_feed,
     receipt_path,
 ) = map(Path, sys.argv[1:11])
+# Consume the same locked authority used by the pack invocations, never derive
+# expected identity from the candidate inventories being checked.
+expected_candidate_version, expected_runtime_source_commit = sys.argv[11:13]
 expected_package_root = package_root.resolve()
 asset_files = sorted(consumer_root.glob("**/obj/project.assets.json"))
 if not asset_files:
@@ -627,7 +708,6 @@ if candidate_inventory.get("contract") != "chummer-core.candidate-engine-contrac
     raise SystemExit("candidate Engine Contracts inventory contract is invalid")
 if candidate_inventory.get("role") != "current_core_candidate":
     raise SystemExit("candidate Engine Contracts inventory role is invalid")
-expected_candidate_version = "0.0.0-packageplane.candidate.sh60112dccb6a3f"
 if (
     candidate.get("id") != "Chummer.Engine.Contracts"
     or candidate.get("version") != expected_candidate_version
@@ -635,7 +715,7 @@ if (
     raise SystemExit("candidate Engine Contracts identity is invalid")
 expected_candidate_metadata = {
     "repository": "https://github.com/ArchonMegalon/chummer6-core.git",
-    "commit": "60112dccb6a3faad330d32c3c98eef0aa81d97af",
+    "commit": expected_runtime_source_commit,
     "project": "Chummer.Contracts/Chummer.Contracts.csproj",
     "file_name": f"Chummer.Engine.Contracts.{expected_candidate_version}.nupkg",
 }
@@ -646,7 +726,7 @@ for key, expected in expected_candidate_metadata.items():
         )
 if (
     candidate_inventory.get("runtime_source_commit")
-    != "60112dccb6a3faad330d32c3c98eef0aa81d97af"
+    != expected_runtime_source_commit
     or candidate_inventory.get("package_recipe_commit") != commit
 ):
     raise SystemExit("candidate Engine Contracts inventory authority is invalid")
@@ -663,7 +743,7 @@ if (
     != "chummer-core.candidate-gm-edit-runtime-package-inventory/v2"
     or candidate_runtime_inventory.get("role") != "current_core_candidate"
     or candidate_runtime_inventory.get("runtime_source_commit")
-    != "60112dccb6a3faad330d32c3c98eef0aa81d97af"
+    != expected_runtime_source_commit
     or candidate_runtime_inventory.get("package_recipe_commit") != commit
 ):
     raise SystemExit("candidate GM edit runtime inventory authority is invalid")
@@ -671,7 +751,7 @@ expected_runtime_metadata = {
     "id": "Chummer.Engine.GmCharacterEdits",
     "version": expected_candidate_version,
     "repository": "https://github.com/ArchonMegalon/chummer6-core.git",
-    "commit": "60112dccb6a3faad330d32c3c98eef0aa81d97af",
+    "commit": expected_runtime_source_commit,
     "project": "Chummer.GmCharacterEdits/Chummer.GmCharacterEdits.csproj",
     "file_name": f"Chummer.Engine.GmCharacterEdits.{expected_candidate_version}.nupkg",
 }
@@ -690,7 +770,7 @@ if (
     runtime_inventory.get("contract") != "chummer-core.runtime-package-inventory/v1"
     or runtime_inventory.get("package_version") != expected_candidate_version
     or runtime_inventory.get("runtime_source_commit")
-    != "60112dccb6a3faad330d32c3c98eef0aa81d97af"
+    != expected_runtime_source_commit
     or runtime_inventory.get("package_recipe_commit") != commit
 ):
     raise SystemExit("unified runtime package inventory authority is invalid")

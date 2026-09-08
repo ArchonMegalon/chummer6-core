@@ -34,6 +34,22 @@ public static class CharacterCreationMagicResonanceFinalizationRules
         CharacterCreationMagicResonanceSelections selections,
         out CharacterCreationMagicResonanceFinalizationContribution contribution,
         out string[] blockers)
+        => TryCreate(expectedRawCharacterXmlDigest, prerequisiteDraftRevision,
+            prerequisiteDraftDigest, attributesDraftRevision, attributesDraftDigest,
+            authority, talent, selections, null, out contribution, out blockers);
+
+    public static bool TryCreate(
+        string expectedRawCharacterXmlDigest,
+        long prerequisiteDraftRevision,
+        string prerequisiteDraftDigest,
+        long attributesDraftRevision,
+        string attributesDraftDigest,
+        CharacterCreationMagicResonanceAuthority authority,
+        CharacterCreationMagicResonanceTalentOption talent,
+        CharacterCreationMagicResonanceSelections selections,
+        CharacterCreationAttributesDraft? attributes,
+        out CharacterCreationMagicResonanceFinalizationContribution contribution,
+        out string[] blockers)
     {
         ArgumentNullException.ThrowIfNull(authority);
         ArgumentNullException.ThrowIfNull(talent);
@@ -84,6 +100,26 @@ public static class CharacterCreationMagicResonanceFinalizationRules
             || talent.Blockers.Count != 0
             || !HasSupportedTalentPayload(talent))
             failures.Add(CharacterCreationMagicResonanceBlockers.FinalizationPayloadInvalid);
+
+        var effective = new CharacterCreationMagicResonanceEffectiveAttributes(
+            talent.Magic, talent.Resonance, talent.Depth, talent.AdeptPowerPointBudget);
+        if (attributes is not null
+            && (attributes.DraftRevision != attributesDraftRevision
+                || !CharacterCreationMagicResonanceDigest.EqualsFixedTime(attributes.DraftDigest, attributesDraftDigest)
+                || attributes.PrerequisiteDraftRevision != prerequisiteDraftRevision
+                || !CharacterCreationMagicResonanceDigest.EqualsFixedTime(attributes.PrerequisiteDraftDigest, prerequisiteDraftDigest)
+                || !CharacterCreationMagicResonanceDigest.EqualsFixedTime(attributes.BaseRawCharacterXmlDigest, expectedRawCharacterXmlDigest)
+                || !TryResolveEffectiveAttributes(talent, attributes, out effective)))
+            failures.Add(CharacterCreationMagicResonanceBlockers.AttributesDraftInvalid);
+        bool hasEffectiveChange = effective.Magic != talent.Magic
+            || effective.Resonance != talent.Resonance || effective.Depth != talent.Depth
+            || effective.AdeptPowerPointBudget != talent.AdeptPowerPointBudget;
+        if (!CharacterCreationMysticAdeptPowerPointRules.TryEvaluate(authority.MysticAdeptPowerPointPolicy,
+                talent.Kind, effective.Magic, talent.SpellBudget, selections.MysticAdeptPowerPoints,
+                out var mysticPowerPoints))
+            failures.Add(CharacterCreationMagicResonanceBlockers.PowerBudgetUnsupported);
+        decimal availablePowerPoints = mysticPowerPoints?.PowerPoints ?? effective.AdeptPowerPointBudget;
+        int availableSpells = mysticPowerPoints?.SpellBudget ?? talent.SpellBudget;
 
         CharacterCreationMagicResonanceTalentFinalizationSource? talentSource =
             HasSupportedTalentPayload(talent) ? ProjectTalent(talent) : null;
@@ -142,6 +178,7 @@ public static class CharacterCreationMagicResonanceFinalizationRules
         if (powers.Length != selections.AdeptPowers.Count
             || spells.Length != selections.Spells.Count
             || forms.Length != selections.ComplexForms.Count
+            || powers.Any(item => item.Levels > effective.Magic)
             || powers.Select(item => item.Identity).Distinct().Count() != powers.Length
             || spells.Select(item => item.Identity).Distinct().Count() != spells.Length
             || forms.Select(item => item.Identity).Distinct().Count() != forms.Length
@@ -149,8 +186,8 @@ public static class CharacterCreationMagicResonanceFinalizationRules
             || (!talent.AllowsSpells && spells.Length != 0)
             || (!talent.AllowsComplexForms && forms.Length != 0)
             || !hasValidPowerCost
-            || powerCost != talent.AdeptPowerPointBudget
-            || spells.Length != talent.SpellBudget
+            || powerCost != availablePowerPoints
+            || spells.Length != availableSpells
             || forms.Length != talent.ComplexFormBudget)
             failures.Add(CharacterCreationMagicResonanceBlockers.FinalizationContributionInvalid);
 
@@ -167,6 +204,8 @@ public static class CharacterCreationMagicResonanceFinalizationRules
             .Concat(powers.SelectMany(item => item.SourceAnchorIds))
             .Concat(spells.SelectMany(item => item.SourceAnchorIds))
             .Concat(forms.SelectMany(item => item.SourceAnchorIds))
+            .Concat(hasEffectiveChange ? attributes!.SourceAnchorIds : [])
+            .Concat(mysticPowerPoints?.Policy.SourceAnchorIds ?? [])
             .Distinct(StringComparer.Ordinal)
             .OrderBy(item => item, StringComparer.Ordinal)
             .ToArray();
@@ -189,7 +228,11 @@ public static class CharacterCreationMagicResonanceFinalizationRules
             spells,
             forms,
             anchors,
-            string.Empty);
+            string.Empty)
+        {
+            EffectiveAttributes = hasEffectiveChange ? effective : null,
+            MysticAdeptPowerPoints = mysticPowerPoints
+        };
         contribution = candidate with
         {
             ContributionDigest = ComputeContributionDigest(candidate)
@@ -202,8 +245,17 @@ public static class CharacterCreationMagicResonanceFinalizationRules
         CharacterCreationMagicResonanceFinalizationContribution? contribution,
         CharacterCreationMagicResonanceDraft draft,
         CharacterCreationMagicResonanceAuthority authority)
+        => IsValidContribution(contribution, draft, authority, null);
+
+    public static bool IsValidContribution(
+        CharacterCreationMagicResonanceFinalizationContribution? contribution,
+        CharacterCreationMagicResonanceDraft draft,
+        CharacterCreationMagicResonanceAuthority authority,
+        CharacterCreationAttributesDraft? attributes)
     {
         if (contribution is null
+            || (contribution.EffectiveAttributes is not null && attributes is null)
+            || (attributes is not null && attributes.WorkspaceId != draft.WorkspaceId)
             || !IsStructurallyValid(contribution)
             || !TryCreate(
                 draft.BaseRawCharacterXmlDigest,
@@ -214,6 +266,7 @@ public static class CharacterCreationMagicResonanceFinalizationRules
                 authority,
                 FindUniqueTalent(authority, draft) ?? DisabledTalent(),
                 draft.Selections,
+                attributes,
                 out CharacterCreationMagicResonanceFinalizationContribution expected,
                 out _))
             return false;
@@ -222,6 +275,59 @@ public static class CharacterCreationMagicResonanceFinalizationRules
                && CharacterCreationMagicResonanceDigest.EqualsFixedTime(
                    CharacterCreationMagicResonanceDigest.Compute(contribution),
                    CharacterCreationMagicResonanceDigest.Compute(expected));
+    }
+
+    /// <summary>
+    /// Checks the immutable draft binding and projects its effective special values.
+    /// The caller must first validate the entire draft against current Core source
+    /// and allocation rules. This helper is not standalone mutation authority.
+    /// </summary>
+    public static bool TryResolveEffectiveAttributes(
+        CharacterCreationMagicResonanceTalentOption talent,
+        CharacterCreationAttributesDraft attributes,
+        out CharacterCreationMagicResonanceEffectiveAttributes effective)
+    {
+        effective = new(talent.Magic, talent.Resonance, talent.Depth, talent.AdeptPowerPointBudget);
+        if (attributes.Schema != CharacterCreationAttributesSchemas.DraftV1
+            || attributes.CharacterEffectsApplied || attributes.DraftRevision <= 0
+            || attributes.Attributes is null || attributes.Allocations is null
+            || attributes.SourceAnchorIds is not { Count: > 0 }
+            || !CharacterCreationMagicResonanceDigest.IsCanonical(attributes.DraftDigest)
+            || !CharacterCreationMagicResonanceDigest.EqualsFixedTime(attributes.DraftDigest,
+                CharacterCreationMagicResonanceDigest.Compute(attributes with { DraftDigest = string.Empty })))
+            return false;
+
+        var values = new List<int>();
+        foreach ((string id, int grant) in new[] { ("MAG", talent.Magic), ("RES", talent.Resonance), ("DEP", talent.Depth) })
+        {
+            CharacterCreationAttributeProjection[] projections = attributes.Attributes
+                .Where(a => a is not null && a.AttributeId == id).Take(2).ToArray();
+            CharacterCreationAttributeAllocation[] allocations = attributes.Allocations
+                .Where(a => a is not null && a.AttributeId == id).Take(2).ToArray();
+            if (projections.Length != 1 || allocations.Length != 1)
+                return false;
+            CharacterCreationAttributeProjection projection = projections[0];
+            CharacterCreationAttributeAllocation allocation = allocations[0];
+            if (projection.Category != CharacterCreationAttributeCategories.Special
+                || projection.IsEnabled != (grant > 0) || projection.Minimum != grant
+                || projection.Current < grant || projection.Current > projection.Maximum
+                || projection.Maximum > projection.AugmentedMaximum
+                || allocation.PriorityPoints < 0 || allocation.KarmaLevels < 0
+                || projection.PriorityPointsSpent != allocation.PriorityPoints
+                || projection.KarmaLevels != allocation.KarmaLevels
+                || (!projection.IsEnabled && (projection.Current != 0 || allocation.PriorityPoints != 0 || allocation.KarmaLevels != 0)))
+                return false;
+            try
+            {
+                if (projection.Current != checked(grant + allocation.PriorityPoints + allocation.KarmaLevels))
+                    return false;
+            }
+            catch (OverflowException) { return false; }
+            values.Add(projection.Current);
+        }
+        effective = new(values[0], values[1], values[2],
+            talent.Kind == CharacterCreationMagicResonanceKinds.Adept ? values[0] : 0m);
+        return true;
     }
 
     public static bool HasValidTalentPayload(CharacterCreationMagicResonanceTalentOption talent)
@@ -252,7 +358,10 @@ public static class CharacterCreationMagicResonanceFinalizationRules
             or CharacterCreationMagicResonanceKinds.MysticAdept
             or CharacterCreationMagicResonanceKinds.AspectedMagician;
         bool requiresStream = kind == CharacterCreationMagicResonanceKinds.Technomancer;
-        bool allowsAdeptPowers = kind == CharacterCreationMagicResonanceKinds.Adept;
+        // Historical Mystic source authorities disabled this selector entirely.
+        // Current authorities enable it, but only a separately validated profile can fund it.
+        bool allowsAdeptPowers = kind == CharacterCreationMagicResonanceKinds.Adept
+            || kind == CharacterCreationMagicResonanceKinds.MysticAdept && talent.AllowsAdeptPowers;
         bool allowsSpells = kind is CharacterCreationMagicResonanceKinds.Magician
             or CharacterCreationMagicResonanceKinds.MysticAdept;
         bool allowsComplexForms = kind == CharacterCreationMagicResonanceKinds.Technomancer;
@@ -262,13 +371,15 @@ public static class CharacterCreationMagicResonanceFinalizationRules
             || talent.AllowsAdeptPowers != allowsAdeptPowers
             || talent.AllowsSpells != allowsSpells
             || talent.AllowsComplexForms != allowsComplexForms
-            || talent.AdeptPowerPointBudget != (allowsAdeptPowers ? talent.Magic : 0m))
+            || talent.AdeptPowerPointBudget != (kind == CharacterCreationMagicResonanceKinds.Adept ? talent.Magic : 0m))
             return false;
         return CharacterCreationMagicResonanceDigest.IsCanonical(talent.SourceNodeDigest);
     }
 
     public static bool HasValidOptionPayload(CharacterCreationMagicResonanceCatalogOption option)
     {
+        if (option.Blockers is null)
+            return false;
         string expectedRoot = option.Identity.Kind switch
         {
             CharacterCreationMagicResonanceKinds.Tradition => "tradition",
@@ -285,7 +396,8 @@ public static class CharacterCreationMagicResonanceFinalizationRules
                 expectedRoot,
                 out XElement? source)
             || source is null
-            || !string.Equals(Read(source, "id"), option.Identity.SourceId, StringComparison.Ordinal)
+            || !Guid.TryParseExact(Read(source, "id"), "D", out Guid sourceId)
+            || !string.Equals(sourceId.ToString("D"), option.Identity.SourceId, StringComparison.Ordinal)
             || !string.Equals(Read(source, "name"), option.Name, StringComparison.Ordinal)
             || !string.Equals(Read(source, "source"), option.SourceBook, StringComparison.Ordinal)
             || !string.Equals(Read(source, "page"), option.Page, StringComparison.Ordinal)
@@ -308,7 +420,10 @@ public static class CharacterCreationMagicResonanceFinalizationRules
             talent.CanonicalSourceXml,
             talent.CanonicalSourceXmlDigest,
             talent.SourceAnchorIds,
-            string.Empty);
+            string.Empty)
+        {
+            GrantedQualitySources = talent.GrantedQualitySources
+        };
         return candidate with { ProjectionDigest = ComputeTalentProjectionDigest(candidate) };
     }
 
@@ -385,6 +500,7 @@ public static class CharacterCreationMagicResonanceFinalizationRules
     private static bool HasSupportedTalentPayload(
         CharacterCreationMagicResonanceTalentOption talent) =>
         HasValidTalentPayload(talent)
+        && CharacterCreationTalentQualitySourceRules.MatchesTalent(talent.CanonicalSourceXml, talent.GrantedQualitySources)
         && TryParseCanonicalPayload(
             talent.CanonicalSourceXml,
             talent.CanonicalSourceXmlDigest,
@@ -518,24 +634,11 @@ public static class CharacterCreationMagicResonanceFinalizationRules
             case CharacterCreationMagicResonanceKinds.AdeptPower:
                 if (!decimal.TryParse(Read(source, "points"), NumberStyles.Number,
                         CultureInfo.InvariantCulture, out decimal points)
-                    || points <= 0m)
+                    || points < 0m
+                    || (points == 0m && (option.IsEnabled || !option.Blockers.Contains(
+                        CharacterCreationMagicResonanceBlockers.OptionSemanticsUnsupported, StringComparer.Ordinal))))
                     return false;
-                XElement[] levelsElements = source.Elements().Where(element =>
-                        string.Equals(element.Name.LocalName, "levels", StringComparison.Ordinal))
-                    .Take(2)
-                    .ToArray();
-                if (levelsElements.Length > 1)
-                    return false;
-                bool hasLevels = levelsElements.Length == 1;
-                bool parsedLevels = false;
-                if (hasLevels && !bool.TryParse(levelsElements[0].Value, out parsedLevels))
-                    return false;
-                bool usesLevels = hasLevels && parsedLevels;
-                int maximumLevels = 1;
-                if (usesLevels
-                    && (!int.TryParse(Read(source, "limit"), NumberStyles.Integer,
-                            CultureInfo.InvariantCulture, out maximumLevels)
-                        || maximumLevels <= 0))
+                if (!CharacterCreationAdeptPowerSourceRules.TryReadMaximumLevels(source, out int maximumLevels, out _))
                     return false;
                 return string.Equals(option.Category, "adept-power", StringComparison.Ordinal)
                        && option.PointCost == points
@@ -739,7 +842,7 @@ public static class CharacterCreationMagicResonanceFinalizationRules
     private static readonly string[] PowerElements =
     [
         "id", "name", "points", "levels", "limit", "source", "page", "action", "adeptway",
-        "adeptwayrequires", "bonus", "required", "forbidden"
+        "adeptwayrequires", "bonus", "required", "forbidden", "maxlevel", "maxlevels"
     ];
 
     private static readonly string[] SpellElements =

@@ -367,7 +367,7 @@ public static class CharacterCreationQualitiesRules
                      StringComparer.Ordinal))
         {
             int maximum = catalog[group.First().OptionId].MaximumSelections;
-            if (group.Count() > maximum)
+            if (group.Count() + input.Authority.GrantedQualities.Count(grant => grant.SelectionKey == group.Key) > maximum)
                 blockers.Add(CharacterCreationQualitiesBlockers.DuplicateSelection);
         }
 
@@ -771,7 +771,7 @@ public static class CharacterCreationQualitiesRules
 
     private static CostProjection ToCost(CharacterCreationGrantedQuality item) => new(
         item.KarmaCost,
-        item.IsMetagenic,
+        item.IsMetagenic && item.Origin != "Heritage",
         item.CountsAgainstQualityLimit,
         item.CountsAgainstKarma);
 
