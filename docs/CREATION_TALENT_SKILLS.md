@@ -97,7 +97,40 @@ exhaustive awakened legality or device proof: separate MAGAdept allocation,
 other Talent variants, additional purchased-quality unlocks and explicit
 upstream re-review remain separate work.
 
-Historical Skills drafts created before grant integration may no longer match
-the current projection. They fail closed rather than silently changing cost or
-rewriting a receipt. An explicit upstream-change/re-review migration that
-preserves the old receipt history remains to be implemented.
+## Explicit pre-policy re-review
+
+`ICharacterCreationSkillsReReviewService` is a separate Core capability for
+saved drafts created before `TalentAccessV1`, with the same known catalog,
+point-cost runtime, prerequisites and attributes. It does not grant ordinary
+Preview/Confirm a bypass for `DraftInvalid`.
+
+`LoadReReview` verifies the historical draft/hash chain and reconstructs its
+known pre-policy projection. Historical costs, rows, identities and source
+anchors must match; a rehashed forgery is not accepted as old authority. The
+original blocked Skills snapshot and historical draft remain distinct from the
+new current-rule preview. This read never writes or silently clears choices.
+
+`PreviewReReview` accepts proposed choices and returns a current-rule preview
+plus an explicit comparison of ratings, costs, specializations, removals and
+blockers. Intermediate corrections may remain blocked. For example, removing
+one of two unavailable skills does not make the other skill legal. The native
+re-review editor must retain such intermediate proposals without enabling Apply.
+
+`ConfirmReReview` requires both explicit confirmation and explicit review of
+the changes. Its preview/command identity binds the old draft, old ledger head,
+current source and exact workspace/auxiliary revisions. It appends one current
+Skills draft and receipt using the existing atomic commit; old receipts are
+unchanged. Old ordinary commands and the new re-review command remain replayable
+without another write. The distinct command identity prevents normal confirmation
+from masquerading as re-review. An intervening Magic save requires a fresh review.
+
+Current tests use canonical source services and deliberately constructed
+pre-policy serialized fixtures, not an exported historical Play installation.
+They cover legal and obsolete choices, partial corrections, malformed/rehashed
+history, stale bindings, explicit review, post-replacement failure, cold reopen
+and historical/current receipt recovery.
+
+Android comparison/removal UI and actual upgrade/device proof are still pending.
+Older drafts from before grant integration, arbitrary source changes and
+upstream prerequisite/attribute revisions are not migrated by this capability.
+They remain fail-closed until their own explicit review path exists.

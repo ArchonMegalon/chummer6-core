@@ -416,6 +416,266 @@ public sealed class CharacterCreationSkillsServiceTests
         });
     }
 
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void Pre_policy_skills_rereview_preserves_history_and_requires_current_legal_explicit_choices(bool obsoleteChoices)
+    {
+        WithRealTalentSkills("Aspected Magician", (directory, store, resolver, service, id) =>
+        {
+            var fixture = SeedPrePolicySkillsFixture(directory, store, resolver, service, id, obsoleteChoices);
+            var oldWorkspace = store.Get(id).Value!;
+            byte[] before = File.ReadAllBytes(fixture.Path);
+            var cold = new CharacterCreationSkillsService(new FileWorkspaceStore(directory), resolver);
+            var ordinary = cold.Load(new(id)).Value!;
+            Assert.IsFalse(ordinary.CanEdit);
+            var loaded = cold.LoadReReview(new(id));
+            Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, loaded.Outcome, string.Join(",", loaded.Blockers));
+            var review = loaded.Value!;
+            Assert.IsFalse(review.CurrentState.CanEdit, "Historical data must not become a counterfeit editable saved snapshot.");
+            Assert.AreEqual(!obsoleteChoices, review.InitialPreview.CurrentPreview.CanConfirm);
+            Assert.AreEqual(fixture.Receipt.ReceiptDigest, review.Binding.HistoricalReceiptDigest);
+            CollectionAssert.AreEqual(before, File.ReadAllBytes(fixture.Path));
+
+            var choices = review.HistoricalDraft.Allocations;
+            if (obsoleteChoices)
+            {
+                var unavailable = review.InitialPreview.Changes.Where(item =>
+                    item.Blockers.Contains(CharacterCreationSkillsBlockers.TalentAccessRequired)).ToArray();
+                Assert.HasCount(2, unavailable);
+                choices = choices.Where(item => item.SourceSkillId != unavailable[0].SourceId).ToArray();
+                var partial = cold.PreviewReReview(new(review.Binding, choices, review.HistoricalDraft.GroupAllocations));
+                Assert.IsNotNull(partial.Value);
+                Assert.IsFalse(partial.Value.CurrentPreview.CanConfirm,
+                    "Removing only one obsolete choice must not conceal the second one.");
+                Assert.IsTrue(partial.Value.Changes.Single(item => item.SourceId == unavailable[0].SourceId).Removed);
+                choices = choices.Where(item => item.SourceSkillId != unavailable[1].SourceId).ToArray();
+            }
+            var proposal = cold.PreviewReReview(new(review.Binding, choices, review.HistoricalDraft.GroupAllocations));
+            Assert.IsTrue(proposal.Value!.CurrentPreview.CanConfirm, string.Join(",", proposal.Blockers));
+            var command = new CharacterCreationSkillsReReviewConfirmRequest(review.Binding, choices,
+                review.HistoricalDraft.GroupAllocations, proposal.Value.PreviewDigest,
+                "explicit-skills-rereview", ExplicitlyConfirmed: true, ExplicitlyReviewedChanges: true);
+            Assert.AreNotEqual(CharacterCreationFoundationOutcomes.Success,
+                cold.ConfirmReReview(command with { ExplicitlyReviewedChanges = false }).Outcome);
+            Assert.AreNotEqual(CharacterCreationFoundationOutcomes.Success,
+                cold.ConfirmReReview(command with { ExplicitlyConfirmed = false }).Outcome);
+            Assert.AreNotEqual(CharacterCreationFoundationOutcomes.Success,
+                cold.ConfirmReReview(command with { PreviewDigest = Digest('f') }).Outcome);
+            var forged = review.Binding with { HistoricalDraftDigest = Digest('a'), ContextDigest = string.Empty };
+            forged = forged with { ContextDigest = CharacterCreationSkillsDigest.Compute(forged) };
+            Assert.AreNotEqual(CharacterCreationFoundationOutcomes.Success,
+                cold.PreviewReReview(new(forged, choices, review.HistoricalDraft.GroupAllocations)).Outcome);
+            CollectionAssert.AreEqual(before, File.ReadAllBytes(fixture.Path), "Review/cancel/rejections wrote the workspace.");
+
+            var confirmed = cold.ConfirmReReview(command);
+            Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, confirmed.Outcome, string.Join(",", confirmed.Blockers));
+            var reopenedStore = new FileWorkspaceStore(directory);
+            var reopened = new CharacterCreationSkillsService(reopenedStore, resolver);
+            var state = reopened.Load(new(id)).Value!;
+            Assert.IsTrue(state.CanEdit, string.Join(",", state.Blockers));
+            Assert.IsTrue(CharacterCreationSkillsDraftIntegrity.IsValidStateProjection(state));
+            var saved = reopenedStore.Get(id).Value!;
+            Assert.AreEqual(oldWorkspace.ContentRevision + 1, saved.ContentRevision);
+            Assert.AreEqual(oldWorkspace.Document.Content, saved.Document.Content);
+            Assert.AreEqual(oldWorkspace.Document.AuxiliaryState.CharacterCreationPrerequisiteDraft!.DraftDigest,
+                saved.Document.AuxiliaryState.CharacterCreationPrerequisiteDraft!.DraftDigest);
+            Assert.AreEqual(oldWorkspace.Document.AuxiliaryState.CharacterCreationAttributesDraft!.DraftDigest,
+                saved.Document.AuxiliaryState.CharacterCreationAttributesDraft!.DraftDigest);
+            var receipts = saved.Document.AuxiliaryState.CharacterCreationSkillsReceipts!;
+            Assert.HasCount(2, receipts);
+            Assert.AreEqual(fixture.Receipt.ReceiptDigest, receipts[0].ReceiptDigest);
+            Assert.AreEqual(confirmed.Value!.ReceiptDigest, receipts[1].ReceiptDigest);
+            Assert.AreEqual(fixture.Receipt.ReceiptDigest, reopened.Confirm(fixture.Command).Value!.ReceiptDigest);
+            Assert.AreEqual(confirmed.Value.ReceiptDigest, reopened.ConfirmReReview(command).Value!.ReceiptDigest);
+            Assert.AreEqual(CharacterCreationFoundationOutcomes.Conflict, reopened.Confirm(new(
+                command.Binding.Current, command.Allocations, command.GroupAllocations, command.PreviewDigest,
+                command.IdempotencyKey, true)).Outcome, "Re-review must have a distinct explicit command identity.");
+            Assert.AreNotEqual(CharacterCreationFoundationOutcomes.Success, reopened.LoadReReview(new(id)).Outcome);
+            Assert.AreEqual(saved.ContentRevision, reopenedStore.Get(id).Value!.ContentRevision);
+            Assert.AreEqual(saved.Document.AuxiliaryStateDigest, reopenedStore.Get(id).Value!.Document.AuxiliaryStateDigest);
+        });
+    }
+
+    [TestMethod]
+    public void Pre_policy_skills_rereview_rejects_rehashed_history_and_malformed_commands_without_writes()
+    {
+        WithRealTalentSkills("Aspected Magician", (directory, store, resolver, service, id) =>
+        {
+            var fixture = SeedPrePolicySkillsFixture(directory, store, resolver, service, id, false);
+            byte[] original = File.ReadAllBytes(fixture.Path);
+            var snapshot = store.Get(id).Value!;
+            var old = snapshot.Document.AuxiliaryState.CharacterCreationSkillsDraft!;
+            var cold = new CharacterCreationSkillsService(new FileWorkspaceStore(directory), resolver);
+            var review = cold.LoadReReview(new(id)).Value!;
+            Func<CharacterCreationSkillsDraft, CharacterCreationSkillsDraft>[] attacks =
+            [
+                draft => draft with { ActivePointUsed = draft.ActivePointUsed + 1 },
+                draft => draft with { Skills = draft.Skills.Select(item => item with { Name = "invented historical name" }).ToArray() },
+                draft => draft with { SkillsAuthorityDigest = Digest('f') },
+                draft => draft with { RuntimeDigest = Digest('f') },
+                draft => draft with { AttributesDraftDigest = Digest('f') },
+                draft => draft with { BaseRawCharacterXmlDigest = Digest('f') },
+                draft => draft with { Skills = draft.Skills.Append(draft.Skills[0]).ToArray() },
+                draft => draft with { Skills = [null!] },
+                draft => draft with { Allocations = null! },
+                draft => draft with { SourceAnchorIds = ["invented-page-999"] }
+            ];
+            foreach (var attack in attacks)
+            {
+                var changed = attack(old);
+                changed = changed with { DraftDigest = CharacterCreationSkillsDraftIntegrity.ComputeDigest(changed) };
+                var receipt = fixture.Receipt with { DraftDigest = changed.DraftDigest,
+                    SkillsAuthorityDigest = changed.SkillsAuthorityDigest, RuntimeDigest = changed.RuntimeDigest,
+                    ActivePointsRemaining = changed.ActivePointTotal - changed.ActivePointUsed, ReceiptDigest = string.Empty };
+                receipt = receipt with { ReceiptDigest = CharacterCreationSkillsDigest.ComputeReceipt(receipt) };
+                var auxiliary = snapshot.Document.AuxiliaryState with
+                    { CharacterCreationSkillsDraft = changed, CharacterCreationSkillsReceipts = [receipt] };
+                var record = System.Text.Json.Nodes.JsonNode.Parse(original)!.AsObject();
+                record["AuxiliaryState"] = System.Text.Json.JsonSerializer.SerializeToNode(auxiliary);
+                File.WriteAllText(fixture.Path, record.ToJsonString());
+                byte[] hostile = File.ReadAllBytes(fixture.Path);
+                Assert.AreNotEqual(CharacterCreationFoundationOutcomes.Success,
+                    new CharacterCreationSkillsService(new FileWorkspaceStore(directory), resolver).LoadReReview(new(id)).Outcome);
+                CollectionAssert.AreEqual(hostile, File.ReadAllBytes(fixture.Path));
+            }
+            File.WriteAllBytes(fixture.Path, original);
+            var malformed = new CharacterCreationSkillsReReviewPreviewRequest(review.Binding, [null!], []);
+            Assert.AreEqual(CharacterCreationFoundationOutcomes.Invalid, cold.PreviewReReview(malformed).Outcome);
+            Assert.AreEqual(CharacterCreationFoundationOutcomes.Invalid, cold.ConfirmReReview(new(review.Binding,
+                [null!], [], review.InitialPreview.PreviewDigest, "malformed-rereview", true, true)).Outcome);
+            var missingHistory = System.Text.Json.Nodes.JsonNode.Parse(original)!.AsObject();
+            missingHistory["AuxiliaryState"]!["CharacterCreationSkillsReceipts"] = null;
+            File.WriteAllText(fixture.Path, missingHistory.ToJsonString());
+            byte[] withoutHistory = File.ReadAllBytes(fixture.Path);
+            Assert.AreNotEqual(CharacterCreationFoundationOutcomes.Success, cold.LoadReReview(new(id)).Outcome);
+            CollectionAssert.AreEqual(withoutHistory, File.ReadAllBytes(fixture.Path));
+        });
+    }
+
+    [TestMethod]
+    public void Pre_policy_skills_rereview_refuses_stale_preview_and_survives_post_replace_failure()
+    {
+        WithRealTalentSkills("Aspected Magician", (directory, store, resolver, service, id) =>
+        {
+            var fixture = SeedPrePolicySkillsFixture(directory, store, resolver, service, id, false);
+            var rereview = new CharacterCreationSkillsService(store, resolver);
+            var oldReview = rereview.LoadReReview(new(id)).Value!;
+            var magic = new CharacterCreationMagicResonanceService(store, resolver);
+            var magicState = magic.Load(new(id)).Value!;
+            var tradition = magicState.Authority.Traditions.First(item => item.IsEnabled);
+            var selections = new CharacterCreationMagicResonanceSelections(tradition.Identity, null, [], [], []);
+            var magicPreview = magic.Preview(new(magicState.Binding, selections)).Value!;
+            Assert.IsTrue(magicPreview.CanConfirm, string.Join(",", magicPreview.Blockers));
+            var magicSaved = magic.Confirm(new(magicPreview.Binding, selections, magicPreview.PreviewDigest,
+                "magic-after-old-review", true));
+            Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, magicSaved.Outcome);
+            byte[] before = File.ReadAllBytes(fixture.Path);
+            var oldCommand = new CharacterCreationSkillsReReviewConfirmRequest(oldReview.Binding,
+                oldReview.HistoricalDraft.Allocations, oldReview.HistoricalDraft.GroupAllocations,
+                oldReview.InitialPreview.PreviewDigest, "stale-rereview", true, true);
+            Assert.AreEqual(CharacterCreationFoundationOutcomes.Conflict, rereview.ConfirmReReview(oldCommand).Outcome);
+            CollectionAssert.AreEqual(before, File.ReadAllBytes(fixture.Path));
+            var fresh = rereview.LoadReReview(new(id)).Value!;
+            Assert.AreNotEqual(oldReview.Binding.ContextDigest, fresh.Binding.ContextDigest);
+            var command = oldCommand with { Binding = fresh.Binding, PreviewDigest = fresh.InitialPreview.PreviewDigest,
+                IdempotencyKey = "rereview-post-replace-failure" };
+            var injector = new ArmedAtomicWriteFaultInjector { Stage = FileWorkspaceStoreFaultStage.AfterTargetReplaced, Armed = true };
+            var faultingStore = new FileWorkspaceStore(directory, injector);
+            var faulting = new CharacterCreationSkillsService(faultingStore, resolver);
+            var knownCommit = faulting.ConfirmReReview(command);
+            Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, knownCommit.Outcome,
+                "The file store knows replacement completed; a later diagnostic failure must retain that committed result.");
+            var coldStore = new FileWorkspaceStore(directory);
+            var cold = new CharacterCreationSkillsService(coldStore, resolver);
+            var after = coldStore.Get(id).Value!;
+            Assert.AreEqual(magicSaved.Value!.ContentRevision + 1, after.ContentRevision);
+            var receipt = cold.ConfirmReReview(command);
+            Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, receipt.Outcome);
+            Assert.AreEqual(after.ContentRevision, receipt.Value!.ContentRevision);
+            Assert.AreEqual(fixture.Receipt.ReceiptDigest, cold.Confirm(fixture.Command).Value!.ReceiptDigest);
+            Assert.AreEqual(after.Document.AuxiliaryStateDigest, coldStore.Get(id).Value!.Document.AuxiliaryStateDigest);
+            Assert.AreEqual(magicSaved.Value.ReceiptDigest,
+                after.Document.AuxiliaryState.CharacterCreationMagicResonanceReceipts!.Single().ReceiptDigest);
+            Assert.IsTrue(cold.Load(new(id)).Value!.CanEdit);
+        });
+    }
+
+    // A controlled fixture in the known pre-policy serialized shape, made from
+    // actual canonical catalogs. This is not an exported historical Play build.
+    private static (string Path, CharacterCreationSkillsConfirmRequest Command, CharacterCreationSkillsReceipt Receipt)
+        SeedPrePolicySkillsFixture(string directory, FileWorkspaceStore store, ICharacterSourceDataResolver resolver,
+            ICharacterCreationSkillsService service, CharacterWorkspaceId id, bool obsoleteChoices)
+    {
+        var initial = Load(service, id);
+        var language = initial.Authority.KnowledgeSkills.First(item => item.CanBeNativeLanguage);
+        var arcana = initial.Authority.ActiveSkills.Single(item => item.Name == "Arcana");
+        CharacterCreationSkillAllocation[] choices =
+            [new(language.SourceSkillId, CharacterCreationSkillKinds.Knowledge, null, null, true),
+                new(arcana.SourceSkillId, CharacterCreationSkillKinds.Active, 1, null, false)];
+        var preview = service.Preview(new(initial.Binding, choices, [])).Value!;
+        Assert.IsTrue(preview.CanConfirm, string.Join(",", preview.Blockers));
+        var confirmed = service.Confirm(new(preview.Binding, choices, [], preview.PreviewDigest, "legacy-skills", true));
+        Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, confirmed.Outcome);
+        var workspace = store.Get(id).Value!;
+        var context = resolver.TryCreateContext(workspace.Document.Content)!;
+        Assert.IsTrue(context.TryResolveCreationSkillsAuthority(out var catalog));
+        Assert.IsNull(catalog.TalentAccess);
+        var old = workspace.Document.AuxiliaryState.CharacterCreationSkillsDraft!;
+        var rows = old.Skills.ToList();
+        if (obsoleteChoices)
+        {
+            foreach (string name in new[] { "Compiling", "Decompiling" })
+            {
+                var source = catalog.ActiveSkills.Single(item => item.Name == name);
+                rows.Add(new(source.SourceSkillId, source.Kind, source.Name, source.Category, source.DefaultAttribute,
+                    source.SkillGroup, 1, 1, 1, null, null, false, true, [], source.SourceAnchorIds));
+            }
+        }
+        var oldRows = rows.OrderBy(item => item.Kind, StringComparer.Ordinal)
+            .ThenBy(item => item.SourceSkillId, StringComparer.Ordinal).ToArray();
+        var oldChoices = oldRows.Select(item => new CharacterCreationSkillAllocation(item.SourceSkillId, item.Kind,
+            item.Rating, item.SpecializationOptionId, item.IsNativeLanguage)).ToArray();
+        var oldPreview = preview with
+        {
+            Binding = preview.Binding with { SkillsAuthorityDigest = catalog.AuthorityDigest },
+            Skills = oldRows,
+            ActiveSkillPointBudget = preview.ActiveSkillPointBudget with
+            { Used = preview.ActiveSkillPointBudget.Used + (obsoleteChoices ? 2 : 0),
+                Remaining = preview.ActiveSkillPointBudget.Remaining - (obsoleteChoices ? 2 : 0) },
+            PreviewDigest = string.Empty
+        };
+        oldPreview = oldPreview with { PreviewDigest = CharacterCreationSkillsDigest.Compute(oldPreview) };
+        var oldCommand = new CharacterCreationSkillsConfirmRequest(oldPreview.Binding, oldChoices,
+            old.GroupAllocations, oldPreview.PreviewDigest, "legacy-skills", true);
+        string commandDigest = CharacterCreationSkillsDigest.Compute(new
+        {
+            Schema = "chummer.character_creation_skills_command.v1", oldCommand.Binding,
+            Allocations = oldChoices.OrderBy(item => item.Kind, StringComparer.Ordinal)
+                .ThenBy(item => item.SourceSkillId, StringComparer.Ordinal).ToArray(),
+            GroupAllocations = old.GroupAllocations.OrderBy(item => item.GroupId, StringComparer.Ordinal).ToArray(),
+            oldCommand.PreviewDigest, ExplicitlyConfirmed = true
+        });
+        old = old with { SkillsAuthorityDigest = catalog.AuthorityDigest, Skills = oldRows, Allocations = oldChoices,
+            ActivePointUsed = (int)oldPreview.ActiveSkillPointBudget.Used,
+            SourceAnchorIds = initial.PrerequisiteDraft!.SourceAnchorIds.Concat(catalog.SourceAnchorIds)
+                .Distinct(StringComparer.Ordinal).OrderBy(item => item, StringComparer.Ordinal).ToArray(),
+            LastPreviewDigest = oldPreview.PreviewDigest, LastCommandDigest = commandDigest, DraftDigest = string.Empty };
+        old = old with { DraftDigest = CharacterCreationSkillsDraftIntegrity.ComputeDigest(old) };
+        var receipt = confirmed.Value! with { SkillsAuthorityDigest = catalog.AuthorityDigest, DraftDigest = old.DraftDigest,
+            PreviewDigest = old.LastPreviewDigest, CommandDigest = commandDigest,
+            ActivePointsRemaining = old.ActivePointTotal - old.ActivePointUsed, ReceiptDigest = string.Empty };
+        receipt = receipt with { ReceiptDigest = CharacterCreationSkillsDigest.ComputeReceipt(receipt) };
+        var auxiliary = workspace.Document.AuxiliaryState with
+            { CharacterCreationSkillsDraft = old, CharacterCreationSkillsReceipts = [receipt] };
+        string path = Directory.GetFiles(directory, id.Value + ".json", SearchOption.AllDirectories).Single();
+        var record = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(path))!.AsObject();
+        record["AuxiliaryState"] = System.Text.Json.JsonSerializer.SerializeToNode(auxiliary);
+        File.WriteAllText(path, record.ToJsonString());
+        Assert.IsTrue(new FileWorkspaceStore(directory).Get(id).Success);
+        return (path, oldCommand, receipt);
+    }
+
     private static void WithRealTalentSkills(string talentValue,
         Action<string, FileWorkspaceStore, ICharacterSourceDataResolver,
             ICharacterCreationSkillsService, CharacterWorkspaceId> action)
