@@ -29,7 +29,7 @@
     {"path": "scripts/ai/bootstrap-owner-contracts-feed.py", "sha256": "5beffe15d1708f4cf2c096f376822cd48b9502b5fb1acb69b95db3c86c474786"},
     {"path": "scripts/ai/public-runtime-package-handoff.py", "sha256": "7f99ec73e6f8b0e6543603069593b06b6ae910edfd2df62ad45a9e14f4c67229"},
     {"path": "scripts/ai/runtime-package-plane.py", "sha256": "60612ee1c704cdc8130df2a8b10c1a5623e1057c4cbb250ec38ffdf20785d3b6"},
-    {"path": "scripts/ai/verify-no-siblings-package-plane.sh", "sha256": "c21115e29c8b1768ca8ed5e772a3f0158aad40c48221ce8e9c2447b978133cba"}
+    {"path": "scripts/ai/verify-no-siblings-package-plane.sh", "sha256": "61e1917a39d7eceea355171c0d6eccea778bec2499568aa863379216a2d99d02"}
   ],
   "external_owner_packages": [
     {

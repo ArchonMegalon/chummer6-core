@@ -166,6 +166,7 @@ dotnet pack "$consumer_root/Chummer.Contracts/Chummer.Contracts.csproj" \
   -p:PackageVersion="$candidate_version" \
   -p:Version="$candidate_version" \
   -p:RepositoryCommit="$runtime_source_commit" \
+  -p:SourceRevisionId="$runtime_source_commit" \
   -p:RepositoryUrl="$candidate_repository" \
   -p:PublishRepositoryUrl=true \
   -p:ContinuousIntegrationBuild=true \
@@ -273,6 +274,7 @@ while IFS=$'\t' read -r package_id project_path; do
     -p:PackageVersion="$candidate_version" \
     -p:Version="$candidate_version" \
     -p:RepositoryCommit="$runtime_source_commit" \
+    -p:SourceRevisionId="$runtime_source_commit" \
     -p:RepositoryUrl="$candidate_repository" \
     -p:PublishRepositoryUrl=true \
     -p:ContinuousIntegrationBuild=true \
@@ -301,6 +303,7 @@ dotnet pack "$consumer_root/Chummer.GmCharacterEdits/Chummer.GmCharacterEdits.cs
   -p:PackageVersion="$candidate_version" \
   -p:Version="$candidate_version" \
   -p:RepositoryCommit="$runtime_source_commit" \
+  -p:SourceRevisionId="$runtime_source_commit" \
   -p:RepositoryUrl="$candidate_repository" \
   -p:PublishRepositoryUrl=true \
   -p:ContinuousIntegrationBuild=true \
@@ -464,6 +467,7 @@ mkdir -p "$runtime_consumer_root"
 cat >"$runtime_consumer_root/GmRuntimeConsumer.csproj" <<EOF
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
+    <OutputType>Exe</OutputType>
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
@@ -476,6 +480,7 @@ cat >"$runtime_consumer_root/GmRuntimeConsumer.csproj" <<EOF
 </Project>
 EOF
 cat >"$runtime_consumer_root/BoundaryProbe.cs" <<'EOF'
+using System.Reflection;
 using Chummer.Application.Characters;
 using Chummer.Contracts.Characters;
 using Chummer.Contracts.Workspaces;
@@ -486,6 +491,38 @@ namespace GmRuntimeConsumer;
 
 public static class BoundaryProbe
 {
+    // RepositoryCommit in the nuspec does not set the assembly's informational
+    // version. The SDK otherwise embeds the recipe HEAD (including ephemeral
+    // PR merge commits), changing DLL/package bytes for identical runtime input.
+    // Inspect the actual package assemblies, not generated AssemblyInfo source.
+    public static int Main(string[] args)
+    {
+        if (args.Length != 2)
+        {
+            Console.Error.WriteLine("Expected candidate version and semantic source commit.");
+            return 2;
+        }
+        string expected = args[0] + "+" + args[1];
+        string[] assemblies =
+        [
+            "Chummer.Engine.Contracts", "Chummer.Application", "Chummer.Infrastructure",
+            "Chummer.Rulesets.Hosting", "Chummer.Rulesets.Sr4", "Chummer.Rulesets.Sr5",
+            "Chummer.Rulesets.Sr6", "Chummer.Engine.GmCharacterEdits"
+        ];
+        foreach (string name in assemblies)
+        {
+            Assembly assembly = Assembly.Load(new AssemblyName(name));
+            string? actual = assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
+            if (!string.Equals(actual, expected, StringComparison.Ordinal))
+            {
+                Console.Error.WriteLine($"{name}: assembly semantic source mismatch: {actual}");
+                return 1;
+            }
+        }
+        Console.WriteLine("package-assembly-semantic-source: pass (8 assemblies)");
+        return 0;
+    }
+
     public static Type ContractType => typeof(ICoreGmCharacterEditGateway);
 
     public static Type FactoryType => typeof(CoreGmCharacterEditGatewayFactory);
@@ -526,6 +563,20 @@ dotnet build "$runtime_consumer_root/GmRuntimeConsumer.csproj" \
   --nologo \
   -m:1 \
   -p:UseSharedCompilation=false
+
+dotnet "$runtime_consumer_root/bin/Release/net10.0/GmRuntimeConsumer.dll" \
+  "$candidate_version" "$runtime_source_commit"
+if dotnet "$runtime_consumer_root/bin/Release/net10.0/GmRuntimeConsumer.dll" \
+  "$candidate_version" "0000000000000000000000000000000000000000"; then
+  echo "assembly metadata accepted a foreign semantic source" >&2
+  exit 1
+else
+  metadata_rejection_status=$?
+  if [[ "$metadata_rejection_status" != 1 ]]; then
+    echo "unexpected assembly metadata rejection status: $metadata_rejection_status" >&2
+    exit "$metadata_rejection_status"
+  fi
+fi
 
 common_properties=(
   "-p:ChummerLocalContractsProject=$missing_local_project"

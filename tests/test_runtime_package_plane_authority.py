@@ -1252,6 +1252,27 @@ class SdkArchiveAuthorityTests(unittest.TestCase):
 
 
 class RuntimePackageWorkflowTests(unittest.TestCase):
+    def test_all_candidate_packs_bind_assembly_metadata_to_semantic_source(self) -> None:
+        verifier = (REPO_ROOT / "scripts/ai/verify-no-siblings-package-plane.sh").read_text(encoding="utf-8")
+        packs = re.findall(r"(?m)^\s*dotnet pack .*?(?=\n\s*\n)", verifier, re.DOTALL)
+        self.assertEqual(3, len(packs))
+        for pack in packs:
+            with self.subTest(pack=pack.splitlines()[0]):
+                self.assertIn('-p:SourceRevisionId="$runtime_source_commit"', pack)
+                self.assertIn('-p:RepositoryCommit="$runtime_source_commit"', pack)
+                self.assertNotIn('-p:SourceRevisionId="$candidate_recipe_commit"', pack)
+
+    def test_package_consumer_executes_all_eight_assembly_metadata_checks(self) -> None:
+        verifier = (REPO_ROOT / "scripts/ai/verify-no-siblings-package-plane.sh").read_text(encoding="utf-8")
+        probe = verifier.split('cat >"$runtime_consumer_root/BoundaryProbe.cs" <<\'EOF\'\n', 1)[1].split('\nEOF', 1)[0]
+        for package in runtime.load_lock(REPO_ROOT / "eng/runtime-package-plane.lock.json")["packages"]:
+            self.assertIn('"' + package["id"] + '"', probe)
+        self.assertIn('GetCustomAttribute<AssemblyInformationalVersionAttribute>()', probe)
+        self.assertIn('StringComparison.Ordinal', probe)
+        self.assertIn('dotnet "$runtime_consumer_root/bin/Release/net10.0/GmRuntimeConsumer.dll"', verifier)
+        self.assertIn('"$candidate_version" "$runtime_source_commit"', verifier)
+        self.assertIn('assembly metadata accepted a foreign semantic source', verifier)
+
     def test_bootstrap_freshness_runs_in_the_affected_authority_filter(self) -> None:
         workflow = (REPO_ROOT / ".github/workflows/package-plane.yml").read_text(encoding="utf-8")
         affected_step = workflow.split("- name: Build and run affected authority tests", 1)[1]
