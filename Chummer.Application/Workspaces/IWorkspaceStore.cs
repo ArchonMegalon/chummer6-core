@@ -120,6 +120,18 @@ public interface IOwnerScopedWorkspaceAuxiliaryStateAtomicCommitCapability
             Error: "Owner-scoped auxiliary-state commit is unavailable.");
 }
 
+/// <summary>
+/// Explicit complete inventory for cleanup/recovery decisions. Unlike the
+/// display roster, an unreadable member must produce a failed result, not be
+/// silently omitted. The returned entries are observations, not deletion grants.
+/// </summary>
+public interface IWorkspaceStoreInventory
+{
+    CommandResult<IReadOnlyList<WorkspaceStoreEntry>> Inspect();
+
+    CommandResult<IReadOnlyList<WorkspaceStoreEntry>> Inspect(OwnerScope owner);
+}
+
 public interface IWorkspaceStore
 {
     WorkspaceStoreMutationResult CreateWorkspaceDocument(WorkspaceDocument document);

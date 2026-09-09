@@ -2,6 +2,19 @@
 
 Actual local verification on 9 September 2026, SDK 10.0.103:
 
+- Repeated on the current-main owner-admission port:17/17 companion cases,
+  three scoped-store groups and66/66 unchanged legacy MSTest rows; zero skipped.
+- New Core-owned `RunInventoryProbe=true`:15/15 actual FileWorkspaceStore
+  cases, zero warnings/errors. Tests distinguish a display roster from a strict
+  complete inventory, reject invalid/reserved owners, corrupt/noncanonical
+  members, file/directory substitutions and symlinks, and preserve cold-store
+  partition identity and bytes. Inventory results are observations, not cleanup
+  permissions or globally atomic snapshots.
+- Exact current-main evidence labels are `core-owner-current-main-v1` and
+  `core-inventory-current-main-v1` under
+  `android-persistence-owner-20260909.K00qFF`. Prior evidence below is retained;
+  these managed tests still do not establish package, APK or device authority.
+
 - 17/17 owner-bound service cases passed; build zero warnings/errors.
 - Three scoped FileWorkspaceStore capability groups passed separately.
 - All 66 unchanged Bootstrap/Contacts MSTest rows passed through

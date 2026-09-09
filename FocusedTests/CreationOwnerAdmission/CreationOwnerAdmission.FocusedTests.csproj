@@ -8,12 +8,14 @@
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
     <RunLegacyProbe Condition="'$(RunLegacyProbe)' == ''">false</RunLegacyProbe>
     <RunScopedStoreProbe Condition="'$(RunScopedStoreProbe)' == ''">false</RunScopedStoreProbe>
+    <RunInventoryProbe Condition="'$(RunInventoryProbe)' == ''">false</RunInventoryProbe>
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="Fixtures.cs" />
-    <Compile Include="Program.cs" Condition="'$(RunLegacyProbe)' != 'true' and '$(RunScopedStoreProbe)' != 'true'" />
-    <Compile Include="LegacyProbe.cs" Condition="'$(RunLegacyProbe)' == 'true' and '$(RunScopedStoreProbe)' != 'true'" />
-    <Compile Include="ScopedStoreProbe.cs" Condition="'$(RunScopedStoreProbe)' == 'true'" />
+    <Compile Include="Program.cs" Condition="'$(RunLegacyProbe)' != 'true' and '$(RunScopedStoreProbe)' != 'true' and '$(RunInventoryProbe)' != 'true'" />
+    <Compile Include="LegacyProbe.cs" Condition="'$(RunLegacyProbe)' == 'true' and '$(RunScopedStoreProbe)' != 'true' and '$(RunInventoryProbe)' != 'true'" />
+    <Compile Include="ScopedStoreProbe.cs" Condition="'$(RunScopedStoreProbe)' == 'true' and '$(RunInventoryProbe)' != 'true'" />
+    <Compile Include="InventoryProbe.cs" Condition="'$(RunInventoryProbe)' == 'true'" />
     <ProjectReference Include="../../Chummer.Application/Chummer.Application.csproj" />
     <ProjectReference Include="../../Chummer.Infrastructure/Chummer.Infrastructure.csproj" />
   </ItemGroup>
