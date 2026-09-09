@@ -31,7 +31,7 @@ public sealed class WorkspaceLocalHistoryStoreTests
         Assert.IsTrue(history.IsValid(initial.ContentRevision));
         Assert.AreEqual(0L, history.ImportedThroughRevision);
         Assert.IsNull(history.ImportedSnapshotDigest);
-        Assert.AreEqual(3, JsonNode.Parse(File.ReadAllText(context.Path))!["RecordSchemaVersion"]!.GetValue<int>());
+        Assert.AreEqual(4, JsonNode.Parse(File.ReadAllText(context.Path))!["RecordSchemaVersion"]!.GetValue<int>());
         Assert.IsTrue(context.Store.ReplaceWorkspaceDocument(Owner, Id, 1, Document("dirty")).Success);
         Assert.AreEqual(history, context.Read().LocalHistory);
         Assert.IsTrue(context.Store.SaveCheckpoint(Owner, Id, 2).Success);
@@ -54,6 +54,7 @@ public sealed class WorkspaceLocalHistoryStoreTests
         JsonObject record = JsonNode.Parse(File.ReadAllText(path))!.AsObject();
         record["RecordSchemaVersion"] = 2;
         record.Remove("LocalHistory");
+        record.Remove("DelegatedGmHistorySegmentStarts");
         File.WriteAllText(path, record.ToJsonString());
         File.SetLastWriteTimeUtc(path, before.LastUpdatedUtc.UtcDateTime);
         byte[] legacy = File.ReadAllBytes(path);
@@ -108,6 +109,7 @@ public sealed class WorkspaceLocalHistoryStoreTests
             case "missing-revisions": record.Remove("ContentRevision"); record.Remove("SavedRevision"); break;
             case "version-two-missing-revisions":
                 record["RecordSchemaVersion"] = 2; record.Remove("LocalHistory");
+                record.Remove("DelegatedGmHistorySegmentStarts");
                 record.Remove("ContentRevision"); record.Remove("SavedRevision"); break;
         }
         File.WriteAllText(context.Path, record.ToJsonString());

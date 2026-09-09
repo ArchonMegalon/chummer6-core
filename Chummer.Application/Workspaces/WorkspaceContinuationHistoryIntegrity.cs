@@ -43,7 +43,8 @@ internal static class WorkspaceContinuationHistoryIntegrity
                 || string.IsNullOrWhiteSpace(state.PayloadKind) || string.IsNullOrWhiteSpace(state.Payload)
                 // Do not let the public AuxiliaryState convenience getter turn
                 // a malformed null into an apparently valid empty history.
-                || state.AuxiliaryState is null || candidate.DelegatedGmCharacterEdits is null)
+                || state.AuxiliaryState is null || candidate.DelegatedGmCharacterEdits is null
+                || candidate.DelegatedGmHistorySegmentStarts is null)
                 return false;
 
             // Some existing persisted-shape checks intentionally inspect only
@@ -62,8 +63,9 @@ internal static class WorkspaceContinuationHistoryIntegrity
                 .Select(receipt => new DelegatedGmCharacterEditLedgerEntry(
                     receipt.IdempotencyKeySha256, receipt.CommandSha256, receipt))
                 .ToArray();
-            if (!DelegatedGmCharacterEditLedgerValidator.IsValidLedger(
-                    expectedOwner, workspace.Id, workspace.ContentRevision, ledger))
+            if (!DelegatedGmCharacterEditLedgerValidator.IsValidSegmentedLedger(
+                    expectedOwner, workspace.Id, workspace.ContentRevision, ledger,
+                    candidate.DelegatedGmHistorySegmentStarts))
                 return false;
             if (!WorkspaceContinuationReceiptConsistency.IsValid(candidate))
                 return false;

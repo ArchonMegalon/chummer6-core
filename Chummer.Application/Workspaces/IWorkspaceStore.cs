@@ -20,6 +20,9 @@ public sealed record WorkspaceStoredDocument(
     // Legacy/other store implementations have not established this capability.
     public WorkspaceLocalHistory? LocalHistory { get; init; }
 
+    // Portable history grouping only. CanReplayReceipt deliberately ignores it.
+    public IReadOnlyList<int> DelegatedGmHistorySegmentStarts { get; init; } = [];
+
     /// <summary>
     /// Classifies a receipt against this same store observation. Imported matching
     /// keys remain reserved history, never a successful local replay. A null

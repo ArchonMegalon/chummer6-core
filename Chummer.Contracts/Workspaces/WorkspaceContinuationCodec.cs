@@ -41,6 +41,15 @@ public static class WorkspaceContinuationCodec
         using JsonDocument document = JsonDocument.Parse(serialized,
             new JsonDocumentOptions { MaxDepth = MaximumJsonDepth });
         JsonElement captured = document.RootElement.GetProperty("Snapshot");
+        int ledgerCount = captured.GetProperty("DelegatedGmCharacterEdits").GetArrayLength();
+        int previousStart = 0;
+        foreach (JsonElement item in captured.GetProperty("DelegatedGmHistorySegmentStarts").EnumerateArray())
+        {
+            int start = item.GetInt32();
+            if (start <= previousStart || start >= ledgerCount)
+                throw new JsonException("Invalid GM history segment boundary.");
+            previousStart = start;
+        }
         if (captured.GetProperty("DelegatedGmCharacterEdits").EnumerateArray()
                 .Any(receipt => receipt.ValueKind == JsonValueKind.Null)
             || !string.Equals(export.SnapshotDigest,
@@ -74,7 +83,9 @@ public static class WorkspaceContinuationCodec
                 .Deserialize<WorkspaceDocumentAuxiliaryState>(Options);
             IReadOnlyList<DelegatedGmCharacterEditAuditReceipt>? ledger = snapshot.GetProperty("DelegatedGmCharacterEdits")
                 .Deserialize<DelegatedGmCharacterEditAuditReceipt[]>(Options);
-            if (auxiliary is null || ledger is null)
+            IReadOnlyList<int>? segmentStarts = snapshot.GetProperty("DelegatedGmHistorySegmentStarts")
+                .Deserialize<int[]>(Options);
+            if (auxiliary is null || ledger is null || segmentStarts is null)
                 return false;
 
             WorkspaceDocument restoredDocument = new(new WorkspaceDocumentState(
@@ -88,7 +99,8 @@ public static class WorkspaceContinuationCodec
                 new(new(RequiredString(workspace.GetProperty("Id"), "Value")), restoredDocument,
                     workspace.GetProperty("LastUpdatedUtc").GetDateTimeOffset(),
                     workspace.GetProperty("ContentRevision").GetInt64(),
-                    workspace.GetProperty("SavedRevision").GetInt64()), ledger),
+                    workspace.GetProperty("SavedRevision").GetInt64()), ledger)
+                { DelegatedGmHistorySegmentStarts = segmentStarts },
                 RequiredString(root, "SnapshotDigest"));
 
             // Re-encoding proves there were no ignored, defaulted, normalized,
@@ -126,6 +138,7 @@ public static class WorkspaceContinuationCodec
             || !string.Equals(state.RulesetId, RulesetDefaults.NormalizeOptional(state.RulesetId), StringComparison.Ordinal)
             || string.IsNullOrWhiteSpace(state.PayloadKind) || string.IsNullOrWhiteSpace(state.Payload)
             || state.AuxiliaryState is null || snapshot.DelegatedGmCharacterEdits is null
+            || snapshot.DelegatedGmHistorySegmentStarts is null
             || !IsDigest(export.SnapshotDigest))
             throw new JsonException("Complete continuation identity or content digest is invalid.");
     }

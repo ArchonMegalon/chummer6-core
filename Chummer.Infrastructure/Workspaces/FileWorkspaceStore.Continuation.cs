@@ -49,7 +49,8 @@ public sealed partial class FileWorkspaceStore : IWorkspaceContinuationReadCapab
             return new(true, new(owner.NormalizedValue,
                 new(stored.Id, stored.Document, stored.LastUpdatedUtc,
                     stored.ContentRevision, stored.SavedRevision),
-                ledger.Select(entry => entry.Receipt).ToArray()), null,
+                ledger.Select(entry => entry.Receipt).ToArray())
+                { DelegatedGmHistorySegmentStarts = stored.DelegatedGmHistorySegmentStarts.ToArray() }, null,
                 WorkspaceOperationOutcome.Success);
         }
         catch (IOException)

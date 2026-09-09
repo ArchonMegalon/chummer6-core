@@ -1,8 +1,10 @@
-# Owner-bound workspace continuation export
+# Owner-bound workspace continuation
 
-This is a Core read boundary, not restore, roaming publication, generic character
-import, or Android device qualification. Existing release package authorities do
-not include this source change until a later explicit package seal.
+The original export/evaluation boundary is read-only. Its companion reviewed
+restore service now implements an explicit local transaction, not roaming
+publication, generic character import or Android device qualification. Existing
+release package authorities do not include these source changes until a later
+explicit package seal. The new continuation snapshot/digest contract is v2.
 
 `WorkspaceContinuationExportService.Export(expectedOwner, workspaceId)` acquires
 the host's actual owner-context lease. A store must explicitly implement
@@ -128,23 +130,23 @@ an exact latest-value comparison remains unresolved for those records.
 
 ### Store-local provenance groundwork
 
-File-store record schema 3 requires `WorkspaceLocalHistory`: a local incarnation
+File-store record schema 4 requires `WorkspaceLocalHistory`: a local incarnation
 ID, an imported-through revision and, for an imported prefix, its snapshot digest.
 New ordinary workspaces start with no imported prefix. Every existing replacement,
 checkpoint, typed auxiliary commit and delegated edit preserves this metadata.
 Deleting and recreating the same workspace ID establishes a new incarnation.
-Older binaries reject schema 3 instead of silently dropping the new boundary.
+Older binaries reject schema 4 instead of silently flattening the new boundaries.
 
-An ordinary read migrates existing schema-2 records without losing auxiliary
-state, receipts, revisions or checkpoint time. Continuation export never performs
-that migration. Missing/malformed schema-3 provenance and provenance smuggled
-into a legacy record fail closed. This is local persistence integrity, not
+An ordinary read migrates genuine schema-2/3 records without losing auxiliary
+state, receipts, revisions, local provenance or checkpoint time. Continuation
+export never performs that migration. Missing/malformed required provenance and
+provenance smuggled into a legacy record fail closed. This is persistence integrity, not
 cryptographic protection against someone who can rewrite the private store.
 
 The portable continuation snapshot deliberately excludes local incarnation and
 execution provenance: copying those claims cannot prove local execution on a
 different device. The complete character, auxiliary and delegated receipt graphs
-remain in the export. A future restore must establish fresh local provenance from
+remain in the export. An admitted restore establishes fresh local provenance from
 its actual admitted transaction, not deserialize it from the uploaded snapshot.
 
 GM lookup and atomic apply both reserve imported matching keys as conflicts, never
@@ -156,19 +158,68 @@ receipt lookup, including recovery after an uncertain commit. Ordinary history
 display and complete export remain available; imported receipts are not removed.
 Genuine later local receipts above the imported prefix remain replayable.
 
-This groundwork does **not** enable restore. Imported GM authority and timestamp
-continuity must not override current grants for future edits; the old whole-ledger
-continuity check still needs explicit imported/local segmentation. Atomic restore
-admission, source fencing and destination CAS remain unimplemented. The local
-incarnation is available for future restore CAS but is not yet a field in every
-existing typed edit command. No caller-supplied marker creates restore permission.
+Portable `DelegatedGmHistorySegmentStarts` preserves earlier execution epochs.
+Receipt/key uniqueness, owner/workspace identity, receipt-ID derivation and revision
+order remain global. Time and delegation continuity are checked inside each epoch.
+Only the first genuine local append after imported history opens a local epoch;
+an uploaded boundary cannot reset current local authority. Re-export retains all
+old epochs and receipts. Neither a grouping nor a digest proves past execution.
+
+### Reviewed atomic restore
+
+`WorkspaceContinuationRestoreService.Review` captures bounded private bytes and
+recomputes present drafts against current sources under actual owner admission.
+The returned review is an ephemeral, single-use in-process object, not a DTO that
+a remote caller can reconstruct. HTTP hosts must retain it behind their own opaque
+reference. Operation IDs are server-generated; confirmation requires explicit
+review, the issuing service instance, an unexpired object and current owner stamp.
+
+Confirmation recomputes the candidate again, reacquires the actual owner lease
+without nested leasing, and gives the explicit store capability a one-use private
+admission. The file store compares owner, workspace, local incarnation, both
+revisions, complete snapshot digest and durable target-slot generation under one
+workspace lease. It rechecks live sources and admission lifetime after the
+temp-file fault hook, target reread and durable slot rotation, immediately before
+atomic replacement. Precommit cancellation or expiry cannot replace the runner;
+cancellation after a known commit still returns an applied, recoverable result.
+No generic Save/Replace fallback or caller callback is used.
+
+Both missing-target creation and strictly advancing replacement preserve the exact
+incoming document, auxiliary graph, GM epochs, revisions and checkpoint time. Dirty
+state is not silently saved. A non-UTC timestamp representation or one the filesystem
+cannot round-trip is rejected rather than normalized into a different snapshot.
+The store's receipt capacity limit applies before any target replacement.
+
+Equal exact state returns `AlreadyCurrent`, not an invented successful local replay.
+Older/equal divergent replacements remain conflicts: older typed writers do not
+all carry incarnation, so lowering the revision would make a queued old write
+eligible again. Propagating incarnation through all writer contracts and providing
+explicit conflict-resolution UX remain necessary follow-on work; revision renumbering
+would corrupt historical draft bindings and is not an acceptable shortcut.
+
+The store establishes fresh local provenance and `LastRestore` for the actual
+transaction. That private receipt is never portable. Recovery is lookup-only and
+works after subsequent local edits; a missing/deleted proof cannot trigger another
+write. A consumed review cannot be retried, even after deletion. A fresh review is
+an explicit new decision with a new operation ID, not a retry of an uncertain result.
+
+The private `*.json.slot` file is a durable absence generation, not a disposable
+lock or checkpoint cache. It rotates under the workspace lease before create/delete
+and at restore commit, and deliberately survives deletion. Thus an absent-target
+review cannot survive a competing create/delete cycle. A failed write may advance
+the marker conservatively and require a fresh review. Never age-delete these files.
+Orphan slot-write temporary files are recycled by a later slot mutation under lease.
+Atomic rename retains the existing platform-dependent power-loss directory-fsync
+limitation; no stronger hardware durability claim is made.
+
+### Still required for application delivery
 
 - The old Hub public snapshot carrier does not carry this complete continuation
   graph yet. Hub and Android must explicitly adopt the full codec and their
   bounded transport policy; no history may be omitted to fit a limit.
-- Restore must independently admit the target owner, exact workspace identity,
-  active source/rule state, local conflict baseline and atomic write capability.
-  A matching SHA, a Hub access token or a client assertion is not that admission.
+- The host must compose the actual owner/source services and retain reviews across
+  its UI flow. A matching SHA, a Hub access token or a client assertion is not an
+  admission, and no provider or external transport can manufacture one.
 - Historical archive/GM provenance must remain explicit; preserving history must
   neither drop it silently nor convert it into new authority.
 - Android must retain the full owner stamp across asynchronous upload/review work,

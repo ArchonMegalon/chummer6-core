@@ -356,6 +356,7 @@ public sealed class WorkspaceContinuationExportTests
         var record = JsonNode.Parse(File.ReadAllText(path))!.AsObject();
         Assert.IsTrue(record.Remove("RecordSchemaVersion"));
         record.Remove("LocalHistory");
+        record.Remove("DelegatedGmHistorySegmentStarts");
         record.Remove("AuxiliaryState");
         File.WriteAllText(path, record.ToJsonString());
         byte[] before = File.ReadAllBytes(path);

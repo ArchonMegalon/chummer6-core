@@ -23,7 +23,7 @@ public sealed partial class FileWorkspaceStore :
     ICharacterCareerReputationAtomicCommitCapability
 {
     private const int CurrentWorkspaceSchemaVersion = 1;
-    private const int CurrentWorkspaceRecordSchemaVersion = 3;
+    private const int CurrentWorkspaceRecordSchemaVersion = 4;
     private const string WorkspacePayloadKind = "workspace";
     private const long InitialContentRevision = 1;
     private const long InitialSavedRevision = 0;
@@ -251,6 +251,7 @@ public sealed partial class FileWorkspaceStore :
                 InitialContentRevision,
                 InitialSavedRevision,
                 CreateLocalHistory());
+            RotateContinuationSlotUnderLease(path);
             DateTimeOffset committedAtUtc = WriteRecordAtomically(
                 path,
                 record,
@@ -501,7 +502,8 @@ public sealed partial class FileWorkspaceStore :
                 nextContentRevision,
                 current.SavedRevision,
                 current.LocalHistory!,
-                delegatedEditLedger);
+                delegatedEditLedger,
+                current.DelegatedGmHistorySegmentStarts);
             DateTimeOffset committedAtUtc = WriteRecordAtomically(
                 path,
                 record,
@@ -597,7 +599,8 @@ public sealed partial class FileWorkspaceStore :
                 nextContentRevision,
                 nextContentRevision,
                 current.LocalHistory!,
-                delegatedEditLedger);
+                delegatedEditLedger,
+                current.DelegatedGmHistorySegmentStarts);
             DateTimeOffset committedAtUtc = WriteRecordAtomically(
                 path,
                 record,
@@ -719,7 +722,8 @@ public sealed partial class FileWorkspaceStore :
                 nextContentRevision,
                 nextContentRevision,
                 current.LocalHistory!,
-                delegatedEditLedger);
+                delegatedEditLedger,
+                current.DelegatedGmHistorySegmentStarts);
             DateTimeOffset committedAtUtc = WriteRecordAtomically(
                 path,
                 record,
@@ -795,7 +799,8 @@ public sealed partial class FileWorkspaceStore :
                     current.ContentRevision,
                     current.ContentRevision,
                     current.LocalHistory!,
-                    delegatedEditLedger);
+                    delegatedEditLedger,
+                    current.DelegatedGmHistorySegmentStarts);
                 lastUpdatedUtc = WriteRecordAtomically(
                     path,
                     record,
@@ -855,6 +860,11 @@ public sealed partial class FileWorkspaceStore :
             ThrowIfLinkOrReparsePoint(tempPath, "workspace temporary file");
             SetSecureFileMode(tempPath);
             File.SetLastWriteTimeUtc(tempPath, committedAtUtc.UtcDateTime);
+            // A continuation digest includes logical checkpoint time. Refuse a
+            // filesystem that cannot preserve it before replacing the target.
+            if (logicalLastUpdatedUtc is not null
+                && File.GetLastWriteTimeUtc(tempPath) != committedAtUtc.UtcDateTime)
+                throw new IOException("Workspace checkpoint timestamp cannot round-trip on this filesystem.");
             _faultInjector.OnStage(FileWorkspaceStoreFaultStage.AfterTempFileFlushed, normalizedPath, tempPath);
 
             ThrowIfLinkOrReparsePoint(normalizedPath, "workspace target");
@@ -1081,11 +1091,18 @@ public sealed partial class FileWorkspaceStore :
                 .. ledger,
                 ledgerEntry
             ];
-            if (!DelegatedGmCharacterEditLedgerValidator.IsValidLedger(
+            // Only the store's private import floor opens a local execution
+            // segment. Portable boundaries themselves never grant this ability.
+            IReadOnlyList<int> segmentStarts = current.DelegatedGmHistorySegmentStarts;
+            if (ledger.Count > 0
+                && current.LocalHistory!.IsImportedRevision(ledger[^1].Receipt.NewRevision))
+                segmentStarts = [.. segmentStarts, ledger.Count];
+            if (!DelegatedGmCharacterEditLedgerValidator.IsValidSegmentedLedger(
                     owner,
                     id,
                     nextContentRevision,
-                    updatedLedger))
+                    updatedLedger,
+                    segmentStarts))
             {
                 return DelegatedEditUnavailable(
                     "Delegated GM character-edit commit would corrupt the immutable audit ledger.");
@@ -1096,7 +1113,8 @@ public sealed partial class FileWorkspaceStore :
                 nextContentRevision,
                 current.SavedRevision,
                 current.LocalHistory!,
-                updatedLedger);
+                updatedLedger,
+                segmentStarts);
             _ = WriteRecordAtomically(
                 path,
                 record,
@@ -1146,6 +1164,7 @@ public sealed partial class FileWorkspaceStore :
                 return ConflictMutation(current);
             }
 
+            RotateContinuationSlotUnderLease(path);
             File.Delete(path);
             return new WorkspaceStoreMutationResult(
                 WorkspaceOperationOutcome.Success,
@@ -1218,17 +1237,18 @@ public sealed partial class FileWorkspaceStore :
                 id,
                 contentRevision,
                 record.DelegatedGmCharacterEdits,
+                record.RecordSchemaVersion >= 4 ? record.DelegatedGmHistorySegmentStarts : [],
                 out delegatedEditLedger)
             || !IsValidAuxiliaryState(id, contentRevision, document.AuxiliaryState))
         {
             return CorruptRead();
         }
 
-        // Version 3 makes local provenance mandatory so an older binary cannot
-        // silently discard it while writing a version-2 record. Older records
-        // predate continuation restore and migrate only on an ordinary read.
+        // Version 3 made local provenance mandatory. Version 4 additionally
+        // preserves portable GM execution segments so an older binary cannot
+        // silently flatten history while writing a version-3 record.
         WorkspaceLocalHistory? localHistory = record.LocalHistory;
-        if (record.RecordSchemaVersion == CurrentWorkspaceRecordSchemaVersion)
+        if (record.RecordSchemaVersion >= 3)
         {
             if (localHistory is null || !localHistory.IsValid(contentRevision))
                 return CorruptRead();
@@ -1239,6 +1259,23 @@ public sealed partial class FileWorkspaceStore :
                 return CorruptRead();
             localHistory = CreateLocalHistory();
         }
+
+        IReadOnlyList<int> segmentStarts;
+        if (record.RecordSchemaVersion >= 4)
+        {
+            segmentStarts = record.DelegatedGmHistorySegmentStarts!;
+        }
+        else
+        {
+            // Legacy records must pass the old whole-ledger constraints before
+            // migration supplies an explicit boundary for an existing local suffix.
+            if (record.DelegatedGmHistorySegmentStarts is not null)
+                return CorruptRead();
+            int firstLocal = FindFirstLocalDelegatedEdit(delegatedEditLedger, localHistory);
+            segmentStarts = firstLocal > 0 && firstLocal < delegatedEditLedger.Count ? [firstLocal] : [];
+        }
+        if (!HasValidLocalDelegatedEditSegments(delegatedEditLedger, segmentStarts, localHistory))
+            return CorruptRead();
 
         DateTimeOffset? migratedAtUtc = null;
         if (continuationRead && requiresLegacyMigration)
@@ -1259,7 +1296,8 @@ public sealed partial class FileWorkspaceStore :
                 contentRevision,
                 savedRevision,
                 localHistory,
-                delegatedEditLedger);
+                delegatedEditLedger,
+                segmentStarts);
             migratedAtUtc = WriteRecordAtomically(
                 path,
                 migrated,
@@ -1275,7 +1313,11 @@ public sealed partial class FileWorkspaceStore :
                 document,
                 contentRevision,
                 savedRevision,
-                lastUpdatedUtc) { LocalHistory = localHistory });
+                lastUpdatedUtc)
+            {
+                LocalHistory = localHistory,
+                DelegatedGmHistorySegmentStarts = segmentStarts
+            });
     }
 
     private static bool TryMaterializeRecord(
@@ -1369,14 +1411,19 @@ public sealed partial class FileWorkspaceStore :
         long contentRevision,
         long savedRevision,
         WorkspaceLocalHistory localHistory,
-        IReadOnlyList<DelegatedGmCharacterEditLedgerEntry>? delegatedEditLedger = null)
+        IReadOnlyList<DelegatedGmCharacterEditLedgerEntry>? delegatedEditLedger = null,
+        IReadOnlyList<int>? segmentStarts = null)
     {
         if (localHistory is null || !localHistory.IsValid(contentRevision))
             throw new InvalidOperationException("Workspace local history is invalid.");
+        segmentStarts ??= [];
+        if (!HasValidLocalDelegatedEditSegments(delegatedEditLedger ?? [], segmentStarts, localHistory))
+            throw new InvalidOperationException("Workspace GM execution segments are invalid.");
         return new PersistedWorkspaceRecord(document.Format.ToString())
         {
             RecordSchemaVersion = CurrentWorkspaceRecordSchemaVersion,
             LocalHistory = localHistory,
+            DelegatedGmHistorySegmentStarts = segmentStarts.ToArray(),
             Envelope = NormalizeEnvelope(document.State),
             ContentRevision = contentRevision,
             SavedRevision = savedRevision,
@@ -1394,30 +1441,61 @@ public sealed partial class FileWorkspaceStore :
         CharacterWorkspaceId id,
         long currentContentRevision,
         DelegatedGmCharacterEditLedgerEntry[]? persisted,
+        IReadOnlyList<int>? segmentStarts,
         out IReadOnlyList<DelegatedGmCharacterEditLedgerEntry> ledger)
     {
         ledger = [];
-        if (persisted is null)
-        {
-            return true;
-        }
+        persisted ??= [];
 
         if (persisted.Length > MaximumDelegatedEditAuditEntries)
         {
             return false;
         }
 
-        if (!DelegatedGmCharacterEditLedgerValidator.IsValidLedger(
+        if (!DelegatedGmCharacterEditLedgerValidator.IsValidSegmentedLedger(
                 owner,
                 id,
                 currentContentRevision,
-                persisted))
+                persisted,
+                segmentStarts))
         {
             return false;
         }
 
         ledger = persisted;
         return true;
+    }
+
+    private static int FindFirstLocalDelegatedEdit(
+        IReadOnlyList<DelegatedGmCharacterEditLedgerEntry> ledger,
+        WorkspaceLocalHistory localHistory)
+    {
+        int firstLocal = 0;
+        while (firstLocal < ledger.Count
+               && localHistory.IsImportedRevision(ledger[firstLocal].Receipt.NewRevision))
+            firstLocal++;
+        return firstLocal;
+    }
+
+    private static bool HasValidLocalDelegatedEditSegments(
+        IReadOnlyList<DelegatedGmCharacterEditLedgerEntry> ledger,
+        IReadOnlyList<int> segmentStarts,
+        WorkspaceLocalHistory localHistory)
+    {
+        int firstLocal = FindFirstLocalDelegatedEdit(ledger, localHistory);
+        int previousStart = 0;
+        bool startsLocalSuffix = firstLocal == 0 || firstLocal == ledger.Count;
+        foreach (int start in segmentStarts)
+        {
+            // No uploaded or accidental boundary can reset the already-local
+            // authority epoch. Historical boundaries remain fully portable.
+            if (start <= previousStart || start >= ledger.Count || start > firstLocal)
+                return false;
+            if (start == firstLocal)
+                startsLocalSuffix = true;
+            previousStart = start;
+        }
+        return startsLocalSuffix;
     }
 
     private static WorkspaceStoreEntry ToEntry(WorkspaceStoredDocument document)
@@ -3016,6 +3094,10 @@ public sealed partial class FileWorkspaceStore :
 
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public WorkspaceLocalHistory? LocalHistory { get; init; }
+
+        // Required even when empty in schema 4; null distinguishes legacy data.
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public int[]? DelegatedGmHistorySegmentStarts { get; init; }
 
         public WorkspacePayloadEnvelope? Envelope { get; init; }
 

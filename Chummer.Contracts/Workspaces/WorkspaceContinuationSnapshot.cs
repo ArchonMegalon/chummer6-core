@@ -13,7 +13,14 @@ public sealed record WorkspaceContinuationSnapshot(
     WorkspaceDocumentSnapshot Workspace,
     IReadOnlyList<DelegatedGmCharacterEditAuditReceipt> DelegatedGmCharacterEdits)
 {
-    public const string ContractName = "chummer.workspace-continuation-snapshot/v1";
+    public const string ContractName = "chummer.workspace-continuation-snapshot/v2";
+
+    /// <summary>
+    /// Zero-based starts of subsequent GM execution-history segments; the first
+    /// segment starts implicitly at zero. These portable grouping declarations
+    /// preserve historical authority epochs, never local provenance or replay rights.
+    /// </summary>
+    public IReadOnlyList<int> DelegatedGmHistorySegmentStarts { get; init; } = [];
 }
 
 /// <summary>Content identity only; restore admission must independently validate authority.</summary>
@@ -23,7 +30,7 @@ public sealed record WorkspaceContinuationExport(
 
 public static class WorkspaceContinuationSnapshotDigest
 {
-    public const string Semantics = "canonical-workspace-continuation-json-sha256-v1";
+    public const string Semantics = "canonical-workspace-continuation-json-sha256-v2";
 
     // Persist the state once, excluding convenience projections such as Content,
     // PayloadEnvelope and AuxiliaryStateDigest. All init-only state is retained.

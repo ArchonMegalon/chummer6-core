@@ -46,7 +46,7 @@ public sealed class WorkspaceAuxiliaryStateStoreTests
             Assert.AreEqual(3L, migrated.Value?.SavedRevision);
             Assert.IsTrue(migrated.Value?.Document.AuxiliaryState.IsEmpty);
             string migratedJson = File.ReadAllText(targetPath);
-            StringAssert.Contains(migratedJson, "\"RecordSchemaVersion\":3");
+            StringAssert.Contains(migratedJson, "\"RecordSchemaVersion\":4");
             Assert.IsFalse(migratedJson.Contains("AuxiliaryState", StringComparison.Ordinal));
         }
         finally
