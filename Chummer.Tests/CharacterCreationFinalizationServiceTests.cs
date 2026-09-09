@@ -1427,7 +1427,7 @@ public sealed class CharacterCreationFinalizationServiceTests
         return result.Value;
     }
 
-    private sealed class ReadyContext : IDisposable
+    internal sealed class ReadyContext : IDisposable
     {
         private readonly bool _ownsDirectory;
         private readonly ICharacterSourceDataResolver _resolver;

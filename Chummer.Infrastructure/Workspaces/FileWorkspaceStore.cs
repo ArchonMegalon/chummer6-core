@@ -1165,7 +1165,8 @@ public sealed partial class FileWorkspaceStore :
         OwnerScope owner,
         CharacterWorkspaceId id,
         string path,
-        out IReadOnlyList<DelegatedGmCharacterEditLedgerEntry> delegatedEditLedger)
+        out IReadOnlyList<DelegatedGmCharacterEditLedgerEntry> delegatedEditLedger,
+        bool continuationRead = false)
     {
         delegatedEditLedger = [];
         ThrowIfLinkOrReparsePoint(path, "workspace target");
@@ -1188,7 +1189,9 @@ public sealed partial class FileWorkspaceStore :
                 FileShare.Read,
                 FileBufferSize,
                 FileOptions.SequentialScan);
-            record = JsonSerializer.Deserialize<PersistedWorkspaceRecord>(stream);
+            record = continuationRead
+                ? ReadExactContinuationRecord(stream)
+                : JsonSerializer.Deserialize<PersistedWorkspaceRecord>(stream);
         }
         catch (JsonException)
         {
@@ -1214,6 +1217,14 @@ public sealed partial class FileWorkspaceStore :
         }
 
         DateTimeOffset? migratedAtUtc = null;
+        if (continuationRead && requiresLegacyMigration)
+        {
+            // Export must not rewrite the source or invent revision authority.
+            // An ordinary local read may migrate the legacy record first.
+            return UnavailableRead();
+        }
+        if (continuationRead && record.Envelope != document.PayloadEnvelope)
+            return CorruptRead();
         if (requiresLegacyMigration)
         {
             // Records without revisions predate dirty-state tracking and are treated as an
@@ -2596,14 +2607,14 @@ public sealed partial class FileWorkspaceStore :
         EnsureSecureDirectory(Path.Combine(ownerDirectory, "workspaces"), "workspace directory");
     }
 
-    private bool TrySecureExistingWorkspaceDirectory(OwnerScope owner)
+    private bool TrySecureExistingWorkspaceDirectory(OwnerScope owner, bool allowLegacyMigration = true)
     {
         ThrowIfLinkOrReparsePoint(_stateDirectory, "workspace state root");
         if (!Directory.Exists(_stateDirectory))
             return false;
         SetSecureDirectoryMode(_stateDirectory);
 
-        string? ownerDirectory = TrySecureExistingOwnerDirectory(owner);
+        string? ownerDirectory = TrySecureExistingOwnerDirectory(owner, allowLegacyMigration);
         if (ownerDirectory is null)
             return false;
 
@@ -2629,7 +2640,7 @@ public sealed partial class FileWorkspaceStore :
         return ownerDirectory;
     }
 
-    private string? TrySecureExistingOwnerDirectory(OwnerScope owner)
+    private string? TrySecureExistingOwnerDirectory(OwnerScope owner, bool allowLegacyMigration = true)
     {
         string ownerDirectory = OwnerScopedStatePath.ResolveWorkspaceOwnerDirectory(_stateDirectory, owner);
         if (PathComparer.Equals(ownerDirectory, _stateDirectory))
@@ -2644,21 +2655,24 @@ public sealed partial class FileWorkspaceStore :
             return null;
         }
 
-        using WorkspaceOperationLease migration = AcquireOwnerMigrationOperation(ownerDirectory);
-        MigrateLegacyWorkspaceDirectoryUnderLease(owner, ownerDirectory);
+        using WorkspaceOperationLease migration = AcquireOwnerMigrationOperation(ownerDirectory, allowLegacyMigration);
+        if (allowLegacyMigration)
+            MigrateLegacyWorkspaceDirectoryUnderLease(owner, ownerDirectory);
+        else
+            RefuseLegacyContinuationDirectory(owner, ownerDirectory);
         return TrySecureExistingDirectory(ownerDirectory, "workspace owner directory")
             ? ownerDirectory
             : null;
     }
 
-    private WorkspaceOperationLease AcquireOwnerMigrationOperation(string ownerDirectory)
+    private WorkspaceOperationLease AcquireOwnerMigrationOperation(string ownerDirectory, bool recoverStaleTempFiles = true)
     {
         string migrationKey = Path.GetFullPath(ownerDirectory + ".owner-migration");
         EnsurePathContained(
             Path.Combine(_stateDirectory, "owners"),
             migrationKey,
             "workspace owner migration key");
-        return AcquireWorkspaceOperation(migrationKey);
+        return AcquireWorkspaceOperation(migrationKey, recoverStaleTempFiles);
     }
 
     private void MigrateLegacyWorkspaceDirectoryUnderLease(OwnerScope owner, string ownerDirectory)
@@ -2737,7 +2751,7 @@ public sealed partial class FileWorkspaceStore :
         SetSecureDirectoryMode(workspaceDirectory);
     }
 
-    private WorkspaceOperationLease AcquireWorkspaceOperation(string path)
+    private WorkspaceOperationLease AcquireWorkspaceOperation(string path, bool recoverStaleTempFiles = true)
     {
         string normalizedPath = Path.GetFullPath(path);
         EnsurePathContained(_stateDirectory, normalizedPath, "workspace operation target");
@@ -2756,7 +2770,8 @@ public sealed partial class FileWorkspaceStore :
                 _workspaceOperationTimeout);
             try
             {
-                RemoveStaleTempFiles(normalizedPath);
+                if (recoverStaleTempFiles)
+                    RemoveStaleTempFiles(normalizedPath);
                 return new WorkspaceOperationLease(processGate, fileLease);
             }
             catch
