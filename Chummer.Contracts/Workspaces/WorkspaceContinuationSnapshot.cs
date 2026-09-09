@@ -37,9 +37,22 @@ public static class WorkspaceContinuationSnapshotDigest
         ArgumentNullException.ThrowIfNull(snapshot);
         JsonElement root = JsonSerializer.SerializeToElement(
             new DigestEnvelope(WorkspaceContinuationSnapshot.ContractName, snapshot), Options);
+        return ComputeSerializedSnapshot(root.GetProperty(nameof(DigestEnvelope.Snapshot)));
+    }
+
+    // The transport calls this only after bounded, strict serialization. Hashing
+    // captured bytes avoids re-reading a caller-owned mutable list or payload.
+    internal static string ComputeSerializedSnapshot(JsonElement snapshot)
+    {
         ArrayBufferWriter<byte> buffer = new();
         using (Utf8JsonWriter writer = new(buffer))
-            WriteCanonical(root, writer);
+        {
+            writer.WriteStartObject();
+            writer.WriteString("ContractName", WorkspaceContinuationSnapshot.ContractName);
+            writer.WritePropertyName("Snapshot");
+            WriteCanonical(snapshot, writer);
+            writer.WriteEndObject();
+        }
         return Convert.ToHexStringLower(SHA256.HashData(buffer.WrittenSpan));
     }
 

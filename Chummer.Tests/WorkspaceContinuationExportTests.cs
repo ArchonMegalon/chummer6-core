@@ -41,6 +41,7 @@ public sealed class WorkspaceContinuationExportTests
         var creation = context.Store.Get(context.WorkspaceId).Value!;
         var creationExport = Export(new FileWorkspaceStore(context.Directory), authority, context.WorkspaceId);
         AssertSnapshot(creation, creationExport.Snapshot.Workspace);
+        AssertCodecRoundtrip(creationExport);
         Assert.IsNotNull(creation.Document.AuxiliaryState.CharacterCreationPrerequisiteDraft);
         Assert.IsNotNull(creation.Document.AuxiliaryState.CharacterCreationAttributesDraft);
         Assert.IsNotNull(creation.Document.AuxiliaryState.CharacterCreationSkillsDraft);
@@ -86,6 +87,7 @@ public sealed class WorkspaceContinuationExportTests
         var expected = context.Store.Get(context.WorkspaceId).Value!;
         var exported = Export(new FileWorkspaceStore(context.Directory), authority, context.WorkspaceId);
         AssertSnapshot(expected, exported.Snapshot.Workspace);
+        AssertCodecRoundtrip(exported);
         Assert.AreEqual(OwnerScope.LocalSingleUser.NormalizedValue, exported.Snapshot.OwnerId);
         Assert.HasCount(0, exported.Snapshot.DelegatedGmCharacterEdits);
         var auxiliary = exported.Snapshot.Workspace.Document.AuxiliaryState;
@@ -142,6 +144,7 @@ public sealed class WorkspaceContinuationExportTests
         Assert.HasCount(1, exported.Snapshot.DelegatedGmCharacterEdits);
         Assert.AreEqual(JsonSerializer.Serialize(applied.Receipt),
             JsonSerializer.Serialize(exported.Snapshot.DelegatedGmCharacterEdits.Single()));
+        AssertCodecRoundtrip(exported);
         Assert.AreEqual(3L, exported.Snapshot.Workspace.ContentRevision);
         Assert.AreEqual(0L, exported.Snapshot.Workspace.SavedRevision);
         var replay = GmService(new FileWorkspaceStore(context.Directory)).Execute(command);
@@ -409,6 +412,23 @@ public sealed class WorkspaceContinuationExportTests
         Assert.IsTrue(File.Exists(stale));
         CollectionAssert.AreEqual(tempBefore, File.ReadAllBytes(stale));
         Assert.AreEqual(timestamp, File.GetLastWriteTimeUtc(stale));
+    }
+
+    private static void AssertCodecRoundtrip(WorkspaceContinuationExport expected)
+    {
+        // Transport/content fidelity only: decoding is not restore admission.
+        byte[] bytes = WorkspaceContinuationCodec.Encode(expected, int.MaxValue);
+        Assert.IsTrue(WorkspaceContinuationCodec.TryDecodeCandidate(bytes, bytes.Length, out var candidate));
+        Assert.IsNotNull(candidate);
+        Assert.AreEqual(expected.SnapshotDigest, candidate.SnapshotDigest);
+        Assert.AreEqual(JsonSerializer.Serialize(expected.Snapshot), JsonSerializer.Serialize(candidate.Snapshot));
+        Assert.AreEqual(JsonSerializer.Serialize(expected.Snapshot.Workspace.Document.AuxiliaryState),
+            JsonSerializer.Serialize(candidate.Snapshot.Workspace.Document.AuxiliaryState));
+        Assert.AreEqual(expected.Snapshot.Workspace.Document.AuxiliaryStateDigest,
+            candidate.Snapshot.Workspace.Document.AuxiliaryStateDigest);
+        Assert.AreEqual(JsonSerializer.Serialize(expected.Snapshot.DelegatedGmCharacterEdits),
+            JsonSerializer.Serialize(candidate.Snapshot.DelegatedGmCharacterEdits));
+        CollectionAssert.AreEqual(bytes, WorkspaceContinuationCodec.Encode(candidate, bytes.Length));
     }
 
     private static WorkspaceContinuationExport Export(IWorkspaceStore store, TestOwner authority,

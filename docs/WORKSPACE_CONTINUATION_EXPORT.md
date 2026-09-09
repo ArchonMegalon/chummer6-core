@@ -32,11 +32,31 @@ operations may perform those existing migrations explicitly before another
 export attempt. Concurrency lock files and private file modes remain necessary;
 export must not rewrite, relocate or delete runner data or recovery temp files.
 
+## Complete bounded transport
+
+`WorkspaceContinuationCodec.Encode(export, maximumBytes)` preserves the entire
+graph, including finalization archives and delegated history. It validates the
+digest against bounded captured JSON rather than rereading mutable caller data.
+Both individual strings and the complete serialized output are bounded; invalid
+UTF-16 is rejected instead of replaced. The limit belongs to the caller, not a
+hardcoded Core transport policy.
+
+`TryDecodeCandidate(bytes, maximumBytes, out candidate)` checks the raw byte bound
+before parsing, rejects duplicate, unknown, missing and normalization-dependent
+fields, and requires an exact canonical roundtrip. Object order, whitespace and
+equivalent Unicode escaping may vary. Both input and canonical output must fit
+the limit. A caller receiving a stream must cap it before buffering these bytes.
+
+Successful decode is **untrusted content**, not restore admission. A positive
+future payload schema can be retained losslessly without claiming that the
+current engine supports it. The outer continuation contract version and document
+format remain strict. Neither hashes nor historical receipts authorize writes.
+
 ## Still required before roaming integration
 
-- A complete transport codec must preserve this entire graph, including the
-  delegated history omitted from `WorkspaceDocumentSnapshot`. The old Hub public
-  snapshot carrier is not yet a carrier of the new complete continuation state.
+- The old Hub public snapshot carrier does not carry this complete continuation
+  graph yet. Hub and Android must explicitly adopt the full codec and their
+  bounded transport policy; no history may be omitted to fit a limit.
 - Restore must independently admit the target owner, exact workspace identity,
   active source/rule state, local conflict baseline and atomic write capability.
   A matching SHA, a Hub access token or a client assertion is not that admission.
