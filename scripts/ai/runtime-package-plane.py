@@ -34,9 +34,9 @@ INVENTORY_NAME = "chummer-core-runtime-packages.inventory.json"
 OWNER_INVENTORY_NAME = "chummer-owner-contracts.inventory.json"
 CANDIDATE_ENGINE_INVENTORY_NAME = "chummer-core-candidate-engine-contract.inventory.json"
 CANDIDATE_GM_INVENTORY_NAME = "chummer-core-candidate-gm-edit-runtime.inventory.json"
-PACKAGE_VERSION = "0.0.0-packageplane.candidate.sh880e5df8ace98"
+PACKAGE_VERSION = "0.0.0-packageplane.candidate.sh8325f622e1db0"
 SOURCE_REPOSITORY = "https://github.com/ArchonMegalon/chummer6-core.git"
-SOURCE_COMMIT = "880e5df8ace981e9a60264d835329dd32f54a158"
+SOURCE_COMMIT = "8325f622e1db09e5d19bd9d9937be088629e01bb"
 SDK_VERSION = "10.0.103"
 SDK_RID = "linux-x64"
 SDK_ARCHIVE_URL = (
@@ -285,6 +285,32 @@ CAREER_REPUTATION_AUTHORITY_PATHS = (
     "Chummer.Tests/WorkspaceCharacterCareerReputationTests.cs",
     "Chummer.Tests/Chummer.CareerReputation.Tests.csproj",
     "Chummer.Tests/Chummer.CareerReputation.Persistence.Tests.csproj",
+)
+
+
+OWNER_ADMISSION_AUTHORITY_PATHS = (
+    "Chummer.Application/Owners/IOwnerContextLease.cs",
+    "Chummer.Application/Owners/IOwnerContextLeaseAccessor.cs",
+    "Chummer.Application/Owners/OwnerContextStamp.cs",
+    "Chummer.Application/Owners/OwnerContextAdmission.cs",
+    "Chummer.Application/Characters/IOwnerBoundCharacterCreationBootstrapService.cs",
+    "Chummer.Application/Characters/IOwnerBoundCharacterCreationContactsService.cs",
+    "Chummer.Application/Characters/OwnerBoundCharacterCreationBootstrapService.cs",
+    "Chummer.Application/Characters/OwnerBoundCharacterCreationContactsService.cs",
+    "Chummer.Application/Characters/CharacterCreationBootstrapService.cs",
+    "Chummer.Application/Characters/CharacterCreationContactsService.cs",
+    "Chummer.Application/Workspaces/IWorkspaceStore.cs",
+    "Chummer.Infrastructure/Owners/LocalOwnerContextAccessor.cs",
+    "Chummer.Infrastructure/DependencyInjection/ServiceCollectionExtensions.cs",
+    "Chummer.Infrastructure/Workspaces/FileWorkspaceStore.cs",
+    "Chummer.Infrastructure/Workspaces/FileWorkspaceStore.OwnerScopedCreation.cs",
+    "Chummer.Infrastructure/Workspaces/FileWorkspaceStore.Inventory.cs",
+    "FocusedTests/CreationOwnerAdmission/CreationOwnerAdmission.FocusedTests.csproj",
+    "FocusedTests/CreationOwnerAdmission/Fixtures.cs",
+    "FocusedTests/CreationOwnerAdmission/Program.cs",
+    "FocusedTests/CreationOwnerAdmission/ScopedStoreProbe.cs",
+    "FocusedTests/CreationOwnerAdmission/InventoryProbe.cs",
+    "FocusedTests/CreationLegacyRegression/CreationLegacyRegression.FocusedTests.csproj",
 )
 
 
@@ -719,7 +745,7 @@ def validate_repository(repo_root: Path, lock: dict[str, Any]) -> None:
     for member in AFTER_RUN_REWARD_AUTHORITY_PATHS:
         _run(("git", "cat-file", "-e", f"{SOURCE_COMMIT}:{member}"), cwd=repo_root)
     for member in (*CREATION_SKILLS_REVIEW_AUTHORITY_PATHS,
-                   *CAREER_REPUTATION_AUTHORITY_PATHS):
+                   *CAREER_REPUTATION_AUTHORITY_PATHS, *OWNER_ADMISSION_AUTHORITY_PATHS):
         _run(("git", "cat-file", "-e", f"{SOURCE_COMMIT}:{member}"), cwd=repo_root)
 
     changed = _run(

@@ -54,8 +54,28 @@ class RuntimePackageLockTests(unittest.TestCase):
         )
 
     def test_next_wave_candidate_is_bound_to_locally_validated_semantic_commit(self) -> None:
-        self.assertEqual("880e5df8ace981e9a60264d835329dd32f54a158", runtime.SOURCE_COMMIT)
-        self.assertEqual("0.0.0-packageplane.candidate.sh880e5df8ace98", runtime.PACKAGE_VERSION)
+        self.assertEqual("8325f622e1db09e5d19bd9d9937be088629e01bb", runtime.SOURCE_COMMIT)
+        self.assertEqual("0.0.0-packageplane.candidate.sh8325f622e1db0", runtime.PACKAGE_VERSION)
+
+    def test_owner_admission_and_strict_inventory_are_bound_to_semantic_source(self) -> None:
+        self.assertEqual(22, len(runtime.OWNER_ADMISSION_AUTHORITY_PATHS))
+        self.assertEqual(22, len(set(runtime.OWNER_ADMISSION_AUTHORITY_PATHS)))
+        for member in runtime.OWNER_ADMISSION_AUTHORITY_PATHS:
+            with self.subTest(member=member):
+                runtime._run(("git", "cat-file", "-e", f"{runtime.SOURCE_COMMIT}:{member}"), cwd=REPO_ROOT)
+
+    def test_isolated_lane_executes_owner_and_inventory_probes(self) -> None:
+        script = (REPO_ROOT / "scripts/ai/verify-no-siblings-package-plane.sh").read_text(encoding="utf-8")
+        self.assertIn("for owner_probe in admission scoped inventory; do", script)
+        self.assertIn('"-p:RunInventoryProbe=$owner_probe_inventory"', script)
+        self.assertIn('--core-root "$consumer_root"', script)
+        for member in ("IOwnerContextLeaseAccessor", "OwnerContextStamp",
+                       "OwnerBoundCharacterCreationBootstrapService", "OwnerBoundCharacterCreationContactsService",
+                       "service.CreateActivation(originalOwner, request)", "service.Confirm(originalOwner, request)",
+                       "IWorkspaceStoreInventory", "IOwnerScopedCharacterCreationBootstrapAtomicCreateCapability",
+                       "IOwnerScopedWorkspaceAuxiliaryStateAtomicCommitCapability"):
+            with self.subTest(member=member):
+                self.assertIn(member, script)
 
     def test_runtime_source_retains_real_sr5_reward_codec_regression(self) -> None:
         def source(path: str) -> str:
