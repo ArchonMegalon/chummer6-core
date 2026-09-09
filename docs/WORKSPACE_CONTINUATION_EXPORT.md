@@ -52,6 +52,31 @@ future payload schema can be retained losslessly without claiming that the
 current engine supports it. The outer continuation contract version and document
 format remain strict. Neither hashes nor historical receipts authorize writes.
 
+## Current-source evaluation building blocks
+
+`WorkspaceContinuationSourceCapture` captures the current Creation authorities,
+reputation settings and complete Life Modules catalog for exactly one character
+XML input. Availability is retained per domain. Both source and returned nested
+collections are isolated by copies; queries outside the captured XML, stage,
+books or capability set cannot fall back to live sources. Its digest binds the
+captured values, not merely source-provided digest labels. Capturing successfully
+does not mean every optional authority is available or that a draft is valid.
+
+Foundation's internal continuation check recomputes the selected catalog effects
+and complete logical draft. Resources' check recomputes source grants and the
+historical budget while allowing a later valid Gear purchase to change the
+current budget. Neither helper rereads the workspace or permits a write.
+Foundation drafts do not retain an optional original source filter; if that
+binding cannot be reproduced, the check remains unresolved/fail-closed rather
+than ignoring the mismatch or claiming the historical choice was corrupt.
+
+`WorkspaceAuxiliaryStateIntegrity.IsValidShape` shares the existing persisted
+shape and receipt-consistency checks with the file store, including the single
+finalization archive. This is not rule validation or historical provenance.
+Malformed nested objects can throw; an untrusted candidate evaluator must reject
+them at its boundary. These building blocks do not yet constitute a complete
+candidate evaluator or atomic restore operation.
+
 ## Still required before roaming integration
 
 - The old Hub public snapshot carrier does not carry this complete continuation
