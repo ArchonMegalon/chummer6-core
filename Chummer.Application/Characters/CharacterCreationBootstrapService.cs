@@ -1,7 +1,9 @@
 using System.Globalization;
 using System.Xml.Linq;
+using Chummer.Application.Owners;
 using Chummer.Application.Workspaces;
 using Chummer.Contracts.Characters;
+using Chummer.Contracts.Owners;
 using Chummer.Contracts.Rulesets;
 using Chummer.Contracts.Workspaces;
 
@@ -20,7 +22,7 @@ public sealed class CharacterCreationBootstrapService :
     private readonly ICharacterSourceDataResolver _sourceDataResolver;
     private readonly ICharacterCreationBootstrapActivationProjector? _activationProjector;
     private readonly object _activationSync = new();
-    private readonly HashSet<string> _pendingActivationDigests = new(StringComparer.Ordinal);
+    private readonly HashSet<(string Digest, OwnerContextStamp? Owner)> _pendingActivationDigests = [];
 
     public CharacterCreationBootstrapService(
         IWorkspaceStore workspaceStore,
@@ -40,8 +42,16 @@ public sealed class CharacterCreationBootstrapService :
 
     public CharacterCreationBootstrapResult<CharacterCreationBootstrapReceipt> Create(
         CharacterCreationBootstrapRequest request)
+        => CreateForOwner(OwnerScope.LocalSingleUser, null, request);
+
+    internal CharacterCreationBootstrapResult<CharacterCreationBootstrapReceipt> Create(
+        OwnerContextStamp owner, CharacterCreationBootstrapRequest request)
+        => CreateForOwner(owner.Owner, owner, request);
+
+    private CharacterCreationBootstrapResult<CharacterCreationBootstrapReceipt> CreateForOwner(
+        OwnerScope owner, OwnerContextStamp? original, CharacterCreationBootstrapRequest request)
     {
-        BootstrapCreation creation = CreateCore(request, includeActivation: false);
+        BootstrapCreation creation = CreateCore(owner, original, request, includeActivation: false);
         return new CharacterCreationBootstrapResult<CharacterCreationBootstrapReceipt>(
             creation.Outcome,
             creation.Receipt,
@@ -50,8 +60,16 @@ public sealed class CharacterCreationBootstrapService :
 
     public CharacterCreationBootstrapActivationAttempt CreateActivation(
         CharacterCreationBootstrapRequest request)
+        => CreateActivationForOwner(OwnerScope.LocalSingleUser, null, request);
+
+    internal CharacterCreationBootstrapActivationAttempt CreateActivation(
+        OwnerContextStamp owner, CharacterCreationBootstrapRequest request)
+        => CreateActivationForOwner(owner.Owner, owner, request);
+
+    private CharacterCreationBootstrapActivationAttempt CreateActivationForOwner(
+        OwnerScope owner, OwnerContextStamp? original, CharacterCreationBootstrapRequest request)
     {
-        BootstrapCreation creation = CreateCore(request, includeActivation: true);
+        BootstrapCreation creation = CreateCore(owner, original, request, includeActivation: true);
         return new CharacterCreationBootstrapActivationAttempt(
             creation.Outcome,
             creation.Receipt,
@@ -62,6 +80,14 @@ public sealed class CharacterCreationBootstrapService :
     public bool TryValidateCurrent(
         CharacterCreationBootstrapActivationBundle activation,
         out IReadOnlyList<string> blockers)
+        => TryValidateCurrentCore(OwnerScope.LocalSingleUser, null, activation, out blockers);
+
+    internal bool TryValidateCurrent(OwnerContextStamp owner,
+        CharacterCreationBootstrapActivationBundle activation, out IReadOnlyList<string> blockers)
+        => TryValidateCurrentCore(owner.Owner, owner, activation, out blockers);
+
+    private bool TryValidateCurrentCore(OwnerScope owner, OwnerContextStamp? original,
+        CharacterCreationBootstrapActivationBundle activation, out IReadOnlyList<string> blockers)
     {
         ArgumentNullException.ThrowIfNull(activation);
         blockers = [CharacterCreationBootstrapBlockers.ActivationProjectionUnavailable];
@@ -73,7 +99,7 @@ public sealed class CharacterCreationBootstrapService :
 
         lock (_activationSync)
         {
-            if (!_pendingActivationDigests.Remove(activation.BundleDigest))
+            if (!_pendingActivationDigests.Remove((activation.BundleDigest, original)))
                 return false;
         }
 
@@ -105,7 +131,9 @@ public sealed class CharacterCreationBootstrapService :
             // The bundle is an authentic create result, not a lease on the
             // persisted workspace. Read after source validation so a deletion
             // or edit during that work cannot activate the old snapshot.
-            WorkspaceStoreReadResult persisted = _workspaceStore.Get(activation.Receipt.WorkspaceId);
+            WorkspaceStoreReadResult persisted = owner.IsLocalSingleUser
+                ? _workspaceStore.Get(activation.Receipt.WorkspaceId)
+                : _workspaceStore.Get(owner, activation.Receipt.WorkspaceId);
             WorkspaceStoredDocument? stored = persisted.Value;
             WorkspaceDocumentSnapshot expected = activation.WorkspaceProjection.Workspace;
             if (!persisted.Success
@@ -137,6 +165,8 @@ public sealed class CharacterCreationBootstrapService :
     }
 
     private BootstrapCreation CreateCore(
+        OwnerScope owner,
+        OwnerContextStamp? original,
         CharacterCreationBootstrapRequest request,
         bool includeActivation)
     {
@@ -147,6 +177,14 @@ public sealed class CharacterCreationBootstrapService :
         if (includeActivation && _activationProjector is null)
             return UnavailableCreation(
                 CharacterCreationBootstrapBlockers.ActivationProjectionUnavailable);
+
+        bool canCreate = owner.IsLocalSingleUser
+            ? _workspaceStore is ICharacterCreationBootstrapAtomicCreateCapability
+                { SupportsCharacterCreationBootstrapAtomicCreate: true }
+            : _workspaceStore is IOwnerScopedCharacterCreationBootstrapAtomicCreateCapability
+                { SupportsOwnerScopedCharacterCreationBootstrapAtomicCreate: true };
+        if (!canCreate)
+            return UnavailableCreation(CharacterCreationBootstrapBlockers.AtomicCreateUnavailable);
 
         string characterXml = BuildCharacterXml(request);
         IRulesetWorkspaceCodec codec;
@@ -266,15 +304,11 @@ public sealed class CharacterCreationBootstrapService :
                     CharacterCreationBootstrapBinding: binding)
             }
         };
-        if (_workspaceStore is not ICharacterCreationBootstrapAtomicCreateCapability capability
-            || !capability.SupportsCharacterCreationBootstrapAtomicCreate)
-        {
-            return UnavailableCreation(
-                CharacterCreationBootstrapBlockers.AtomicCreateUnavailable);
-        }
-
-        WorkspaceStoreMutationResult created = capability
-            .CreateCharacterCreationBootstrapWorkspaceDocument(workspaceId, boundDocument);
+        WorkspaceStoreMutationResult created = owner.IsLocalSingleUser
+            ? ((ICharacterCreationBootstrapAtomicCreateCapability)_workspaceStore)
+                .CreateCharacterCreationBootstrapWorkspaceDocument(workspaceId, boundDocument)
+            : ((IOwnerScopedCharacterCreationBootstrapAtomicCreateCapability)_workspaceStore)
+                .CreateCharacterCreationBootstrapWorkspaceDocument(owner, workspaceId, boundDocument);
         if (!created.Success || created.Entry is not WorkspaceStoreEntry entry)
         {
             string outcome = created.Outcome == WorkspaceOperationOutcome.Conflict
@@ -315,7 +349,10 @@ public sealed class CharacterCreationBootstrapService :
                 []);
         }
 
-        if (!sourceSnapshot.CanProjectCompleteInitialCreation)
+        if (!sourceSnapshot.CanProjectCompleteInitialCreation
+            || (!owner.IsLocalSingleUser && _workspaceStore is not
+                IOwnerScopedWorkspaceAuxiliaryStateAtomicCommitCapability
+                { SupportsOwnerScopedWorkspaceAuxiliaryStateAtomicCommit: true }))
         {
             return new BootstrapCreation(
                 CharacterCreationBootstrapOutcomes.Success,
@@ -406,7 +443,7 @@ public sealed class CharacterCreationBootstrapService :
 
         lock (_activationSync)
         {
-            _pendingActivationDigests.Add(activation.BundleDigest);
+            _pendingActivationDigests.Add((activation.BundleDigest, original));
             if (_pendingActivationDigests.Count > 64)
             {
                 _pendingActivationDigests.Remove(_pendingActivationDigests.First());
