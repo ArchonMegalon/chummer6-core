@@ -77,6 +77,63 @@ public sealed class CharacterCreationResourcesService : ICharacterCreationResour
         return EvaluatePreview(request).Result;
     }
 
+    internal IReadOnlyList<string> ValidateContinuationDraft(WorkspaceStoredDocument workspace)
+    {
+        ArgumentNullException.ThrowIfNull(workspace);
+        CharacterCreationResourcesDraft? pending =
+            workspace.Document.AuxiliaryState.CharacterCreationResourcesDraft;
+        if (!CharacterCreationResourcesReceiptLedgerIntegrity.IsValidLedger(
+                workspace.Id,
+                workspace.ContentRevision,
+                pending,
+                workspace.Document.AuxiliaryState.CharacterCreationResourcesReceipts))
+            return [CharacterCreationResourcesBlockers.ReceiptLedgerCorrupt];
+        if (pending is null)
+            return [];
+
+        AuthorityContext context = BuildContext(workspace);
+        PreviewEvaluation evaluation = EvaluatePreview(
+            context,
+            new CharacterCreationResourcesPreviewRequest(context.Binding, pending.SelectedOptionId),
+            advanceDraftRevision: false);
+        var blockers = evaluation.Result.Blockers.Where(blocker => blocker is not (
+                CharacterCreationResourcesBlockers.NoChange
+                or CharacterCreationResourcesBlockers.PersistenceAuthorityRequired
+                or CharacterCreationResourcesBlockers.CareerModeRejected))
+            .ToList();
+        if (evaluation.Result.Value is not CharacterCreationResourcesPreview preview
+            || preview.SelectedOption is not CharacterCreationResourceAllocationOption option)
+        {
+            blockers.Add(CharacterCreationResourcesBlockers.InvalidOption);
+            return Normalize(blockers);
+        }
+
+        // Later Gear confirmations may change the current purchase cost. Rebuild
+        // this historical budget with its recorded cost and the actual source grant.
+        if (pending.Budget.KnownPurchaseCost > option.TotalStartingNuyen)
+        {
+            blockers.Add(CharacterCreationResourcesBlockers.ReceiptLedgerCorrupt);
+            return Normalize(blockers);
+        }
+        CharacterCreationResourcesBudget historicalBudget = BuildBudget(
+            context.Authority,
+            context.PriorityOption,
+            option,
+            purchaseAuthorityExact: true,
+            knownPurchaseCost: pending.Budget.KnownPurchaseCost,
+            blockers: null);
+        if (pending.KarmaInvestment != option.KarmaInvestment
+            || !pending.SourceAnchorIds.SequenceEqual(option.SourceAnchorIds, StringComparer.Ordinal)
+            || !CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(
+                pending.Budget,
+                historicalBudget)
+            || !CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(
+                pending.FinalizationContribution,
+                preview.FinalizationContribution))
+            blockers.Add(CharacterCreationResourcesBlockers.ReceiptLedgerCorrupt);
+        return Normalize(blockers);
+    }
+
     public CharacterCreationResourcesResult<CharacterCreationResourcesReceipt> Confirm(
         CharacterCreationResourcesConfirmRequest request)
     {
@@ -272,6 +329,9 @@ public sealed class CharacterCreationResourcesService : ICharacterCreationResour
             "chummer.sr5.creation-resources.idempotency.v1\0" + key);
         CharacterCreationResourcesReceiptLedgerEntry? found = ledger.FirstOrDefault(entry =>
             CharacterCreationResourcesRules.DigestsEqual(entry.IdempotencyKeyDigest, digest));
+        if (found is not null && !workspace.CanReplayReceipt(found.Receipt.WorkspaceRevision))
+            return Blocked<CharacterCreationResourcesReceipt>(CharacterCreationResourcesOutcomes.Conflict,
+                CharacterCreationResourcesBlockers.IdempotencyConflict);
         return found is null
             ? Blocked<CharacterCreationResourcesReceipt>(CharacterCreationResourcesOutcomes.NotFound)
             : new CharacterCreationResourcesResult<CharacterCreationResourcesReceipt>(
@@ -285,7 +345,15 @@ public sealed class CharacterCreationResourcesService : ICharacterCreationResour
         WorkspaceStoreReadResult read = _workspaceStore.Get(request.Binding.WorkspaceId);
         if (!read.Success || read.Value is not WorkspaceStoredDocument workspace)
             return new PreviewEvaluation(ReadFailure<CharacterCreationResourcesPreview>(read), null);
-        AuthorityContext context = BuildContext(workspace);
+        return EvaluatePreview(BuildContext(workspace), request);
+    }
+
+    private static PreviewEvaluation EvaluatePreview(
+        AuthorityContext context,
+        CharacterCreationResourcesPreviewRequest request,
+        bool advanceDraftRevision = true)
+    {
+        WorkspaceStoredDocument workspace = context.Workspace;
         string? bindingBlocker = CompareBinding(context.Binding, request.Binding);
         if (bindingBlocker is not null)
         {
@@ -346,7 +414,9 @@ public sealed class CharacterCreationResourcesService : ICharacterCreationResour
         var draftCandidate = new CharacterCreationResourcesDraft(
             CharacterCreationResourcesSchemas.DraftV1,
             workspace.Id,
-            DraftRevision: (context.PendingDraft?.DraftRevision ?? 0) + 1,
+            DraftRevision: advanceDraftRevision
+                ? (context.PendingDraft?.DraftRevision ?? 0) + 1
+                : context.PendingDraft?.DraftRevision ?? 0,
             BaseContentRevision: workspace.ContentRevision,
             BaseRawCharacterXmlDigest: rawDigest,
             PrerequisiteDraftRevision: context.Prerequisite?.DraftRevision ?? 0,
@@ -741,7 +811,8 @@ public sealed class CharacterCreationResourcesService : ICharacterCreationResour
             CharacterCreationResourcesRules.DigestsEqual(entry.IdempotencyKeyDigest, keyDigest));
         if (found is null)
             return null;
-        return CharacterCreationResourcesRules.DigestsEqual(found.CommandDigest, commandDigest)
+        return workspace.CanReplayReceipt(found.Receipt.WorkspaceRevision)
+            && CharacterCreationResourcesRules.DigestsEqual(found.CommandDigest, commandDigest)
             ? new CharacterCreationResourcesResult<CharacterCreationResourcesReceipt>(
                 CharacterCreationResourcesOutcomes.Replayed,
                 found.Receipt,

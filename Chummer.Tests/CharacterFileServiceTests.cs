@@ -119,6 +119,21 @@ public class CharacterFileServiceTests
     }
 
     [TestMethod]
+    public void ApplyMetadataUpdate_preserves_exact_newlines_and_whitespace_across_repeated_XML_roundtrips()
+    {
+        const string value = "  First\r\nSecond\rThird\nFourth\t<&> \u00e4\u00df  ";
+        var service = new CharacterFileService();
+        string updated = service.ApplyMetadataUpdate("<character><name>Runner</name></character>",
+            new CharacterMetadataUpdate(value, value, value) { GameNotes = value, GroupNotes = value });
+        // A second write must also preserve the untouched metadata values.
+        updated = service.ApplyMetadataUpdate(updated, new CharacterMetadataUpdate(null, null, null));
+        var root = System.Xml.Linq.XDocument.Parse(updated,
+            System.Xml.Linq.LoadOptions.PreserveWhitespace).Root!;
+        foreach (string name in new[] { "name", "alias", "notes", "gamenotes", "groupnotes" })
+            Assert.AreEqual(value, root.Element(name)!.Value, name);
+    }
+
+    [TestMethod]
     public void ApplyMetadataUpdate_preserves_unmentioned_long_notes()
     {
         const string xml = "<character><name>Runner</name><notes>Character</notes><gamenotes>Game</gamenotes><groupnotes>Group</groupnotes></character>";

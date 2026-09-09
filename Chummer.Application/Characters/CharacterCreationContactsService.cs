@@ -318,6 +318,9 @@ public sealed class CharacterCreationContactsService : ICharacterCreationContact
         string digest = ComputeIdempotencyDigest(idempotencyKey);
         CharacterCreationContactReceiptLedgerEntry? found = ledger.FirstOrDefault(entry =>
             FixedEquals(entry.IdempotencyKeyDigest, digest));
+        if (found is not null && !workspace.CanReplayReceipt(found.Receipt.ContentRevision))
+            return Blocked<CharacterCreationContactReceipt>(CharacterCreationContactOutcomes.Conflict,
+                CharacterCreationContactsBlockers.IdempotencyConflict);
         return found is null
             ? Blocked<CharacterCreationContactReceipt>(CharacterCreationContactOutcomes.NotFound)
             : new CharacterCreationContactResult<CharacterCreationContactReceipt>(
@@ -1103,7 +1106,8 @@ public sealed class CharacterCreationContactsService : ICharacterCreationContact
             FixedEquals(entry.IdempotencyKeyDigest, idempotencyDigest));
         if (existing is null)
             return null;
-        return FixedEquals(existing.CommandDigest, commandDigest)
+        return workspace.CanReplayReceipt(existing.Receipt.ContentRevision)
+            && FixedEquals(existing.CommandDigest, commandDigest)
             ? new CharacterCreationContactResult<CharacterCreationContactReceipt>(
                 CharacterCreationContactOutcomes.Replayed,
                 existing.Receipt,

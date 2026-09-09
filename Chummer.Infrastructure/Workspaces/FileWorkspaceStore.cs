@@ -23,7 +23,7 @@ public sealed partial class FileWorkspaceStore :
     ICharacterCareerReputationAtomicCommitCapability
 {
     private const int CurrentWorkspaceSchemaVersion = 1;
-    private const int CurrentWorkspaceRecordSchemaVersion = 2;
+    private const int CurrentWorkspaceRecordSchemaVersion = 4;
     private const string WorkspacePayloadKind = "workspace";
     private const long InitialContentRevision = 1;
     private const long InitialSavedRevision = 0;
@@ -249,7 +249,9 @@ public sealed partial class FileWorkspaceStore :
             PersistedWorkspaceRecord record = BuildPersistedRecord(
                 document,
                 InitialContentRevision,
-                InitialSavedRevision);
+                InitialSavedRevision,
+                CreateLocalHistory());
+            RotateContinuationSlotUnderLease(path);
             DateTimeOffset committedAtUtc = WriteRecordAtomically(
                 path,
                 record,
@@ -499,7 +501,9 @@ public sealed partial class FileWorkspaceStore :
                 document,
                 nextContentRevision,
                 current.SavedRevision,
-                delegatedEditLedger);
+                current.LocalHistory!,
+                delegatedEditLedger,
+                current.DelegatedGmHistorySegmentStarts);
             DateTimeOffset committedAtUtc = WriteRecordAtomically(
                 path,
                 record,
@@ -594,7 +598,9 @@ public sealed partial class FileWorkspaceStore :
                 document,
                 nextContentRevision,
                 nextContentRevision,
-                delegatedEditLedger);
+                current.LocalHistory!,
+                delegatedEditLedger,
+                current.DelegatedGmHistorySegmentStarts);
             DateTimeOffset committedAtUtc = WriteRecordAtomically(
                 path,
                 record,
@@ -715,7 +721,9 @@ public sealed partial class FileWorkspaceStore :
                 document,
                 nextContentRevision,
                 nextContentRevision,
-                delegatedEditLedger);
+                current.LocalHistory!,
+                delegatedEditLedger,
+                current.DelegatedGmHistorySegmentStarts);
             DateTimeOffset committedAtUtc = WriteRecordAtomically(
                 path,
                 record,
@@ -790,7 +798,9 @@ public sealed partial class FileWorkspaceStore :
                     current.Document,
                     current.ContentRevision,
                     current.ContentRevision,
-                    delegatedEditLedger);
+                    current.LocalHistory!,
+                    delegatedEditLedger,
+                    current.DelegatedGmHistorySegmentStarts);
                 lastUpdatedUtc = WriteRecordAtomically(
                     path,
                     record,
@@ -850,6 +860,11 @@ public sealed partial class FileWorkspaceStore :
             ThrowIfLinkOrReparsePoint(tempPath, "workspace temporary file");
             SetSecureFileMode(tempPath);
             File.SetLastWriteTimeUtc(tempPath, committedAtUtc.UtcDateTime);
+            // A continuation digest includes logical checkpoint time. Refuse a
+            // filesystem that cannot preserve it before replacing the target.
+            if (logicalLastUpdatedUtc is not null
+                && File.GetLastWriteTimeUtc(tempPath) != committedAtUtc.UtcDateTime)
+                throw new IOException("Workspace checkpoint timestamp cannot round-trip on this filesystem.");
             _faultInjector.OnStage(FileWorkspaceStoreFaultStage.AfterTempFileFlushed, normalizedPath, tempPath);
 
             ThrowIfLinkOrReparsePoint(normalizedPath, "workspace target");
@@ -982,7 +997,8 @@ public sealed partial class FileWorkspaceStore :
                 id,
                 idempotencyKeySha256,
                 commandSha256,
-                current.ContentRevision);
+                current.ContentRevision,
+                current.LocalHistory);
         }
         catch (IOException)
         {
@@ -1040,7 +1056,8 @@ public sealed partial class FileWorkspaceStore :
                 id,
                 ledgerEntry.IdempotencyKeySha256,
                 ledgerEntry.CommandSha256,
-                current.ContentRevision);
+                current.ContentRevision,
+                current.LocalHistory);
             if (replay.Outcome != DelegatedGmCharacterEditStoreOutcome.NotFound)
             {
                 return replay;
@@ -1074,11 +1091,18 @@ public sealed partial class FileWorkspaceStore :
                 .. ledger,
                 ledgerEntry
             ];
-            if (!DelegatedGmCharacterEditLedgerValidator.IsValidLedger(
+            // Only the store's private import floor opens a local execution
+            // segment. Portable boundaries themselves never grant this ability.
+            IReadOnlyList<int> segmentStarts = current.DelegatedGmHistorySegmentStarts;
+            if (ledger.Count > 0
+                && current.LocalHistory!.IsImportedRevision(ledger[^1].Receipt.NewRevision))
+                segmentStarts = [.. segmentStarts, ledger.Count];
+            if (!DelegatedGmCharacterEditLedgerValidator.IsValidSegmentedLedger(
                     owner,
                     id,
                     nextContentRevision,
-                    updatedLedger))
+                    updatedLedger,
+                    segmentStarts))
             {
                 return DelegatedEditUnavailable(
                     "Delegated GM character-edit commit would corrupt the immutable audit ledger.");
@@ -1088,7 +1112,9 @@ public sealed partial class FileWorkspaceStore :
                 document,
                 nextContentRevision,
                 current.SavedRevision,
-                updatedLedger);
+                current.LocalHistory!,
+                updatedLedger,
+                segmentStarts);
             _ = WriteRecordAtomically(
                 path,
                 record,
@@ -1138,6 +1164,7 @@ public sealed partial class FileWorkspaceStore :
                 return ConflictMutation(current);
             }
 
+            RotateContinuationSlotUnderLease(path);
             File.Delete(path);
             return new WorkspaceStoreMutationResult(
                 WorkspaceOperationOutcome.Success,
@@ -1165,7 +1192,8 @@ public sealed partial class FileWorkspaceStore :
         OwnerScope owner,
         CharacterWorkspaceId id,
         string path,
-        out IReadOnlyList<DelegatedGmCharacterEditLedgerEntry> delegatedEditLedger)
+        out IReadOnlyList<DelegatedGmCharacterEditLedgerEntry> delegatedEditLedger,
+        bool continuationRead = false)
     {
         delegatedEditLedger = [];
         ThrowIfLinkOrReparsePoint(path, "workspace target");
@@ -1188,7 +1216,9 @@ public sealed partial class FileWorkspaceStore :
                 FileShare.Read,
                 FileBufferSize,
                 FileOptions.SequentialScan);
-            record = JsonSerializer.Deserialize<PersistedWorkspaceRecord>(stream);
+            record = continuationRead
+                ? ReadExactContinuationRecord(stream)
+                : JsonSerializer.Deserialize<PersistedWorkspaceRecord>(stream);
         }
         catch (JsonException)
         {
@@ -1207,13 +1237,55 @@ public sealed partial class FileWorkspaceStore :
                 id,
                 contentRevision,
                 record.DelegatedGmCharacterEdits,
+                record.RecordSchemaVersion >= 4 ? record.DelegatedGmHistorySegmentStarts : [],
                 out delegatedEditLedger)
             || !IsValidAuxiliaryState(id, contentRevision, document.AuxiliaryState))
         {
             return CorruptRead();
         }
 
+        // Version 3 made local provenance mandatory. Version 4 additionally
+        // preserves portable GM execution segments so an older binary cannot
+        // silently flatten history while writing a version-3 record.
+        WorkspaceLocalHistory? localHistory = record.LocalHistory;
+        if (record.RecordSchemaVersion >= 3)
+        {
+            if (localHistory is null || !localHistory.IsValid(contentRevision))
+                return CorruptRead();
+        }
+        else
+        {
+            if (localHistory is not null)
+                return CorruptRead();
+            localHistory = CreateLocalHistory();
+        }
+
+        IReadOnlyList<int> segmentStarts;
+        if (record.RecordSchemaVersion >= 4)
+        {
+            segmentStarts = record.DelegatedGmHistorySegmentStarts!;
+        }
+        else
+        {
+            // Legacy records must pass the old whole-ledger constraints before
+            // migration supplies an explicit boundary for an existing local suffix.
+            if (record.DelegatedGmHistorySegmentStarts is not null)
+                return CorruptRead();
+            int firstLocal = FindFirstLocalDelegatedEdit(delegatedEditLedger, localHistory);
+            segmentStarts = firstLocal > 0 && firstLocal < delegatedEditLedger.Count ? [firstLocal] : [];
+        }
+        if (!HasValidLocalDelegatedEditSegments(delegatedEditLedger, segmentStarts, localHistory))
+            return CorruptRead();
+
         DateTimeOffset? migratedAtUtc = null;
+        if (continuationRead && requiresLegacyMigration)
+        {
+            // Export must not rewrite the source or invent revision authority.
+            // An ordinary local read may migrate the legacy record first.
+            return UnavailableRead();
+        }
+        if (continuationRead && record.Envelope != document.PayloadEnvelope)
+            return CorruptRead();
         if (requiresLegacyMigration)
         {
             // Records without revisions predate dirty-state tracking and are treated as an
@@ -1223,7 +1295,9 @@ public sealed partial class FileWorkspaceStore :
                 document,
                 contentRevision,
                 savedRevision,
-                delegatedEditLedger);
+                localHistory,
+                delegatedEditLedger,
+                segmentStarts);
             migratedAtUtc = WriteRecordAtomically(
                 path,
                 migrated,
@@ -1239,7 +1313,11 @@ public sealed partial class FileWorkspaceStore :
                 document,
                 contentRevision,
                 savedRevision,
-                lastUpdatedUtc));
+                lastUpdatedUtc)
+            {
+                LocalHistory = localHistory,
+                DelegatedGmHistorySegmentStarts = segmentStarts
+            });
     }
 
     private static bool TryMaterializeRecord(
@@ -1260,10 +1338,18 @@ public sealed partial class FileWorkspaceStore :
         }
 
         bool revisionsRequireMigration = record.ContentRevision is null && record.SavedRevision is null;
+        if (revisionsRequireMigration && record.RecordSchemaVersion is >= 2)
+        {
+            document = null!;
+            contentRevision = 0;
+            savedRevision = 0;
+            requiresLegacyMigration = false;
+            return false;
+        }
         bool recordEnvelopeRequiresMigration = record.RecordSchemaVersion is null
                                                || record.RecordSchemaVersion < CurrentWorkspaceRecordSchemaVersion;
         requiresLegacyMigration = revisionsRequireMigration || recordEnvelopeRequiresMigration;
-        if (recordEnvelopeRequiresMigration && record.AuxiliaryState is not null)
+        if ((record.RecordSchemaVersion is null or < 2) && record.AuxiliaryState is not null)
         {
             document = null!;
             contentRevision = 0;
@@ -1318,15 +1404,26 @@ public sealed partial class FileWorkspaceStore :
         return true;
     }
 
+    private static WorkspaceLocalHistory CreateLocalHistory() => new(Guid.NewGuid().ToString("N"), 0, null);
+
     private static PersistedWorkspaceRecord BuildPersistedRecord(
         WorkspaceDocument document,
         long contentRevision,
         long savedRevision,
-        IReadOnlyList<DelegatedGmCharacterEditLedgerEntry>? delegatedEditLedger = null)
+        WorkspaceLocalHistory localHistory,
+        IReadOnlyList<DelegatedGmCharacterEditLedgerEntry>? delegatedEditLedger = null,
+        IReadOnlyList<int>? segmentStarts = null)
     {
+        if (localHistory is null || !localHistory.IsValid(contentRevision))
+            throw new InvalidOperationException("Workspace local history is invalid.");
+        segmentStarts ??= [];
+        if (!HasValidLocalDelegatedEditSegments(delegatedEditLedger ?? [], segmentStarts, localHistory))
+            throw new InvalidOperationException("Workspace GM execution segments are invalid.");
         return new PersistedWorkspaceRecord(document.Format.ToString())
         {
             RecordSchemaVersion = CurrentWorkspaceRecordSchemaVersion,
+            LocalHistory = localHistory,
+            DelegatedGmHistorySegmentStarts = segmentStarts.ToArray(),
             Envelope = NormalizeEnvelope(document.State),
             ContentRevision = contentRevision,
             SavedRevision = savedRevision,
@@ -1344,30 +1441,61 @@ public sealed partial class FileWorkspaceStore :
         CharacterWorkspaceId id,
         long currentContentRevision,
         DelegatedGmCharacterEditLedgerEntry[]? persisted,
+        IReadOnlyList<int>? segmentStarts,
         out IReadOnlyList<DelegatedGmCharacterEditLedgerEntry> ledger)
     {
         ledger = [];
-        if (persisted is null)
-        {
-            return true;
-        }
+        persisted ??= [];
 
         if (persisted.Length > MaximumDelegatedEditAuditEntries)
         {
             return false;
         }
 
-        if (!DelegatedGmCharacterEditLedgerValidator.IsValidLedger(
+        if (!DelegatedGmCharacterEditLedgerValidator.IsValidSegmentedLedger(
                 owner,
                 id,
                 currentContentRevision,
-                persisted))
+                persisted,
+                segmentStarts))
         {
             return false;
         }
 
         ledger = persisted;
         return true;
+    }
+
+    private static int FindFirstLocalDelegatedEdit(
+        IReadOnlyList<DelegatedGmCharacterEditLedgerEntry> ledger,
+        WorkspaceLocalHistory localHistory)
+    {
+        int firstLocal = 0;
+        while (firstLocal < ledger.Count
+               && localHistory.IsImportedRevision(ledger[firstLocal].Receipt.NewRevision))
+            firstLocal++;
+        return firstLocal;
+    }
+
+    private static bool HasValidLocalDelegatedEditSegments(
+        IReadOnlyList<DelegatedGmCharacterEditLedgerEntry> ledger,
+        IReadOnlyList<int> segmentStarts,
+        WorkspaceLocalHistory localHistory)
+    {
+        int firstLocal = FindFirstLocalDelegatedEdit(ledger, localHistory);
+        int previousStart = 0;
+        bool startsLocalSuffix = firstLocal == 0 || firstLocal == ledger.Count;
+        foreach (int start in segmentStarts)
+        {
+            // No uploaded or accidental boundary can reset the already-local
+            // authority epoch. Historical boundaries remain fully portable.
+            if (start <= previousStart || start >= ledger.Count || start > firstLocal)
+                return false;
+            if (start == firstLocal)
+                startsLocalSuffix = true;
+            previousStart = start;
+        }
+        return startsLocalSuffix;
     }
 
     private static WorkspaceStoreEntry ToEntry(WorkspaceStoredDocument document)
@@ -1425,258 +1553,7 @@ public sealed partial class FileWorkspaceStore :
         CharacterWorkspaceId workspaceId,
         long currentContentRevision,
         WorkspaceDocumentAuxiliaryState state)
-    {
-        if (state.CharacterCreationFinalizationArchive is { } archive
-            && (!CharacterCreationFinalizationReceiptLedgerIntegrity.IsValidArchive(
-                    workspaceId, currentContentRevision, archive, state.CharacterCreationFinalizationReceipts)
-                || !IsValidAuxiliaryState(workspaceId,
-                    state.CharacterCreationFinalizationReceipts![0].Receipt.PreviousContentRevision,
-                    archive.State)))
-        {
-            // IsValidArchive forbids nesting before this single historical
-            // validation. Do not weaken active draft/receipt pairing rules.
-            return false;
-        }
-        CharacterCreationFoundationDraftLedger? draft = state.CharacterCreationFoundationDraft;
-        bool foundationValid = draft is null || string.Equals(
-                   draft.Schema,
-                   CharacterCreationFoundationSchemas.DraftLedgerV1,
-                   StringComparison.Ordinal)
-               && draft.WorkspaceId == workspaceId
-               && draft.DraftRevision > 0
-               && draft.BaseContentRevision > 0
-               && draft.BaseContentRevision < currentContentRevision
-               && IsFoundationSha256(draft.BaseRawCharacterXmlDigest)
-               && IsFoundationSha256(draft.SourceDigest)
-               && !string.IsNullOrWhiteSpace(draft.RequestedMetatype)
-               && draft.Selection is not null
-               && !string.IsNullOrWhiteSpace(draft.Selection.ModuleId)
-               && draft.RequirementEvaluations is not null
-               && draft.ProjectedEffects is not null
-               && draft.FollowUpValues is not null
-               && draft.SourceAnchorIds is not null
-               && string.Equals(
-                   draft.CompilationStatus,
-                   CharacterCreationFoundationDraftStatuses.PendingFinalization,
-                   StringComparison.Ordinal)
-               && !draft.CharacterEffectsApplied
-               && IsFoundationSha256(draft.DraftDigest);
-        CharacterCreationPrerequisiteDraft? prerequisite =
-            state.CharacterCreationPrerequisiteDraft;
-        bool prerequisiteValid = prerequisite is null
-            || string.Equals(
-                prerequisite.Schema,
-                CharacterCreationPrerequisiteSchemas.DraftV1,
-                StringComparison.Ordinal)
-            && prerequisite.WorkspaceId == workspaceId
-            && prerequisite.DraftRevision > 0
-            && prerequisite.BaseContentRevision > 0
-            && prerequisite.BaseContentRevision < currentContentRevision
-            && IsFoundationSha256(prerequisite.BaseRawCharacterXmlDigest)
-            && IsFoundationSha256(prerequisite.AuthorityDigest)
-            && (prerequisite.BuildMethod is CharacterCreationBuildMethods.Priority
-                or CharacterCreationBuildMethods.SumToTen)
-            && !string.IsNullOrWhiteSpace(prerequisite.SettingsProfileId)
-            && !string.IsNullOrWhiteSpace(prerequisite.PriorityTable)
-            && prerequisite.PriorityArray is { Count: 5 }
-            && prerequisite.Assignments is { Count: 5 }
-            && prerequisite.HeritageSelection is not null
-            && prerequisite.TalentSelection is not null
-            && prerequisite.EffectiveNormalAttributePoints >= 0
-            && prerequisite.TotalSpecialAttributePoints >= 0
-            && prerequisite.CreationKarmaTotal >= 0
-            && prerequisite.CreationKarmaUsed >= 0
-            && prerequisite.CreationKarmaUsed <= prerequisite.CreationKarmaTotal
-            && prerequisite.SourceAnchorIds is not null
-            && IsFoundationSha256(prerequisite.DraftDigest);
-        CharacterCreationAttributesDraft? attributes = state.CharacterCreationAttributesDraft;
-        bool attributesValid = attributes is null
-            || string.Equals(attributes.Schema, CharacterCreationAttributesSchemas.DraftV1, StringComparison.Ordinal)
-            && attributes.WorkspaceId == workspaceId
-            && attributes.DraftRevision > 0
-            && attributes.BaseContentRevision > 0
-            && attributes.BaseContentRevision < currentContentRevision
-            && IsFoundationSha256(attributes.BaseRawCharacterXmlDigest)
-            && attributes.PrerequisiteDraftRevision > 0
-            && IsFoundationSha256(attributes.PrerequisiteDraftDigest)
-            && IsFoundationSha256(attributes.PrerequisiteAuthorityDigest)
-            && Guid.TryParseExact(attributes.MetatypeSourceId, "D", out Guid metatypeSourceId)
-            && metatypeSourceId != Guid.Empty
-            && IsFoundationSha256(attributes.MetatypeSourceNodeDigest)
-            && attributes.NormalPointTotal >= 0
-            && attributes.NormalPointUsed >= 0
-            && attributes.NormalPointUsed <= attributes.NormalPointTotal
-            && attributes.SpecialPointTotal >= 0
-            && attributes.SpecialPointUsed >= 0
-            && attributes.SpecialPointUsed <= attributes.SpecialPointTotal
-            && attributes.CreationKarmaTotal >= 0
-            && attributes.CreationKarmaUsed >= 0
-            && attributes.CreationKarmaUsed <= attributes.CreationKarmaTotal
-            && attributes.Allocations is not null
-            && attributes.Attributes is not null
-            && attributes.SourceAnchorIds is { Count: > 0 }
-            && !attributes.CharacterEffectsApplied
-            && IsFoundationSha256(attributes.DraftDigest);
-        CharacterCreationSkillsDraft? skills = state.CharacterCreationSkillsDraft;
-        IReadOnlyList<CharacterCreationSkillsReceipt>? skillReceipts = state.CharacterCreationSkillsReceipts;
-        bool skillsValid = skills is null
-            ? skillReceipts is null
-            : skillReceipts is { Count: > 0 }
-              && CharacterCreationSkillsDigest.IsCanonical(skills.DraftDigest)
-              && CharacterCreationSkillsDraftIntegrity.IsValidReceiptLedger(
-                  skillReceipts,
-                  workspaceId,
-                  currentContentRevision)
-              && skillReceipts[^1].DraftRevision == skills.DraftRevision
-              && CharacterCreationSkillsDigest.EqualsFixedTime(skillReceipts[^1].DraftDigest, skills.DraftDigest)
-              && CharacterCreationSkillsDigest.EqualsFixedTime(
-                  skillReceipts[^1].IdempotencyKeyDigest,
-                  skills.LastIdempotencyKeyDigest)
-              && CharacterCreationSkillsDigest.EqualsFixedTime(
-                  skillReceipts[^1].PreviewDigest,
-                  skills.LastPreviewDigest)
-              && CharacterCreationSkillsDigest.EqualsFixedTime(
-                  skillReceipts[^1].CommandDigest,
-                  skills.LastCommandDigest)
-              && CharacterCreationSkillsDigest.EqualsFixedTime(
-                  skillReceipts[^1].SkillsAuthorityDigest,
-                  skills.SkillsAuthorityDigest)
-              && CharacterCreationSkillsDigest.EqualsFixedTime(
-                  skillReceipts[^1].RuntimeDigest,
-                  skills.RuntimeDigest);
-        CharacterCreationMagicResonanceDraft? magicResonance =
-            state.CharacterCreationMagicResonanceDraft;
-        IReadOnlyList<CharacterCreationMagicResonanceReceipt>? magicResonanceReceipts =
-            state.CharacterCreationMagicResonanceReceipts;
-        bool magicResonanceValid = magicResonance is null
-            ? magicResonanceReceipts is null
-            : magicResonanceReceipts is { Count: > 0 }
-              && CharacterCreationMagicResonanceDigest.IsCanonical(magicResonance.DraftDigest)
-              && CharacterCreationMagicResonanceDraftIntegrity.IsValidReceiptLedger(
-                  magicResonanceReceipts,
-                  workspaceId,
-                  currentContentRevision)
-              && magicResonanceReceipts[^1].DraftRevision == magicResonance.DraftRevision
-              && CharacterCreationMagicResonanceDigest.EqualsFixedTime(
-                  magicResonanceReceipts[^1].DraftDigest, magicResonance.DraftDigest)
-              && CharacterCreationMagicResonanceDigest.EqualsFixedTime(
-                  magicResonanceReceipts[^1].IdempotencyKeyDigest,
-                  magicResonance.LastIdempotencyKeyDigest)
-              && CharacterCreationMagicResonanceDigest.EqualsFixedTime(
-                  magicResonanceReceipts[^1].PreviewDigest,
-                  magicResonance.LastPreviewDigest)
-              && CharacterCreationMagicResonanceDigest.EqualsFixedTime(
-                  magicResonanceReceipts[^1].CommandDigest,
-                  magicResonance.LastCommandDigest)
-              && CharacterCreationMagicResonanceDigest.EqualsFixedTime(
-                  magicResonanceReceipts[^1].AuthorityDigest,
-                  magicResonance.AuthorityDigest)
-              && CharacterCreationMagicResonanceDigest.EqualsFixedTime(
-                  magicResonanceReceipts[^1].SourceInputsDigest,
-                  magicResonance.SourceInputsDigest)
-              && CharacterCreationMagicResonanceDigest.EqualsFixedTime(
-                  magicResonanceReceipts[^1].CustomDataInputsDigest,
-                  magicResonance.CustomDataInputsDigest)
-              && CharacterCreationMagicResonanceDigest.EqualsFixedTime(
-                  magicResonanceReceipts[^1].GmPolicyDigest,
-                  magicResonance.GmPolicyDigest)
-              && CharacterCreationMagicResonanceDigest.EqualsFixedTime(
-                  magicResonanceReceipts[^1].RuntimeDigest,
-                  magicResonance.RuntimeDigest)
-              && magicResonanceReceipts[^1].AdeptPowerPointsRemaining
-                  == magicResonance.AdeptPowerPointBudget.Remaining
-              && magicResonanceReceipts[^1].SpellsRemaining
-                  == magicResonance.SpellBudget.Remaining
-              && magicResonanceReceipts[^1].ComplexFormsRemaining
-                  == magicResonance.ComplexFormBudget.Remaining;
-        IReadOnlyList<CharacterCreationContactReceiptLedgerEntry>? contactReceipts =
-            state.CharacterCreationContactReceipts;
-        bool contactReceiptsValid = contactReceipts is null
-            || CharacterCreationContactReceiptLedgerIntegrity.IsValidLedger(
-                workspaceId,
-                currentContentRevision,
-                contactReceipts);
-        IReadOnlyList<CharacterCreationLifestyleReceiptLedgerEntry>? lifestyleReceipts =
-            state.CharacterCreationLifestyleReceipts;
-        bool lifestyleReceiptsValid = lifestyleReceipts is null
-            || CharacterCreationLifestyleReceiptLedgerIntegrity.IsValidLedger(
-                workspaceId,
-                currentContentRevision,
-                lifestyleReceipts);
-        CharacterCreationResourcesDraft? resourcesDraft =
-            state.CharacterCreationResourcesDraft;
-        IReadOnlyList<CharacterCreationResourcesReceiptLedgerEntry>? resourcesReceipts =
-            state.CharacterCreationResourcesReceipts;
-        bool resourcesValid = CharacterCreationResourcesReceiptLedgerIntegrity.IsValidLedger(
-            workspaceId,
-            currentContentRevision,
-            resourcesDraft,
-            resourcesReceipts);
-        CharacterCreationGearDraft? gearDraft = state.CharacterCreationGearDraft;
-        IReadOnlyList<CharacterCreationGearReceiptLedgerEntry>? gearReceipts =
-            state.CharacterCreationGearReceipts;
-        bool gearValid = CharacterCreationGearReceiptLedgerIntegrity.IsValidLedger(
-            workspaceId,
-            currentContentRevision,
-            gearDraft,
-            gearReceipts);
-        CharacterCreationQualitiesDraft? qualitiesDraft =
-            state.CharacterCreationQualitiesDraft;
-        IReadOnlyList<CharacterCreationQualitiesDraftReceipt>? qualitiesReceipts =
-            state.CharacterCreationQualitiesReceipts;
-        bool qualitiesValid = CharacterCreationQualitiesReceiptLedgerIntegrity.IsValidLedger(
-            workspaceId,
-            currentContentRevision,
-            qualitiesDraft,
-            qualitiesReceipts);
-        IReadOnlyList<CharacterAfterRunSettlementReceiptLedgerEntry>? afterRunReceipts =
-            state.CharacterAfterRunSettlementReceipts;
-        bool afterRunReceiptsValid = afterRunReceipts is null
-            || CharacterAfterRunSettlementReceiptLedgerIntegrity.IsValidLedger(
-                workspaceId,
-                currentContentRevision,
-                afterRunReceipts);
-        bool afterRunRewardReceiptsValid =
-            CharacterAfterRunRewardReceiptLedgerIntegrity.IsValidLedger(
-                workspaceId,
-                currentContentRevision,
-                state.CharacterAfterRunRewardReceipts);
-        CharacterCreationBootstrapBinding? bootstrap =
-            state.CharacterCreationBootstrapBinding;
-        bool bootstrapValid = bootstrap is null
-            || CharacterCreationBootstrapStoreIntegrity.IsValidBinding(workspaceId, bootstrap);
-        IReadOnlyList<LifeModuleDecisionAcceptance>? lifeModuleAcceptances =
-            state.LifeModuleDecisionAcceptances;
-        bool lifeModuleAcceptancesValid = lifeModuleAcceptances is null
-            || LifeModuleDecisionAcceptanceIntegrity.TryValidateLedger(
-                workspaceId,
-                currentContentRevision,
-                lifeModuleAcceptances);
-        IReadOnlyList<CharacterCreationFinalizationReceiptLedgerEntry>? finalizationReceipts =
-            state.CharacterCreationFinalizationReceipts;
-        bool finalizationReceiptsValid =
-            CharacterCreationFinalizationReceiptLedgerIntegrity.IsValidLedger(
-                workspaceId,
-                currentContentRevision,
-                finalizationReceipts);
-        return foundationValid
-               && prerequisiteValid
-               && attributesValid
-               && skillsValid
-               && magicResonanceValid
-               && contactReceiptsValid
-               && lifestyleReceiptsValid
-               && resourcesValid
-               && gearValid
-               && qualitiesValid
-               && afterRunReceiptsValid
-               && afterRunRewardReceiptsValid
-               && CharacterCareerReputationTransaction.IsValidLedger(
-                   workspaceId, currentContentRevision, state.CharacterCareerReputationReceipts)
-               && bootstrapValid
-               && lifeModuleAcceptancesValid
-               && finalizationReceiptsValid;
-    }
+        => WorkspaceAuxiliaryStateIntegrity.IsValidShape(workspaceId, currentContentRevision, state);
 
     private static bool IsValidAuxiliaryStateTransition(
         CharacterWorkspaceId workspaceId,
@@ -2418,21 +2295,14 @@ public sealed partial class FileWorkspaceStore :
                     CharacterCreationBootstrapBinding: right)),
             StringComparison.Ordinal);
 
-    private static bool IsFoundationSha256(string? value)
-    {
-        const string prefix = "sha256:";
-        return value is { Length: 71 }
-               && value.StartsWith(prefix, StringComparison.Ordinal)
-               && IsSha256(value[prefix.Length..]);
-    }
-
     private static DelegatedGmCharacterEditStoreResult ResolveDelegatedEditReplay(
         IReadOnlyList<DelegatedGmCharacterEditLedgerEntry> ledger,
         OwnerScope owner,
         CharacterWorkspaceId id,
         string idempotencyKeySha256,
         string commandSha256,
-        long currentRevision)
+        long currentRevision,
+        WorkspaceLocalHistory? localHistory)
     {
         DelegatedGmCharacterEditLedgerEntry? existing = ledger.FirstOrDefault(entry =>
             string.Equals(
@@ -2457,6 +2327,16 @@ public sealed partial class FileWorkspaceStore :
                 CurrentRevision: currentRevision,
                 Error: "Delegated GM character-edit audit ledger is corrupt.");
         }
+
+        // A historical match is not NotFound (the key stays reserved), but is
+        // also not proof that this store executed the command. Check inside
+        // BOTH lookup and the atomic apply lease; service ordering cannot fence
+        // a competing restore on its own.
+        if (localHistory is null || !localHistory.IsValid(currentRevision)
+            || localHistory.IsImportedRevision(existing.Receipt.NewRevision))
+            return new(DelegatedGmCharacterEditStoreOutcome.IdempotencyConflict,
+                CurrentRevision: currentRevision,
+                Error: "The idempotency key belongs to unverified imported history.");
 
         return string.Equals(existing.CommandSha256, commandSha256, StringComparison.Ordinal)
             ? new DelegatedGmCharacterEditStoreResult(
@@ -2596,14 +2476,14 @@ public sealed partial class FileWorkspaceStore :
         EnsureSecureDirectory(Path.Combine(ownerDirectory, "workspaces"), "workspace directory");
     }
 
-    private bool TrySecureExistingWorkspaceDirectory(OwnerScope owner)
+    private bool TrySecureExistingWorkspaceDirectory(OwnerScope owner, bool allowLegacyMigration = true)
     {
         ThrowIfLinkOrReparsePoint(_stateDirectory, "workspace state root");
         if (!Directory.Exists(_stateDirectory))
             return false;
         SetSecureDirectoryMode(_stateDirectory);
 
-        string? ownerDirectory = TrySecureExistingOwnerDirectory(owner);
+        string? ownerDirectory = TrySecureExistingOwnerDirectory(owner, allowLegacyMigration);
         if (ownerDirectory is null)
             return false;
 
@@ -2629,7 +2509,7 @@ public sealed partial class FileWorkspaceStore :
         return ownerDirectory;
     }
 
-    private string? TrySecureExistingOwnerDirectory(OwnerScope owner)
+    private string? TrySecureExistingOwnerDirectory(OwnerScope owner, bool allowLegacyMigration = true)
     {
         string ownerDirectory = OwnerScopedStatePath.ResolveWorkspaceOwnerDirectory(_stateDirectory, owner);
         if (PathComparer.Equals(ownerDirectory, _stateDirectory))
@@ -2644,21 +2524,24 @@ public sealed partial class FileWorkspaceStore :
             return null;
         }
 
-        using WorkspaceOperationLease migration = AcquireOwnerMigrationOperation(ownerDirectory);
-        MigrateLegacyWorkspaceDirectoryUnderLease(owner, ownerDirectory);
+        using WorkspaceOperationLease migration = AcquireOwnerMigrationOperation(ownerDirectory, allowLegacyMigration);
+        if (allowLegacyMigration)
+            MigrateLegacyWorkspaceDirectoryUnderLease(owner, ownerDirectory);
+        else
+            RefuseLegacyContinuationDirectory(owner, ownerDirectory);
         return TrySecureExistingDirectory(ownerDirectory, "workspace owner directory")
             ? ownerDirectory
             : null;
     }
 
-    private WorkspaceOperationLease AcquireOwnerMigrationOperation(string ownerDirectory)
+    private WorkspaceOperationLease AcquireOwnerMigrationOperation(string ownerDirectory, bool recoverStaleTempFiles = true)
     {
         string migrationKey = Path.GetFullPath(ownerDirectory + ".owner-migration");
         EnsurePathContained(
             Path.Combine(_stateDirectory, "owners"),
             migrationKey,
             "workspace owner migration key");
-        return AcquireWorkspaceOperation(migrationKey);
+        return AcquireWorkspaceOperation(migrationKey, recoverStaleTempFiles);
     }
 
     private void MigrateLegacyWorkspaceDirectoryUnderLease(OwnerScope owner, string ownerDirectory)
@@ -2737,7 +2620,7 @@ public sealed partial class FileWorkspaceStore :
         SetSecureDirectoryMode(workspaceDirectory);
     }
 
-    private WorkspaceOperationLease AcquireWorkspaceOperation(string path)
+    private WorkspaceOperationLease AcquireWorkspaceOperation(string path, bool recoverStaleTempFiles = true)
     {
         string normalizedPath = Path.GetFullPath(path);
         EnsurePathContained(_stateDirectory, normalizedPath, "workspace operation target");
@@ -2756,7 +2639,8 @@ public sealed partial class FileWorkspaceStore :
                 _workspaceOperationTimeout);
             try
             {
-                RemoveStaleTempFiles(normalizedPath);
+                if (recoverStaleTempFiles)
+                    RemoveStaleTempFiles(normalizedPath);
                 return new WorkspaceOperationLease(processGate, fileLease);
             }
             catch
@@ -3207,6 +3091,13 @@ public sealed partial class FileWorkspaceStore :
     private sealed record PersistedWorkspaceRecord(string Format)
     {
         public int? RecordSchemaVersion { get; init; }
+
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public WorkspaceLocalHistory? LocalHistory { get; init; }
+
+        // Required even when empty in schema 4; null distinguishes legacy data.
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public int[]? DelegatedGmHistorySegmentStarts { get; init; }
 
         public WorkspacePayloadEnvelope? Envelope { get; init; }
 

@@ -58,6 +58,52 @@ public sealed class CharacterCreationFoundationService : ICharacterCreationFound
         return evaluation.Result;
     }
 
+    // The evaluator supplies its isolated workspace and frozen source services.
+    // This proves an existing draft's source semantics, never permission to write.
+    internal IReadOnlyList<string> ValidateContinuationDraft(WorkspaceStoredDocument workspace)
+    {
+        ArgumentNullException.ThrowIfNull(workspace);
+        CharacterCreationFoundationDraftLedger? draft = workspace.Document.AuxiliaryState
+            .CharacterCreationFoundationDraft;
+        if (draft is null)
+            return [CharacterCreationFoundationBlockers.PendingDraftInvalid];
+
+        CharacterCreationFoundationResult<CharacterCreationFoundationState> stateResult =
+            BuildState(workspace, requestedSources: null, sourceFilterApplied: false);
+        List<string> blockers = stateResult.Blockers
+            .Where(IsContinuationSemanticBlocker)
+            .ToList();
+        if (stateResult.Value is not CharacterCreationFoundationState state
+            || state.PendingDraft is null)
+        {
+            blockers.Add(CharacterCreationFoundationBlockers.PendingDraftInvalid);
+        }
+        else
+        {
+            PreviewEvaluation evaluation = EvaluatePreview(
+                new CharacterCreationFoundationPreviewRequest(
+                    state.Binding, draft.RequestedMetatype, draft.Selection, draft.FollowUpValues),
+                workspace);
+            blockers.AddRange(evaluation.Result.Blockers.Where(IsContinuationSemanticBlocker));
+            if (evaluation.Context is not CharacterCreationFoundationAuthorityContext context
+                || !CharacterCreationFoundationDraftLedgerIntegrity.HasSameLogicalPayload(
+                    draft, CharacterCreationFoundationDraftApplyAuthority.BuildProposedLedger(context)))
+            {
+                blockers.Add(CharacterCreationFoundationBlockers.PendingDraftInvalid);
+            }
+        }
+
+        return blockers.Distinct(StringComparer.Ordinal)
+            .OrderBy(item => item, StringComparer.Ordinal).ToArray();
+    }
+
+    private static bool IsContinuationSemanticBlocker(string blocker) => blocker is not
+        (CharacterCreationFoundationBlockers.WizardStatePersistenceAuthorityRequired
+        or CharacterCreationFoundationBlockers.CharacterAlreadyCreated
+        or CharacterCreationFoundationBlockers.PendingDraftDuplicate
+        // Preview emits this when another draft revision cannot be allocated.
+        or CharacterCreationFoundationBlockers.PendingDraftConflict);
+
     public CharacterCreationFoundationResult<CharacterCreationFoundationApplyReceipt> Confirm(
         CharacterCreationFoundationConfirmRequest request)
     {
@@ -300,6 +346,13 @@ public sealed class CharacterCreationFoundationService : ICharacterCreationFound
             return new PreviewEvaluation(failure, null);
         }
 
+        return EvaluatePreview(request, workspace);
+    }
+
+    private PreviewEvaluation EvaluatePreview(
+        CharacterCreationFoundationPreviewRequest request,
+        WorkspaceStoredDocument workspace)
+    {
         if (workspace.ContentRevision != request.Binding.ContentRevision
             || workspace.SavedRevision != request.Binding.SavedRevision)
         {

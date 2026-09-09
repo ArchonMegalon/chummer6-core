@@ -29,6 +29,20 @@ public sealed partial class CharacterCreationSkillsService : ICharacterCreationS
                 CharacterCreationSkillsBlockers.WorkspaceUnavailable);
     }
 
+    internal CharacterCreationFoundationResult<CharacterCreationSkillsState> LoadForContinuation(
+        CharacterCreationSkillsLoadRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        WorkspaceStoreReadResult read = _store.Get(request.WorkspaceId);
+        return read.Success && read.Value is { } workspace
+            ? BuildState(workspace, out _, forContinuation: true)
+            : Blocked<CharacterCreationSkillsState>(
+                read.Outcome == WorkspaceOperationOutcome.Missing
+                    ? CharacterCreationFoundationOutcomes.Missing
+                    : CharacterCreationFoundationOutcomes.Invalid,
+                CharacterCreationSkillsBlockers.WorkspaceUnavailable);
+    }
+
     public CharacterCreationFoundationResult<CharacterCreationSkillsPreview> Preview(
         CharacterCreationSkillsPreviewRequest request)
     {
@@ -80,7 +94,8 @@ public sealed partial class CharacterCreationSkillsService : ICharacterCreationS
         CharacterCreationSkillsReceipt? replay = ledger?.SingleOrDefault(receipt =>
             CharacterCreationSkillsDigest.EqualsFixedTime(receipt.IdempotencyKeyDigest, keyDigest));
         if (replay is not null)
-            return CharacterCreationSkillsDigest.EqualsFixedTime(replay.CommandDigest, commandDigest)
+            return currentWorkspace.CanReplayReceipt(replay.ContentRevision)
+                && CharacterCreationSkillsDigest.EqualsFixedTime(replay.CommandDigest, commandDigest)
                 ? new(CharacterCreationFoundationOutcomes.Success, replay, [])
                 : Blocked<CharacterCreationSkillsReceipt>(CharacterCreationFoundationOutcomes.Conflict,
                     CharacterCreationSkillsBlockers.IdempotencyConflict);
@@ -177,7 +192,8 @@ public sealed partial class CharacterCreationSkillsService : ICharacterCreationS
                     CharacterCreationSkillsReceipt? racedReplay = racedLedger?.SingleOrDefault(candidate =>
                         CharacterCreationSkillsDigest.EqualsFixedTime(candidate.IdempotencyKeyDigest, keyDigest));
                     if (racedReplay is not null)
-                        return CharacterCreationSkillsDigest.EqualsFixedTime(
+                        return racedWorkspace.CanReplayReceipt(racedReplay.ContentRevision)
+                            && CharacterCreationSkillsDigest.EqualsFixedTime(
                                 racedReplay.CommandDigest,
                                 commandDigest)
                             ? new(CharacterCreationFoundationOutcomes.Success, racedReplay, [])
@@ -292,7 +308,8 @@ public sealed partial class CharacterCreationSkillsService : ICharacterCreationS
         => BuildState(workspace, out _);
 
     private CharacterCreationFoundationResult<CharacterCreationSkillsState> BuildState(
-        WorkspaceStoredDocument workspace, out CharacterCreationSkillsAuthority catalogAuthority)
+        WorkspaceStoredDocument workspace, out CharacterCreationSkillsAuthority catalogAuthority,
+        bool forContinuation = false)
     {
         var blockers = new List<string>();
         if (_store is not IWorkspaceAuxiliaryStateAtomicCommitCapability
@@ -347,7 +364,12 @@ public sealed partial class CharacterCreationSkillsService : ICharacterCreationS
             new CharacterCreationAttributesService(_store, _resolver)
                 .Load(new CharacterCreationAttributesLoadRequest(workspace.Id)).Value;
         CharacterCreationAttributesDraft? attributes = attributeState?.PendingDraft;
-        if (attributes is null || !attributeState!.CanEdit || attributeState.Blockers.Count != 0)
+        // Attributes.Load already recomputed the pending draft. A read-only
+        // continuation view cannot write, but that alone does not invalidate it.
+        if (attributes is null || (forContinuation
+                ? attributeState!.Blockers.Any(blocker =>
+                    blocker != CharacterCreationAttributesBlockers.PersistenceAuthorityRequired)
+                : !attributeState!.CanEdit || attributeState.Blockers.Count != 0))
         {
             blockers.Add(attributes is null
                 ? CharacterCreationSkillsBlockers.AttributesDraftRequired

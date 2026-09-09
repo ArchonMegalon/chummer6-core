@@ -108,6 +108,9 @@ public sealed class CharacterCreationFoundationLifeModuleDecisionAuthority :
         LifeModuleDecisionAcceptance[] matches = ledger.Where(candidate =>
                 FixedEquals(candidate.Receipt.IdempotencyKeyDigest, idempotencyKeyDigest))
             .ToArray();
+        if (matches.Length == 1 && !workspace.CanReplayReceipt(matches[0].Receipt.WorkspaceRevision))
+            return Blocked<LifeModuleDecisionAcceptance>(LifeModuleOriginDossierOutcomes.Conflict,
+                LifeModuleOriginDossierBlockers.IdempotencyConflict);
         return matches.Length switch
         {
             0 => Missing<LifeModuleDecisionAcceptance>(),

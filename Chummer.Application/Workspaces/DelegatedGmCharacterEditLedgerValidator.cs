@@ -27,13 +27,35 @@ public static class DelegatedGmCharacterEditLedgerValidator
         CharacterWorkspaceId id,
         long currentContentRevision,
         IReadOnlyList<DelegatedGmCharacterEditLedgerEntry>? entries)
+        => IsValidSegmentedLedger(owner, id, currentContentRevision, entries, []);
+
+    /// <summary>
+    /// Validates portable history without treating segment declarations as local
+    /// authority. Identity, uniqueness and revision order are global; execution
+    /// clocks and delegation bindings are constrained within each segment.
+    /// </summary>
+    public static bool IsValidSegmentedLedger(
+        OwnerScope owner,
+        CharacterWorkspaceId id,
+        long currentContentRevision,
+        IReadOnlyList<DelegatedGmCharacterEditLedgerEntry>? entries,
+        IReadOnlyList<int>? segmentStarts)
     {
         if (entries is null
+            || segmentStarts is null
             || string.IsNullOrWhiteSpace(owner.NormalizedValue)
             || string.IsNullOrWhiteSpace(id.Value)
             || currentContentRevision <= 0)
         {
             return false;
+        }
+
+        int previousStart = 0;
+        foreach (int start in segmentStarts)
+        {
+            if (start <= previousStart || start >= entries.Count)
+                return false;
+            previousStart = start;
         }
 
         if (entries.Count == 0)
@@ -55,8 +77,17 @@ public static class DelegatedGmCharacterEditLedgerValidator
         long previousDelegatedRevision = 0;
         DateTimeOffset previousAppliedAtUtc = default;
 
-        foreach (DelegatedGmCharacterEditLedgerEntry? entry in entries)
+        int nextSegment = 0;
+        for (int index = 0; index < entries.Count; index++)
         {
+            if (nextSegment < segmentStarts.Count && index == segmentStarts[nextSegment])
+            {
+                previousAppliedAtUtc = default;
+                delegationBindings.Clear();
+                authorityReceiptBindings.Clear();
+                nextSegment++;
+            }
+            DelegatedGmCharacterEditLedgerEntry? entry = entries[index];
             if (!IsValidPersistedEntry(owner, id, currentContentRevision, entry))
             {
                 return false;

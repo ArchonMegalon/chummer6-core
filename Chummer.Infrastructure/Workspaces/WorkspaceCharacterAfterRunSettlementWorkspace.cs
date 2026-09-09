@@ -388,7 +388,8 @@ public sealed class WorkspaceCharacterAfterRunSettlementWorkspace :
                     CharacterAfterRunSettlementWorkspaceOutcome.NotFound,
                     saved.ContentRevision);
             }
-            if (!FixedEquals(match.CommandDigest, commandDigest))
+            if (!saved.CanReplayReceipt(match.CommittedWorkspaceRevision)
+                || !FixedEquals(match.CommandDigest, commandDigest))
             {
                 return new(
                     CharacterAfterRunSettlementWorkspaceOutcome.IdempotencyConflict,

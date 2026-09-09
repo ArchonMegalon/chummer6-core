@@ -22,6 +22,8 @@
     <ProjectReference Include="../Chummer.Infrastructure/Chummer.Infrastructure.csproj" />
     <ProjectReference Include="../Chummer.Rulesets.Sr5/Chummer.Rulesets.Sr5.csproj" />
     <Compile Include="WorkspaceCharacterCareerReputationTests.cs" />
+    <Compile Include="WorkspaceImportedHistoryTestFixture.cs" />
+    <Compile Include="WorkspaceCharacterAfterRunSettlementWorkspaceTests.cs" />
     <Compile Include="WorkspaceCharacterAfterRunRewardTests.cs" />
     <Compile Include="CharacterAfterRunSettlementRulesTests.cs" />
     <Compile Include="WorkspaceStoreTests.cs" />

@@ -14,6 +14,27 @@ namespace Chummer.Tests;
 [TestClass]
 public sealed class WorkspaceCharacterAfterRunSettlementWorkspaceTests
 {
+    [TestMethod]
+    public void Imported_settlement_receipt_is_not_successful_local_recovery()
+    {
+        string directory = TemporaryDirectory();
+        try
+        {
+            var store = SeedFileStore(directory);
+            var service = Service(store, new EchoProposalSource(Projection()));
+            var command = Command(service);
+            Assert.AreEqual(CharacterAfterRunSettlementServiceOutcome.Applied, service.Settle(command).Outcome);
+            WorkspaceImportedHistoryTestFixture.MarkImported(directory, WorkspaceId);
+            string before = System.Text.Json.JsonSerializer.Serialize(store.Get(WorkspaceId).Value);
+            var cold = Service(new FileWorkspaceStore(directory), new UnavailableCharacterAfterRunSettlementProposalProjectionSource());
+            var replay = cold.Settle(command);
+            Assert.AreEqual(CharacterAfterRunSettlementServiceOutcome.IdempotencyConflict, replay.Outcome);
+            Assert.IsNull(replay.Receipt);
+            Assert.AreEqual(before, System.Text.Json.JsonSerializer.Serialize(store.Get(WorkspaceId).Value));
+        }
+        finally { Directory.Delete(directory, recursive: true); }
+    }
+
     private static readonly CharacterWorkspaceId WorkspaceId = new("after-run-workspace-1");
     private static readonly Guid TransactionId =
         Guid.Parse("44444444-4444-4444-4444-444444444444");

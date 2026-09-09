@@ -118,7 +118,8 @@ public sealed class CharacterCreationQualitiesService : ICharacterCreationQualit
         CharacterCreationQualitiesDraftReceipt? replay = ledger.SingleOrDefault(receipt =>
             CharacterCreationQualitiesRules.DigestsEqual(receipt.IdempotencyKeyDigest, keyDigest));
         if (replay is not null)
-            return CharacterCreationQualitiesRules.DigestsEqual(replay.CommandDigest, requestCommandDigest)
+            return workspace.CanReplayReceipt(replay.ContentRevision)
+                && CharacterCreationQualitiesRules.DigestsEqual(replay.CommandDigest, requestCommandDigest)
                 ? new(CharacterCreationFoundationOutcomes.Success, replay, [])
                 : Blocked<CharacterCreationQualitiesDraftReceipt>(
                     CharacterCreationFoundationOutcomes.Conflict,
@@ -259,7 +260,9 @@ public sealed class CharacterCreationQualitiesService : ICharacterCreationQualit
                             keyDigest))
                     : null;
                 if (racedReplay is not null)
-                    return CharacterCreationQualitiesRules.DigestsEqual(racedReplay.CommandDigest, commandDigest)
+                    return raced.Value is { } replayWorkspace
+                        && replayWorkspace.CanReplayReceipt(racedReplay.ContentRevision)
+                        && CharacterCreationQualitiesRules.DigestsEqual(racedReplay.CommandDigest, commandDigest)
                         ? new(CharacterCreationFoundationOutcomes.Success, racedReplay, [])
                         : Blocked<CharacterCreationQualitiesDraftReceipt>(
                             CharacterCreationFoundationOutcomes.Conflict,

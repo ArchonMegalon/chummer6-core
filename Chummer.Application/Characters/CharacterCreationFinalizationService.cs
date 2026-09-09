@@ -140,7 +140,8 @@ public sealed class CharacterCreationFinalizationService : ICharacterCreationFin
                 idempotencyDigest)
             : null;
         if (existing is not null)
-            return ReplayOrConflict(existing, commandDigest);
+            return ReplayOrConflict(existing, commandDigest,
+                initialRead.Success && initialRead.Value!.CanReplayReceipt(existing.Receipt.ContentRevision));
 
         CharacterCreationFinalizationResult<CharacterCreationFinalizationReview> reviewed = Review(
             new CharacterCreationFinalizationReviewRequest(request.Binding));
@@ -260,11 +261,12 @@ public sealed class CharacterCreationFinalizationService : ICharacterCreationFin
                 replacement);
         if (!committed.Success)
         {
-            CharacterCreationFinalizationReceiptLedgerEntry? observed = FindPersisted(
+            ObservedReceipt? observed = FindPersisted(
                 workspace.Id,
                 idempotencyDigest);
             if (observed is not null)
-                return ReplayOrConflict(observed, commandDigest);
+                return ReplayOrConflict(observed.Entry, commandDigest,
+                    observed.Workspace.CanReplayReceipt(observed.Entry.Receipt.ContentRevision));
             return Blocked<CharacterCreationFinalizationReceipt>(
                 committed.Outcome == WorkspaceOperationOutcome.Conflict
                     ? CharacterCreationFinalizationOutcomes.Conflict
@@ -282,6 +284,7 @@ public sealed class CharacterCreationFinalizationService : ICharacterCreationFin
             : null;
         if (reopened.Value is not { } fresh
             || persisted is null
+            || !fresh.CanReplayReceipt(persisted.Receipt.ContentRevision)
             || fresh.ContentRevision != receipt.ContentRevision
             || fresh.SavedRevision != receipt.SavedRevision
             || !CharacterCreationFinalizationDigest.EqualsFixedTime(
@@ -309,15 +312,18 @@ public sealed class CharacterCreationFinalizationService : ICharacterCreationFin
             return Blocked<CharacterCreationFinalizationReceipt>(
                 CharacterCreationFinalizationOutcomes.Invalid,
                 CharacterCreationFinalizationBlockers.IdempotencyKeyInvalid);
-        CharacterCreationFinalizationReceiptLedgerEntry? entry = FindPersisted(
+        ObservedReceipt? entry = FindPersisted(
             request.WorkspaceId,
             CharacterCreationFinalizationDigest.ComputeIdempotencyKeyDigest(request.IdempotencyKey));
+        if (entry is not null && !entry.Workspace.CanReplayReceipt(entry.Entry.Receipt.ContentRevision))
+            return Blocked<CharacterCreationFinalizationReceipt>(CharacterCreationFinalizationOutcomes.Conflict,
+                CharacterCreationFinalizationBlockers.IdempotencyConflict);
         return entry is null
             ? Blocked<CharacterCreationFinalizationReceipt>(
                 CharacterCreationFinalizationOutcomes.NotFound)
             : new CharacterCreationFinalizationResult<CharacterCreationFinalizationReceipt>(
                 CharacterCreationFinalizationOutcomes.Replayed,
-                entry.Receipt,
+                entry.Entry.Receipt,
                 []);
     }
 
@@ -515,22 +521,26 @@ public sealed class CharacterCreationFinalizationService : ICharacterCreationFin
             normalizedBlockers);
     }
 
-    private CharacterCreationFinalizationReceiptLedgerEntry? FindPersisted(
+    private sealed record ObservedReceipt(WorkspaceStoredDocument Workspace,
+        CharacterCreationFinalizationReceiptLedgerEntry Entry);
+
+    private ObservedReceipt? FindPersisted(
         CharacterWorkspaceId workspaceId,
         string idempotencyDigest)
     {
         WorkspaceStoreReadResult read = _store.Get(workspaceId);
-        return read.Value is { } workspace
-            ? CharacterCreationFinalizationReceiptLedgerIntegrity.Find(
-                workspace.Document.AuxiliaryState.CharacterCreationFinalizationReceipts,
-                idempotencyDigest)
-            : null;
+        if (!read.Success || read.Value is not { } workspace)
+            return null;
+        var entry = CharacterCreationFinalizationReceiptLedgerIntegrity.Find(
+            workspace.Document.AuxiliaryState.CharacterCreationFinalizationReceipts, idempotencyDigest);
+        return entry is null ? null : new(workspace, entry);
     }
 
     private static CharacterCreationFinalizationResult<CharacterCreationFinalizationReceipt>
         ReplayOrConflict(
             CharacterCreationFinalizationReceiptLedgerEntry existing,
-            string commandDigest) => CharacterCreationFinalizationDigest.EqualsFixedTime(
+            string commandDigest, bool locallyReplayable) => locallyReplayable
+            && CharacterCreationFinalizationDigest.EqualsFixedTime(
                 existing.CommandDigest,
                 commandDigest)
             ? new CharacterCreationFinalizationResult<CharacterCreationFinalizationReceipt>(

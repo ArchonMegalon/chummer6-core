@@ -17,6 +17,22 @@ namespace Chummer.Tests;
 [TestClass]
 public sealed class WorkspaceCharacterAfterRunRewardTests
 {
+    [TestMethod]
+    public void Imported_reward_receipts_remain_history_without_replay_success_or_repeated_money()
+    {
+        using var fixture = new Fixture(Document());
+        var service = new WorkspaceCharacterAfterRunRewardService(fixture.Store);
+        var command = Command(service);
+        Assert.AreEqual(CharacterAfterRunRewardOutcome.Applied, service.Commit(command).Outcome);
+        WorkspaceImportedHistoryTestFixture.MarkImported(fixture.DirectoryPath, WorkspaceId);
+        string before = JsonSerializer.Serialize(fixture.Store.Get(WorkspaceId).Value);
+        var cold = new WorkspaceCharacterAfterRunRewardService(new FileWorkspaceStore(fixture.DirectoryPath));
+        Assert.AreEqual(CharacterAfterRunRewardOutcome.IdempotencyConflict, cold.Commit(command).Outcome);
+        Assert.AreEqual(CharacterAfterRunRewardOutcome.IdempotencyConflict,
+            cold.Lookup(WorkspaceId, command.OperationId, command.CommandDigest()).Outcome);
+        Assert.AreEqual(before, JsonSerializer.Serialize(fixture.Store.Get(WorkspaceId).Value));
+    }
+
     private static readonly CharacterWorkspaceId WorkspaceId = new("after-run-reward-tests");
     private static readonly Guid OperationId = Guid.Parse("11111111-1111-4111-8111-111111111111");
     private static readonly Guid RewardId = Guid.Parse("22222222-2222-4222-8222-222222222222");

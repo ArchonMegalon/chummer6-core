@@ -35,6 +35,20 @@ public sealed class CharacterCreationMagicResonanceService : ICharacterCreationM
                 CharacterCreationMagicResonanceBlockers.WorkspaceUnavailable);
     }
 
+    internal CharacterCreationFoundationResult<CharacterCreationMagicResonanceState> LoadForContinuation(
+        CharacterCreationMagicResonanceLoadRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        WorkspaceStoreReadResult read = _store.Get(request.WorkspaceId);
+        return read.Success && read.Value is { } workspace
+            ? BuildState(workspace, forContinuation: true)
+            : Blocked<CharacterCreationMagicResonanceState>(
+                read.Outcome == WorkspaceOperationOutcome.Missing
+                    ? CharacterCreationFoundationOutcomes.Missing
+                    : CharacterCreationFoundationOutcomes.Invalid,
+                CharacterCreationMagicResonanceBlockers.WorkspaceUnavailable);
+    }
+
     public CharacterCreationFoundationResult<CharacterCreationMagicResonancePreview> Preview(
         CharacterCreationMagicResonancePreviewRequest request)
     {
@@ -76,7 +90,8 @@ public sealed class CharacterCreationMagicResonanceService : ICharacterCreationM
         CharacterCreationMagicResonanceReceipt? replay = ledger?.SingleOrDefault(receipt =>
             CharacterCreationMagicResonanceDigest.EqualsFixedTime(receipt.IdempotencyKeyDigest, keyDigest));
         if (replay is not null)
-            return CharacterCreationMagicResonanceDigest.EqualsFixedTime(replay.CommandDigest, commandDigest)
+            return currentWorkspace.CanReplayReceipt(replay.ContentRevision)
+                && CharacterCreationMagicResonanceDigest.EqualsFixedTime(replay.CommandDigest, commandDigest)
                 ? new(CharacterCreationFoundationOutcomes.Success, replay, [])
                 : Blocked<CharacterCreationMagicResonanceReceipt>(
                     CharacterCreationFoundationOutcomes.Conflict,
@@ -180,7 +195,8 @@ public sealed class CharacterCreationMagicResonanceService : ICharacterCreationM
                         CharacterCreationMagicResonanceDigest.EqualsFixedTime(
                             candidate.IdempotencyKeyDigest, keyDigest));
                     if (racedReplay is not null)
-                        return CharacterCreationMagicResonanceDigest.EqualsFixedTime(
+                        return racedWorkspace.CanReplayReceipt(racedReplay.ContentRevision)
+                            && CharacterCreationMagicResonanceDigest.EqualsFixedTime(
                                 racedReplay.CommandDigest, commandDigest)
                             ? new(CharacterCreationFoundationOutcomes.Success, racedReplay, [])
                             : Blocked<CharacterCreationMagicResonanceReceipt>(
@@ -286,7 +302,7 @@ public sealed class CharacterCreationMagicResonanceService : ICharacterCreationM
     }
 
     private CharacterCreationFoundationResult<CharacterCreationMagicResonanceState> BuildState(
-        WorkspaceStoredDocument workspace)
+        WorkspaceStoredDocument workspace, bool forContinuation = false)
     {
         var blockers = new List<string>();
         if (_store is not IWorkspaceAuxiliaryStateAtomicCommitCapability
@@ -334,7 +350,12 @@ public sealed class CharacterCreationMagicResonanceService : ICharacterCreationM
         {
             blockers.Add(CharacterCreationMagicResonanceBlockers.AttributesDraftRequired);
         }
-        else if (!attributeState!.CanEdit || attributeState.Blockers.Count != 0)
+        // Keep a recomputed Attributes draft when its sole blocker is the
+        // read-only view's missing writer capability; preserve semantic failures.
+        else if (forContinuation
+                     ? attributeState!.Blockers.Any(blocker =>
+                         blocker != CharacterCreationAttributesBlockers.PersistenceAuthorityRequired)
+                     : !attributeState!.CanEdit || attributeState.Blockers.Count != 0)
         {
             blockers.Add(CharacterCreationMagicResonanceBlockers.AttributesDraftInvalid);
             attributes = null;

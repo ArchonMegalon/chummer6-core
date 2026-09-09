@@ -14,7 +14,26 @@ public sealed record WorkspaceStoredDocument(
     WorkspaceDocument Document,
     long ContentRevision,
     long SavedRevision,
-    DateTimeOffset LastUpdatedUtc);
+    DateTimeOffset LastUpdatedUtc)
+{
+    // An observation from the host's store, not part of the portable snapshot.
+    // Legacy/other store implementations have not established this capability.
+    public WorkspaceLocalHistory? LocalHistory { get; init; }
+
+    // Portable history grouping only. CanReplayReceipt deliberately ignores it.
+    public IReadOnlyList<int> DelegatedGmHistorySegmentStarts { get; init; } = [];
+
+    /// <summary>
+    /// Classifies a receipt against this same store observation. Imported matching
+    /// keys remain reserved history, never a successful local replay. A null
+    /// boundary preserves pre-continuation implementations, not restore support.
+    /// This pure test cannot authorize an owner, a write or an uploaded record.
+    /// </summary>
+    public bool CanReplayReceipt(long committedRevision) => committedRevision > 0
+        && committedRevision <= ContentRevision
+        && (LocalHistory is null || (LocalHistory.IsValid(ContentRevision)
+            && !LocalHistory.IsImportedRevision(committedRevision)));
+}
 
 public sealed record WorkspaceStoreReadResult(
     WorkspaceOperationOutcome Outcome,
