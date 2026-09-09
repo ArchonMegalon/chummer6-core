@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Xml;
 using System.Xml.Linq;
 using Chummer.Contracts.Characters;
 
@@ -95,7 +96,17 @@ public sealed class CharacterFileService : ICharacterFileService
         UpdateNode(character, "groupnotes", update.GroupNotes);
 
         using StringWriter writer = new(CultureInfo.InvariantCulture);
-        document.Save(writer, SaveOptions.DisableFormatting);
+        // Audit commitments bind the original metadata text, including CR/LF.
+        // The default TextWriter overload normalizes carriage returns during
+        // serialization; entitize them so a subsequent XML read is lossless.
+        using (XmlWriter xmlWriter = XmlWriter.Create(writer, new XmlWriterSettings
+        {
+            Indent = false,
+            NewLineHandling = NewLineHandling.Entitize
+        }))
+        {
+            document.Save(xmlWriter);
+        }
         return writer.ToString();
     }
 

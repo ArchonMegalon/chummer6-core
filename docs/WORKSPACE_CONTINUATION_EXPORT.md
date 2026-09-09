@@ -73,9 +73,56 @@ than ignoring the mismatch or claiming the historical choice was corrupt.
 `WorkspaceAuxiliaryStateIntegrity.IsValidShape` shares the existing persisted
 shape and receipt-consistency checks with the file store, including the single
 finalization archive. This is not rule validation or historical provenance.
-Malformed nested objects can throw; an untrusted candidate evaluator must reject
-them at its boundary. These building blocks do not yet constitute a complete
-candidate evaluator or atomic restore operation.
+Malformed nested objects can throw; the untrusted candidate boundary rejects
+them explicitly rather than treating missing members as empty history.
+
+## Read-only continuation review
+
+The internal `WorkspaceContinuationCandidateEvaluator` decodes bounded bytes
+under the actual owner lease, checks complete historical consistency, validates
+the native SR5 document, then runs the existing typed services for every present
+Creation draft against one private candidate and captured source view. An absent
+future wizard choice is not treated as a failed completed-character requirement.
+Bootstrap XML markers require validation even if their auxiliary binding is
+missing. A Career character cannot carry active Creation drafts or markers.
+
+`WorkspaceContinuationReadView` has no underlying live store and advertises no
+write capability. Exact owner and workspace identity are required; legacy reads
+can see only the one privately captured candidate. Every mutation is unavailable.
+Returned nested state is independently copied. No candidate may borrow data from
+another owner or become valid by falling back to an existing local workspace.
+
+Skills and Magic have internal continuation readers which retain independently
+recomputed Attributes when the only blocker is missing persistence capability.
+Their ordinary public readers are unchanged. Other source, prerequisite, budget
+and draft errors remain blockers. Checkpoint/edit-readiness limitations are
+reported separately, not globally stripped from failed results.
+
+History checks include intrinsic draft hashes, revision/dependency identities,
+the complete pre-finalization archive, and recorded output/checkpoint bindings.
+Different atomic lanes cannot both claim one committed workspace revision. GM
+receipts at the current revision must match the exact committed profile values;
+GM does not imply a saved checkpoint. Later owner edits may change current XML
+without invalidating earlier receipts. An older active dependency can remain
+historical and unverified while current-draft evaluation refuses continuation.
+
+The evaluator independently captures sources again after domain evaluation;
+drift invalidates the observation. This is not a lock spanning a future write.
+`CurrentDraftChecksPassed` is only the result of checks on the present drafts,
+not full imported-character legality, historical source execution, or permission
+to restore. Contacts and Lifestyles still use recorded XML budget totals, so
+their checks do not authenticate the provenance of those totals. Unsupported
+runtime/schema combinations remain unavailable rather than being normalized.
+
+`RestoreAuthorized` and `HistoricalProvenanceVerified` are always false. Neither
+the read-only review nor internally consistent caller-rehashed receipts create
+new write or historical replay authority.
+
+Metadata writes now preserve carriage returns using XML entitization. This fixes
+a reproduced mismatch between an exact GM command-value hash and the text
+previously normalized by the XML writer. Existing records whose original text
+was already lost cannot be repaired by guessing it or rewriting their receipts;
+an exact latest-value comparison remains unresolved for those records.
 
 ## Still required before roaming integration
 

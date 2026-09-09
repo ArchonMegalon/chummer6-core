@@ -35,6 +35,20 @@ public sealed class CharacterCreationMagicResonanceService : ICharacterCreationM
                 CharacterCreationMagicResonanceBlockers.WorkspaceUnavailable);
     }
 
+    internal CharacterCreationFoundationResult<CharacterCreationMagicResonanceState> LoadForContinuation(
+        CharacterCreationMagicResonanceLoadRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        WorkspaceStoreReadResult read = _store.Get(request.WorkspaceId);
+        return read.Success && read.Value is { } workspace
+            ? BuildState(workspace, forContinuation: true)
+            : Blocked<CharacterCreationMagicResonanceState>(
+                read.Outcome == WorkspaceOperationOutcome.Missing
+                    ? CharacterCreationFoundationOutcomes.Missing
+                    : CharacterCreationFoundationOutcomes.Invalid,
+                CharacterCreationMagicResonanceBlockers.WorkspaceUnavailable);
+    }
+
     public CharacterCreationFoundationResult<CharacterCreationMagicResonancePreview> Preview(
         CharacterCreationMagicResonancePreviewRequest request)
     {
@@ -286,7 +300,7 @@ public sealed class CharacterCreationMagicResonanceService : ICharacterCreationM
     }
 
     private CharacterCreationFoundationResult<CharacterCreationMagicResonanceState> BuildState(
-        WorkspaceStoredDocument workspace)
+        WorkspaceStoredDocument workspace, bool forContinuation = false)
     {
         var blockers = new List<string>();
         if (_store is not IWorkspaceAuxiliaryStateAtomicCommitCapability
@@ -334,7 +348,12 @@ public sealed class CharacterCreationMagicResonanceService : ICharacterCreationM
         {
             blockers.Add(CharacterCreationMagicResonanceBlockers.AttributesDraftRequired);
         }
-        else if (!attributeState!.CanEdit || attributeState.Blockers.Count != 0)
+        // Keep a recomputed Attributes draft when its sole blocker is the
+        // read-only view's missing writer capability; preserve semantic failures.
+        else if (forContinuation
+                     ? attributeState!.Blockers.Any(blocker =>
+                         blocker != CharacterCreationAttributesBlockers.PersistenceAuthorityRequired)
+                     : !attributeState!.CanEdit || attributeState.Blockers.Count != 0)
         {
             blockers.Add(CharacterCreationMagicResonanceBlockers.AttributesDraftInvalid);
             attributes = null;

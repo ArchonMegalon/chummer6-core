@@ -36,6 +36,12 @@
     <Compile Include="WorkspaceContinuationCodecTests.cs" />
     <Compile Include="WorkspaceContinuationSourceCaptureTests.cs" />
     <Compile Include="WorkspaceContinuationDraftValidationTests.cs" />
+    <Compile Include="WorkspaceContinuationReadViewTests.cs" />
+    <Compile Include="WorkspaceContinuationHistoryIntegrityTests.cs" />
+    <Compile Include="WorkspaceContinuationCandidateEvaluatorTests.cs" />
+    <Compile Include="WorkspaceContinuationCurrentDomainTests.cs" />
+    <Compile Include="WorkspaceContinuationHistoryReviewTests.cs" />
+    <Compile Include="CharacterFileServiceTests.cs" />
     <Compile Include="CharacterCreationFoundationServiceTests.cs" />
     <Compile Include="CharacterCreationFoundationDraftApplyAuthorityTests.cs" />
     <ProjectReference Include="../Chummer.Contracts/Chummer.Contracts.csproj" />

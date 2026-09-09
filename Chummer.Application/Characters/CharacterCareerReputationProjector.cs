@@ -25,15 +25,30 @@ public static class CharacterCareerReputationProjector
     public static bool TryRead(
         WorkspaceStoredDocument saved, ICharacterSourceDataResolver sourceResolver,
         out CharacterCareerReputationSnapshot? snapshot, out string error)
+        => TryReadCore(saved, sourceResolver, false, out snapshot, out error);
+
+    // Inspect the exact saved state without pretending it is ready for another
+    // mutation. In particular, never rewrite a dirty checkpoint or saturated
+    // revision merely to make the normal command-admission reader succeed.
+    internal static bool TryReadForContinuation(
+        WorkspaceStoredDocument saved, ICharacterSourceDataResolver sourceResolver,
+        out CharacterCareerReputationSnapshot? snapshot, out string error)
+        => TryReadCore(saved, sourceResolver, true, out snapshot, out error);
+
+    private static bool TryReadCore(
+        WorkspaceStoredDocument saved, ICharacterSourceDataResolver sourceResolver,
+        bool continuation, out CharacterCareerReputationSnapshot? snapshot, out string error)
     {
         ArgumentNullException.ThrowIfNull(saved);
         ArgumentNullException.ThrowIfNull(sourceResolver);
         snapshot = null;
         error = "reputation_workspace_invalid";
         if (!CharacterAfterRunSettlementServiceIntegrity.IsValidWorkspaceId(saved.Id)
-            || saved.ContentRevision is <= 0 or long.MaxValue)
+            || saved.ContentRevision <= 0
+            || (continuation && (saved.SavedRevision < 0 || saved.SavedRevision > saved.ContentRevision))
+            || (!continuation && saved.ContentRevision == long.MaxValue))
             return false;
-        if (saved.SavedRevision != saved.ContentRevision)
+        if (!continuation && saved.SavedRevision != saved.ContentRevision)
         {
             error = "reputation_workspace_not_clean";
             return false;
