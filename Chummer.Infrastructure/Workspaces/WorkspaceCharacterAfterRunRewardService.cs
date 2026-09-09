@@ -138,7 +138,8 @@ public sealed class WorkspaceCharacterAfterRunRewardService : ICharacterAfterRun
             .SingleOrDefault(receipt => receipt.OperationId == operationId);
         if (existing is null)
             return new(CharacterAfterRunRewardOutcome.NotFound, CurrentWorkspaceRevision: saved.ContentRevision);
-        if (!string.Equals(existing.CommandDigest, commandDigest, StringComparison.Ordinal))
+        if (!saved.CanReplayReceipt(existing.CommittedWorkspaceRevision)
+            || !string.Equals(existing.CommandDigest, commandDigest, StringComparison.Ordinal))
             return new(CharacterAfterRunRewardOutcome.IdempotencyConflict,
                 CurrentWorkspaceRevision: saved.ContentRevision, Error: "reward_operation_command_conflict");
         // JSON reconstruction can materialize IReadOnlyList as a mutable List.

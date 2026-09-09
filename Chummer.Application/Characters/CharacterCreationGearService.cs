@@ -263,6 +263,9 @@ public sealed class CharacterCreationGearService : ICharacterCreationGearService
             "chummer.sr5.creation-gear.idempotency.v1\0" + key);
         CharacterCreationGearReceiptLedgerEntry? found = ledger.FirstOrDefault(entry =>
             CharacterCreationGearRules.DigestsEqual(entry.IdempotencyKeyDigest, digest));
+        if (found is not null && !workspace.CanReplayReceipt(found.Receipt.WorkspaceRevision))
+            return Blocked<CharacterCreationGearReceipt>(CharacterCreationGearOutcomes.Conflict,
+                CharacterCreationGearBlockers.IdempotencyConflict);
         return found is null
             ? Blocked<CharacterCreationGearReceipt>(CharacterCreationGearOutcomes.NotFound)
             : new CharacterCreationGearResult<CharacterCreationGearReceipt>(
@@ -585,7 +588,8 @@ public sealed class CharacterCreationGearService : ICharacterCreationGearService
             CharacterCreationGearRules.DigestsEqual(entry.IdempotencyKeyDigest, keyDigest));
         if (found is null)
             return null;
-        return CharacterCreationGearRules.DigestsEqual(found.CommandDigest, commandDigest)
+        return workspace.CanReplayReceipt(found.Receipt.WorkspaceRevision)
+            && CharacterCreationGearRules.DigestsEqual(found.CommandDigest, commandDigest)
             ? new CharacterCreationGearResult<CharacterCreationGearReceipt>(
                 CharacterCreationGearOutcomes.Replayed,
                 found.Receipt,

@@ -329,6 +329,9 @@ public sealed class CharacterCreationResourcesService : ICharacterCreationResour
             "chummer.sr5.creation-resources.idempotency.v1\0" + key);
         CharacterCreationResourcesReceiptLedgerEntry? found = ledger.FirstOrDefault(entry =>
             CharacterCreationResourcesRules.DigestsEqual(entry.IdempotencyKeyDigest, digest));
+        if (found is not null && !workspace.CanReplayReceipt(found.Receipt.WorkspaceRevision))
+            return Blocked<CharacterCreationResourcesReceipt>(CharacterCreationResourcesOutcomes.Conflict,
+                CharacterCreationResourcesBlockers.IdempotencyConflict);
         return found is null
             ? Blocked<CharacterCreationResourcesReceipt>(CharacterCreationResourcesOutcomes.NotFound)
             : new CharacterCreationResourcesResult<CharacterCreationResourcesReceipt>(
@@ -808,7 +811,8 @@ public sealed class CharacterCreationResourcesService : ICharacterCreationResour
             CharacterCreationResourcesRules.DigestsEqual(entry.IdempotencyKeyDigest, keyDigest));
         if (found is null)
             return null;
-        return CharacterCreationResourcesRules.DigestsEqual(found.CommandDigest, commandDigest)
+        return workspace.CanReplayReceipt(found.Receipt.WorkspaceRevision)
+            && CharacterCreationResourcesRules.DigestsEqual(found.CommandDigest, commandDigest)
             ? new CharacterCreationResourcesResult<CharacterCreationResourcesReceipt>(
                 CharacterCreationResourcesOutcomes.Replayed,
                 found.Receipt,

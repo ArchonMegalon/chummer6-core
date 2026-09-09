@@ -19,6 +19,31 @@ namespace Chummer.Tests;
 [TestClass]
 public sealed class WorkspaceContinuationCurrentDomainTests
 {
+    [TestMethod]
+    [DataRow("contacts")]
+    [DataRow("lifestyles")]
+    public void Imported_domain_receipt_cannot_report_confirm_or_lookup_success(string domain)
+    {
+        using DomainContext context = new(domain);
+        WorkspaceImportedHistoryTestFixture.MarkImported(context.Directory, context.Id);
+        var before = CaptureFiles(context.Directory);
+        if (domain == "contacts")
+        {
+            var service = new CharacterCreationContactsService(new FileWorkspaceStore(context.Directory));
+            Assert.AreEqual(CharacterCreationContactOutcomes.Conflict,
+                service.LookupReceipt(new(context.Id, "continuation-contact-decision")).Outcome);
+            Assert.AreEqual(CharacterCreationContactOutcomes.Conflict, service.Confirm(context.ContactCommand!).Outcome);
+        }
+        else
+        {
+            var service = new CharacterCreationLifestylesService(new FileWorkspaceStore(context.Directory), context.Resolver);
+            Assert.AreEqual(CharacterCreationLifestyleOutcomes.Conflict,
+                service.LookupReceipt(new(context.Id, "continuation-lifestyle-decision")).Outcome);
+            Assert.AreEqual(CharacterCreationLifestyleOutcomes.Conflict, service.Confirm(context.LifestyleCommand!).Outcome);
+        }
+        AssertFilesUnchanged(context.Directory, before);
+    }
+
     private const int MaximumBytes = 4 * 1024 * 1024;
     private static readonly Guid ContactId = Guid.Parse("87796157-0366-4154-836a-034326e8e924");
     private static readonly Guid LifestyleId = Guid.Parse("11111111-2222-4333-8444-555555555555");
@@ -174,6 +199,8 @@ public sealed class WorkspaceContinuationCurrentDomainTests
         public ICharacterFileQueries Queries { get; }
         public ILifeModulesCatalogService LifeModules { get; }
         public decimal LifestyleCostPerIncrement { get; private set; }
+        public CharacterCreationContactConfirmRequest? ContactCommand { get; private set; }
+        public CharacterCreationLifestyleConfirmRequest? LifestyleCommand { get; private set; }
 
         public DomainContext(string domain)
         {
@@ -239,8 +266,9 @@ public sealed class WorkspaceContinuationCurrentDomainTests
             Assert.IsNotNull(preview.Value, string.Join(",", preview.Blockers));
             Assert.IsTrue(preview.Value.CanConfirm, string.Join(",", preview.Blockers));
             Assert.AreEqual(6, preview.Value.ContactBudgetAfter.Used);
-            var confirmed = service.Confirm(new(loaded.Value.Binding, edit, preview.Value.PreviewDigest,
-                "continuation-contact-decision", ExplicitlyConfirmed: true));
+            ContactCommand = new(loaded.Value.Binding, edit, preview.Value.PreviewDigest,
+                "continuation-contact-decision", ExplicitlyConfirmed: true);
+            var confirmed = service.Confirm(ContactCommand);
             Assert.AreEqual(CharacterCreationContactOutcomes.Applied, confirmed.Outcome, string.Join(",", confirmed.Blockers));
             var lookup = new CharacterCreationContactsService(new FileWorkspaceStore(Directory))
                 .LookupReceipt(new(Id, "continuation-contact-decision"));
@@ -267,8 +295,9 @@ public sealed class WorkspaceContinuationCurrentDomainTests
             Assert.IsNotNull(preview.Value.After);
             LifestyleCostPerIncrement = preview.Value.After.Economics.CostPerIncrement;
             Assert.IsTrue(LifestyleCostPerIncrement > 0m && LifestyleCostPerIncrement <= 10_000m);
-            var confirmed = service.Confirm(new(loaded.Value.Binding, mutation, preview.Value.PreviewDigest,
-                "continuation-lifestyle-decision", ExplicitlyConfirmed: true));
+            LifestyleCommand = new(loaded.Value.Binding, mutation, preview.Value.PreviewDigest,
+                "continuation-lifestyle-decision", ExplicitlyConfirmed: true);
+            var confirmed = service.Confirm(LifestyleCommand);
             Assert.AreEqual(CharacterCreationLifestyleOutcomes.Applied, confirmed.Outcome, string.Join(",", confirmed.Blockers));
             var lookup = new CharacterCreationLifestylesService(new FileWorkspaceStore(Directory), Resolver)
                 .LookupReceipt(new(Id, "continuation-lifestyle-decision"));

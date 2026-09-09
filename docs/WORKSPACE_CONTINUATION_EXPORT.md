@@ -126,6 +126,43 @@ an exact latest-value comparison remains unresolved for those records.
 
 ## Still required before roaming integration
 
+### Store-local provenance groundwork
+
+File-store record schema 3 requires `WorkspaceLocalHistory`: a local incarnation
+ID, an imported-through revision and, for an imported prefix, its snapshot digest.
+New ordinary workspaces start with no imported prefix. Every existing replacement,
+checkpoint, typed auxiliary commit and delegated edit preserves this metadata.
+Deleting and recreating the same workspace ID establishes a new incarnation.
+Older binaries reject schema 3 instead of silently dropping the new boundary.
+
+An ordinary read migrates existing schema-2 records without losing auxiliary
+state, receipts, revisions or checkpoint time. Continuation export never performs
+that migration. Missing/malformed schema-3 provenance and provenance smuggled
+into a legacy record fail closed. This is local persistence integrity, not
+cryptographic protection against someone who can rewrite the private store.
+
+The portable continuation snapshot deliberately excludes local incarnation and
+execution provenance: copying those claims cannot prove local execution on a
+different device. The complete character, auxiliary and delegated receipt graphs
+remain in the export. A future restore must establish fresh local provenance from
+its actual admitted transaction, not deserialize it from the uploaded snapshot.
+
+GM lookup and atomic apply both reserve imported matching keys as conflicts, never
+`NotFound` or a successful local replay. The same-revision classification also
+guards successful receipt reuse in Skills, Magic, Qualities, Resources, Gear,
+Contacts, Lifestyles, Finalization, Life Module acceptance, After Run rewards and
+settlements, and Career reputation. It uses the same workspace observation as the
+receipt lookup, including recovery after an uncertain commit. Ordinary history
+display and complete export remain available; imported receipts are not removed.
+Genuine later local receipts above the imported prefix remain replayable.
+
+This groundwork does **not** enable restore. Imported GM authority and timestamp
+continuity must not override current grants for future edits; the old whole-ledger
+continuity check still needs explicit imported/local segmentation. Atomic restore
+admission, source fencing and destination CAS remain unimplemented. The local
+incarnation is available for future restore CAS but is not yet a field in every
+existing typed edit command. No caller-supplied marker creates restore permission.
+
 - The old Hub public snapshot carrier does not carry this complete continuation
   graph yet. Hub and Android must explicitly adopt the full codec and their
   bounded transport policy; no history may be omitted to fit a limit.

@@ -23,7 +23,7 @@ public sealed partial class FileWorkspaceStore :
     ICharacterCareerReputationAtomicCommitCapability
 {
     private const int CurrentWorkspaceSchemaVersion = 1;
-    private const int CurrentWorkspaceRecordSchemaVersion = 2;
+    private const int CurrentWorkspaceRecordSchemaVersion = 3;
     private const string WorkspacePayloadKind = "workspace";
     private const long InitialContentRevision = 1;
     private const long InitialSavedRevision = 0;
@@ -249,7 +249,8 @@ public sealed partial class FileWorkspaceStore :
             PersistedWorkspaceRecord record = BuildPersistedRecord(
                 document,
                 InitialContentRevision,
-                InitialSavedRevision);
+                InitialSavedRevision,
+                CreateLocalHistory());
             DateTimeOffset committedAtUtc = WriteRecordAtomically(
                 path,
                 record,
@@ -499,6 +500,7 @@ public sealed partial class FileWorkspaceStore :
                 document,
                 nextContentRevision,
                 current.SavedRevision,
+                current.LocalHistory!,
                 delegatedEditLedger);
             DateTimeOffset committedAtUtc = WriteRecordAtomically(
                 path,
@@ -594,6 +596,7 @@ public sealed partial class FileWorkspaceStore :
                 document,
                 nextContentRevision,
                 nextContentRevision,
+                current.LocalHistory!,
                 delegatedEditLedger);
             DateTimeOffset committedAtUtc = WriteRecordAtomically(
                 path,
@@ -715,6 +718,7 @@ public sealed partial class FileWorkspaceStore :
                 document,
                 nextContentRevision,
                 nextContentRevision,
+                current.LocalHistory!,
                 delegatedEditLedger);
             DateTimeOffset committedAtUtc = WriteRecordAtomically(
                 path,
@@ -790,6 +794,7 @@ public sealed partial class FileWorkspaceStore :
                     current.Document,
                     current.ContentRevision,
                     current.ContentRevision,
+                    current.LocalHistory!,
                     delegatedEditLedger);
                 lastUpdatedUtc = WriteRecordAtomically(
                     path,
@@ -982,7 +987,8 @@ public sealed partial class FileWorkspaceStore :
                 id,
                 idempotencyKeySha256,
                 commandSha256,
-                current.ContentRevision);
+                current.ContentRevision,
+                current.LocalHistory);
         }
         catch (IOException)
         {
@@ -1040,7 +1046,8 @@ public sealed partial class FileWorkspaceStore :
                 id,
                 ledgerEntry.IdempotencyKeySha256,
                 ledgerEntry.CommandSha256,
-                current.ContentRevision);
+                current.ContentRevision,
+                current.LocalHistory);
             if (replay.Outcome != DelegatedGmCharacterEditStoreOutcome.NotFound)
             {
                 return replay;
@@ -1088,6 +1095,7 @@ public sealed partial class FileWorkspaceStore :
                 document,
                 nextContentRevision,
                 current.SavedRevision,
+                current.LocalHistory!,
                 updatedLedger);
             _ = WriteRecordAtomically(
                 path,
@@ -1216,6 +1224,22 @@ public sealed partial class FileWorkspaceStore :
             return CorruptRead();
         }
 
+        // Version 3 makes local provenance mandatory so an older binary cannot
+        // silently discard it while writing a version-2 record. Older records
+        // predate continuation restore and migrate only on an ordinary read.
+        WorkspaceLocalHistory? localHistory = record.LocalHistory;
+        if (record.RecordSchemaVersion == CurrentWorkspaceRecordSchemaVersion)
+        {
+            if (localHistory is null || !localHistory.IsValid(contentRevision))
+                return CorruptRead();
+        }
+        else
+        {
+            if (localHistory is not null)
+                return CorruptRead();
+            localHistory = CreateLocalHistory();
+        }
+
         DateTimeOffset? migratedAtUtc = null;
         if (continuationRead && requiresLegacyMigration)
         {
@@ -1234,6 +1258,7 @@ public sealed partial class FileWorkspaceStore :
                 document,
                 contentRevision,
                 savedRevision,
+                localHistory,
                 delegatedEditLedger);
             migratedAtUtc = WriteRecordAtomically(
                 path,
@@ -1250,7 +1275,7 @@ public sealed partial class FileWorkspaceStore :
                 document,
                 contentRevision,
                 savedRevision,
-                lastUpdatedUtc));
+                lastUpdatedUtc) { LocalHistory = localHistory });
     }
 
     private static bool TryMaterializeRecord(
@@ -1271,10 +1296,18 @@ public sealed partial class FileWorkspaceStore :
         }
 
         bool revisionsRequireMigration = record.ContentRevision is null && record.SavedRevision is null;
+        if (revisionsRequireMigration && record.RecordSchemaVersion is >= 2)
+        {
+            document = null!;
+            contentRevision = 0;
+            savedRevision = 0;
+            requiresLegacyMigration = false;
+            return false;
+        }
         bool recordEnvelopeRequiresMigration = record.RecordSchemaVersion is null
                                                || record.RecordSchemaVersion < CurrentWorkspaceRecordSchemaVersion;
         requiresLegacyMigration = revisionsRequireMigration || recordEnvelopeRequiresMigration;
-        if (recordEnvelopeRequiresMigration && record.AuxiliaryState is not null)
+        if ((record.RecordSchemaVersion is null or < 2) && record.AuxiliaryState is not null)
         {
             document = null!;
             contentRevision = 0;
@@ -1329,15 +1362,21 @@ public sealed partial class FileWorkspaceStore :
         return true;
     }
 
+    private static WorkspaceLocalHistory CreateLocalHistory() => new(Guid.NewGuid().ToString("N"), 0, null);
+
     private static PersistedWorkspaceRecord BuildPersistedRecord(
         WorkspaceDocument document,
         long contentRevision,
         long savedRevision,
+        WorkspaceLocalHistory localHistory,
         IReadOnlyList<DelegatedGmCharacterEditLedgerEntry>? delegatedEditLedger = null)
     {
+        if (localHistory is null || !localHistory.IsValid(contentRevision))
+            throw new InvalidOperationException("Workspace local history is invalid.");
         return new PersistedWorkspaceRecord(document.Format.ToString())
         {
             RecordSchemaVersion = CurrentWorkspaceRecordSchemaVersion,
+            LocalHistory = localHistory,
             Envelope = NormalizeEnvelope(document.State),
             ContentRevision = contentRevision,
             SavedRevision = savedRevision,
@@ -2184,7 +2223,8 @@ public sealed partial class FileWorkspaceStore :
         CharacterWorkspaceId id,
         string idempotencyKeySha256,
         string commandSha256,
-        long currentRevision)
+        long currentRevision,
+        WorkspaceLocalHistory? localHistory)
     {
         DelegatedGmCharacterEditLedgerEntry? existing = ledger.FirstOrDefault(entry =>
             string.Equals(
@@ -2209,6 +2249,16 @@ public sealed partial class FileWorkspaceStore :
                 CurrentRevision: currentRevision,
                 Error: "Delegated GM character-edit audit ledger is corrupt.");
         }
+
+        // A historical match is not NotFound (the key stays reserved), but is
+        // also not proof that this store executed the command. Check inside
+        // BOTH lookup and the atomic apply lease; service ordering cannot fence
+        // a competing restore on its own.
+        if (localHistory is null || !localHistory.IsValid(currentRevision)
+            || localHistory.IsImportedRevision(existing.Receipt.NewRevision))
+            return new(DelegatedGmCharacterEditStoreOutcome.IdempotencyConflict,
+                CurrentRevision: currentRevision,
+                Error: "The idempotency key belongs to unverified imported history.");
 
         return string.Equals(existing.CommandSha256, commandSha256, StringComparison.Ordinal)
             ? new DelegatedGmCharacterEditStoreResult(
@@ -2963,6 +3013,9 @@ public sealed partial class FileWorkspaceStore :
     private sealed record PersistedWorkspaceRecord(string Format)
     {
         public int? RecordSchemaVersion { get; init; }
+
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public WorkspaceLocalHistory? LocalHistory { get; init; }
 
         public WorkspacePayloadEnvelope? Envelope { get; init; }
 

@@ -55,7 +55,7 @@ public sealed partial class FileWorkspaceStore
             if (!IsValidAuxiliaryState(id, receipt!.CommittedWorkspaceRevision, replacement!.AuxiliaryState))
                 return new(CharacterCareerReputationOutcome.Corrupt, Error: "reputation_auxiliary_invalid");
             var record = BuildPersistedRecord(replacement, receipt.CommittedWorkspaceRevision,
-                receipt.CommittedWorkspaceRevision, delegatedLedger);
+                receipt.CommittedWorkspaceRevision, saved.LocalHistory!, delegatedLedger);
             cancellationToken.ThrowIfCancellationRequested();
             WriteRecordAtomically(path, record, WorkspaceWriteDisposition.ReplaceExisting,
                 beforeTargetReplace: () =>

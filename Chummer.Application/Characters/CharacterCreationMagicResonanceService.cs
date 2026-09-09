@@ -90,7 +90,8 @@ public sealed class CharacterCreationMagicResonanceService : ICharacterCreationM
         CharacterCreationMagicResonanceReceipt? replay = ledger?.SingleOrDefault(receipt =>
             CharacterCreationMagicResonanceDigest.EqualsFixedTime(receipt.IdempotencyKeyDigest, keyDigest));
         if (replay is not null)
-            return CharacterCreationMagicResonanceDigest.EqualsFixedTime(replay.CommandDigest, commandDigest)
+            return currentWorkspace.CanReplayReceipt(replay.ContentRevision)
+                && CharacterCreationMagicResonanceDigest.EqualsFixedTime(replay.CommandDigest, commandDigest)
                 ? new(CharacterCreationFoundationOutcomes.Success, replay, [])
                 : Blocked<CharacterCreationMagicResonanceReceipt>(
                     CharacterCreationFoundationOutcomes.Conflict,
@@ -194,7 +195,8 @@ public sealed class CharacterCreationMagicResonanceService : ICharacterCreationM
                         CharacterCreationMagicResonanceDigest.EqualsFixedTime(
                             candidate.IdempotencyKeyDigest, keyDigest));
                     if (racedReplay is not null)
-                        return CharacterCreationMagicResonanceDigest.EqualsFixedTime(
+                        return racedWorkspace.CanReplayReceipt(racedReplay.ContentRevision)
+                            && CharacterCreationMagicResonanceDigest.EqualsFixedTime(
                                 racedReplay.CommandDigest, commandDigest)
                             ? new(CharacterCreationFoundationOutcomes.Success, racedReplay, [])
                             : Blocked<CharacterCreationMagicResonanceReceipt>(

@@ -41,6 +41,11 @@
     <Compile Include="WorkspaceContinuationCandidateEvaluatorTests.cs" />
     <Compile Include="WorkspaceContinuationCurrentDomainTests.cs" />
     <Compile Include="WorkspaceContinuationHistoryReviewTests.cs" />
+    <Compile Include="WorkspaceLocalHistoryStoreTests.cs" />
+    <Compile Include="WorkspaceImportedHistoryTestFixture.cs" />
+    <Compile Include="WorkspaceImportedWizardReplayTests.cs" />
+    <Compile Include="WorkspaceImportedDraftReplayTests.cs" />
+    <Compile Include="WorkspaceAuxiliaryStateStoreTests.cs" />
     <Compile Include="CharacterFileServiceTests.cs" />
     <Compile Include="CharacterCreationFoundationServiceTests.cs" />
     <Compile Include="CharacterCreationFoundationDraftApplyAuthorityTests.cs" />

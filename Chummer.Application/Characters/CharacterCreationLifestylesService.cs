@@ -263,6 +263,9 @@ public sealed class CharacterCreationLifestylesService : ICharacterCreationLifes
             "chummer.sr5.creation-lifestyles.idempotency.v1\0" + key);
         CharacterCreationLifestyleReceiptLedgerEntry? found = ledger.FirstOrDefault(entry =>
             CharacterCreationLifestylesRules.DigestsEqual(entry.IdempotencyKeyDigest, digest));
+        if (found is not null && !workspace.CanReplayReceipt(found.Receipt.ContentRevision))
+            return Blocked<CharacterCreationLifestyleReceipt>(CharacterCreationLifestyleOutcomes.Conflict,
+                CharacterCreationLifestylesBlockers.IdempotencyConflict);
         return found is null
             ? Blocked<CharacterCreationLifestyleReceipt>(CharacterCreationLifestyleOutcomes.NotFound)
             : new CharacterCreationLifestyleResult<CharacterCreationLifestyleReceipt>(
@@ -982,7 +985,8 @@ public sealed class CharacterCreationLifestylesService : ICharacterCreationLifes
             CharacterCreationLifestylesRules.DigestsEqual(entry.IdempotencyKeyDigest, keyDigest));
         if (existing is null)
             return null;
-        return CharacterCreationLifestylesRules.DigestsEqual(existing.CommandDigest, commandDigest)
+        return workspace.CanReplayReceipt(existing.Receipt.ContentRevision)
+            && CharacterCreationLifestylesRules.DigestsEqual(existing.CommandDigest, commandDigest)
             ? new CharacterCreationLifestyleResult<CharacterCreationLifestyleReceipt>(
                 CharacterCreationLifestyleOutcomes.Replayed,
                 existing.Receipt,

@@ -94,7 +94,8 @@ public sealed partial class CharacterCreationSkillsService : ICharacterCreationS
         CharacterCreationSkillsReceipt? replay = ledger?.SingleOrDefault(receipt =>
             CharacterCreationSkillsDigest.EqualsFixedTime(receipt.IdempotencyKeyDigest, keyDigest));
         if (replay is not null)
-            return CharacterCreationSkillsDigest.EqualsFixedTime(replay.CommandDigest, commandDigest)
+            return currentWorkspace.CanReplayReceipt(replay.ContentRevision)
+                && CharacterCreationSkillsDigest.EqualsFixedTime(replay.CommandDigest, commandDigest)
                 ? new(CharacterCreationFoundationOutcomes.Success, replay, [])
                 : Blocked<CharacterCreationSkillsReceipt>(CharacterCreationFoundationOutcomes.Conflict,
                     CharacterCreationSkillsBlockers.IdempotencyConflict);
@@ -191,7 +192,8 @@ public sealed partial class CharacterCreationSkillsService : ICharacterCreationS
                     CharacterCreationSkillsReceipt? racedReplay = racedLedger?.SingleOrDefault(candidate =>
                         CharacterCreationSkillsDigest.EqualsFixedTime(candidate.IdempotencyKeyDigest, keyDigest));
                     if (racedReplay is not null)
-                        return CharacterCreationSkillsDigest.EqualsFixedTime(
+                        return racedWorkspace.CanReplayReceipt(racedReplay.ContentRevision)
+                            && CharacterCreationSkillsDigest.EqualsFixedTime(
                                 racedReplay.CommandDigest,
                                 commandDigest)
                             ? new(CharacterCreationFoundationOutcomes.Success, racedReplay, [])

@@ -20,6 +20,28 @@ namespace Chummer.Tests;
 public sealed class WorkspaceCharacterCareerReputationTests
 {
     [TestMethod]
+    public void Imported_reputation_receipts_cannot_recover_or_replay_a_local_commit()
+    {
+        using var f = new Fixture();
+        var command = f.Preview(new(1)).Command with { ExplicitlyConfirmed = true };
+        Assert.AreEqual(CharacterCareerReputationOutcome.Applied, f.Service.Commit(command).Outcome);
+        var history = WorkspaceImportedHistoryTestFixture.MarkImported(f.StorePath, f.Id);
+        string before = JsonSerializer.Serialize(f.Saved());
+        var cold = new WorkspaceCharacterCareerReputationService(new FileWorkspaceStore(f.StorePath), f.Resolver);
+        Assert.AreEqual(CharacterCareerReputationOutcome.IdempotencyConflict, cold.Commit(command).Outcome);
+        Assert.AreEqual(CharacterCareerReputationOutcome.IdempotencyConflict,
+            new FileWorkspaceStore(f.StorePath).CommitCareerReputation(command, f.Resolver).Outcome);
+        Assert.AreEqual(before, JsonSerializer.Serialize(f.Saved()));
+        var next = cold.Preview(new(f.Id, Guid.NewGuid(), CharacterCareerReputationOperation.AdjustManualAwards, new(1)));
+        Assert.AreEqual(CharacterCareerReputationOutcome.Available, next.Outcome, next.Error);
+        var nextCommand = next.Preview!.Command with { ExplicitlyConfirmed = true };
+        Assert.AreEqual(CharacterCareerReputationOutcome.Applied, cold.Commit(nextCommand).Outcome);
+        Assert.AreEqual(CharacterCareerReputationOutcome.Replayed, cold.Commit(nextCommand).Outcome);
+        Assert.AreEqual(history, f.Saved().LocalHistory);
+        Assert.HasCount(2, f.Saved().Document.AuxiliaryState.CharacterCareerReputationReceipts!);
+    }
+
+    [TestMethod]
     public void Confirmed_manual_awards_save_one_revision_preserve_unrelated_state_and_cold_replay()
     {
         using var f = new Fixture();

@@ -136,7 +136,8 @@ public static class CharacterCareerReputationTransaction
         var receipt = saved.Document.AuxiliaryState.CharacterCareerReputationReceipts?
             .SingleOrDefault(row => row.Command.Request.OperationId == operationId);
         if (receipt is null) return new(CharacterCareerReputationOutcome.NotFound, CurrentWorkspaceRevision: saved.ContentRevision);
-        return receipt.CommandDigest == commandDigest
+        return saved.CanReplayReceipt(receipt.CommittedWorkspaceRevision)
+            && receipt.CommandDigest == commandDigest
             ? new(CharacterCareerReputationOutcome.Replayed, receipt, saved.ContentRevision)
             : new(CharacterCareerReputationOutcome.IdempotencyConflict, CurrentWorkspaceRevision: saved.ContentRevision,
                 Error: "reputation_operation_conflict");
