@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <!-- Use the existing feature-test friend identity for unchanged fault-injection
+         tests; do not widen production visibility or alter the test assertions. -->
+    <AssemblyName>Chummer.FeatureSlice.Tests</AssemblyName>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsTestProject>true</IsTestProject>
+    <IsPackable>false</IsPackable>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <!-- Match the existing Chummer.Tests settings for unchanged legacy tests. -->
+    <EnableNETAnalyzers>false</EnableNETAnalyzers>
+    <MSTestAnalysisMode>None</MSTestAnalysisMode>
+    <NoWarn>$(NoWarn);CS0618;CS8632</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="MSTest" Version="4.0.2" />
+    <Compile Include="../../Chummer.Tests/CharacterCreationBootstrapServiceTests.cs" Link="CharacterCreationBootstrapServiceTests.cs" />
+    <Compile Include="../../Chummer.Tests/CharacterCreationContactsServiceTests.cs" Link="CharacterCreationContactsServiceTests.cs" />
+    <ProjectReference Include="../../Chummer.Application/Chummer.Application.csproj" />
+    <ProjectReference Include="../../Chummer.Infrastructure/Chummer.Infrastructure.csproj" />
+  </ItemGroup>
+</Project>

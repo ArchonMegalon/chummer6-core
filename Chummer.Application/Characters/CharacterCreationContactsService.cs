@@ -3,6 +3,7 @@ using System.Xml;
 using System.Xml.Linq;
 using Chummer.Application.Workspaces;
 using Chummer.Contracts.Characters;
+using Chummer.Contracts.Owners;
 using Chummer.Contracts.Rulesets;
 using Chummer.Contracts.Workspaces;
 
@@ -36,15 +37,19 @@ public sealed class CharacterCreationContactsService : ICharacterCreationContact
 
     public CharacterCreationContactResult<CharacterCreationContactsState> Load(
         CharacterCreationContactsLoadRequest request)
+        => Load(OwnerScope.LocalSingleUser, request);
+
+    internal CharacterCreationContactResult<CharacterCreationContactsState> Load(
+        OwnerScope owner, CharacterCreationContactsLoadRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
-        WorkspaceStoreReadResult read = _workspaceStore.Get(request.WorkspaceId);
+        WorkspaceStoreReadResult read = Read(owner, request.WorkspaceId);
         if (!read.Success || read.Value is not WorkspaceStoredDocument workspace)
         {
             return ReadFailure<CharacterCreationContactsState>(read);
         }
 
-        AuthorityContext context = BuildContext(workspace);
+        AuthorityContext context = BuildContext(owner, workspace);
         string[] blockers = context.AuthorityBlockers
             .Concat(context.ContactBudget.Blockers)
             .Concat(context.HighPlacesBudget.Blockers)
@@ -75,6 +80,10 @@ public sealed class CharacterCreationContactsService : ICharacterCreationContact
 
     public CharacterCreationContactResult<CharacterCreationContactPreview> Preview(
         CharacterCreationContactPreviewRequest request)
+        => Preview(OwnerScope.LocalSingleUser, request);
+
+    internal CharacterCreationContactResult<CharacterCreationContactPreview> Preview(
+        OwnerScope owner, CharacterCreationContactPreviewRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
         if (request.Binding is null || request.Edit is null)
@@ -83,13 +92,23 @@ public sealed class CharacterCreationContactsService : ICharacterCreationContact
                 CharacterCreationContactOutcomes.Invalid,
                 CharacterCreationContactsBlockers.MutationInvalid);
         }
-        return EvaluatePreview(request).Result;
+        return EvaluatePreview(owner, request).Result;
     }
 
     public CharacterCreationContactResult<CharacterCreationContactReceipt> Confirm(
         CharacterCreationContactConfirmRequest request)
+        => Confirm(OwnerScope.LocalSingleUser, request);
+
+    internal CharacterCreationContactResult<CharacterCreationContactReceipt> Confirm(
+        OwnerScope owner, CharacterCreationContactConfirmRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
+        // A linked-store capability withdrawal is an unavailable persistence
+        // boundary, not a change to the user's preview or a reason to fall back.
+        if (!owner.IsLocalSingleUser && !SupportsAtomicCommit(owner))
+            return Blocked<CharacterCreationContactReceipt>(
+                CharacterCreationContactOutcomes.Unavailable,
+                CharacterCreationContactsBlockers.PersistenceAuthorityRequired);
         if (request.Binding is null || request.Edit is null)
         {
             return Blocked<CharacterCreationContactReceipt>(
@@ -105,7 +124,7 @@ public sealed class CharacterCreationContactsService : ICharacterCreationContact
 
         string idempotencyDigest = ComputeIdempotencyDigest(idempotencyKey);
         string commandDigest = ComputeCommandDigest(request);
-        WorkspaceStoreReadResult initialRead = _workspaceStore.Get(request.Binding.WorkspaceId);
+        WorkspaceStoreReadResult initialRead = Read(owner, request.Binding.WorkspaceId);
         if (!initialRead.Success || initialRead.Value is not WorkspaceStoredDocument initialWorkspace)
         {
             return ReadFailure<CharacterCreationContactReceipt>(initialRead);
@@ -126,7 +145,7 @@ public sealed class CharacterCreationContactsService : ICharacterCreationContact
                 CharacterCreationContactsBlockers.ExplicitConfirmationRequired);
         }
 
-        PreviewEvaluation evaluation = EvaluatePreview(
+        PreviewEvaluation evaluation = EvaluatePreview(owner,
             new CharacterCreationContactPreviewRequest(request.Binding, request.Edit));
         if (evaluation.Result.Value is not CharacterCreationContactPreview preview
             || evaluation.Workspace is not WorkspaceStoredDocument workspace
@@ -150,10 +169,7 @@ public sealed class CharacterCreationContactsService : ICharacterCreationContact
                 null,
                 preview.Blockers);
         }
-        if (_workspaceStore is not IWorkspaceAuxiliaryStateAtomicCommitCapability
-            {
-                SupportsWorkspaceAuxiliaryStateAtomicCommit: true
-            } atomicStore)
+        if (!SupportsAtomicCommit(owner))
         {
             return Blocked<CharacterCreationContactReceipt>(
                 CharacterCreationContactOutcomes.Unavailable,
@@ -220,12 +236,17 @@ public sealed class CharacterCreationContactsService : ICharacterCreationContact
             }
         };
 
-        WorkspaceStoreMutationResult committed =
-            atomicStore.ReplaceWorkspaceDocumentAndAuxiliaryStateAndCheckpoint(
+        WorkspaceStoreMutationResult committed = owner.IsLocalSingleUser
+            ? ((IWorkspaceAuxiliaryStateAtomicCommitCapability)_workspaceStore)
+                .ReplaceWorkspaceDocumentAndAuxiliaryStateAndCheckpoint(
                 workspace.Id,
                 workspace.ContentRevision,
                 workspace.Document.AuxiliaryStateDigest,
-                replacement);
+                replacement)
+            : ((IOwnerScopedWorkspaceAuxiliaryStateAtomicCommitCapability)_workspaceStore)
+                .ReplaceWorkspaceDocumentAndAuxiliaryStateAndCheckpoint(owner,
+                    workspace.Id, workspace.ContentRevision, workspace.Document.AuxiliaryStateDigest,
+                    replacement);
         if (committed.Success
             && committed.Entry is WorkspaceStoreEntry entry
             && entry.ContentRevision == nextRevision
@@ -239,7 +260,7 @@ public sealed class CharacterCreationContactsService : ICharacterCreationContact
 
         if (committed.Outcome == WorkspaceOperationOutcome.Conflict)
         {
-            WorkspaceStoreReadResult racedRead = _workspaceStore.Get(workspace.Id);
+            WorkspaceStoreReadResult racedRead = Read(owner, workspace.Id);
             if (racedRead.Success && racedRead.Value is WorkspaceStoredDocument racedWorkspace)
             {
                 CharacterCreationContactResult<CharacterCreationContactReceipt>? racedReplay =
@@ -262,6 +283,10 @@ public sealed class CharacterCreationContactsService : ICharacterCreationContact
 
     public CharacterCreationContactResult<CharacterCreationContactReceipt> LookupReceipt(
         CharacterCreationContactReceiptLookupRequest request)
+        => LookupReceipt(OwnerScope.LocalSingleUser, request);
+
+    internal CharacterCreationContactResult<CharacterCreationContactReceipt> LookupReceipt(
+        OwnerScope owner, CharacterCreationContactReceiptLookupRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
         if (!TryNormalizeIdempotencyKey(request.IdempotencyKey, out string idempotencyKey))
@@ -271,7 +296,7 @@ public sealed class CharacterCreationContactsService : ICharacterCreationContact
                 CharacterCreationContactsBlockers.IdempotencyKeyInvalid);
         }
 
-        WorkspaceStoreReadResult read = _workspaceStore.Get(request.WorkspaceId);
+        WorkspaceStoreReadResult read = Read(owner, request.WorkspaceId);
         if (!read.Success || read.Value is not WorkspaceStoredDocument workspace)
         {
             return ReadFailure<CharacterCreationContactReceipt>(read);
@@ -301,9 +326,9 @@ public sealed class CharacterCreationContactsService : ICharacterCreationContact
                 []);
     }
 
-    private PreviewEvaluation EvaluatePreview(CharacterCreationContactPreviewRequest request)
+    private PreviewEvaluation EvaluatePreview(OwnerScope owner, CharacterCreationContactPreviewRequest request)
     {
-        WorkspaceStoreReadResult read = _workspaceStore.Get(request.Binding.WorkspaceId);
+        WorkspaceStoreReadResult read = Read(owner, request.Binding.WorkspaceId);
         if (!read.Success || read.Value is not WorkspaceStoredDocument workspace)
         {
             return new PreviewEvaluation(
@@ -312,7 +337,7 @@ public sealed class CharacterCreationContactsService : ICharacterCreationContact
                 null);
         }
 
-        AuthorityContext context = BuildContext(workspace);
+        AuthorityContext context = BuildContext(owner, workspace);
         string? bindingBlocker = CompareBinding(context.Binding, request.Binding);
         if (bindingBlocker is not null)
         {
@@ -511,16 +536,23 @@ public sealed class CharacterCreationContactsService : ICharacterCreationContact
             null);
     }
 
-    private AuthorityContext BuildContext(WorkspaceStoredDocument workspace)
+    private WorkspaceStoreReadResult Read(OwnerScope owner, CharacterWorkspaceId id)
+        => owner.IsLocalSingleUser ? _workspaceStore.Get(id) : _workspaceStore.Get(owner, id);
+
+    private bool SupportsAtomicCommit(OwnerScope owner)
+        => owner.IsLocalSingleUser
+            ? _workspaceStore is IWorkspaceAuxiliaryStateAtomicCommitCapability
+                { SupportsWorkspaceAuxiliaryStateAtomicCommit: true }
+            : _workspaceStore is IOwnerScopedWorkspaceAuxiliaryStateAtomicCommitCapability
+                { SupportsOwnerScopedWorkspaceAuxiliaryStateAtomicCommit: true };
+
+    private AuthorityContext BuildContext(OwnerScope owner, WorkspaceStoredDocument workspace)
     {
         var blockers = new List<string>();
         CharacterCreationContactsAuthoritySnapshot authority =
             CharacterCreationContactsAuthorityEvaluator.Evaluate(workspace.Document);
         blockers.AddRange(authority.AuthorityBlockers);
-        if (_workspaceStore is not IWorkspaceAuxiliaryStateAtomicCommitCapability
-            {
-                SupportsWorkspaceAuxiliaryStateAtomicCommit: true
-            })
+        if (!SupportsAtomicCommit(owner))
         {
             blockers.Add(CharacterCreationContactsBlockers.PersistenceAuthorityRequired);
         }

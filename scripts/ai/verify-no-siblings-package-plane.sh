@@ -13,8 +13,8 @@ inventory_name="chummer-owner-contracts.inventory.json"
 candidate_inventory_name="chummer-core-candidate-engine-contract.inventory.json"
 candidate_runtime_inventory_name="chummer-core-candidate-gm-edit-runtime.inventory.json"
 runtime_inventory_name="chummer-core-runtime-packages.inventory.json"
-candidate_version="0.0.0-packageplane.candidate.sh880e5df8ace98"
-runtime_source_commit="880e5df8ace981e9a60264d835329dd32f54a158"
+candidate_version="0.0.0-packageplane.candidate.sh8325f622e1db0"
+runtime_source_commit="8325f622e1db09e5d19bd9d9937be088629e01bb"
 candidate_id="Chummer.Engine.Contracts"
 candidate_runtime_id="Chummer.Engine.GmCharacterEdits"
 candidate_repository="https://github.com/ArchonMegalon/chummer6-core.git"
@@ -482,7 +482,10 @@ EOF
 cat >"$runtime_consumer_root/BoundaryProbe.cs" <<'EOF'
 using System.Reflection;
 using Chummer.Application.Characters;
+using Chummer.Application.Owners;
+using Chummer.Application.Workspaces;
 using Chummer.Contracts.Characters;
+using Chummer.Contracts.Owners;
 using Chummer.Contracts.Workspaces;
 using Chummer.Engine.GmCharacterEdits;
 using Chummer.Infrastructure.Workspaces;
@@ -548,6 +551,32 @@ public static class BoundaryProbe
 
     public static CharacterCreationTalentSkillAccess? TalentAccess(CharacterCreationSkillsAuthority authority)
         => authority.TalentAccess;
+
+    public static IOwnerBoundCharacterCreationBootstrapService OwnerBootstrap(
+        OwnerBoundCharacterCreationBootstrapService service) => service;
+
+    public static CharacterCreationBootstrapActivationAttempt CreateForOriginalOwner(
+        IOwnerBoundCharacterCreationBootstrapService service, OwnerContextStamp originalOwner,
+        CharacterCreationBootstrapRequest request) => service.CreateActivation(originalOwner, request);
+
+    public static IOwnerBoundCharacterCreationContactsService OwnerContacts(
+        OwnerBoundCharacterCreationContactsService service) => service;
+
+    public static CharacterCreationContactResult<CharacterCreationContactReceipt> ConfirmForOriginalOwner(
+        IOwnerBoundCharacterCreationContactsService service, OwnerContextStamp originalOwner,
+        CharacterCreationContactConfirmRequest request) => service.Confirm(originalOwner, request);
+
+    public static OwnerContextStamp CaptureOriginalOwner(IOwnerContextLeaseAccessor authority)
+        => authority.Capture();
+
+    public static CommandResult<IReadOnlyList<WorkspaceStoreEntry>> InspectOriginalPartition(
+        FileWorkspaceStore store, OwnerScope owner) => ((IWorkspaceStoreInventory)store).Inspect(owner);
+
+    public static IOwnerScopedCharacterCreationBootstrapAtomicCreateCapability ScopedBootstrap(
+        FileWorkspaceStore store) => store;
+
+    public static IOwnerScopedWorkspaceAuxiliaryStateAtomicCommitCapability ScopedCommit(
+        FileWorkspaceStore store) => store;
 }
 EOF
 
@@ -622,6 +651,24 @@ dotnet test "$consumer_root/Chummer.Tests/Chummer.Tests.csproj" \
   -m:1 \
   --filter "$local_owner_filter" \
   "${common_properties[@]}"
+
+# Execute the actual owner/store regressions in the same isolated checkout.
+# These are managed source tests, separate from the package-only API probe.
+owner_probe_project="$consumer_root/FocusedTests/CreationOwnerAdmission/CreationOwnerAdmission.FocusedTests.csproj"
+dotnet restore "$owner_probe_project" \
+  --configfile "$nuget_config" --packages "$isolated_packages" --no-cache -m:1 \
+  "${common_properties[@]}"
+for owner_probe in admission scoped inventory; do
+  owner_probe_scoped=false
+  owner_probe_inventory=false
+  [[ "$owner_probe" != scoped ]] || owner_probe_scoped=true
+  [[ "$owner_probe" != inventory ]] || owner_probe_inventory=true
+  dotnet build "$owner_probe_project" --configuration Release --no-restore --nologo -m:1 \
+    -p:RunLegacyProbe=false "-p:RunScopedStoreProbe=$owner_probe_scoped" \
+    "-p:RunInventoryProbe=$owner_probe_inventory" "${common_properties[@]}"
+  dotnet "$consumer_root/FocusedTests/CreationOwnerAdmission/bin/Release/net10.0/CreationOwnerAdmission.FocusedTests.dll" \
+    --core-root "$consumer_root"
+done
 
 # Nothing after this point may alter package bytes. Revalidate all eight exact
 # packages and their unified inventory after every restore/build/test graph.

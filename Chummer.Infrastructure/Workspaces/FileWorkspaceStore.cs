@@ -16,6 +16,7 @@ namespace Chummer.Infrastructure.Workspaces;
 
 public sealed partial class FileWorkspaceStore :
     IWorkspaceStore,
+    IWorkspaceStoreInventory,
     IWorkspaceStoreReadinessProbe,
     IWorkspaceAuxiliaryStateAtomicCommitCapability,
     ICharacterCreationBootstrapAtomicCreateCapability,

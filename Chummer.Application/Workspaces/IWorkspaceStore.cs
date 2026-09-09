@@ -85,6 +85,53 @@ public interface ICharacterCreationBootstrapAtomicCreateCapability
         WorkspaceDocument document);
 }
 
+/// <summary>
+/// Explicit linked-owner atomic creation capability. A trusted-local capability
+/// does not imply this capability; callers must not fall back to local creation.
+/// </summary>
+public interface IOwnerScopedCharacterCreationBootstrapAtomicCreateCapability
+{
+    bool SupportsOwnerScopedCharacterCreationBootstrapAtomicCreate => false;
+
+    WorkspaceStoreMutationResult CreateCharacterCreationBootstrapWorkspaceDocument(
+        OwnerScope owner,
+        CharacterWorkspaceId id,
+        WorkspaceDocument document)
+        => new(WorkspaceOperationOutcome.Unavailable,
+            Error: "Owner-scoped creation bootstrap is unavailable.");
+}
+
+/// <summary>
+/// Explicit linked-owner auxiliary-state CAS and checkpoint capability. Both
+/// comparisons and the checkpoint must occur in one durable store transaction.
+/// It is not an authorization grant or a generic auxiliary-state write API.
+/// </summary>
+public interface IOwnerScopedWorkspaceAuxiliaryStateAtomicCommitCapability
+{
+    bool SupportsOwnerScopedWorkspaceAuxiliaryStateAtomicCommit => false;
+
+    WorkspaceStoreMutationResult ReplaceWorkspaceDocumentAndAuxiliaryStateAndCheckpoint(
+        OwnerScope owner,
+        CharacterWorkspaceId id,
+        long expectedContentRevision,
+        string expectedAuxiliaryStateDigest,
+        WorkspaceDocument document)
+        => new(WorkspaceOperationOutcome.Unavailable,
+            Error: "Owner-scoped auxiliary-state commit is unavailable.");
+}
+
+/// <summary>
+/// Explicit complete inventory for cleanup/recovery decisions. Unlike the
+/// display roster, an unreadable member must produce a failed result, not be
+/// silently omitted. The returned entries are observations, not deletion grants.
+/// </summary>
+public interface IWorkspaceStoreInventory
+{
+    CommandResult<IReadOnlyList<WorkspaceStoreEntry>> Inspect();
+
+    CommandResult<IReadOnlyList<WorkspaceStoreEntry>> Inspect(OwnerScope owner);
+}
+
 public interface IWorkspaceStore
 {
     WorkspaceStoreMutationResult CreateWorkspaceDocument(WorkspaceDocument document);

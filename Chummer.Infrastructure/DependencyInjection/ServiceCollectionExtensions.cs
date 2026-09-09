@@ -190,6 +190,8 @@ public static class ServiceCollectionExtensions
             provider.GetRequiredService<CharacterCreationBootstrapService>());
         services.AddSingleton<ICharacterCreationBootstrapActivationService>(provider =>
             provider.GetRequiredService<CharacterCreationBootstrapService>());
+        services.AddSingleton<IOwnerBoundCharacterCreationBootstrapService,
+            OwnerBoundCharacterCreationBootstrapService>();
         services.AddSingleton<ICharacterCreationFoundationService,
             CharacterCreationFoundationService>();
         services.AddSingleton<ICharacterCreationPrerequisiteService,
@@ -202,8 +204,11 @@ public static class ServiceCollectionExtensions
             CharacterCreationQualitiesService>();
         services.AddSingleton<ICharacterCreationMagicResonanceService,
             CharacterCreationMagicResonanceService>();
-        services.AddSingleton<ICharacterCreationContactsService,
-            CharacterCreationContactsService>();
+        services.AddSingleton<CharacterCreationContactsService>();
+        services.AddSingleton<ICharacterCreationContactsService>(provider =>
+            provider.GetRequiredService<CharacterCreationContactsService>());
+        services.AddSingleton<IOwnerBoundCharacterCreationContactsService,
+            OwnerBoundCharacterCreationContactsService>();
         services.AddSingleton<ICharacterCreationLifestylesService,
             CharacterCreationLifestylesService>();
         services.AddSingleton<ICharacterCreationResourcesService,
