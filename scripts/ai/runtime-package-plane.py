@@ -34,9 +34,9 @@ INVENTORY_NAME = "chummer-core-runtime-packages.inventory.json"
 OWNER_INVENTORY_NAME = "chummer-owner-contracts.inventory.json"
 CANDIDATE_ENGINE_INVENTORY_NAME = "chummer-core-candidate-engine-contract.inventory.json"
 CANDIDATE_GM_INVENTORY_NAME = "chummer-core-candidate-gm-edit-runtime.inventory.json"
-PACKAGE_VERSION = "0.0.0-packageplane.candidate.sh8325f622e1db0"
+PACKAGE_VERSION = "0.0.0-packageplane.candidate.shf7500ef8c2f59"
 SOURCE_REPOSITORY = "https://github.com/ArchonMegalon/chummer6-core.git"
-SOURCE_COMMIT = "8325f622e1db09e5d19bd9d9937be088629e01bb"
+SOURCE_COMMIT = "f7500ef8c2f597bac67bc3f53620d50b7a17d00a"
 SDK_VERSION = "10.0.103"
 SDK_RID = "linux-x64"
 SDK_ARCHIVE_URL = (
@@ -311,6 +311,50 @@ OWNER_ADMISSION_AUTHORITY_PATHS = (
     "FocusedTests/CreationOwnerAdmission/ScopedStoreProbe.cs",
     "FocusedTests/CreationOwnerAdmission/InventoryProbe.cs",
     "FocusedTests/CreationLegacyRegression/CreationLegacyRegression.FocusedTests.csproj",
+)
+
+
+WORKSPACE_CONTINUATION_AUTHORITY_PATHS = (
+    "Chummer.Application/Workspaces/IWorkspaceContinuationReadCapability.cs",
+    "Chummer.Application/Workspaces/IWorkspaceContinuationRestoreCapability.cs",
+    "Chummer.Application/Workspaces/WorkspaceAuxiliaryStateIntegrity.cs",
+    "Chummer.Application/Workspaces/WorkspaceContinuationCandidateEvaluator.cs",
+    "Chummer.Application/Workspaces/WorkspaceContinuationExportService.cs",
+    "Chummer.Application/Workspaces/WorkspaceContinuationHistoryIntegrity.cs",
+    "Chummer.Application/Workspaces/WorkspaceContinuationReadView.cs",
+    "Chummer.Application/Workspaces/WorkspaceContinuationReceiptConsistency.cs",
+    "Chummer.Application/Workspaces/WorkspaceContinuationRestoreService.cs",
+    "Chummer.Application/Workspaces/WorkspaceContinuationSourceCapture.cs",
+    "Chummer.Application/Workspaces/WorkspaceLocalHistory.cs",
+    "Chummer.Contracts/Workspaces/WorkspaceContinuationCodec.cs",
+    "Chummer.Contracts/Workspaces/WorkspaceContinuationRestoreContracts.cs",
+    "Chummer.Contracts/Workspaces/WorkspaceContinuationSnapshot.cs",
+    "Chummer.Infrastructure/Workspaces/FileWorkspaceStore.Continuation.cs",
+    "Chummer.Infrastructure/Workspaces/FileWorkspaceStore.ContinuationRestore.cs",
+    "Chummer.Infrastructure/Workspaces/FileWorkspaceStore.ContinuationSlot.cs",
+    "Chummer.Tests/WorkspaceContinuationCandidateEvaluatorTests.cs",
+    "Chummer.Tests/WorkspaceContinuationCodecTests.cs",
+    "Chummer.Tests/WorkspaceContinuationCurrentDomainTests.cs",
+    "Chummer.Tests/WorkspaceContinuationDraftValidationTests.cs",
+    "Chummer.Tests/WorkspaceContinuationExportTests.cs",
+    "Chummer.Tests/WorkspaceContinuationGmSegmentationTests.cs",
+    "Chummer.Tests/WorkspaceContinuationHistoryIntegrityTests.cs",
+    "Chummer.Tests/WorkspaceContinuationHistoryReviewTests.cs",
+    "Chummer.Tests/WorkspaceContinuationReadIntegrityTests.cs",
+    "Chummer.Tests/WorkspaceContinuationReadViewTests.cs",
+    "Chummer.Tests/WorkspaceContinuationRestoreCapacityTests.cs",
+    "Chummer.Tests/WorkspaceContinuationRestoreLifetimeTests.cs",
+    "Chummer.Tests/WorkspaceContinuationRestoreTests.cs",
+    "Chummer.Tests/WorkspaceContinuationSnapshotDigestTests.cs",
+    "Chummer.Tests/WorkspaceContinuationSourceCaptureTests.cs",
+    "Chummer.Tests/WorkspaceImportedDraftReplayTests.cs",
+    "Chummer.Tests/WorkspaceImportedHistoryTestFixture.cs",
+    "Chummer.Tests/WorkspaceImportedWizardReplayTests.cs",
+    "Chummer.Tests/WorkspaceLocalHistoryStoreTests.cs",
+    "Chummer.Tests/Chummer.CreationHistory.Tests.csproj",
+    "Chummer.Infrastructure/DependencyInjection/ServiceCollectionExtensions.cs",
+    "Chummer.Application/Workspaces/DelegatedGmCharacterEditLedgerValidator.cs",
+    "Chummer.Infrastructure/Xml/CharacterFileService.cs",
 )
 
 
@@ -745,7 +789,8 @@ def validate_repository(repo_root: Path, lock: dict[str, Any]) -> None:
     for member in AFTER_RUN_REWARD_AUTHORITY_PATHS:
         _run(("git", "cat-file", "-e", f"{SOURCE_COMMIT}:{member}"), cwd=repo_root)
     for member in (*CREATION_SKILLS_REVIEW_AUTHORITY_PATHS,
-                   *CAREER_REPUTATION_AUTHORITY_PATHS, *OWNER_ADMISSION_AUTHORITY_PATHS):
+                   *CAREER_REPUTATION_AUTHORITY_PATHS, *OWNER_ADMISSION_AUTHORITY_PATHS,
+                   *WORKSPACE_CONTINUATION_AUTHORITY_PATHS):
         _run(("git", "cat-file", "-e", f"{SOURCE_COMMIT}:{member}"), cwd=repo_root)
 
     changed = _run(

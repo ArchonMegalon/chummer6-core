@@ -54,8 +54,8 @@ class RuntimePackageLockTests(unittest.TestCase):
         )
 
     def test_next_wave_candidate_is_bound_to_locally_validated_semantic_commit(self) -> None:
-        self.assertEqual("8325f622e1db09e5d19bd9d9937be088629e01bb", runtime.SOURCE_COMMIT)
-        self.assertEqual("0.0.0-packageplane.candidate.sh8325f622e1db0", runtime.PACKAGE_VERSION)
+        self.assertEqual("f7500ef8c2f597bac67bc3f53620d50b7a17d00a", runtime.SOURCE_COMMIT)
+        self.assertEqual("0.0.0-packageplane.candidate.shf7500ef8c2f59", runtime.PACKAGE_VERSION)
 
     def test_owner_admission_and_strict_inventory_are_bound_to_semantic_source(self) -> None:
         self.assertEqual(22, len(runtime.OWNER_ADMISSION_AUTHORITY_PATHS))
@@ -63,6 +63,27 @@ class RuntimePackageLockTests(unittest.TestCase):
         for member in runtime.OWNER_ADMISSION_AUTHORITY_PATHS:
             with self.subTest(member=member):
                 runtime._run(("git", "cat-file", "-e", f"{runtime.SOURCE_COMMIT}:{member}"), cwd=REPO_ROOT)
+
+    def test_complete_continuation_members_are_bound_to_semantic_source(self) -> None:
+        self.assertEqual(40, len(runtime.WORKSPACE_CONTINUATION_AUTHORITY_PATHS))
+        self.assertEqual(40, len(set(runtime.WORKSPACE_CONTINUATION_AUTHORITY_PATHS)))
+        for member in runtime.WORKSPACE_CONTINUATION_AUTHORITY_PATHS:
+            with self.subTest(member=member):
+                runtime._run(("git", "cat-file", "-e", f"{runtime.SOURCE_COMMIT}:{member}"), cwd=REPO_ROOT)
+
+    def test_isolated_consumer_compiles_and_executes_complete_continuation_boundaries(self) -> None:
+        script = (REPO_ROOT / "scripts/ai/verify-no-siblings-package-plane.sh").read_text(encoding="utf-8")
+        probe = script.split('cat >"$runtime_consumer_root/BoundaryProbe.cs" <<\'EOF\'\n', 1)[1].split('\nEOF', 1)[0]
+        for member in ("WorkspaceContinuationExportService", "WorkspaceContinuationCodec.Encode",
+                       "WorkspaceContinuationRestoreService", "WorkspaceContinuationRestoreReview",
+                       "service.Review(originalOwner, candidate)",
+                       "service.Confirm(review, explicitlyConfirmed, cancellationToken)",
+                       "service.Recover(originalOwner, workspaceId, operationId, admissionDigest)",
+                       "IWorkspaceContinuationReadCapability", "IWorkspaceContinuationRestoreCapability"):
+            with self.subTest(member=member):
+                self.assertIn(member, probe)
+        for name in ("WorkspaceContinuation", "WorkspaceImported", "WorkspaceLocalHistoryStoreTests"):
+            self.assertIn(f"FullyQualifiedName~{name}", script)
 
     def test_isolated_lane_executes_owner_and_inventory_probes(self) -> None:
         script = (REPO_ROOT / "scripts/ai/verify-no-siblings-package-plane.sh").read_text(encoding="utf-8")
@@ -143,7 +164,8 @@ class RuntimePackageLockTests(unittest.TestCase):
         for member in (*runtime.CREATION_FINALIZATION_AUTHORITY_PATHS,
                        *runtime.AFTER_RUN_REWARD_AUTHORITY_PATHS,
                        *runtime.CREATION_SKILLS_REVIEW_AUTHORITY_PATHS,
-                       *runtime.CAREER_REPUTATION_AUTHORITY_PATHS):
+                       *runtime.CAREER_REPUTATION_AUTHORITY_PATHS,
+                       *runtime.WORKSPACE_CONTINUATION_AUTHORITY_PATHS):
             def missing_member(command, *, cwd):
                 if tuple(command) == ("git", "cat-file", "-e", f"{runtime.SOURCE_COMMIT}:{member}"):
                     raise runtime.RuntimePackagePlaneError("missing anchored semantic member")
@@ -158,7 +180,8 @@ class RuntimePackageLockTests(unittest.TestCase):
         for member in (*runtime.CREATION_FINALIZATION_AUTHORITY_PATHS,
                        *runtime.AFTER_RUN_REWARD_AUTHORITY_PATHS,
                        *runtime.CREATION_SKILLS_REVIEW_AUTHORITY_PATHS,
-                       *runtime.CAREER_REPUTATION_AUTHORITY_PATHS):
+                       *runtime.CAREER_REPUTATION_AUTHORITY_PATHS,
+                       *runtime.WORKSPACE_CONTINUATION_AUTHORITY_PATHS):
             def semantic_drift(command, *, cwd):
                 if tuple(command) == ("git", "diff", "--name-only", runtime.SOURCE_COMMIT):
                     return "\n".join((*runtime.ALLOWED_RECIPE_DELTA, member))

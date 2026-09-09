@@ -13,8 +13,8 @@ inventory_name="chummer-owner-contracts.inventory.json"
 candidate_inventory_name="chummer-core-candidate-engine-contract.inventory.json"
 candidate_runtime_inventory_name="chummer-core-candidate-gm-edit-runtime.inventory.json"
 runtime_inventory_name="chummer-core-runtime-packages.inventory.json"
-candidate_version="0.0.0-packageplane.candidate.sh8325f622e1db0"
-runtime_source_commit="8325f622e1db09e5d19bd9d9937be088629e01bb"
+candidate_version="0.0.0-packageplane.candidate.shf7500ef8c2f59"
+runtime_source_commit="f7500ef8c2f597bac67bc3f53620d50b7a17d00a"
 candidate_id="Chummer.Engine.Contracts"
 candidate_runtime_id="Chummer.Engine.GmCharacterEdits"
 candidate_repository="https://github.com/ArchonMegalon/chummer6-core.git"
@@ -577,6 +577,33 @@ public static class BoundaryProbe
 
     public static IOwnerScopedWorkspaceAuxiliaryStateAtomicCommitCapability ScopedCommit(
         FileWorkspaceStore store) => store;
+
+    // Full continuation is a reviewed Core transaction, not XML import or a
+    // caller-supplied replacement. Compile its actual exported package seam.
+    public static CommandResult<WorkspaceContinuationExport> ExportContinuation(
+        WorkspaceContinuationExportService service, OwnerContextStamp originalOwner,
+        CharacterWorkspaceId workspaceId) => service.Export(originalOwner, workspaceId);
+
+    public static byte[] EncodeContinuation(WorkspaceContinuationExport continuation, int maximumBytes)
+        => WorkspaceContinuationCodec.Encode(continuation, maximumBytes);
+
+    public static WorkspaceContinuationRestoreReview ReviewContinuation(
+        WorkspaceContinuationRestoreService service, OwnerContextStamp originalOwner,
+        ReadOnlyMemory<byte> candidate) => service.Review(originalOwner, candidate);
+
+    public static WorkspaceContinuationRestoreResult ConfirmContinuation(
+        WorkspaceContinuationRestoreService service, WorkspaceContinuationRestoreReview review,
+        bool explicitlyConfirmed, CancellationToken cancellationToken)
+        => service.Confirm(review, explicitlyConfirmed, cancellationToken);
+
+    public static WorkspaceContinuationRestoreResult RecoverContinuation(
+        WorkspaceContinuationRestoreService service, OwnerContextStamp originalOwner,
+        CharacterWorkspaceId workspaceId, Guid operationId, string admissionDigest)
+        => service.Recover(originalOwner, workspaceId, operationId, admissionDigest);
+
+    public static IWorkspaceContinuationReadCapability ContinuationRead(FileWorkspaceStore store) => store;
+
+    public static IWorkspaceContinuationRestoreCapability ContinuationRestore(FileWorkspaceStore store) => store;
 }
 EOF
 
@@ -649,7 +676,7 @@ dotnet test "$consumer_root/Chummer.Tests/Chummer.Tests.csproj" \
   --no-restore \
   --nologo \
   -m:1 \
-  --filter "$local_owner_filter" \
+  --filter "$local_owner_filter|FullyQualifiedName~WorkspaceContinuation|FullyQualifiedName~WorkspaceImported|FullyQualifiedName~WorkspaceLocalHistoryStoreTests" \
   "${common_properties[@]}"
 
 # Execute the actual owner/store regressions in the same isolated checkout.
