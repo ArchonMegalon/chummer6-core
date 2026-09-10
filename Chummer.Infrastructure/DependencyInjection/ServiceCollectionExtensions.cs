@@ -218,6 +218,8 @@ public static class ServiceCollectionExtensions
             CharacterCreationGearService>();
         services.AddSingleton<ICharacterCreationFinalizationService,
             CharacterCreationFinalizationService>();
+        services.AddSingleton<IOwnerBoundCharacterCreationFinalizationService,
+            OwnerBoundCharacterCreationFinalizationService>();
         services.TryAddSingleton<ICharacterCareerSkillGroupAdvanceWorkspace,
             UnavailableCharacterCareerSkillGroupAdvanceWorkspace>();
         services.TryAddSingleton<ICharacterCareerSkillGroupAdvanceService,
