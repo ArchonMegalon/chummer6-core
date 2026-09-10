@@ -34,9 +34,9 @@ INVENTORY_NAME = "chummer-core-runtime-packages.inventory.json"
 OWNER_INVENTORY_NAME = "chummer-owner-contracts.inventory.json"
 CANDIDATE_ENGINE_INVENTORY_NAME = "chummer-core-candidate-engine-contract.inventory.json"
 CANDIDATE_GM_INVENTORY_NAME = "chummer-core-candidate-gm-edit-runtime.inventory.json"
-PACKAGE_VERSION = "0.0.0-packageplane.candidate.shf7500ef8c2f59"
+PACKAGE_VERSION = "0.0.0-packageplane.candidate.shb32ee7d37b539"
 SOURCE_REPOSITORY = "https://github.com/ArchonMegalon/chummer6-core.git"
-SOURCE_COMMIT = "f7500ef8c2f597bac67bc3f53620d50b7a17d00a"
+SOURCE_COMMIT = "b32ee7d37b539cf21a51e9220ff76bffe37a67a4"
 SDK_VERSION = "10.0.103"
 SDK_RID = "linux-x64"
 SDK_ARCHIVE_URL = (
@@ -244,8 +244,11 @@ CREATION_SOURCE_INPUT_AUTHORITY_PATHS = (
 )
 CREATION_FINALIZATION_AUTHORITY_PATHS = (
     "Chummer.Application/Characters/CharacterCreationFinalizationProjector.cs",
+    "Chummer.Application/Characters/IOwnerBoundCharacterCreationFinalizationService.cs",
+    "Chummer.Application/Characters/OwnerBoundCharacterCreationFinalizationService.cs",
     "Chummer.Contracts/Characters/CharacterCreationFinalizationModels.cs",
     "Chummer.Tests/CharacterCreationFinalizationServiceTests.cs",
+    "Chummer.Tests/OwnerBoundCharacterCreationFinalizationServiceTests.cs",
     "Chummer.Tests/Chummer.CreationFinalization.Tests.csproj",
 )
 AFTER_RUN_REWARD_AUTHORITY_PATHS = (

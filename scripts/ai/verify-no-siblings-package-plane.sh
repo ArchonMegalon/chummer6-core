@@ -13,8 +13,8 @@ inventory_name="chummer-owner-contracts.inventory.json"
 candidate_inventory_name="chummer-core-candidate-engine-contract.inventory.json"
 candidate_runtime_inventory_name="chummer-core-candidate-gm-edit-runtime.inventory.json"
 runtime_inventory_name="chummer-core-runtime-packages.inventory.json"
-candidate_version="0.0.0-packageplane.candidate.shf7500ef8c2f59"
-runtime_source_commit="f7500ef8c2f597bac67bc3f53620d50b7a17d00a"
+candidate_version="0.0.0-packageplane.candidate.shb32ee7d37b539"
+runtime_source_commit="b32ee7d37b539cf21a51e9220ff76bffe37a67a4"
 candidate_id="Chummer.Engine.Contracts"
 candidate_runtime_id="Chummer.Engine.GmCharacterEdits"
 candidate_repository="https://github.com/ArchonMegalon/chummer6-core.git"
@@ -566,6 +566,27 @@ public static class BoundaryProbe
         IOwnerBoundCharacterCreationContactsService service, OwnerContextStamp originalOwner,
         CharacterCreationContactConfirmRequest request) => service.Confirm(originalOwner, request);
 
+    // Compile every owner-bound whole-build operation from the exported package.
+    // This is API compatibility, not a successful finalization or device proof.
+    public static IOwnerBoundCharacterCreationFinalizationService OwnerFinalization(
+        OwnerBoundCharacterCreationFinalizationService service) => service;
+
+    public static CharacterCreationFinalizationResult<CharacterCreationFinalizationState> LoadFinalization(
+        IOwnerBoundCharacterCreationFinalizationService service, OwnerContextStamp originalOwner,
+        CharacterCreationFinalizationLoadRequest request) => service.Load(originalOwner, request);
+
+    public static CharacterCreationFinalizationResult<CharacterCreationFinalizationReview> ReviewFinalization(
+        IOwnerBoundCharacterCreationFinalizationService service, OwnerContextStamp originalOwner,
+        CharacterCreationFinalizationReviewRequest request) => service.Review(originalOwner, request);
+
+    public static CharacterCreationFinalizationResult<CharacterCreationFinalizationReceipt> ConfirmFinalization(
+        IOwnerBoundCharacterCreationFinalizationService service, OwnerContextStamp originalOwner,
+        CharacterCreationFinalizationConfirmRequest request) => service.Confirm(originalOwner, request);
+
+    public static CharacterCreationFinalizationResult<CharacterCreationFinalizationReceipt> LookupFinalizationReceipt(
+        IOwnerBoundCharacterCreationFinalizationService service, OwnerContextStamp originalOwner,
+        CharacterCreationFinalizationReceiptLookupRequest request) => service.LookupReceipt(originalOwner, request);
+
     public static OwnerContextStamp CaptureOriginalOwner(IOwnerContextLeaseAccessor authority)
         => authority.Capture();
 
@@ -670,13 +691,14 @@ dotnet restore "$consumer_root/Chummer.Tests/Chummer.Tests.csproj" \
   "${common_properties[@]}"
 
 local_owner_filter='FullyQualifiedName~Import_with_local_single_user_scope_routes_through_the_unscoped_store_lane|FullyQualifiedName~Import_with_blank_owner_scope_remains_rejected|FullyQualifiedName~Raw_local_single_user_owner_value_cannot_enter_the_trusted_local_lane|FullyQualifiedName~Import_with_named_owner_scopes_keeps_two_owner_and_local_lanes_isolated|FullyQualifiedName~Workspace_service_owner_scoped_sentinels_cannot_reach_local_state'
+finalization_filter='FullyQualifiedName~CharacterCreationFinalizationServiceTests|FullyQualifiedName~OwnerBoundCharacterCreationFinalizationServiceTests'
 dotnet test "$consumer_root/Chummer.Tests/Chummer.Tests.csproj" \
   --configuration Release \
   --framework net10.0 \
   --no-restore \
   --nologo \
   -m:1 \
-  --filter "$local_owner_filter|FullyQualifiedName~WorkspaceContinuation|FullyQualifiedName~WorkspaceImported|FullyQualifiedName~WorkspaceLocalHistoryStoreTests" \
+  --filter "$local_owner_filter|$finalization_filter|FullyQualifiedName~WorkspaceContinuation|FullyQualifiedName~WorkspaceImported|FullyQualifiedName~WorkspaceLocalHistoryStoreTests" \
   "${common_properties[@]}"
 
 # Execute the actual owner/store regressions in the same isolated checkout.

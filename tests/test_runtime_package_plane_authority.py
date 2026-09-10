@@ -54,8 +54,18 @@ class RuntimePackageLockTests(unittest.TestCase):
         )
 
     def test_next_wave_candidate_is_bound_to_locally_validated_semantic_commit(self) -> None:
-        self.assertEqual("f7500ef8c2f597bac67bc3f53620d50b7a17d00a", runtime.SOURCE_COMMIT)
-        self.assertEqual("0.0.0-packageplane.candidate.shf7500ef8c2f59", runtime.PACKAGE_VERSION)
+        self.assertEqual("b32ee7d37b539cf21a51e9220ff76bffe37a67a4", runtime.SOURCE_COMMIT)
+        self.assertEqual("0.0.0-packageplane.candidate.shb32ee7d37b539", runtime.PACKAGE_VERSION)
+
+    def test_previous_runtime_authority_cannot_stand_in_for_owner_finalization(self) -> None:
+        for stale in ("source", "version"):
+            altered = copy.deepcopy(self.lock)
+            if stale == "source":
+                altered["runtime_source"]["commit"] = "f7500ef8c2f597bac67bc3f53620d50b7a17d00a"
+            else:
+                altered["package_version"] = "0.0.0-packageplane.candidate.shf7500ef8c2f59"
+            with self.subTest(stale=stale), self.assertRaises(runtime.RuntimePackagePlaneError):
+                runtime.validate_lock_payload(altered)
 
     def test_owner_admission_and_strict_inventory_are_bound_to_semantic_source(self) -> None:
         self.assertEqual(22, len(runtime.OWNER_ADMISSION_AUTHORITY_PATHS))
@@ -132,16 +142,43 @@ class RuntimePackageLockTests(unittest.TestCase):
                 self.assertIn(member, probe)
 
     def test_finalization_members_are_bound_to_runtime_source(self) -> None:
-        self.assertEqual(4, len(runtime.CREATION_FINALIZATION_AUTHORITY_PATHS))
-        self.assertEqual(4, len(set(runtime.CREATION_FINALIZATION_AUTHORITY_PATHS)))
-        self.assertIn("Chummer.Tests/Chummer.CreationFinalization.Tests.csproj",
-                      runtime.CREATION_FINALIZATION_AUTHORITY_PATHS)
+        self.assertEqual((
+            "Chummer.Application/Characters/CharacterCreationFinalizationProjector.cs",
+            "Chummer.Application/Characters/IOwnerBoundCharacterCreationFinalizationService.cs",
+            "Chummer.Application/Characters/OwnerBoundCharacterCreationFinalizationService.cs",
+            "Chummer.Contracts/Characters/CharacterCreationFinalizationModels.cs",
+            "Chummer.Tests/CharacterCreationFinalizationServiceTests.cs",
+            "Chummer.Tests/OwnerBoundCharacterCreationFinalizationServiceTests.cs",
+            "Chummer.Tests/Chummer.CreationFinalization.Tests.csproj",
+        ), runtime.CREATION_FINALIZATION_AUTHORITY_PATHS)
+        self.assertEqual(7, len(set(runtime.CREATION_FINALIZATION_AUTHORITY_PATHS)))
         for member in runtime.CREATION_FINALIZATION_AUTHORITY_PATHS:
             with self.subTest(member=member):
                 runtime._run(
                     ("git", "cat-file", "-e", f"{runtime.SOURCE_COMMIT}:{member}"),
                     cwd=REPO_ROOT,
                 )
+
+    def test_isolated_lane_compiles_all_owner_finalization_operations_and_runs_real_tests(self) -> None:
+        script = (REPO_ROOT / "scripts/ai/verify-no-siblings-package-plane.sh").read_text(encoding="utf-8")
+        probe = script.split('cat >"$runtime_consumer_root/BoundaryProbe.cs" <<\'EOF\'\n', 1)[1].split('\nEOF', 1)[0]
+        self.assertIn("IOwnerBoundCharacterCreationFinalizationService OwnerFinalization(\n"
+                      "        OwnerBoundCharacterCreationFinalizationService service) => service;", probe)
+        for request, operation in (("Load", "Load"), ("Review", "Review"),
+                                   ("Confirm", "Confirm"), ("ReceiptLookup", "LookupReceipt")):
+            with self.subTest(operation=operation):
+                self.assertIn(
+                    "IOwnerBoundCharacterCreationFinalizationService service, OwnerContextStamp originalOwner,\n"
+                    f"        CharacterCreationFinalization{request}Request request) "
+                    f"=> service.{operation}(originalOwner, request);", probe)
+        self.assertIn("finalization_filter='FullyQualifiedName~CharacterCreationFinalizationServiceTests|"
+                      "FullyQualifiedName~OwnerBoundCharacterCreationFinalizationServiceTests'", script)
+        isolated_test = script.split('dotnet test "$consumer_root/Chummer.Tests/Chummer.Tests.csproj"', 1)[1]
+        isolated_test = isolated_test.split("# Execute the actual owner/store regressions", 1)[0]
+        self.assertIn('--filter "$local_owner_filter|$finalization_filter|', isolated_test)
+        self.assertNotIn("--no-build", isolated_test)
+        project = runtime._run(("git", "show", f"{runtime.SOURCE_COMMIT}:Chummer.Tests/Chummer.CreationFinalization.Tests.csproj"), cwd=REPO_ROOT)
+        self.assertIn('<Compile Include="OwnerBoundCharacterCreationFinalizationServiceTests.cs" />', project)
 
     def test_after_run_reward_members_are_bound_to_runtime_source(self) -> None:
         self.assertEqual(11, len(runtime.AFTER_RUN_REWARD_AUTHORITY_PATHS))
