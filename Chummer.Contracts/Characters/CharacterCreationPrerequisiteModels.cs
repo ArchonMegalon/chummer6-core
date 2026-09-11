@@ -2,6 +2,8 @@ using System.Buffers;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
+using System.Text.Json.Serialization.Metadata;
 using Chummer.Contracts.Workspaces;
 
 namespace Chummer.Contracts.Characters;
@@ -416,10 +418,19 @@ public sealed record CharacterCreationPrerequisiteAuthority(
 public static class CharacterCreationPrerequisiteAuthorityDigest
 {
     private const string Prefix = "sha256:";
+    private static readonly JsonSerializerOptions? CanonicalOptions =
+        TryCreateCanonicalOptions(typeof(CharacterCreationPrerequisiteAuthority));
 
     public static string Compute(CharacterCreationPrerequisiteAuthority authority)
     {
         ArgumentNullException.ThrowIfNull(authority);
+        if (CanonicalOptions is not null)
+        {
+            byte[] bytes = JsonSerializer.SerializeToUtf8Bytes(
+                authority with { AuthorityDigest = string.Empty }, CanonicalOptions);
+            return Prefix + Convert.ToHexStringLower(SHA256.HashData(bytes));
+        }
+
         JsonElement root = JsonSerializer.SerializeToElement(
             authority with { AuthorityDigest = string.Empty });
         ArrayBufferWriter<byte> buffer = new();
@@ -428,6 +439,73 @@ public static class CharacterCreationPrerequisiteAuthorityDigest
             WriteCanonical(root, writer);
         }
         return Prefix + Convert.ToHexStringLower(SHA256.HashData(buffer.WrittenSpan));
+    }
+
+    private static JsonSerializerOptions? TryCreateCanonicalOptions(Type rootType)
+    {
+        // Only metadata is retained, never an authority or its digest. If the
+        // declared graph grows beyond this closed shape, keep the original
+        // DOM/writer path rather than assuming a converter emits canonical JSON.
+        var resolver = new DefaultJsonTypeInfoResolver();
+        resolver.Modifiers.Add(info =>
+        {
+            if (info.Kind != JsonTypeInfoKind.Object)
+                return;
+            int order = 0;
+            foreach (JsonPropertyInfo property in info.Properties.OrderBy(
+                         property => property.Name, StringComparer.Ordinal))
+                property.Order = order++;
+        });
+        var options = new JsonSerializerOptions { TypeInfoResolver = resolver };
+        options.MakeReadOnly();
+        try
+        {
+            return IsCanonicalGraph(rootType, options, []) ? options : null;
+        }
+        catch (Exception exception) when (exception is NotSupportedException or InvalidOperationException)
+        {
+            // Unsupported/invalid future metadata is still handled by the
+            // unchanged serializer and canonical writer at the call boundary.
+            return null;
+        }
+    }
+
+    private static bool IsCanonicalGraph(
+        Type type,
+        JsonSerializerOptions options,
+        HashSet<Type> visited)
+    {
+        if (!visited.Add(type))
+            return true;
+        if (type.IsDefined(typeof(JsonConverterAttribute), inherit: true))
+            return false;
+        JsonTypeInfo info = options.GetTypeInfo(type);
+        if (info.Converter.GetType().Assembly != typeof(JsonSerializer).Assembly
+            || info.PolymorphismOptions is not null
+            || info.NumberHandling is not (null or JsonNumberHandling.Strict)
+            || info.OnSerializing is not null || info.OnSerialized is not null)
+            return false;
+
+        if (type == typeof(string) || type == typeof(int)
+            || type == typeof(bool) || type == typeof(decimal))
+            return info.Kind == JsonTypeInfoKind.None;
+        if (Nullable.GetUnderlyingType(type) is Type underlying)
+            return info.Kind == JsonTypeInfoKind.None
+                   && IsCanonicalGraph(underlying, options, visited);
+        if (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(IReadOnlyList<>))
+            return info.Kind == JsonTypeInfoKind.Enumerable
+                   && IsCanonicalGraph(type.GetGenericArguments()[0], options, visited);
+
+        if (!type.IsClass || !type.IsSealed || info.Kind != JsonTypeInfoKind.Object)
+            return false;
+        foreach (JsonPropertyInfo property in info.Properties)
+        {
+            if (property.IsExtensionData || property.CustomConverter is not null
+                || property.NumberHandling is not (null or JsonNumberHandling.Strict)
+                || !IsCanonicalGraph(property.PropertyType, options, visited))
+                return false;
+        }
+        return true;
     }
 
     public static bool IsCanonical(string? digest)
