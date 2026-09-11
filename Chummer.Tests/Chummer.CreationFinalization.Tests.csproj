@@ -11,6 +11,8 @@
   <ItemGroup>
     <Compile Include="CharacterCreationFinalizationServiceTests.cs" />
     <Compile Include="OwnerBoundCharacterCreationFinalizationServiceTests.cs" />
+    <Compile Include="OwnerBoundCharacterCreationPrerequisiteServiceTests.cs" />
+    <Compile Include="CharacterCreationPrerequisiteServiceTests.cs" />
     <ProjectReference Include="../Chummer.Application/Chummer.Application.csproj" />
     <ProjectReference Include="../Chummer.Contracts/Chummer.Contracts.csproj" />
     <ProjectReference Include="../Chummer.Infrastructure/Chummer.Infrastructure.csproj" />

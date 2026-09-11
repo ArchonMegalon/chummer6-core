@@ -197,6 +197,8 @@ public static class ServiceCollectionExtensions
             CharacterCreationFoundationService>();
         services.AddSingleton<ICharacterCreationPrerequisiteService,
             CharacterCreationPrerequisiteService>();
+        services.AddSingleton<IOwnerBoundCharacterCreationPrerequisiteService,
+            OwnerBoundCharacterCreationPrerequisiteService>();
         services.AddSingleton<ICharacterCreationAttributesService,
             CharacterCreationAttributesService>();
         services.AddSingleton<ICharacterCreationSkillsService,
