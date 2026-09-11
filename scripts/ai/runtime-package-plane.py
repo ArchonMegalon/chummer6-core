@@ -34,9 +34,9 @@ INVENTORY_NAME = "chummer-core-runtime-packages.inventory.json"
 OWNER_INVENTORY_NAME = "chummer-owner-contracts.inventory.json"
 CANDIDATE_ENGINE_INVENTORY_NAME = "chummer-core-candidate-engine-contract.inventory.json"
 CANDIDATE_GM_INVENTORY_NAME = "chummer-core-candidate-gm-edit-runtime.inventory.json"
-PACKAGE_VERSION = "0.0.0-packageplane.candidate.sh181faa98a5402"
+PACKAGE_VERSION = "0.0.0-packageplane.candidate.sh3bc5fe725fd2b"
 SOURCE_REPOSITORY = "https://github.com/ArchonMegalon/chummer6-core.git"
-SOURCE_COMMIT = "181faa98a540294b72e6fe177751fd4308590fae"
+SOURCE_COMMIT = "3bc5fe725fd2bbbad0333c5c7a3f849e53808c4f"
 SDK_VERSION = "10.0.103"
 SDK_RID = "linux-x64"
 SDK_ARCHIVE_URL = (
@@ -240,8 +240,10 @@ CREATION_ACTIVATION_AUTHORITY_PATHS = (
 )
 CREATION_SOURCE_INPUT_AUTHORITY_PATHS = (
     "Chummer.Application/Characters/ICharacterSourceDataResolverOperationScope.cs",
+    "Chummer.Contracts/Characters/CharacterCreationPrerequisiteModels.cs",
     "Chummer.Infrastructure/Xml/CharacterCreationPrerequisiteAuthorityProjector.cs",
     "Chummer.Infrastructure/Xml/FileSystemCharacterSourceDataResolver.cs",
+    "Chummer.Tests/CharacterCreationPrerequisiteDigestTests.cs",
     "Chummer.Tests/FileSystemCharacterSourceDataResolverTests.cs",
 )
 CREATION_FINALIZATION_AUTHORITY_PATHS = (

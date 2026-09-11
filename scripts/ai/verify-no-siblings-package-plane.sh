@@ -13,8 +13,8 @@ inventory_name="chummer-owner-contracts.inventory.json"
 candidate_inventory_name="chummer-core-candidate-engine-contract.inventory.json"
 candidate_runtime_inventory_name="chummer-core-candidate-gm-edit-runtime.inventory.json"
 runtime_inventory_name="chummer-core-runtime-packages.inventory.json"
-candidate_version="0.0.0-packageplane.candidate.sh181faa98a5402"
-runtime_source_commit="181faa98a540294b72e6fe177751fd4308590fae"
+candidate_version="0.0.0-packageplane.candidate.sh3bc5fe725fd2b"
+runtime_source_commit="3bc5fe725fd2bbbad0333c5c7a3f849e53808c4f"
 candidate_id="Chummer.Engine.Contracts"
 candidate_runtime_id="Chummer.Engine.GmCharacterEdits"
 candidate_repository="https://github.com/ArchonMegalon/chummer6-core.git"
@@ -719,7 +719,7 @@ dotnet restore "$consumer_root/Chummer.Tests/Chummer.Tests.csproj" \
 
 local_owner_filter='FullyQualifiedName~Import_with_local_single_user_scope_routes_through_the_unscoped_store_lane|FullyQualifiedName~Import_with_blank_owner_scope_remains_rejected|FullyQualifiedName~Raw_local_single_user_owner_value_cannot_enter_the_trusted_local_lane|FullyQualifiedName~Import_with_named_owner_scopes_keeps_two_owner_and_local_lanes_isolated|FullyQualifiedName~Workspace_service_owner_scoped_sentinels_cannot_reach_local_state'
 finalization_filter='FullyQualifiedName~CharacterCreationFinalizationServiceTests|FullyQualifiedName~OwnerBoundCharacterCreationFinalizationServiceTests'
-prerequisite_filter='FullyQualifiedName~CharacterCreationPrerequisiteServiceTests|FullyQualifiedName~OwnerBoundCharacterCreationPrerequisiteServiceTests'
+prerequisite_filter='FullyQualifiedName~CharacterCreationPrerequisiteServiceTests|FullyQualifiedName~OwnerBoundCharacterCreationPrerequisiteServiceTests|FullyQualifiedName~CharacterCreationPrerequisiteDigestTests'
 source_input_filter='FullyQualifiedName~FileSystemCharacterSourceDataResolverTests'
 dotnet test "$consumer_root/Chummer.Tests/Chummer.Tests.csproj" \
   --configuration Release \
