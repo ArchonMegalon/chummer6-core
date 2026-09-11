@@ -54,8 +54,8 @@ class RuntimePackageLockTests(unittest.TestCase):
         )
 
     def test_next_wave_candidate_is_bound_to_locally_validated_semantic_commit(self) -> None:
-        self.assertEqual("181faa98a540294b72e6fe177751fd4308590fae", runtime.SOURCE_COMMIT)
-        self.assertEqual("0.0.0-packageplane.candidate.sh181faa98a5402", runtime.PACKAGE_VERSION)
+        self.assertEqual("3bc5fe725fd2bbbad0333c5c7a3f849e53808c4f", runtime.SOURCE_COMMIT)
+        self.assertEqual("0.0.0-packageplane.candidate.sh3bc5fe725fd2b", runtime.PACKAGE_VERSION)
 
     def test_previous_runtime_authority_cannot_stand_in_for_owner_finalization(self) -> None:
         for stale in ("source", "version"):
@@ -85,6 +85,18 @@ class RuntimePackageLockTests(unittest.TestCase):
             else:
                 altered["package_version"] = "0.0.0-packageplane.candidate.shaeeb4717633e3"
             with self.subTest(stale=stale), self.assertRaises(runtime.RuntimePackagePlaneError):
+                runtime.validate_lock_payload(altered)
+
+    def test_previous_source_reuse_authority_cannot_stand_in_for_canonical_digest(self) -> None:
+        for stale in ("source", "version"):
+            altered = copy.deepcopy(self.lock)
+            if stale == "source":
+                altered["runtime_source"]["commit"] = "181faa98a540294b72e6fe177751fd4308590fae"
+                expected_error = "runtime source authority is not exact"
+            else:
+                altered["package_version"] = "0.0.0-packageplane.candidate.sh181faa98a5402"
+                expected_error = "runtime package version is not exact"
+            with self.subTest(stale=stale), self.assertRaisesRegex(runtime.RuntimePackagePlaneError, expected_error):
                 runtime.validate_lock_payload(altered)
 
     def test_owner_admission_and_strict_inventory_are_bound_to_semantic_source(self) -> None:
@@ -279,17 +291,19 @@ class RuntimePackageLockTests(unittest.TestCase):
         project = runtime._run(("git", "show", f"{runtime.SOURCE_COMMIT}:Chummer.Tests/Chummer.CreationFinalization.Tests.csproj"), cwd=REPO_ROOT)
         self.assertIn('<Compile Include="OwnerBoundCharacterCreationFinalizationServiceTests.cs" />', project)
 
-    def test_isolated_lane_runs_both_prerequisite_regression_classes(self) -> None:
+    def test_isolated_lane_runs_prerequisite_and_digest_regression_classes(self) -> None:
         script = (REPO_ROOT / "scripts/ai/verify-no-siblings-package-plane.sh").read_text(encoding="utf-8")
         self.assertIn("prerequisite_filter='FullyQualifiedName~CharacterCreationPrerequisiteServiceTests|"
-                      "FullyQualifiedName~OwnerBoundCharacterCreationPrerequisiteServiceTests'", script)
+                      "FullyQualifiedName~OwnerBoundCharacterCreationPrerequisiteServiceTests|"
+                      "FullyQualifiedName~CharacterCreationPrerequisiteDigestTests'", script)
         isolated_test = script.split('dotnet test "$consumer_root/Chummer.Tests/Chummer.Tests.csproj"', 1)[1]
         isolated_test = isolated_test.split("# Execute the actual owner/store regressions", 1)[0]
         self.assertIn('--filter "$local_owner_filter|$finalization_filter|$prerequisite_filter|', isolated_test)
         self.assertNotIn("--no-build", isolated_test)
         project = runtime._run(("git", "show", f"{runtime.SOURCE_COMMIT}:Chummer.Tests/Chummer.CreationFinalization.Tests.csproj"), cwd=REPO_ROOT)
         for name in ("CharacterCreationPrerequisiteServiceTests", "OwnerBoundCharacterCreationPrerequisiteServiceTests",
-                     "CharacterCreationFinalizationServiceTests", "OwnerBoundCharacterCreationFinalizationServiceTests"):
+                     "CharacterCreationFinalizationServiceTests", "OwnerBoundCharacterCreationFinalizationServiceTests",
+                     "CharacterCreationPrerequisiteDigestTests"):
             with self.subTest(test_class=name):
                 self.assertIn(f'<Compile Include="{name}.cs" />', project)
 
@@ -381,8 +395,10 @@ class RuntimePackageLockTests(unittest.TestCase):
     def test_creation_source_input_members_are_bound_to_runtime_source(self) -> None:
         expected = {
             "Chummer.Application/Characters/ICharacterSourceDataResolverOperationScope.cs",
+            "Chummer.Contracts/Characters/CharacterCreationPrerequisiteModels.cs",
             "Chummer.Infrastructure/Xml/CharacterCreationPrerequisiteAuthorityProjector.cs",
             "Chummer.Infrastructure/Xml/FileSystemCharacterSourceDataResolver.cs",
+            "Chummer.Tests/CharacterCreationPrerequisiteDigestTests.cs",
             "Chummer.Tests/FileSystemCharacterSourceDataResolverTests.cs",
         }
         self.assertEqual(expected, set(runtime.CREATION_SOURCE_INPUT_AUTHORITY_PATHS))
@@ -1483,6 +1499,7 @@ class RuntimePackageWorkflowTests(unittest.TestCase):
         affected_step = affected_step.split("- name:", 1)[0]
         self.assertIn("dotnet test Chummer.Tests/Chummer.Tests.csproj", affected_step)
         self.assertIn("FullyQualifiedName~CharacterCreationBootstrapServiceTests", affected_step)
+        self.assertIn("FullyQualifiedName~CharacterCreationPrerequisiteDigestTests", affected_step)
         self.assertIn("FullyQualifiedName~CharacterCreationFinalizationServiceTests", affected_step)
         self.assertIn("FullyQualifiedName~WorkspaceCharacterAfterRunRewardTests", affected_step)
         self.assertIn("FullyQualifiedName~CharacterAfterRunSettlementRulesTests", affected_step)
