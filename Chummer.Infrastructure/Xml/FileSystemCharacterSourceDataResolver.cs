@@ -15,7 +15,8 @@ using Chummer.Contracts.Characters;
 
 namespace Chummer.Infrastructure.Xml;
 
-public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceDataResolver
+public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceDataResolver,
+    ICharacterSourceDataResolverOperationScopeFactory
 {
     private static readonly AsyncLocal<SourceInputSnapshot?> ActiveSourceInputs = new();
 
@@ -41,6 +42,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
         private int _validationReadCount;
         private long _validationBytesRead;
         private int _directoryValidationCount;
+        private int _prerequisiteProjectionCount;
 
         public SourceInputSnapshot(
             Action<string>? afterSourceBytesRead,
@@ -77,6 +79,19 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
 
                 if (!string.Equals(_catalogFingerprint, fingerprint, StringComparison.Ordinal))
                     _driftedFiles.Add("content-overlay-catalog");
+            }
+        }
+
+        public bool TryAdmitReuse(ContentOverlayCatalog currentCatalog)
+        {
+            lock (_sync)
+            {
+                BindCatalog(currentCatalog);
+                // Do not use Enter here: a nested caller may already have this
+                // snapshot in AsyncLocal. Reuse admission must never skip the
+                // actual byte/identity/membership validation in that case.
+                ValidateKnownInputs();
+                return _driftedFiles.Count == 0;
             }
         }
 
@@ -327,8 +342,16 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                     _validationBytesRead,
                     _directoryValidationCount,
                     _driftedFiles.Count > 0,
-                    _driftedFiles.OrderBy(path => path, StringComparer.Ordinal).ToArray());
+                    _driftedFiles.OrderBy(path => path, StringComparer.Ordinal).ToArray())
+                {
+                    PrerequisiteProjectionCount = _prerequisiteProjectionCount
+                };
             }
+        }
+
+        public void RecordPrerequisiteProjection()
+        {
+            lock (_sync) { _prerequisiteProjectionCount++; }
         }
 
         private void ValidateKnownInputs()
@@ -670,7 +693,10 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
         long ValidationBytesRead,
         int DirectoryValidationCount,
         bool SourceDriftDetected,
-        IReadOnlyList<string> DriftedPaths);
+        IReadOnlyList<string> DriftedPaths)
+    {
+        public int PrerequisiteProjectionCount { get; init; }
+    }
 
     private sealed record CustomDirectory(
         string Name,
@@ -763,7 +789,76 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
     internal SourceInputSnapshotDiagnostics? LastSourceInputSnapshotDiagnostics
         => Volatile.Read(ref _lastSourceInputs)?.Diagnostics();
 
+    public ICharacterSourceDataResolverOperationScope CreateOperationScope() => new OperationScope(this);
+
+    private sealed class OperationScope(FileSystemCharacterSourceDataResolver resolver)
+        : ICharacterSourceDataResolverOperationScope
+    {
+        private readonly object _sync = new();
+        private readonly Dictionary<string, SourceDataContext> _contexts = new(StringComparer.Ordinal);
+        private bool _disposed;
+
+        public ICharacterSourceDataContext? TryCreateContext(string characterXml)
+        {
+            lock (_sync)
+            {
+                ObjectDisposedException.ThrowIf(_disposed, this);
+                if (string.IsNullOrWhiteSpace(characterXml))
+                    return null;
+                try
+                {
+                    // A previously frozen context cannot observe replacement
+                    // catalog roots. Re-read and freeze the complete graph even
+                    // when the XML and every previously observed file match.
+                    ContentOverlayCatalog catalog = FreezeContentOverlayCatalog(resolver._overlays.GetCatalog());
+                    ObjectDisposedException.ThrowIf(_disposed, this);
+                    if (_contexts.TryGetValue(characterXml, out SourceDataContext? existing))
+                    {
+                        // Keep drifted entries poisoned for the rest of this
+                        // operation; eviction/recreation would permit ABA revival.
+                        bool admitted = existing.TryAdmitReuse(catalog);
+                        ObjectDisposedException.ThrowIf(_disposed, this);
+                        return admitted ? existing : null;
+                    }
+
+                    SourceDataContext? created = resolver.TryCreateContextCore(characterXml, catalog);
+                    // Monitor is reentrant: a catalog/source-read callback can
+                    // dispose this scope while this same thread owns the lock.
+                    // Never repopulate the map or return success after that.
+                    ObjectDisposedException.ThrowIf(_disposed, this);
+                    if (created is null || !created.TryAdmitReuse(catalog))
+                        return null;
+                    ObjectDisposedException.ThrowIf(_disposed, this);
+                    _contexts.Add(characterXml, created);
+                    return created;
+                }
+                catch (Exception exception) when (exception is not ObjectDisposedException
+                                                  && exception is (IOException
+                                                  or UnauthorizedAccessException
+                                                  or XmlException
+                                                  or InvalidOperationException))
+                {
+                    // Failed construction is never memoized as a reusable
+                    // context. A subsequent request still performs admission.
+                    return null;
+                }
+            }
+        }
+
+        public void Dispose()
+        {
+            lock (_sync)
+            {
+                _disposed = true;
+                _contexts.Clear();
+            }
+        }
+    }
+
     public ICharacterSourceDataContext? TryCreateContext(string characterXml)
+        => TryCreateContextCore(characterXml, null);
+
+    private SourceDataContext? TryCreateContextCore(string characterXml, ContentOverlayCatalog? admittedCatalog)
     {
         if (string.IsNullOrWhiteSpace(characterXml))
         {
@@ -783,7 +878,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 return null;
             }
 
-            ContentOverlayCatalog catalog = FreezeContentOverlayCatalog(_overlays.GetCatalog());
+            ContentOverlayCatalog catalog = admittedCatalog ?? FreezeContentOverlayCatalog(_overlays.GetCatalog());
             sourceInputs.BindCatalog(catalog);
             if (!TryLoadEffectiveDocument(catalog, "settings.xml", out XDocument? settingsDocument)
                 || settingsDocument?.Root is null)
@@ -1721,6 +1816,8 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
 
     private sealed class SourceDataContext : ICharacterSourceDataContext
     {
+        private readonly object _prerequisiteProjectionSync = new();
+        private PrerequisiteProjectionEntry? _prerequisiteProjection;
         private readonly ContentOverlayCatalog _catalog;
         private readonly SourceInputSnapshot _sourceInputs;
         private readonly XElement _character;
@@ -1884,6 +1981,9 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             _useCalculatedPublicAwareness = useCalculatedPublicAwareness;
             _reputationRuleState = reputationRuleState;
         }
+
+        public bool TryAdmitReuse(ContentOverlayCatalog currentCatalog)
+            => _sourceInputs.TryAdmitReuse(currentCatalog);
 
         public bool TryResolveMaxNuyenDecimals(out int decimalPlaces)
         {
@@ -2112,13 +2212,139 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                     .. customSourceAnchors
                 ],
                 Blockers: blockers);
-            authority = CharacterCreationPrerequisiteAuthorityProjector.Project(
-                document,
-                metatypesDocument,
-                skillsDocument,
-                projectionContext);
+
+            // The cache replaces only projection work. Every source load and
+            // live admission above still runs, including for an existing entry.
+            if (blockers.Count == 0 && !_sourceInputs.HasSourceDrift)
+            {
+                PrerequisiteProjectionEntry? cached;
+                lock (_prerequisiteProjectionSync) { cached = _prerequisiteProjection; }
+                if (cached is not null && SamePrerequisiteContext(cached.Context, projectionContext))
+                {
+                    var detached = CopyPrerequisiteAuthority(cached.Authority);
+                    if (!_sourceInputs.HasSourceDrift)
+                    {
+                        authority = detached;
+                        return true;
+                    }
+                }
+            }
+
+            if (_sourceInputs.HasSourceDrift
+                && !blockers.Contains(CharacterCreationPrerequisiteBlockers.AuthorityUnavailable))
+                blockers.Add(CharacterCreationPrerequisiteBlockers.AuthorityUnavailable);
+            _sourceInputs.RecordPrerequisiteProjection();
+            var projected = CharacterCreationPrerequisiteAuthorityProjector.Project(
+                document, metatypesDocument, skillsDocument, projectionContext);
+            if (projected.IsAuthoritative && blockers.Count == 0)
+            {
+                // The private graph is never returned, even on the first miss.
+                var detached = CopyPrerequisiteAuthority(projected);
+                if (!_sourceInputs.HasSourceDrift)
+                {
+                    var entry = new PrerequisiteProjectionEntry(CopyPrerequisiteContext(projectionContext), projected);
+                    // No IO, source-snapshot lock, or callback under this lock.
+                    // Concurrent misses may independently build equivalent entries.
+                    lock (_prerequisiteProjectionSync) { _prerequisiteProjection = entry; }
+                    if (!_sourceInputs.HasSourceDrift)
+                    {
+                        authority = detached;
+                        return true;
+                    }
+                }
+            }
+
+            // Preserve the original non-authoritative projection. If a concurrent
+            // reader observed drift during projection/copy, include that blocker
+            // through the same projector rather than returning the earlier success.
+            if (_sourceInputs.HasSourceDrift
+                && !blockers.Contains(CharacterCreationPrerequisiteBlockers.AuthorityUnavailable))
+            {
+                blockers.Add(CharacterCreationPrerequisiteBlockers.AuthorityUnavailable);
+                _sourceInputs.RecordPrerequisiteProjection();
+                projected = CharacterCreationPrerequisiteAuthorityProjector.Project(
+                    document, metatypesDocument, skillsDocument, projectionContext);
+            }
+            authority = projected;
             return true;
         }
+
+        private sealed record PrerequisiteProjectionEntry(
+            CharacterCreationPrerequisiteProjectionContext Context,
+            CharacterCreationPrerequisiteAuthority Authority);
+
+        private static CharacterCreationPrerequisiteProjectionContext CopyPrerequisiteContext(
+            CharacterCreationPrerequisiteProjectionContext source) => source with
+        {
+            PriorityArray = source.PriorityArray.ToArray(),
+            EnabledSourcebooks = source.EnabledSourcebooks.ToArray(),
+            SourceAnchorIds = source.SourceAnchorIds.ToArray(),
+            Blockers = source.Blockers.ToArray()
+        };
+
+        private static bool SamePrerequisiteContext(CharacterCreationPrerequisiteProjectionContext left,
+            CharacterCreationPrerequisiteProjectionContext right) =>
+            left.PriorityArray.SequenceEqual(right.PriorityArray, StringComparer.Ordinal)
+            && left.EnabledSourcebooks.SequenceEqual(right.EnabledSourcebooks, StringComparer.Ordinal)
+            && left.SourceAnchorIds.SequenceEqual(right.SourceAnchorIds, StringComparer.Ordinal)
+            && left.Blockers.SequenceEqual(right.Blockers, StringComparer.Ordinal)
+            // Record equality covers remaining scalars. New mutable fields must
+            // be copied/compared explicitly; record equality alone is insufficient.
+            && (left with
+            {
+                PriorityArray = right.PriorityArray,
+                EnabledSourcebooks = right.EnabledSourcebooks,
+                SourceAnchorIds = right.SourceAnchorIds,
+                Blockers = right.Blockers
+            }) == right;
+
+        private static CharacterCreationPrerequisiteAuthority CopyPrerequisiteAuthority(
+            CharacterCreationPrerequisiteAuthority source) => source with
+        {
+            PriorityArray = source.PriorityArray.ToArray(),
+            RankWeights = source.RankWeights.Select(rank => rank with
+                { SourceAnchorIds = rank.SourceAnchorIds.ToArray() }).ToArray(),
+            Options = source.Options.Select(option => option with
+            {
+                SourceAnchorIds = option.SourceAnchorIds.ToArray(),
+                HeritageOptions = option.HeritageOptions.Select(heritage => heritage with
+                {
+                    Attributes = heritage.Attributes.ToArray(),
+                    Blockers = heritage.Blockers.ToArray(),
+                    SourceAnchorIds = heritage.SourceAnchorIds.ToArray()
+                }).ToArray(),
+                TalentOptions = option.TalentOptions.Select(talent => talent with
+                {
+                    GrantedQualities = talent.GrantedQualities.ToArray(),
+                    Blockers = talent.Blockers.ToArray(),
+                    SourceAnchorIds = talent.SourceAnchorIds.ToArray(),
+                    ActiveSkillGrant = talent.ActiveSkillGrant is { } active ? active with
+                    {
+                        Options = active.Options.Select(choice => choice with
+                        {
+                            SourceAnchorIds = choice.SourceAnchorIds.ToArray(),
+                            Blockers = choice.Blockers.ToArray()
+                        }).ToArray(),
+                        Blockers = active.Blockers.ToArray(),
+                        SourceAnchorIds = active.SourceAnchorIds.ToArray(),
+                        SpecificSkillChoiceNames = active.SpecificSkillChoiceNames.ToArray()
+                    } : null,
+                    SkillGroupGrant = talent.SkillGroupGrant is { } group ? group with
+                    {
+                        Options = group.Options.Select(choice => choice with
+                        {
+                            MemberSkillSourceIds = choice.MemberSkillSourceIds.ToArray(),
+                            SourceAnchorIds = choice.SourceAnchorIds.ToArray()
+                        }).ToArray(),
+                        Blockers = group.Blockers.ToArray(),
+                        SourceAnchorIds = group.SourceAnchorIds.ToArray(),
+                        RequestedGroupNames = group.RequestedGroupNames.ToArray()
+                    } : null
+                }).ToArray()
+            }).ToArray(),
+            SourceAnchorIds = source.SourceAnchorIds.ToArray(),
+            Blockers = source.Blockers.ToArray()
+        };
 
         public bool TryResolveCreationResourcesAuthority(
             out CharacterCreationResourcesAuthority authority)

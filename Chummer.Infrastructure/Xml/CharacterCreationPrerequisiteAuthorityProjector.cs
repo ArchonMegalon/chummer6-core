@@ -141,6 +141,9 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
 
         var options = new List<CharacterCreationPriorityOptionProjection>();
         var sourceIds = new HashSet<string>(StringComparer.Ordinal);
+        // Multiple priority ranks refer to the same read-only metatype subtree.
+        // Reuse only its digest within this projection, never a row ID or result.
+        var heritageSourceDigests = new Dictionary<XElement, string>(ReferenceEqualityComparer.Instance);
         foreach (string categoryId in CharacterCreationPriorityCategoryIds.Ordered)
         {
             string categoryName = categories.Single(item => string.Equals(
@@ -183,6 +186,7 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
                         metatypesDocument,
                         talentSkillCatalog,
                         context.EnabledSourcebooks,
+                        heritageSourceDigests,
                         out CharacterCreationPriorityOptionProjection? option))
                 {
                     blockers.Add(CharacterCreationPrerequisiteBlockers.PriorityRowsInvalid);
@@ -277,6 +281,7 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
         XDocument metatypesDocument,
         TalentSkillCatalog? talentSkillCatalog,
         IReadOnlyList<string> enabledSourcebooks,
+        Dictionary<XElement, string> heritageSourceDigests,
         out CharacterCreationPriorityOptionProjection? option)
     {
         option = null;
@@ -422,6 +427,7 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
                     sourceId,
                     metatypesDocument,
                     enabledSourcebooks,
+                    heritageSourceDigests,
                     out CharacterCreationPriorityHeritageOptionProjection[] heritageOptions))
             {
                 return false;
@@ -450,6 +456,7 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
         string prioritySourceId,
         XDocument metatypesDocument,
         IReadOnlyList<string> enabledSourcebooks,
+        Dictionary<XElement, string> heritageSourceDigests,
         out CharacterCreationPriorityHeritageOptionProjection[] options)
     {
         options = [];
@@ -492,7 +499,8 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
                     specialPoints,
                     karmaCost,
                     order++,
-                    enabledSourcebooks);
+                    enabledSourcebooks,
+                    heritageSourceDigests);
             projected.Add(baseOption);
 
             XElement[] metavariantContainers = child.Elements("metavariants").Take(2).ToArray();
@@ -531,7 +539,8 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
                     variantPoints,
                     variantKarma,
                     order++,
-                    enabledSourcebooks));
+                    enabledSourcebooks,
+                    heritageSourceDigests));
             }
         }
 
@@ -1152,7 +1161,8 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
         int specialPoints,
         int karmaCost,
         int order,
-        IReadOnlyList<string> enabledSourcebooks)
+        IReadOnlyList<string> enabledSourcebooks,
+        Dictionary<XElement, string> heritageSourceDigests)
     {
         var blockers = new List<string>();
         string metatypeSourceId = string.Empty;
@@ -1163,7 +1173,14 @@ internal static class CharacterCreationPrerequisiteAuthorityProjector
         bool halves = false;
         string sourceDigest = string.Empty;
         if (sourceNode is not null)
-            sourceDigest = RawDigest(sourceNode.ToString(SaveOptions.DisableFormatting));
+        {
+            if (!heritageSourceDigests.TryGetValue(sourceNode, out string? cachedDigest))
+            {
+                cachedDigest = RawDigest(sourceNode.ToString(SaveOptions.DisableFormatting));
+                heritageSourceDigests.Add(sourceNode, cachedDigest);
+            }
+            sourceDigest = cachedDigest;
+        }
         if (sourceNode is null
             || !TryReadNormalizedScalar(sourceNode, "id", out string rawSourceId)
             || !Guid.TryParseExact(rawSourceId, "D", out Guid parsedSourceId)
