@@ -58,19 +58,22 @@ public sealed class OwnerBoundCharacterCreationFinalizationService(
 
         using (lease)
         {
+            using ICharacterSourceDataResolverOperationScope? sourceScope =
+                (sourceResolver as ICharacterSourceDataResolverOperationScopeFactory)?.CreateOperationScope();
+            ICharacterSourceDataResolver operationResolver = sourceScope ?? sourceResolver;
             // Never cache this graph or resolve unbound singleton domain services:
             // Skills/Magic construct Attributes internally and Qualities calls both
             // Prerequisite and Attributes. Every one must share this same view.
             var view = new OwnerBoundCreationWorkspaceStore(store, lease, expectedOwner, workspaceId);
-            var prerequisites = new CharacterCreationPrerequisiteService(view, characterQueries, sourceResolver);
-            var attributes = new CharacterCreationAttributesService(view, sourceResolver);
+            var prerequisites = new CharacterCreationPrerequisiteService(view, characterQueries, operationResolver);
+            var attributes = new CharacterCreationAttributesService(view, operationResolver);
             var service = new CharacterCreationFinalizationService(view, characterQueries,
                 prerequisites, attributes,
-                new CharacterCreationSkillsService(view, sourceResolver),
-                new CharacterCreationQualitiesService(view, sourceResolver, prerequisites, attributes),
-                new CharacterCreationMagicResonanceService(view, sourceResolver),
-                new CharacterCreationResourcesService(view, sourceResolver),
-                new CharacterCreationGearService(view, sourceResolver));
+                new CharacterCreationSkillsService(view, operationResolver),
+                new CharacterCreationQualitiesService(view, operationResolver, prerequisites, attributes),
+                new CharacterCreationMagicResonanceService(view, operationResolver),
+                new CharacterCreationResourcesService(view, operationResolver),
+                new CharacterCreationGearService(view, operationResolver));
             // Includes idempotency reads, the durable CAS and postcommit receipt
             // observation. No await or postcommit owner recapture may split it.
             return action(service);

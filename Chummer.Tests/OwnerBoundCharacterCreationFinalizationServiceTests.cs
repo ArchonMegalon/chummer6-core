@@ -34,15 +34,20 @@ public sealed class OwnerBoundCharacterCreationFinalizationServiceTests
     public static void Cleanup() => s_source?.Dispose();
 
     [TestMethod]
-    [DataRow(false)]
-    [DataRow(true)]
-    public void Full_canonical_graph_finalizes_only_the_admitted_partition_and_replays_cold(bool linked)
+    [DataRow(false, false)]
+    [DataRow(true, false)]
+    [DataRow(false, true)]
+    [DataRow(true, true)]
+    public void Full_canonical_graph_finalizes_only_the_admitted_partition_and_replays_cold(bool linked, bool scoped)
     {
         using var fixture = new Fixture(linked ? AccountA : OwnerScope.LocalSingleUser);
         var before = fixture.Read(fixture.Owner.Current);
         var unchanged = fixture.CaptureOtherPartitions();
         var observed = new ScopedAtomicStore(fixture);
-        var service = Service(fixture, observed);
+        var scopedResolver = scoped ? new ObservedOperationResolver(fixture, s_source.Resolver) : null;
+        var service = scopedResolver is null ? Service(fixture, observed)
+            : new OwnerBoundCharacterCreationFinalizationService(observed, fixture.Owner,
+                s_source.Queries, scopedResolver);
         var stamp = fixture.Owner.Capture();
         var command = Review(service, stamp, fixture.Id);
         Assert.AreEqual(0, observed.Commits);
@@ -70,6 +75,21 @@ public sealed class OwnerBoundCharacterCreationFinalizationServiceTests
         Assert.AreEqual(result.Value, after.Document.AuxiliaryState.CharacterCreationFinalizationReceipts![0].Receipt);
         Assert.IsTrue(after.CanReplayReceipt(result.Value.ContentRevision));
         fixture.AssertOtherPartitionsUnchanged(unchanged);
+        if (scopedResolver is not null)
+        {
+            Assert.HasCount(3, scopedResolver.Scopes, "Load, Review and Confirm must own distinct scopes.");
+            Assert.IsTrue(scopedResolver.Scopes.All(scope => scope.Disposed));
+            Assert.IsTrue(scopedResolver.Scopes.All(scope => scope.UniqueContexts.Count == 1));
+            Assert.AreEqual(0, scopedResolver.UnscopedCalls);
+            var scopedLookup = service.LookupReceipt(stamp, new(fixture.Id, command.IdempotencyKey));
+            Assert.AreEqual(CharacterCreationFinalizationOutcomes.Replayed, scopedLookup.Outcome, Describe(scopedLookup));
+            Assert.AreEqual(result.Value, scopedLookup.Value);
+            Assert.HasCount(4, scopedResolver.Scopes);
+            var lookupScope = scopedResolver.Scopes[3];
+            Assert.IsTrue(lookupScope.Disposed);
+            Assert.AreEqual(0, lookupScope.Calls);
+            Assert.IsEmpty(lookupScope.UniqueContexts, "Receipt lookup must not reconstruct source authority.");
+        }
 
         var committedBytes = fixture.CapturePartition(stamp.Owner);
         var coldService = Service(fixture, new ScopedAtomicStore(fixture));
@@ -83,6 +103,122 @@ public sealed class OwnerBoundCharacterCreationFinalizationServiceTests
         Assert.AreEqual(CharacterCreationFinalizationOutcomes.Conflict,
             coldService.Confirm(stamp, command with { PlanDigest = "different-plan" }).Outcome);
         Assert.AreEqual(committedBytes, fixture.CapturePartition(stamp.Owner));
+        Assert.AreEqual(0, fixture.Owner.ActiveLeases);
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void Scoped_actual_full_finalization_matches_unscoped_all_steps_and_digests(bool linked)
+    {
+        using var fixture = new Fixture(linked ? AccountA : OwnerScope.LocalSingleUser);
+        var before = fixture.CaptureAllPartitions();
+        var stamp = fixture.Owner.Capture();
+        var baselineStore = new ScopedAtomicStore(fixture);
+        var baselineResolver = new ObservedResolver(fixture, s_source.Resolver);
+        var baseline = new OwnerBoundCharacterCreationFinalizationService(baselineStore,
+            fixture.Owner, s_source.Queries, baselineResolver);
+        var baselineClock = System.Diagnostics.Stopwatch.StartNew();
+        long baselineAllocationStart = GC.GetAllocatedBytesForCurrentThread();
+        var expected = baseline.Load(stamp, new(fixture.Id));
+        long baselineAllocated = GC.GetAllocatedBytesForCurrentThread() - baselineAllocationStart;
+        baselineClock.Stop();
+        Assert.AreEqual(CharacterCreationFinalizationOutcomes.Available, expected.Outcome, Describe(expected));
+        Assert.IsNotNull(expected.Value);
+        Assert.HasCount(7, expected.Value.Steps);
+        Assert.IsTrue(expected.Value.Steps.All(step => step.IsComplete));
+        int baselineLoadCalls = baselineResolver.Calls;
+        int baselineLoadReads = baselineStore.Reads;
+
+        var scopedStore = new ScopedAtomicStore(fixture);
+        var resolver = new ObservedOperationResolver(fixture, s_source.Resolver);
+        var service = new OwnerBoundCharacterCreationFinalizationService(scopedStore,
+            fixture.Owner, s_source.Queries, resolver);
+        var scopedClock = System.Diagnostics.Stopwatch.StartNew();
+        long scopedAllocationStart = GC.GetAllocatedBytesForCurrentThread();
+        var actual = service.Load(stamp, new(fixture.Id));
+        long scopedAllocated = GC.GetAllocatedBytesForCurrentThread() - scopedAllocationStart;
+        scopedClock.Stop();
+        int scopedLoadReads = scopedStore.Reads;
+        AssertJsonEquals(expected, actual); // Includes every step, binding and snapshot digest.
+        Assert.AreEqual(baselineLoadReads, scopedStore.Reads, "No domain/workspace validation may disappear.");
+        var loadScope = resolver.Scopes.Single();
+        Assert.AreEqual(baselineLoadCalls, loadScope.Calls);
+        Assert.IsTrue(baselineLoadCalls > 1, "The baseline must actually exercise repeated context construction.");
+        Assert.HasCount(1, loadScope.UniqueContexts);
+        Assert.IsTrue(loadScope.Disposed);
+
+        var expectedReview = baseline.Review(stamp, new(expected.Value.Binding));
+        var actualReview = service.Review(stamp, new(actual.Value!.Binding));
+        AssertJsonEquals(expectedReview, actualReview); // Includes complete plan and preview digest.
+        Assert.HasCount(2, resolver.Scopes);
+        var reviewScope = resolver.Scopes[1];
+        Assert.HasCount(1, reviewScope.UniqueContexts);
+        Assert.AreNotSame(loadScope.UniqueContexts[0], reviewScope.UniqueContexts[0]);
+        Assert.IsTrue(reviewScope.Disposed);
+        Assert.AreEqual(baselineStore.Reads, scopedStore.Reads);
+        Assert.AreEqual(0, scopedStore.Commits);
+        Assert.AreEqual(0, resolver.UnscopedCalls);
+        fixture.AssertPartitionsUnchanged(before);
+        Assert.AreEqual(0, fixture.Owner.ActiveLeases);
+        Console.WriteLine($"finalization-operation-scope domains=7 requests={loadScope.Calls} "
+            + $"baselineContexts={baselineLoadCalls} scopedContexts={loadScope.UniqueContexts.Count} "
+            + $"baselineLoadReads={baselineLoadReads} scopedLoadReads={scopedLoadReads} "
+            + $"baselineLoadMs={baselineClock.Elapsed.TotalMilliseconds:F3} "
+            + $"scopedLoadMs={scopedClock.Elapsed.TotalMilliseconds:F3} "
+            + $"baselineLoadAllocatedBytes={baselineAllocated} scopedLoadAllocatedBytes={scopedAllocated}; "
+            + "managed diagnostic only");
+    }
+
+    [TestMethod]
+    [DataRow("owner-B")]
+    [DataRow("owner-ABA")]
+    [DataRow("foreign-issuer")]
+    public void Operation_scope_is_not_created_before_original_owner_admission(string denial)
+    {
+        using var fixture = new Fixture(AccountA);
+        var original = fixture.Owner.Capture();
+        if (denial == "foreign-issuer") original = new TestOwner(AccountA).Capture();
+        else
+        {
+            fixture.Owner.Transition(AccountB);
+            if (denial == "owner-ABA") fixture.Owner.Transition(AccountA);
+        }
+        var before = fixture.CaptureAllPartitions();
+        var store = new ScopedAtomicStore(fixture);
+        var resolver = new ObservedOperationResolver(fixture, s_source.Resolver);
+        var service = new OwnerBoundCharacterCreationFinalizationService(store, fixture.Owner,
+            s_source.Queries, resolver);
+        AssertUnavailable(service.Load(original, new(fixture.Id)));
+        Assert.IsEmpty(resolver.Scopes);
+        Assert.AreEqual(0, resolver.UnscopedCalls);
+        Assert.AreEqual(0, store.Reads);
+        Assert.AreEqual(0, store.Commits);
+        fixture.AssertPartitionsUnchanged(before);
+        Assert.AreEqual(0, fixture.Owner.ActiveLeases);
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void Operation_scope_and_owner_lease_are_disposed_on_injected_failure(bool duringCreation)
+    {
+        using var fixture = new Fixture(AccountA);
+        var before = fixture.CaptureAllPartitions();
+        var store = new ScopedAtomicStore(fixture);
+        var resolver = new ObservedOperationResolver(fixture, s_source.Resolver)
+        {
+            FailCreate = duringCreation,
+            FailQuery = !duringCreation
+        };
+        var service = new OwnerBoundCharacterCreationFinalizationService(store, fixture.Owner,
+            s_source.Queries, resolver);
+        Assert.ThrowsExactly<OperationSourceTestException>(() => service.Load(fixture.Owner.Capture(), new(fixture.Id)));
+        Assert.AreEqual(1, resolver.InjectedFailures, "The intended scope boundary must have been reached.");
+        Assert.HasCount(duringCreation ? 0 : 1, resolver.Scopes);
+        Assert.IsTrue(resolver.Scopes.All(scope => scope.Disposed));
+        Assert.AreEqual(0, store.Commits);
+        fixture.AssertPartitionsUnchanged(before);
         Assert.AreEqual(0, fixture.Owner.ActiveLeases);
     }
 
@@ -379,11 +515,80 @@ public sealed class OwnerBoundCharacterCreationFinalizationServiceTests
 
     private sealed class ObservedResolver(Fixture fixture, ICharacterSourceDataResolver inner) : ICharacterSourceDataResolver
     {
+        public int Calls { get; private set; }
         public ICharacterSourceDataContext? TryCreateContext(string characterXml)
         {
+            Calls++;
             fixture.Owner.AssertLeaseHeld();
             Assert.AreEqual(s_source.Store.Get(s_source.WorkspaceId).Value!.Document.Content, characterXml);
             return inner.TryCreateContext(characterXml);
+        }
+    }
+
+    private sealed class OperationSourceTestException : Exception { }
+
+    private sealed class ObservedOperationResolver(Fixture fixture, ICharacterSourceDataResolver inner)
+        : ICharacterSourceDataResolver, ICharacterSourceDataResolverOperationScopeFactory
+    {
+        public List<ObservedOperationScope> Scopes { get; } = [];
+        public int UnscopedCalls { get; private set; }
+        public bool FailCreate { get; init; }
+        public bool FailQuery { get; init; }
+        public int InjectedFailures { get; private set; }
+        public ICharacterSourceDataContext? TryCreateContext(string characterXml)
+        {
+            UnscopedCalls++;
+            throw new AssertFailedException("A capable resolver must use its operation scope.");
+        }
+        public ICharacterSourceDataResolverOperationScope CreateOperationScope()
+        {
+            fixture.Owner.AssertLeaseHeld();
+            if (FailCreate)
+            {
+                InjectedFailures++;
+                throw new OperationSourceTestException();
+            }
+            Assert.IsInstanceOfType<ICharacterSourceDataResolverOperationScopeFactory>(inner);
+            var scope = new ObservedOperationScope(fixture,
+                ((ICharacterSourceDataResolverOperationScopeFactory)inner).CreateOperationScope(), () =>
+                {
+                    if (!FailQuery) return;
+                    InjectedFailures++;
+                    throw new OperationSourceTestException();
+                });
+            Scopes.Add(scope);
+            return scope;
+        }
+    }
+
+    private sealed class ObservedOperationScope(Fixture fixture,
+        ICharacterSourceDataResolverOperationScope inner, Action beforeQuery)
+        : ICharacterSourceDataResolverOperationScope
+    {
+        public int Calls { get; private set; }
+        public List<ICharacterSourceDataContext> UniqueContexts { get; } = [];
+        public bool Disposed { get; private set; }
+        public ICharacterSourceDataContext? TryCreateContext(string characterXml)
+        {
+            fixture.Owner.AssertLeaseHeld();
+            Assert.IsFalse(Disposed);
+            Calls++;
+            // Match the baseline observer's real store read and exact-XML
+            // assertion, so elapsed/allocation diagnostics do not compare
+            // different fixture instrumentation costs.
+            Assert.AreEqual(s_source.Store.Get(s_source.WorkspaceId).Value!.Document.Content, characterXml);
+            beforeQuery();
+            var context = inner.TryCreateContext(characterXml);
+            if (context is not null && !UniqueContexts.Any(item => ReferenceEquals(item, context)))
+                UniqueContexts.Add(context);
+            return context;
+        }
+        public void Dispose()
+        {
+            fixture.Owner.AssertLeaseHeld();
+            Assert.IsFalse(Disposed, "The operation must be closed once, before its lease.");
+            inner.Dispose();
+            Disposed = true;
         }
     }
 

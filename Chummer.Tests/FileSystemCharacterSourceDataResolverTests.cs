@@ -580,6 +580,421 @@ public sealed class FileSystemCharacterSourceDataResolverTests
     }
 
     [TestMethod]
+    [DataRow(SettingsId)]
+    [DataRow(CanonicalSumToTenSettingsId)]
+    public void Canonical_heritage_node_digests_remain_exact_for_every_rank_and_variant(string settingsId)
+    {
+        string root = FindCoreRoot();
+        var context = CreateContext(root, $"<character><settings>{settingsId}</settings></character>")!;
+        Assert.IsTrue(context.TryResolveCreationPrerequisiteAuthority(out var authority));
+        Assert.IsTrue(authority.IsAuthoritative, string.Join(",", authority.Blockers));
+        XDocument priorities = LoadDigestSource(Path.Combine(root, "Chummer", "data", "priorities.xml"));
+        XDocument metatypes = LoadDigestSource(Path.Combine(root, "Chummer", "data", "metatypes.xml"));
+        AssertHeritageNodeDigests(authority, priorities, metatypes);
+        var humans = authority.Options.SelectMany(option => option.HeritageOptions)
+            .Where(option => option.MetatypeName == "Human" && option.MetavariantName is null).ToArray();
+        Assert.HasCount(5, humans);
+        Assert.AreEqual(1, humans.Select(option => option.MetatypeSourceNodeDigest).Distinct().Count());
+        Assert.AreEqual(5, humans.Select(option => option.SelectionId).Distinct().Count());
+        Assert.IsTrue(humans.Select(option => option.PriorityChildNodeDigest).Distinct().Count() > 1,
+            "A shared source node must not replace rank-specific priority child bytes.");
+    }
+
+    [TestMethod]
+    public void Heritage_node_digest_reuse_does_not_conflate_source_ids_or_survive_source_changes()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            CopyCanonicalDataFiles(root, "settings.xml", "priorities.xml", "metatypes.xml", "skills.xml");
+            string path = Path.Combine(root, "data", "metatypes.xml");
+            XDocument metatypes = LoadDigestSource(path);
+            XElement human = metatypes.Root!.Element("metatypes")!.Elements("metatype")
+                .Single(node => node.Element("name")?.Value == "Human");
+            XElement elf = metatypes.Root.Element("metatypes")!.Elements("metatype")
+                .Single(node => node.Element("name")?.Value == "Elf");
+            elf.Element("id")!.Value = human.Element("id")!.Value;
+            metatypes.Save(path);
+            var originalContext = CreateContext(root, CharacterXml())!;
+            Assert.IsTrue(originalContext.TryResolveCreationPrerequisiteAuthority(out var original));
+            var options = original.Options.SelectMany(option => option.HeritageOptions).ToArray();
+            var originalHuman = options.First(option => option.MetatypeName == "Human" && option.MetavariantName is null);
+            var originalElf = options.First(option => option.MetatypeName == "Elf" && option.MetavariantName is null);
+            Assert.AreEqual(originalHuman.MetatypeSourceId, originalElf.MetatypeSourceId);
+            Assert.AreNotEqual(originalHuman.MetatypeSourceNodeDigest, originalElf.MetatypeSourceNodeDigest,
+                "Distinct source objects with identical IDs still bind different XML bytes.");
+            AssertHeritageNodeDigests(original, LoadDigestSource(Path.Combine(root, "data", "priorities.xml")), LoadDigestSource(path));
+
+            human.Add(new XComment("source identity remains; nested bytes change: ä ñ"));
+            metatypes.Save(path);
+            Assert.IsFalse(originalContext.TryResolveCreationPrerequisiteAuthority(out var stale)
+                && stale.IsAuthoritative, "Memoization must not mask the existing source-drift rejection.");
+            var freshContext = CreateContext(root, CharacterXml())!;
+            Assert.IsTrue(freshContext.TryResolveCreationPrerequisiteAuthority(out var changed));
+            var freshOptions = changed.Options.SelectMany(option => option.HeritageOptions).ToArray();
+            var changedHuman = freshOptions.First(option => option.MetatypeName == "Human" && option.MetavariantName is null);
+            var changedElf = freshOptions.First(option => option.MetatypeName == "Elf" && option.MetavariantName is null);
+            Assert.AreNotEqual(originalHuman.MetatypeSourceNodeDigest, changedHuman.MetatypeSourceNodeDigest);
+            Assert.AreEqual(originalElf.MetatypeSourceNodeDigest, changedElf.MetatypeSourceNodeDigest);
+            AssertHeritageNodeDigests(changed, LoadDigestSource(Path.Combine(root, "data", "priorities.xml")), LoadDigestSource(path));
+        }
+        finally { DeleteTempDirectory(root); }
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void Heritage_node_digest_reuse_keeps_missing_and_ambiguous_sources_disabled(bool duplicate)
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            CopyCanonicalDataFiles(root, "settings.xml", "priorities.xml", "metatypes.xml", "skills.xml");
+            string path = Path.Combine(root, "data", "metatypes.xml");
+            XDocument metatypes = LoadDigestSource(path);
+            XElement human = metatypes.Root!.Element("metatypes")!.Elements("metatype")
+                .Single(node => node.Element("name")?.Value == "Human");
+            if (duplicate) human.AddAfterSelf(new XElement(human));
+            else human.Remove();
+            metatypes.Save(path);
+            var context = CreateContext(root, CharacterXml())!;
+            Assert.IsTrue(context.TryResolveCreationPrerequisiteAuthority(out var authority));
+            var humans = authority.Options.SelectMany(option => option.HeritageOptions)
+                .Where(option => option.MetatypeName == "Human" && option.MetavariantName is null).ToArray();
+            Assert.HasCount(5, humans);
+            Assert.IsTrue(humans.All(option => !option.IsEnabled && option.MetatypeSourceNodeDigest == string.Empty));
+            AssertHeritageNodeDigests(authority, LoadDigestSource(Path.Combine(root, "data", "priorities.xml")), LoadDigestSource(path));
+        }
+        finally { DeleteTempDirectory(root); }
+    }
+
+    private static void AssertHeritageNodeDigests(CharacterCreationPrerequisiteAuthority authority,
+        XDocument priorities, XDocument metatypes)
+    {
+        int observed = 0;
+        foreach (var rank in authority.Options.Where(option => option.CategoryId == CharacterCreationPriorityCategoryIds.Heritage))
+        {
+            XElement row = priorities.Root!.Element("priorities")!.Elements("priority")
+                .Single(node => node.Element("id")?.Value == rank.SourceId);
+            XElement[] priorityChildren = row.Element("metatypes")!.Elements("metatype")
+                .SelectMany(node => new[] { node }.Concat(node.Element("metavariants")?.Elements("metavariant") ?? []))
+                .ToArray();
+            Assert.AreEqual(priorityChildren.Length, rank.HeritageOptions.Count);
+            for (int index = 0; index < priorityChildren.Length; index++)
+            {
+                var option = rank.HeritageOptions[index];
+                Assert.AreEqual($"{rank.SourceId}:heritage:{index}", option.SelectionId);
+                Assert.AreEqual(ExactNodeDigest(priorityChildren[index]), option.PriorityChildNodeDigest);
+                XElement[] matches = metatypes.Root!.Element("metatypes")!.Elements("metatype")
+                    .Where(node => node.Element("name")?.Value == option.MetatypeName).ToArray();
+                if (matches.Length == 1 && option.MetavariantName is not null)
+                    matches = matches[0].Element("metavariants")?.Elements("metavariant")
+                        .Where(node => node.Element("name")?.Value == option.MetavariantName).ToArray() ?? [];
+                Assert.AreEqual(matches.Length == 1 ? ExactNodeDigest(matches[0]) : string.Empty,
+                    option.MetatypeSourceNodeDigest, option.SelectionId);
+                observed++;
+            }
+        }
+        Assert.AreEqual(853, observed, "Include disabled and metavariant rows, not only the selected Human.");
+    }
+
+    private static string ExactNodeDigest(XElement node) => "sha256:" + Convert.ToHexStringLower(
+        System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(
+            node.ToString(SaveOptions.DisableFormatting))));
+
+    private static XDocument LoadDigestSource(string path)
+    {
+        // Match the input whitespace contract, not the projector implementation:
+        // the explicit reader retains whitespace that XDocument.Load(path) omits.
+        using var reader = System.Xml.XmlReader.Create(path, new System.Xml.XmlReaderSettings
+        {
+            DtdProcessing = System.Xml.DtdProcessing.Prohibit,
+            XmlResolver = null,
+            IgnoreWhitespace = false
+        });
+        return XDocument.Load(reader, LoadOptions.None);
+    }
+
+    [TestMethod]
+    [DataRow(SettingsId)]
+    [DataRow(CanonicalSumToTenSettingsId)]
+    public void Prerequisite_projection_cache_detaches_every_collection_on_miss_and_hit(string settingsId)
+    {
+        string root = FindCoreRoot();
+        var resolver = new FileSystemCharacterSourceDataResolver(
+            new FileSystemContentOverlayCatalogService(root, root, null));
+        using var operation = resolver.CreateOperationScope();
+        var context = operation.TryCreateContext($"<character><settings>{settingsId}</settings></character>");
+        Assert.IsNotNull(context);
+        var first = ReadPrerequisiteProjection(context);
+        string expected = ProjectionJson(first);
+        var firstGraph = CaptureProjectionCollections(first);
+        AssertProjectionCollectionCoverage(firstGraph);
+        Assert.AreEqual(1, resolver.LastSourceInputSnapshotDiagnostics!.PrerequisiteProjectionCount);
+        int validationReads = resolver.LastSourceInputSnapshotDiagnostics.ValidationReadCount;
+
+        // Capture the complete graph before nulling outer array elements. Otherwise
+        // Options/RankWeights poisoning would silently skip nested grant coverage.
+        PoisonProjectionCollections(firstGraph);
+        Assert.AreNotEqual(expected, ProjectionJson(first));
+        var second = ReadPrerequisiteProjection(context);
+        Assert.AreEqual(expected, ProjectionJson(second), "The first return must not expose the private cache graph.");
+        var secondGraph = CaptureProjectionCollections(second);
+        AssertProjectionCollectionsDetached(firstGraph, secondGraph);
+        Assert.AreEqual(1, resolver.LastSourceInputSnapshotDiagnostics.PrerequisiteProjectionCount);
+        Assert.IsTrue(resolver.LastSourceInputSnapshotDiagnostics.ValidationReadCount > validationReads,
+            "A projection hit must still perform live input validation.");
+        validationReads = resolver.LastSourceInputSnapshotDiagnostics.ValidationReadCount;
+
+        PoisonProjectionCollections(secondGraph);
+        var third = ReadPrerequisiteProjection(context);
+        Assert.AreEqual(expected, ProjectionJson(third), "A hit must not expose the private cache graph either.");
+        AssertProjectionCollectionsDetached(secondGraph, CaptureProjectionCollections(third));
+        Assert.AreEqual(1, resolver.LastSourceInputSnapshotDiagnostics.PrerequisiteProjectionCount);
+        Assert.IsTrue(resolver.LastSourceInputSnapshotDiagnostics.ValidationReadCount > validationReads);
+        AssertHeritageNodeDigests(third,
+            LoadDigestSource(Path.Combine(root, "Chummer", "data", "priorities.xml")),
+            LoadDigestSource(Path.Combine(root, "Chummer", "data", "metatypes.xml")));
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task Prerequisite_projection_cache_parallel_calls_do_not_share_returned_arrays(bool warm)
+    {
+        string root = FindCoreRoot();
+        var resolver = new FileSystemCharacterSourceDataResolver(
+            new FileSystemContentOverlayCatalogService(root, root, null));
+        using var operation = resolver.CreateOperationScope();
+        var context = operation.TryCreateContext(CharacterXml());
+        Assert.IsNotNull(context);
+        if (warm) ReadPrerequisiteProjection(context);
+        var calls = Enumerable.Range(0, 3).Select(_ => Task.Run(() => ReadPrerequisiteProjection(context))).ToArray();
+        var results = await Task.WhenAll(calls); // Join every call before observing/mutating results.
+        string expected = ProjectionJson(results[0]);
+        var graphs = results.Select(CaptureProjectionCollections).ToArray();
+        for (int index = 0; index < results.Length; index++)
+        {
+            Assert.AreEqual(expected, ProjectionJson(results[index]));
+            AssertProjectionCollectionCoverage(graphs[index]);
+            for (int other = index + 1; other < results.Length; other++)
+                AssertProjectionCollectionsDetached(graphs[index], graphs[other]);
+        }
+        int builds = resolver.LastSourceInputSnapshotDiagnostics!.PrerequisiteProjectionCount;
+        Assert.IsTrue(warm ? builds == 1 : builds >= 1 && builds <= calls.Length,
+            "Only concurrent cold misses may perform duplicate equivalent projections.");
+        int validationReads = resolver.LastSourceInputSnapshotDiagnostics.ValidationReadCount;
+        PoisonProjectionCollections(graphs[0]);
+        for (int index = 1; index < results.Length; index++)
+            Assert.AreEqual(expected, ProjectionJson(results[index]));
+        var after = ReadPrerequisiteProjection(context);
+        Assert.AreEqual(expected, ProjectionJson(after));
+        AssertProjectionCollectionsDetached(graphs[0], CaptureProjectionCollections(after));
+        Assert.AreEqual(builds, resolver.LastSourceInputSnapshotDiagnostics.PrerequisiteProjectionCount);
+        Assert.IsTrue(resolver.LastSourceInputSnapshotDiagnostics.ValidationReadCount > validationReads);
+    }
+
+    [TestMethod]
+    [DataRow("settings.xml")]
+    [DataRow("priorities.xml")]
+    [DataRow("metatypes.xml")]
+    [DataRow("skills.xml")]
+    public void Prerequisite_projection_cache_cannot_revive_after_observed_source_drift(string fileName)
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            CopyCanonicalDataFiles(root, "settings.xml", "priorities.xml", "metatypes.xml", "skills.xml");
+            var resolver = new FileSystemCharacterSourceDataResolver(
+                new FileSystemContentOverlayCatalogService(root, root, null));
+            using var operation = resolver.CreateOperationScope();
+            var context = operation.TryCreateContext(CharacterXml());
+            Assert.IsNotNull(context);
+            string expected = ProjectionJson(ReadPrerequisiteProjection(context));
+            Assert.AreEqual(1, resolver.LastSourceInputSnapshotDiagnostics!.PrerequisiteProjectionCount);
+            string path = Path.Combine(root, "data", fileName);
+            byte[] original = File.ReadAllBytes(path);
+            DateTime timestamp = File.GetLastWriteTimeUtc(path);
+            File.AppendAllText(path, "\n");
+            Assert.IsFalse(context.TryResolveCreationPrerequisiteAuthority(out var drifted) && drifted.IsAuthoritative);
+            Assert.IsTrue(resolver.LastSourceInputSnapshotDiagnostics.SourceDriftDetected);
+            Assert.IsNull(operation.TryCreateContext(CharacterXml()), "The operation must retain its observed drift.");
+
+            File.WriteAllBytes(path, original);
+            File.SetLastWriteTimeUtc(path, timestamp);
+            Assert.IsFalse(context.TryResolveCreationPrerequisiteAuthority(out var restored) && restored.IsAuthoritative);
+            Assert.IsNull(operation.TryCreateContext(CharacterXml()), "Restoring bytes cannot revive the old operation.");
+            using var freshOperation = resolver.CreateOperationScope();
+            var fresh = freshOperation.TryCreateContext(CharacterXml());
+            Assert.IsNotNull(fresh);
+            Assert.AreNotSame(context, fresh);
+            Assert.AreEqual(0, resolver.LastSourceInputSnapshotDiagnostics!.PrerequisiteProjectionCount,
+                "A fresh action/context must not inherit the previous projection cache.");
+            Assert.AreEqual(expected, ProjectionJson(ReadPrerequisiteProjection(fresh)));
+            Assert.AreEqual(1, resolver.LastSourceInputSnapshotDiagnostics.PrerequisiteProjectionCount);
+            Assert.IsFalse(resolver.LastSourceInputSnapshotDiagnostics.SourceDriftDetected);
+        }
+        finally { DeleteTempDirectory(root); }
+    }
+
+    [TestMethod]
+    public void Prerequisite_projection_cache_does_not_store_non_authoritative_results()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            CopyCanonicalDataFiles(root, "settings.xml", "priorities.xml", "metatypes.xml", "skills.xml");
+            string path = Path.Combine(root, "data", "priorities.xml");
+            XDocument document = LoadDigestSource(path);
+            document.Root!.Element("categories")!.Remove();
+            document.Save(path);
+            var resolver = new FileSystemCharacterSourceDataResolver(
+                new FileSystemContentOverlayCatalogService(root, root, null));
+            var context = resolver.TryCreateContext(CharacterXml());
+            Assert.IsNotNull(context);
+            Assert.IsTrue(context.TryResolveCreationPrerequisiteAuthority(out var first));
+            Assert.IsFalse(first.IsAuthoritative);
+            CollectionAssert.Contains(first.Blockers.ToArray(), CharacterCreationPrerequisiteBlockers.PriorityCategoriesInvalid);
+            string expected = ProjectionJson(first);
+            ((string[])first.Blockers)[0] = "caller-poison";
+            Assert.IsTrue(context.TryResolveCreationPrerequisiteAuthority(out var second));
+            Assert.AreEqual(expected, ProjectionJson(second));
+            Assert.AreEqual(2, resolver.LastSourceInputSnapshotDiagnostics!.PrerequisiteProjectionCount);
+        }
+        finally { DeleteTempDirectory(root); }
+    }
+
+    private static CharacterCreationPrerequisiteAuthority ReadPrerequisiteProjection(ICharacterSourceDataContext context)
+    {
+        Assert.IsTrue(context.TryResolveCreationPrerequisiteAuthority(out var authority));
+        Assert.IsTrue(authority.IsAuthoritative, string.Join(",", authority.Blockers));
+        Assert.AreEqual(authority.AuthorityDigest, CharacterCreationPrerequisiteAuthorityDigest.Compute(authority));
+        return authority;
+    }
+
+    private static string ProjectionJson(CharacterCreationPrerequisiteAuthority authority) =>
+        System.Text.Json.JsonSerializer.Serialize(authority);
+
+    private sealed record ProjectionCollection(string Kind, Array Values);
+
+    private static Dictionary<string, ProjectionCollection> CaptureProjectionCollections(
+        CharacterCreationPrerequisiteAuthority authority)
+    {
+        var result = new Dictionary<string, ProjectionCollection>(StringComparer.Ordinal);
+        void Add<T>(string path, string kind, IReadOnlyList<T> values)
+        {
+            var array = values as T[];
+            Assert.IsNotNull(array, $"Expected a detached array at {path}.");
+            result.Add(path, new(kind, array));
+        }
+        Add("PriorityArray", "authority.PriorityArray", authority.PriorityArray);
+        Add("RankWeights", "authority.RankWeights", authority.RankWeights);
+        Add("Options", "authority.Options", authority.Options);
+        Add("SourceAnchorIds", "authority.SourceAnchorIds", authority.SourceAnchorIds);
+        Add("Blockers", "authority.Blockers", authority.Blockers);
+        for (int rank = 0; rank < authority.RankWeights.Count; rank++)
+            Add($"RankWeights[{rank}].SourceAnchorIds", "rank.SourceAnchorIds", authority.RankWeights[rank].SourceAnchorIds);
+        for (int optionIndex = 0; optionIndex < authority.Options.Count; optionIndex++)
+        {
+            var option = authority.Options[optionIndex];
+            string optionPath = $"Options[{optionIndex}]";
+            Add(optionPath + ".SourceAnchorIds", "priority.SourceAnchorIds", option.SourceAnchorIds);
+            Add(optionPath + ".HeritageOptions", "priority.HeritageOptions", option.HeritageOptions);
+            Add(optionPath + ".TalentOptions", "priority.TalentOptions", option.TalentOptions);
+            for (int index = 0; index < option.HeritageOptions.Count; index++)
+            {
+                var heritage = option.HeritageOptions[index];
+                string path = $"{optionPath}.HeritageOptions[{index}]";
+                Add(path + ".Attributes", "heritage.Attributes", heritage.Attributes);
+                Add(path + ".Blockers", "heritage.Blockers", heritage.Blockers);
+                Add(path + ".SourceAnchorIds", "heritage.SourceAnchorIds", heritage.SourceAnchorIds);
+            }
+            for (int index = 0; index < option.TalentOptions.Count; index++)
+            {
+                var talent = option.TalentOptions[index];
+                string path = $"{optionPath}.TalentOptions[{index}]";
+                Add(path + ".GrantedQualities", "talent.GrantedQualities", talent.GrantedQualities);
+                Add(path + ".Blockers", "talent.Blockers", talent.Blockers);
+                Add(path + ".SourceAnchorIds", "talent.SourceAnchorIds", talent.SourceAnchorIds);
+                if (talent.ActiveSkillGrant is { } active)
+                {
+                    string grantPath = path + ".ActiveSkillGrant";
+                    Add(grantPath + ".Options", "active.Options", active.Options);
+                    Add(grantPath + ".Blockers", "active.Blockers", active.Blockers);
+                    Add(grantPath + ".SourceAnchorIds", "active.SourceAnchorIds", active.SourceAnchorIds);
+                    Add(grantPath + ".SpecificSkillChoiceNames", "active.SpecificSkillChoiceNames", active.SpecificSkillChoiceNames);
+                    for (int choice = 0; choice < active.Options.Count; choice++)
+                    {
+                        string choicePath = $"{grantPath}.Options[{choice}]";
+                        Add(choicePath + ".SourceAnchorIds", "activeChoice.SourceAnchorIds", active.Options[choice].SourceAnchorIds);
+                        Add(choicePath + ".Blockers", "activeChoice.Blockers", active.Options[choice].Blockers);
+                    }
+                }
+                if (talent.SkillGroupGrant is { } group)
+                {
+                    string grantPath = path + ".SkillGroupGrant";
+                    Add(grantPath + ".Options", "group.Options", group.Options);
+                    Add(grantPath + ".Blockers", "group.Blockers", group.Blockers);
+                    Add(grantPath + ".SourceAnchorIds", "group.SourceAnchorIds", group.SourceAnchorIds);
+                    Add(grantPath + ".RequestedGroupNames", "group.RequestedGroupNames", group.RequestedGroupNames);
+                    for (int choice = 0; choice < group.Options.Count; choice++)
+                    {
+                        string choicePath = $"{grantPath}.Options[{choice}]";
+                        Add(choicePath + ".MemberSkillSourceIds", "groupChoice.MemberSkillSourceIds", group.Options[choice].MemberSkillSourceIds);
+                        Add(choicePath + ".SourceAnchorIds", "groupChoice.SourceAnchorIds", group.Options[choice].SourceAnchorIds);
+                    }
+                }
+            }
+        }
+        return result;
+    }
+
+    private static void AssertProjectionCollectionCoverage(Dictionary<string, ProjectionCollection> graph)
+    {
+        string[] expectedKinds =
+        [
+            "authority.PriorityArray", "authority.RankWeights", "authority.Options", "authority.SourceAnchorIds", "authority.Blockers",
+            "rank.SourceAnchorIds", "priority.SourceAnchorIds", "priority.HeritageOptions", "priority.TalentOptions",
+            "heritage.Attributes", "heritage.Blockers", "heritage.SourceAnchorIds",
+            "talent.GrantedQualities", "talent.Blockers", "talent.SourceAnchorIds",
+            "active.Options", "active.Blockers", "active.SourceAnchorIds", "active.SpecificSkillChoiceNames",
+            "activeChoice.SourceAnchorIds", "activeChoice.Blockers",
+            "group.Options", "group.Blockers", "group.SourceAnchorIds", "group.RequestedGroupNames",
+            "groupChoice.MemberSkillSourceIds", "groupChoice.SourceAnchorIds"
+        ];
+        CollectionAssert.AreEquivalent(expectedKinds, graph.Values.Select(item => item.Kind).Distinct().ToArray());
+        Assert.IsTrue(graph.Values.Any(item => item.Values.Length == 0));
+        Assert.IsTrue(graph.Values.Any(item => item.Kind == "active.Options" && item.Values.Length > 0));
+        Assert.IsTrue(graph.Values.Any(item => item.Kind == "group.Options" && item.Values.Length > 0));
+        Console.WriteLine($"prerequisite-projection-collection-coverage kinds={expectedKinds.Length} "
+            + $"nonempty={graph.Values.Count(item => item.Values.Length > 0)} empty={graph.Values.Count(item => item.Values.Length == 0)}");
+    }
+
+    private static void AssertProjectionCollectionsDetached(Dictionary<string, ProjectionCollection> left,
+        Dictionary<string, ProjectionCollection> right)
+    {
+        CollectionAssert.AreEquivalent(left.Keys.ToArray(), right.Keys.ToArray());
+        foreach (var (path, item) in left)
+        {
+            Assert.AreEqual(item.Values.Length, right[path].Values.Length, path);
+            // Array.Empty may be shared: zero-length arrays cannot be poisoned.
+            if (item.Values.Length > 0) Assert.AreNotSame(item.Values, right[path].Values, path);
+        }
+    }
+
+    private static void PoisonProjectionCollections(Dictionary<string, ProjectionCollection> graph)
+    {
+        int poisoned = 0;
+        foreach (var item in graph.Values)
+        {
+            if (item.Values.Length == 0) continue;
+            item.Values.SetValue(item.Values is string[] ? "caller-poison" : null, 0);
+            poisoned++;
+        }
+        Assert.IsTrue(poisoned > 0);
+    }
+
+    [TestMethod]
     public void Creation_source_context_captures_and_parses_once_but_revalidates_content_bytes()
     {
         string coreRoot = FindCoreRoot();
@@ -633,6 +1048,428 @@ public sealed class FileSystemCharacterSourceDataResolverTests
             + $"validationReads={diagnostics.ValidationReadCount} "
             + $"directoryValidations={diagnostics.DirectoryValidationCount} "
             + $"elapsedMs={diagnostics.Elapsed.TotalMilliseconds:F3}");
+    }
+
+    [TestMethod]
+    public void Operation_scope_reuses_exact_XML_but_keeps_actual_validation_and_full_source_queries()
+    {
+        string coreRoot = FindCoreRoot();
+        var resolver = new FileSystemCharacterSourceDataResolver(
+            new FileSystemContentOverlayCatalogService(coreRoot, coreRoot, null));
+        using var scope = resolver.CreateOperationScope();
+        string xml = CharacterXml();
+        var first = scope.TryCreateContext(xml);
+        Assert.IsNotNull(first);
+        Assert.IsTrue(first.TryResolveCreationPrerequisiteAuthority(out var before));
+        Assert.IsTrue(before.IsAuthoritative, string.Join(",", before.Blockers));
+        Assert.IsTrue(first.TryResolveCreationMetatypeCatalog(out _));
+        Assert.IsTrue(first.TryResolveCreationQualitiesAuthority(out _));
+        Assert.IsTrue(first.TryResolveCreationMagicResonanceAuthority(out _));
+        Assert.IsTrue(first.TryResolveCreationSkillsAuthority(out _));
+        Assert.IsTrue(first.TryResolveCreationResourcesAuthority(out _));
+        Assert.IsTrue(first.TryResolveCreationGearAuthority(out _));
+        var captured = resolver.LastSourceInputSnapshotDiagnostics!;
+
+        Assert.AreSame(first, scope.TryCreateContext(new string(xml.ToCharArray())));
+        Assert.IsTrue(first.TryResolveCreationPrerequisiteAuthority(out var after));
+        Assert.AreEqual(before.AuthorityDigest, after.AuthorityDigest);
+        var reused = resolver.LastSourceInputSnapshotDiagnostics!;
+        Assert.AreEqual(captured.PhysicalReadCount, reused.PhysicalReadCount);
+        Assert.AreEqual(captured.PhysicalXmlParseCount, reused.PhysicalXmlParseCount);
+        Assert.IsTrue(reused.PhysicalReadsByPath.Values.All(count => count == 1));
+        Assert.IsTrue(reused.PhysicalXmlParsesByPath.Values.All(count => count == 1));
+        Assert.IsTrue(reused.ValidationReadCount > captured.ValidationReadCount);
+        Assert.IsTrue(reused.ValidationBytesRead > captured.ValidationBytesRead);
+
+        // No normalization/digest-only matching, and no source object retained
+        // across a new operation even when the character bytes are identical.
+        var changed = scope.TryCreateContext(CharacterXml("<created>True</created>"));
+        Assert.IsNotNull(changed);
+        Assert.AreNotSame(first, changed);
+        var whitespaceOnly = scope.TryCreateContext(xml + "\n");
+        Assert.IsNotNull(whitespaceOnly);
+        Assert.AreNotSame(first, whitespaceOnly, "Even semantically equal XML has distinct exact-byte provenance.");
+        Assert.AreSame(first, scope.TryCreateContext(xml));
+        using var next = resolver.CreateOperationScope();
+        var separate = next.TryCreateContext(xml);
+        Assert.IsNotNull(separate);
+        Assert.AreNotSame(first, separate);
+        Assert.IsTrue(separate.TryResolveCreationPrerequisiteAuthority(out var newAuthority));
+        Assert.AreEqual(before.AuthorityDigest, newAuthority.AuthorityDigest);
+        scope.Dispose();
+        Assert.ThrowsExactly<ObjectDisposedException>(() => scope.TryCreateContext(xml));
+        Assert.AreSame(separate, next.TryCreateContext(xml));
+    }
+
+    [TestMethod]
+    [DataRow("restored-time")]
+    [DataRow("weak-identity")]
+    [DataRow("atomic-replacement")]
+    public void Operation_scope_rejects_observed_byte_drift_and_does_not_revive_on_ABA(string change)
+    {
+        string root = CreateOperationSourceFixture();
+        try
+        {
+            string path = Path.Combine(root, "data", "priorities.xml");
+            string original = File.ReadAllText(path);
+            DateTime originalTime = File.GetLastWriteTimeUtc(path);
+            var resolver = new FileSystemCharacterSourceDataResolver(
+                new FileSystemContentOverlayCatalogService(root, root, null), null,
+                useStrongChangeIdentity: change != "weak-identity");
+            using var scope = resolver.CreateOperationScope();
+            var context = scope.TryCreateContext(CharacterXml());
+            Assert.IsNotNull(context);
+            Assert.IsTrue(context.TryResolveCreationPrerequisiteAuthority(out var before));
+            Assert.IsTrue(before.IsAuthoritative, string.Join(",", before.Blockers));
+            var captured = resolver.LastSourceInputSnapshotDiagnostics!;
+            string replacement = original.Replace("<attributes>24</attributes>",
+                "<attributes>23</attributes>", StringComparison.Ordinal);
+            Assert.AreNotEqual(original, replacement);
+            Assert.AreEqual(original.Length, replacement.Length);
+            string target = change == "atomic-replacement" ? Path.Combine(root, "replacement.xml") : path;
+            File.WriteAllText(target, replacement);
+            File.SetLastWriteTimeUtc(target, originalTime);
+            if (target != path) File.Move(target, path, overwrite: true);
+
+            Assert.IsNull(scope.TryCreateContext(CharacterXml()));
+            Assert.IsTrue(resolver.LastSourceInputSnapshotDiagnostics!.SourceDriftDetected);
+            Assert.AreEqual(captured.PhysicalReadCount,
+                resolver.LastSourceInputSnapshotDiagnostics.PhysicalReadCount);
+            if (change == "weak-identity")
+                Assert.IsTrue(resolver.LastSourceInputSnapshotDiagnostics.ValidationReadCount
+                    > captured.ValidationReadCount);
+            Assert.IsTrue(!context.TryResolveCreationPrerequisiteAuthority(out var stale) || !stale.IsAuthoritative);
+
+            using (var next = resolver.CreateOperationScope())
+            {
+                var fresh = next.TryCreateContext(CharacterXml());
+                Assert.IsNotNull(fresh);
+                Assert.IsTrue(fresh.TryResolveCreationPrerequisiteAuthority(out var changed));
+                Assert.IsTrue(changed.IsAuthoritative, string.Join(",", changed.Blockers));
+                Assert.AreNotEqual(before.AuthorityDigest, changed.AuthorityDigest);
+            }
+            File.WriteAllText(path, original);
+            File.SetLastWriteTimeUtc(path, originalTime);
+            Assert.IsNull(scope.TryCreateContext(CharacterXml()), "Observed drift is sticky within the operation.");
+        }
+        finally { DeleteTempDirectory(root); }
+    }
+
+    [TestMethod]
+    public void Operation_scope_rejects_new_catalog_root_and_poisoned_entry_survives_catalog_ABA()
+    {
+        string root = CreateOperationSourceFixture();
+        string overlayRoot = CreateTempDirectory();
+        try
+        {
+            string data = Path.Combine(overlayRoot, "data");
+            Directory.CreateDirectory(data);
+            string original = File.ReadAllText(Path.Combine(root, "data", "priorities.xml"));
+            File.WriteAllText(Path.Combine(data, "priorities.xml"), original.Replace(
+                "<attributes>24</attributes>", "<attributes>23</attributes>", StringComparison.Ordinal));
+            var packs = new List<ContentOverlayPack>();
+            var resolver = new FileSystemCharacterSourceDataResolver(new MutableContentOverlayCatalogService(
+                Path.Combine(root, "data"), Path.Combine(root, "lang"), packs));
+            using var scope = resolver.CreateOperationScope();
+            var first = scope.TryCreateContext(CharacterXml());
+            Assert.IsNotNull(first);
+            Assert.IsTrue(first.TryResolveCreationPrerequisiteAuthority(out var before));
+            Assert.IsTrue(before.IsAuthoritative);
+            packs.Add(new("late", "Late replacement", overlayRoot, data,
+                Path.Combine(overlayRoot, "lang"), 100, true, ContentOverlayModes.ReplaceFile, string.Empty));
+
+            Assert.IsNull(scope.TryCreateContext(CharacterXml()));
+            CollectionAssert.Contains(resolver.LastSourceInputSnapshotDiagnostics!.DriftedPaths.ToList(),
+                "content-overlay-catalog");
+            Assert.IsFalse(first.TryResolveCreationSourceProfile(out _));
+            using (var next = resolver.CreateOperationScope())
+            {
+                var fresh = next.TryCreateContext(CharacterXml());
+                Assert.IsNotNull(fresh);
+                Assert.IsTrue(fresh.TryResolveCreationPrerequisiteAuthority(out var after));
+                Assert.IsTrue(after.IsAuthoritative, string.Join(",", after.Blockers));
+                Assert.AreNotEqual(before.AuthorityDigest, after.AuthorityDigest);
+            }
+            packs.Clear();
+            Assert.IsNull(scope.TryCreateContext(CharacterXml()));
+        }
+        finally { DeleteTempDirectory(overlayRoot); DeleteTempDirectory(root); }
+    }
+
+    [TestMethod]
+    [DataRow("order")]
+    [DataRow("enabled")]
+    [DataRow("metadata")]
+    [DataRow("root-path")]
+    public void Operation_scope_rejects_catalog_only_changes_even_with_identical_source_bytes(string change)
+    {
+        string root = CreateOperationSourceFixture();
+        string overlayRoot = CreateTempDirectory();
+        try
+        {
+            string data = Path.Combine(overlayRoot, "data");
+            Directory.CreateDirectory(data);
+            var firstPack = new ContentOverlayPack("first", "First", overlayRoot, data,
+                Path.Combine(overlayRoot, "lang"), 1, true, ContentOverlayModes.ReplaceFile, "Original");
+            var secondPack = firstPack with { Id = "second", Priority = 2 };
+            var packs = new List<ContentOverlayPack> { firstPack, secondPack };
+            var resolver = new FileSystemCharacterSourceDataResolver(new MutableContentOverlayCatalogService(
+                Path.Combine(root, "data"), Path.Combine(root, "lang"), packs));
+            using var scope = resolver.CreateOperationScope();
+            var context = scope.TryCreateContext(CharacterXml());
+            Assert.IsNotNull(context);
+            Assert.IsTrue(context.TryResolveCreationPrerequisiteAuthority(out var before));
+            Assert.IsTrue(before.IsAuthoritative);
+            int captures = resolver.LastSourceInputSnapshotDiagnostics!.PhysicalReadCount;
+            if (change == "order") packs.Reverse();
+            else packs[0] = change switch
+            {
+                "enabled" => firstPack with { Enabled = false },
+                "metadata" => firstPack with { Description = "Changed" },
+                "root-path" => firstPack with { RootPath = Path.Combine(overlayRoot, "new-root") },
+                _ => throw new AssertFailedException("Unknown mutation.")
+            };
+            Assert.IsNull(scope.TryCreateContext(CharacterXml()));
+            Assert.AreEqual(captures, resolver.LastSourceInputSnapshotDiagnostics!.PhysicalReadCount);
+            CollectionAssert.Contains(resolver.LastSourceInputSnapshotDiagnostics.DriftedPaths.ToList(),
+                "content-overlay-catalog");
+            packs.Clear();
+            packs.Add(firstPack);
+            packs.Add(secondPack);
+            Assert.IsNull(scope.TryCreateContext(CharacterXml()));
+            Assert.IsFalse(context.TryResolveCreationSourceProfile(out _));
+        }
+        finally { DeleteTempDirectory(overlayRoot); DeleteTempDirectory(root); }
+    }
+
+    [TestMethod]
+    public void Operation_scope_rejects_same_byte_symlink_retarget()
+    {
+        if (OperatingSystem.IsWindows()) return; // Same convention as the existing source symlink tests.
+        string root = CreateOperationSourceFixture();
+        try
+        {
+            string path = Path.Combine(root, "data", "priorities.xml");
+            string firstTarget = Path.Combine(root, "first.xml");
+            string secondTarget = Path.Combine(root, "second.xml");
+            File.Move(path, firstTarget);
+            File.Copy(firstTarget, secondTarget);
+            File.SetLastWriteTimeUtc(secondTarget, File.GetLastWriteTimeUtc(firstTarget));
+            CollectionAssert.AreEqual(File.ReadAllBytes(firstTarget), File.ReadAllBytes(secondTarget));
+            File.CreateSymbolicLink(path, firstTarget);
+            var resolver = new FileSystemCharacterSourceDataResolver(
+                new FileSystemContentOverlayCatalogService(root, root, null));
+            using var scope = resolver.CreateOperationScope();
+            var context = scope.TryCreateContext(CharacterXml());
+            Assert.IsNotNull(context);
+            Assert.IsTrue(context.TryResolveCreationPrerequisiteAuthority(out var before));
+            Assert.IsTrue(before.IsAuthoritative);
+            File.Delete(path);
+            File.CreateSymbolicLink(path, secondTarget);
+            Assert.IsNull(scope.TryCreateContext(CharacterXml()));
+            CollectionAssert.Contains(resolver.LastSourceInputSnapshotDiagnostics!.DriftedPaths.ToList(), path);
+            File.Delete(path);
+            File.CreateSymbolicLink(path, firstTarget);
+            Assert.IsNull(scope.TryCreateContext(CharacterXml()));
+            using var next = resolver.CreateOperationScope();
+            var fresh = next.TryCreateContext(CharacterXml());
+            Assert.IsNotNull(fresh);
+            Assert.IsTrue(fresh.TryResolveCreationPrerequisiteAuthority(out var after));
+            Assert.IsTrue(after.IsAuthoritative);
+            Assert.AreEqual(before.AuthorityDigest, after.AuthorityDigest);
+        }
+        finally { DeleteTempDirectory(root); }
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void Operation_scope_rejects_new_overlay_membership_and_previously_absent_file(bool replaceFile)
+    {
+        string root = CreateOperationSourceFixture();
+        string overlayRoot = CreateTempDirectory();
+        try
+        {
+            string data = Path.Combine(overlayRoot, "data");
+            Directory.CreateDirectory(data);
+            var packs = new[] { new ContentOverlayPack("pack", "Pack", overlayRoot, data,
+                Path.Combine(overlayRoot, "lang"), 1, true,
+                replaceFile ? ContentOverlayModes.ReplaceFile : ContentOverlayModes.MergeCatalog, string.Empty) };
+            var resolver = new FileSystemCharacterSourceDataResolver(new MutableContentOverlayCatalogService(
+                Path.Combine(root, "data"), Path.Combine(root, "lang"), packs));
+            using var scope = resolver.CreateOperationScope();
+            var first = scope.TryCreateContext(CharacterXml());
+            Assert.IsNotNull(first);
+            Assert.IsTrue(first.TryResolveCreationPrerequisiteAuthority(out var before));
+            Assert.IsTrue(before.IsAuthoritative);
+            string added = Path.Combine(data, replaceFile ? "priorities.xml" : "priorities.fragment.xml");
+            File.WriteAllText(added, replaceFile
+                ? File.ReadAllText(Path.Combine(root, "data", "priorities.xml"))
+                : "<chummer><priorities /></chummer>");
+            Assert.IsNull(scope.TryCreateContext(CharacterXml()));
+            Assert.IsTrue(resolver.LastSourceInputSnapshotDiagnostics!.SourceDriftDetected);
+            Assert.IsFalse(resolver.LastSourceInputSnapshotDiagnostics.PhysicalReadsByPath.ContainsKey(added));
+            File.Delete(added);
+            Assert.IsNull(scope.TryCreateContext(CharacterXml()));
+        }
+        finally { DeleteTempDirectory(overlayRoot); DeleteTempDirectory(root); }
+    }
+
+    [TestMethod]
+    public void Operation_scope_rejects_new_selected_custom_directory_membership()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            const string customId = "4b3a4c48-d2af-4e46-9d27-9f06eab83c0c";
+            WriteBaseContent(root,
+                $"<customdatadirectoryname><directoryname>{customId}&gt;1.0</directoryname>"
+                + "<order>0</order><enabled>True</enabled></customdatadirectoryname>",
+                "<buildmethod>Priority</buildmethod><buildpoints>25</buildpoints>"
+                + "<priorityarray>ABCDE</priorityarray><prioritytable>Standard</prioritytable><sumtoten>10</sumtoten>");
+            WritePriorityFixture(root);
+            string v2 = Path.Combine(root, "customdata", "Rules v2");
+            Directory.CreateDirectory(v2);
+            File.WriteAllText(Path.Combine(v2, "manifest.xml"),
+                $"<manifest><guid>{customId}</guid><version>2.0.0</version></manifest>");
+            var resolver = new FileSystemCharacterSourceDataResolver(
+                new FileSystemContentOverlayCatalogService(root, root, null));
+            using var scope = resolver.CreateOperationScope();
+            string xml = CharacterXml("<customdatadirectorynames><directoryname>Rules v2</directoryname>"
+                + "</customdatadirectorynames>");
+            var first = scope.TryCreateContext(xml);
+            Assert.IsNotNull(first);
+            Assert.IsTrue(first.TryResolveCreationSourceProfile(out _));
+            string v3 = Path.Combine(root, "customdata", "Rules v3");
+            Directory.CreateDirectory(v3);
+            File.WriteAllText(Path.Combine(v3, "manifest.xml"),
+                $"<manifest><guid>{customId}</guid><version>3.0.0</version></manifest>");
+            Assert.IsNull(scope.TryCreateContext(xml));
+            Assert.IsFalse(first.TryResolveCreationSourceProfile(out _));
+            Directory.Delete(v3, recursive: true);
+            Assert.IsNull(scope.TryCreateContext(xml));
+        }
+        finally { DeleteTempDirectory(root); }
+    }
+
+    [TestMethod]
+    public void Operation_scope_does_not_memoize_initial_null_or_catalog_exception()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            var catalogs = new OperationCatalog(new FileSystemContentOverlayCatalogService(root, root, null));
+            var resolver = new FileSystemCharacterSourceDataResolver(catalogs);
+            using var scope = resolver.CreateOperationScope();
+            Assert.IsNull(scope.TryCreateContext(CharacterXml()));
+            WriteOperationSourceFixture(root);
+            catalogs.ThrowNext = true;
+            Assert.IsNull(scope.TryCreateContext(CharacterXml()));
+            var first = scope.TryCreateContext(CharacterXml());
+            Assert.IsNotNull(first);
+            Assert.IsTrue(first.TryResolveCreationPrerequisiteAuthority(out var authority));
+            Assert.IsTrue(authority.IsAuthoritative);
+            // Transient catalog unavailability is not observed catalog drift.
+            // A retry must acquire a fresh catalog and validate all live bytes.
+            catalogs.ThrowNext = true;
+            Assert.IsNull(scope.TryCreateContext(CharacterXml()));
+            Assert.AreSame(first, scope.TryCreateContext(CharacterXml()));
+            Assert.AreEqual(5, catalogs.Calls);
+        }
+        finally { DeleteTempDirectory(root); }
+    }
+
+    [TestMethod]
+    public async Task Operation_scopes_do_not_share_contexts_between_parallel_operations()
+    {
+        string root = CreateOperationSourceFixture();
+        try
+        {
+            var resolver = new FileSystemCharacterSourceDataResolver(
+                new FileSystemContentOverlayCatalogService(root, root, null));
+            using var first = resolver.CreateOperationScope();
+            using var second = resolver.CreateOperationScope();
+            var contexts = await Task.WhenAll(Task.Run(() => first.TryCreateContext(CharacterXml())),
+                Task.Run(() => second.TryCreateContext(CharacterXml())));
+            Assert.IsNotNull(contexts[0]);
+            Assert.IsNotNull(contexts[1]);
+            Assert.AreNotSame(contexts[0], contexts[1]);
+            Assert.IsTrue(contexts[0]!.TryResolveCreationPrerequisiteAuthority(out var a));
+            Assert.IsTrue(contexts[1]!.TryResolveCreationPrerequisiteAuthority(out var b));
+            Assert.IsTrue(a.IsAuthoritative);
+            Assert.AreEqual(a.AuthorityDigest, b.AuthorityDigest);
+            Assert.AreSame(contexts[0], first.TryCreateContext(CharacterXml()));
+            Assert.AreSame(contexts[1], second.TryCreateContext(CharacterXml()));
+        }
+        finally { DeleteTempDirectory(root); }
+    }
+
+    [TestMethod]
+    [DataRow("catalog")]
+    [DataRow("source-bytes")]
+    public void Operation_scope_reentrant_disposal_cannot_return_or_restore_a_context(string boundary)
+    {
+        string root = CreateOperationSourceFixture();
+        ICharacterSourceDataResolverOperationScope? scope = null;
+        try
+        {
+            int disposals = 0;
+            void DisposeFromCallback()
+            {
+                if (disposals != 0) return;
+                disposals++;
+                Assert.IsNotNull(scope);
+                scope.Dispose();
+            }
+            var catalogs = new OperationCatalog(new FileSystemContentOverlayCatalogService(root, root, null));
+            if (boundary == "catalog") catalogs.OnGetCatalog = DisposeFromCallback;
+            var resolver = new FileSystemCharacterSourceDataResolver(catalogs,
+                _ => { if (boundary == "source-bytes") DisposeFromCallback(); });
+            scope = resolver.CreateOperationScope();
+            Assert.ThrowsExactly<ObjectDisposedException>(() => scope.TryCreateContext(CharacterXml()));
+            Assert.AreEqual(1, disposals, "The intended reentrant callback must execute.");
+            int catalogCalls = catalogs.Calls;
+            Assert.ThrowsExactly<ObjectDisposedException>(() => scope.TryCreateContext(CharacterXml()));
+            Assert.AreEqual(catalogCalls, catalogs.Calls, "Closed scopes reject before fresh source access.");
+            Assert.AreEqual(1, disposals);
+        }
+        finally { scope?.Dispose(); DeleteTempDirectory(root); }
+    }
+
+    private static string CreateOperationSourceFixture()
+    {
+        string root = CreateTempDirectory();
+        WriteOperationSourceFixture(root);
+        return root;
+    }
+
+    private static void WriteOperationSourceFixture(string root)
+    {
+        WriteBaseContent(root, string.Empty,
+            "<buildmethod>Priority</buildmethod><buildpoints>25</buildpoints>"
+            + "<priorityarray>ABCDE</priorityarray><prioritytable>Standard</prioritytable><sumtoten>10</sumtoten>");
+        WritePriorityFixture(root);
+    }
+
+    private sealed class OperationCatalog(IContentOverlayCatalogService inner) : IContentOverlayCatalogService
+    {
+        public bool ThrowNext { get; set; }
+        public Action? OnGetCatalog { get; set; }
+        public int Calls { get; private set; }
+        public ContentOverlayCatalog GetCatalog()
+        {
+            Calls++;
+            OnGetCatalog?.Invoke();
+            if (ThrowNext)
+            {
+                ThrowNext = false;
+                throw new IOException("Injected catalog unavailability.");
+            }
+            return inner.GetCatalog();
+        }
+        public IReadOnlyList<string> GetDataDirectories() => inner.GetDataDirectories();
+        public IReadOnlyList<string> GetLanguageDirectories() => inner.GetLanguageDirectories();
+        public string ResolveDataFile(string fileName) => inner.ResolveDataFile(fileName);
     }
 
     [TestMethod]
