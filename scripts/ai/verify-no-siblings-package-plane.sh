@@ -13,8 +13,8 @@ inventory_name="chummer-owner-contracts.inventory.json"
 candidate_inventory_name="chummer-core-candidate-engine-contract.inventory.json"
 candidate_runtime_inventory_name="chummer-core-candidate-gm-edit-runtime.inventory.json"
 runtime_inventory_name="chummer-core-runtime-packages.inventory.json"
-candidate_version="0.0.0-packageplane.candidate.shf7500ef8c2f59"
-runtime_source_commit="f7500ef8c2f597bac67bc3f53620d50b7a17d00a"
+candidate_version="0.0.0-packageplane.candidate.shaeeb4717633e3"
+runtime_source_commit="aeeb4717633e3528fbec9cadd8233c4ac094503b"
 candidate_id="Chummer.Engine.Contracts"
 candidate_runtime_id="Chummer.Engine.GmCharacterEdits"
 candidate_repository="https://github.com/ArchonMegalon/chummer6-core.git"
@@ -565,6 +565,40 @@ public static class BoundaryProbe
     public static CharacterCreationContactResult<CharacterCreationContactReceipt> ConfirmForOriginalOwner(
         IOwnerBoundCharacterCreationContactsService service, OwnerContextStamp originalOwner,
         CharacterCreationContactConfirmRequest request) => service.Confirm(originalOwner, request);
+
+    public static IOwnerBoundCharacterCreationPrerequisiteService OwnerPrerequisite(
+        OwnerBoundCharacterCreationPrerequisiteService service) => service;
+
+    public static CharacterCreationFoundationResult<CharacterCreationPrerequisiteState> LoadPrerequisiteForOriginalOwner(
+        IOwnerBoundCharacterCreationPrerequisiteService service, OwnerContextStamp owner,
+        CharacterCreationPrerequisiteLoadRequest request) => service.Load(owner, request);
+
+    public static CharacterCreationFoundationResult<CharacterCreationPrerequisitePreview> PreviewPrerequisiteForOriginalOwner(
+        IOwnerBoundCharacterCreationPrerequisiteService service, OwnerContextStamp owner,
+        CharacterCreationPrerequisitePreviewRequest request) => service.Preview(owner, request);
+
+    public static CharacterCreationFoundationResult<CharacterCreationPrerequisiteReceipt> ConfirmPrerequisiteForOriginalOwner(
+        IOwnerBoundCharacterCreationPrerequisiteService service, OwnerContextStamp owner,
+        CharacterCreationPrerequisiteConfirmRequest request) => service.Confirm(owner, request);
+
+    public static IOwnerBoundCharacterCreationFinalizationService OwnerFinalization(
+        OwnerBoundCharacterCreationFinalizationService service) => service;
+
+    public static CharacterCreationFinalizationResult<CharacterCreationFinalizationState> LoadFinalizationForOriginalOwner(
+        IOwnerBoundCharacterCreationFinalizationService service, OwnerContextStamp owner,
+        CharacterCreationFinalizationLoadRequest request) => service.Load(owner, request);
+
+    public static CharacterCreationFinalizationResult<CharacterCreationFinalizationReview> ReviewFinalizationForOriginalOwner(
+        IOwnerBoundCharacterCreationFinalizationService service, OwnerContextStamp owner,
+        CharacterCreationFinalizationReviewRequest request) => service.Review(owner, request);
+
+    public static CharacterCreationFinalizationResult<CharacterCreationFinalizationReceipt> ConfirmFinalizationForOriginalOwner(
+        IOwnerBoundCharacterCreationFinalizationService service, OwnerContextStamp owner,
+        CharacterCreationFinalizationConfirmRequest request) => service.Confirm(owner, request);
+
+    public static CharacterCreationFinalizationResult<CharacterCreationFinalizationReceipt> LookupFinalizationForOriginalOwner(
+        IOwnerBoundCharacterCreationFinalizationService service, OwnerContextStamp owner,
+        CharacterCreationFinalizationReceiptLookupRequest request) => service.LookupReceipt(owner, request);
 
     public static OwnerContextStamp CaptureOriginalOwner(IOwnerContextLeaseAccessor authority)
         => authority.Capture();

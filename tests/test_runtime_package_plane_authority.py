@@ -54,12 +54,12 @@ class RuntimePackageLockTests(unittest.TestCase):
         )
 
     def test_next_wave_candidate_is_bound_to_locally_validated_semantic_commit(self) -> None:
-        self.assertEqual("f7500ef8c2f597bac67bc3f53620d50b7a17d00a", runtime.SOURCE_COMMIT)
-        self.assertEqual("0.0.0-packageplane.candidate.shf7500ef8c2f59", runtime.PACKAGE_VERSION)
+        self.assertEqual("aeeb4717633e3528fbec9cadd8233c4ac094503b", runtime.SOURCE_COMMIT)
+        self.assertEqual("0.0.0-packageplane.candidate.shaeeb4717633e3", runtime.PACKAGE_VERSION)
 
     def test_owner_admission_and_strict_inventory_are_bound_to_semantic_source(self) -> None:
-        self.assertEqual(22, len(runtime.OWNER_ADMISSION_AUTHORITY_PATHS))
-        self.assertEqual(22, len(set(runtime.OWNER_ADMISSION_AUTHORITY_PATHS)))
+        self.assertEqual(30, len(runtime.OWNER_ADMISSION_AUTHORITY_PATHS))
+        self.assertEqual(30, len(set(runtime.OWNER_ADMISSION_AUTHORITY_PATHS)))
         for member in runtime.OWNER_ADMISSION_AUTHORITY_PATHS:
             with self.subTest(member=member):
                 runtime._run(("git", "cat-file", "-e", f"{runtime.SOURCE_COMMIT}:{member}"), cwd=REPO_ROOT)
@@ -70,6 +70,59 @@ class RuntimePackageLockTests(unittest.TestCase):
         for member in runtime.WORKSPACE_CONTINUATION_AUTHORITY_PATHS:
             with self.subTest(member=member):
                 runtime._run(("git", "cat-file", "-e", f"{runtime.SOURCE_COMMIT}:{member}"), cwd=REPO_ROOT)
+
+    def test_prerequisite_and_finalization_owner_members_are_explicit(self) -> None:
+        expected = {
+            "Chummer.Application/Characters/IOwnerBoundCharacterCreationPrerequisiteService.cs",
+            "Chummer.Application/Characters/OwnerBoundCharacterCreationPrerequisiteService.cs",
+            "Chummer.Application/Characters/OwnerBoundCreationWorkspaceStore.cs",
+            "Chummer.Application/Characters/IOwnerBoundCharacterCreationFinalizationService.cs",
+            "Chummer.Application/Characters/OwnerBoundCharacterCreationFinalizationService.cs",
+            "Chummer.Tests/OwnerBoundCharacterCreationPrerequisiteServiceTests.cs",
+            "Chummer.Tests/OwnerBoundCharacterCreationFinalizationServiceTests.cs",
+            "Chummer.Tests/CharacterCreationPrerequisiteServiceTests.cs",
+        }
+        self.assertTrue(expected.issubset(runtime.OWNER_ADMISSION_AUTHORITY_PATHS))
+
+    def test_package_only_consumer_compiles_both_original_owner_wizard_apis(self) -> None:
+        script = (REPO_ROOT / "scripts/ai/verify-no-siblings-package-plane.sh").read_text(encoding="utf-8")
+        probe = script.split('cat >"$runtime_consumer_root/BoundaryProbe.cs" <<\'EOF\'\n', 1)[1].split('\nEOF', 1)[0]
+        for domain in ("Prerequisite", "Finalization"):
+            interface = f"IOwnerBoundCharacterCreation{domain}Service"
+            implementation = f"OwnerBoundCharacterCreation{domain}Service"
+            pattern = (rf"public static {interface} Owner{domain}\(\s*"
+                       rf"{implementation} service\) => service;")
+            self.assertRegex(probe, pattern)
+        calls = (
+            ("Prerequisite", "Load", "LoadPrerequisiteForOriginalOwner",
+             "CharacterCreationFoundationResult<CharacterCreationPrerequisiteState>",
+             "CharacterCreationPrerequisiteLoadRequest"),
+            ("Prerequisite", "Preview", "PreviewPrerequisiteForOriginalOwner",
+             "CharacterCreationFoundationResult<CharacterCreationPrerequisitePreview>",
+             "CharacterCreationPrerequisitePreviewRequest"),
+            ("Prerequisite", "Confirm", "ConfirmPrerequisiteForOriginalOwner",
+             "CharacterCreationFoundationResult<CharacterCreationPrerequisiteReceipt>",
+             "CharacterCreationPrerequisiteConfirmRequest"),
+            ("Finalization", "Load", "LoadFinalizationForOriginalOwner",
+             "CharacterCreationFinalizationResult<CharacterCreationFinalizationState>",
+             "CharacterCreationFinalizationLoadRequest"),
+            ("Finalization", "Review", "ReviewFinalizationForOriginalOwner",
+             "CharacterCreationFinalizationResult<CharacterCreationFinalizationReview>",
+             "CharacterCreationFinalizationReviewRequest"),
+            ("Finalization", "Confirm", "ConfirmFinalizationForOriginalOwner",
+             "CharacterCreationFinalizationResult<CharacterCreationFinalizationReceipt>",
+             "CharacterCreationFinalizationConfirmRequest"),
+            ("Finalization", "LookupReceipt", "LookupFinalizationForOriginalOwner",
+             "CharacterCreationFinalizationResult<CharacterCreationFinalizationReceipt>",
+             "CharacterCreationFinalizationReceiptLookupRequest"),
+        )
+        for domain, verb, method, result, request in calls:
+            interface = f"IOwnerBoundCharacterCreation{domain}Service"
+            pattern = (rf"public static {re.escape(result)} {method}\(\s*"
+                       rf"{interface} service, OwnerContextStamp owner,\s*"
+                       rf"{request} request\) => service\.{verb}\(owner, request\);")
+            with self.subTest(method=method):
+                self.assertRegex(probe, pattern)
 
     def test_isolated_consumer_compiles_and_executes_complete_continuation_boundaries(self) -> None:
         script = (REPO_ROOT / "scripts/ai/verify-no-siblings-package-plane.sh").read_text(encoding="utf-8")
@@ -165,6 +218,7 @@ class RuntimePackageLockTests(unittest.TestCase):
                        *runtime.AFTER_RUN_REWARD_AUTHORITY_PATHS,
                        *runtime.CREATION_SKILLS_REVIEW_AUTHORITY_PATHS,
                        *runtime.CAREER_REPUTATION_AUTHORITY_PATHS,
+                       *runtime.OWNER_ADMISSION_AUTHORITY_PATHS,
                        *runtime.WORKSPACE_CONTINUATION_AUTHORITY_PATHS):
             def missing_member(command, *, cwd):
                 if tuple(command) == ("git", "cat-file", "-e", f"{runtime.SOURCE_COMMIT}:{member}"):
@@ -181,6 +235,7 @@ class RuntimePackageLockTests(unittest.TestCase):
                        *runtime.AFTER_RUN_REWARD_AUTHORITY_PATHS,
                        *runtime.CREATION_SKILLS_REVIEW_AUTHORITY_PATHS,
                        *runtime.CAREER_REPUTATION_AUTHORITY_PATHS,
+                       *runtime.OWNER_ADMISSION_AUTHORITY_PATHS,
                        *runtime.WORKSPACE_CONTINUATION_AUTHORITY_PATHS):
             def semantic_drift(command, *, cwd):
                 if tuple(command) == ("git", "diff", "--name-only", runtime.SOURCE_COMMIT):
