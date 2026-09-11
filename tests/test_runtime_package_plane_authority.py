@@ -54,8 +54,8 @@ class RuntimePackageLockTests(unittest.TestCase):
         )
 
     def test_next_wave_candidate_is_bound_to_locally_validated_semantic_commit(self) -> None:
-        self.assertEqual("aeeb4717633e3528fbec9cadd8233c4ac094503b", runtime.SOURCE_COMMIT)
-        self.assertEqual("0.0.0-packageplane.candidate.shaeeb4717633e3", runtime.PACKAGE_VERSION)
+        self.assertEqual("181faa98a540294b72e6fe177751fd4308590fae", runtime.SOURCE_COMMIT)
+        self.assertEqual("0.0.0-packageplane.candidate.sh181faa98a5402", runtime.PACKAGE_VERSION)
 
     def test_previous_runtime_authority_cannot_stand_in_for_owner_finalization(self) -> None:
         for stale in ("source", "version"):
@@ -74,6 +74,16 @@ class RuntimePackageLockTests(unittest.TestCase):
                 altered["runtime_source"]["commit"] = "b32ee7d37b539cf21a51e9220ff76bffe37a67a4"
             else:
                 altered["package_version"] = "0.0.0-packageplane.candidate.shb32ee7d37b539"
+            with self.subTest(stale=stale), self.assertRaises(runtime.RuntimePackagePlaneError):
+                runtime.validate_lock_payload(altered)
+
+    def test_previous_prerequisite_authority_cannot_stand_in_for_source_operation_reuse(self) -> None:
+        for stale in ("source", "version"):
+            altered = copy.deepcopy(self.lock)
+            if stale == "source":
+                altered["runtime_source"]["commit"] = "aeeb4717633e3528fbec9cadd8233c4ac094503b"
+            else:
+                altered["package_version"] = "0.0.0-packageplane.candidate.shaeeb4717633e3"
             with self.subTest(stale=stale), self.assertRaises(runtime.RuntimePackagePlaneError):
                 runtime.validate_lock_payload(altered)
 
@@ -143,6 +153,32 @@ class RuntimePackageLockTests(unittest.TestCase):
                        rf"{request} request\) => service\.{verb}\(owner, request\);")
             with self.subTest(method=method):
                 self.assertRegex(probe, pattern)
+
+    def test_package_only_consumer_compiles_optional_source_operation_scope(self) -> None:
+        script = (REPO_ROOT / "scripts/ai/verify-no-siblings-package-plane.sh").read_text(encoding="utf-8")
+        probe = script.split('cat >"$runtime_consumer_root/BoundaryProbe.cs" <<\'EOF\'\n', 1)[1].split('\nEOF', 1)[0]
+        self.assertIn("using Chummer.Infrastructure.Xml;", probe)
+        self.assertRegex(
+            probe,
+            r"public static ICharacterSourceDataResolverOperationScopeFactory SourceOperationFactory\(\s*"
+            r"FileSystemCharacterSourceDataResolver resolver\) => resolver;",
+        )
+        self.assertRegex(
+            probe,
+            r"public static bool ResolvePrerequisiteSourceInOperation\(\s*"
+            r"ICharacterSourceDataResolverOperationScopeFactory factory, string characterXml\)\s*\{\s*"
+            r"using ICharacterSourceDataResolverOperationScope scope = factory\.CreateOperationScope\(\);\s*"
+            r"ICharacterSourceDataContext\? context = scope\.TryCreateContext\(characterXml\);\s*"
+            r"return context is not null\s*"
+            r"&& context\.TryResolveCreationPrerequisiteAuthority\(out CharacterCreationPrerequisiteAuthority authority\)\s*"
+            r"&& authority\.IsAuthoritative;\s*\}",
+        )
+
+    def test_isolated_lane_executes_source_input_regressions(self) -> None:
+        script = (REPO_ROOT / "scripts/ai/verify-no-siblings-package-plane.sh").read_text(encoding="utf-8")
+        self.assertIn("\nsource_input_filter='FullyQualifiedName~FileSystemCharacterSourceDataResolverTests'\n", script)
+        invocation = script.split('dotnet test "$consumer_root/Chummer.Tests/Chummer.Tests.csproj"', 1)[1].split('\n\n', 1)[0]
+        self.assertIn('--filter "$local_owner_filter|$finalization_filter|$prerequisite_filter|$source_input_filter|', invocation)
 
     def test_isolated_consumer_compiles_and_executes_complete_continuation_boundaries(self) -> None:
         script = (REPO_ROOT / "scripts/ai/verify-no-siblings-package-plane.sh").read_text(encoding="utf-8")
@@ -275,7 +311,8 @@ class RuntimePackageLockTests(unittest.TestCase):
 
     def test_missing_wizard_source_member_is_fail_closed(self) -> None:
         real_run = runtime._run
-        for member in (*runtime.CREATION_FINALIZATION_AUTHORITY_PATHS,
+        for member in (*runtime.CREATION_SOURCE_INPUT_AUTHORITY_PATHS,
+                       *runtime.CREATION_FINALIZATION_AUTHORITY_PATHS,
                        *runtime.AFTER_RUN_REWARD_AUTHORITY_PATHS,
                        *runtime.CREATION_SKILLS_REVIEW_AUTHORITY_PATHS,
                        *runtime.CAREER_REPUTATION_AUTHORITY_PATHS,
@@ -292,7 +329,8 @@ class RuntimePackageLockTests(unittest.TestCase):
 
     def test_wizard_semantic_drift_cannot_hide_in_recipe(self) -> None:
         real_run = runtime._run
-        for member in (*runtime.CREATION_FINALIZATION_AUTHORITY_PATHS,
+        for member in (*runtime.CREATION_SOURCE_INPUT_AUTHORITY_PATHS,
+                       *runtime.CREATION_FINALIZATION_AUTHORITY_PATHS,
                        *runtime.AFTER_RUN_REWARD_AUTHORITY_PATHS,
                        *runtime.CREATION_SKILLS_REVIEW_AUTHORITY_PATHS,
                        *runtime.CAREER_REPUTATION_AUTHORITY_PATHS,
@@ -341,7 +379,14 @@ class RuntimePackageLockTests(unittest.TestCase):
                 )
 
     def test_creation_source_input_members_are_bound_to_runtime_source(self) -> None:
-        self.assertEqual(2, len(runtime.CREATION_SOURCE_INPUT_AUTHORITY_PATHS))
+        expected = {
+            "Chummer.Application/Characters/ICharacterSourceDataResolverOperationScope.cs",
+            "Chummer.Infrastructure/Xml/CharacterCreationPrerequisiteAuthorityProjector.cs",
+            "Chummer.Infrastructure/Xml/FileSystemCharacterSourceDataResolver.cs",
+            "Chummer.Tests/FileSystemCharacterSourceDataResolverTests.cs",
+        }
+        self.assertEqual(expected, set(runtime.CREATION_SOURCE_INPUT_AUTHORITY_PATHS))
+        self.assertEqual(len(expected), len(runtime.CREATION_SOURCE_INPUT_AUTHORITY_PATHS))
         for member in runtime.CREATION_SOURCE_INPUT_AUTHORITY_PATHS:
             with self.subTest(member=member):
                 runtime._run(
