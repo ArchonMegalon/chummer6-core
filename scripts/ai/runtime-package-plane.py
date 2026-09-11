@@ -244,8 +244,11 @@ CREATION_SOURCE_INPUT_AUTHORITY_PATHS = (
 )
 CREATION_FINALIZATION_AUTHORITY_PATHS = (
     "Chummer.Application/Characters/CharacterCreationFinalizationProjector.cs",
+    "Chummer.Application/Characters/IOwnerBoundCharacterCreationFinalizationService.cs",
+    "Chummer.Application/Characters/OwnerBoundCharacterCreationFinalizationService.cs",
     "Chummer.Contracts/Characters/CharacterCreationFinalizationModels.cs",
     "Chummer.Tests/CharacterCreationFinalizationServiceTests.cs",
+    "Chummer.Tests/OwnerBoundCharacterCreationFinalizationServiceTests.cs",
     "Chummer.Tests/Chummer.CreationFinalization.Tests.csproj",
 )
 AFTER_RUN_REWARD_AUTHORITY_PATHS = (

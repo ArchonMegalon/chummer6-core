@@ -28,8 +28,8 @@
     {"path": "scripts/ai/bootstrap-contracts-feed.sh", "sha256": "8b0c25566398f3b222ffbdd23a8244fb27d4f7ce8a65c15a9678a6a63d1a88e6"},
     {"path": "scripts/ai/bootstrap-owner-contracts-feed.py", "sha256": "5beffe15d1708f4cf2c096f376822cd48b9502b5fb1acb69b95db3c86c474786"},
     {"path": "scripts/ai/public-runtime-package-handoff.py", "sha256": "7f99ec73e6f8b0e6543603069593b06b6ae910edfd2df62ad45a9e14f4c67229"},
-    {"path": "scripts/ai/runtime-package-plane.py", "sha256": "2544910fb49e6c6ca6e9c1f9b711c83c3cb196b282b9d0015f8b806815154918"},
-    {"path": "scripts/ai/verify-no-siblings-package-plane.sh", "sha256": "e250284d8a3a1d776116a248685c79689ad453826dc11b2a1e5fd5e7acc8f495"}
+    {"path": "scripts/ai/runtime-package-plane.py", "sha256": "7ab91c7131b75c27186f5dc94b426f807b0e5893b73814ff536cce37c40e31ad"},
+    {"path": "scripts/ai/verify-no-siblings-package-plane.sh", "sha256": "9462190d59a00d65211de1c83ff617dde80ed626dd1359b92737dd88963eefde"}
   ],
   "external_owner_packages": [
     {

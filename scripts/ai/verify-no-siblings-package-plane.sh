@@ -704,13 +704,15 @@ dotnet restore "$consumer_root/Chummer.Tests/Chummer.Tests.csproj" \
   "${common_properties[@]}"
 
 local_owner_filter='FullyQualifiedName~Import_with_local_single_user_scope_routes_through_the_unscoped_store_lane|FullyQualifiedName~Import_with_blank_owner_scope_remains_rejected|FullyQualifiedName~Raw_local_single_user_owner_value_cannot_enter_the_trusted_local_lane|FullyQualifiedName~Import_with_named_owner_scopes_keeps_two_owner_and_local_lanes_isolated|FullyQualifiedName~Workspace_service_owner_scoped_sentinels_cannot_reach_local_state'
+finalization_filter='FullyQualifiedName~CharacterCreationFinalizationServiceTests|FullyQualifiedName~OwnerBoundCharacterCreationFinalizationServiceTests'
+prerequisite_filter='FullyQualifiedName~CharacterCreationPrerequisiteServiceTests|FullyQualifiedName~OwnerBoundCharacterCreationPrerequisiteServiceTests'
 dotnet test "$consumer_root/Chummer.Tests/Chummer.Tests.csproj" \
   --configuration Release \
   --framework net10.0 \
   --no-restore \
   --nologo \
   -m:1 \
-  --filter "$local_owner_filter|FullyQualifiedName~WorkspaceContinuation|FullyQualifiedName~WorkspaceImported|FullyQualifiedName~WorkspaceLocalHistoryStoreTests" \
+  --filter "$local_owner_filter|$finalization_filter|$prerequisite_filter|FullyQualifiedName~WorkspaceContinuation|FullyQualifiedName~WorkspaceImported|FullyQualifiedName~WorkspaceLocalHistoryStoreTests" \
   "${common_properties[@]}"
 
 # Execute the actual owner/store regressions in the same isolated checkout.
