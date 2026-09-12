@@ -19,6 +19,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
     ICharacterSourceDataResolverOperationScopeFactory
 {
     private static readonly AsyncLocal<SourceInputSnapshot?> ActiveSourceInputs = new();
+    private const int MaximumRuleReferenceBytes = 4 * 1024 * 1024;
 
     private sealed class SourceInputSnapshot
     {
@@ -95,6 +96,18 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             }
         }
 
+        public bool HasUnambiguousRuleReferenceInputs()
+        {
+            lock (_sync)
+            {
+                // Inspect the actual parsed inputs as well as the merged result:
+                // generic catalog merging can otherwise coalesce duplicate IDs.
+                return _documents.Where(pair => IsRuleReferencePath(pair.Key))
+                    .All(pair => _bytes[pair.Key].Length <= MaximumRuleReferenceBytes
+                        && HasUnambiguousRuleReferenceRows(pair.Value.Root, requireCompleteRows: false));
+            }
+        }
+
         public string CreateCacheKey(string kind, string identity)
         {
             lock (_sync)
@@ -117,18 +130,59 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 }
 
                 FileSnapshot before = CaptureFileSnapshot(identity);
-                byte[] bytes = File.ReadAllBytes(identity);
+                byte[] bytes = IsRuleReferencePath(identity)
+                    ? ReadBoundedRuleReferenceBytes(identity)
+                    : File.ReadAllBytes(identity);
                 _afterSourceBytesRead?.Invoke(identity);
-                FileSnapshot after = CaptureFileSnapshot(identity);
-                if (!HasStableIdentity(before, after)
-                    || !ValidateCapturedBytes(identity, bytes))
+                FileSnapshot after;
+                try
                 {
-                    throw new IOException($"Source input changed while it was captured: {identity}");
+                    after = CaptureFileSnapshot(identity);
+                    if (!HasStableIdentity(before, after)
+                        || !ValidateCapturedBytes(identity, bytes))
+                    {
+                        throw new IOException($"Source input changed while it was captured: {identity}");
+                    }
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    _driftedFiles.Add(identity);
+                    throw;
                 }
                 _bytes.Add(identity, bytes);
                 _files.Add(identity, after);
                 _physicalReads[identity] = 1;
                 return bytes;
+            }
+        }
+
+        private static byte[] ReadBoundedRuleReferenceBytes(string path)
+        {
+            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read,
+                FileShare.ReadWrite | FileShare.Delete, 4096, FileOptions.SequentialScan);
+            if (stream.Length > MaximumRuleReferenceBytes)
+                throw new InvalidDataException("Rule-reference input exceeds the byte limit.");
+            using var output = new MemoryStream();
+            byte[] buffer = ArrayPool<byte>.Shared.Rent(64 * 1024);
+            try
+            {
+                while (output.Length <= MaximumRuleReferenceBytes)
+                {
+                    // Length is only an early check: read at most limit + one
+                    // bytes even if an external writer grows the open file.
+                    int requested = (int)Math.Min(buffer.Length, MaximumRuleReferenceBytes - output.Length + 1);
+                    int count = stream.Read(buffer, 0, requested);
+                    if (count == 0)
+                        return output.ToArray();
+                    if (output.Length + count > MaximumRuleReferenceBytes)
+                        throw new InvalidDataException("Rule-reference input exceeds the byte limit.");
+                    output.Write(buffer, 0, count);
+                }
+                throw new InvalidDataException("Rule-reference input exceeds the byte limit.");
+            }
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(buffer, clearArray: true);
             }
         }
 
@@ -259,6 +313,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                     return true;
                 }
                 catch (Exception exception) when (exception is IOException
+                                                  or InvalidDataException
                                                   or UnauthorizedAccessException
                                                   or XmlException)
                 {
@@ -1080,6 +1135,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
 
             var context = new SourceDataContext(
                 catalog,
+                _overlays,
                 sourceInputs,
                 new XElement(character),
                 CharacterCreationSkillsDigest.ComputeUtf8(characterXml),
@@ -1819,6 +1875,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
         private readonly object _prerequisiteProjectionSync = new();
         private PrerequisiteProjectionEntry? _prerequisiteProjection;
         private readonly ContentOverlayCatalog _catalog;
+        private readonly IContentOverlayCatalogService _overlayAuthority;
         private readonly SourceInputSnapshot _sourceInputs;
         private readonly XElement _character;
         private readonly string _rawCharacterXmlDigest;
@@ -1874,6 +1931,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
 
         public SourceDataContext(
             ContentOverlayCatalog catalog,
+            IContentOverlayCatalogService overlayAuthority,
             SourceInputSnapshot sourceInputs,
             XElement character,
             string rawCharacterXmlDigest,
@@ -1928,6 +1986,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             string reputationRuleState)
         {
             _catalog = catalog;
+            _overlayAuthority = overlayAuthority;
             _sourceInputs = sourceInputs;
             _character = character;
             _rawCharacterXmlDigest = rawCharacterXmlDigest;
@@ -1990,6 +2049,57 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             using IDisposable sourceInputScope = _sourceInputs.Enter();
             decimalPlaces = _maximumNuyenDecimals.GetValueOrDefault();
             return !_sourceInputs.HasSourceDrift && _maximumNuyenDecimals.HasValue;
+        }
+
+        public bool TryCaptureRuleSources(out CharacterRuleSourceCapture capture)
+        {
+            capture = CharacterRuleSourceCapture.Unavailable;
+            try
+            {
+                if (!_sourceInputs.TryAdmitReuse(FreezeContentOverlayCatalog(_overlayAuthority.GetCatalog())))
+                    return false;
+                using IDisposable sourceInputScope = _sourceInputs.Enter();
+                if (string.IsNullOrWhiteSpace(_settingsProfileId)
+                    || string.IsNullOrWhiteSpace(_rawProfileInputsDigest)
+                    || _enabledSourcebooks.Count == 0
+                    || !TryLoadEffectiveDocument(_catalog, "references.xml", out XDocument? document)
+                    || document?.Root is null
+                    || !TryEnumerateTargets("references.xml", ["rules"], "rule", out XElement[] rows)
+                    || !_sourceInputs.HasUnambiguousRuleReferenceInputs()
+                    || !TryComputeEffectiveInputDigest(_catalog, "references.xml", out string inputsDigest)
+                    || !TryComputeSelectedCustomDataInputsDigestFor(
+                        _customDirectories, "references.xml", out string customDigest))
+                    return false;
+
+                // Preserve the document envelope; only replace rules with the
+                // exact overlay + saved-profile custom-data projection.
+                document.Root.Element("rules")?.ReplaceWith(new XElement("rules", rows));
+                if (!HasUnambiguousRuleReferenceRows(document.Root, requireCompleteRows: true)
+                    || rows.Length == 0)
+                    return false;
+                string xml = document.ToString(SaveOptions.DisableFormatting);
+                if (Encoding.UTF8.GetByteCount(xml) > MaximumRuleReferenceBytes)
+                    return false;
+                string xmlDigest = "sha256:" + Convert.ToHexString(
+                    SHA256.HashData(Encoding.UTF8.GetBytes(xml))).ToLowerInvariant();
+                var candidate = new CharacterRuleSourceCapture(
+                    _rawCharacterXmlDigest,
+                    _settingsProfileId,
+                    _enabledSourcebooks.OrderBy(value => value, StringComparer.Ordinal).ToArray(),
+                    _rawProfileInputsDigest, inputsDigest, customDigest, xml, xmlDigest);
+
+                // Explicit final admission also checks newly observed inputs and
+                // fresh catalog metadata even inside this ambient snapshot scope.
+                if (!_sourceInputs.TryAdmitReuse(FreezeContentOverlayCatalog(_overlayAuthority.GetCatalog())))
+                    return false;
+                capture = candidate;
+                return true;
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
+                or InvalidDataException or XmlException or ArgumentException or InvalidOperationException)
+            {
+                return false;
+            }
         }
 
         public bool TryResolveCreationSourceProfile(
@@ -6152,6 +6262,41 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
 
     private static string ReadOperation(XElement element)
         => element.Attribute("amendoperation")?.Value.Trim().ToUpperInvariant() ?? string.Empty;
+
+    private static bool IsRuleReferencePath(string path)
+        => string.Equals(Path.GetExtension(path), ".xml", StringComparison.OrdinalIgnoreCase)
+           && (string.Equals(ResolveCatalogTargetFileName(Path.GetFileName(path)),
+                   "references.xml", StringComparison.OrdinalIgnoreCase)
+               || IsLegacyCustomDataInputFor(path, "references.xml"));
+
+    private static bool HasUnambiguousRuleReferenceRows(XElement? root, bool requireCompleteRows)
+    {
+        if (root?.Name != "chummer" || root.Elements("rules").Count() != 1)
+            return false;
+        XElement container = root.Element("rules")!;
+        if (container.Elements().Any(element => element.Name != "rule"))
+            return false;
+        var identities = new HashSet<string>(StringComparer.Ordinal);
+        foreach (XElement row in container.Elements("rule"))
+        {
+            if (new[] { "id", "name", "source", "page" }.Any(name => row.Elements(name).Count() > 1))
+                return false;
+            string id = ReadValue(row, "id");
+            string name = ReadValue(row, "name");
+            bool hasId = Guid.TryParse(id, out Guid parsed) && parsed != Guid.Empty;
+            if ((!hasId && (id.Length != 0 || name.Length == 0))
+                || !identities.Add(hasId ? $"id:{parsed:D}" : $"name:{name}"))
+                return false;
+            if (requireCompleteRows && (!hasId || name.Length == 0
+                || new[] { "id", "name", "source", "page" }.Any(field =>
+                    row.Elements(field).Any(element => element.HasElements || element.HasAttributes))
+                || string.IsNullOrWhiteSpace(ReadValue(row, "source"))
+                || !int.TryParse(ReadValue(row, "page"), NumberStyles.None,
+                    CultureInfo.InvariantCulture, out int page) || page <= 0))
+                return false;
+        }
+        return true;
+    }
 
     private static bool TryLoadEffectiveDocument(
         ContentOverlayCatalog catalog,
