@@ -34,9 +34,9 @@ INVENTORY_NAME = "chummer-core-runtime-packages.inventory.json"
 OWNER_INVENTORY_NAME = "chummer-owner-contracts.inventory.json"
 CANDIDATE_ENGINE_INVENTORY_NAME = "chummer-core-candidate-engine-contract.inventory.json"
 CANDIDATE_GM_INVENTORY_NAME = "chummer-core-candidate-gm-edit-runtime.inventory.json"
-PACKAGE_VERSION = "0.0.0-packageplane.candidate.sh3bc5fe725fd2b"
+PACKAGE_VERSION = "0.0.0-packageplane.candidate.sh1b59cb894e0b6"
 SOURCE_REPOSITORY = "https://github.com/ArchonMegalon/chummer6-core.git"
-SOURCE_COMMIT = "3bc5fe725fd2bbbad0333c5c7a3f849e53808c4f"
+SOURCE_COMMIT = "1b59cb894e0b6aea922783eeaab175e236fdefff"
 SDK_VERSION = "10.0.103"
 SDK_RID = "linux-x64"
 SDK_ARCHIVE_URL = (
@@ -239,12 +239,21 @@ CREATION_ACTIVATION_AUTHORITY_PATHS = (
     "Chummer.Tests/CharacterCreationBootstrapServiceTests.cs",
 )
 CREATION_SOURCE_INPUT_AUTHORITY_PATHS = (
+    "Chummer.Application/Characters/CharacterRuleSourceCapture.cs",
+    "Chummer.Application/Characters/ICharacterSourceDataResolver.cs",
     "Chummer.Application/Characters/ICharacterSourceDataResolverOperationScope.cs",
     "Chummer.Contracts/Characters/CharacterCreationPrerequisiteModels.cs",
     "Chummer.Infrastructure/Xml/CharacterCreationPrerequisiteAuthorityProjector.cs",
     "Chummer.Infrastructure/Xml/FileSystemCharacterSourceDataResolver.cs",
     "Chummer.Tests/CharacterCreationPrerequisiteDigestTests.cs",
     "Chummer.Tests/FileSystemCharacterSourceDataResolverTests.cs",
+)
+BUILD_GHOST_RULE_AUTHORITY_PATHS = (
+    "Chummer.Application/AvatarRules/BuildGhostRuleAuthorityResolver.cs",
+    "Chummer.Contracts/BuildGhost/BuildGhostRuleAuthorityContracts.cs",
+    "Chummer.Contracts/Rulesets/RulesetCapabilityContracts.cs",
+    "Chummer.Rulesets.Sr5/Sr5RulesetPlugin.cs",
+    "Chummer.Tests/BuildGhostRuleAuthorityResolverTests.cs",
 )
 CREATION_FINALIZATION_AUTHORITY_PATHS = (
     "Chummer.Application/Characters/CharacterCreationFinalizationProjector.cs",
@@ -805,7 +814,7 @@ def validate_repository(repo_root: Path, lock: dict[str, Any]) -> None:
         _run(("git", "cat-file", "-e", f"{SOURCE_COMMIT}:{member}"), cwd=repo_root)
     for member in (*CREATION_SKILLS_REVIEW_AUTHORITY_PATHS,
                    *CAREER_REPUTATION_AUTHORITY_PATHS, *OWNER_ADMISSION_AUTHORITY_PATHS,
-                   *WORKSPACE_CONTINUATION_AUTHORITY_PATHS):
+                   *WORKSPACE_CONTINUATION_AUTHORITY_PATHS, *BUILD_GHOST_RULE_AUTHORITY_PATHS):
         _run(("git", "cat-file", "-e", f"{SOURCE_COMMIT}:{member}"), cwd=repo_root)
 
     changed = _run(

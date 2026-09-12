@@ -55,8 +55,8 @@ class RuntimePackageLockTests(unittest.TestCase):
         )
 
     def test_next_wave_candidate_is_bound_to_locally_validated_semantic_commit(self) -> None:
-        self.assertEqual("3bc5fe725fd2bbbad0333c5c7a3f849e53808c4f", runtime.SOURCE_COMMIT)
-        self.assertEqual("0.0.0-packageplane.candidate.sh3bc5fe725fd2b", runtime.PACKAGE_VERSION)
+        self.assertEqual("1b59cb894e0b6aea922783eeaab175e236fdefff", runtime.SOURCE_COMMIT)
+        self.assertEqual("0.0.0-packageplane.candidate.sh1b59cb894e0b6", runtime.PACKAGE_VERSION)
 
     def test_previous_runtime_authority_cannot_stand_in_for_owner_finalization(self) -> None:
         for stale in ("source", "version"):
@@ -96,6 +96,18 @@ class RuntimePackageLockTests(unittest.TestCase):
                 expected_error = "runtime source authority is not exact"
             else:
                 altered["package_version"] = "0.0.0-packageplane.candidate.sh181faa98a5402"
+                expected_error = "runtime package version is not exact"
+            with self.subTest(stale=stale), self.assertRaisesRegex(runtime.RuntimePackagePlaneError, expected_error):
+                runtime.validate_lock_payload(altered)
+
+    def test_previous_canonical_digest_authority_cannot_stand_in_for_rule_source_capture(self) -> None:
+        for stale in ("source", "version"):
+            altered = copy.deepcopy(self.lock)
+            if stale == "source":
+                altered["runtime_source"]["commit"] = "3bc5fe725fd2bbbad0333c5c7a3f849e53808c4f"
+                expected_error = "runtime source authority is not exact"
+            else:
+                altered["package_version"] = "0.0.0-packageplane.candidate.sh3bc5fe725fd2b"
                 expected_error = "runtime package version is not exact"
             with self.subTest(stale=stale), self.assertRaisesRegex(runtime.RuntimePackagePlaneError, expected_error):
                 runtime.validate_lock_payload(altered)
@@ -192,6 +204,15 @@ class RuntimePackageLockTests(unittest.TestCase):
         self.assertIn("\nsource_input_filter='FullyQualifiedName~FileSystemCharacterSourceDataResolverTests'\n", script)
         invocation = script.split('dotnet test "$consumer_root/Chummer.Tests/Chummer.Tests.csproj"', 1)[1].split('\n\n', 1)[0]
         self.assertIn('--filter "$local_owner_filter|$finalization_filter|$prerequisite_filter|$source_input_filter|', invocation)
+
+    def test_isolated_lane_executes_rook_authority_regressions(self) -> None:
+        script = (REPO_ROOT / "scripts/ai/verify-no-siblings-package-plane.sh").read_text(encoding="utf-8")
+        declaration = "\nrook_authority_filter='FullyQualifiedName~BuildGhostRuleAuthorityResolverTests'\n"
+        self.assertEqual(1, script.count(declaration))
+        invocation = script.split('dotnet test "$consumer_root/Chummer.Tests/Chummer.Tests.csproj"', 1)[1].split('\n\n', 1)[0]
+        self.assertIn('--filter "$local_owner_filter|$finalization_filter|$prerequisite_filter|$source_input_filter|$rook_authority_filter|', invocation)
+        self.assertEqual(1, invocation.count("$rook_authority_filter"))
+        self.assertNotIn("--no-build", invocation)
 
     def test_isolated_consumer_compiles_and_executes_complete_continuation_boundaries(self) -> None:
         script = (REPO_ROOT / "scripts/ai/verify-no-siblings-package-plane.sh").read_text(encoding="utf-8")
@@ -332,7 +353,8 @@ class RuntimePackageLockTests(unittest.TestCase):
                        *runtime.CREATION_SKILLS_REVIEW_AUTHORITY_PATHS,
                        *runtime.CAREER_REPUTATION_AUTHORITY_PATHS,
                        *runtime.OWNER_ADMISSION_AUTHORITY_PATHS,
-                       *runtime.WORKSPACE_CONTINUATION_AUTHORITY_PATHS):
+                       *runtime.WORKSPACE_CONTINUATION_AUTHORITY_PATHS,
+                       *runtime.BUILD_GHOST_RULE_AUTHORITY_PATHS):
             def missing_member(command, *, cwd):
                 if tuple(command) == ("git", "cat-file", "-e", f"{runtime.SOURCE_COMMIT}:{member}"):
                     raise runtime.RuntimePackagePlaneError("missing anchored semantic member")
@@ -350,7 +372,8 @@ class RuntimePackageLockTests(unittest.TestCase):
                        *runtime.CREATION_SKILLS_REVIEW_AUTHORITY_PATHS,
                        *runtime.CAREER_REPUTATION_AUTHORITY_PATHS,
                        *runtime.OWNER_ADMISSION_AUTHORITY_PATHS,
-                       *runtime.WORKSPACE_CONTINUATION_AUTHORITY_PATHS):
+                       *runtime.WORKSPACE_CONTINUATION_AUTHORITY_PATHS,
+                       *runtime.BUILD_GHOST_RULE_AUTHORITY_PATHS):
             def semantic_drift(command, *, cwd):
                 if tuple(command) == ("git", "diff", "--name-only", runtime.SOURCE_COMMIT):
                     return "\n".join((*runtime.ALLOWED_RECIPE_DELTA, member))
@@ -395,6 +418,8 @@ class RuntimePackageLockTests(unittest.TestCase):
 
     def test_creation_source_input_members_are_bound_to_runtime_source(self) -> None:
         expected = {
+            "Chummer.Application/Characters/CharacterRuleSourceCapture.cs",
+            "Chummer.Application/Characters/ICharacterSourceDataResolver.cs",
             "Chummer.Application/Characters/ICharacterSourceDataResolverOperationScope.cs",
             "Chummer.Contracts/Characters/CharacterCreationPrerequisiteModels.cs",
             "Chummer.Infrastructure/Xml/CharacterCreationPrerequisiteAuthorityProjector.cs",
@@ -405,6 +430,23 @@ class RuntimePackageLockTests(unittest.TestCase):
         self.assertEqual(expected, set(runtime.CREATION_SOURCE_INPUT_AUTHORITY_PATHS))
         self.assertEqual(len(expected), len(runtime.CREATION_SOURCE_INPUT_AUTHORITY_PATHS))
         for member in runtime.CREATION_SOURCE_INPUT_AUTHORITY_PATHS:
+            with self.subTest(member=member):
+                runtime._run(
+                    ("git", "cat-file", "-e", f"{runtime.SOURCE_COMMIT}:{member}"),
+                    cwd=REPO_ROOT,
+                )
+
+    def test_rook_rule_authority_members_are_bound_to_runtime_source(self) -> None:
+        expected = {
+            "Chummer.Application/AvatarRules/BuildGhostRuleAuthorityResolver.cs",
+            "Chummer.Contracts/BuildGhost/BuildGhostRuleAuthorityContracts.cs",
+            "Chummer.Contracts/Rulesets/RulesetCapabilityContracts.cs",
+            "Chummer.Rulesets.Sr5/Sr5RulesetPlugin.cs",
+            "Chummer.Tests/BuildGhostRuleAuthorityResolverTests.cs",
+        }
+        self.assertEqual(expected, set(runtime.BUILD_GHOST_RULE_AUTHORITY_PATHS))
+        self.assertEqual(len(expected), len(runtime.BUILD_GHOST_RULE_AUTHORITY_PATHS))
+        for member in runtime.BUILD_GHOST_RULE_AUTHORITY_PATHS:
             with self.subTest(member=member):
                 runtime._run(
                     ("git", "cat-file", "-e", f"{runtime.SOURCE_COMMIT}:{member}"),
