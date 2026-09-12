@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import fnmatch
 import hashlib
 import importlib.util
 import io
@@ -1503,6 +1504,36 @@ class RuntimePackageWorkflowTests(unittest.TestCase):
         self.assertIn("FullyQualifiedName~CharacterCreationFinalizationServiceTests", affected_step)
         self.assertIn("FullyQualifiedName~WorkspaceCharacterAfterRunRewardTests", affected_step)
         self.assertIn("FullyQualifiedName~CharacterAfterRunSettlementRulesTests", affected_step)
+
+    def test_rook_authority_runs_in_affected_filter_and_normal_test_project(self) -> None:
+        # Source admission only; actual managed execution is proved by the hosted job.
+        workflow = (REPO_ROOT / ".github/workflows/package-plane.yml").read_text(encoding="utf-8")
+        affected_step = workflow.split("- name: Build and run affected authority tests", 1)[1]
+        affected_step = affected_step.split("- name:", 1)[0]
+        self.assertIn("dotnet test Chummer.Tests/Chummer.Tests.csproj", affected_step)
+        self.assertIn("--framework net10.0", affected_step)
+        self.assertNotIn("--no-build", affected_step)
+        selected = re.search(r'--filter\s+"([^"]+)"', affected_step)
+        self.assertIsNotNone(selected)
+        self.assertEqual(1, selected.group(1).split("|").count(
+            "FullyQualifiedName~BuildGhostRuleAuthorityResolverTests"))
+
+        test_name = "BuildGhostRuleAuthorityResolverTests.cs"
+        source = REPO_ROOT / "Chummer.Tests" / test_name
+        self.assertTrue(source.is_file())
+        self.assertIn("[TestClass]\npublic sealed class BuildGhostRuleAuthorityResolverTests",
+                      source.read_text(encoding="utf-8"))
+        project = ET.parse(REPO_ROOT / "Chummer.Tests/Chummer.Tests.csproj").getroot()
+        for property_name in ("EnableDefaultItems", "EnableDefaultCompileItems"):
+            for value in project.findall(f".//{property_name}"):
+                self.assertEqual("true", (value.text or "").strip().lower())
+        for item in project.findall(".//Compile"):
+            for pattern in item.get("Remove", "").replace("\\", "/").split(";"):
+                pattern = pattern.strip()
+                self.assertNotIn("$(", pattern)
+                while pattern.startswith("**/"):
+                    pattern = pattern[3:]
+                self.assertFalse(fnmatch.fnmatchcase(test_name, pattern), pattern)
 
     def test_late_receipt_uses_the_same_locked_authority_as_packing(self) -> None:
         verifier = (REPO_ROOT / "scripts/ai/verify-no-siblings-package-plane.sh").read_text(encoding="utf-8")

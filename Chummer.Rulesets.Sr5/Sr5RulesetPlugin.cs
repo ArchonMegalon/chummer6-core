@@ -224,7 +224,7 @@ public class Sr5DeterministicRulesetCapabilityHost : IRulesetCapabilityHost
                     RulesetCapabilityDiagnosticSeverities.Info,
                     MessageKey: "sr5.rule.executed")
             ],
-            Explain: CreateExplainTrace(request.CapabilityId, output, "sr5.host/derive.stat"));
+            Explain: CreateExplainTrace(request, output, "sr5.host/derive.stat"));
     }
 
     private static RulesetCapabilityInvocationResult EvaluateDeriveInitiative(RulesetCapabilityInvocationRequest request)
@@ -258,7 +258,7 @@ public class Sr5DeterministicRulesetCapabilityHost : IRulesetCapabilityHost
                     MessageKey: "sr5.initiative.executed")
             ],
             Explain: CreateExplainTrace(
-                request.CapabilityId,
+                request,
                 output,
                 "sr5.host/derive.initiative",
                 targetKey: "initiative.total"));
@@ -286,15 +286,16 @@ public class Sr5DeterministicRulesetCapabilityHost : IRulesetCapabilityHost
                     RulesetCapabilityDiagnosticSeverities.Info,
                     MessageKey: "sr5.script.executed")
             ],
-            Explain: CreateExplainTrace(request.CapabilityId, output, "sr5.host/session.quick-actions"));
+            Explain: CreateExplainTrace(request, output, "sr5.host/session.quick-actions"));
     }
 
     private static RulesetExplainTrace CreateExplainTrace(
-        string capabilityId,
+        RulesetCapabilityInvocationRequest request,
         RulesetCapabilityValue output,
         string providerId,
         string? targetKey = null)
     {
+        string capabilityId = request.CapabilityId;
         RulesetGasUsage gas = new(
             ProviderInstructionsConsumed: 1,
             RequestInstructionsConsumed: 1,
@@ -331,7 +332,8 @@ public class Sr5DeterministicRulesetCapabilityHost : IRulesetCapabilityHost
                     GasUsage: gas)
             ],
             AggregateGasUsage: gas,
-            ProfileId: "official.sr5.core");
+            RuntimeFingerprint: request.AuthorityBinding?.RuntimeFingerprint,
+            ProfileId: request.AuthorityBinding?.ProfileId ?? "official.sr5.core");
     }
 
     private static long? GetIntegerArgument(IReadOnlyList<RulesetCapabilityArgument> arguments, string name)
