@@ -31,6 +31,381 @@ public sealed class FileSystemCharacterSourceDataResolverTests
     private const string VehicleModId = "f89a112e-600a-4278-8731-9b14cf3737c9";
 
     [TestMethod]
+    [DataRow(SettingsId)]
+    [DataRow(CanonicalSumToTenSettingsId)]
+    public void Rule_source_capture_uses_actual_canonical_saved_profile_and_reference_rows(string profileId)
+    {
+        string root = FindCoreRoot();
+        var context = CreateContext(root, $"<character><settings>{profileId}</settings></character>")!;
+        Assert.IsNotNull(context);
+        Assert.IsTrue(context.TryCaptureRuleSources(out var capture));
+        Assert.AreEqual(profileId, capture.SettingsProfileId);
+        XElement setting = XDocument.Load(Path.Combine(root, "Chummer", "data", "settings.xml"))
+            .Descendants("setting").Single(row => row.Element("id")?.Value == profileId);
+        CollectionAssert.AreEqual(setting.Element("books")!.Elements("book").Select(row => row.Value)
+            .Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(value => value, StringComparer.Ordinal).ToArray(),
+            capture.EnabledSourcebooks.ToArray());
+        XElement[] actual = XDocument.Parse(capture.EffectiveReferencesXml).Root!.Element("rules")!.Elements("rule").ToArray();
+        XElement[] expected = XDocument.Load(Path.Combine(root, "Chummer", "data", "references.xml"))
+            .Root!.Element("rules")!.Elements("rule").ToArray();
+        Assert.HasCount(expected.Length, actual);
+        for (int index = 0; index < expected.Length; index++)
+            Assert.IsTrue(XNode.DeepEquals(expected[index], actual[index]), $"Reference row {index}");
+        AssertRuleCaptureDigests(capture);
+    }
+
+    [TestMethod]
+    [DataRow(ContentOverlayModes.ReplaceFile)]
+    [DataRow(ContentOverlayModes.MergeCatalog)]
+    public void Rule_source_capture_applies_overlay_then_only_saved_custom_profile_and_keeps_raw_digests_distinct(string overlayMode)
+    {
+        string root = CreateRuleCaptureFixture(custom: true);
+        string overlayRoot = CreateTempDirectory();
+        try
+        {
+            string overlayData = Path.Combine(overlayRoot, "data");
+            Directory.CreateDirectory(overlayData);
+            File.WriteAllText(Path.Combine(overlayData, overlayMode == ContentOverlayModes.ReplaceFile
+                ? "references.xml" : "references.fragment.xml"), RuleCaptureXml(200));
+            string selectedPath = Path.Combine(root, "customdata", "Selected", "override_references.xml");
+            File.WriteAllText(selectedPath, RuleCaptureXml(201));
+            string other = Path.Combine(root, "customdata", "Not selected");
+            Directory.CreateDirectory(other);
+            File.WriteAllText(Path.Combine(other, "override_references.xml"), RuleCaptureXml(999));
+            var packs = new List<ContentOverlayPack>
+            {
+                new("references", "References", overlayRoot, overlayData, overlayData,
+                    1, true, overlayMode, "selected overlay")
+            };
+            var resolver = new FileSystemCharacterSourceDataResolver(new MutableContentOverlayCatalogService(
+                Path.Combine(root, "data"), Path.Combine(root, "lang"), packs));
+            var context = resolver.TryCreateContext(RuleCaptureCharacterXml(custom: true))!;
+            Assert.IsTrue(context.TryCaptureRuleSources(out var capture));
+            Assert.AreEqual("201", XDocument.Parse(capture.EffectiveReferencesXml).Descendants("page").Single().Value);
+            CollectionAssert.AreEqual(new[] { "SG", "SR5" }, capture.EnabledSourcebooks.ToArray());
+            AssertRuleCaptureDigests(capture);
+
+            // Changing shadowed raw input still changes provenance, not the effective XML.
+            File.WriteAllText(Path.Combine(root, "data", "references.xml"), RuleCaptureXml(160));
+            var fresh = resolver.TryCreateContext(RuleCaptureCharacterXml(custom: true))!;
+            Assert.IsTrue(fresh.TryCaptureRuleSources(out var changedBase));
+            Assert.AreEqual(capture.EffectiveReferencesXml, changedBase.EffectiveReferencesXml);
+            Assert.AreEqual(capture.EffectiveReferencesXmlDigest, changedBase.EffectiveReferencesXmlDigest);
+            Assert.AreNotEqual(capture.EffectiveReferencesInputsDigest, changedBase.EffectiveReferencesInputsDigest);
+            Assert.AreEqual(capture.SelectedReferencesCustomDataInputsDigest, changedBase.SelectedReferencesCustomDataInputsDigest);
+
+            File.WriteAllText(selectedPath, RuleCaptureXml(202));
+            fresh = resolver.TryCreateContext(RuleCaptureCharacterXml(custom: true))!;
+            Assert.IsTrue(fresh.TryCaptureRuleSources(out var changedCustom));
+            Assert.AreNotEqual(changedBase.SelectedReferencesCustomDataInputsDigest, changedCustom.SelectedReferencesCustomDataInputsDigest);
+            Assert.AreEqual(changedBase.EffectiveReferencesInputsDigest, changedCustom.EffectiveReferencesInputsDigest);
+            Assert.AreEqual("202", XDocument.Parse(changedCustom.EffectiveReferencesXml).Descendants("page").Single().Value);
+        }
+        finally { DeleteTempDirectory(overlayRoot); DeleteTempDirectory(root); }
+    }
+
+    [TestMethod]
+    [DataRow("missing")]
+    [DataRow("empty")]
+    [DataRow("duplicate-id")]
+    [DataRow("duplicate-container")]
+    [DataRow("duplicate-field")]
+    [DataRow("duplicate-custom")]
+    [DataRow("duplicate-overlay")]
+    [DataRow("nested-field")]
+    [DataRow("dtd")]
+    [DataRow("oversized")]
+    [DataRow("oversized-result")]
+    [DataRow("missing-profile")]
+    [DataRow("duplicate-profile")]
+    public void Rule_source_capture_rejects_missing_ambiguous_and_unsafe_inputs(string failure)
+    {
+        // A selected directory forces the generic target-merging branch, which
+        // would otherwise silently coalesce duplicate base/custom reference IDs.
+        string root = CreateRuleCaptureFixture(custom: true);
+        try
+        {
+            string path = Path.Combine(root, "data", "references.xml");
+            XElement row = XElement.Parse(RuleCaptureXml()).Element("rules")!.Element("rule")!;
+            var packs = new List<ContentOverlayPack>();
+            switch (failure)
+            {
+                case "missing": File.Delete(path); break;
+                case "empty": File.WriteAllText(path, "<chummer><rules/></chummer>"); break;
+                case "duplicate-id": File.WriteAllText(path, new XElement("chummer", new XElement("rules", row, new XElement(row))).ToString()); break;
+                case "duplicate-container": File.WriteAllText(path, new XElement("chummer", new XElement("rules", row), new XElement("rules")).ToString()); break;
+                case "duplicate-field": row.Add(new XElement("page", "999")); File.WriteAllText(path, new XElement("chummer", new XElement("rules", row)).ToString()); break;
+                case "duplicate-custom": File.WriteAllText(Path.Combine(root, "customdata", "Selected", "override_references.xml"),
+                    new XElement("chummer", new XElement("rules", row, new XElement(row))).ToString()); break;
+                case "duplicate-overlay":
+                    string overlay = Path.Combine(root, "overlay");
+                    Directory.CreateDirectory(overlay);
+                    File.WriteAllText(Path.Combine(overlay, "references.fragment.xml"),
+                        new XElement("chummer", new XElement("rules", row, new XElement(row))).ToString());
+                    packs.Add(new ContentOverlayPack("duplicate", "Duplicate", overlay, overlay, overlay,
+                        1, true, ContentOverlayModes.MergeCatalog, "duplicate raw input"));
+                    break;
+                case "nested-field": row.Element("page")!.ReplaceNodes(new XElement("nested", "159"));
+                    File.WriteAllText(path, new XElement("chummer", new XElement("rules", row)).ToString()); break;
+                case "dtd": File.WriteAllText(path, "<!DOCTYPE chummer [<!ENTITY local 'forged'>]>" + RuleCaptureXml().Replace("Initiative Score", "&local;", StringComparison.Ordinal)); break;
+                case "oversized": File.WriteAllText(path, RuleCaptureXml().Replace("Initiative Score", new string('x', 4 * 1024 * 1024), StringComparison.Ordinal)); break;
+                case "oversized-result":
+                    string largeRow = RuleCaptureXml().Replace("Initiative Score", new string('x', 2 * 1024 * 1024), StringComparison.Ordinal);
+                    File.WriteAllText(path, largeRow);
+                    File.WriteAllText(Path.Combine(root, "customdata", "Selected", "custom_references.xml"),
+                        largeRow.Replace("A5D18354-17D4-4102-9295-03E6D125CB67", "A5D18354-17D4-4102-9295-03E6D125CB68", StringComparison.Ordinal));
+                    break;
+                case "missing-profile": File.WriteAllText(Path.Combine(root, "data", "settings.xml"), "<chummer><settings/></chummer>"); break;
+                case "duplicate-profile":
+                    string settingsPath = Path.Combine(root, "data", "settings.xml");
+                    XDocument settings = XDocument.Load(settingsPath);
+                    settings.Root!.Element("settings")!.Add(new XElement(settings.Descendants("setting").Single()));
+                    settings.Save(settingsPath);
+                    break;
+                default: Assert.Fail($"Unknown failure: {failure}"); break;
+            }
+            var context = new FileSystemCharacterSourceDataResolver(new MutableContentOverlayCatalogService(
+                Path.Combine(root, "data"), Path.Combine(root, "lang"), packs))
+                .TryCreateContext(RuleCaptureCharacterXml(custom: true));
+            if (failure is "missing-profile" or "duplicate-profile")
+                Assert.IsNull(context);
+            else
+            {
+                Assert.IsNotNull(context);
+                Assert.IsFalse(context.TryCaptureRuleSources(out var capture));
+                Assert.AreSame(CharacterRuleSourceCapture.Unavailable, capture);
+                Assert.AreEqual(string.Empty, capture.EffectiveReferencesXml);
+            }
+        }
+        finally { DeleteTempDirectory(root); }
+    }
+
+    [TestMethod]
+    public void Rule_source_capture_detaches_constructor_books_and_returned_xml_from_source_storage()
+    {
+        string root = CreateRuleCaptureFixture();
+        try
+        {
+            var context = CreateContext(root, RuleCaptureCharacterXml())!;
+            Assert.IsTrue(context.TryCaptureRuleSources(out var capture));
+            string[] suppliedBooks = capture.EnabledSourcebooks.ToArray();
+            var copied = new CharacterRuleSourceCapture(capture.RawCharacterXmlDigest, capture.SettingsProfileId, suppliedBooks,
+                capture.RawProfileInputsDigest, capture.EffectiveReferencesInputsDigest,
+                capture.SelectedReferencesCustomDataInputsDigest, capture.EffectiveReferencesXml,
+                capture.EffectiveReferencesXmlDigest);
+            suppliedBooks[0] = "FORGED";
+            Assert.AreNotEqual("FORGED", copied.EnabledSourcebooks[0]);
+            Assert.ThrowsExactly<NotSupportedException>(() => ((IList<string>)capture.EnabledSourcebooks)[0] = "FORGED");
+            byte[] callerBytes = System.Text.Encoding.UTF8.GetBytes(capture.EffectiveReferencesXml);
+            Array.Fill(callerBytes, (byte)'x');
+            Assert.IsTrue(context.TryCaptureRuleSources(out var next));
+            Assert.AreNotSame(capture, next);
+            Assert.AreNotSame(capture.EnabledSourcebooks, next.EnabledSourcebooks);
+            Assert.AreEqual(capture.EffectiveReferencesXml, next.EffectiveReferencesXml);
+            AssertRuleCaptureDigests(next);
+            File.WriteAllText(Path.Combine(root, "data", "references.xml"), RuleCaptureXml(999));
+            Assert.AreEqual("159", XDocument.Parse(capture.EffectiveReferencesXml).Descendants("page").Single().Value);
+            Assert.IsFalse(context.TryCaptureRuleSources(out _));
+        }
+        finally { DeleteTempDirectory(root); }
+    }
+
+    [TestMethod]
+    [DataRow("references")]
+    [DataRow("settings")]
+    [DataRow("custom")]
+    [DataRow("catalog")]
+    public void Rule_source_capture_drift_is_sticky_but_a_fresh_context_can_recover(string changedInput)
+    {
+        string root = CreateRuleCaptureFixture(custom: true);
+        try
+        {
+            string customPath = Path.Combine(root, "customdata", "Selected", "override_references.xml");
+            File.WriteAllText(customPath, RuleCaptureXml(160));
+            var packs = new List<ContentOverlayPack>();
+            var resolver = new FileSystemCharacterSourceDataResolver(new MutableContentOverlayCatalogService(
+                Path.Combine(root, "data"), Path.Combine(root, "lang"), packs));
+            string xml = RuleCaptureCharacterXml(custom: true);
+            var context = resolver.TryCreateContext(xml)!;
+            Assert.IsTrue(context.TryCaptureRuleSources(out var initial));
+            string path = changedInput switch
+            {
+                "settings" => Path.Combine(root, "data", "settings.xml"),
+                "custom" => customPath,
+                _ => Path.Combine(root, "data", "references.xml")
+            };
+            byte[] original = File.ReadAllBytes(path);
+            if (changedInput == "catalog")
+                packs.Add(new ContentOverlayPack("disabled", "Disabled", root, Path.Combine(root, "data"), root,
+                    1, false, ContentOverlayModes.ReplaceFile, "new catalog membership"));
+            else
+                File.AppendAllText(path, "\n<!-- changed captured input -->");
+            Assert.IsFalse(context.TryCaptureRuleSources(out var rejected));
+            Assert.AreSame(CharacterRuleSourceCapture.Unavailable, rejected);
+            if (changedInput == "catalog") packs.Clear(); else File.WriteAllBytes(path, original);
+            Assert.IsFalse(context.TryCaptureRuleSources(out _), "Restore must not revive a drifted snapshot.");
+            var fresh = resolver.TryCreateContext(xml)!;
+            Assert.IsTrue(fresh.TryCaptureRuleSources(out var recovered));
+            Assert.AreEqual(initial.EffectiveReferencesXml, recovered.EffectiveReferencesXml);
+            Assert.AreEqual(initial.EffectiveReferencesInputsDigest, recovered.EffectiveReferencesInputsDigest);
+            Assert.AreEqual(initial.SelectedReferencesCustomDataInputsDigest, recovered.SelectedReferencesCustomDataInputsDigest);
+        }
+        finally { DeleteTempDirectory(root); }
+    }
+
+    [TestMethod]
+    [DataRow("rewrite")]
+    [DataRow("delete")]
+    public void Rule_source_capture_rejects_newly_observed_reference_drift_before_publication(string mutation)
+    {
+        string root = CreateRuleCaptureFixture();
+        try
+        {
+            string path = Path.GetFullPath(Path.Combine(root, "data", "references.xml"));
+            int mutations = 0;
+            var resolver = new FileSystemCharacterSourceDataResolver(
+                new FileSystemContentOverlayCatalogService(root, root, null), observed =>
+                {
+                    if (observed == path && mutations++ == 0)
+                    {
+                        if (mutation == "delete") File.Delete(path);
+                        else File.WriteAllText(path, RuleCaptureXml(999));
+                    }
+                });
+            var context = resolver.TryCreateContext(RuleCaptureCharacterXml())!;
+            Assert.IsFalse(context.TryCaptureRuleSources(out var rejected));
+            Assert.AreSame(CharacterRuleSourceCapture.Unavailable, rejected);
+            Assert.AreEqual(1, mutations);
+            Assert.IsTrue(resolver.LastSourceInputSnapshotDiagnostics!.SourceDriftDetected);
+            Assert.IsFalse(context.TryCaptureRuleSources(out var repeated));
+            Assert.AreSame(CharacterRuleSourceCapture.Unavailable, repeated);
+            Assert.AreEqual(1, mutations, "A poisoned context must not reread and admit the changed file.");
+            File.WriteAllText(path, RuleCaptureXml(999));
+            Assert.IsFalse(context.TryCaptureRuleSources(out _), "Restoring bytes must not revive the old context.");
+            Assert.AreEqual(1, mutations);
+            var fresh = resolver.TryCreateContext(RuleCaptureCharacterXml())!;
+            Assert.IsTrue(fresh.TryCaptureRuleSources(out var recovered));
+            Assert.AreEqual("999", XDocument.Parse(recovered.EffectiveReferencesXml).Descendants("page").Single().Value);
+            AssertRuleCaptureDigests(recovered);
+            Assert.AreEqual(2, mutations, "Only the fresh context may capture the now-stable source.");
+            Assert.IsFalse(context.TryCaptureRuleSources(out _), "Fresh admission must not revive the old context.");
+        }
+        finally { DeleteTempDirectory(root); }
+    }
+
+    [TestMethod]
+    [DataRow("base")]
+    [DataRow("overlay")]
+    [DataRow("custom")]
+    public void Rule_source_capture_bounds_reference_reads_before_callback_and_xml_parse(string inputKind)
+    {
+        string root = CreateRuleCaptureFixture(custom: true);
+        try
+        {
+            string path = inputKind == "custom"
+                ? Path.Combine(root, "customdata", "Selected", "override_references.xml")
+                : Path.Combine(root, inputKind == "overlay" ? "overlay" : "data", "references.xml");
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.WriteAllText(path, RuleCaptureXml().Replace("Initiative Score", new string('x', 4 * 1024 * 1024), StringComparison.Ordinal));
+            var packs = new List<ContentOverlayPack>();
+            if (inputKind == "overlay")
+                packs.Add(new ContentOverlayPack("large", "Large", root, Path.GetDirectoryName(path)!, root,
+                    1, true, ContentOverlayModes.ReplaceFile, "bounded overlay"));
+            int callbacksForOversizedInput = 0;
+            var resolver = new FileSystemCharacterSourceDataResolver(new MutableContentOverlayCatalogService(
+                Path.Combine(root, "data"), Path.Combine(root, "lang"), packs), observed =>
+                {
+                    if (observed == Path.GetFullPath(path)) callbacksForOversizedInput++;
+                });
+            var context = resolver.TryCreateContext(RuleCaptureCharacterXml(custom: true))!;
+            Assert.IsNotNull(context);
+            Assert.IsFalse(context.TryCaptureRuleSources(out var capture));
+            Assert.AreSame(CharacterRuleSourceCapture.Unavailable, capture);
+            Assert.AreEqual(0, callbacksForOversizedInput);
+            Assert.IsFalse(resolver.LastSourceInputSnapshotDiagnostics!.PhysicalXmlParsesByPath.ContainsKey(Path.GetFullPath(path)));
+            Assert.IsFalse(resolver.LastSourceInputSnapshotDiagnostics!.PhysicalReadsByPath.ContainsKey(Path.GetFullPath(path)));
+        }
+        finally { DeleteTempDirectory(root); }
+    }
+
+    [TestMethod]
+    [DataRow("id")]
+    [DataRow("name")]
+    public void Rule_source_capture_supports_exact_partial_legacy_amendments(string identifierKind)
+    {
+        string root = CreateRuleCaptureFixture(custom: true);
+        try
+        {
+            string identifier = identifierKind == "id"
+                ? "<id>A5D18354-17D4-4102-9295-03E6D125CB67</id>" : "<name>Initiative Score</name>";
+            File.WriteAllText(Path.Combine(root, "customdata", "Selected", "amend_references.xml"),
+                $"<chummer><rules><rule>{identifier}<page>177</page></rule></rules></chummer>");
+            var context = CreateContext(root, RuleCaptureCharacterXml(custom: true))!;
+            Assert.IsTrue(context.TryCaptureRuleSources(out var capture));
+            XElement row = XDocument.Parse(capture.EffectiveReferencesXml).Descendants("rule").Single();
+            Assert.AreEqual("A5D18354-17D4-4102-9295-03E6D125CB67", row.Element("id")!.Value);
+            Assert.AreEqual("SR5", row.Element("source")!.Value);
+            Assert.AreEqual("Initiative Score", row.Element("name")!.Value);
+            Assert.AreEqual("177", row.Element("page")!.Value);
+            AssertRuleCaptureDigests(capture);
+        }
+        finally { DeleteTempDirectory(root); }
+    }
+
+    [TestMethod]
+    public void Rule_source_capture_binds_exact_character_xml_independently_of_same_profile_sources()
+    {
+        string root = CreateRuleCaptureFixture();
+        try
+        {
+            string firstXml = CharacterXml("<alias>First</alias>");
+            string secondXml = CharacterXml("<alias>Second</alias>");
+            Assert.IsTrue(CreateContext(root, firstXml)!.TryCaptureRuleSources(out var first));
+            Assert.IsTrue(CreateContext(root, secondXml)!.TryCaptureRuleSources(out var second));
+            Assert.AreEqual("sha256:" + Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(
+                System.Text.Encoding.UTF8.GetBytes(firstXml))).ToLowerInvariant(), first.RawCharacterXmlDigest);
+            Assert.AreEqual("sha256:" + Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(
+                System.Text.Encoding.UTF8.GetBytes(secondXml))).ToLowerInvariant(), second.RawCharacterXmlDigest);
+            Assert.AreNotEqual(first.RawCharacterXmlDigest, second.RawCharacterXmlDigest);
+            Assert.AreEqual(first.SettingsProfileId, second.SettingsProfileId);
+            CollectionAssert.AreEqual(first.EnabledSourcebooks.ToArray(), second.EnabledSourcebooks.ToArray());
+            Assert.AreEqual(first.RawProfileInputsDigest, second.RawProfileInputsDigest);
+            Assert.AreEqual(first.EffectiveReferencesInputsDigest, second.EffectiveReferencesInputsDigest);
+            Assert.AreEqual(first.SelectedReferencesCustomDataInputsDigest, second.SelectedReferencesCustomDataInputsDigest);
+            Assert.AreEqual(first.EffectiveReferencesXml, second.EffectiveReferencesXml);
+            Assert.AreEqual(first.EffectiveReferencesXmlDigest, second.EffectiveReferencesXmlDigest);
+        }
+        finally { DeleteTempDirectory(root); }
+    }
+
+    private static string RuleCaptureXml(int page = 159) =>
+        $"<chummer><rules><rule><id>A5D18354-17D4-4102-9295-03E6D125CB67</id><name>Initiative Score</name><source>SR5</source><page>{page}</page></rule></rules></chummer>";
+
+    private static string RuleCaptureCharacterXml(bool custom = false) => CharacterXml(custom
+        ? "<customdatadirectorynames><directoryname>Selected</directoryname></customdatadirectorynames>" : "");
+
+    private static string CreateRuleCaptureFixture(bool custom = false)
+    {
+        string root = CreateTempDirectory();
+        WriteBaseContent(root, custom
+            ? "<customdatadirectoryname><directoryname>Selected</directoryname><order>0</order><enabled>True</enabled></customdatadirectoryname>" : "");
+        if (custom) Directory.CreateDirectory(Path.Combine(root, "customdata", "Selected"));
+        File.WriteAllText(Path.Combine(root, "data", "references.xml"), RuleCaptureXml());
+        return root;
+    }
+
+    private static void AssertRuleCaptureDigests(CharacterRuleSourceCapture capture)
+    {
+        byte[] actualBytes = System.Text.Encoding.UTF8.GetBytes(capture.EffectiveReferencesXml);
+        Assert.IsLessThanOrEqualTo(4 * 1024 * 1024, actualBytes.Length);
+        string expected = "sha256:" + Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(actualBytes)).ToLowerInvariant();
+        Assert.AreEqual(expected, capture.EffectiveReferencesXmlDigest);
+        foreach (string digest in new[] { capture.RawCharacterXmlDigest, capture.RawProfileInputsDigest, capture.EffectiveReferencesInputsDigest,
+                     capture.SelectedReferencesCustomDataInputsDigest, capture.EffectiveReferencesXmlDigest })
+            Assert.IsTrue(CharacterCreationPrerequisiteAuthorityDigest.IsCanonical(digest));
+    }
+
+    [TestMethod]
     public void Canonical_active_skill_source_resolves_exact_saved_source_guid()
     {
         string coreRoot = FindCoreRoot();

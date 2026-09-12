@@ -14,6 +14,17 @@ public interface ICharacterSourceDataResolver
 public interface ICharacterSourceDataContext
 {
     /// <summary>
+    /// Captures effective rule-reference XML and its exact saved settings/book/custom
+    /// source provenance. This is not runtime, GM-policy, owner or workspace authority.
+    /// Missing, ambiguous, oversized or drifted inputs must fail closed.
+    /// </summary>
+    bool TryCaptureRuleSources(out CharacterRuleSourceCapture capture)
+    {
+        capture = CharacterRuleSourceCapture.Unavailable;
+        return false;
+    }
+
+    /// <summary>
     /// Resolves the explicit public-awareness policy from the exact saved profile.
     /// False means missing, malformed, ambiguous or stale authority; consumers
     /// must not treat the returned placeholder as a default setting.

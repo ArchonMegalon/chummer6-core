@@ -13,8 +13,8 @@ inventory_name="chummer-owner-contracts.inventory.json"
 candidate_inventory_name="chummer-core-candidate-engine-contract.inventory.json"
 candidate_runtime_inventory_name="chummer-core-candidate-gm-edit-runtime.inventory.json"
 runtime_inventory_name="chummer-core-runtime-packages.inventory.json"
-candidate_version="0.0.0-packageplane.candidate.sh3bc5fe725fd2b"
-runtime_source_commit="3bc5fe725fd2bbbad0333c5c7a3f849e53808c4f"
+candidate_version="0.0.0-packageplane.candidate.sh1b59cb894e0b6"
+runtime_source_commit="1b59cb894e0b6aea922783eeaab175e236fdefff"
 candidate_id="Chummer.Engine.Contracts"
 candidate_runtime_id="Chummer.Engine.GmCharacterEdits"
 candidate_repository="https://github.com/ArchonMegalon/chummer6-core.git"
@@ -721,13 +721,14 @@ local_owner_filter='FullyQualifiedName~Import_with_local_single_user_scope_route
 finalization_filter='FullyQualifiedName~CharacterCreationFinalizationServiceTests|FullyQualifiedName~OwnerBoundCharacterCreationFinalizationServiceTests'
 prerequisite_filter='FullyQualifiedName~CharacterCreationPrerequisiteServiceTests|FullyQualifiedName~OwnerBoundCharacterCreationPrerequisiteServiceTests|FullyQualifiedName~CharacterCreationPrerequisiteDigestTests'
 source_input_filter='FullyQualifiedName~FileSystemCharacterSourceDataResolverTests'
+rook_authority_filter='FullyQualifiedName~BuildGhostRuleAuthorityResolverTests'
 dotnet test "$consumer_root/Chummer.Tests/Chummer.Tests.csproj" \
   --configuration Release \
   --framework net10.0 \
   --no-restore \
   --nologo \
   -m:1 \
-  --filter "$local_owner_filter|$finalization_filter|$prerequisite_filter|$source_input_filter|FullyQualifiedName~WorkspaceContinuation|FullyQualifiedName~WorkspaceImported|FullyQualifiedName~WorkspaceLocalHistoryStoreTests" \
+  --filter "$local_owner_filter|$finalization_filter|$prerequisite_filter|$source_input_filter|$rook_authority_filter|FullyQualifiedName~WorkspaceContinuation|FullyQualifiedName~WorkspaceImported|FullyQualifiedName~WorkspaceLocalHistoryStoreTests" \
   "${common_properties[@]}"
 
 # Execute the actual owner/store regressions in the same isolated checkout.
