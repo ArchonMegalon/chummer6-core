@@ -24,6 +24,7 @@ public sealed class FileSystemCharacterSourceDataResolverTests
     private const string CanonicalSumToTenSettingsId = "3509a807-68ee-4c18-b7d5-b130313b4b77";
     private const string CanonicalImprovedSumToTenSettingsId = "2ef9b098-4cd2-4c2b-8f3d-76164e3f4f8e";
     private const string CanonicalStreetScumSettingsId = "4c34a8ed-2888-410c-afda-024475fa3c76";
+    private const string QualityLevelId = "50000000-0000-0000-0000-000000000001";
     private const string CanonicalPrioritiesDigest =
         "sha256:4b41936b90fdd84a00b060585542eed8eb4d2045eeda1940c1c8a95af3eb91d1";
     private const string CanonicalMetatypesDigest =
@@ -80,6 +81,596 @@ public sealed class FileSystemCharacterSourceDataResolverTests
         Assert.IsFalse(context.TryResolveKnowledgeSkillSource(
             Guid.Empty.ToString("D"),
             out _));
+    }
+
+    [TestMethod]
+    public void Quality_level_source_preserves_effective_source_book_and_positive_page()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            WriteBaseContent(root, string.Empty);
+            WriteQualityCatalog(root, QualityRow("<source>SR5</source><page>123</page>"));
+            ICharacterSourceDataContext context = CreateContext(root, CharacterXml())!;
+
+            Assert.IsTrue(context.TryResolveQualityLevelSource(
+                QualityLevelId,
+                "Grounded Quality",
+                out CharacterQualityLevelSource source));
+            Assert.AreEqual("SR5", source.SourceBook);
+            Assert.AreEqual(123, source.SourcePage);
+            Assert.AreEqual(
+                CharacterCreationQualitiesRules.ComputeSourceNodeDigest(
+                    XElement.Parse(QualityRow("<source>SR5</source><page>123</page>"))
+                        .ToString(SaveOptions.DisableFormatting)),
+                source.SourceNodeDigest);
+            Assert.IsTrue(source.SourceCitationResolved);
+        }
+        finally
+        {
+            DeleteTempDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public void Character_quality_level_source_preserves_legacy_six_field_shape()
+    {
+        var source = new CharacterQualityLevelSource("id", "name", "type", 3, false, true)
+        {
+            SourceBook = "SR5",
+            SourcePage = 123,
+            SourceNodeDigest = "node"
+        };
+
+        var (sourceId, name, qualityType, maximumLevel, noLevels, unsupported) = source;
+        Assert.AreEqual("id", sourceId);
+        Assert.AreEqual("name", name);
+        Assert.AreEqual("type", qualityType);
+        Assert.AreEqual(3, maximumLevel);
+        Assert.IsFalse(noLevels);
+        Assert.IsTrue(unsupported);
+    }
+
+    [TestMethod]
+    public void Quality_level_source_rejects_disabled_source_book_before_citation_projection()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            WriteBaseContent(root, string.Empty);
+            WriteQualityCatalog(root, QualityRow("<source>BOOK_NOT_ENABLED</source><page>123</page>"));
+            ICharacterSourceDataContext context = CreateContext(root, CharacterXml())!;
+
+            Assert.IsFalse(context.TryResolveQualityLevelSource(
+                QualityLevelId,
+                "Grounded Quality",
+                out _));
+        }
+        finally
+        {
+            DeleteTempDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public void Quality_level_source_uses_the_effective_custom_override_citation()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            const string directoryName = "Quality Rules";
+            WriteBaseContent(
+                root,
+                $"<customdatadirectoryname><directoryname>{directoryName}</directoryname>"
+                + "<order>0</order><enabled>True</enabled></customdatadirectoryname>");
+            WriteQualityCatalog(root, QualityRow("<source>SR5</source><page>123</page>"));
+            string customRoot = Path.Combine(root, "customdata", directoryName);
+            Directory.CreateDirectory(customRoot);
+            File.WriteAllText(
+                Path.Combine(customRoot, "manifest.xml"),
+                "<manifest><guid>60000000-0000-0000-0000-000000000001</guid>"
+                + "<version>1.0.0</version></manifest>");
+            File.WriteAllText(
+                Path.Combine(customRoot, "override_qualities.xml"),
+                $"<chummer><qualities>{QualityRow("<source>SG</source><page>222</page>")}</qualities></chummer>");
+            File.WriteAllText(
+                Path.Combine(customRoot, "override_z_qualities.xml"),
+                $"<chummer><qualities>{QualityRow("<source>SG</source><page>224</page>")}</qualities></chummer>");
+
+            ICharacterSourceDataContext context = CreateContext(
+                root,
+                CharacterXml($"<customdatadirectorynames><directoryname>{directoryName}</directoryname>"
+                             + "</customdatadirectorynames>"))!;
+
+            Assert.IsTrue(context.TryResolveQualityLevelSource(
+                QualityLevelId,
+                "Grounded Quality",
+                out CharacterQualityLevelSource source));
+            Assert.AreEqual("SG", source.SourceBook);
+            Assert.AreEqual(224, source.SourcePage);
+            Assert.AreEqual(
+                CharacterCreationQualitiesRules.ComputeSourceNodeDigest(
+                    XElement.Parse(QualityRow("<source>SG</source><page>224</page>"))
+                        .ToString(SaveOptions.DisableFormatting)),
+                source.SourceNodeDigest);
+            Assert.AreNotEqual(
+                CharacterCreationQualitiesRules.ComputeSourceNodeDigest(
+                    XElement.Parse(QualityRow("<source>SR5</source><page>123</page>"))
+                        .ToString(SaveOptions.DisableFormatting)),
+                source.SourceNodeDigest);
+            Assert.IsTrue(source.SourceCitationResolved);
+        }
+        finally
+        {
+            DeleteTempDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public void Quality_level_source_marks_conflicting_custom_contributors_unresolved()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            const string directoryName = "Conflicting Quality Rules";
+            WriteBaseContent(
+                root,
+                $"<customdatadirectoryname><directoryname>{directoryName}</directoryname>"
+                + "<order>0</order><enabled>True</enabled></customdatadirectoryname>");
+            WriteQualityCatalog(root, QualityRow("<source>SR5</source><page>123</page>"));
+            string customRoot = Path.Combine(root, "customdata", directoryName);
+            Directory.CreateDirectory(customRoot);
+            File.WriteAllText(
+                Path.Combine(customRoot, "manifest.xml"),
+                "<manifest><guid>60000000-0000-0000-0000-000000000002</guid>"
+                + "<version>1.0.0</version></manifest>");
+            File.WriteAllText(
+                Path.Combine(customRoot, "override_qualities.xml"),
+                "<chummer><qualities>"
+                + QualityRow("<source>SG</source><page>222</page>")
+                + QualityRow("<source>SG</source><page>223</page>")
+                + "</qualities></chummer>");
+
+            ICharacterSourceDataContext context = CreateContext(
+                root,
+                CharacterXml($"<customdatadirectorynames><directoryname>{directoryName}</directoryname>"
+                             + "</customdatadirectorynames>"))!;
+
+            Assert.IsTrue(context.TryResolveQualityLevelSource(
+                QualityLevelId,
+                "Grounded Quality",
+                out CharacterQualityLevelSource source));
+            Assert.AreEqual(string.Empty, source.SourceBook);
+            Assert.IsNull(source.SourcePage);
+            Assert.AreEqual(string.Empty, source.SourceNodeDigest);
+            Assert.IsFalse(source.SourceCitationResolved);
+        }
+        finally
+        {
+            DeleteTempDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public void Quality_level_source_marks_duplicate_merge_fragment_rows_unresolved()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            WriteBaseContent(root, string.Empty);
+            WriteQualityCatalog(root, QualityRow("<source>SR5</source><page>123</page>"));
+            string overlayRoot = Path.Combine(root, "overlay");
+            string overlayData = Path.Combine(overlayRoot, "data");
+            Directory.CreateDirectory(overlayData);
+            File.WriteAllText(
+                Path.Combine(overlayData, "qualities.fragment.xml"),
+                "<chummer><qualities>"
+                + QualityRow("<source>SG</source><page>222</page>")
+                + QualityRow("<source>SG</source><page>223</page>")
+                + "</qualities></chummer>");
+            var pack = new ContentOverlayPack(
+                "quality-merge",
+                "Quality merge",
+                overlayRoot,
+                overlayData,
+                overlayRoot,
+                0,
+                true,
+                ContentOverlayModes.MergeCatalog,
+                "");
+            var resolver = new FileSystemCharacterSourceDataResolver(
+                new MutableContentOverlayCatalogService(
+                    Path.Combine(root, "data"), Path.Combine(root, "lang"), [pack]));
+            ICharacterSourceDataContext? context = resolver.TryCreateContext(CharacterXml());
+            Assert.IsNotNull(context);
+
+            Assert.IsTrue(context!.TryResolveQualityLevelSource(
+                QualityLevelId,
+                "Grounded Quality",
+                out CharacterQualityLevelSource source));
+            Assert.AreEqual(string.Empty, source.SourceBook);
+            Assert.IsNull(source.SourcePage);
+            Assert.AreEqual(string.Empty, source.SourceNodeDigest);
+            Assert.IsFalse(source.SourceCitationResolved);
+        }
+        finally
+        {
+            DeleteTempDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    [DataRow("<source>SR5</source>")]
+    [DataRow("<source>SR5</source><page>not-a-page</page>")]
+    [DataRow("<source>SR5</source><page>0</page>")]
+    [DataRow("<source>SR5</source><page>-1</page>")]
+    [DataRow("<source>SR5</source><page>2147483648</page>")]
+    [DataRow("<source>SR5</source><altpage>456</altpage>")]
+    [DataRow("<source>SR5</source><page><value>123</value></page>")]
+    [DataRow("<source>SR5</source><page>12</page><page>13</page>")]
+    [DataRow("<source>SR5</source><source>SR5</source><page>12</page>")]
+    public void Quality_level_source_keeps_legacy_resolution_but_marks_bad_citation_unresolved(
+        string citation)
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            WriteBaseContent(root, string.Empty);
+            WriteQualityCatalog(root, QualityRow(citation));
+            ICharacterSourceDataContext context = CreateContext(root, CharacterXml())!;
+
+            Assert.IsTrue(context.TryResolveQualityLevelSource(
+                QualityLevelId,
+                "Grounded Quality",
+                out CharacterQualityLevelSource source));
+            Assert.AreEqual(string.Empty, source.SourceBook);
+            Assert.IsNull(source.SourcePage);
+            Assert.AreEqual(string.Empty, source.SourceNodeDigest);
+            Assert.IsFalse(source.SourceCitationResolved);
+        }
+        finally
+        {
+            DeleteTempDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public void Quality_level_source_keeps_legacy_lookup_but_marks_ambiguous_id_citation_unresolved()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            WriteBaseContent(root, string.Empty);
+            WriteQualityCatalog(
+                root,
+                QualityRow("<source>SR5</source><page>123</page>")
+                + QualityRow("<source>SR5</source><page>124</page>", name: "Conflicting Quality"));
+            ICharacterSourceDataContext context = CreateContext(root, CharacterXml())!;
+
+            Assert.IsTrue(context.TryResolveQualityLevelSource(
+                QualityLevelId,
+                "Grounded Quality",
+                out CharacterQualityLevelSource source));
+            Assert.AreEqual(string.Empty, source.SourceBook);
+            Assert.IsNull(source.SourcePage);
+            Assert.AreEqual(string.Empty, source.SourceNodeDigest);
+            Assert.IsFalse(source.SourceCitationResolved);
+        }
+        finally
+        {
+            DeleteTempDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public void Quality_level_source_rejects_duplicate_direct_containers_and_scalar_name_shapes()
+    {
+        string[] catalogs =
+        [
+            "<chummer><qualities>"
+                + QualityRow("<source>SR5</source><page>123</page>")
+                + "</qualities><qualities>"
+                + QualityRow("<source>SR5</source><page>124</page>")
+                + "</qualities></chummer>",
+            "<chummer><qualities>"
+                + QualityRow(
+                    "<source>SR5</source><page>123</page>",
+                    nameMarkup: "<name>Grounded Quality</name><name>Alias</name>")
+                + "</qualities></chummer>",
+            "<chummer><qualities>"
+                + QualityRow(
+                    "<source>SR5</source><page>123</page>",
+                    nameMarkup: "<name><value>Grounded Quality</value></name>")
+                + "</qualities></chummer>"
+        ];
+        foreach (string catalog in catalogs)
+        {
+            string root = CreateTempDirectory();
+            try
+            {
+                WriteBaseContent(root, string.Empty);
+                File.WriteAllText(Path.Combine(root, "data", "qualities.xml"), catalog);
+                ICharacterSourceDataContext context = CreateContext(root, CharacterXml())!;
+
+                Assert.IsTrue(context.TryResolveQualityLevelSource(
+                    QualityLevelId,
+                    "Grounded Quality",
+                    out CharacterQualityLevelSource source));
+                Assert.AreEqual(string.Empty, source.SourceBook);
+                Assert.IsNull(source.SourcePage);
+                Assert.AreEqual(string.Empty, source.SourceNodeDigest);
+                Assert.IsFalse(source.SourceCitationResolved);
+            }
+            finally
+            {
+                DeleteTempDirectory(root);
+            }
+        }
+    }
+
+    [TestMethod]
+    public void Quality_level_source_rejects_case_aliases_retained_by_case_sensitive_merge()
+    {
+        const string lowerId = "50000000-0000-0000-0000-0000000000aa";
+        string root = CreateTempDirectory();
+        try
+        {
+            WriteBaseContent(root, string.Empty);
+            WriteQualityCatalog(root, QualityRow("<source>SR5</source><page>123</page>", id: lowerId));
+            string overlayRoot = Path.Combine(root, "overlay");
+            string overlayData = Path.Combine(overlayRoot, "data");
+            Directory.CreateDirectory(overlayData);
+            File.WriteAllText(
+                Path.Combine(overlayData, "qualities.fragment.xml"),
+                "<chummer><qualities>"
+                + QualityRow("<source>SG</source><page>222</page>", id: lowerId.ToUpperInvariant())
+                + "</qualities></chummer>");
+            var pack = new ContentOverlayPack(
+                "quality-case-merge",
+                "Quality case merge",
+                overlayRoot,
+                overlayData,
+                overlayRoot,
+                0,
+                true,
+                ContentOverlayModes.MergeCatalog,
+                "");
+            var resolver = new FileSystemCharacterSourceDataResolver(
+                new MutableContentOverlayCatalogService(
+                    Path.Combine(root, "data"), Path.Combine(root, "lang"), [pack]));
+            ICharacterSourceDataContext? context = resolver.TryCreateContext(CharacterXml());
+            Assert.IsNotNull(context);
+
+            Assert.IsTrue(context!.TryResolveQualityLevelSource(
+                lowerId,
+                "Grounded Quality",
+                out CharacterQualityLevelSource source));
+            Assert.AreEqual(string.Empty, source.SourceBook);
+            Assert.IsNull(source.SourcePage);
+            Assert.AreEqual(string.Empty, source.SourceNodeDigest);
+            Assert.IsFalse(source.SourceCitationResolved);
+        }
+        finally
+        {
+            DeleteTempDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public void Quality_level_source_accepts_single_replace_file_after_ambiguous_base()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            WriteBaseContent(root, string.Empty);
+            WriteQualityCatalog(
+                root,
+                QualityRow("<source>SR5</source><page>123</page>")
+                + QualityRow("<source>SR5</source><page>124</page>", name: "Conflicting Quality"));
+            string overlayRoot = Path.Combine(root, "overlay");
+            string overlayData = Path.Combine(overlayRoot, "data");
+            Directory.CreateDirectory(overlayData);
+            File.WriteAllText(
+                Path.Combine(overlayData, "qualities.xml"),
+                "<chummer><qualities>"
+                + QualityRow("<source>SG</source><page>222</page>")
+                + "</qualities></chummer>");
+            var pack = new ContentOverlayPack(
+                "quality-replace",
+                "Quality replace",
+                overlayRoot,
+                overlayData,
+                overlayRoot,
+                0,
+                true,
+                ContentOverlayModes.ReplaceFile,
+                "");
+            var resolver = new FileSystemCharacterSourceDataResolver(
+                new MutableContentOverlayCatalogService(
+                    Path.Combine(root, "data"), Path.Combine(root, "lang"), [pack]));
+            ICharacterSourceDataContext? context = resolver.TryCreateContext(CharacterXml());
+            Assert.IsNotNull(context);
+
+            Assert.IsTrue(context!.TryResolveQualityLevelSource(
+                QualityLevelId,
+                "Grounded Quality",
+                out CharacterQualityLevelSource source));
+            Assert.AreEqual("SG", source.SourceBook);
+            Assert.AreEqual(222, source.SourcePage);
+            Assert.IsTrue(source.SourceCitationResolved);
+        }
+        finally
+        {
+            DeleteTempDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public void Quality_level_source_accepts_one_row_per_ordered_global_merge_layer()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            WriteBaseContent(root, string.Empty);
+            WriteQualityCatalog(root, QualityRow("<source>SR5</source><page>123</page>"));
+            string overlayRoot = Path.Combine(root, "overlay");
+            string overlayData = Path.Combine(overlayRoot, "data");
+            Directory.CreateDirectory(overlayData);
+            File.WriteAllText(
+                Path.Combine(overlayData, "qualities.a.xml"),
+                "<chummer><qualities>"
+                + QualityRow("<source>SG</source><page>222</page>")
+                + "</qualities></chummer>");
+            File.WriteAllText(
+                Path.Combine(overlayData, "qualities.b.xml"),
+                "<chummer><qualities>"
+                + QualityRow("<source>SG</source><page>224</page>")
+                + "</qualities></chummer>");
+            var pack = new ContentOverlayPack(
+                "quality-ordered-merge",
+                "Quality ordered merge",
+                overlayRoot,
+                overlayData,
+                overlayRoot,
+                0,
+                true,
+                ContentOverlayModes.MergeCatalog,
+                "");
+            var resolver = new FileSystemCharacterSourceDataResolver(
+                new MutableContentOverlayCatalogService(
+                    Path.Combine(root, "data"), Path.Combine(root, "lang"), [pack]));
+            ICharacterSourceDataContext? context = resolver.TryCreateContext(CharacterXml());
+            Assert.IsNotNull(context);
+
+            Assert.IsTrue(context!.TryResolveQualityLevelSource(
+                QualityLevelId,
+                "Grounded Quality",
+                out CharacterQualityLevelSource source));
+            Assert.AreEqual("SG", source.SourceBook);
+            Assert.AreEqual(224, source.SourcePage);
+            Assert.IsTrue(source.SourceCitationResolved);
+        }
+        finally
+        {
+            DeleteTempDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public void Quality_level_source_suppresses_citation_after_reentrant_mid_read_drift()
+    {
+        string root = CreateTempDirectory();
+        ICharacterSourceDataResolverOperationScope? operation = null;
+        try
+        {
+            WriteBaseContent(root, string.Empty);
+            WriteQualityCatalog(root, QualityRow("<source>SR5</source><page>123</page>"));
+            bool armed = false;
+            bool triggered = false;
+            var resolver = new FileSystemCharacterSourceDataResolver(
+                new FileSystemContentOverlayCatalogService(root, root, null),
+                path =>
+                {
+                    if (!armed || triggered
+                        || !string.Equals(Path.GetFileName(path), "qualities.xml", StringComparison.Ordinal))
+                    {
+                        return;
+                    }
+                    triggered = true;
+                    File.AppendAllText(Path.Combine(root, "data", "settings.xml"), " ");
+                    Assert.IsNull(operation!.TryCreateContext(CharacterXml()));
+                });
+            operation = resolver.CreateOperationScope();
+            ICharacterSourceDataContext context = operation.TryCreateContext(CharacterXml())!;
+            armed = true;
+
+            Assert.IsTrue(context.TryResolveQualityLevelSource(
+                QualityLevelId,
+                "Grounded Quality",
+                out CharacterQualityLevelSource source));
+            Assert.IsTrue(triggered);
+            Assert.AreEqual(string.Empty, source.SourceBook);
+            Assert.IsNull(source.SourcePage);
+            Assert.AreEqual(string.Empty, source.SourceNodeDigest);
+            Assert.IsFalse(source.SourceCitationResolved);
+            Assert.IsTrue(resolver.LastSourceInputSnapshotDiagnostics!.SourceDriftDetected);
+        }
+        finally
+        {
+            operation?.Dispose();
+            DeleteTempDirectory(root);
+        }
+    }
+
+    [TestMethod]
+    public void Quality_level_source_rejects_duplicate_or_structured_selected_id_citation()
+    {
+        string[] idMarkup =
+        [
+            $"<id>{QualityLevelId}</id><id>{QualityLevelId}</id>",
+            $"<id><value>{QualityLevelId}</value></id>"
+        ];
+        foreach (string selectedId in idMarkup)
+        {
+            string root = CreateTempDirectory();
+            try
+            {
+                WriteBaseContent(root, string.Empty);
+                WriteQualityCatalog(
+                    root,
+                    QualityRow("<source>SR5</source><page>123</page>", idMarkup: selectedId));
+                ICharacterSourceDataContext context = CreateContext(root, CharacterXml())!;
+
+                Assert.IsTrue(context.TryResolveQualityLevelSource(
+                    QualityLevelId,
+                    "Grounded Quality",
+                    out CharacterQualityLevelSource source));
+                Assert.AreEqual(string.Empty, source.SourceBook);
+                Assert.IsNull(source.SourcePage);
+                Assert.AreEqual(string.Empty, source.SourceNodeDigest);
+                Assert.IsFalse(source.SourceCitationResolved);
+            }
+            finally
+            {
+                DeleteTempDirectory(root);
+            }
+        }
+    }
+
+    [TestMethod]
+    public void Quality_level_source_rejects_post_context_source_drift()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            WriteBaseContent(root, string.Empty);
+            WriteQualityCatalog(root, QualityRow("<source>SR5</source><page>123</page>"));
+            var resolver = new FileSystemCharacterSourceDataResolver(
+                new FileSystemContentOverlayCatalogService(root, root, null));
+            ICharacterSourceDataContext context = resolver.TryCreateContext(CharacterXml())!;
+            Assert.IsTrue(context.TryResolveQualityLevelSource(
+                QualityLevelId,
+                "Grounded Quality",
+                out CharacterQualityLevelSource initial));
+            Assert.AreEqual(QualityLevelId, initial.SourceId);
+            string path = Path.Combine(root, "data", "qualities.xml");
+            DateTime capturedWriteTime = File.GetLastWriteTimeUtc(path);
+            string original = File.ReadAllText(path);
+            string tampered = original.Replace("<page>123</page>", "<page>124</page>", StringComparison.Ordinal);
+            Assert.AreNotEqual(original, tampered);
+            File.WriteAllText(path, tampered);
+            File.SetLastWriteTimeUtc(path, capturedWriteTime);
+
+            Assert.IsFalse(context.TryResolveQualityLevelSource(
+                QualityLevelId,
+                "Grounded Quality",
+                out _));
+            Assert.IsTrue(resolver.LastSourceInputSnapshotDiagnostics!.SourceDriftDetected);
+        }
+        finally
+        {
+            DeleteTempDirectory(root);
+        }
     }
 
     [TestMethod]
@@ -4217,6 +4808,20 @@ public sealed class FileSystemCharacterSourceDataResolverTests
 
     private static string CharacterXml(string extra = "")
         => $"<character><settings>{SettingsId}</settings>{extra}</character>";
+
+    private static string QualityRow(
+        string citation,
+        string id = QualityLevelId,
+        string name = "Grounded Quality",
+        string? idMarkup = null,
+        string? nameMarkup = null)
+        => $"<quality>{idMarkup ?? $"<id>{id}</id>"}{nameMarkup ?? $"<name>{name}</name>"}"
+           + $"<category>Positive</category><limit>3</limit>{citation}</quality>";
+
+    private static void WriteQualityCatalog(string root, string row)
+        => File.WriteAllText(
+            Path.Combine(root, "data", "qualities.xml"),
+            $"<chummer><qualities>{row}</qualities></chummer>");
 
     private static CharacterCreationSourceProfileAuthority ResolveCreationProfile(string root)
     {

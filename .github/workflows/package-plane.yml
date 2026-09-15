@@ -156,6 +156,87 @@ jobs:
           -m:1
           --filter
           "FullyQualifiedName~CharacterFileServiceTests|FullyQualifiedName~CharacterCreationPrerequisiteServiceTests|FullyQualifiedName~CharacterCreationPrerequisiteDigestTests|FullyQualifiedName~CharacterCreationContactsServiceTests|FullyQualifiedName~CharacterCreationBootstrapServiceTests|FullyQualifiedName~FileSystemCharacterSourceDataResolverTests|FullyQualifiedName~CharacterCareerKarmaExpenseEditRulesTests|FullyQualifiedName~CharacterCareerNuyenExpenseEditRulesTests|FullyQualifiedName~CharacterCareerActiveSkillAdvanceRulesTests|FullyQualifiedName~CharacterCareerSkillGroupAdvanceRulesTests|FullyQualifiedName~CharacterCareerKnowledgeSkillAdvanceRulesTests|FullyQualifiedName~CharacterCreationFinalizationServiceTests|FullyQualifiedName~WorkspaceCharacterAfterRunRewardTests|FullyQualifiedName~CharacterAfterRunSettlementRulesTests"
+      - name: Build and run workspace rule question tests
+        timeout-minutes: 10
+        shell: bash
+        env:
+          WORKSPACE_RULE_RESULTS: ${{ runner.temp }}/chummer-workspace-rule-question-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          test "$(dotnet --version)" = "10.0.103"
+          python3 -m unittest -v tests/test_workspace_rule_question_workflow.py
+          test ! -e "${WORKSPACE_RULE_RESULTS}"
+          mkdir --mode=0755 "${WORKSPACE_RULE_RESULTS}"
+          env -u CHUMMER_STATE_PATH -u CHUMMER_WORKSPACE_STORE_PATH \
+            -u CHUMMER_AMENDS_PATH -u CHUMMER_REQUIRE_CONTENT_BUNDLE \
+            dotnet test Chummer.Tests/Chummer.Tests.csproj \
+            --configuration Release \
+            --framework net10.0 \
+            --no-restore \
+            --disable-build-servers \
+            -m:1 \
+            --filter "FullyQualifiedName~Chummer.Tests.WorkspaceRuleQuestionServiceTests|FullyQualifiedName~Chummer.Tests.WorkspaceRuleQuestionIntegrityTests" \
+            --results-directory "${WORKSPACE_RULE_RESULTS}" \
+            --logger "trx;LogFileName=workspace-rule-question.trx"
+          python3 - "${WORKSPACE_RULE_RESULTS}/workspace-rule-question.trx" <<'PY'
+          import sys
+          import xml.etree.ElementTree as ET
+          from collections import Counter
+
+          # Inspect the original local test-runner output; do not synthesize a receipt.
+          root = ET.parse(sys.argv[1]).getroot()
+          ns = {"t": "http://microsoft.com/schemas/VisualStudio/TeamTest/2010"}
+          summary = root.find("t:ResultSummary", ns)
+          if summary is None or summary.get("outcome") != "Completed":
+              raise SystemExit("workspace rule question TRX did not complete")
+          counters = summary.find("t:Counters", ns)
+          expected = {"total": 108, "executed": 108, "passed": 108}
+          zero_counters = {
+              "failed", "error", "timeout", "aborted", "inconclusive",
+              "passedButRunAborted", "notRunnable", "notExecuted", "disconnected",
+              "warning", "completed", "inProgress", "pending",
+          }
+          if counters is None or not (expected.keys() | zero_counters) <= counters.attrib.keys():
+              raise SystemExit("workspace rule question TRX counters are missing")
+          for name, value in counters.items():
+              if int(value) != expected.get(name, 0):
+                  raise SystemExit(f"workspace rule question TRX counter drift: {name}={value}")
+          definitions = {}
+          for definition in root.findall("t:TestDefinitions/t:UnitTest", ns):
+              method = definition.find("t:TestMethod", ns)
+              if method is None or not definition.get("id") or definition.get("id") in definitions:
+                  raise SystemExit("workspace rule question TRX definition is missing or duplicated")
+              definitions[definition.get("id")] = method.get("className")
+          expected_classes = {
+              "Chummer.Tests.WorkspaceRuleQuestionServiceTests": 104,
+              "Chummer.Tests.WorkspaceRuleQuestionIntegrityTests": 4,
+          }
+          results = root.findall("t:Results/t:UnitTestResult", ns)
+          if len(results) != 108:
+              raise SystemExit("workspace rule question TRX must contain 108 result rows")
+          observed_classes = Counter()
+          executions = set()
+          for result in results:
+              execution = result.get("executionId")
+              if result.get("outcome") != "Passed" or not execution or execution in executions:
+                  raise SystemExit("workspace rule question TRX has an unpassed or duplicate result")
+              executions.add(execution)
+              observed_classes[definitions.get(result.get("testId"))] += 1
+          if observed_classes != expected_classes:
+              raise SystemExit(f"workspace rule question TRX class counts drifted: {observed_classes}")
+          print("Workspace rule question tests: 108 passed (104 service, 4 integrity).")
+          PY
+      - name: Retain original workspace rule question TRX
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: chummer-workspace-rule-question-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/chummer-workspace-rule-question-${{ github.run_id }}-${{ github.run_attempt }}/workspace-rule-question.trx
+          if-no-files-found: error
+          retention-days: 5
+          compression-level: 0
+          overwrite: false
+          include-hidden-files: false
       - name: Restore deterministic feature-slice graph from exact sources
         run: |
           dotnet restore Chummer.FeatureSlice.Tests/Chummer.FeatureSlice.Tests.csproj \

@@ -5080,7 +5080,9 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                     "quality",
                     sourceId,
                     name,
-                    out XElement? quality)
+                    out XElement? quality,
+                    out bool ambiguousIdentity,
+                    inspectIdentity: true)
                 || quality is null
                 || !Guid.TryParse(ReadValue(quality, "id"), out Guid parsedSourceId)
                 || parsedSourceId == Guid.Empty
@@ -5110,6 +5112,38 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                     !safeFields.Contains(element.Name.LocalName))
                 || quality.Elements("bonus").Any(element =>
                     element.HasElements || !string.IsNullOrWhiteSpace(element.Value));
+            string citationSourceBook = string.Empty;
+            int? citationSourcePage = null;
+            string citationSourceNodeDigest = string.Empty;
+            XElement[] sourceNodes = quality.Elements("source").ToArray();
+            XElement[] pageNodes = quality.Elements("page").ToArray();
+            XElement[] idNodes = quality.Elements("id").ToArray();
+            XElement[] nameNodes = quality.Elements("name").ToArray();
+            if (!ambiguousIdentity
+                && !_sourceInputs.HasSourceDrift
+                && idNodes.Length == 1
+                && !idNodes[0].Elements().Any()
+                && string.Equals(idNodes[0].Value.Trim(), parsedSourceId.ToString("D"), StringComparison.OrdinalIgnoreCase)
+                && nameNodes.Length == 1
+                && !nameNodes[0].Elements().Any()
+                && !string.IsNullOrWhiteSpace(nameNodes[0].Value)
+                && sourceNodes.Length == 1
+                && pageNodes.Length == 1
+                && !sourceNodes[0].Elements().Any()
+                && !pageNodes[0].Elements().Any()
+                && !string.IsNullOrWhiteSpace(sourceNodes[0].Value)
+                && int.TryParse(
+                    pageNodes[0].Value.Trim(),
+                    NumberStyles.None,
+                    CultureInfo.InvariantCulture,
+                    out int parsedPage)
+                && parsedPage > 0)
+            {
+                citationSourceBook = sourceNodes[0].Value.Trim();
+                citationSourcePage = parsedPage;
+                citationSourceNodeDigest = CharacterCreationQualitiesRules.ComputeSourceNodeDigest(
+                    quality.ToString(SaveOptions.DisableFormatting));
+            }
 
             source = new CharacterQualityLevelSource(
                 SourceId: parsedSourceId.ToString("D"),
@@ -5117,7 +5151,12 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 QualityType: ReadValue(quality, "category"),
                 MaximumLevel: maximumLevel,
                 NoLevels: quality.Element("nolevels") is not null,
-                UsesUnsupportedSemantics: unsupported);
+                UsesUnsupportedSemantics: unsupported)
+            {
+                SourceBook = ambiguousIdentity ? string.Empty : citationSourceBook,
+                SourcePage = ambiguousIdentity ? null : citationSourcePage,
+                SourceNodeDigest = ambiguousIdentity ? string.Empty : citationSourceNodeDigest
+            };
             return true;
         }
 
@@ -5429,8 +5468,28 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             string sourceId,
             string name,
             out XElement? target)
+            => TryResolveTarget(
+                fileName,
+                containerNames,
+                entryName,
+                sourceId,
+                name,
+                out target,
+                out _,
+                inspectIdentity: false);
+
+        private bool TryResolveTarget(
+            string fileName,
+            IReadOnlyList<string> containerNames,
+            string entryName,
+            string sourceId,
+            string name,
+            out XElement? target,
+            out bool ambiguousIdentity,
+            bool inspectIdentity)
         {
             target = null;
+            ambiguousIdentity = false;
             if (!TryLoadEffectiveDocument(_catalog, fileName, out XDocument? document)
                 || document?.Root is null)
             {
@@ -5438,6 +5497,21 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             }
 
             TargetLocator locator = TargetLocator.Create(sourceId, name);
+            if (inspectIdentity)
+            {
+                if (!TryHasAmbiguousRawTargetContributor(
+                        fileName,
+                        containerNames,
+                        entryName,
+                        locator,
+                        out ambiguousIdentity))
+                {
+                    ambiguousIdentity = true;
+                }
+
+                if (CountTargetRows(document.Root, containerNames, entryName, locator) > 1)
+                    ambiguousIdentity = true;
+            }
             target = FindTarget(document.Root, containerNames, entryName, locator);
             foreach (CustomDirectory directory in _customDirectories)
             {
@@ -5481,12 +5555,107 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                         {
                             return false;
                         }
+
+                        if (inspectIdentity
+                            && CountTargetRows(customDocument.Root, containerNames, entryName, locator) > 1)
+                        {
+                            ambiguousIdentity = true;
+                        }
                     }
                 }
             }
 
             return true;
         }
+
+        private bool TryHasAmbiguousRawTargetContributor(
+            string fileName,
+            IReadOnlyList<string> containerNames,
+            string entryName,
+            TargetLocator locator,
+            out bool ambiguous)
+        {
+            ambiguous = false;
+            try
+            {
+                string basePath = Path.Combine(_catalog.BaseDataPath, fileName);
+                if (SourceFileExists(basePath))
+                {
+                    if (!TryLoadXml(basePath, out XDocument? baseDocument)
+                        || baseDocument?.Root is null)
+                    {
+                        return false;
+                    }
+
+                    ambiguous = CountTargetRows(baseDocument.Root, containerNames, entryName, locator) > 1;
+                }
+
+                foreach (ContentOverlayPack pack in _catalog.Overlays
+                             .Where(pack => pack.Enabled)
+                             .OrderBy(pack => pack.Priority)
+                             .ThenBy(pack => pack.Id, StringComparer.Ordinal))
+                {
+                    if (string.IsNullOrWhiteSpace(pack.DataPath) || !SourceDirectoryExists(pack.DataPath))
+                        continue;
+
+                    if (string.Equals(pack.Mode, ContentOverlayModes.ReplaceFile, StringComparison.Ordinal))
+                    {
+                        string replacementPath = Path.Combine(pack.DataPath, fileName);
+                        if (!SourceFileExists(replacementPath))
+                            continue;
+                        if (!TryLoadXml(replacementPath, out XDocument? replacement)
+                            || replacement?.Root is null)
+                        {
+                            return false;
+                        }
+
+                        ambiguous = CountTargetRows(replacement.Root, containerNames, entryName, locator) > 1;
+                        continue;
+                    }
+
+                    if (!string.Equals(pack.Mode, ContentOverlayModes.MergeCatalog, StringComparison.Ordinal))
+                        return false;
+
+                    foreach (string fragmentPath in EnumerateSourceFiles(
+                                 pack.DataPath,
+                                 "*.xml",
+                                 SearchOption.TopDirectoryOnly).OrderBy(path => path, StringComparer.Ordinal))
+                    {
+                        if (!string.Equals(
+                                ResolveCatalogTargetFileName(Path.GetFileName(fragmentPath)),
+                                fileName,
+                                StringComparison.OrdinalIgnoreCase))
+                        {
+                            continue;
+                        }
+
+                        if (!TryLoadXml(fragmentPath, out XDocument? fragment)
+                            || fragment?.Root is null)
+                        {
+                            return false;
+                        }
+
+                        if (CountTargetRows(fragment.Root, containerNames, entryName, locator) > 1)
+                            ambiguous = true;
+                    }
+                }
+
+                return true;
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+            {
+                return false;
+            }
+        }
+
+        private static int CountTargetRows(
+            XElement root,
+            IReadOnlyList<string> containerNames,
+            string entryName,
+            TargetLocator locator)
+            => containerNames
+                .SelectMany(containerName => root.Elements(containerName).SelectMany(container => container.Elements(entryName)))
+                .Count(entry => LocatorMatches(entry, locator));
 
         private bool TryEnumerateTargets(
             string fileName,

@@ -416,6 +416,29 @@ public sealed record CharacterQualityLevelSource(
     bool NoLevels,
     bool UsesUnsupportedSemantics)
 {
+    /// <summary>
+    /// Citation metadata is additive so the legacy six-field source record and
+    /// its deconstruction remain stable for existing editor callers.
+    /// </summary>
+    public string SourceBook { get; init; } = string.Empty;
+
+    public int? SourcePage { get; init; }
+
+    /// <summary>
+    /// Digest of the selected effective quality node, when citation metadata is structurally
+    /// complete. This identifies the resolved node only; it is not a source-pack or engine
+    /// authority assertion.
+    /// </summary>
+    public string SourceNodeDigest { get; init; } = string.Empty;
+
+    /// <summary>
+    /// True only when the resolver supplied one usable source book and one positive
+    /// page. This is structural metadata, not proof of source/workspace/engine
+    /// authority; legacy source resolution may still succeed without it.
+    /// </summary>
+    public bool SourceCitationResolved => !string.IsNullOrWhiteSpace(SourceBook)
+        && SourcePage is > 0;
+
     public static CharacterQualityLevelSource Unavailable { get; } = new(
         SourceId: string.Empty,
         Name: string.Empty,

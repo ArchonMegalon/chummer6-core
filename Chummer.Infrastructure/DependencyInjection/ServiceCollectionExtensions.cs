@@ -14,6 +14,7 @@ using Chummer.Application.Tools;
 using Chummer.Application.Workspaces;
 using Chummer.Infrastructure.AI;
 using Chummer.Infrastructure.Files;
+using Chummer.Infrastructure.Explain;
 using Chummer.Infrastructure.Owners;
 using Chummer.Infrastructure.Workspaces;
 using Chummer.Infrastructure.Xml;
@@ -182,6 +183,8 @@ public static class ServiceCollectionExtensions
                 "The configured workspace store does not provide a readiness probe."));
         services.AddSingleton<IWorkspaceImportRulesetDetector, WorkspaceImportRulesetDetector>();
         services.AddSingleton<IWorkspaceService, WorkspaceService>();
+        services.AddSingleton<IWorkspaceRuleQuestionService, WorkspaceRuleQuestionService>();
+        services.AddSingleton<IWorkspaceRuleProviderAnswerService, WorkspaceRuleProviderAnswerService>();
         services.AddSingleton<WorkspaceContinuationExportService>();
         services.AddCharacterCreationFoundationDraftPersistence();
         services.AddSingleton<ICharacterCreationBootstrapActivationProjector,
