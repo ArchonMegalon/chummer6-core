@@ -13,8 +13,8 @@ inventory_name="chummer-owner-contracts.inventory.json"
 candidate_inventory_name="chummer-core-candidate-engine-contract.inventory.json"
 candidate_runtime_inventory_name="chummer-core-candidate-gm-edit-runtime.inventory.json"
 runtime_inventory_name="chummer-core-runtime-packages.inventory.json"
-candidate_version="0.0.0-packageplane.candidate.sh3fcfe22a6f5c2"
-runtime_source_commit="3fcfe22a6f5c210fd49fa95b724a84a78579da0e"
+candidate_version="0.0.0-packageplane.candidate.sh54398fa0dfe60"
+runtime_source_commit="54398fa0dfe60b4f00aac40d333882b7f7cc2886"
 candidate_id="Chummer.Engine.Contracts"
 candidate_runtime_id="Chummer.Engine.GmCharacterEdits"
 candidate_repository="https://github.com/ArchonMegalon/chummer6-core.git"
@@ -491,6 +491,7 @@ using Chummer.Contracts.Owners;
 using Chummer.Contracts.Workspaces;
 using Chummer.Engine.GmCharacterEdits;
 using Chummer.Infrastructure.Explain;
+using Chummer.Infrastructure.Owners;
 using Chummer.Infrastructure.Workspaces;
 using Chummer.Infrastructure.Xml;
 
@@ -554,6 +555,44 @@ public static class BoundaryProbe
 
     public static string WorkspaceRuleProviderAnswerSchema
         => WorkspaceRuleQuestionSchemas.ProviderAnswerV1;
+
+    // Compile the genuine request-private APIs from the eight packages. The
+    // host must already authorize this nonlocal owner and selected continuation;
+    // these signatures do not prove authentication, consent, or a Hub journey.
+    public static RequestOwnerContextAccessor CreateRequestOwner(OwnerScope authorizedOwner)
+        => new(authorizedOwner);
+
+    public static bool AcquireRequestOwner(RequestOwnerContextAccessor authority,
+        OwnerContextStamp expectedOwner, out IOwnerContextLease? lease)
+        => authority.TryAcquire(expectedOwner, out lease);
+
+    public static void EndRequestOwner(RequestOwnerContextAccessor authority)
+        => authority.Dispose();
+
+    public static PrivateWorkspaceRuleRuntimeFactory CreatePrivateRuntimeFactory(
+        string privateScratchRoot, string baseDirectory, string currentDirectory,
+        string? configuredAmendsPath, TimeProvider clock)
+        => new(privateScratchRoot, baseDirectory, currentDirectory, configuredAmendsPath, clock);
+
+    public static PrivateWorkspaceRuleRuntime RestorePrivateRuntime(
+        PrivateWorkspaceRuleRuntimeFactory factory, OwnerScope authorizedOwner,
+        ReadOnlyMemory<byte> completeContinuation, bool explicitlyConfirmed,
+        CancellationToken cancellationToken)
+        => factory.Create(authorizedOwner, completeContinuation, explicitlyConfirmed, cancellationToken);
+
+    public static WorkspaceRuleQuestionResult ResolvePrivateRuntime(
+        PrivateWorkspaceRuleRuntime runtime, OwnerContextStamp expectedOwner,
+        WorkspaceRuleQuestionRequest request, CancellationToken cancellationToken)
+        => runtime.Resolve(expectedOwner, request, cancellationToken);
+
+    public static (OwnerContextStamp Owner, CharacterWorkspaceId WorkspaceId,
+        long ContentRevision, long SavedRevision, WorkspaceContinuationRestoreReceipt Receipt)
+        ObservePrivateRuntime(PrivateWorkspaceRuleRuntime runtime)
+        => (runtime.OwnerStamp, runtime.WorkspaceId, runtime.ContentRevision,
+            runtime.SavedRevision, runtime.RestoreReceipt);
+
+    public static void EndPrivateRuntime(PrivateWorkspaceRuleRuntime runtime)
+        => runtime.Dispose();
 
     // Compile the exact wizard boundary from packages, not sibling projects.
     // This proves exported type/member compatibility, not a device journey.
@@ -745,13 +784,14 @@ local_owner_filter='FullyQualifiedName~Import_with_local_single_user_scope_route
 finalization_filter='FullyQualifiedName~CharacterCreationFinalizationServiceTests|FullyQualifiedName~OwnerBoundCharacterCreationFinalizationServiceTests'
 prerequisite_filter='FullyQualifiedName~CharacterCreationPrerequisiteServiceTests|FullyQualifiedName~OwnerBoundCharacterCreationPrerequisiteServiceTests|FullyQualifiedName~CharacterCreationPrerequisiteDigestTests'
 source_input_filter='FullyQualifiedName~FileSystemCharacterSourceDataResolverTests'
+private_runtime_filter='FullyQualifiedName~PrivateWorkspaceRuleRuntimeTests|FullyQualifiedName~RequestOwnerContextLifetimeTests'
 dotnet test "$consumer_root/Chummer.Tests/Chummer.Tests.csproj" \
   --configuration Release \
   --framework net10.0 \
   --no-restore \
   --nologo \
   -m:1 \
-  --filter "$local_owner_filter|$finalization_filter|$prerequisite_filter|$source_input_filter|FullyQualifiedName~WorkspaceContinuation|FullyQualifiedName~WorkspaceImported|FullyQualifiedName~WorkspaceLocalHistoryStoreTests" \
+  --filter "$local_owner_filter|$finalization_filter|$prerequisite_filter|$source_input_filter|$private_runtime_filter|FullyQualifiedName~WorkspaceContinuation|FullyQualifiedName~WorkspaceImported|FullyQualifiedName~WorkspaceLocalHistoryStoreTests" \
   "${common_properties[@]}"
 
 # Execute the actual owner/store regressions in the same isolated checkout.
