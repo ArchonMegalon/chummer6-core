@@ -34,9 +34,9 @@ INVENTORY_NAME = "chummer-core-runtime-packages.inventory.json"
 OWNER_INVENTORY_NAME = "chummer-owner-contracts.inventory.json"
 CANDIDATE_ENGINE_INVENTORY_NAME = "chummer-core-candidate-engine-contract.inventory.json"
 CANDIDATE_GM_INVENTORY_NAME = "chummer-core-candidate-gm-edit-runtime.inventory.json"
-PACKAGE_VERSION = "0.0.0-packageplane.candidate.sh3bc5fe725fd2b"
+PACKAGE_VERSION = "0.0.0-packageplane.candidate.sh3fcfe22a6f5c2"
 SOURCE_REPOSITORY = "https://github.com/ArchonMegalon/chummer6-core.git"
-SOURCE_COMMIT = "3bc5fe725fd2bbbad0333c5c7a3f849e53808c4f"
+SOURCE_COMMIT = "3fcfe22a6f5c210fd49fa95b724a84a78579da0e"
 SDK_VERSION = "10.0.103"
 SDK_RID = "linux-x64"
 SDK_ARCHIVE_URL = (
@@ -292,6 +292,21 @@ CAREER_REPUTATION_AUTHORITY_PATHS = (
     "Chummer.Tests/WorkspaceCharacterCareerReputationTests.cs",
     "Chummer.Tests/Chummer.CareerReputation.Tests.csproj",
     "Chummer.Tests/Chummer.CareerReputation.Persistence.Tests.csproj",
+)
+
+WORKSPACE_RULE_QUESTION_AUTHORITY_PATHS = (
+    "Chummer.Application/Characters/ICharacterSourceDataResolver.cs",
+    "Chummer.Infrastructure/Xml/FileSystemCharacterSourceDataResolver.cs",
+    "Chummer.Tests/FileSystemCharacterSourceDataResolverTests.cs",
+    "Chummer.Contracts/BuildGhost/WorkspaceRuleQuestionContracts.cs",
+    "Chummer.Application/Explain/IWorkspaceRuleQuestionService.cs",
+    "Chummer.Application/Explain/IWorkspaceRuleProviderAnswerService.cs",
+    "Chummer.Infrastructure/Explain/WorkspaceRuleQuestionService.cs",
+    "Chummer.Infrastructure/Explain/WorkspaceRuleProviderAnswerService.cs",
+    "Chummer.Infrastructure/DependencyInjection/ServiceCollectionExtensions.cs",
+    "Chummer.Tests/WorkspaceRuleQuestionIntegrityTests.cs",
+    "Chummer.Tests/WorkspaceRuleQuestionServiceTests.cs",
+    "Chummer.Tests/Chummer.CreationResources.Tests.csproj",
 )
 
 
@@ -805,7 +820,8 @@ def validate_repository(repo_root: Path, lock: dict[str, Any]) -> None:
         _run(("git", "cat-file", "-e", f"{SOURCE_COMMIT}:{member}"), cwd=repo_root)
     for member in (*CREATION_SKILLS_REVIEW_AUTHORITY_PATHS,
                    *CAREER_REPUTATION_AUTHORITY_PATHS, *OWNER_ADMISSION_AUTHORITY_PATHS,
-                   *WORKSPACE_CONTINUATION_AUTHORITY_PATHS):
+                   *WORKSPACE_CONTINUATION_AUTHORITY_PATHS,
+                   *WORKSPACE_RULE_QUESTION_AUTHORITY_PATHS):
         _run(("git", "cat-file", "-e", f"{SOURCE_COMMIT}:{member}"), cwd=repo_root)
 
     changed = _run(
