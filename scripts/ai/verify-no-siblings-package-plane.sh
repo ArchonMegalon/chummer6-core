@@ -13,8 +13,8 @@ inventory_name="chummer-owner-contracts.inventory.json"
 candidate_inventory_name="chummer-core-candidate-engine-contract.inventory.json"
 candidate_runtime_inventory_name="chummer-core-candidate-gm-edit-runtime.inventory.json"
 runtime_inventory_name="chummer-core-runtime-packages.inventory.json"
-candidate_version="0.0.0-packageplane.candidate.sh3bc5fe725fd2b"
-runtime_source_commit="3bc5fe725fd2bbbad0333c5c7a3f849e53808c4f"
+candidate_version="0.0.0-packageplane.candidate.sh3fcfe22a6f5c2"
+runtime_source_commit="3fcfe22a6f5c210fd49fa95b724a84a78579da0e"
 candidate_id="Chummer.Engine.Contracts"
 candidate_runtime_id="Chummer.Engine.GmCharacterEdits"
 candidate_repository="https://github.com/ArchonMegalon/chummer6-core.git"
@@ -482,12 +482,15 @@ EOF
 cat >"$runtime_consumer_root/BoundaryProbe.cs" <<'EOF'
 using System.Reflection;
 using Chummer.Application.Characters;
+using Chummer.Application.Explain;
 using Chummer.Application.Owners;
 using Chummer.Application.Workspaces;
+using Chummer.Contracts.BuildGhost;
 using Chummer.Contracts.Characters;
 using Chummer.Contracts.Owners;
 using Chummer.Contracts.Workspaces;
 using Chummer.Engine.GmCharacterEdits;
+using Chummer.Infrastructure.Explain;
 using Chummer.Infrastructure.Workspaces;
 using Chummer.Infrastructure.Xml;
 
@@ -530,6 +533,27 @@ public static class BoundaryProbe
     public static Type ContractType => typeof(ICoreGmCharacterEditGateway);
 
     public static Type FactoryType => typeof(CoreGmCharacterEditGatewayFactory);
+
+    public static Type WorkspaceRuleQuestionImplementation => typeof(WorkspaceRuleQuestionService);
+
+    public static Type WorkspaceRuleProviderAnswerImplementation => typeof(WorkspaceRuleProviderAnswerService);
+
+    public static WorkspaceRuleQuestionResult ResolveWorkspaceRuleQuestion(
+        IWorkspaceRuleQuestionService service,
+        OwnerContextStamp owner,
+        WorkspaceRuleQuestionRequest request)
+        => service.Resolve(owner, request);
+
+    public static BuildGhostProviderValidationResult ValidateWorkspaceRuleProviderAnswer(
+        IWorkspaceRuleProviderAnswerService service,
+        OwnerContextStamp owner,
+        WorkspaceRuleQuestionRequest request,
+        string requestId,
+        BuildGhostProviderAnswer? answer)
+        => service.Validate(owner, request, requestId, answer);
+
+    public static string WorkspaceRuleProviderAnswerSchema
+        => WorkspaceRuleQuestionSchemas.ProviderAnswerV1;
 
     // Compile the exact wizard boundary from packages, not sibling projects.
     // This proves exported type/member compatibility, not a device journey.

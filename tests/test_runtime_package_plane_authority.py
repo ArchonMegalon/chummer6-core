@@ -54,8 +54,18 @@ class RuntimePackageLockTests(unittest.TestCase):
         )
 
     def test_next_wave_candidate_is_bound_to_locally_validated_semantic_commit(self) -> None:
-        self.assertEqual("3bc5fe725fd2bbbad0333c5c7a3f849e53808c4f", runtime.SOURCE_COMMIT)
-        self.assertEqual("0.0.0-packageplane.candidate.sh3bc5fe725fd2b", runtime.PACKAGE_VERSION)
+        self.assertEqual("3fcfe22a6f5c210fd49fa95b724a84a78579da0e", runtime.SOURCE_COMMIT)
+        self.assertEqual("0.0.0-packageplane.candidate.sh3fcfe22a6f5c2", runtime.PACKAGE_VERSION)
+
+    def test_previous_workspace_question_source_authority_cannot_stand_in(self) -> None:
+        altered = copy.deepcopy(self.lock)
+        altered["runtime_source"]["commit"] = "3bc5fe725fd2bbbad0333c5c7a3f849e53808c4f"
+        with self.assertRaisesRegex(runtime.RuntimePackagePlaneError, "runtime source authority"):
+            runtime.validate_lock_payload(altered)
+        altered = copy.deepcopy(self.lock)
+        altered["package_version"] = "0.0.0-packageplane.candidate.sh3bc5fe725fd2b"
+        with self.assertRaisesRegex(runtime.RuntimePackagePlaneError, "runtime package version"):
+            runtime.validate_lock_payload(altered)
 
     def test_previous_runtime_authority_cannot_stand_in_for_owner_finalization(self) -> None:
         for stale in ("source", "version"):
@@ -185,6 +195,60 @@ class RuntimePackageLockTests(unittest.TestCase):
             r"&& context\.TryResolveCreationPrerequisiteAuthority\(out CharacterCreationPrerequisiteAuthority authority\)\s*"
             r"&& authority\.IsAuthoritative;\s*\}",
         )
+
+    def test_package_only_consumer_compiles_workspace_rule_question_boundary(self) -> None:
+        script = (REPO_ROOT / "scripts/ai/verify-no-siblings-package-plane.sh").read_text(encoding="utf-8")
+        probe = script.split('cat >"$runtime_consumer_root/BoundaryProbe.cs" <<\'EOF\'\n', 1)[1].split('\nEOF', 1)[0]
+        self.assertRegex(
+            probe,
+            r"public static WorkspaceRuleQuestionResult ResolveWorkspaceRuleQuestion\(\s*"
+            r"IWorkspaceRuleQuestionService service,\s*OwnerContextStamp owner,\s*"
+            r"WorkspaceRuleQuestionRequest request\)\s*=> service\.Resolve\(owner, request\);",
+        )
+        self.assertRegex(
+            probe,
+            r"public static BuildGhostProviderValidationResult ValidateWorkspaceRuleProviderAnswer\(\s*"
+            r"IWorkspaceRuleProviderAnswerService service,\s*OwnerContextStamp owner,\s*"
+            r"WorkspaceRuleQuestionRequest request,\s*string requestId,\s*"
+            r"BuildGhostProviderAnswer\? answer\)\s*=> service\.Validate\(owner, request, requestId, answer\);",
+        )
+        for member in (
+            "using Chummer.Application.Explain;",
+            "using Chummer.Contracts.BuildGhost;",
+            "using Chummer.Infrastructure.Explain;",
+            "WorkspaceRuleQuestionService",
+            "WorkspaceRuleProviderAnswerService",
+            "IWorkspaceRuleQuestionService service",
+            "IWorkspaceRuleProviderAnswerService service",
+            "OwnerContextStamp owner",
+            "WorkspaceRuleQuestionRequest request",
+            "service.Resolve(owner, request)",
+            "service.Validate(owner, request, requestId, answer)",
+            "WorkspaceRuleQuestionSchemas.ProviderAnswerV1",
+        ):
+            with self.subTest(member=member):
+                self.assertIn(member, probe)
+
+    def test_workspace_rule_question_members_are_bound_to_runtime_source(self) -> None:
+        expected = {
+            "Chummer.Application/Characters/ICharacterSourceDataResolver.cs",
+            "Chummer.Infrastructure/Xml/FileSystemCharacterSourceDataResolver.cs",
+            "Chummer.Tests/FileSystemCharacterSourceDataResolverTests.cs",
+            "Chummer.Contracts/BuildGhost/WorkspaceRuleQuestionContracts.cs",
+            "Chummer.Application/Explain/IWorkspaceRuleQuestionService.cs",
+            "Chummer.Application/Explain/IWorkspaceRuleProviderAnswerService.cs",
+            "Chummer.Infrastructure/Explain/WorkspaceRuleQuestionService.cs",
+            "Chummer.Infrastructure/Explain/WorkspaceRuleProviderAnswerService.cs",
+            "Chummer.Infrastructure/DependencyInjection/ServiceCollectionExtensions.cs",
+            "Chummer.Tests/WorkspaceRuleQuestionIntegrityTests.cs",
+            "Chummer.Tests/WorkspaceRuleQuestionServiceTests.cs",
+            "Chummer.Tests/Chummer.CreationResources.Tests.csproj",
+        }
+        self.assertEqual(expected, set(runtime.WORKSPACE_RULE_QUESTION_AUTHORITY_PATHS))
+        self.assertEqual(len(expected), len(runtime.WORKSPACE_RULE_QUESTION_AUTHORITY_PATHS))
+        for member in runtime.WORKSPACE_RULE_QUESTION_AUTHORITY_PATHS:
+            with self.subTest(member=member):
+                runtime._run(("git", "cat-file", "-e", f"{runtime.SOURCE_COMMIT}:{member}"), cwd=REPO_ROOT)
 
     def test_isolated_lane_executes_source_input_regressions(self) -> None:
         script = (REPO_ROOT / "scripts/ai/verify-no-siblings-package-plane.sh").read_text(encoding="utf-8")
@@ -331,7 +395,8 @@ class RuntimePackageLockTests(unittest.TestCase):
                        *runtime.CREATION_SKILLS_REVIEW_AUTHORITY_PATHS,
                        *runtime.CAREER_REPUTATION_AUTHORITY_PATHS,
                        *runtime.OWNER_ADMISSION_AUTHORITY_PATHS,
-                       *runtime.WORKSPACE_CONTINUATION_AUTHORITY_PATHS):
+                       *runtime.WORKSPACE_CONTINUATION_AUTHORITY_PATHS,
+                       *runtime.WORKSPACE_RULE_QUESTION_AUTHORITY_PATHS):
             def missing_member(command, *, cwd):
                 if tuple(command) == ("git", "cat-file", "-e", f"{runtime.SOURCE_COMMIT}:{member}"):
                     raise runtime.RuntimePackagePlaneError("missing anchored semantic member")
@@ -349,7 +414,8 @@ class RuntimePackageLockTests(unittest.TestCase):
                        *runtime.CREATION_SKILLS_REVIEW_AUTHORITY_PATHS,
                        *runtime.CAREER_REPUTATION_AUTHORITY_PATHS,
                        *runtime.OWNER_ADMISSION_AUTHORITY_PATHS,
-                       *runtime.WORKSPACE_CONTINUATION_AUTHORITY_PATHS):
+                       *runtime.WORKSPACE_CONTINUATION_AUTHORITY_PATHS,
+                       *runtime.WORKSPACE_RULE_QUESTION_AUTHORITY_PATHS):
             def semantic_drift(command, *, cwd):
                 if tuple(command) == ("git", "diff", "--name-only", runtime.SOURCE_COMMIT):
                     return "\n".join((*runtime.ALLOWED_RECIPE_DELTA, member))
