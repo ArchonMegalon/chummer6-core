@@ -34,9 +34,9 @@ INVENTORY_NAME = "chummer-core-runtime-packages.inventory.json"
 OWNER_INVENTORY_NAME = "chummer-owner-contracts.inventory.json"
 CANDIDATE_ENGINE_INVENTORY_NAME = "chummer-core-candidate-engine-contract.inventory.json"
 CANDIDATE_GM_INVENTORY_NAME = "chummer-core-candidate-gm-edit-runtime.inventory.json"
-PACKAGE_VERSION = "0.0.0-packageplane.candidate.sh3fcfe22a6f5c2"
+PACKAGE_VERSION = "0.0.0-packageplane.candidate.sh54398fa0dfe60"
 SOURCE_REPOSITORY = "https://github.com/ArchonMegalon/chummer6-core.git"
-SOURCE_COMMIT = "3fcfe22a6f5c210fd49fa95b724a84a78579da0e"
+SOURCE_COMMIT = "54398fa0dfe60b4f00aac40d333882b7f7cc2886"
 SDK_VERSION = "10.0.103"
 SDK_RID = "linux-x64"
 SDK_ARCHIVE_URL = (
@@ -307,6 +307,16 @@ WORKSPACE_RULE_QUESTION_AUTHORITY_PATHS = (
     "Chummer.Tests/WorkspaceRuleQuestionIntegrityTests.cs",
     "Chummer.Tests/WorkspaceRuleQuestionServiceTests.cs",
     "Chummer.Tests/Chummer.CreationResources.Tests.csproj",
+)
+
+
+PRIVATE_WORKSPACE_RUNTIME_AUTHORITY_PATHS = (
+    "Chummer.Infrastructure/Owners/RequestOwnerContextAccessor.cs",
+    "Chummer.Infrastructure/Workspaces/OwnedWorkspaceScratchDirectory.cs",
+    "Chummer.Infrastructure/Workspaces/PrivateWorkspaceRuleRuntime.cs",
+    "Chummer.Infrastructure/Workspaces/PrivateWorkspaceRuleRuntimeFactory.cs",
+    "Chummer.Tests/PrivateWorkspaceRuleRuntimeTests.cs",
+    "Chummer.Tests/RequestOwnerContextLifetimeTests.cs",
 )
 
 
@@ -821,7 +831,8 @@ def validate_repository(repo_root: Path, lock: dict[str, Any]) -> None:
     for member in (*CREATION_SKILLS_REVIEW_AUTHORITY_PATHS,
                    *CAREER_REPUTATION_AUTHORITY_PATHS, *OWNER_ADMISSION_AUTHORITY_PATHS,
                    *WORKSPACE_CONTINUATION_AUTHORITY_PATHS,
-                   *WORKSPACE_RULE_QUESTION_AUTHORITY_PATHS):
+                   *WORKSPACE_RULE_QUESTION_AUTHORITY_PATHS,
+                   *PRIVATE_WORKSPACE_RUNTIME_AUTHORITY_PATHS):
         _run(("git", "cat-file", "-e", f"{SOURCE_COMMIT}:{member}"), cwd=repo_root)
 
     changed = _run(

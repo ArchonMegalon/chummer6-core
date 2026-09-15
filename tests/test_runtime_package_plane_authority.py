@@ -54,8 +54,8 @@ class RuntimePackageLockTests(unittest.TestCase):
         )
 
     def test_next_wave_candidate_is_bound_to_locally_validated_semantic_commit(self) -> None:
-        self.assertEqual("3fcfe22a6f5c210fd49fa95b724a84a78579da0e", runtime.SOURCE_COMMIT)
-        self.assertEqual("0.0.0-packageplane.candidate.sh3fcfe22a6f5c2", runtime.PACKAGE_VERSION)
+        self.assertEqual("54398fa0dfe60b4f00aac40d333882b7f7cc2886", runtime.SOURCE_COMMIT)
+        self.assertEqual("0.0.0-packageplane.candidate.sh54398fa0dfe60", runtime.PACKAGE_VERSION)
 
     def test_previous_workspace_question_source_authority_cannot_stand_in(self) -> None:
         altered = copy.deepcopy(self.lock)
@@ -66,6 +66,16 @@ class RuntimePackageLockTests(unittest.TestCase):
         altered["package_version"] = "0.0.0-packageplane.candidate.sh3bc5fe725fd2b"
         with self.assertRaisesRegex(runtime.RuntimePackagePlaneError, "runtime package version"):
             runtime.validate_lock_payload(altered)
+
+    def test_previous_grounded_query_authority_cannot_stand_in_for_private_runtime(self) -> None:
+        for stale in ("source", "version"):
+            altered = copy.deepcopy(self.lock)
+            if stale == "source":
+                altered["runtime_source"]["commit"] = "3fcfe22a6f5c210fd49fa95b724a84a78579da0e"
+            else:
+                altered["package_version"] = "0.0.0-packageplane.candidate.sh3fcfe22a6f5c2"
+            with self.subTest(stale=stale), self.assertRaises(runtime.RuntimePackagePlaneError):
+                runtime.validate_lock_payload(altered)
 
     def test_previous_runtime_authority_cannot_stand_in_for_owner_finalization(self) -> None:
         for stale in ("source", "version"):
@@ -256,6 +266,50 @@ class RuntimePackageLockTests(unittest.TestCase):
         invocation = script.split('dotnet test "$consumer_root/Chummer.Tests/Chummer.Tests.csproj"', 1)[1].split('\n\n', 1)[0]
         self.assertIn('--filter "$local_owner_filter|$finalization_filter|$prerequisite_filter|$source_input_filter|', invocation)
 
+    def test_private_runtime_members_are_bound_to_runtime_source(self) -> None:
+        expected = {
+            "Chummer.Infrastructure/Owners/RequestOwnerContextAccessor.cs",
+            "Chummer.Infrastructure/Workspaces/OwnedWorkspaceScratchDirectory.cs",
+            "Chummer.Infrastructure/Workspaces/PrivateWorkspaceRuleRuntime.cs",
+            "Chummer.Infrastructure/Workspaces/PrivateWorkspaceRuleRuntimeFactory.cs",
+            "Chummer.Tests/PrivateWorkspaceRuleRuntimeTests.cs",
+            "Chummer.Tests/RequestOwnerContextLifetimeTests.cs",
+        }
+        self.assertEqual(expected, set(runtime.PRIVATE_WORKSPACE_RUNTIME_AUTHORITY_PATHS))
+        self.assertEqual(6, len(runtime.PRIVATE_WORKSPACE_RUNTIME_AUTHORITY_PATHS))
+        for member in runtime.PRIVATE_WORKSPACE_RUNTIME_AUTHORITY_PATHS:
+            with self.subTest(member=member):
+                runtime._run(("git", "cat-file", "-e", f"{runtime.SOURCE_COMMIT}:{member}"), cwd=REPO_ROOT)
+
+    def test_package_only_consumer_compiles_actual_private_runtime_lifetime(self) -> None:
+        script = (REPO_ROOT / "scripts/ai/verify-no-siblings-package-plane.sh").read_text(encoding="utf-8")
+        probe = script.split('cat >"$runtime_consumer_root/BoundaryProbe.cs" <<\'EOF\'\n', 1)[1].split('\nEOF', 1)[0]
+        for member in (
+            "using Chummer.Infrastructure.Owners;",
+            "RequestOwnerContextAccessor CreateRequestOwner(OwnerScope authorizedOwner)",
+            "authority.TryAcquire(expectedOwner, out lease)",
+            "authority.Dispose()",
+            "PrivateWorkspaceRuleRuntimeFactory CreatePrivateRuntimeFactory(",
+            "string privateScratchRoot, string baseDirectory, string currentDirectory,",
+            "new(privateScratchRoot, baseDirectory, currentDirectory, configuredAmendsPath, clock)",
+            "PrivateWorkspaceRuleRuntime RestorePrivateRuntime(",
+            "factory.Create(authorizedOwner, completeContinuation, explicitlyConfirmed, cancellationToken)",
+            "WorkspaceRuleQuestionResult ResolvePrivateRuntime(",
+            "runtime.Resolve(expectedOwner, request, cancellationToken)",
+            "runtime.OwnerStamp, runtime.WorkspaceId, runtime.ContentRevision,",
+            "runtime.SavedRevision, runtime.RestoreReceipt",
+            "runtime.Dispose()",
+        ):
+            with self.subTest(member=member):
+                self.assertIn(member, probe)
+
+    def test_isolated_lane_executes_both_private_runtime_regression_classes(self) -> None:
+        script = (REPO_ROOT / "scripts/ai/verify-no-siblings-package-plane.sh").read_text(encoding="utf-8")
+        self.assertIn("\nprivate_runtime_filter='FullyQualifiedName~PrivateWorkspaceRuleRuntimeTests|FullyQualifiedName~RequestOwnerContextLifetimeTests'\n", script)
+        invocation = script.split('dotnet test "$consumer_root/Chummer.Tests/Chummer.Tests.csproj"', 1)[1].split('\n\n', 1)[0]
+        self.assertIn('$source_input_filter|$private_runtime_filter|FullyQualifiedName~WorkspaceContinuation', invocation)
+        self.assertIn('--no-restore', invocation)
+
     def test_isolated_consumer_compiles_and_executes_complete_continuation_boundaries(self) -> None:
         script = (REPO_ROOT / "scripts/ai/verify-no-siblings-package-plane.sh").read_text(encoding="utf-8")
         probe = script.split('cat >"$runtime_consumer_root/BoundaryProbe.cs" <<\'EOF\'\n', 1)[1].split('\nEOF', 1)[0]
@@ -396,7 +450,8 @@ class RuntimePackageLockTests(unittest.TestCase):
                        *runtime.CAREER_REPUTATION_AUTHORITY_PATHS,
                        *runtime.OWNER_ADMISSION_AUTHORITY_PATHS,
                        *runtime.WORKSPACE_CONTINUATION_AUTHORITY_PATHS,
-                       *runtime.WORKSPACE_RULE_QUESTION_AUTHORITY_PATHS):
+                       *runtime.WORKSPACE_RULE_QUESTION_AUTHORITY_PATHS,
+                       *runtime.PRIVATE_WORKSPACE_RUNTIME_AUTHORITY_PATHS):
             def missing_member(command, *, cwd):
                 if tuple(command) == ("git", "cat-file", "-e", f"{runtime.SOURCE_COMMIT}:{member}"):
                     raise runtime.RuntimePackagePlaneError("missing anchored semantic member")
@@ -415,7 +470,8 @@ class RuntimePackageLockTests(unittest.TestCase):
                        *runtime.CAREER_REPUTATION_AUTHORITY_PATHS,
                        *runtime.OWNER_ADMISSION_AUTHORITY_PATHS,
                        *runtime.WORKSPACE_CONTINUATION_AUTHORITY_PATHS,
-                       *runtime.WORKSPACE_RULE_QUESTION_AUTHORITY_PATHS):
+                       *runtime.WORKSPACE_RULE_QUESTION_AUTHORITY_PATHS,
+                       *runtime.PRIVATE_WORKSPACE_RUNTIME_AUTHORITY_PATHS):
             def semantic_drift(command, *, cwd):
                 if tuple(command) == ("git", "diff", "--name-only", runtime.SOURCE_COMMIT):
                     return "\n".join((*runtime.ALLOWED_RECIPE_DELTA, member))
