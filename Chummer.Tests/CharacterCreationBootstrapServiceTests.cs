@@ -38,6 +38,220 @@ public sealed class CharacterCreationBootstrapServiceTests
     private const string MagicianId = "0e741331-d776-4be8-abc5-4101228abdef";
 
     [TestMethod]
+    public void Karma_skills_policy_uses_selected_profile_without_priority_or_skill_catalog()
+    {
+        using var fixture = new KarmaDiskFixture();
+        var before = fixture.Store.Get(fixture.Id).Value!;
+        var context = fixture.Resolver.TryCreateContext(before.Document.Content)!;
+        Assert.IsTrue(context.TryResolveCreationKarmaSkillsPolicy(out var policy));
+        Assert.IsNotNull(policy);
+        Assert.AreEqual(CharacterCreationKarmaSkillsPolicy.SchemaV1, policy.Schema);
+        Assert.AreEqual(CanonicalKarmaSettingsId, policy.SettingsProfileId);
+        CollectionAssert.AreEqual(new[] { 2, 2, 1, 1, 5, 5, 7, 7 }, new[]
+        {
+            policy.KarmaNewActiveSkill, policy.KarmaImproveActiveSkill,
+            policy.KarmaNewKnowledgeSkill, policy.KarmaImproveKnowledgeSkill,
+            policy.KarmaNewSkillGroup, policy.KarmaImproveSkillGroup,
+            policy.KarmaSpecialization, policy.KarmaKnowledgeSpecialization
+        });
+        Assert.AreEqual(6, policy.MaxActiveSkillRatingCreate);
+        Assert.AreEqual(6, policy.MaxKnowledgeSkillRatingCreate);
+        Assert.AreEqual(6, policy.MaxSkillGroupRatingCreate);
+        Assert.AreEqual("({INTUnaug} + {LOGUnaug}) * 2", policy.KnowledgePointsExpression);
+        Assert.IsFalse(policy.UsePointsOnBrokenGroups);
+        Assert.IsFalse(policy.StrictSkillGroupsInCreateMode);
+        Assert.IsTrue(policy.SpecializationsBreakSkillGroups);
+        Assert.IsFalse(policy.AllowPointBuySpecializationsOnKarmaSkills);
+        Assert.IsFalse(policy.CompensateSkillGroupKarmaDifference);
+        Assert.IsTrue(context.TryResolveCreationSourceProfile(out var profile));
+        Assert.AreEqual(profile.RawProfileInputsDigest, policy.RawProfileInputsDigest);
+        Assert.AreEqual(CharacterCreationKarmaSkillsPolicyAuthority.ComputeDigest(policy), policy.AuthorityDigest);
+        CollectionAssert.AreEqual(new[] { $"settings.xml#setting:{CanonicalKarmaSettingsId}" }, policy.SourceAnchorIds.ToArray());
+        AssertJsonEqual(before, fixture.Store.Get(fixture.Id).Value!);
+    }
+
+    [TestMethod]
+    public void Karma_skills_policy_preserves_house_rules_and_rejects_stale_source_context()
+    {
+        using var fixture = new KarmaDiskFixture();
+        string xml = fixture.Store.Get(fixture.Id).Value!.Document.Content;
+        var context = fixture.Resolver.TryCreateContext(xml)!;
+        Assert.IsTrue(context.TryResolveCreationKarmaSkillsPolicy(out var old));
+        fixture.EditSettings(row =>
+        {
+            string[] costs = ["karmanewactiveskill", "karmaimproveactiveskill", "karmanewknowledgeskill",
+                "karmaimproveknowledgeskill", "karmanewskillgroup", "karmaimproveskillgroup",
+                "karmaspecialization", "karmaknospecialization"];
+            for (int i = 0; i < costs.Length; i++) row.Element("karmacost")!.SetElementValue(costs[i], i);
+            row.SetElementValue("maxskillratingcreate", 9);
+            row.SetElementValue("maxskillrating", 7);
+            row.SetElementValue("maxknowledgeskillratingcreate", 4);
+            row.SetElementValue("maxknowledgeskillrating", 12);
+            row.SetElementValue("knowledgepointsexpression", "{LOGUnaug} * 3");
+            row.SetElementValue("usepointsonbrokengroups", "True");
+            row.SetElementValue("breakskillgroupsincreatemode", "True");
+            row.SetElementValue("specializationsbreakskillgroups", "False");
+            row.SetElementValue("allowpointbuyspecializationsonkarmaskills", "True");
+            row.SetElementValue("compensateskillgroupkarmadifference", "True");
+        });
+        Assert.IsFalse(context.TryResolveCreationKarmaSkillsPolicy(out var stale));
+        Assert.IsNull(stale);
+        Assert.IsTrue(fixture.Resolver.TryCreateContext(xml)!.TryResolveCreationKarmaSkillsPolicy(out var policy));
+        Assert.IsNotNull(policy);
+        CollectionAssert.AreEqual(Enumerable.Range(0, 8).ToArray(), new[]
+        {
+            policy.KarmaNewActiveSkill, policy.KarmaImproveActiveSkill,
+            policy.KarmaNewKnowledgeSkill, policy.KarmaImproveKnowledgeSkill,
+            policy.KarmaNewSkillGroup, policy.KarmaImproveSkillGroup,
+            policy.KarmaSpecialization, policy.KarmaKnowledgeSpecialization
+        });
+        Assert.AreEqual(7, policy.MaxActiveSkillRatingCreate);
+        Assert.AreEqual(7, policy.MaxSkillGroupRatingCreate);
+        Assert.AreEqual(4, policy.MaxKnowledgeSkillRatingCreate);
+        Assert.AreEqual("{LOGUnaug} * 3", policy.KnowledgePointsExpression);
+        Assert.IsTrue(policy.UsePointsOnBrokenGroups);
+        Assert.IsTrue(policy.StrictSkillGroupsInCreateMode);
+        Assert.IsFalse(policy.SpecializationsBreakSkillGroups);
+        Assert.IsTrue(policy.AllowPointBuySpecializationsOnKarmaSkills);
+        Assert.IsTrue(policy.CompensateSkillGroupKarmaDifference);
+        Assert.AreNotEqual(old!.AuthorityDigest, policy.AuthorityDigest);
+        Assert.AreNotEqual(old.RawProfileInputsDigest, policy.RawProfileInputsDigest);
+    }
+
+    [TestMethod]
+    public void Karma_skills_policy_defaults_only_absent_optional_legacy_settings()
+    {
+        using var fixture = new KarmaDiskFixture(configureSettings: row =>
+        {
+            foreach (string name in new[] { "maxskillrating", "maxskillratingcreate", "maxknowledgeskillrating",
+                "maxknowledgeskillratingcreate", "usepointsonbrokengroups", "breakskillgroupsincreatemode",
+                "specializationsbreakskillgroups", "allowpointbuyspecializationsonkarmaskills", "compensateskillgroupkarmadifference" })
+                row.Elements(name).Remove();
+            row.SetElementValue("maxskillratingcreate", 14);
+        });
+        var context = fixture.Resolver.TryCreateContext(fixture.Store.Get(fixture.Id).Value!.Document.Content)!;
+        Assert.IsTrue(context.TryResolveCreationKarmaSkillsPolicy(out var policy));
+        Assert.AreEqual(14, policy!.MaxActiveSkillRatingCreate, "Do not impose an absent career-cap field.");
+        Assert.AreEqual(6, policy.MaxKnowledgeSkillRatingCreate);
+        Assert.IsTrue(policy.SpecializationsBreakSkillGroups);
+        Assert.IsFalse(policy.StrictSkillGroupsInCreateMode);
+        Assert.IsFalse(policy.UsePointsOnBrokenGroups);
+        Assert.IsFalse(policy.AllowPointBuySpecializationsOnKarmaSkills);
+        Assert.IsFalse(policy.CompensateSkillGroupKarmaDifference);
+    }
+
+    [TestMethod]
+    [DataRow("missing-cost")]
+    [DataRow("duplicate-cost")]
+    [DataRow("negative-cost")]
+    [DataRow("overflow-cost")]
+    [DataRow("nested-cost")]
+    [DataRow("attributed-cost")]
+    [DataRow("duplicate-cost-container")]
+    [DataRow("duplicate-cap")]
+    [DataRow("negative-cap")]
+    [DataRow("malformed-career-cap")]
+    [DataRow("duplicate-career-cap")]
+    [DataRow("duplicate-switch")]
+    [DataRow("invalid-switch")]
+    [DataRow("missing-expression")]
+    [DataRow("empty-expression")]
+    [DataRow("nested-expression")]
+    [DataRow("duplicate-expression")]
+    public void Karma_skills_policy_rejects_malformed_settings_without_substituting_defaults(string corruption)
+    {
+        using var fixture = new KarmaDiskFixture();
+        fixture.EditSettings(row =>
+        {
+            var costs = row.Element("karmacost")!;
+            var cost = costs.Element("karmaimproveactiveskill")!;
+            switch (corruption)
+            {
+                case "missing-cost": cost.Remove(); break;
+                case "duplicate-cost": costs.Add(new XElement(cost)); break;
+                case "negative-cost": cost.Value = "-1"; break;
+                case "overflow-cost": cost.Value = "2147483648"; break;
+                case "nested-cost": cost.ReplaceNodes(new XElement("value", "2")); break;
+                case "attributed-cost": cost.SetAttributeValue("override", "true"); break;
+                case "duplicate-cost-container": row.Add(new XElement(costs)); break;
+                case "duplicate-cap": row.SetElementValue("maxskillratingcreate", "6"); row.Add(new XElement("maxskillratingcreate", "6")); break;
+                case "negative-cap": row.SetElementValue("maxskillratingcreate", "-1"); break;
+                case "malformed-career-cap": row.SetElementValue("maxskillrating", "six"); break;
+                case "duplicate-career-cap": row.SetElementValue("maxskillrating", "12"); row.Add(new XElement("maxskillrating", "12")); break;
+                case "duplicate-switch": row.SetElementValue("specializationsbreakskillgroups", "True"); row.Add(new XElement("specializationsbreakskillgroups", "True")); break;
+                case "invalid-switch": row.SetElementValue("compensateskillgroupkarmadifference", "sometimes"); break;
+                case "missing-expression": row.Elements("knowledgepointsexpression").Remove(); break;
+                case "empty-expression": row.SetElementValue("knowledgepointsexpression", ""); break;
+                case "nested-expression": row.Element("knowledgepointsexpression")!.ReplaceNodes(new XElement("expr", "4")); break;
+                case "duplicate-expression": row.Add(new XElement(row.Element("knowledgepointsexpression")!)); break;
+                default: Assert.Fail("Unknown corruption."); break;
+            }
+        });
+        var context = fixture.Resolver.TryCreateContext(fixture.Store.Get(fixture.Id).Value!.Document.Content)!;
+        Assert.IsFalse(context.TryResolveCreationKarmaSkillsPolicy(out var policy));
+        Assert.IsNull(policy);
+    }
+
+    [TestMethod]
+    [DataRow("active", 0, 3, 2, 2, 12)]
+    [DataRow("active", 2, 5, 2, 2, 24)]
+    [DataRow("active", 0, 3, 5, 2, 15)]
+    [DataRow("active", 0, 3, 5, 0, 5)]
+    [DataRow("knowledge", 0, 3, 1, 1, 6)]
+    [DataRow("knowledge", 2, 5, 1, 1, 12)]
+    [DataRow("knowledge", 0, 3, 5, 2, 15)]
+    [DataRow("knowledge", 0, 3, 5, 0, 0)]
+    [DataRow("group", 0, 1, 7, 5, 7)]
+    [DataRow("group", 0, 2, 7, 5, 15)]
+    [DataRow("group", 2, 5, 5, 5, 60)]
+    [DataRow("group", 0, 6, 5, 5, 105)]
+    public void Karma_skill_cost_preserves_distinct_active_knowledge_and_group_semantics(
+        string kind, int lower, int upper, int newCost, int improve, int expected)
+    {
+        Assert.IsTrue(SkillCost(kind, lower, upper, newCost, improve, out int cost));
+        Assert.AreEqual(expected, cost);
+    }
+
+    [TestMethod]
+    public void Karma_skill_cost_bounds_overflow_and_group_split_do_not_lose_karma()
+    {
+        foreach (string kind in new[] { "active", "knowledge", "group" })
+        {
+            foreach (var (lower, upper, newCost, improve) in new[]
+            {
+                (-1, 1, 1, 1), (3, 2, 1, 1), (0, 1, -1, 1), (0, 1, 1, -1),
+                (0, int.MaxValue, int.MaxValue, int.MaxValue), (0, 100_000, 1, 1)
+            })
+            {
+                Assert.IsFalse(SkillCost(kind, lower, upper, newCost, improve, out int invalid));
+                Assert.AreEqual(0, invalid);
+            }
+            Assert.IsTrue(SkillCost(kind, int.MaxValue, int.MaxValue, 1, 1, out int none));
+            Assert.AreEqual(0, none);
+            Assert.IsTrue(SkillCost(kind, int.MaxValue - 1, int.MaxValue, 1, 1, out int large));
+            Assert.AreEqual(int.MaxValue, large);
+            Assert.IsTrue(SkillCost(kind, 0, int.MaxValue, 0, 0, out int free));
+            Assert.AreEqual(0, free);
+        }
+        // Three members, each with two personal ranks plus three group ranks:
+        // the minimum total rating is five, so the group interval is [2,5].
+        Assert.IsTrue(CharacterCreationSkillCostRules.TryGroup(2, 5, 5, 5, out int group));
+        Assert.IsTrue(CharacterCreationSkillCostRules.TryActive(0, 2, 2, 2, out int personal));
+        Assert.AreEqual(78, group + 3 * personal);
+    }
+
+    private static bool SkillCost(string kind, int lower, int upper, int newCost, int improve, out int cost)
+    {
+        return kind switch
+        {
+            "active" => CharacterCreationSkillCostRules.TryActive(lower, upper, newCost, improve, out cost),
+            "knowledge" => CharacterCreationSkillCostRules.TryKnowledge(lower, upper, newCost, improve, out cost),
+            "group" => CharacterCreationSkillCostRules.TryGroup(lower, upper, newCost, improve, out cost),
+            _ => throw new ArgumentException("Unknown skill cost kind.", nameof(kind))
+        };
+    }
+
+    [TestMethod]
     public void Karma_attributes_use_racial_minima_without_priority_or_special_grants()
     {
         using var fixture = new KarmaDiskFixture();

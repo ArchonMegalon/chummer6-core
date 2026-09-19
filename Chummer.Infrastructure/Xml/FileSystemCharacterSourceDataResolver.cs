@@ -2046,6 +2046,65 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             return true;
         }
 
+        public bool TryResolveCreationKarmaSkillsPolicy(out CharacterCreationKarmaSkillsPolicy? policy)
+        {
+            using IDisposable sourceInputScope = _sourceInputs.Enter();
+            policy = null;
+            if (_sourceInputs.HasSourceDrift || _buildMethod != CharacterCreationBuildMethods.Karma
+                || string.IsNullOrWhiteSpace(_settingsProfileId)
+                || !TryComputeEffectiveInputDigest(_catalog, "settings.xml", out string settingsDigest)
+                || BindSelectedProfile(settingsDigest, _settingsProfileId) != _rawProfileInputsDigest
+                || !TryResolveTarget("settings.xml", ["settings"], "setting", _settingsProfileId,
+                    string.Empty, out var settings) || settings is null
+                || !TryReadKarmaCost(settings, "karmanewactiveskill", out int newActive)
+                || !TryReadKarmaCost(settings, "karmaimproveactiveskill", out int improveActive)
+                || !TryReadKarmaCost(settings, "karmanewknowledgeskill", out int newKnowledge)
+                || !TryReadKarmaCost(settings, "karmaimproveknowledgeskill", out int improveKnowledge)
+                || !TryReadKarmaCost(settings, "karmanewskillgroup", out int newGroup)
+                || !TryReadKarmaCost(settings, "karmaimproveskillgroup", out int improveGroup)
+                || !TryReadKarmaCost(settings, "karmaspecialization", out int specialization)
+                || !TryReadKarmaCost(settings, "karmaknospecialization", out int knowledgeSpecialization)
+                || !TryReadCreationSkillCap(settings, "maxskillratingcreate", "maxskillrating", out int activeCap)
+                || !TryReadCreationSkillCap(settings, "maxknowledgeskillratingcreate", "maxknowledgeskillrating", out int knowledgeCap)
+                || !TryReadOptionalStrictBoolean(settings, "usepointsonbrokengroups", false, out bool useBroken)
+                || !TryReadOptionalStrictBoolean(settings, "breakskillgroupsincreatemode", false, out bool strict)
+                || !TryReadOptionalStrictBoolean(settings, "specializationsbreakskillgroups", true, out bool specBreak)
+                || !TryReadOptionalStrictBoolean(settings, "allowpointbuyspecializationsonkarmaskills", false, out bool pointSpecs)
+                || !TryReadOptionalStrictBoolean(settings, "compensateskillgroupkarmadifference", false, out bool compensate))
+                return false;
+            string expression = ReadUniqueScalar(settings, "knowledgepointsexpression", out bool expressionValid);
+            if (!expressionValid || string.IsNullOrWhiteSpace(expression) || _sourceInputs.HasSourceDrift)
+                return false;
+            var result = new CharacterCreationKarmaSkillsPolicy(
+                CharacterCreationKarmaSkillsPolicy.SchemaV1, _settingsProfileId, _rawProfileInputsDigest,
+                newActive, improveActive, newKnowledge, improveKnowledge, newGroup, improveGroup,
+                specialization, knowledgeSpecialization, activeCap, knowledgeCap, expression,
+                useBroken, strict, specBreak, pointSpecs, compensate,
+                [$"settings.xml#setting:{_settingsProfileId}"], string.Empty);
+            policy = result with { AuthorityDigest = CharacterCreationKarmaSkillsPolicyAuthority.ComputeDigest(result) };
+            return true;
+        }
+
+        private static bool TryReadCreationSkillCap(XElement settings, string creationName, string careerName,
+            out int cap)
+        {
+            // Exact CharacterSettings load semantics: default six; only an
+            // explicitly present career cap clamps the creation cap. Missing is
+            // distinct from malformed/duplicate, which must never default.
+            cap = 6;
+            XElement[] creation = settings.Elements(creationName).Take(2).ToArray();
+            XElement[] career = settings.Elements(careerName).Take(2).ToArray();
+            if (creation.Length > 1 || career.Length > 1
+                || (creation.Length == 1 && !TryParseNonNegativeIntElement(creation[0], out cap)))
+                return false;
+            if (career.Length == 1)
+            {
+                if (!TryParseNonNegativeIntElement(career[0], out int careerCap)) return false;
+                cap = Math.Min(cap, careerCap);
+            }
+            return true;
+        }
+
         public bool TryResolveCreationKarmaTalents(out CharacterCreationKarmaTalentCatalog? catalog)
         {
             using IDisposable sourceInputScope = _sourceInputs.Enter();

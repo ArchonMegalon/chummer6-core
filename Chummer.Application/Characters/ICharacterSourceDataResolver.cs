@@ -110,6 +110,13 @@ public interface ICharacterSourceDataContext
         return false;
     }
 
+    /// <summary>Profile costs and limits for Karma skills; never substitutes Priority points.</summary>
+    bool TryResolveCreationKarmaSkillsPolicy(out CharacterCreationKarmaSkillsPolicy? policy)
+    {
+        policy = null;
+        return false;
+    }
+
     /// <summary>
     /// Resolves the exact SR5 Priority Skills catalog and creation policies from the
     /// runner's saved profile and effective Skills overlay. False means the Skills
