@@ -19,6 +19,7 @@ internal sealed class WorkspaceContinuationSourceCapture
     private readonly Captured<AttributePolicySource> _attributePolicy;
     private readonly Captured<KarmaTalentsSource> _karmaTalents;
     private readonly Captured<KarmaSkillsPolicySource> _karmaSkillsPolicy;
+    private readonly Captured<SkillsCatalogSource> _skillsCatalog;
     private readonly Captured<CharacterCreationMetatypeCatalogAuthority> _metatypes;
     private readonly Captured<CharacterCreationPrerequisiteAuthority> _prerequisite;
     private readonly Captured<CharacterCreationSkillsAuthority> _skills;
@@ -35,6 +36,7 @@ internal sealed class WorkspaceContinuationSourceCapture
     {
         _characterXml = characterXml;
         _profile = Capture(source.TryResolveCreationSourceProfile, CharacterCreationSourceProfileAuthority.Unavailable);
+        _profile.Read(out var profile);
         _attributePolicy = Capture((out AttributePolicySource result) =>
         {
             bool resolved = source.TryResolveCreationAttributePolicy(out var policy);
@@ -59,6 +61,19 @@ internal sealed class WorkspaceContinuationSourceCapture
             result = new(policy);
             return resolved;
         }, new KarmaSkillsPolicySource(null));
+        // Only Karma currently consumes the method-neutral catalog. Priority's
+        // existing authority already embeds it; do not reproject every weapon
+        // specialization a second time on each Priority continuation capture.
+        _skillsCatalog = !_profile.Resolved || profile.BuildMethod != CharacterCreationBuildMethods.Karma
+            ? new(false, new SkillsCatalogSource(null))
+            : Capture((out SkillsCatalogSource result) =>
+        {
+            bool resolved = source.TryResolveCreationSkillsCatalog(out var catalog);
+            if (resolved && catalog is null)
+                throw new InvalidDataException("Resolved skills catalog is missing.");
+            result = new(catalog);
+            return resolved;
+        }, new SkillsCatalogSource(null));
         _metatypes = Capture(source.TryResolveCreationMetatypeCatalog, CharacterCreationMetatypeCatalogAuthority.Unavailable);
         _prerequisite = Capture(source.TryResolveCreationPrerequisiteAuthority, CharacterCreationPrerequisiteAuthority.Unavailable);
         _skills = Capture(source.TryResolveCreationSkillsAuthority, CharacterCreationSkillsAuthority.Unavailable);
@@ -75,14 +90,13 @@ internal sealed class WorkspaceContinuationSourceCapture
                 throw new InvalidDataException("Resolved reputation source is incomplete.");
             return resolved;
         }, new ReputationSource(new(false), string.Empty));
-        _profile.Read(out var profile);
         _lifeModules = FrozenLifeModulesCatalog.Capture(lifeModules, _profile.Resolved, profile.EnabledSourcebooks);
         Digest = CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(new
         {
             Semantics = "chummer.workspace-continuation-source-capture/v1",
             RawCharacterXmlDigest = CharacterCreationFoundationDraftLedgerIntegrity.ComputeRawCharacterXmlDigest(characterXml),
             Profile = _profile, AttributePolicy = _attributePolicy, Metatypes = _metatypes, Prerequisite = _prerequisite,
-            KarmaTalents = _karmaTalents, KarmaSkillsPolicy = _karmaSkillsPolicy,
+            KarmaTalents = _karmaTalents, KarmaSkillsPolicy = _karmaSkillsPolicy, SkillsCatalog = _skillsCatalog,
             Skills = _skills, Qualities = _qualities, MagicResonance = _magic,
             Resources = _resources, Gear = _gear, Lifestyles = _lifestyles,
             Reputation = _reputation, LifeModules = _lifeModules.CapturedState
@@ -163,6 +177,7 @@ internal sealed class WorkspaceContinuationSourceCapture
     private sealed record AttributePolicySource(CharacterCreationAttributePolicy? Policy);
     private sealed record KarmaTalentsSource(CharacterCreationKarmaTalentCatalog? Catalog);
     private sealed record KarmaSkillsPolicySource(CharacterCreationKarmaSkillsPolicy? Policy);
+    private sealed record SkillsCatalogSource(CharacterCreationSkillsCatalog? Catalog);
 
     private sealed class FrozenResolver(WorkspaceContinuationSourceCapture capture) : ICharacterSourceDataResolver
     {
@@ -191,6 +206,12 @@ internal sealed class WorkspaceContinuationSourceCapture
         {
             bool resolved = capture._karmaSkillsPolicy.Read(out var source);
             policy = source.Policy;
+            return resolved;
+        }
+        public bool TryResolveCreationSkillsCatalog(out CharacterCreationSkillsCatalog? catalog)
+        {
+            bool resolved = capture._skillsCatalog.Read(out var source);
+            catalog = source.Catalog;
             return resolved;
         }
         public bool TryResolveCreationPrerequisiteAuthority(out CharacterCreationPrerequisiteAuthority authority) => capture._prerequisite.Read(out authority);

@@ -38,6 +38,204 @@ public sealed class CharacterCreationBootstrapServiceTests
     private const string MagicianId = "0e741331-d776-4be8-abc5-4101228abdef";
 
     [TestMethod]
+    public void Karma_skills_catalog_keeps_source_identities_without_priority_semantics()
+    {
+        using var fixture = new KarmaDiskFixture(includeSkills: true, configureSettings: row =>
+            row.SetElementValue("breakskillgroupsincreatemode", "True"));
+        var context = fixture.Resolver.TryCreateContext(fixture.Store.Get(fixture.Id).Value!.Document.Content)!;
+        Assert.IsTrue(context.TryResolveCreationSkillsCatalog(out var catalog));
+        Assert.IsNotNull(catalog);
+        Assert.IsTrue(CharacterCreationSkillsCatalogAuthority.IsValid(catalog));
+        Assert.AreEqual(CanonicalKarmaSettingsId, catalog.SettingsProfileId);
+        Assert.IsTrue(catalog.ActiveSkills.Count > 50);
+        Assert.IsTrue(catalog.KnowledgeSkills.Count > 50);
+        Assert.IsFalse(catalog.SourceAnchorIds.Any(anchor => anchor.StartsWith("priorities.xml", StringComparison.Ordinal)));
+        Assert.IsTrue(context.TryResolveCreationSkillsAuthority(out var priority));
+        Assert.IsFalse(priority.IsAuthoritative, "Strict house rules are not Standard Priority policy.");
+        AssertJsonEqual(priority.ActiveSkills, catalog.ActiveSkills);
+        AssertJsonEqual(priority.KnowledgeSkills, catalog.KnowledgeSkills);
+        AssertJsonEqual(priority.SkillGroups, catalog.SkillGroups);
+        Assert.IsTrue(catalog.KnowledgeSkills.Any(skill => skill.CanBeNativeLanguage));
+        var pistols = catalog.ActiveSkills.Single(skill => skill.Name == "Pistols");
+        Assert.IsTrue(pistols.Specializations.Any(option => option.SourceAnchorId.StartsWith("weapons.xml#", StringComparison.Ordinal)));
+        Assert.AreEqual(catalog.CatalogDigest, CharacterCreationSkillsCatalogAuthority.ComputeDigest(catalog));
+    }
+
+    [TestMethod]
+    public void Karma_skills_catalog_binds_weapon_specs_and_rejects_existing_context_after_drift()
+    {
+        using var fixture = new KarmaDiskFixture(includeSkills: true);
+        string xml = fixture.Store.Get(fixture.Id).Value!.Document.Content;
+        var context = fixture.Resolver.TryCreateContext(xml)!;
+        Assert.IsTrue(context.TryResolveCreationSkillsCatalog(out var before));
+        var capture = WorkspaceContinuationSourceCapture.TryCapture(context, xml,
+            new XmlLifeModulesCatalogService(Path.Combine(FindCoreRoot(), "Chummer", "data", "lifemodules.xml")), out var frozen);
+        Assert.IsTrue(capture);
+        fixture.EditWeapon("Ares Predator V", row => row.Element("name")!.Value = "Ares Predator V (test source)");
+        Assert.IsFalse(context.TryResolveCreationSkillsCatalog(out var stale));
+        Assert.IsNull(stale);
+        Assert.IsTrue(fixture.Resolver.TryCreateContext(xml)!.TryResolveCreationSkillsCatalog(out var after));
+        Assert.IsNotNull(before); Assert.IsNotNull(after);
+        Assert.AreEqual(before.SkillsInputsDigest, after.SkillsInputsDigest);
+        Assert.AreNotEqual(before.WeaponsInputsDigest, after.WeaponsInputsDigest);
+        Assert.AreNotEqual(before.CatalogDigest, after.CatalogDigest);
+        Assert.IsTrue(after.ActiveSkills.Single(skill => skill.Name == "Pistols").Specializations
+            .Any(option => option.Name == "Ares Predator V (test source)"));
+        Assert.IsTrue(frozen!.CreateResolver().TryCreateContext(xml)!.TryResolveCreationSkillsCatalog(out var retained));
+        AssertJsonEqual(before, retained);
+    }
+
+    [TestMethod]
+    public void Karma_skills_catalog_omits_disabled_book_skills_and_rejects_malformed_enabled_rows()
+    {
+        using var fixture = new KarmaDiskFixture(includeSkills: true);
+        string xml = fixture.Store.Get(fixture.Id).Value!.Document.Content;
+        fixture.EditSkill("Pistols", row => row.SetElementValue("source", "disabled-book"));
+        Assert.IsTrue(fixture.Resolver.TryCreateContext(xml)!.TryResolveCreationSkillsCatalog(out var catalog));
+        Assert.IsFalse(catalog!.ActiveSkills.Any(skill => skill.Name == "Pistols"));
+        fixture.EditSkill("Pistols", row =>
+        {
+            row.SetElementValue("source", "SR5");
+            row.Add(new XElement("attribute", "AGI"));
+        });
+        Assert.IsFalse(fixture.Resolver.TryCreateContext(xml)!.TryResolveCreationSkillsCatalog(out var invalid));
+        Assert.IsNull(invalid);
+    }
+
+    [TestMethod]
+    [DataRow("mundane", false, false, false)]
+    [DataRow("0e741331-d776-4be8-abc5-4101228abdef", true, true, false)]
+    [DataRow("55247bdc-c313-4614-ae15-5012308096ff", false, true, false)]
+    [DataRow("9d53e1e4-3f31-40cb-bfbe-4b94f5ba757e", true, true, false)]
+    [DataRow("c4b35412-bd91-45b4-b428-29da7edd5ff4", false, false, true)]
+    public void Karma_skill_access_uses_talent_source_not_labels_or_priority_grants(
+        string talentId, bool spellcasting, bool assensing, bool compiling)
+    {
+        using var fixture = new KarmaDiskFixture(includeSkills: true);
+        var (catalog, talents, human) = KarmaSkillsSources(fixture);
+        var access = CharacterCreationKarmaSkillAccessRules.Evaluate(catalog, talents, human, talentId);
+        Assert.IsNotNull(access);
+        Assert.IsTrue(access.IsReady);
+        Assert.IsEmpty(access.RequiredUnlockChoices);
+        bool Allowed(string name) => access.AllowedActiveSkillSourceIds.Contains(
+            catalog.ActiveSkills.Single(skill => skill.Name == name).SourceSkillId);
+        Assert.AreEqual(spellcasting, Allowed("Spellcasting"));
+        Assert.AreEqual(assensing, Allowed("Assensing"));
+        Assert.AreEqual(compiling, Allowed("Compiling"));
+        Assert.IsTrue(Allowed("Pistols"));
+        Assert.IsFalse(Allowed("Flight"));
+        Assert.IsTrue(access.AllowedSkillGroupIds.Contains(catalog.SkillGroups.Single(group => group.Name == "Athletics").GroupId),
+            "An unavailable flight member does not break a group with other enabled members.");
+        Assert.AreEqual(access.AccessDigest, CharacterCreationKarmaSkillAccessRules.Evaluate(catalog, talents, human, talentId)!.AccessDigest);
+    }
+
+    [TestMethod]
+    public void Karma_skill_access_requires_explicit_aspected_group_choice_and_rejects_unused_choice()
+    {
+        const string aspected = "4adeb2d4-e42e-4b7a-9a5d-3df325ae59a5";
+        using var fixture = new KarmaDiskFixture(includeSkills: true);
+        var (catalog, talents, human) = KarmaSkillsSources(fixture);
+        var missing = CharacterCreationKarmaSkillAccessRules.Evaluate(catalog, talents, human, aspected)!;
+        Assert.IsFalse(missing.IsReady);
+        CollectionAssert.AreEqual(new[] { "Conjuring", "Enchanting", "Sorcery" }, missing.RequiredUnlockChoices.ToArray());
+        CollectionAssert.Contains(missing.Blockers.ToArray(), CharacterCreationKarmaSkillAccess.UnlockRequired);
+        Assert.IsEmpty(missing.AllowedActiveSkillSourceIds);
+        var chosen = CharacterCreationKarmaSkillAccessRules.Evaluate(catalog, talents, human, aspected, "Sorcery")!;
+        Assert.IsTrue(chosen.IsReady);
+        Assert.IsTrue(chosen.AllowedActiveSkillSourceIds.Contains(catalog.ActiveSkills.Single(skill => skill.Name == "Spellcasting").SourceSkillId));
+        Assert.IsFalse(chosen.AllowedActiveSkillSourceIds.Contains(catalog.ActiveSkills.Single(skill => skill.Name == "Summoning").SourceSkillId));
+        Assert.IsTrue(chosen.AllowedActiveSkillSourceIds.Contains(catalog.ActiveSkills.Single(skill => skill.Name == "Assensing").SourceSkillId));
+        foreach (string input in new[] { "Magician", " Sorcery", "sorcery", "", "Sorcery,Conjuring" })
+        {
+            var invalid = CharacterCreationKarmaSkillAccessRules.Evaluate(catalog, talents, human, aspected, input)!;
+            Assert.IsFalse(invalid.IsReady);
+            Assert.IsEmpty(invalid.AllowedActiveSkillSourceIds);
+        }
+        Assert.IsFalse(CharacterCreationKarmaSkillAccessRules.Evaluate(catalog, talents, human, "mundane", "Sorcery")!.IsReady);
+        Assert.IsFalse(CharacterCreationKarmaSkillAccessRules.Evaluate(catalog, talents, human, MagicianId, "Sorcery")!.IsReady);
+    }
+
+    [TestMethod]
+    public void Karma_skill_access_rejects_corrupt_catalog_talent_and_foreign_profile()
+    {
+        using var fixture = new KarmaDiskFixture(includeSkills: true);
+        var (catalog, talents, human) = KarmaSkillsSources(fixture);
+        var forgedSkill = catalog.ActiveSkills.First() with { RequiresFlyMovement = !catalog.ActiveSkills.First().RequiresFlyMovement };
+        var altered = catalog with { ActiveSkills = catalog.ActiveSkills.Skip(1).Prepend(forgedSkill).ToArray() };
+        altered = altered with { CatalogDigest = CharacterCreationSkillsCatalogAuthority.ComputeDigest(altered) };
+        Assert.IsFalse(CharacterCreationSkillsCatalogAuthority.IsValid(altered));
+        Assert.IsNull(CharacterCreationKarmaSkillAccessRules.Evaluate(altered, talents, human, "mundane"));
+        var forgedGroup = catalog.SkillGroups.First() with { MemberSkillSourceIds = [] };
+        altered = catalog with { SkillGroups = catalog.SkillGroups.Skip(1).Prepend(forgedGroup).ToArray() };
+        altered = altered with { CatalogDigest = CharacterCreationSkillsCatalogAuthority.ComputeDigest(altered) };
+        Assert.IsFalse(CharacterCreationSkillsCatalogAuthority.IsValid(altered));
+        Assert.IsNull(CharacterCreationKarmaSkillAccessRules.Evaluate(catalog, talents with { RawProfileInputsDigest = "different" }, human, MagicianId));
+        Assert.IsNull(CharacterCreationKarmaSkillAccessRules.Evaluate(catalog, talents, human, "Magician"));
+        var changedTalent = talents.Options.Single(option => option.OptionId == MagicianId) with { SourceNodeXml = "<!DOCTYPE quality><quality />" };
+        var corrupt = talents with { Options = talents.Options.Select(option => option.OptionId == MagicianId ? changedTalent : option).ToArray() };
+        corrupt = corrupt with { AuthorityDigest = CharacterCreationKarmaTalentAuthority.ComputeDigest(corrupt) };
+        Assert.IsNull(CharacterCreationKarmaSkillAccessRules.Evaluate(catalog, corrupt, human, MagicianId));
+        changedTalent = talents.Options.Single(option => option.OptionId == MagicianId) with { KarmaCost = 0 };
+        corrupt = talents with { Options = talents.Options.Select(option => option.OptionId == MagicianId ? changedTalent : option).ToArray() };
+        corrupt = corrupt with { AuthorityDigest = CharacterCreationKarmaTalentAuthority.ComputeDigest(corrupt) };
+        Assert.IsNull(CharacterCreationKarmaSkillAccessRules.Evaluate(catalog, corrupt, human, MagicianId));
+    }
+
+    private static (CharacterCreationSkillsCatalog Catalog, CharacterCreationKarmaTalentCatalog Talents,
+        CharacterCreationMetatypeOptionProjection Human) KarmaSkillsSources(KarmaDiskFixture fixture)
+    {
+        var context = fixture.Resolver.TryCreateContext(fixture.Store.Get(fixture.Id).Value!.Document.Content)!;
+        Assert.IsTrue(context.TryResolveCreationSkillsCatalog(out var catalog));
+        Assert.IsNotNull(catalog);
+        Assert.IsTrue(context.TryResolveCreationKarmaTalents(out var talents));
+        Assert.IsNotNull(talents);
+        Assert.IsTrue(context.TryResolveCreationMetatypeCatalog(out var metatypes));
+        return (catalog, talents, metatypes.Options.Single(option => option.OptionId == HumanId));
+    }
+
+    [TestMethod]
+    public void Karma_skill_access_handles_all_movement_domains_without_removing_catalog_rows()
+    {
+        using var fixture = new KarmaDiskFixture(includeSkills: true);
+        var (catalog, talents, human) = KarmaSkillsSources(fixture);
+        var onlyFly = human with
+        {
+            Movement = new(new(0, 0, 0), new(0, 0, 0), new(0, 0, 1))
+        };
+        var access = CharacterCreationKarmaSkillAccessRules.Evaluate(catalog, talents, onlyFly, "mundane")!;
+        Assert.IsTrue(access.IsReady);
+        Assert.IsFalse(access.Movement.Ground);
+        Assert.IsFalse(access.Movement.Swim);
+        Assert.IsTrue(access.Movement.Fly);
+        foreach (var skill in catalog.ActiveSkills.Where(skill => skill.RequiresGroundMovement || skill.RequiresSwimMovement))
+            Assert.IsFalse(access.AllowedActiveSkillSourceIds.Contains(skill.SourceSkillId));
+        Assert.IsTrue(access.AllowedActiveSkillSourceIds.Contains(catalog.ActiveSkills.Single(skill => skill.Name == "Flight").SourceSkillId));
+        var special = CharacterCreationKarmaSkillAccessRules.Evaluate(catalog, talents,
+            onlyFly with { Movement = onlyFly.Movement with { IsSpecial = true } }, "mundane")!;
+        foreach (var skill in catalog.ActiveSkills.Where(skill => skill.RequiresGroundMovement || skill.RequiresSwimMovement || skill.RequiresFlyMovement))
+            Assert.IsFalse(special.AllowedActiveSkillSourceIds.Contains(skill.SourceSkillId));
+        Assert.AreEqual(4, catalog.SkillGroups.Single(group => group.Name == "Athletics").MemberSkillSourceIds.Count);
+        Assert.AreNotEqual(access.AccessDigest, special.AccessDigest);
+        Assert.IsNull(CharacterCreationKarmaSkillAccessRules.Evaluate(catalog, talents,
+            human with { IsEnabled = false }, "mundane"));
+    }
+
+    [TestMethod]
+    [DataRow("unknown-unlock")]
+    [DataRow("disabled-book")]
+    public void Karma_skill_access_does_not_invent_authority_for_unresolved_talent_source(string change)
+    {
+        using var fixture = new KarmaDiskFixture(includeSkills: true);
+        fixture.EditQuality(MagicianId, row =>
+        {
+            if (change == "unknown-unlock") row.Element("bonus")!.Element("unlockskills")!.Value = "All Skills";
+            else row.Element("source")!.Value = "disabled-book";
+        });
+        var (catalog, talents, human) = KarmaSkillsSources(fixture);
+        Assert.IsNull(CharacterCreationKarmaSkillAccessRules.Evaluate(catalog, talents, human, MagicianId));
+    }
+
+    [TestMethod]
     public void Karma_skills_policy_uses_selected_profile_without_priority_or_skill_catalog()
     {
         using var fixture = new KarmaDiskFixture();
@@ -1037,11 +1235,14 @@ public sealed class CharacterCreationBootstrapServiceTests
         public CharacterCreationKarmaMetatypeService Service { get; }
         public CharacterWorkspaceId Id { get; }
         public KarmaDiskFixture(int budget = 800, bool fullSources = false, int qualityMultiplier = 1,
-            Action<XElement>? configureSettings = null)
+            Action<XElement>? configureSettings = null, bool includeSkills = false)
         {
             Directory.CreateDirectory(Path.Combine(_root, "data"));
             foreach (string name in new[] { "settings.xml", "metatypes.xml", "qualities.xml" })
                 File.Copy(Path.Combine(FindCoreRoot(), "Chummer", "data", name), Path.Combine(_root, "data", name));
+            if (includeSkills)
+                foreach (string name in new[] { "skills.xml", "weapons.xml" })
+                    File.Copy(Path.Combine(FindCoreRoot(), "Chummer", "data", name), Path.Combine(_root, "data", name));
             if (budget != 800) SetBudget(budget);
             if (qualityMultiplier != 1) EditSettings(row => row.Element("karmacost")!.Element("karmaquality")!.Value =
                 qualityMultiplier.ToString(System.Globalization.CultureInfo.InvariantCulture));
@@ -1063,6 +1264,20 @@ public sealed class CharacterCreationBootstrapServiceTests
             return new(quote.Value.Binding, optionId, quote.Value.QuoteDigest, Guid.NewGuid(), true, talentId, allocations);
         }
         public void RemoveQualitySource() => File.Delete(Path.Combine(_root, "data", "qualities.xml"));
+        public void EditSkill(string name, Action<XElement> change)
+        {
+            string path = Path.Combine(_root, "data", "skills.xml");
+            var document = XDocument.Load(path);
+            change(document.Root!.Element("skills")!.Elements("skill").Single(row => row.Element("name")?.Value == name));
+            document.Save(path);
+        }
+        public void EditWeapon(string name, Action<XElement> change)
+        {
+            string path = Path.Combine(_root, "data", "weapons.xml");
+            var document = XDocument.Load(path);
+            change(document.Root!.Element("weapons")!.Elements("weapon").Single(row => row.Element("name")?.Value == name));
+            document.Save(path);
+        }
         public void EditQuality(string id, Action<XElement> change)
         {
             string path = Path.Combine(_root, "data", "qualities.xml");

@@ -3064,6 +3064,58 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             return true;
         }
 
+        public bool TryResolveCreationSkillsCatalog(out CharacterCreationSkillsCatalog? catalog)
+        {
+            using IDisposable sourceInputScope = _sourceInputs.Enter();
+            catalog = null;
+            if (_sourceInputs.HasSourceDrift || string.IsNullOrWhiteSpace(_settingsProfileId)
+                || !TryComputeEffectiveInputDigest(_catalog, "settings.xml", out string settingsDigest)
+                || BindSelectedProfile(settingsDigest, _settingsProfileId) != _rawProfileInputsDigest
+                || !TryComputeEffectiveInputDigest(_catalog, "skills.xml", out string skillsDigest)
+                || skillsDigest != _effectiveSkillsInputsDigest
+                || !TryComputeEffectiveInputDigest(_catalog, "weapons.xml", out string weaponsDigest)
+                || !TryHasSelectedCustomDataInputFor(_customDirectories, "skills.xml", out bool customSkills)
+                || customSkills
+                || !TryEnumerateTargets("skills.xml", ["skills"], "skill", out var activeRows)
+                || !TryEnumerateTargets("skills.xml", ["knowledgeskills"], "skill", out var knowledgeRows))
+                return false;
+            // Reuse the strict source projection, not Priority caps, budgets or
+            // talent grants. Custom skills still need the shared overlay semantics.
+            var blockers = new List<string>();
+            var active = ProjectSkills(activeRows, CharacterCreationSkillKinds.Active, blockers);
+            var knowledge = ProjectSkills(knowledgeRows, CharacterCreationSkillKinds.Knowledge, blockers);
+            var result = new CharacterCreationSkillsCatalog(CharacterCreationSkillsCatalog.SchemaV1,
+                _settingsProfileId, _rawProfileInputsDigest, skillsDigest, weaponsDigest,
+                active, knowledge, ProjectSkillGroups(active),
+                [$"settings.xml#setting:{_settingsProfileId}", "skills.xml", "weapons.xml"], string.Empty);
+            result = result with { CatalogDigest = CharacterCreationSkillsCatalogAuthority.ComputeDigest(result) };
+            if (blockers.Count != 0 || _sourceInputs.HasSourceDrift
+                || !CharacterCreationSkillsCatalogAuthority.IsValid(result)) return false;
+            catalog = result;
+            return true;
+        }
+
+        private CharacterCreationSkillGroupCatalogEntry[] ProjectSkillGroups(
+            IReadOnlyList<CharacterCreationSkillCatalogEntry> active) => active
+            .Where(skill => !string.IsNullOrWhiteSpace(skill.SkillGroup))
+            .GroupBy(skill => skill.SkillGroup!, StringComparer.Ordinal)
+            .Select(group =>
+            {
+                string[] members = group.Select(skill => skill.SourceSkillId)
+                    .OrderBy(id => id, StringComparer.Ordinal).ToArray();
+                string digest = CharacterCreationSkillsDigest.Compute(new
+                {
+                    Schema = "chummer.sr5.creation-skill-group-source.v1",
+                    Name = group.Key,
+                    MemberSkillSourceIds = members,
+                    EffectiveSkillsInputsDigest = _effectiveSkillsInputsDigest
+                });
+                return new CharacterCreationSkillGroupCatalogEntry(digest, group.Key, members,
+                    digest, [$"skills.xml#skillgroup:{group.Key}"]);
+            })
+            .OrderBy(group => group.Name, StringComparer.Ordinal)
+            .ThenBy(group => group.GroupId, StringComparer.Ordinal).ToArray();
+
         public bool TryResolveCreationSkillsAuthority(
             out CharacterCreationSkillsAuthority authority)
         {
@@ -3184,31 +3236,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 blockers.Add(CharacterCreationSkillsBlockers.AuthorityUnavailable);
             }
 
-            CharacterCreationSkillGroupCatalogEntry[] groups = active
-                .Where(skill => !string.IsNullOrWhiteSpace(skill.SkillGroup))
-                .GroupBy(skill => skill.SkillGroup!, StringComparer.Ordinal)
-                .Select(group =>
-                {
-                    string[] members = group.Select(skill => skill.SourceSkillId)
-                        .OrderBy(id => id, StringComparer.Ordinal)
-                        .ToArray();
-                    string digest = CharacterCreationSkillsDigest.Compute(new
-                    {
-                        Schema = "chummer.sr5.creation-skill-group-source.v1",
-                        Name = group.Key,
-                        MemberSkillSourceIds = members,
-                        EffectiveSkillsInputsDigest = _effectiveSkillsInputsDigest
-                    });
-                    return new CharacterCreationSkillGroupCatalogEntry(
-                        GroupId: digest,
-                        Name: group.Key,
-                        MemberSkillSourceIds: members,
-                        GroupDigest: digest,
-                        SourceAnchorIds: [$"skills.xml#skillgroup:{group.Key}"]);
-                })
-                .OrderBy(group => group.Name, StringComparer.Ordinal)
-                .ThenBy(group => group.GroupId, StringComparer.Ordinal)
-                .ToArray();
+            CharacterCreationSkillGroupCatalogEntry[] groups = ProjectSkillGroups(active);
             if (groups.Any(group => group.MemberSkillSourceIds.Count < 2)
                 || groups.Select(group => group.GroupId)
                     .Distinct(StringComparer.Ordinal).Count() != groups.Length)

@@ -117,6 +117,13 @@ public interface ICharacterSourceDataContext
         return false;
     }
 
+    /// <summary>Effective skill/spec/group identities without creation-method spending policy.</summary>
+    bool TryResolveCreationSkillsCatalog(out CharacterCreationSkillsCatalog? catalog)
+    {
+        catalog = null;
+        return false;
+    }
+
     /// <summary>
     /// Resolves the exact SR5 Priority Skills catalog and creation policies from the
     /// runner's saved profile and effective Skills overlay. False means the Skills

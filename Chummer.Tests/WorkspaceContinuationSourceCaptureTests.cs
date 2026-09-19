@@ -26,6 +26,7 @@ public sealed class WorkspaceContinuationSourceCaptureTests
         Assert.IsTrue(frozen.TryResolveCreationAttributePolicy(out var attributePolicy)); Same(source.AttributePolicy, attributePolicy);
         Assert.IsTrue(frozen.TryResolveCreationKarmaTalents(out var talents)); Same(source.Talents, talents);
         Assert.IsTrue(frozen.TryResolveCreationKarmaSkillsPolicy(out var karmaSkills)); Same(source.KarmaSkillsPolicy, karmaSkills);
+        Assert.IsTrue(frozen.TryResolveCreationSkillsCatalog(out var skillCatalog)); Same(source.SkillsCatalog, skillCatalog);
         Assert.IsTrue(frozen.TryResolveCreationMetatypeCatalog(out var metatypes)); Same(source.Metatypes, metatypes);
         Assert.IsTrue(frozen.TryResolveCreationPrerequisiteAuthority(out var prerequisite)); Same(source.Prerequisite, prerequisite);
         Assert.IsTrue(frozen.TryResolveCreationSkillsAuthority(out var skills)); Same(source.Skills, skills);
@@ -56,7 +57,7 @@ public sealed class WorkspaceContinuationSourceCaptureTests
             Same(catalog.Options.Where(item => item.StageId == stage.Name).ToArray(),
                 capture.LifeModules.GetOptionProjections(stage.Name, source.Books));
         }
-        Assert.AreEqual(13, source.ReadCount);
+        Assert.AreEqual(14, source.ReadCount);
     }
 
     [TestMethod]
@@ -71,6 +72,7 @@ public sealed class WorkspaceContinuationSourceCaptureTests
         source.AttributePolicyAnchors[0] = "changed-attribute-source";
         source.TalentAnchors[0] = "changed-talent-source";
         source.KarmaSkillsPolicyAnchors[0] = "changed-karma-skills-source";
+        source.SkillsCatalogAnchors[0] = "changed-skills-catalog-source";
         catalog.EffectParameters["rating"] = "99";
         catalog.Stages.Add(new(99, "Injected"));
 
@@ -90,6 +92,9 @@ public sealed class WorkspaceContinuationSourceCaptureTests
         Assert.IsTrue(frozen.TryResolveCreationKarmaSkillsPolicy(out var karmaSkills));
         Assert.AreEqual("settings.xml", karmaSkills!.SourceAnchorIds[0]);
         ((IList<string>)karmaSkills.SourceAnchorIds)[0] = "returned-karma-skills-mutation";
+        Assert.IsTrue(frozen.TryResolveCreationSkillsCatalog(out var skillCatalog));
+        Assert.AreEqual("skills.xml", skillCatalog!.SourceAnchorIds[0]);
+        ((IList<string>)skillCatalog.SourceAnchorIds)[0] = "returned-skills-catalog-mutation";
         var option = capture.LifeModules.GetOptionProjections("Nationality", ["SR5"])[0];
         Assert.AreEqual("1", option.Effects[0].Parameters["rating"]);
         ((IDictionary<string, string>)option.Effects[0].Parameters)["rating"] = "returned-mutation";
@@ -106,6 +111,8 @@ public sealed class WorkspaceContinuationSourceCaptureTests
         Assert.AreEqual("qualities.xml", secondTalents!.SourceAnchorIds[0]);
         Assert.IsTrue(second.TryResolveCreationKarmaSkillsPolicy(out var secondKarmaSkills));
         Assert.AreEqual("settings.xml", secondKarmaSkills!.SourceAnchorIds[0]);
+        Assert.IsTrue(second.TryResolveCreationSkillsCatalog(out var secondSkillCatalog));
+        Assert.AreEqual("skills.xml", secondSkillCatalog!.SourceAnchorIds[0]);
         Assert.AreEqual("1", capture.LifeModules.GetOptionProjections("Nationality", ["SR5"])[0].Effects[0].Parameters["rating"]);
         Assert.HasCount(2, capture.LifeModules.GetStages());
         Assert.AreEqual(digest, capture.Digest);
@@ -117,6 +124,7 @@ public sealed class WorkspaceContinuationSourceCaptureTests
     [DataRow("attribute-policy")]
     [DataRow("karma-talents")]
     [DataRow("karma-skills-policy")]
+    [DataRow("skills-catalog")]
     [DataRow("metatypes")]
     [DataRow("prerequisite")]
     [DataRow("skills")]
@@ -143,6 +151,7 @@ public sealed class WorkspaceContinuationSourceCaptureTests
             case "attribute-policy": source.AttributePolicy = source.AttributePolicy with { KarmaAttribute = 99 }; break;
             case "karma-talents": source.Talents = source.Talents with { KarmaQuality = 99 }; break;
             case "karma-skills-policy": source.KarmaSkillsPolicy = source.KarmaSkillsPolicy with { KarmaNewActiveSkill = 99 }; break;
+            case "skills-catalog": source.SkillsCatalog = source.SkillsCatalog with { WeaponsInputsDigest = "changed" }; break;
             case "metatypes": source.Metatypes = source.Metatypes with { Blockers = ["changed"] }; break;
             case "prerequisite": source.Prerequisite = source.Prerequisite with { KarmaAttribute = 99 }; break;
             case "skills": source.Skills = source.Skills with { MaxActiveSkillRatingCreate = 99 }; break;
@@ -187,6 +196,10 @@ public sealed class WorkspaceContinuationSourceCaptureTests
         WorkspaceContinuationSourceCapture noKarmaSkills = Capture(source, catalog);
         Assert.IsFalse(Context(noKarmaSkills).TryResolveCreationKarmaSkillsPolicy(out _));
         Assert.AreNotEqual(noTalents.Digest, noKarmaSkills.Digest);
+        source.SkillsCatalogResolved = false;
+        WorkspaceContinuationSourceCapture noSkillCatalog = Capture(source, catalog);
+        Assert.IsFalse(Context(noSkillCatalog).TryResolveCreationSkillsCatalog(out _));
+        Assert.AreNotEqual(noKarmaSkills.Digest, noSkillCatalog.Digest);
 
         source.ThrowSkills = true;
         WorkspaceContinuationSourceCapture failed = Capture(source, catalog);
@@ -206,6 +219,21 @@ public sealed class WorkspaceContinuationSourceCaptureTests
         Assert.IsFalse(partialCatalog.LifeModulesResolved);
         Assert.ThrowsExactly<InvalidOperationException>(() => partialCatalog.LifeModules.GetModules());
         Assert.IsTrue(Context(partialCatalog).TryResolveCreationGearAuthority(out _));
+    }
+
+    [TestMethod]
+    public void Non_karma_capture_does_not_repeat_skill_catalog_projection()
+    {
+        var source = new Source();
+        source.Profile = source.Profile with { BuildMethod = CharacterCreationBuildMethods.Priority };
+        source.ForbidCatalogRead = true;
+        var capture = Capture(source, new Catalog());
+        source.ForbidReads = true;
+        Assert.IsFalse(Context(capture).TryResolveCreationSkillsCatalog(out var catalog));
+        Assert.IsNull(catalog);
+        Assert.IsTrue(Context(capture).TryResolveCreationSkillsAuthority(out var priority));
+        Same(source.Skills, priority);
+        Assert.AreEqual(13, source.ReadCount);
     }
 
     [TestMethod]
@@ -232,7 +260,7 @@ public sealed class WorkspaceContinuationSourceCaptureTests
         Assert.IsFalse(frozen.TryResolveActiveSkillSource("id", out _));
         Assert.IsFalse(frozen.TryResolveTraditionDrainExpressions(out _));
         Assert.IsFalse(frozen.TryResolveGroupMembershipKarmaCosts(out _, out _));
-        Assert.AreEqual(13, source.ReadCount);
+        Assert.AreEqual(14, source.ReadCount);
         Assert.AreNotEqual(capture.Digest, Capture(new Source(), new Catalog(), CharacterXml + " ").Digest);
     }
 
@@ -262,10 +290,12 @@ public sealed class WorkspaceContinuationSourceCaptureTests
         public string[] AttributePolicyAnchors { get; } = ["settings.xml"];
         public string[] TalentAnchors { get; } = ["qualities.xml"];
         public string[] KarmaSkillsPolicyAnchors { get; } = ["settings.xml"];
+        public string[] SkillsCatalogAnchors { get; } = ["skills.xml"];
         public CharacterCreationSourceProfileAuthority Profile { get; set; }
         public CharacterCreationAttributePolicy AttributePolicy { get; set; }
         public CharacterCreationKarmaTalentCatalog Talents { get; set; }
         public CharacterCreationKarmaSkillsPolicy KarmaSkillsPolicy { get; set; }
+        public CharacterCreationSkillsCatalog SkillsCatalog { get; set; }
         public CharacterCreationMetatypeCatalogAuthority Metatypes { get; set; } = CharacterCreationMetatypeCatalogAuthority.Unavailable;
         public CharacterCreationPrerequisiteAuthority Prerequisite { get; set; } = CharacterCreationPrerequisiteAuthority.Unavailable;
         public CharacterCreationSkillsAuthority Skills { get; set; }
@@ -281,13 +311,18 @@ public sealed class WorkspaceContinuationSourceCaptureTests
         public bool AttributePolicyResolved { get; set; } = true;
         public bool TalentsResolved { get; set; } = true;
         public bool KarmaSkillsPolicyResolved { get; set; } = true;
+        public bool SkillsCatalogResolved { get; set; } = true;
+        public bool ForbidCatalogRead { get; set; }
         public bool SkillsResolved { get; set; } = true;
         public bool ThrowSkills { get; set; }
         public int ReadCount { get; private set; }
 
         public Source()
         {
-            Profile = CharacterCreationSourceProfileAuthority.Unavailable with { EnabledSourcebooks = Books };
+            Profile = CharacterCreationSourceProfileAuthority.Unavailable with
+            {
+                EnabledSourcebooks = Books, BuildMethod = CharacterCreationBuildMethods.Karma
+            };
             AttributePolicy = new(CharacterCreationAttributePolicy.SchemaV1, "capture.xml", "Karma",
                 5, 1, false, false, "sha256:" + new string('a', 64), AttributePolicyAnchors,
                 "sha256:" + new string('b', 64));
@@ -296,6 +331,8 @@ public sealed class WorkspaceContinuationSourceCaptureTests
             KarmaSkillsPolicy = new(CharacterCreationKarmaSkillsPolicy.SchemaV1, "capture.xml", "profile",
                 2, 2, 1, 1, 5, 5, 7, 7, 6, 6, "({INTUnaug} + {LOGUnaug}) * 2",
                 false, false, true, false, false, KarmaSkillsPolicyAnchors, "authority");
+            SkillsCatalog = new(CharacterCreationSkillsCatalog.SchemaV1, "capture.xml", "profile", "skills", "weapons",
+                [], [], [], SkillsCatalogAnchors, "catalog");
             Skills = CharacterCreationSkillsAuthority.Unavailable with { SourceAnchorIds = SkillAnchors };
         }
 
@@ -311,6 +348,11 @@ public sealed class WorkspaceContinuationSourceCaptureTests
         public bool TryResolveCreationAttributePolicy(out CharacterCreationAttributePolicy? value) => Read(AttributePolicy, out value) && AttributePolicyResolved;
         public bool TryResolveCreationKarmaTalents(out CharacterCreationKarmaTalentCatalog? value) => Read(Talents, out value) && TalentsResolved;
         public bool TryResolveCreationKarmaSkillsPolicy(out CharacterCreationKarmaSkillsPolicy? value) => Read(KarmaSkillsPolicy, out value) && KarmaSkillsPolicyResolved;
+        public bool TryResolveCreationSkillsCatalog(out CharacterCreationSkillsCatalog? value)
+        {
+            if (ForbidCatalogRead) throw new AssertFailedException("Unexpected repeated skill catalog projection.");
+            return Read(SkillsCatalog, out value) && SkillsCatalogResolved;
+        }
         public bool TryResolveCreationMetatypeCatalog(out CharacterCreationMetatypeCatalogAuthority value) => Read(Metatypes, out value);
         public bool TryResolveCreationPrerequisiteAuthority(out CharacterCreationPrerequisiteAuthority value) => Read(Prerequisite, out value);
         public bool TryResolveCreationSkillsAuthority(out CharacterCreationSkillsAuthority value)
