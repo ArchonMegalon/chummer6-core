@@ -233,11 +233,9 @@ public sealed class CharacterCreationBootstrapService :
         CharacterValidationIssue[] genericErrors = genericValidation.Issues
             .Where(issue => string.Equals(issue.Severity, "Error", StringComparison.Ordinal))
             .ToArray();
-        bool acceptsTypedPriorityShape = genericValidation.IsValid
+        bool acceptsTypedCreationShape = genericValidation.IsValid
                                          && genericErrors.Length == 0
-                                         && request.BuildMethod is
-                                             CharacterCreationBuildMethods.Priority
-                                             or CharacterCreationBuildMethods.SumToTen;
+                                         && CharacterCreationBuildMethods.IsSupported(request.BuildMethod);
         bool hasOnlyExpectedMissingMetatype = !genericValidation.IsValid
                                               && genericErrors.Length == 1
                                               && string.Equals(
@@ -248,7 +246,7 @@ public sealed class CharacterCreationBootstrapService :
                                                   genericErrors[0].Path,
                                                   "/character/metatype",
                                                   StringComparison.Ordinal);
-        if ((!acceptsTypedPriorityShape && !hasOnlyExpectedMissingMetatype)
+        if ((!acceptsTypedCreationShape && !hasOnlyExpectedMissingMetatype)
             || !string.IsNullOrEmpty(summary.Metatype)
             || summary.Created
             || !string.Equals(summary.BuildMethod, request.BuildMethod, StringComparison.Ordinal))
