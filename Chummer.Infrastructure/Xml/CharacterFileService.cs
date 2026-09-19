@@ -55,7 +55,7 @@ public sealed class CharacterFileService : ICharacterFileService
 
         XElement character = document.Root;
         ValidateRequiredNode(character, "name", issues, fallbackNodeName: "alias");
-        if (!IsPendingTypedPrioritySetup(character))
+        if (!IsPendingTypedCreationSetup(character))
         {
             ValidateRequiredNode(character, "metatype", issues);
         }
@@ -71,7 +71,7 @@ public sealed class CharacterFileService : ICharacterFileService
             Issues: issues);
     }
 
-    private static bool IsPendingTypedPrioritySetup(XElement character)
+    private static bool IsPendingTypedCreationSetup(XElement character)
     {
         if (character.Element("metatype") is not null
             || !bool.TryParse(ReadValue(character, "created"), out bool created)
@@ -80,8 +80,10 @@ public sealed class CharacterFileService : ICharacterFileService
             return false;
         }
 
-        return ReadValue(character, "buildmethod") is CharacterCreationBuildMethods.Priority
-            or CharacterCreationBuildMethods.SumToTen;
+        // Every supported Creation method chooses its metatype after bootstrap.
+        // This is shape validation only; the bootstrap binding/source authority
+        // remains responsible for admitting an incomplete Creation workspace.
+        return CharacterCreationBuildMethods.IsSupported(ReadValue(character, "buildmethod"));
     }
 
     public string ApplyMetadataUpdate(string xml, CharacterMetadataUpdate update)

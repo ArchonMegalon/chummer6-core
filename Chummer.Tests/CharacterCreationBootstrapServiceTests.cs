@@ -43,6 +43,11 @@ public sealed class CharacterCreationBootstrapServiceTests
         var result = service.Create(CanonicalRequest() with { BuildMethod = method, SettingsProfileId = settings });
         Assert.AreEqual(CharacterCreationBootstrapOutcomes.Success, result.Outcome, string.Join(",", result.Blockers));
         var root = XDocument.Parse(store.Get(result.Value!.WorkspaceId).Value!.Document.Content).Root!;
+        var codec = new Sr5WorkspaceCodec(CreateFileQueries(),
+            new XmlCharacterSectionQueries(new CharacterSectionService()),
+            new XmlCharacterMetadataCommands(new CharacterFileService()));
+        Assert.IsTrue(codec.Validate(store.Get(result.Value.WorkspaceId).Value!.Document.PayloadEnvelope).IsValid,
+            "A successfully bootstrapped runner must be accepted by the normal SR5 workspace loader.");
         foreach (string field in new[] { "streetcred", "notoriety", "publicawareness", "burntstreetcred" })
         {
             Assert.HasCount(1, root.Elements(field).ToArray(), field);

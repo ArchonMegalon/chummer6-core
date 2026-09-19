@@ -54,8 +54,8 @@ class RuntimePackageLockTests(unittest.TestCase):
         )
 
     def test_next_wave_candidate_is_bound_to_locally_validated_semantic_commit(self) -> None:
-        self.assertEqual("54398fa0dfe60b4f00aac40d333882b7f7cc2886", runtime.SOURCE_COMMIT)
-        self.assertEqual("0.0.0-packageplane.candidate.sh54398fa0dfe60", runtime.PACKAGE_VERSION)
+        self.assertEqual("e66adccf06fb8bee96264b9a9112f970508e6e97", runtime.SOURCE_COMMIT)
+        self.assertEqual("0.0.0-packageplane.candidate.she66adccf06fb8", runtime.PACKAGE_VERSION)
 
     def test_previous_workspace_question_source_authority_cannot_stand_in(self) -> None:
         altered = copy.deepcopy(self.lock)
@@ -66,6 +66,16 @@ class RuntimePackageLockTests(unittest.TestCase):
         altered["package_version"] = "0.0.0-packageplane.candidate.sh3bc5fe725fd2b"
         with self.assertRaisesRegex(runtime.RuntimePackagePlaneError, "runtime package version"):
             runtime.validate_lock_payload(altered)
+
+    def test_previous_private_runtime_authority_cannot_stand_in_for_pending_build_methods(self) -> None:
+        for stale in ("source", "version"):
+            altered = copy.deepcopy(self.lock)
+            if stale == "source":
+                altered["runtime_source"]["commit"] = "54398fa0dfe60b4f00aac40d333882b7f7cc2886"
+            else:
+                altered["package_version"] = "0.0.0-packageplane.candidate.sh54398fa0dfe60"
+            with self.subTest(stale=stale), self.assertRaises(runtime.RuntimePackagePlaneError):
+                runtime.validate_lock_payload(altered)
 
     def test_previous_grounded_query_authority_cannot_stand_in_for_private_runtime(self) -> None:
         for stale in ("source", "version"):

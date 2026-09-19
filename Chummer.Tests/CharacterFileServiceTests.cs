@@ -44,7 +44,9 @@ public class CharacterFileServiceTests
     [DataTestMethod]
     [DataRow(CharacterCreationBuildMethods.Priority)]
     [DataRow(CharacterCreationBuildMethods.SumToTen)]
-    public void ValidateXml_accepts_omitted_metatype_only_for_pending_typed_priority_setup(
+    [DataRow(CharacterCreationBuildMethods.Karma)]
+    [DataRow(CharacterCreationBuildMethods.LifeModules)]
+    public void ValidateXml_accepts_omitted_metatype_only_for_pending_typed_creation_setup(
         string buildMethod)
     {
         var service = new CharacterFileService();
@@ -58,9 +60,15 @@ public class CharacterFileServiceTests
 
     [DataTestMethod]
     [DataRow(CharacterCreationBuildMethods.Priority, true, null)]
-    [DataRow(CharacterCreationBuildMethods.Karma, false, null)]
+    [DataRow(CharacterCreationBuildMethods.SumToTen, true, null)]
+    [DataRow(CharacterCreationBuildMethods.Karma, true, null)]
+    [DataRow(CharacterCreationBuildMethods.LifeModules, true, null)]
     [DataRow("priority", false, null)]
+    [DataRow("karma", false, null)]
+    [DataRow("unknown", false, null)]
     [DataRow(CharacterCreationBuildMethods.Priority, false, "<metatype />")]
+    [DataRow(CharacterCreationBuildMethods.Karma, false, "<metatype />")]
+    [DataRow(CharacterCreationBuildMethods.LifeModules, false, "<metatype />")]
     public void ValidateXml_rejects_missing_or_empty_metatype_outside_exact_pending_typed_setup(
         string buildMethod,
         bool created,
