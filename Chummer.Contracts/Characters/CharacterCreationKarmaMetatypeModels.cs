@@ -24,6 +24,7 @@ public static class CharacterCreationKarmaMetatypeBlockers
     public const string HistoryInvalid = "creation-karma-history-invalid";
     public const string TalentAuthorityRequired = "creation-karma-talent-authority-required";
     public const string TalentSelectionRequired = "creation-karma-talent-selection-required";
+    public const string AttributeSelectionRequired = "creation-karma-attribute-selection-required";
 }
 
 public sealed record CharacterCreationKarmaMetatypeBinding(
@@ -35,7 +36,8 @@ public sealed record CharacterCreationKarmaMetatypeBinding(
     string BootstrapBindingDigest,
     string SourceProfileDigest,
     string MetatypeAuthorityDigest,
-    string? TalentAuthorityDigest = null);
+    string? TalentAuthorityDigest = null,
+    string? AttributePolicyDigest = null);
 
 public sealed record CharacterCreationKarmaMetatypeState(
     string Schema,
@@ -63,7 +65,8 @@ public sealed record CharacterCreationKarmaMetatypeQuote(
     IReadOnlyList<string> Blockers,
     IReadOnlyList<string> SourceAnchorIds,
     string QuoteDigest,
-    CharacterCreationKarmaTalentOption? Talent = null);
+    CharacterCreationKarmaTalentOption? Talent = null,
+    CharacterCreationKarmaAttributesQuote? Attributes = null);
 
 public sealed record CharacterCreationKarmaMetatypeConfirmRequest(
     CharacterCreationKarmaMetatypeBinding Binding,
@@ -71,7 +74,8 @@ public sealed record CharacterCreationKarmaMetatypeConfirmRequest(
     string QuoteDigest,
     Guid OperationId,
     bool ExplicitlyConfirmed,
-    string? TalentOptionId = null);
+    string? TalentOptionId = null,
+    IReadOnlyList<CharacterCreationKarmaAttributeAllocation>? AttributeAllocations = null);
 
 /// <summary>Pending selection only: no character effects or finalization.</summary>
 public sealed record CharacterCreationKarmaMetatypeDecision(

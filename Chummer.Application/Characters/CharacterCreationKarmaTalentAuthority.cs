@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Xml;
 using System.Xml.Linq;
 using Chummer.Contracts.Characters;
 
@@ -68,10 +69,25 @@ public static class CharacterCreationKarmaTalentAuthority
         CharacterCreationMetatypeOptionProjection metatype)
     {
         if (talent.OptionId == CharacterCreationKarmaTalentCatalog.MundaneOptionId) return true;
-        if (!talent.IsEnabled || talent.SourceNodeXml.Length is 0 or > 32 * 1024) return false;
-        var exclusions = XElement.Parse(talent.SourceNodeXml).Element("forbidden")?.Element("oneof");
-        return exclusions is null || !exclusions.Elements("quality").Any(excluded =>
-            metatype.GrantedQualities.Any(quality => quality.Name == excluded.Value));
+        if (!talent.IsEnabled || talent.SourceNodeXml is not { Length: > 0 and <= 32 * 1024 }
+            || metatype.GrantedQualities is null || metatype.GrantedQualities.Any(item => item is null)) return false;
+        try
+        {
+            using var text = new StringReader(talent.SourceNodeXml);
+            using var reader = XmlReader.Create(text, new XmlReaderSettings
+            {
+                DtdProcessing = DtdProcessing.Prohibit, XmlResolver = null, MaxCharactersInDocument = 32 * 1024
+            });
+            var row = XElement.Load(reader);
+            if (row.Name != "quality" || !ValidExclusions(row.Element("forbidden"))) return false;
+            var exclusions = row.Element("forbidden")?.Element("oneof");
+            return exclusions is null || !exclusions.Elements("quality").Any(excluded =>
+                metatype.GrantedQualities.Any(quality => quality.Name == excluded.Value));
+        }
+        catch (XmlException)
+        {
+            return false;
+        }
     }
 
     private static bool ValidBonus(XElement? bonus)

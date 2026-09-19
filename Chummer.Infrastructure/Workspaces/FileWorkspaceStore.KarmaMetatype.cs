@@ -17,7 +17,7 @@ public sealed partial class FileWorkspaceStore
         ArgumentNullException.ThrowIfNull(sourceResolver);
         if (!owner.IsLocalSingleUser && IsInvalidScopedOwner(owner))
             return CharacterCreationKarmaMetatypeTransaction.Blocked(CharacterCreationKarmaMetatypeBlockers.WorkspaceUnavailable);
-        if (!CharacterCreationKarmaMetatypeTransaction.IsConfirmed(request))
+        if (!CharacterCreationKarmaMetatypeTransaction.TryFreezeRequest(request, out request))
             return CharacterCreationKarmaMetatypeTransaction.Blocked(CharacterCreationKarmaMetatypeBlockers.ConfirmationRequired);
         var id = request.Binding.WorkspaceId;
         string? path = TryGetPath(owner, id);

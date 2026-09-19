@@ -144,7 +144,8 @@ public sealed class CharacterCreationKarmaMetatypeService(
                 CharacterCreationFoundationDraftLedgerIntegrity.ComputeRawCharacterXmlDigest(document.Content),
                 document.AuxiliaryStateDigest,
                 bootstrap.BindingDigest,
-                profile.RawProfileInputsDigest, catalog.SourceContext.AuthorityDigest, talents?.AuthorityDigest);
+                profile.RawProfileInputsDigest, catalog.SourceContext.AuthorityDigest, talents?.AuthorityDigest,
+                attributePolicy?.AuthorityDigest);
             CharacterCreationKarmaMetatypeDecision? selection = decisions?.LastOrDefault();
             if (selection is not null && (selection.Quote.KarmaBudget.Total != profile.BuildPoints.Value
                 || !CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(
@@ -155,6 +156,10 @@ public sealed class CharacterCreationKarmaMetatypeService(
                 && (talents is null || selection.Quote.Binding.TalentAuthorityDigest != talents.AuthorityDigest
                     || !CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(selectedTalent,
                         talents.Options.SingleOrDefault(option => option.OptionId == selectedTalent.OptionId))))
+                return Blocked<CharacterCreationKarmaMetatypeState>(CharacterCreationKarmaMetatypeBlockers.StaleBinding);
+            if (selection?.Quote.Attributes is { } selectedAttributes
+                && (attributePolicy is null || !CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(
+                    selectedAttributes.Policy, attributePolicy)))
                 return Blocked<CharacterCreationKarmaMetatypeState>(CharacterCreationKarmaMetatypeBlockers.StaleBinding);
             string[] anchors = profile.SourceAnchorIds.Concat(catalog.SourceContext.SourceAnchorIds)
                 .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
@@ -180,7 +185,7 @@ public sealed class CharacterCreationKarmaMetatypeService(
     public CharacterCreationFoundationResult<CharacterCreationKarmaMetatypeCommit> Confirm(
         CharacterCreationKarmaMetatypeConfirmRequest request)
     {
-        if (!CharacterCreationKarmaMetatypeTransaction.IsConfirmed(request))
+        if (!CharacterCreationKarmaMetatypeTransaction.TryFreezeRequest(request, out request))
             return Blocked<CharacterCreationKarmaMetatypeCommit>(CharacterCreationKarmaMetatypeBlockers.ConfirmationRequired);
         return _workspaceStore is ICharacterCreationKarmaMetatypeAtomicCommitCapability capability
             ? capability.CommitKarmaMetatype(request, _sourceDataResolver)
@@ -188,7 +193,8 @@ public sealed class CharacterCreationKarmaMetatypeService(
     }
 
     public CharacterCreationFoundationResult<CharacterCreationKarmaMetatypeQuote> Preview(
-        CharacterCreationKarmaMetatypeBinding binding, string metatypeOptionId, string? talentOptionId = null)
+        CharacterCreationKarmaMetatypeBinding binding, string metatypeOptionId, string? talentOptionId = null,
+        IReadOnlyList<CharacterCreationKarmaAttributeAllocation>? attributeAllocations = null)
     {
         ArgumentNullException.ThrowIfNull(binding);
         CharacterCreationFoundationResult<CharacterCreationKarmaMetatypeState> loaded = Load(binding.WorkspaceId);
@@ -216,14 +222,30 @@ public sealed class CharacterCreationKarmaMetatypeService(
         else if (state.Selection?.Quote.Talent is not null)
             return Blocked<CharacterCreationKarmaMetatypeQuote>(CharacterCreationKarmaMetatypeBlockers.TalentSelectionRequired);
 
-        decimal used = (decimal)option.KarmaCost + (talent?.KarmaCost ?? 0);
-        string[] blockers = used <= state.KarmaBudget.Total
-            ? [] : [CharacterCreationKarmaMetatypeBlockers.BudgetExceeded];
+        CharacterCreationKarmaAttributesQuote? attributes = null;
+        if (attributeAllocations is not null)
+        {
+            if (talent is null)
+                return Blocked<CharacterCreationKarmaMetatypeQuote>(CharacterCreationKarmaMetatypeBlockers.TalentSelectionRequired);
+            if (state.AttributePolicy is null)
+                return Blocked<CharacterCreationKarmaMetatypeQuote>(CharacterCreationAttributesBlockers.AuthorityUnavailable);
+            attributes = CharacterCreationKarmaAttributesRules.Evaluate(option, talent, state.AttributePolicy, attributeAllocations);
+            if (attributes is null)
+                return Blocked<CharacterCreationKarmaMetatypeQuote>(CharacterCreationAttributesBlockers.AllocationInvalid);
+        }
+        else if (state.Selection?.Quote.Attributes is not null)
+            return Blocked<CharacterCreationKarmaMetatypeQuote>(CharacterCreationKarmaMetatypeBlockers.AttributeSelectionRequired);
+
+        decimal used = (decimal)option.KarmaCost + (talent?.KarmaCost ?? 0) + (attributes?.KarmaUsed ?? 0);
+        string[] blockers = (attributes?.Blockers ?? []).Concat(used <= state.KarmaBudget.Total
+                ? Array.Empty<string>() : [CharacterCreationKarmaMetatypeBlockers.BudgetExceeded])
+            .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
         var quote = new CharacterCreationKarmaMetatypeQuote(
             CharacterCreationKarmaMetatypeSchemas.QuoteV1, state.Binding, state.SnapshotDigest,
             option, Budget((int)state.KarmaBudget.Total, used, blockers), blockers.Length == 0,
             blockers, state.SourceAnchorIds.Concat(option.SourceAnchorIds).Concat(talent?.SourceAnchorIds ?? [])
-                .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray(), string.Empty, talent);
+                .Concat(attributes?.Policy.SourceAnchorIds ?? [])
+                .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray(), string.Empty, talent, attributes);
         quote = quote with
         {
             QuoteDigest = CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(quote)

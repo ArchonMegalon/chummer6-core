@@ -11,7 +11,8 @@ public interface IOwnerBoundCharacterCreationKarmaMetatypeService
         OwnerContextStamp expectedOwner, CharacterWorkspaceId id);
     CharacterCreationFoundationResult<CharacterCreationKarmaMetatypeQuote> Preview(
         OwnerContextStamp expectedOwner, CharacterCreationKarmaMetatypeBinding binding, string optionId,
-        string? talentOptionId = null);
+        string? talentOptionId = null,
+        IReadOnlyList<CharacterCreationKarmaAttributeAllocation>? attributeAllocations = null);
     CharacterCreationFoundationResult<CharacterCreationKarmaMetatypeCommit> Confirm(
         OwnerContextStamp expectedOwner, CharacterCreationKarmaMetatypeConfirmRequest request);
 }
