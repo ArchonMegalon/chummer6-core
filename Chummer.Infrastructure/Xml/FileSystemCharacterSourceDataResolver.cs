@@ -3087,7 +3087,11 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             var result = new CharacterCreationSkillsCatalog(CharacterCreationSkillsCatalog.SchemaV1,
                 _settingsProfileId, _rawProfileInputsDigest, skillsDigest, weaponsDigest,
                 active, knowledge, ProjectSkillGroups(active),
-                [$"settings.xml#setting:{_settingsProfileId}", "skills.xml", "weapons.xml"], string.Empty);
+                [$"settings.xml#setting:{_settingsProfileId}", "skills.xml", "weapons.xml"], string.Empty)
+            {
+                ActiveSkillSourceOrder = activeRows.Select(row => ReadValue(row, "id").ToLowerInvariant())
+                    .Where(id => active.Any(skill => skill.SourceSkillId == id)).ToArray()
+            };
             result = result with { CatalogDigest = CharacterCreationSkillsCatalogAuthority.ComputeDigest(result) };
             if (blockers.Count != 0 || _sourceInputs.HasSourceDrift
                 || !CharacterCreationSkillsCatalogAuthority.IsValid(result)) return false;
@@ -4353,6 +4357,8 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 if (!string.Equals(kind, CharacterCreationSkillKinds.Active, StringComparison.Ordinal)
                     && (skillGroup is not null || isExotic))
                     scalarShapeValid = false;
+                if (isExotic && skillGroup is not null)
+                    scalarShapeValid = false;
                 if (!scalarShapeValid
                     || !Guid.TryParseExact(id, "D", out Guid parsedId)
                     || parsedId == Guid.Empty
@@ -4924,8 +4930,9 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 sourceIndex++;
             }
 
+            bool isExotic = bool.TryParse(ReadValue(skill, "exotic"), out bool exotic) && exotic;
             if (kind == CharacterCareerSkillKind.Active
-                && string.Equals(category, "Combat Active", StringComparison.Ordinal))
+                && (isExotic || string.Equals(category, "Combat Active", StringComparison.Ordinal)))
             {
                 if (!TryEnumerateTargets("weapons.xml", ["weapons"], "weapon", out XElement[] weapons))
                 {
@@ -4940,9 +4947,14 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 {
                     string weaponName = ReadValue(weapon, "name");
                     string weaponSourceBook = ReadValue(weapon, "source");
-                    bool isRelevant = string.Equals(ReadValue(weapon, "category"), name, StringComparison.Ordinal)
-                        || canonicalSpecializations.Contains(ReadValue(weapon, "spec"))
-                        || canonicalSpecializations.Contains(ReadValue(weapon, "spec2"));
+                    // SelectExoticSkill.BuildList selects weapon identities by
+                    // plural category or explicit useskill, not normal specs.
+                    bool isRelevant = isExotic
+                        ? string.Equals(ReadValue(weapon, "category"), name + "s", StringComparison.Ordinal)
+                            || string.Equals(ReadValue(weapon, "useskill"), name, StringComparison.Ordinal)
+                        : string.Equals(ReadValue(weapon, "category"), name, StringComparison.Ordinal)
+                            || canonicalSpecializations.Contains(ReadValue(weapon, "spec"))
+                            || canonicalSpecializations.Contains(ReadValue(weapon, "spec2"));
                     if (!isRelevant
                         || string.IsNullOrWhiteSpace(weaponName)
                         || !IsEnabledSource(weaponSourceBook))

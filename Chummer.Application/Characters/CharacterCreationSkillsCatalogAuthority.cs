@@ -17,6 +17,10 @@ public static class CharacterCreationSkillsCatalogAuthority
             || !CharacterCreationSkillsDigest.IsCanonical(catalog.RawProfileInputsDigest)
             || !CharacterCreationSkillsDigest.IsCanonical(catalog.SkillsInputsDigest)
             || !CharacterCreationSkillsDigest.IsCanonical(catalog.WeaponsInputsDigest)) return false;
+        if (catalog.ActiveSkillSourceOrder is null
+            || !catalog.ActiveSkillSourceOrder.Order(StringComparer.Ordinal).SequenceEqual(
+                catalog.ActiveSkills.Where(skill => skill is not null).Select(skill => skill.SourceSkillId)
+                    .Order(StringComparer.Ordinal), StringComparer.Ordinal)) return false;
         foreach (var (skills, kind) in new[]
         {
             (catalog.ActiveSkills, CharacterCreationSkillKinds.Active),
@@ -35,6 +39,7 @@ public static class CharacterCreationSkillsCatalogAuthority
                 || skill.Specializations.Select(option => option.Name).Distinct(StringComparer.Ordinal).Count() != skill.Specializations.Count
                 || skill.CanBeNativeLanguage != CharacterCreationStandardPrioritySkillsRules.CanBeNativeLanguage(kind, skill.Category)
                 || (kind == CharacterCreationSkillKinds.Knowledge && (skill.SkillGroup is not null || skill.IsExotic))
+                || (skill.IsExotic && skill.SkillGroup is not null)
                 || skill.SourceNodeDigest != CharacterCreationStandardPrioritySkillsRules.ComputeCatalogProjectionDigest(
                     catalog.SkillsInputsDigest, skill.SourceSkillId, skill.Kind, skill.Name, skill.Category,
                     skill.DefaultAttribute, skill.SkillGroup, skill.IsExotic, skill.Specializations, skill.SourceAnchorIds,

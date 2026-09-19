@@ -38,6 +38,312 @@ public sealed class CharacterCreationBootstrapServiceTests
     private const string MagicianId = "0e741331-d776-4be8-abc5-4101228abdef";
 
     [TestMethod]
+    [DataRow("knowledge-point", 4, 9)]
+    [DataRow("karma", 3, 16)]
+    public void Karma_skills_allocation_separates_knowledge_points_and_karma(string payment, int points, int karma)
+    {
+        using var fixture = new KarmaDiskFixture(includeSkills: true);
+        var (catalog, _, _) = KarmaSkillsSources(fixture);
+        var sprawl = catalog.KnowledgeSkills.Single(skill => skill.Name == "Sprawl Life");
+        var before = fixture.Store.Get(fixture.Id).Value!;
+        var allocation = new CharacterCreationKarmaSkillAllocation(sprawl.SourceSkillId, sprawl.Kind,
+            2, 3, SpecializationOptionId: sprawl.Specializations.First().OptionId, SpecializationPayment: payment);
+        var quote = QuoteKarmaSkills(fixture, new([NativeEnglish(catalog), allocation], []));
+        Assert.IsNotNull(quote);
+        Assert.IsTrue(quote.CanSelect, string.Join(",", quote.Blockers));
+        Assert.AreEqual(4, quote.KnowledgePointsTotal);
+        Assert.AreEqual((decimal)points, quote.KnowledgePointsUsed);
+        Assert.AreEqual((decimal)karma, quote.KarmaUsed); // Ranks 4 + 5, plus optional Karma spec.
+        Assert.AreEqual(5, quote.Skills.Single(skill => skill.Name == "Sprawl Life").Rating);
+        Assert.IsNull(quote.Skills.Single(skill => skill.Name == "English").Rating);
+        Assert.AreEqual(quote.QuoteDigest, QuoteKarmaSkills(fixture, new([allocation, NativeEnglish(catalog)], []))!.QuoteDigest);
+        AssertJsonEqual(before, fixture.Store.Get(fixture.Id).Value!);
+    }
+
+    [TestMethod]
+    [DataRow(false, 0, 18)]
+    [DataRow(true, 0, 16)]
+    [DataRow(false, 3, 78)]
+    [DataRow(true, 3, 76)]
+    public void Karma_skills_allocation_matches_legacy_group_intervals_and_compensation(bool compensate, int groupRanks, int karma)
+    {
+        using var fixture = new KarmaDiskFixture(includeSkills: true, configureSettings: row =>
+            row.SetElementValue("compensateskillgroupkarmadifference", compensate.ToString()));
+        var (catalog, _, _) = KarmaSkillsSources(fixture);
+        var group = catalog.SkillGroups.Single(item => item.Name == "Firearms");
+        var skills = group.MemberSkillSourceIds.Select(id => new CharacterCreationKarmaSkillAllocation(
+            id, CharacterCreationSkillKinds.Active, 2)).Prepend(NativeEnglish(catalog)).ToArray();
+        var quote = QuoteKarmaSkills(fixture, new(skills, [new(group.GroupId, groupRanks)]));
+        Assert.IsNotNull(quote);
+        Assert.IsTrue(quote.CanSelect, string.Join(",", quote.Blockers));
+        Assert.AreEqual((decimal)karma, quote.KarmaUsed);
+        Assert.AreEqual(groupRanks == 0 ? 0 : 60, quote.Groups.Single().KarmaCost);
+        Assert.IsFalse(quote.Groups.Single().IsBroken);
+        foreach (var skill in quote.Skills.Where(item => item.Allocation.Kind == CharacterCreationSkillKinds.Active))
+            Assert.AreEqual(groupRanks + 2, skill.Rating);
+        string first = catalog.ActiveSkillSourceOrder.First(id => group.MemberSkillSourceIds.Contains(id));
+        Assert.AreEqual(compensate ? 4 : 6, quote.Skills.Single(item => item.Allocation.SourceSkillId == first).KarmaCost);
+    }
+
+    [TestMethod]
+    public void Karma_skills_allocation_preserves_disabled_member_interval_semantics()
+    {
+        using var fixture = new KarmaDiskFixture(includeSkills: true);
+        var (catalog, _, _) = KarmaSkillsSources(fixture);
+        var group = catalog.SkillGroups.Single(item => item.Name == "Athletics");
+        var members = catalog.ActiveSkills.Where(skill => skill.SkillGroup == "Athletics" && skill.Name != "Flight")
+            .Select(skill => new CharacterCreationKarmaSkillAllocation(skill.SourceSkillId, skill.Kind, 2));
+        var quote = QuoteKarmaSkills(fixture, new(members.Prepend(NativeEnglish(catalog)).ToArray(), [new(group.GroupId, 3)]));
+        Assert.IsNotNull(quote);
+        Assert.IsTrue(quote.CanSelect, string.Join(",", quote.Blockers));
+        Assert.AreEqual(114m, quote.KarmaUsed); // Group: 60; enabled skills: (4+5)*2 each.
+        var flight = quote.Skills.Single(skill => skill.Name == "Flight");
+        Assert.IsFalse(flight.IsEnabled);
+        Assert.AreEqual(0, flight.KarmaCost);
+        Assert.AreEqual(3, flight.Rating);
+    }
+
+    [TestMethod]
+    [DataRow(false, false)]
+    [DataRow(false, true)]
+    [DataRow(true, false)]
+    [DataRow(true, true)]
+    public void Karma_skills_allocation_obeys_group_break_and_strict_house_rules(bool strict, bool specBreaks)
+    {
+        using var fixture = new KarmaDiskFixture(includeSkills: true, configureSettings: row =>
+        {
+            row.SetElementValue("breakskillgroupsincreatemode", strict.ToString());
+            row.SetElementValue("specializationsbreakskillgroups", specBreaks.ToString());
+        });
+        var (catalog, _, _) = KarmaSkillsSources(fixture);
+        var pistols = catalog.ActiveSkills.Single(skill => skill.Name == "Pistols");
+        var group = catalog.SkillGroups.Single(item => item.Name == "Firearms");
+        var spec = new CharacterCreationKarmaSkillAllocation(pistols.SourceSkillId, pistols.Kind, 0,
+            SpecializationOptionId: pistols.Specializations.First().OptionId, SpecializationPayment: "karma");
+        var quote = QuoteKarmaSkills(fixture, new([NativeEnglish(catalog), spec], [new(group.GroupId, 3)]))!;
+        Assert.AreEqual(!strict, quote.CanSelect);
+        Assert.AreEqual(specBreaks, quote.Groups.Single().IsBroken);
+        Assert.AreEqual(37m, quote.KarmaUsed);
+        var raised = QuoteKarmaSkills(fixture, new([NativeEnglish(catalog), spec with
+        { KarmaLevels = 1, SpecializationOptionId = null, SpecializationPayment = null }], [new(group.GroupId, 3)]))!;
+        Assert.AreEqual(!strict, raised.CanSelect);
+        Assert.IsTrue(raised.Groups.Single().IsBroken);
+        Assert.AreEqual(38m, raised.KarmaUsed);
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void Karma_skills_allocation_respects_point_specialization_house_rule(bool allow)
+    {
+        using var fixture = new KarmaDiskFixture(includeSkills: true, configureSettings: row =>
+            row.SetElementValue("allowpointbuyspecializationsonkarmaskills", allow.ToString()));
+        var (catalog, _, _) = KarmaSkillsSources(fixture);
+        var sprawl = catalog.KnowledgeSkills.Single(skill => skill.Name == "Sprawl Life");
+        var quote = QuoteKarmaSkills(fixture, new([NativeEnglish(catalog),
+            new(sprawl.SourceSkillId, sprawl.Kind, 2, SpecializationOptionId: sprawl.Specializations.First().OptionId,
+                SpecializationPayment: "knowledge-point")], []))!;
+        Assert.AreEqual(allow, quote.CanSelect);
+        Assert.AreEqual(3m, quote.KarmaUsed);
+        Assert.AreEqual(1m, quote.KnowledgePointsUsed);
+    }
+
+    [TestMethod]
+    public void Karma_skills_allocation_supports_distinct_source_bound_exotic_identities_without_spec_surcharge()
+    {
+        using var fixture = new KarmaDiskFixture(includeSkills: true);
+        var (catalog, _, _) = KarmaSkillsSources(fixture);
+        var exotic = catalog.ActiveSkills.Single(skill => skill.Name == "Exotic Melee Weapon");
+        var whip = exotic.Specializations.Single(spec => spec.Name == "Monofilament Whip");
+        Assert.IsTrue(whip.SourceAnchorId.StartsWith("weapons.xml#weapon:", StringComparison.Ordinal));
+        var other = exotic.Specializations.First(spec => spec.OptionId != whip.OptionId);
+        var first = new CharacterCreationKarmaSkillAllocation(exotic.SourceSkillId, exotic.Kind, 2,
+            SpecializationOptionId: whip.OptionId, SpecializationPayment: "exotic-identity");
+        var second = first with { SpecializationOptionId = other.OptionId };
+        var quote = QuoteKarmaSkills(fixture, new([NativeEnglish(catalog), first, second], []))!;
+        Assert.IsTrue(quote.CanSelect, string.Join(",", quote.Blockers));
+        Assert.AreEqual(12m, quote.KarmaUsed);
+        Assert.AreEqual(2, quote.Skills.Count(skill => skill.Allocation.SourceSkillId == exotic.SourceSkillId));
+        Assert.IsTrue(quote.Skills.All(skill => skill.SpecializationKarmaCost == 0));
+        Assert.IsNull(QuoteKarmaSkills(fixture, new([NativeEnglish(catalog), first, first], [])));
+        Assert.IsFalse(QuoteKarmaSkills(fixture, new([NativeEnglish(catalog), first with { SpecializationPayment = "karma" }], []))!.CanSelect);
+        Assert.IsFalse(QuoteKarmaSkills(fixture, new([NativeEnglish(catalog), first with
+        { SpecializationOptionId = null, SpecializationPayment = null }], []))!.CanSelect);
+    }
+
+    [TestMethod]
+    [DataRow("({INTUnaug} + {LOGUnaug}) * 2", 10)]
+    [DataRow("{LOGUnaug} div 2", 2)]
+    [DataRow("0", 0)]
+    [DataRow("-1", -1)]
+    [DataRow("1 / 0", -1)]
+    [DataRow("{Unknown} * 2", -1)]
+    [DataRow("document('file:///etc/passwd')", -1)]
+    [DataRow("2147483648", -1)]
+    [DataRow("(2", -1)]
+    public void Karma_skills_allocation_uses_confirmed_attributes_and_bounded_expression(string expression, int total)
+    {
+        using var fixture = new KarmaDiskFixture(includeSkills: true, configureSettings: row =>
+            row.SetElementValue("knowledgepointsexpression", expression));
+        var (catalog, _, _) = KarmaSkillsSources(fixture);
+        var quote = QuoteKarmaSkills(fixture, new([NativeEnglish(catalog)], []), attributes: [new("INT", 1), new("LOG", 2)])!;
+        Assert.AreEqual(total >= 0, quote.CanSelect);
+        if (total >= 0) Assert.AreEqual(total, quote.KnowledgePointsTotal);
+        else CollectionAssert.Contains(quote.Blockers.ToArray(), CharacterCreationKarmaSkillsRules.KnowledgeExpressionUnresolved);
+    }
+
+    [TestMethod]
+    public void Karma_skills_allocation_enforces_native_budgets_caps_access_and_specializations()
+    {
+        using var fixture = new KarmaDiskFixture(includeSkills: true);
+        var (catalog, _, _) = KarmaSkillsSources(fixture);
+        var native = NativeEnglish(catalog);
+        var pistols = catalog.ActiveSkills.Single(skill => skill.Name == "Pistols");
+        var sprawl = catalog.KnowledgeSkills.Single(skill => skill.Name == "Sprawl Life");
+        var magic = catalog.ActiveSkills.Single(skill => skill.Name == "Spellcasting");
+        var otherLanguage = catalog.KnowledgeSkills.First(skill => skill.CanBeNativeLanguage && skill.SourceSkillId != native.SourceSkillId);
+        var invalid = new (CharacterCreationKarmaSkillAllocation[] Skills, string Blocker)[]
+        {
+            ([], CharacterCreationSkillsBlockers.NativeLanguageRequired),
+            ([native, new(otherLanguage.SourceSkillId, otherLanguage.Kind, 0, IsNativeLanguage: true)], CharacterCreationSkillsBlockers.NativeLanguageLimitExceeded),
+            ([native with { KnowledgePointLevels = 1 }], CharacterCreationSkillsBlockers.NativeLanguageInvalid),
+            ([new(sprawl.SourceSkillId, sprawl.Kind, 0, IsNativeLanguage: true)], CharacterCreationSkillsBlockers.NativeLanguageInvalid),
+            ([native, new(sprawl.SourceSkillId, sprawl.Kind, 0, 5)], CharacterCreationSkillsBlockers.KnowledgeBudgetExceeded),
+            ([native, new(pistols.SourceSkillId, pistols.Kind, 7)], CharacterCreationSkillsBlockers.RatingInvalid),
+            ([native, new(pistols.SourceSkillId, pistols.Kind, 0, 1)], CharacterCreationSkillsBlockers.AllocationInvalid),
+            ([native, new(magic.SourceSkillId, magic.Kind, 1)], CharacterCreationSkillsBlockers.TalentAccessRequired),
+            ([native, new(pistols.SourceSkillId, pistols.Kind, 1, SpecializationOptionId: "invented", SpecializationPayment: "karma")], CharacterCreationSkillsBlockers.SpecializationInvalid),
+            ([native, new(pistols.SourceSkillId, pistols.Kind, 0, SpecializationOptionId: pistols.Specializations.First().OptionId, SpecializationPayment: "karma")], CharacterCreationSkillsBlockers.SpecializationInvalid),
+        };
+        foreach (var (skills, blocker) in invalid)
+        {
+            var quote = QuoteKarmaSkills(fixture, new(skills, []))!;
+            Assert.IsFalse(quote.CanSelect, blocker);
+            CollectionAssert.Contains(quote.Blockers.ToArray(), blocker);
+        }
+        var budget = QuoteKarmaSkills(fixture, new([native, new(pistols.SourceSkillId, pistols.Kind, 1)], []), karma: 0)!;
+        CollectionAssert.Contains(budget.Blockers.ToArray(), CharacterCreationKarmaSkillsRules.KarmaBudgetExceeded);
+        Assert.IsTrue(QuoteKarmaSkills(fixture, new([native, new(magic.SourceSkillId, magic.Kind, 1)], []), talent: MagicianId)!.CanSelect);
+    }
+
+    [TestMethod]
+    public void Karma_skills_allocation_freezes_input_and_rejects_malformed_or_unknown_identities()
+    {
+        using var fixture = new KarmaDiskFixture(includeSkills: true);
+        var (catalog, _, _) = KarmaSkillsSources(fixture);
+        var native = NativeEnglish(catalog);
+        var items = new[] { native };
+        var selection = new CharacterCreationKarmaSkillsSelection(items, []);
+        var quote = QuoteKarmaSkills(fixture, selection)!;
+        string digest = quote.QuoteDigest;
+        items[0] = native with { KarmaLevels = 5 };
+        Assert.AreEqual(0, quote.Selection.Skills.Single().KarmaLevels);
+        Assert.AreEqual(digest, CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(quote with { QuoteDigest = string.Empty }));
+        Assert.IsNull(QuoteKarmaSkills(fixture, new([native, native], [])));
+        Assert.IsNull(QuoteKarmaSkills(fixture, new([native with { SourceSkillId = Guid.NewGuid().ToString("D") }], [])));
+        Assert.IsNull(QuoteKarmaSkills(fixture, new([native], [new("unknown", 1)])));
+        Assert.IsNull(QuoteKarmaSkills(fixture, new([native with { KarmaLevels = -1 }], [])));
+        Assert.IsNull(QuoteKarmaSkills(fixture, new([native with { Kind = "invented" }], [])));
+        Assert.IsNull(QuoteKarmaSkills(fixture, new([native with { KarmaLevels = int.MaxValue, KnowledgePointLevels = 1 }], [])));
+        Assert.IsFalse(CharacterCreationKarmaSkillsRules.TryFreeze(new(Enumerable.Repeat(native, 257).ToArray(), []), out _));
+        Assert.IsFalse(CharacterCreationKarmaSkillsRules.TryFreeze(new([], Enumerable.Range(0, 65).Select(i => new CharacterCreationKarmaSkillGroupAllocation(i.ToString(), 0)).ToArray()), out _));
+        Assert.IsFalse(CharacterCreationKarmaSkillsRules.TryFreeze(new([], [new("g", 1), new("g", 1)]), out _));
+        Assert.IsFalse(CharacterCreationKarmaSkillsRules.TryFreeze(null, out _));
+    }
+
+    private static CharacterCreationKarmaSkillAllocation NativeEnglish(CharacterCreationSkillsCatalog catalog)
+        => new(catalog.KnowledgeSkills.Single(skill => skill.Name == "English").SourceSkillId,
+            CharacterCreationSkillKinds.Knowledge, 0, IsNativeLanguage: true);
+
+    [TestMethod]
+    public void Karma_skills_allocation_binds_compensation_to_source_order_not_display_order()
+    {
+        using var fixture = new KarmaDiskFixture(includeSkills: true, configureSettings: row =>
+            row.SetElementValue("compensateskillgroupkarmadifference", "True"));
+        fixture.EditSkill("Pistols", row =>
+        {
+            var parent = row.Parent!;
+            row.Remove();
+            parent.AddFirst(row);
+        });
+        var (catalog, _, _) = KarmaSkillsSources(fixture);
+        var group = catalog.SkillGroups.Single(item => item.Name == "Firearms");
+        string pistols = catalog.ActiveSkills.Single(skill => skill.Name == "Pistols").SourceSkillId;
+        Assert.AreEqual(pistols, catalog.ActiveSkillSourceOrder[0]);
+        var quote = QuoteKarmaSkills(fixture, new(group.MemberSkillSourceIds.Select(id =>
+            new CharacterCreationKarmaSkillAllocation(id, CharacterCreationSkillKinds.Active, 2))
+            .Prepend(NativeEnglish(catalog)).ToArray(), []))!;
+        Assert.IsTrue(quote.CanSelect);
+        Assert.AreEqual(4, quote.Skills.Single(skill => skill.Name == "Pistols").KarmaCost);
+        Assert.AreEqual(16m, quote.KarmaUsed);
+        var missingOrder = catalog with { ActiveSkillSourceOrder = [] };
+        missingOrder = missingOrder with { CatalogDigest = CharacterCreationSkillsCatalogAuthority.ComputeDigest(missingOrder) };
+        Assert.IsFalse(CharacterCreationSkillsCatalogAuthority.IsValid(missingOrder));
+        var changedOrder = catalog with { ActiveSkillSourceOrder = catalog.ActiveSkillSourceOrder.Reverse().ToArray() };
+        Assert.IsFalse(CharacterCreationSkillsCatalogAuthority.IsValid(changedOrder));
+        Assert.AreNotEqual(catalog.CatalogDigest, CharacterCreationSkillsCatalogAuthority.ComputeDigest(changedOrder));
+    }
+
+    [TestMethod]
+    public void Karma_skills_allocation_exotic_options_follow_useskill_and_enabled_books()
+    {
+        using var fixture = new KarmaDiskFixture(includeSkills: true);
+        fixture.EditWeapon("Monofilament Whip", row =>
+        {
+            row.SetElementValue("category", "Test category");
+            row.SetElementValue("useskill", "Exotic Melee Weapon");
+        });
+        var (before, _, _) = KarmaSkillsSources(fixture);
+        Assert.IsTrue(before.ActiveSkills.Single(skill => skill.Name == "Exotic Melee Weapon").Specializations
+            .Any(spec => spec.Name == "Monofilament Whip"));
+        fixture.EditWeapon("Monofilament Whip", row => row.SetElementValue("source", "disabled-book"));
+        var (after, _, _) = KarmaSkillsSources(fixture);
+        Assert.IsFalse(after.ActiveSkills.Single(skill => skill.Name == "Exotic Melee Weapon").Specializations
+            .Any(spec => spec.Name == "Monofilament Whip"));
+        Assert.AreNotEqual(before.CatalogDigest, after.CatalogDigest);
+    }
+
+    [TestMethod]
+    public void Karma_skills_allocation_rejects_invalid_attributes_policy_and_mixed_profile()
+    {
+        using var fixture = new KarmaDiskFixture(includeSkills: true);
+        var (catalog, talents, human) = KarmaSkillsSources(fixture);
+        var context = fixture.Resolver.TryCreateContext(fixture.Store.Get(fixture.Id).Value!.Document.Content)!;
+        Assert.IsTrue(context.TryResolveCreationKarmaSkillsPolicy(out var policy));
+        Assert.IsNotNull(policy);
+        var attributes = CharacterCreationKarmaAttributesRules.Evaluate(human,
+            talents.Options.Single(item => item.OptionId == "mundane"), fixture.Service.Load(fixture.Id).Value!.AttributePolicy!, [])!;
+        var selection = new CharacterCreationKarmaSkillsSelection([NativeEnglish(catalog)], []);
+        CharacterCreationKarmaSkillsQuote? Evaluate(CharacterCreationKarmaSkillsPolicy current, CharacterCreationKarmaAttributesQuote currentAttributes)
+            => CharacterCreationKarmaSkillsRules.Evaluate(catalog, current, talents, human, "mundane", currentAttributes, 800, selection);
+        Assert.IsNull(Evaluate(policy with { KarmaNewActiveSkill = 0 }, attributes));
+        var foreign = policy with { RawProfileInputsDigest = "sha256:" + new string('a', 64) };
+        foreign = foreign with { AuthorityDigest = CharacterCreationKarmaSkillsPolicyAuthority.ComputeDigest(foreign) };
+        Assert.IsNull(Evaluate(foreign, attributes));
+        var changed = attributes with { Attributes = attributes.Attributes.Select(item =>
+            item.AttributeId == "INT" ? item with { Current = 6 } : item).ToArray() };
+        changed = changed with { QuoteDigest = CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(changed with { QuoteDigest = string.Empty }) };
+        Assert.IsNull(Evaluate(policy, changed));
+        Assert.IsNull(QuoteKarmaSkills(fixture, selection, attributes: [new("INT", 6)]));
+        Assert.IsNull(CharacterCreationKarmaSkillsRules.Evaluate(null!, policy, talents, human, "mundane", attributes, 800, selection));
+    }
+
+    private static CharacterCreationKarmaSkillsQuote? QuoteKarmaSkills(KarmaDiskFixture fixture,
+        CharacterCreationKarmaSkillsSelection selection, int karma = 800, string talent = "mundane",
+        IReadOnlyList<CharacterCreationKarmaAttributeAllocation>? attributes = null)
+    {
+        var (catalog, talents, human) = KarmaSkillsSources(fixture);
+        var context = fixture.Resolver.TryCreateContext(fixture.Store.Get(fixture.Id).Value!.Document.Content)!;
+        Assert.IsTrue(context.TryResolveCreationKarmaSkillsPolicy(out var policy));
+        Assert.IsNotNull(policy);
+        var attributePolicy = fixture.Service.Load(fixture.Id).Value!.AttributePolicy!;
+        var quote = CharacterCreationKarmaAttributesRules.Evaluate(human,
+            talents.Options.Single(item => item.OptionId == talent), attributePolicy, attributes ?? []);
+        Assert.IsNotNull(quote);
+        return CharacterCreationKarmaSkillsRules.Evaluate(catalog, policy, talents, human, talent, quote, karma, selection);
+    }
+
+    [TestMethod]
     public void Karma_skills_catalog_keeps_source_identities_without_priority_semantics()
     {
         using var fixture = new KarmaDiskFixture(includeSkills: true, configureSettings: row =>
