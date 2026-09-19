@@ -32,6 +32,209 @@ public sealed class CharacterCreationBootstrapServiceTests
         CharacterCreationBootstrapProfiles.LifeModulesSettingsProfileId;
 
     [TestMethod]
+    [DataRow("a53d885d-a4a4-443d-b6a6-b0a55b0a96c7", "Human", 0)]
+    [DataRow("b3259991-b315-4dbe-ae3c-51f71a1116e2", "Elf", 40)]
+    public void Karma_metatype_quote_uses_real_profile_and_catalog_without_mutation(
+        string optionId, string name, int cost)
+    {
+        var store = new InMemoryWorkspaceStore();
+        var resolver = CreateSourceResolver(FindCoreRoot());
+        var created = CreateService(store, resolver, CreateFileQueries()).Create(KarmaRequest());
+        Assert.AreEqual(CharacterCreationBootstrapOutcomes.Success, created.Outcome);
+        var id = created.Value!.WorkspaceId;
+        var before = store.Get(id).Value!;
+        var service = new CharacterCreationKarmaMetatypeService(store, resolver);
+        var loaded = service.Load(id);
+        Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, loaded.Outcome,
+            string.Join(",", loaded.Blockers));
+        var state = loaded.Value!;
+        Assert.AreEqual(800m, state.KarmaBudget.Total);
+        Assert.AreEqual(CanonicalKarmaSettingsId, state.SettingsProfileId);
+        var preview = service.Preview(state.Binding, optionId);
+        Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, preview.Outcome,
+            string.Join(",", preview.Blockers));
+        var quote = preview.Value!;
+        Assert.IsTrue(quote.CanSelect);
+        Assert.AreEqual(name, quote.Metatype.Label);
+        Assert.AreEqual(cost, quote.Metatype.KarmaCost);
+        Assert.AreEqual((decimal)cost, quote.KarmaBudget.Used);
+        Assert.AreEqual(800m - cost, quote.KarmaBudget.Remaining);
+        CollectionAssert.Contains(quote.SourceAnchorIds.ToArray(), $"settings.xml#setting:{CanonicalKarmaSettingsId}");
+        Assert.IsTrue(quote.SourceAnchorIds.Count > 1);
+        Assert.AreEqual(quote.QuoteDigest, service.Preview(state.Binding, optionId).Value!.QuoteDigest);
+        AssertJsonEqual(before, store.Get(id).Value!);
+    }
+
+    [TestMethod]
+    [DataRow(0)]
+    [DataRow(1)]
+    [DataRow(2)]
+    [DataRow(3)]
+    [DataRow(4)]
+    [DataRow(5)]
+    [DataRow(6)]
+    public void Karma_metatype_quote_rejects_stale_or_foreign_binding(int changedField)
+    {
+        var store = new InMemoryWorkspaceStore();
+        var resolver = CreateSourceResolver(FindCoreRoot());
+        var created = CreateService(store, resolver, CreateFileQueries()).Create(KarmaRequest());
+        var service = new CharacterCreationKarmaMetatypeService(store, resolver);
+        var original = service.Load(created.Value!.WorkspaceId).Value!.Binding;
+        var binding = changedField switch
+        {
+            0 => original with { ContentRevision = original.ContentRevision + 1 },
+            1 => original with { SavedRevision = original.SavedRevision + 1 },
+            2 => original with { RawCharacterXmlDigest = "sha256:" + new string('0', 64) },
+            3 => original with { AuxiliaryStateDigest = new string('0', 64) },
+            4 => original with { BootstrapBindingDigest = "sha256:" + new string('0', 64) },
+            5 => original with { SourceProfileDigest = "sha256:" + new string('0', 64) },
+            _ => original with { MetatypeAuthorityDigest = "sha256:" + new string('0', 64) }
+        };
+        var result = service.Preview(binding, "a53d885d-a4a4-443d-b6a6-b0a55b0a96c7");
+        Assert.IsNull(result.Value);
+        CollectionAssert.Contains(result.Blockers.ToArray(), CharacterCreationKarmaMetatypeBlockers.StaleBinding);
+    }
+
+    [TestMethod]
+    [DataRow("Human")]
+    [DataRow("A53D885D-A4A4-443D-B6A6-B0A55B0A96C7")]
+    [DataRow("invented")]
+    public void Karma_metatype_quote_rejects_labels_and_invented_option_ids(string optionId)
+    {
+        var store = new InMemoryWorkspaceStore();
+        var resolver = CreateSourceResolver(FindCoreRoot());
+        var created = CreateService(store, resolver, CreateFileQueries()).Create(KarmaRequest());
+        var service = new CharacterCreationKarmaMetatypeService(store, resolver);
+        var binding = service.Load(created.Value!.WorkspaceId).Value!.Binding;
+        var result = service.Preview(binding, optionId);
+        Assert.IsNull(result.Value);
+        CollectionAssert.Contains(result.Blockers.ToArray(), CharacterCreationKarmaMetatypeBlockers.OptionUnavailable);
+    }
+
+    [TestMethod]
+    [DataRow(CharacterCreationBuildMethods.Priority, CanonicalPrioritySettingsId)]
+    [DataRow(CharacterCreationBuildMethods.SumToTen, CanonicalSumToTenSettingsId)]
+    [DataRow(CharacterCreationBuildMethods.LifeModules, CanonicalLifeModulesSettingsId)]
+    public void Karma_metatype_quote_does_not_reinterpret_other_build_methods(string method, string profile)
+    {
+        var store = new InMemoryWorkspaceStore();
+        var resolver = CreateSourceResolver(FindCoreRoot());
+        var created = CreateService(store, resolver, CreateFileQueries()).Create(
+            CanonicalRequest() with { BuildMethod = method, SettingsProfileId = profile });
+        var result = new CharacterCreationKarmaMetatypeService(store, resolver).Load(created.Value!.WorkspaceId);
+        Assert.IsNull(result.Value);
+        CollectionAssert.Contains(result.Blockers.ToArray(),
+            CharacterCreationKarmaMetatypeBlockers.PendingKarmaBootstrapRequired);
+    }
+
+    [TestMethod]
+    [DataRow(0, false)]
+    [DataRow(39, false)]
+    [DataRow(40, true)]
+    [DataRow(1000, true)]
+    public void Karma_metatype_quote_uses_source_budget_instead_of_a_hardcoded_total(int total, bool canSelect)
+    {
+        string root = Directory.CreateTempSubdirectory("chummer-karma-metatype-").FullName;
+        try
+        {
+            string data = Path.Combine(root, "data");
+            Directory.CreateDirectory(data);
+            foreach (string file in new[] { "settings.xml", "metatypes.xml" })
+                File.Copy(Path.Combine(FindCoreRoot(), "Chummer", "data", file), Path.Combine(data, file));
+            string settingsPath = Path.Combine(data, "settings.xml");
+            XDocument settings = XDocument.Load(settingsPath);
+            XElement profile = settings.Descendants("setting").Single(item =>
+                item.Element("id")?.Value == CanonicalKarmaSettingsId);
+            profile.Element("buildpoints")!.Value = total.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            settings.Save(settingsPath);
+
+            var store = new InMemoryWorkspaceStore();
+            var resolver = CreateSourceResolver(root);
+            var created = CreateService(store, resolver, CreateFileQueries()).Create(KarmaRequest());
+            Assert.AreEqual(CharacterCreationBootstrapOutcomes.Success, created.Outcome,
+                string.Join(",", created.Blockers));
+            var service = new CharacterCreationKarmaMetatypeService(store, resolver);
+            var state = service.Load(created.Value!.WorkspaceId).Value!;
+            var quote = service.Preview(state.Binding, "b3259991-b315-4dbe-ae3c-51f71a1116e2").Value!;
+            Assert.AreEqual((decimal)total, quote.KarmaBudget.Total);
+            Assert.AreEqual(total - 40m, quote.KarmaBudget.Remaining);
+            Assert.AreEqual(canSelect, quote.CanSelect);
+            Assert.AreEqual(canSelect ? 0 : 1, quote.Blockers.Count);
+
+            profile.Element("buildpoints")!.Value = (total + 1).ToString(System.Globalization.CultureInfo.InvariantCulture);
+            settings.Save(settingsPath);
+            Assert.IsNull(service.Preview(state.Binding, quote.Metatype.OptionId).Value,
+                "A changed source profile invalidates the original bootstrap and quote.");
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    private static CharacterCreationBootstrapRequest KarmaRequest()
+        => CanonicalRequest() with
+        {
+            BuildMethod = CharacterCreationBuildMethods.Karma,
+            SettingsProfileId = CanonicalKarmaSettingsId
+        };
+
+    [TestMethod]
+    public void Karma_metatype_quote_cannot_be_moved_to_a_second_workspace()
+    {
+        var store = new InMemoryWorkspaceStore();
+        var resolver = CreateSourceResolver(FindCoreRoot());
+        var bootstrap = CreateService(store, resolver, CreateFileQueries());
+        var first = bootstrap.Create(KarmaRequest()).Value!;
+        var second = bootstrap.Create(KarmaRequest()).Value!;
+        var service = new CharacterCreationKarmaMetatypeService(store, resolver);
+        var binding = service.Load(first.WorkspaceId).Value!.Binding;
+        Assert.AreEqual(first.Binding.BindingDigest, binding.BootstrapBindingDigest);
+        var result = service.Preview(binding with { WorkspaceId = second.WorkspaceId },
+            "a53d885d-a4a4-443d-b6a6-b0a55b0a96c7");
+        Assert.IsNull(result.Value);
+        CollectionAssert.Contains(result.Blockers.ToArray(), CharacterCreationKarmaMetatypeBlockers.StaleBinding);
+    }
+
+    [TestMethod]
+    [DataRow("<buildpoints>-1</buildpoints>")]
+    [DataRow("<buildpoints>800</buildpoints><buildpoints>800</buildpoints>")]
+    [DataRow("<buildpoints>unknown</buildpoints>")]
+    [DataRow("")]
+    public void Karma_metatype_quote_rejects_missing_or_invalid_profile_budget(string budgetXml)
+    {
+        string root = Directory.CreateTempSubdirectory("chummer-karma-budget-").FullName;
+        try
+        {
+            string data = Path.Combine(root, "data");
+            Directory.CreateDirectory(data);
+            foreach (string file in new[] { "settings.xml", "metatypes.xml" })
+                File.Copy(Path.Combine(FindCoreRoot(), "Chummer", "data", file), Path.Combine(data, file));
+            string settingsPath = Path.Combine(data, "settings.xml");
+            XDocument settings = XDocument.Load(settingsPath);
+            XElement profile = settings.Descendants("setting").Single(item =>
+                item.Element("id")?.Value == CanonicalKarmaSettingsId);
+            profile.Elements("buildpoints").Remove();
+            profile.Add(XElement.Parse("<budget>" + budgetXml + "</budget>").Elements());
+            settings.Save(settingsPath);
+            var resolver = CreateSourceResolver(root);
+            var store = new InMemoryWorkspaceStore();
+            var created = CreateService(store, resolver, CreateFileQueries()).Create(KarmaRequest());
+            Assert.AreEqual(CharacterCreationBootstrapOutcomes.Success, created.Outcome);
+            var before = store.Get(created.Value!.WorkspaceId).Value!;
+            var result = new CharacterCreationKarmaMetatypeService(store, resolver).Load(before.Id);
+            Assert.IsNull(result.Value);
+            CollectionAssert.Contains(result.Blockers.ToArray(),
+                CharacterCreationKarmaMetatypeBlockers.BudgetAuthorityRequired);
+            AssertJsonEqual(before, store.Get(before.Id).Value!);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
     [DataRow(CharacterCreationBuildMethods.Priority, CanonicalPrioritySettingsId)]
     [DataRow(CharacterCreationBuildMethods.SumToTen, CanonicalSumToTenSettingsId)]
     [DataRow(CharacterCreationBuildMethods.Karma, CanonicalKarmaSettingsId)]
