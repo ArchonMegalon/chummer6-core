@@ -8,11 +8,18 @@ public static class CharacterCreationSkillsCatalogAuthority
         => CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(
             catalog with { CatalogDigest = string.Empty });
 
-    public static bool IsValid(CharacterCreationSkillsCatalog? catalog)
+    public static bool IsValid(CharacterCreationSkillsCatalog? catalog) => Validate(catalog, requireFullCatalog: true);
+
+    // Retained calculation inputs are not a replacement for current source
+    // authority. They may contain no active skills (e.g. native language only).
+    internal static bool IsValidSubset(CharacterCreationSkillsCatalog? catalog) => Validate(catalog, requireFullCatalog: false);
+
+    private static bool Validate(CharacterCreationSkillsCatalog? catalog, bool requireFullCatalog)
     {
         if (catalog is not { Schema: CharacterCreationSkillsCatalog.SchemaV1,
-                ActiveSkills.Count: > 0, KnowledgeSkills.Count: > 0, SkillGroups: not null,
+                ActiveSkills: not null, KnowledgeSkills: not null, SkillGroups: not null,
                 SourceAnchorIds.Count: > 0 }
+            || requireFullCatalog && (catalog.ActiveSkills.Count == 0 || catalog.KnowledgeSkills.Count == 0)
             || string.IsNullOrWhiteSpace(catalog.SettingsProfileId)
             || !CharacterCreationSkillsDigest.IsCanonical(catalog.RawProfileInputsDigest)
             || !CharacterCreationSkillsDigest.IsCanonical(catalog.SkillsInputsDigest)

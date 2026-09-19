@@ -24,6 +24,11 @@ public static class CharacterCreationKarmaMetatypeTransaction
             && (request.AttributeAllocations is null || request.TalentOptionId is not null
                 && Digest(binding.AttributePolicyDigest)
                 && CharacterCreationKarmaAttributesRules.IsAllocationShape(request.AttributeAllocations))
+            && (binding.SkillsPolicyDigest is null || Digest(binding.SkillsPolicyDigest))
+            && (binding.SkillsCatalogDigest is null || Digest(binding.SkillsCatalogDigest))
+            && (request.SkillsSelection is null || request.AttributeAllocations is not null
+                && Digest(binding.SkillsPolicyDigest) && Digest(binding.SkillsCatalogDigest)
+                && CharacterCreationKarmaSkillsRules.TryFreeze(request.SkillsSelection, out _))
             && !string.IsNullOrWhiteSpace(binding.WorkspaceId.Value)
             && binding.ContentRevision is > 0 and < long.MaxValue
             && (binding.SavedRevision == binding.ContentRevision
@@ -56,7 +61,8 @@ public static class CharacterCreationKarmaMetatypeTransaction
                 if (decision is null || decision.Schema != CharacterCreationKarmaMetatypeSchemas.DecisionV1
                     || !IsConfirmed(decision.Command) || decision.Quote is not { CanSelect: true } quote
                     || index > 0 && (ledger[index - 1].Quote.Talent is not null && quote.Talent is null
-                        || ledger[index - 1].Quote.Attributes is not null && quote.Attributes is null)
+                        || ledger[index - 1].Quote.Attributes is not null && quote.Attributes is null
+                        || ledger[index - 1].Quote.Skills is not null && quote.Skills is null)
                     || quote.Schema != CharacterCreationKarmaMetatypeSchemas.QuoteV1
                     || quote.Binding != decision.Command.Binding || quote.Binding.WorkspaceId != id
                     || quote.Metatype is not { IsEnabled: true, KarmaCost: >= 0 } metatype
@@ -75,7 +81,15 @@ public static class CharacterCreationKarmaMetatypeTransaction
                         decision.Command.AttributeAllocations)
                     || quote.Attributes is { } attributes && (attributes.Policy.AuthorityDigest != quote.Binding.AttributePolicyDigest
                         || attributes.Policy.RawProfileInputsDigest != quote.Binding.SourceProfileDigest)
-                    || budget.Used != (decimal)metatype.KarmaCost + (quote.Talent?.KarmaCost ?? 0) + (quote.Attributes?.KarmaUsed ?? 0)
+                    || !CharacterCreationKarmaSkillsRules.IsValid(quote.Skills, metatype, quote.Talent, quote.Attributes,
+                        decision.Command.SkillsSelection)
+                    || quote.Skills is { } skills && (skills.Policy.AuthorityDigest != quote.Binding.SkillsPolicyDigest
+                        || skills.CatalogDigest != quote.Binding.SkillsCatalogDigest
+                        || skills.Policy.RawProfileInputsDigest != quote.Binding.SourceProfileDigest
+                        || skills.KarmaAvailable != budget.Total - metatype.KarmaCost - (quote.Talent?.KarmaCost ?? 0)
+                            - (quote.Attributes?.KarmaUsed ?? 0))
+                    || budget.Used != (decimal)metatype.KarmaCost + (quote.Talent?.KarmaCost ?? 0)
+                        + (quote.Attributes?.KarmaUsed ?? 0) + (quote.Skills?.KarmaUsed ?? 0)
                     || budget.Total - budget.Used != budget.Remaining
                     || decision.DraftRevision != index + 1
                     || decision.CommittedContentRevision != quote.Binding.ContentRevision + 1
@@ -138,7 +152,7 @@ public static class CharacterCreationKarmaMetatypeTransaction
         // Isolated view prevents a nested store read/lease or caller-provided quote.
         var view = new WorkspaceContinuationReadView(owner, workspace);
         var result = new CharacterCreationKarmaMetatypeService(view, sourceResolver)
-            .Preview(request.Binding, request.MetatypeOptionId, request.TalentOptionId, request.AttributeAllocations);
+            .Preview(request.Binding, request.MetatypeOptionId, request.TalentOptionId, request.AttributeAllocations, request.SkillsSelection);
         if (result.Value is not { CanSelect: true } quote || quote.QuoteDigest != request.QuoteDigest)
             return false;
         var prepared = new CharacterCreationKarmaMetatypeDecision(
@@ -167,7 +181,10 @@ public static class CharacterCreationKarmaMetatypeTransaction
             if (!IsConfirmed(request)) return false;
             // No caller-owned collection may change the command while storage waits
             // for a lease, writes its temporary file, or recovers a committed result.
-            frozen = request with { AttributeAllocations = request.AttributeAllocations?.Take(14).ToArray() };
+            CharacterCreationKarmaSkillsSelection? skills = null;
+            if (request.SkillsSelection is not null && !CharacterCreationKarmaSkillsRules.TryFreeze(request.SkillsSelection, out skills))
+                return false;
+            frozen = request with { AttributeAllocations = request.AttributeAllocations?.Take(14).ToArray(), SkillsSelection = skills };
             return IsConfirmed(frozen);
         }
         catch (Exception error) when (error is ArgumentException or InvalidOperationException)

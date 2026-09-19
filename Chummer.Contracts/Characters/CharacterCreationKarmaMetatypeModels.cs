@@ -1,4 +1,5 @@
 using Chummer.Contracts.Workspaces;
+using System.Text.Json.Serialization;
 
 namespace Chummer.Contracts.Characters;
 
@@ -25,6 +26,8 @@ public static class CharacterCreationKarmaMetatypeBlockers
     public const string TalentAuthorityRequired = "creation-karma-talent-authority-required";
     public const string TalentSelectionRequired = "creation-karma-talent-selection-required";
     public const string AttributeSelectionRequired = "creation-karma-attribute-selection-required";
+    public const string SkillsSelectionRequired = "creation-karma-skills-selection-required";
+    public const string SkillsAuthorityRequired = "creation-karma-skills-authority-required";
 }
 
 public sealed record CharacterCreationKarmaMetatypeBinding(
@@ -37,7 +40,9 @@ public sealed record CharacterCreationKarmaMetatypeBinding(
     string SourceProfileDigest,
     string MetatypeAuthorityDigest,
     string? TalentAuthorityDigest = null,
-    string? AttributePolicyDigest = null);
+    string? AttributePolicyDigest = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? SkillsPolicyDigest = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? SkillsCatalogDigest = null);
 
 public sealed record CharacterCreationKarmaMetatypeState(
     string Schema,
@@ -49,7 +54,9 @@ public sealed record CharacterCreationKarmaMetatypeState(
     string SnapshotDigest,
     CharacterCreationKarmaMetatypeDecision? Selection = null,
     CharacterCreationAttributePolicy? AttributePolicy = null,
-    CharacterCreationKarmaTalentCatalog? Talents = null);
+    CharacterCreationKarmaTalentCatalog? Talents = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] CharacterCreationKarmaSkillsPolicy? SkillsPolicy = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] CharacterCreationSkillsCatalog? SkillsCatalog = null);
 
 /// <summary>
 /// Read-only first-step quote, not a draft, mutation command or authorization to
@@ -66,7 +73,8 @@ public sealed record CharacterCreationKarmaMetatypeQuote(
     IReadOnlyList<string> SourceAnchorIds,
     string QuoteDigest,
     CharacterCreationKarmaTalentOption? Talent = null,
-    CharacterCreationKarmaAttributesQuote? Attributes = null);
+    CharacterCreationKarmaAttributesQuote? Attributes = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] CharacterCreationKarmaSkillsQuote? Skills = null);
 
 public sealed record CharacterCreationKarmaMetatypeConfirmRequest(
     CharacterCreationKarmaMetatypeBinding Binding,
@@ -75,7 +83,8 @@ public sealed record CharacterCreationKarmaMetatypeConfirmRequest(
     Guid OperationId,
     bool ExplicitlyConfirmed,
     string? TalentOptionId = null,
-    IReadOnlyList<CharacterCreationKarmaAttributeAllocation>? AttributeAllocations = null);
+    IReadOnlyList<CharacterCreationKarmaAttributeAllocation>? AttributeAllocations = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] CharacterCreationKarmaSkillsSelection? SkillsSelection = null);
 
 /// <summary>Pending selection only: no character effects or finalization.</summary>
 public sealed record CharacterCreationKarmaMetatypeDecision(

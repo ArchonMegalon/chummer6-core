@@ -46,7 +46,19 @@ public sealed record CharacterCreationKarmaSkillGroupProjection(
     bool IsBroken,
     IReadOnlyList<string> Blockers);
 
-/// <summary>Read-only pending allocation; no persistence or finalization authority.</summary>
+/// <summary>
+/// Only the selected skills, complete affected groups and selected talent. This
+/// permits offline arithmetic validation, not admission against current sources.
+/// CatalogDigest on the quote identifies the full source catalog separately.
+/// </summary>
+public sealed record CharacterCreationKarmaSkillsBasis(
+    CharacterCreationSkillsCatalog Catalog,
+    CharacterCreationKarmaTalentCatalog Talents);
+
+/// <summary>
+/// Read-only calculation, not a mutation authorization. CatalogDigest binds the
+/// full source catalog; Access covers only Basis.Catalog, not all picker choices.
+/// </summary>
 public sealed record CharacterCreationKarmaSkillsQuote(
     string Schema,
     CharacterCreationKarmaSkillsPolicy Policy,
@@ -62,7 +74,8 @@ public sealed record CharacterCreationKarmaSkillsQuote(
     int KarmaAvailable,
     decimal KarmaUsed,
     IReadOnlyList<string> Blockers,
-    string QuoteDigest)
+    string QuoteDigest,
+    CharacterCreationKarmaSkillsBasis Basis)
 {
     public const string SchemaV1 = "chummer.character_creation_karma_skills_quote.v1";
     public bool CanSelect => Blockers.Count == 0;

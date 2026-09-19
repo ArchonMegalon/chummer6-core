@@ -38,6 +38,216 @@ public sealed class CharacterCreationBootstrapServiceTests
     private const string MagicianId = "0e741331-d776-4be8-abc5-4101228abdef";
 
     [TestMethod]
+    public void Karma_skills_confirmation_persists_compact_basis_and_reopens_with_exact_shared_budget()
+    {
+        using var fixture = new KarmaDiskFixture(includeSkills: true);
+        Assert.IsNull(fixture.Service.Load(fixture.Id).Value!.SkillsCatalog, "First metatype page must not load the skills catalog.");
+        var (catalog, _, _) = KarmaSkillsSources(fixture);
+        var selection = GroupAndKnowledge(catalog);
+        var request = fixture.Request(HumanId, "mundane", [new("BOD", 2)], selection);
+        var before = fixture.Store.Get(fixture.Id).Value!;
+        var result = fixture.Service.Confirm(request);
+        Assert.IsNotNull(result.Value, string.Join(",", result.Blockers));
+        Assert.IsFalse(result.Value.Replayed);
+        var coldStore = new FileWorkspaceStore(fixture.StateRoot);
+        var saved = coldStore.Get(fixture.Id).Value!;
+        Assert.AreEqual(before.Document.Content, saved.Document.Content, "Pending allocation must not apply XML effects.");
+        Assert.AreEqual(before.ContentRevision + 1, saved.ContentRevision);
+        Assert.AreEqual(saved.ContentRevision, saved.SavedRevision);
+        var cold = new CharacterCreationKarmaMetatypeService(coldStore, fixture.Resolver);
+        var loaded = cold.Load(fixture.Id);
+        Assert.IsNotNull(loaded.Value, string.Join(",", loaded.Blockers));
+        Assert.AreEqual(688m, loaded.Value.KarmaBudget.Remaining); // BOD:25; Firearms:78; knowledge:9.
+        var skills = loaded.Value.Selection!.Quote.Skills!;
+        Assert.AreEqual(87m, skills.KarmaUsed);
+        Assert.AreEqual(775, skills.KarmaAvailable);
+        Assert.AreEqual(3, skills.Basis.Catalog.ActiveSkills.Count);
+        Assert.AreEqual(2, skills.Basis.Catalog.KnowledgeSkills.Count);
+        Assert.AreEqual(1, skills.Basis.Talents.Options.Count);
+        Assert.AreEqual(catalog.CatalogDigest, skills.CatalogDigest);
+        Assert.AreNotEqual(skills.CatalogDigest, skills.Basis.Catalog.CatalogDigest);
+        Assert.AreEqual(skills.Basis.Catalog.CatalogDigest, skills.Access.CatalogDigest,
+            "Subset permissions must not advertise the identity of the complete picker catalog.");
+        Assert.IsLessThan(128 * 1024, JsonSerializer.SerializeToUtf8Bytes(loaded.Value.Selection).Length);
+        Assert.IsTrue(cold.Confirm(request).Value!.Replayed);
+        AssertJsonEqual(saved, coldStore.Get(fixture.Id).Value!);
+        CollectionAssert.Contains(cold.Preview(loaded.Value.Binding, HumanId, "mundane", []).Blockers.ToArray(),
+            CharacterCreationKarmaMetatypeBlockers.SkillsSelectionRequired);
+        var clear = cold.Preview(loaded.Value.Binding, HumanId, "mundane", [], new([NativeEnglish(catalog)], [])).Value!;
+        Assert.IsTrue(clear.CanSelect);
+        Assert.AreEqual(800m, clear.KarmaBudget.Remaining);
+        Assert.IsNotNull(cold.Confirm(new(clear.Binding, HumanId, clear.QuoteDigest, Guid.NewGuid(), true,
+            "mundane", [], new([NativeEnglish(catalog)], []))).Value);
+        Assert.AreEqual(800m, cold.Load(fixture.Id).Value!.KarmaBudget.Remaining);
+    }
+
+    [TestMethod]
+    public void Karma_skills_confirmation_rejects_overspend_missing_attributes_and_stale_preview()
+    {
+        using var fixture = new KarmaDiskFixture(budget: 100, includeSkills: true);
+        var (catalog, _, _) = KarmaSkillsSources(fixture);
+        var selection = GroupAndKnowledge(catalog);
+        var state = fixture.Service.Load(fixture.Id, includeSkills: true).Value!;
+        CollectionAssert.Contains(fixture.Service.Preview(state.Binding, HumanId, "mundane", null, selection).Blockers.ToArray(),
+            CharacterCreationKarmaMetatypeBlockers.AttributeSelectionRequired);
+        var expensive = fixture.Request(HumanId, "mundane", [new("BOD", 2)], selection);
+        var before = fixture.Store.Get(fixture.Id).Value!;
+        Assert.IsNull(fixture.Service.Confirm(expensive).Value);
+        AssertJsonEqual(before, fixture.Store.Get(fixture.Id).Value!);
+        var valid = fixture.Request(HumanId, "mundane", [], selection);
+        var other = fixture.Request(HumanId, "mundane", [], new([NativeEnglish(catalog)], []));
+        Assert.IsNotNull(fixture.Service.Confirm(valid).Value);
+        var saved = fixture.Store.Get(fixture.Id).Value!;
+        Assert.IsNull(fixture.Service.Confirm(other).Value);
+        AssertJsonEqual(saved, fixture.Store.Get(fixture.Id).Value!);
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void Karma_skills_confirmation_rejects_weapon_source_drift_before_commit(bool duringWrite)
+    {
+        using var fixture = new KarmaDiskFixture(includeSkills: true);
+        var (catalog, _, _) = KarmaSkillsSources(fixture);
+        var request = fixture.Request(HumanId, "mundane", [], GroupAndKnowledge(catalog));
+        var before = fixture.Store.Get(fixture.Id).Value!;
+        void Change() => fixture.EditWeapon("Ares Predator V", row => row.SetElementValue("name", "Changed source"));
+        if (duringWrite) fixture.Fault.Action = stage => { if (stage == FileWorkspaceStoreFaultStage.AfterTempFileFlushed) Change(); };
+        else Change();
+        Assert.IsNull(fixture.Service.Confirm(request).Value);
+        fixture.Fault.Action = null;
+        AssertJsonEqual(before, new FileWorkspaceStore(fixture.StateRoot).Get(fixture.Id).Value!);
+    }
+
+    [TestMethod]
+    public void Karma_skills_confirmation_does_not_rebind_saved_choices_after_source_drift()
+    {
+        using var fixture = new KarmaDiskFixture(includeSkills: true);
+        var (catalog, _, _) = KarmaSkillsSources(fixture);
+        var request = fixture.Request(HumanId, "mundane", [], GroupAndKnowledge(catalog));
+        Assert.IsNotNull(fixture.Service.Confirm(request).Value);
+        var saved = fixture.Store.Get(fixture.Id).Value!;
+        fixture.EditSkill("Pistols", row => row.SetElementValue("attribute", "LOG"));
+        CollectionAssert.Contains(fixture.Service.Load(fixture.Id).Blockers.ToArray(), CharacterCreationKarmaMetatypeBlockers.StaleBinding);
+        AssertJsonEqual(saved, fixture.Store.Get(fixture.Id).Value!);
+        Assert.IsTrue(fixture.Service.Confirm(request).Value!.Replayed, "An exact receipt retry is not a new source admission.");
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void Karma_skills_confirmation_recovers_atomic_io_result_without_replaying_mutation(bool afterReplace)
+    {
+        using var fixture = new KarmaDiskFixture(includeSkills: true);
+        var (catalog, _, _) = KarmaSkillsSources(fixture);
+        var request = fixture.Request(HumanId, "mundane", [], GroupAndKnowledge(catalog));
+        var before = fixture.Store.Get(fixture.Id).Value!;
+        fixture.Fault.Action = stage =>
+        {
+            if (stage == (afterReplace ? FileWorkspaceStoreFaultStage.AfterTargetReplaced : FileWorkspaceStoreFaultStage.AfterTempFileFlushed))
+                throw new IOException("Injected skill commit failure");
+        };
+        var result = fixture.Service.Confirm(request);
+        fixture.Fault.Action = null;
+        var cold = new FileWorkspaceStore(fixture.StateRoot).Get(fixture.Id).Value!;
+        Assert.AreEqual(afterReplace, result.Value is not null);
+        if (afterReplace)
+        {
+            Assert.IsFalse(result.Value!.Replayed, "The store already knows its atomic rename committed; diagnostic failure is not a retry.");
+            var service = new CharacterCreationKarmaMetatypeService(new FileWorkspaceStore(fixture.StateRoot), fixture.Resolver);
+            Assert.IsTrue(service.Confirm(request).Value!.Replayed);
+            Assert.AreEqual(before.ContentRevision + 1, cold.ContentRevision);
+            Assert.AreEqual(1, cold.Document.AuxiliaryState.CharacterCreationKarmaMetatypeDecisions!.Count);
+        }
+        else AssertJsonEqual(before, cold);
+    }
+
+    [TestMethod]
+    public async Task Karma_skills_confirmation_concurrent_duplicates_commit_once()
+    {
+        using var fixture = new KarmaDiskFixture(includeSkills: true);
+        var (catalog, _, _) = KarmaSkillsSources(fixture);
+        var request = fixture.Request(HumanId, "mundane", [], GroupAndKnowledge(catalog));
+        var other = new CharacterCreationKarmaMetatypeService(new FileWorkspaceStore(fixture.StateRoot), fixture.Resolver);
+        var results = await Task.WhenAll(Task.Run(() => fixture.Service.Confirm(request)), Task.Run(() => other.Confirm(request)));
+        Assert.IsTrue(results.All(result => result.Value is not null), string.Join(",", results.SelectMany(result => result.Blockers)));
+        Assert.AreEqual(1, results.Count(result => !result.Value!.Replayed));
+        Assert.AreEqual(request.Binding.ContentRevision + 1, fixture.Store.Get(fixture.Id).Value!.ContentRevision);
+    }
+
+    [TestMethod]
+    public void Karma_skills_confirmation_freezes_collections_and_rejects_forged_rehashed_costs()
+    {
+        using var fixture = new KarmaDiskFixture(includeSkills: true);
+        var (catalog, _, _) = KarmaSkillsSources(fixture);
+        var selection = GroupAndKnowledge(catalog);
+        var skills = selection.Skills.ToArray();
+        var groups = selection.Groups.ToArray();
+        var request = fixture.Request(HumanId, "mundane", [], new(skills, groups));
+        fixture.Fault.Action = stage =>
+        {
+            if (stage == FileWorkspaceStoreFaultStage.AfterTempFileFlushed)
+            {
+                skills[0] = skills[0] with { KarmaLevels = 99 };
+                groups[0] = groups[0] with { KarmaLevels = 99 };
+            }
+        };
+        Assert.IsNotNull(fixture.Service.Confirm(request).Value);
+        fixture.Fault.Action = null;
+        Assert.IsNull(fixture.Service.Confirm(request).Value);
+        var saved = fixture.Store.Get(fixture.Id).Value!;
+        var decision = saved.Document.AuxiliaryState.CharacterCreationKarmaMetatypeDecisions![0];
+        Assert.AreEqual(87m, decision.Quote.Skills!.KarmaUsed);
+        var forged = decision.Quote.Skills with { KarmaUsed = 0, QuoteDigest = string.Empty };
+        forged = forged with { QuoteDigest = CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(forged) };
+        var quote = decision.Quote with { Skills = forged, QuoteDigest = string.Empty,
+            KarmaBudget = decision.Quote.KarmaBudget with { Used = 0, Remaining = 800 } };
+        quote = quote with { QuoteDigest = CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(quote) };
+        decision = decision with { Quote = quote, Command = decision.Command with { QuoteDigest = quote.QuoteDigest } };
+        decision = decision with { DecisionDigest = CharacterCreationKarmaMetatypeTransaction.DecisionDigest(decision) };
+        Assert.IsFalse(CharacterCreationKarmaMetatypeTransaction.IsValidLedger(fixture.Id, saved.ContentRevision,
+            saved.Document.AuxiliaryState with { CharacterCreationKarmaMetatypeDecisions = [decision] }));
+    }
+
+    private static CharacterCreationKarmaSkillsSelection GroupAndKnowledge(CharacterCreationSkillsCatalog catalog)
+    {
+        var group = catalog.SkillGroups.Single(item => item.Name == "Firearms");
+        var knowledge = catalog.KnowledgeSkills.Single(item => item.Name == "Sprawl Life");
+        return new(group.MemberSkillSourceIds.Select(id => new CharacterCreationKarmaSkillAllocation(id, CharacterCreationSkillKinds.Active, 2))
+            .Append(NativeEnglish(catalog)).Append(new(knowledge.SourceSkillId, knowledge.Kind, 2, 3,
+                SpecializationOptionId: knowledge.Specializations.First().OptionId, SpecializationPayment: "knowledge-point")).ToArray(),
+            [new(group.GroupId, 3)]);
+    }
+
+    [TestMethod]
+    [DataRow("attributes")]
+    [DataRow("talent")]
+    public void Karma_skills_confirmation_revisit_revalidates_dependent_spending_without_mutation(string changedStep)
+    {
+        using var fixture = new KarmaDiskFixture(includeSkills: true);
+        var (catalog, _, _) = KarmaSkillsSources(fixture);
+        var knowledge = catalog.KnowledgeSkills.Single(skill => skill.Name == "Sprawl Life");
+        var spellcasting = catalog.ActiveSkills.Single(skill => skill.Name == "Spellcasting");
+        var selection = new CharacterCreationKarmaSkillsSelection([NativeEnglish(catalog),
+            new(knowledge.SourceSkillId, knowledge.Kind, 0, 5, SpecializationOptionId: knowledge.Specializations.First().OptionId,
+                SpecializationPayment: "knowledge-point"), new(spellcasting.SourceSkillId, spellcasting.Kind, 1)], []);
+        CharacterCreationKarmaAttributeAllocation[] attributes = [new("INT", 1), new("LOG", 1)];
+        Assert.IsNotNull(fixture.Service.Confirm(fixture.Request(HumanId, MagicianId, attributes, selection)).Value);
+        var saved = fixture.Store.Get(fixture.Id).Value!;
+        var state = fixture.Service.Load(fixture.Id).Value!;
+        string talent = changedStep == "talent" ? "mundane" : MagicianId;
+        var nextAttributes = changedStep == "attributes" ? Array.Empty<CharacterCreationKarmaAttributeAllocation>() : attributes;
+        var quote = fixture.Service.Preview(state.Binding, HumanId, talent, nextAttributes, selection).Value!;
+        Assert.IsNotNull(quote);
+        Assert.IsFalse(quote.CanSelect);
+        CollectionAssert.Contains(quote.Blockers.ToArray(), changedStep == "attributes"
+            ? CharacterCreationSkillsBlockers.KnowledgeBudgetExceeded : CharacterCreationSkillsBlockers.TalentAccessRequired);
+        Assert.IsNull(fixture.Service.Confirm(new(quote.Binding, HumanId, quote.QuoteDigest, Guid.NewGuid(), true,
+            talent, nextAttributes, selection)).Value);
+        AssertJsonEqual(saved, new FileWorkspaceStore(fixture.StateRoot).Get(fixture.Id).Value!);
+    }
+
+    [TestMethod]
     [DataRow("knowledge-point", 4, 9)]
     [DataRow("karma", 3, 16)]
     public void Karma_skills_allocation_separates_knowledge_points_and_karma(string payment, int points, int karma)
@@ -1430,11 +1640,12 @@ public sealed class CharacterCreationBootstrapServiceTests
     }
 
     [TestMethod]
-    [DataRow(null)]
-    [DataRow(MagicianId)]
-    public void Karma_metatype_confirmation_is_owner_scoped_and_rejects_expired_owner_stamp(string? talentId)
+    [DataRow(null, false)]
+    [DataRow(MagicianId, false)]
+    [DataRow(MagicianId, true)]
+    public void Karma_metatype_confirmation_is_owner_scoped_and_rejects_expired_owner_stamp(string? talentId, bool withSkills)
     {
-        using var fixture = new KarmaDiskFixture();
+        using var fixture = new KarmaDiskFixture(includeSkills: withSkills);
         using var ownerA = new RequestOwnerContextAccessor(new("karma-owner-a"));
         using var ownerB = new RequestOwnerContextAccessor(new("karma-owner-b"));
         var bootstrap = new OwnerBoundCharacterCreationBootstrapService(
@@ -1445,10 +1656,12 @@ public sealed class CharacterCreationBootstrapServiceTests
         var id = created.Value.WorkspaceId;
         var serviceA = new OwnerBoundCharacterCreationKarmaMetatypeService(fixture.Store, ownerA, fixture.Resolver);
         var serviceB = new OwnerBoundCharacterCreationKarmaMetatypeService(fixture.Store, ownerB, fixture.Resolver);
-        var state = serviceA.Load(stamp, id).Value!;
-        var quote = serviceA.Preview(stamp, state.Binding, "b3259991-b315-4dbe-ae3c-51f71a1116e2", talentId).Value!;
+        var state = serviceA.Load(stamp, id, includeSkills: withSkills).Value!;
+        var skills = withSkills ? GroupAndKnowledge(KarmaSkillsSources(fixture).Catalog) : null;
+        CharacterCreationKarmaAttributeAllocation[]? attributes = withSkills ? [] : null;
+        var quote = serviceA.Preview(stamp, state.Binding, "b3259991-b315-4dbe-ae3c-51f71a1116e2", talentId, attributes, skills).Value!;
         var request = new CharacterCreationKarmaMetatypeConfirmRequest(quote.Binding, quote.Metatype.OptionId,
-            quote.QuoteDigest, Guid.NewGuid(), true, talentId);
+            quote.QuoteDigest, Guid.NewGuid(), true, talentId, attributes, skills);
         Assert.IsNull(serviceB.Confirm(ownerB.Capture(), request).Value);
         Assert.IsNull(fixture.Service.Confirm(request).Value);
         Assert.IsNotNull(serviceA.Confirm(stamp, request).Value);
@@ -1472,14 +1685,16 @@ public sealed class CharacterCreationBootstrapServiceTests
     }
 
     [TestMethod]
-    [DataRow(null, false)]
-    [DataRow(MagicianId, false)]
-    [DataRow(MagicianId, true)]
-    public void Karma_metatype_confirmation_continuation_preserves_selection_but_not_foreign_replay_authority(string? talentId, bool withAttributes)
+    [DataRow(null, false, false)]
+    [DataRow(MagicianId, false, false)]
+    [DataRow(MagicianId, true, false)]
+    [DataRow(MagicianId, true, true)]
+    public void Karma_metatype_confirmation_continuation_preserves_selection_but_not_foreign_replay_authority(string? talentId, bool withAttributes, bool withSkills)
     {
         using var fixture = new KarmaDiskFixture(fullSources: true);
         CharacterCreationKarmaAttributeAllocation[]? allocations = withAttributes ? [new("BOD", 2)] : null;
-        var request = fixture.Request("b3259991-b315-4dbe-ae3c-51f71a1116e2", talentId, allocations);
+        CharacterCreationKarmaSkillsSelection? skills = withSkills ? GroupAndKnowledge(KarmaSkillsSources(fixture).Catalog) : null;
+        var request = fixture.Request("b3259991-b315-4dbe-ae3c-51f71a1116e2", talentId, allocations, skills);
         Assert.IsNotNull(fixture.Service.Confirm(request).Value);
         var owner = new LocalOwnerContextAccessor();
         var exported = new WorkspaceContinuationExportService(fixture.Store, owner).Export(owner.Capture(), fixture.Id);
@@ -1499,11 +1714,11 @@ public sealed class CharacterCreationBootstrapServiceTests
         var service = new CharacterCreationKarmaMetatypeService(target, fixture.Resolver);
         var state = service.Load(fixture.Id).Value!;
         Assert.AreEqual("Elf", state.Selection!.Quote.Metatype.Label);
-        Assert.AreEqual((talentId is null ? 760m : 730m) - (withAttributes ? 25m : 0m), state.KarmaBudget.Remaining);
+        Assert.AreEqual((talentId is null ? 760m : 730m) - (withAttributes ? 25m : 0m) - (withSkills ? 87m : 0m), state.KarmaBudget.Remaining);
         Assert.AreEqual(talentId, state.Selection.Quote.Talent?.OptionId);
         CollectionAssert.Contains(service.Confirm(request).Blockers.ToArray(), CharacterCreationKarmaMetatypeBlockers.IdempotencyConflict);
-        var next = service.Preview(state.Binding, "a53d885d-a4a4-443d-b6a6-b0a55b0a96c7", talentId, allocations).Value!;
-        Assert.IsNotNull(service.Confirm(new(next.Binding, next.Metatype.OptionId, next.QuoteDigest, Guid.NewGuid(), true, talentId, allocations)).Value);
+        var next = service.Preview(state.Binding, "a53d885d-a4a4-443d-b6a6-b0a55b0a96c7", talentId, allocations, skills).Value!;
+        Assert.IsNotNull(service.Confirm(new(next.Binding, next.Metatype.OptionId, next.QuoteDigest, Guid.NewGuid(), true, talentId, allocations, skills)).Value);
     }
 
     [TestMethod]
@@ -1561,13 +1776,14 @@ public sealed class CharacterCreationBootstrapServiceTests
             Service = new(Store, Resolver);
         }
         public CharacterCreationKarmaMetatypeConfirmRequest Request(string optionId, string? talentId = null,
-            IReadOnlyList<CharacterCreationKarmaAttributeAllocation>? allocations = null)
+            IReadOnlyList<CharacterCreationKarmaAttributeAllocation>? allocations = null,
+            CharacterCreationKarmaSkillsSelection? skills = null)
         {
-            var state = Service.Load(Id);
+            var state = Service.Load(Id, includeSkills: skills is not null);
             Assert.IsNotNull(state.Value, string.Join(",", state.Blockers));
-            var quote = Service.Preview(state.Value.Binding, optionId, talentId, allocations);
+            var quote = Service.Preview(state.Value.Binding, optionId, talentId, allocations, skills);
             Assert.IsNotNull(quote.Value, string.Join(",", quote.Blockers));
-            return new(quote.Value.Binding, optionId, quote.Value.QuoteDigest, Guid.NewGuid(), true, talentId, allocations);
+            return new(quote.Value.Binding, optionId, quote.Value.QuoteDigest, Guid.NewGuid(), true, talentId, allocations, skills);
         }
         public void RemoveQualitySource() => File.Delete(Path.Combine(_root, "data", "qualities.xml"));
         public void EditSkill(string name, Action<XElement> change)

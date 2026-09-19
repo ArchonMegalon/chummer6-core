@@ -14,8 +14,19 @@ public static class CharacterCreationKarmaSkillAccessRules
     public static CharacterCreationKarmaSkillAccess? Evaluate(CharacterCreationSkillsCatalog catalog,
         CharacterCreationKarmaTalentCatalog talents, CharacterCreationMetatypeOptionProjection metatype,
         string talentOptionId, string? selectedUnlock = null)
+        => EvaluateCore(catalog, talents, metatype, talentOptionId, selectedUnlock, retainedSubset: false);
+
+    internal static CharacterCreationKarmaSkillAccess? EvaluateSubset(CharacterCreationSkillsCatalog catalog,
+        CharacterCreationKarmaTalentCatalog talents, CharacterCreationMetatypeOptionProjection metatype,
+        string talentOptionId, string? selectedUnlock)
+        => EvaluateCore(catalog, talents, metatype, talentOptionId, selectedUnlock, retainedSubset: true);
+
+    private static CharacterCreationKarmaSkillAccess? EvaluateCore(CharacterCreationSkillsCatalog catalog,
+        CharacterCreationKarmaTalentCatalog talents, CharacterCreationMetatypeOptionProjection metatype,
+        string talentOptionId, string? selectedUnlock, bool retainedSubset)
     {
-        if (!CharacterCreationSkillsCatalogAuthority.IsValid(catalog)
+        if (!(retainedSubset ? CharacterCreationSkillsCatalogAuthority.IsValidSubset(catalog)
+                : CharacterCreationSkillsCatalogAuthority.IsValid(catalog))
             || talents is not { Schema: CharacterCreationKarmaTalentCatalog.SchemaV1,
                 Options: not null, KarmaQuality: > 0 }
             || talents.SettingsProfileId != catalog.SettingsProfileId

@@ -49,13 +49,60 @@ public static class CharacterCreationKarmaSkillsRules
         CharacterCreationKarmaAttributesQuote attributes, int karmaAvailable,
         CharacterCreationKarmaSkillsSelection selection)
     {
+        if (!CharacterCreationSkillsCatalogAuthority.IsValid(catalog) || !TryFreeze(selection, out var frozen)
+            || CharacterCreationKarmaSkillAccessRules.Evaluate(catalog, talents, metatype, talentId, frozen.TalentUnlock) is null)
+            return null;
+        var activeIds = frozen.Skills.Where(item => item.Kind == CharacterCreationSkillKinds.Active)
+            .Select(item => item.SourceSkillId).ToHashSet(StringComparer.Ordinal);
+        var knowledgeIds = frozen.Skills.Where(item => item.Kind == CharacterCreationSkillKinds.Knowledge)
+            .Select(item => item.SourceSkillId).ToHashSet(StringComparer.Ordinal);
+        var groupIds = frozen.Groups.Select(item => item.GroupId).ToHashSet(StringComparer.Ordinal);
+        var groups = catalog.SkillGroups.Where(group => groupIds.Contains(group.GroupId)
+            || group.MemberSkillSourceIds.Any(activeIds.Contains)).ToArray();
+        foreach (var group in groups) activeIds.UnionWith(group.MemberSkillSourceIds);
+        var subset = catalog with
+        {
+            ActiveSkills = catalog.ActiveSkills.Where(item => activeIds.Contains(item.SourceSkillId)).ToArray(),
+            KnowledgeSkills = catalog.KnowledgeSkills.Where(item => knowledgeIds.Contains(item.SourceSkillId)).ToArray(),
+            SkillGroups = groups,
+            ActiveSkillSourceOrder = catalog.ActiveSkillSourceOrder.Where(activeIds.Contains).ToArray()
+        };
+        subset = subset with { CatalogDigest = CharacterCreationSkillsCatalogAuthority.ComputeDigest(subset) };
+        var selectedTalents = talents with { Options = talents.Options.Where(item => item.OptionId == talentId).ToArray() };
+        selectedTalents = selectedTalents with { AuthorityDigest = CharacterCreationKarmaTalentAuthority.ComputeDigest(selectedTalents) };
+        return EvaluateCore(subset, policy, selectedTalents, metatype, talentId, attributes, karmaAvailable, frozen, catalog.CatalogDigest);
+    }
+
+    public static bool IsValid(CharacterCreationKarmaSkillsQuote? quote,
+        CharacterCreationMetatypeOptionProjection metatype, CharacterCreationKarmaTalentOption? talent,
+        CharacterCreationKarmaAttributesQuote? attributes, CharacterCreationKarmaSkillsSelection? selection)
+    {
+        if (quote is null) return selection is null;
+        if (quote is not { Schema: CharacterCreationKarmaSkillsQuote.SchemaV1, Blockers.Count: 0,
+                Basis.Catalog: not null, Basis.Talents.Options.Count: 1 }
+            || talent is null || attributes is null || selection is null
+            || !CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(talent, quote.Basis.Talents.Options[0])) return false;
+        var expected = EvaluateCore(quote.Basis.Catalog, quote.Policy, quote.Basis.Talents, metatype, talent.OptionId,
+            attributes, quote.KarmaAvailable, selection, quote.CatalogDigest);
+        return expected is not null && CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(expected, quote);
+    }
+
+    private static CharacterCreationKarmaSkillsQuote? EvaluateCore(CharacterCreationSkillsCatalog catalog,
+        CharacterCreationKarmaSkillsPolicy policy, CharacterCreationKarmaTalentCatalog talents,
+        CharacterCreationMetatypeOptionProjection metatype, string talentId,
+        CharacterCreationKarmaAttributesQuote attributes, int karmaAvailable,
+        CharacterCreationKarmaSkillsSelection selection, string fullCatalogDigest)
+    {
         if (catalog is null || !TryFreeze(selection, out var frozen) || karmaAvailable < 0 || !IsPolicyValid(policy)
+            || !CharacterCreationSkillsDigest.IsCanonical(fullCatalogDigest)
             || policy.SettingsProfileId != catalog.SettingsProfileId || policy.RawProfileInputsDigest != catalog.RawProfileInputsDigest
             || attributes?.Policy is null || attributes.Policy.SettingsProfileId != policy.SettingsProfileId
             || attributes.Policy.RawProfileInputsDigest != policy.RawProfileInputsDigest) return null;
-        var access = CharacterCreationKarmaSkillAccessRules.Evaluate(catalog, talents, metatype, talentId, frozen.TalentUnlock);
+        var access = CharacterCreationKarmaSkillAccessRules.EvaluateSubset(catalog, talents, metatype, talentId, frozen.TalentUnlock);
         if (access is null || !CharacterCreationKarmaAttributesRules.IsValid(attributes, metatype,
             talents.Options.SingleOrDefault(option => option.OptionId == talentId), attributes.Allocations)) return null;
+        // Access covers this retained subset, not the complete picker catalog.
+        // Keep its subset identity; the quote binds the full catalog separately.
         var blockers = new HashSet<string>(access.Blockers, StringComparer.Ordinal);
         if (!TryKnowledgePoints(policy.KnowledgePointsExpression, attributes, out int knowledgeTotal))
             blockers.Add(KnowledgeExpressionUnresolved);
@@ -208,9 +255,9 @@ public static class CharacterCreationKarmaSkillsRules
         if (knowledgeUsed > knowledgeTotal) blockers.Add(CharacterCreationSkillsBlockers.KnowledgeBudgetExceeded);
         if (used > karmaAvailable) blockers.Add(KarmaBudgetExceeded);
         var quote = new CharacterCreationKarmaSkillsQuote(CharacterCreationKarmaSkillsQuote.SchemaV1,
-            policy, catalog.CatalogDigest, attributes.QuoteDigest, access, frozen,
+            policy, fullCatalogDigest, attributes.QuoteDigest, access, frozen,
             projectedSkills.ToArray(), projectedGroups.OrderBy(group => group.Allocation.GroupId, StringComparer.Ordinal).ToArray(),
-            knowledgeTotal, knowledgeUsed, natives, karmaAvailable, used, Ordered(blockers), string.Empty);
+            knowledgeTotal, knowledgeUsed, natives, karmaAvailable, used, Ordered(blockers), string.Empty, new(catalog, talents));
         return quote with { QuoteDigest = CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(quote) };
     }
 

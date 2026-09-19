@@ -10,14 +10,15 @@ public sealed class OwnerBoundCharacterCreationKarmaMetatypeService(
     : IOwnerBoundCharacterCreationKarmaMetatypeService
 {
     public CharacterCreationFoundationResult<CharacterCreationKarmaMetatypeState> Load(
-        OwnerContextStamp expectedOwner, CharacterWorkspaceId id)
-        => Invoke(expectedOwner, id, service => service.Load(id));
+        OwnerContextStamp expectedOwner, CharacterWorkspaceId id, bool includeSkills = false)
+        => Invoke(expectedOwner, id, service => service.Load(id, includeSkills));
 
     public CharacterCreationFoundationResult<CharacterCreationKarmaMetatypeQuote> Preview(
         OwnerContextStamp expectedOwner, CharacterCreationKarmaMetatypeBinding binding, string optionId,
         string? talentOptionId = null,
-        IReadOnlyList<CharacterCreationKarmaAttributeAllocation>? attributeAllocations = null)
-        => Invoke(expectedOwner, binding.WorkspaceId, service => service.Preview(binding, optionId, talentOptionId, attributeAllocations));
+        IReadOnlyList<CharacterCreationKarmaAttributeAllocation>? attributeAllocations = null,
+        CharacterCreationKarmaSkillsSelection? skillsSelection = null)
+        => Invoke(expectedOwner, binding.WorkspaceId, service => service.Preview(binding, optionId, talentOptionId, attributeAllocations, skillsSelection));
 
     public CharacterCreationFoundationResult<CharacterCreationKarmaMetatypeCommit> Confirm(
         OwnerContextStamp expectedOwner, CharacterCreationKarmaMetatypeConfirmRequest request)
