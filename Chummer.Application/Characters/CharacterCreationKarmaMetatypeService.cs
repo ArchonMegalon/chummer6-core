@@ -90,6 +90,19 @@ public sealed class CharacterCreationKarmaMetatypeService(
                     CharacterCreationKarmaMetatypeBlockers.MetatypeAuthorityRequired);
             }
 
+            // Attribute costs do not require Priority ranks. A missing policy
+            // leaves that later editor unavailable, not a guessed cost of five.
+            if (!context.TryResolveCreationAttributePolicy(out var attributePolicy))
+                attributePolicy = null;
+            if (attributePolicy is not null && (attributePolicy.Schema != CharacterCreationAttributePolicy.SchemaV1
+                || attributePolicy.SettingsProfileId != profile.SettingsProfileId
+                || attributePolicy.BuildMethod != CharacterCreationBuildMethods.Karma
+                || attributePolicy.KarmaAttribute <= 0 || attributePolicy.MaxNumberMaxAttributesCreate < 0
+                || attributePolicy.SourceAnchorIds is not { Count: > 0 }
+                || attributePolicy.RawProfileInputsDigest != profile.RawProfileInputsDigest
+                || attributePolicy.AuthorityDigest != CharacterCreationAttributePolicyAuthority.ComputeDigest(attributePolicy)))
+                attributePolicy = null;
+
             // Admit the source capture again after catalog resolution, then the
             // persisted workspace. A source or workspace changed during load is
             // not a usable UI selection even if its initial read was valid.
@@ -129,7 +142,7 @@ public sealed class CharacterCreationKarmaMetatypeService(
             var state = new CharacterCreationKarmaMetatypeState(
                 CharacterCreationKarmaMetatypeSchemas.SnapshotV1, binding, profile.SettingsProfileId,
                 Budget(profile.BuildPoints.Value, selection?.Quote.Metatype.KarmaCost ?? 0, []),
-                catalog.Options.ToArray(), anchors, string.Empty, selection);
+                catalog.Options.ToArray(), anchors, string.Empty, selection, attributePolicy);
             state = state with
             {
                 SnapshotDigest = CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(state)

@@ -93,6 +93,17 @@ public interface ICharacterSourceDataContext
     }
 
     /// <summary>
+    /// Resolves attribute costs and limits without requiring a Priority table.
+    /// False means the selected profile is missing, malformed or has drifted;
+    /// callers must not substitute a multiplier or enable special attributes.
+    /// </summary>
+    bool TryResolveCreationAttributePolicy(out CharacterCreationAttributePolicy? policy)
+    {
+        policy = null;
+        return false;
+    }
+
+    /// <summary>
     /// Resolves the exact SR5 Priority Skills catalog and creation policies from the
     /// runner's saved profile and effective Skills overlay. False means the Skills
     /// wizard must remain unavailable rather than using UI defaults.

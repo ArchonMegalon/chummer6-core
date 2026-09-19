@@ -2023,6 +2023,29 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             return true;
         }
 
+        public bool TryResolveCreationAttributePolicy(out CharacterCreationAttributePolicy? policy)
+        {
+            using IDisposable sourceInputScope = _sourceInputs.Enter();
+            policy = null;
+            if (_sourceInputs.HasSourceDrift || string.IsNullOrWhiteSpace(_settingsProfileId)
+                || !CharacterCreationBuildMethods.IsSupported(_buildMethod)
+                || !CharacterCreationPrerequisiteAuthorityDigest.IsCanonical(_rawProfileInputsDigest)
+                || _karmaAttribute is not > 0 || _maxNumberMaxAttributesCreate is not >= 0
+                || _alternateMetatypeAttributeKarma is null || _reverseAttributePriorityOrder is null)
+                return false;
+            var result = new CharacterCreationAttributePolicy(
+                CharacterCreationAttributePolicy.SchemaV1, _settingsProfileId, _buildMethod,
+                _karmaAttribute.Value, _maxNumberMaxAttributesCreate.Value,
+                _alternateMetatypeAttributeKarma.Value, _reverseAttributePriorityOrder.Value,
+                _rawProfileInputsDigest,
+                [$"settings.xml#setting:{_settingsProfileId}"], string.Empty);
+            policy = result with
+            {
+                AuthorityDigest = CharacterCreationAttributePolicyAuthority.ComputeDigest(result)
+            };
+            return true;
+        }
+
         public bool TryResolveCreationPrerequisiteAuthority(
             out CharacterCreationPrerequisiteAuthority authority)
         {

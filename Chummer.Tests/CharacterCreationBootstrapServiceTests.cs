@@ -34,6 +34,127 @@ public sealed class CharacterCreationBootstrapServiceTests
         CharacterCreationBootstrapProfiles.LifeModulesSettingsProfileId;
 
     [TestMethod]
+    [DataRow(1, 0, 5, 0)]
+    [DataRow(1, 1, 5, 10)]
+    [DataRow(1, 5, 5, 100)]
+    [DataRow(2, 1, 5, 15)]
+    [DataRow(3, 3, 5, 75)]
+    [DataRow(0, 1, 5, 5)]
+    [DataRow(2, 3, 7, 84)]
+    [DataRow(0, 65535, 1, 2147450880)]
+    public void Karma_attribute_cost_is_sum_of_new_ratings_with_source_multiplier(int initial, int levels, int multiplier, int expected)
+    {
+        Assert.IsTrue(CharacterCreationAttributeCostRules.TryCalculate(initial, levels, multiplier, out int cost));
+        Assert.AreEqual(expected, cost);
+        long sum = 0;
+        for (int level = 1; level <= levels; level++) sum += (long)(initial + level) * multiplier;
+        Assert.AreEqual((long)expected, sum);
+    }
+
+    [TestMethod]
+    [DataRow(-1, 1, 5)]
+    [DataRow(1, -1, 5)]
+    [DataRow(1, 1, 0)]
+    [DataRow(1, 1, -1)]
+    [DataRow(int.MaxValue, int.MaxValue, int.MaxValue)]
+    [DataRow(0, 65536, 1)]
+    public void Karma_attribute_cost_rejects_invalid_or_unrepresentable_input(int initial, int levels, int multiplier)
+    {
+        Assert.IsFalse(CharacterCreationAttributeCostRules.TryCalculate(initial, levels, multiplier, out int cost));
+        Assert.AreEqual(0, cost);
+    }
+
+    [TestMethod]
+    public void Karma_attribute_policy_uses_real_profile_without_any_priority_source()
+    {
+        using var fixture = new KarmaDiskFixture();
+        var state = fixture.Service.Load(fixture.Id).Value!;
+        var policy = state.AttributePolicy;
+        Assert.IsNotNull(policy, "Minimal fixture has settings/metatypes but no priorities.xml.");
+        Assert.AreEqual(CharacterCreationAttributePolicy.SchemaV1, policy.Schema);
+        Assert.AreEqual(CharacterCreationBuildMethods.Karma, policy.BuildMethod);
+        Assert.AreEqual(CanonicalKarmaSettingsId, policy.SettingsProfileId);
+        Assert.AreEqual(5, policy.KarmaAttribute);
+        Assert.AreEqual(1, policy.MaxNumberMaxAttributesCreate);
+        Assert.IsFalse(policy.AlternateMetatypeAttributeKarma);
+        Assert.IsFalse(policy.ReverseAttributePriorityOrder);
+        Assert.AreEqual(state.Binding.SourceProfileDigest, policy.RawProfileInputsDigest);
+        Assert.AreEqual(policy.AuthorityDigest, CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(
+            policy with { AuthorityDigest = string.Empty }));
+    }
+
+    [TestMethod]
+    public void Karma_attribute_policy_preserves_house_rules_and_rejects_context_drift()
+    {
+        using var fixture = new KarmaDiskFixture();
+        var before = fixture.Store.Get(fixture.Id).Value!;
+        var context = fixture.Resolver.TryCreateContext(before.Document.Content)!;
+        Assert.IsTrue(context.TryResolveCreationAttributePolicy(out var old));
+        fixture.EditSettings(setting =>
+        {
+            setting.Element("karmacost")!.Element("karmaattribute")!.Value = "7";
+            setting.Element("alternatemetatypeattributekarma")!.Value = "True";
+            setting.Element("reverseattributepriorityorder")!.Value = "True";
+            setting.Elements("maxnumbermaxattributescreate").Remove();
+            setting.Add(new XElement("maxnumbermaxattributescreate", "3"));
+        });
+        Assert.IsFalse(context.TryResolveCreationAttributePolicy(out var stale));
+        Assert.IsNull(stale);
+        var fresh = fixture.Resolver.TryCreateContext(before.Document.Content)!;
+        Assert.IsTrue(fresh.TryResolveCreationAttributePolicy(out var current));
+        Assert.IsNotNull(current);
+        Assert.AreEqual(7, current.KarmaAttribute);
+        Assert.AreEqual(3, current.MaxNumberMaxAttributesCreate);
+        Assert.IsTrue(current.AlternateMetatypeAttributeKarma);
+        Assert.IsTrue(current.ReverseAttributePriorityOrder);
+        Assert.AreNotEqual(old!.AuthorityDigest, current.AuthorityDigest);
+        Assert.IsNull(fixture.Service.Load(fixture.Id).Value,
+            "A changed profile must not silently rebind a persisted bootstrap.");
+        AssertJsonEqual(before, fixture.Store.Get(fixture.Id).Value!);
+    }
+
+    [TestMethod]
+    [DataRow("missing-cost")]
+    [DataRow("duplicate-cost")]
+    [DataRow("negative-cost")]
+    [DataRow("zero-cost")]
+    [DataRow("invalid-cost")]
+    [DataRow("duplicate-cap")]
+    [DataRow("negative-cap")]
+    [DataRow("duplicate-alternate")]
+    [DataRow("missing-reverse")]
+    public void Karma_attribute_policy_rejects_malformed_settings_instead_of_defaulting(string corruption)
+    {
+        using var fixture = new KarmaDiskFixture();
+        fixture.EditSettings(setting =>
+        {
+            XElement costs = setting.Element("karmacost")!;
+            XElement multiplier = costs.Element("karmaattribute")!;
+            switch (corruption)
+            {
+                case "missing-cost": multiplier.Remove(); break;
+                case "duplicate-cost": costs.Add(new XElement(multiplier)); break;
+                case "negative-cost": multiplier.Value = "-1"; break;
+                case "zero-cost": multiplier.Value = "0"; break;
+                case "invalid-cost": multiplier.Value = "five"; break;
+                case "duplicate-cap":
+                    setting.Elements("maxnumbermaxattributescreate").Remove();
+                    setting.Add(new XElement("maxnumbermaxattributescreate", "1"), new XElement("maxnumbermaxattributescreate", "1"));
+                    break;
+                case "negative-cap":
+                    setting.Elements("maxnumbermaxattributescreate").Remove();
+                    setting.Add(new XElement("maxnumbermaxattributescreate", "-1"));
+                    break;
+                case "duplicate-alternate": setting.Add(new XElement(setting.Element("alternatemetatypeattributekarma")!)); break;
+                case "missing-reverse": setting.Element("reverseattributepriorityorder")!.Remove(); break;
+            }
+        });
+        var context = fixture.Resolver.TryCreateContext(fixture.Store.Get(fixture.Id).Value!.Document.Content)!;
+        Assert.IsFalse(context.TryResolveCreationAttributePolicy(out var policy));
+        Assert.IsNull(policy);
+    }
+
+    [TestMethod]
     public void Karma_metatype_services_are_registered_in_the_headless_runtime()
     {
         var services = new ServiceCollection();
@@ -332,11 +453,12 @@ public sealed class CharacterCreationBootstrapServiceTests
             return new(quote.Value.Binding, optionId, quote.Value.QuoteDigest, Guid.NewGuid(), true);
         }
         public void SetBudget(int budget)
+            => EditSettings(setting => setting.Element("buildpoints")!.Value = budget.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        public void EditSettings(Action<XElement> change)
         {
             string path = Path.Combine(_root, "data", "settings.xml");
             var document = XDocument.Load(path);
-            document.Descendants("setting").Single(node => node.Element("id")?.Value == CanonicalKarmaSettingsId)
-                .Element("buildpoints")!.Value = budget.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            change(document.Descendants("setting").Single(node => node.Element("id")?.Value == CanonicalKarmaSettingsId));
             document.Save(path);
         }
         public void Dispose() => Directory.Delete(_root, recursive: true);

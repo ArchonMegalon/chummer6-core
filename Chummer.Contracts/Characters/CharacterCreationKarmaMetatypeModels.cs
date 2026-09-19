@@ -42,7 +42,8 @@ public sealed record CharacterCreationKarmaMetatypeState(
     IReadOnlyList<CharacterCreationMetatypeOptionProjection> Options,
     IReadOnlyList<string> SourceAnchorIds,
     string SnapshotDigest,
-    CharacterCreationKarmaMetatypeDecision? Selection = null);
+    CharacterCreationKarmaMetatypeDecision? Selection = null,
+    CharacterCreationAttributePolicy? AttributePolicy = null);
 
 /// <summary>
 /// Read-only first-step quote, not a draft, mutation command or authorization to

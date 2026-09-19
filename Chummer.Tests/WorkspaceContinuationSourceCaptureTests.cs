@@ -23,6 +23,7 @@ public sealed class WorkspaceContinuationSourceCaptureTests
         ICharacterSourceDataContext frozen = Context(capture);
 
         Assert.IsTrue(frozen.TryResolveCreationSourceProfile(out var profile)); Same(source.Profile, profile);
+        Assert.IsTrue(frozen.TryResolveCreationAttributePolicy(out var attributePolicy)); Same(source.AttributePolicy, attributePolicy);
         Assert.IsTrue(frozen.TryResolveCreationMetatypeCatalog(out var metatypes)); Same(source.Metatypes, metatypes);
         Assert.IsTrue(frozen.TryResolveCreationPrerequisiteAuthority(out var prerequisite)); Same(source.Prerequisite, prerequisite);
         Assert.IsTrue(frozen.TryResolveCreationSkillsAuthority(out var skills)); Same(source.Skills, skills);
@@ -53,7 +54,7 @@ public sealed class WorkspaceContinuationSourceCaptureTests
             Same(catalog.Options.Where(item => item.StageId == stage.Name).ToArray(),
                 capture.LifeModules.GetOptionProjections(stage.Name, source.Books));
         }
-        Assert.AreEqual(10, source.ReadCount);
+        Assert.AreEqual(11, source.ReadCount);
     }
 
     [TestMethod]
@@ -65,6 +66,7 @@ public sealed class WorkspaceContinuationSourceCaptureTests
         string digest = capture.Digest;
         source.Books.Add("forged-book");
         source.SkillAnchors[0] = "changed-source";
+        source.AttributePolicyAnchors[0] = "changed-attribute-source";
         catalog.EffectParameters["rating"] = "99";
         catalog.Stages.Add(new(99, "Injected"));
 
@@ -75,6 +77,9 @@ public sealed class WorkspaceContinuationSourceCaptureTests
         Assert.IsTrue(frozen.TryResolveCreationSkillsAuthority(out var skills));
         Assert.AreEqual("skills.xml", skills.SourceAnchorIds[0]);
         ((IList<string>)skills.SourceAnchorIds)[0] = "returned-mutation";
+        Assert.IsTrue(frozen.TryResolveCreationAttributePolicy(out var policy));
+        Assert.AreEqual("settings.xml", policy!.SourceAnchorIds[0]);
+        ((IList<string>)policy.SourceAnchorIds)[0] = "returned-attribute-mutation";
         var option = capture.LifeModules.GetOptionProjections("Nationality", ["SR5"])[0];
         Assert.AreEqual("1", option.Effects[0].Parameters["rating"]);
         ((IDictionary<string, string>)option.Effects[0].Parameters)["rating"] = "returned-mutation";
@@ -85,6 +90,8 @@ public sealed class WorkspaceContinuationSourceCaptureTests
         CollectionAssert.AreEqual(new[] { "SR5" }, secondProfile.EnabledSourcebooks.ToArray());
         Assert.IsTrue(second.TryResolveCreationSkillsAuthority(out var secondSkills));
         Assert.AreEqual("skills.xml", secondSkills.SourceAnchorIds[0]);
+        Assert.IsTrue(second.TryResolveCreationAttributePolicy(out var secondPolicy));
+        Assert.AreEqual("settings.xml", secondPolicy!.SourceAnchorIds[0]);
         Assert.AreEqual("1", capture.LifeModules.GetOptionProjections("Nationality", ["SR5"])[0].Effects[0].Parameters["rating"]);
         Assert.HasCount(2, capture.LifeModules.GetStages());
         Assert.AreEqual(digest, capture.Digest);
@@ -93,6 +100,7 @@ public sealed class WorkspaceContinuationSourceCaptureTests
 
     [TestMethod]
     [DataRow("profile")]
+    [DataRow("attribute-policy")]
     [DataRow("metatypes")]
     [DataRow("prerequisite")]
     [DataRow("skills")]
@@ -116,6 +124,7 @@ public sealed class WorkspaceContinuationSourceCaptureTests
         switch (domain)
         {
             case "profile": source.Profile = source.Profile with { BuildPoints = 99 }; break;
+            case "attribute-policy": source.AttributePolicy = source.AttributePolicy with { KarmaAttribute = 99 }; break;
             case "metatypes": source.Metatypes = source.Metatypes with { Blockers = ["changed"] }; break;
             case "prerequisite": source.Prerequisite = source.Prerequisite with { KarmaAttribute = 99 }; break;
             case "skills": source.Skills = source.Skills with { MaxActiveSkillRatingCreate = 99 }; break;
@@ -147,6 +156,11 @@ public sealed class WorkspaceContinuationSourceCaptureTests
         Assert.IsFalse(Context(unavailable).TryResolveCreationSkillsAuthority(out var unresolvedSkills));
         Same(source.Skills, unresolvedSkills);
         Assert.IsTrue(Context(unavailable).TryResolveCreationGearAuthority(out _));
+
+        source.AttributePolicyResolved = false;
+        WorkspaceContinuationSourceCapture noAttributePolicy = Capture(source, catalog);
+        Assert.IsFalse(Context(noAttributePolicy).TryResolveCreationAttributePolicy(out _));
+        Assert.AreNotEqual(unavailable.Digest, noAttributePolicy.Digest);
 
         source.ThrowSkills = true;
         WorkspaceContinuationSourceCapture failed = Capture(source, catalog);
@@ -192,7 +206,7 @@ public sealed class WorkspaceContinuationSourceCaptureTests
         Assert.IsFalse(frozen.TryResolveActiveSkillSource("id", out _));
         Assert.IsFalse(frozen.TryResolveTraditionDrainExpressions(out _));
         Assert.IsFalse(frozen.TryResolveGroupMembershipKarmaCosts(out _, out _));
-        Assert.AreEqual(10, source.ReadCount);
+        Assert.AreEqual(11, source.ReadCount);
         Assert.AreNotEqual(capture.Digest, Capture(new Source(), new Catalog(), CharacterXml + " ").Digest);
     }
 
@@ -219,7 +233,9 @@ public sealed class WorkspaceContinuationSourceCaptureTests
     {
         public List<string> Books { get; } = ["SR5"];
         public string[] SkillAnchors { get; } = ["skills.xml"];
+        public string[] AttributePolicyAnchors { get; } = ["settings.xml"];
         public CharacterCreationSourceProfileAuthority Profile { get; set; }
+        public CharacterCreationAttributePolicy AttributePolicy { get; set; }
         public CharacterCreationMetatypeCatalogAuthority Metatypes { get; set; } = CharacterCreationMetatypeCatalogAuthority.Unavailable;
         public CharacterCreationPrerequisiteAuthority Prerequisite { get; set; } = CharacterCreationPrerequisiteAuthority.Unavailable;
         public CharacterCreationSkillsAuthority Skills { get; set; }
@@ -232,6 +248,7 @@ public sealed class WorkspaceContinuationSourceCaptureTests
         public string ReputationRawRules { get; set; } = "<settings><publicawareness>true</publicawareness></settings>";
         public bool ForbidReads { get; set; }
         public bool ProfileResolved { get; set; } = true;
+        public bool AttributePolicyResolved { get; set; } = true;
         public bool SkillsResolved { get; set; } = true;
         public bool ThrowSkills { get; set; }
         public int ReadCount { get; private set; }
@@ -239,6 +256,9 @@ public sealed class WorkspaceContinuationSourceCaptureTests
         public Source()
         {
             Profile = CharacterCreationSourceProfileAuthority.Unavailable with { EnabledSourcebooks = Books };
+            AttributePolicy = new(CharacterCreationAttributePolicy.SchemaV1, "capture.xml", "Karma",
+                5, 1, false, false, "sha256:" + new string('a', 64), AttributePolicyAnchors,
+                "sha256:" + new string('b', 64));
             Skills = CharacterCreationSkillsAuthority.Unavailable with { SourceAnchorIds = SkillAnchors };
         }
 
@@ -251,6 +271,7 @@ public sealed class WorkspaceContinuationSourceCaptureTests
         }
 
         public bool TryResolveCreationSourceProfile(out CharacterCreationSourceProfileAuthority value) => Read(Profile, out value) && ProfileResolved;
+        public bool TryResolveCreationAttributePolicy(out CharacterCreationAttributePolicy? value) => Read(AttributePolicy, out value) && AttributePolicyResolved;
         public bool TryResolveCreationMetatypeCatalog(out CharacterCreationMetatypeCatalogAuthority value) => Read(Metatypes, out value);
         public bool TryResolveCreationPrerequisiteAuthority(out CharacterCreationPrerequisiteAuthority value) => Read(Prerequisite, out value);
         public bool TryResolveCreationSkillsAuthority(out CharacterCreationSkillsAuthority value)
