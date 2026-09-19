@@ -7,7 +7,7 @@ public interface ICharacterCreationKarmaMetatypeService
 {
     CharacterCreationFoundationResult<CharacterCreationKarmaMetatypeState> Load(CharacterWorkspaceId id);
     CharacterCreationFoundationResult<CharacterCreationKarmaMetatypeQuote> Preview(
-        CharacterCreationKarmaMetatypeBinding binding, string optionId);
+        CharacterCreationKarmaMetatypeBinding binding, string optionId, string? talentOptionId = null);
     CharacterCreationFoundationResult<CharacterCreationKarmaMetatypeCommit> Confirm(
         CharacterCreationKarmaMetatypeConfirmRequest request);
 }

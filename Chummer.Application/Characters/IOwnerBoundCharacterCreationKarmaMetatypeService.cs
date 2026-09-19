@@ -10,7 +10,8 @@ public interface IOwnerBoundCharacterCreationKarmaMetatypeService
     CharacterCreationFoundationResult<CharacterCreationKarmaMetatypeState> Load(
         OwnerContextStamp expectedOwner, CharacterWorkspaceId id);
     CharacterCreationFoundationResult<CharacterCreationKarmaMetatypeQuote> Preview(
-        OwnerContextStamp expectedOwner, CharacterCreationKarmaMetatypeBinding binding, string optionId);
+        OwnerContextStamp expectedOwner, CharacterCreationKarmaMetatypeBinding binding, string optionId,
+        string? talentOptionId = null);
     CharacterCreationFoundationResult<CharacterCreationKarmaMetatypeCommit> Confirm(
         OwnerContextStamp expectedOwner, CharacterCreationKarmaMetatypeConfirmRequest request);
 }

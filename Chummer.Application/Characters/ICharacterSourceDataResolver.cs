@@ -103,6 +103,13 @@ public interface ICharacterSourceDataContext
         return false;
     }
 
+    /// <summary>Pending Karma talent options from qualities, never Priority grants.</summary>
+    bool TryResolveCreationKarmaTalents(out CharacterCreationKarmaTalentCatalog? catalog)
+    {
+        catalog = null;
+        return false;
+    }
+
     /// <summary>
     /// Resolves the exact SR5 Priority Skills catalog and creation policies from the
     /// runner's saved profile and effective Skills overlay. False means the Skills

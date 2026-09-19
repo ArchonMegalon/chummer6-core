@@ -17,6 +17,9 @@ public static class CharacterCreationKarmaMetatypeTransaction
             && request.OperationId != Guid.Empty
             && Guid.TryParseExact(request.MetatypeOptionId, "D", out var optionId)
             && optionId != Guid.Empty && optionId.ToString("D") == request.MetatypeOptionId
+            && (request.TalentOptionId is null || CharacterCreationKarmaTalentAuthority.IsOptionId(request.TalentOptionId))
+            && (binding.TalentAuthorityDigest is null || Digest(binding.TalentAuthorityDigest))
+            && (request.TalentOptionId is null || Digest(binding.TalentAuthorityDigest))
             && !string.IsNullOrWhiteSpace(binding.WorkspaceId.Value)
             && binding.ContentRevision is > 0 and < long.MaxValue
             && (binding.SavedRevision == binding.ContentRevision
@@ -60,7 +63,9 @@ public static class CharacterCreationKarmaMetatypeTransaction
                     || quote.KarmaBudget is not { IsExact: true, Total: >= 0, Remaining: >= 0 } budget
                     || budget.Total > int.MaxValue || decimal.Truncate(budget.Total) != budget.Total
                     || budget.BudgetId != CharacterCreationBudgetIds.Karma || budget.Unit != "karma"
-                    || budget.Blockers is not { Count: 0 } || budget.Used != metatype.KarmaCost
+                    || !ValidTalent(quote.Talent, decision.Command.TalentOptionId)
+                    || budget.Blockers is not { Count: 0 }
+                    || budget.Used != (decimal)metatype.KarmaCost + (quote.Talent?.KarmaCost ?? 0)
                     || budget.Total - budget.Used != budget.Remaining
                     || decision.DraftRevision != index + 1
                     || decision.CommittedContentRevision != quote.Binding.ContentRevision + 1
@@ -122,7 +127,7 @@ public static class CharacterCreationKarmaMetatypeTransaction
         // Isolated view prevents a nested store read/lease or caller-provided quote.
         var view = new WorkspaceContinuationReadView(owner, workspace);
         var result = new CharacterCreationKarmaMetatypeService(view, sourceResolver)
-            .Preview(request.Binding, request.MetatypeOptionId);
+            .Preview(request.Binding, request.MetatypeOptionId, request.TalentOptionId);
         if (result.Value is not { CanSelect: true } quote || quote.QuoteDigest != request.QuoteDigest)
             return false;
         var prepared = new CharacterCreationKarmaMetatypeDecision(
@@ -143,4 +148,16 @@ public static class CharacterCreationKarmaMetatypeTransaction
         => new(CharacterCreationFoundationOutcomes.Blocked, null, [blocker]);
 
     private static bool Digest(string? value) => CharacterCreationPrerequisiteAuthorityDigest.IsCanonical(value);
+
+    private static bool ValidTalent(CharacterCreationKarmaTalentOption? talent, string? id)
+    {
+        if (talent is null) return id is null;
+        if (id != talent.OptionId || talent is not { IsEnabled: true, KarmaCost: >= 0, Blockers.Count: 0,
+            SourceAnchorIds.Count: > 0 } || talent.SourceNodeXml is null
+            || talent.SourceNodeDigest != CharacterCreationQualitiesRules.ComputeSourceNodeDigest(talent.SourceNodeXml))
+            return false;
+        if (id == CharacterCreationKarmaTalentCatalog.MundaneOptionId)
+            return talent.KarmaCost == 0 && talent.EnabledAttribute is null && talent.SourceNodeXml.Length == 0;
+        return talent.EnabledAttribute is "MAG" or "RES" && talent.SourceNodeXml.Length is > 0 and <= 32 * 1024;
+    }
 }

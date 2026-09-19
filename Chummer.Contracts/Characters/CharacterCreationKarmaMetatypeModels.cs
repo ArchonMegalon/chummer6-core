@@ -22,6 +22,8 @@ public static class CharacterCreationKarmaMetatypeBlockers
     public const string PersistenceUnavailable = "creation-karma-persistence-unavailable";
     public const string IdempotencyConflict = "creation-karma-idempotency-conflict";
     public const string HistoryInvalid = "creation-karma-history-invalid";
+    public const string TalentAuthorityRequired = "creation-karma-talent-authority-required";
+    public const string TalentSelectionRequired = "creation-karma-talent-selection-required";
 }
 
 public sealed record CharacterCreationKarmaMetatypeBinding(
@@ -32,7 +34,8 @@ public sealed record CharacterCreationKarmaMetatypeBinding(
     string AuxiliaryStateDigest,
     string BootstrapBindingDigest,
     string SourceProfileDigest,
-    string MetatypeAuthorityDigest);
+    string MetatypeAuthorityDigest,
+    string? TalentAuthorityDigest = null);
 
 public sealed record CharacterCreationKarmaMetatypeState(
     string Schema,
@@ -43,11 +46,12 @@ public sealed record CharacterCreationKarmaMetatypeState(
     IReadOnlyList<string> SourceAnchorIds,
     string SnapshotDigest,
     CharacterCreationKarmaMetatypeDecision? Selection = null,
-    CharacterCreationAttributePolicy? AttributePolicy = null);
+    CharacterCreationAttributePolicy? AttributePolicy = null,
+    CharacterCreationKarmaTalentCatalog? Talents = null);
 
 /// <summary>
 /// Read-only first-step quote, not a draft, mutation command or authorization to
-/// finalize a runner. Talent and later allocations need their own Core authority.
+/// finalize a runner. A missing Talent is an incomplete foundation, never Mundane.
 /// </summary>
 public sealed record CharacterCreationKarmaMetatypeQuote(
     string Schema,
@@ -58,14 +62,16 @@ public sealed record CharacterCreationKarmaMetatypeQuote(
     bool CanSelect,
     IReadOnlyList<string> Blockers,
     IReadOnlyList<string> SourceAnchorIds,
-    string QuoteDigest);
+    string QuoteDigest,
+    CharacterCreationKarmaTalentOption? Talent = null);
 
 public sealed record CharacterCreationKarmaMetatypeConfirmRequest(
     CharacterCreationKarmaMetatypeBinding Binding,
     string MetatypeOptionId,
     string QuoteDigest,
     Guid OperationId,
-    bool ExplicitlyConfirmed);
+    bool ExplicitlyConfirmed,
+    string? TalentOptionId = null);
 
 /// <summary>Pending selection only: no character effects or finalization.</summary>
 public sealed record CharacterCreationKarmaMetatypeDecision(

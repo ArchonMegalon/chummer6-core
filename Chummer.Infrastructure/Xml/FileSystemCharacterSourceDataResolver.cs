@@ -2046,6 +2046,46 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             return true;
         }
 
+        public bool TryResolveCreationKarmaTalents(out CharacterCreationKarmaTalentCatalog? catalog)
+        {
+            using IDisposable sourceInputScope = _sourceInputs.Enter();
+            catalog = null;
+            if (_sourceInputs.HasSourceDrift || _buildMethod != CharacterCreationBuildMethods.Karma
+                || string.IsNullOrWhiteSpace(_settingsProfileId)
+                || !TryComputeEffectiveInputDigest(_catalog, "settings.xml", out string settingsDigest)
+                || BindSelectedProfile(settingsDigest, _settingsProfileId) != _rawProfileInputsDigest
+                || !TryComputeEffectiveInputDigest(_catalog, "qualities.xml", out string qualityDigest)
+                || !TryResolveTarget("settings.xml", ["settings"], "setting", _settingsProfileId,
+                    string.Empty, out var settings) || settings is null
+                || !TryReadKarmaCost(settings, "karmaquality", out int multiplier)
+                || multiplier <= 0
+                || !TryEnumerateTargets("qualities.xml", ["qualities"], "quality", out var rows)
+                || _character.Element("qualityrestriction") is not null
+                || _character.Element("qualities")?.Elements("quality").Any() == true)
+                return false;
+            string profileAnchor = $"settings.xml#setting:{_settingsProfileId}";
+            var options = new List<CharacterCreationKarmaTalentOption>
+            {
+                CharacterCreationKarmaTalentAuthority.Mundane(profileAnchor)
+            };
+            foreach (var row in rows.Where(item => item.Element("onlyprioritygiven") is not null
+                && item.Element("bonus")?.Elements("enableattribute").Any() == true))
+            {
+                var option = CharacterCreationKarmaTalentAuthority.Project(row, multiplier,
+                    _enabledSourcebooks.Contains(ReadValue(row, "source")));
+                if (option is null) return false;
+                options.Add(option);
+            }
+            if (_sourceInputs.HasSourceDrift || options.GroupBy(option => option.OptionId,
+                StringComparer.Ordinal).Any(group => group.Count() != 1)) return false;
+            var result = new CharacterCreationKarmaTalentCatalog(
+                CharacterCreationKarmaTalentCatalog.SchemaV1, _settingsProfileId, _rawProfileInputsDigest,
+                qualityDigest, multiplier, options.OrderBy(option => option.OptionId, StringComparer.Ordinal).ToArray(),
+                [profileAnchor, "qualities.xml"], string.Empty);
+            catalog = result with { AuthorityDigest = CharacterCreationKarmaTalentAuthority.ComputeDigest(result) };
+            return true;
+        }
+
         public bool TryResolveCreationPrerequisiteAuthority(
             out CharacterCreationPrerequisiteAuthority authority)
         {

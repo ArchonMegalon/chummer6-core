@@ -14,8 +14,9 @@ public sealed class OwnerBoundCharacterCreationKarmaMetatypeService(
         => Invoke(expectedOwner, id, service => service.Load(id));
 
     public CharacterCreationFoundationResult<CharacterCreationKarmaMetatypeQuote> Preview(
-        OwnerContextStamp expectedOwner, CharacterCreationKarmaMetatypeBinding binding, string optionId)
-        => Invoke(expectedOwner, binding.WorkspaceId, service => service.Preview(binding, optionId));
+        OwnerContextStamp expectedOwner, CharacterCreationKarmaMetatypeBinding binding, string optionId,
+        string? talentOptionId = null)
+        => Invoke(expectedOwner, binding.WorkspaceId, service => service.Preview(binding, optionId, talentOptionId));
 
     public CharacterCreationFoundationResult<CharacterCreationKarmaMetatypeCommit> Confirm(
         OwnerContextStamp expectedOwner, CharacterCreationKarmaMetatypeConfirmRequest request)

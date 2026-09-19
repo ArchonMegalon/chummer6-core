@@ -17,6 +17,7 @@ internal sealed class WorkspaceContinuationSourceCapture
     private readonly string _characterXml;
     private readonly Captured<CharacterCreationSourceProfileAuthority> _profile;
     private readonly Captured<AttributePolicySource> _attributePolicy;
+    private readonly Captured<KarmaTalentsSource> _karmaTalents;
     private readonly Captured<CharacterCreationMetatypeCatalogAuthority> _metatypes;
     private readonly Captured<CharacterCreationPrerequisiteAuthority> _prerequisite;
     private readonly Captured<CharacterCreationSkillsAuthority> _skills;
@@ -41,6 +42,14 @@ internal sealed class WorkspaceContinuationSourceCapture
             result = new(policy);
             return resolved;
         }, new AttributePolicySource(null));
+        _karmaTalents = Capture((out KarmaTalentsSource result) =>
+        {
+            bool resolved = source.TryResolveCreationKarmaTalents(out var catalog);
+            if (resolved && catalog is null)
+                throw new InvalidDataException("Resolved Karma talents are missing.");
+            result = new(catalog);
+            return resolved;
+        }, new KarmaTalentsSource(null));
         _metatypes = Capture(source.TryResolveCreationMetatypeCatalog, CharacterCreationMetatypeCatalogAuthority.Unavailable);
         _prerequisite = Capture(source.TryResolveCreationPrerequisiteAuthority, CharacterCreationPrerequisiteAuthority.Unavailable);
         _skills = Capture(source.TryResolveCreationSkillsAuthority, CharacterCreationSkillsAuthority.Unavailable);
@@ -64,6 +73,7 @@ internal sealed class WorkspaceContinuationSourceCapture
             Semantics = "chummer.workspace-continuation-source-capture/v1",
             RawCharacterXmlDigest = CharacterCreationFoundationDraftLedgerIntegrity.ComputeRawCharacterXmlDigest(characterXml),
             Profile = _profile, AttributePolicy = _attributePolicy, Metatypes = _metatypes, Prerequisite = _prerequisite,
+            KarmaTalents = _karmaTalents,
             Skills = _skills, Qualities = _qualities, MagicResonance = _magic,
             Resources = _resources, Gear = _gear, Lifestyles = _lifestyles,
             Reputation = _reputation, LifeModules = _lifeModules.CapturedState
@@ -142,6 +152,7 @@ internal sealed class WorkspaceContinuationSourceCapture
 
     private sealed record ReputationSource(CharacterCareerReputationSettings Settings, string RawRuleState);
     private sealed record AttributePolicySource(CharacterCreationAttributePolicy? Policy);
+    private sealed record KarmaTalentsSource(CharacterCreationKarmaTalentCatalog? Catalog);
 
     private sealed class FrozenResolver(WorkspaceContinuationSourceCapture capture) : ICharacterSourceDataResolver
     {
@@ -160,6 +171,12 @@ internal sealed class WorkspaceContinuationSourceCapture
             return resolved;
         }
         public bool TryResolveCreationMetatypeCatalog(out CharacterCreationMetatypeCatalogAuthority authority) => capture._metatypes.Read(out authority);
+        public bool TryResolveCreationKarmaTalents(out CharacterCreationKarmaTalentCatalog? catalog)
+        {
+            bool resolved = capture._karmaTalents.Read(out var source);
+            catalog = source.Catalog;
+            return resolved;
+        }
         public bool TryResolveCreationPrerequisiteAuthority(out CharacterCreationPrerequisiteAuthority authority) => capture._prerequisite.Read(out authority);
         public bool TryResolveCreationSkillsAuthority(out CharacterCreationSkillsAuthority authority) => capture._skills.Read(out authority);
         public bool TryResolveCreationQualitiesAuthority(out CharacterCreationQualitiesAuthority authority) => capture._qualities.Read(out authority);
