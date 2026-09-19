@@ -72,6 +72,7 @@ internal static class WorkspaceContinuationReceiptConsistency
         if (state.CharacterCreationAttributesDraft is { } attributes
             && !Add(revisions, checked(attributes.BaseContentRevision + 1), "attributes")) return false;
         if (!AddAll(revisions, state.LifeModuleDecisionAcceptances?.Select(item => item.Receipt.WorkspaceRevision), "foundation")
+            || !AddAll(revisions, state.CharacterCreationKarmaMetatypeDecisions?.Select(item => item.CommittedContentRevision), "karma-metatype")
             || !AddAll(revisions, state.CharacterCreationSkillsReceipts?.Select(item => item.ContentRevision), "skills")
             || !AddAll(revisions, state.CharacterCreationMagicResonanceReceipts?.Select(item => item.ContentRevision), "magic-resonance")
             || !AddAll(revisions, state.CharacterCreationQualitiesReceipts?.Select(item => item.ContentRevision), "qualities")

@@ -53,7 +53,9 @@ public sealed record WorkspaceDocumentAuxiliaryState(
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     IReadOnlyList<CharacterCareerReputationReceipt>? CharacterCareerReputationReceipts = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    CharacterCreationFinalizationArchive? CharacterCreationFinalizationArchive = null)
+    CharacterCreationFinalizationArchive? CharacterCreationFinalizationArchive = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    IReadOnlyList<CharacterCreationKarmaMetatypeDecision>? CharacterCreationKarmaMetatypeDecisions = null)
 {
     public static WorkspaceDocumentAuxiliaryState Empty { get; } = new();
 
@@ -78,7 +80,8 @@ public sealed record WorkspaceDocumentAuxiliaryState(
                            && CharacterCreationFinalizationReceipts is null
                            && CharacterAfterRunRewardReceipts is null
                            && CharacterCareerReputationReceipts is null
-                           && CharacterCreationFinalizationArchive is null;
+                           && CharacterCreationFinalizationArchive is null
+                           && CharacterCreationKarmaMetatypeDecisions is null;
 }
 
 /// <summary>

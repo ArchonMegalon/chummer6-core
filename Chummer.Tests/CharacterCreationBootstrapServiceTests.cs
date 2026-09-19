@@ -12,6 +12,8 @@ using Chummer.Infrastructure.Files;
 using Chummer.Infrastructure.Workspaces;
 using Chummer.Infrastructure.Xml;
 using Chummer.Infrastructure.DependencyInjection;
+using Chummer.Infrastructure.Owners;
+using Chummer.Contracts.Owners;
 using Chummer.Rulesets.Hosting;
 using Chummer.Rulesets.Sr5;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -30,6 +32,315 @@ public sealed class CharacterCreationBootstrapServiceTests
         CharacterCreationBootstrapProfiles.KarmaSettingsProfileId;
     private const string CanonicalLifeModulesSettingsId =
         CharacterCreationBootstrapProfiles.LifeModulesSettingsProfileId;
+
+    [TestMethod]
+    public void Karma_metatype_services_are_registered_in_the_headless_runtime()
+    {
+        var services = new ServiceCollection();
+        services.AddChummerHeadlessCore(FindCoreRoot(), FindCoreRoot());
+        using var provider = services.BuildServiceProvider();
+        Assert.IsInstanceOfType<CharacterCreationKarmaMetatypeService>(provider.GetRequiredService<ICharacterCreationKarmaMetatypeService>());
+        Assert.IsInstanceOfType<OwnerBoundCharacterCreationKarmaMetatypeService>(provider.GetRequiredService<IOwnerBoundCharacterCreationKarmaMetatypeService>());
+    }
+
+    [TestMethod]
+    public void Karma_metatype_confirmation_persists_reopens_and_replaces_cost_without_double_spending()
+    {
+        using var fixture = new KarmaDiskFixture();
+        var before = fixture.Store.Get(fixture.Id).Value!;
+        var request = fixture.Request("b3259991-b315-4dbe-ae3c-51f71a1116e2");
+        var applied = fixture.Service.Confirm(request);
+        Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, applied.Outcome, string.Join(",", applied.Blockers));
+        Assert.IsFalse(applied.Value!.Replayed);
+        var reopenedStore = new FileWorkspaceStore(fixture.StateRoot);
+        var reopened = new CharacterCreationKarmaMetatypeService(reopenedStore, fixture.Resolver);
+        var state = reopened.Load(fixture.Id).Value!;
+        Assert.IsNotNull(state.Selection);
+        Assert.AreEqual("Elf", state.Selection.Quote.Metatype.Label);
+        Assert.AreEqual(760m, state.KarmaBudget.Remaining);
+        var saved = reopenedStore.Get(fixture.Id).Value!;
+        Assert.AreEqual(before.ContentRevision + 1, saved.ContentRevision);
+        Assert.AreEqual(saved.ContentRevision, saved.SavedRevision);
+        Assert.AreEqual(before.Document.Content, saved.Document.Content, "Selection must not finalize or grant effects.");
+        Assert.IsTrue(reopened.Confirm(request).Value!.Replayed);
+        AssertJsonEqual(saved, reopenedStore.Get(fixture.Id).Value!);
+
+        // A new Human selection replaces Elf's reservation; it does not charge
+        // for both selections. The old operation can be queried without undoing it.
+        var human = reopened.Preview(state.Binding, "a53d885d-a4a4-443d-b6a6-b0a55b0a96c7").Value!;
+        Assert.AreEqual(800m, human.KarmaBudget.Remaining);
+        Assert.IsNotNull(reopened.Confirm(new(human.Binding, human.Metatype.OptionId,
+            human.QuoteDigest, Guid.NewGuid(), true)).Value);
+        Assert.IsTrue(reopened.Confirm(request).Value!.Replayed);
+        Assert.AreEqual("Human", reopened.Load(fixture.Id).Value!.Selection!.Quote.Metatype.Label);
+        Assert.AreEqual(before.ContentRevision + 2, reopenedStore.Get(fixture.Id).Value!.ContentRevision);
+        Assert.IsTrue(reopenedStore.ReadContinuation(fixture.Id).Success,
+            "The new draft must remain portable as history, without granting imported replay authority.");
+    }
+
+    [TestMethod]
+    [DataRow("unconfirmed")]
+    [DataRow("digest")]
+    [DataRow("option")]
+    [DataRow("revision")]
+    [DataRow("operation")]
+    public void Karma_metatype_confirmation_rejects_invalid_command_without_writing(string change)
+    {
+        using var fixture = new KarmaDiskFixture();
+        var request = fixture.Request("b3259991-b315-4dbe-ae3c-51f71a1116e2");
+        var before = fixture.Store.Get(fixture.Id).Value!;
+        request = change switch
+        {
+            "unconfirmed" => request with { ExplicitlyConfirmed = false },
+            "digest" => request with { QuoteDigest = "sha256:" + new string('0', 64) },
+            "option" => request with { MetatypeOptionId = "a53d885d-a4a4-443d-b6a6-b0a55b0a96c7" },
+            "revision" => request with { Binding = request.Binding with { ContentRevision = before.ContentRevision + 1 } },
+            _ => request with { OperationId = Guid.Empty }
+        };
+        Assert.IsNull(fixture.Service.Confirm(request).Value);
+        AssertJsonEqual(before, fixture.Store.Get(fixture.Id).Value!);
+    }
+
+    [TestMethod]
+    public void Karma_metatype_confirmation_rejects_stale_preview_and_reused_operation()
+    {
+        using var fixture = new KarmaDiskFixture();
+        var elf = fixture.Request("b3259991-b315-4dbe-ae3c-51f71a1116e2");
+        var human = fixture.Request("a53d885d-a4a4-443d-b6a6-b0a55b0a96c7");
+        Assert.IsNotNull(fixture.Service.Confirm(elf).Value);
+        var saved = fixture.Store.Get(fixture.Id).Value!;
+        Assert.IsNull(fixture.Service.Confirm(human).Value);
+        var reused = fixture.Service.Confirm(human with { OperationId = elf.OperationId });
+        CollectionAssert.Contains(reused.Blockers.ToArray(), CharacterCreationKarmaMetatypeBlockers.IdempotencyConflict);
+        AssertJsonEqual(saved, fixture.Store.Get(fixture.Id).Value!);
+    }
+
+    [TestMethod]
+    public async Task Karma_metatype_confirmation_concurrent_duplicates_commit_once()
+    {
+        using var fixture = new KarmaDiskFixture();
+        var request = fixture.Request("b3259991-b315-4dbe-ae3c-51f71a1116e2");
+        var other = new CharacterCreationKarmaMetatypeService(new FileWorkspaceStore(fixture.StateRoot), fixture.Resolver);
+        var results = await Task.WhenAll(Task.Run(() => fixture.Service.Confirm(request)),
+            Task.Run(() => other.Confirm(request)));
+        Assert.IsTrue(results.All(result => result.Value is not null), string.Join(",", results.SelectMany(result => result.Blockers)));
+        Assert.AreEqual(1, results.Count(result => !result.Value!.Replayed));
+        Assert.AreEqual(request.Binding.ContentRevision + 1, fixture.Store.Get(fixture.Id).Value!.ContentRevision);
+    }
+
+    [TestMethod]
+    public void Karma_metatype_confirmation_requires_typed_store_not_generic_auxiliary_write()
+    {
+        using var fixture = new KarmaDiskFixture();
+        var request = fixture.Request("b3259991-b315-4dbe-ae3c-51f71a1116e2");
+        var before = fixture.Store.Get(fixture.Id).Value!;
+        Assert.IsTrue(CharacterCreationKarmaMetatypeTransaction.TryBuild(OwnerScope.LocalSingleUser,
+            before, fixture.Resolver, request, out var replacement, out _));
+        Assert.IsFalse(fixture.Store.ReplaceWorkspaceDocumentAndAuxiliaryStateAndCheckpoint(fixture.Id,
+            before.ContentRevision, before.Document.AuxiliaryStateDigest, replacement!).Success);
+        AssertJsonEqual(before, fixture.Store.Get(fixture.Id).Value!);
+        Assert.IsNotNull(fixture.Service.Confirm(request).Value);
+        var saved = fixture.Store.Get(fixture.Id).Value!;
+        Assert.IsFalse(fixture.Store.ReplaceWorkspaceDocumentAndAuxiliaryStateAndCheckpoint(fixture.Id,
+            saved.ContentRevision, saved.Document.AuxiliaryStateDigest, before.Document).Success);
+        AssertJsonEqual(saved, fixture.Store.Get(fixture.Id).Value!);
+        Assert.IsFalse(fixture.Store.CreateCharacterCreationBootstrapWorkspaceDocument(fixture.Id,
+            saved.Document).Success, "A bootstrap create cannot import a pre-built selection ledger.");
+        var untrustedLocal = fixture.Store.CommitKarmaMetatype(new OwnerScope("local-single-user"), request, fixture.Resolver);
+        Assert.IsNull(untrustedLocal.Value, "A caller-supplied owner string is not the trusted local scope.");
+        AssertJsonEqual(saved, fixture.Store.Get(fixture.Id).Value!);
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void Karma_metatype_confirmation_rejects_source_drift_before_atomic_replace(bool duringWrite)
+    {
+        using var fixture = new KarmaDiskFixture();
+        var request = fixture.Request("b3259991-b315-4dbe-ae3c-51f71a1116e2");
+        var before = fixture.Store.Get(fixture.Id).Value!;
+        int observedWrites = 0;
+        if (duringWrite)
+            fixture.Fault.Action = stage =>
+            {
+                if (stage == FileWorkspaceStoreFaultStage.AfterTempFileFlushed)
+                {
+                    observedWrites++;
+                    fixture.SetBudget(799);
+                }
+            };
+        else fixture.SetBudget(799);
+        Assert.IsNull(fixture.Service.Confirm(request).Value);
+        Assert.AreEqual(duringWrite ? 1 : 0, observedWrites);
+        AssertJsonEqual(before, new FileWorkspaceStore(fixture.StateRoot).Get(fixture.Id).Value!);
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void Karma_metatype_confirmation_recovers_exact_commit_or_preserves_previous_state_on_io_failure(bool afterReplace)
+    {
+        using var fixture = new KarmaDiskFixture();
+        var request = fixture.Request("b3259991-b315-4dbe-ae3c-51f71a1116e2");
+        var before = fixture.Store.Get(fixture.Id).Value!;
+        fixture.Fault.Action = stage =>
+        {
+            if (stage == (afterReplace ? FileWorkspaceStoreFaultStage.AfterTargetReplaced
+                    : FileWorkspaceStoreFaultStage.AfterTempFileFlushed)) throw new IOException("Injected write failure");
+        };
+        var result = fixture.Service.Confirm(request);
+        fixture.Fault.Action = null;
+        var reopenedStore = new FileWorkspaceStore(fixture.StateRoot);
+        var recovered = new CharacterCreationKarmaMetatypeService(reopenedStore, fixture.Resolver);
+        if (afterReplace)
+        {
+            Assert.IsNotNull(result.Value);
+            Assert.IsTrue(recovered.Confirm(request).Value!.Replayed);
+        }
+        else
+        {
+            Assert.IsNull(result.Value);
+            AssertJsonEqual(before, reopenedStore.Get(fixture.Id).Value!);
+            Assert.IsFalse(recovered.Confirm(request).Value!.Replayed);
+        }
+        Assert.AreEqual(before.ContentRevision + 1, reopenedStore.Get(fixture.Id).Value!.ContentRevision);
+    }
+
+    [TestMethod]
+    public void Karma_metatype_confirmation_is_owner_scoped_and_rejects_expired_owner_stamp()
+    {
+        using var fixture = new KarmaDiskFixture();
+        using var ownerA = new RequestOwnerContextAccessor(new("karma-owner-a"));
+        using var ownerB = new RequestOwnerContextAccessor(new("karma-owner-b"));
+        var bootstrap = new OwnerBoundCharacterCreationBootstrapService(
+            CreateService(fixture.Store, fixture.Resolver, CreateFileQueries()), ownerA);
+        var stamp = ownerA.Capture();
+        var created = bootstrap.Create(stamp, KarmaRequest());
+        Assert.IsNotNull(created.Value, string.Join(",", created.Blockers));
+        var id = created.Value.WorkspaceId;
+        var serviceA = new OwnerBoundCharacterCreationKarmaMetatypeService(fixture.Store, ownerA, fixture.Resolver);
+        var serviceB = new OwnerBoundCharacterCreationKarmaMetatypeService(fixture.Store, ownerB, fixture.Resolver);
+        var state = serviceA.Load(stamp, id).Value!;
+        var quote = serviceA.Preview(stamp, state.Binding, "b3259991-b315-4dbe-ae3c-51f71a1116e2").Value!;
+        var request = new CharacterCreationKarmaMetatypeConfirmRequest(quote.Binding, quote.Metatype.OptionId,
+            quote.QuoteDigest, Guid.NewGuid(), true);
+        Assert.IsNull(serviceB.Confirm(ownerB.Capture(), request).Value);
+        Assert.IsNull(fixture.Service.Confirm(request).Value);
+        Assert.IsNotNull(serviceA.Confirm(stamp, request).Value);
+        Assert.IsFalse(fixture.Store.Get(id).Success);
+        Assert.AreEqual(2L, fixture.Store.Get(ownerA.Current, id).Value!.ContentRevision);
+        ownerA.Dispose();
+        Assert.IsNull(serviceA.Confirm(stamp, request).Value, "An expired owner cannot even replay a local receipt.");
+    }
+
+    [TestMethod]
+    public void Karma_metatype_confirmation_cannot_spend_more_than_profile_budget()
+    {
+        using var fixture = new KarmaDiskFixture(budget: 39);
+        var request = fixture.Request("b3259991-b315-4dbe-ae3c-51f71a1116e2");
+        var before = fixture.Store.Get(fixture.Id).Value!;
+        Assert.IsNull(fixture.Service.Confirm(request).Value);
+        AssertJsonEqual(before, fixture.Store.Get(fixture.Id).Value!);
+        var human = fixture.Request("a53d885d-a4a4-443d-b6a6-b0a55b0a96c7");
+        Assert.IsNotNull(fixture.Service.Confirm(human).Value);
+        Assert.AreEqual(39m, fixture.Service.Load(fixture.Id).Value!.KarmaBudget.Remaining);
+    }
+
+    [TestMethod]
+    public void Karma_metatype_confirmation_continuation_preserves_selection_but_not_foreign_replay_authority()
+    {
+        using var fixture = new KarmaDiskFixture(fullSources: true);
+        var request = fixture.Request("b3259991-b315-4dbe-ae3c-51f71a1116e2");
+        Assert.IsNotNull(fixture.Service.Confirm(request).Value);
+        var owner = new LocalOwnerContextAccessor();
+        var exported = new WorkspaceContinuationExportService(fixture.Store, owner).Export(owner.Capture(), fixture.Id);
+        Assert.IsTrue(exported.Success, exported.Error);
+        const int limit = 8 * 1024 * 1024;
+        var bytes = WorkspaceContinuationCodec.Encode(exported.Value!, limit);
+        Assert.IsTrue(WorkspaceContinuationCodec.TryDecodeCandidate(bytes, limit, out _));
+        var target = new FileWorkspaceStore(Path.Combine(fixture.StateRoot, "restored"));
+        var restorer = new WorkspaceContinuationRestoreService(target, owner, fixture.Resolver, CreateFileQueries(),
+            new XmlLifeModulesCatalogService(Path.Combine(FindCoreRoot(), "Chummer", "data", "lifemodules.xml")), limit);
+        using var review = restorer.Review(owner.Capture(), bytes);
+        Assert.AreEqual(WorkspaceContinuationRestoreOutcome.Available, review.Result.Outcome,
+            string.Join(",", review.Result.Blockers ?? []));
+        var restored = restorer.Confirm(review, explicitlyConfirmed: true);
+        Assert.AreEqual(WorkspaceContinuationRestoreOutcome.Applied, restored.Outcome,
+            string.Join(",", restored.Blockers ?? []));
+        var service = new CharacterCreationKarmaMetatypeService(target, fixture.Resolver);
+        var state = service.Load(fixture.Id).Value!;
+        Assert.AreEqual("Elf", state.Selection!.Quote.Metatype.Label);
+        Assert.AreEqual(760m, state.KarmaBudget.Remaining);
+        CollectionAssert.Contains(service.Confirm(request).Blockers.ToArray(), CharacterCreationKarmaMetatypeBlockers.IdempotencyConflict);
+        var next = service.Preview(state.Binding, "a53d885d-a4a4-443d-b6a6-b0a55b0a96c7").Value!;
+        Assert.IsNotNull(service.Confirm(new(next.Binding, next.Metatype.OptionId, next.QuoteDigest, Guid.NewGuid(), true)).Value);
+    }
+
+    [TestMethod]
+    public void Karma_metatype_confirmation_corrupted_or_reordered_history_is_not_accepted()
+    {
+        using var fixture = new KarmaDiskFixture();
+        Assert.IsNotNull(fixture.Service.Confirm(fixture.Request("b3259991-b315-4dbe-ae3c-51f71a1116e2")).Value);
+        Assert.IsNotNull(fixture.Service.Confirm(fixture.Request("a53d885d-a4a4-443d-b6a6-b0a55b0a96c7")).Value);
+        var saved = fixture.Store.Get(fixture.Id).Value!;
+        var auxiliary = saved.Document.AuxiliaryState;
+        var ledger = auxiliary.CharacterCreationKarmaMetatypeDecisions!;
+        foreach (var corrupted in new IReadOnlyList<CharacterCreationKarmaMetatypeDecision>[]
+        {
+            [], [ledger[0], ledger[0]], [ledger[1], ledger[0]],
+            [ledger[0], ledger[1] with { CommittedContentRevision = saved.ContentRevision + 1 }],
+            [ledger[0], ledger[1] with { DecisionDigest = "sha256:" + new string('0', 64) }]
+        })
+            Assert.IsFalse(WorkspaceAuxiliaryStateIntegrity.IsValidShape(fixture.Id, saved.ContentRevision,
+                auxiliary with { CharacterCreationKarmaMetatypeDecisions = corrupted }));
+    }
+
+    private sealed class KarmaFault : IFileWorkspaceStoreFaultInjector
+    {
+        public Action<FileWorkspaceStoreFaultStage>? Action { get; set; }
+        public void OnStage(FileWorkspaceStoreFaultStage stage, string targetPath, string tempPath) => Action?.Invoke(stage);
+    }
+
+    private sealed class KarmaDiskFixture : IDisposable
+    {
+        private readonly string _root = Path.Combine(Path.GetTempPath(), "chummer-karma-test-" + Guid.NewGuid().ToString("N"));
+        public string StateRoot => Path.Combine(_root, "state");
+        public KarmaFault Fault { get; } = new();
+        public FileWorkspaceStore Store { get; }
+        public FileSystemCharacterSourceDataResolver Resolver { get; }
+        public CharacterCreationKarmaMetatypeService Service { get; }
+        public CharacterWorkspaceId Id { get; }
+        public KarmaDiskFixture(int budget = 800, bool fullSources = false)
+        {
+            Directory.CreateDirectory(Path.Combine(_root, "data"));
+            foreach (string name in new[] { "settings.xml", "metatypes.xml" })
+                File.Copy(Path.Combine(FindCoreRoot(), "Chummer", "data", name), Path.Combine(_root, "data", name));
+            if (budget != 800) SetBudget(budget);
+            Resolver = CreateSourceResolver(fullSources ? FindCoreRoot() : _root);
+            Store = new(StateRoot, Fault);
+            var created = CreateService(Store, Resolver, CreateFileQueries()).Create(KarmaRequest());
+            Assert.IsNotNull(created.Value, string.Join(",", created.Blockers));
+            Id = created.Value.WorkspaceId;
+            Service = new(Store, Resolver);
+        }
+        public CharacterCreationKarmaMetatypeConfirmRequest Request(string optionId)
+        {
+            var state = Service.Load(Id);
+            Assert.IsNotNull(state.Value, string.Join(",", state.Blockers));
+            var quote = Service.Preview(state.Value.Binding, optionId);
+            Assert.IsNotNull(quote.Value, string.Join(",", quote.Blockers));
+            return new(quote.Value.Binding, optionId, quote.Value.QuoteDigest, Guid.NewGuid(), true);
+        }
+        public void SetBudget(int budget)
+        {
+            string path = Path.Combine(_root, "data", "settings.xml");
+            var document = XDocument.Load(path);
+            document.Descendants("setting").Single(node => node.Element("id")?.Value == CanonicalKarmaSettingsId)
+                .Element("buildpoints")!.Value = budget.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            document.Save(path);
+        }
+        public void Dispose() => Directory.Delete(_root, recursive: true);
+    }
 
     [TestMethod]
     [DataRow("a53d885d-a4a4-443d-b6a6-b0a55b0a96c7", "Human", 0)]

@@ -1,0 +1,146 @@
+using System.Text.Json;
+using Chummer.Application.Workspaces;
+using Chummer.Contracts.Characters;
+using Chummer.Contracts.Owners;
+using Chummer.Contracts.Workspaces;
+
+namespace Chummer.Application.Characters;
+
+/// <summary>Intrinsic history checks and deterministic preparation, not storage authorization.</summary>
+public static class CharacterCreationKarmaMetatypeTransaction
+{
+    public const int MaximumDecisions = 128;
+    private const int MaximumDecisionBytes = 128 * 1024;
+
+    public static bool IsConfirmed(CharacterCreationKarmaMetatypeConfirmRequest? request)
+        => request is { ExplicitlyConfirmed: true, Binding: { } binding }
+            && request.OperationId != Guid.Empty
+            && Guid.TryParseExact(request.MetatypeOptionId, "D", out var optionId)
+            && optionId != Guid.Empty && optionId.ToString("D") == request.MetatypeOptionId
+            && !string.IsNullOrWhiteSpace(binding.WorkspaceId.Value)
+            && binding.ContentRevision is > 0 and < long.MaxValue
+            && (binding.SavedRevision == binding.ContentRevision
+                || (binding.ContentRevision == CharacterCreationBootstrapRevisions.InitialContentRevision
+                    && binding.SavedRevision == CharacterCreationBootstrapRevisions.InitialSavedRevision))
+            && CharacterCareerReputationTransaction.IsDigest(binding.AuxiliaryStateDigest)
+            && Digest(binding.RawCharacterXmlDigest) && Digest(binding.BootstrapBindingDigest)
+            && Digest(binding.SourceProfileDigest) && Digest(binding.MetatypeAuthorityDigest)
+            && Digest(request.QuoteDigest);
+
+    public static string DecisionDigest(CharacterCreationKarmaMetatypeDecision decision)
+        => CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(
+            decision with { DecisionDigest = string.Empty });
+
+    public static bool IsValidLedger(CharacterWorkspaceId id, long revision,
+        WorkspaceDocumentAuxiliaryState state)
+    {
+        var ledger = state.CharacterCreationKarmaMetatypeDecisions;
+        if (ledger is null) return true;
+        if (ledger.Count is < 1 or > MaximumDecisions
+            || state.CharacterCreationBootstrapBinding is not { BuildMethod: CharacterCreationBuildMethods.Karma } bootstrap)
+            return false;
+        try
+        {
+            var seen = new HashSet<Guid>();
+            long previousRevision = 0;
+            for (int index = 0; index < ledger.Count; index++)
+            {
+                var decision = ledger[index];
+                if (decision is null || decision.Schema != CharacterCreationKarmaMetatypeSchemas.DecisionV1
+                    || !IsConfirmed(decision.Command) || decision.Quote is not { CanSelect: true } quote
+                    || quote.Schema != CharacterCreationKarmaMetatypeSchemas.QuoteV1
+                    || quote.Binding != decision.Command.Binding || quote.Binding.WorkspaceId != id
+                    || quote.Metatype is not { IsEnabled: true, KarmaCost: >= 0 } metatype
+                    || metatype.Blockers is not { Count: 0 } || quote.Blockers is not { Count: 0 }
+                    || metatype.SourceAnchorIds is not { Count: > 0 } || quote.SourceAnchorIds is not { Count: > 0 }
+                    || decision.Command.MetatypeOptionId != metatype.OptionId
+                    || decision.Command.QuoteDigest != quote.QuoteDigest || !Digest(quote.SnapshotDigest)
+                    || quote.QuoteDigest != CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(
+                        quote with { QuoteDigest = string.Empty })
+                    || quote.KarmaBudget is not { IsExact: true, Total: >= 0, Remaining: >= 0 } budget
+                    || budget.Total > int.MaxValue || decimal.Truncate(budget.Total) != budget.Total
+                    || budget.BudgetId != CharacterCreationBudgetIds.Karma || budget.Unit != "karma"
+                    || budget.Blockers is not { Count: 0 } || budget.Used != metatype.KarmaCost
+                    || budget.Total - budget.Used != budget.Remaining
+                    || decision.DraftRevision != index + 1
+                    || decision.CommittedContentRevision != quote.Binding.ContentRevision + 1
+                    || decision.CommittedContentRevision > revision
+                    || quote.Binding.ContentRevision < previousRevision
+                    || quote.Binding.BootstrapBindingDigest != bootstrap.BindingDigest
+                    || quote.Binding.RawCharacterXmlDigest != bootstrap.RawCharacterXmlDigest
+                    || quote.Binding.SourceProfileDigest != bootstrap.RawProfileInputsDigest
+                    || quote.Binding.MetatypeAuthorityDigest != bootstrap.MetatypeAuthorityDigest
+                    || !seen.Add(decision.Command.OperationId)
+                    || decision.DecisionDigest != DecisionDigest(decision)
+                    || JsonSerializer.SerializeToUtf8Bytes(decision).Length > MaximumDecisionBytes)
+                    return false;
+                var before = new WorkspaceDocumentAuxiliaryState(CharacterCreationBootstrapBinding: bootstrap,
+                    CharacterCreationKarmaMetatypeDecisions: index == 0 ? null : ledger.Take(index).ToArray());
+                if (quote.Binding.AuxiliaryStateDigest != WorkspaceDocumentAuxiliaryStateDigest.Compute(before))
+                    return false;
+                previousRevision = decision.CommittedContentRevision;
+            }
+            return true;
+        }
+        catch (Exception error) when (error is JsonException or ArgumentException or InvalidOperationException)
+        {
+            return false;
+        }
+    }
+
+    public static bool IsValidHistory(WorkspaceStoredDocument workspace)
+    {
+        var ledger = workspace.Document.AuxiliaryState.CharacterCreationKarmaMetatypeDecisions;
+        return IsValidLedger(workspace.Id, workspace.ContentRevision, workspace.Document.AuxiliaryState)
+            && (ledger is null || (workspace.SavedRevision >= ledger[^1].CommittedContentRevision
+                && ledger[^1].Quote.Binding.RawCharacterXmlDigest ==
+                    CharacterCreationFoundationDraftLedgerIntegrity.ComputeRawCharacterXmlDigest(workspace.Document.Content)));
+    }
+
+    public static CharacterCreationFoundationResult<CharacterCreationKarmaMetatypeCommit>? Lookup(
+        WorkspaceStoredDocument workspace, CharacterCreationKarmaMetatypeConfirmRequest request)
+    {
+        if (!IsValidHistory(workspace)) return Blocked(CharacterCreationKarmaMetatypeBlockers.HistoryInvalid);
+        var decision = workspace.Document.AuxiliaryState.CharacterCreationKarmaMetatypeDecisions?
+            .SingleOrDefault(item => item.Command.OperationId == request.OperationId);
+        if (decision is null) return null;
+        return decision.Command == request && workspace.CanReplayReceipt(decision.CommittedContentRevision)
+            ? new(CharacterCreationFoundationOutcomes.Success, new(decision, true), [])
+            : Blocked(CharacterCreationKarmaMetatypeBlockers.IdempotencyConflict);
+    }
+
+    public static bool TryBuild(OwnerScope owner, WorkspaceStoredDocument workspace,
+        ICharacterSourceDataResolver sourceResolver, CharacterCreationKarmaMetatypeConfirmRequest request,
+        out WorkspaceDocument? replacement, out CharacterCreationKarmaMetatypeDecision? decision)
+    {
+        replacement = null;
+        decision = null;
+        if (!IsConfirmed(request) || !IsValidHistory(workspace) || Lookup(workspace, request) is not null)
+            return false;
+        var history = workspace.Document.AuxiliaryState.CharacterCreationKarmaMetatypeDecisions;
+        if (history is { Count: >= MaximumDecisions }) return false;
+        // Isolated view prevents a nested store read/lease or caller-provided quote.
+        var view = new WorkspaceContinuationReadView(owner, workspace);
+        var result = new CharacterCreationKarmaMetatypeService(view, sourceResolver)
+            .Preview(request.Binding, request.MetatypeOptionId);
+        if (result.Value is not { CanSelect: true } quote || quote.QuoteDigest != request.QuoteDigest)
+            return false;
+        var prepared = new CharacterCreationKarmaMetatypeDecision(
+            CharacterCreationKarmaMetatypeSchemas.DecisionV1, request, quote,
+            (history?.Count ?? 0) + 1, workspace.ContentRevision + 1, string.Empty);
+        prepared = prepared with { DecisionDigest = DecisionDigest(prepared) };
+        var auxiliary = workspace.Document.AuxiliaryState with
+        {
+            CharacterCreationKarmaMetatypeDecisions = (history ?? []).Append(prepared).ToArray()
+        };
+        if (!IsValidLedger(workspace.Id, prepared.CommittedContentRevision, auxiliary)) return false;
+        replacement = workspace.Document with { State = workspace.Document.State with { AuxiliaryState = auxiliary } };
+        decision = prepared;
+        return true;
+    }
+
+    public static CharacterCreationFoundationResult<CharacterCreationKarmaMetatypeCommit> Blocked(string blocker)
+        => new(CharacterCreationFoundationOutcomes.Blocked, null, [blocker]);
+
+    private static bool Digest(string? value) => CharacterCreationPrerequisiteAuthorityDigest.IsCanonical(value);
+}

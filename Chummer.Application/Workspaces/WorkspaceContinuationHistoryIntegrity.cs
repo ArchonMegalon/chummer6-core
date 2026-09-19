@@ -70,7 +70,10 @@ internal static class WorkspaceContinuationHistoryIntegrity
             if (!WorkspaceContinuationReceiptConsistency.IsValid(candidate))
                 return false;
 
-            return CharacterCareerReputationTransaction.IsValidHistory(new(
+            return CharacterCreationKarmaMetatypeTransaction.IsValidHistory(new(
+                workspace.Id, workspace.Document, workspace.ContentRevision,
+                workspace.SavedRevision, workspace.LastUpdatedUtc))
+                && CharacterCareerReputationTransaction.IsValidHistory(new(
                 workspace.Id, workspace.Document, workspace.ContentRevision,
                 workspace.SavedRevision, workspace.LastUpdatedUtc));
         }

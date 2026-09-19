@@ -6,13 +6,13 @@ using Chummer.Contracts.Workspaces;
 namespace Chummer.Application.Characters;
 
 /// <summary>
-/// Source-owned, read-only entry to Karma foundation. Never converts Karma into
+/// Source-owned entry to Karma foundation. Never converts Karma into
 /// a Priority or Life Modules draft, writes character XML, or grants free points.
-/// Quotes apply only to the empty, bound bootstrap; later spending is not ignored.
+/// Only its own pending selections may coexist with bootstrap; later spending is not ignored.
 /// </summary>
 public sealed class CharacterCreationKarmaMetatypeService(
     IWorkspaceStore workspaceStore,
-    ICharacterSourceDataResolver sourceDataResolver)
+    ICharacterSourceDataResolver sourceDataResolver) : ICharacterCreationKarmaMetatypeService
 {
     private readonly IWorkspaceStore _workspaceStore = workspaceStore
         ?? throw new ArgumentNullException(nameof(workspaceStore));
@@ -30,17 +30,20 @@ public sealed class CharacterCreationKarmaMetatypeService(
         WorkspaceDocument document = workspace.Document;
         CharacterCreationBootstrapBinding? bootstrap = document.AuxiliaryState
             .CharacterCreationBootstrapBinding;
-        // This slice quotes the first selection only. Never reset a partially
-        // spent budget by overlooking an existing draft, receipt or archive.
+        var decisions = document.AuxiliaryState.CharacterCreationKarmaMetatypeDecisions;
+        // Never reset other spending by overlooking an existing draft or archive.
         if (bootstrap is null
             || document.RulesetId != RulesetDefaults.Sr5
             || bootstrap.BuildMethod != CharacterCreationBuildMethods.Karma
-            || !Equals(document.AuxiliaryState,
+            || !Equals(document.AuxiliaryState with { CharacterCreationKarmaMetatypeDecisions = null },
                 new WorkspaceDocumentAuxiliaryState(CharacterCreationBootstrapBinding: bootstrap)))
         {
             return Blocked<CharacterCreationKarmaMetatypeState>(
                 CharacterCreationKarmaMetatypeBlockers.PendingKarmaBootstrapRequired);
         }
+
+        if (!CharacterCreationKarmaMetatypeTransaction.IsValidHistory(workspace))
+            return Blocked<CharacterCreationKarmaMetatypeState>(CharacterCreationKarmaMetatypeBlockers.HistoryInvalid);
 
         try
         {
@@ -115,11 +118,18 @@ public sealed class CharacterCreationKarmaMetatypeService(
                 document.AuxiliaryStateDigest,
                 bootstrap.BindingDigest,
                 profile.RawProfileInputsDigest, catalog.SourceContext.AuthorityDigest);
+            CharacterCreationKarmaMetatypeDecision? selection = decisions?.LastOrDefault();
+            if (selection is not null && (selection.Quote.KarmaBudget.Total != profile.BuildPoints.Value
+                || !CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(
+                    selection.Quote.Metatype, catalog.Options.SingleOrDefault(option =>
+                        option.OptionId == selection.Command.MetatypeOptionId))))
+                return Blocked<CharacterCreationKarmaMetatypeState>(CharacterCreationKarmaMetatypeBlockers.StaleBinding);
             string[] anchors = profile.SourceAnchorIds.Concat(catalog.SourceContext.SourceAnchorIds)
                 .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
             var state = new CharacterCreationKarmaMetatypeState(
                 CharacterCreationKarmaMetatypeSchemas.SnapshotV1, binding, profile.SettingsProfileId,
-                Budget(profile.BuildPoints.Value, 0, []), catalog.Options.ToArray(), anchors, string.Empty);
+                Budget(profile.BuildPoints.Value, selection?.Quote.Metatype.KarmaCost ?? 0, []),
+                catalog.Options.ToArray(), anchors, string.Empty, selection);
             state = state with
             {
                 SnapshotDigest = CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(state)
@@ -133,6 +143,16 @@ public sealed class CharacterCreationKarmaMetatypeService(
             return Blocked<CharacterCreationKarmaMetatypeState>(
                 CharacterCreationKarmaMetatypeBlockers.MetatypeAuthorityRequired);
         }
+    }
+
+    public CharacterCreationFoundationResult<CharacterCreationKarmaMetatypeCommit> Confirm(
+        CharacterCreationKarmaMetatypeConfirmRequest request)
+    {
+        if (!CharacterCreationKarmaMetatypeTransaction.IsConfirmed(request))
+            return Blocked<CharacterCreationKarmaMetatypeCommit>(CharacterCreationKarmaMetatypeBlockers.ConfirmationRequired);
+        return _workspaceStore is ICharacterCreationKarmaMetatypeAtomicCommitCapability capability
+            ? capability.CommitKarmaMetatype(request, _sourceDataResolver)
+            : Blocked<CharacterCreationKarmaMetatypeCommit>(CharacterCreationKarmaMetatypeBlockers.PersistenceUnavailable);
     }
 
     public CharacterCreationFoundationResult<CharacterCreationKarmaMetatypeQuote> Preview(

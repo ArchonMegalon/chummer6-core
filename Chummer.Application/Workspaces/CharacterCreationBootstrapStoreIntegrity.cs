@@ -16,6 +16,7 @@ public static class CharacterCreationBootstrapStoreIntegrity
         WorkspaceDocumentAuxiliaryState auxiliary = document.AuxiliaryState;
         CharacterCreationBootstrapBinding? binding = auxiliary.CharacterCreationBootstrapBinding;
         if (binding is null
+            || auxiliary.CharacterCreationKarmaMetatypeDecisions is not null
             || auxiliary.CharacterCreationFoundationDraft is not null
             || auxiliary.CharacterCreationPrerequisiteDraft is not null
             || auxiliary.CharacterCreationAttributesDraft is not null

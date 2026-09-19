@@ -1,6 +1,7 @@
 using Chummer.Application.Owners;
 using Chummer.Application.Workspaces;
 using Chummer.Contracts.Owners;
+using Chummer.Contracts.Characters;
 using Chummer.Contracts.Workspaces;
 
 namespace Chummer.Application.Characters;
@@ -9,7 +10,8 @@ namespace Chummer.Application.Characters;
 // still validates the exact typed auxiliary transition; this is not a general write grant.
 internal sealed class OwnerBoundCreationWorkspaceStore(
     IWorkspaceStore inner, IOwnerContextLease lease, OwnerContextStamp owner,
-    CharacterWorkspaceId workspaceId) : IWorkspaceStore, IWorkspaceAuxiliaryStateAtomicCommitCapability
+    CharacterWorkspaceId workspaceId) : IWorkspaceStore, IWorkspaceAuxiliaryStateAtomicCommitCapability,
+    ICharacterCreationKarmaMetatypeAtomicCommitCapability
 {
     private bool IsActive
     {
@@ -26,6 +28,19 @@ internal sealed class OwnerBoundCreationWorkspaceStore(
                 { SupportsWorkspaceAuxiliaryStateAtomicCommit: true }
             : inner is IOwnerScopedWorkspaceAuxiliaryStateAtomicCommitCapability
                 { SupportsOwnerScopedWorkspaceAuxiliaryStateAtomicCommit: true });
+
+    public CharacterCreationFoundationResult<CharacterCreationKarmaMetatypeCommit> CommitKarmaMetatype(
+        CharacterCreationKarmaMetatypeConfirmRequest request, ICharacterSourceDataResolver sourceResolver)
+        => IsActive && request.Binding.WorkspaceId == workspaceId
+            && inner is ICharacterCreationKarmaMetatypeAtomicCommitCapability capability
+            ? capability.CommitKarmaMetatype(owner.Owner, request, sourceResolver)
+            : CharacterCreationKarmaMetatypeTransaction.Blocked(CharacterCreationKarmaMetatypeBlockers.PersistenceUnavailable);
+
+    public CharacterCreationFoundationResult<CharacterCreationKarmaMetatypeCommit> CommitKarmaMetatype(
+        OwnerScope requestedOwner, CharacterCreationKarmaMetatypeConfirmRequest request,
+        ICharacterSourceDataResolver sourceResolver)
+        => requestedOwner == owner.Owner ? CommitKarmaMetatype(request, sourceResolver)
+            : CharacterCreationKarmaMetatypeTransaction.Blocked(CharacterCreationKarmaMetatypeBlockers.WorkspaceUnavailable);
 
     public WorkspaceStoreReadResult Get(CharacterWorkspaceId id)
         => IsActive && id == workspaceId
