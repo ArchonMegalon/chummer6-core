@@ -20,6 +20,63 @@ namespace Chummer.Tests;
 public sealed class CharacterCreationFinalizationServiceTests
 {
     [TestMethod]
+    [DataRow(CharacterCreationBuildMethods.Priority)]
+    [DataRow(CharacterCreationBuildMethods.SumToTen)]
+    [DataRow(CharacterCreationBuildMethods.Karma)]
+    public void Default_starting_cash_terms_are_source_owned_and_read_only_for_supported_methods(string method)
+    {
+        using ReadyContext context = ReadyContext.CreateUnprepared(method);
+        var before = context.Store.Get(context.WorkspaceId).Value!;
+        var source = context.Resolver.TryCreateContext(before.Document.Content)!;
+        Assert.IsTrue(source.TryResolveCreationDefaultStartingNuyen(out var cash));
+        Assert.IsTrue(CharacterCreationKarmaFinalizationBudgetRules.IsValidStartingCashSource(cash));
+        Assert.AreEqual("Street", cash!.Name);
+        var profile = before.Document.AuxiliaryState.CharacterCreationBootstrapBinding!;
+        Assert.AreEqual(profile.SettingsProfileId, cash.SettingsProfileId);
+        Assert.AreEqual(profile.RawProfileInputsDigest, cash.RawProfileInputsDigest);
+        var row = XElement.Parse(cash.SourceNodeXml);
+        Assert.AreEqual(row.Element("dice")!.Value, cash.Dice.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        Assert.AreEqual(row.Element("multiplier")!.Value, cash.Multiplier.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        Assert.AreEqual(method == CharacterCreationBuildMethods.Karma,
+            source.TryResolveCreationKarmaDefaultStartingNuyen(out var karmaCash));
+        if (karmaCash is not null) Assert.AreEqual(cash.AuthorityDigest, karmaCash.AuthorityDigest);
+        var after = context.Store.Get(context.WorkspaceId).Value!;
+        Assert.AreEqual(before.ContentRevision, after.ContentRevision);
+        Assert.AreEqual(before.Document.Content, after.Document.Content);
+        Assert.AreEqual(before.Document.AuxiliaryStateDigest, after.Document.AuxiliaryStateDigest);
+    }
+
+    [TestMethod]
+    [DataRow(CharacterCreationBuildMethods.Priority)]
+    [DataRow(CharacterCreationBuildMethods.SumToTen)]
+    public void Default_starting_cash_never_substitutes_for_an_existing_or_malformed_lifestyle(string method)
+    {
+        using ReadyContext context = ReadyContext.CreateUnprepared(method);
+        string original = context.Store.Get(context.WorkspaceId).Value!.Document.Content;
+        foreach (string node in new[] { "<lifestyles><lifestyle><name>Low</name></lifestyle></lifestyles>",
+                     "<lifestyles malformed='true' />", "<lifestyles>lost choice</lifestyles>",
+                     "<lifestyles /><lifestyles />" })
+        {
+            var root = XElement.Parse(original);
+            root.Elements("lifestyles").Remove();
+            root.Add(XElement.Parse("<rows>" + node + "</rows>").Elements());
+            var source = context.Resolver.TryCreateContext(root.ToString(SaveOptions.DisableFormatting))!;
+            Assert.IsFalse(source.TryResolveCreationDefaultStartingNuyen(out var cash), node);
+            Assert.IsNull(cash);
+        }
+        Assert.AreEqual(original, context.Store.Get(context.WorkspaceId).Value!.Document.Content);
+    }
+
+    [TestMethod]
+    public void Default_starting_cash_does_not_enable_unimplemented_life_modules_completion()
+    {
+        using ReadyContext context = ReadyContext.CreateUnprepared(CharacterCreationBuildMethods.LifeModules);
+        var source = context.Resolver.TryCreateContext(context.Store.Get(context.WorkspaceId).Value!.Document.Content)!;
+        Assert.IsFalse(source.TryResolveCreationDefaultStartingNuyen(out var cash));
+        Assert.IsNull(cash);
+    }
+
+    [TestMethod]
     [DataRow(CharacterCreationBuildMethods.Priority, 3, "1234.5")]
     [DataRow(CharacterCreationBuildMethods.SumToTen, 11, "0")]
     [DataRow(CharacterCreationBuildMethods.Priority, 0, "5000")]

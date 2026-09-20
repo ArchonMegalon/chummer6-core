@@ -2231,18 +2231,31 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             return true;
         }
 
+        public bool TryResolveCreationDefaultStartingNuyen(out CharacterCreationStartingNuyenSource? source)
+            => TryResolveCreationStartingNuyenCore(null, out source);
+
         public bool TryResolveCreationKarmaDefaultStartingNuyen(out CharacterCreationStartingNuyenSource? source)
-            => TryResolveCreationKarmaStartingNuyenCore(null, out source);
+        {
+            source = null;
+            return _buildMethod == CharacterCreationBuildMethods.Karma
+                && TryResolveCreationDefaultStartingNuyen(out source);
+        }
 
         public bool TryResolveCreationKarmaStartingNuyen(Guid lifestyleSourceId, out CharacterCreationStartingNuyenSource? source)
-            => TryResolveCreationKarmaStartingNuyenCore(lifestyleSourceId, out source);
+        {
+            source = null;
+            return _buildMethod == CharacterCreationBuildMethods.Karma
+                && TryResolveCreationStartingNuyenCore(lifestyleSourceId, out source);
+        }
 
-        private bool TryResolveCreationKarmaStartingNuyenCore(Guid? lifestyleSourceId, out CharacterCreationStartingNuyenSource? source)
+        private bool TryResolveCreationStartingNuyenCore(Guid? lifestyleSourceId, out CharacterCreationStartingNuyenSource? source)
         {
             using IDisposable sourceInputScope = _sourceInputs.Enter();
             source = null;
             var lifestyles = _character.Elements("lifestyles").Take(2).ToArray();
-            if (_sourceInputs.HasSourceDrift || lifestyleSourceId == Guid.Empty || _buildMethod != CharacterCreationBuildMethods.Karma
+            if (_sourceInputs.HasSourceDrift || lifestyleSourceId == Guid.Empty
+                || _buildMethod is not (CharacterCreationBuildMethods.Karma
+                    or CharacterCreationBuildMethods.Priority or CharacterCreationBuildMethods.SumToTen)
                 || lifestyles.Length > 1 || lifestyles.Length == 1
                     && (lifestyles[0].HasAttributes || lifestyles[0].HasElements || !string.IsNullOrWhiteSpace(lifestyles[0].Value))
                 || string.IsNullOrWhiteSpace(_settingsProfileId)

@@ -168,6 +168,13 @@ public interface ICharacterSourceDataContext
     /// exists. Never substitutes Street for an existing or malformed lifestyle.
     /// This does not create the lifestyle or apply its other source effects.
     /// </summary>
+    bool TryResolveCreationDefaultStartingNuyen(out CharacterCreationStartingNuyenSource? source)
+    {
+        source = null;
+        return false;
+    }
+
+    /// <summary>Karma-specific entry point; keeps the build-method boundary.</summary>
     bool TryResolveCreationKarmaDefaultStartingNuyen(out CharacterCreationStartingNuyenSource? source)
     {
         source = null;
