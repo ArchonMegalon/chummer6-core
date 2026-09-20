@@ -1418,6 +1418,78 @@ public sealed class CharacterCreationFinalizationServiceTests
         Assert.IsFalse(result.Value!.CanReview);
     }
 
+    [TestMethod]
+    [DataRow(CharacterCreationBuildMethods.Karma, CharacterCreationFinalizationBlockers.BuildMethodUnsupported)]
+    [DataRow(CharacterCreationBuildMethods.SumToTen, CharacterCreationFinalizationBlockers.BuildMethodNotReady)]
+    [DataRow(CharacterCreationBuildMethods.LifeModules, CharacterCreationFinalizationBlockers.BuildMethodNotReady)]
+    public void Unavailable_finalization_method_does_not_load_unrelated_priority_sources(
+        string method, string blocker)
+    {
+        using ReadyContext context = ReadyContext.CreateUnprepared(method);
+        var resolver = new FinalizationSourceReadProbe(context.Resolver);
+        var finalizer = ReadyContext.BuildFinalizer(context.Store, context.Queries, resolver);
+        var before = context.Store.Get(context.WorkspaceId).Value!;
+
+        var result = finalizer.Load(new(context.WorkspaceId));
+        Assert.AreEqual(0, resolver.Calls,
+            "An unavailable finalizer must not hold the phone owner gate while resolving Priority domains.");
+        Assert.AreEqual(CharacterCreationFinalizationOutcomes.Blocked, result.Outcome);
+        CollectionAssert.Contains(result.Blockers.ToArray(), blocker);
+        var state = result.Value!;
+        Assert.IsFalse(state.CanReview);
+        Assert.AreEqual(0, state.Steps.Count, "Unloaded domains are not completed/validated steps.");
+        Assert.AreEqual(method, state.Binding.BuildMethod);
+        Assert.AreEqual(before.ContentRevision, state.Binding.ContentRevision);
+        Assert.AreEqual(before.SavedRevision, state.Binding.SavedRevision);
+        Assert.AreEqual(before.Document.AuxiliaryStateDigest, state.Binding.AuxiliaryStateDigest);
+        Assert.AreEqual(state.SnapshotDigest, finalizer.Load(new(context.WorkspaceId)).Value!.SnapshotDigest);
+
+        var review = finalizer.Review(new(state.Binding));
+        Assert.AreEqual(CharacterCreationFinalizationOutcomes.Blocked, review.Outcome);
+        Assert.IsFalse(review.Value!.CanConfirm);
+        Assert.IsNull(review.Value.Plan);
+        var confirm = finalizer.Confirm(new(state.Binding, review.Value.PreviewDigest,
+            CharacterCreationFinalizationDigest.ComputeUtf8("no-admitted-plan"), "unavailable-method", true));
+        Assert.AreEqual(CharacterCreationFinalizationOutcomes.Blocked, confirm.Outcome);
+        Assert.IsNull(confirm.Value);
+        Assert.AreEqual(CharacterCreationFinalizationOutcomes.Conflict,
+            finalizer.Review(new(state.Binding with { ContentRevision = state.Binding.ContentRevision + 1 })).Outcome);
+        Assert.AreEqual(0, resolver.Calls, "Review/Confirm must keep the same method gate.");
+
+        var after = context.Store.Get(context.WorkspaceId).Value!;
+        Assert.AreEqual(before.ContentRevision, after.ContentRevision);
+        Assert.AreEqual(before.SavedRevision, after.SavedRevision);
+        Assert.AreEqual(before.LastUpdatedUtc, after.LastUpdatedUtc);
+        Assert.AreEqual(before.Document.Content, after.Document.Content);
+        Assert.AreEqual(before.Document.AuxiliaryStateDigest, after.Document.AuxiliaryStateDigest);
+    }
+
+    [TestMethod]
+    public void Available_finalization_method_still_loads_fresh_domain_authority()
+    {
+        using ReadyContext context = ReadyContext.CreateUnprepared(CharacterCreationBuildMethods.Priority);
+        var resolver = new FinalizationSourceReadProbe(context.Resolver);
+        var finalizer = ReadyContext.BuildFinalizer(context.Store, context.Queries, resolver);
+        var result = finalizer.Load(new(context.WorkspaceId));
+        Assert.IsTrue(resolver.Calls > 0, "Priority may not bypass its live source authority.");
+        Assert.AreEqual(7, result.Value!.Steps.Count);
+        Assert.IsFalse(result.Value.CanReview);
+        CollectionAssert.Contains(result.Blockers.ToArray(), CharacterCreationFinalizationBlockers.PrerequisiteDraftRequired);
+        int calls = resolver.Calls;
+        finalizer.Load(new(context.WorkspaceId));
+        Assert.IsTrue(resolver.Calls > calls, "The method gate must not cache prior domain reads.");
+    }
+
+    private sealed class FinalizationSourceReadProbe(ICharacterSourceDataResolver inner) : ICharacterSourceDataResolver
+    {
+        public int Calls { get; private set; }
+        public ICharacterSourceDataContext? TryCreateContext(string characterXml)
+        {
+            Calls++;
+            return inner.TryCreateContext(characterXml);
+        }
+    }
+
     private static T AssertAvailable<T>(CharacterCreationFinalizationResult<T> result)
         where T : class
     {
