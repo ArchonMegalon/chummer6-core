@@ -38,6 +38,234 @@ public sealed class CharacterCreationBootstrapServiceTests
     private const string MagicianId = "0e741331-d776-4be8-abc5-4101228abdef";
 
     [TestMethod]
+    public void Karma_qualities_fund_skills_and_resources_from_the_same_pool_and_cold_reopen()
+    {
+        using var fixture = new KarmaDiskFixture(budget: 10, includeSkills: true);
+        var state = fixture.Service.Load(fixture.Id, includeSkills: true, includeQualities: true).Value!;
+        Assert.IsNotNull(state.QualitiesCatalog);
+        var source = fixture.Resolver.TryCreateContext(fixture.Store.Get(fixture.Id).Value!.Document.Content)!;
+        Assert.IsFalse(source.TryResolveCreationQualitiesAuthority(out _), "Karma must not acquire Priority authority.");
+        var negative = state.QualitiesCatalog.Options.Single(item => item.Name == "Unsteady Hands");
+        Assert.IsTrue(negative.IsSelectable, negative.DisableReasonKey);
+        var pistols = state.SkillsCatalog!.ActiveSkills.Single(item => item.Name == "Pistols");
+        var skills = new CharacterCreationKarmaSkillsSelection(
+            [NativeEnglish(state.SkillsCatalog), new(pistols.SourceSkillId, pistols.Kind, 3)], []);
+        var before = fixture.Store.Get(fixture.Id).Value!;
+        var quote = fixture.Service.Preview(state.Binding, HumanId, "mundane", [], skills, 2.5m, [negative.OptionId]).Value!;
+        Assert.IsTrue(quote.CanSelect, string.Join(",", quote.Blockers));
+        Assert.AreEqual(-7, quote.Qualities!.Costs.NetKarmaSpent);
+        Assert.AreEqual(17, quote.Skills!.KarmaAvailable);
+        Assert.AreEqual(12m, quote.Skills.KarmaUsed);
+        Assert.AreEqual(5m, quote.Resources!.KarmaAvailable);
+        Assert.AreEqual(2.5m, quote.KarmaBudget.Remaining);
+        AssertJsonEqual(before, fixture.Store.Get(fixture.Id).Value!);
+        var request = new CharacterCreationKarmaMetatypeConfirmRequest(quote.Binding, HumanId, quote.QuoteDigest,
+            Guid.NewGuid(), true, "mundane", [], skills, 2.5m, [negative.OptionId]);
+        Assert.IsNotNull(fixture.Service.Confirm(request).Value);
+        var coldStore = new FileWorkspaceStore(fixture.StateRoot);
+        var saved = coldStore.Get(fixture.Id).Value!;
+        Assert.AreEqual(before.ContentRevision + 1, saved.ContentRevision);
+        Assert.AreEqual(saved.ContentRevision, saved.SavedRevision);
+        Assert.AreEqual(before.Document.Content, saved.Document.Content, "Qualities remain pending source effects, not legacy character mutations.");
+        var cold = new CharacterCreationKarmaMetatypeService(coldStore, fixture.Resolver);
+        var opened = cold.Open(fixture.Id);
+        Assert.IsNotNull(opened.Value, string.Join(",", opened.Blockers));
+        Assert.AreEqual(2.5m, opened.Value.Quote!.KarmaBudget.Remaining);
+        Assert.AreEqual(-7, opened.Value.Quote.Qualities!.Selections.Single().KarmaCost);
+        Assert.IsTrue(cold.Confirm(request).Value!.Replayed);
+        CollectionAssert.Contains(cold.Preview(opened.Value.State.Binding, HumanId, "mundane", [], skills, 2.5m).Blockers.ToArray(),
+            CharacterCreationKarmaMetatypeBlockers.QualitiesSelectionRequired);
+        var cleared = cold.Preview(opened.Value.State.Binding, HumanId, "mundane", [], skills, 2.5m, []);
+        Assert.IsFalse(cleared.Value?.CanSelect == true, "Removing the credit cannot leave the overspent skills/resources approved.");
+        AssertJsonEqual(saved, coldStore.Get(fixture.Id).Value!);
+    }
+
+    [TestMethod]
+    public void Karma_qualities_replace_pending_selection_without_rewriting_old_decisions()
+    {
+        using var fixture = new KarmaDiskFixture(configureSettings: EnableQualityBook);
+        Assert.IsNotNull(fixture.Service.Confirm(fixture.Request(HumanId, "mundane", [], null, 10.5m)).Value);
+        var before = fixture.Store.Get(fixture.Id).Value!;
+        var catalog = fixture.Service.Load(fixture.Id, includeQualities: true).Value!.QualitiesCatalog!;
+        string positive = catalog.Options.Single(item => item.Name == "Overclocker").OptionId;
+        string negative = catalog.Options.Single(item => item.Name == "Unsteady Hands").OptionId;
+        var request = fixture.Request(HumanId, "mundane", [], null, 10.5m, [positive, negative]);
+        Assert.IsNotNull(fixture.Service.Confirm(request).Value);
+        var after = fixture.Store.Get(fixture.Id).Value!;
+        Assert.AreEqual(8.5m, fixture.Service.Load(fixture.Id).Value!.KarmaBudget.Used);
+        AssertJsonEqual(before.Document.AuxiliaryState.CharacterCreationKarmaMetatypeDecisions![0],
+            after.Document.AuxiliaryState.CharacterCreationKarmaMetatypeDecisions![0]);
+        Assert.IsNotNull(fixture.Service.Confirm(fixture.Request(HumanId, "mundane", [], null, 10.5m, [positive])).Value);
+        Assert.AreEqual(15.5m, fixture.Service.Open(fixture.Id).Value!.Quote!.KarmaBudget.Used);
+        Assert.IsNotNull(fixture.Service.Confirm(fixture.Request(HumanId, "mundane", [], null, 10.5m, [])).Value);
+        Assert.AreEqual(10.5m, fixture.Service.Open(fixture.Id).Value!.Quote!.KarmaBudget.Used);
+    }
+
+    [TestMethod]
+    public void Karma_qualities_use_profile_multipliers_excess_caps_and_source_effects()
+    {
+        using var fixture = new KarmaDiskFixture(qualityMultiplier: 2, configureSettings: row =>
+        {
+            EnableQualityBook(row);
+            row.SetElementValue("qualitykarmalimit", 7);
+            row.SetElementValue("exceedpositivequalities", true);
+            row.SetElementValue("exceedpositivequalitiescostdoubled", true);
+            row.SetElementValue("exceednegativequalities", true);
+            row.SetElementValue("exceednegativequalitiesnobonus", true);
+        });
+        var state = fixture.Service.Load(fixture.Id, includeQualities: true).Value!;
+        var selected = state.QualitiesCatalog!.Options.Where(item => item.Name is "Overclocker" or "Unsteady Hands").ToArray();
+        Assert.AreEqual(2, selected.Length);
+        var ids = selected.Select(item => item.OptionId).ToArray();
+        var quote = fixture.Service.Preview(state.Binding, HumanId, "mundane", [], null, 0m, ids).Value!;
+        Assert.IsTrue(quote.CanSelect, string.Join(",", quote.Blockers));
+        Assert.AreEqual(13, quote.Qualities!.Costs.PositiveKarmaSpent);
+        Assert.AreEqual(7, quote.Qualities.Costs.NegativeKarmaGranted);
+        Assert.AreEqual(794m, quote.KarmaBudget.Remaining);
+        Assert.IsTrue(quote.Qualities.Selections.Single(item => item.Name == "Overclocker").SourceNodeXml.Contains("<overclocker", StringComparison.Ordinal));
+        Assert.IsNotNull(fixture.Service.Confirm(fixture.Request(HumanId, "mundane", [], null, 0m, ids)).Value);
+        Assert.AreEqual(6m, fixture.Service.Open(fixture.Id).Value!.Quote!.KarmaBudget.Used);
+    }
+
+    [TestMethod]
+    public void Karma_qualities_reject_unresolved_disabled_duplicate_and_invented_selections_without_writing()
+    {
+        using var fixture = new KarmaDiskFixture(configureSettings: row =>
+            row.Element("books")!.Elements("book").Where(book => book.Value == "RF").Remove());
+        var state = fixture.Service.Load(fixture.Id, includeQualities: true).Value!;
+        var before = fixture.Store.Get(fixture.Id).Value!;
+        var catalog = state.QualitiesCatalog!;
+        string valid = catalog.Options.Single(item => item.Name == "Unsteady Hands").OptionId;
+        var invalid = new[]
+        {
+            new[] { valid, valid }, new[] { "invented" },
+            new[] { catalog.Options.Single(item => item.Name == "Distinctive Style").OptionId },
+            new[] { catalog.Options.Single(item => item.Name == "Code of Honor").OptionId },
+            new[] { catalog.Options.Single(item => item.Name == "Overclocker").OptionId }
+        };
+        foreach (var ids in invalid)
+            Assert.IsFalse(fixture.Service.Preview(state.Binding, HumanId, "mundane", [], null, null, ids).Value?.CanSelect == true,
+                string.Join(",", ids));
+        CollectionAssert.Contains(fixture.Service.Preview(state.Binding, HumanId, "mundane", null, null, null, [valid]).Blockers.ToArray(),
+            CharacterCreationKarmaMetatypeBlockers.AttributeSelectionRequired);
+        var request = fixture.Request(HumanId, "mundane", [], null, null, [valid]);
+        Assert.IsNull(fixture.Service.Confirm(request with { ExplicitlyConfirmed = false }).Value);
+        AssertJsonEqual(before, fixture.Store.Get(fixture.Id).Value!);
+    }
+
+    [TestMethod]
+    public void Karma_qualities_apply_caps_and_disable_grant_only_source_choices_in_catalog()
+    {
+        using var fixture = new KarmaDiskFixture(configureSettings: row =>
+        {
+            row.SetElementValue("qualitykarmalimit", 4);
+            row.SetElementValue("exceedpositivequalities", false);
+            row.SetElementValue("exceednegativequalities", false);
+        });
+        var state = fixture.Service.Load(fixture.Id, includeQualities: true).Value!;
+        var negative = state.QualitiesCatalog!.Options.Single(item => item.Name == "Unsteady Hands");
+        var positive = state.QualitiesCatalog.Options.Single(item => item.Name == "Overclocker");
+        var before = fixture.Store.Get(fixture.Id).Value!;
+        foreach (var (option, blocker) in new[] {
+            (negative, CharacterCreationQualitiesBlockers.NegativeLimitExceeded),
+            (positive, CharacterCreationQualitiesBlockers.PositiveLimitExceeded) })
+        {
+            var preview = fixture.Service.Preview(state.Binding, HumanId, "mundane", [], null, null, [option.OptionId]);
+            Assert.IsNotNull(preview.Value);
+            Assert.IsFalse(preview.Value.CanSelect);
+            CollectionAssert.Contains(preview.Value.Blockers.ToArray(), blocker);
+        }
+        fixture.EditQuality(negative.SourceId.ToString("D"), row => row.Add(new XElement("onlyprioritygiven")));
+        var changed = fixture.Service.Load(fixture.Id, includeQualities: true).Value!;
+        var grantOnly = changed.QualitiesCatalog!.Options.Single(item => item.OptionId == negative.OptionId);
+        Assert.IsFalse(grantOnly.IsSelectable);
+        Assert.IsNotNull(grantOnly.DisableReasonKey);
+        Assert.IsFalse(fixture.Service.Preview(changed.Binding, HumanId, "mundane", [], null, null, [grantOnly.OptionId]).Value?.CanSelect == true);
+        AssertJsonEqual(before, fixture.Store.Get(fixture.Id).Value!);
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void Karma_qualities_source_change_before_or_during_commit_is_rejected(bool duringWrite)
+    {
+        using var fixture = new KarmaDiskFixture();
+        var option = fixture.Service.Load(fixture.Id, includeQualities: true).Value!.QualitiesCatalog!.Options.Single(item => item.Name == "Unsteady Hands");
+        var request = fixture.Request(HumanId, "mundane", [], null, null, [option.OptionId]);
+        var before = fixture.Store.Get(fixture.Id).Value!;
+        void Change() => fixture.EditQuality(option.SourceId.ToString("D"), row => row.SetElementValue("karma", -6));
+        if (duringWrite) fixture.Fault.Action = stage => { if (stage == FileWorkspaceStoreFaultStage.AfterTempFileFlushed) Change(); };
+        else Change();
+        Assert.IsNull(fixture.Service.Confirm(request).Value);
+        AssertJsonEqual(before, new FileWorkspaceStore(fixture.StateRoot).Get(fixture.Id).Value!);
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void Karma_qualities_atomic_recovery_and_frozen_request_prevent_double_credit(bool afterReplace)
+    {
+        using var fixture = new KarmaDiskFixture();
+        string id = fixture.Service.Load(fixture.Id, includeQualities: true).Value!.QualitiesCatalog!.Options.Single(item => item.Name == "Unsteady Hands").OptionId;
+        var callerIds = new[] { id };
+        var request = fixture.Request(HumanId, "mundane", [], null, null, callerIds);
+        var before = fixture.Store.Get(fixture.Id).Value!;
+        fixture.Fault.Action = stage =>
+        {
+            if (stage == FileWorkspaceStoreFaultStage.AfterTempFileFlushed) callerIds[0] = "caller-mutated";
+            if (stage == (afterReplace ? FileWorkspaceStoreFaultStage.AfterTargetReplaced : FileWorkspaceStoreFaultStage.AfterTempFileFlushed))
+                throw new IOException("Injected quality draft persistence failure");
+        };
+        fixture.Service.Confirm(request);
+        fixture.Fault.Action = null;
+        var saved = new FileWorkspaceStore(fixture.StateRoot).Get(fixture.Id).Value!;
+        if (afterReplace)
+        {
+            Assert.AreEqual(before.ContentRevision + 1, saved.ContentRevision);
+            Assert.AreEqual(807m, fixture.Service.Open(fixture.Id).Value!.Quote!.KarmaBudget.Remaining);
+            Assert.IsTrue(fixture.Service.Confirm(request with { QualityOptionIds = [id] }).Value!.Replayed);
+        }
+        else AssertJsonEqual(before, saved);
+    }
+
+    [TestMethod]
+    public void Karma_qualities_rehashed_cost_forgery_fails_intrinsic_source_projection()
+    {
+        using var fixture = new KarmaDiskFixture();
+        var state = fixture.Service.Load(fixture.Id, includeQualities: true).Value!;
+        var option = state.QualitiesCatalog!.Options.Single(item => item.Name == "Unsteady Hands");
+        var request = fixture.Request(HumanId, "mundane", [], null, null, [option.OptionId]);
+        Assert.IsNotNull(fixture.Service.Confirm(request).Value);
+        var saved = fixture.Store.Get(fixture.Id).Value!;
+        var decision = saved.Document.AuxiliaryState.CharacterCreationKarmaMetatypeDecisions![0];
+        var forgedOption = option with { KarmaCost = -700 };
+        forgedOption = forgedOption with { OptionDigest = CharacterCreationQualitiesRules.ComputeOptionDigest(forgedOption) };
+        var forged = decision.Quote.Qualities! with { Selections = [forgedOption], QuoteDigest = string.Empty };
+        forged = forged with { QuoteDigest = CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(forged) };
+        var quote = decision.Quote with { Qualities = forged, QuoteDigest = string.Empty };
+        quote = quote with { QuoteDigest = CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(quote) };
+        decision = decision with { Quote = quote, Command = decision.Command with { QuoteDigest = quote.QuoteDigest } };
+        decision = decision with { DecisionDigest = CharacterCreationKarmaMetatypeTransaction.DecisionDigest(decision) };
+        Assert.IsFalse(CharacterCreationKarmaMetatypeTransaction.IsValidLedger(fixture.Id, saved.ContentRevision,
+            saved.Document.AuxiliaryState with { CharacterCreationKarmaMetatypeDecisions = [decision] }));
+        using var old = JsonDocument.Parse(JsonSerializer.Serialize(request with { QualityOptionIds = null }));
+        Assert.IsFalse(old.RootElement.TryGetProperty("QualityOptionIds", out _));
+        using var oldBinding = JsonDocument.Parse(JsonSerializer.Serialize(request.Binding with
+            { QualitiesPolicyDigest = null, QualitiesCatalogDigest = null }));
+        Assert.IsFalse(oldBinding.RootElement.TryGetProperty("QualitiesPolicyDigest", out _));
+        Assert.IsFalse(oldBinding.RootElement.TryGetProperty("QualitiesCatalogDigest", out _));
+        using var oldQuote = JsonDocument.Parse(JsonSerializer.Serialize(quote with { Qualities = null }));
+        Assert.IsFalse(oldQuote.RootElement.TryGetProperty("Qualities", out _));
+        Assert.IsTrue(CharacterCreationKarmaMetatypeTransaction.IsValidHistory(fixture.Store.Get(fixture.Id).Value!));
+    }
+
+    private static void EnableQualityBook(XElement row)
+    {
+        if (!row.Element("books")!.Elements("book").Any(book => book.Value == "RF"))
+            row.Element("books")!.Add(new XElement("book", "RF"));
+    }
+
+    [TestMethod]
     public void Karma_resources_share_budget_and_survive_cold_reopen_without_rewriting_prior_decisions()
     {
         using var fixture = new KarmaDiskFixture(includeSkills: true);
@@ -2081,13 +2309,14 @@ public sealed class CharacterCreationBootstrapServiceTests
         }
         public CharacterCreationKarmaMetatypeConfirmRequest Request(string optionId, string? talentId = null,
             IReadOnlyList<CharacterCreationKarmaAttributeAllocation>? allocations = null,
-            CharacterCreationKarmaSkillsSelection? skills = null, decimal? resources = null)
+            CharacterCreationKarmaSkillsSelection? skills = null, decimal? resources = null,
+            IReadOnlyList<string>? qualities = null)
         {
-            var state = Service.Load(Id, includeSkills: skills is not null);
+            var state = Service.Load(Id, includeSkills: skills is not null, includeQualities: qualities is not null);
             Assert.IsNotNull(state.Value, string.Join(",", state.Blockers));
-            var quote = Service.Preview(state.Value.Binding, optionId, talentId, allocations, skills, resources);
+            var quote = Service.Preview(state.Value.Binding, optionId, talentId, allocations, skills, resources, qualities);
             Assert.IsNotNull(quote.Value, string.Join(",", quote.Blockers));
-            return new(quote.Value.Binding, optionId, quote.Value.QuoteDigest, Guid.NewGuid(), true, talentId, allocations, skills, resources);
+            return new(quote.Value.Binding, optionId, quote.Value.QuoteDigest, Guid.NewGuid(), true, talentId, allocations, skills, resources, qualities);
         }
         public void RemoveQualitySource() => File.Delete(Path.Combine(_root, "data", "qualities.xml"));
         public void EditSkill(string name, Action<XElement> change)

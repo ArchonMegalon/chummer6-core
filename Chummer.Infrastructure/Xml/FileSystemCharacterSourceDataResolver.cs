@@ -3381,10 +3381,44 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
         public bool TryResolveCreationQualitiesAuthority(
             out CharacterCreationQualitiesAuthority authority)
         {
+            authority = CharacterCreationQualitiesAuthority.Unavailable;
+            return _buildMethod == CharacterCreationBuildMethods.Priority
+                && TryResolveCreationQualitySources(out authority);
+        }
+
+        public bool TryResolveCreationKarmaQualities(out CharacterCreationKarmaQualitiesCatalog? catalog)
+        {
+            catalog = null;
+            if (_buildMethod != CharacterCreationBuildMethods.Karma
+                || !TryResolveCreationQualitySources(out var source) || !source.IsAuthoritative) return false;
+            var policy = new CharacterCreationKarmaQualitiesPolicy(CharacterCreationKarmaQualitiesPolicy.SchemaV1,
+                source.SettingsProfileId, source.ProfileDigest, source.SourceDigest, source.QualityKarmaLimit,
+                source.MayExceedPositiveQualityLimit, source.MayExceedNegativeQualityLimit, source.MetagenicLimit,
+                source.CostPolicy ?? CharacterCreationQualityCostPolicy.Default, source.SourceAnchorIds, string.Empty);
+            policy = policy with { AuthorityDigest = CharacterCreationKarmaQualitiesRules.PolicyDigest(policy) };
+            // The purchase evaluator and its catalog must agree. In particular,
+            // legacy empty grant-only markers are never ordinary Karma purchases.
+            var options = source.Options.Select(option =>
+            {
+                if (!option.IsSelectable || CharacterCreationKarmaQualitiesRules.IsExactPurchase(option)) return option;
+                var unavailable = option with { IsSelectable = false, EligibilityIsExact = false,
+                    DisableReasonKey = CharacterCreationQualitiesBlockers.EligibilityUnresolved, OptionDigest = string.Empty };
+                return unavailable with { OptionDigest = CharacterCreationQualitiesRules.ComputeOptionDigest(unavailable) };
+            }).ToArray();
+            var result = new CharacterCreationKarmaQualitiesCatalog(CharacterCreationKarmaQualitiesCatalog.SchemaV1,
+                policy, options, string.Empty);
+            catalog = result with { CatalogDigest = CharacterCreationKarmaQualitiesRules.CatalogDigest(result) };
+            return CharacterCreationKarmaQualitiesRules.IsValidCatalog(catalog);
+        }
+
+        // Shared source parsing only. Each public entry retains its own build-method
+        // guard and contract; this never creates a Priority prerequisite for Karma.
+        private bool TryResolveCreationQualitySources(out CharacterCreationQualitiesAuthority authority)
+        {
             using IDisposable sourceInputScope = _sourceInputs.Enter();
             authority = CharacterCreationQualitiesAuthority.Unavailable;
             if (string.IsNullOrWhiteSpace(_settingsProfileId)
-                || !string.Equals(_buildMethod, CharacterCreationBuildMethods.Priority, StringComparison.Ordinal)
+                || _buildMethod is not (CharacterCreationBuildMethods.Priority or CharacterCreationBuildMethods.Karma)
                 || !TryComputeEffectiveInputDigest(
                     _catalog,
                     "qualities.xml",

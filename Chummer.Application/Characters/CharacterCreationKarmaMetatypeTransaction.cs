@@ -32,6 +32,11 @@ public static class CharacterCreationKarmaMetatypeTransaction
             && (binding.ResourcesPolicyDigest is null || Digest(binding.ResourcesPolicyDigest))
             && (request.ResourceKarmaInvestment is null || request.ResourceKarmaInvestment >= 0
                 && request.AttributeAllocations is not null && Digest(binding.ResourcesPolicyDigest))
+            && (binding.QualitiesPolicyDigest is null || Digest(binding.QualitiesPolicyDigest))
+            && (binding.QualitiesCatalogDigest is null || Digest(binding.QualitiesCatalogDigest))
+            && (request.QualityOptionIds is null || request.AttributeAllocations is not null
+                && Digest(binding.QualitiesPolicyDigest) && Digest(binding.QualitiesCatalogDigest)
+                && CharacterCreationKarmaQualitiesRules.TryFreeze(request.QualityOptionIds, out _))
             && !string.IsNullOrWhiteSpace(binding.WorkspaceId.Value)
             && binding.ContentRevision is > 0 and < long.MaxValue
             && (binding.SavedRevision == binding.ContentRevision
@@ -66,7 +71,8 @@ public static class CharacterCreationKarmaMetatypeTransaction
                     || index > 0 && (ledger[index - 1].Quote.Talent is not null && quote.Talent is null
                         || ledger[index - 1].Quote.Attributes is not null && quote.Attributes is null
                         || ledger[index - 1].Quote.Skills is not null && quote.Skills is null
-                        || ledger[index - 1].Quote.Resources is not null && quote.Resources is null)
+                        || ledger[index - 1].Quote.Resources is not null && quote.Resources is null
+                        || ledger[index - 1].Quote.Qualities is not null && quote.Qualities is null)
                     || quote.Schema != CharacterCreationKarmaMetatypeSchemas.QuoteV1
                     || quote.Binding != decision.Command.Binding || quote.Binding.WorkspaceId != id
                     || quote.Metatype is not { IsEnabled: true, KarmaCost: >= 0 } metatype
@@ -85,20 +91,27 @@ public static class CharacterCreationKarmaMetatypeTransaction
                         decision.Command.AttributeAllocations)
                     || quote.Attributes is { } attributes && (attributes.Policy.AuthorityDigest != quote.Binding.AttributePolicyDigest
                         || attributes.Policy.RawProfileInputsDigest != quote.Binding.SourceProfileDigest)
+                    || !CharacterCreationKarmaQualitiesRules.IsValid(quote.Qualities, metatype, quote.Talent,
+                        decision.Command.QualityOptionIds)
+                    || quote.Qualities is { } qualities && (qualities.Policy.AuthorityDigest != quote.Binding.QualitiesPolicyDigest
+                        || qualities.CatalogDigest != quote.Binding.QualitiesCatalogDigest
+                        || qualities.Policy.RawProfileInputsDigest != quote.Binding.SourceProfileDigest)
                     || !CharacterCreationKarmaSkillsRules.IsValid(quote.Skills, metatype, quote.Talent, quote.Attributes,
                         decision.Command.SkillsSelection)
                     || quote.Skills is { } skills && (skills.Policy.AuthorityDigest != quote.Binding.SkillsPolicyDigest
                         || skills.CatalogDigest != quote.Binding.SkillsCatalogDigest
                         || skills.Policy.RawProfileInputsDigest != quote.Binding.SourceProfileDigest
                         || skills.KarmaAvailable != budget.Total - metatype.KarmaCost - (quote.Talent?.KarmaCost ?? 0)
-                            - (quote.Attributes?.KarmaUsed ?? 0))
+                            - (quote.Attributes?.KarmaUsed ?? 0) - (quote.Qualities?.Costs.NetKarmaSpent ?? 0))
                     || !CharacterCreationKarmaResourcesRules.IsValid(quote.Resources, quote.Attributes,
                         decision.Command.ResourceKarmaInvestment, budget.Total - metatype.KarmaCost
-                            - (quote.Talent?.KarmaCost ?? 0) - (quote.Attributes?.KarmaUsed ?? 0) - (quote.Skills?.KarmaUsed ?? 0))
+                            - (quote.Talent?.KarmaCost ?? 0) - (quote.Attributes?.KarmaUsed ?? 0)
+                            - (quote.Qualities?.Costs.NetKarmaSpent ?? 0) - (quote.Skills?.KarmaUsed ?? 0))
                     || quote.Resources is { } resources && (resources.Policy.AuthorityDigest != quote.Binding.ResourcesPolicyDigest
                         || resources.Policy.RawProfileInputsDigest != quote.Binding.SourceProfileDigest)
                     || budget.Used != (decimal)metatype.KarmaCost + (quote.Talent?.KarmaCost ?? 0)
-                        + (quote.Attributes?.KarmaUsed ?? 0) + (quote.Skills?.KarmaUsed ?? 0) + (quote.Resources?.KarmaInvestment ?? 0)
+                        + (quote.Attributes?.KarmaUsed ?? 0) + (quote.Qualities?.Costs.NetKarmaSpent ?? 0)
+                        + (quote.Skills?.KarmaUsed ?? 0) + (quote.Resources?.KarmaInvestment ?? 0)
                     || budget.Total - budget.Used != budget.Remaining
                     || decision.DraftRevision != index + 1
                     || decision.CommittedContentRevision != quote.Binding.ContentRevision + 1
@@ -162,7 +175,7 @@ public static class CharacterCreationKarmaMetatypeTransaction
         var view = new WorkspaceContinuationReadView(owner, workspace);
         var result = new CharacterCreationKarmaMetatypeService(view, sourceResolver)
             .Preview(request.Binding, request.MetatypeOptionId, request.TalentOptionId, request.AttributeAllocations,
-                request.SkillsSelection, request.ResourceKarmaInvestment);
+                request.SkillsSelection, request.ResourceKarmaInvestment, request.QualityOptionIds);
         if (result.Value is not { CanSelect: true } quote || quote.QuoteDigest != request.QuoteDigest)
             return false;
         var prepared = new CharacterCreationKarmaMetatypeDecision(
@@ -194,7 +207,11 @@ public static class CharacterCreationKarmaMetatypeTransaction
             CharacterCreationKarmaSkillsSelection? skills = null;
             if (request.SkillsSelection is not null && !CharacterCreationKarmaSkillsRules.TryFreeze(request.SkillsSelection, out skills))
                 return false;
-            frozen = request with { AttributeAllocations = request.AttributeAllocations?.Take(14).ToArray(), SkillsSelection = skills };
+            string[]? qualities = null;
+            if (request.QualityOptionIds is not null
+                && !CharacterCreationKarmaQualitiesRules.TryFreeze(request.QualityOptionIds, out qualities)) return false;
+            frozen = request with { AttributeAllocations = request.AttributeAllocations?.Take(14).ToArray(),
+                SkillsSelection = skills, QualityOptionIds = qualities };
             return IsConfirmed(frozen);
         }
         catch (Exception error) when (error is ArgumentException or InvalidOperationException)

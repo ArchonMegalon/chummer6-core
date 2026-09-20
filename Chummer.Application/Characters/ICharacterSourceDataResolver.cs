@@ -124,6 +124,13 @@ public interface ICharacterSourceDataContext
         return false;
     }
 
+    /// <summary>Source-owned ordinary Karma qualities, distinct from purchased talents.</summary>
+    bool TryResolveCreationKarmaQualities(out CharacterCreationKarmaQualitiesCatalog? catalog)
+    {
+        catalog = null;
+        return false;
+    }
+
     /// <summary>Effective skill/spec/group identities without creation-method spending policy.</summary>
     bool TryResolveCreationSkillsCatalog(out CharacterCreationSkillsCatalog? catalog)
     {

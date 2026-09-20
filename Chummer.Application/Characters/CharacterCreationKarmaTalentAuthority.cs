@@ -66,7 +66,7 @@ public static class CharacterCreationKarmaTalentAuthority
     }
 
     public static bool IsCompatible(CharacterCreationKarmaTalentOption talent,
-        CharacterCreationMetatypeOptionProjection metatype)
+        CharacterCreationMetatypeOptionProjection metatype, IReadOnlyList<string>? additionalQualityNames = null)
     {
         if (talent.OptionId == CharacterCreationKarmaTalentCatalog.MundaneOptionId) return true;
         if (!talent.IsEnabled || talent.SourceNodeXml is not { Length: > 0 and <= 32 * 1024 }
@@ -82,7 +82,8 @@ public static class CharacterCreationKarmaTalentAuthority
             if (row.Name != "quality" || !ValidExclusions(row.Element("forbidden"))) return false;
             var exclusions = row.Element("forbidden")?.Element("oneof");
             return exclusions is null || !exclusions.Elements("quality").Any(excluded =>
-                metatype.GrantedQualities.Any(quality => quality.Name == excluded.Value));
+                metatype.GrantedQualities.Any(quality => quality.Name == excluded.Value)
+                || additionalQualityNames?.Contains(excluded.Value, StringComparer.Ordinal) == true);
         }
         catch (XmlException)
         {
