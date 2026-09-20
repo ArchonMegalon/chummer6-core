@@ -447,9 +447,16 @@ public static class CharacterCreationLegacySourceProjector
         {
             if (effect.Name.NamespaceName.Length != 0
                 || effect.HasAttributes
-                || effect.Elements().Any()
-                || !string.IsNullOrWhiteSpace(effect.Value))
+                || effect.Elements().Any())
                 return false;
+            if (effect.Name.LocalName == "trustfund")
+            {
+                if (!int.TryParse(effect.Value.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture,
+                        out int level) || level is < 1 or > 4) return false;
+                compiled.Add(new CompiledEffect("TrustFund", string.Empty, level));
+                continue;
+            }
+            if (!string.IsNullOrWhiteSpace(effect.Value)) return false;
             string improvementType = effect.Name.LocalName switch
             {
                 "ambidextrous" => "Ambidextrous",

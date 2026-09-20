@@ -21,11 +21,11 @@ public sealed partial class CharacterCreationKarmaMetatypeService(
         ?? throw new ArgumentNullException(nameof(sourceDataResolver));
 
     public CharacterCreationFoundationResult<CharacterCreationKarmaMetatypeState> Load(
-        CharacterWorkspaceId workspaceId, bool includeSkills = false, bool includeQualities = false, bool includeGear = false)
-        => Load(workspaceId, includeSkills, includeQualities, includeGear, out _, out _);
+        CharacterWorkspaceId workspaceId, bool includeSkills = false, bool includeQualities = false, bool includeGear = false, bool includeLifestyles = false)
+        => Load(workspaceId, includeSkills, includeQualities, includeGear, includeLifestyles, out _, out _);
 
     private CharacterCreationFoundationResult<CharacterCreationKarmaMetatypeState> Load(
-        CharacterWorkspaceId workspaceId, bool includeSkills, bool includeQualities, bool includeGear,
+        CharacterWorkspaceId workspaceId, bool includeSkills, bool includeQualities, bool includeGear, bool includeLifestyles,
         out CharacterCreationKarmaQualitiesRules.AdmittedCatalog? admittedQualities,
         out ICharacterSourceDataContext? capturedContext)
     {
@@ -176,6 +176,15 @@ public sealed partial class CharacterCreationKarmaMetatypeService(
                     || gearAuthority.ProfileDigest != profile.RawProfileInputsDigest) gearAuthority = null;
             }
 
+            CharacterCreationLifestylesAuthority? lifestylesAuthority = null;
+            if (includeLifestyles || decisions?.LastOrDefault()?.Quote.Lifestyles is not null)
+            {
+                if (!context.TryResolveCreationLifestylesAuthority(out lifestylesAuthority)
+                    || !CharacterCreationLifestylesRules.IsValidAuthority(lifestylesAuthority)
+                    || lifestylesAuthority.SettingsProfileId != profile.SettingsProfileId
+                    || lifestylesAuthority.ProfileDigest != profile.RawProfileInputsDigest) lifestylesAuthority = null;
+            }
+
             // Admit the source capture again after catalog resolution, then the
             // persisted workspace. A source or workspace changed during load is
             // not a usable UI selection even if its initial read was valid.
@@ -206,7 +215,7 @@ public sealed partial class CharacterCreationKarmaMetatypeService(
                 profile.RawProfileInputsDigest, catalog.SourceContext.AuthorityDigest, talents?.AuthorityDigest,
                 attributePolicy?.AuthorityDigest, skillsPolicy?.AuthorityDigest, skillsCatalog?.CatalogDigest,
                 resourcesPolicy?.AuthorityDigest, qualitiesCatalog?.Policy.AuthorityDigest, qualitiesCatalog?.CatalogDigest,
-                gearAuthority?.AuthorityDigest, contactsPolicy?.AuthorityDigest);
+                gearAuthority?.AuthorityDigest, contactsPolicy?.AuthorityDigest, lifestylesAuthority?.AuthorityDigest);
             CharacterCreationKarmaMetatypeDecision? selection = decisions?.LastOrDefault();
             if (selection is not null && (selection.Quote.KarmaBudget.Total != profile.BuildPoints.Value
                 || !CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(
@@ -261,13 +270,23 @@ public sealed partial class CharacterCreationKarmaMetatypeService(
                     || !CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(selectedContacts.RacialSources, racialSources)
                     || !CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(selectedContacts.TalentSource, talentSource)))
                 return Blocked<CharacterCreationKarmaMetatypeState>(CharacterCreationKarmaMetatypeBlockers.StaleBinding);
+            if (selection?.Quote.Lifestyles is { } selectedLifestyles
+                && (lifestylesAuthority is null || selectedLifestyles.SourceAuthorityDigest != lifestylesAuthority.AuthorityDigest
+                    || !CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(selectedLifestyles.ProjectionAuthority,
+                        CharacterCreationKarmaLifestylesRules.ProjectionAuthority(lifestylesAuthority, selection.Command.LifestyleSelections!))
+                    || selectedLifestyles.Effects is not { } effects
+                    || !context.TryResolveCreationKarmaGrantSources(selection.Command.MetatypeOptionId,
+                        selection.Command.TalentOptionId!, out var lifestyleRacialSources, out var lifestyleTalentSource)
+                    || !CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(effects.RacialSources, lifestyleRacialSources)
+                    || !CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(effects.TalentSource, lifestyleTalentSource)))
+                return Blocked<CharacterCreationKarmaMetatypeState>(CharacterCreationKarmaMetatypeBlockers.StaleBinding);
             string[] anchors = profile.SourceAnchorIds.Concat(catalog.SourceContext.SourceAnchorIds)
                 .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
             var state = new CharacterCreationKarmaMetatypeState(
                 CharacterCreationKarmaMetatypeSchemas.SnapshotV1, binding, profile.SettingsProfileId,
                 Budget(profile.BuildPoints.Value, selection?.Quote.KarmaBudget.Used ?? 0, []),
                 catalog.Options.ToArray(), anchors, string.Empty, selection, attributePolicy, talents, skillsPolicy, skillsCatalog,
-                resourcesPolicy, qualitiesCatalog, gearAuthority, contactsPolicy);
+                resourcesPolicy, qualitiesCatalog, gearAuthority, contactsPolicy, lifestylesAuthority);
             state = state with
             {
                 SnapshotDigest = CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(state)
@@ -285,9 +304,9 @@ public sealed partial class CharacterCreationKarmaMetatypeService(
     }
 
     public CharacterCreationFoundationResult<CharacterCreationKarmaMetatypeOpen> Open(
-        CharacterWorkspaceId workspaceId, bool includeSkills = false, bool includeQualities = false, bool includeGear = false)
+        CharacterWorkspaceId workspaceId, bool includeSkills = false, bool includeQualities = false, bool includeGear = false, bool includeLifestyles = false)
     {
-        var loaded = Load(workspaceId, includeSkills, includeQualities, includeGear, out var admittedQualities, out var context);
+        var loaded = Load(workspaceId, includeSkills, includeQualities, includeGear, includeLifestyles, out var admittedQualities, out var context);
         if (loaded.Value is not { } state)
             return new(loaded.Outcome, null, loaded.Blockers);
         if (state.Selection is not { Command: { } saved })
@@ -298,7 +317,7 @@ public sealed partial class CharacterCreationKarmaMetatypeService(
         // as a current review or accept a caller-supplied snapshot as authority.
         var preview = PreviewLoaded(state, admittedQualities, saved.MetatypeOptionId, saved.TalentOptionId,
             saved.AttributeAllocations, saved.SkillsSelection, saved.ResourceKarmaInvestment, saved.QualityOptionIds,
-            saved.GearSelections, saved.ContactSelections, context!);
+            saved.GearSelections, saved.ContactSelections, saved.LifestyleSelections, saved.StartingLifestyleId, context!);
         return preview.Value is { } quote
             ? new(preview.Outcome, new(state, quote), preview.Blockers)
             : new(preview.Outcome, null, preview.Blockers);
@@ -357,7 +376,7 @@ public sealed partial class CharacterCreationKarmaMetatypeService(
                 return Blocked<CharacterCreationKarmaFinalizationBudgetQuote>(CharacterCreationKarmaMetatypeBlockers.StaleBinding);
             if (!context.TryResolveCreationKarmaCarryoverPolicy(out var policy) || policy is null)
                 return Blocked<CharacterCreationKarmaFinalizationBudgetQuote>(CharacterCreationKarmaFinalizationBudgetBlockers.PolicyUnavailable);
-            if (!context.TryResolveCreationKarmaDefaultStartingNuyen(out var source) || source is null)
+            if (!TryResolveStartingCash(context, foundation, out var source) || source is null)
                 return Blocked<CharacterCreationKarmaFinalizationBudgetQuote>(CharacterCreationKarmaFinalizationBudgetBlockers.StartingCashUnavailable);
             // Terms-only reads validate admission at the source minimum, but
             // expose only the source row, never a guessed player roll/quote.
@@ -367,7 +386,7 @@ public sealed partial class CharacterCreationKarmaMetatypeService(
             // Recheck the same captured sources and workspace after projection.
             // Do not silently rebase a review if a settings/file/owner race occurs.
             if (!context.TryResolveCreationKarmaCarryoverPolicy(out var finalPolicy)
-                || !context.TryResolveCreationKarmaDefaultStartingNuyen(out var finalSource)
+                || !TryResolveStartingCash(context, foundation, out var finalSource)
                 || !CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(policy, finalPolicy)
                 || !CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(source, finalSource)
                 || !CharacterCreationBootstrapAuthority.TryPrepareBinding(binding.WorkspaceId, workspace.Document,
@@ -394,19 +413,31 @@ public sealed partial class CharacterCreationKarmaMetatypeService(
         public ICharacterSourceDataContext? TryCreateContext(string characterXml) => characterXml == xml ? context : null;
     }
 
+    internal static bool TryResolveStartingCash(ICharacterSourceDataContext context,
+        CharacterCreationKarmaMetatypeQuote foundation, out CharacterCreationStartingNuyenSource? source)
+    {
+        source = null;
+        if (foundation.Lifestyles is not { Lines.Count: > 0 } lifestyles)
+            return context.TryResolveCreationKarmaDefaultStartingNuyen(out source);
+        var selected = lifestyles.Lines.SingleOrDefault(line => line.Configuration.LifestyleId == lifestyles.StartingLifestyleId);
+        return selected is not null && context.TryResolveCreationKarmaStartingNuyen(selected.SourceId, out source);
+    }
+
     public CharacterCreationFoundationResult<CharacterCreationKarmaMetatypeQuote> Preview(
         CharacterCreationKarmaMetatypeBinding binding, string metatypeOptionId, string? talentOptionId = null,
         IReadOnlyList<CharacterCreationKarmaAttributeAllocation>? attributeAllocations = null,
         CharacterCreationKarmaSkillsSelection? skillsSelection = null, decimal? resourceKarmaInvestment = null,
         IReadOnlyList<string>? qualityOptionIds = null,
         IReadOnlyList<CharacterCreationGearSelection>? gearSelections = null,
-        IReadOnlyList<CharacterCreationKarmaContactSelection>? contactSelections = null)
+        IReadOnlyList<CharacterCreationKarmaContactSelection>? contactSelections = null,
+        IReadOnlyList<CharacterCreationLifestyleConfiguration>? lifestyleSelections = null, Guid? startingLifestyleId = null)
     {
         ArgumentNullException.ThrowIfNull(binding);
         CharacterCreationFoundationResult<CharacterCreationKarmaMetatypeState> loaded = Load(binding.WorkspaceId,
             includeSkills: skillsSelection is not null || binding.SkillsCatalogDigest is not null || binding.SkillsPolicyDigest is not null,
             includeQualities: qualityOptionIds is not null || binding.QualitiesCatalogDigest is not null || binding.QualitiesPolicyDigest is not null,
             includeGear: gearSelections is not null || binding.GearAuthorityDigest is not null,
+            includeLifestyles: lifestyleSelections is not null || binding.LifestylesAuthorityDigest is not null,
             out var admittedQualities, out var context);
         if (loaded.Value is not { } state)
             return new(loaded.Outcome, null, loaded.Blockers);
@@ -414,7 +445,7 @@ public sealed partial class CharacterCreationKarmaMetatypeService(
             return Blocked<CharacterCreationKarmaMetatypeQuote>(CharacterCreationKarmaMetatypeBlockers.StaleBinding);
 
         return PreviewLoaded(state, admittedQualities, metatypeOptionId, talentOptionId, attributeAllocations, skillsSelection,
-            resourceKarmaInvestment, qualityOptionIds, gearSelections, contactSelections, context!);
+            resourceKarmaInvestment, qualityOptionIds, gearSelections, contactSelections, lifestyleSelections, startingLifestyleId, context!);
     }
 
     private static CharacterCreationFoundationResult<CharacterCreationKarmaMetatypeQuote> PreviewLoaded(
@@ -423,7 +454,9 @@ public sealed partial class CharacterCreationKarmaMetatypeService(
         IReadOnlyList<CharacterCreationKarmaAttributeAllocation>? attributeAllocations,
         CharacterCreationKarmaSkillsSelection? skillsSelection, decimal? resourceKarmaInvestment,
         IReadOnlyList<string>? qualityOptionIds, IReadOnlyList<CharacterCreationGearSelection>? gearSelections,
-        IReadOnlyList<CharacterCreationKarmaContactSelection>? contactSelections, ICharacterSourceDataContext context)
+        IReadOnlyList<CharacterCreationKarmaContactSelection>? contactSelections,
+        IReadOnlyList<CharacterCreationLifestyleConfiguration>? lifestyleSelections, Guid? startingLifestyleId,
+        ICharacterSourceDataContext context)
     {
         CharacterCreationMetatypeOptionProjection? option = state.Options.SingleOrDefault(
             candidate => string.Equals(candidate.OptionId, metatypeOptionId, StringComparison.Ordinal));
@@ -571,6 +604,35 @@ public sealed partial class CharacterCreationKarmaMetatypeService(
         }
         else if (state.Selection?.Quote.Contacts is not null)
             return Blocked<CharacterCreationKarmaMetatypeQuote>(CharacterCreationKarmaMetatypeBlockers.ContactsSelectionRequired);
+        if (lifestyleSelections is not null)
+        {
+            if (resources is null || gear is null || qualities is null || skills is null)
+                return Blocked<CharacterCreationKarmaMetatypeQuote>(CharacterCreationKarmaMetatypeBlockers.GearSelectionRequired);
+            if (state.LifestylesAuthority is not { } lifestyleAuthority || talent is null
+                || !context.TryResolveCreationKarmaGrantSources(option.OptionId, talent.OptionId,
+                    out var racial, out var talentSource))
+                return Blocked<CharacterCreationKarmaMetatypeQuote>(CharacterCreationKarmaMetatypeBlockers.LifestylesAuthorityRequired);
+            var lifestyles = CharacterCreationKarmaLifestylesRules.EvaluateForFoundation(lifestyleAuthority, quote,
+                racial, talentSource, lifestyleSelections, startingLifestyleId);
+            if (!context.TryResolveCreationLifestylesAuthority(out var currentAuthority)
+                || !CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(lifestyleAuthority, currentAuthority))
+                return Blocked<CharacterCreationKarmaMetatypeQuote>(CharacterCreationKarmaMetatypeBlockers.StaleBinding);
+            blockers = blockers.Concat(lifestyles?.Blockers ?? [CharacterCreationLifestylesBlockers.InvalidMutation])
+                .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
+            quote = quote with
+            {
+                Lifestyles = lifestyles,
+                CanSelect = blockers.Length == 0,
+                Blockers = blockers,
+                KarmaBudget = quote.KarmaBudget with { Blockers = blockers },
+                SourceAnchorIds = quote.SourceAnchorIds.Concat(lifestyles?.Budget.SourceAnchorIds ?? [])
+                    .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray(),
+                QuoteDigest = string.Empty
+            };
+            quote = quote with { QuoteDigest = CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(quote) };
+        }
+        else if (state.Selection?.Quote.Lifestyles is not null || startingLifestyleId is not null)
+            return Blocked<CharacterCreationKarmaMetatypeQuote>(CharacterCreationKarmaMetatypeBlockers.LifestylesSelectionRequired);
         return new(CharacterCreationFoundationOutcomes.Success, quote, blockers);
     }
 

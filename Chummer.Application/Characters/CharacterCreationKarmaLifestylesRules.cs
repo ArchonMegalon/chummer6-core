@@ -12,6 +12,97 @@ public static class CharacterCreationKarmaLifestylesRules
     public const int MaximumSelections = 4096;
     public const string StartingLifestyleRequired = "creation-karma-starting-lifestyle-required";
 
+    public static CharacterCreationKarmaMetatypeQuote WithoutLifestyles(CharacterCreationKarmaMetatypeQuote foundation)
+    {
+        if (foundation.Lifestyles is null) return foundation;
+        var result = foundation with { Lifestyles = null, QuoteDigest = string.Empty };
+        return result with { QuoteDigest = Digest(result) };
+    }
+
+    public static bool TryEffectiveAuthority(CharacterCreationLifestylesAuthority authority,
+        CharacterCreationKarmaMetatypeQuote foundation, CharacterCreationKarmaLifestyleEffects effects,
+        out CharacterCreationLifestylesAuthority effective)
+    {
+        effective = CharacterCreationLifestylesAuthority.Unavailable;
+        try
+        {
+            if (!CharacterCreationLifestylesRules.IsValidAuthority(authority)
+                || foundation.Attributes?.QuoteDigest != effects.AttributesQuoteDigest
+                || foundation.Qualities?.QuoteDigest != effects.QualitiesQuoteDigest
+                || !CharacterCreationKarmaEffectsProjector.TryProject(WithoutLifestyles(foundation),
+                    effects.RacialSources, effects.TalentSource, out var improvements)
+                || !CharacterCreationLifestyleImprovementRules.TryResolve(improvements.Elements("improvement"),
+                    authority.TrustFundLevel, out int level, out _)) return false;
+            var result = authority with
+            {
+                TrustFundLevel = level,
+                GmPolicyDigest = Digest(new { authority.GmPolicyDigest, Effects = effects, TrustFundLevel = level }),
+                AuthorityDigest = string.Empty
+            };
+            effective = result with { AuthorityDigest = CharacterCreationLifestylesRules.ComputeAuthorityDigest(result) };
+            return true;
+        }
+        catch (Exception error) when (error is ArgumentException or InvalidOperationException or System.Xml.XmlException)
+        { return false; }
+    }
+
+    public static CharacterCreationKarmaLifestylesQuote? EvaluateForFoundation(
+        CharacterCreationLifestylesAuthority authority, CharacterCreationKarmaMetatypeQuote foundation,
+        IReadOnlyList<CharacterCreationTalentQualitySource> racialSources, CharacterCreationTalentQualitySource? talentSource,
+        IReadOnlyList<CharacterCreationLifestyleConfiguration> selections, Guid? startingLifestyleId)
+    {
+        if (foundation is not { Lifestyles: null, Attributes: not null, Qualities: not null,
+                Resources: not null, Gear: not null } || racialSources is null) return null;
+        var effects = new CharacterCreationKarmaLifestyleEffects(foundation.Attributes.QuoteDigest,
+            foundation.Qualities.QuoteDigest, racialSources.ToArray(), talentSource);
+        if (!TryEffectiveAuthority(authority, foundation, effects, out var effective)) return null;
+        var quote = Evaluate(effective, foundation.Resources, foundation.Gear, selections, startingLifestyleId);
+        if (quote is null) return null;
+        quote = quote with { SourceAuthorityDigest = authority.AuthorityDigest,
+            ProjectionAuthority = ProjectionAuthority(authority, selections), Effects = effects, QuoteDigest = string.Empty };
+        return quote with { QuoteDigest = Digest(quote) };
+    }
+
+    public static bool IsValidForFoundation(CharacterCreationKarmaMetatypeQuote foundation,
+        IReadOnlyList<CharacterCreationLifestyleConfiguration>? selections, Guid? startingLifestyleId)
+    {
+        if (foundation.Lifestyles is not { } quote) return selections is null && startingLifestyleId is null;
+        return quote is { Schema: CharacterCreationKarmaLifestylesQuote.SchemaV1, CanSelect: true, Effects: { } effects }
+            && selections is not null && foundation.Binding is not null && quote.ProjectionAuthority is not null
+            && CharacterCreationPrerequisiteAuthorityDigest.IsCanonical(quote.SourceAuthorityDigest)
+            && foundation.Binding.LifestylesAuthorityDigest == quote.SourceAuthorityDigest
+            && foundation.Binding.SourceProfileDigest == quote.ProjectionAuthority.ProfileDigest
+            && CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(quote,
+                WithSourceAuthority(EvaluateForFoundation(quote.ProjectionAuthority, WithoutLifestyles(foundation), effects.RacialSources,
+                    effects.TalentSource, selections, startingLifestyleId), quote.SourceAuthorityDigest));
+    }
+
+    // A draft retains the source authority hash, all base tiers, and only the
+    // qualities needed for its selections/built-ins. Unrelated quality rows
+    // must not consume the bounded decision ledger on every save. This is a
+    // projection basis, never a replacement for full source admission at load.
+    public static CharacterCreationLifestylesAuthority ProjectionAuthority(CharacterCreationLifestylesAuthority authority,
+        IReadOnlyList<CharacterCreationLifestyleConfiguration> selections)
+    {
+        var needed = selections.SelectMany(row => row.Qualities).Where(row => !row.IsBuiltIn).Select(row => row.OptionId)
+            .Concat(authority.LifestyleOptions.SelectMany(row => row.BuiltInQualities).Select(row => row.QualityOptionId))
+            .ToHashSet(StringComparer.Ordinal);
+        var projection = authority with
+        {
+            QualityOptions = authority.QualityOptions.Where(row => needed.Contains(row.OptionId)).ToArray(),
+            AuthorityDigest = string.Empty
+        };
+        return projection with { AuthorityDigest = CharacterCreationLifestylesRules.ComputeAuthorityDigest(projection) };
+    }
+
+    private static CharacterCreationKarmaLifestylesQuote? WithSourceAuthority(CharacterCreationKarmaLifestylesQuote? quote,
+        string digest)
+    {
+        if (quote is null) return null;
+        var result = quote with { SourceAuthorityDigest = digest, QuoteDigest = string.Empty };
+        return result with { QuoteDigest = Digest(result) };
+    }
+
     public static bool TryFreeze(IReadOnlyList<CharacterCreationLifestyleConfiguration>? selections,
         out CharacterCreationLifestyleConfiguration[] frozen)
     {
@@ -77,7 +168,8 @@ public static class CharacterCreationKarmaLifestylesRules
             var budget = new CharacterCreationLifestyleBudget(resources.NuyenFromKarma, used, remaining,
                 Math.Max(0, -remaining), normalized.Length == 0, normalized, anchors);
             var quote = new CharacterCreationKarmaLifestylesQuote(CharacterCreationKarmaLifestylesQuote.SchemaV1,
-                authority, resources.QuoteDigest, gear.QuoteDigest, projections.ToArray(), startingLifestyleId,
+                authority.AuthorityDigest, ProjectionAuthority(authority, frozen), resources.QuoteDigest, gear.QuoteDigest,
+                projections.ToArray(), startingLifestyleId,
                 lifestyleCost, budget, normalized, string.Empty);
             return quote with { QuoteDigest = Digest(quote) };
         }
@@ -92,10 +184,12 @@ public static class CharacterCreationKarmaLifestylesRules
         CharacterCreationKarmaResourcesQuote? resources, CharacterCreationKarmaGearQuote? gear,
         IReadOnlyList<CharacterCreationLifestyleConfiguration>? selections, Guid? startingLifestyleId)
         => quote is null ? selections is null && startingLifestyleId is null
-            : quote is { Schema: CharacterCreationKarmaLifestylesQuote.SchemaV1, CanSelect: true }
+            : quote is { Schema: CharacterCreationKarmaLifestylesQuote.SchemaV1, CanSelect: true, Effects: null }
                 && resources is not null && gear is not null && selections is not null
+                && CharacterCreationPrerequisiteAuthorityDigest.IsCanonical(quote.SourceAuthorityDigest)
                 && CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(quote,
-                    Evaluate(quote.Authority, resources, gear, selections, startingLifestyleId));
+                    WithSourceAuthority(Evaluate(quote.ProjectionAuthority, resources, gear, selections, startingLifestyleId),
+                        quote.SourceAuthorityDigest));
 
     private static string Digest<T>(T value)
         => CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(value);

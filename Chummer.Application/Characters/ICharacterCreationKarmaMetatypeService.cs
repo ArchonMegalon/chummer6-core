@@ -5,15 +5,16 @@ namespace Chummer.Application.Characters;
 
 public interface ICharacterCreationKarmaMetatypeService
 {
-    CharacterCreationFoundationResult<CharacterCreationKarmaMetatypeState> Load(CharacterWorkspaceId id, bool includeSkills = false, bool includeQualities = false, bool includeGear = false);
-    CharacterCreationFoundationResult<CharacterCreationKarmaMetatypeOpen> Open(CharacterWorkspaceId id, bool includeSkills = false, bool includeQualities = false, bool includeGear = false);
+    CharacterCreationFoundationResult<CharacterCreationKarmaMetatypeState> Load(CharacterWorkspaceId id, bool includeSkills = false, bool includeQualities = false, bool includeGear = false, bool includeLifestyles = false);
+    CharacterCreationFoundationResult<CharacterCreationKarmaMetatypeOpen> Open(CharacterWorkspaceId id, bool includeSkills = false, bool includeQualities = false, bool includeGear = false, bool includeLifestyles = false);
     CharacterCreationFoundationResult<CharacterCreationKarmaMetatypeQuote> Preview(
         CharacterCreationKarmaMetatypeBinding binding, string optionId, string? talentOptionId = null,
         IReadOnlyList<CharacterCreationKarmaAttributeAllocation>? attributeAllocations = null,
         CharacterCreationKarmaSkillsSelection? skillsSelection = null, decimal? resourceKarmaInvestment = null,
         IReadOnlyList<string>? qualityOptionIds = null,
         IReadOnlyList<CharacterCreationGearSelection>? gearSelections = null,
-        IReadOnlyList<CharacterCreationKarmaContactSelection>? contactSelections = null);
+        IReadOnlyList<CharacterCreationKarmaContactSelection>? contactSelections = null,
+        IReadOnlyList<CharacterCreationLifestyleConfiguration>? lifestyleSelections = null, Guid? startingLifestyleId = null);
     CharacterCreationFoundationResult<CharacterCreationKarmaMetatypeCommit> Confirm(
         CharacterCreationKarmaMetatypeConfirmRequest request);
     CharacterCreationFoundationResult<CharacterCreationKarmaFinalizationBudgetQuote> PreviewFinalizationBudget(

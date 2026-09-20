@@ -48,7 +48,7 @@ public static class CharacterCreationKarmaFinalizationProjector
                     foundation.Attributes!, foundation.Skills!, out var skills, out var skillDeltas)
                 || !CharacterCreationKarmaGrantsLegacyProjector.TryProject(foundation, racialSources, null,
                     out var grants, out var grantDeltas)
-                || !TryDefaultLifestyle(lifestyles, finances, foundation.QuoteDigest, out var lifestyle)) return false;
+                || !TryLifestyles(lifestyles, foundation, finances, out var lifestyleElements)) return false;
 
             var document = XDocument.Parse(workspace.Document.Content, LoadOptions.None);
             var root = document.Root;
@@ -142,9 +142,16 @@ public static class CharacterCreationKarmaFinalizationProjector
                 Change("gear:" + line.OptionId, CharacterCreationFinalizationDeltaKinds.Gear, line.SourceId.ToString("D"),
                     null, Number(line.Quantity), 0, line.TotalCost, line.SourceAnchorIds);
             }
-            Replace(new XElement("lifestyles", lifestyle));
-            Change("lifestyle:default", CharacterCreationFinalizationDeltaKinds.Resources, finances.StartingCashSource.SourceId,
-                null, finances.StartingCashSource.Name, 0, 0, finances.StartingCashSource.SourceAnchorIds);
+            Replace(new XElement("lifestyles", lifestyleElements));
+            if (foundation.Lifestyles is { Lines.Count: > 0 } purchasedLifestyles)
+            {
+                foreach (var line in purchasedLifestyles.Lines)
+                    Change("lifestyle:" + line.Configuration.LifestyleId.ToString("D"), CharacterCreationFinalizationDeltaKinds.Resources,
+                        line.SourceId.ToString("D"), null, line.Configuration.Name, 0, line.Economics.TotalCost, line.SourceAnchorIds);
+            }
+            else
+                Change("lifestyle:default", CharacterCreationFinalizationDeltaKinds.Resources, finances.StartingCashSource.SourceId,
+                    null, finances.StartingCashSource.Name, 0, 0, finances.StartingCashSource.SourceAnchorIds);
             Set("karma", Number(finances.KarmaCarried));
             Set("nuyen", Number(finances.CareerNuyen));
             Set("startingnuyen", Number(foundation.Resources!.NuyenFromKarma));
@@ -164,7 +171,7 @@ public static class CharacterCreationKarmaFinalizationProjector
             Change("lifecycle:created", CharacterCreationFinalizationDeltaKinds.Lifecycle, "created", "False", "True", 0, 0,
                 foundation.SourceAnchorIds);
             if (changes.Sum(item => item.KarmaCost) != foundation.KarmaBudget.Used + finances.ResourceKarmaRoundingAdjustment
-                || changes.Sum(item => item.NuyenCost) != foundation.Gear.Budget.BasketCost
+                || changes.Sum(item => item.NuyenCost) != foundation.Gear.Budget.BasketCost + (foundation.Lifestyles?.LifestyleNuyenUsed ?? 0)
                 || changes.Select(item => item.DeltaId).Distinct(StringComparer.Ordinal).Count() != changes.Count) return false;
             Set("created", "True");
             root.Elements(CharacterCreationBootstrapXml.MarkerElement).Remove();
@@ -191,6 +198,27 @@ public static class CharacterCreationKarmaFinalizationProjector
         {
             return false;
         }
+    }
+
+    private static bool TryLifestyles(CharacterCreationLifestylesAuthority authority,
+        CharacterCreationKarmaMetatypeQuote foundation, CharacterCreationKarmaFinalizationBudgetQuote finances,
+        out XElement[] elements)
+    {
+        elements = [];
+        if (foundation.Lifestyles is not { Lines.Count: > 0 } quote)
+        {
+            if (!TryDefaultLifestyle(authority, finances, foundation.QuoteDigest, out var fallback)) return false;
+            elements = [fallback!];
+            return true;
+        }
+        if (quote.SourceAuthorityDigest != authority.AuthorityDigest
+            || !CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(
+                CharacterCreationKarmaLifestylesRules.ProjectionAuthority(authority,
+                    quote.Lines.Select(line => line.Configuration).ToArray()), quote.ProjectionAuthority)
+            || quote.Effects is not { } effects
+            || !CharacterCreationKarmaLifestylesRules.TryEffectiveAuthority(authority, foundation, effects, out var effective)) return false;
+        elements = quote.Lines.Select(line => CharacterCreationLifestylesService.BuildLifestyleElement(line, null, effective)).ToArray();
+        return true;
     }
 
     private static bool TryDefaultLifestyle(CharacterCreationLifestylesAuthority authority,

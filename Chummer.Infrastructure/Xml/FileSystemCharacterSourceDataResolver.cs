@@ -3965,39 +3965,11 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
 
             bool freeGridsEnabled = ParseBool(ReadValue(settings, "allowfreegrids"))
                 || _enabledSourcebooks.Contains("HT");
-            int trustFundLevel = 0;
             XElement[] improvements = _character.Element("improvements")?.Elements("improvement").ToArray()
                 ?? [];
-            foreach (XElement improvement in improvements)
-            {
-                if (!IsCreationImprovementActive(improvement))
-                    continue;
-                string improvementType = ReadValue(improvement, "improvementttype");
-                if (string.Equals(improvementType, "TrustFund", StringComparison.Ordinal))
-                {
-                    if (!int.TryParse(
-                            ReadValue(improvement, "val"),
-                            NumberStyles.Integer,
-                            CultureInfo.InvariantCulture,
-                            out int value)
-                        || value is < 1 or > 4
-                        || trustFundLevel != 0)
-                    {
-                        blockers.Add(CharacterCreationLifestylesBlockers.AuthorityUnavailable);
-                    }
-                    else
-                    {
-                        trustFundLevel = value;
-                    }
-                }
-                else if (improvementType is "LifestyleCost" or "BasicLifestyleCost")
-                {
-                    // Chummer5 distributes recurring and unique one-off percentage modifiers
-                    // across the complete lifestyle set. Until every source/origin precedence is
-                    // projected, refusing the lane is safer than pricing only the target row.
-                    blockers.Add(CharacterCreationLifestylesBlockers.UnsupportedSemantics);
-                }
-            }
+            CharacterCreationLifestyleImprovementRules.TryResolve(improvements, 0,
+                out int trustFundLevel, out var effectBlockers);
+            blockers.AddRange(effectBlockers);
 
             var qualities = new List<CharacterCreationLifestyleQualityCatalogOption>();
             foreach (XElement row in qualityRows.OrderBy(
@@ -4271,21 +4243,6 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 AuthorityDigest = CharacterCreationLifestylesRules.ComputeAuthorityDigest(projected)
             };
             return true;
-        }
-
-        private static bool IsCreationImprovementActive(XElement improvement)
-        {
-            string enabledText = ReadValue(improvement, "enabled");
-            bool enabled = enabledText.Length == 0
-                || int.TryParse(
-                    enabledText,
-                    NumberStyles.Integer,
-                    CultureInfo.InvariantCulture,
-                    out int parsed) && parsed > 0;
-            string condition = ReadValue(improvement, "condition");
-            return enabled && (condition.Length == 0
-                || string.Equals(condition, "create", StringComparison.Ordinal)
-                || string.Equals(condition, "once", StringComparison.Ordinal));
         }
 
         private static string ResolveLifestyleQualityType(string category) =>

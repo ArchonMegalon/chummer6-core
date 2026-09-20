@@ -10,12 +10,12 @@ public sealed class OwnerBoundCharacterCreationKarmaMetatypeService(
     : IOwnerBoundCharacterCreationKarmaMetatypeService
 {
     public CharacterCreationFoundationResult<CharacterCreationKarmaMetatypeState> Load(
-        OwnerContextStamp expectedOwner, CharacterWorkspaceId id, bool includeSkills = false, bool includeQualities = false, bool includeGear = false)
-        => Invoke(expectedOwner, id, service => service.Load(id, includeSkills, includeQualities, includeGear));
+        OwnerContextStamp expectedOwner, CharacterWorkspaceId id, bool includeSkills = false, bool includeQualities = false, bool includeGear = false, bool includeLifestyles = false)
+        => Invoke(expectedOwner, id, service => service.Load(id, includeSkills, includeQualities, includeGear, includeLifestyles));
 
     public CharacterCreationFoundationResult<CharacterCreationKarmaMetatypeOpen> Open(
-        OwnerContextStamp expectedOwner, CharacterWorkspaceId id, bool includeSkills = false, bool includeQualities = false, bool includeGear = false)
-        => Invoke(expectedOwner, id, service => service.Open(id, includeSkills, includeQualities, includeGear));
+        OwnerContextStamp expectedOwner, CharacterWorkspaceId id, bool includeSkills = false, bool includeQualities = false, bool includeGear = false, bool includeLifestyles = false)
+        => Invoke(expectedOwner, id, service => service.Open(id, includeSkills, includeQualities, includeGear, includeLifestyles));
 
     public CharacterCreationFoundationResult<CharacterCreationKarmaMetatypeQuote> Preview(
         OwnerContextStamp expectedOwner, CharacterCreationKarmaMetatypeBinding binding, string optionId,
@@ -24,9 +24,11 @@ public sealed class OwnerBoundCharacterCreationKarmaMetatypeService(
         CharacterCreationKarmaSkillsSelection? skillsSelection = null, decimal? resourceKarmaInvestment = null,
         IReadOnlyList<string>? qualityOptionIds = null,
         IReadOnlyList<CharacterCreationGearSelection>? gearSelections = null,
-        IReadOnlyList<CharacterCreationKarmaContactSelection>? contactSelections = null)
+        IReadOnlyList<CharacterCreationKarmaContactSelection>? contactSelections = null,
+        IReadOnlyList<CharacterCreationLifestyleConfiguration>? lifestyleSelections = null, Guid? startingLifestyleId = null)
         => Invoke(expectedOwner, binding.WorkspaceId, service => service.Preview(binding, optionId, talentOptionId,
-            attributeAllocations, skillsSelection, resourceKarmaInvestment, qualityOptionIds, gearSelections, contactSelections));
+            attributeAllocations, skillsSelection, resourceKarmaInvestment, qualityOptionIds, gearSelections, contactSelections,
+            lifestyleSelections, startingLifestyleId));
 
     public CharacterCreationFoundationResult<CharacterCreationKarmaMetatypeCommit> Confirm(
         OwnerContextStamp expectedOwner, CharacterCreationKarmaMetatypeConfirmRequest request)

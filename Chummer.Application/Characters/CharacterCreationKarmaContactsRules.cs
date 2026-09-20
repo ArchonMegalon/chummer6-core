@@ -106,26 +106,16 @@ public static class CharacterCreationKarmaContactsRules
                 || qualities.Policy.RawProfileInputsDigest != policy.RawProfileInputsDigest
                 || qualities.Policy.SettingsProfileId != policy.SettingsProfileId
                 || !TryFreeze(selections, out var frozen)
-                || !CharacterCreationKarmaGrantsLegacyProjector.TryProject(foundation, racialSources, talentSource,
-                    out var grants, out _)) return null;
+                || !CharacterCreationKarmaEffectsProjector.TryProject(foundation, racialSources, talentSource,
+                    out var effects)) return null;
 
             var root = new XElement("character", new XElement("created", false), new XElement("contactpoints", points),
                 new XElement("attributes", attributes.Attributes.Select(item => new XElement("attribute",
                     new XElement("name", item.AttributeId), new XElement("totalvalue", item.Current),
                     new XElement("metatypemin", item.Minimum), new XElement("base", 0),
                     new XElement("karma", item.KarmaLevels)))),
-                new XElement(grants.Single(item => item.Name == "improvements")),
+                effects,
                 new XElement("contacts", frozen.Select(BuildContactElement)));
-            foreach (var option in qualities.Selections)
-            {
-                var selection = new CharacterCreationQualitySelection(option.OptionId, option.SourceId, option.SelectionKey,
-                    option.Name, option.Type, option.Rating, option.KarmaCost, option.IsMetagenic, option.CountsAgainstQualityLimit,
-                    option.CountsAgainstKarma, false, null, null, option.SourceAnchorIds, option.SourceNodeXml,
-                    option.SourceNodeDigest, option.OptionDigest);
-                if (!CharacterCreationLegacySourceProjector.TryBuildQualityGraph(selection, foundation.QuoteDigest,
-                    out _, out var improvements)) return null;
-                root.Element("improvements")!.Add(improvements);
-            }
             var document = new WorkspaceDocument(root.ToString(SaveOptions.DisableFormatting), RulesetDefaults.Sr5);
             var authority = CharacterCreationContactsAuthorityEvaluator.Evaluate(document);
             if (authority.AuthorityBlockers.Count != 0 || !authority.ContactBudget.IsExact || !authority.HighPlacesBudget.IsExact)
