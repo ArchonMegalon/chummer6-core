@@ -1217,6 +1217,50 @@ public sealed class CharacterCreationFinalizationServiceTests
     }
 
     [TestMethod]
+    [DataRow(1, false, 5)]
+    [DataRow(2, false, 10)]
+    [DataRow(2, true, 13)]
+    public void Quality_profile_cost_is_charged_once_and_retains_unscaled_BP_after_cold_finalization(
+        int multiplier, bool doubleExcess, int expectedCost)
+    {
+        using ReadyContext context = ReadyContext.Create(true, includeNonEmptyPurchases: true,
+            amendSettings: profile =>
+            {
+                profile.Element("karmacost")!.SetElementValue("karmaquality", multiplier);
+                profile.SetElementValue("qualitykarmalimit", 7);
+                profile.SetElementValue("exceedpositivequalities", true);
+                profile.SetElementValue("exceedpositivequalitiescostdoubled", doubleExcess);
+                if (!profile.Element("books")!.Elements("book").Any(book => book.Value == "RF"))
+                    profile.Element("books")!.Add(new XElement("book", "RF"));
+            }, qualityName: "Overclocker");
+        var before = context.Store.Get(context.WorkspaceId).Value!;
+        var draft = before.Document.AuxiliaryState.CharacterCreationQualitiesDraft!;
+        var attributes = before.Document.AuxiliaryState.CharacterCreationAttributesDraft!;
+        Assert.AreEqual(5, draft.Selections.Single().KarmaCost);
+        Assert.AreEqual(expectedCost, attributes.CreationKarmaTotal - attributes.CreationKarmaUsed - draft.KarmaRemaining);
+        using ReadyContext coldDraft = context.Restart();
+        var state = coldDraft.Finalizer.Load(new(context.WorkspaceId)).Value!;
+        var review = coldDraft.Finalizer.Review(new(state.Binding)).Value!;
+        Assert.IsTrue(review.CanConfirm, string.Join(",", review.Blockers));
+        Assert.AreEqual((decimal)expectedCost, review.OrderedDeltas
+            .Where(item => item.Kind == CharacterCreationFinalizationDeltaKinds.Quality
+                || item.TargetId == "qualities-karma-adjustment")
+            .Sum(item => item.KarmaCost));
+        var command = new CharacterCreationFinalizationConfirmRequest(state.Binding, review.PreviewDigest,
+            review.Plan!.PlanDigest, "quality-profile-finalization", true);
+        var applied = coldDraft.Finalizer.Confirm(command);
+        Assert.AreEqual(CharacterCreationFinalizationOutcomes.Applied, applied.Outcome, string.Join(",", applied.Blockers));
+        using ReadyContext reopened = context.Restart();
+        var saved = reopened.Store.Get(context.WorkspaceId).Value!;
+        var root = XElement.Parse(saved.Document.Content);
+        Assert.AreEqual("5", root.Element("qualities")!.Element("quality")!.Element("bp")!.Value);
+        Assert.AreEqual(draft.KarmaRemaining.ToString(System.Globalization.CultureInfo.InvariantCulture), root.Element("karma")!.Value);
+        Assert.AreEqual(CharacterCreationFinalizationOutcomes.Replayed, reopened.Finalizer.Confirm(command).Outcome);
+        Assert.AreEqual(saved.ContentRevision, reopened.Store.Get(context.WorkspaceId).Value!.ContentRevision);
+        Assert.AreEqual(saved.Document.Content, reopened.Store.Get(context.WorkspaceId).Value!.Document.Content);
+    }
+
+    [TestMethod]
     public void Nonempty_quality_and_gear_are_source_bound_atomically_finalized_and_reopened()
     {
         using ReadyContext context = ReadyContext.Create(
@@ -1537,7 +1581,8 @@ public sealed class CharacterCreationFinalizationServiceTests
             int mysticPowerPoints = 0,
             Action<XElement>? amendSettings = null,
             string talentRank = "B",
-            string? talentGroupName = null)
+            string? talentGroupName = null,
+            string? qualityName = null)
         {
             string directory = Path.Combine(
                 Path.GetTempPath(),
@@ -1576,7 +1621,7 @@ public sealed class CharacterCreationFinalizationServiceTests
                     resolver,
                     includeGearReview,
                     includeNonEmptyPurchases,
-                    replayChecks, talentValue, mysticPowerPoints, talentRank, talentGroupName);
+                    replayChecks, talentValue, mysticPowerPoints, talentRank, talentGroupName, qualityName);
                 return new ReadyContext(
                     directory,
                     store,
@@ -1706,7 +1751,8 @@ public sealed class CharacterCreationFinalizationServiceTests
             string? talentValue = null,
             int mysticPowerPoints = 0,
             string talentPriorityRank = "B",
-            string? talentGroupName = null)
+            string? talentGroupName = null,
+            string? qualityName = null)
         {
             var prerequisites = new CharacterCreationPrerequisiteService(store, queries, resolver);
             CharacterCreationPrerequisiteState prerequisite = prerequisites.Load(new(workspaceId)).Value!;
@@ -1856,6 +1902,7 @@ public sealed class CharacterCreationFinalizationServiceTests
                 [qualityState.Authority.Options
                     .Where(static option => option.IsSelectable)
                     .Where(static option => option.KarmaCost is >= 0 and <= 25)
+                    .Where(option => qualityName is null || option.Name == qualityName)
                     .OrderBy(static option => option.KarmaCost)
                     .ThenBy(static option => option.OptionId, StringComparer.Ordinal)
                     .First().OptionId]

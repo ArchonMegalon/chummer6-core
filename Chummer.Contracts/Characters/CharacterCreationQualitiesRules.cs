@@ -2,6 +2,7 @@ using System.Buffers;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Chummer.Contracts.Workspaces;
 
 namespace Chummer.Contracts.Characters;
@@ -114,6 +115,13 @@ public sealed record CharacterCreationQualitiesAuthority(
     string RuntimeDigest,
     string AuthorityDigest)
 {
+    // Null is the historical v1 arithmetic (multiplier one, no excess adjustments).
+    // Omission preserves historical authority digests for the same default policy.
+    // Source resolvers must publish non-default policies explicitly; never rewrite
+    // an already confirmed draft's authority.
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationQualityCostPolicy? CostPolicy { get; init; }
+
     public static CharacterCreationQualitiesAuthority Unavailable { get; } = new(
         CharacterCreationQualitiesSchemas.AuthorityV1,
         string.Empty,
@@ -371,29 +379,18 @@ public static class CharacterCreationQualitiesRules
                 blockers.Add(CharacterCreationQualitiesBlockers.DuplicateSelection);
         }
 
-        CostProjection[] all = selected.Select(ToCost)
+        CharacterCreationQualityCostItem[] all = selected.Select(ToCost)
             .Concat(input.Authority.GrantedQualities.Where(IsValidGrant).Select(ToCost))
             .ToArray();
-        int positiveUsed = SafeSum(
-            all.Where(static item => item.CountsAgainstQualityLimit && item.KarmaCost > 0)
-                .Select(static item => item.KarmaCost),
-            blockers);
-        int negativeUsed = SafeNegate(SafeSum(
-            all.Where(static item => item.CountsAgainstQualityLimit && item.KarmaCost < 0)
-                .Select(static item => item.KarmaCost),
-            blockers), blockers);
-        int metagenicPositive = SafeSum(
-            all.Where(static item => item.IsMetagenic && item.KarmaCost > 0)
-                .Select(static item => item.KarmaCost),
-            blockers);
-        int metagenicNegative = SafeNegate(SafeSum(
-            all.Where(static item => item.IsMetagenic && item.KarmaCost < 0)
-                .Select(static item => item.KarmaCost),
-            blockers), blockers);
-        int karmaUsed = SafeSum(
-            all.Where(static item => item.CountsAgainstKarma)
-                .Select(static item => item.KarmaCost),
-            blockers);
+        if (!CharacterCreationQualityCostRules.TryCalculate(
+                input.Authority.CostPolicy ?? CharacterCreationQualityCostPolicy.Default,
+                input.Authority.QualityKarmaLimit, all, out var costs))
+            blockers.Add(CharacterCreationQualitiesBlockers.AuthorityUnavailable);
+        int positiveUsed = costs.PositiveLimitKarma;
+        int negativeUsed = costs.NegativeLimitKarma;
+        int metagenicPositive = costs.MetagenicPositiveKarma;
+        int metagenicNegative = costs.MetagenicNegativeKarma;
+        int karmaUsed = costs.NetKarmaSpent;
         int karmaRemaining;
         try
         {
@@ -436,6 +433,7 @@ public static class CharacterCreationQualitiesRules
             .ToArray();
         string[] anchors = normalizedSelections.SelectMany(static item => item.SourceAnchorIds)
             .Concat(normalizedGrants.SelectMany(static item => item.SourceAnchorIds))
+            .Concat(input.Authority.CostPolicy is null ? [] : input.Authority.SourceAnchorIds)
             .Distinct(StringComparer.Ordinal)
             .OrderBy(static item => item, StringComparer.Ordinal)
             .ToArray();
@@ -681,6 +679,7 @@ public static class CharacterCreationQualitiesRules
            && !string.IsNullOrWhiteSpace(authority.SettingsProfileId)
            && authority.QualityKarmaLimit >= 0
            && authority.MetagenicLimit >= 0
+           && (authority.CostPolicy is null || authority.CostPolicy.KarmaMultiplier >= 0)
            && CharacterCreationQualitiesDigest.IsCanonical(authority.SourceDigest)
            && CharacterCreationQualitiesDigest.IsCanonical(authority.ProfileDigest)
            && CharacterCreationQualitiesDigest.IsCanonical(authority.GmPolicyDigest)
@@ -763,17 +762,17 @@ public static class CharacterCreationQualitiesRules
         option.SourceNodeDigest,
         option.OptionDigest);
 
-    private static CostProjection ToCost(CharacterCreationQualitySelection item) => new(
+    private static CharacterCreationQualityCostItem ToCost(CharacterCreationQualitySelection item) => new(
         item.KarmaCost,
-        item.IsMetagenic,
         item.CountsAgainstQualityLimit,
-        item.CountsAgainstKarma);
+        item.CountsAgainstKarma,
+        item.IsMetagenic);
 
-    private static CostProjection ToCost(CharacterCreationGrantedQuality item) => new(
+    private static CharacterCreationQualityCostItem ToCost(CharacterCreationGrantedQuality item) => new(
         item.KarmaCost,
-        item.IsMetagenic && item.Origin != "Heritage",
         item.CountsAgainstQualityLimit,
-        item.CountsAgainstKarma);
+        item.CountsAgainstKarma,
+        item.IsMetagenic && item.Origin != "Heritage");
 
     private static CharacterCreationQualitiesBudget Budget(
         int total,
@@ -786,34 +785,6 @@ public static class CharacterCreationQualitiesRules
         mayExceed,
         used > total && !mayExceed ? [blocker] : []);
 
-    private static int SafeSum(IEnumerable<int> values, List<string> blockers)
-    {
-        long sum = 0;
-        foreach (int value in values)
-        {
-            sum += value;
-            if (sum is > int.MaxValue or < int.MinValue)
-            {
-                blockers.Add(CharacterCreationQualitiesBlockers.AuthorityUnavailable);
-                return sum > 0 ? int.MaxValue : int.MinValue;
-            }
-        }
-        return (int)sum;
-    }
-
-    private static int SafeNegate(int value, List<string> blockers)
-    {
-        if (value != int.MinValue)
-            return -value;
-        blockers.Add(CharacterCreationQualitiesBlockers.AuthorityUnavailable);
-        return int.MaxValue;
-    }
-
-    private readonly record struct CostProjection(
-        int KarmaCost,
-        bool IsMetagenic,
-        bool CountsAgainstQualityLimit,
-        bool CountsAgainstKarma);
 }
 
 internal static class CharacterCreationQualitiesDigest

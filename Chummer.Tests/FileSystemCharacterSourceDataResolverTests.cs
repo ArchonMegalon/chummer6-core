@@ -3002,6 +3002,86 @@ public sealed class FileSystemCharacterSourceDataResolverTests
     }
 
     [TestMethod]
+    [DataRow("", "", 1, false, false)]
+    [DataRow("<karmaquality>2</karmaquality>", "<exceedpositivequalitiescostdoubled>True</exceedpositivequalitiescostdoubled><exceednegativequalitiesnobonus>True</exceednegativequalitiesnobonus>", 2, true, true)]
+    [DataRow("<karmaquality>0</karmaquality>", "<exceednegativequalitieslimit>True</exceednegativequalitieslimit>", 0, false, true)]
+    [DataRow("<karmaquality>3</karmaquality>", "<exceednegativequalitieslimit>True</exceednegativequalitieslimit><exceednegativequalitiesnobonus>False</exceednegativequalitiesnobonus>", 3, false, false)]
+    public void Creation_qualities_projects_exact_cost_policy_without_scaling_source_instances(
+        string karmaXml, string rulesXml, int multiplier, bool doublePositive, bool capNegative)
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            WriteQualityCostPolicyFixture(root, karmaXml, rulesXml);
+            var context = CreateContext(root, CharacterXml())!;
+            Assert.IsTrue(context.TryResolveCreationQualitiesAuthority(out var authority));
+            Assert.IsTrue(authority.IsAuthoritative, string.Join(",", authority.Blockers));
+            Assert.AreEqual(new CharacterCreationQualityCostPolicy(multiplier, doublePositive, capNegative),
+                authority.CostPolicy ?? CharacterCreationQualityCostPolicy.Default);
+            var option = authority.Options.Single();
+            Assert.IsTrue(option.IsSelectable, option.DisableReasonKey);
+            Assert.AreEqual(15, option.KarmaCost);
+            Assert.AreEqual("15", XElement.Parse(option.SourceNodeXml).Element("karma")!.Value);
+            Assert.AreEqual(authority.AuthorityDigest, CharacterCreationQualitiesRules.ComputeAuthorityDigest(authority));
+
+            string path = Path.Combine(root, "data", "settings.xml");
+            var settings = XDocument.Load(path);
+            settings.Root!.Element("settings")!.Element("setting")!.Element("karmacost")!
+                .SetElementValue("karmaquality", multiplier + 1);
+            settings.Save(path);
+            Assert.IsTrue(CreateContext(root, CharacterXml())!.TryResolveCreationQualitiesAuthority(out var changed));
+            Assert.IsTrue(changed.IsAuthoritative, string.Join(",", changed.Blockers));
+            Assert.AreNotEqual(authority.AuthorityDigest, changed.AuthorityDigest);
+            Assert.AreNotEqual(authority.ProfileDigest, changed.ProfileDigest);
+            Assert.AreNotEqual(authority.GmPolicyDigest, changed.GmPolicyDigest);
+            Assert.IsFalse(context.TryResolveCreationQualitiesAuthority(out var stale) && stale.IsAuthoritative,
+                "An already captured profile must not silently adopt new quality arithmetic.");
+        }
+        finally { DeleteTempDirectory(root); }
+    }
+
+    [TestMethod]
+    [DataRow("<karmaquality>-1</karmaquality>", "")]
+    [DataRow("<karmaquality>1.5</karmaquality>", "")]
+    [DataRow("<karmaquality>2147483648</karmaquality>", "")]
+    [DataRow("<karmaquality>2</karmaquality><karmaquality>2</karmaquality>", "")]
+    [DataRow("<karmaquality arbitrary='true'>2</karmaquality>", "")]
+    [DataRow("<karmaquality><value>2</value></karmaquality>", "")]
+    [DataRow("<karmaquality> 2</karmaquality>", "")]
+    [DataRow("", "<exceedpositivequalitiescostdoubled>yes</exceedpositivequalitiescostdoubled>")]
+    [DataRow("", "<exceednegativequalitiesnobonus/>")]
+    [DataRow("", "<exceednegativequalitieslimit>True</exceednegativequalitieslimit><exceednegativequalitieslimit>True</exceednegativequalitieslimit>")]
+    [DataRow("", "<karmacost><karmaquality>1</karmaquality></karmacost>")]
+    public void Creation_qualities_rejects_malformed_or_ambiguous_cost_policy(string karmaXml, string rulesXml)
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            WriteQualityCostPolicyFixture(root, karmaXml, rulesXml);
+            var context = CreateContext(root, CharacterXml());
+            Assert.IsNotNull(context);
+            Assert.IsFalse(context.TryResolveCreationQualitiesAuthority(out var authority) && authority.IsAuthoritative);
+        }
+        finally { DeleteTempDirectory(root); }
+    }
+
+    private static void WriteQualityCostPolicyFixture(string root, string karmaXml, string rulesXml)
+    {
+        WriteBaseContent(root, string.Empty,
+            "<buildmethod>Priority</buildmethod><buildpoints>25</buildpoints>"
+            + "<priorityarray>ABCDE</priorityarray><prioritytable>Standard</prioritytable><sumtoten>10</sumtoten>"
+            + "<qualitykarmalimit>25</qualitykarmalimit><exceedpositivequalities>True</exceedpositivequalities>"
+            + "<exceednegativequalities>True</exceednegativequalities>" + rulesXml);
+        string path = Path.Combine(root, "data", "settings.xml");
+        File.WriteAllText(path, File.ReadAllText(path).Replace("<karmaattribute>5</karmaattribute>",
+            "<karmaattribute>5</karmaattribute>" + karmaXml, StringComparison.Ordinal));
+        File.WriteAllText(Path.Combine(root, "data", "qualities.xml"),
+            "<chummer><qualities><quality><id>50000000-0000-0000-0000-000000000001</id>"
+            + "<name>Bound positive quality</name><category>Positive</category><karma>15</karma><nolevels/>"
+            + "<source>SR5</source><page>1</page><bonus/></quality></qualities></chummer>");
+    }
+
+    [TestMethod]
     public void Creation_qualities_projects_profile_caps_stable_options_and_fail_closed_rows()
     {
         ICharacterSourceDataContext context = CreateContext(FindCoreRoot(), CharacterXml())!;
@@ -3010,6 +3090,25 @@ public sealed class FileSystemCharacterSourceDataResolverTests
             out CharacterCreationQualitiesAuthority authority));
         Assert.IsTrue(authority.IsAuthoritative, string.Join(",", authority.Blockers));
         Assert.IsGreaterThan(0, authority.QualityKarmaLimit);
+        Assert.IsNull(authority.CostPolicy, "The canonical default retains its pre-policy authority bytes.");
+        Assert.AreEqual(CharacterCreationSkillsDigest.Compute(new
+        {
+            Schema = "chummer.sr5.priority-creation-qualities-gm-policy.v1",
+            QualityKarmaLimit = authority.QualityKarmaLimit,
+            MayExceedPositive = authority.MayExceedPositiveQualityLimit,
+            MayExceedNegative = authority.MayExceedNegativeQualityLimit,
+            MetagenicLimit = authority.MetagenicLimit
+        }), authority.GmPolicyDigest);
+        Assert.AreEqual(CharacterCreationSkillsDigest.Compute(new
+        {
+            Schema = "chummer.sr5.priority-creation-qualities-runtime.v1",
+            SourceSelectionByStableOptionId = true,
+            RequirementAndFollowUpChoicesFailClosed = true,
+            NoCharacterWriteBeforeFinalization = true,
+            FullLegacySourceNodeCaptured = true,
+            SourceNodeDigestBoundToSelection = true,
+            SupportedLegacyEffects = new[] { "ambidextrous:v1", "friendsinhighplaces:v1", "erased:v1", "overclocker:v1" }
+        }), authority.RuntimeDigest);
         Assert.IsGreaterThan(0, authority.Options.Count);
         Assert.IsTrue(authority.Options.Any(static option => option.IsSelectable));
         Assert.IsTrue(authority.Options.Any(static option => !option.IsSelectable));

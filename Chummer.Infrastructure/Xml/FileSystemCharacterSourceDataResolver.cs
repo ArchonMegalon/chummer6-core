@@ -3351,6 +3351,33 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             return true;
         }
 
+        private static bool TryResolveQualityCostPolicy(
+            XElement settings, out CharacterCreationQualityCostPolicy policy)
+        {
+            policy = CharacterCreationQualityCostPolicy.Default;
+            XElement[] costs = settings.Elements("karmacost").Take(2).ToArray();
+            if (costs.Length > 1 || costs.Length == 1 && costs[0].HasAttributes)
+                return false;
+            XElement[] multipliers = costs.Length == 0 ? []
+                : costs[0].Elements("karmaquality").Take(2).ToArray();
+            int multiplier = 1; // CharacterSettings' legacy default, only when absent.
+            if (multipliers.Length > 1 || multipliers.Length == 1
+                && !TryParseNonNegativeIntElement(multipliers[0], out multiplier))
+                return false;
+            if (!TryReadOptionalStrictBoolean(settings, "exceedpositivequalitiescostdoubled",
+                    false, out bool doublePositive)
+                || !TryReadOptionalStrictBoolean(settings, "exceednegativequalitiesnobonus",
+                    false, out bool capNegative)
+                || !TryReadOptionalStrictBoolean(settings, "exceednegativequalitieslimit",
+                    false, out bool legacyCapNegative))
+                return false;
+            // The old spelling is a fallback only; an explicit current value wins.
+            if (!settings.Elements("exceednegativequalitiesnobonus").Any())
+                capNegative = legacyCapNegative;
+            policy = new(multiplier, doublePositive, capNegative);
+            return true;
+        }
+
         public bool TryResolveCreationQualitiesAuthority(
             out CharacterCreationQualitiesAuthority authority)
         {
@@ -3381,7 +3408,8 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                     out XElement[] rows)
                 || !TryReadNonNegativeInt(settings, "qualitykarmalimit", out int qualityKarmaLimit)
                 || !TryReadSingleBool(settings, "exceedpositivequalities", out bool exceedPositive)
-                || !TryReadSingleBool(settings, "exceednegativequalities", out bool exceedNegative))
+                || !TryReadSingleBool(settings, "exceednegativequalities", out bool exceedNegative)
+                || !TryResolveQualityCostPolicy(settings, out var costPolicy))
             {
                 return false;
             }
@@ -3601,6 +3629,24 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                     "overclocker:v1"
                 }
             });
+            // Preserve the exact existing source authority when the profile still
+            // means multiplier one/no excess rules. Non-default rules are explicit
+            // and invalidate stale previews; do not silently reprice a saved draft.
+            if (costPolicy != CharacterCreationQualityCostPolicy.Default)
+            {
+                gmPolicyDigest = CharacterCreationSkillsDigest.Compute(new
+                {
+                    Schema = "chummer.sr5.creation-qualities-gm-policy.v2",
+                    PreviousPolicyDigest = gmPolicyDigest,
+                    CostPolicy = costPolicy
+                });
+                runtimeDigest = CharacterCreationSkillsDigest.Compute(new
+                {
+                    Schema = "chummer.sr5.creation-qualities-runtime.v2",
+                    PreviousRuntimeDigest = runtimeDigest,
+                    QualityCostArithmetic = "profile-multiplier-and-excess-v1"
+                });
+            }
             var candidate = new CharacterCreationQualitiesAuthority(
                 CharacterCreationQualitiesSchemas.AuthorityV1,
                 "sr5",
@@ -3624,7 +3670,10 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 ProfileDigest: _rawProfileInputsDigest,
                 GmPolicyDigest: gmPolicyDigest,
                 RuntimeDigest: runtimeDigest,
-                AuthorityDigest: string.Empty);
+                AuthorityDigest: string.Empty)
+            {
+                CostPolicy = costPolicy == CharacterCreationQualityCostPolicy.Default ? null : costPolicy
+            };
             authority = candidate with
             {
                 AuthorityDigest = CharacterCreationQualitiesRules.ComputeAuthorityDigest(candidate)

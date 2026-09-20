@@ -8,6 +8,94 @@ namespace Chummer.Tests;
 public sealed class CharacterCreationQualitiesRulesTests
 {
     [TestMethod]
+    [DataRow(false, false, 30, 40, 104)]
+    [DataRow(true, false, 35, 40, 99)]
+    [DataRow(false, true, 30, 25, 89)]
+    [DataRow(true, true, 35, 25, 84)]
+    public void Quality_cost_policy_applies_multiplier_and_excess_before_cap_exempt_purchases(
+        bool doublePositive, bool capNegative, int positiveLimit, int negativeLimit, int remaining)
+    {
+        var exemptPositive = Option("exempt-positive", CharacterCreationQualityType.Positive, 7)
+            with { CountsAgainstQualityLimit = false };
+        exemptPositive = exemptPositive with { OptionDigest = CharacterCreationQualitiesRules.ComputeOptionDigest(exemptPositive) };
+        var exemptNegative = Option("exempt-negative", CharacterCreationQualityType.Negative, -4)
+            with { CountsAgainstQualityLimit = false };
+        exemptNegative = exemptNegative with { OptionDigest = CharacterCreationQualitiesRules.ComputeOptionDigest(exemptNegative) };
+        var authority = Authority(Option("positive", CharacterCreationQualityType.Positive, 15),
+            Option("negative", CharacterCreationQualityType.Negative, -20), exemptPositive, exemptNegative)
+            with { CostPolicy = new(2, doublePositive, capNegative),
+                MayExceedPositiveQualityLimit = true, MayExceedNegativeQualityLimit = true };
+        authority = authority with { AuthorityDigest = CharacterCreationQualitiesRules.ComputeAuthorityDigest(authority) };
+        var preview = CharacterCreationQualitiesRules.Evaluate(new(Binding(authority, 100), authority,
+            authority.Options.Select(option => option.OptionId).ToArray()));
+        Assert.IsTrue(preview.CanConfirm, string.Join(",", preview.Blockers));
+        Assert.AreEqual(positiveLimit, preview.PositiveQualityBudget.Used);
+        Assert.AreEqual(negativeLimit, preview.NegativeQualityBudget.Used);
+        Assert.AreEqual(remaining, preview.KarmaRemaining);
+        Assert.AreEqual(15, preview.Selections.Single(item => item.OptionId == "positive").KarmaCost,
+            "Legacy source BP must not be scaled in the serialized quality instance.");
+    }
+
+    [TestMethod]
+    public void Quality_cost_policy_keeps_free_limit_contributions_and_metagenic_balance_separate()
+    {
+        Assert.IsTrue(CharacterCreationQualityCostRules.TryCalculate(new(2, true, true), 25,
+            [new(10, true, false, false), new(6, true, true, true),
+             new(-5, true, true, true), new(-30, true, false, false),
+             new(80, false, false, false)], out var totals));
+        Assert.AreEqual(39, totals.PositiveLimitKarma); // 32 + 7 excess, includes free limit-only quality.
+        Assert.AreEqual(25, totals.NegativeLimitKarma);
+        Assert.AreEqual(12, totals.PositiveKarmaSpent); // Only actual purchases affect the cost excess.
+        Assert.AreEqual(10, totals.NegativeKarmaGranted);
+        Assert.AreEqual(2, totals.NetKarmaSpent);
+        Assert.AreEqual(6, totals.MetagenicPositiveKarma); // Metagenic balance is source BP, not multiplied.
+        Assert.AreEqual(5, totals.MetagenicNegativeKarma);
+    }
+
+    [TestMethod]
+    public void Quality_cost_policy_rejects_overflow_and_negative_multiplier_without_exceptions()
+    {
+        Assert.IsFalse(CharacterCreationQualityCostRules.TryCalculate(new(-1, false, false), 25,
+            [], out _));
+        Assert.IsFalse(CharacterCreationQualityCostRules.TryCalculate(new(int.MaxValue, true, false), 25,
+            [new(int.MaxValue, true, true, false), new(int.MaxValue, true, true, false),
+             new(int.MaxValue, true, true, false)], out _));
+        Assert.IsFalse(CharacterCreationQualityCostRules.TryCalculate(new(1, false, false), 25,
+            [new(int.MinValue, true, true, false)], out _));
+        Assert.IsTrue(CharacterCreationQualityCostRules.TryCalculate(new(0, true, true), 25,
+            [new(6, true, true, true), new(-5, true, true, true)], out var free));
+        Assert.AreEqual(0, free.NetKarmaSpent);
+        Assert.AreEqual(6, free.MetagenicPositiveKarma);
+
+        var authority = Authority(Option("overflow", CharacterCreationQualityType.Positive, int.MaxValue))
+            with { CostPolicy = new(2, false, false) };
+        authority = authority with { AuthorityDigest = CharacterCreationQualitiesRules.ComputeAuthorityDigest(authority) };
+        var preview = CharacterCreationQualitiesRules.Evaluate(new(Binding(authority), authority, ["overflow"]));
+        Assert.IsFalse(preview.CanConfirm);
+        CollectionAssert.Contains(preview.Blockers.ToArray(), CharacterCreationQualitiesBlockers.AuthorityUnavailable);
+    }
+
+    [TestMethod]
+    public void Quality_cost_policy_is_digest_bound_and_does_not_rewrite_historical_v1_authority()
+    {
+        var historical = Authority(Option("quality", CharacterCreationQualityType.Positive, 10));
+        string json = System.Text.Json.JsonSerializer.Serialize(historical);
+        Assert.IsFalse(json.Contains("CostPolicy", StringComparison.Ordinal));
+        var roundtrip = System.Text.Json.JsonSerializer.Deserialize<CharacterCreationQualitiesAuthority>(json)!;
+        Assert.AreEqual(historical.AuthorityDigest, CharacterCreationQualitiesRules.ComputeAuthorityDigest(roundtrip));
+        Assert.AreEqual(15, CharacterCreationQualitiesRules.Evaluate(new(Binding(roundtrip), roundtrip, ["quality"])).KarmaRemaining);
+
+        var changed = historical with { CostPolicy = new(2, false, false) };
+        Assert.AreNotEqual(historical.AuthorityDigest, CharacterCreationQualitiesRules.ComputeAuthorityDigest(changed));
+        var forged = CharacterCreationQualitiesRules.Evaluate(new(Binding(historical), changed, ["quality"]));
+        Assert.IsFalse(forged.CanConfirm);
+        changed = changed with { AuthorityDigest = CharacterCreationQualitiesRules.ComputeAuthorityDigest(changed) };
+        var valid = CharacterCreationQualitiesRules.Evaluate(new(Binding(changed), changed, ["quality"]));
+        Assert.IsTrue(valid.CanConfirm, string.Join(",", valid.Blockers));
+        Assert.AreEqual(5, valid.KarmaRemaining);
+    }
+
+    [TestMethod]
     public void Heritage_quality_retains_source_cost_but_consumes_no_budget_and_cannot_be_bought_again()
     {
         var option = Option("heritage-source", CharacterCreationQualityType.Positive, 30, metagenic: true);
