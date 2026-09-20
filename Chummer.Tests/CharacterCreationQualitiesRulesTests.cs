@@ -59,9 +59,117 @@ public sealed class CharacterCreationQualitiesRulesTests
         Assert.AreEqual(ReferenceOptionDigest(option), after);
     }
 
-    private static string ReferenceOptionDigest(CharacterCreationQualityCatalogOption option)
+    [TestMethod]
+    public void Karma_quality_catalog_digest_matches_historical_canonical_bytes_including_nested_fields()
     {
-        var root = JsonSerializer.SerializeToElement(option with { OptionDigest = string.Empty });
+        var policy = new CharacterCreationKarmaQualitiesPolicy(CharacterCreationKarmaQualitiesPolicy.SchemaV1,
+            "profile", "profile-digest", "source-digest", 25, false, true, 10,
+            new(2, true, false), ["profile-anchor"], "policy-digest");
+        var catalog = new CharacterCreationKarmaQualitiesCatalog(CharacterCreationKarmaQualitiesCatalog.SchemaV1,
+            policy, [Option("first", CharacterCreationQualityType.Positive, 5),
+                Option("second", CharacterCreationQualityType.Negative, -7)], "ignored");
+        var root = System.Text.Json.Nodes.JsonNode.Parse(JsonSerializer.Serialize(catalog))!.AsObject();
+        string original = CharacterCreationKarmaQualitiesCatalogAuthority.ComputeDigest(catalog);
+        AssertEquivalent(catalog);
+        int checkedFields = 0;
+        Visit(root, "");
+        Assert.IsTrue(checkedFields > 50, "Must include the policy, costs and every nested option field.");
+
+        void Visit(System.Text.Json.Nodes.JsonNode node, string path)
+        {
+            if (node is System.Text.Json.Nodes.JsonObject obj)
+            {
+                foreach (var entry in obj.ToArray())
+                {
+                    string key = entry.Key;
+                    string childPath = path + "/" + key;
+                    if (entry.Value is System.Text.Json.Nodes.JsonObject or System.Text.Json.Nodes.JsonArray)
+                        Visit(entry.Value, childPath);
+                    else
+                    {
+                        var value = entry.Value is null ? default : JsonSerializer.SerializeToElement(entry.Value);
+                        obj[key] = value.ValueKind switch
+                        {
+                            JsonValueKind.True => System.Text.Json.Nodes.JsonValue.Create(false),
+                            JsonValueKind.False => System.Text.Json.Nodes.JsonValue.Create(true),
+                            JsonValueKind.Number => System.Text.Json.Nodes.JsonValue.Create(value.GetDecimal() + 1),
+                            _ => System.Text.Json.Nodes.JsonValue.Create(key == "SourceId"
+                                ? "beacfaaa-1234-5678-9012-ffffffffffff" : "ä español 日本語 😀 <xml>&\"\\\n\t\u2028")
+                        };
+                        var changed = root.Deserialize<CharacterCreationKarmaQualitiesCatalog>()!;
+                        AssertEquivalent(changed);
+                        if (childPath != "/CatalogDigest")
+                            Assert.AreNotEqual(original, CharacterCreationKarmaQualitiesCatalogAuthority.ComputeDigest(changed), childPath);
+                        checkedFields++;
+                        obj[key] = entry.Value;
+                    }
+                    if (entry.Value is null or System.Text.Json.Nodes.JsonObject or System.Text.Json.Nodes.JsonArray
+                        || entry.Value.GetValueKind() == JsonValueKind.String && key != "SourceId")
+                    {
+                        obj[key] = null;
+                        AssertEquivalent(root.Deserialize<CharacterCreationKarmaQualitiesCatalog>()!);
+                        obj[key] = entry.Value;
+                    }
+                }
+            }
+            else if (node is System.Text.Json.Nodes.JsonArray array)
+            {
+                for (int index = 0; index < array.Count; index++)
+                {
+                    if (array[index] is System.Text.Json.Nodes.JsonObject child) Visit(child, path + "/" + index);
+                    else
+                    {
+                        var old = array[index];
+                        array[index] = "changed-anchor";
+                        AssertEquivalent(root.Deserialize<CharacterCreationKarmaQualitiesCatalog>()!);
+                        Assert.AreNotEqual(original, CharacterCreationKarmaQualitiesCatalogAuthority.ComputeDigest(
+                            root.Deserialize<CharacterCreationKarmaQualitiesCatalog>()!), path);
+                        array[index] = old;
+                    }
+                }
+            }
+        }
+
+        static void AssertEquivalent(CharacterCreationKarmaQualitiesCatalog value)
+            => Assert.AreEqual(ReferenceCanonicalDigest(value with { CatalogDigest = string.Empty }),
+                CharacterCreationKarmaQualitiesCatalogAuthority.ComputeDigest(value));
+    }
+
+    [TestMethod]
+    public void Karma_quality_catalog_digest_preserves_order_and_observes_mutable_collections()
+    {
+        string[] anchors = ["first", "second"];
+        CharacterCreationQualityCatalogOption[] options =
+            [Option("first", CharacterCreationQualityType.Positive, 5) with { SourceAnchorIds = anchors },
+                Option("second", CharacterCreationQualityType.Negative, -7)];
+        var policy = new CharacterCreationKarmaQualitiesPolicy(CharacterCreationKarmaQualitiesPolicy.SchemaV1,
+            "profile", "profile-digest", "source-digest", 25, false, false, 0,
+            CharacterCreationQualityCostPolicy.Default, ["profile-anchor"], "policy-digest");
+        var catalog = new CharacterCreationKarmaQualitiesCatalog(CharacterCreationKarmaQualitiesCatalog.SchemaV1,
+            policy, options, "ignored");
+        string before = CharacterCreationKarmaQualitiesCatalogAuthority.ComputeDigest(catalog);
+        anchors[1] = "changed";
+        string changed = CharacterCreationKarmaQualitiesCatalogAuthority.ComputeDigest(catalog);
+        Assert.AreNotEqual(before, changed);
+        Assert.AreEqual(ReferenceCanonicalDigest(catalog with { CatalogDigest = string.Empty }), changed);
+        Array.Reverse(options);
+        string reversed = CharacterCreationKarmaQualitiesCatalogAuthority.ComputeDigest(catalog);
+        Assert.AreNotEqual(changed, reversed);
+        Assert.AreEqual(ReferenceCanonicalDigest(catalog with { CatalogDigest = string.Empty }), reversed);
+        options[0] = null!;
+        Assert.AreEqual(ReferenceCanonicalDigest(catalog with { CatalogDigest = string.Empty }),
+            CharacterCreationKarmaQualitiesCatalogAuthority.ComputeDigest(catalog));
+        catalog = catalog with { Options = [] };
+        Assert.AreEqual(ReferenceCanonicalDigest(catalog with { CatalogDigest = string.Empty }),
+            CharacterCreationKarmaQualitiesCatalogAuthority.ComputeDigest(catalog));
+    }
+
+    private static string ReferenceOptionDigest(CharacterCreationQualityCatalogOption option)
+        => ReferenceCanonicalDigest(option with { OptionDigest = string.Empty });
+
+    private static string ReferenceCanonicalDigest<T>(T value)
+    {
+        var root = JsonSerializer.SerializeToElement(value);
         var buffer = new ArrayBufferWriter<byte>();
         using (var writer = new Utf8JsonWriter(buffer)) WriteCanonical(root, writer);
         return "sha256:" + Convert.ToHexStringLower(SHA256.HashData(buffer.WrittenSpan));

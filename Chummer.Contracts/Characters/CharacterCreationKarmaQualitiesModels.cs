@@ -25,6 +25,12 @@ public sealed record CharacterCreationKarmaQualitiesCatalog(
     public const string SchemaV1 = "chummer.character_creation_karma_qualities_catalog.v1";
 }
 
+public static class CharacterCreationKarmaQualitiesCatalogAuthority
+{
+    public static string ComputeDigest(CharacterCreationKarmaQualitiesCatalog catalog)
+        => CharacterCreationQualitiesDigest.ComputeKarmaCatalog(catalog);
+}
+
 /// <summary>
 /// Source-bound pending purchases, not applied character effects. Only selected
 /// complete source rows are retained in history; an entire mutable catalog is not.

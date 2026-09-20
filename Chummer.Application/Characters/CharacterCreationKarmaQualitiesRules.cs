@@ -12,7 +12,7 @@ public static class CharacterCreationKarmaQualitiesRules
         => Hash(policy with { AuthorityDigest = string.Empty });
 
     public static string CatalogDigest(CharacterCreationKarmaQualitiesCatalog catalog)
-        => Hash(catalog with { CatalogDigest = string.Empty });
+        => CharacterCreationKarmaQualitiesCatalogAuthority.ComputeDigest(catalog);
 
     public static bool IsValidPolicy(CharacterCreationKarmaQualitiesPolicy? policy)
         => policy is { Schema: CharacterCreationKarmaQualitiesPolicy.SchemaV1,
