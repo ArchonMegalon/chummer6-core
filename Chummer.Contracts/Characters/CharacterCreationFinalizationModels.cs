@@ -2,6 +2,7 @@ using System.Buffers;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Chummer.Contracts.Workspaces;
 
 namespace Chummer.Contracts.Characters;
@@ -51,6 +52,7 @@ public static class CharacterCreationFinalizationBlockers
     public const string AwakenedEffectsNotProjectable = "creation-finalization-awakened-effects-not-projectable";
     public const string TalentGrantsNotProjectable = "creation-finalization-talent-grants-not-projectable";
     public const string GlobalKarmaExceeded = "creation-finalization-global-karma-exceeded";
+    public const string CarryoverPolicyUnavailable = "creation-finalization-carryover-policy-unavailable";
     public const string StaleWorkspaceRevision = "creation-finalization-stale-workspace-revision";
     public const string StaleRawCharacterXmlDigest = "creation-finalization-stale-character-digest";
     public const string StaleAuxiliaryStateDigest = "creation-finalization-stale-auxiliary-digest";
@@ -147,7 +149,12 @@ public sealed record CharacterCreationFinalizationPlan(
     decimal NuyenRemaining,
     IReadOnlyList<string> SourceAnchorIds,
     string ExpectedResultRawCharacterXmlDigest,
-    string PlanDigest);
+    string PlanDigest)
+{
+    /// <summary>Exact source-profile policy used by this review, never a client override.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationKarmaCarryoverPolicy? CarryoverPolicy { get; init; }
+}
 
 public sealed record CharacterCreationFinalizationReview(
     string Schema,
@@ -180,7 +187,13 @@ public sealed record CharacterCreationFinalizationReceipt(
     bool CharacterCreated,
     bool RequiresFreshCareerReopen,
     string PreviousReceiptDigest,
-    string ReceiptDigest);
+    string ReceiptDigest)
+{
+    // Absent on historical receipts. Omitting null preserves their original
+    // digest and allows read-only recovery without retroactive balance changes.
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationKarmaCarryoverPolicy? CarryoverPolicy { get; init; }
+}
 
 public sealed record CharacterCreationFinalizationReceiptLedgerEntry(
     string IdempotencyKeyDigest,

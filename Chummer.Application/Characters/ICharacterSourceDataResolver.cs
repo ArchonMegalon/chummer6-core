@@ -146,7 +146,17 @@ public interface ICharacterSourceDataContext
         return false;
     }
 
-    /// <summary>Exact completion carryover limits, not additional creation purchasing power.</summary>
+    /// <summary>
+    /// Profile-owned completion limits shared by Priority, Sum-to-Ten and Karma.
+    /// The historical policy DTO name does not authorize mixing creation budgets.
+    /// </summary>
+    bool TryResolveCreationCarryoverPolicy(out CharacterCreationKarmaCarryoverPolicy? policy)
+    {
+        policy = null;
+        return false;
+    }
+
+    /// <summary>Exact Karma completion carryover limits, not additional creation purchasing power.</summary>
     bool TryResolveCreationKarmaCarryoverPolicy(out CharacterCreationKarmaCarryoverPolicy? policy)
     {
         policy = null;

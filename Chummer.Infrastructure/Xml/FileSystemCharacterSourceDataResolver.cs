@@ -2191,9 +2191,17 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
 
         public bool TryResolveCreationKarmaCarryoverPolicy(out CharacterCreationKarmaCarryoverPolicy? policy)
         {
+            policy = null;
+            return _buildMethod == CharacterCreationBuildMethods.Karma
+                && TryResolveCreationCarryoverPolicy(out policy);
+        }
+
+        public bool TryResolveCreationCarryoverPolicy(out CharacterCreationKarmaCarryoverPolicy? policy)
+        {
             using IDisposable sourceInputScope = _sourceInputs.Enter();
             policy = null;
-            if (_sourceInputs.HasSourceDrift || _buildMethod != CharacterCreationBuildMethods.Karma
+            if (_sourceInputs.HasSourceDrift || _buildMethod is not (CharacterCreationBuildMethods.Karma
+                    or CharacterCreationBuildMethods.Priority or CharacterCreationBuildMethods.SumToTen)
                 || string.IsNullOrWhiteSpace(_settingsProfileId)
                 || !TryComputeEffectiveInputDigest(_catalog, "settings.xml", out string settingsDigest)
                 || BindSelectedProfile(settingsDigest, _settingsProfileId) != _rawProfileInputsDigest

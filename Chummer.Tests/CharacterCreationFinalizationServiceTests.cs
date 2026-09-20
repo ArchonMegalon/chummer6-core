@@ -20,6 +20,175 @@ namespace Chummer.Tests;
 public sealed class CharacterCreationFinalizationServiceTests
 {
     [TestMethod]
+    [DataRow(CharacterCreationBuildMethods.Priority, 3, "1234.5")]
+    [DataRow(CharacterCreationBuildMethods.SumToTen, 11, "0")]
+    [DataRow(CharacterCreationBuildMethods.Priority, 0, "5000")]
+    [DataRow(CharacterCreationBuildMethods.SumToTen, 50, "1000000")]
+    public void Finalization_applies_profile_carryover_in_review_and_cold_replay(
+        string buildMethod, int maximumKarma, string maximumNuyenText)
+    {
+        decimal maximumNuyen = decimal.Parse(maximumNuyenText, System.Globalization.CultureInfo.InvariantCulture);
+        using ReadyContext context = ReadyContext.Create(true, buildMethod: buildMethod,
+            amendSettings: profile =>
+            {
+                profile.Element("karmacost")!.SetElementValue("karmacarryover", maximumKarma);
+                profile.SetElementValue("nuyencarryover", maximumNuyenText);
+            });
+        var before = context.Store.Get(context.WorkspaceId).Value!;
+        var auxiliary = before.Document.AuxiliaryState;
+        decimal expectedKarma = Math.Min(auxiliary.CharacterCreationQualitiesDraft!.KarmaRemaining
+            - auxiliary.CharacterCreationResourcesDraft!.KarmaInvestment, maximumKarma);
+        decimal expectedNuyen = Math.Min(auxiliary.CharacterCreationGearDraft!.Budget.RemainingNuyen, maximumNuyen);
+        var state = context.Finalizer.Load(new(context.WorkspaceId)).Value!;
+        var review = context.Finalizer.Review(new(state.Binding)).Value!;
+        Assert.IsTrue(review.CanConfirm, string.Join(",", review.Blockers));
+        Assert.AreEqual(expectedKarma, review.Plan!.KarmaRemaining,
+            "Career Karma must respect the active profile's carryover, not retain the creation budget.");
+        Assert.AreEqual(expectedNuyen, review.Plan.NuyenRemaining);
+        Assert.AreEqual(maximumKarma, review.Plan.CarryoverPolicy!.MaximumKarma);
+        Assert.AreEqual(maximumNuyen, review.Plan.CarryoverPolicy.MaximumNuyen);
+        foreach (string target in new[] { "karma", "nuyen" })
+        {
+            var reduction = review.OrderedDeltas.Single(item => item.DeltaId == "carryover:" + target);
+            Assert.AreEqual(0m, reduction.KarmaCost);
+            Assert.AreEqual(0m, reduction.NuyenCost);
+            Assert.IsNotEmpty(reduction.SourceAnchorIds);
+            Assert.AreEqual((target == "karma" ? expectedKarma : expectedNuyen)
+                .ToString(System.Globalization.CultureInfo.InvariantCulture), reduction.AfterValue);
+        }
+        Assert.AreEqual(before.Document.Content, context.Store.Get(context.WorkspaceId).Value!.Document.Content,
+            "Review must not trim the saved draft before explicit confirmation.");
+
+        var command = new CharacterCreationFinalizationConfirmRequest(state.Binding, review.PreviewDigest,
+            review.Plan.PlanDigest, "profile-karma-carryover", true);
+        Assert.AreNotEqual(CharacterCreationFinalizationOutcomes.Applied,
+            context.Finalizer.Confirm(command with { ExplicitlyConfirmed = false }).Outcome);
+        Assert.AreEqual(before.ContentRevision, context.Store.Get(context.WorkspaceId).Value!.ContentRevision);
+        var confirmed = context.Finalizer.Confirm(command);
+        Assert.AreEqual(CharacterCreationFinalizationOutcomes.Applied, confirmed.Outcome,
+            string.Join(",", confirmed.Blockers));
+        using ReadyContext cold = context.Restart();
+        var after = cold.Store.Get(context.WorkspaceId).Value!;
+        Assert.AreEqual(expectedKarma.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            XElement.Parse(after.Document.Content).Element("karma")!.Value);
+        Assert.AreEqual(expectedNuyen.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            XElement.Parse(after.Document.Content).Element("nuyen")!.Value);
+        Assert.AreEqual(review.Plan.CarryoverPolicy.AuthorityDigest, confirmed.Value!.CarryoverPolicy!.AuthorityDigest);
+        Assert.IsTrue(CharacterCreationFinalizationReceiptLedgerIntegrity.IsValidTransition(context.WorkspaceId,
+            before.ContentRevision, before.SavedRevision, after.ContentRevision, before.Document, after.Document));
+        Assert.AreEqual(CharacterCreationFinalizationOutcomes.Replayed, cold.Finalizer.Confirm(command).Outcome);
+        Assert.AreEqual(confirmed.Value!.ReceiptDigest, cold.Finalizer.Confirm(command).Value!.ReceiptDigest);
+        Assert.AreEqual(after.ContentRevision, cold.Store.Get(context.WorkspaceId).Value!.ContentRevision);
+        Assert.AreEqual(after.Document.Content, cold.Store.Get(context.WorkspaceId).Value!.Document.Content);
+    }
+
+    [TestMethod]
+    [DataRow(CharacterCreationBuildMethods.Priority)]
+    [DataRow(CharacterCreationBuildMethods.SumToTen)]
+    public void Carryover_rejects_missing_foreign_and_tampered_policies_without_output(string method)
+    {
+        using ReadyContext context = ReadyContext.Create(true, buildMethod: method);
+        var before = context.Store.Get(context.WorkspaceId).Value!;
+        var policy = ResolveCarryoverPolicy(context);
+        Assert.IsFalse(context.Resolver.TryCreateContext(before.Document.Content)!
+            .TryResolveCreationKarmaCarryoverPolicy(out _), "The Karma-specific resolver must retain its method boundary.");
+        var foreign = policy with { SettingsProfileId = "foreign-profile" };
+        foreign = foreign with { AuthorityDigest = CharacterCreationKarmaFinalizationBudgetRules.PolicyDigest(foreign) };
+        var wrongMoney = policy with { MaximumNuyen = policy.MaximumNuyen + 1 };
+        wrongMoney = wrongMoney with { AuthorityDigest = CharacterCreationKarmaFinalizationBudgetRules.PolicyDigest(wrongMoney) };
+        foreach (var invalid in new CharacterCreationKarmaCarryoverPolicy?[]
+                 { null, foreign, wrongMoney, policy with { MaximumKarma = policy.MaximumKarma + 1 } })
+        {
+            Assert.IsFalse(CharacterCreationFinalizationProjector.TryProject(before,
+                out string xml, out var deltas, out var anchors, out _, out _, out _, out var blockers, invalid));
+            CollectionAssert.Contains(blockers, CharacterCreationFinalizationBlockers.CarryoverPolicyUnavailable);
+            Assert.AreEqual(string.Empty, xml);
+            Assert.IsEmpty(deltas);
+            Assert.IsEmpty(anchors);
+        }
+        Assert.AreEqual(before.Document.Content, context.Store.Get(context.WorkspaceId).Value!.Document.Content);
+        Assert.AreEqual(before.ContentRevision, context.Store.Get(context.WorkspaceId).Value!.ContentRevision);
+    }
+
+    [TestMethod]
+    [DataRow(CharacterCreationBuildMethods.Priority)]
+    [DataRow(CharacterCreationBuildMethods.SumToTen)]
+    public void Carryover_profile_drift_after_review_cannot_commit_or_reuse_old_limits(string method)
+    {
+        using ReadyContext context = ReadyContext.Create(true, buildMethod: method,
+            amendSettings: profile => profile.Element("karmacost")!.SetElementValue("karmacarryover", 3));
+        var before = context.Store.Get(context.WorkspaceId).Value!;
+        var state = context.Finalizer.Load(new(context.WorkspaceId)).Value!;
+        var review = context.Finalizer.Review(new(state.Binding)).Value!;
+        Assert.IsTrue(review.CanConfirm, string.Join(",", review.Blockers));
+        var command = new CharacterCreationFinalizationConfirmRequest(state.Binding, review.PreviewDigest,
+            review.Plan!.PlanDigest, "drifted-carryover-profile", true);
+        string settingsPath = Path.Combine(context.Directory, "source", "data", "settings.xml");
+        var settings = XDocument.Load(settingsPath);
+        var profile = settings.Root!.Element("settings")!.Elements("setting")
+            .Single(item => item.Element("id")!.Value == review.Plan.CarryoverPolicy!.SettingsProfileId);
+        profile.Element("karmacost")!.SetElementValue("karmacarryover", 4);
+        settings.Save(settingsPath);
+        var result = context.Finalizer.Confirm(command);
+        Assert.IsFalse(result.Success);
+        Assert.IsNull(result.Value);
+        using ReadyContext cold = context.Restart();
+        var after = cold.Store.Get(context.WorkspaceId).Value!;
+        Assert.AreEqual(before.ContentRevision, after.ContentRevision);
+        Assert.AreEqual(before.SavedRevision, after.SavedRevision);
+        Assert.AreEqual(before.Document.Content, after.Document.Content);
+        Assert.AreEqual(before.Document.AuxiliaryStateDigest, after.Document.AuxiliaryStateDigest);
+    }
+
+    [TestMethod]
+    public void Historical_pre_carryover_receipt_retains_its_exact_digest_and_read_only_validity()
+    {
+        // Captured from the fresh synthetic Sum-to-Ten Adept emulator walk on
+        // 2026-09-20, before this fix. Do not regenerate this expected receipt.
+        const string json = """
+            {
+              "Schema":"chummer.sr5.creation-finalization.receipt.v1",
+              "ReceiptId":"sha256:ab821aed474b982fcb2c88100a641c5ee44df7ccf5f4b654bc831fcc1075edd2",
+              "WorkspaceId":{"Value":"6004c9dc93a04859bcaf30ba37a261c0"},
+              "IdempotencyKeyDigest":"sha256:8eb71c824e7d80c6bd7992c12d84fab403fcf04c8f7ac6902081adbefb34e8e6",
+              "CommandDigest":"sha256:6e7ded8c3e4380a228576bca0618ec4d1d192eeba85de6d591b45b6f429f4109",
+              "PreviousContentRevision":8,"ContentRevision":9,"PreviousSavedRevision":8,"SavedRevision":9,
+              "PreviousRawCharacterXmlDigest":"sha256:b95ad4bcbba20a51fd7b6efecc169526f1796d7731b292f4aaba11edc229f2c0",
+              "RawCharacterXmlDigest":"sha256:422eae5ea6c927a5a7e227811209cc831df89afb4c596318099e87dab75de123",
+              "PreviousAuxiliaryStateDigest":"4770cf1dd0da453a804ce3f7cb3baeadf93183d1eeb25c9060e4f3014ad99ab0",
+              "AuthorityDigest":"sha256:1b9ac5f44ac1d7ceb270f2e9e48c27ff83eb60cac23be95074993f834b4140ea",
+              "PreviewDigest":"sha256:ad73b0c8a038ff77be6e5412d9182088f0ba875561b01ed09ad06809431c64f9",
+              "PlanDigest":"sha256:b65e76ba31cf465bf431cbddb57aa532354da758b2e7b35ab60ddad6c2736793",
+              "BuildMethod":"SumtoTen","CharacterCreated":true,"RequiresFreshCareerReopen":true,
+              "PreviousReceiptDigest":"sha256:671914b1f004f2816a0d621fcafbd6e437bd71a18e739b7f47dc9832ecb5d2ca",
+              "ReceiptDigest":"sha256:259a4fbc5caf5da5217fcb9063251c59d4c19a99e937c3bdcc7ab12945922f6a"
+            }
+            """;
+        var receipt = System.Text.Json.JsonSerializer.Deserialize<CharacterCreationFinalizationReceipt>(json)!;
+        Assert.IsNull(receipt.CarryoverPolicy);
+        Assert.AreEqual(receipt.ReceiptDigest, CharacterCreationFinalizationDigest.ComputeReceiptDigest(receipt));
+        Assert.IsTrue(CharacterCreationFinalizationReceiptLedgerIntegrity.IsValidLedger(receipt.WorkspaceId, 9,
+            [new(receipt.IdempotencyKeyDigest, receipt.CommandDigest, receipt)]));
+        Assert.IsFalse(System.Text.Json.JsonSerializer.Serialize(receipt).Contains("CarryoverPolicy", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
+    public void Carryover_policy_value_identity_survives_a_json_round_trip()
+    {
+        var policy = new CharacterCreationKarmaCarryoverPolicy(CharacterCreationKarmaCarryoverPolicy.SchemaV1,
+            "profile", CharacterCreationFinalizationDigest.ComputeUtf8("profile"), 3, 1234.5m,
+            ["settings.xml#setting:profile", CharacterCreationKarmaFinalizationBudgetRules.CarryoverAnchor], string.Empty);
+        policy = policy with { AuthorityDigest = CharacterCreationKarmaFinalizationBudgetRules.PolicyDigest(policy) };
+        var reopened = System.Text.Json.JsonSerializer.Deserialize<CharacterCreationKarmaCarryoverPolicy>(
+            System.Text.Json.JsonSerializer.Serialize(policy))!;
+        Assert.AreNotSame(policy.SourceAnchorIds, reopened.SourceAnchorIds);
+        Assert.AreEqual(policy, reopened, "Source-anchor array identity is not receipt identity.");
+        Assert.AreEqual(policy.GetHashCode(), reopened.GetHashCode());
+        Assert.AreNotEqual(policy, reopened with { MaximumKarma = 4 });
+        Assert.AreNotEqual(policy, reopened with { SourceAnchorIds = ["foreign-source"] });
+    }
+
+    [TestMethod]
     [DataRow("Conjuring")]
     [DataRow("Enchanting")]
     [DataRow("Sorcery")]
@@ -77,8 +246,9 @@ public sealed class CharacterCreationFinalizationServiceTests
         var state = context.Finalizer.Load(new(context.WorkspaceId)).Value!;
         var review = context.Finalizer.Review(new(state.Binding)).Value!;
         Assert.IsTrue(review.CanConfirm, string.Join(",", review.Blockers));
-        Assert.AreEqual((decimal)(auxiliary.CharacterCreationQualitiesDraft!.KarmaRemaining
-            - auxiliary.CharacterCreationResourcesDraft!.KarmaInvestment - purchase.KarmaCost), review.Plan!.KarmaRemaining);
+        Assert.AreEqual(Math.Min(auxiliary.CharacterCreationQualitiesDraft!.KarmaRemaining
+            - auxiliary.CharacterCreationResourcesDraft!.KarmaInvestment - purchase.KarmaCost,
+            ResolveCarryoverPolicy(context).MaximumKarma), review.Plan!.KarmaRemaining);
         CollectionAssert.IsSubsetOf(purchase.Policy.SourceAnchorIds.ToArray(), review.Plan.SourceAnchorIds.ToArray());
         var command = new CharacterCreationFinalizationConfirmRequest(state.Binding, review.PreviewDigest,
             review.Plan.PlanDigest, "mystic-purchase-finalize", true);
@@ -165,7 +335,7 @@ public sealed class CharacterCreationFinalizationServiceTests
             var forged = before with { Document = before.Document with { State = before.Document.State with
                 { AuxiliaryState = auxiliary with { CharacterCreationMagicResonanceDraft = forgedDraft } } } };
             Assert.IsFalse(CharacterCreationFinalizationProjector.TryProject(forged, out string xml, out var changes,
-                out _, out _, out _, out _, out _));
+                out _, out _, out _, out _, out _, ResolveCarryoverPolicy(context)));
             Assert.AreEqual(string.Empty, xml);
             Assert.IsEmpty(changes);
         }
@@ -200,7 +370,7 @@ public sealed class CharacterCreationFinalizationServiceTests
         Assert.AreEqual(0, qualityState.Preview.PositiveQualityBudget.Used);
         Assert.IsFalse(qualityState.Preview.GrantedQualities.Single().CountsAgainstKarma);
         Assert.IsTrue(qualityState.Preview.GrantedQualities.Single().KarmaCost > 0);
-        if (talentValue == "Magician") AssertAwakenedForgeryRejected(before);
+        if (talentValue == "Magician") AssertAwakenedForgeryRejected(before, ResolveCarryoverPolicy(context));
         if (talentValue == "Technomancer") AssertTechnomancerForgeryRejected(context, before);
         var state = context.Finalizer.Load(new(context.WorkspaceId));
         Assert.AreEqual(CharacterCreationFinalizationOutcomes.Available, state.Outcome, string.Join(",", state.Blockers));
@@ -344,7 +514,7 @@ public sealed class CharacterCreationFinalizationServiceTests
                 var forgedDocument = original.Document with { State = original.Document.State with
                 { AuxiliaryState = original.Document.AuxiliaryState with { CharacterCreationMagicResonanceDraft = forgedDraft } } };
                 Assert.IsFalse(CharacterCreationFinalizationProjector.TryProject(original with { Document = forgedDocument },
-                    out var output, out var deltas, out _, out _, out _, out _, out _));
+                    out var output, out var deltas, out _, out _, out _, out _, out _, ResolveCarryoverPolicy(context)));
                 Assert.AreEqual(string.Empty, output);
                 Assert.IsEmpty(deltas);
             }
@@ -352,7 +522,8 @@ public sealed class CharacterCreationFinalizationServiceTests
         Assert.AreEqual(original.Document.Content, context.Store.Get(context.WorkspaceId).Value!.Document.Content);
     }
 
-    private static void AssertAwakenedForgeryRejected(WorkspaceStoredDocument original)
+    private static void AssertAwakenedForgeryRejected(WorkspaceStoredDocument original,
+        CharacterCreationKarmaCarryoverPolicy policy)
     {
         var magic = original.Document.AuxiliaryState.CharacterCreationMagicResonanceDraft!;
         var contribution = magic.FinalizationContribution!;
@@ -382,7 +553,7 @@ public sealed class CharacterCreationFinalizationServiceTests
             var document = original.Document with { State = original.Document.State with
             { AuxiliaryState = original.Document.AuxiliaryState with { CharacterCreationMagicResonanceDraft = draft } } };
             Assert.IsFalse(CharacterCreationFinalizationProjector.TryProject(original with { Document = document },
-                out var output, out var deltas, out _, out _, out _, out _, out _));
+                out var output, out var deltas, out _, out _, out _, out _, out _, policy));
             Assert.AreEqual(string.Empty, output);
             Assert.IsEmpty(deltas);
         }
@@ -394,7 +565,7 @@ public sealed class CharacterCreationFinalizationServiceTests
             var document = original.Document with { State = original.Document.State with
             { AuxiliaryState = original.Document.AuxiliaryState with { CharacterCreationSkillsDraft = changed } } };
             Assert.IsFalse(CharacterCreationFinalizationProjector.TryProject(original with { Document = document },
-                out _, out _, out _, out _, out _, out _, out _));
+                out _, out _, out _, out _, out _, out _, out _, policy));
         }
     }
 
@@ -673,7 +844,7 @@ public sealed class CharacterCreationFinalizationServiceTests
         // this test must not claim that unsupported full-service route works.
         var projectedInput = saved with { Document = WithCharacterXml(saved.Document, root) };
         Assert.IsTrue(CharacterCreationFinalizationProjector.TryProject(projectedInput,
-            out string xml, out _, out _, out _, out _, out _, out var blockers), string.Join(",", blockers));
+            out string xml, out _, out _, out _, out _, out _, out var blockers, ResolveCarryoverPolicy(context)), string.Join(",", blockers));
         var output = XDocument.Parse(xml).Root!.Element("improvements")!;
         Assert.HasCount(1, output.Elements().Where(row => XNode.DeepEquals(existing, row)).ToArray());
         Assert.AreEqual(saved.Document.Content, context.Store.Get(context.WorkspaceId).Value!.Document.Content);
@@ -700,26 +871,27 @@ public sealed class CharacterCreationFinalizationServiceTests
             XElement root = XDocument.Parse(stored.Document.Content).Root!;
             XElement replacement = XElement.Parse(invalid);
             root.Element(replacement.Name)!.ReplaceWith(replacement);
-            AssertInvalidCareerProjection(stored, root, invalid);
+            AssertInvalidCareerProjection(stored, root, invalid, ResolveCarryoverPolicy(context));
         }
         foreach (string field in CareerBaselineFields)
         {
             XElement root = XDocument.Parse(stored.Document.Content).Root!;
             root.Add(new XElement(root.Element(field)!));
-            AssertInvalidCareerProjection(stored, root, "duplicate " + field);
+            AssertInvalidCareerProjection(stored, root, "duplicate " + field, ResolveCarryoverPolicy(context));
             root = XDocument.Parse(stored.Document.Content).Root!;
             root.Element(field)!.Name = XName.Get(field, "urn:foreign");
-            AssertInvalidCareerProjection(stored, root, "foreign namespace " + field);
+            AssertInvalidCareerProjection(stored, root, "foreign namespace " + field, ResolveCarryoverPolicy(context));
         }
         Assert.AreEqual(stored.Document.Content, context.Store.Get(context.WorkspaceId).Value!.Document.Content);
         Assert.AreEqual(stored.ContentRevision, context.Store.Get(context.WorkspaceId).Value!.ContentRevision);
     }
 
-    private static void AssertInvalidCareerProjection(WorkspaceStoredDocument stored, XElement root, string reason)
+    private static void AssertInvalidCareerProjection(WorkspaceStoredDocument stored, XElement root, string reason,
+        CharacterCreationKarmaCarryoverPolicy policy)
     {
         var changed = stored with { Document = WithCharacterXml(stored.Document, root) };
         Assert.IsFalse(CharacterCreationFinalizationProjector.TryProject(changed,
-            out string xml, out var deltas, out var anchors, out _, out _, out _, out var blockers), reason);
+            out string xml, out var deltas, out var anchors, out _, out _, out _, out var blockers, policy), reason);
         Assert.AreEqual("", xml, reason);
         Assert.IsEmpty(deltas, reason);
         Assert.IsEmpty(anchors, reason);
@@ -737,13 +909,13 @@ public sealed class CharacterCreationFinalizationServiceTests
         using ReadyContext context = ReadyContext.Create(includeGearReview: true);
         WorkspaceStoredDocument original = context.Store.Get(context.WorkspaceId).Value!;
         Assert.IsTrue(CharacterCreationFinalizationProjector.TryProject(
-            original, out _, out _, out _, out _, out _, out _, out _));
+            original, out _, out _, out _, out _, out _, out _, out _, ResolveCarryoverPolicy(context)));
         WorkspaceStoredDocument mixed = WithPendingFoundation(original, metatype);
         string beforeDigest = mixed.Document.AuxiliaryStateDigest;
 
         bool projected = CharacterCreationFinalizationProjector.TryProject(
             mixed, out string xml, out var deltas, out var anchors,
-            out _, out _, out _, out string[] blockers);
+            out _, out _, out _, out string[] blockers, ResolveCarryoverPolicy(context));
 
         Assert.IsFalse(projected,
             "A stale cross-method draft is not permission to discard or grant Life Module effects.");
@@ -844,7 +1016,7 @@ public sealed class CharacterCreationFinalizationServiceTests
 
         bool projected = CharacterCreationFinalizationProjector.TryProject(
             mixed, out string xml, out var deltas, out var anchors,
-            out _, out _, out _, out string[] blockers);
+            out _, out _, out _, out string[] blockers, ResolveCarryoverPolicy(context));
 
         Assert.IsFalse(projected);
         CollectionAssert.Contains(blockers,
@@ -1256,7 +1428,8 @@ public sealed class CharacterCreationFinalizationServiceTests
         var saved = reopened.Store.Get(context.WorkspaceId).Value!;
         var root = XElement.Parse(saved.Document.Content);
         Assert.AreEqual("5", root.Element("qualities")!.Element("quality")!.Element("bp")!.Value);
-        Assert.AreEqual(draft.KarmaRemaining.ToString(System.Globalization.CultureInfo.InvariantCulture), root.Element("karma")!.Value);
+        Assert.AreEqual(Math.Min(draft.KarmaRemaining, ResolveCarryoverPolicy(coldDraft).MaximumKarma)
+            .ToString(System.Globalization.CultureInfo.InvariantCulture), root.Element("karma")!.Value);
         Assert.AreEqual(CharacterCreationFinalizationOutcomes.Replayed, reopened.Finalizer.Confirm(command).Outcome);
         Assert.AreEqual(saved.ContentRevision, reopened.Store.Get(context.WorkspaceId).Value!.ContentRevision);
         Assert.AreEqual(saved.Document.Content, reopened.Store.Get(context.WorkspaceId).Value!.Document.Content);
@@ -1314,7 +1487,7 @@ public sealed class CharacterCreationFinalizationServiceTests
         };
         Assert.IsFalse(CharacterCreationFinalizationProjector.TryProject(
             tamperedWorkspace,
-            out _, out _, out _, out _, out _, out _, out string[] tamperBlockers));
+            out _, out _, out _, out _, out _, out _, out string[] tamperBlockers, ResolveCarryoverPolicy(context)));
         CollectionAssert.Contains(
             tamperBlockers.ToList(),
             CharacterCreationFinalizationBlockers.DraftAuthorityInvalid);
@@ -1347,7 +1520,7 @@ public sealed class CharacterCreationFinalizationServiceTests
         };
         Assert.IsFalse(CharacterCreationFinalizationProjector.TryProject(
             gearTamperedWorkspace,
-            out _, out _, out _, out _, out _, out _, out string[] gearTamperBlockers));
+            out _, out _, out _, out _, out _, out _, out string[] gearTamperBlockers, ResolveCarryoverPolicy(context)));
         CollectionAssert.Contains(
             gearTamperBlockers.ToList(),
             CharacterCreationFinalizationBlockers.DraftAuthorityInvalid);
@@ -1621,6 +1794,14 @@ public sealed class CharacterCreationFinalizationServiceTests
         }
     }
 
+    private static CharacterCreationKarmaCarryoverPolicy ResolveCarryoverPolicy(ReadyContext context)
+    {
+        var document = context.Store.Get(context.WorkspaceId).Value!.Document;
+        var source = context.Resolver.TryCreateContext(document.Content)!;
+        Assert.IsTrue(source.TryResolveCreationCarryoverPolicy(out var policy));
+        return policy!;
+    }
+
     private static T AssertAvailable<T>(CharacterCreationFinalizationResult<T> result)
         where T : class
     {
@@ -1691,8 +1872,10 @@ public sealed class CharacterCreationFinalizationServiceTests
                         File.Copy(sourceFile, Path.Combine(destination, Path.GetFileName(sourceFile)));
                     string settingsPath = Path.Combine(destination, "settings.xml");
                     XDocument settingsDocument = XDocument.Load(settingsPath);
+                    Assert.IsTrue(CharacterCreationBootstrapProfiles.TryResolveCanonicalSettingsProfileId(
+                        buildMethod, out string settingsProfileId));
                     XElement profile = settingsDocument.Root!.Element("settings")!.Elements("setting")
-                        .Single(item => item.Element("id")!.Value == CharacterCreationBootstrapProfiles.PrioritySettingsProfileId);
+                        .Single(item => item.Element("id")!.Value == settingsProfileId);
                     amendSettings(profile);
                     settingsDocument.Save(settingsPath);
                 }
@@ -2126,7 +2309,7 @@ public sealed class CharacterCreationFinalizationServiceTests
                 new CharacterCreationQualitiesService(store, resolver, prerequisites, attributes),
                 new CharacterCreationMagicResonanceService(store, resolver),
                 new CharacterCreationResourcesService(store, resolver),
-                new CharacterCreationGearService(store, resolver));
+                new CharacterCreationGearService(store, resolver), resolver);
         }
 
         private static string FindCoreRoot()

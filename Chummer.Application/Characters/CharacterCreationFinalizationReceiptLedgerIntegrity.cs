@@ -90,6 +90,8 @@ public static class CharacterCreationFinalizationReceiptLedgerIntegrity
                && CharacterCreationFinalizationDigest.IsCanonical(receipt.PreviewDigest)
                && CharacterCreationFinalizationDigest.IsCanonical(receipt.PlanDigest)
                && CharacterCreationFinalizationBuildMethodIsKnown(receipt.BuildMethod)
+               && (receipt.CarryoverPolicy is null
+                   || CharacterCreationKarmaFinalizationBudgetRules.IsValidPolicy(receipt.CarryoverPolicy))
                && CharacterCreationFinalizationDigest.EqualsFixedTime(
                    receipt.PreviousReceiptDigest,
                    CharacterCreationFinalizationDigest.ReceiptLedgerRootDigest)
@@ -132,6 +134,7 @@ public static class CharacterCreationFinalizationReceiptLedgerIntegrity
             previousContentRevision,
             previousSavedRevision,
             DateTimeOffset.UnixEpoch);
+        CharacterCreationFinalizationReceipt receipt = replacementLedger[0].Receipt;
         if (!CharacterCreationFinalizationProjector.TryProject(
                 current,
                 out string expectedXml,
@@ -140,11 +143,10 @@ public static class CharacterCreationFinalizationReceiptLedgerIntegrity
                 out decimal karmaRemaining,
                 out decimal startingNuyen,
                 out decimal nuyenRemaining,
-                out _)
+                out _, receipt.CarryoverPolicy)
             || !string.Equals(expectedXml, replacementDocument.Content, StringComparison.Ordinal))
             return false;
 
-        CharacterCreationFinalizationReceipt receipt = replacementLedger[0].Receipt;
         var binding = new CharacterCreationFinalizationBinding(
             workspaceId,
             previousContentRevision,
@@ -162,7 +164,7 @@ public static class CharacterCreationFinalizationReceiptLedgerIntegrity
             nuyenRemaining,
             sourceAnchorIds,
             CharacterCreationFinalizationProjector.ComputeRawCharacterXmlDigest(expectedXml),
-            string.Empty);
+            string.Empty) { CarryoverPolicy = receipt.CarryoverPolicy };
         CharacterCreationFinalizationPlan plan = planCandidate with
         {
             PlanDigest = CharacterCreationFinalizationDigest.Compute(

@@ -25,7 +25,8 @@ public static class CharacterCreationFinalizationProjector
         out decimal karmaRemaining,
         out decimal startingNuyen,
         out decimal nuyenRemaining,
-        out string[] blockers)
+        out string[] blockers,
+        CharacterCreationKarmaCarryoverPolicy? carryoverPolicy)
     {
         ArgumentNullException.ThrowIfNull(workspace);
         characterXml = string.Empty;
@@ -90,11 +91,22 @@ public static class CharacterCreationFinalizationProjector
             failures.Add(CharacterCreationFinalizationBlockers.GlobalKarmaExceeded);
         startingNuyen = resources.FinalizationContribution.StartingNuyen;
         nuyenRemaining = gear!.Budget.RemainingNuyen;
+        CharacterCreationBootstrapBinding? bootstrap = auxiliary.CharacterCreationBootstrapBinding;
+        if (!CharacterCreationKarmaFinalizationBudgetRules.IsValidPolicy(carryoverPolicy)
+            || bootstrap is null || carryoverPolicy!.SettingsProfileId != bootstrap.SettingsProfileId
+            || carryoverPolicy.RawProfileInputsDigest != bootstrap.RawProfileInputsDigest
+            || carryoverPolicy.MaximumNuyen != resources.Budget.CarryoverLimit)
+            failures.Add(CharacterCreationFinalizationBlockers.CarryoverPolicyUnavailable);
         if (failures.Count != 0)
         {
             blockers = Normalize(failures);
             return false;
         }
+
+        decimal karmaBeforeCarryover = karmaRemaining;
+        decimal nuyenBeforeCarryover = nuyenRemaining;
+        karmaRemaining = Math.Min(karmaBeforeCarryover, carryoverPolicy!.MaximumKarma);
+        nuyenRemaining = Math.Min(nuyenBeforeCarryover, carryoverPolicy.MaximumNuyen);
 
         try
         {
@@ -189,8 +201,20 @@ public static class CharacterCreationFinalizationProjector
                 resources.KarmaInvestment, 0, resources.SourceAnchorIds);
             AddDelta(projected, ref order, "resources:remaining-nuyen",
                 CharacterCreationFinalizationDeltaKinds.Resources, "nuyen", null,
-                nuyenRemaining.ToString(CultureInfo.InvariantCulture),
+                nuyenBeforeCarryover.ToString(CultureInfo.InvariantCulture),
                 0, gear.Budget.BasketCost, gear.FinalizationContribution.SourceAnchorIds);
+            // Discarded creation budget is not a purchase. Expose both exact
+            // reductions for review without charging expense deltas twice.
+            AddDelta(projected, ref order, "carryover:karma",
+                CharacterCreationFinalizationDeltaKinds.Resources, "karma",
+                karmaBeforeCarryover.ToString(CultureInfo.InvariantCulture),
+                karmaRemaining.ToString(CultureInfo.InvariantCulture), 0, 0,
+                carryoverPolicy.SourceAnchorIds);
+            AddDelta(projected, ref order, "carryover:nuyen",
+                CharacterCreationFinalizationDeltaKinds.Resources, "nuyen",
+                nuyenBeforeCarryover.ToString(CultureInfo.InvariantCulture),
+                nuyenRemaining.ToString(CultureInfo.InvariantCulture), 0, 0,
+                carryoverPolicy.SourceAnchorIds);
 
             characterXml = document.ToString(SaveOptions.DisableFormatting);
             deltas = projected.OrderBy(static delta => delta.Order).ToArray();
@@ -201,6 +225,7 @@ public static class CharacterCreationFinalizationProjector
                 .Concat(qualities.SourceAnchorIds)
                 .Concat(resources.SourceAnchorIds)
                 .Concat(gear.FinalizationContribution.SourceAnchorIds)
+                .Concat(carryoverPolicy.SourceAnchorIds)
                 .Distinct(StringComparer.Ordinal)
                 .OrderBy(static anchor => anchor, StringComparer.Ordinal)
                 .ToArray();

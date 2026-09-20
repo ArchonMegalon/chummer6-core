@@ -18,6 +18,32 @@ public sealed record CharacterCreationKarmaCarryoverPolicy(
     string AuthorityDigest)
 {
     public const string SchemaV1 = "chummer.character_creation_karma_carryover_policy.v1";
+
+    // A retained receipt compares by value after deserialization. IReadOnlyList
+    // otherwise contributes array identity to a record's generated equality.
+    public bool Equals(CharacterCreationKarmaCarryoverPolicy? other)
+        => ReferenceEquals(this, other) || other is not null
+            && Schema == other.Schema && SettingsProfileId == other.SettingsProfileId
+            && RawProfileInputsDigest == other.RawProfileInputsDigest
+            && MaximumKarma == other.MaximumKarma && MaximumNuyen == other.MaximumNuyen
+            && AuthorityDigest == other.AuthorityDigest
+            && (ReferenceEquals(SourceAnchorIds, other.SourceAnchorIds)
+                || SourceAnchorIds is not null && other.SourceAnchorIds is not null
+                    && SourceAnchorIds.SequenceEqual(other.SourceAnchorIds, StringComparer.Ordinal));
+
+    public override int GetHashCode()
+    {
+        var hash = new HashCode();
+        hash.Add(Schema, StringComparer.Ordinal);
+        hash.Add(SettingsProfileId, StringComparer.Ordinal);
+        hash.Add(RawProfileInputsDigest, StringComparer.Ordinal);
+        hash.Add(MaximumKarma);
+        hash.Add(MaximumNuyen);
+        hash.Add(AuthorityDigest, StringComparer.Ordinal);
+        if (SourceAnchorIds is not null)
+            foreach (string anchor in SourceAnchorIds) hash.Add(anchor, StringComparer.Ordinal);
+        return hash.ToHashCode();
+    }
 }
 
 /// <summary>

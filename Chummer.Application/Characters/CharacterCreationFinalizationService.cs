@@ -16,6 +16,7 @@ public sealed class CharacterCreationFinalizationService : ICharacterCreationFin
     private readonly ICharacterCreationMagicResonanceService _magicResonance;
     private readonly ICharacterCreationResourcesService _resources;
     private readonly ICharacterCreationGearService _gear;
+    private readonly ICharacterSourceDataResolver _sourceData;
 
     public CharacterCreationFinalizationService(
         IWorkspaceStore store,
@@ -26,7 +27,8 @@ public sealed class CharacterCreationFinalizationService : ICharacterCreationFin
         ICharacterCreationQualitiesService qualities,
         ICharacterCreationMagicResonanceService magicResonance,
         ICharacterCreationResourcesService resources,
-        ICharacterCreationGearService gear)
+        ICharacterCreationGearService gear,
+        ICharacterSourceDataResolver sourceData)
     {
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _characterFileQueries = characterFileQueries ?? throw new ArgumentNullException(nameof(characterFileQueries));
@@ -37,6 +39,7 @@ public sealed class CharacterCreationFinalizationService : ICharacterCreationFin
         _magicResonance = magicResonance ?? throw new ArgumentNullException(nameof(magicResonance));
         _resources = resources ?? throw new ArgumentNullException(nameof(resources));
         _gear = gear ?? throw new ArgumentNullException(nameof(gear));
+        _sourceData = sourceData ?? throw new ArgumentNullException(nameof(sourceData));
     }
 
     public CharacterCreationFinalizationResult<CharacterCreationFinalizationState> Load(
@@ -72,7 +75,8 @@ public sealed class CharacterCreationFinalizationService : ICharacterCreationFin
             out decimal karmaRemaining,
             out decimal startingNuyen,
             out decimal nuyenRemaining,
-            out string[] projectionBlockers);
+            out string[] projectionBlockers,
+            evaluation.CarryoverPolicy);
         string[] blockers = Normalize(evaluation.Blockers.Concat(projectionBlockers));
         CharacterCreationFinalizationPlan? plan = null;
         if (projected && blockers.Length == 0)
@@ -86,7 +90,10 @@ public sealed class CharacterCreationFinalizationService : ICharacterCreationFin
                 nuyenRemaining,
                 sourceAnchors,
                 CharacterCreationFinalizationProjector.ComputeRawCharacterXmlDigest(resultXml),
-                string.Empty);
+                string.Empty)
+            {
+                CarryoverPolicy = evaluation.CarryoverPolicy
+            };
             plan = candidate with
             {
                 PlanDigest = CharacterCreationFinalizationDigest.Compute(
@@ -187,10 +194,16 @@ public sealed class CharacterCreationFinalizationService : ICharacterCreationFin
             return Blocked<CharacterCreationFinalizationReceipt>(
                 CharacterCreationFinalizationOutcomes.Conflict,
                 CharacterCreationFinalizationBlockers.StaleRawCharacterXmlDigest);
+        if (!TryLoadCarryoverPolicy(workspace, out var currentCarryover)
+            || !SameCarryover(currentCarryover, plan.CarryoverPolicy))
+            return Blocked<CharacterCreationFinalizationReceipt>(
+                CharacterCreationFinalizationOutcomes.Conflict,
+                CharacterCreationFinalizationBlockers.CarryoverPolicyUnavailable);
         if (!CharacterCreationFinalizationProjector.TryProject(
                 workspace,
                 out string resultXml,
-                out _, out _, out _, out _, out _, out string[] projectionBlockers))
+                out _, out _, out _, out _, out _, out string[] projectionBlockers,
+                currentCarryover))
             return Blocked<CharacterCreationFinalizationReceipt>(
                 CharacterCreationFinalizationOutcomes.Blocked,
                 projectionBlockers);
@@ -235,7 +248,7 @@ public sealed class CharacterCreationFinalizationService : ICharacterCreationFin
             CharacterCreated: true,
             RequiresFreshCareerReopen: true,
             CharacterCreationFinalizationDigest.ReceiptLedgerRootDigest,
-            ReceiptDigest: string.Empty);
+            ReceiptDigest: string.Empty) { CarryoverPolicy = currentCarryover };
         receipt = receipt with
         {
             ReceiptDigest = CharacterCreationFinalizationDigest.ComputeReceiptDigest(receipt)
@@ -253,6 +266,11 @@ public sealed class CharacterCreationFinalizationService : ICharacterCreationFin
                     workspace.Document.AuxiliaryState, [entry])
             }
         };
+        if (!TryLoadCarryoverPolicy(workspace, out var finalCarryover)
+            || !SameCarryover(finalCarryover, plan.CarryoverPolicy))
+            return Blocked<CharacterCreationFinalizationReceipt>(
+                CharacterCreationFinalizationOutcomes.Conflict,
+                CharacterCreationFinalizationBlockers.CarryoverPolicyUnavailable);
         WorkspaceStoreMutationResult committed = atomic
             .ReplaceWorkspaceDocumentAndAuxiliaryStateAndCheckpoint(
                 workspace.Id,
@@ -504,9 +522,15 @@ public sealed class CharacterCreationFinalizationService : ICharacterCreationFin
         foreach (CharacterCreationFinalizationStep step in steps)
             blockers.AddRange(step.Blockers);
 
+        if (!TryLoadCarryoverPolicy(workspace, out var carryoverPolicy))
+            blockers.Add(CharacterCreationFinalizationBlockers.CarryoverPolicyUnavailable);
         _ = CharacterCreationFinalizationProjector.TryProject(
             workspace,
-            out _, out _, out _, out _, out _, out _, out string[] projectionBlockers);
+            out _, out _, out _, out _, out _, out _, out string[] projectionBlockers,
+            carryoverPolicy);
+        if (!TryLoadCarryoverPolicy(workspace, out var observedCarryover)
+            || !SameCarryover(carryoverPolicy, observedCarryover))
+            blockers.Add(CharacterCreationFinalizationBlockers.CarryoverPolicyUnavailable);
         blockers.AddRange(projectionBlockers);
         string[] normalizedBlockers = Normalize(blockers);
         string authorityDigest = CharacterCreationFinalizationDigest.Compute(new
@@ -526,7 +550,8 @@ public sealed class CharacterCreationFinalizationService : ICharacterCreationFin
                 ? magic.Value?.SnapshotDigest
                 : "not-applicable:mundane",
             ResourcesSnapshotDigest = resources.Value?.SnapshotDigest,
-            GearSnapshotDigest = gear.Value?.SnapshotDigest
+            GearSnapshotDigest = gear.Value?.SnapshotDigest,
+            CarryoverPolicyDigest = carryoverPolicy?.AuthorityDigest
         });
         var binding = new CharacterCreationFinalizationBinding(
             workspace.Id,
@@ -556,8 +581,40 @@ public sealed class CharacterCreationFinalizationService : ICharacterCreationFin
                 : CharacterCreationFinalizationOutcomes.Blocked,
             workspace,
             state,
-            normalizedBlockers);
+            normalizedBlockers) { CarryoverPolicy = carryoverPolicy };
     }
+
+    private bool TryLoadCarryoverPolicy(WorkspaceStoredDocument workspace,
+        out CharacterCreationKarmaCarryoverPolicy? policy)
+    {
+        policy = null;
+        try
+        {
+            var bootstrap = workspace.Document.AuxiliaryState.CharacterCreationBootstrapBinding;
+            if (bootstrap is null
+                || bootstrap.BindingDigest != CharacterCreationBootstrapBindingDigest.Compute(bootstrap)) return false;
+            var context = _sourceData.TryCreateContext(workspace.Document.Content);
+            if (context is null || !context.TryResolveCreationCarryoverPolicy(out var current)
+                || !CharacterCreationKarmaFinalizationBudgetRules.IsValidPolicy(current)
+                || current!.SettingsProfileId != bootstrap.SettingsProfileId
+                || current.RawProfileInputsDigest != bootstrap.RawProfileInputsDigest
+                || !context.TryResolveCreationCarryoverPolicy(out var final)
+                || !SameCarryover(current, final)) return false;
+            policy = current;
+            return true;
+        }
+        catch (Exception error) when (error is ArgumentException or FormatException or IOException
+            or InvalidOperationException or UnauthorizedAccessException or System.Xml.XmlException)
+        {
+            return false;
+        }
+    }
+
+    private static bool SameCarryover(CharacterCreationKarmaCarryoverPolicy? expected,
+        CharacterCreationKarmaCarryoverPolicy? observed) =>
+        CharacterCreationKarmaFinalizationBudgetRules.IsValidPolicy(expected)
+        && CharacterCreationKarmaFinalizationBudgetRules.IsValidPolicy(observed)
+        && CharacterCreationFinalizationDigest.EqualsFixedTime(expected!.AuthorityDigest, observed!.AuthorityDigest);
 
     private sealed record ObservedReceipt(WorkspaceStoredDocument Workspace,
         CharacterCreationFinalizationReceiptLedgerEntry Entry);
@@ -694,5 +751,8 @@ public sealed class CharacterCreationFinalizationService : ICharacterCreationFin
         string Outcome,
         WorkspaceStoredDocument? Workspace,
         CharacterCreationFinalizationState? State,
-        string[] Blockers);
+        string[] Blockers)
+    {
+        public CharacterCreationKarmaCarryoverPolicy? CarryoverPolicy { get; init; }
+    }
 }
