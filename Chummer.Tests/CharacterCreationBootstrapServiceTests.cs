@@ -38,6 +38,250 @@ public sealed class CharacterCreationBootstrapServiceTests
     private const string MagicianId = "0e741331-d776-4be8-abc5-4101228abdef";
 
     [TestMethod]
+    [DataRow("mundane", null, false, false, false)]
+    [DataRow("0e741331-d776-4be8-abc5-4101228abdef", null, true, false, false)]
+    [DataRow("55247bdc-c313-4614-ae15-5012308096ff", null, false, true, false)]
+    [DataRow("9d53e1e4-3f31-40cb-bfbe-4b94f5ba757e", null, true, true, false)]
+    [DataRow("c4b35412-bd91-45b4-b428-29da7edd5ff4", null, false, false, true)]
+    public void Karma_grants_legacy_projection_keeps_racial_and_purchased_origins_and_compiles_effects(
+        string talentId, string? unlock, bool magician, bool adept, bool technomancer)
+    {
+        using var fixture = new KarmaDiskFixture(includeSkills: true, includeGear: technomancer);
+        var before = fixture.Store.Get(fixture.Id).Value!;
+        var quote = QuoteKarmaGrants(fixture, talentId, unlock);
+        var context = fixture.Resolver.TryCreateContext(before.Document.Content)!;
+        Assert.IsTrue(context.TryResolveCreationKarmaGrantSources(ElfId, talentId, out var racial, out var talent));
+        Assert.IsTrue(CharacterCreationKarmaGrantsLegacyProjector.TryProject(quote, racial, talent, out var graph, out var changes));
+        var root = new XElement("character", graph);
+        var racialQuality = root.Element("qualities")!.Elements("quality").Single(row => row.Element("name")!.Value == "Low-Light Vision");
+        Assert.AreEqual("Metatype", racialQuality.Element("qualitysource")!.Value);
+        Assert.AreEqual("False", racialQuality.Element("contributetolimit")!.Value);
+        Assert.AreEqual("4", racialQuality.Element("bp")!.Value, "Keep source BP for later racial removal semantics.");
+        Assert.AreEqual(magician ? "True" : "False", root.Element("magician")!.Value);
+        Assert.AreEqual(adept ? "True" : "False", root.Element("adept")!.Value);
+        Assert.AreEqual(technomancer ? "True" : "False", root.Element("technomancer")!.Value);
+        Assert.AreEqual(magician || adept ? "True" : "False", root.Element("magenabled")!.Value);
+        Assert.AreEqual(technomancer ? "True" : "False", root.Element("resenabled")!.Value);
+        if (talentId != "mundane")
+        {
+            var saved = root.Element("qualities")!.Elements("quality").Single(row => row.Element("sourceid")!.Value == talentId);
+            Assert.AreEqual("Selected", saved.Element("qualitysource")!.Value, "Karma buys this talent; it is not a Priority Heritage grant.");
+            Assert.AreEqual(quote.Talent!.KarmaCost, (int)saved.Element("bp")!);
+            Assert.IsNotNull(saved.Element("bonus")!.Element("enableattribute"));
+            Assert.IsTrue(root.Element("improvements")!.Elements().Any());
+            Assert.IsTrue(root.Element("improvements")!.Elements().All(row => row.Element("improvementttype")!.Value is not ("SkillBase" or "SkillGroupBase")));
+        }
+        var gear = root.Element("gears")!.Elements("gear").ToArray();
+        Assert.AreEqual(technomancer ? 1 : 0, gear.Length);
+        if (technomancer)
+        {
+            Assert.AreEqual("Living Persona", gear[0].Element("name")!.Value);
+            Assert.AreEqual("0", gear[0].Element("cost")!.Value);
+            var savedTalent = root.Element("qualities")!.Elements("quality").Single(row => row.Element("sourceid")!.Value == talentId);
+            Assert.AreEqual(savedTalent.Element("guid")!.Value, gear[0].Element("parentid")!.Value);
+        }
+        Assert.AreEqual((decimal)quote.Talent!.KarmaCost, changes.Sum(change => change.KarmaCost));
+        Assert.IsTrue(changes.All(change => change.SourceAnchorIds.Count > 0));
+        var reopened = JsonSerializer.Deserialize<CharacterCreationKarmaMetatypeQuote>(JsonSerializer.Serialize(quote))!;
+        Assert.IsTrue(CharacterCreationKarmaGrantsLegacyProjector.TryProject(reopened, racial, talent, out var again, out var againChanges));
+        Assert.IsTrue(XNode.DeepEquals(root, new XElement("character", again)));
+        AssertJsonEqual(changes, againChanges);
+        AssertJsonEqual(before, fixture.Store.Get(fixture.Id).Value!);
+    }
+
+    [TestMethod]
+    public void Karma_grants_legacy_projection_charges_profile_multiplier_once_without_scaling_saved_BP()
+    {
+        using var fixture = new KarmaDiskFixture(includeSkills: true, qualityMultiplier: 2);
+        var quote = QuoteKarmaGrants(fixture, MagicianId);
+        var context = fixture.Resolver.TryCreateContext(fixture.Store.Get(fixture.Id).Value!.Document.Content)!;
+        Assert.IsTrue(context.TryResolveCreationKarmaGrantSources(ElfId, MagicianId, out var racial, out var talent));
+        Assert.IsTrue(CharacterCreationKarmaGrantsLegacyProjector.TryProject(quote, racial, talent, out var graph, out var changes));
+        var saved = graph.Single(item => item.Name == "qualities").Elements("quality")
+            .Single(row => row.Element("sourceid")!.Value == MagicianId);
+        Assert.AreEqual("30", saved.Element("bp")!.Value);
+        Assert.AreEqual(60m, changes.Sum(change => change.KarmaCost));
+        Assert.AreEqual(quote.Talent!.KarmaCost, changes.Single(change => change.TargetId == MagicianId).KarmaCost);
+    }
+
+    [TestMethod]
+    public void Karma_grants_legacy_projection_preserves_explicit_aspect_without_priority_skill_grants()
+    {
+        using var fixture = new KarmaDiskFixture(includeSkills: true);
+        var state = fixture.Service.Load(fixture.Id).Value!;
+        string id = state.Talents!.Options.Single(item => item.Name == "Aspected Magician").OptionId;
+        var quote = QuoteKarmaGrants(fixture, id, "Sorcery");
+        var context = fixture.Resolver.TryCreateContext(fixture.Store.Get(fixture.Id).Value!.Document.Content)!;
+        Assert.IsTrue(context.TryResolveCreationKarmaGrantSources(ElfId, id, out var racial, out var talent));
+        Assert.IsTrue(CharacterCreationKarmaGrantsLegacyProjector.TryProject(quote, racial, talent, out var graph, out _));
+        var improvements = graph.Single(item => item.Name == "improvements").Elements().ToArray();
+        var special = improvements.Single(item => item.Element("improvementttype")!.Value == "SpecialSkills");
+        Assert.AreEqual("Sorcery", special.Element("improvedname")!.Value);
+        Assert.IsFalse(improvements.Any(item => item.Element("improvementttype")!.Value is "SkillBase" or "SkillGroupBase"));
+    }
+
+    [TestMethod]
+    public void Karma_grants_legacy_projection_rejects_missing_racial_foreign_talent_and_rehashed_payment()
+    {
+        using var fixture = new KarmaDiskFixture(includeSkills: true);
+        var quote = QuoteKarmaGrants(fixture, MagicianId);
+        var before = fixture.Store.Get(fixture.Id).Value!;
+        var context = fixture.Resolver.TryCreateContext(before.Document.Content)!;
+        Assert.IsTrue(context.TryResolveCreationKarmaGrantSources(ElfId, MagicianId, out var racial, out var talent));
+        Assert.IsFalse(CharacterCreationKarmaGrantsLegacyProjector.TryProject(quote, [], talent, out var graph, out var changes));
+        Assert.IsEmpty(graph);
+        Assert.IsEmpty(changes);
+        Assert.IsFalse(CharacterCreationKarmaGrantsLegacyProjector.TryProject(quote, racial, racial[0], out graph, out changes));
+        Assert.IsEmpty(graph);
+        Assert.IsEmpty(changes);
+        var forged = quote with { Talent = quote.Talent! with { KarmaCost = 0 }, QuoteDigest = string.Empty };
+        forged = forged with { QuoteDigest = CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(forged) };
+        Assert.IsFalse(CharacterCreationKarmaGrantsLegacyProjector.TryProject(forged, racial, talent, out graph, out changes));
+        Assert.IsEmpty(graph);
+        Assert.IsEmpty(changes);
+        foreach (var malformed in new[]
+        {
+            quote with { Schema = "unknown" },
+            quote with { Metatype = quote.Metatype with { GrantedQualities = [null!] } },
+            quote with { Qualities = quote.Qualities! with { Selections = [null!] } },
+            quote with { Qualities = null },
+            quote with { Skills = null },
+            quote with { Attributes = null }
+        })
+        {
+            Assert.IsFalse(CharacterCreationKarmaGrantsLegacyProjector.TryProject(malformed, racial, talent, out graph, out changes));
+            Assert.IsEmpty(graph);
+            Assert.IsEmpty(changes);
+        }
+        AssertJsonEqual(before, fixture.Store.Get(fixture.Id).Value!);
+    }
+
+    private static CharacterCreationKarmaMetatypeQuote QuoteKarmaGrants(KarmaDiskFixture fixture, string talentId, string? unlock = null)
+    {
+        var state = fixture.Service.Load(fixture.Id, includeSkills: true, includeQualities: true).Value!;
+        var skills = new CharacterCreationKarmaSkillsSelection([NativeEnglish(state.SkillsCatalog!)], [], unlock);
+        var quote = fixture.Service.Preview(state.Binding, ElfId, talentId, [], skills, 0, []).Value;
+        Assert.IsNotNull(quote);
+        Assert.IsTrue(quote.CanSelect, string.Join(",", quote.Blockers));
+        return quote;
+    }
+
+    [TestMethod]
+    [DataRow("a53d885d-a4a4-443d-b6a6-b0a55b0a96c7", "mundane", 0)]
+    [DataRow("b3259991-b315-4dbe-ae3c-51f71a1116e2", "mundane", 1)]
+    [DataRow("b3259991-b315-4dbe-ae3c-51f71a1116e2", "0e741331-d776-4be8-abc5-4101228abdef", 1)]
+    public void Karma_grant_sources_resolve_racial_and_talent_rows_without_priority_or_gear(
+        string metatypeId, string talentId, int racialCount)
+    {
+        using var fixture = new KarmaDiskFixture();
+        var before = fixture.Store.Get(fixture.Id).Value!;
+        var context = fixture.Resolver.TryCreateContext(before.Document.Content)!;
+        Assert.IsTrue(context.TryResolveCreationKarmaGrantSources(metatypeId, talentId, out var racial, out var talent));
+        Assert.AreEqual(racialCount, racial.Count);
+        Assert.IsTrue(racial.All(CharacterCreationTalentQualitySourceRules.IsValidSource));
+        if (racialCount != 0)
+        {
+            Assert.AreEqual("Low-Light Vision", racial[0].Name);
+            Assert.IsNotNull(XElement.Parse(racial[0].CanonicalSourceXml).Element("hide"),
+                "A hidden racial source is retained, not replaced by a similarly named purchasable quality.");
+        }
+        if (talentId == "mundane") Assert.IsNull(talent);
+        else
+        {
+            Assert.IsNotNull(talent);
+            Assert.AreEqual(talentId, talent.SourceId);
+            Assert.IsTrue(CharacterCreationTalentQualitySourceRules.IsValidSource(talent));
+            Assert.IsTrue(context.TryResolveCreationKarmaTalents(out var catalog));
+            var selected = catalog!.Options.Single(item => item.OptionId == talentId);
+            Assert.AreEqual(CharacterCreationQualitiesRules.ComputeSourceNodeDigest(selected.SourceNodeXml), selected.SourceNodeDigest);
+            Assert.AreEqual(XElement.Parse(selected.SourceNodeXml, LoadOptions.None).ToString(SaveOptions.DisableFormatting),
+                talent.CanonicalSourceXml, "Raw quote XML and canonical effect XML retain their own digest formats.");
+            Assert.AreEqual("MAG", XElement.Parse(talent.CanonicalSourceXml).Element("bonus")!.Element("enableattribute")!.Element("name")!.Value);
+        }
+        Assert.IsFalse(context.TryResolveCreationPrerequisiteAuthority(out _));
+        AssertJsonEqual(before, fixture.Store.Get(fixture.Id).Value!);
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void Karma_grant_sources_require_and_retain_the_exact_living_persona_source(bool uppercaseSourceIdentity)
+    {
+        using var missing = new KarmaDiskFixture();
+        var missingContext = missing.Resolver.TryCreateContext(missing.Store.Get(missing.Id).Value!.Document.Content)!;
+        Assert.IsTrue(missingContext.TryResolveCreationKarmaTalents(out var talents));
+        string technomancer = talents!.Options.Single(item => item.Name == "Technomancer").OptionId;
+        Assert.IsFalse(missingContext.TryResolveCreationKarmaGrantSources(ElfId, technomancer, out var partial, out var absent));
+        Assert.AreEqual(0, partial.Count);
+        Assert.IsNull(absent);
+        using var fixture = new KarmaDiskFixture(includeGear: true);
+        if (uppercaseSourceIdentity)
+            fixture.EditQuality(technomancer, row => row.SetElementValue("id", technomancer.ToUpperInvariant()));
+        var before = fixture.Store.Get(fixture.Id).Value!;
+        var context = fixture.Resolver.TryCreateContext(before.Document.Content)!;
+        Assert.IsTrue(context.TryResolveCreationKarmaGrantSources(ElfId, technomancer, out var racial, out var talent));
+        Assert.AreEqual(1, racial.Count);
+        Assert.IsNotNull(talent);
+        Assert.IsTrue(CharacterCreationTalentQualitySourceRules.IsValidSource(talent));
+        var persona = talent.GrantedGearSources!.Single();
+        Assert.AreEqual("Living Persona", persona.Name);
+        Assert.AreEqual("Commlinks", persona.Category);
+        Assert.IsTrue(CharacterCreationTalentQualitySourceRules.IsValidGearSource(persona));
+        AssertJsonEqual(before, fixture.Store.Get(fixture.Id).Value!);
+        fixture.EditGear("Living Persona", row => row.SetElementValue("source", "DISABLED"));
+        var fresh = fixture.Resolver.TryCreateContext(before.Document.Content)!;
+        Assert.IsFalse(fresh.TryResolveCreationKarmaGrantSources(ElfId, technomancer, out partial, out absent));
+        Assert.AreEqual(0, partial.Count);
+        Assert.IsNull(absent);
+    }
+
+    [TestMethod]
+    [DataRow("disabled-book")]
+    [DataRow("wrong-polarity")]
+    [DataRow("duplicate-name")]
+    public void Karma_grant_sources_reject_missing_ambiguous_or_disabled_racial_semantics(string change)
+    {
+        using var fixture = new KarmaDiskFixture();
+        const string visionId = "8ec5c9bb-aeb9-42f2-a436-a60f764adfe4";
+        fixture.EditQuality(visionId, row =>
+        {
+            if (change == "disabled-book") row.SetElementValue("source", "DISABLED");
+            else if (change == "wrong-polarity") row.SetElementValue("category", "Negative");
+            else
+            {
+                var duplicate = new XElement(row);
+                duplicate.SetElementValue("id", Guid.NewGuid().ToString("D"));
+                row.AddAfterSelf(duplicate);
+            }
+        });
+        var before = fixture.Store.Get(fixture.Id).Value!;
+        var context = fixture.Resolver.TryCreateContext(before.Document.Content)!;
+        Assert.IsFalse(context.TryResolveCreationKarmaGrantSources(ElfId, "mundane", out var racial, out var talent));
+        Assert.AreEqual(0, racial.Count);
+        Assert.IsNull(talent);
+        AssertJsonEqual(before, fixture.Store.Get(fixture.Id).Value!);
+    }
+
+    [TestMethod]
+    public void Karma_grant_sources_reject_unknown_choices_and_source_drift_in_an_existing_context()
+    {
+        using var fixture = new KarmaDiskFixture();
+        var before = fixture.Store.Get(fixture.Id).Value!;
+        var context = fixture.Resolver.TryCreateContext(before.Document.Content)!;
+        Assert.IsFalse(context.TryResolveCreationKarmaGrantSources("unknown", "mundane", out _, out _));
+        Assert.IsFalse(context.TryResolveCreationKarmaGrantSources(HumanId, "unknown", out _, out _));
+        Assert.IsTrue(context.TryResolveCreationKarmaGrantSources(ElfId, MagicianId, out _, out var first));
+        fixture.EditQuality(MagicianId, row => row.SetElementValue("karma", 99));
+        Assert.IsFalse(context.TryResolveCreationKarmaGrantSources(ElfId, MagicianId, out var racial, out var talent));
+        Assert.AreEqual(0, racial.Count);
+        Assert.IsNull(talent);
+        var fresh = fixture.Resolver.TryCreateContext(before.Document.Content)!;
+        Assert.IsTrue(fresh.TryResolveCreationKarmaGrantSources(ElfId, MagicianId, out _, out var changed));
+        Assert.AreNotEqual(first!.SourceNodeDigest, changed!.SourceNodeDigest);
+        AssertJsonEqual(before, fixture.Store.Get(fixture.Id).Value!);
+    }
+
+    [TestMethod]
     public void Karma_qualities_fund_skills_and_resources_from_the_same_pool_and_cold_reopen()
     {
         using var fixture = new KarmaDiskFixture(budget: 10, includeSkills: true);
@@ -644,6 +888,154 @@ public sealed class CharacterCreationBootstrapServiceTests
         Assert.IsNotNull(cold.Confirm(new(clear.Binding, HumanId, clear.QuoteDigest, Guid.NewGuid(), true,
             "mundane", [], new([NativeEnglish(catalog)], []))).Value);
         Assert.AreEqual(800m, cold.Load(fixture.Id).Value!.KarmaBudget.Remaining);
+    }
+
+    [TestMethod]
+    public void Karma_skills_legacy_projection_separates_personal_group_and_knowledge_ranks()
+    {
+        using var fixture = new KarmaDiskFixture(includeSkills: true);
+        var before = fixture.Store.Get(fixture.Id).Value!;
+        var (catalog, _, _) = KarmaSkillsSources(fixture);
+        var selection = GroupAndKnowledge(catalog);
+        var quote = QuoteKarmaSkills(fixture, selection)!;
+        Assert.IsTrue(TryProjectKarmaSkills(fixture, quote, out var root, out var changes));
+        Assert.IsNotNull(root);
+        Assert.AreEqual("newskills", root.Name.LocalName);
+        Assert.AreEqual("0", root.Element("skillptsmax")!.Value);
+        Assert.AreEqual("0", root.Element("skillgrpsmax")!.Value);
+        var group = root.Element("groups")!.Elements("group").Single();
+        Assert.AreEqual("Firearms", group.Element("name")!.Value);
+        Assert.AreEqual("3", group.Element("karma")!.Value);
+        Assert.AreEqual("0", group.Element("base")!.Value);
+        foreach (var skill in root.Element("skills")!.Elements("skill"))
+        {
+            Assert.AreEqual("2", skill.Element("karma")!.Value,
+                "The three group ranks must not be stored in the personal rank a second time.");
+            Assert.AreEqual("0", skill.Element("base")!.Value);
+            Assert.AreEqual(5, (int)skill.Element("karma")! + (int)group.Element("karma")!);
+        }
+        var native = root.Element("knoskills")!.Elements("skill").Single(row => row.Element("name")!.Value == "English");
+        Assert.AreEqual("True", native.Element("isnativelanguage")!.Value);
+        Assert.AreEqual("0", native.Element("karma")!.Value);
+        Assert.AreEqual("0", native.Element("base")!.Value);
+        var knowledge = root.Element("knoskills")!.Elements("skill").Single(row => row.Element("name")!.Value == "Sprawl Life");
+        Assert.AreEqual("3", knowledge.Element("base")!.Value);
+        Assert.AreEqual("2", knowledge.Element("karma")!.Value);
+        Assert.AreEqual("False", knowledge.Element("buywithkarma")!.Value);
+        Assert.AreEqual(quote.KarmaUsed, changes.Sum(change => change.KarmaCost));
+        Assert.IsTrue(changes.All(change => change.SourceAnchorIds.Count > 0));
+        Assert.AreEqual(changes.Length, changes.Select(change => change.DeltaId).Distinct().Count());
+        AssertJsonEqual(before, fixture.Store.Get(fixture.Id).Value!);
+
+        var roundTripped = JsonSerializer.Deserialize<CharacterCreationKarmaSkillsQuote>(JsonSerializer.Serialize(quote))!;
+        Assert.IsTrue(TryProjectKarmaSkills(fixture, roundTripped, out var reopened, out var reopenedChanges));
+        Assert.IsTrue(XNode.DeepEquals(root, reopened));
+        AssertJsonEqual(changes, reopenedChanges);
+    }
+
+    [TestMethod]
+    [DataRow("knowledge-point", "False")]
+    [DataRow("karma", "True")]
+    public void Karma_skills_legacy_projection_keeps_specialization_payment_and_native_language(string payment, string paidWithKarma)
+    {
+        using var fixture = new KarmaDiskFixture(includeSkills: true);
+        var (catalog, _, _) = KarmaSkillsSources(fixture);
+        var source = catalog.KnowledgeSkills.Single(skill => skill.Name == "Sprawl Life");
+        var spec = source.Specializations.First();
+        var allocation = new CharacterCreationKarmaSkillAllocation(source.SourceSkillId, source.Kind, 2, 3,
+            SpecializationOptionId: spec.OptionId, SpecializationPayment: payment);
+        var quote = QuoteKarmaSkills(fixture, new([NativeEnglish(catalog), allocation], []))!;
+        Assert.IsTrue(TryProjectKarmaSkills(fixture, quote, out var root, out var changes));
+        var node = root!.Element("knoskills")!.Elements("skill").Single(item => item.Element("name")!.Value == source.Name);
+        Assert.AreEqual(paidWithKarma, node.Element("buywithkarma")!.Value);
+        var savedSpec = node.Element("specs")!.Element("spec")!;
+        Assert.AreEqual(spec.Name, savedSpec.Element("name")!.Value);
+        Assert.AreEqual("False", savedSpec.Element("free")!.Value,
+            "Knowledge-point purchase is not a free granted specialization.");
+        Assert.AreEqual("False", savedSpec.Element("expertise")!.Value);
+        Assert.IsTrue(changes.Any(change => change.SourceAnchorIds.Contains(spec.SourceAnchorId)));
+        Assert.AreEqual(quote.KarmaUsed, changes.Sum(change => change.KarmaCost));
+    }
+
+    [TestMethod]
+    public void Karma_skills_legacy_projection_retains_exotic_identity_without_a_fake_specialization()
+    {
+        using var fixture = new KarmaDiskFixture(includeSkills: true);
+        var (catalog, _, _) = KarmaSkillsSources(fixture);
+        var source = catalog.ActiveSkills.Single(skill => skill.Name == "Exotic Melee Weapon");
+        var identities = source.Specializations.Take(2).ToArray();
+        var chosen = identities.Select(item => new CharacterCreationKarmaSkillAllocation(source.SourceSkillId,
+            source.Kind, 2, SpecializationOptionId: item.OptionId, SpecializationPayment: "exotic-identity")).ToArray();
+        var quote = QuoteKarmaSkills(fixture, new(chosen.Prepend(NativeEnglish(catalog)).ToArray(), []))!;
+        Assert.IsTrue(TryProjectKarmaSkills(fixture, quote, out var root, out var changes));
+        var rows = root!.Element("skills")!.Elements("skill").ToArray();
+        Assert.AreEqual(2, rows.Length);
+        Assert.AreNotEqual(rows[0].Element("guid")!.Value, rows[1].Element("guid")!.Value);
+        Assert.IsTrue(rows.All(row => row.Element("suid")!.Value == source.SourceSkillId
+            && row.Element("specs") is null && row.Element("karma")!.Value == "2"
+            && row.Element("buywithkarma")!.Value == "False"));
+        CollectionAssert.AreEquivalent(identities.Select(item => item.Name).ToArray(),
+            rows.Select(row => row.Element("specific")!.Value).ToArray());
+        Assert.AreEqual(quote.KarmaUsed, changes.Sum(change => change.KarmaCost));
+    }
+
+    [TestMethod]
+    public void Karma_skills_legacy_projection_preserves_group_break_and_disabled_member_movement()
+    {
+        using var fixture = new KarmaDiskFixture(includeSkills: true);
+        var (catalog, _, _) = KarmaSkillsSources(fixture);
+        var group = catalog.SkillGroups.Single(item => item.Name == "Athletics");
+        var raised = catalog.ActiveSkills.First(skill => skill.SkillGroup == "Athletics" && skill.Name != "Flight");
+        var quote = QuoteKarmaSkills(fixture, new([NativeEnglish(catalog), new(raised.SourceSkillId, raised.Kind, 1)],
+            [new(group.GroupId, 3)]))!;
+        Assert.IsTrue(quote.CanSelect, string.Join(",", quote.Blockers));
+        Assert.IsTrue(TryProjectKarmaSkills(fixture, quote, out var root, out _));
+        Assert.AreEqual("True", root!.Element("groups")!.Element("group")!.Element("isbroken")!.Value);
+        var flight = root.Element("skills")!.Elements("skill").Single(row => row.Element("name")!.Value == "Flight");
+        Assert.AreEqual("True", flight.Element("requiresflymovement")!.Value);
+        Assert.AreEqual("0", flight.Element("karma")!.Value);
+    }
+
+    [TestMethod]
+    public void Karma_skills_legacy_projection_rejects_rehashed_cost_rating_source_and_payment_tampering()
+    {
+        using var fixture = new KarmaDiskFixture(includeSkills: true);
+        var (catalog, _, _) = KarmaSkillsSources(fixture);
+        var quote = QuoteKarmaSkills(fixture, GroupAndKnowledge(catalog))!;
+        var before = fixture.Store.Get(fixture.Id).Value!;
+        var skill = quote.Skills.First(item => item.Allocation.Kind == CharacterCreationSkillKinds.Active);
+        foreach (var forged in new[]
+        {
+            quote with { KarmaUsed = quote.KarmaUsed - 1 },
+            quote with { Skills = quote.Skills.Select(item => item == skill ? item with { Rating = item.Rating + 1 } : item).ToArray() },
+            quote with { Skills = quote.Skills.Select(item => item == skill ? item with { SourceNodeDigest = "sha256:" + new string('0', 64) } : item).ToArray() },
+            quote with { Selection = quote.Selection with { TalentUnlock = "invented" } },
+            quote with { Blockers = ["blocked"] },
+            quote with { Basis = null! }
+        })
+        {
+            var rehashed = forged with { QuoteDigest = CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(
+                forged with { QuoteDigest = string.Empty }) };
+            Assert.IsFalse(TryProjectKarmaSkills(fixture, rehashed, out var graph, out var deltas));
+            Assert.IsNull(graph);
+            Assert.AreEqual(0, deltas.Length);
+        }
+        // A null collection is malformed before it can be hashed/serialized:
+        // CanSelect is a DTO getter, so exercise the projector directly.
+        Assert.IsFalse(TryProjectKarmaSkills(fixture, quote with { Blockers = null! }, out var missing, out var missingDeltas));
+        Assert.IsNull(missing);
+        Assert.IsEmpty(missingDeltas);
+        AssertJsonEqual(before, fixture.Store.Get(fixture.Id).Value!);
+    }
+
+    private static bool TryProjectKarmaSkills(KarmaDiskFixture fixture, CharacterCreationKarmaSkillsQuote quote,
+        out XElement? graph, out CharacterCreationFinalizationDelta[] deltas)
+    {
+        var (_, talents, human) = KarmaSkillsSources(fixture);
+        var talent = talents.Options.Single(item => item.OptionId == "mundane");
+        var attributes = CharacterCreationKarmaAttributesRules.Evaluate(human, talent,
+            fixture.Service.Load(fixture.Id).Value!.AttributePolicy!, [])!;
+        return CharacterCreationKarmaSkillsLegacyProjector.TryProject(human, talent, attributes, quote, out graph, out deltas);
     }
 
     [TestMethod]
@@ -2372,7 +2764,7 @@ public sealed class CharacterCreationBootstrapServiceTests
         public CharacterCreationKarmaMetatypeService Service { get; }
         public CharacterWorkspaceId Id { get; }
         public KarmaDiskFixture(int budget = 800, bool fullSources = false, int qualityMultiplier = 1,
-            Action<XElement>? configureSettings = null, bool includeSkills = false)
+            Action<XElement>? configureSettings = null, bool includeSkills = false, bool includeGear = false)
         {
             Directory.CreateDirectory(Path.Combine(_root, "data"));
             foreach (string name in new[] { "settings.xml", "metatypes.xml", "qualities.xml" })
@@ -2380,6 +2772,8 @@ public sealed class CharacterCreationBootstrapServiceTests
             if (includeSkills)
                 foreach (string name in new[] { "skills.xml", "weapons.xml" })
                     File.Copy(Path.Combine(FindCoreRoot(), "Chummer", "data", name), Path.Combine(_root, "data", name));
+            if (includeGear)
+                File.Copy(Path.Combine(FindCoreRoot(), "Chummer", "data", "gear.xml"), Path.Combine(_root, "data", "gear.xml"));
             if (budget != 800) SetBudget(budget);
             if (qualityMultiplier != 1) EditSettings(row => row.Element("karmacost")!.Element("karmaquality")!.Value =
                 qualityMultiplier.ToString(System.Globalization.CultureInfo.InvariantCulture));
@@ -2422,6 +2816,13 @@ public sealed class CharacterCreationBootstrapServiceTests
             string path = Path.Combine(_root, "data", "qualities.xml");
             var document = XDocument.Load(path);
             change(document.Descendants("quality").Single(row => row.Element("id")?.Value == id));
+            document.Save(path);
+        }
+        public void EditGear(string name, Action<XElement> change)
+        {
+            string path = Path.Combine(_root, "data", "gear.xml");
+            var document = XDocument.Load(path);
+            change(document.Root!.Element("gears")!.Elements("gear").Single(row => row.Element("name")?.Value == name));
             document.Save(path);
         }
         public void SetBudget(int budget)

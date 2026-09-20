@@ -2198,6 +2198,65 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             return true;
         }
 
+        public bool TryResolveCreationKarmaGrantSources(string metatypeOptionId, string talentOptionId,
+            out IReadOnlyList<CharacterCreationTalentQualitySource> metatypeQualities,
+            out CharacterCreationTalentQualitySource? talentQuality)
+        {
+            using IDisposable sourceInputScope = _sourceInputs.Enter();
+            metatypeQualities = [];
+            talentQuality = null;
+            if (_sourceInputs.HasSourceDrift || _buildMethod != CharacterCreationBuildMethods.Karma
+                || !TryResolveCreationMetatypeCatalog(out var metatypes) || !metatypes.IsAuthoritative
+                || metatypes.Options.SingleOrDefault(option => option.OptionId == metatypeOptionId)
+                    is not { IsEnabled: true, Blockers.Count: 0 } metatype
+                || !TryResolveCreationKarmaTalents(out var talents) || talents is null
+                || talents.Options.SingleOrDefault(option => option.OptionId == talentOptionId)
+                    is not { IsEnabled: true, Blockers.Count: 0 } talent
+                || !CharacterCreationKarmaTalentAuthority.IsCompatible(talent, metatype)
+                || !TryEnumerateTargets("qualities.xml", ["qualities"], "quality", out var qualities))
+                return false;
+
+            var references = metatype.GrantedQualities.Select(item => (Reference: item.Name, Selection: string.Empty))
+                .Concat(talent.OptionId == CharacterCreationKarmaTalentCatalog.MundaneOptionId
+                    ? [] : new[] { (Reference: talent.OptionId, Selection: string.Empty) }).ToArray();
+            // Only a nested gear grant requires gear.xml. Human/Elf mundane
+            // finalization must not acquire unrelated spell or Priority catalogs.
+            bool needsGear = qualities.Any(row => references.Any(reference =>
+                    row.Element("name")?.Value == reference.Reference
+                    || Guid.TryParse(reference.Reference, out var referenceId)
+                        && Guid.TryParse(row.Element("id")?.Value, out var sourceId) && referenceId == sourceId)
+                && row.Element("bonus")?.Elements("addgear").Any() == true);
+            string gearDigest = string.Empty;
+            XElement[] gear = [];
+            if (needsGear && (!TryComputeEffectiveInputDigest(_catalog, "gear.xml", out gearDigest)
+                || !TryEnumerateTargets("gear.xml", ["gears"], "gear", out gear)))
+                return false;
+            var blockers = new List<string>();
+            var sources = CharacterCreationMagicResonanceAuthorityProjector.ResolveQualityReferences(
+                references, qualities, gear, talents.SourceInputsDigest, gearDigest,
+                _enabledSourcebooks.Order(StringComparer.Ordinal).ToArray(), blockers);
+            if (_sourceInputs.HasSourceDrift || blockers.Count != 0 || sources.Length != references.Length)
+                return false;
+            for (int index = 0; index < metatype.GrantedQualities.Count; index++)
+            {
+                // A same-name replacement must not silently invert a racial
+                // quality's polarity; the metatype source owns that declaration.
+                string? category = XElement.Parse(sources[index].CanonicalSourceXml).Element("category")?.Value;
+                if (!string.Equals(category, metatype.GrantedQualities[index].Polarity, StringComparison.OrdinalIgnoreCase))
+                    return false;
+            }
+            var selectedTalent = talent.OptionId == CharacterCreationKarmaTalentCatalog.MundaneOptionId
+                ? null : sources[^1];
+            if (selectedTalent is not null && (selectedTalent.SourceId != talent.OptionId
+                || CharacterCreationQualitiesRules.ComputeSourceNodeDigest(talent.SourceNodeXml) != talent.SourceNodeDigest
+                || XElement.Parse(talent.SourceNodeXml, LoadOptions.None).ToString(SaveOptions.DisableFormatting)
+                    != selectedTalent.CanonicalSourceXml))
+                return false;
+            metatypeQualities = sources.Take(metatype.GrantedQualities.Count).ToArray();
+            talentQuality = selectedTalent;
+            return true;
+        }
+
         public bool TryResolveCreationPrerequisiteAuthority(
             out CharacterCreationPrerequisiteAuthority authority)
         {

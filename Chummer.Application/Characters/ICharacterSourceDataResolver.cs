@@ -110,6 +110,21 @@ public interface ICharacterSourceDataContext
         return false;
     }
 
+    /// <summary>
+    /// Resolves complete racial and purchased-talent source payloads, including
+    /// nested gear, against the pending Karma runner's exact active profile.
+    /// This does not apply effects or authorize finalization. An unavailable or
+    /// ambiguous grant rejects the whole result, never a partial character.
+    /// </summary>
+    bool TryResolveCreationKarmaGrantSources(string metatypeOptionId, string talentOptionId,
+        out IReadOnlyList<CharacterCreationTalentQualitySource> metatypeQualities,
+        out CharacterCreationTalentQualitySource? talentQuality)
+    {
+        metatypeQualities = [];
+        talentQuality = null;
+        return false;
+    }
+
     /// <summary>Profile costs and limits for Karma skills; never substitutes Priority points.</summary>
     bool TryResolveCreationKarmaSkillsPolicy(out CharacterCreationKarmaSkillsPolicy? policy)
     {
