@@ -9,6 +9,8 @@ public interface IOwnerBoundCharacterCreationKarmaMetatypeService
 {
     CharacterCreationFoundationResult<CharacterCreationKarmaMetatypeState> Load(
         OwnerContextStamp expectedOwner, CharacterWorkspaceId id, bool includeSkills = false);
+    CharacterCreationFoundationResult<CharacterCreationKarmaMetatypeOpen> Open(
+        OwnerContextStamp expectedOwner, CharacterWorkspaceId id, bool includeSkills = false);
     CharacterCreationFoundationResult<CharacterCreationKarmaMetatypeQuote> Preview(
         OwnerContextStamp expectedOwner, CharacterCreationKarmaMetatypeBinding binding, string optionId,
         string? talentOptionId = null,

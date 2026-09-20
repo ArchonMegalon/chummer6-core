@@ -209,6 +209,25 @@ public sealed class CharacterCreationKarmaMetatypeService(
         }
     }
 
+    public CharacterCreationFoundationResult<CharacterCreationKarmaMetatypeOpen> Open(
+        CharacterWorkspaceId workspaceId, bool includeSkills = false)
+    {
+        var loaded = Load(workspaceId, includeSkills);
+        if (loaded.Value is not { } state)
+            return new(loaded.Outcome, null, loaded.Blockers);
+        if (state.Selection is not { Command: { } saved })
+            return new(loaded.Outcome, new(state, null), loaded.Blockers);
+
+        // Only this service's freshly admitted snapshot reaches PreviewLoaded.
+        // The persisted decision has an older binding: never return its quote
+        // as a current review or accept a caller-supplied snapshot as authority.
+        var preview = PreviewLoaded(state, saved.MetatypeOptionId, saved.TalentOptionId,
+            saved.AttributeAllocations, saved.SkillsSelection);
+        return preview.Value is { } quote
+            ? new(preview.Outcome, new(state, quote), preview.Blockers)
+            : new(preview.Outcome, null, preview.Blockers);
+    }
+
     public CharacterCreationFoundationResult<CharacterCreationKarmaMetatypeCommit> Confirm(
         CharacterCreationKarmaMetatypeConfirmRequest request)
     {
@@ -232,6 +251,14 @@ public sealed class CharacterCreationKarmaMetatypeService(
         if (state.Binding != binding)
             return Blocked<CharacterCreationKarmaMetatypeQuote>(CharacterCreationKarmaMetatypeBlockers.StaleBinding);
 
+        return PreviewLoaded(state, metatypeOptionId, talentOptionId, attributeAllocations, skillsSelection);
+    }
+
+    private static CharacterCreationFoundationResult<CharacterCreationKarmaMetatypeQuote> PreviewLoaded(
+        CharacterCreationKarmaMetatypeState state, string metatypeOptionId, string? talentOptionId,
+        IReadOnlyList<CharacterCreationKarmaAttributeAllocation>? attributeAllocations,
+        CharacterCreationKarmaSkillsSelection? skillsSelection)
+    {
         CharacterCreationMetatypeOptionProjection? option = state.Options.SingleOrDefault(
             candidate => string.Equals(candidate.OptionId, metatypeOptionId, StringComparison.Ordinal));
         if (option is not { IsEnabled: true } || option.Blockers.Count != 0)

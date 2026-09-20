@@ -38,6 +38,57 @@ public sealed class CharacterCreationBootstrapServiceTests
     private const string MagicianId = "0e741331-d776-4be8-abc5-4101228abdef";
 
     [TestMethod]
+    [DataRow(false, false)]
+    [DataRow(true, false)]
+    [DataRow(true, true)]
+    public void Karma_open_loads_once_and_reissues_saved_review_without_writing(bool saved, bool withSkills)
+    {
+        using var fixture = new KarmaDiskFixture(includeSkills: withSkills);
+        CharacterCreationKarmaSkillsSelection? skills = withSkills
+            ? GroupAndKnowledge(KarmaSkillsSources(fixture).Catalog) : null;
+        CharacterCreationKarmaAttributeAllocation[]? attributes = withSkills ? [new("BOD", 2)] : null;
+        if (saved) Assert.IsNotNull(fixture.Service.Confirm(
+            fixture.Request(HumanId, "mundane", attributes, skills)).Value);
+        var before = fixture.Store.Get(fixture.Id).Value!;
+        var counted = new KarmaOpenCountingResolver(fixture.Resolver);
+        var service = new CharacterCreationKarmaMetatypeService(new FileWorkspaceStore(fixture.StateRoot), counted);
+        var result = service.Open(fixture.Id);
+        Assert.IsNotNull(result.Value, string.Join(",", result.Blockers));
+        Assert.AreEqual(1, counted.Contexts, "Open must not load again to produce its review.");
+        var opened = result.Value;
+        if (saved)
+        {
+            Assert.IsNotNull(opened.Quote);
+            Assert.AreEqual(opened.State.Binding, opened.Quote.Binding);
+            Assert.AreEqual(opened.State.SnapshotDigest, opened.Quote.SnapshotDigest);
+            Assert.AreNotEqual(opened.State.Selection!.Quote.Binding, opened.Quote.Binding);
+            Assert.AreNotEqual(opened.State.Selection.Quote.QuoteDigest, opened.Quote.QuoteDigest);
+            AssertJsonEqual(service.Preview(opened.State.Binding, HumanId, "mundane", attributes, skills).Value!, opened.Quote);
+        }
+        else
+        {
+            Assert.IsNull(opened.Quote, "Open must not invent a default selection.");
+            Assert.IsNull(opened.State.SkillsCatalog, "A blank first step still loads skills lazily.");
+        }
+        AssertJsonEqual(before, fixture.Store.Get(fixture.Id).Value!);
+        if (withSkills)
+        {
+            fixture.EditSkill("Pistols", row => row.SetElementValue("attribute", "LOG"));
+            var drifted = service.Open(fixture.Id);
+            Assert.IsNull(drifted.Value, "A saved review cannot outlive changed source inputs.");
+            CollectionAssert.Contains(drifted.Blockers.ToArray(), CharacterCreationKarmaMetatypeBlockers.StaleBinding);
+            AssertJsonEqual(before, fixture.Store.Get(fixture.Id).Value!);
+        }
+    }
+
+    private sealed class KarmaOpenCountingResolver(ICharacterSourceDataResolver inner) : ICharacterSourceDataResolver
+    {
+        public int Contexts { get; private set; }
+        public ICharacterSourceDataContext? TryCreateContext(string characterXml)
+        { Contexts++; return inner.TryCreateContext(characterXml); }
+    }
+
+    [TestMethod]
     public void Karma_skills_confirmation_persists_compact_basis_and_reopens_with_exact_shared_budget()
     {
         using var fixture = new KarmaDiskFixture(includeSkills: true);
@@ -1665,9 +1716,12 @@ public sealed class CharacterCreationBootstrapServiceTests
         Assert.IsNull(serviceB.Confirm(ownerB.Capture(), request).Value);
         Assert.IsNull(fixture.Service.Confirm(request).Value);
         Assert.IsNotNull(serviceA.Confirm(stamp, request).Value);
+        Assert.IsNotNull(serviceA.Open(stamp, id).Value?.Quote);
+        Assert.IsNull(serviceB.Open(ownerB.Capture(), id).Value);
         Assert.IsFalse(fixture.Store.Get(id).Success);
         Assert.AreEqual(2L, fixture.Store.Get(ownerA.Current, id).Value!.ContentRevision);
         ownerA.Dispose();
+        Assert.IsNull(serviceA.Open(stamp, id).Value, "An expired owner cannot reopen the wizard.");
         Assert.IsNull(serviceA.Confirm(stamp, request).Value, "An expired owner cannot even replay a local receipt.");
     }
 

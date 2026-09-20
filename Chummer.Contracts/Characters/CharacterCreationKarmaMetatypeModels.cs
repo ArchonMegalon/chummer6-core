@@ -59,6 +59,14 @@ public sealed record CharacterCreationKarmaMetatypeState(
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] CharacterCreationSkillsCatalog? SkillsCatalog = null);
 
 /// <summary>
+/// A freshly loaded wizard and, if previously saved, its newly evaluated review.
+/// This read-only result does not grant permission to persist or finalize.
+/// </summary>
+public sealed record CharacterCreationKarmaMetatypeOpen(
+    CharacterCreationKarmaMetatypeState State,
+    CharacterCreationKarmaMetatypeQuote? Quote);
+
+/// <summary>
 /// Read-only first-step quote, not a draft, mutation command or authorization to
 /// finalize a runner. A missing Talent is an incomplete foundation, never Mundane.
 /// </summary>

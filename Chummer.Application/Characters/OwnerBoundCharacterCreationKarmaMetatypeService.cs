@@ -13,6 +13,10 @@ public sealed class OwnerBoundCharacterCreationKarmaMetatypeService(
         OwnerContextStamp expectedOwner, CharacterWorkspaceId id, bool includeSkills = false)
         => Invoke(expectedOwner, id, service => service.Load(id, includeSkills));
 
+    public CharacterCreationFoundationResult<CharacterCreationKarmaMetatypeOpen> Open(
+        OwnerContextStamp expectedOwner, CharacterWorkspaceId id, bool includeSkills = false)
+        => Invoke(expectedOwner, id, service => service.Open(id, includeSkills));
+
     public CharacterCreationFoundationResult<CharacterCreationKarmaMetatypeQuote> Preview(
         OwnerContextStamp expectedOwner, CharacterCreationKarmaMetatypeBinding binding, string optionId,
         string? talentOptionId = null,
