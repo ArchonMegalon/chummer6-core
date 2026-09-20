@@ -4312,6 +4312,32 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
         {
             var projected = new List<CharacterCreationSkillCatalogEntry>();
             var identities = new HashSet<string>(StringComparer.Ordinal);
+            // Book filtering must not make an ambiguous source GUID unique.
+            // A direct row projection cannot choose between competing rows,
+            // including a disabled or hidden row with the same identity.
+            if (rows.Select(row => ReadValue(row, "id"))
+                .Where(id => Guid.TryParse(id, out _))
+                .GroupBy(Guid.Parse).Any(group => group.Count() > 1))
+            {
+                blockers.Add(CharacterCreationSkillsBlockers.AuthorityUnavailable);
+                return [];
+            }
+            // These rows already came from TryEnumerateTargets in the current
+            // source-input scope. Do not copy/search the complete skills XML
+            // again for every row. Weapons are likewise resolved once within
+            // this projection, never cached across public calls/source checks.
+            XElement[]? weapons = null;
+            bool weaponsResolved = false;
+            XElement[]? ResolveWeapons()
+            {
+                if (!weaponsResolved)
+                {
+                    weaponsResolved = true;
+                    if (TryEnumerateTargets("weapons.xml", ["weapons"], "weapon", out var resolved))
+                        weapons = resolved;
+                }
+                return weapons;
+            }
             foreach (XElement row in rows)
             {
                 if (!HasStrictAllowedShape(row, AllowedSkillRowChildren, "specs")
@@ -4386,9 +4412,11 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                     StringComparison.Ordinal)
                         ? CharacterCareerSkillKind.Active
                         : CharacterCareerSkillKind.Knowledge;
-                if (!TryResolveCareerSkillSpecializationSource(
-                        parsedId.ToString("D"),
+                if (!TryProjectSkillSpecializationSource(
+                        row,
+                        parsedId,
                         careerKind,
+                        ResolveWeapons,
                         out CharacterCareerSkillSpecializationSource specializationSource))
                 {
                     blockers.Add(CharacterCreationSkillsBlockers.AuthorityUnavailable);
@@ -4892,6 +4920,20 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 return false;
             }
 
+            return TryProjectSkillSpecializationSource(skill, resolvedSourceId, kind,
+                () => TryEnumerateTargets("weapons.xml", ["weapons"], "weapon", out var weapons)
+                    ? weapons : null,
+                out source);
+        }
+
+        private bool TryProjectSkillSpecializationSource(
+            XElement skill,
+            Guid resolvedSourceId,
+            CharacterCareerSkillKind kind,
+            Func<XElement[]?> resolveWeapons,
+            out CharacterCareerSkillSpecializationSource source)
+        {
+            source = CharacterCareerSkillSpecializationSource.Unavailable;
             string name = ReadValue(skill, "name");
             string category = ReadValue(skill, "category");
             string sourceBook = ReadValue(skill, "source");
@@ -4934,7 +4976,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             if (kind == CharacterCareerSkillKind.Active
                 && (isExotic || string.Equals(category, "Combat Active", StringComparison.Ordinal)))
             {
-                if (!TryEnumerateTargets("weapons.xml", ["weapons"], "weapon", out XElement[] weapons))
+                if (resolveWeapons() is not { } weapons)
                 {
                     return false;
                 }

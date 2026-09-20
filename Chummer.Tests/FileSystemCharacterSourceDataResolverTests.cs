@@ -674,6 +674,88 @@ public sealed class FileSystemCharacterSourceDataResolverTests
     }
 
     [TestMethod]
+    public void Creation_skill_projection_matches_individual_specialization_lookup_without_shared_results()
+    {
+        ICharacterSourceDataContext context = CreateContext(FindCoreRoot(), CharacterXml())!;
+        Assert.IsTrue(context.TryResolveCreationSkillsCatalog(out var catalog));
+        Assert.IsNotNull(catalog);
+        Assert.IsTrue(catalog.ActiveSkills.Any(skill => skill.IsExotic));
+        foreach (var skill in catalog.ActiveSkills.Concat(catalog.KnowledgeSkills))
+        {
+            var kind = skill.Kind == CharacterCreationSkillKinds.Active
+                ? CharacterCareerSkillKind.Active : CharacterCareerSkillKind.Knowledge;
+            Assert.IsTrue(context.TryResolveCareerSkillSpecializationSource(skill.SourceSkillId, kind, out var single));
+            var expected = single.Options.GroupBy(option => option.Name, StringComparer.Ordinal)
+                .Select(group => group.OrderBy(option => option.Kind)
+                    .ThenBy(option => option.OptionIdentity, StringComparer.Ordinal).First())
+                .Select(option => new CharacterCreationSkillSpecializationOption(
+                    option.OptionIdentity, option.Name, option.SourceAnchor))
+                .OrderBy(option => option.Name, StringComparer.Ordinal)
+                .ThenBy(option => option.OptionId, StringComparer.Ordinal).ToArray();
+            CollectionAssert.AreEqual(expected, skill.Specializations.ToArray(), skill.Name);
+        }
+        string digest = catalog.CatalogDigest;
+        var first = catalog.ActiveSkills.First(skill => skill.Specializations.Count > 0);
+        ((CharacterCreationSkillSpecializationOption[])first.Specializations)[0] =
+            new("invented-id", "Caller mutation", "invented-anchor");
+        Assert.IsTrue(context.TryResolveCreationSkillsCatalog(out var reloaded));
+        Assert.AreEqual(digest, reloaded!.CatalogDigest);
+        Assert.IsFalse(reloaded.ActiveSkills.SelectMany(skill => skill.Specializations)
+            .Any(option => option.OptionId == "invented-id"));
+    }
+
+    [TestMethod]
+    [DataRow("skills.xml")]
+    [DataRow("weapons.xml")]
+    public void Creation_skill_projection_rejects_same_length_source_changes_and_requires_a_fresh_context(string fileName)
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            CopyCanonicalDataFiles(root, "settings.xml", "skills.xml", "weapons.xml", "metatypes.xml", "priorities.xml");
+            var resolver = new FileSystemCharacterSourceDataResolver(
+                new FileSystemContentOverlayCatalogService(root, root, null));
+            var context = resolver.TryCreateContext(CharacterXml())!;
+            Assert.IsTrue(context.TryResolveCreationSkillsCatalog(out var original));
+            int validations = resolver.LastSourceInputSnapshotDiagnostics!.ValidationReadCount;
+            Assert.IsTrue(context.TryResolveCreationSkillsCatalog(out var unchanged));
+            Assert.AreEqual(original!.CatalogDigest, unchanged!.CatalogDigest);
+            Assert.IsTrue(resolver.LastSourceInputSnapshotDiagnostics.ValidationReadCount > validations);
+            RewriteFirstElementValueSameLength(Path.Combine(root, "data", fileName), "name");
+            Assert.IsFalse(context.TryResolveCreationSkillsCatalog(out _));
+            Assert.IsTrue(resolver.LastSourceInputSnapshotDiagnostics.SourceDriftDetected);
+            var fresh = resolver.TryCreateContext(CharacterXml())!;
+            Assert.IsTrue(fresh.TryResolveCreationSkillsCatalog(out var changed));
+            Assert.AreNotEqual(original.CatalogDigest, changed!.CatalogDigest);
+        }
+        finally { DeleteTempDirectory(root); }
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void Creation_skill_projection_rejects_duplicate_identity_even_in_a_disabled_book(bool duplicateFirst)
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            WriteBaseContent(root, string.Empty);
+            WriteSkillsAuthorityFixture(root);
+            string path = Path.Combine(root, "data", "skills.xml");
+            var xml = XDocument.Load(path);
+            var row = xml.Root!.Element("skills")!.Elements("skill").First();
+            var duplicate = new XElement(row);
+            duplicate.Element("source")!.Value = "DISABLED";
+            if (duplicateFirst) row.AddBeforeSelf(duplicate);
+            else row.AddAfterSelf(duplicate);
+            xml.Save(path);
+            var context = CreateContext(root, CharacterXml())!;
+            Assert.IsFalse(context.TryResolveCreationSkillsCatalog(out _));
+        }
+        finally { DeleteTempDirectory(root); }
+    }
+
+    [TestMethod]
     public void Canonical_creation_skill_catalog_sources_resolve_every_row()
     {
         string coreRoot = FindCoreRoot();
