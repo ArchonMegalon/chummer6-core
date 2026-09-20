@@ -326,10 +326,15 @@ public sealed class WorkspaceContinuationCandidateEvaluatorTests
         using ReadyContext context = ReadyContext.Create(true, includeNonEmptyPurchases: true);
         var loaded = context.Finalizer.Load(new(context.WorkspaceId));
         Assert.IsNotNull(loaded.Value, string.Join(",", loaded.Blockers));
-        var review = context.Finalizer.Review(new(loaded.Value.Binding));
+        Assert.IsNotNull(loaded.Value.StartingCashSource);
+        var cash = new CharacterCreationStartingCashChoice(
+            loaded.Value.StartingCashSource.AuthorityDigest, loaded.Value.StartingCashSource.Dice);
+        var review = context.Finalizer.Review(new(loaded.Value.Binding) { StartingCash = cash });
         Assert.IsNotNull(review.Value, string.Join(",", review.Blockers));
+        Assert.IsNotNull(review.Value.Plan, string.Join(",", review.Value.Blockers));
         var finalized = context.Finalizer.Confirm(new(loaded.Value.Binding, review.Value.PreviewDigest,
-            review.Value.Plan!.PlanDigest, "continuation-candidate-finalize", ExplicitlyConfirmed: true));
+            review.Value.Plan.PlanDigest, "continuation-candidate-finalize", ExplicitlyConfirmed: true)
+            { StartingCash = cash });
         Assert.AreEqual(CharacterCreationFinalizationOutcomes.Applied, finalized.Outcome, string.Join(",", finalized.Blockers));
         var clean = context.Store.Get(context.WorkspaceId).Value!;
         var edited = clean.Document with { State = clean.Document.State with

@@ -49,10 +49,15 @@ public sealed class WorkspaceContinuationRestoreTests
         var finalizer = ReadyContext.BuildFinalizer(target.Store, source.Queries, source.Resolver);
         var loaded = finalizer.Load(new(source.WorkspaceId));
         Assert.IsNotNull(loaded.Value, string.Join(",", loaded.Blockers));
-        var preview = finalizer.Review(new(loaded.Value.Binding));
+        Assert.IsNotNull(loaded.Value.StartingCashSource);
+        var cash = new CharacterCreationStartingCashChoice(
+            loaded.Value.StartingCashSource.AuthorityDigest, loaded.Value.StartingCashSource.Dice);
+        var preview = finalizer.Review(new(loaded.Value.Binding) { StartingCash = cash });
         Assert.IsNotNull(preview.Value, string.Join(",", preview.Blockers));
+        Assert.IsNotNull(preview.Value.Plan, string.Join(",", preview.Value.Blockers));
         var finalized = finalizer.Confirm(new(loaded.Value.Binding, preview.Value.PreviewDigest,
-            preview.Value.Plan!.PlanDigest, "restore-local-finalization", ExplicitlyConfirmed: true));
+            preview.Value.Plan.PlanDigest, "restore-local-finalization", ExplicitlyConfirmed: true)
+            { StartingCash = cash });
         Assert.AreEqual(CharacterCreationFinalizationOutcomes.Applied, finalized.Outcome, string.Join(",", finalized.Blockers));
         var reputation = new WorkspaceCharacterCareerReputationService(target.Store, source.Resolver);
         var reputationPreview = reputation.Preview(new(source.WorkspaceId, Guid.NewGuid(),
@@ -64,6 +69,7 @@ public sealed class WorkspaceContinuationRestoreTests
         var career = Export(target.Store, source.WorkspaceId);
         var auxiliary = career.Snapshot.Workspace.Document.AuxiliaryState;
         Assert.IsNotNull(auxiliary.CharacterCreationFinalizationArchive);
+        Assert.AreEqual(cash, auxiliary.CharacterCreationFinalizationArchive.StartingCash!.Choice);
         Assert.AreEqual(JsonSerializer.Serialize(creation.Snapshot.Workspace.Document.AuxiliaryState),
             JsonSerializer.Serialize(auxiliary.CharacterCreationFinalizationArchive.State));
         Assert.HasCount(1, auxiliary.CharacterCreationFinalizationReceipts!);
