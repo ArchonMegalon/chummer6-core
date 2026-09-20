@@ -53,6 +53,9 @@ public static class CharacterCreationFinalizationBlockers
     public const string TalentGrantsNotProjectable = "creation-finalization-talent-grants-not-projectable";
     public const string GlobalKarmaExceeded = "creation-finalization-global-karma-exceeded";
     public const string CarryoverPolicyUnavailable = "creation-finalization-carryover-policy-unavailable";
+    public const string StartingCashUnavailable = "creation-finalization-starting-cash-unavailable";
+    public const string StartingCashChoiceRequired = "creation-finalization-starting-cash-choice-required";
+    public const string StartingCashChoiceInvalid = "creation-finalization-starting-cash-choice-invalid";
     public const string StaleWorkspaceRevision = "creation-finalization-stale-workspace-revision";
     public const string StaleRawCharacterXmlDigest = "creation-finalization-stale-character-digest";
     public const string StaleAuxiliaryStateDigest = "creation-finalization-stale-auxiliary-digest";
@@ -93,14 +96,32 @@ public sealed record CharacterCreationFinalizationBinding(
 public sealed record CharacterCreationFinalizationLoadRequest(CharacterWorkspaceId WorkspaceId);
 
 public sealed record CharacterCreationFinalizationReviewRequest(
-    CharacterCreationFinalizationBinding Binding);
+    CharacterCreationFinalizationBinding Binding)
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationStartingCashChoice? StartingCash { get; init; }
+}
 
 public sealed record CharacterCreationFinalizationConfirmRequest(
     CharacterCreationFinalizationBinding Binding,
     string PreviewDigest,
     string PlanDigest,
     string IdempotencyKey,
-    bool ExplicitlyConfirmed);
+    bool ExplicitlyConfirmed)
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationStartingCashChoice? StartingCash { get; init; }
+}
+
+/// <summary>User-entered dice result bound to the exact displayed source, never an amount override.</summary>
+public sealed record CharacterCreationStartingCashChoice(string SourceAuthorityDigest, int DiceTotal);
+
+/// <summary>Core-captured source inputs retained for atomic transition validation, not a client write grant.</summary>
+public sealed record CharacterCreationFinalizationStartingCash(
+    CharacterCreationStartingNuyenSource Source,
+    CharacterCreationLifestylesAuthority Lifestyles,
+    CharacterCreationStartingCashChoice Choice,
+    string AuthorityDigest);
 
 public sealed record CharacterCreationFinalizationReceiptLookupRequest(
     CharacterWorkspaceId WorkspaceId,
@@ -122,7 +143,11 @@ public sealed record CharacterCreationFinalizationState(
     IReadOnlyList<string> Blockers,
     bool CanReview,
     CharacterCreationFinalizationReceipt? LastReceipt,
-    string SnapshotDigest);
+    string SnapshotDigest)
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationStartingNuyenSource? StartingCashSource { get; init; }
+}
 
 public sealed record CharacterCreationFinalizationDelta(
     int Order,
@@ -154,6 +179,10 @@ public sealed record CharacterCreationFinalizationPlan(
     /// <summary>Exact source-profile policy used by this review, never a client override.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public CharacterCreationKarmaCarryoverPolicy? CarryoverPolicy { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationStartingCashChoice? StartingCash { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? StartingCashAuthorityDigest { get; init; }
 }
 
 public sealed record CharacterCreationFinalizationReview(
@@ -193,6 +222,10 @@ public sealed record CharacterCreationFinalizationReceipt(
     // digest and allows read-only recovery without retroactive balance changes.
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public CharacterCreationKarmaCarryoverPolicy? CarryoverPolicy { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationStartingCashChoice? StartingCash { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? StartingCashAuthorityDigest { get; init; }
 }
 
 public sealed record CharacterCreationFinalizationReceiptLedgerEntry(

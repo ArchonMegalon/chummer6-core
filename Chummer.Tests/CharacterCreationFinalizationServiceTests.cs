@@ -20,6 +20,118 @@ namespace Chummer.Tests;
 public sealed class CharacterCreationFinalizationServiceTests
 {
     [TestMethod]
+    [DataRow(CharacterCreationBuildMethods.Priority, 1)]
+    [DataRow(CharacterCreationBuildMethods.SumToTen, 6)]
+    public void Explicit_starting_cash_is_added_after_carryover_and_saved_with_lifestyle_once(string method, int face)
+    {
+        using ReadyContext context = ReadyContext.Create(true, buildMethod: method);
+        var before = context.Store.Get(context.WorkspaceId).Value!;
+        var state = context.Finalizer.Load(new(context.WorkspaceId)).Value!;
+        Assert.IsTrue(state.CanReview, string.Join(",", state.Blockers));
+        var source = state.StartingCashSource!;
+        Assert.IsNotNull(source);
+        var missing = context.Finalizer.Review(new CharacterCreationFinalizationReviewRequest(state.Binding)).Value!;
+        Assert.IsFalse(missing.CanConfirm);
+        CollectionAssert.Contains(missing.Blockers.ToArray(), CharacterCreationFinalizationBlockers.StartingCashChoiceRequired);
+        var choice = new CharacterCreationStartingCashChoice(source.AuthorityDigest, source.Dice * face);
+        var review = context.Finalizer.Review(new(state.Binding) { StartingCash = choice }).Value!;
+        Assert.IsTrue(review.CanConfirm, string.Join(",", review.Blockers));
+        decimal cash = choice.DiceTotal * source.Multiplier;
+        decimal carried = Math.Min(before.Document.AuxiliaryState.CharacterCreationGearDraft!.Budget.RemainingNuyen,
+            review.Plan!.CarryoverPolicy!.MaximumNuyen);
+        Assert.AreEqual(cash, review.Plan.StartingNuyen);
+        Assert.AreEqual(carried + cash, review.Plan.NuyenRemaining);
+        Assert.AreEqual(choice, review.Plan.StartingCash);
+        Assert.AreEqual(before.Document.Content, context.Store.Get(context.WorkspaceId).Value!.Document.Content);
+        var command = new CharacterCreationFinalizationConfirmRequest(state.Binding, review.PreviewDigest,
+            review.Plan.PlanDigest, "explicit-starting-cash", true) { StartingCash = choice };
+        Assert.AreNotEqual(CharacterCreationFinalizationOutcomes.Applied,
+            context.Finalizer.Confirm(command with { ExplicitlyConfirmed = false }).Outcome);
+        Assert.IsFalse(context.Finalizer.Confirm(command with { StartingCash = null }).Success);
+        var applied = context.Finalizer.Confirm(command);
+        Assert.AreEqual(CharacterCreationFinalizationOutcomes.Applied, applied.Outcome, string.Join(",", applied.Blockers));
+        using var cold = context.Restart();
+        var after = cold.Store.Get(context.WorkspaceId).Value!;
+        var root = XElement.Parse(after.Document.Content);
+        Assert.AreEqual(before.Document.AuxiliaryState.CharacterCreationResourcesDraft!.FinalizationContribution.StartingNuyen
+            .ToString(System.Globalization.CultureInfo.InvariantCulture), root.Element("startingnuyen")!.Value,
+            "The legacy startingnuyen field retains creation funding, separately from lifestyle cash.");
+        Assert.AreEqual((carried + cash).ToString(System.Globalization.CultureInfo.InvariantCulture), root.Element("nuyen")!.Value);
+        var lifestyle = root.Element("lifestyles")!.Elements("lifestyle").Single();
+        Assert.AreEqual(source.SourceId, lifestyle.Element("sourceid")!.Value);
+        Assert.AreEqual(source.Name, lifestyle.Element("baselifestyle")!.Value);
+        Assert.AreEqual(choice, applied.Value!.StartingCash);
+        Assert.IsNotNull(after.Document.AuxiliaryState.CharacterCreationFinalizationArchive!.StartingCash);
+        var archive = after.Document.AuxiliaryState.CharacterCreationFinalizationArchive;
+        var cashAuthority = archive.StartingCash!;
+        var changedCash = cashAuthority with { Choice = cashAuthority.Choice with { DiceTotal = source.Dice * (face == 1 ? 6 : 1) } };
+        changedCash = changedCash with { AuthorityDigest = CharacterCreationFinalizationStartingCashRules.Digest(changedCash) };
+        Assert.IsFalse(CharacterCreationFinalizationReceiptLedgerIntegrity.IsValidArchive(context.WorkspaceId,
+            after.ContentRevision, archive with { StartingCash = null }, after.Document.AuxiliaryState.CharacterCreationFinalizationReceipts));
+        Assert.IsFalse(CharacterCreationFinalizationReceiptLedgerIntegrity.IsValidArchive(context.WorkspaceId,
+            after.ContentRevision, archive with { StartingCash = changedCash }, after.Document.AuxiliaryState.CharacterCreationFinalizationReceipts),
+            "A rehashed cash archive must not substitute another explicit choice beneath the durable receipt.");
+        var replay = cold.Finalizer.Confirm(command);
+        Assert.AreEqual(CharacterCreationFinalizationOutcomes.Replayed, replay.Outcome);
+        Assert.AreEqual(applied.Value, replay.Value);
+        Assert.AreEqual(CharacterCreationFinalizationOutcomes.Conflict,
+            cold.Finalizer.Confirm(command with { StartingCash = choice with { DiceTotal = choice.DiceTotal + 1 } }).Outcome);
+        Assert.AreEqual(after.ContentRevision, cold.Store.Get(context.WorkspaceId).Value!.ContentRevision);
+        Assert.AreEqual(after.Document.Content, cold.Store.Get(context.WorkspaceId).Value!.Document.Content);
+        Assert.AreEqual(after.Document.AuxiliaryStateDigest, cold.Store.Get(context.WorkspaceId).Value!.Document.AuxiliaryStateDigest);
+    }
+
+    [TestMethod]
+    public void Explicit_starting_cash_rejects_foreign_source_and_out_of_range_rolls_without_writes()
+    {
+        using ReadyContext context = ReadyContext.Create(true);
+        var before = context.Store.Get(context.WorkspaceId).Value!;
+        var state = context.Finalizer.Load(new(context.WorkspaceId)).Value!;
+        Assert.IsTrue(state.CanReview, string.Join(",", state.Blockers));
+        var source = state.StartingCashSource!;
+        foreach (var choice in new[]
+                 {
+                     new CharacterCreationStartingCashChoice(CharacterCreationFinalizationDigest.ComputeUtf8("foreign"), source.Dice),
+                     new(source.AuthorityDigest, source.Dice - 1), new(source.AuthorityDigest, source.Dice * 6 + 1),
+                     new(source.AuthorityDigest, int.MaxValue)
+                 })
+        {
+            var review = context.Finalizer.Review(new(state.Binding) { StartingCash = choice }).Value!;
+            Assert.IsFalse(review.CanConfirm);
+            Assert.IsNull(review.Plan);
+            CollectionAssert.Contains(review.Blockers.ToArray(), CharacterCreationFinalizationBlockers.StartingCashChoiceInvalid);
+        }
+        Assert.AreEqual(before.ContentRevision, context.Store.Get(context.WorkspaceId).Value!.ContentRevision);
+        Assert.AreEqual(before.Document.Content, context.Store.Get(context.WorkspaceId).Value!.Document.Content);
+        Assert.AreEqual(before.Document.AuxiliaryStateDigest, context.Store.Get(context.WorkspaceId).Value!.Document.AuxiliaryStateDigest);
+    }
+
+    [TestMethod]
+    public void Starting_cash_source_drift_after_review_cannot_commit_old_terms()
+    {
+        using ReadyContext context = ReadyContext.Create(true, amendSettings: _ => { });
+        var before = context.Store.Get(context.WorkspaceId).Value!;
+        var state = context.Finalizer.Load(new(context.WorkspaceId)).Value!;
+        var choice = new CharacterCreationStartingCashChoice(state.StartingCashSource!.AuthorityDigest, state.StartingCashSource.Dice);
+        var review = context.Finalizer.Review(new(state.Binding) { StartingCash = choice }).Value!;
+        Assert.IsTrue(review.CanConfirm, string.Join(",", review.Blockers));
+        string path = Path.Combine(context.Directory, "source", "data", "lifestyles.xml");
+        var source = XDocument.Load(path);
+        source.Root!.Element("lifestyles")!.Elements("lifestyle").Single(item => item.Element("name")!.Value == "Street")
+            .SetElementValue("multiplier", "999");
+        source.Save(path);
+        var result = context.Finalizer.Confirm(new(state.Binding, review.PreviewDigest, review.Plan!.PlanDigest,
+            "changed-starting-cash", true) { StartingCash = choice });
+        Assert.IsFalse(result.Success);
+        Assert.IsNull(result.Value);
+        var after = new FileWorkspaceStore(context.Directory).Get(context.WorkspaceId).Value!;
+        Assert.AreEqual(before.ContentRevision, after.ContentRevision);
+        Assert.AreEqual(before.SavedRevision, after.SavedRevision);
+        Assert.AreEqual(before.Document.Content, after.Document.Content);
+        Assert.AreEqual(before.Document.AuxiliaryStateDigest, after.Document.AuxiliaryStateDigest);
+    }
+
+    [TestMethod]
     [DataRow(CharacterCreationBuildMethods.Priority)]
     [DataRow(CharacterCreationBuildMethods.SumToTen)]
     [DataRow(CharacterCreationBuildMethods.Karma)]
@@ -97,11 +209,11 @@ public sealed class CharacterCreationFinalizationServiceTests
             - auxiliary.CharacterCreationResourcesDraft!.KarmaInvestment, maximumKarma);
         decimal expectedNuyen = Math.Min(auxiliary.CharacterCreationGearDraft!.Budget.RemainingNuyen, maximumNuyen);
         var state = context.Finalizer.Load(new(context.WorkspaceId)).Value!;
-        var review = context.Finalizer.Review(new(state.Binding)).Value!;
+        var review = context.Finalizer.Review(new(state.Binding) { StartingCash = FixtureCashChoice(context) }).Value!;
         Assert.IsTrue(review.CanConfirm, string.Join(",", review.Blockers));
         Assert.AreEqual(expectedKarma, review.Plan!.KarmaRemaining,
             "Career Karma must respect the active profile's carryover, not retain the creation budget.");
-        Assert.AreEqual(expectedNuyen, review.Plan.NuyenRemaining);
+        Assert.AreEqual(expectedNuyen + review.Plan.StartingNuyen, review.Plan.NuyenRemaining);
         Assert.AreEqual(maximumKarma, review.Plan.CarryoverPolicy!.MaximumKarma);
         Assert.AreEqual(maximumNuyen, review.Plan.CarryoverPolicy.MaximumNuyen);
         foreach (string target in new[] { "karma", "nuyen" })
@@ -117,7 +229,7 @@ public sealed class CharacterCreationFinalizationServiceTests
             "Review must not trim the saved draft before explicit confirmation.");
 
         var command = new CharacterCreationFinalizationConfirmRequest(state.Binding, review.PreviewDigest,
-            review.Plan.PlanDigest, "profile-karma-carryover", true);
+            review.Plan.PlanDigest, "profile-karma-carryover", true) { StartingCash = review.Plan.StartingCash };
         Assert.AreNotEqual(CharacterCreationFinalizationOutcomes.Applied,
             context.Finalizer.Confirm(command with { ExplicitlyConfirmed = false }).Outcome);
         Assert.AreEqual(before.ContentRevision, context.Store.Get(context.WorkspaceId).Value!.ContentRevision);
@@ -128,7 +240,7 @@ public sealed class CharacterCreationFinalizationServiceTests
         var after = cold.Store.Get(context.WorkspaceId).Value!;
         Assert.AreEqual(expectedKarma.ToString(System.Globalization.CultureInfo.InvariantCulture),
             XElement.Parse(after.Document.Content).Element("karma")!.Value);
-        Assert.AreEqual(expectedNuyen.ToString(System.Globalization.CultureInfo.InvariantCulture),
+        Assert.AreEqual((expectedNuyen + review.Plan.StartingNuyen).ToString(System.Globalization.CultureInfo.InvariantCulture),
             XElement.Parse(after.Document.Content).Element("nuyen")!.Value);
         Assert.AreEqual(review.Plan.CarryoverPolicy.AuthorityDigest, confirmed.Value!.CarryoverPolicy!.AuthorityDigest);
         Assert.IsTrue(CharacterCreationFinalizationReceiptLedgerIntegrity.IsValidTransition(context.WorkspaceId,
@@ -176,10 +288,10 @@ public sealed class CharacterCreationFinalizationServiceTests
             amendSettings: profile => profile.Element("karmacost")!.SetElementValue("karmacarryover", 3));
         var before = context.Store.Get(context.WorkspaceId).Value!;
         var state = context.Finalizer.Load(new(context.WorkspaceId)).Value!;
-        var review = context.Finalizer.Review(new(state.Binding)).Value!;
+        var review = context.Finalizer.Review(new(state.Binding) { StartingCash = FixtureCashChoice(context) }).Value!;
         Assert.IsTrue(review.CanConfirm, string.Join(",", review.Blockers));
         var command = new CharacterCreationFinalizationConfirmRequest(state.Binding, review.PreviewDigest,
-            review.Plan!.PlanDigest, "drifted-carryover-profile", true);
+            review.Plan!.PlanDigest, "drifted-carryover-profile", true) { StartingCash = review.Plan.StartingCash };
         string settingsPath = Path.Combine(context.Directory, "source", "data", "settings.xml");
         var settings = XDocument.Load(settingsPath);
         var profile = settings.Root!.Element("settings")!.Elements("setting")
@@ -261,10 +373,10 @@ public sealed class CharacterCreationFinalizationServiceTests
         Assert.AreEqual(0, before.Document.AuxiliaryState.CharacterCreationSkillsDraft!.SkillGroups.Count,
             "A selection-only prompt must not add a zero-rated purchased or granted skill-group row.");
         var state = context.Finalizer.Load(new(context.WorkspaceId)).Value!;
-        var preview = context.Finalizer.Review(new(state.Binding)).Value!;
+        var preview = context.Finalizer.Review(new(state.Binding) { StartingCash = FixtureCashChoice(context) }).Value!;
         Assert.IsTrue(preview.CanConfirm, string.Join(",", preview.Blockers));
         var command = new CharacterCreationFinalizationConfirmRequest(state.Binding, preview.PreviewDigest,
-            preview.Plan!.PlanDigest, "aspected-zero-rating-choice", true);
+            preview.Plan!.PlanDigest, "aspected-zero-rating-choice", true) { StartingCash = preview.Plan.StartingCash };
         Assert.AreNotEqual(CharacterCreationFinalizationOutcomes.Applied,
             context.Finalizer.Confirm(command with { ExplicitlyConfirmed = false }).Outcome);
         Assert.AreEqual(before.ContentRevision, context.Store.Get(context.WorkspaceId).Value!.ContentRevision);
@@ -301,14 +413,14 @@ public sealed class CharacterCreationFinalizationServiceTests
         Assert.IsFalse(magic.CharacterEffectsApplied);
         Assert.IsNull(XElement.Parse(before.Document.Content).Element("magsplitadept"));
         var state = context.Finalizer.Load(new(context.WorkspaceId)).Value!;
-        var review = context.Finalizer.Review(new(state.Binding)).Value!;
+        var review = context.Finalizer.Review(new(state.Binding) { StartingCash = FixtureCashChoice(context) }).Value!;
         Assert.IsTrue(review.CanConfirm, string.Join(",", review.Blockers));
         Assert.AreEqual(Math.Min(auxiliary.CharacterCreationQualitiesDraft!.KarmaRemaining
             - auxiliary.CharacterCreationResourcesDraft!.KarmaInvestment - purchase.KarmaCost,
             ResolveCarryoverPolicy(context).MaximumKarma), review.Plan!.KarmaRemaining);
         CollectionAssert.IsSubsetOf(purchase.Policy.SourceAnchorIds.ToArray(), review.Plan.SourceAnchorIds.ToArray());
         var command = new CharacterCreationFinalizationConfirmRequest(state.Binding, review.PreviewDigest,
-            review.Plan.PlanDigest, "mystic-purchase-finalize", true);
+            review.Plan.PlanDigest, "mystic-purchase-finalize", true) { StartingCash = review.Plan.StartingCash };
         Assert.AreNotEqual(CharacterCreationFinalizationOutcomes.Applied,
             context.Finalizer.Confirm(command with { ExplicitlyConfirmed = false }).Outcome);
         Assert.AreEqual(before.Document.Content, context.Store.Get(context.WorkspaceId).Value!.Document.Content);
@@ -346,7 +458,7 @@ public sealed class CharacterCreationFinalizationServiceTests
         Assert.AreEqual(exchange ? 0 : price * powerPoints, purchase.KarmaCost);
         Assert.AreEqual(purchase.SpellBudget, magic.Selections.Spells.Count);
         var loaded = context.Finalizer.Load(new(context.WorkspaceId));
-        var review = context.Finalizer.Review(new(loaded.Value!.Binding));
+        var review = context.Finalizer.Review(new(loaded.Value!.Binding) { StartingCash = FixtureCashChoice(context) });
         Assert.AreEqual(canFinalize, review.Value?.CanConfirm == true, string.Join(",", review.Blockers));
         if (!canFinalize)
         {
@@ -357,7 +469,7 @@ public sealed class CharacterCreationFinalizationServiceTests
         }
         var plan = review.Value!.Plan!;
         var command = new CharacterCreationFinalizationConfirmRequest(loaded.Value.Binding, review.Value.PreviewDigest,
-            plan.PlanDigest, "custom-profile-mystic-finalization", true);
+            plan.PlanDigest, "custom-profile-mystic-finalization", true) { StartingCash = plan.StartingCash };
         Assert.AreEqual(CharacterCreationFinalizationOutcomes.Applied, context.Finalizer.Confirm(command).Outcome);
         using var cold = context.Restart();
         XElement saved = XElement.Parse(cold.Store.Get(context.WorkspaceId).Value!.Document.Content);
@@ -392,7 +504,7 @@ public sealed class CharacterCreationFinalizationServiceTests
             var forged = before with { Document = before.Document with { State = before.Document.State with
                 { AuxiliaryState = auxiliary with { CharacterCreationMagicResonanceDraft = forgedDraft } } } };
             Assert.IsFalse(CharacterCreationFinalizationProjector.TryProject(forged, out string xml, out var changes,
-                out _, out _, out _, out _, out _, ResolveCarryoverPolicy(context)));
+                out _, out _, out _, out _, out _, ResolveCarryoverPolicy(context), FixtureCashAuthority(context)));
             Assert.AreEqual(string.Empty, xml);
             Assert.IsEmpty(changes);
         }
@@ -427,11 +539,11 @@ public sealed class CharacterCreationFinalizationServiceTests
         Assert.AreEqual(0, qualityState.Preview.PositiveQualityBudget.Used);
         Assert.IsFalse(qualityState.Preview.GrantedQualities.Single().CountsAgainstKarma);
         Assert.IsTrue(qualityState.Preview.GrantedQualities.Single().KarmaCost > 0);
-        if (talentValue == "Magician") AssertAwakenedForgeryRejected(before, ResolveCarryoverPolicy(context));
+        if (talentValue == "Magician") AssertAwakenedForgeryRejected(before, ResolveCarryoverPolicy(context), FixtureCashAuthority(context));
         if (talentValue == "Technomancer") AssertTechnomancerForgeryRejected(context, before);
         var state = context.Finalizer.Load(new(context.WorkspaceId));
         Assert.AreEqual(CharacterCreationFinalizationOutcomes.Available, state.Outcome, string.Join(",", state.Blockers));
-        var review = context.Finalizer.Review(new(state.Value!.Binding));
+        var review = context.Finalizer.Review(new(state.Value!.Binding) { StartingCash = FixtureCashChoice(context) });
         Assert.IsTrue(review.Value!.CanConfirm, string.Join(",", review.Blockers));
         if (talentValue == "Technomancer")
         {
@@ -442,7 +554,8 @@ public sealed class CharacterCreationFinalizationServiceTests
             CollectionAssert.IsSubsetOf(gearAnchors, review.Value.Plan!.SourceAnchorIds.ToArray());
         }
         var command = new CharacterCreationFinalizationConfirmRequest(state.Value.Binding,
-            review.Value.PreviewDigest, review.Value.Plan!.PlanDigest, "actual-awakened-finalization", true);
+            review.Value.PreviewDigest, review.Value.Plan!.PlanDigest, "actual-awakened-finalization", true)
+        { StartingCash = review.Value.Plan.StartingCash };
         Assert.AreNotEqual(CharacterCreationFinalizationOutcomes.Applied,
             context.Finalizer.Confirm(command with { ExplicitlyConfirmed = false }).Outcome);
         Assert.AreEqual(before.Document.Content, context.Store.Get(context.WorkspaceId).Value!.Document.Content);
@@ -571,7 +684,7 @@ public sealed class CharacterCreationFinalizationServiceTests
                 var forgedDocument = original.Document with { State = original.Document.State with
                 { AuxiliaryState = original.Document.AuxiliaryState with { CharacterCreationMagicResonanceDraft = forgedDraft } } };
                 Assert.IsFalse(CharacterCreationFinalizationProjector.TryProject(original with { Document = forgedDocument },
-                    out var output, out var deltas, out _, out _, out _, out _, out _, ResolveCarryoverPolicy(context)));
+                    out var output, out var deltas, out _, out _, out _, out _, out _, ResolveCarryoverPolicy(context), FixtureCashAuthority(context)));
                 Assert.AreEqual(string.Empty, output);
                 Assert.IsEmpty(deltas);
             }
@@ -580,7 +693,7 @@ public sealed class CharacterCreationFinalizationServiceTests
     }
 
     private static void AssertAwakenedForgeryRejected(WorkspaceStoredDocument original,
-        CharacterCreationKarmaCarryoverPolicy policy)
+        CharacterCreationKarmaCarryoverPolicy policy, CharacterCreationFinalizationStartingCash cash)
     {
         var magic = original.Document.AuxiliaryState.CharacterCreationMagicResonanceDraft!;
         var contribution = magic.FinalizationContribution!;
@@ -610,7 +723,7 @@ public sealed class CharacterCreationFinalizationServiceTests
             var document = original.Document with { State = original.Document.State with
             { AuxiliaryState = original.Document.AuxiliaryState with { CharacterCreationMagicResonanceDraft = draft } } };
             Assert.IsFalse(CharacterCreationFinalizationProjector.TryProject(original with { Document = document },
-                out var output, out var deltas, out _, out _, out _, out _, out _, policy));
+                out var output, out var deltas, out _, out _, out _, out _, out _, policy, cash));
             Assert.AreEqual(string.Empty, output);
             Assert.IsEmpty(deltas);
         }
@@ -622,7 +735,7 @@ public sealed class CharacterCreationFinalizationServiceTests
             var document = original.Document with { State = original.Document.State with
             { AuxiliaryState = original.Document.AuxiliaryState with { CharacterCreationSkillsDraft = changed } } };
             Assert.IsFalse(CharacterCreationFinalizationProjector.TryProject(original with { Document = document },
-                out _, out _, out _, out _, out _, out _, out _, policy));
+                out _, out _, out _, out _, out _, out _, out _, policy, cash));
         }
     }
 
@@ -638,9 +751,9 @@ public sealed class CharacterCreationFinalizationServiceTests
         Assert.IsNotEmpty(prior.CharacterCreationGearReceipts!);
 
         var state = AssertAvailable(context.Finalizer.Load(new(context.WorkspaceId)));
-        var review = AssertAvailable(context.Finalizer.Review(new(state.Binding)));
+        var review = AssertAvailable(context.Finalizer.Review(new(state.Binding) { StartingCash = FixtureCashChoice(context) }));
         var result = context.Finalizer.Confirm(new(state.Binding, review.PreviewDigest,
-            review.Plan!.PlanDigest, "keep-confirmed-step-history", ExplicitlyConfirmed: true));
+            review.Plan!.PlanDigest, "keep-confirmed-step-history", ExplicitlyConfirmed: true) { StartingCash = review.Plan.StartingCash });
         Assert.AreEqual(CharacterCreationFinalizationOutcomes.Applied, result.Outcome,
             string.Join(",", result.Blockers));
         using ReadyContext cold = context.Restart();
@@ -739,7 +852,7 @@ public sealed class CharacterCreationFinalizationServiceTests
             } : null);
         var original = context.Store.Get(context.WorkspaceId).Value!;
         var state = AssertAvailable(context.Finalizer.Load(new(context.WorkspaceId)));
-        var review = AssertAvailable(context.Finalizer.Review(new(state.Binding)));
+        var review = AssertAvailable(context.Finalizer.Review(new(state.Binding) { StartingCash = FixtureCashChoice(context) }));
         Assert.AreEqual(original.Document.Content, context.Store.Get(context.WorkspaceId).Value!.Document.Content,
             "Reading or previewing an older draft must not initialize persisted state.");
         var initialization = review.OrderedDeltas.Where(delta => delta.DeltaId.StartsWith("career-initialization:", StringComparison.Ordinal)).ToArray();
@@ -753,7 +866,7 @@ public sealed class CharacterCreationFinalizationServiceTests
         }
         const string finalizeKey = "creation-to-local-reputation";
         var finalized = context.Finalizer.Confirm(new(state.Binding, review.PreviewDigest,
-            review.Plan!.PlanDigest, finalizeKey, ExplicitlyConfirmed: true));
+            review.Plan!.PlanDigest, finalizeKey, ExplicitlyConfirmed: true) { StartingCash = review.Plan.StartingCash });
         Assert.AreEqual(CharacterCreationFinalizationOutcomes.Applied, finalized.Outcome,
             string.Join(",", finalized.Blockers));
         using ReadyContext reopened = context.Restart();
@@ -839,7 +952,7 @@ public sealed class CharacterCreationFinalizationServiceTests
         Assert.IsNotNull(loaded.Value);
         Assert.IsFalse(loaded.Value.CanReview);
         CollectionAssert.Contains(loaded.Blockers.ToList(), CharacterCreationFinalizationBlockers.DraftAuthorityInvalid);
-        var review = context.Finalizer.Review(new(loaded.Value.Binding));
+        var review = context.Finalizer.Review(new(loaded.Value.Binding) { StartingCash = FixtureCashChoice(context) });
         Assert.IsNotNull(review.Value);
         Assert.IsFalse(review.Value.CanConfirm);
         Assert.IsNull(review.Value.Plan);
@@ -870,9 +983,9 @@ public sealed class CharacterCreationFinalizationServiceTests
         });
         var before = context.Store.Get(context.WorkspaceId).Value!;
         var state = AssertAvailable(context.Finalizer.Load(new(context.WorkspaceId)));
-        var review = AssertAvailable(context.Finalizer.Review(new(state.Binding)));
+        var review = AssertAvailable(context.Finalizer.Review(new(state.Binding) { StartingCash = FixtureCashChoice(context) }));
         var result = context.Finalizer.Confirm(new(state.Binding, review.PreviewDigest,
-            review.Plan!.PlanDigest, "preserve-career-inputs", ExplicitlyConfirmed: true));
+            review.Plan!.PlanDigest, "preserve-career-inputs", ExplicitlyConfirmed: true) { StartingCash = review.Plan.StartingCash });
         Assert.AreEqual(CharacterCreationFinalizationOutcomes.Applied, result.Outcome, string.Join(",", result.Blockers));
         var after = context.Store.Get(context.WorkspaceId).Value!;
         var beforeRoot = XDocument.Parse(before.Document.Content).Root!;
@@ -901,7 +1014,7 @@ public sealed class CharacterCreationFinalizationServiceTests
         // this test must not claim that unsupported full-service route works.
         var projectedInput = saved with { Document = WithCharacterXml(saved.Document, root) };
         Assert.IsTrue(CharacterCreationFinalizationProjector.TryProject(projectedInput,
-            out string xml, out _, out _, out _, out _, out _, out var blockers, ResolveCarryoverPolicy(context)), string.Join(",", blockers));
+            out string xml, out _, out _, out _, out _, out _, out var blockers, ResolveCarryoverPolicy(context), FixtureCashAuthority(context)), string.Join(",", blockers));
         var output = XDocument.Parse(xml).Root!.Element("improvements")!;
         Assert.HasCount(1, output.Elements().Where(row => XNode.DeepEquals(existing, row)).ToArray());
         Assert.AreEqual(saved.Document.Content, context.Store.Get(context.WorkspaceId).Value!.Document.Content);
@@ -928,27 +1041,27 @@ public sealed class CharacterCreationFinalizationServiceTests
             XElement root = XDocument.Parse(stored.Document.Content).Root!;
             XElement replacement = XElement.Parse(invalid);
             root.Element(replacement.Name)!.ReplaceWith(replacement);
-            AssertInvalidCareerProjection(stored, root, invalid, ResolveCarryoverPolicy(context));
+            AssertInvalidCareerProjection(stored, root, invalid, ResolveCarryoverPolicy(context), FixtureCashAuthority(context));
         }
         foreach (string field in CareerBaselineFields)
         {
             XElement root = XDocument.Parse(stored.Document.Content).Root!;
             root.Add(new XElement(root.Element(field)!));
-            AssertInvalidCareerProjection(stored, root, "duplicate " + field, ResolveCarryoverPolicy(context));
+            AssertInvalidCareerProjection(stored, root, "duplicate " + field, ResolveCarryoverPolicy(context), FixtureCashAuthority(context));
             root = XDocument.Parse(stored.Document.Content).Root!;
             root.Element(field)!.Name = XName.Get(field, "urn:foreign");
-            AssertInvalidCareerProjection(stored, root, "foreign namespace " + field, ResolveCarryoverPolicy(context));
+            AssertInvalidCareerProjection(stored, root, "foreign namespace " + field, ResolveCarryoverPolicy(context), FixtureCashAuthority(context));
         }
         Assert.AreEqual(stored.Document.Content, context.Store.Get(context.WorkspaceId).Value!.Document.Content);
         Assert.AreEqual(stored.ContentRevision, context.Store.Get(context.WorkspaceId).Value!.ContentRevision);
     }
 
     private static void AssertInvalidCareerProjection(WorkspaceStoredDocument stored, XElement root, string reason,
-        CharacterCreationKarmaCarryoverPolicy policy)
+        CharacterCreationKarmaCarryoverPolicy policy, CharacterCreationFinalizationStartingCash cash)
     {
         var changed = stored with { Document = WithCharacterXml(stored.Document, root) };
         Assert.IsFalse(CharacterCreationFinalizationProjector.TryProject(changed,
-            out string xml, out var deltas, out var anchors, out _, out _, out _, out var blockers, policy), reason);
+            out string xml, out var deltas, out var anchors, out _, out _, out _, out var blockers, policy, cash), reason);
         Assert.AreEqual("", xml, reason);
         Assert.IsEmpty(deltas, reason);
         Assert.IsEmpty(anchors, reason);
@@ -966,13 +1079,13 @@ public sealed class CharacterCreationFinalizationServiceTests
         using ReadyContext context = ReadyContext.Create(includeGearReview: true);
         WorkspaceStoredDocument original = context.Store.Get(context.WorkspaceId).Value!;
         Assert.IsTrue(CharacterCreationFinalizationProjector.TryProject(
-            original, out _, out _, out _, out _, out _, out _, out _, ResolveCarryoverPolicy(context)));
+            original, out _, out _, out _, out _, out _, out _, out _, ResolveCarryoverPolicy(context), FixtureCashAuthority(context)));
         WorkspaceStoredDocument mixed = WithPendingFoundation(original, metatype);
         string beforeDigest = mixed.Document.AuxiliaryStateDigest;
 
         bool projected = CharacterCreationFinalizationProjector.TryProject(
             mixed, out string xml, out var deltas, out var anchors,
-            out _, out _, out _, out string[] blockers, ResolveCarryoverPolicy(context));
+            out _, out _, out _, out string[] blockers, ResolveCarryoverPolicy(context), FixtureCashAuthority(context));
 
         Assert.IsFalse(projected,
             "A stale cross-method draft is not permission to discard or grant Life Module effects.");
@@ -1003,7 +1116,7 @@ public sealed class CharacterCreationFinalizationServiceTests
         CollectionAssert.Contains(loaded.Blockers.ToList(),
             "creation-finalization-foundation-draft-not-applicable");
         CharacterCreationFinalizationResult<CharacterCreationFinalizationReview> review =
-            finalizer.Review(new(loaded.Value.Binding));
+            finalizer.Review(new(loaded.Value.Binding) { StartingCash = FixtureCashChoice(context) });
         Assert.IsNotNull(review.Value);
         Assert.IsFalse(review.Value.CanConfirm);
         Assert.IsNull(review.Value.Plan);
@@ -1073,7 +1186,7 @@ public sealed class CharacterCreationFinalizationServiceTests
 
         bool projected = CharacterCreationFinalizationProjector.TryProject(
             mixed, out string xml, out var deltas, out var anchors,
-            out _, out _, out _, out string[] blockers, ResolveCarryoverPolicy(context));
+            out _, out _, out _, out string[] blockers, ResolveCarryoverPolicy(context), FixtureCashAuthority(context));
 
         Assert.IsFalse(projected);
         CollectionAssert.Contains(blockers,
@@ -1096,7 +1209,7 @@ public sealed class CharacterCreationFinalizationServiceTests
             finalizer.Load(new(before.Id));
         Assert.IsNotNull(loaded.Value);
         CharacterCreationFinalizationResult<CharacterCreationFinalizationReview> review =
-            finalizer.Review(new(loaded.Value.Binding));
+            finalizer.Review(new(loaded.Value.Binding) { StartingCash = FixtureCashChoice(context) });
         Assert.IsNotNull(review.Value);
         CharacterCreationFinalizationResult<CharacterCreationFinalizationReceipt> confirmation =
             finalizer.Confirm(new(
@@ -1357,7 +1470,7 @@ public sealed class CharacterCreationFinalizationServiceTests
             CharacterCreationFinalizationBlockers.StaleRawCharacterXmlDigest);
 
         CharacterCreationFinalizationReview review = AssertAvailable(
-            context.Finalizer.Review(new(state.Binding)));
+            context.Finalizer.Review(new(state.Binding) { StartingCash = FixtureCashChoice(context) }));
         Assert.IsTrue(review.CanConfirm);
         Assert.IsNotNull(review.Plan);
         Assert.IsTrue(review.OrderedDeltas.Count > 3);
@@ -1370,7 +1483,7 @@ public sealed class CharacterCreationFinalizationServiceTests
             review.PreviewDigest,
             review.Plan!.PlanDigest,
             idempotencyKey,
-            ExplicitlyConfirmed: true);
+            ExplicitlyConfirmed: true) { StartingCash = review.Plan.StartingCash };
         CharacterCreationFinalizationResult<CharacterCreationFinalizationReceipt> applied =
             context.Finalizer.Confirm(command);
         Assert.AreEqual(CharacterCreationFinalizationOutcomes.Applied, applied.Outcome,
@@ -1427,7 +1540,7 @@ public sealed class CharacterCreationFinalizationServiceTests
             context.Queries,
             context.Resolver);
         CharacterCreationFinalizationState state = AssertAvailable(finalizer.Load(new(context.WorkspaceId)));
-        CharacterCreationFinalizationReview review = AssertAvailable(finalizer.Review(new(state.Binding)));
+        CharacterCreationFinalizationReview review = AssertAvailable(finalizer.Review(new(state.Binding) { StartingCash = FixtureCashChoice(context) }));
         const string idempotencyKey = "finalize-priority-unknown-outcome-0001";
 
         CharacterCreationFinalizationResult<CharacterCreationFinalizationReceipt> recovered =
@@ -1436,7 +1549,7 @@ public sealed class CharacterCreationFinalizationServiceTests
                 review.PreviewDigest,
                 review.Plan!.PlanDigest,
                 idempotencyKey,
-                ExplicitlyConfirmed: true));
+                ExplicitlyConfirmed: true) { StartingCash = review.Plan.StartingCash });
 
         Assert.AreEqual(CharacterCreationFinalizationOutcomes.Replayed, recovered.Outcome);
         Assert.IsNotNull(recovered.Value);
@@ -1471,14 +1584,14 @@ public sealed class CharacterCreationFinalizationServiceTests
         Assert.AreEqual(expectedCost, attributes.CreationKarmaTotal - attributes.CreationKarmaUsed - draft.KarmaRemaining);
         using ReadyContext coldDraft = context.Restart();
         var state = coldDraft.Finalizer.Load(new(context.WorkspaceId)).Value!;
-        var review = coldDraft.Finalizer.Review(new(state.Binding)).Value!;
+        var review = coldDraft.Finalizer.Review(new(state.Binding) { StartingCash = FixtureCashChoice(context) }).Value!;
         Assert.IsTrue(review.CanConfirm, string.Join(",", review.Blockers));
         Assert.AreEqual((decimal)expectedCost, review.OrderedDeltas
             .Where(item => item.Kind == CharacterCreationFinalizationDeltaKinds.Quality
                 || item.TargetId == "qualities-karma-adjustment")
             .Sum(item => item.KarmaCost));
         var command = new CharacterCreationFinalizationConfirmRequest(state.Binding, review.PreviewDigest,
-            review.Plan!.PlanDigest, "quality-profile-finalization", true);
+            review.Plan!.PlanDigest, "quality-profile-finalization", true) { StartingCash = review.Plan.StartingCash };
         var applied = coldDraft.Finalizer.Confirm(command);
         Assert.AreEqual(CharacterCreationFinalizationOutcomes.Applied, applied.Outcome, string.Join(",", applied.Blockers));
         using ReadyContext reopened = context.Restart();
@@ -1511,7 +1624,7 @@ public sealed class CharacterCreationFinalizationServiceTests
         CharacterCreationFinalizationState state = AssertAvailable(
             context.Finalizer.Load(new(context.WorkspaceId)));
         CharacterCreationFinalizationReview review = AssertAvailable(
-            context.Finalizer.Review(new(state.Binding)));
+            context.Finalizer.Review(new(state.Binding) { StartingCash = FixtureCashChoice(context) }));
         Assert.IsTrue(review.OrderedDeltas.Any(delta =>
             delta.Kind == CharacterCreationFinalizationDeltaKinds.Quality
             && delta.TargetId == selectedQuality.SourceId.ToString("D")));
@@ -1544,7 +1657,7 @@ public sealed class CharacterCreationFinalizationServiceTests
         };
         Assert.IsFalse(CharacterCreationFinalizationProjector.TryProject(
             tamperedWorkspace,
-            out _, out _, out _, out _, out _, out _, out string[] tamperBlockers, ResolveCarryoverPolicy(context)));
+            out _, out _, out _, out _, out _, out _, out string[] tamperBlockers, ResolveCarryoverPolicy(context), FixtureCashAuthority(context)));
         CollectionAssert.Contains(
             tamperBlockers.ToList(),
             CharacterCreationFinalizationBlockers.DraftAuthorityInvalid);
@@ -1577,7 +1690,7 @@ public sealed class CharacterCreationFinalizationServiceTests
         };
         Assert.IsFalse(CharacterCreationFinalizationProjector.TryProject(
             gearTamperedWorkspace,
-            out _, out _, out _, out _, out _, out _, out string[] gearTamperBlockers, ResolveCarryoverPolicy(context)));
+            out _, out _, out _, out _, out _, out _, out string[] gearTamperBlockers, ResolveCarryoverPolicy(context), FixtureCashAuthority(context)));
         CollectionAssert.Contains(
             gearTamperBlockers.ToList(),
             CharacterCreationFinalizationBlockers.DraftAuthorityInvalid);
@@ -1588,7 +1701,7 @@ public sealed class CharacterCreationFinalizationServiceTests
             review.PreviewDigest,
             review.Plan!.PlanDigest,
             key,
-            ExplicitlyConfirmed: true);
+            ExplicitlyConfirmed: true) { StartingCash = review.Plan.StartingCash };
         CharacterCreationFinalizationResult<CharacterCreationFinalizationReceipt> applied =
             context.Finalizer.Confirm(command);
         Assert.AreEqual(CharacterCreationFinalizationOutcomes.Applied, applied.Outcome,
@@ -1716,12 +1829,12 @@ public sealed class CharacterCreationFinalizationServiceTests
         Assert.AreEqual(CharacterCreationFinalizationOutcomes.Conflict,
             context.Finalizer.Review(new(state.Binding with
             { BuildMethod = CharacterCreationBuildMethods.Priority })).Outcome);
-        var review = AssertAvailable(context.Finalizer.Review(new(state.Binding)));
+        var review = AssertAvailable(context.Finalizer.Review(new(state.Binding) { StartingCash = FixtureCashChoice(context) }));
         Assert.IsTrue(review.CanConfirm);
         Assert.IsNotNull(review.Plan);
         Assert.IsTrue(review.Plan.SourceAnchorIds.Count > 0);
         var command = new CharacterCreationFinalizationConfirmRequest(state.Binding,
-            review.PreviewDigest, review.Plan.PlanDigest, "sum-to-ten-finalize", true);
+            review.PreviewDigest, review.Plan.PlanDigest, "sum-to-ten-finalize", true) { StartingCash = review.Plan.StartingCash };
         Assert.AreNotEqual(CharacterCreationFinalizationOutcomes.Applied,
             context.Finalizer.Confirm(command with { ExplicitlyConfirmed = false }).Outcome);
         Assert.AreEqual(before.Document.AuxiliaryStateDigest,
@@ -1803,7 +1916,7 @@ public sealed class CharacterCreationFinalizationServiceTests
         Assert.AreEqual(before.Document.AuxiliaryStateDigest, state.Binding.AuxiliaryStateDigest);
         Assert.AreEqual(state.SnapshotDigest, finalizer.Load(new(context.WorkspaceId)).Value!.SnapshotDigest);
 
-        var review = finalizer.Review(new(state.Binding));
+        var review = finalizer.Review(new(state.Binding) { StartingCash = FixtureCashChoice(context) });
         Assert.AreEqual(CharacterCreationFinalizationOutcomes.Blocked, review.Outcome);
         Assert.IsFalse(review.Value!.CanConfirm);
         Assert.IsNull(review.Value.Plan);
@@ -1857,6 +1970,27 @@ public sealed class CharacterCreationFinalizationServiceTests
         var source = context.Resolver.TryCreateContext(document.Content)!;
         Assert.IsTrue(source.TryResolveCreationCarryoverPolicy(out var policy));
         return policy!;
+    }
+
+    // Existing fixtures explicitly choose the minimum legal result; production
+    // never supplies this choice. Missing-choice tests above call Core directly.
+    private static CharacterCreationStartingCashChoice? FixtureCashChoice(ReadyContext context)
+    {
+        var document = context.Store.Get(context.WorkspaceId).Value!.Document;
+        var source = context.Resolver.TryCreateContext(document.Content);
+        return source?.TryResolveCreationDefaultStartingNuyen(out var cash) == true && cash is not null
+            ? new(cash.AuthorityDigest, cash.Dice) : null;
+    }
+
+    private static CharacterCreationFinalizationStartingCash FixtureCashAuthority(ReadyContext context)
+    {
+        var document = context.Store.Get(context.WorkspaceId).Value!.Document;
+        var source = context.Resolver.TryCreateContext(document.Content)!;
+        Assert.IsTrue(source.TryResolveCreationDefaultStartingNuyen(out var cash));
+        Assert.IsTrue(source.TryResolveCreationLifestylesAuthority(out var lifestyles));
+        Assert.IsTrue(CharacterCreationFinalizationStartingCashRules.TryPrepare(cash, lifestyles,
+            new(cash!.AuthorityDigest, cash.Dice), out var authority));
+        return authority!;
     }
 
     private static T AssertAvailable<T>(CharacterCreationFinalizationResult<T> result)

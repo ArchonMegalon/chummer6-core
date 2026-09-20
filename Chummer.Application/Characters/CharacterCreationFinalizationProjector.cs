@@ -26,7 +26,8 @@ public static class CharacterCreationFinalizationProjector
         out decimal startingNuyen,
         out decimal nuyenRemaining,
         out string[] blockers,
-        CharacterCreationKarmaCarryoverPolicy? carryoverPolicy)
+        CharacterCreationKarmaCarryoverPolicy? carryoverPolicy,
+        CharacterCreationFinalizationStartingCash? startingCash = null)
     {
         ArgumentNullException.ThrowIfNull(workspace);
         characterXml = string.Empty;
@@ -187,17 +188,40 @@ public static class CharacterCreationFinalizationProjector
                 blockers = [CharacterCreationFinalizationBlockers.AwakenedEffectsNotProjectable];
                 return false;
             }
+            CharacterCareerReputationProjector.ValidateSavedInputShape(root);
+            EnsureEmptyOwnedContainer(root, "lifestyles");
+            // Readiness validates all non-cash inputs without fabricating a roll.
+            // A real projection/confirmation always requires the explicit choice.
+            if (startingCash is null)
+            {
+                blockers = [CharacterCreationFinalizationBlockers.StartingCashChoiceRequired];
+                return false;
+            }
+            if (!CharacterCreationFinalizationStartingCashRules.IsValid(startingCash)
+                || startingCash.Source.SettingsProfileId != carryoverPolicy.SettingsProfileId
+                || startingCash.Source.RawProfileInputsDigest != carryoverPolicy.RawProfileInputsDigest
+                || !CharacterCreationFinalizationStartingCashRules.TryProject(workspace.Id, startingCash,
+                    out decimal cash, out XElement? defaultLifestyle))
+            {
+                blockers = [CharacterCreationFinalizationBlockers.StartingCashChoiceInvalid];
+                return false;
+            }
+            ReplaceDirect(root, new XElement("lifestyles", defaultLifestyle!));
+            decimal carriedNuyen = nuyenRemaining;
+            startingNuyen = cash;
+            nuyenRemaining = checked(carriedNuyen + cash);
             SetDirect(root, "karma", karmaRemaining.ToString(CultureInfo.InvariantCulture));
             SetDirect(root, "nuyen", nuyenRemaining.ToString(CultureInfo.InvariantCulture));
-            SetDirect(root, "startingnuyen", startingNuyen.ToString(CultureInfo.InvariantCulture));
+            // Legacy startingnuyen records creation funding, not lifestyle cash.
+            // The latter is included only in the Career balance and this receipt.
+            SetDirect(root, "startingnuyen", resources.FinalizationContribution.StartingNuyen.ToString(CultureInfo.InvariantCulture));
             SetDirect(root, "nuyenbp", resources.KarmaInvestment.ToString(CultureInfo.InvariantCulture));
             SetDirect(root, "created", "True");
-            CharacterCareerReputationProjector.ValidateSavedInputShape(root);
             root.Elements(CharacterCreationBootstrapXml.MarkerElement).Remove();
 
             AddDelta(projected, ref order, "resources:starting-nuyen",
                 CharacterCreationFinalizationDeltaKinds.Resources, "startingnuyen", null,
-                startingNuyen.ToString(CultureInfo.InvariantCulture),
+                resources.FinalizationContribution.StartingNuyen.ToString(CultureInfo.InvariantCulture),
                 resources.KarmaInvestment, 0, resources.SourceAnchorIds);
             AddDelta(projected, ref order, "resources:remaining-nuyen",
                 CharacterCreationFinalizationDeltaKinds.Resources, "nuyen", null,
@@ -213,8 +237,20 @@ public static class CharacterCreationFinalizationProjector
             AddDelta(projected, ref order, "carryover:nuyen",
                 CharacterCreationFinalizationDeltaKinds.Resources, "nuyen",
                 nuyenBeforeCarryover.ToString(CultureInfo.InvariantCulture),
-                nuyenRemaining.ToString(CultureInfo.InvariantCulture), 0, 0,
+                carriedNuyen.ToString(CultureInfo.InvariantCulture), 0, 0,
                 carryoverPolicy.SourceAnchorIds);
+            AddDelta(projected, ref order, "starting-cash:lifestyle",
+                CharacterCreationFinalizationDeltaKinds.Resources, "lifestyle", null,
+                startingCash.Source.Name, 0, 0, startingCash.Source.SourceAnchorIds);
+            AddDelta(projected, ref order, "starting-cash:dice",
+                CharacterCreationFinalizationDeltaKinds.Resources, "starting-cash-dice", null,
+                startingCash.Choice.DiceTotal.ToString(CultureInfo.InvariantCulture), 0, 0,
+                startingCash.Source.SourceAnchorIds);
+            AddDelta(projected, ref order, "starting-cash:nuyen",
+                CharacterCreationFinalizationDeltaKinds.Resources, "nuyen",
+                carriedNuyen.ToString(CultureInfo.InvariantCulture),
+                nuyenRemaining.ToString(CultureInfo.InvariantCulture), 0, 0,
+                startingCash.Source.SourceAnchorIds);
 
             characterXml = document.ToString(SaveOptions.DisableFormatting);
             deltas = projected.OrderBy(static delta => delta.Order).ToArray();
@@ -226,6 +262,7 @@ public static class CharacterCreationFinalizationProjector
                 .Concat(resources.SourceAnchorIds)
                 .Concat(gear.FinalizationContribution.SourceAnchorIds)
                 .Concat(carryoverPolicy.SourceAnchorIds)
+                .Concat(startingCash.Source.SourceAnchorIds)
                 .Distinct(StringComparer.Ordinal)
                 .OrderBy(static anchor => anchor, StringComparer.Ordinal)
                 .ToArray();

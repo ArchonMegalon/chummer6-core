@@ -67,6 +67,8 @@ public sealed class CharacterCreationFinalizationService : ICharacterCreationFin
                 CharacterCreationFinalizationOutcomes.Conflict,
                 BindingConflict(state.Binding, request.Binding));
 
+        bool cashPrepared = CharacterCreationFinalizationStartingCashRules.TryPrepare(
+            evaluation.StartingCashSource, evaluation.Lifestyles, request.StartingCash, out var cashAuthority);
         bool projected = CharacterCreationFinalizationProjector.TryProject(
             workspace,
             out string resultXml,
@@ -76,8 +78,11 @@ public sealed class CharacterCreationFinalizationService : ICharacterCreationFin
             out decimal startingNuyen,
             out decimal nuyenRemaining,
             out string[] projectionBlockers,
-            evaluation.CarryoverPolicy);
-        string[] blockers = Normalize(evaluation.Blockers.Concat(projectionBlockers));
+            evaluation.CarryoverPolicy, cashAuthority);
+        string[] blockers = Normalize(evaluation.Blockers.Concat(projectionBlockers)
+            .Concat(cashPrepared ? [] : new[] { request.StartingCash is null
+                ? CharacterCreationFinalizationBlockers.StartingCashChoiceRequired
+                : CharacterCreationFinalizationBlockers.StartingCashChoiceInvalid }));
         CharacterCreationFinalizationPlan? plan = null;
         if (projected && blockers.Length == 0)
         {
@@ -92,7 +97,9 @@ public sealed class CharacterCreationFinalizationService : ICharacterCreationFin
                 CharacterCreationFinalizationProjector.ComputeRawCharacterXmlDigest(resultXml),
                 string.Empty)
             {
-                CarryoverPolicy = evaluation.CarryoverPolicy
+                CarryoverPolicy = evaluation.CarryoverPolicy,
+                StartingCash = cashAuthority!.Choice,
+                StartingCashAuthorityDigest = cashAuthority.AuthorityDigest
             };
             plan = candidate with
             {
@@ -151,7 +158,7 @@ public sealed class CharacterCreationFinalizationService : ICharacterCreationFin
                 initialRead.Success && initialRead.Value!.CanReplayReceipt(existing.Receipt.ContentRevision));
 
         CharacterCreationFinalizationResult<CharacterCreationFinalizationReview> reviewed = Review(
-            new CharacterCreationFinalizationReviewRequest(request.Binding));
+            new CharacterCreationFinalizationReviewRequest(request.Binding) { StartingCash = request.StartingCash });
         if (reviewed.Value is not { Plan: { } plan } review
             || !review.CanConfirm
             || review.Blockers.Count != 0)
@@ -199,11 +206,17 @@ public sealed class CharacterCreationFinalizationService : ICharacterCreationFin
             return Blocked<CharacterCreationFinalizationReceipt>(
                 CharacterCreationFinalizationOutcomes.Conflict,
                 CharacterCreationFinalizationBlockers.CarryoverPolicyUnavailable);
+        if (!TryLoadStartingCash(workspace, out var cashSource, out var cashLifestyles)
+            || !CharacterCreationFinalizationStartingCashRules.TryPrepare(cashSource, cashLifestyles,
+                request.StartingCash, out var currentCash)
+            || currentCash!.AuthorityDigest != plan.StartingCashAuthorityDigest)
+            return Blocked<CharacterCreationFinalizationReceipt>(
+                CharacterCreationFinalizationOutcomes.Conflict, CharacterCreationFinalizationBlockers.StartingCashUnavailable);
         if (!CharacterCreationFinalizationProjector.TryProject(
                 workspace,
                 out string resultXml,
                 out _, out _, out _, out _, out _, out string[] projectionBlockers,
-                currentCarryover))
+                currentCarryover, currentCash))
             return Blocked<CharacterCreationFinalizationReceipt>(
                 CharacterCreationFinalizationOutcomes.Blocked,
                 projectionBlockers);
@@ -248,7 +261,12 @@ public sealed class CharacterCreationFinalizationService : ICharacterCreationFin
             CharacterCreated: true,
             RequiresFreshCareerReopen: true,
             CharacterCreationFinalizationDigest.ReceiptLedgerRootDigest,
-            ReceiptDigest: string.Empty) { CarryoverPolicy = currentCarryover };
+            ReceiptDigest: string.Empty)
+        {
+            CarryoverPolicy = currentCarryover,
+            StartingCash = currentCash.Choice,
+            StartingCashAuthorityDigest = currentCash.AuthorityDigest
+        };
         receipt = receipt with
         {
             ReceiptDigest = CharacterCreationFinalizationDigest.ComputeReceiptDigest(receipt)
@@ -263,7 +281,7 @@ public sealed class CharacterCreationFinalizationService : ICharacterCreationFin
             {
                 Payload = resultXml,
                 AuxiliaryState = CharacterCreationFinalizationReceiptLedgerIntegrity.ConsumeDrafts(
-                    workspace.Document.AuxiliaryState, [entry])
+                    workspace.Document.AuxiliaryState, [entry], currentCash)
             }
         };
         if (!TryLoadCarryoverPolicy(workspace, out var finalCarryover)
@@ -271,6 +289,11 @@ public sealed class CharacterCreationFinalizationService : ICharacterCreationFin
             return Blocked<CharacterCreationFinalizationReceipt>(
                 CharacterCreationFinalizationOutcomes.Conflict,
                 CharacterCreationFinalizationBlockers.CarryoverPolicyUnavailable);
+        if (!TryLoadStartingCash(workspace, out var finalCashSource, out var finalLifestyles)
+            || !CharacterCreationFinalizationStartingCashRules.TryPrepare(finalCashSource, finalLifestyles,
+                request.StartingCash, out var finalCash) || finalCash!.AuthorityDigest != currentCash.AuthorityDigest)
+            return Blocked<CharacterCreationFinalizationReceipt>(
+                CharacterCreationFinalizationOutcomes.Conflict, CharacterCreationFinalizationBlockers.StartingCashUnavailable);
         WorkspaceStoreMutationResult committed = atomic
             .ReplaceWorkspaceDocumentAndAuxiliaryStateAndCheckpoint(
                 workspace.Id,
@@ -524,6 +547,8 @@ public sealed class CharacterCreationFinalizationService : ICharacterCreationFin
 
         if (!TryLoadCarryoverPolicy(workspace, out var carryoverPolicy))
             blockers.Add(CharacterCreationFinalizationBlockers.CarryoverPolicyUnavailable);
+        if (!TryLoadStartingCash(workspace, out var startingCashSource, out var lifestyles))
+            blockers.Add(CharacterCreationFinalizationBlockers.StartingCashUnavailable);
         _ = CharacterCreationFinalizationProjector.TryProject(
             workspace,
             out _, out _, out _, out _, out _, out _, out string[] projectionBlockers,
@@ -531,7 +556,9 @@ public sealed class CharacterCreationFinalizationService : ICharacterCreationFin
         if (!TryLoadCarryoverPolicy(workspace, out var observedCarryover)
             || !SameCarryover(carryoverPolicy, observedCarryover))
             blockers.Add(CharacterCreationFinalizationBlockers.CarryoverPolicyUnavailable);
-        blockers.AddRange(projectionBlockers);
+        // Load checks readiness only; it must not choose a roll to fabricate an
+        // actionable plan. Review below requires the user's source-bound choice.
+        blockers.AddRange(projectionBlockers.Where(value => value != CharacterCreationFinalizationBlockers.StartingCashChoiceRequired));
         string[] normalizedBlockers = Normalize(blockers);
         string authorityDigest = CharacterCreationFinalizationDigest.Compute(new
         {
@@ -551,7 +578,9 @@ public sealed class CharacterCreationFinalizationService : ICharacterCreationFin
                 : "not-applicable:mundane",
             ResourcesSnapshotDigest = resources.Value?.SnapshotDigest,
             GearSnapshotDigest = gear.Value?.SnapshotDigest,
-            CarryoverPolicyDigest = carryoverPolicy?.AuthorityDigest
+            CarryoverPolicyDigest = carryoverPolicy?.AuthorityDigest,
+            StartingCashSourceDigest = startingCashSource?.AuthorityDigest,
+            LifestylesAuthorityDigest = lifestyles?.AuthorityDigest
         });
         var binding = new CharacterCreationFinalizationBinding(
             workspace.Id,
@@ -569,7 +598,7 @@ public sealed class CharacterCreationFinalizationService : ICharacterCreationFin
             normalizedBlockers,
             CanReview: normalizedBlockers.Length == 0,
             lastReceipt,
-            SnapshotDigest: string.Empty);
+            SnapshotDigest: string.Empty) { StartingCashSource = startingCashSource };
         state = state with
         {
             SnapshotDigest = CharacterCreationFinalizationDigest.Compute(
@@ -581,7 +610,38 @@ public sealed class CharacterCreationFinalizationService : ICharacterCreationFin
                 : CharacterCreationFinalizationOutcomes.Blocked,
             workspace,
             state,
-            normalizedBlockers) { CarryoverPolicy = carryoverPolicy };
+            normalizedBlockers)
+        {
+            CarryoverPolicy = carryoverPolicy,
+            StartingCashSource = startingCashSource,
+            Lifestyles = lifestyles
+        };
+    }
+
+    private bool TryLoadStartingCash(WorkspaceStoredDocument workspace,
+        out CharacterCreationStartingNuyenSource? source, out CharacterCreationLifestylesAuthority? lifestyles)
+    {
+        source = null; lifestyles = null;
+        try
+        {
+            var bootstrap = workspace.Document.AuxiliaryState.CharacterCreationBootstrapBinding;
+            if (bootstrap is null || bootstrap.BindingDigest != CharacterCreationBootstrapBindingDigest.Compute(bootstrap)) return false;
+            var context = _sourceData.TryCreateContext(workspace.Document.Content);
+            if (context is null || !context.TryResolveCreationDefaultStartingNuyen(out var candidate)
+                || candidate is null || candidate.SettingsProfileId != bootstrap.SettingsProfileId
+                || candidate.RawProfileInputsDigest != bootstrap.RawProfileInputsDigest
+                || !context.TryResolveCreationLifestylesAuthority(out var authority)
+                || !CharacterCreationFinalizationStartingCashRules.SourcesMatch(candidate, authority)
+                || !context.TryResolveCreationDefaultStartingNuyen(out var observed)
+                || observed?.AuthorityDigest != candidate.AuthorityDigest
+                || !context.TryResolveCreationLifestylesAuthority(out var finalAuthority)
+                || finalAuthority.AuthorityDigest != authority.AuthorityDigest) return false;
+            source = candidate; lifestyles = authority;
+            return true;
+        }
+        catch (Exception error) when (error is ArgumentException or FormatException or IOException
+            or InvalidOperationException or UnauthorizedAccessException or System.Xml.XmlException or OverflowException)
+        { return false; }
     }
 
     private bool TryLoadCarryoverPolicy(WorkspaceStoredDocument workspace,
@@ -721,8 +781,13 @@ public sealed class CharacterCreationFinalizationService : ICharacterCreationFin
         return CharacterCreationFinalizationBlockers.AuthorityDigestMismatch;
     }
 
-    private static string ComputeCommandDigest(CharacterCreationFinalizationConfirmRequest request) =>
-        CharacterCreationFinalizationDigest.Compute(new
+    internal static string ComputeCommandDigest(CharacterCreationFinalizationConfirmRequest request) =>
+        request.StartingCash is not null ? CharacterCreationFinalizationDigest.Compute(new
+        {
+            Schema = "chummer.sr5.creation-finalization.command.v1",
+            request.Binding, request.PreviewDigest, request.PlanDigest, ExplicitlyConfirmed = true,
+            request.StartingCash
+        }) : CharacterCreationFinalizationDigest.Compute(new
         {
             Schema = "chummer.sr5.creation-finalization.command.v1",
             request.Binding,
@@ -754,5 +819,7 @@ public sealed class CharacterCreationFinalizationService : ICharacterCreationFin
         string[] Blockers)
     {
         public CharacterCreationKarmaCarryoverPolicy? CarryoverPolicy { get; init; }
+        public CharacterCreationStartingNuyenSource? StartingCashSource { get; init; }
+        public CharacterCreationLifestylesAuthority? Lifestyles { get; init; }
     }
 }

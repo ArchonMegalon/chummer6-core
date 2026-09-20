@@ -94,7 +94,11 @@ public sealed record WorkspaceDocumentAuxiliaryState(
 public sealed record CharacterCreationFinalizationArchive(
     WorkspaceDocumentAuxiliaryState State,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    CharacterCreationKarmaFinalizationAuthority? KarmaAuthority = null);
+    CharacterCreationKarmaFinalizationAuthority? KarmaAuthority = null)
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationFinalizationStartingCash? StartingCash { get; init; }
+}
 
 public static class WorkspaceDocumentAuxiliaryStateDigest
 {
