@@ -35,6 +35,7 @@ public sealed class CharacterCreationBootstrapServiceTests
 
     private const string HumanId = "a53d885d-a4a4-443d-b6a6-b0a55b0a96c7";
     private const string ElfId = "b3259991-b315-4dbe-ae3c-51f71a1116e2";
+    private const string OrkId = "8ed6892f-88e6-42d0-a704-b805778ec13e";
     private const string MagicianId = "0e741331-d776-4be8-abc5-4101228abdef";
 
     [TestMethod]
@@ -987,13 +988,13 @@ public sealed class CharacterCreationBootstrapServiceTests
     }
 
     private static CharacterCreationKarmaMetatypeQuote CompletionFoundation(KarmaDiskFixture fixture,
-        decimal investment, bool buyGear = false)
+        decimal investment, bool buyGear = false, string metatypeId = HumanId)
     {
         var state = fixture.Service.Load(fixture.Id, includeSkills: true, includeQualities: true, includeGear: true).Value!;
         var skills = new CharacterCreationKarmaSkillsSelection([NativeEnglish(state.SkillsCatalog!)], [], null);
         var item = state.GearAuthority!.Options.First(option => option.IsSelectable && option.PackageCost is > 0 and < 1000);
         CharacterCreationGearSelection[] gear = buyGear ? [new(item.OptionId, item.PackageQuantity)] : [];
-        var quote = fixture.Service.Preview(state.Binding, HumanId, "mundane", [], skills, investment, [], gear).Value;
+        var quote = fixture.Service.Preview(state.Binding, metatypeId, "mundane", [], skills, investment, [], gear).Value;
         Assert.IsNotNull(quote);
         Assert.IsTrue(quote.CanSelect, string.Join(",", quote.Blockers));
         return quote;
@@ -1002,6 +1003,7 @@ public sealed class CharacterCreationBootstrapServiceTests
     [TestMethod]
     [DataRow(HumanId)]
     [DataRow(ElfId)]
+    [DataRow(OrkId)]
     public void Karma_completion_projector_composes_the_saved_build_without_writing(string metatypeId)
     {
         bool freeGrid = metatypeId == ElfId;
@@ -1034,7 +1036,7 @@ public sealed class CharacterCreationBootstrapServiceTests
         var body = root.Element("attributes")!.Elements("attribute").Single(item => item.Element("name")!.Value == "BOD");
         Assert.AreEqual("2", body.Element("karma")!.Value);
         Assert.AreEqual("0", body.Element("base")!.Value);
-        Assert.AreEqual("3", body.Element("totalvalue")!.Value);
+        Assert.AreEqual(metatypeId == OrkId ? "6" : "3", body.Element("totalvalue")!.Value);
         var skill = root.Element("newskills")!.Element("skills")!.Elements("skill").Single();
         Assert.AreEqual(pistols.SourceSkillId, skill.Element("suid")!.Value);
         Assert.AreEqual("2", skill.Element("karma")!.Value);
@@ -1130,10 +1132,11 @@ public sealed class CharacterCreationBootstrapServiceTests
         AssertJsonEqual(before, fixture.Store.Get(fixture.Id).Value!);
     }
 
-    private static CharacterCreationKarmaFinalizationConfirmRequest CompletionRequest(KarmaDiskFixture fixture)
+    private static CharacterCreationKarmaFinalizationConfirmRequest CompletionRequest(KarmaDiskFixture fixture,
+        string metatypeId = HumanId)
     {
-        var pending = CompletionFoundation(fixture, 10.1m, buyGear: true);
-        Assert.IsNotNull(fixture.Service.Confirm(new(pending.Binding, HumanId, pending.QuoteDigest,
+        var pending = CompletionFoundation(fixture, 10.1m, buyGear: true, metatypeId: metatypeId);
+        Assert.IsNotNull(fixture.Service.Confirm(new(pending.Binding, metatypeId, pending.QuoteDigest,
             Guid.NewGuid(), true, "mundane", [], pending.Skills!.Selection, 10.1m, [],
             pending.Gear!.Lines.Select(item => new CharacterCreationGearSelection(item.OptionId, item.Quantity)).ToArray())).Value);
         var current = fixture.Service.Open(fixture.Id, true, true, true).Value!.Quote!;
@@ -1146,10 +1149,12 @@ public sealed class CharacterCreationBootstrapServiceTests
     }
 
     [TestMethod]
-    public void Karma_completion_atomic_confirm_archives_history_and_cold_replay_never_spends_twice()
+    [DataRow(HumanId)]
+    [DataRow(OrkId)]
+    public void Karma_completion_atomic_confirm_archives_history_and_cold_replay_never_spends_twice(string metatypeId)
     {
         using var fixture = new KarmaDiskFixture(includeSkills: true, includeGear: true, includeLifestyles: true);
-        var request = CompletionRequest(fixture);
+        var request = CompletionRequest(fixture, metatypeId);
         var before = fixture.Store.Get(fixture.Id).Value!;
         Assert.IsNull(fixture.Service.ConfirmFinalization(request with
             { Confirmation = request.Confirmation with { ExplicitlyConfirmed = false } }).Value);
@@ -1164,6 +1169,17 @@ public sealed class CharacterCreationBootstrapServiceTests
         Assert.AreEqual(before.ContentRevision + 1, after.ContentRevision);
         Assert.AreEqual(after.ContentRevision, after.SavedRevision);
         Assert.AreEqual("True", XDocument.Parse(after.Document.Content).Root!.Element("created")!.Value);
+        var root = XDocument.Parse(after.Document.Content).Root!;
+        Assert.AreEqual(metatypeId, root.Element("metatypeid")!.Value);
+        if (metatypeId == OrkId)
+        {
+            Assert.AreEqual("Ork", root.Element("metatype")!.Value);
+            var vision = root.Element("qualities")!.Elements("quality").Single();
+            Assert.AreEqual("Low-Light Vision", vision.Element("name")!.Value);
+            Assert.AreEqual("Metatype", vision.Element("qualitysource")!.Value);
+            Assert.AreEqual("4", root.Element("attributes")!.Elements("attribute")
+                .Single(item => item.Element("name")!.Value == "BOD").Element("totalvalue")!.Value);
+        }
         Assert.IsNull(after.Document.AuxiliaryState.CharacterCreationKarmaMetatypeDecisions);
         Assert.IsNull(after.Document.AuxiliaryState.CharacterCreationBootstrapBinding);
         AssertJsonEqual(before.Document.AuxiliaryState, after.Document.AuxiliaryState.CharacterCreationFinalizationArchive!.State);
@@ -1730,6 +1746,7 @@ public sealed class CharacterCreationBootstrapServiceTests
     [TestMethod]
     [DataRow("a53d885d-a4a4-443d-b6a6-b0a55b0a96c7", "mundane", 0)]
     [DataRow("b3259991-b315-4dbe-ae3c-51f71a1116e2", "mundane", 1)]
+    [DataRow(OrkId, "mundane", 1)]
     [DataRow("b3259991-b315-4dbe-ae3c-51f71a1116e2", "0e741331-d776-4be8-abc5-4101228abdef", 1)]
     public void Karma_grant_sources_resolve_racial_and_talent_rows_without_priority_or_gear(
         string metatypeId, string talentId, int racialCount)
@@ -4040,11 +4057,14 @@ public sealed class CharacterCreationBootstrapServiceTests
     }
 
     [TestMethod]
-    public void Karma_metatype_confirmation_persists_reopens_and_replaces_cost_without_double_spending()
+    [DataRow(ElfId, "Elf", 40)]
+    [DataRow(OrkId, "Ork", 50)]
+    public void Karma_metatype_confirmation_persists_reopens_and_replaces_cost_without_double_spending(
+        string metatypeId, string name, int cost)
     {
         using var fixture = new KarmaDiskFixture();
         var before = fixture.Store.Get(fixture.Id).Value!;
-        var request = fixture.Request("b3259991-b315-4dbe-ae3c-51f71a1116e2");
+        var request = fixture.Request(metatypeId);
         var applied = fixture.Service.Confirm(request);
         Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, applied.Outcome, string.Join(",", applied.Blockers));
         Assert.IsFalse(applied.Value!.Replayed);
@@ -4052,8 +4072,8 @@ public sealed class CharacterCreationBootstrapServiceTests
         var reopened = new CharacterCreationKarmaMetatypeService(reopenedStore, fixture.Resolver);
         var state = reopened.Load(fixture.Id).Value!;
         Assert.IsNotNull(state.Selection);
-        Assert.AreEqual("Elf", state.Selection.Quote.Metatype.Label);
-        Assert.AreEqual(760m, state.KarmaBudget.Remaining);
+        Assert.AreEqual(name, state.Selection.Quote.Metatype.Label);
+        Assert.AreEqual(800m - cost, state.KarmaBudget.Remaining);
         var saved = reopenedStore.Get(fixture.Id).Value!;
         Assert.AreEqual(before.ContentRevision + 1, saved.ContentRevision);
         Assert.AreEqual(saved.ContentRevision, saved.SavedRevision);
@@ -4061,7 +4081,7 @@ public sealed class CharacterCreationBootstrapServiceTests
         Assert.IsTrue(reopened.Confirm(request).Value!.Replayed);
         AssertJsonEqual(saved, reopenedStore.Get(fixture.Id).Value!);
 
-        // A new Human selection replaces Elf's reservation; it does not charge
+        // A new Human selection replaces the reservation; it does not charge
         // for both selections. The old operation can be queried without undoing it.
         var human = reopened.Preview(state.Binding, "a53d885d-a4a4-443d-b6a6-b0a55b0a96c7").Value!;
         Assert.AreEqual(800m, human.KarmaBudget.Remaining);
@@ -4416,6 +4436,7 @@ public sealed class CharacterCreationBootstrapServiceTests
     [TestMethod]
     [DataRow("a53d885d-a4a4-443d-b6a6-b0a55b0a96c7", "Human", 0)]
     [DataRow("b3259991-b315-4dbe-ae3c-51f71a1116e2", "Elf", 40)]
+    [DataRow(OrkId, "Ork", 50)]
     public void Karma_metatype_quote_uses_real_profile_and_catalog_without_mutation(
         string optionId, string name, int cost)
     {

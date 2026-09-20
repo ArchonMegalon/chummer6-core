@@ -8,11 +8,13 @@ internal static class CharacterCreationMetatypeCatalogProjector
 {
     private const string HumanId = "a53d885d-a4a4-443d-b6a6-b0a55b0a96c7";
     private const string ElfId = "b3259991-b315-4dbe-ae3c-51f71a1116e2";
+    private const string OrkId = "8ed6892f-88e6-42d0-a704-b805778ec13e";
 
     private static readonly (string Id, string Name)[] SupportedMetatypes =
     [
         (HumanId, "Human"),
-        (ElfId, "Elf")
+        (ElfId, "Elf"),
+        (OrkId, "Ork")
     ];
 
     private static readonly (string Id, string Prefix)[] AttributeFields =

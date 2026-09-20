@@ -10,6 +10,8 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="CharacterCreationBootstrapServiceTests.cs" />
+    <Compile Include="CharacterCreationMetatypeCatalogAuthorityTests.cs" />
+    <Compile Include="CharacterCreationFoundationServiceTests.cs" />
     <Compile Include="CharacterCreationContactsServiceTests.cs" />
     <Compile Include="CharacterCreationQualitiesRulesTests.cs" />
     <Compile Include="CharacterFileServiceTests.cs" />

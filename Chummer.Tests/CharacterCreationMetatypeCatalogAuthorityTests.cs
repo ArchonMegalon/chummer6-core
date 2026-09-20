@@ -15,10 +15,11 @@ public sealed class CharacterCreationMetatypeCatalogAuthorityTests
     private const string CanonicalLifeModuleSettingsId = "8a31af6d-7137-4284-872b-7d8087e156c6";
     private const string HumanId = "a53d885d-a4a4-443d-b6a6-b0a55b0a96c7";
     private const string ElfId = "b3259991-b315-4dbe-ae3c-51f71a1116e2";
+    private const string OrkId = "8ed6892f-88e6-42d0-a704-b805778ec13e";
     private const string CanonicalMetatypesDigest = "sha256:ccee5dfabb8d0e193aa980e9905822a0f94fb9bb8093c162f5b694a974946425";
 
     [TestMethod]
-    public void Canonical_life_module_profile_projects_digest_bound_human_and_elf()
+    public void Canonical_life_module_profile_projects_digest_bound_human_elf_and_ork()
     {
         string coreRoot = FindCoreRoot();
         ICharacterSourceDataContext context = CreateContext(coreRoot, CharacterXml())!;
@@ -36,7 +37,7 @@ public sealed class CharacterCreationMetatypeCatalogAuthorityTests
         Assert.IsFalse(authority.SourceContext.DroneMods.GetValueOrDefault());
         StringAssert.StartsWith(authority.SourceContext.EffectiveMetatypesInputsDigest, "sha256:");
         StringAssert.StartsWith(authority.SourceContext.AuthorityDigest, "sha256:");
-        Assert.HasCount(2, authority.Options);
+        Assert.HasCount(3, authority.Options);
 
         CharacterCreationMetatypeOptionProjection human = authority.Options.Single(option => option.OptionId == HumanId);
         Assert.IsTrue(human.IsEnabled);
@@ -78,6 +79,28 @@ public sealed class CharacterCreationMetatypeCatalogAuthorityTests
         CollectionAssert.AreEqual(
             new[] { "Dryad", "Nocturna", "Xapiri Thëpë", "Wakyambi" },
             elf.ExcludedMetavariants.Select(item => item.Label).ToArray());
+
+        CharacterCreationMetatypeOptionProjection ork = authority.Options.Single(option => option.OptionId == OrkId);
+        Assert.IsTrue(ork.IsEnabled);
+        Assert.AreEqual("Ork", ork.Label);
+        Assert.AreEqual("SR5", ork.SourceBook);
+        Assert.AreEqual(50, ork.SourcePage);
+        Assert.AreEqual(50, ork.BaseKarma);
+        Assert.AreEqual(50, ork.KarmaCost);
+        AssertAttribute(ork, "BOD", 4, 9, 13);
+        AssertAttribute(ork, "STR", 3, 8, 12);
+        AssertAttribute(ork, "CHA", 1, 5, 9);
+        AssertAttribute(ork, "LOG", 1, 5, 9);
+        AssertAttribute(ork, "EDG", 1, 6, 6);
+        Assert.AreEqual(human.Movement, ork.Movement);
+        Assert.AreEqual(human.Initiative, ork.Initiative);
+        CollectionAssert.AreEqual(new[] { "Low-Light Vision" }, ork.GrantedQualities.Select(quality => quality.Name).ToArray());
+        Assert.AreEqual(CharacterCreationMetatypeQualityPolarities.Positive, ork.GrantedQualities[0].Polarity);
+        CollectionAssert.AreEqual(new[] { "Hobgoblin", "Ogre", "Oni", "Satyr" },
+            ork.ExcludedMetavariants.Select(item => item.Label).ToArray());
+        Assert.IsTrue(ork.ExcludedMetavariants.All(item =>
+            item.Blockers.Contains(CharacterCreationMetatypeCatalogBlockers.MetavariantUnsupported)));
+        CollectionAssert.Contains(ork.SourceAnchorIds.ToArray(), $"metatypes.xml#metatype:{OrkId}");
     }
 
     [TestMethod]
@@ -181,7 +204,9 @@ public sealed class CharacterCreationMetatypeCatalogAuthorityTests
     }
 
     [TestMethod]
-    public void Selector_and_unknown_base_semantics_are_explicit_and_fail_closed()
+    [DataRow(ElfId)]
+    [DataRow(OrkId)]
+    public void Selector_and_unknown_base_semantics_are_explicit_and_fail_closed(string metatypeId)
     {
         string root = CreateTempDirectory();
         try
@@ -189,9 +214,9 @@ public sealed class CharacterCreationMetatypeCatalogAuthorityTests
             WriteCanonicalSubset(root);
             string metatypesPath = Path.Combine(root, "data", "metatypes.xml");
             XDocument metatypes = XDocument.Load(metatypesPath);
-            XElement elf = metatypes.Root!.Element("metatypes")!.Elements("metatype")
-                .Single(item => string.Equals(item.Element("id")?.Value, ElfId, StringComparison.OrdinalIgnoreCase));
-            elf.Element("qualities")!.Element("positive")!.Element("quality")!.SetAttributeValue("select", "Vision");
+            XElement metatype = metatypes.Root!.Element("metatypes")!.Elements("metatype")
+                .Single(item => string.Equals(item.Element("id")?.Value, metatypeId, StringComparison.OrdinalIgnoreCase));
+            metatype.Element("qualities")!.Element("positive")!.Element("quality")!.SetAttributeValue("select", "Vision");
             metatypes.Save(metatypesPath);
 
             CharacterCreationMetatypeCatalogAuthority selectorBlocked = Resolve(root);
@@ -201,7 +226,7 @@ public sealed class CharacterCreationMetatypeCatalogAuthorityTests
                 selectorBlocked.Blockers.ToList(),
                 CharacterCreationMetatypeCatalogBlockers.SelectorSemanticsUnsupported);
 
-            elf.Add(new XElement("special", "opaque"));
+            metatype.Add(new XElement("special", "opaque"));
             metatypes.Save(metatypesPath);
             CharacterCreationMetatypeCatalogAuthority unknownBlocked = Resolve(root);
             Assert.IsFalse(unknownBlocked.IsAuthoritative);
@@ -224,25 +249,34 @@ public sealed class CharacterCreationMetatypeCatalogAuthorityTests
         {
             WriteCanonicalSubset(root);
             ICharacterSourceDataContext sourceDriftContext = CreateContext(root, CharacterXml())!;
+            Assert.IsTrue(sourceDriftContext.TryResolveCreationMetatypeCatalog(out var captured));
+            Assert.IsTrue(captured.IsAuthoritative);
             File.AppendAllText(Path.Combine(root, "data", "metatypes.xml"), "\n");
             Assert.IsTrue(sourceDriftContext.TryResolveCreationMetatypeCatalog(
                 out CharacterCreationMetatypeCatalogAuthority sourceDrift));
             Assert.IsFalse(sourceDrift.IsAuthoritative);
             Assert.IsEmpty(sourceDrift.Options);
-            CollectionAssert.Contains(
-                sourceDrift.Blockers.ToList(),
-                CharacterCreationMetatypeCatalogBlockers.MetatypesSourceDrift);
+            // The context now keeps immutable source bytes. The snapshot fence
+            // invalidates authority instead of reading the changed bytes into
+            // this context and producing the historical per-file drift code.
+            CollectionAssert.Contains(sourceDrift.Blockers.ToList(),
+                CharacterCreationMetatypeCatalogBlockers.AuthorityUnavailable);
+            Assert.AreEqual(captured.SourceContext.RawMetatypesXmlDigest,
+                sourceDrift.SourceContext.RawMetatypesXmlDigest);
 
             WriteCanonicalSubset(root);
             ICharacterSourceDataContext profileDriftContext = CreateContext(root, CharacterXml())!;
+            Assert.IsTrue(profileDriftContext.TryResolveCreationMetatypeCatalog(out var capturedProfile));
+            Assert.IsTrue(capturedProfile.IsAuthoritative);
             File.AppendAllText(Path.Combine(root, "data", "settings.xml"), "\n");
             Assert.IsTrue(profileDriftContext.TryResolveCreationMetatypeCatalog(
                 out CharacterCreationMetatypeCatalogAuthority profileDrift));
             Assert.IsFalse(profileDrift.IsAuthoritative);
             Assert.IsEmpty(profileDrift.Options);
-            CollectionAssert.Contains(
-                profileDrift.Blockers.ToList(),
-                CharacterCreationMetatypeCatalogBlockers.ProfileSettingsDrift);
+            CollectionAssert.Contains(profileDrift.Blockers.ToList(),
+                CharacterCreationMetatypeCatalogBlockers.AuthorityUnavailable);
+            Assert.AreEqual(capturedProfile.SourceContext.RawProfileInputsDigest,
+                profileDrift.SourceContext.RawProfileInputsDigest);
 
             WriteCanonicalSubset(root);
             File.Delete(Path.Combine(root, "data", "metatypes.xml"));

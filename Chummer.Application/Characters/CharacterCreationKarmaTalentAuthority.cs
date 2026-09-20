@@ -134,7 +134,7 @@ public static class CharacterCreationKarmaTalentAuthority
         return true;
     }
 
-    // Human/Elf racial qualities are checked at selection time. There are no
+    // Supported metatype racial qualities are checked at selection time. There are no
     // other selections yet; exclusions must also reach later quality evaluation.
     private static bool ValidExclusions(XElement? forbidden)
         => forbidden is null || !forbidden.HasAttributes && forbidden.Elements().Count() == 1

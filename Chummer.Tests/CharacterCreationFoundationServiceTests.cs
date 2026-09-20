@@ -46,6 +46,10 @@ public sealed class CharacterCreationFoundationServiceTests
         CharacterCreationFoundationState state = AssertSuccess(service.Load(
             new CharacterCreationFoundationLoadRequest(s_WorkspaceId))).Value!;
 
+        Assert.HasCount(3, state.MetatypeOptions);
+        Assert.IsTrue(state.MetatypeOptions.Any(option =>
+            option.OptionId == "8ed6892f-88e6-42d0-a704-b805778ec13e" && option.IsEnabled));
+
         CharacterCreationFoundationPreview preview = service.Preview(
             new CharacterCreationFoundationPreviewRequest(
                 Binding: state.Binding,

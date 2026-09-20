@@ -2364,7 +2364,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             var references = metatype.GrantedQualities.Select(item => (Reference: item.Name, Selection: string.Empty))
                 .Concat(talent.OptionId == CharacterCreationKarmaTalentCatalog.MundaneOptionId
                     ? [] : new[] { (Reference: talent.OptionId, Selection: string.Empty) }).ToArray();
-            // Only a nested gear grant requires gear.xml. Human/Elf mundane
+            // Only a nested gear grant requires gear.xml. Mundane
             // finalization must not acquire unrelated spell or Priority catalogs.
             bool needsGear = qualities.Any(row => references.Any(reference =>
                     row.Element("name")?.Value == reference.Reference
