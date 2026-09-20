@@ -577,6 +577,182 @@ public sealed class CharacterCreationBootstrapServiceTests
         Assert.IsFalse(fixture.Resolver.TryCreateContext(document.ToString())!.TryResolveCreationKarmaDefaultStartingNuyen(out _));
     }
 
+    [TestMethod]
+    public void Karma_lifestyles_share_exact_resource_and_gear_budget_without_purchasing_or_rolling_cash()
+    {
+        using var fixture = new KarmaDiskFixture(includeSkills: true, includeGear: true, includeLifestyles: true);
+        var before = fixture.Store.Get(fixture.Id).Value!;
+        var foundation = CompletionFoundation(fixture, 10m, buyGear: true);
+        Assert.IsTrue(fixture.Resolver.TryCreateContext(before.Document.Content)!
+            .TryResolveCreationLifestylesAuthority(out var authority));
+        var low = KarmaLifestyle(authority, "Low") with { Increments = 2, City = "Seattle", District = "Redmond" };
+        var quote = CharacterCreationKarmaLifestylesRules.Evaluate(authority, foundation.Resources!, foundation.Gear!,
+            [low], low.LifestyleId);
+        Assert.IsNotNull(quote);
+        Assert.IsTrue(quote.CanSelect, string.Join(",", quote.Blockers));
+        Assert.AreEqual(4000m, quote.LifestyleNuyenUsed);
+        Assert.AreEqual(20000m, quote.Budget.Total);
+        Assert.AreEqual(4000m + foundation.Gear!.Budget.BasketCost, quote.Budget.Used);
+        Assert.AreEqual(foundation.Gear.Budget.RemainingNuyen - 4000m, quote.Budget.Remaining);
+        Assert.AreEqual(foundation.Resources!.QuoteDigest, quote.ResourcesQuoteDigest);
+        Assert.AreEqual(foundation.Gear.QuoteDigest, quote.GearQuoteDigest);
+        Assert.AreEqual(low.LifestyleId, quote.StartingLifestyleId);
+        Assert.AreEqual("Seattle", quote.Lines.Single().Configuration.City);
+        Assert.IsTrue(quote.Budget.SourceAnchorIds.Count > 0);
+        Assert.IsTrue(CharacterCreationKarmaLifestylesRules.IsValid(quote, foundation.Resources,
+            foundation.Gear, [low], low.LifestyleId));
+        AssertJsonEqual(before, fixture.Store.Get(fixture.Id).Value!);
+    }
+
+    [TestMethod]
+    public void Karma_lifestyles_overspend_remains_visible_and_future_cash_cannot_fund_purchase()
+    {
+        using var fixture = new KarmaDiskFixture(includeSkills: true, includeGear: true, includeLifestyles: true);
+        fixture.EditLifestyle("Low", row => row.SetElementValue("multiplier", "1000000"));
+        var foundation = CompletionFoundation(fixture, 0.5m);
+        Assert.IsTrue(fixture.Resolver.TryCreateContext(fixture.Store.Get(fixture.Id).Value!.Document.Content)!
+            .TryResolveCreationLifestylesAuthority(out var authority));
+        var low = KarmaLifestyle(authority, "Low");
+        var quote = CharacterCreationKarmaLifestylesRules.Evaluate(authority, foundation.Resources!, foundation.Gear!,
+            [low], low.LifestyleId);
+        Assert.IsNotNull(quote);
+        Assert.IsFalse(quote.CanSelect);
+        Assert.AreEqual(1000m, quote.Budget.Total);
+        Assert.AreEqual(2000m, quote.LifestyleNuyenUsed);
+        Assert.AreEqual(-1000m, quote.Budget.Remaining);
+        Assert.AreEqual(1000m, quote.Budget.Overspend);
+        CollectionAssert.Contains(quote.Blockers.ToArray(), CharacterCreationLifestylesBlockers.InsufficientFunds);
+        Assert.IsFalse(CharacterCreationKarmaLifestylesRules.IsValid(quote, foundation.Resources, foundation.Gear,
+            [low], low.LifestyleId));
+    }
+
+    [TestMethod]
+    public void Karma_lifestyles_starting_cash_requires_an_explicit_owned_selection_and_stable_identity()
+    {
+        using var fixture = new KarmaDiskFixture(includeSkills: true, includeGear: true, includeLifestyles: true);
+        var foundation = CompletionFoundation(fixture, 10m);
+        Assert.IsTrue(fixture.Resolver.TryCreateContext(fixture.Store.Get(fixture.Id).Value!.Document.Content)!
+            .TryResolveCreationLifestylesAuthority(out var authority));
+        var low = KarmaLifestyle(authority, "Low");
+        var middle = KarmaLifestyle(authority, "Medium");
+        var valid = CharacterCreationKarmaLifestylesRules.Evaluate(authority, foundation.Resources!, foundation.Gear!,
+            [low, middle], middle.LifestyleId)!;
+        Assert.IsTrue(valid.CanSelect);
+        Assert.AreEqual(7000m, valid.LifestyleNuyenUsed);
+        AssertJsonEqual(valid, CharacterCreationKarmaLifestylesRules.Evaluate(authority, foundation.Resources!,
+            foundation.Gear!, [middle, low], middle.LifestyleId)!);
+        foreach (Guid? invalid in new Guid?[] { null, Guid.Empty, Guid.NewGuid(), authority.LifestyleOptions.Single(x => x.Name == "High").SourceId })
+        {
+            var quote = CharacterCreationKarmaLifestylesRules.Evaluate(authority, foundation.Resources!, foundation.Gear!,
+                [low], invalid)!;
+            Assert.IsFalse(quote.CanSelect);
+            CollectionAssert.Contains(quote.Blockers.ToArray(), CharacterCreationKarmaLifestylesRules.StartingLifestyleRequired);
+        }
+        Assert.IsTrue(CharacterCreationKarmaLifestylesRules.Evaluate(authority, foundation.Resources!, foundation.Gear!, [], null)!.CanSelect);
+        Assert.IsFalse(CharacterCreationKarmaLifestylesRules.Evaluate(authority, foundation.Resources!, foundation.Gear!, [], low.LifestyleId)!.CanSelect);
+    }
+
+    [TestMethod]
+    public void Karma_lifestyles_freeze_nested_choices_reject_duplicate_identities_and_invalid_configuration()
+    {
+        using var fixture = new KarmaDiskFixture(includeSkills: true, includeGear: true, includeLifestyles: true);
+        var foundation = CompletionFoundation(fixture, 10m);
+        Assert.IsTrue(fixture.Resolver.TryCreateContext(fixture.Store.Get(fixture.Id).Value!.Document.Content)!
+            .TryResolveCreationLifestylesAuthority(out var authority));
+        var low = KarmaLifestyle(authority, "Low");
+        var quality = new CharacterCreationLifestyleQualitySelection(Guid.NewGuid(), "test-option", "Extra", false, false, false);
+        var nested = new[] { quality };
+        var original = new[] { low with { Qualities = nested } };
+        Assert.IsTrue(CharacterCreationKarmaLifestylesRules.TryFreeze(original, out var frozen));
+        nested[0] = quality with { Extra = "Changed after admission" };
+        original[0] = low with { Name = "Changed after admission" };
+        Assert.AreEqual("Extra", frozen[0].Qualities[0].Extra);
+        Assert.AreEqual(low.Name, frozen[0].Name);
+        Assert.IsFalse(CharacterCreationKarmaLifestylesRules.TryFreeze([low, low], out _));
+        Assert.IsFalse(CharacterCreationKarmaLifestylesRules.TryFreeze([low with { Qualities = [quality, quality] }], out _));
+        Assert.IsFalse(CharacterCreationKarmaLifestylesRules.TryFreeze([low with { Qualities = [quality with { InstanceId = low.LifestyleId }] }], out _));
+        Assert.IsFalse(CharacterCreationKarmaLifestylesRules.TryFreeze([low with { Qualities = null! }], out _));
+        foreach (var invalid in new[] { low with { Increments = 0 }, low with { Percentage = -1 },
+            low with { Name = "\0" }, low with { TrustFund = true }, low with { BaseLifestyleOptionId = "missing" } })
+            Assert.IsNull(CharacterCreationKarmaLifestylesRules.Evaluate(authority, foundation.Resources!, foundation.Gear!,
+                [invalid], invalid.LifestyleId));
+    }
+
+    [TestMethod]
+    public void Karma_lifestyles_reject_tampered_or_foreign_funding_and_recalculate_changed_source_prices()
+    {
+        using var fixture = new KarmaDiskFixture(includeSkills: true, includeGear: true, includeLifestyles: true);
+        var foundation = CompletionFoundation(fixture, 10m);
+        string xml = fixture.Store.Get(fixture.Id).Value!.Document.Content;
+        var captured = fixture.Resolver.TryCreateContext(xml)!;
+        Assert.IsTrue(captured.TryResolveCreationLifestylesAuthority(out var authority));
+        var low = KarmaLifestyle(authority, "Low");
+        var quote = CharacterCreationKarmaLifestylesRules.Evaluate(authority, foundation.Resources!, foundation.Gear!, [low], low.LifestyleId)!;
+        Assert.IsFalse(CharacterCreationKarmaLifestylesRules.IsValid(quote with { LifestyleNuyenUsed = 0 },
+            foundation.Resources, foundation.Gear, [low], low.LifestyleId));
+        Assert.IsFalse(CharacterCreationKarmaLifestylesRules.IsValid(quote with { Budget = null! },
+            foundation.Resources, foundation.Gear, [low], low.LifestyleId));
+        Assert.IsFalse(CharacterCreationKarmaLifestylesRules.IsValid(quote with { Blockers = null! },
+            foundation.Resources, foundation.Gear, [low], low.LifestyleId));
+        Assert.IsNull(CharacterCreationKarmaLifestylesRules.Evaluate(authority, foundation.Resources! with { NuyenFromKarma = 999999 },
+            foundation.Gear!, [low], low.LifestyleId));
+        Assert.IsNull(CharacterCreationKarmaLifestylesRules.Evaluate(authority, foundation.Resources!,
+            foundation.Gear! with { Budget = foundation.Gear!.Budget with { RemainingNuyen = 999999 } }, [low], low.LifestyleId));
+        var foreign = authority with { SettingsProfileId = "other-profile", AuthorityDigest = string.Empty };
+        foreign = foreign with { AuthorityDigest = CharacterCreationLifestylesRules.ComputeAuthorityDigest(foreign) };
+        Assert.IsNull(CharacterCreationKarmaLifestylesRules.Evaluate(foreign, foundation.Resources!, foundation.Gear!, [low], low.LifestyleId));
+        fixture.EditLifestyle("Low", row => row.SetElementValue("cost", "2250"));
+        _ = captured.TryResolveCreationLifestylesAuthority(out var drifted);
+        Assert.IsFalse(CharacterCreationLifestylesRules.IsValidAuthority(drifted), "Captured contexts must reject source drift.");
+        Assert.IsNull(CharacterCreationKarmaLifestylesRules.Evaluate(drifted, foundation.Resources!, foundation.Gear!,
+            [low], low.LifestyleId));
+        Assert.IsTrue(fixture.Resolver.TryCreateContext(xml)!.TryResolveCreationLifestylesAuthority(out var current));
+        var revised = CharacterCreationKarmaLifestylesRules.Evaluate(current, foundation.Resources!, foundation.Gear!, [low], low.LifestyleId)!;
+        Assert.AreEqual(2250m, revised.LifestyleNuyenUsed);
+        Assert.AreNotEqual(quote.QuoteDigest, revised.QuoteDigest);
+        Assert.AreNotEqual(quote.Authority.AuthorityDigest, revised.Authority.AuthorityDigest);
+    }
+
+    [TestMethod]
+    public void Karma_lifestyles_cash_resolver_uses_selected_source_and_rejects_missing_disabled_or_drifted_rows()
+    {
+        using var fixture = new KarmaDiskFixture(includeLifestyles: true);
+        var before = fixture.Store.Get(fixture.Id).Value!;
+        var context = fixture.Resolver.TryCreateContext(before.Document.Content)!;
+        Assert.IsTrue(context.TryResolveCreationLifestylesAuthority(out var authority));
+        var low = authority.LifestyleOptions.Single(row => row.Name == "Low");
+        Assert.IsTrue(context.TryResolveCreationKarmaStartingNuyen(low.SourceId, out var cash));
+        Assert.AreEqual("Low", cash!.Name);
+        Assert.AreEqual(3, cash.Dice);
+        Assert.AreEqual(60m, cash.Multiplier);
+        Assert.AreEqual(low.SourceId.ToString("D"), cash.SourceId);
+        Assert.IsTrue(CharacterCreationKarmaFinalizationBudgetRules.IsValidStartingCashSource(cash));
+        Assert.IsTrue(context.TryResolveCreationKarmaDefaultStartingNuyen(out var fallback));
+        Assert.AreEqual("Street", fallback!.Name);
+        Assert.IsFalse(context.TryResolveCreationKarmaStartingNuyen(Guid.Empty, out _));
+        Assert.IsFalse(context.TryResolveCreationKarmaStartingNuyen(Guid.NewGuid(), out _));
+        fixture.EditLifestyle("Low", row => row.SetElementValue("multiplier", "75"));
+        Assert.IsFalse(context.TryResolveCreationKarmaStartingNuyen(low.SourceId, out _));
+        Assert.IsTrue(fixture.Resolver.TryCreateContext(before.Document.Content)!
+            .TryResolveCreationKarmaStartingNuyen(low.SourceId, out var changed));
+        Assert.AreEqual(75m, changed!.Multiplier);
+        Assert.AreNotEqual(cash.AuthorityDigest, changed.AuthorityDigest);
+        fixture.EditLifestyle("Low", row => row.SetElementValue("source", "DISABLED"));
+        Assert.IsFalse(fixture.Resolver.TryCreateContext(before.Document.Content)!
+            .TryResolveCreationKarmaStartingNuyen(low.SourceId, out _));
+        fixture.EditLifestyle("Low", row => { row.SetElementValue("source", "SR5"); row.Add(new XElement("dice", "3")); });
+        Assert.IsFalse(fixture.Resolver.TryCreateContext(before.Document.Content)!
+            .TryResolveCreationKarmaStartingNuyen(low.SourceId, out _));
+        AssertJsonEqual(before, fixture.Store.Get(fixture.Id).Value!);
+    }
+
+    private static CharacterCreationLifestyleConfiguration KarmaLifestyle(CharacterCreationLifestylesAuthority authority, string name)
+    {
+        var option = authority.LifestyleOptions.Single(row => row.Name == name);
+        return new(Guid.NewGuid(), option.OptionId, name + " home", CharacterCreationLifestyleStyleIds.Standard,
+            option.DefaultIncrementId, 1, 100m, 0, false, false, 0, 0, 0, 0, string.Empty, string.Empty, string.Empty, []);
+    }
+
     private static CharacterCreationKarmaMetatypeQuote CompletionFoundation(KarmaDiskFixture fixture,
         decimal investment, bool buyGear = false)
     {

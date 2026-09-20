@@ -2224,11 +2224,17 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
         }
 
         public bool TryResolveCreationKarmaDefaultStartingNuyen(out CharacterCreationStartingNuyenSource? source)
+            => TryResolveCreationKarmaStartingNuyenCore(null, out source);
+
+        public bool TryResolveCreationKarmaStartingNuyen(Guid lifestyleSourceId, out CharacterCreationStartingNuyenSource? source)
+            => TryResolveCreationKarmaStartingNuyenCore(lifestyleSourceId, out source);
+
+        private bool TryResolveCreationKarmaStartingNuyenCore(Guid? lifestyleSourceId, out CharacterCreationStartingNuyenSource? source)
         {
             using IDisposable sourceInputScope = _sourceInputs.Enter();
             source = null;
             var lifestyles = _character.Elements("lifestyles").Take(2).ToArray();
-            if (_sourceInputs.HasSourceDrift || _buildMethod != CharacterCreationBuildMethods.Karma
+            if (_sourceInputs.HasSourceDrift || lifestyleSourceId == Guid.Empty || _buildMethod != CharacterCreationBuildMethods.Karma
                 || lifestyles.Length > 1 || lifestyles.Length == 1
                     && (lifestyles[0].HasAttributes || lifestyles[0].HasElements || !string.IsNullOrWhiteSpace(lifestyles[0].Value))
                 || string.IsNullOrWhiteSpace(_settingsProfileId)
@@ -2236,15 +2242,18 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 || BindSelectedProfile(settingsDigest, _settingsProfileId) != _rawProfileInputsDigest
                 || !TryComputeEffectiveInputDigest(_catalog, "lifestyles.xml", out string sourceDigest)
                 || !TryEnumerateTargets("lifestyles.xml", ["lifestyles"], "lifestyle", out var rows)) return false;
-            // Match the legacy fallback by source name, not a UI-invented price,
-            // dice count or source GUID. Ambiguous/custom malformed rows block.
-            var candidates = rows.Where(row => row.Elements("name").Any(node => node.Value.Trim() == "Street")).Take(2).ToArray();
+            // The default remains the exact free Street fallback. Purchased
+            // choices use source identity, never a UI-supplied dice/cash amount.
+            // Ambiguous/custom malformed rows fail closed in either mode.
+            var candidates = rows.Where(row => lifestyleSourceId is { } id
+                ? row.Elements("id").Any(node => Guid.TryParseExact(node.Value.Trim(), "D", out var value) && value == id)
+                : row.Elements("name").Any(node => node.Value.Trim() == "Street")).Take(2).ToArray();
             if (candidates.Length != 1) return false;
             var row = candidates[0];
             var costs = row.Elements("cost").Take(2).ToArray();
             if (costs.Length != 1 || costs[0].HasAttributes || costs[0].HasElements
                 || !decimal.TryParse(costs[0].Value, NumberStyles.Number, CultureInfo.InvariantCulture, out decimal cost)
-                || cost != 0) return false;
+                || cost < 0 || lifestyleSourceId is null && cost != 0) return false;
             var projected = CharacterCreationKarmaFinalizationBudgetRules.ProjectStartingCashSource(
                 row.ToString(SaveOptions.DisableFormatting), _settingsProfileId, _rawProfileInputsDigest, sourceDigest);
             if (projected is null || !TryIsBookEnabled(projected.SourceBook, out bool enabled) || !enabled
