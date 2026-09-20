@@ -11,7 +11,7 @@ namespace Chummer.Application.Characters;
 internal sealed class OwnerBoundCreationWorkspaceStore(
     IWorkspaceStore inner, IOwnerContextLease lease, OwnerContextStamp owner,
     CharacterWorkspaceId workspaceId) : IWorkspaceStore, IWorkspaceAuxiliaryStateAtomicCommitCapability,
-    ICharacterCreationKarmaMetatypeAtomicCommitCapability
+    ICharacterCreationKarmaMetatypeAtomicCommitCapability, ICharacterCreationKarmaFinalizationAtomicCommitCapability
 {
     private bool IsActive
     {
@@ -41,6 +41,18 @@ internal sealed class OwnerBoundCreationWorkspaceStore(
         ICharacterSourceDataResolver sourceResolver)
         => requestedOwner == owner.Owner ? CommitKarmaMetatype(request, sourceResolver)
             : CharacterCreationKarmaMetatypeTransaction.Blocked(CharacterCreationKarmaMetatypeBlockers.WorkspaceUnavailable);
+
+    public CharacterCreationFoundationResult<CharacterCreationFinalizationReceipt> CommitKarmaFinalization(
+        CharacterCreationKarmaFinalizationConfirmRequest request, ICharacterSourceDataResolver sourceResolver)
+        => IsActive && request.Confirmation.Binding.WorkspaceId == workspaceId
+            && inner is ICharacterCreationKarmaFinalizationAtomicCommitCapability capability
+            ? capability.CommitKarmaFinalization(owner.Owner, request, sourceResolver)
+            : CharacterCreationKarmaFinalizationTransaction.Blocked(CharacterCreationFinalizationBlockers.WorkspaceUnavailable);
+
+    public CharacterCreationFoundationResult<CharacterCreationFinalizationReceipt> CommitKarmaFinalization(
+        OwnerScope requestedOwner, CharacterCreationKarmaFinalizationConfirmRequest request, ICharacterSourceDataResolver sourceResolver)
+        => requestedOwner == owner.Owner ? CommitKarmaFinalization(request, sourceResolver)
+            : CharacterCreationKarmaFinalizationTransaction.Blocked(CharacterCreationFinalizationBlockers.WorkspaceUnavailable);
 
     public WorkspaceStoreReadResult Get(CharacterWorkspaceId id)
         => IsActive && id == workspaceId

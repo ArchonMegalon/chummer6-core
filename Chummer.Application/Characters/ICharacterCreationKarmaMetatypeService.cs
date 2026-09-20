@@ -15,4 +15,10 @@ public interface ICharacterCreationKarmaMetatypeService
         IReadOnlyList<CharacterCreationGearSelection>? gearSelections = null);
     CharacterCreationFoundationResult<CharacterCreationKarmaMetatypeCommit> Confirm(
         CharacterCreationKarmaMetatypeConfirmRequest request);
+    CharacterCreationFoundationResult<CharacterCreationKarmaFinalizationBudgetQuote> PreviewFinalizationBudget(
+        CharacterCreationKarmaMetatypeBinding binding, string foundationQuoteDigest, int diceTotal);
+    CharacterCreationFoundationResult<CharacterCreationFinalizationReview> ReviewFinalization(
+        CharacterCreationKarmaMetatypeBinding binding, string foundationQuoteDigest, int diceTotal);
+    CharacterCreationFoundationResult<CharacterCreationFinalizationReceipt> ConfirmFinalization(
+        CharacterCreationKarmaFinalizationConfirmRequest request);
 }

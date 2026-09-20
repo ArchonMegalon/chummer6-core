@@ -2138,6 +2138,70 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             }
         }
 
+        public bool TryResolveCreationKarmaCarryoverPolicy(out CharacterCreationKarmaCarryoverPolicy? policy)
+        {
+            using IDisposable sourceInputScope = _sourceInputs.Enter();
+            policy = null;
+            if (_sourceInputs.HasSourceDrift || _buildMethod != CharacterCreationBuildMethods.Karma
+                || string.IsNullOrWhiteSpace(_settingsProfileId)
+                || !TryComputeEffectiveInputDigest(_catalog, "settings.xml", out string settingsDigest)
+                || BindSelectedProfile(settingsDigest, _settingsProfileId) != _rawProfileInputsDigest
+                || !TryResolveTarget("settings.xml", ["settings"], "setting", _settingsProfileId,
+                    string.Empty, out var settings) || settings is null) return false;
+
+            // CharacterSettings defaults apply only to absent nodes, never to
+            // malformed or duplicate values supplied by a custom profile.
+            int karma = 7;
+            decimal nuyen = 5000m;
+            var costs = settings.Elements("karmacost").Take(2).ToArray();
+            if (costs.Length > 1 || costs.Length == 1 && costs[0].HasAttributes) return false;
+            var karmaNodes = costs.SingleOrDefault()?.Elements("karmacarryover").Take(2).ToArray() ?? [];
+            if (karmaNodes.Length > 1 || karmaNodes.Length == 1
+                && !TryParseNonNegativeIntElement(karmaNodes[0], out karma)) return false;
+            var nuyenNodes = settings.Elements("nuyencarryover").Take(2).ToArray();
+            if (nuyenNodes.Length > 1 || nuyenNodes.Length == 1 && (nuyenNodes[0].HasAttributes
+                || nuyenNodes[0].HasElements || !decimal.TryParse(nuyenNodes[0].Value,
+                    NumberStyles.AllowLeadingWhite | NumberStyles.AllowTrailingWhite | NumberStyles.AllowLeadingSign
+                        | NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out nuyen) || nuyen < 0)) return false;
+            var result = new CharacterCreationKarmaCarryoverPolicy(CharacterCreationKarmaCarryoverPolicy.SchemaV1,
+                _settingsProfileId, _rawProfileInputsDigest, karma, nuyen,
+                [$"settings.xml#setting:{_settingsProfileId}", CharacterCreationKarmaFinalizationBudgetRules.CarryoverAnchor], string.Empty);
+            result = result with { AuthorityDigest = CharacterCreationKarmaFinalizationBudgetRules.PolicyDigest(result) };
+            if (_sourceInputs.HasSourceDrift || !CharacterCreationKarmaFinalizationBudgetRules.IsValidPolicy(result)) return false;
+            policy = result;
+            return true;
+        }
+
+        public bool TryResolveCreationKarmaDefaultStartingNuyen(out CharacterCreationStartingNuyenSource? source)
+        {
+            using IDisposable sourceInputScope = _sourceInputs.Enter();
+            source = null;
+            var lifestyles = _character.Elements("lifestyles").Take(2).ToArray();
+            if (_sourceInputs.HasSourceDrift || _buildMethod != CharacterCreationBuildMethods.Karma
+                || lifestyles.Length > 1 || lifestyles.Length == 1
+                    && (lifestyles[0].HasAttributes || lifestyles[0].HasElements || !string.IsNullOrWhiteSpace(lifestyles[0].Value))
+                || string.IsNullOrWhiteSpace(_settingsProfileId)
+                || !TryComputeEffectiveInputDigest(_catalog, "settings.xml", out string settingsDigest)
+                || BindSelectedProfile(settingsDigest, _settingsProfileId) != _rawProfileInputsDigest
+                || !TryComputeEffectiveInputDigest(_catalog, "lifestyles.xml", out string sourceDigest)
+                || !TryEnumerateTargets("lifestyles.xml", ["lifestyles"], "lifestyle", out var rows)) return false;
+            // Match the legacy fallback by source name, not a UI-invented price,
+            // dice count or source GUID. Ambiguous/custom malformed rows block.
+            var candidates = rows.Where(row => row.Elements("name").Any(node => node.Value.Trim() == "Street")).Take(2).ToArray();
+            if (candidates.Length != 1) return false;
+            var row = candidates[0];
+            var costs = row.Elements("cost").Take(2).ToArray();
+            if (costs.Length != 1 || costs[0].HasAttributes || costs[0].HasElements
+                || !decimal.TryParse(costs[0].Value, NumberStyles.Number, CultureInfo.InvariantCulture, out decimal cost)
+                || cost != 0) return false;
+            var projected = CharacterCreationKarmaFinalizationBudgetRules.ProjectStartingCashSource(
+                row.ToString(SaveOptions.DisableFormatting), _settingsProfileId, _rawProfileInputsDigest, sourceDigest);
+            if (projected is null || !TryIsBookEnabled(projected.SourceBook, out bool enabled) || !enabled
+                || _sourceInputs.HasSourceDrift) return false;
+            source = projected;
+            return true;
+        }
+
         private static bool TryReadCreationSkillCap(XElement settings, string creationName, string careerName,
             out int cap)
         {
@@ -3780,7 +3844,8 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             using IDisposable sourceInputScope = _sourceInputs.Enter();
             authority = CharacterCreationLifestylesAuthority.Unavailable;
             if (string.IsNullOrWhiteSpace(_settingsProfileId)
-                || !CharacterCreationBuildMethods.IsSupported(_prerequisiteBuildMethod)
+                || (!CharacterCreationBuildMethods.IsSupported(_prerequisiteBuildMethod)
+                    && _buildMethod != CharacterCreationBuildMethods.Karma)
                 || !TryComputeEffectiveInputDigest(_catalog, "lifestyles.xml", out string sourceDigest)
                 || !TryComputeEffectiveInputDigest(_catalog, "settings.xml", out string settingsDigest)
                 || !TryResolveTarget(

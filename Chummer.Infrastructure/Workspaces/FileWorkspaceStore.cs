@@ -21,7 +21,7 @@ public sealed partial class FileWorkspaceStore :
     IWorkspaceAuxiliaryStateAtomicCommitCapability,
     ICharacterCreationBootstrapAtomicCreateCapability,
     ICharacterCareerReputationAtomicCommitCapability,
-    ICharacterCreationKarmaMetatypeAtomicCommitCapability
+    ICharacterCreationKarmaMetatypeAtomicCommitCapability, ICharacterCreationKarmaFinalizationAtomicCommitCapability
 {
     private const int CurrentWorkspaceSchemaVersion = 1;
     private const int CurrentWorkspaceRecordSchemaVersion = 4;

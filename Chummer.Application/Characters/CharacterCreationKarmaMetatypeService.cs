@@ -7,10 +7,11 @@ namespace Chummer.Application.Characters;
 
 /// <summary>
 /// Source-owned entry to Karma foundation. Never converts Karma into
-/// a Priority or Life Modules draft, writes character XML, or grants free points.
-/// Only its own pending selections may coexist with bootstrap; later spending is not ignored.
+/// a Priority or Life Modules draft or grants free points. Pending selection
+/// confirmation leaves character XML unchanged; explicit whole-build finalization
+/// uses a separate source-fenced atomic capability and archives the consumed graph.
 /// </summary>
-public sealed class CharacterCreationKarmaMetatypeService(
+public sealed partial class CharacterCreationKarmaMetatypeService(
     IWorkspaceStore workspaceStore,
     ICharacterSourceDataResolver sourceDataResolver) : ICharacterCreationKarmaMetatypeService
 {
@@ -296,6 +297,71 @@ public sealed class CharacterCreationKarmaMetatypeService(
         return _workspaceStore is ICharacterCreationKarmaMetatypeAtomicCommitCapability capability
             ? capability.CommitKarmaMetatype(request, _sourceDataResolver)
             : Blocked<CharacterCreationKarmaMetatypeCommit>(CharacterCreationKarmaMetatypeBlockers.PersistenceUnavailable);
+    }
+
+    /// <summary>
+    /// Read-only completion finances from the persisted build and freshly admitted
+    /// sources. A caller-supplied/historical quote is not source authority. This
+    /// does not mark Created, acquire write permission, or spend starting cash.
+    /// </summary>
+    public CharacterCreationFoundationResult<CharacterCreationKarmaFinalizationBudgetQuote> PreviewFinalizationBudget(
+        CharacterCreationKarmaMetatypeBinding binding, string foundationQuoteDigest, int diceTotal)
+    {
+        ArgumentNullException.ThrowIfNull(binding);
+        try
+        {
+            var read = _workspaceStore.Get(binding.WorkspaceId);
+            if (read.Value is not { } workspace || !Matches(workspace))
+                return Blocked<CharacterCreationKarmaFinalizationBudgetQuote>(CharacterCreationKarmaMetatypeBlockers.StaleBinding);
+            var context = _sourceDataResolver.TryCreateContext(workspace.Document.Content);
+            if (context is null)
+                return Blocked<CharacterCreationKarmaFinalizationBudgetQuote>(CharacterCreationKarmaFinalizationBudgetBlockers.PolicyUnavailable);
+            // Keep catalog admission and the financial projection in ONE source
+            // capture. Creating a second context after Open could miss source
+            // drift between the gear quote and its completion calculation.
+            var captured = new CharacterCreationKarmaMetatypeService(_workspaceStore,
+                new CompletionSourceResolver(workspace.Document.Content, context));
+            var opened = captured.Open(binding.WorkspaceId, includeSkills: true, includeQualities: true, includeGear: true);
+            if (opened.Value is not { State: { } state, Quote: { } foundation })
+                return new(CharacterCreationFoundationOutcomes.Blocked, null, opened.Blockers.Count > 0
+                    ? opened.Blockers : [CharacterCreationKarmaMetatypeBlockers.HistoryInvalid]);
+            if (state.Binding != binding || foundation.QuoteDigest != foundationQuoteDigest)
+                return Blocked<CharacterCreationKarmaFinalizationBudgetQuote>(CharacterCreationKarmaMetatypeBlockers.StaleBinding);
+            if (!context.TryResolveCreationKarmaCarryoverPolicy(out var policy) || policy is null)
+                return Blocked<CharacterCreationKarmaFinalizationBudgetQuote>(CharacterCreationKarmaFinalizationBudgetBlockers.PolicyUnavailable);
+            if (!context.TryResolveCreationKarmaDefaultStartingNuyen(out var source) || source is null)
+                return Blocked<CharacterCreationKarmaFinalizationBudgetQuote>(CharacterCreationKarmaFinalizationBudgetBlockers.StartingCashUnavailable);
+            var quote = CharacterCreationKarmaFinalizationBudgetRules.Evaluate(policy, source, foundation, diceTotal);
+            if (quote is null)
+                return Blocked<CharacterCreationKarmaFinalizationBudgetQuote>(CharacterCreationKarmaFinalizationBudgetBlockers.BudgetInvalid);
+            // Recheck the same captured sources and workspace after projection.
+            // Do not silently rebase a review if a settings/file/owner race occurs.
+            if (!context.TryResolveCreationKarmaCarryoverPolicy(out var finalPolicy)
+                || !context.TryResolveCreationKarmaDefaultStartingNuyen(out var finalSource)
+                || !CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(policy, finalPolicy)
+                || !CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(source, finalSource)
+                || !CharacterCreationBootstrapAuthority.TryPrepareBinding(binding.WorkspaceId, workspace.Document,
+                    context, out var bootstrap, out _, out _)
+                || bootstrap.BindingDigest != binding.BootstrapBindingDigest
+                || _workspaceStore.Get(binding.WorkspaceId).Value is not { } finalWorkspace || !Matches(finalWorkspace))
+                return Blocked<CharacterCreationKarmaFinalizationBudgetQuote>(CharacterCreationKarmaMetatypeBlockers.StaleBinding);
+            return new(CharacterCreationFoundationOutcomes.Success, quote, []);
+        }
+        catch (Exception error) when (error is ArgumentException or FormatException or IOException
+            or InvalidOperationException or UnauthorizedAccessException or System.Xml.XmlException)
+        {
+            return Blocked<CharacterCreationKarmaFinalizationBudgetQuote>(CharacterCreationKarmaFinalizationBudgetBlockers.PolicyUnavailable);
+        }
+
+        bool Matches(WorkspaceStoredDocument workspace) => workspace.ContentRevision == binding.ContentRevision
+            && workspace.SavedRevision == binding.SavedRevision && workspace.Document.AuxiliaryStateDigest == binding.AuxiliaryStateDigest
+            && CharacterCreationFoundationDraftLedgerIntegrity.ComputeRawCharacterXmlDigest(workspace.Document.Content)
+                == binding.RawCharacterXmlDigest;
+    }
+
+    private sealed class CompletionSourceResolver(string xml, ICharacterSourceDataContext context) : ICharacterSourceDataResolver
+    {
+        public ICharacterSourceDataContext? TryCreateContext(string characterXml) => characterXml == xml ? context : null;
     }
 
     public CharacterCreationFoundationResult<CharacterCreationKarmaMetatypeQuote> Preview(

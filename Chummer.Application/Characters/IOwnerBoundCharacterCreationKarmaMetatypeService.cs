@@ -20,4 +20,10 @@ public interface IOwnerBoundCharacterCreationKarmaMetatypeService
         IReadOnlyList<CharacterCreationGearSelection>? gearSelections = null);
     CharacterCreationFoundationResult<CharacterCreationKarmaMetatypeCommit> Confirm(
         OwnerContextStamp expectedOwner, CharacterCreationKarmaMetatypeConfirmRequest request);
+    CharacterCreationFoundationResult<CharacterCreationKarmaFinalizationBudgetQuote> PreviewFinalizationBudget(
+        OwnerContextStamp expectedOwner, CharacterCreationKarmaMetatypeBinding binding, string foundationQuoteDigest, int diceTotal);
+    CharacterCreationFoundationResult<CharacterCreationFinalizationReview> ReviewFinalization(
+        OwnerContextStamp expectedOwner, CharacterCreationKarmaMetatypeBinding binding, string foundationQuoteDigest, int diceTotal);
+    CharacterCreationFoundationResult<CharacterCreationFinalizationReceipt> ConfirmFinalization(
+        OwnerContextStamp expectedOwner, CharacterCreationKarmaFinalizationConfirmRequest request);
 }

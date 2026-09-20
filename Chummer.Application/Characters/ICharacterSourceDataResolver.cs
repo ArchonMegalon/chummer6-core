@@ -139,6 +139,24 @@ public interface ICharacterSourceDataContext
         return false;
     }
 
+    /// <summary>Exact completion carryover limits, not additional creation purchasing power.</summary>
+    bool TryResolveCreationKarmaCarryoverPolicy(out CharacterCreationKarmaCarryoverPolicy? policy)
+    {
+        policy = null;
+        return false;
+    }
+
+    /// <summary>
+    /// Resolves legacy's default Street starting-cash source only when no lifestyle
+    /// exists. Never substitutes Street for an existing or malformed lifestyle.
+    /// This does not create the lifestyle or apply its other source effects.
+    /// </summary>
+    bool TryResolveCreationKarmaDefaultStartingNuyen(out CharacterCreationStartingNuyenSource? source)
+    {
+        source = null;
+        return false;
+    }
+
     /// <summary>Source-owned ordinary Karma qualities, distinct from purchased talents.</summary>
     bool TryResolveCreationKarmaQualities(out CharacterCreationKarmaQualitiesCatalog? catalog)
     {

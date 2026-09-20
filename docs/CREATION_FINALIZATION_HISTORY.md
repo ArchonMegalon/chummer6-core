@@ -59,6 +59,44 @@ its own reachable end-to-end test once that typed path exists.
 
 ## Verification boundary
 
+### Karma completion (local implementation, 20 September 2026)
+
+Karma now has a separate Core whole-build review and atomic finalization path:
+`CharacterCreationKarmaMetatypeService.ReviewFinalization` and
+`ConfirmFinalization`, also exposed through the existing owner-bound service.
+It consumes the saved Karma decision graph, never a fabricated Priority draft.
+Review requires a fresh foundation binding and quote digest. Confirmation binds
+the exact review, plan, source authority, dice total and idempotency key.
+
+The local transaction projects metatype, attributes, skills/groups, racial grants,
+supported purchased qualities and gear, career baseline, the source-owned default
+Street lifestyle and initial career money. Carryover caps come from the active
+profile. Legacy nonnegative resource-Karma rounding is ceiling, not midpoint
+rounding; its adjustment and discarded/carryover amounts are explicit deltas.
+Lifestyle starting money is added after carryover and cannot fund creation gear.
+Free Grid subscriptions follow the actual profile/book policy.
+
+The file store holds the workspace lease, admits sources again immediately before
+atomic replacement, and writes character XML, checkpoint, receipt and complete
+archive together. Recovery observes the durable receipt, never automatically
+reissues a mutation. The generic auxiliary writer cannot authorize this path.
+Karma archives additionally retain the pre-finalization XML and exact projection
+inputs, permitting historical plan/receipt reconstruction without treating those
+sources as authority for new operations. Archive-less Karma receipts are invalid;
+legacy Priority serialization remains unchanged.
+
+This is **not complete Karma creation or phone delivery**. Awakened finalization
+still fails closed pending its typed magic/resonance contribution. Purchased
+lifestyles, Contacts and remaining creation domains are not silently synthesized.
+The Android completion page and its real device save/reopen/restart route are not
+yet wired to this new Core path. The earlier debug APK proves only pending-draft
+behavior, not finalization. No release package, signed AAB or Play upload is implied.
+
+Focused local tests cover actual Human/Elf composition, custom/zero caps, disabled
+or drifting sources, fractional funding, explicit confirmation, concurrent duplicate
+confirmation, foreign/expired owner contexts, pre/post-rename failures, archive
+forgery and cold replay. Existing Priority archive/idempotency checks remain active.
+
 `Chummer.Tests/Chummer.CreationHistory.Tests.csproj` runs the affected existing
 Creation suites plus lifecycle/history regressions. Its isolated output paths
 avoid shared-obj restore collisions; its friend assembly name retains existing

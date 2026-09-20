@@ -91,7 +91,10 @@ public sealed record WorkspaceDocumentAuxiliaryState(
 /// Its canonical digest must match the finalization receipt's previous auxiliary
 /// digest, which also binds the original workspace and revision.
 /// </summary>
-public sealed record CharacterCreationFinalizationArchive(WorkspaceDocumentAuxiliaryState State);
+public sealed record CharacterCreationFinalizationArchive(
+    WorkspaceDocumentAuxiliaryState State,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    CharacterCreationKarmaFinalizationAuthority? KarmaAuthority = null);
 
 public static class WorkspaceDocumentAuxiliaryStateDigest
 {

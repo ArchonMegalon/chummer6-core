@@ -38,6 +38,550 @@ public sealed class CharacterCreationBootstrapServiceTests
     private const string MagicianId = "0e741331-d776-4be8-abc5-4101228abdef";
 
     [TestMethod]
+    public void Karma_completion_budget_caps_leftovers_before_adding_source_owned_starting_cash_without_mutation()
+    {
+        using var fixture = new KarmaDiskFixture(includeSkills: true, includeGear: true, includeLifestyles: true);
+        var before = fixture.Store.Get(fixture.Id).Value!;
+        var foundation = CompletionFoundation(fixture, 10.1m, buyGear: true);
+        var context = fixture.Resolver.TryCreateContext(before.Document.Content)!;
+        Assert.IsTrue(context.TryResolveCreationKarmaCarryoverPolicy(out var policy));
+        Assert.IsTrue(context.TryResolveCreationKarmaDefaultStartingNuyen(out var source));
+        Assert.AreEqual(7, policy!.MaximumKarma);
+        Assert.AreEqual(5000m, policy.MaximumNuyen);
+        Assert.AreEqual("Street", source!.Name);
+        Assert.AreEqual(1, source.Dice);
+        Assert.AreEqual(20m, source.Multiplier);
+        var result = CharacterCreationKarmaFinalizationBudgetRules.Evaluate(policy, source, foundation, 4);
+        Assert.IsNotNull(result);
+        Assert.AreEqual(0.9m, result.ResourceKarmaRoundingAdjustment);
+        Assert.AreEqual(789, result.KarmaBeforeCarryover);
+        Assert.AreEqual(7, result.KarmaCarried);
+        Assert.AreEqual(782, result.KarmaDiscarded);
+        Assert.AreEqual(foundation.Gear!.Budget.RemainingNuyen, result.NuyenBeforeCarryover);
+        Assert.AreEqual(5000m, result.NuyenCarried);
+        Assert.AreEqual(result.NuyenBeforeCarryover - 5000m, result.NuyenDiscarded);
+        Assert.AreEqual(80m, result.LifestyleStartingNuyen);
+        Assert.AreEqual(5080m, result.CareerNuyen, "The cap applies before adding lifestyle money.");
+        Assert.AreEqual(20200m, foundation.Resources!.NuyenFromKarma, "Starting money cannot fund creation purchases.");
+        Assert.IsTrue(CharacterCreationKarmaFinalizationBudgetRules.IsValid(result, foundation));
+        AssertJsonEqual(result, CharacterCreationKarmaFinalizationBudgetRules.Evaluate(policy, source, foundation, 4)!);
+        AssertJsonEqual(before, fixture.Store.Get(fixture.Id).Value!);
+    }
+
+    [TestMethod]
+    public void Karma_completion_budget_uses_house_rules_and_zero_limits_not_ui_defaults()
+    {
+        using var fixture = new KarmaDiskFixture(includeSkills: true, includeGear: true, includeLifestyles: true,
+            configureSettings: settings =>
+            {
+                settings.Element("karmacost")!.SetElementValue("karmacarryover", "0");
+                settings.SetElementValue("nuyencarryover", "0");
+            });
+        fixture.EditLifestyle("Street", row => { row.SetElementValue("dice", "2"); row.SetElementValue("multiplier", "12.5"); });
+        var foundation = CompletionFoundation(fixture, 0m);
+        var context = fixture.Resolver.TryCreateContext(fixture.Store.Get(fixture.Id).Value!.Document.Content)!;
+        Assert.IsTrue(context.TryResolveCreationKarmaCarryoverPolicy(out var policy));
+        Assert.IsTrue(context.TryResolveCreationKarmaDefaultStartingNuyen(out var source));
+        var quote = CharacterCreationKarmaFinalizationBudgetRules.Evaluate(policy!, source!, foundation, 7);
+        Assert.IsNotNull(quote);
+        Assert.AreEqual(0, quote.KarmaCarried);
+        Assert.AreEqual(800, quote.KarmaDiscarded);
+        Assert.AreEqual(0m, quote.NuyenCarried);
+        Assert.AreEqual(87.5m, quote.CareerNuyen);
+    }
+
+    [TestMethod]
+    [DataRow("0.1", 19, "0.9")]
+    [DataRow("0.5", 19, "0.5")]
+    [DataRow("1", 19, "0")]
+    public void Karma_completion_budget_rounds_resource_spend_not_remaining_karma(string investmentText, int expectedKarma, string adjustment)
+    {
+        using var fixture = new KarmaDiskFixture(budget: 20, includeSkills: true, includeGear: true, includeLifestyles: true,
+            configureSettings: settings => settings.Element("karmacost")!.SetElementValue("karmacarryover", "20"));
+        decimal investment = decimal.Parse(investmentText, System.Globalization.CultureInfo.InvariantCulture);
+        var foundation = CompletionFoundation(fixture, investment);
+        var context = fixture.Resolver.TryCreateContext(fixture.Store.Get(fixture.Id).Value!.Document.Content)!;
+        Assert.IsTrue(context.TryResolveCreationKarmaCarryoverPolicy(out var policy));
+        Assert.IsTrue(context.TryResolveCreationKarmaDefaultStartingNuyen(out var source));
+        var result = CharacterCreationKarmaFinalizationBudgetRules.Evaluate(policy!, source!, foundation, 1);
+        Assert.IsNotNull(result);
+        Assert.AreEqual(expectedKarma, result.KarmaBeforeCarryover);
+        Assert.AreEqual(expectedKarma, result.KarmaCarried);
+        Assert.AreEqual(decimal.Parse(adjustment, System.Globalization.CultureInfo.InvariantCulture), result.ResourceKarmaRoundingAdjustment);
+        Assert.AreEqual(investment * 2000m, foundation.Resources!.NuyenFromKarma);
+    }
+
+    [TestMethod]
+    public void Karma_completion_budget_rejects_cash_overflow_and_preserves_zero_cash_sources()
+    {
+        using var fixture = new KarmaDiskFixture(includeSkills: true, includeGear: true, includeLifestyles: true);
+        var foundation = CompletionFoundation(fixture, 0m);
+        var context = fixture.Resolver.TryCreateContext(fixture.Store.Get(fixture.Id).Value!.Document.Content)!;
+        Assert.IsTrue(context.TryResolveCreationKarmaCarryoverPolicy(out var policy));
+        Assert.IsTrue(context.TryResolveCreationKarmaDefaultStartingNuyen(out var source));
+        var row = XElement.Parse(source!.SourceNodeXml);
+        row.SetElementValue("multiplier", decimal.MaxValue.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        var overflow = CharacterCreationKarmaFinalizationBudgetRules.ProjectStartingCashSource(row.ToString(),
+            source.SettingsProfileId, source.RawProfileInputsDigest, source.SourceInputsDigest)!;
+        Assert.IsNull(CharacterCreationKarmaFinalizationBudgetRules.Evaluate(policy!, overflow, foundation, 6));
+        row.SetElementValue("multiplier", "0");
+        var zero = CharacterCreationKarmaFinalizationBudgetRules.ProjectStartingCashSource(row.ToString(),
+            source.SettingsProfileId, source.RawProfileInputsDigest, source.SourceInputsDigest)!;
+        Assert.AreEqual(0m, CharacterCreationKarmaFinalizationBudgetRules.Evaluate(policy!, zero, foundation, 6)!.CareerNuyen);
+    }
+
+    [TestMethod]
+    public void Karma_completion_budget_defaults_apply_only_to_absent_profile_fields()
+    {
+        using var fixture = new KarmaDiskFixture(configureSettings: settings =>
+        {
+            settings.Element("karmacost")!.Elements("karmacarryover").Remove();
+            settings.Elements("nuyencarryover").Remove();
+        });
+        var context = fixture.Resolver.TryCreateContext(fixture.Store.Get(fixture.Id).Value!.Document.Content)!;
+        Assert.IsTrue(context.TryResolveCreationKarmaCarryoverPolicy(out var policy));
+        Assert.AreEqual(7, policy!.MaximumKarma);
+        Assert.AreEqual(5000m, policy.MaximumNuyen);
+        foreach (var (field, value) in new[] { ("karmacarryover", "-1"), ("karmacarryover", "7.5"),
+                     ("karmacarryover", ""), ("karmacarryover", "2147483648"), ("nuyencarryover", "-1"),
+                     ("nuyencarryover", "five thousand"), ("nuyencarryover", "1,000"), ("nuyencarryover", "1e4") })
+        {
+            using var invalid = new KarmaDiskFixture(configureSettings: settings =>
+                (field == "karmacarryover" ? settings.Element("karmacost")! : settings).SetElementValue(field, value));
+            var malformed = invalid.Resolver.TryCreateContext(invalid.Store.Get(invalid.Id).Value!.Document.Content)!;
+            Assert.IsFalse(malformed.TryResolveCreationKarmaCarryoverPolicy(out _), field + ":" + value);
+        }
+    }
+
+    [TestMethod]
+    public void Karma_completion_budget_rejects_duplicate_or_structured_carryover_fields()
+    {
+        Action<XElement>[] changes =
+        [
+            settings => settings.Element("karmacost")!.Add(new XElement("karmacarryover", 7)),
+            settings => { settings.SetElementValue("nuyencarryover", 5000); settings.Add(new XElement("nuyencarryover", 5000)); },
+            settings => settings.Element("karmacost")!.Element("karmacarryover")!.Add(new XAttribute("override", "true")),
+            settings => { settings.SetElementValue("nuyencarryover", 5000); settings.Element("nuyencarryover")!.Add(new XElement("value", 5000)); },
+            settings => settings.Add(new XElement("karmacost", new XElement("karmacarryover", 7)))
+        ];
+        foreach (var change in changes)
+        {
+            using var fixture = new KarmaDiskFixture(configureSettings: change);
+            var context = fixture.Resolver.TryCreateContext(fixture.Store.Get(fixture.Id).Value!.Document.Content)!;
+            Assert.IsFalse(context.TryResolveCreationKarmaCarryoverPolicy(out _));
+        }
+    }
+
+    [TestMethod]
+    public void Karma_completion_budget_refuses_unbound_or_incomplete_quotes_and_tampered_amounts()
+    {
+        using var fixture = new KarmaDiskFixture(includeSkills: true, includeGear: true, includeLifestyles: true);
+        var foundation = CompletionFoundation(fixture, 10m);
+        var context = fixture.Resolver.TryCreateContext(fixture.Store.Get(fixture.Id).Value!.Document.Content)!;
+        Assert.IsTrue(context.TryResolveCreationKarmaCarryoverPolicy(out var policy));
+        Assert.IsTrue(context.TryResolveCreationKarmaDefaultStartingNuyen(out var source));
+        var result = CharacterCreationKarmaFinalizationBudgetRules.Evaluate(policy!, source!, foundation, 6)!;
+        Assert.IsNull(CharacterCreationKarmaFinalizationBudgetRules.Evaluate(policy!, source!, foundation, 0));
+        Assert.IsNull(CharacterCreationKarmaFinalizationBudgetRules.Evaluate(policy!, source!, foundation, 7));
+        Assert.IsNull(CharacterCreationKarmaFinalizationBudgetRules.Evaluate(policy!, source! with { Multiplier = 10000 }, foundation, 6));
+        var other = policy! with { RawProfileInputsDigest = CharacterCreationFinalizationDigest.ComputeUtf8("foreign"), AuthorityDigest = string.Empty };
+        other = other with { AuthorityDigest = CharacterCreationKarmaFinalizationBudgetRules.PolicyDigest(other) };
+        Assert.IsNull(CharacterCreationKarmaFinalizationBudgetRules.Evaluate(other, source!, foundation, 6));
+        foreach (var invalid in new[] { foundation with { Skills = null }, foundation with { Gear = null },
+                     foundation with { Qualities = null }, foundation with { Resources = null },
+                     foundation with { KarmaBudget = foundation.KarmaBudget with { Remaining = 800 } },
+                     foundation with { Resources = foundation.Resources! with { NuyenFromKarma = 999999 } } })
+        {
+            var rehashed = invalid with { QuoteDigest = string.Empty };
+            rehashed = rehashed with { QuoteDigest = CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(rehashed) };
+            Assert.IsNull(CharacterCreationKarmaFinalizationBudgetRules.Evaluate(policy!, source!, rehashed, 6));
+        }
+        var forged = result with { CareerNuyen = result.CareerNuyen + 1m, QuoteDigest = string.Empty };
+        forged = forged with { QuoteDigest = CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(forged) };
+        Assert.IsFalse(CharacterCreationKarmaFinalizationBudgetRules.IsValid(forged, foundation));
+    }
+
+    [TestMethod]
+    public void Karma_completion_starting_cash_refuses_absent_disabled_ambiguous_and_changed_sources()
+    {
+        using var missing = new KarmaDiskFixture();
+        Assert.IsFalse(missing.Resolver.TryCreateContext(missing.Store.Get(missing.Id).Value!.Document.Content)!
+            .TryResolveCreationKarmaDefaultStartingNuyen(out _));
+        using var fixture = new KarmaDiskFixture(includeLifestyles: true);
+        var document = fixture.Store.Get(fixture.Id).Value!.Document.Content;
+        var captured = fixture.Resolver.TryCreateContext(document)!;
+        Assert.IsTrue(captured.TryResolveCreationKarmaDefaultStartingNuyen(out _));
+        fixture.EditLifestyle("Street", row => row.SetElementValue("multiplier", "21"));
+        Assert.IsFalse(captured.TryResolveCreationKarmaDefaultStartingNuyen(out _), "A source context cannot accept drift.");
+        var fresh = fixture.Resolver.TryCreateContext(document)!;
+        Assert.IsTrue(fresh.TryResolveCreationKarmaDefaultStartingNuyen(out var changed));
+        Assert.AreEqual(21m, changed!.Multiplier);
+        fixture.EditLifestyle("Street", row => row.SetElementValue("source", "DISABLED"));
+        Assert.IsFalse(fixture.Resolver.TryCreateContext(document)!.TryResolveCreationKarmaDefaultStartingNuyen(out _));
+        fixture.EditLifestyle("Street", row => { row.SetElementValue("source", "SR5"); row.Add(new XElement("dice", 1)); });
+        Assert.IsFalse(fixture.Resolver.TryCreateContext(document)!.TryResolveCreationKarmaDefaultStartingNuyen(out _));
+    }
+
+    [TestMethod]
+    public void Karma_completion_default_lifestyle_never_overwrites_an_existing_or_malformed_lifestyle()
+    {
+        using var fixture = new KarmaDiskFixture(includeLifestyles: true);
+        var document = XDocument.Parse(fixture.Store.Get(fixture.Id).Value!.Document.Content);
+        document.Root!.Elements("lifestyles").Remove();
+        document.Root.Add(new XElement("lifestyles", new XElement("lifestyle", new XElement("name", "Low"))));
+        Assert.IsFalse(fixture.Resolver.TryCreateContext(document.ToString())!.TryResolveCreationKarmaDefaultStartingNuyen(out _));
+        document.Root.Element("lifestyles")!.RemoveNodes();
+        document.Root.Add(new XElement("lifestyles"));
+        Assert.IsFalse(fixture.Resolver.TryCreateContext(document.ToString())!.TryResolveCreationKarmaDefaultStartingNuyen(out _));
+    }
+
+    private static CharacterCreationKarmaMetatypeQuote CompletionFoundation(KarmaDiskFixture fixture,
+        decimal investment, bool buyGear = false)
+    {
+        var state = fixture.Service.Load(fixture.Id, includeSkills: true, includeQualities: true, includeGear: true).Value!;
+        var skills = new CharacterCreationKarmaSkillsSelection([NativeEnglish(state.SkillsCatalog!)], [], null);
+        var item = state.GearAuthority!.Options.First(option => option.IsSelectable && option.PackageCost is > 0 and < 1000);
+        CharacterCreationGearSelection[] gear = buyGear ? [new(item.OptionId, item.PackageQuantity)] : [];
+        var quote = fixture.Service.Preview(state.Binding, HumanId, "mundane", [], skills, investment, [], gear).Value;
+        Assert.IsNotNull(quote);
+        Assert.IsTrue(quote.CanSelect, string.Join(",", quote.Blockers));
+        return quote;
+    }
+
+    [TestMethod]
+    [DataRow(HumanId)]
+    [DataRow(ElfId)]
+    public void Karma_completion_projector_composes_the_saved_build_without_writing(string metatypeId)
+    {
+        bool freeGrid = metatypeId == ElfId;
+        using var fixture = new KarmaDiskFixture(includeSkills: true, includeGear: true, includeLifestyles: true,
+            configureSettings: settings => settings.SetElementValue("allowfreegrids", freeGrid));
+        var state = fixture.Service.Load(fixture.Id, true, true, true).Value!;
+        var pistols = state.SkillsCatalog!.ActiveSkills.Single(item => item.Name == "Pistols");
+        var skills = new CharacterCreationKarmaSkillsSelection(
+            [NativeEnglish(state.SkillsCatalog), new(pistols.SourceSkillId, pistols.Kind, 2)], []);
+        var quality = state.QualitiesCatalog!.Options.Single(item => item.Name == "Unsteady Hands");
+        var gear = state.GearAuthority!.Options.Single(item => item.Name == "Flashlight, Low-light" && item.IsSelectable);
+        Assert.IsNotNull(fixture.Service.Confirm(fixture.Request(metatypeId, "mundane", [new("BOD", 2)],
+            skills, 10.1m, [quality.OptionId], [new(gear.OptionId, 2)])).Value);
+        var quote = fixture.Service.Open(fixture.Id, true, true, true).Value!.Quote!;
+        var before = fixture.Store.Get(fixture.Id).Value!;
+        var source = fixture.Resolver.TryCreateContext(before.Document.Content)!;
+        Assert.IsTrue(source.TryResolveCreationKarmaCarryoverPolicy(out var policy));
+        Assert.IsTrue(source.TryResolveCreationKarmaDefaultStartingNuyen(out var starting));
+        Assert.IsTrue(source.TryResolveCreationKarmaGrantSources(metatypeId, "mundane", out var racial, out _));
+        Assert.IsTrue(source.TryResolveCreationLifestylesAuthority(out var lifestyles));
+        var finances = CharacterCreationKarmaFinalizationBudgetRules.Evaluate(policy!, starting!, quote, 4)!;
+        Assert.IsTrue(CharacterCreationKarmaFinalizationProjector.TryProject(before, quote, finances, racial, lifestyles,
+            out var xml, out var deltas, out var blockers), string.Join(",", blockers));
+        var root = XDocument.Parse(xml).Root!;
+        Assert.AreEqual("True", root.Element("created")!.Value);
+        Assert.IsNull(root.Element(CharacterCreationBootstrapXml.MarkerElement));
+        Assert.AreEqual(metatypeId, root.Element("metatypeid")!.Value);
+        Assert.AreEqual("Karma", root.Element("buildmethod")!.Value);
+        Assert.AreEqual("2/1/0", root.Element("walk")!.Value);
+        var body = root.Element("attributes")!.Elements("attribute").Single(item => item.Element("name")!.Value == "BOD");
+        Assert.AreEqual("2", body.Element("karma")!.Value);
+        Assert.AreEqual("0", body.Element("base")!.Value);
+        Assert.AreEqual("3", body.Element("totalvalue")!.Value);
+        var skill = root.Element("newskills")!.Element("skills")!.Elements("skill").Single();
+        Assert.AreEqual(pistols.SourceSkillId, skill.Element("suid")!.Value);
+        Assert.AreEqual("2", skill.Element("karma")!.Value);
+        var language = root.Element("newskills")!.Element("knoskills")!.Elements("skill").Single();
+        Assert.AreEqual("True", language.Element("isnativelanguage")!.Value);
+        Assert.AreEqual(racial.Count + 1, root.Element("qualities")!.Elements("quality").Count());
+        Assert.IsTrue(root.Element("qualities")!.Elements("quality").Any(item => item.Element("name")!.Value == "Unsteady Hands"));
+        var savedGear = root.Element("gears")!.Elements("gear").Single();
+        Assert.AreEqual("2", savedGear.Element("qty")!.Value);
+        Assert.AreEqual("Flashlight, Low-light", savedGear.Element("name")!.Value);
+        var lifestyle = root.Element("lifestyles")!.Elements("lifestyle").Single();
+        Assert.AreEqual("Street", lifestyle.Element("name")!.Value);
+        Assert.AreEqual(freeGrid ? 1 : 0, lifestyle.Descendants("lifestylequality").Count());
+        if (freeGrid)
+        {
+            var grid = lifestyle.Descendants("lifestylequality").Single();
+            Assert.AreEqual("Grid Subscription", grid.Element("name")!.Value);
+            Assert.AreEqual("Public Grid", grid.Element("extra")!.Value);
+            Assert.AreEqual("True", grid.Element("isfreegrid")!.Value);
+        }
+        Assert.AreEqual("7", root.Element("karma")!.Value);
+        Assert.AreEqual("5080", root.Element("nuyen")!.Value);
+        Assert.AreEqual(quote.KarmaBudget.Used + 0.9m, deltas.Sum(item => item.KarmaCost));
+        Assert.AreEqual(50m, deltas.Sum(item => item.NuyenCost));
+        CollectionAssert.AreEqual(Enumerable.Range(1, deltas.Length).ToArray(), deltas.Select(item => item.Order).ToArray());
+        AssertJsonEqual(before, fixture.Store.Get(fixture.Id).Value!);
+        var coldStore = new FileWorkspaceStore(fixture.StateRoot);
+        var coldQuote = new CharacterCreationKarmaMetatypeService(coldStore, fixture.Resolver).Open(fixture.Id, true, true, true).Value!.Quote!;
+        Assert.IsTrue(CharacterCreationKarmaFinalizationProjector.TryProject(coldStore.Get(fixture.Id).Value!, coldQuote,
+            finances, racial, lifestyles, out var coldXml, out var coldDeltas, out _));
+        Assert.AreEqual(xml, coldXml);
+        AssertJsonEqual(deltas, coldDeltas);
+        Assert.IsFalse(CharacterCreationKarmaFinalizationProjector.TryProject(before, quote,
+            finances with { CareerNuyen = 999999 }, racial, lifestyles, out var rejected, out var rejectedDeltas, out _));
+        Assert.AreEqual(string.Empty, rejected);
+        Assert.AreEqual(0, rejectedDeltas.Length);
+        Assert.IsFalse(CharacterCreationKarmaFinalizationProjector.TryProject(before with { ContentRevision = before.ContentRevision + 1 },
+            quote, finances, racial, lifestyles, out _, out _, out _));
+        Assert.IsFalse(CharacterCreationKarmaFinalizationProjector.TryProject(before, quote, finances, racial,
+            lifestyles with { SourceDigest = new string('0', 64) }, out _, out _, out _));
+    }
+
+    [TestMethod]
+    public void Karma_completion_review_uses_saved_current_build_and_does_not_finalize_or_change_history()
+    {
+        using var fixture = new KarmaDiskFixture(includeSkills: true, includeGear: true, includeLifestyles: true);
+        var pending = CompletionFoundation(fixture, 10.1m, buyGear: true);
+        Assert.IsNull(fixture.Service.PreviewFinalizationBudget(pending.Binding, pending.QuoteDigest, 4).Value,
+            "An unsaved UI quote cannot substitute for the confirmed build.");
+        var command = new CharacterCreationKarmaMetatypeConfirmRequest(pending.Binding, HumanId,
+            pending.QuoteDigest, Guid.NewGuid(), true, "mundane", [], pending.Skills!.Selection, 10.1m, [],
+            pending.Gear!.Lines.Select(line => new CharacterCreationGearSelection(line.OptionId, line.Quantity)).ToArray());
+        Assert.IsNotNull(fixture.Service.Confirm(command).Value);
+        var current = fixture.Service.Open(fixture.Id, true, true, true).Value!.Quote!;
+        var before = fixture.Store.Get(fixture.Id).Value!;
+        var counted = new KarmaOpenCountingResolver(fixture.Resolver);
+        var service = new CharacterCreationKarmaMetatypeService(fixture.Store, counted);
+        var review = service.PreviewFinalizationBudget(current.Binding, current.QuoteDigest, 4);
+        Assert.IsNotNull(review.Value, string.Join(",", review.Blockers));
+        Assert.AreEqual(1, counted.Contexts, "Admission and completion must share one captured source context.");
+        Assert.AreEqual(5080m, review.Value.CareerNuyen);
+        Assert.IsNull(service.PreviewFinalizationBudget(pending.Binding, pending.QuoteDigest, 4).Value);
+        Assert.IsNull(service.PreviewFinalizationBudget(current.Binding, pending.QuoteDigest, 4).Value);
+        var cold = new CharacterCreationKarmaMetatypeService(new FileWorkspaceStore(fixture.StateRoot), fixture.Resolver);
+        AssertJsonEqual(review.Value, cold.PreviewFinalizationBudget(current.Binding, current.QuoteDigest, 4).Value!);
+        using var foreignOwner = new RequestOwnerContextAccessor(new("foreign-completion-owner"));
+        var foreign = new OwnerBoundCharacterCreationKarmaMetatypeService(fixture.Store, foreignOwner, fixture.Resolver);
+        Assert.IsNull(foreign.PreviewFinalizationBudget(foreignOwner.Capture(), current.Binding, current.QuoteDigest, 4).Value);
+        AssertJsonEqual(before, fixture.Store.Get(fixture.Id).Value!);
+        fixture.EditGear(pending.Gear.Lines[0].Name, row => row.SetElementValue("cost", "999"));
+        Assert.IsNull(cold.PreviewFinalizationBudget(current.Binding, current.QuoteDigest, 4).Value);
+        AssertJsonEqual(before, fixture.Store.Get(fixture.Id).Value!);
+    }
+
+    private static CharacterCreationKarmaFinalizationConfirmRequest CompletionRequest(KarmaDiskFixture fixture)
+    {
+        var pending = CompletionFoundation(fixture, 10.1m, buyGear: true);
+        Assert.IsNotNull(fixture.Service.Confirm(new(pending.Binding, HumanId, pending.QuoteDigest,
+            Guid.NewGuid(), true, "mundane", [], pending.Skills!.Selection, 10.1m, [],
+            pending.Gear!.Lines.Select(item => new CharacterCreationGearSelection(item.OptionId, item.Quantity)).ToArray())).Value);
+        var current = fixture.Service.Open(fixture.Id, true, true, true).Value!.Quote!;
+        var reviewed = fixture.Service.ReviewFinalization(current.Binding, current.QuoteDigest, 4);
+        Assert.IsNotNull(reviewed.Value, string.Join(",", reviewed.Blockers));
+        var review = reviewed.Value;
+        Assert.IsTrue(review.CanConfirm);
+        Assert.IsNotNull(review.Plan);
+        return new(new(review.Binding, review.PreviewDigest, review.Plan.PlanDigest, Guid.NewGuid().ToString("D"), true), 4);
+    }
+
+    [TestMethod]
+    public void Karma_completion_atomic_confirm_archives_history_and_cold_replay_never_spends_twice()
+    {
+        using var fixture = new KarmaDiskFixture(includeSkills: true, includeGear: true, includeLifestyles: true);
+        var request = CompletionRequest(fixture);
+        var before = fixture.Store.Get(fixture.Id).Value!;
+        Assert.IsNull(fixture.Service.ConfirmFinalization(request with
+            { Confirmation = request.Confirmation with { ExplicitlyConfirmed = false } }).Value);
+        Assert.IsNull(fixture.Service.ConfirmFinalization(request with { DiceTotal = 5 }).Value);
+        AssertJsonEqual(before, fixture.Store.Get(fixture.Id).Value!);
+        var result = fixture.Service.ConfirmFinalization(request);
+        Assert.IsNotNull(result.Value, string.Join(",", result.Blockers));
+        var coldStore = new FileWorkspaceStore(fixture.StateRoot);
+        var afterRead = coldStore.Get(fixture.Id);
+        Assert.IsTrue(afterRead.Success, afterRead.Error);
+        var after = afterRead.Value!;
+        Assert.AreEqual(before.ContentRevision + 1, after.ContentRevision);
+        Assert.AreEqual(after.ContentRevision, after.SavedRevision);
+        Assert.AreEqual("True", XDocument.Parse(after.Document.Content).Root!.Element("created")!.Value);
+        Assert.IsNull(after.Document.AuxiliaryState.CharacterCreationKarmaMetatypeDecisions);
+        Assert.IsNull(after.Document.AuxiliaryState.CharacterCreationBootstrapBinding);
+        AssertJsonEqual(before.Document.AuxiliaryState, after.Document.AuxiliaryState.CharacterCreationFinalizationArchive!.State);
+        Assert.AreEqual(result.Value.AuthorityDigest,
+            after.Document.AuxiliaryState.CharacterCreationFinalizationArchive.KarmaAuthority!.AuthorityDigest);
+        var cold = new CharacterCreationKarmaMetatypeService(coldStore, fixture.Resolver);
+        AssertJsonEqual(result.Value, cold.ConfirmFinalization(request).Value!);
+        Assert.IsNull(cold.ConfirmFinalization(request with { DiceTotal = 5 }).Value);
+        Assert.IsNull(cold.ConfirmFinalization(request with
+            { Confirmation = request.Confirmation with { IdempotencyKey = Guid.NewGuid().ToString("D") } }).Value);
+        Assert.IsNull(cold.Open(fixture.Id, true, true, true).Value);
+        fixture.EditLifestyle("Street", row => row.SetElementValue("multiplier", 99));
+        AssertJsonEqual(result.Value, cold.ConfirmFinalization(request).Value!);
+        AssertJsonEqual(after, coldStore.Get(fixture.Id).Value!);
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void Karma_completion_atomic_failure_recovers_only_the_durable_result(bool afterReplace)
+    {
+        using var fixture = new KarmaDiskFixture(includeSkills: true, includeGear: true, includeLifestyles: true);
+        var request = CompletionRequest(fixture);
+        var before = fixture.Store.Get(fixture.Id).Value!;
+        fixture.Fault.Action = stage =>
+        {
+            if (stage == (afterReplace ? FileWorkspaceStoreFaultStage.AfterTargetReplaced
+                    : FileWorkspaceStoreFaultStage.AfterTempFileFlushed)) throw new IOException("Injected completion failure");
+        };
+        var result = fixture.Service.ConfirmFinalization(request);
+        fixture.Fault.Action = null;
+        var coldStore = new FileWorkspaceStore(fixture.StateRoot);
+        if (!afterReplace)
+        {
+            Assert.IsNull(result.Value);
+            AssertJsonEqual(before, coldStore.Get(fixture.Id).Value!);
+        }
+        else Assert.IsNotNull(result.Value, string.Join(",", result.Blockers));
+        var cold = new CharacterCreationKarmaMetatypeService(coldStore, fixture.Resolver);
+        Assert.IsNotNull(cold.ConfirmFinalization(request).Value);
+        Assert.AreEqual(before.ContentRevision + 1, coldStore.Get(fixture.Id).Value!.ContentRevision);
+    }
+
+    [TestMethod]
+    public void Karma_completion_source_fence_rejects_changes_after_temporary_file_flush()
+    {
+        using var fixture = new KarmaDiskFixture(includeSkills: true, includeGear: true, includeLifestyles: true);
+        var request = CompletionRequest(fixture);
+        var before = fixture.Store.Get(fixture.Id).Value!;
+        fixture.Fault.Action = stage =>
+        {
+            if (stage == FileWorkspaceStoreFaultStage.AfterTempFileFlushed)
+                fixture.EditLifestyle("Street", row => row.SetElementValue("multiplier", 999));
+        };
+        Assert.IsNull(fixture.Service.ConfirmFinalization(request).Value);
+        fixture.Fault.Action = null;
+        AssertJsonEqual(before, new FileWorkspaceStore(fixture.StateRoot).Get(fixture.Id).Value!);
+    }
+
+    [TestMethod]
+    public void Karma_completion_requires_typed_store_and_rejects_rehashed_archive_forgery()
+    {
+        using var fixture = new KarmaDiskFixture(includeSkills: true, includeGear: true, includeLifestyles: true);
+        var request = CompletionRequest(fixture);
+        var before = fixture.Store.Get(fixture.Id).Value!;
+        Assert.IsTrue(CharacterCreationKarmaFinalizationTransaction.TryBuild(OwnerScope.LocalSingleUser, before,
+            fixture.Resolver, request, out var replacement, out _));
+        Assert.IsFalse(fixture.Store.ReplaceWorkspaceDocumentAndAuxiliaryStateAndCheckpoint(fixture.Id,
+            before.ContentRevision, before.Document.AuxiliaryStateDigest, replacement!).Success);
+        var fake = new CharacterCreationKarmaMetatypeService(new InMemoryWorkspaceStore(), fixture.Resolver);
+        CollectionAssert.Contains(fake.ConfirmFinalization(request).Blockers.ToArray(),
+            CharacterCreationFinalizationBlockers.AtomicPersistenceRequired);
+        Assert.IsNull(fixture.Store.CommitKarmaFinalization(new OwnerScope("local-single-user"), request, fixture.Resolver).Value);
+        AssertJsonEqual(before, fixture.Store.Get(fixture.Id).Value!);
+        var state = replacement!.AuxiliaryState;
+        Assert.IsTrue(WorkspaceAuxiliaryStateIntegrity.IsValidShape(fixture.Id, before.ContentRevision + 1, state));
+        var archive = state.CharacterCreationFinalizationArchive!;
+        var authority = archive.KarmaAuthority!;
+        var changed = authority with { RawCharacterXml = authority.RawCharacterXml.Replace("</character>", "<notes>changed</notes></character>") };
+        changed = changed with { AuthorityDigest = CharacterCreationKarmaFinalizationTransaction.AuthorityDigest(changed) };
+        var receipt = state.CharacterCreationFinalizationReceipts![0].Receipt with { AuthorityDigest = changed.AuthorityDigest };
+        receipt = receipt with { ReceiptDigest = CharacterCreationFinalizationDigest.ComputeReceiptDigest(receipt) };
+        var forged = state with
+        {
+            CharacterCreationFinalizationArchive = archive with { KarmaAuthority = changed },
+            CharacterCreationFinalizationReceipts = [new(receipt.IdempotencyKeyDigest, receipt.CommandDigest, receipt)]
+        };
+        Assert.IsFalse(WorkspaceAuxiliaryStateIntegrity.IsValidShape(fixture.Id, before.ContentRevision + 1, forged));
+        Assert.IsFalse(WorkspaceAuxiliaryStateIntegrity.IsValidShape(fixture.Id, before.ContentRevision + 1,
+            state with { CharacterCreationFinalizationArchive = archive with { KarmaAuthority = null } }));
+        Assert.IsFalse(WorkspaceAuxiliaryStateIntegrity.IsValidShape(fixture.Id, before.ContentRevision + 1,
+            state with { CharacterCreationFinalizationArchive = null }));
+        Assert.IsNotNull(fixture.Service.ConfirmFinalization(request).Value);
+    }
+
+    [TestMethod]
+    public async Task Karma_completion_concurrent_confirmations_commit_one_revision()
+    {
+        using var fixture = new KarmaDiskFixture(includeSkills: true, includeGear: true, includeLifestyles: true);
+        var request = CompletionRequest(fixture);
+        var other = new CharacterCreationKarmaMetatypeService(new FileWorkspaceStore(fixture.StateRoot), fixture.Resolver);
+        var results = await Task.WhenAll(Task.Run(() => fixture.Service.ConfirmFinalization(request)),
+            Task.Run(() => other.ConfirmFinalization(request)));
+        Assert.IsTrue(results.All(item => item.Value is not null), string.Join(",", results.SelectMany(item => item.Blockers)));
+        AssertJsonEqual(results[0].Value!, results[1].Value!);
+        Assert.AreEqual(request.Confirmation.Binding.ContentRevision + 1, fixture.Store.Get(fixture.Id).Value!.ContentRevision);
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void Karma_completion_partial_build_returns_a_blocker_instead_of_throwing(bool metatypeSaved)
+    {
+        using var fixture = new KarmaDiskFixture(includeSkills: true, includeGear: true, includeLifestyles: true);
+        if (metatypeSaved) Assert.IsNotNull(fixture.Service.Confirm(fixture.Request(HumanId)).Value);
+        var opened = fixture.Service.Open(fixture.Id, true, true, true).Value!;
+        var result = fixture.Service.ReviewFinalization(opened.State.Binding,
+            opened.Quote?.QuoteDigest ?? CharacterCreationFinalizationDigest.ComputeUtf8("no-saved-selection"), 4);
+        Assert.IsNull(result.Value);
+        Assert.IsTrue(result.Blockers.Count > 0);
+    }
+
+    [TestMethod]
+    public void Karma_completion_owner_lease_rejects_foreign_and_expired_contexts()
+    {
+        using var fixture = new KarmaDiskFixture(includeSkills: true, includeGear: true, includeLifestyles: true);
+        using var owner = new RequestOwnerContextAccessor(new("completion-owner"));
+        using var stranger = new RequestOwnerContextAccessor(new("completion-stranger"));
+        var stamp = owner.Capture();
+        var bootstrap = new OwnerBoundCharacterCreationBootstrapService(CreateService(fixture.Store, fixture.Resolver, CreateFileQueries()), owner);
+        var id = bootstrap.Create(stamp, KarmaRequest()).Value!.WorkspaceId;
+        var service = new OwnerBoundCharacterCreationKarmaMetatypeService(fixture.Store, owner, fixture.Resolver);
+        var foreign = new OwnerBoundCharacterCreationKarmaMetatypeService(fixture.Store, stranger, fixture.Resolver);
+        var state = service.Load(stamp, id, true, true, true).Value!;
+        var skills = new CharacterCreationKarmaSkillsSelection([NativeEnglish(state.SkillsCatalog!)], []);
+        var quote = service.Preview(stamp, state.Binding, HumanId, "mundane", [], skills, 0m, [], []).Value!;
+        Assert.IsNotNull(service.Confirm(stamp, new(quote.Binding, HumanId, quote.QuoteDigest,
+            Guid.NewGuid(), true, "mundane", [], skills, 0m, [], [])).Value);
+        quote = service.Open(stamp, id, true, true, true).Value!.Quote!;
+        var review = service.ReviewFinalization(stamp, quote.Binding, quote.QuoteDigest, 4).Value!;
+        Assert.IsNotNull(review);
+        var request = new CharacterCreationKarmaFinalizationConfirmRequest(
+            new(review.Binding, review.PreviewDigest, review.Plan!.PlanDigest, Guid.NewGuid().ToString("D"), true), 4);
+        Assert.IsNull(foreign.ConfirmFinalization(stranger.Capture(), request).Value);
+        Assert.IsNull(fixture.Service.ConfirmFinalization(request).Value);
+        Assert.IsNotNull(service.ConfirmFinalization(stamp, request).Value);
+        Assert.IsFalse(fixture.Store.Get(id).Success);
+        owner.Dispose();
+        Assert.IsNull(service.ConfirmFinalization(stamp, request).Value);
+    }
+
+    [TestMethod]
+    public void Karma_completion_cold_career_rewards_and_reputation_preserve_the_creation_archive()
+    {
+        using var fixture = new KarmaDiskFixture(includeSkills: true, includeGear: true, includeLifestyles: true);
+        var request = CompletionRequest(fixture);
+        var receipt = fixture.Service.ConfirmFinalization(request).Value!;
+        Assert.IsNotNull(receipt);
+        var coldStore = new FileWorkspaceStore(fixture.StateRoot);
+        var before = coldStore.Get(fixture.Id).Value!;
+        var reputation = new WorkspaceCharacterCareerReputationService(coldStore, fixture.Resolver);
+        var read = reputation.Read(fixture.Id);
+        Assert.AreEqual(CharacterCareerReputationOutcome.Available, read.Outcome, read.Error);
+        Assert.AreEqual(0, read.Snapshot!.Reputation.Inputs.CareerKarma);
+        var review = reputation.Preview(new(fixture.Id, Guid.NewGuid(), CharacterCareerReputationOperation.AdjustManualAwards,
+            new(1, null, null), "First Karma-created runner award"));
+        Assert.IsNotNull(review.Preview, review.Error);
+        var command = review.Preview.Command with { ExplicitlyConfirmed = true };
+        Assert.AreEqual(CharacterCareerReputationOutcome.Applied, reputation.Commit(command).Outcome);
+        var rewards = new WorkspaceCharacterAfterRunRewardService(new FileWorkspaceStore(fixture.StateRoot));
+        var rewardReview = rewards.Preview(new(fixture.Id, Guid.NewGuid(), Guid.NewGuid(),
+            8, 12500, new DateTime(2078, 9, 7, 18, 0, 0), "First run"));
+        Assert.IsNotNull(rewardReview.Preview, rewardReview.Error);
+        Assert.AreEqual(15m, rewardReview.Preview.KarmaAfter);
+        Assert.AreEqual(17580m, rewardReview.Preview.NuyenAfter);
+        var rewardCommand = rewardReview.Preview.Command with { ExplicitlyConfirmed = true };
+        Assert.AreEqual(CharacterAfterRunRewardOutcome.Applied, rewards.Commit(rewardCommand).Outcome);
+        var after = new FileWorkspaceStore(fixture.StateRoot).Get(fixture.Id).Value!;
+        Assert.AreEqual(before.ContentRevision + 2, after.ContentRevision);
+        AssertJsonEqual(before.Document.AuxiliaryState.CharacterCreationFinalizationArchive!,
+            after.Document.AuxiliaryState.CharacterCreationFinalizationArchive!);
+        Assert.AreEqual(8, reputation.Read(fixture.Id).Snapshot!.Reputation.Inputs.CareerKarma);
+        Assert.AreEqual(1, reputation.Read(fixture.Id).Snapshot!.Reputation.Inputs.StreetCred);
+        Assert.AreEqual(CharacterCareerReputationOutcome.Replayed, reputation.Commit(command).Outcome);
+        Assert.AreEqual(CharacterAfterRunRewardOutcome.Replayed, rewards.Commit(rewardCommand).Outcome);
+        AssertJsonEqual(receipt, new CharacterCreationKarmaMetatypeService(coldStore, fixture.Resolver).ConfirmFinalization(request).Value!);
+        Assert.AreEqual(after.ContentRevision, coldStore.Get(fixture.Id).Value!.ContentRevision);
+    }
+
+    [TestMethod]
     public void Karma_gear_direct_digests_preserve_every_real_catalog_row_and_canonical_edge_case()
     {
         using var fixture = new KarmaDiskFixture(includeGear: true);
@@ -3009,7 +3553,8 @@ public sealed class CharacterCreationBootstrapServiceTests
         public CharacterCreationKarmaMetatypeService Service { get; }
         public CharacterWorkspaceId Id { get; }
         public KarmaDiskFixture(int budget = 800, bool fullSources = false, int qualityMultiplier = 1,
-            Action<XElement>? configureSettings = null, bool includeSkills = false, bool includeGear = false)
+            Action<XElement>? configureSettings = null, bool includeSkills = false, bool includeGear = false,
+            bool includeLifestyles = false)
         {
             Directory.CreateDirectory(Path.Combine(_root, "data"));
             foreach (string name in new[] { "settings.xml", "metatypes.xml", "qualities.xml" })
@@ -3019,6 +3564,8 @@ public sealed class CharacterCreationBootstrapServiceTests
                     File.Copy(Path.Combine(FindCoreRoot(), "Chummer", "data", name), Path.Combine(_root, "data", name));
             if (includeGear)
                 File.Copy(Path.Combine(FindCoreRoot(), "Chummer", "data", "gear.xml"), Path.Combine(_root, "data", "gear.xml"));
+            if (includeLifestyles)
+                File.Copy(Path.Combine(FindCoreRoot(), "Chummer", "data", "lifestyles.xml"), Path.Combine(_root, "data", "lifestyles.xml"));
             if (budget != 800) SetBudget(budget);
             if (qualityMultiplier != 1) EditSettings(row => row.Element("karmacost")!.Element("karmaquality")!.Value =
                 qualityMultiplier.ToString(System.Globalization.CultureInfo.InvariantCulture));
@@ -3072,6 +3619,13 @@ public sealed class CharacterCreationBootstrapServiceTests
         }
         public void SetBudget(int budget)
             => EditSettings(setting => setting.Element("buildpoints")!.Value = budget.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        public void EditLifestyle(string name, Action<XElement> change)
+        {
+            string path = Path.Combine(_root, "data", "lifestyles.xml");
+            var document = XDocument.Load(path);
+            change(document.Root!.Element("lifestyles")!.Elements("lifestyle").Single(row => row.Element("name")?.Value == name));
+            document.Save(path);
+        }
         public void EditSettings(Action<XElement> change)
         {
             string path = Path.Combine(_root, "data", "settings.xml");
