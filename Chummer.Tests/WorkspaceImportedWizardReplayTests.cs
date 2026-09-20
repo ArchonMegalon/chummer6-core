@@ -28,10 +28,14 @@ public sealed class WorkspaceImportedWizardReplayTests
         {
             var loaded = context.Finalizer.Load(new(context.WorkspaceId));
             Assert.IsNotNull(loaded.Value, string.Join(",", loaded.Blockers));
-            var review = context.Finalizer.Review(new(loaded.Value.Binding));
+            Assert.IsNotNull(loaded.Value.StartingCashSource);
+            var cash = new CharacterCreationStartingCashChoice(
+                loaded.Value.StartingCashSource.AuthorityDigest, loaded.Value.StartingCashSource.Dice);
+            var review = context.Finalizer.Review(new(loaded.Value.Binding) { StartingCash = cash });
             Assert.IsNotNull(review.Value, string.Join(",", review.Blockers));
-            confirmation = new(loaded.Value.Binding, review.Value.PreviewDigest, review.Value.Plan!.PlanDigest,
-                "imported-history-finalize", ExplicitlyConfirmed: true);
+            Assert.IsNotNull(review.Value.Plan, string.Join(",", review.Value.Blockers));
+            confirmation = new(loaded.Value.Binding, review.Value.PreviewDigest, review.Value.Plan.PlanDigest,
+                "imported-history-finalize", ExplicitlyConfirmed: true) { StartingCash = cash };
             var applied = context.Finalizer.Confirm(confirmation);
             Assert.AreEqual(CharacterCreationFinalizationOutcomes.Applied, applied.Outcome, string.Join(",", applied.Blockers));
             Assert.AreEqual(CharacterCreationFinalizationOutcomes.Replayed, context.Finalizer.Confirm(confirmation).Outcome);

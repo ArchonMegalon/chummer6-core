@@ -73,7 +73,7 @@ public sealed class OwnerBoundCharacterCreationFinalizationService(
                 new CharacterCreationQualitiesService(view, operationResolver, prerequisites, attributes),
                 new CharacterCreationMagicResonanceService(view, operationResolver),
                 new CharacterCreationResourcesService(view, operationResolver),
-                new CharacterCreationGearService(view, operationResolver));
+                new CharacterCreationGearService(view, operationResolver), operationResolver);
             // Includes idempotency reads, the durable CAS and postcommit receipt
             // observation. No await or postcommit owner recapture may split it.
             return action(service);

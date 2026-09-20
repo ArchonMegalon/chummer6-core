@@ -416,13 +416,15 @@ public sealed class OwnerBoundCharacterCreationFinalizationServiceTests
         Assert.IsNotNull(loaded.Value);
         Assert.HasCount(7, loaded.Value.Steps);
         Assert.IsTrue(loaded.Value.Steps.All(step => step.IsComplete), Describe(loaded));
-        var reviewed = service.Review(owner, new(loaded.Value.Binding));
+        var source = loaded.Value.StartingCashSource!;
+        var choice = new CharacterCreationStartingCashChoice(source.AuthorityDigest, source.Dice);
+        var reviewed = service.Review(owner, new(loaded.Value.Binding) { StartingCash = choice });
         Assert.AreEqual(CharacterCreationFinalizationOutcomes.Available, reviewed.Outcome, Describe(reviewed));
         Assert.IsNotNull(reviewed.Value);
         Assert.IsNotNull(reviewed.Value.Plan);
         Assert.IsTrue(reviewed.Value.CanConfirm, Describe(reviewed));
         return new(loaded.Value.Binding, reviewed.Value.PreviewDigest, reviewed.Value.Plan.PlanDigest,
-            "owner-bound-finalization", ExplicitlyConfirmed: true);
+            "owner-bound-finalization", ExplicitlyConfirmed: true) { StartingCash = choice };
     }
 
     private static void AssertUnavailable<T>(CharacterCreationFinalizationResult<T> result) where T : class

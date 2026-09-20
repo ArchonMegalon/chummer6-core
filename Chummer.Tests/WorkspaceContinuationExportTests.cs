@@ -55,12 +55,16 @@ public sealed class WorkspaceContinuationExportTests
 
         var loaded = context.Finalizer.Load(new(context.WorkspaceId));
         Assert.IsNotNull(loaded.Value, string.Join(",", loaded.Blockers));
-        var reviewed = context.Finalizer.Review(new(loaded.Value.Binding));
+        Assert.IsNotNull(loaded.Value.StartingCashSource);
+        var cash = new CharacterCreationStartingCashChoice(
+            loaded.Value.StartingCashSource.AuthorityDigest, loaded.Value.StartingCashSource.Dice);
+        var reviewed = context.Finalizer.Review(new(loaded.Value.Binding) { StartingCash = cash });
         Assert.IsNotNull(reviewed.Value, string.Join(",", reviewed.Blockers));
+        Assert.IsNotNull(reviewed.Value.Plan, string.Join(",", reviewed.Value.Blockers));
         const string finalizeKey = "continuation-real-finalization";
         var finalized = context.Finalizer.Confirm(new(loaded.Value.Binding,
-            reviewed.Value.PreviewDigest, reviewed.Value.Plan!.PlanDigest, finalizeKey,
-            ExplicitlyConfirmed: true));
+            reviewed.Value.PreviewDigest, reviewed.Value.Plan.PlanDigest, finalizeKey,
+            ExplicitlyConfirmed: true) { StartingCash = cash });
         Assert.AreEqual(CharacterCreationFinalizationOutcomes.Applied, finalized.Outcome,
             string.Join(",", finalized.Blockers));
 
@@ -95,6 +99,8 @@ public sealed class WorkspaceContinuationExportTests
         Assert.HasCount(1, auxiliary.CharacterCareerReputationReceipts!);
         Assert.HasCount(1, auxiliary.CharacterAfterRunRewardReceipts!);
         Assert.IsNotNull(auxiliary.CharacterCreationFinalizationArchive);
+        Assert.AreEqual(cash, auxiliary.CharacterCreationFinalizationArchive.StartingCash!.Choice);
+        Assert.AreEqual(cash, auxiliary.CharacterCreationFinalizationReceipts![0].Receipt.StartingCash);
         Assert.AreEqual(JsonSerializer.Serialize(creation.Document.AuxiliaryState),
             JsonSerializer.Serialize(auxiliary.CharacterCreationFinalizationArchive.State));
         Assert.AreEqual(creation.Document.AuxiliaryStateDigest,

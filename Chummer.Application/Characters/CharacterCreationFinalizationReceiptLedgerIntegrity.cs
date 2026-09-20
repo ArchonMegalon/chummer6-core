@@ -13,9 +13,10 @@ public static class CharacterCreationFinalizationReceiptLedgerIntegrity
     /// </summary>
     internal static WorkspaceDocumentAuxiliaryState ConsumeDrafts(
         WorkspaceDocumentAuxiliaryState current,
-        IReadOnlyList<CharacterCreationFinalizationReceiptLedgerEntry> finalizationReceipts) => new(
+        IReadOnlyList<CharacterCreationFinalizationReceiptLedgerEntry> finalizationReceipts,
+        CharacterCreationFinalizationStartingCash? startingCash = null) => new(
             CharacterCreationFinalizationReceipts: finalizationReceipts,
-            CharacterCreationFinalizationArchive: new(current));
+            CharacterCreationFinalizationArchive: new(current) { StartingCash = startingCash });
 
     public static bool IsValidArchive(
         CharacterWorkspaceId workspaceId,
@@ -30,8 +31,24 @@ public static class CharacterCreationFinalizationReceiptLedgerIntegrity
                && receipts is { Count: 1 }
                && IsValidLedger(workspaceId, currentContentRevision, receipts)
                && CharacterCreationKarmaFinalizationTransaction.IsValidArchive(workspaceId, archive, receipts[0].Receipt)
+               && IsValidStartingCashArchive(archive, receipts[0].Receipt)
                && string.Equals(archive.State.ComputeDigest(),
                    receipts[0].Receipt.PreviousAuxiliaryStateDigest, StringComparison.Ordinal);
+    }
+
+    private static bool IsValidStartingCashArchive(CharacterCreationFinalizationArchive archive,
+        CharacterCreationFinalizationReceipt receipt)
+    {
+        if (archive.StartingCash is not { } cash)
+            return receipt.StartingCash is null && receipt.StartingCashAuthorityDigest is null;
+        var bootstrap = archive.State.CharacterCreationBootstrapBinding;
+        return receipt.BuildMethod is CharacterCreationBuildMethods.Priority or CharacterCreationBuildMethods.SumToTen
+            && bootstrap is not null && CharacterCreationFinalizationStartingCashRules.IsValid(cash)
+            && cash.Source.SettingsProfileId == bootstrap.SettingsProfileId
+            && cash.Source.RawProfileInputsDigest == bootstrap.RawProfileInputsDigest
+            && cash.Source.SettingsProfileId == receipt.CarryoverPolicy?.SettingsProfileId
+            && cash.Source.RawProfileInputsDigest == receipt.CarryoverPolicy.RawProfileInputsDigest
+            && cash.Choice == receipt.StartingCash && cash.AuthorityDigest == receipt.StartingCashAuthorityDigest;
     }
 
     /// <summary>Read-only receipt recovery. Never use historical drafts to evaluate a new mutation.</summary>
@@ -90,6 +107,12 @@ public static class CharacterCreationFinalizationReceiptLedgerIntegrity
                && CharacterCreationFinalizationDigest.IsCanonical(receipt.PreviewDigest)
                && CharacterCreationFinalizationDigest.IsCanonical(receipt.PlanDigest)
                && CharacterCreationFinalizationBuildMethodIsKnown(receipt.BuildMethod)
+               && (receipt.CarryoverPolicy is null
+                   || CharacterCreationKarmaFinalizationBudgetRules.IsValidPolicy(receipt.CarryoverPolicy))
+               && (receipt.StartingCash is null ? receipt.StartingCashAuthorityDigest is null
+                   : receipt.StartingCash.DiceTotal >= 0
+                       && CharacterCreationFinalizationDigest.IsCanonical(receipt.StartingCash.SourceAuthorityDigest)
+                       && CharacterCreationFinalizationDigest.IsCanonical(receipt.StartingCashAuthorityDigest))
                && CharacterCreationFinalizationDigest.EqualsFixedTime(
                    receipt.PreviousReceiptDigest,
                    CharacterCreationFinalizationDigest.ReceiptLedgerRootDigest)
@@ -118,8 +141,9 @@ public static class CharacterCreationFinalizationReceiptLedgerIntegrity
             || !IsValidLedger(workspaceId, nextContentRevision, replacementLedger))
             return false;
 
+        var startingCash = replacementDocument.AuxiliaryState.CharacterCreationFinalizationArchive?.StartingCash;
         WorkspaceDocumentAuxiliaryState expectedAuxiliary = ConsumeDrafts(
-            currentDocument.AuxiliaryState, replacementLedger);
+            currentDocument.AuxiliaryState, replacementLedger, startingCash);
         if (!string.Equals(
                 expectedAuxiliary.ComputeDigest(),
                 replacementDocument.AuxiliaryStateDigest,
@@ -132,6 +156,9 @@ public static class CharacterCreationFinalizationReceiptLedgerIntegrity
             previousContentRevision,
             previousSavedRevision,
             DateTimeOffset.UnixEpoch);
+        CharacterCreationFinalizationReceipt receipt = replacementLedger[0].Receipt;
+        if (startingCash is null || !IsValidStartingCashArchive(
+                replacementDocument.AuxiliaryState.CharacterCreationFinalizationArchive!, receipt)) return false;
         if (!CharacterCreationFinalizationProjector.TryProject(
                 current,
                 out string expectedXml,
@@ -140,11 +167,10 @@ public static class CharacterCreationFinalizationReceiptLedgerIntegrity
                 out decimal karmaRemaining,
                 out decimal startingNuyen,
                 out decimal nuyenRemaining,
-                out _)
+                out _, receipt.CarryoverPolicy, startingCash)
             || !string.Equals(expectedXml, replacementDocument.Content, StringComparison.Ordinal))
             return false;
 
-        CharacterCreationFinalizationReceipt receipt = replacementLedger[0].Receipt;
         var binding = new CharacterCreationFinalizationBinding(
             workspaceId,
             previousContentRevision,
@@ -162,7 +188,12 @@ public static class CharacterCreationFinalizationReceiptLedgerIntegrity
             nuyenRemaining,
             sourceAnchorIds,
             CharacterCreationFinalizationProjector.ComputeRawCharacterXmlDigest(expectedXml),
-            string.Empty);
+            string.Empty)
+        {
+            CarryoverPolicy = receipt.CarryoverPolicy,
+            StartingCash = startingCash.Choice,
+            StartingCashAuthorityDigest = startingCash.AuthorityDigest
+        };
         CharacterCreationFinalizationPlan plan = planCandidate with
         {
             PlanDigest = CharacterCreationFinalizationDigest.Compute(
@@ -183,14 +214,8 @@ public static class CharacterCreationFinalizationReceiptLedgerIntegrity
             PreviewDigest = CharacterCreationFinalizationDigest.Compute(
                 reviewCandidate with { PreviewDigest = string.Empty })
         };
-        string expectedCommandDigest = CharacterCreationFinalizationDigest.Compute(new
-        {
-            Schema = "chummer.sr5.creation-finalization.command.v1",
-            Binding = binding,
-            PreviewDigest = review.PreviewDigest,
-            PlanDigest = plan.PlanDigest,
-            ExplicitlyConfirmed = true
-        });
+        string expectedCommandDigest = CharacterCreationFinalizationService.ComputeCommandDigest(new(
+            binding, review.PreviewDigest, plan.PlanDigest, "transition-validation", true) { StartingCash = startingCash.Choice });
         string expectedReceiptId = CharacterCreationFinalizationDigest.Compute(new
         {
             Schema = CharacterCreationFinalizationSchemas.ReceiptV1,

@@ -176,10 +176,15 @@ public sealed class WorkspaceContinuationHistoryReviewTests
     {
         var loaded = context.Finalizer.Load(new(context.WorkspaceId));
         Assert.IsNotNull(loaded.Value, string.Join(",", loaded.Blockers));
-        var review = context.Finalizer.Review(new(loaded.Value.Binding));
+        Assert.IsNotNull(loaded.Value.StartingCashSource);
+        var cash = new CharacterCreationStartingCashChoice(
+            loaded.Value.StartingCashSource.AuthorityDigest, loaded.Value.StartingCashSource.Dice);
+        var review = context.Finalizer.Review(new(loaded.Value.Binding) { StartingCash = cash });
         Assert.IsNotNull(review.Value, string.Join(",", review.Blockers));
+        Assert.IsNotNull(review.Value.Plan, string.Join(",", review.Value.Blockers));
         var applied = context.Finalizer.Confirm(new(loaded.Value.Binding, review.Value.PreviewDigest,
-            review.Value.Plan!.PlanDigest, "history-review-finalization", ExplicitlyConfirmed: true));
+            review.Value.Plan.PlanDigest, "history-review-finalization", ExplicitlyConfirmed: true)
+            { StartingCash = cash });
         Assert.AreEqual(CharacterCreationFinalizationOutcomes.Applied, applied.Outcome, string.Join(",", applied.Blockers));
     }
 
