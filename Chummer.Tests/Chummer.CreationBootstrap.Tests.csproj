@@ -10,6 +10,8 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="CharacterCreationBootstrapServiceTests.cs" />
+    <Compile Include="CharacterCreationContactsServiceTests.cs" />
+    <Compile Include="CharacterCreationQualitiesRulesTests.cs" />
     <Compile Include="CharacterFileServiceTests.cs" />
     <ProjectReference Include="../Chummer.Application/Chummer.Application.csproj" />
     <ProjectReference Include="../Chummer.Contracts/Chummer.Contracts.csproj" />

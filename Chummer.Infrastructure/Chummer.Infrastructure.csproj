@@ -41,4 +41,7 @@
   <ItemGroup>
     <PackageReference Include="SharpCompress" Version="0.50.1" />
   </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Chummer.CreationBootstrap.Tests" />
+  </ItemGroup>
 </Project>

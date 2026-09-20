@@ -26,7 +26,7 @@ public static class CharacterCreationContactsAuthorityEvaluator
             CreationConnectionMaximum = 6,
             LoyaltyMinimum = MinimumLoyalty,
             LoyaltyMaximum = MaximumLoyalty,
-            Cost = "free?0:round-away(max(connection+loyalty+(family?1:0)+(blackmail?2:0)+discount,2+minimum))",
+            Cost = "free?0:ceiling(max(connection+loyalty+(family?1:0)+(blackmail?2:0)+discount,2+minimum))",
             Budget = "contacts excluding groups; FIH connection>=8 uses CHA*4 pool",
             Career = "rejected",
             SourceAnchors = CharacterCreationContactSourceAnchors.All
@@ -199,23 +199,8 @@ public static class CharacterCreationContactsAuthorityEvaluator
         {
             return false;
         }
-        try
-        {
-            decimal raw = checked((decimal)semantics.Connection + semantics.Loyalty
-                                  + (semantics.Family ? 1 : 0)
-                                  + (semantics.Blackmail ? 2 : 0)
-                                  + discount);
-            decimal floor = checked(2m + minimum);
-            decimal rounded = decimal.Round(Math.Max(raw, floor), 0, MidpointRounding.AwayFromZero);
-            if (rounded is < 0 or > int.MaxValue)
-                return false;
-            cost = decimal.ToInt32(rounded);
-            return true;
-        }
-        catch (OverflowException)
-        {
-            return false;
-        }
+        return CharacterCreationContactCostRules.TryCalculate(semantics.Connection, semantics.Loyalty,
+            semantics.Free, semantics.Family, semantics.Blackmail, discount, minimum, out cost);
     }
 
     private static bool TrySumApplicableImprovement(XElement root, string type, out decimal total)

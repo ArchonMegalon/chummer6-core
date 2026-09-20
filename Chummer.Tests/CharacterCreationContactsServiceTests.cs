@@ -17,6 +17,18 @@ public sealed class CharacterCreationContactsServiceTests
     private static readonly Guid PetId = Guid.Parse("22222222-3333-4444-8555-666666666666");
 
     [TestMethod]
+    public void Fractional_contact_modifier_is_rounded_up_before_budget_admission()
+    {
+        string xml = Fixture().Replace("<improvements />", "<improvements><improvement><improvementttype>ContactKarmaDiscount</improvementttype><val>0.1</val><enabled>1</enabled><condition>create</condition></improvement></improvements>", StringComparison.Ordinal);
+        WithService((_, service, id, _) =>
+        {
+            var state = Load(service, id);
+            Assert.AreEqual(9, state.Contacts.Single(contact => contact.ContactId == ContactId).ContactPointCost);
+            Assert.AreEqual(9, state.ContactBudget.Used);
+        }, xml);
+    }
+
+    [TestMethod]
     public void Load_projects_exact_creation_authority_budget_fields_options_and_digests()
     {
         WithService((store, service, id, _) =>

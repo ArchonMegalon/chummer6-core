@@ -139,6 +139,13 @@ public interface ICharacterSourceDataContext
         return false;
     }
 
+    /// <summary>Source-owned free contact expression and group-contact Karma rate.</summary>
+    bool TryResolveCreationKarmaContactsPolicy(out CharacterCreationKarmaContactsPolicy? policy)
+    {
+        policy = null;
+        return false;
+    }
+
     /// <summary>Exact completion carryover limits, not additional creation purchasing power.</summary>
     bool TryResolveCreationKarmaCarryoverPolicy(out CharacterCreationKarmaCarryoverPolicy? policy)
     {

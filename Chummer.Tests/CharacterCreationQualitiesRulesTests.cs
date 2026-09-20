@@ -11,6 +11,34 @@ namespace Chummer.Tests;
 public sealed class CharacterCreationQualitiesRulesTests
 {
     [TestMethod]
+    public void Contact_points_round_every_fraction_away_from_zero_and_reject_overflow()
+    {
+        foreach (var (discount, minimum, expected) in new[] { (0.1m, 0m, 5), (-0.9m, 0m, 4), (-4m, 0.1m, 3), (0m, 0m, 4) })
+        {
+            Assert.IsTrue(CharacterCreationContactCostRules.TryCalculate(2, 2, false, false, false, discount, minimum, out int cost));
+            Assert.AreEqual(expected, cost);
+        }
+        Assert.IsTrue(CharacterCreationContactCostRules.TryCalculate(2, 2, true, true, true, decimal.MaxValue, decimal.MaxValue, out int free));
+        Assert.AreEqual(0, free);
+        Assert.IsFalse(CharacterCreationContactCostRules.TryCalculate(2, 2, false, false, false, decimal.MaxValue, 0, out _));
+        Assert.IsFalse(CharacterCreationContactCostRules.TryCalculate(0, 2, false, false, false, 0, 0, out _));
+        Assert.IsFalse(CharacterCreationContactCostRules.TryCalculate(2, 2, false, false, false, -4.1m, -3m, out _));
+    }
+
+    [TestMethod]
+    public void Group_contacts_enter_shared_positive_cap_before_excess_without_quality_multiplier()
+    {
+        CharacterCreationQualityCostItem[] items = [new(10, true, true, false), new(2, false, true, false), new(-2, true, true, false)];
+        Assert.IsTrue(CharacterCreationQualityCostRules.TryCalculate(new(2, true, false), 25, items, 10, out var costs));
+        Assert.AreEqual(35, costs.PositiveLimitKarma); // 20+10 + five excess.
+        Assert.AreEqual(39, costs.PositiveKarmaSpent); // Plus cap-exempt four.
+        Assert.AreEqual(4, costs.NegativeKarmaGranted);
+        Assert.AreEqual(35, costs.NetKarmaSpent);
+        Assert.IsFalse(CharacterCreationQualityCostRules.TryCalculate(new(1, false, false), 25, items, -1, out _));
+        Assert.IsFalse(CharacterCreationQualityCostRules.TryCalculate(new(1, false, false), 25, items, int.MaxValue, out _));
+    }
+
+    [TestMethod]
     public void Quality_option_digest_preserves_canonical_bytes_for_every_field_and_nullable_shape()
     {
         var option = Option("digest-option", CharacterCreationQualityType.Positive, 7);

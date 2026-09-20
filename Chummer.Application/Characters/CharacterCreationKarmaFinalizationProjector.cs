@@ -54,7 +54,7 @@ public static class CharacterCreationKarmaFinalizationProjector
             var root = document.Root;
             if (root?.Name != "character" || root.Elements("created").Count() != 1
                 || !bool.TryParse(root.Element("created")!.Value, out bool created) || created) return false;
-            foreach (string container in new[] { "attributes", "newskills", "qualities", "gears", "improvements", "lifestyles" })
+            foreach (string container in new[] { "attributes", "newskills", "qualities", "gears", "improvements", "lifestyles", "contacts" })
             {
                 var present = root.Elements(container).Take(2).ToArray();
                 if (present.Length > 1 || present.Length == 1 && (present[0].HasAttributes || present[0].HasElements
@@ -123,6 +123,18 @@ public static class CharacterCreationKarmaFinalizationProjector
                 Change("qualities:karma-adjustment", CharacterCreationFinalizationDeltaKinds.Build, "qualities-karma-adjustment",
                     Number(qualitySourceCost), Number(foundation.Qualities.Costs.NetKarmaSpent), qualityAdjustment, 0,
                     foundation.Qualities.Policy.SourceAnchorIds);
+            if (foundation.Contacts is { } contacts)
+            {
+                Replace(new XElement("contacts", contacts.Lines.Select(line =>
+                    CharacterCreationKarmaContactsRules.BuildContactElement(line.Selection))));
+                Set("contactpoints", Number(contacts.ContactPoints));
+                foreach (var line in contacts.Lines)
+                    Change("contact:" + line.Selection.ContactId.ToString("D"), CharacterCreationFinalizationDeltaKinds.Build,
+                        line.Selection.ContactId.ToString("D"), null, line.Selection.Identity.Name, 0, 0,
+                        contacts.Policy.SourceAnchorIds);
+                Change("contacts:karma", CharacterCreationFinalizationDeltaKinds.Build, "contacts-karma",
+                    "0", Number(contacts.KarmaUsed), contacts.KarmaUsed, 0, contacts.Policy.SourceAnchorIds);
+            }
             foreach (var line in foundation.Gear!.Lines)
             {
                 if (!CharacterCreationLegacySourceProjector.TryBuildGear(line, foundation.QuoteDigest, out var gear)) return false;

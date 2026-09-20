@@ -2138,6 +2138,57 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             }
         }
 
+        public bool TryResolveCreationKarmaContactsPolicy(out CharacterCreationKarmaContactsPolicy? policy)
+        {
+            using IDisposable sourceInputScope = _sourceInputs.Enter();
+            policy = null;
+            if (_sourceInputs.HasSourceDrift || _buildMethod != CharacterCreationBuildMethods.Karma
+                || string.IsNullOrWhiteSpace(_settingsProfileId)
+                || !TryComputeEffectiveInputDigest(_catalog, "settings.xml", out string settingsDigest)
+                || BindSelectedProfile(settingsDigest, _settingsProfileId) != _rawProfileInputsDigest
+                || !TryResolveTarget("settings.xml", ["settings"], "setting", _settingsProfileId,
+                    string.Empty, out var settings) || settings is null) return false;
+            var expressions = settings.Elements("contactpointsexpression").Take(2).ToArray();
+            string expression;
+            if (expressions.Length == 0)
+            {
+                // CharacterSettings' legacy load shim, not Android defaults.
+                if (!TryReadOptionalStrictBoolean(settings, "usetotalvalueforcontacts", false, out bool total)
+                    || !TryReadOptionalStrictBoolean(settings, "freecontactsmultiplierenabled", false, out bool enabled))
+                    return false;
+                int multiplier = 3;
+                if (enabled)
+                {
+                    var nodes = settings.Elements("freekarmacontactsmultiplier").Take(2).ToArray();
+                    if (nodes.Length > 1 || nodes.Length == 1 && !TryParseNonNegativeIntElement(nodes[0], out multiplier))
+                        return false;
+                }
+                expression = (total ? "{CHA}" : "{CHAUnaug}") + " * " + multiplier.ToString(CultureInfo.InvariantCulture);
+            }
+            else
+            {
+                if (expressions.Length != 1 || expressions[0].HasAttributes || expressions[0].HasElements) return false;
+                expression = expressions[0].Value;
+            }
+            int groupMultiplier = 1; // CharacterSettings._intKarmaContact.
+            var costs = settings.Elements("karmacost").Take(2).ToArray();
+            if (costs.Length > 1 || costs.Length == 1 && costs[0].HasAttributes) return false;
+            var rates = costs.SingleOrDefault()?.Elements("karmacontact").Take(2).ToArray() ?? [];
+            if (rates.Length > 1 || rates.Length == 1 && !TryParseNonNegativeIntElement(rates[0], out groupMultiplier)) return false;
+            var result = new CharacterCreationKarmaContactsPolicy(CharacterCreationKarmaContactsPolicy.SchemaV1,
+                _settingsProfileId, _rawProfileInputsDigest, expression, groupMultiplier,
+                [$"settings.xml#setting:{_settingsProfileId}",
+                    "Chummer/Backend/Character Settings/CharacterSettings.cs#ContactPointsExpression",
+                    "Chummer/Backend/Characters/Character.cs#ContactPoints",
+                    CharacterCreationContactSourceAnchors.ContactPointCost,
+                    CharacterCreationContactSourceAnchors.ContactPointBudget,
+                    "Chummer/Backend/Characters/Character.cs#PositiveQualityKarma"], string.Empty);
+            result = result with { AuthorityDigest = CharacterCreationKarmaContactsRules.PolicyDigest(result) };
+            if (_sourceInputs.HasSourceDrift || !CharacterCreationKarmaContactsRules.IsValidPolicy(result)) return false;
+            policy = result;
+            return true;
+        }
+
         public bool TryResolveCreationKarmaCarryoverPolicy(out CharacterCreationKarmaCarryoverPolicy? policy)
         {
             using IDisposable sourceInputScope = _sourceInputs.Enter();

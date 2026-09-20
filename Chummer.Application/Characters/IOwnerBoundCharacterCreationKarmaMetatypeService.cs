@@ -17,7 +17,8 @@ public interface IOwnerBoundCharacterCreationKarmaMetatypeService
         IReadOnlyList<CharacterCreationKarmaAttributeAllocation>? attributeAllocations = null,
         CharacterCreationKarmaSkillsSelection? skillsSelection = null, decimal? resourceKarmaInvestment = null,
         IReadOnlyList<string>? qualityOptionIds = null,
-        IReadOnlyList<CharacterCreationGearSelection>? gearSelections = null);
+        IReadOnlyList<CharacterCreationGearSelection>? gearSelections = null,
+        IReadOnlyList<CharacterCreationKarmaContactSelection>? contactSelections = null);
     CharacterCreationFoundationResult<CharacterCreationKarmaMetatypeCommit> Confirm(
         OwnerContextStamp expectedOwner, CharacterCreationKarmaMetatypeConfirmRequest request);
     CharacterCreationFoundationResult<CharacterCreationKarmaFinalizationBudgetQuote> PreviewFinalizationBudget(
