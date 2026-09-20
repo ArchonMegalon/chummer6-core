@@ -266,6 +266,90 @@ public sealed class CharacterCreationBootstrapServiceTests
     }
 
     [TestMethod]
+    public void Karma_qualities_admission_freezes_all_collections_before_reusing_validation()
+    {
+        using var fixture = new KarmaDiskFixture();
+        var state = fixture.Service.Load(fixture.Id, includeQualities: true).Value!;
+        var original = state.QualitiesCatalog!;
+        var human = state.Options.Single(item => item.OptionId == HumanId);
+        var mundane = state.Talents!.Options.Single(item => item.OptionId == "mundane");
+        var option = original.Options.Single(item => item.Name == "Unsteady Hands");
+        string[] anchors = option.SourceAnchorIds.ToArray();
+        string[] policyAnchors = original.Policy.SourceAnchorIds.ToArray();
+        var options = original.Options.Select(item => item == option ? item with { SourceAnchorIds = anchors } : item).ToArray();
+        var source = original with { Options = options, Policy = original.Policy with { SourceAnchorIds = policyAnchors } };
+        var admitted = CharacterCreationKarmaQualitiesRules.AdmittedCatalog.TryCreate(source)!;
+        Assert.IsNotNull(admitted);
+        AssertJsonEqual(original, admitted.Catalog);
+        var expected = CharacterCreationKarmaQualitiesRules.Evaluate(original, human, mundane, [option.OptionId])!;
+        AssertJsonEqual(expected, admitted.Evaluate(human, mundane, [option.OptionId])!);
+
+        // A resolver or DTO consumer must not be able to change the validated
+        // graph through an aliased option, policy or nested anchor collection.
+        anchors[0] = "changed-option-source";
+        policyAnchors[0] = "changed-policy-source";
+        options[0] = options[0] with { KarmaCost = 9999 };
+        AssertJsonEqual(original, admitted.Catalog);
+        AssertJsonEqual(expected, admitted.Evaluate(human, mundane, [option.OptionId])!);
+        Assert.IsNull(CharacterCreationKarmaQualitiesRules.AdmittedCatalog.TryCreate(source));
+        Assert.IsNull(CharacterCreationKarmaQualitiesRules.Evaluate(source, human, mundane, [option.OptionId]),
+            "A new public evaluation must validate again, not reuse the previous admission.");
+
+        Assert.ThrowsExactly<NotSupportedException>(() =>
+            ((IList<CharacterCreationQualityCatalogOption>)admitted.Catalog.Options)[0] = options[0]);
+        Assert.ThrowsExactly<NotSupportedException>(() =>
+            ((IList<string>)admitted.Catalog.Policy.SourceAnchorIds)[0] = "forged");
+        Assert.ThrowsExactly<NotSupportedException>(() =>
+            ((IList<string>)admitted.Catalog.Options.Single(item => item.OptionId == option.OptionId).SourceAnchorIds)[0] = "forged");
+    }
+
+    [TestMethod]
+    public void Karma_qualities_admission_rejects_unselected_tampering_and_still_projects_selected_source_effects()
+    {
+        using var fixture = new KarmaDiskFixture();
+        var state = fixture.Service.Load(fixture.Id, includeQualities: true).Value!;
+        var catalog = state.QualitiesCatalog!;
+        var human = state.Options.Single(item => item.OptionId == HumanId);
+        var mundane = state.Talents!.Options.Single(item => item.OptionId == "mundane");
+        var option = catalog.Options.Single(item => item.Name == "Unsteady Hands");
+        var tampered = catalog with { Options = catalog.Options.Select(item => item.OptionId != option.OptionId
+            ? item with { KarmaCost = item.KarmaCost + 1 } : item).ToArray() };
+        Assert.IsNull(CharacterCreationKarmaQualitiesRules.AdmittedCatalog.TryCreate(tampered));
+        Assert.IsNull(CharacterCreationKarmaQualitiesRules.Evaluate(tampered, human, mundane, [option.OptionId]));
+
+        // A coherent hash is not source-effect authority: the selected row must
+        // still agree with its original XML, even inside a reused admission.
+        var forged = option with { KarmaCost = -700 };
+        forged = forged with { OptionDigest = CharacterCreationQualitiesRules.ComputeOptionDigest(forged) };
+        var rehashed = catalog with { Options = catalog.Options.Select(item => item.OptionId == option.OptionId ? forged : item).ToArray() };
+        rehashed = rehashed with { CatalogDigest = CharacterCreationKarmaQualitiesRules.CatalogDigest(rehashed) };
+        var admitted = CharacterCreationKarmaQualitiesRules.AdmittedCatalog.TryCreate(rehashed);
+        Assert.IsNotNull(admitted, "This test deliberately supplies internally coherent catalog hashes.");
+        Assert.IsNull(admitted.Evaluate(human, mundane, [option.OptionId]));
+        Assert.IsNull(admitted.Evaluate(human, mundane, ["invented"]));
+        Assert.IsNull(admitted.Evaluate(human, mundane, [option.OptionId, option.OptionId]));
+    }
+
+    [TestMethod]
+    public void Karma_qualities_service_does_not_retain_catalog_admission_across_public_calls()
+    {
+        using var fixture = new KarmaDiskFixture();
+        var before = fixture.Store.Get(fixture.Id).Value!;
+        var first = fixture.Service.Load(fixture.Id, includeQualities: true).Value!;
+        var second = fixture.Service.Load(fixture.Id, includeQualities: true).Value!;
+        Assert.AreNotSame(first.QualitiesCatalog, second.QualitiesCatalog);
+        AssertJsonEqual(first, second);
+        var selected = first.QualitiesCatalog!.Options.Single(item => item.Name == "Unsteady Hands");
+        string id = selected.OptionId;
+        var expected = fixture.Service.Preview(first.Binding, HumanId, "mundane", [], null, null, [id]).Value!;
+        Assert.IsTrue(expected.CanSelect);
+        fixture.EditQuality(selected.SourceId.ToString("D"), row => row.SetElementValue("karma", -8));
+        var changed = fixture.Service.Preview(first.Binding, HumanId, "mundane", [], null, null, [id]);
+        Assert.IsNull(changed.Value, "Public preview must not retain an admission after source drift.");
+        AssertJsonEqual(before, fixture.Store.Get(fixture.Id).Value!);
+    }
+
+    [TestMethod]
     public void Karma_resources_share_budget_and_survive_cold_reopen_without_rewriting_prior_decisions()
     {
         using var fixture = new KarmaDiskFixture(includeSkills: true);

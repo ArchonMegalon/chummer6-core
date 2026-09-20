@@ -43,17 +43,59 @@ public static class CharacterCreationKarmaQualitiesRules
     public static CharacterCreationKarmaQualitiesQuote? Evaluate(
         CharacterCreationKarmaQualitiesCatalog catalog, CharacterCreationMetatypeOptionProjection metatype,
         CharacterCreationKarmaTalentOption talent, IReadOnlyList<string> ids)
+        => AdmittedCatalog.TryCreate(catalog)?.Evaluate(metatype, talent, ids);
+
+    // Operation-local authority, never a caller-provided "already validated"
+    // flag or a cache across Load/Preview/Confirm. Copy before validating so
+    // neither the resolver nor a returned DTO can change admitted collections.
+    internal sealed class AdmittedCatalog
     {
-        if (!IsValidCatalog(catalog) || !TryFreeze(ids, out var frozen)) return null;
-        var selected = new List<CharacterCreationQualityCatalogOption>();
-        foreach (string id in frozen)
+        private AdmittedCatalog(CharacterCreationKarmaQualitiesCatalog catalog) => Catalog = catalog;
+
+        internal CharacterCreationKarmaQualitiesCatalog Catalog { get; }
+
+        internal static AdmittedCatalog? TryCreate(CharacterCreationKarmaQualitiesCatalog? source)
         {
-            var option = catalog.Options.SingleOrDefault(item => item.OptionId == id);
-            if (option is null) return null;
-            selected.Add(option);
+            if (source is not { Options.Count: > 0 and <= 65_536, Policy: not null }) return null;
+            try
+            {
+                var options = source.Options.Take(65_537).ToArray();
+                if (options.Length is 0 or > 65_536 || options.Any(option => option is null)) return null;
+                var frozen = source with
+                {
+                    Policy = source.Policy with
+                    {
+                        SourceAnchorIds = FreezeAnchors(source.Policy.SourceAnchorIds)
+                    },
+                    Options = Array.AsReadOnly(options.Select(option => option with
+                    {
+                        SourceAnchorIds = FreezeAnchors(option.SourceAnchorIds)
+                    }).ToArray())
+                };
+                return IsValidCatalog(frozen) ? new AdmittedCatalog(frozen) : null;
+            }
+            catch (Exception error) when (error is ArgumentException or InvalidOperationException) { return null; }
+
+            static IReadOnlyList<string> FreezeAnchors(IReadOnlyList<string>? anchors)
+                => anchors is null ? null! : Array.AsReadOnly(anchors.ToArray());
         }
-        return EvaluateSelected(catalog.Policy, catalog.CatalogDigest, metatype, talent,
-            selected.OrderBy(option => option.OptionId, StringComparer.Ordinal).ToArray());
+
+        internal CharacterCreationKarmaQualitiesQuote? Evaluate(CharacterCreationMetatypeOptionProjection metatype,
+            CharacterCreationKarmaTalentOption talent, IReadOnlyList<string> ids)
+        {
+            if (!TryFreeze(ids, out var frozen)) return null;
+            var selected = new List<CharacterCreationQualityCatalogOption>();
+            foreach (string id in frozen)
+            {
+                var option = Catalog.Options.SingleOrDefault(item => item.OptionId == id);
+                if (option is null) return null;
+                selected.Add(option);
+            }
+            // Per-selection source effects, eligibility, policy, budget and
+            // quote hashes still run for each evaluation, including saved state.
+            return EvaluateSelected(Catalog.Policy, Catalog.CatalogDigest, metatype, talent,
+                selected.OrderBy(option => option.OptionId, StringComparer.Ordinal).ToArray());
+        }
     }
 
     public static bool IsValid(CharacterCreationKarmaQualitiesQuote? quote,
