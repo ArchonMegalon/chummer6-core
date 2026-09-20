@@ -306,6 +306,19 @@ public sealed partial class CharacterCreationKarmaMetatypeService(
     /// </summary>
     public CharacterCreationFoundationResult<CharacterCreationKarmaFinalizationBudgetQuote> PreviewFinalizationBudget(
         CharacterCreationKarmaMetatypeBinding binding, string foundationQuoteDigest, int diceTotal)
+        => LoadFinalizationBudget(binding, foundationQuoteDigest, diceTotal);
+
+    /// <summary>Load source-owned dice and multiplier before asking the player
+    /// for a roll. No roll, budget review or confirmation is issued by this read.</summary>
+    public CharacterCreationFoundationResult<CharacterCreationStartingNuyenSource> LoadFinalizationStartingCash(
+        CharacterCreationKarmaMetatypeBinding binding, string foundationQuoteDigest)
+    {
+        var result = LoadFinalizationBudget(binding, foundationQuoteDigest, null);
+        return new(result.Outcome, result.Value?.StartingCashSource, result.Blockers);
+    }
+
+    private CharacterCreationFoundationResult<CharacterCreationKarmaFinalizationBudgetQuote> LoadFinalizationBudget(
+        CharacterCreationKarmaMetatypeBinding binding, string foundationQuoteDigest, int? diceTotal)
     {
         ArgumentNullException.ThrowIfNull(binding);
         try
@@ -331,7 +344,9 @@ public sealed partial class CharacterCreationKarmaMetatypeService(
                 return Blocked<CharacterCreationKarmaFinalizationBudgetQuote>(CharacterCreationKarmaFinalizationBudgetBlockers.PolicyUnavailable);
             if (!context.TryResolveCreationKarmaDefaultStartingNuyen(out var source) || source is null)
                 return Blocked<CharacterCreationKarmaFinalizationBudgetQuote>(CharacterCreationKarmaFinalizationBudgetBlockers.StartingCashUnavailable);
-            var quote = CharacterCreationKarmaFinalizationBudgetRules.Evaluate(policy, source, foundation, diceTotal);
+            // Terms-only reads validate admission at the source minimum, but
+            // expose only the source row, never a guessed player roll/quote.
+            var quote = CharacterCreationKarmaFinalizationBudgetRules.Evaluate(policy, source, foundation, diceTotal ?? source.Dice);
             if (quote is null)
                 return Blocked<CharacterCreationKarmaFinalizationBudgetQuote>(CharacterCreationKarmaFinalizationBudgetBlockers.BudgetInvalid);
             // Recheck the same captured sources and workspace after projection.

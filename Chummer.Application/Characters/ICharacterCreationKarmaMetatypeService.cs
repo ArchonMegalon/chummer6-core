@@ -17,8 +17,11 @@ public interface ICharacterCreationKarmaMetatypeService
         CharacterCreationKarmaMetatypeConfirmRequest request);
     CharacterCreationFoundationResult<CharacterCreationKarmaFinalizationBudgetQuote> PreviewFinalizationBudget(
         CharacterCreationKarmaMetatypeBinding binding, string foundationQuoteDigest, int diceTotal);
+    CharacterCreationFoundationResult<CharacterCreationStartingNuyenSource> LoadFinalizationStartingCash(
+        CharacterCreationKarmaMetatypeBinding binding, string foundationQuoteDigest);
     CharacterCreationFoundationResult<CharacterCreationFinalizationReview> ReviewFinalization(
-        CharacterCreationKarmaMetatypeBinding binding, string foundationQuoteDigest, int diceTotal);
+        CharacterCreationKarmaMetatypeBinding binding, string foundationQuoteDigest, int diceTotal,
+        string? startingCashAuthorityDigest = null);
     CharacterCreationFoundationResult<CharacterCreationFinalizationReceipt> ConfirmFinalization(
         CharacterCreationKarmaFinalizationConfirmRequest request);
 }

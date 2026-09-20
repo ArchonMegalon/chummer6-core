@@ -22,8 +22,11 @@ public interface IOwnerBoundCharacterCreationKarmaMetatypeService
         OwnerContextStamp expectedOwner, CharacterCreationKarmaMetatypeConfirmRequest request);
     CharacterCreationFoundationResult<CharacterCreationKarmaFinalizationBudgetQuote> PreviewFinalizationBudget(
         OwnerContextStamp expectedOwner, CharacterCreationKarmaMetatypeBinding binding, string foundationQuoteDigest, int diceTotal);
+    CharacterCreationFoundationResult<CharacterCreationStartingNuyenSource> LoadFinalizationStartingCash(
+        OwnerContextStamp expectedOwner, CharacterCreationKarmaMetatypeBinding binding, string foundationQuoteDigest);
     CharacterCreationFoundationResult<CharacterCreationFinalizationReview> ReviewFinalization(
-        OwnerContextStamp expectedOwner, CharacterCreationKarmaMetatypeBinding binding, string foundationQuoteDigest, int diceTotal);
+        OwnerContextStamp expectedOwner, CharacterCreationKarmaMetatypeBinding binding, string foundationQuoteDigest, int diceTotal,
+        string? startingCashAuthorityDigest = null);
     CharacterCreationFoundationResult<CharacterCreationFinalizationReceipt> ConfirmFinalization(
         OwnerContextStamp expectedOwner, CharacterCreationKarmaFinalizationConfirmRequest request);
 }

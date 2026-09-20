@@ -35,9 +35,14 @@ public sealed class OwnerBoundCharacterCreationKarmaMetatypeService(
         OwnerContextStamp expectedOwner, CharacterCreationKarmaMetatypeBinding binding, string foundationQuoteDigest, int diceTotal)
         => Invoke(expectedOwner, binding.WorkspaceId, service => service.PreviewFinalizationBudget(binding, foundationQuoteDigest, diceTotal));
 
+    public CharacterCreationFoundationResult<CharacterCreationStartingNuyenSource> LoadFinalizationStartingCash(
+        OwnerContextStamp expectedOwner, CharacterCreationKarmaMetatypeBinding binding, string foundationQuoteDigest)
+        => Invoke(expectedOwner, binding.WorkspaceId, service => service.LoadFinalizationStartingCash(binding, foundationQuoteDigest));
+
     public CharacterCreationFoundationResult<CharacterCreationFinalizationReview> ReviewFinalization(
-        OwnerContextStamp expectedOwner, CharacterCreationKarmaMetatypeBinding binding, string foundationQuoteDigest, int diceTotal)
-        => Invoke(expectedOwner, binding.WorkspaceId, service => service.ReviewFinalization(binding, foundationQuoteDigest, diceTotal));
+        OwnerContextStamp expectedOwner, CharacterCreationKarmaMetatypeBinding binding, string foundationQuoteDigest, int diceTotal,
+        string? startingCashAuthorityDigest = null)
+        => Invoke(expectedOwner, binding.WorkspaceId, service => service.ReviewFinalization(binding, foundationQuoteDigest, diceTotal, startingCashAuthorityDigest));
 
     public CharacterCreationFoundationResult<CharacterCreationFinalizationReceipt> ConfirmFinalization(
         OwnerContextStamp expectedOwner, CharacterCreationKarmaFinalizationConfirmRequest request)

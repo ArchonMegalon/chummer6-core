@@ -68,6 +68,12 @@ It consumes the saved Karma decision graph, never a fabricated Priority draft.
 Review requires a fresh foundation binding and quote digest. Confirmation binds
 the exact review, plan, source authority, dice total and idempotency key.
 
+`LoadFinalizationStartingCash` reads the source-owned dice/multiplier before the
+player enters a total. It returns only terms, never a guessed roll or save intent.
+The optional `startingCashAuthorityDigest` on review binds the displayed terms;
+native callers supply it so source changes cannot silently alter the roll's value.
+Two focused read-only/source-drift regressions pass for this addition.
+
 The local transaction projects metatype, attributes, skills/groups, racial grants,
 supported purchased qualities and gear, career baseline, the source-owned default
 Street lifestyle and initial career money. Carryover caps come from the active
@@ -88,9 +94,10 @@ legacy Priority serialization remains unchanged.
 This is **not complete Karma creation or phone delivery**. Awakened finalization
 still fails closed pending its typed magic/resonance contribution. Purchased
 lifestyles, Contacts and remaining creation domains are not silently synthesized.
-The Android completion page and its real device save/reopen/restart route are not
-yet wired to this new Core path. The earlier debug APK proves only pending-draft
-behavior, not finalization. No release package, signed AAB or Play upload is implied.
+The local Android completion page now uses this path; Core-backed native page and
+owner/cancellation/lost-return checks pass. A real device save/reopen/restart check
+must be recorded separately; the earlier debug APK proves only pending drafts.
+No release package, signed AAB or Play upload is implied by the managed checks.
 
 Focused local tests cover actual Human/Elf composition, custom/zero caps, disabled
 or drifting sources, fractional funding, explicit confirmation, concurrent duplicate

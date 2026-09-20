@@ -6,7 +6,8 @@ namespace Chummer.Application.Characters;
 public sealed partial class CharacterCreationKarmaMetatypeService
 {
     public CharacterCreationFoundationResult<CharacterCreationFinalizationReview> ReviewFinalization(
-        CharacterCreationKarmaMetatypeBinding binding, string foundationQuoteDigest, int diceTotal)
+        CharacterCreationKarmaMetatypeBinding binding, string foundationQuoteDigest, int diceTotal,
+        string? startingCashAuthorityDigest = null)
     {
         var read = _workspaceStore.Get(binding.WorkspaceId);
         if (read.Value is not { } workspace || workspace.ContentRevision != binding.ContentRevision
@@ -16,6 +17,7 @@ public sealed partial class CharacterCreationKarmaMetatypeService
                 _sourceDataResolver, diceTotal, out var authority, out var review, out _, out var blockers))
             return new(CharacterCreationFoundationOutcomes.Blocked, null, blockers);
         if (authority!.Foundation.Binding != binding || authority.Foundation.QuoteDigest != foundationQuoteDigest
+            || startingCashAuthorityDigest is not null && authority.Finances.StartingCashSource.AuthorityDigest != startingCashAuthorityDigest
             || _workspaceStore.Get(binding.WorkspaceId).Value is not { } final
             || final.ContentRevision != binding.ContentRevision || final.SavedRevision != binding.SavedRevision
             || final.Document.AuxiliaryStateDigest != binding.AuxiliaryStateDigest

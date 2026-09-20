@@ -358,6 +358,27 @@ public sealed class CharacterCreationBootstrapServiceTests
         AssertJsonEqual(before, fixture.Store.Get(fixture.Id).Value!);
     }
 
+    [TestMethod]
+    public void Karma_completion_cash_terms_are_read_only_and_review_requires_the_displayed_source()
+    {
+        using var fixture = new KarmaDiskFixture(includeSkills: true, includeGear: true, includeLifestyles: true);
+        _ = CompletionRequest(fixture);
+        var current = fixture.Service.Open(fixture.Id, true, true, true).Value!.Quote!;
+        var before = fixture.Store.Get(fixture.Id).Value!;
+        var terms = fixture.Service.LoadFinalizationStartingCash(current.Binding, current.QuoteDigest);
+        Assert.IsNotNull(terms.Value, string.Join(",", terms.Blockers));
+        Assert.AreEqual(1, terms.Value.Dice);
+        Assert.AreEqual(20m, terms.Value.Multiplier);
+        Assert.IsNotNull(fixture.Service.ReviewFinalization(current.Binding, current.QuoteDigest, 4, terms.Value.AuthorityDigest).Value);
+        Assert.IsNull(fixture.Service.ReviewFinalization(current.Binding, current.QuoteDigest, 4, "sha256:" + new string('0', 64)).Value);
+        Assert.IsNull(fixture.Service.ReviewFinalization(current.Binding, current.QuoteDigest, 999, terms.Value.AuthorityDigest).Value);
+        Assert.IsNull(fixture.Service.LoadFinalizationStartingCash(current.Binding with { ContentRevision = current.Binding.ContentRevision + 1 }, current.QuoteDigest).Value);
+        AssertJsonEqual(before, fixture.Store.Get(fixture.Id).Value!);
+        fixture.EditLifestyle("Street", row => row.SetElementValue("multiplier", "21"));
+        Assert.IsNull(fixture.Service.ReviewFinalization(current.Binding, current.QuoteDigest, 4, terms.Value.AuthorityDigest).Value);
+        AssertJsonEqual(before, fixture.Store.Get(fixture.Id).Value!);
+    }
+
     private static CharacterCreationKarmaFinalizationConfirmRequest CompletionRequest(KarmaDiskFixture fixture)
     {
         var pending = CompletionFoundation(fixture, 10.1m, buyGear: true);
