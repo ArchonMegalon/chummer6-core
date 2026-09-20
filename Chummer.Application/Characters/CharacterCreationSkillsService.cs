@@ -402,7 +402,8 @@ public sealed partial class CharacterCreationSkillsService : ICharacterCreationS
                         assignment.SourceNodeDigest));
             if (option?.BaseActiveSkillPoints is not int active
                 || option.BaseSkillGroupPoints is not int groups
-                || !string.Equals(prerequisite.BuildMethod, CharacterCreationBuildMethods.Priority, StringComparison.Ordinal)
+                || prerequisite.BuildMethod is not (CharacterCreationBuildMethods.Priority
+                    or CharacterCreationBuildMethods.SumToTen)
                 || !string.Equals(prerequisite.PriorityTable, "Standard", StringComparison.Ordinal)
                 || !CharacterCreationStandardPrioritySkillsRules.HasExactBudgetTable(prerequisiteAuthority.Options)
                 || !CharacterCreationStandardPrioritySkillsRules.TryGetBudget(

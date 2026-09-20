@@ -645,7 +645,8 @@ public static class CharacterCreationQualitiesRules
         if (!string.Equals(binding.RulesetId, "sr5", StringComparison.OrdinalIgnoreCase)
             || !string.Equals(authority.RulesetId, "sr5", StringComparison.OrdinalIgnoreCase))
             blockers.Add(CharacterCreationQualitiesBlockers.UnsupportedRuleset);
-        if (!string.Equals(binding.BuildMethod, CharacterCreationBuildMethods.Priority, StringComparison.Ordinal))
+        if (binding.BuildMethod is not (CharacterCreationBuildMethods.Priority
+            or CharacterCreationBuildMethods.SumToTen))
             blockers.Add(CharacterCreationQualitiesBlockers.UnsupportedBuildMethod);
         if (string.IsNullOrWhiteSpace(binding.WorkspaceId.Value)
             || binding.ContentRevision <= 0

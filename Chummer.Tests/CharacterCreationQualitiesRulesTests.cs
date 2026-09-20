@@ -360,6 +360,31 @@ public sealed class CharacterCreationQualitiesRulesTests
     }
 
     [TestMethod]
+    [DataRow(CharacterCreationBuildMethods.Priority, true)]
+    [DataRow(CharacterCreationBuildMethods.SumToTen, true)]
+    [DataRow(CharacterCreationBuildMethods.Karma, false)]
+    [DataRow(CharacterCreationBuildMethods.LifeModules, false)]
+    [DataRow("sumtoten", false)]
+    [DataRow("unknown", false)]
+    public void Priority_table_quality_lane_admits_only_exact_supported_methods(string method, bool admitted)
+    {
+        var authority = Authority(Option("positive", CharacterCreationQualityType.Positive, 5));
+        var binding = Binding(authority) with { BuildMethod = method };
+        var preview = CharacterCreationQualitiesRules.Evaluate(new(binding, authority, ["positive"]));
+        Assert.AreEqual(admitted, preview.CanConfirm, string.Join(",", preview.Blockers));
+        Assert.AreEqual(!admitted,
+            preview.Blockers.Contains(CharacterCreationQualitiesBlockers.UnsupportedBuildMethod));
+        if (admitted)
+        {
+            Assert.AreEqual(20, preview.KarmaRemaining);
+            var overBudget = CharacterCreationQualitiesRules.Evaluate(new(
+                binding with { CreationKarmaTotal = 4 }, authority, ["positive"]));
+            Assert.IsFalse(overBudget.CanConfirm);
+            CollectionAssert.Contains(overBudget.Blockers.ToArray(), CharacterCreationQualitiesBlockers.KarmaExceeded);
+        }
+    }
+
+    [TestMethod]
     public void Evaluate_fails_closed_for_unknown_duplicate_disabled_and_inexact_choices()
     {
         CharacterCreationQualityCatalogOption disabled = Option(

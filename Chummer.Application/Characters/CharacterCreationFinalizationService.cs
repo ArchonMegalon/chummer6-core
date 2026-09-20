@@ -391,11 +391,10 @@ public sealed class CharacterCreationFinalizationService : ICharacterCreationFin
         var blockers = new List<string>();
         if (!string.Equals(workspace.Document.RulesetId, RulesetDefaults.Sr5, StringComparison.Ordinal))
             blockers.Add(CharacterCreationFinalizationBlockers.RulesetSr5Required);
-        if (summary.BuildMethod is CharacterCreationBuildMethods.SumToTen
-            or CharacterCreationBuildMethods.LifeModules)
+        if (summary.BuildMethod == CharacterCreationBuildMethods.LifeModules)
             blockers.Add(CharacterCreationFinalizationBlockers.BuildMethodNotReady);
-        else if (!string.Equals(summary.BuildMethod, CharacterCreationBuildMethods.Priority,
-                     StringComparison.Ordinal))
+        else if (summary.BuildMethod is not (CharacterCreationBuildMethods.Priority
+                     or CharacterCreationBuildMethods.SumToTen))
             blockers.Add(CharacterCreationFinalizationBlockers.BuildMethodUnsupported);
         if (blockers.Count != 0)
         {
