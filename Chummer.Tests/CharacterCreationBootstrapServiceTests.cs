@@ -38,6 +38,183 @@ public sealed class CharacterCreationBootstrapServiceTests
     private const string MagicianId = "0e741331-d776-4be8-abc5-4101228abdef";
 
     [TestMethod]
+    public void Karma_gear_purchases_use_funding_quote_and_survive_cold_reopen_and_exact_replay()
+    {
+        using var fixture = new KarmaDiskFixture(includeGear: true);
+        Assert.IsNotNull(fixture.Service.Confirm(fixture.Request(HumanId, "mundane", [], resources: 10m)).Value);
+        var before = fixture.Store.Get(fixture.Id).Value!;
+        var state = fixture.Service.Load(fixture.Id, includeGear: true).Value!;
+        Assert.IsNotNull(state.GearAuthority);
+        var item = state.GearAuthority.Options.First(option => option.IsSelectable && option.PackageCost is > 0 and < 1000);
+        CharacterCreationGearSelection[] basket = [new(item.OptionId, item.PackageQuantity * 2)];
+        var request = fixture.Request(HumanId, "mundane", [], resources: 10m, gear: basket);
+        var quote = fixture.Service.Preview(request.Binding, HumanId, "mundane", [], resourceKarmaInvestment: 10m,
+            gearSelections: basket).Value!;
+        Assert.IsTrue(quote.CanSelect);
+        Assert.AreEqual(10m, quote.KarmaBudget.Used, "Equipment spends nuyen, not a second Karma charge.");
+        Assert.AreEqual(20000m, quote.Gear!.Budget.TotalStartingNuyen);
+        Assert.AreEqual(item.PackageCost * 2, quote.Gear.Budget.BasketCost);
+        Assert.AreEqual(20000m - item.PackageCost * 2, quote.Gear.Budget.RemainingNuyen);
+        Assert.AreEqual(quote.Resources!.QuoteDigest, quote.Gear.ResourcesQuoteDigest);
+        AssertJsonEqual(before, fixture.Store.Get(fixture.Id).Value!);
+        Assert.IsNotNull(fixture.Service.Confirm(request).Value);
+        var coldStore = new FileWorkspaceStore(fixture.StateRoot);
+        var saved = coldStore.Get(fixture.Id).Value!;
+        Assert.AreEqual(before.ContentRevision + 1, saved.ContentRevision);
+        Assert.AreEqual(saved.ContentRevision, saved.SavedRevision);
+        Assert.AreEqual(before.Document.Content, saved.Document.Content);
+        AssertJsonEqual(before.Document.AuxiliaryState.CharacterCreationKarmaMetatypeDecisions![0],
+            saved.Document.AuxiliaryState.CharacterCreationKarmaMetatypeDecisions![0]);
+        Assert.IsNull(saved.Document.AuxiliaryState.CharacterCreationResourcesDraft);
+        Assert.IsNull(saved.Document.AuxiliaryState.CharacterCreationGearDraft);
+        var cold = new CharacterCreationKarmaMetatypeService(coldStore, fixture.Resolver);
+        var opened = cold.Open(fixture.Id);
+        Assert.IsNotNull(opened.Value, string.Join(",", opened.Blockers));
+        AssertJsonEqual(quote.Gear, opened.Value.Quote!.Gear);
+        Assert.IsTrue(cold.Confirm(request).Value!.Replayed);
+        AssertJsonEqual(saved, coldStore.Get(fixture.Id).Value!);
+    }
+
+    [TestMethod]
+    public void Karma_gear_lower_funding_blocks_persisting_overspend_and_omission_cannot_erase_basket()
+    {
+        using var fixture = new KarmaDiskFixture(includeGear: true);
+        var state = fixture.Service.Load(fixture.Id, includeGear: true).Value!;
+        var item = state.GearAuthority!.Options.First(option => option.IsSelectable && option.PackageCost is > 0 and < 1000);
+        CharacterCreationGearSelection[] basket = [new(item.OptionId, item.PackageQuantity)];
+        Assert.IsNotNull(fixture.Service.Confirm(fixture.Request(HumanId, "mundane", [], resources: 10m, gear: basket)).Value);
+        var before = fixture.Store.Get(fixture.Id).Value!;
+        var opened = fixture.Service.Open(fixture.Id).Value!;
+        var lower = fixture.Service.Preview(opened.State.Binding, HumanId, "mundane", [], resourceKarmaInvestment: 0m,
+            gearSelections: basket).Value!;
+        Assert.IsFalse(lower.CanSelect);
+        CollectionAssert.Contains(lower.Blockers.ToArray(), CharacterCreationGearBlockers.InsufficientFunds);
+        Assert.IsNull(fixture.Service.Confirm(new(lower.Binding, HumanId, lower.QuoteDigest, Guid.NewGuid(), true,
+            "mundane", [], ResourceKarmaInvestment: 0m, GearSelections: basket)).Value);
+        CollectionAssert.Contains(fixture.Service.Preview(opened.State.Binding, HumanId, "mundane", [], resourceKarmaInvestment: 10m)
+            .Blockers.ToArray(), CharacterCreationKarmaMetatypeBlockers.GearSelectionRequired);
+        AssertJsonEqual(before, fixture.Store.Get(fixture.Id).Value!);
+        var empty = fixture.Service.Preview(opened.State.Binding, HumanId, "mundane", [], resourceKarmaInvestment: 0m,
+            gearSelections: []).Value!;
+        Assert.IsTrue(empty.CanSelect);
+        Assert.IsNotNull(fixture.Service.Confirm(new(empty.Binding, HumanId, empty.QuoteDigest, Guid.NewGuid(), true,
+            "mundane", [], ResourceKarmaInvestment: 0m, GearSelections: [])).Value);
+        Assert.AreEqual(0, fixture.Service.Open(fixture.Id).Value!.Quote!.Gear!.Lines.Count);
+    }
+
+    [TestMethod]
+    public void Karma_gear_rejects_invalid_baskets_disabled_or_unsupported_sources_and_stale_source_before_commit()
+    {
+        using var fixture = new KarmaDiskFixture(includeGear: true);
+        var state = fixture.Service.Load(fixture.Id, includeGear: true).Value!;
+        var item = state.GearAuthority!.Options.First(option => option.IsSelectable && option.PackageCost is > 0 and < 1000);
+        var before = fixture.Store.Get(fixture.Id).Value!;
+        foreach (CharacterCreationGearSelection[] invalid in new CharacterCreationGearSelection[][]
+        {
+            [new(item.OptionId, 0)], [new(item.OptionId, -1)], [new(item.OptionId, 1000001)],
+            [new(item.OptionId, 1), new(item.OptionId, 1)], [null!], [new("unbound", 1)]
+        })
+            Assert.IsNull(fixture.Service.Preview(state.Binding, HumanId, "mundane", [], resourceKarmaInvestment: 10m,
+                gearSelections: invalid).Value);
+        foreach (var denied in state.GearAuthority.Options.Where(option => !option.IsSelectable).Take(3))
+        {
+            var quote = fixture.Service.Preview(state.Binding, HumanId, "mundane", [], resourceKarmaInvestment: 10m,
+                gearSelections: [new(denied.OptionId, 1)]).Value!;
+            Assert.IsFalse(quote.CanSelect);
+        }
+        var request = fixture.Request(HumanId, "mundane", [], resources: 10m, gear: [new(item.OptionId, 1)]);
+        fixture.EditGear(item.Name, row => row.SetElementValue("cost", "9999"));
+        Assert.IsNull(fixture.Service.Confirm(request).Value);
+        AssertJsonEqual(before, fixture.Store.Get(fixture.Id).Value!);
+    }
+
+    [TestMethod]
+    public void Karma_gear_history_rejects_rehashed_price_quantity_budget_and_funding_tampering()
+    {
+        using var fixture = new KarmaDiskFixture(includeGear: true);
+        var state = fixture.Service.Load(fixture.Id, includeGear: true).Value!;
+        var item = state.GearAuthority!.Options.First(option => option.IsSelectable && option.PackageCost is > 0 and < 1000);
+        var quote = fixture.Service.Preview(state.Binding, HumanId, "mundane", [], resourceKarmaInvestment: 10m,
+            gearSelections: [new(item.OptionId, item.PackageQuantity)]).Value!;
+        var gear = quote.Gear!;
+        CharacterCreationGearSelection[] basket = [new(item.OptionId, item.PackageQuantity)];
+        Assert.IsTrue(CharacterCreationKarmaGearRules.IsValid(gear, quote.Resources, basket));
+        var line = gear.Lines.Single() with { PackageCost = 0m, TotalCost = 0m };
+        line = line with { LineDigest = CharacterCreationGearRules.ComputeLineDigest(line) };
+        foreach (var changed in new[]
+        {
+            gear with { Lines = [line], Budget = new(20000m, 0m, 20000m, 0m, true, []) },
+            gear with { Budget = gear.Budget with { RemainingNuyen = 20000m } },
+            gear with { ResourcesQuoteDigest = CharacterCreationGearRules.ComputeUtf8("different funding") },
+            gear with { Lines = [gear.Lines[0] with { Quantity = 100 }] }
+        })
+        {
+            var rehashed = changed with { QuoteDigest = CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(
+                changed with { QuoteDigest = string.Empty }) };
+            Assert.IsFalse(CharacterCreationKarmaGearRules.IsValid(rehashed, quote.Resources, basket));
+        }
+        Assert.IsFalse(CharacterCreationKarmaGearRules.IsValid(gear with { Blockers = null! }, quote.Resources, basket));
+        Assert.IsFalse(CharacterCreationKarmaGearRules.IsValid(gear with { Basis = null! }, quote.Resources, basket));
+        Assert.IsFalse(CharacterCreationKarmaGearRules.IsValid(gear, quote.Resources, null));
+    }
+
+    [TestMethod]
+    public void Karma_gear_source_drift_during_atomic_replace_does_not_commit_or_erase_history()
+    {
+        using var fixture = new KarmaDiskFixture(includeGear: true);
+        Assert.IsNotNull(fixture.Service.Confirm(fixture.Request(HumanId, "mundane", [], resources: 10m)).Value);
+        var state = fixture.Service.Load(fixture.Id, includeGear: true).Value!;
+        var item = state.GearAuthority!.Options.First(option => option.IsSelectable && option.PackageCost is > 0 and < 1000);
+        var request = fixture.Request(HumanId, "mundane", [], resources: 10m, gear: [new(item.OptionId, 1)]);
+        var before = fixture.Store.Get(fixture.Id).Value!;
+        fixture.Fault.Action = stage =>
+        {
+            if (stage == FileWorkspaceStoreFaultStage.AfterTempFileFlushed)
+                fixture.EditGear(item.Name, row => row.SetElementValue("cost", "9999"));
+        };
+        Assert.IsNull(fixture.Service.Confirm(request).Value);
+        AssertJsonEqual(before, new FileWorkspaceStore(fixture.StateRoot).Get(fixture.Id).Value!);
+    }
+
+    [TestMethod]
+    public void Karma_gear_command_freezes_caller_basket_and_absent_fields_preserve_previous_history_bytes()
+    {
+        using var fixture = new KarmaDiskFixture(includeGear: true);
+        var previous = fixture.Request(HumanId, "mundane", [], resources: 10m);
+        Assert.IsFalse(JsonSerializer.Serialize(previous).Contains("GearSelections", StringComparison.Ordinal));
+        Assert.IsFalse(JsonSerializer.Serialize(previous.Binding).Contains("GearAuthorityDigest", StringComparison.Ordinal));
+        var state = fixture.Service.Load(fixture.Id, includeGear: true).Value!;
+        var item = state.GearAuthority!.Options.First(option => option.IsSelectable && option.PackageCost is > 0 and < 1000);
+        CharacterCreationGearSelection[] basket = [new(item.OptionId, 1)];
+        var request = fixture.Request(HumanId, "mundane", [], resources: 10m, gear: basket);
+        Assert.IsTrue(CharacterCreationKarmaMetatypeTransaction.TryFreezeRequest(request, out var frozen));
+        basket[0] = new(item.OptionId, 2);
+        Assert.AreEqual(1, frozen.GearSelections!.Single().Quantity);
+        Assert.IsNotNull(fixture.Service.Confirm(frozen).Value);
+        Assert.AreEqual(1, fixture.Service.Open(fixture.Id).Value!.Quote!.Gear!.Lines.Single().Quantity);
+    }
+
+    [TestMethod]
+    public void Karma_gear_invalid_attribute_or_funding_changes_keep_the_draft_visible_for_repair()
+    {
+        using var fixture = new KarmaDiskFixture(includeGear: true, budget: 100);
+        var state = fixture.Service.Load(fixture.Id, includeGear: true).Value!;
+        foreach (int levels in new[] { 6, 5 })
+        {
+            var quote = fixture.Service.Preview(state.Binding, HumanId, "mundane", [new("BOD", levels)],
+                resourceKarmaInvestment: 10m, gearSelections: []).Value;
+            Assert.IsNotNull(quote, "Invalid upstream allocations must remain editable after adding equipment.");
+            Assert.IsNotNull(quote.Attributes);
+            Assert.IsNotNull(quote.Resources);
+            Assert.IsNotNull(quote.Gear);
+            Assert.IsFalse(quote.CanSelect);
+            Assert.IsFalse(quote.Gear.CanSelect);
+            Assert.IsNull(fixture.Service.Confirm(new(quote.Binding, HumanId, quote.QuoteDigest, Guid.NewGuid(), true,
+                "mundane", [new("BOD", levels)], ResourceKarmaInvestment: 10m, GearSelections: [])).Value);
+        }
+    }
+
+    [TestMethod]
     [DataRow("mundane", null, false, false, false)]
     [DataRow("0e741331-d776-4be8-abc5-4101228abdef", null, true, false, false)]
     [DataRow("55247bdc-c313-4614-ae15-5012308096ff", null, false, true, false)]
@@ -2788,13 +2965,13 @@ public sealed class CharacterCreationBootstrapServiceTests
         public CharacterCreationKarmaMetatypeConfirmRequest Request(string optionId, string? talentId = null,
             IReadOnlyList<CharacterCreationKarmaAttributeAllocation>? allocations = null,
             CharacterCreationKarmaSkillsSelection? skills = null, decimal? resources = null,
-            IReadOnlyList<string>? qualities = null)
+            IReadOnlyList<string>? qualities = null, IReadOnlyList<CharacterCreationGearSelection>? gear = null)
         {
-            var state = Service.Load(Id, includeSkills: skills is not null, includeQualities: qualities is not null);
+            var state = Service.Load(Id, includeSkills: skills is not null, includeQualities: qualities is not null, includeGear: gear is not null);
             Assert.IsNotNull(state.Value, string.Join(",", state.Blockers));
-            var quote = Service.Preview(state.Value.Binding, optionId, talentId, allocations, skills, resources, qualities);
+            var quote = Service.Preview(state.Value.Binding, optionId, talentId, allocations, skills, resources, qualities, gear);
             Assert.IsNotNull(quote.Value, string.Join(",", quote.Blockers));
-            return new(quote.Value.Binding, optionId, quote.Value.QuoteDigest, Guid.NewGuid(), true, talentId, allocations, skills, resources, qualities);
+            return new(quote.Value.Binding, optionId, quote.Value.QuoteDigest, Guid.NewGuid(), true, talentId, allocations, skills, resources, qualities, gear);
         }
         public void RemoveQualitySource() => File.Delete(Path.Combine(_root, "data", "qualities.xml"));
         public void EditSkill(string name, Action<XElement> change)

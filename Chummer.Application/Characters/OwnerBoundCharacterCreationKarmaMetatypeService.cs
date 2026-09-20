@@ -10,21 +10,22 @@ public sealed class OwnerBoundCharacterCreationKarmaMetatypeService(
     : IOwnerBoundCharacterCreationKarmaMetatypeService
 {
     public CharacterCreationFoundationResult<CharacterCreationKarmaMetatypeState> Load(
-        OwnerContextStamp expectedOwner, CharacterWorkspaceId id, bool includeSkills = false, bool includeQualities = false)
-        => Invoke(expectedOwner, id, service => service.Load(id, includeSkills, includeQualities));
+        OwnerContextStamp expectedOwner, CharacterWorkspaceId id, bool includeSkills = false, bool includeQualities = false, bool includeGear = false)
+        => Invoke(expectedOwner, id, service => service.Load(id, includeSkills, includeQualities, includeGear));
 
     public CharacterCreationFoundationResult<CharacterCreationKarmaMetatypeOpen> Open(
-        OwnerContextStamp expectedOwner, CharacterWorkspaceId id, bool includeSkills = false, bool includeQualities = false)
-        => Invoke(expectedOwner, id, service => service.Open(id, includeSkills, includeQualities));
+        OwnerContextStamp expectedOwner, CharacterWorkspaceId id, bool includeSkills = false, bool includeQualities = false, bool includeGear = false)
+        => Invoke(expectedOwner, id, service => service.Open(id, includeSkills, includeQualities, includeGear));
 
     public CharacterCreationFoundationResult<CharacterCreationKarmaMetatypeQuote> Preview(
         OwnerContextStamp expectedOwner, CharacterCreationKarmaMetatypeBinding binding, string optionId,
         string? talentOptionId = null,
         IReadOnlyList<CharacterCreationKarmaAttributeAllocation>? attributeAllocations = null,
         CharacterCreationKarmaSkillsSelection? skillsSelection = null, decimal? resourceKarmaInvestment = null,
-        IReadOnlyList<string>? qualityOptionIds = null)
+        IReadOnlyList<string>? qualityOptionIds = null,
+        IReadOnlyList<CharacterCreationGearSelection>? gearSelections = null)
         => Invoke(expectedOwner, binding.WorkspaceId, service => service.Preview(binding, optionId, talentOptionId,
-            attributeAllocations, skillsSelection, resourceKarmaInvestment, qualityOptionIds));
+            attributeAllocations, skillsSelection, resourceKarmaInvestment, qualityOptionIds, gearSelections));
 
     public CharacterCreationFoundationResult<CharacterCreationKarmaMetatypeCommit> Confirm(
         OwnerContextStamp expectedOwner, CharacterCreationKarmaMetatypeConfirmRequest request)

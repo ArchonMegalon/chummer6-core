@@ -2704,7 +2704,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             if (string.IsNullOrWhiteSpace(_settingsProfileId)
                 || _creationMaximumAvailability is not int maximumAvailability
                 || maximumAvailability < 0
-                || !CharacterCreationBuildMethods.IsSupported(_prerequisiteBuildMethod)
+                || !CharacterCreationBuildMethods.IsSupported(_buildMethod)
                 || !TryComputeEffectiveInputDigest(_catalog, "gear.xml", out string sourceDigest)
                 || !TryEnumerateTargets(
                     "gear.xml",
