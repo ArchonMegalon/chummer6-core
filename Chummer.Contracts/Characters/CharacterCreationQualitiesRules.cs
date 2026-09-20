@@ -562,7 +562,7 @@ public static class CharacterCreationQualitiesRules
                CharacterCreationQualitiesDigest.Compute(receipt with { ReceiptDigest = string.Empty }));
 
     public static string ComputeOptionDigest(CharacterCreationQualityCatalogOption option) =>
-        CharacterCreationQualitiesDigest.Compute(option with { OptionDigest = string.Empty });
+        CharacterCreationQualitiesDigest.ComputeOption(option);
 
     public static string ComputeGrantDigest(CharacterCreationGrantedQuality grant) =>
         CharacterCreationQualitiesDigest.Compute(grant with { GrantDigest = string.Empty });
@@ -790,6 +790,51 @@ public static class CharacterCreationQualitiesRules
 internal static class CharacterCreationQualitiesDigest
 {
     private const string Prefix = "sha256:";
+
+    public static string ComputeOption(CharacterCreationQualityCatalogOption option)
+    {
+        ArgumentNullException.ThrowIfNull(option);
+        // Same canonical JSON as Compute(option with { OptionDigest = "" }).
+        // Catalog validation hashes every option repeatedly. Write this fixed
+        // scalar shape in ordinal property order instead of creating a record,
+        // serializing/parsing a DOM, sorting it and escaping its XML twice.
+        // No memoization: caller-owned strings/collections are read each time.
+        var buffer = new ArrayBufferWriter<byte>();
+        using (var writer = new Utf8JsonWriter(buffer))
+        {
+            writer.WriteStartObject();
+            writer.WriteBoolean(nameof(option.CountsAgainstKarma), option.CountsAgainstKarma);
+            writer.WriteBoolean(nameof(option.CountsAgainstQualityLimit), option.CountsAgainstQualityLimit);
+            writer.WriteString(nameof(option.DisableReasonKey), option.DisableReasonKey);
+            writer.WriteBoolean(nameof(option.EligibilityIsExact), option.EligibilityIsExact);
+            writer.WriteString(nameof(option.FollowUpChoiceId), option.FollowUpChoiceId);
+            writer.WriteString(nameof(option.FollowUpChoiceLabel), option.FollowUpChoiceLabel);
+            writer.WriteBoolean(nameof(option.IsFreeOrGranted), option.IsFreeOrGranted);
+            writer.WriteBoolean(nameof(option.IsMetagenic), option.IsMetagenic);
+            writer.WriteBoolean(nameof(option.IsSelectable), option.IsSelectable);
+            writer.WriteNumber(nameof(option.KarmaCost), option.KarmaCost);
+            writer.WriteNumber(nameof(option.MaximumSelections), option.MaximumSelections);
+            writer.WriteString(nameof(option.Name), option.Name);
+            writer.WriteString(nameof(option.OptionDigest), string.Empty);
+            writer.WriteString(nameof(option.OptionId), option.OptionId);
+            writer.WriteNumber(nameof(option.Rating), option.Rating);
+            writer.WriteString(nameof(option.SelectionKey), option.SelectionKey);
+            writer.WritePropertyName(nameof(option.SourceAnchorIds));
+            if (option.SourceAnchorIds is null) writer.WriteNullValue();
+            else
+            {
+                writer.WriteStartArray();
+                foreach (string anchor in option.SourceAnchorIds) writer.WriteStringValue(anchor);
+                writer.WriteEndArray();
+            }
+            writer.WriteString(nameof(option.SourceId), option.SourceId);
+            writer.WriteString(nameof(option.SourceNodeDigest), option.SourceNodeDigest);
+            writer.WriteString(nameof(option.SourceNodeXml), option.SourceNodeXml);
+            writer.WriteNumber(nameof(option.Type), (int)option.Type);
+            writer.WriteEndObject();
+        }
+        return Prefix + Convert.ToHexStringLower(SHA256.HashData(buffer.WrittenSpan));
+    }
 
     public static string Compute<T>(T value)
     {

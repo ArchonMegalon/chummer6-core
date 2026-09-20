@@ -1,3 +1,6 @@
+using System.Buffers;
+using System.Security.Cryptography;
+using System.Text.Json;
 using Chummer.Contracts.Characters;
 using Chummer.Contracts.Workspaces;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -7,6 +10,90 @@ namespace Chummer.Tests;
 [TestClass]
 public sealed class CharacterCreationQualitiesRulesTests
 {
+    [TestMethod]
+    public void Quality_option_digest_preserves_canonical_bytes_for_every_field_and_nullable_shape()
+    {
+        var option = Option("digest-option", CharacterCreationQualityType.Positive, 7);
+        var baseline = System.Text.Json.JsonSerializer.SerializeToElement(option);
+        // Exercise every serialized property independently. A future added field
+        // must not silently disappear from the specialized canonical writer.
+        foreach (var property in baseline.EnumerateObject())
+        {
+            var changed = System.Text.Json.Nodes.JsonNode.Parse(baseline.GetRawText())!.AsObject();
+            changed[property.Name] = property.Value.ValueKind switch
+            {
+                System.Text.Json.JsonValueKind.True => System.Text.Json.Nodes.JsonValue.Create(false),
+                System.Text.Json.JsonValueKind.False => System.Text.Json.Nodes.JsonValue.Create(true),
+                System.Text.Json.JsonValueKind.Number => System.Text.Json.Nodes.JsonValue.Create(-123),
+                System.Text.Json.JsonValueKind.Array => new System.Text.Json.Nodes.JsonArray("b", "a", "ä<&\"\\\n"),
+                _ => System.Text.Json.Nodes.JsonValue.Create(property.Name == nameof(option.SourceId)
+                    ? "beacfaaa-1234-5678-9012-ffffffffffff" : "ä español 日本語 😀 <xml>&\"\\\n\t\u2028")
+            };
+            var value = System.Text.Json.JsonSerializer.Deserialize<CharacterCreationQualityCatalogOption>(changed.ToJsonString())!;
+            Assert.AreEqual(ReferenceOptionDigest(value), CharacterCreationQualitiesRules.ComputeOptionDigest(value), property.Name);
+            if (property.Name != nameof(option.OptionDigest))
+                Assert.AreNotEqual(option.OptionDigest, CharacterCreationQualitiesRules.ComputeOptionDigest(value), property.Name);
+
+            if (property.Value.ValueKind is System.Text.Json.JsonValueKind.String
+                or System.Text.Json.JsonValueKind.Null or System.Text.Json.JsonValueKind.Array
+                && property.Name != nameof(option.SourceId))
+            {
+                changed[property.Name] = null;
+                value = System.Text.Json.JsonSerializer.Deserialize<CharacterCreationQualityCatalogOption>(changed.ToJsonString())!;
+                Assert.AreEqual(ReferenceOptionDigest(value), CharacterCreationQualitiesRules.ComputeOptionDigest(value), "null " + property.Name);
+            }
+        }
+        Assert.AreEqual(ReferenceOptionDigest(option), option.OptionDigest);
+    }
+
+    [TestMethod]
+    public void Quality_option_digest_does_not_cache_a_mutable_anchor_collection()
+    {
+        string[] anchors = ["first", "second"];
+        var option = Option("mutable-anchors", CharacterCreationQualityType.Negative, -7)
+            with { SourceAnchorIds = anchors };
+        string before = CharacterCreationQualitiesRules.ComputeOptionDigest(option);
+        anchors[1] = "changed";
+        string after = CharacterCreationQualitiesRules.ComputeOptionDigest(option);
+        Assert.AreNotEqual(before, after);
+        Assert.AreEqual(ReferenceOptionDigest(option), after);
+    }
+
+    private static string ReferenceOptionDigest(CharacterCreationQualityCatalogOption option)
+    {
+        var root = JsonSerializer.SerializeToElement(option with { OptionDigest = string.Empty });
+        var buffer = new ArrayBufferWriter<byte>();
+        using (var writer = new Utf8JsonWriter(buffer)) WriteCanonical(root, writer);
+        return "sha256:" + Convert.ToHexStringLower(SHA256.HashData(buffer.WrittenSpan));
+
+        static void WriteCanonical(JsonElement value, Utf8JsonWriter writer)
+        {
+            switch (value.ValueKind)
+            {
+                case JsonValueKind.Object:
+                    writer.WriteStartObject();
+                    foreach (var property in value.EnumerateObject().OrderBy(item => item.Name, StringComparer.Ordinal))
+                    {
+                        writer.WritePropertyName(property.Name);
+                        WriteCanonical(property.Value, writer);
+                    }
+                    writer.WriteEndObject();
+                    break;
+                case JsonValueKind.Array:
+                    writer.WriteStartArray();
+                    foreach (var item in value.EnumerateArray()) WriteCanonical(item, writer);
+                    writer.WriteEndArray();
+                    break;
+                case JsonValueKind.String:
+                    writer.WriteStringValue(value.GetString());
+                    break;
+                default:
+                    value.WriteTo(writer);
+                    break;
+            }
+        }
+    }
+
     [TestMethod]
     [DataRow(false, false, 30, 40, 104)]
     [DataRow(true, false, 35, 40, 99)]
