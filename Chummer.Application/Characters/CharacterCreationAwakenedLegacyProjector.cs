@@ -285,6 +285,31 @@ internal static class CharacterCreationAwakenedLegacyProjector
                         effect.Value, id, "Quality"));
                     if (useSelected) extra = effect.Value;
                     break;
+                case "pathogencontactresist":
+                case "pathogeningestionresist":
+                case "pathogeninhalationresist":
+                case "pathogeninjectionresist":
+                case "toxincontactresist":
+                case "toxiningestionresist":
+                case "toxininhalationresist":
+                case "toxininjectionresist":
+                    Require(effect.Name.Namespace == XNamespace.None && !effect.HasElements
+                        && int.TryParse(effect.Value, NumberStyles.None, CultureInfo.InvariantCulture, out int resistance)
+                        && resistance >= 0);
+                    string resistanceType = effect.Name.LocalName switch
+                    {
+                        "pathogencontactresist" => "PathogenContactResist",
+                        "pathogeningestionresist" => "PathogenIngestionResist",
+                        "pathogeninhalationresist" => "PathogenInhalationResist",
+                        "pathogeninjectionresist" => "PathogenInjectionResist",
+                        "toxincontactresist" => "ToxinContactResist",
+                        "toxiningestionresist" => "ToxinIngestionResist",
+                        "toxininhalationresist" => "ToxinInhalationResist",
+                        _ => "ToxinInjectionResist"
+                    };
+                    improvements.Add(Improvement(resistanceType, string.Empty, id, "Quality",
+                        int.Parse(effect.Value, CultureInfo.InvariantCulture)));
+                    break;
                 default:
                     throw new InvalidDataException("Uncompiled Talent bonus.");
             }
@@ -415,7 +440,7 @@ internal static class CharacterCreationAwakenedLegacyProjector
             source.Name + (source.Levels > 1 ? " × " + source.Levels.ToString(CultureInfo.InvariantCulture) : string.Empty),
             0, 0, source.SourceAnchorIds);
 
-    private static XElement Improvement(string type, string name, string sourceName, string source,
+    internal static XElement Improvement(string type, string name, string sourceName, string source,
         int value = 0, string unique = "", int rating = 1) => new("improvement",
         new XElement("target"), unique.Length == 0 ? null : new XElement("unique", unique),
         new XElement("improvedname", name), new XElement("sourcename", sourceName),

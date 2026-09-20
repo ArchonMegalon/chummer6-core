@@ -36,6 +36,8 @@ public sealed class CharacterCreationBootstrapServiceTests
     private const string HumanId = "a53d885d-a4a4-443d-b6a6-b0a55b0a96c7";
     private const string ElfId = "b3259991-b315-4dbe-ae3c-51f71a1116e2";
     private const string OrkId = "8ed6892f-88e6-42d0-a704-b805778ec13e";
+    private const string DwarfId = "08f2c9cc-f9f8-4f1a-9efb-63555af71788";
+    private const string TrollId = "77fa1ed8-f4e6-4763-9f0b-f125318b9782";
     private const string MagicianId = "0e741331-d776-4be8-abc5-4101228abdef";
 
     [TestMethod]
@@ -910,6 +912,50 @@ public sealed class CharacterCreationBootstrapServiceTests
     }
 
     [TestMethod]
+    public void Metatype_lifestyle_source_admission_resolves_only_unconditional_racial_adjustments()
+    {
+        static XElement Effect(string value, string source = "Metatype", string condition = "", string name = "", string unique = "")
+            => new("improvement", new XElement("improvementttype", "LifestyleCost"), new XElement("val", value),
+                new XElement("enabled", 1), new XElement("improvementsource", source),
+                new XElement("condition", condition), new XElement("improvedname", name), new XElement("unique", unique));
+        Assert.IsTrue(CharacterCreationLifestyleImprovementRules.TryResolveMetatypeCosts(
+            [Effect("20"), Effect("10", "Metavariant"), Effect("5", "Heritage")], 0, out int trust, out decimal cost, out _));
+        Assert.AreEqual(0, trust);
+        Assert.AreEqual(35m, cost, "Racial effects add before being used as one multiplier.");
+        Assert.IsFalse(CharacterCreationLifestyleImprovementRules.TryResolve([Effect("20")], 0, out _, out _),
+            "Compatibility callers must not discard a nonzero modifier.");
+        foreach (var bad in new[] { Effect("-20"), Effect("NaN"), Effect("1,000"), Effect("Rating"),
+            Effect("20", "Quality"), Effect("20", condition: "once"), Effect("20", name: "Low"), Effect("20", unique: "exclusive") })
+            Assert.IsFalse(CharacterCreationLifestyleImprovementRules.TryResolveMetatypeCosts([bad], 0, out _, out _, out _), bad.ToString());
+        var duplicate = Effect("20");
+        duplicate.Add(new XElement("val", 100));
+        Assert.IsFalse(CharacterCreationLifestyleImprovementRules.TryResolveMetatypeCosts([duplicate], 0, out _, out _, out _));
+        var nested = Effect("20");
+        nested.Element("val")!.ReplaceWith(new XElement("val", new XElement("amount", 20)));
+        Assert.IsFalse(CharacterCreationLifestyleImprovementRules.TryResolveMetatypeCosts([nested], 0, out _, out _, out _));
+        Assert.IsFalse(CharacterCreationLifestyleImprovementRules.TryResolveMetatypeCosts(
+            [Effect(decimal.MaxValue.ToString(System.Globalization.CultureInfo.InvariantCulture)), Effect("1")],
+            0, out _, out _, out _));
+
+        using var fixture = new KarmaDiskFixture(includeLifestyles: true);
+        var root = XElement.Parse(fixture.Store.Get(fixture.Id).Value!.Document.Content);
+        root.Element("improvements")?.Remove();
+        root.Add(new XElement("improvements", Effect("20")));
+        var context = fixture.Resolver.TryCreateContext(root.ToString())!;
+        Assert.IsTrue(context.TryResolveCreationLifestylesAuthority(out var authority));
+        Assert.IsTrue(CharacterCreationLifestylesRules.IsValidAuthority(authority), string.Join(',', authority.Blockers));
+        Assert.AreEqual(20m, authority.MetatypeCostPercent);
+        Assert.IsTrue(CharacterCreationLifestylesRules.TryProject(KarmaLifestyle(authority, "Low"), authority, out var projected, out _));
+        Assert.AreEqual(2400m, projected.Economics.CostPerIncrement);
+        root.Element("improvements")!.RemoveNodes();
+        var baselineContext = fixture.Resolver.TryCreateContext(root.ToString())!;
+        Assert.IsTrue(baselineContext.TryResolveCreationLifestylesAuthority(out var baseline));
+        Assert.AreEqual(0m, baseline.MetatypeCostPercent);
+        Assert.AreNotEqual(baseline.GmPolicyDigest, authority.GmPolicyDigest);
+        Assert.AreNotEqual(baseline.RuntimeDigest, authority.RuntimeDigest);
+    }
+
+    [TestMethod]
     public void Karma_lifestyles_effect_admission_preserves_creation_conditions_and_refuses_unsupported_cost_modifiers()
     {
         static XElement Effect(string type, string value, string enabled = "1", string condition = "")
@@ -1001,9 +1047,109 @@ public sealed class CharacterCreationBootstrapServiceTests
     }
 
     [TestMethod]
+    [DataRow(DwarfId, 20, 2400)]
+    [DataRow(TrollId, 100, 4000)]
+    public void Karma_metatype_base_bonuses_survive_paid_lifestyle_finalization_and_cold_replay(
+        string metatypeId, int surcharge, int totalCost)
+    {
+        using var fixture = new KarmaDiskFixture(includeSkills: true, includeGear: true, includeLifestyles: true);
+        var foundation = CompletionFoundation(fixture, 10m, metatypeId: metatypeId);
+        Assert.AreEqual(new CharacterCreationMetatypeBaseBonuses(metatypeId == TrollId ? 1 : 0,
+            metatypeId == TrollId ? 1 : 0, surcharge), foundation.Metatype.BaseBonuses);
+        var state = fixture.Service.Load(fixture.Id, true, true, true, true).Value!;
+        var low = KarmaLifestyle(state.LifestylesAuthority!, "Low");
+        var request = fixture.Request(metatypeId, "mundane", [], foundation.Skills!.Selection,
+            10m, [], [], null, [low], low.LifestyleId);
+        var savedDraft = fixture.Service.Confirm(request);
+        Assert.IsNotNull(savedDraft.Value, string.Join(",", savedDraft.Blockers));
+        Assert.AreEqual((decimal)totalCost, savedDraft.Value.Decision.Quote.Lifestyles!.LifestyleNuyenUsed);
+        var coldStore = new FileWorkspaceStore(fixture.StateRoot);
+        var cold = new CharacterCreationKarmaMetatypeService(coldStore, fixture.Resolver);
+        var reopened = cold.Open(fixture.Id);
+        Assert.IsNotNull(reopened.Value, string.Join(",", reopened.Blockers));
+        var current = reopened.Value.Quote!;
+        Assert.AreEqual((decimal)totalCost, current.Lifestyles!.LifestyleNuyenUsed);
+        var reviewResult = cold.ReviewFinalization(current.Binding, current.QuoteDigest, 4);
+        Assert.IsNotNull(reviewResult.Value, string.Join(",", reviewResult.Blockers));
+        var review = reviewResult.Value;
+        Assert.IsTrue(review.CanConfirm, string.Join(",", review.Blockers));
+        Assert.AreEqual((decimal)totalCost, review.OrderedDeltas.Sum(item => item.NuyenCost));
+        Assert.IsTrue(review.OrderedDeltas.Any(item => item.DeltaId == "karma-metatype-bonus:LifestyleCost"));
+        var confirm = new CharacterCreationKarmaFinalizationConfirmRequest(
+            new(review.Binding, review.PreviewDigest, review.Plan!.PlanDigest, Guid.NewGuid().ToString("D"), true), 4);
+        var completed = cold.ConfirmFinalization(confirm);
+        Assert.IsNotNull(completed.Value, string.Join(",", completed.Blockers));
+        var final = coldStore.Get(fixture.Id).Value!;
+        var root = XElement.Parse(final.Document.Content);
+        var improvements = root.Element("improvements")!.Elements("improvement").ToArray();
+        var cost = improvements.Single(row => row.Element("improvementttype")!.Value == "LifestyleCost");
+        Assert.AreEqual("Metatype", cost.Element("improvementsource")!.Value);
+        Assert.AreEqual(metatypeId, cost.Element("sourcename")!.Value);
+        Assert.AreEqual(surcharge, (int)cost.Element("val")!);
+        Assert.AreEqual("2000", root.Element("lifestyles")!.Element("lifestyle")!.Element("cost")!.Value,
+            "Store source price, not an already adjusted price that would be multiplied again on reopen.");
+        Assert.IsTrue(root.Element("qualities")!.Elements("quality")
+            .Any(row => row.Element("name")!.Value == "Thermographic Vision" && row.Element("qualitysource")!.Value == "Metatype"));
+        if (metatypeId == TrollId)
+        {
+            var armor = improvements.Single(row => row.Element("improvementttype")!.Value == "Armor");
+            Assert.AreEqual("group0", armor.Element("unique")!.Value);
+            Assert.AreEqual(1, (int)armor.Element("val")!);
+            Assert.AreEqual(1, (int)improvements.Single(row => row.Element("improvementttype")!.Value == "Reach").Element("val")!);
+            Assert.AreEqual(3, improvements.Length);
+        }
+        else
+        {
+            var resistance = root.Element("qualities")!.Elements("quality")
+                .Single(row => row.Element("name")!.Value == "Resistance to Pathogens/Toxins");
+            var effects = improvements.Where(row => row.Element("improvementsource")!.Value == "Quality").ToArray();
+            Assert.AreEqual(8, effects.Length);
+            Assert.AreEqual(8, effects.Select(row => row.Element("improvementttype")!.Value).Distinct().Count());
+            Assert.IsTrue(effects.All(row => (int)row.Element("val")! == 2
+                && row.Element("sourcename")!.Value == resistance.Element("guid")!.Value));
+            Assert.AreEqual("1/1/0", root.Element("sprint")!.Value);
+        }
+        Assert.IsTrue(fixture.Resolver.TryCreateContext(final.Document.Content)!.TryResolveCreationLifestylesAuthority(out var savedAuthority));
+        Assert.AreEqual((decimal)surcharge, savedAuthority.MetatypeCostPercent);
+        Assert.IsTrue(CharacterCreationLifestylesRules.TryProject(low, savedAuthority, out var savedProjection, out _));
+        Assert.AreEqual((decimal)totalCost, savedProjection.Economics.TotalCost);
+        var secondStore = new FileWorkspaceStore(fixture.StateRoot);
+        AssertJsonEqual(completed.Value, new CharacterCreationKarmaMetatypeService(secondStore, fixture.Resolver)
+            .ConfirmFinalization(confirm).Value!);
+        AssertJsonEqual(final, secondStore.Get(fixture.Id).Value!);
+    }
+
+    [TestMethod]
+    [DataRow("<armor group=\"1\">1</armor>")]
+    [DataRow("<armor precedence=\"0\">1</armor>")]
+    [DataRow("<reach name=\"Club\">1</reach>")]
+    [DataRow("<reach>-1</reach>")]
+    [DataRow("<reach>Rating</reach>")]
+    [DataRow("<reach>2147483648</reach>")]
+    [DataRow("<reach>1</reach><reach>2</reach>")]
+    [DataRow("<reach><value>1</value></reach>")]
+    [DataRow("<lifestylecost condition=\"once\">100</lifestylecost>")]
+    [DataRow("<unknown>1</unknown>")]
+    public void Karma_metatype_base_bonuses_reject_unsupported_source_semantics_without_writing(string bonus)
+    {
+        using var fixture = new KarmaDiskFixture();
+        var before = fixture.Store.Get(fixture.Id).Value!;
+        var captured = fixture.Resolver.TryCreateContext(before.Document.Content)!;
+        fixture.EditMetatype(TrollId, row => row.Element("bonus")!.ReplaceWith(XElement.Parse("<bonus>" + bonus + "</bonus>")));
+        Assert.IsTrue(fixture.Resolver.TryCreateContext(before.Document.Content)!.TryResolveCreationMetatypeCatalog(out var catalog));
+        Assert.IsFalse(catalog.IsAuthoritative);
+        Assert.IsFalse(catalog.Options.Any(row => row.IsEnabled));
+        CollectionAssert.Contains(catalog.Blockers.ToArray(), CharacterCreationMetatypeCatalogBlockers.SpecialSemanticsUnsupported);
+        Assert.IsFalse(captured.TryResolveCreationMetatypeCatalog(out var drifted) && drifted.IsAuthoritative);
+        AssertJsonEqual(before, fixture.Store.Get(fixture.Id).Value!);
+    }
+
+    [TestMethod]
     [DataRow(HumanId)]
     [DataRow(ElfId)]
     [DataRow(OrkId)]
+    [DataRow(DwarfId)]
+    [DataRow(TrollId)]
     public void Karma_completion_projector_composes_the_saved_build_without_writing(string metatypeId)
     {
         bool freeGrid = metatypeId == ElfId;
@@ -1036,7 +1182,7 @@ public sealed class CharacterCreationBootstrapServiceTests
         var body = root.Element("attributes")!.Elements("attribute").Single(item => item.Element("name")!.Value == "BOD");
         Assert.AreEqual("2", body.Element("karma")!.Value);
         Assert.AreEqual("0", body.Element("base")!.Value);
-        Assert.AreEqual(metatypeId == OrkId ? "6" : "3", body.Element("totalvalue")!.Value);
+        Assert.AreEqual(metatypeId switch { OrkId => "6", DwarfId => "5", TrollId => "7", _ => "3" }, body.Element("totalvalue")!.Value);
         var skill = root.Element("newskills")!.Element("skills")!.Elements("skill").Single();
         Assert.AreEqual(pistols.SourceSkillId, skill.Element("suid")!.Value);
         Assert.AreEqual("2", skill.Element("karma")!.Value);
@@ -1151,6 +1297,8 @@ public sealed class CharacterCreationBootstrapServiceTests
     [TestMethod]
     [DataRow(HumanId)]
     [DataRow(OrkId)]
+    [DataRow(DwarfId)]
+    [DataRow(TrollId)]
     public void Karma_completion_atomic_confirm_archives_history_and_cold_replay_never_spends_twice(string metatypeId)
     {
         using var fixture = new KarmaDiskFixture(includeSkills: true, includeGear: true, includeLifestyles: true);
@@ -4386,6 +4534,13 @@ public sealed class CharacterCreationBootstrapServiceTests
                 qualities, gear, contacts, lifestyles, startingLifestyleId);
         }
         public void RemoveQualitySource() => File.Delete(Path.Combine(_root, "data", "qualities.xml"));
+        public void EditMetatype(string id, Action<XElement> change)
+        {
+            string path = Path.Combine(_root, "data", "metatypes.xml");
+            var document = XDocument.Load(path);
+            change(document.Root!.Element("metatypes")!.Elements("metatype").Single(row => row.Element("id")?.Value == id));
+            document.Save(path);
+        }
         public void EditSkill(string name, Action<XElement> change)
         {
             string path = Path.Combine(_root, "data", "skills.xml");
@@ -4437,6 +4592,8 @@ public sealed class CharacterCreationBootstrapServiceTests
     [DataRow("a53d885d-a4a4-443d-b6a6-b0a55b0a96c7", "Human", 0)]
     [DataRow("b3259991-b315-4dbe-ae3c-51f71a1116e2", "Elf", 40)]
     [DataRow(OrkId, "Ork", 50)]
+    [DataRow(DwarfId, "Dwarf", 50)]
+    [DataRow(TrollId, "Troll", 90)]
     public void Karma_metatype_quote_uses_real_profile_and_catalog_without_mutation(
         string optionId, string name, int cost)
     {

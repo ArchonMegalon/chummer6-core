@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace Chummer.Contracts.Characters;
 
 public static class CharacterCreationMetatypeCatalogSchemas
@@ -83,6 +85,12 @@ public sealed record CharacterCreationMetatypeExcludedChoice(
     IReadOnlyList<string> Blockers,
     IReadOnlyList<string> SourceAnchorIds);
 
+/// <summary>Source-projected, unconditional base-metatype effects (not purchased qualities).</summary>
+public sealed record CharacterCreationMetatypeBaseBonuses(
+    int Armor,
+    int Reach,
+    int LifestyleCostPercent);
+
 public sealed record CharacterCreationMetatypeOptionProjection(
     string OptionId,
     string Label,
@@ -98,7 +106,12 @@ public sealed record CharacterCreationMetatypeOptionProjection(
     IReadOnlyList<CharacterCreationMetatypeExcludedChoice> ExcludedMetavariants,
     bool IsEnabled,
     IReadOnlyList<string> Blockers,
-    IReadOnlyList<string> SourceAnchorIds);
+    IReadOnlyList<string> SourceAnchorIds)
+{
+    // Preserve the canonical bytes of existing Human/Elf/Ork draft histories.
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CharacterCreationMetatypeBaseBonuses? BaseBonuses { get; init; }
+}
 
 public sealed record CharacterCreationMetatypeSourceContextAuthority(
     string SettingsProfileId,

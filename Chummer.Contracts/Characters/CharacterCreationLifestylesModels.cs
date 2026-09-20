@@ -1,4 +1,5 @@
 using Chummer.Contracts.Workspaces;
+using System.Text.Json.Serialization;
 
 namespace Chummer.Contracts.Characters;
 
@@ -212,6 +213,11 @@ public sealed record CharacterCreationLifestylesAuthority(
     string RuntimeDigest,
     string AuthorityDigest)
 {
+    // Omit the zero default so historical drafts and receipts retain their
+    // canonical JSON/digests when they had no character cost adjustment.
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public decimal MetatypeCostPercent { get; init; }
+
     public static CharacterCreationLifestylesAuthority Unavailable { get; } = new(
         CharacterCreationLifestylesSchemas.AuthorityV1,
         string.Empty,
