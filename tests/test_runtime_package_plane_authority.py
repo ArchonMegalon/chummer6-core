@@ -54,8 +54,8 @@ class RuntimePackageLockTests(unittest.TestCase):
         )
 
     def test_next_wave_candidate_is_bound_to_locally_validated_semantic_commit(self) -> None:
-        self.assertEqual("9bc3524f10c61d0f81c7667109fab62cc8d512e1", runtime.SOURCE_COMMIT)
-        self.assertEqual("0.0.0-packageplane.candidate.sh9bc3524f10c61", runtime.PACKAGE_VERSION)
+        self.assertEqual("4d2982d7885566637d722325b2f2eaea3165f6fa", runtime.SOURCE_COMMIT)
+        self.assertEqual("0.0.0-packageplane.candidate.sh4d2982d788556", runtime.PACKAGE_VERSION)
 
     def test_pending_reopen_only_authority_cannot_stand_in_for_karma_completion(self) -> None:
         for field, value in (
@@ -72,6 +72,10 @@ class RuntimePackageLockTests(unittest.TestCase):
         for member in (
             "Chummer.Contracts/Characters/CharacterCreationKarmaFinalizationModels.cs",
             "Chummer.Contracts/Characters/CharacterCreationKarmaFinalizationBudgetModels.cs",
+            "Chummer.Contracts/Characters/CharacterCreationKarmaLifestylesModels.cs",
+            "Chummer.Application/Characters/CharacterCreationKarmaLifestylesRules.cs",
+            "Chummer.Application/Characters/CharacterCreationKarmaEffectsProjector.cs",
+            "Chummer.Application/Characters/CharacterCreationLifestyleImprovementRules.cs",
             "Chummer.Application/Characters/ICharacterCreationKarmaMetatypeService.cs",
             "Chummer.Application/Characters/IOwnerBoundCharacterCreationKarmaMetatypeService.cs",
             "Chummer.Application/Characters/CharacterCreationKarmaMetatypeService.Finalization.cs",
