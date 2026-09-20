@@ -49,7 +49,10 @@ public static class CharacterCreationKarmaSkillsRules
         CharacterCreationKarmaAttributesQuote attributes, int karmaAvailable,
         CharacterCreationKarmaSkillsSelection selection)
     {
-        if (!CharacterCreationSkillsCatalogAuthority.IsValid(catalog) || !TryFreeze(selection, out var frozen)
+        // Access evaluation admits the complete catalog (including unselected
+        // rows) before projecting permissions. Do not hash every source row a
+        // second time immediately before that same mandatory admission.
+        if (!TryFreeze(selection, out var frozen)
             || CharacterCreationKarmaSkillAccessRules.Evaluate(catalog, talents, metatype, talentId, frozen.TalentUnlock) is null)
             return null;
         var activeIds = frozen.Skills.Where(item => item.Kind == CharacterCreationSkillKinds.Active)

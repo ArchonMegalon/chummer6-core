@@ -589,6 +589,54 @@ public sealed class CharacterCreationBootstrapServiceTests
         Assert.IsNull(CharacterCreationKarmaSkillsRules.Evaluate(null!, policy, talents, human, "mundane", attributes, 800, selection));
     }
 
+    [TestMethod]
+    [DataRow("unselected-active-row")]
+    [DataRow("unselected-group")]
+    [DataRow("missing-source-order")]
+    public void Karma_skills_allocation_still_admits_the_full_catalog_before_retaining_a_subset(string corruption)
+    {
+        using var fixture = new KarmaDiskFixture(includeSkills: true);
+        var (catalog, talents, human) = KarmaSkillsSources(fixture);
+        var context = fixture.Resolver.TryCreateContext(fixture.Store.Get(fixture.Id).Value!.Document.Content)!;
+        Assert.IsTrue(context.TryResolveCreationKarmaSkillsPolicy(out var policy));
+        Assert.IsNotNull(policy);
+        var attributes = CharacterCreationKarmaAttributesRules.Evaluate(human,
+            talents.Options.Single(item => item.OptionId == "mundane"),
+            fixture.Service.Load(fixture.Id).Value!.AttributePolicy!, [])!;
+        // No active skill or group is selected. Checking only the retained
+        // native-language subset would incorrectly accept all these forgeries.
+        var selection = new CharacterCreationKarmaSkillsSelection([NativeEnglish(catalog)], []);
+        CharacterCreationKarmaSkillsQuote? Evaluate(CharacterCreationSkillsCatalog candidate)
+            => CharacterCreationKarmaSkillsRules.Evaluate(candidate, policy, talents, human,
+                "mundane", attributes, 800, selection);
+        var original = Evaluate(catalog);
+        Assert.IsNotNull(original);
+        Assert.IsTrue(original.CanSelect);
+        var altered = corruption switch
+        {
+            "unselected-active-row" => catalog with
+            {
+                ActiveSkills = catalog.ActiveSkills.Skip(1).Prepend(catalog.ActiveSkills[0] with
+                {
+                    RequiresFlyMovement = !catalog.ActiveSkills[0].RequiresFlyMovement
+                }).ToArray()
+            },
+            "unselected-group" => catalog with
+            {
+                SkillGroups = catalog.SkillGroups.Skip(1).Prepend(catalog.SkillGroups[0] with
+                {
+                    MemberSkillSourceIds = []
+                }).ToArray()
+            },
+            "missing-source-order" => catalog with { ActiveSkillSourceOrder = [] },
+            _ => throw new ArgumentException(corruption)
+        };
+        altered = altered with { CatalogDigest = CharacterCreationSkillsCatalogAuthority.ComputeDigest(altered) };
+        Assert.IsNull(Evaluate(altered));
+        Assert.AreEqual(original.QuoteDigest, Evaluate(catalog)!.QuoteDigest,
+            "A rejected full catalog must not contaminate a later fresh evaluation.");
+    }
+
     private static CharacterCreationKarmaSkillsQuote? QuoteKarmaSkills(KarmaDiskFixture fixture,
         CharacterCreationKarmaSkillsSelection selection, int karma = 800, string talent = "mundane",
         IReadOnlyList<CharacterCreationKarmaAttributeAllocation>? attributes = null)
