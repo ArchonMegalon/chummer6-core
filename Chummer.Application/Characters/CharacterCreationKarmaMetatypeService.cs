@@ -134,6 +134,11 @@ public sealed class CharacterCreationKarmaMetatypeService(
                     || skillsCatalog.RawProfileInputsDigest != profile.RawProfileInputsDigest)) skillsCatalog = null;
             }
 
+            if (!context.TryResolveCreationKarmaResourcesPolicy(out var resourcesPolicy)) resourcesPolicy = null;
+            if (resourcesPolicy is not null && (!CharacterCreationKarmaResourcesRules.IsValidPolicy(resourcesPolicy)
+                || resourcesPolicy.SettingsProfileId != profile.SettingsProfileId
+                || resourcesPolicy.RawProfileInputsDigest != profile.RawProfileInputsDigest)) resourcesPolicy = null;
+
             // Admit the source capture again after catalog resolution, then the
             // persisted workspace. A source or workspace changed during load is
             // not a usable UI selection even if its initial read was valid.
@@ -162,7 +167,8 @@ public sealed class CharacterCreationKarmaMetatypeService(
                 document.AuxiliaryStateDigest,
                 bootstrap.BindingDigest,
                 profile.RawProfileInputsDigest, catalog.SourceContext.AuthorityDigest, talents?.AuthorityDigest,
-                attributePolicy?.AuthorityDigest, skillsPolicy?.AuthorityDigest, skillsCatalog?.CatalogDigest);
+                attributePolicy?.AuthorityDigest, skillsPolicy?.AuthorityDigest, skillsCatalog?.CatalogDigest,
+                resourcesPolicy?.AuthorityDigest);
             CharacterCreationKarmaMetatypeDecision? selection = decisions?.LastOrDefault();
             if (selection is not null && (selection.Quote.KarmaBudget.Total != profile.BuildPoints.Value
                 || !CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(
@@ -188,12 +194,20 @@ public sealed class CharacterCreationKarmaMetatypeService(
                             selection.Quote.Metatype, selection.Quote.Talent.OptionId, selection.Quote.Attributes,
                             selectedSkills.KarmaAvailable, selection.Command.SkillsSelection!))))
                 return Blocked<CharacterCreationKarmaMetatypeState>(CharacterCreationKarmaMetatypeBlockers.StaleBinding);
+            if (selection?.Quote.Resources is { } selectedResources
+                && (resourcesPolicy is null || selection.Quote.Attributes is null
+                    || selection.Quote.Binding.ResourcesPolicyDigest != resourcesPolicy.AuthorityDigest
+                    || !CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(selectedResources,
+                        CharacterCreationKarmaResourcesRules.Evaluate(resourcesPolicy, selection.Quote.Attributes,
+                            selectedResources.KarmaAvailable, selection.Command.ResourceKarmaInvestment!.Value))))
+                return Blocked<CharacterCreationKarmaMetatypeState>(CharacterCreationKarmaMetatypeBlockers.StaleBinding);
             string[] anchors = profile.SourceAnchorIds.Concat(catalog.SourceContext.SourceAnchorIds)
                 .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
             var state = new CharacterCreationKarmaMetatypeState(
                 CharacterCreationKarmaMetatypeSchemas.SnapshotV1, binding, profile.SettingsProfileId,
                 Budget(profile.BuildPoints.Value, selection?.Quote.KarmaBudget.Used ?? 0, []),
-                catalog.Options.ToArray(), anchors, string.Empty, selection, attributePolicy, talents, skillsPolicy, skillsCatalog);
+                catalog.Options.ToArray(), anchors, string.Empty, selection, attributePolicy, talents, skillsPolicy, skillsCatalog,
+                resourcesPolicy);
             state = state with
             {
                 SnapshotDigest = CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(state)
@@ -222,7 +236,7 @@ public sealed class CharacterCreationKarmaMetatypeService(
         // The persisted decision has an older binding: never return its quote
         // as a current review or accept a caller-supplied snapshot as authority.
         var preview = PreviewLoaded(state, saved.MetatypeOptionId, saved.TalentOptionId,
-            saved.AttributeAllocations, saved.SkillsSelection);
+            saved.AttributeAllocations, saved.SkillsSelection, saved.ResourceKarmaInvestment);
         return preview.Value is { } quote
             ? new(preview.Outcome, new(state, quote), preview.Blockers)
             : new(preview.Outcome, null, preview.Blockers);
@@ -241,7 +255,7 @@ public sealed class CharacterCreationKarmaMetatypeService(
     public CharacterCreationFoundationResult<CharacterCreationKarmaMetatypeQuote> Preview(
         CharacterCreationKarmaMetatypeBinding binding, string metatypeOptionId, string? talentOptionId = null,
         IReadOnlyList<CharacterCreationKarmaAttributeAllocation>? attributeAllocations = null,
-        CharacterCreationKarmaSkillsSelection? skillsSelection = null)
+        CharacterCreationKarmaSkillsSelection? skillsSelection = null, decimal? resourceKarmaInvestment = null)
     {
         ArgumentNullException.ThrowIfNull(binding);
         CharacterCreationFoundationResult<CharacterCreationKarmaMetatypeState> loaded = Load(binding.WorkspaceId,
@@ -251,13 +265,13 @@ public sealed class CharacterCreationKarmaMetatypeService(
         if (state.Binding != binding)
             return Blocked<CharacterCreationKarmaMetatypeQuote>(CharacterCreationKarmaMetatypeBlockers.StaleBinding);
 
-        return PreviewLoaded(state, metatypeOptionId, talentOptionId, attributeAllocations, skillsSelection);
+        return PreviewLoaded(state, metatypeOptionId, talentOptionId, attributeAllocations, skillsSelection, resourceKarmaInvestment);
     }
 
     private static CharacterCreationFoundationResult<CharacterCreationKarmaMetatypeQuote> PreviewLoaded(
         CharacterCreationKarmaMetatypeState state, string metatypeOptionId, string? talentOptionId,
         IReadOnlyList<CharacterCreationKarmaAttributeAllocation>? attributeAllocations,
-        CharacterCreationKarmaSkillsSelection? skillsSelection)
+        CharacterCreationKarmaSkillsSelection? skillsSelection, decimal? resourceKarmaInvestment)
     {
         CharacterCreationMetatypeOptionProjection? option = state.Options.SingleOrDefault(
             candidate => string.Equals(candidate.OptionId, metatypeOptionId, StringComparison.Ordinal));
@@ -310,7 +324,22 @@ public sealed class CharacterCreationKarmaMetatypeService(
         }
         else if (state.Selection?.Quote.Skills is not null)
             return Blocked<CharacterCreationKarmaMetatypeQuote>(CharacterCreationKarmaMetatypeBlockers.SkillsSelectionRequired);
-        string[] blockers = (attributes?.Blockers ?? []).Concat(skills?.Blockers ?? []).Concat(used <= state.KarmaBudget.Total
+        CharacterCreationKarmaResourcesQuote? resources = null;
+        if (resourceKarmaInvestment is { } investment)
+        {
+            if (attributes is null)
+                return Blocked<CharacterCreationKarmaMetatypeQuote>(CharacterCreationKarmaMetatypeBlockers.AttributeSelectionRequired);
+            if (state.ResourcesPolicy is null)
+                return Blocked<CharacterCreationKarmaMetatypeQuote>(CharacterCreationKarmaMetatypeBlockers.ResourcesAuthorityRequired);
+            resources = CharacterCreationKarmaResourcesRules.Evaluate(state.ResourcesPolicy, attributes,
+                state.KarmaBudget.Total - used, investment);
+            if (resources is null)
+                return Blocked<CharacterCreationKarmaMetatypeQuote>(CharacterCreationKarmaMetatypeBlockers.ResourceInvestmentInvalid);
+            used += investment;
+        }
+        else if (state.Selection?.Quote.Resources is not null)
+            return Blocked<CharacterCreationKarmaMetatypeQuote>(CharacterCreationKarmaMetatypeBlockers.ResourcesSelectionRequired);
+        string[] blockers = (attributes?.Blockers ?? []).Concat(skills?.Blockers ?? []).Concat(resources?.Blockers ?? []).Concat(used <= state.KarmaBudget.Total
                 ? Array.Empty<string>() : [CharacterCreationKarmaMetatypeBlockers.BudgetExceeded])
             .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
         var quote = new CharacterCreationKarmaMetatypeQuote(
@@ -319,9 +348,10 @@ public sealed class CharacterCreationKarmaMetatypeService(
             blockers, state.SourceAnchorIds.Concat(option.SourceAnchorIds).Concat(talent?.SourceAnchorIds ?? [])
                 .Concat(attributes?.Policy.SourceAnchorIds ?? [])
                 .Concat(skills?.Policy.SourceAnchorIds ?? [])
+                .Concat(resources?.Policy.SourceAnchorIds ?? [])
                 .Concat(skills?.Basis.Catalog.ActiveSkills.Concat(skills.Basis.Catalog.KnowledgeSkills)
                     .SelectMany(skill => skill.SourceAnchorIds) ?? [])
-                .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray(), string.Empty, talent, attributes, skills);
+                .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray(), string.Empty, talent, attributes, skills, resources);
         quote = quote with
         {
             QuoteDigest = CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(quote)

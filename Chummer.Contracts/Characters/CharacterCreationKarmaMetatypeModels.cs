@@ -28,6 +28,9 @@ public static class CharacterCreationKarmaMetatypeBlockers
     public const string AttributeSelectionRequired = "creation-karma-attribute-selection-required";
     public const string SkillsSelectionRequired = "creation-karma-skills-selection-required";
     public const string SkillsAuthorityRequired = "creation-karma-skills-authority-required";
+    public const string ResourcesAuthorityRequired = "creation-karma-resources-authority-required";
+    public const string ResourcesSelectionRequired = "creation-karma-resources-selection-required";
+    public const string ResourceInvestmentInvalid = "creation-karma-resources-investment-invalid";
 }
 
 public sealed record CharacterCreationKarmaMetatypeBinding(
@@ -42,7 +45,8 @@ public sealed record CharacterCreationKarmaMetatypeBinding(
     string? TalentAuthorityDigest = null,
     string? AttributePolicyDigest = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? SkillsPolicyDigest = null,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? SkillsCatalogDigest = null);
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? SkillsCatalogDigest = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? ResourcesPolicyDigest = null);
 
 public sealed record CharacterCreationKarmaMetatypeState(
     string Schema,
@@ -56,7 +60,8 @@ public sealed record CharacterCreationKarmaMetatypeState(
     CharacterCreationAttributePolicy? AttributePolicy = null,
     CharacterCreationKarmaTalentCatalog? Talents = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] CharacterCreationKarmaSkillsPolicy? SkillsPolicy = null,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] CharacterCreationSkillsCatalog? SkillsCatalog = null);
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] CharacterCreationSkillsCatalog? SkillsCatalog = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] CharacterCreationKarmaResourcesPolicy? ResourcesPolicy = null);
 
 /// <summary>
 /// A freshly loaded wizard and, if previously saved, its newly evaluated review.
@@ -82,7 +87,8 @@ public sealed record CharacterCreationKarmaMetatypeQuote(
     string QuoteDigest,
     CharacterCreationKarmaTalentOption? Talent = null,
     CharacterCreationKarmaAttributesQuote? Attributes = null,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] CharacterCreationKarmaSkillsQuote? Skills = null);
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] CharacterCreationKarmaSkillsQuote? Skills = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] CharacterCreationKarmaResourcesQuote? Resources = null);
 
 public sealed record CharacterCreationKarmaMetatypeConfirmRequest(
     CharacterCreationKarmaMetatypeBinding Binding,
@@ -92,7 +98,8 @@ public sealed record CharacterCreationKarmaMetatypeConfirmRequest(
     bool ExplicitlyConfirmed,
     string? TalentOptionId = null,
     IReadOnlyList<CharacterCreationKarmaAttributeAllocation>? AttributeAllocations = null,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] CharacterCreationKarmaSkillsSelection? SkillsSelection = null);
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] CharacterCreationKarmaSkillsSelection? SkillsSelection = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] decimal? ResourceKarmaInvestment = null);
 
 /// <summary>Pending selection only: no character effects or finalization.</summary>
 public sealed record CharacterCreationKarmaMetatypeDecision(

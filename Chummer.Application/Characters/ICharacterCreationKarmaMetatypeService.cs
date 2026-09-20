@@ -10,7 +10,7 @@ public interface ICharacterCreationKarmaMetatypeService
     CharacterCreationFoundationResult<CharacterCreationKarmaMetatypeQuote> Preview(
         CharacterCreationKarmaMetatypeBinding binding, string optionId, string? talentOptionId = null,
         IReadOnlyList<CharacterCreationKarmaAttributeAllocation>? attributeAllocations = null,
-        CharacterCreationKarmaSkillsSelection? skillsSelection = null);
+        CharacterCreationKarmaSkillsSelection? skillsSelection = null, decimal? resourceKarmaInvestment = null);
     CharacterCreationFoundationResult<CharacterCreationKarmaMetatypeCommit> Confirm(
         CharacterCreationKarmaMetatypeConfirmRequest request);
 }

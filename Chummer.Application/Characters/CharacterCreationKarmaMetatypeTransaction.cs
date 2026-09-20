@@ -29,6 +29,9 @@ public static class CharacterCreationKarmaMetatypeTransaction
             && (request.SkillsSelection is null || request.AttributeAllocations is not null
                 && Digest(binding.SkillsPolicyDigest) && Digest(binding.SkillsCatalogDigest)
                 && CharacterCreationKarmaSkillsRules.TryFreeze(request.SkillsSelection, out _))
+            && (binding.ResourcesPolicyDigest is null || Digest(binding.ResourcesPolicyDigest))
+            && (request.ResourceKarmaInvestment is null || request.ResourceKarmaInvestment >= 0
+                && request.AttributeAllocations is not null && Digest(binding.ResourcesPolicyDigest))
             && !string.IsNullOrWhiteSpace(binding.WorkspaceId.Value)
             && binding.ContentRevision is > 0 and < long.MaxValue
             && (binding.SavedRevision == binding.ContentRevision
@@ -62,7 +65,8 @@ public static class CharacterCreationKarmaMetatypeTransaction
                     || !IsConfirmed(decision.Command) || decision.Quote is not { CanSelect: true } quote
                     || index > 0 && (ledger[index - 1].Quote.Talent is not null && quote.Talent is null
                         || ledger[index - 1].Quote.Attributes is not null && quote.Attributes is null
-                        || ledger[index - 1].Quote.Skills is not null && quote.Skills is null)
+                        || ledger[index - 1].Quote.Skills is not null && quote.Skills is null
+                        || ledger[index - 1].Quote.Resources is not null && quote.Resources is null)
                     || quote.Schema != CharacterCreationKarmaMetatypeSchemas.QuoteV1
                     || quote.Binding != decision.Command.Binding || quote.Binding.WorkspaceId != id
                     || quote.Metatype is not { IsEnabled: true, KarmaCost: >= 0 } metatype
@@ -88,8 +92,13 @@ public static class CharacterCreationKarmaMetatypeTransaction
                         || skills.Policy.RawProfileInputsDigest != quote.Binding.SourceProfileDigest
                         || skills.KarmaAvailable != budget.Total - metatype.KarmaCost - (quote.Talent?.KarmaCost ?? 0)
                             - (quote.Attributes?.KarmaUsed ?? 0))
+                    || !CharacterCreationKarmaResourcesRules.IsValid(quote.Resources, quote.Attributes,
+                        decision.Command.ResourceKarmaInvestment, budget.Total - metatype.KarmaCost
+                            - (quote.Talent?.KarmaCost ?? 0) - (quote.Attributes?.KarmaUsed ?? 0) - (quote.Skills?.KarmaUsed ?? 0))
+                    || quote.Resources is { } resources && (resources.Policy.AuthorityDigest != quote.Binding.ResourcesPolicyDigest
+                        || resources.Policy.RawProfileInputsDigest != quote.Binding.SourceProfileDigest)
                     || budget.Used != (decimal)metatype.KarmaCost + (quote.Talent?.KarmaCost ?? 0)
-                        + (quote.Attributes?.KarmaUsed ?? 0) + (quote.Skills?.KarmaUsed ?? 0)
+                        + (quote.Attributes?.KarmaUsed ?? 0) + (quote.Skills?.KarmaUsed ?? 0) + (quote.Resources?.KarmaInvestment ?? 0)
                     || budget.Total - budget.Used != budget.Remaining
                     || decision.DraftRevision != index + 1
                     || decision.CommittedContentRevision != quote.Binding.ContentRevision + 1
@@ -152,7 +161,8 @@ public static class CharacterCreationKarmaMetatypeTransaction
         // Isolated view prevents a nested store read/lease or caller-provided quote.
         var view = new WorkspaceContinuationReadView(owner, workspace);
         var result = new CharacterCreationKarmaMetatypeService(view, sourceResolver)
-            .Preview(request.Binding, request.MetatypeOptionId, request.TalentOptionId, request.AttributeAllocations, request.SkillsSelection);
+            .Preview(request.Binding, request.MetatypeOptionId, request.TalentOptionId, request.AttributeAllocations,
+                request.SkillsSelection, request.ResourceKarmaInvestment);
         if (result.Value is not { CanSelect: true } quote || quote.QuoteDigest != request.QuoteDigest)
             return false;
         var prepared = new CharacterCreationKarmaMetatypeDecision(

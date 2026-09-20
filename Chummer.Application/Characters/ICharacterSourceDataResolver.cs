@@ -117,6 +117,13 @@ public interface ICharacterSourceDataContext
         return false;
     }
 
+    /// <summary>Profile-bound Karma funding only, without Priority grants or later improvements.</summary>
+    bool TryResolveCreationKarmaResourcesPolicy(out CharacterCreationKarmaResourcesPolicy? policy)
+    {
+        policy = null;
+        return false;
+    }
+
     /// <summary>Effective skill/spec/group identities without creation-method spending policy.</summary>
     bool TryResolveCreationSkillsCatalog(out CharacterCreationSkillsCatalog? catalog)
     {

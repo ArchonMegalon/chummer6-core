@@ -2085,6 +2085,59 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             return true;
         }
 
+        public bool TryResolveCreationKarmaResourcesPolicy(out CharacterCreationKarmaResourcesPolicy? policy)
+        {
+            using IDisposable sourceInputScope = _sourceInputs.Enter();
+            policy = null;
+            if (_sourceInputs.HasSourceDrift || _buildMethod != CharacterCreationBuildMethods.Karma
+                || string.IsNullOrWhiteSpace(_settingsProfileId)
+                || !TryComputeEffectiveInputDigest(_catalog, "settings.xml", out string settingsDigest)
+                || BindSelectedProfile(settingsDigest, _settingsProfileId) != _rawProfileInputsDigest
+                || !TryResolveTarget("settings.xml", ["settings"], "setting", _settingsProfileId,
+                    string.Empty, out var settings) || settings is null
+                || !TryReadOptionalStrictBoolean(settings, "unrestrictednuyen", false, out bool unrestricted))
+                return false;
+            var maximumNodes = settings.Elements("nuyenmaxbp").Take(2).ToArray();
+            decimal maximum = 10; // CharacterSettings' absent-field default, not a UI default.
+            if (maximumNodes.Length > 1 || maximumNodes.Length == 1
+                && (!ScalarDecimal(maximumNodes[0], out maximum) || maximum < 0)) return false;
+            maximum = unrestricted ? int.MaxValue : Math.Min(maximum, int.MaxValue);
+            var expressions = settings.Elements("chargenkarmatonuyenexpression").Take(2).ToArray();
+            string expression;
+            if (expressions.Length == 0)
+            {
+                var legacy = settings.Elements("nuyenperbpwftm").Take(2).ToArray();
+                decimal rate = 2000; // Exact absent-field default used by the legacy shim.
+                if (legacy.Length > 1 || legacy.Length == 1
+                    && (!ScalarDecimal(legacy[0], out rate) || rate <= 0)) return false;
+                expression = "{Karma} * " + rate.ToString(CultureInfo.InvariantCulture) + " + {PriorityNuyen}";
+            }
+            else
+            {
+                if (expressions.Length != 1 || expressions[0].HasAttributes || expressions[0].HasElements)
+                    return false;
+                expression = expressions[0].Value;
+                if (!expression.Contains("{PriorityNuyen}", StringComparison.Ordinal))
+                    expression = "(" + expression + ") + {PriorityNuyen}"; // CharacterSettings load shim.
+            }
+            var result = new CharacterCreationKarmaResourcesPolicy(CharacterCreationKarmaResourcesPolicy.SchemaV1,
+                _settingsProfileId, _rawProfileInputsDigest, expression, maximum,
+                [$"settings.xml#setting:{_settingsProfileId}", CharacterCreationResourcesSourceAnchors.LegacyTotal,
+                    CharacterCreationResourcesSourceAnchors.LegacyMaximumInvestment], string.Empty);
+            result = result with { AuthorityDigest = CharacterCreationKarmaResourcesRules.ComputePolicyDigest(result) };
+            if (_sourceInputs.HasSourceDrift || !CharacterCreationKarmaResourcesRules.IsValidPolicy(result)) return false;
+            policy = result;
+            return true;
+
+            static bool ScalarDecimal(XElement node, out decimal value)
+            {
+                value = 0;
+                return !node.HasAttributes && !node.HasElements && decimal.TryParse(node.Value,
+                    NumberStyles.AllowLeadingWhite | NumberStyles.AllowTrailingWhite | NumberStyles.AllowLeadingSign
+                        | NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out value);
+            }
+        }
+
         private static bool TryReadCreationSkillCap(XElement settings, string creationName, string careerName,
             out int cap)
         {

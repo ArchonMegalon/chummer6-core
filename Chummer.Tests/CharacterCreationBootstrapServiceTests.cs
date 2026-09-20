@@ -38,6 +38,208 @@ public sealed class CharacterCreationBootstrapServiceTests
     private const string MagicianId = "0e741331-d776-4be8-abc5-4101228abdef";
 
     [TestMethod]
+    public void Karma_resources_share_budget_and_survive_cold_reopen_without_rewriting_prior_decisions()
+    {
+        using var fixture = new KarmaDiskFixture(includeSkills: true);
+        var skills = GroupAndKnowledge(KarmaSkillsSources(fixture).Catalog);
+        CharacterCreationKarmaAttributeAllocation[] attributes = [new("BOD", 2)];
+        Assert.IsNotNull(fixture.Service.Confirm(fixture.Request(HumanId, "mundane", attributes, skills)).Value);
+        var before = fixture.Store.Get(fixture.Id).Value!;
+        var request = fixture.Request(HumanId, "mundane", attributes, skills, 10.5m);
+        var quote = fixture.Service.Preview(request.Binding, HumanId, "mundane", attributes, skills, 10.5m).Value!;
+        Assert.AreEqual(235m, quote.Resources!.Policy.MaximumKarmaInvestment);
+        Assert.AreEqual(21000m, quote.Resources.NuyenFromKarma);
+        Assert.AreEqual(688m, quote.Resources.KarmaAvailable);
+        Assert.AreEqual(122.5m, quote.KarmaBudget.Used);
+        Assert.AreEqual(677.5m, quote.KarmaBudget.Remaining);
+        AssertJsonEqual(before, fixture.Store.Get(fixture.Id).Value!);
+        Assert.IsNotNull(fixture.Service.Confirm(request).Value);
+        var coldStore = new FileWorkspaceStore(fixture.StateRoot);
+        var saved = coldStore.Get(fixture.Id).Value!;
+        Assert.AreEqual(before.ContentRevision + 1, saved.ContentRevision);
+        Assert.AreEqual(saved.ContentRevision, saved.SavedRevision);
+        Assert.AreEqual(before.Document.Content, saved.Document.Content, "This remains a pending creation decision, not final wealth.");
+        AssertJsonEqual(before.Document.AuxiliaryState.CharacterCreationKarmaMetatypeDecisions![0],
+            saved.Document.AuxiliaryState.CharacterCreationKarmaMetatypeDecisions![0]);
+        var cold = new CharacterCreationKarmaMetatypeService(coldStore, fixture.Resolver);
+        var opened = cold.Open(fixture.Id);
+        Assert.IsNotNull(opened.Value, string.Join(",", opened.Blockers));
+        Assert.AreEqual(21000m, opened.Value.Quote!.Resources!.NuyenFromKarma);
+        Assert.AreEqual(677.5m, opened.Value.Quote.KarmaBudget.Remaining);
+        Assert.IsTrue(cold.Confirm(request).Value!.Replayed);
+        CollectionAssert.Contains(cold.Preview(opened.Value.State.Binding, HumanId, "mundane", attributes, skills).Blockers.ToArray(),
+            CharacterCreationKarmaMetatypeBlockers.ResourcesSelectionRequired);
+        AssertJsonEqual(saved, coldStore.Get(fixture.Id).Value!);
+        var clear = cold.Preview(opened.Value.State.Binding, HumanId, "mundane", attributes, skills, 0m).Value!;
+        Assert.IsTrue(clear.CanSelect);
+        Assert.AreEqual(688m, clear.KarmaBudget.Remaining);
+        Assert.IsNotNull(cold.Confirm(new(clear.Binding, HumanId, clear.QuoteDigest, Guid.NewGuid(), true,
+            "mundane", attributes, skills, 0m)).Value);
+    }
+
+    [TestMethod]
+    public void Karma_resources_reject_missing_attributes_negative_investment_profile_cap_and_shared_overspend()
+    {
+        using var fixture = new KarmaDiskFixture(budget: 100);
+        var state = fixture.Service.Load(fixture.Id).Value!;
+        var before = fixture.Store.Get(fixture.Id).Value!;
+        CollectionAssert.Contains(fixture.Service.Preview(state.Binding, HumanId, "mundane", null, null, 1m).Blockers.ToArray(),
+            CharacterCreationKarmaMetatypeBlockers.AttributeSelectionRequired);
+        CollectionAssert.Contains(fixture.Service.Preview(state.Binding, HumanId, "mundane", [], null, -1m).Blockers.ToArray(),
+            CharacterCreationKarmaMetatypeBlockers.ResourceInvestmentInvalid);
+        Assert.IsNull(fixture.Service.Preview(state.Binding, HumanId, "mundane", [], null, decimal.MaxValue).Value);
+        var expensive = fixture.Service.Preview(state.Binding, HumanId, "mundane", [new("BOD", 2)], null, 76m).Value!;
+        CollectionAssert.Contains(expensive.Blockers.ToArray(), CharacterCreationKarmaMetatypeBlockers.BudgetExceeded);
+        var overCap = fixture.Service.Preview(state.Binding, HumanId, "mundane", [], null, 235.5m).Value!;
+        CollectionAssert.Contains(overCap.Blockers.ToArray(), CharacterCreationKarmaResourcesRules.InvestmentLimitExceeded);
+        Assert.IsNull(fixture.Service.Confirm(fixture.Request(HumanId, "mundane", [], null, 235.5m)).Value);
+        AssertJsonEqual(before, fixture.Store.Get(fixture.Id).Value!);
+    }
+
+    [TestMethod]
+    public void Karma_resources_use_profile_expression_attributes_fractional_cap_and_legacy_defaults()
+    {
+        using var custom = new KarmaDiskFixture(configureSettings: row =>
+        {
+            row.SetElementValue("chargenkarmatonuyenexpression", "{Karma} * 1500 + {BODUnaug} * 100");
+            row.SetElementValue("nuyenmaxbp", "12.5");
+        });
+        var binding = custom.Service.Load(custom.Id).Value!.Binding;
+        var quote = custom.Service.Preview(binding, HumanId, "mundane", [new("BOD", 2)], null, 12.5m).Value!;
+        Assert.AreEqual(19050m, quote.Resources!.NuyenFromKarma);
+        Assert.AreEqual(12.5m, quote.Resources.Policy.MaximumKarmaInvestment);
+        using var legacy = new KarmaDiskFixture(configureSettings: row =>
+        {
+            row.Elements("chargenkarmatonuyenexpression").Remove();
+            row.Elements("nuyenmaxbp").Remove();
+            row.Elements("nuyenperbpwftm").Remove();
+        });
+        var legacyBinding = legacy.Service.Load(legacy.Id).Value!.Binding;
+        var legacyQuote = legacy.Service.Preview(legacyBinding, HumanId, "mundane", [], null, 10m).Value!;
+        Assert.AreEqual(10m, legacyQuote.Resources!.Policy.MaximumKarmaInvestment);
+        Assert.AreEqual(20000m, legacyQuote.Resources.NuyenFromKarma);
+        using var unlimited = new KarmaDiskFixture(configureSettings: row => row.SetElementValue("unrestrictednuyen", "True"));
+        Assert.AreEqual((decimal)int.MaxValue, unlimited.Service.Load(unlimited.Id).Value!.ResourcesPolicy!.MaximumKarmaInvestment);
+    }
+
+    [TestMethod]
+    [DataRow("{Karma} / 0")]
+    [DataRow("{Unbound}")]
+    [DataRow("99999999999999999999999999999999999999999 * {Karma}")]
+    [DataRow("-1")]
+    public void Karma_resources_invalid_expression_does_not_produce_a_selectable_quote(string expression)
+    {
+        using var fixture = new KarmaDiskFixture(configureSettings: row => row.SetElementValue("chargenkarmatonuyenexpression", expression));
+        var before = fixture.Store.Get(fixture.Id).Value!;
+        var result = fixture.Service.Preview(fixture.Service.Load(fixture.Id).Value!.Binding, HumanId, "mundane", [], null, 1m);
+        Assert.IsNull(result.Value);
+        CollectionAssert.Contains(result.Blockers.ToArray(), CharacterCreationKarmaMetatypeBlockers.ResourceInvestmentInvalid);
+        AssertJsonEqual(before, fixture.Store.Get(fixture.Id).Value!);
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void Karma_resources_changed_source_before_or_during_commit_leaves_workspace_unchanged(bool duringWrite)
+    {
+        using var fixture = new KarmaDiskFixture();
+        var request = fixture.Request(HumanId, "mundane", [], null, 10m);
+        var before = fixture.Store.Get(fixture.Id).Value!;
+        void Change() => fixture.EditSettings(row => row.SetElementValue("nuyenmaxbp", "5"));
+        if (duringWrite) fixture.Fault.Action = stage => { if (stage == FileWorkspaceStoreFaultStage.AfterTempFileFlushed) Change(); };
+        else Change();
+        Assert.IsNull(fixture.Service.Confirm(request).Value);
+        AssertJsonEqual(before, new FileWorkspaceStore(fixture.StateRoot).Get(fixture.Id).Value!);
+    }
+
+    [TestMethod]
+    public void Karma_resources_remain_editable_when_attributes_exceed_limits_or_leave_no_budget()
+    {
+        using var fixture = new KarmaDiskFixture(budget: 100);
+        var binding = fixture.Service.Load(fixture.Id).Value!.Binding;
+        var before = fixture.Store.Get(fixture.Id).Value!;
+        foreach (int levels in new[] { 6, 5 })
+        {
+            var quote = fixture.Service.Preview(binding, HumanId, "mundane", [new("BOD", levels)], null, 10m).Value;
+            Assert.IsNotNull(quote, "Keep the current attributes visible so the player can repair the draft.");
+            Assert.IsFalse(quote.CanSelect);
+            Assert.IsNotNull(quote.Attributes);
+            Assert.IsNotNull(quote.Resources);
+            Assert.IsNull(fixture.Service.Confirm(new(binding, HumanId, quote.QuoteDigest, Guid.NewGuid(), true,
+                "mundane", [new("BOD", levels)], null, 10m)).Value);
+        }
+        Assert.IsTrue(fixture.Service.Preview(binding, HumanId, "mundane", [], null, 10m).Value!.CanSelect);
+        AssertJsonEqual(before, fixture.Store.Get(fixture.Id).Value!);
+    }
+
+    [TestMethod]
+    [DataRow("nuyenmaxbp", "not-a-number", false)]
+    [DataRow("nuyenmaxbp", "12", true)]
+    [DataRow("unrestrictednuyen", "maybe", false)]
+    [DataRow("chargenkarmatonuyenexpression", "1", true)]
+    public void Karma_resources_reject_malformed_or_duplicate_profile_inputs(string field, string value, bool duplicate)
+    {
+        using var fixture = new KarmaDiskFixture(configureSettings: row =>
+        {
+            if (duplicate) row.Add(new XElement(field, value));
+            else row.SetElementValue(field, value);
+        });
+        var state = fixture.Service.Load(fixture.Id).Value!;
+        Assert.IsNull(state.ResourcesPolicy);
+        CollectionAssert.Contains(fixture.Service.Preview(state.Binding, HumanId, "mundane", [], null, 1m).Blockers.ToArray(),
+            CharacterCreationKarmaMetatypeBlockers.ResourcesAuthorityRequired);
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void Karma_resources_atomic_write_failure_is_recoverable_without_duplicate_spending(bool afterReplace)
+    {
+        using var fixture = new KarmaDiskFixture();
+        var request = fixture.Request(HumanId, "mundane", [], null, 10.5m);
+        var before = fixture.Store.Get(fixture.Id).Value!;
+        fixture.Fault.Action = stage =>
+        {
+            if (stage == (afterReplace ? FileWorkspaceStoreFaultStage.AfterTargetReplaced : FileWorkspaceStoreFaultStage.AfterTempFileFlushed))
+                throw new IOException("Injected resources persistence fault");
+        };
+        fixture.Service.Confirm(request);
+        fixture.Fault.Action = null;
+        var cold = new FileWorkspaceStore(fixture.StateRoot).Get(fixture.Id).Value!;
+        if (afterReplace)
+        {
+            Assert.AreEqual(before.ContentRevision + 1, cold.ContentRevision);
+            Assert.AreEqual(1, cold.Document.AuxiliaryState.CharacterCreationKarmaMetatypeDecisions!.Count);
+            Assert.IsTrue(fixture.Service.Confirm(request).Value!.Replayed);
+        }
+        else AssertJsonEqual(before, cold);
+    }
+
+    [TestMethod]
+    public void Karma_resources_rehashed_funding_forgery_is_rejected_and_absent_fields_preserve_old_serialization()
+    {
+        using var fixture = new KarmaDiskFixture();
+        var request = fixture.Request(HumanId, "mundane", [], null, 10m);
+        Assert.IsNotNull(fixture.Service.Confirm(request).Value);
+        var saved = fixture.Store.Get(fixture.Id).Value!;
+        var decision = saved.Document.AuxiliaryState.CharacterCreationKarmaMetatypeDecisions![0];
+        var forged = decision.Quote.Resources! with { NuyenFromKarma = 999999m, QuoteDigest = string.Empty };
+        forged = forged with { QuoteDigest = CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(forged) };
+        var quote = decision.Quote with { Resources = forged, QuoteDigest = string.Empty };
+        quote = quote with { QuoteDigest = CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(quote) };
+        decision = decision with { Quote = quote, Command = decision.Command with { QuoteDigest = quote.QuoteDigest } };
+        decision = decision with { DecisionDigest = CharacterCreationKarmaMetatypeTransaction.DecisionDigest(decision) };
+        Assert.IsFalse(CharacterCreationKarmaMetatypeTransaction.IsValidLedger(fixture.Id, saved.ContentRevision,
+            saved.Document.AuxiliaryState with { CharacterCreationKarmaMetatypeDecisions = [decision] }));
+        using var oldBinding = JsonDocument.Parse(JsonSerializer.Serialize(request.Binding with { ResourcesPolicyDigest = null }));
+        using var oldCommand = JsonDocument.Parse(JsonSerializer.Serialize(request with { ResourceKarmaInvestment = null }));
+        using var oldQuote = JsonDocument.Parse(JsonSerializer.Serialize(quote with { Resources = null }));
+        Assert.IsFalse(oldBinding.RootElement.TryGetProperty("ResourcesPolicyDigest", out _));
+        Assert.IsFalse(oldCommand.RootElement.TryGetProperty("ResourceKarmaInvestment", out _));
+        Assert.IsFalse(oldQuote.RootElement.TryGetProperty("Resources", out _));
+    }
+
+    [TestMethod]
     [DataRow(false, false)]
     [DataRow(true, false)]
     [DataRow(true, true)]
@@ -1879,13 +2081,13 @@ public sealed class CharacterCreationBootstrapServiceTests
         }
         public CharacterCreationKarmaMetatypeConfirmRequest Request(string optionId, string? talentId = null,
             IReadOnlyList<CharacterCreationKarmaAttributeAllocation>? allocations = null,
-            CharacterCreationKarmaSkillsSelection? skills = null)
+            CharacterCreationKarmaSkillsSelection? skills = null, decimal? resources = null)
         {
             var state = Service.Load(Id, includeSkills: skills is not null);
             Assert.IsNotNull(state.Value, string.Join(",", state.Blockers));
-            var quote = Service.Preview(state.Value.Binding, optionId, talentId, allocations, skills);
+            var quote = Service.Preview(state.Value.Binding, optionId, talentId, allocations, skills, resources);
             Assert.IsNotNull(quote.Value, string.Join(",", quote.Blockers));
-            return new(quote.Value.Binding, optionId, quote.Value.QuoteDigest, Guid.NewGuid(), true, talentId, allocations, skills);
+            return new(quote.Value.Binding, optionId, quote.Value.QuoteDigest, Guid.NewGuid(), true, talentId, allocations, skills, resources);
         }
         public void RemoveQualitySource() => File.Delete(Path.Combine(_root, "data", "qualities.xml"));
         public void EditSkill(string name, Action<XElement> change)
