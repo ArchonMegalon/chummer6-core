@@ -3565,7 +3565,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             out CharacterCreationQualitiesAuthority authority)
         {
             authority = CharacterCreationQualitiesAuthority.Unavailable;
-            return _buildMethod == CharacterCreationBuildMethods.Priority
+            return _buildMethod is (CharacterCreationBuildMethods.Priority or CharacterCreationBuildMethods.SumToTen)
                 && TryResolveCreationQualitySources(out authority);
         }
 
@@ -3601,7 +3601,8 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             using IDisposable sourceInputScope = _sourceInputs.Enter();
             authority = CharacterCreationQualitiesAuthority.Unavailable;
             if (string.IsNullOrWhiteSpace(_settingsProfileId)
-                || _buildMethod is not (CharacterCreationBuildMethods.Priority or CharacterCreationBuildMethods.Karma)
+                || _buildMethod is not (CharacterCreationBuildMethods.Priority
+                    or CharacterCreationBuildMethods.SumToTen or CharacterCreationBuildMethods.Karma)
                 || !TryComputeEffectiveInputDigest(
                     _catalog,
                     "qualities.xml",
@@ -4333,7 +4334,8 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             using IDisposable sourceInputScope = _sourceInputs.Enter();
             authority = CharacterCreationMagicResonanceAuthority.Unavailable;
             if (!TryResolveCreationPrerequisiteAuthority(out CharacterCreationPrerequisiteAuthority prerequisite)
-                || !string.Equals(prerequisite.BuildMethod, CharacterCreationBuildMethods.Priority, StringComparison.Ordinal)
+                || prerequisite.BuildMethod is not (CharacterCreationBuildMethods.Priority
+                    or CharacterCreationBuildMethods.SumToTen)
                 || !string.Equals(prerequisite.PriorityTable, "Standard", StringComparison.Ordinal)
                 || !TryComputeEffectiveInputDigest(_catalog, "priorities.xml", out string prioritiesDigest)
                 || !TryComputeEffectiveInputDigest(_catalog, "metatypes.xml", out string metatypesDigest)

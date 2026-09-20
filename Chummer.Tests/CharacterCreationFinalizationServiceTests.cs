@@ -1097,9 +1097,11 @@ public sealed class CharacterCreationFinalizationServiceTests
     }
 
     [TestMethod]
-    public void Finalization_is_digest_bound_idempotent_restart_recoverable_and_reopens_in_career()
+    [DataRow(CharacterCreationBuildMethods.Priority)]
+    [DataRow(CharacterCreationBuildMethods.SumToTen)]
+    public void Finalization_is_digest_bound_idempotent_restart_recoverable_and_reopens_in_career(string method)
     {
-        using ReadyContext context = ReadyContext.Create(includeGearReview: true);
+        using ReadyContext context = ReadyContext.Create(includeGearReview: true, buildMethod: method);
         CharacterCreationFinalizationState state = AssertAvailable(
             context.Finalizer.Load(new(context.WorkspaceId)));
         Assert.IsTrue(state.CanReview);
@@ -1176,7 +1178,7 @@ public sealed class CharacterCreationFinalizationServiceTests
             CharacterFileSummary summary = restarted.Queries.ParseSummary(
                 new CharacterDocument(reopened.Document.Content));
             Assert.IsTrue(summary.Created, "A fresh process must reopen the finalized runner in Career.");
-            Assert.AreEqual(CharacterCreationBuildMethods.Priority, summary.BuildMethod);
+            Assert.AreEqual(method, summary.BuildMethod);
             Assert.AreEqual(receipt.ContentRevision, reopened.ContentRevision);
             Assert.AreEqual(receipt.SavedRevision, reopened.SavedRevision);
             Assert.IsNull(reopened.Document.AuxiliaryState.CharacterCreationPrerequisiteDraft);
@@ -1449,7 +1451,89 @@ public sealed class CharacterCreationFinalizationServiceTests
     }
 
     [TestMethod]
-    public void SumToTen_whole_build_finalization_remains_fail_closed_until_its_typed_lanes_exist()
+    [DataRow(null, "E", "A", 46, 10)]
+    [DataRow("Magician", "C", "B", 36, 5)]
+    [DataRow("Technomancer", "C", "B", 36, 5)]
+    public void SumToTen_repeated_ranks_finalize_once_and_reopen_in_career_with_exact_method(
+        string? talent, string talentRank, string allocationRank, int activeTotal, int groupTotal)
+    {
+        var ranks = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            [CharacterCreationPriorityCategoryIds.Heritage] = "E",
+            [CharacterCreationPriorityCategoryIds.Talent] = talentRank,
+            [CharacterCreationPriorityCategoryIds.Attributes] = allocationRank,
+            [CharacterCreationPriorityCategoryIds.Skills] = allocationRank,
+            [CharacterCreationPriorityCategoryIds.Resources] = "C"
+        };
+        using ReadyContext context = ReadyContext.Create(includeGearReview: true,
+            includeNonEmptyPurchases: true, buildMethod: CharacterCreationBuildMethods.SumToTen,
+            rankAssignments: ranks, talentValue: talent, includeSkillPurchase: true);
+        var before = context.Store.Get(context.WorkspaceId).Value!;
+        var prerequisite = before.Document.AuxiliaryState.CharacterCreationPrerequisiteDraft!;
+        Assert.AreEqual(CharacterCreationBuildMethods.SumToTen, prerequisite.BuildMethod);
+        Assert.AreEqual(10, prerequisite.Assignments.Sum(item => item.SumToTenValue));
+        Assert.AreEqual(3, prerequisite.Assignments.Select(item => item.Rank).Distinct().Count(),
+            "Exercise a genuinely Sum-to-Ten assignment, not Priority's five distinct ranks.");
+        var skills = before.Document.AuxiliaryState.CharacterCreationSkillsDraft!;
+        Assert.AreEqual(activeTotal, skills.ActivePointTotal);
+        Assert.AreEqual(groupTotal, skills.SkillGroupPointTotal);
+        Assert.AreEqual(2, skills.ActivePointUsed);
+        Assert.AreEqual(1, skills.SkillGroupPointUsed);
+
+        var state = AssertAvailable(context.Finalizer.Load(new(context.WorkspaceId)));
+        Assert.AreEqual(CharacterCreationBuildMethods.SumToTen, state.Binding.BuildMethod);
+        Assert.IsTrue(state.Steps.All(step => step.IsComplete));
+        Assert.AreEqual(CharacterCreationFinalizationOutcomes.Conflict,
+            context.Finalizer.Review(new(state.Binding with
+            { BuildMethod = CharacterCreationBuildMethods.Priority })).Outcome);
+        var review = AssertAvailable(context.Finalizer.Review(new(state.Binding)));
+        Assert.IsTrue(review.CanConfirm);
+        Assert.IsNotNull(review.Plan);
+        Assert.IsTrue(review.Plan.SourceAnchorIds.Count > 0);
+        var command = new CharacterCreationFinalizationConfirmRequest(state.Binding,
+            review.PreviewDigest, review.Plan.PlanDigest, "sum-to-ten-finalize", true);
+        Assert.AreNotEqual(CharacterCreationFinalizationOutcomes.Applied,
+            context.Finalizer.Confirm(command with { ExplicitlyConfirmed = false }).Outcome);
+        Assert.AreEqual(before.Document.AuxiliaryStateDigest,
+            context.Store.Get(context.WorkspaceId).Value!.Document.AuxiliaryStateDigest);
+        var applied = context.Finalizer.Confirm(command);
+        Assert.AreEqual(CharacterCreationFinalizationOutcomes.Applied, applied.Outcome,
+            string.Join(",", applied.Blockers));
+
+        using ReadyContext cold = context.Restart();
+        var after = cold.Store.Get(context.WorkspaceId).Value!;
+        var summary = cold.Queries.ParseSummary(new CharacterDocument(after.Document.Content));
+        Assert.IsTrue(summary.Created);
+        Assert.AreEqual(CharacterCreationBuildMethods.SumToTen, summary.BuildMethod);
+        Assert.AreEqual(before.ContentRevision + 1, after.ContentRevision);
+        Assert.AreEqual(after.ContentRevision, after.SavedRevision);
+        var root = XDocument.Parse(after.Document.Content).Root!;
+        string allocationValue = allocationRank == "A" ? "A,4" : "B,3";
+        Assert.AreEqual(allocationValue, root.Element("priorityattributes")!.Value);
+        Assert.AreEqual(allocationValue, root.Element("priorityskills")!.Value);
+        Assert.AreEqual("E,0", root.Element("prioritymetatype")!.Value);
+        Assert.AreEqual(talentRank == "E" ? "E,0" : "C,2", root.Element("priorityspecial")!.Value);
+        Assert.AreEqual("C,2", root.Element("priorityresources")!.Value);
+        Assert.AreEqual("10", root.Element("sumtoten")!.Value);
+        Assert.AreEqual(before.Document.AuxiliaryState.CharacterCreationResourcesDraft!
+            .FinalizationContribution.StartingNuyen.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            root.Element("startingnuyen")!.Value);
+        Assert.IsNull(after.Document.AuxiliaryState.CharacterCreationPrerequisiteDraft);
+        Assert.IsNull(after.Document.AuxiliaryState.CharacterCreationGearDraft);
+        Assert.HasCount(1, after.Document.AuxiliaryState.CharacterCreationFinalizationReceipts!);
+        var replay = cold.Finalizer.Confirm(command);
+        Assert.AreEqual(CharacterCreationFinalizationOutcomes.Replayed, replay.Outcome);
+        Assert.AreEqual(applied.Value!.ReceiptDigest, replay.Value!.ReceiptDigest);
+        Assert.AreEqual(CharacterCreationBuildMethods.SumToTen, replay.Value.BuildMethod);
+        Assert.AreEqual(applied.Value.ReceiptDigest,
+            cold.Finalizer.LookupReceipt(new(context.WorkspaceId, command.IdempotencyKey)).Value!.ReceiptDigest);
+        foreach (var check in context.ReplayChecks) check(cold.Store);
+        Assert.AreEqual(after.Document.AuxiliaryStateDigest,
+            cold.Store.Get(context.WorkspaceId).Value!.Document.AuxiliaryStateDigest);
+    }
+
+    [TestMethod]
+    public void SumToTen_whole_build_finalization_requires_confirmed_typed_drafts()
     {
         using ReadyContext context = ReadyContext.CreateUnprepared(
             CharacterCreationBuildMethods.SumToTen);
@@ -1458,13 +1542,14 @@ public sealed class CharacterCreationFinalizationServiceTests
         Assert.AreEqual(CharacterCreationFinalizationOutcomes.Blocked, result.Outcome);
         CollectionAssert.Contains(
             result.Blockers.ToList(),
-            CharacterCreationFinalizationBlockers.BuildMethodNotReady);
+            CharacterCreationFinalizationBlockers.PrerequisiteDraftRequired);
         Assert.IsFalse(result.Value!.CanReview);
+        Assert.AreEqual(7, result.Value.Steps.Count);
+        Assert.IsFalse(result.Blockers.Contains(CharacterCreationFinalizationBlockers.BuildMethodNotReady));
     }
 
     [TestMethod]
     [DataRow(CharacterCreationBuildMethods.Karma, CharacterCreationFinalizationBlockers.BuildMethodUnsupported)]
-    [DataRow(CharacterCreationBuildMethods.SumToTen, CharacterCreationFinalizationBlockers.BuildMethodNotReady)]
     [DataRow(CharacterCreationBuildMethods.LifeModules, CharacterCreationFinalizationBlockers.BuildMethodNotReady)]
     public void Unavailable_finalization_method_does_not_load_unrelated_priority_sources(
         string method, string blocker)
@@ -1509,13 +1594,15 @@ public sealed class CharacterCreationFinalizationServiceTests
     }
 
     [TestMethod]
-    public void Available_finalization_method_still_loads_fresh_domain_authority()
+    [DataRow(CharacterCreationBuildMethods.Priority)]
+    [DataRow(CharacterCreationBuildMethods.SumToTen)]
+    public void Available_finalization_method_still_loads_fresh_domain_authority(string method)
     {
-        using ReadyContext context = ReadyContext.CreateUnprepared(CharacterCreationBuildMethods.Priority);
+        using ReadyContext context = ReadyContext.CreateUnprepared(method);
         var resolver = new FinalizationSourceReadProbe(context.Resolver);
         var finalizer = ReadyContext.BuildFinalizer(context.Store, context.Queries, resolver);
         var result = finalizer.Load(new(context.WorkspaceId));
-        Assert.IsTrue(resolver.Calls > 0, "Priority may not bypass its live source authority.");
+        Assert.IsTrue(resolver.Calls > 0, "Priority-table methods may not bypass their live source authority.");
         Assert.AreEqual(7, result.Value!.Steps.Count);
         Assert.IsFalse(result.Value.CanReview);
         CollectionAssert.Contains(result.Blockers.ToArray(), CharacterCreationFinalizationBlockers.PrerequisiteDraftRequired);
@@ -1582,7 +1669,10 @@ public sealed class CharacterCreationFinalizationServiceTests
             Action<XElement>? amendSettings = null,
             string talentRank = "B",
             string? talentGroupName = null,
-            string? qualityName = null)
+            string? qualityName = null,
+            string buildMethod = CharacterCreationBuildMethods.Priority,
+            IReadOnlyDictionary<string, string>? rankAssignments = null,
+            bool includeSkillPurchase = false)
         {
             string directory = Path.Combine(
                 Path.GetTempPath(),
@@ -1611,7 +1701,7 @@ public sealed class CharacterCreationFinalizationServiceTests
                 ICharacterFileQueries queries = new XmlCharacterFileQueries(new CharacterFileService());
                 var store = new FileWorkspaceStore(directory);
                 CharacterWorkspaceId workspaceId = beforeDrafts is null
-                    ? Bootstrap(store, queries, resolver)
+                    ? Bootstrap(store, queries, resolver, buildMethod)
                     : BootstrapPersistedShapeFixture(store, resolver, beforeDrafts);
                 var replayChecks = new List<Action<IWorkspaceStore>>();
                 CompleteDrafts(
@@ -1621,7 +1711,8 @@ public sealed class CharacterCreationFinalizationServiceTests
                     resolver,
                     includeGearReview,
                     includeNonEmptyPurchases,
-                    replayChecks, talentValue, mysticPowerPoints, talentRank, talentGroupName, qualityName);
+                    replayChecks, talentValue, mysticPowerPoints, talentRank, talentGroupName, qualityName,
+                    rankAssignments, includeSkillPurchase);
                 return new ReadyContext(
                     directory,
                     store,
@@ -1752,11 +1843,13 @@ public sealed class CharacterCreationFinalizationServiceTests
             int mysticPowerPoints = 0,
             string talentPriorityRank = "B",
             string? talentGroupName = null,
-            string? qualityName = null)
+            string? qualityName = null,
+            IReadOnlyDictionary<string, string>? rankAssignments = null,
+            bool includeSkillPurchase = false)
         {
             var prerequisites = new CharacterCreationPrerequisiteService(store, queries, resolver);
             CharacterCreationPrerequisiteState prerequisite = prerequisites.Load(new(workspaceId)).Value!;
-            IReadOnlyDictionary<string, string> ranks = new Dictionary<string, string>(
+            IReadOnlyDictionary<string, string> ranks = rankAssignments ?? new Dictionary<string, string>(
                 StringComparer.Ordinal)
             {
                 [CharacterCreationPriorityCategoryIds.Heritage] = talentValue is null ? "A" : "E",
@@ -1832,19 +1925,29 @@ public sealed class CharacterCreationFinalizationServiceTests
                 static option => option.CanBeNativeLanguage);
             CharacterCreationSkillAllocation[] skillAllocations =
                 [new(native.SourceSkillId, CharacterCreationSkillKinds.Knowledge, null, null, true)];
+            CharacterCreationSkillGroupAllocation[] groupAllocations = [];
+            if (includeSkillPurchase)
+            {
+                var pistols = skillsState.Authority.ActiveSkills.Single(item => item.Name == "Pistols");
+                var athletics = skillsState.Authority.SkillGroups.Single(item => item.Name == "Athletics");
+                skillAllocations = [.. skillAllocations,
+                    new(pistols.SourceSkillId, CharacterCreationSkillKinds.Active, 2, null, false)];
+                groupAllocations = [new(athletics.GroupId, 1)];
+            }
             CharacterCreationSkillsPreview skillsPreview = skills.Preview(new(
                 skillsState.Binding,
                 skillAllocations,
-                [])).Value!;
+                groupAllocations)).Value!;
             var skillCommand = new CharacterCreationSkillsConfirmRequest(
                     skillsPreview.Binding,
                     skillAllocations,
-                    [],
+                    groupAllocations,
                     skillsPreview.PreviewDigest,
                     "skills-finalization-test",
                     ExplicitlyConfirmed: true);
             var skillReceipt = skills.Confirm(skillCommand);
-            Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, skillReceipt.Outcome);
+            Assert.AreEqual(CharacterCreationFoundationOutcomes.Success, skillReceipt.Outcome,
+                string.Join(",", skillReceipt.Blockers));
             replayChecks?.Add(reopenedStore =>
             {
                 var service = new CharacterCreationSkillsService(reopenedStore, resolver);
@@ -1897,6 +2000,7 @@ public sealed class CharacterCreationFinalizationServiceTests
             var qualities = new CharacterCreationQualitiesService(
                 store, resolver, prerequisites, attributes);
             CharacterCreationQualitiesState qualityState = qualities.Load(new(workspaceId)).Value!;
+            Assert.IsTrue(qualityState.CanEdit, string.Join(",", qualityState.Blockers));
             string[] selectedQualityIds = includeNonEmptyPurchases
                 ?
                 [qualityState.Authority.Options

@@ -44,14 +44,14 @@ public static class CharacterCreationFinalizationProjector
         CharacterCreationResourcesDraft? resources = auxiliary.CharacterCreationResourcesDraft;
         CharacterCreationGearDraft? gear = auxiliary.CharacterCreationGearDraft;
 
-        // Foundation is a Life Modules rules draft, not Priority biography.
-        // It cannot arise through normal Priority confirmation, but a stale or
+        // Foundation is a Life Modules rules draft, not Priority/Sum-to-Ten biography.
+        // It cannot arise through normal priority-table confirmation, but a stale or
         // foreign auxiliary draft must never be silently cleared by this
         // whole-build transaction, nor interpreted as extra Priority bonuses.
         if (auxiliary.CharacterCreationFoundationDraft is not null)
             failures.Add(CharacterCreationFinalizationBlockers.FoundationDraftNotApplicable);
         // Accepted Life Module decisions are durable provenance even when their
-        // Foundation draft is absent; Priority finalization cannot clear them.
+        // Foundation draft is absent; priority-table finalization cannot clear them.
         if (auxiliary.LifeModuleDecisionAcceptances is not null)
             failures.Add(
                 CharacterCreationFinalizationBlockers.LifeModuleDecisionHistoryNotApplicable);
@@ -77,8 +77,8 @@ public static class CharacterCreationFinalizationProjector
             return false;
         }
 
-        if (!string.Equals(prerequisite!.BuildMethod, CharacterCreationBuildMethods.Priority,
-                StringComparison.Ordinal))
+        if (prerequisite!.BuildMethod is not (CharacterCreationBuildMethods.Priority
+                or CharacterCreationBuildMethods.SumToTen))
             failures.Add(CharacterCreationFinalizationBlockers.BuildMethodNotReady);
         if (prerequisite.HeritageSelection is null || prerequisite.TalentSelection is null)
             failures.Add(CharacterCreationFinalizationBlockers.DraftAuthorityInvalid);
