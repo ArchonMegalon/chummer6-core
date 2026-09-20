@@ -17,6 +17,12 @@ public static class WorkspaceAuxiliaryStateIntegrity
         long currentContentRevision,
         WorkspaceDocumentAuxiliaryState state)
     {
+        // Karma finalization was introduced with an exact reconstruction archive;
+        // unlike older Priority receipts it has no archive-less legacy form.
+        if (state.CharacterCreationFinalizationArchive is null
+            && state.CharacterCreationFinalizationReceipts?.Any(entry =>
+                entry?.Receipt?.BuildMethod == CharacterCreationBuildMethods.Karma) == true)
+            return false;
         if (state.CharacterCreationFinalizationArchive is { } archive
             && (!CharacterCreationFinalizationReceiptLedgerIntegrity.IsValidArchive(
                     workspaceId, currentContentRevision, archive, state.CharacterCreationFinalizationReceipts)
@@ -251,6 +257,7 @@ public static class WorkspaceAuxiliaryStateIntegrity
                 currentContentRevision,
                 finalizationReceipts);
         return foundationValid
+               && CharacterCreationKarmaMetatypeTransaction.IsValidLedger(workspaceId, currentContentRevision, state)
                && prerequisiteValid
                && attributesValid
                && skillsValid

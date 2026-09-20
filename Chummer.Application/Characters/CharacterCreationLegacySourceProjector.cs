@@ -211,14 +211,25 @@ public static class CharacterCreationLegacySourceProjector
     // original bonus and restriction. Keep the purchased-quality path unchanged.
     internal static bool TryBuildHeritageQualityInstance(CharacterCreationTalentQualitySource input,
         string qualityId, string extra, out XElement saved)
+        => TryBuildGrantedQualityInstance(input, qualityId, extra, "Heritage", out saved);
+
+    internal static bool TryBuildGrantedQualityInstance(CharacterCreationTalentQualitySource input,
+        string qualityId, string extra, string origin, out XElement saved)
     {
         saved = new XElement("quality");
-        if (!CharacterCreationTalentQualitySourceRules.IsValidSource(input)) return false;
+        if (origin is not ("Heritage" or "Metatype" or "Selected")
+            || !CharacterCreationTalentQualitySourceRules.IsValidSource(input)) return false;
         XElement source = XElement.Parse(input.CanonicalSourceXml);
         XElement metadata = new(source);
         metadata.Elements("bonus").Remove();
         metadata.Elements("forbidden").Remove();
         metadata.Elements("nameonpage").Remove();
+        // Hidden catalog rows can be compulsory racial qualities. Hiding is
+        // display metadata, never a reason to discard the original bonus.
+        if (metadata.Elements("hide").Count() > 1 || metadata.Elements("hide").Any(item =>
+                item.HasAttributes || item.HasElements || !string.IsNullOrWhiteSpace(item.Value)))
+            return false;
+        metadata.Elements("hide").Remove();
         if (source.Elements("bonus").Count() > 1 || source.Elements("forbidden").Count() > 1
             || source.Elements("nameonpage").Count() > 1
             || ParseBoundedSource(metadata.ToString(SaveOptions.DisableFormatting), "quality", s_QualitySourceChildren) is null
@@ -226,7 +237,10 @@ public static class CharacterCreationLegacySourceProjector
             || definition.FirstLevelEffects.Count != 0)
             return false;
         saved = BuildSavedQuality(source, definition, qualityId);
-        saved.Element("qualitysource")!.Value = "Heritage";
+        saved.Element("qualitysource")!.Value = origin;
+        // Character.Create explicitly removes racial grants from quality limits;
+        // BP and removal/career identity still retain the source's original value.
+        if (origin == "Metatype") saved.Element("contributetolimit")!.Value = "False";
         saved.Element("extra")!.Value = extra;
         return true;
     }

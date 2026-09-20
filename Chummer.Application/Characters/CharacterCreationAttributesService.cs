@@ -503,10 +503,9 @@ public sealed class CharacterCreationAttributesService : ICharacterCreationAttri
                 {
                     current = checked(minimum + allocation.PriorityPoints + allocation.KarmaLevels);
                     int totalBase = checked(minimum + allocation.PriorityPoints);
-                    karmaCost = checked(
-                        (2 * totalBase + allocation.KarmaLevels + 1)
-                        * allocation.KarmaLevels / 2
-                        * karmaAttribute);
+                    if (!CharacterCreationAttributeCostRules.TryCalculate(
+                            totalBase, allocation.KarmaLevels, karmaAttribute, out karmaCost))
+                        blockers.Add(CharacterCreationAttributesBlockers.AllocationInvalid);
                 }
                 catch (OverflowException)
                 {

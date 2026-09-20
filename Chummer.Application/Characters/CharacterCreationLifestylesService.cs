@@ -781,7 +781,7 @@ public sealed class CharacterCreationLifestylesService : ICharacterCreationLifes
             [CharacterCreationLifestyleSourceAnchors.LegacyMonthlyCost]);
     }
 
-    private static XElement BuildLifestyleElement(
+    internal static XElement BuildLifestyleElement(
         CharacterCreationLifestyleProjection projection,
         XElement? existing,
         CharacterCreationLifestylesAuthority authority)

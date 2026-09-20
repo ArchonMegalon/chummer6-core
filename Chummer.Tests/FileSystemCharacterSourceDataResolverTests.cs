@@ -674,6 +674,88 @@ public sealed class FileSystemCharacterSourceDataResolverTests
     }
 
     [TestMethod]
+    public void Creation_skill_projection_matches_individual_specialization_lookup_without_shared_results()
+    {
+        ICharacterSourceDataContext context = CreateContext(FindCoreRoot(), CharacterXml())!;
+        Assert.IsTrue(context.TryResolveCreationSkillsCatalog(out var catalog));
+        Assert.IsNotNull(catalog);
+        Assert.IsTrue(catalog.ActiveSkills.Any(skill => skill.IsExotic));
+        foreach (var skill in catalog.ActiveSkills.Concat(catalog.KnowledgeSkills))
+        {
+            var kind = skill.Kind == CharacterCreationSkillKinds.Active
+                ? CharacterCareerSkillKind.Active : CharacterCareerSkillKind.Knowledge;
+            Assert.IsTrue(context.TryResolveCareerSkillSpecializationSource(skill.SourceSkillId, kind, out var single));
+            var expected = single.Options.GroupBy(option => option.Name, StringComparer.Ordinal)
+                .Select(group => group.OrderBy(option => option.Kind)
+                    .ThenBy(option => option.OptionIdentity, StringComparer.Ordinal).First())
+                .Select(option => new CharacterCreationSkillSpecializationOption(
+                    option.OptionIdentity, option.Name, option.SourceAnchor))
+                .OrderBy(option => option.Name, StringComparer.Ordinal)
+                .ThenBy(option => option.OptionId, StringComparer.Ordinal).ToArray();
+            CollectionAssert.AreEqual(expected, skill.Specializations.ToArray(), skill.Name);
+        }
+        string digest = catalog.CatalogDigest;
+        var first = catalog.ActiveSkills.First(skill => skill.Specializations.Count > 0);
+        ((CharacterCreationSkillSpecializationOption[])first.Specializations)[0] =
+            new("invented-id", "Caller mutation", "invented-anchor");
+        Assert.IsTrue(context.TryResolveCreationSkillsCatalog(out var reloaded));
+        Assert.AreEqual(digest, reloaded!.CatalogDigest);
+        Assert.IsFalse(reloaded.ActiveSkills.SelectMany(skill => skill.Specializations)
+            .Any(option => option.OptionId == "invented-id"));
+    }
+
+    [TestMethod]
+    [DataRow("skills.xml")]
+    [DataRow("weapons.xml")]
+    public void Creation_skill_projection_rejects_same_length_source_changes_and_requires_a_fresh_context(string fileName)
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            CopyCanonicalDataFiles(root, "settings.xml", "skills.xml", "weapons.xml", "metatypes.xml", "priorities.xml");
+            var resolver = new FileSystemCharacterSourceDataResolver(
+                new FileSystemContentOverlayCatalogService(root, root, null));
+            var context = resolver.TryCreateContext(CharacterXml())!;
+            Assert.IsTrue(context.TryResolveCreationSkillsCatalog(out var original));
+            int validations = resolver.LastSourceInputSnapshotDiagnostics!.ValidationReadCount;
+            Assert.IsTrue(context.TryResolveCreationSkillsCatalog(out var unchanged));
+            Assert.AreEqual(original!.CatalogDigest, unchanged!.CatalogDigest);
+            Assert.IsTrue(resolver.LastSourceInputSnapshotDiagnostics.ValidationReadCount > validations);
+            RewriteFirstElementValueSameLength(Path.Combine(root, "data", fileName), "name");
+            Assert.IsFalse(context.TryResolveCreationSkillsCatalog(out _));
+            Assert.IsTrue(resolver.LastSourceInputSnapshotDiagnostics.SourceDriftDetected);
+            var fresh = resolver.TryCreateContext(CharacterXml())!;
+            Assert.IsTrue(fresh.TryResolveCreationSkillsCatalog(out var changed));
+            Assert.AreNotEqual(original.CatalogDigest, changed!.CatalogDigest);
+        }
+        finally { DeleteTempDirectory(root); }
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void Creation_skill_projection_rejects_duplicate_identity_even_in_a_disabled_book(bool duplicateFirst)
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            WriteBaseContent(root, string.Empty);
+            WriteSkillsAuthorityFixture(root);
+            string path = Path.Combine(root, "data", "skills.xml");
+            var xml = XDocument.Load(path);
+            var row = xml.Root!.Element("skills")!.Elements("skill").First();
+            var duplicate = new XElement(row);
+            duplicate.Element("source")!.Value = "DISABLED";
+            if (duplicateFirst) row.AddBeforeSelf(duplicate);
+            else row.AddAfterSelf(duplicate);
+            xml.Save(path);
+            var context = CreateContext(root, CharacterXml())!;
+            Assert.IsFalse(context.TryResolveCreationSkillsCatalog(out _));
+        }
+        finally { DeleteTempDirectory(root); }
+    }
+
+    [TestMethod]
     public void Canonical_creation_skill_catalog_sources_resolve_every_row()
     {
         string coreRoot = FindCoreRoot();
@@ -2920,6 +3002,86 @@ public sealed class FileSystemCharacterSourceDataResolverTests
     }
 
     [TestMethod]
+    [DataRow("", "", 1, false, false)]
+    [DataRow("<karmaquality>2</karmaquality>", "<exceedpositivequalitiescostdoubled>True</exceedpositivequalitiescostdoubled><exceednegativequalitiesnobonus>True</exceednegativequalitiesnobonus>", 2, true, true)]
+    [DataRow("<karmaquality>0</karmaquality>", "<exceednegativequalitieslimit>True</exceednegativequalitieslimit>", 0, false, true)]
+    [DataRow("<karmaquality>3</karmaquality>", "<exceednegativequalitieslimit>True</exceednegativequalitieslimit><exceednegativequalitiesnobonus>False</exceednegativequalitiesnobonus>", 3, false, false)]
+    public void Creation_qualities_projects_exact_cost_policy_without_scaling_source_instances(
+        string karmaXml, string rulesXml, int multiplier, bool doublePositive, bool capNegative)
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            WriteQualityCostPolicyFixture(root, karmaXml, rulesXml);
+            var context = CreateContext(root, CharacterXml())!;
+            Assert.IsTrue(context.TryResolveCreationQualitiesAuthority(out var authority));
+            Assert.IsTrue(authority.IsAuthoritative, string.Join(",", authority.Blockers));
+            Assert.AreEqual(new CharacterCreationQualityCostPolicy(multiplier, doublePositive, capNegative),
+                authority.CostPolicy ?? CharacterCreationQualityCostPolicy.Default);
+            var option = authority.Options.Single();
+            Assert.IsTrue(option.IsSelectable, option.DisableReasonKey);
+            Assert.AreEqual(15, option.KarmaCost);
+            Assert.AreEqual("15", XElement.Parse(option.SourceNodeXml).Element("karma")!.Value);
+            Assert.AreEqual(authority.AuthorityDigest, CharacterCreationQualitiesRules.ComputeAuthorityDigest(authority));
+
+            string path = Path.Combine(root, "data", "settings.xml");
+            var settings = XDocument.Load(path);
+            settings.Root!.Element("settings")!.Element("setting")!.Element("karmacost")!
+                .SetElementValue("karmaquality", multiplier + 1);
+            settings.Save(path);
+            Assert.IsTrue(CreateContext(root, CharacterXml())!.TryResolveCreationQualitiesAuthority(out var changed));
+            Assert.IsTrue(changed.IsAuthoritative, string.Join(",", changed.Blockers));
+            Assert.AreNotEqual(authority.AuthorityDigest, changed.AuthorityDigest);
+            Assert.AreNotEqual(authority.ProfileDigest, changed.ProfileDigest);
+            Assert.AreNotEqual(authority.GmPolicyDigest, changed.GmPolicyDigest);
+            Assert.IsFalse(context.TryResolveCreationQualitiesAuthority(out var stale) && stale.IsAuthoritative,
+                "An already captured profile must not silently adopt new quality arithmetic.");
+        }
+        finally { DeleteTempDirectory(root); }
+    }
+
+    [TestMethod]
+    [DataRow("<karmaquality>-1</karmaquality>", "")]
+    [DataRow("<karmaquality>1.5</karmaquality>", "")]
+    [DataRow("<karmaquality>2147483648</karmaquality>", "")]
+    [DataRow("<karmaquality>2</karmaquality><karmaquality>2</karmaquality>", "")]
+    [DataRow("<karmaquality arbitrary='true'>2</karmaquality>", "")]
+    [DataRow("<karmaquality><value>2</value></karmaquality>", "")]
+    [DataRow("<karmaquality> 2</karmaquality>", "")]
+    [DataRow("", "<exceedpositivequalitiescostdoubled>yes</exceedpositivequalitiescostdoubled>")]
+    [DataRow("", "<exceednegativequalitiesnobonus/>")]
+    [DataRow("", "<exceednegativequalitieslimit>True</exceednegativequalitieslimit><exceednegativequalitieslimit>True</exceednegativequalitieslimit>")]
+    [DataRow("", "<karmacost><karmaquality>1</karmaquality></karmacost>")]
+    public void Creation_qualities_rejects_malformed_or_ambiguous_cost_policy(string karmaXml, string rulesXml)
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            WriteQualityCostPolicyFixture(root, karmaXml, rulesXml);
+            var context = CreateContext(root, CharacterXml());
+            Assert.IsNotNull(context);
+            Assert.IsFalse(context.TryResolveCreationQualitiesAuthority(out var authority) && authority.IsAuthoritative);
+        }
+        finally { DeleteTempDirectory(root); }
+    }
+
+    private static void WriteQualityCostPolicyFixture(string root, string karmaXml, string rulesXml)
+    {
+        WriteBaseContent(root, string.Empty,
+            "<buildmethod>Priority</buildmethod><buildpoints>25</buildpoints>"
+            + "<priorityarray>ABCDE</priorityarray><prioritytable>Standard</prioritytable><sumtoten>10</sumtoten>"
+            + "<qualitykarmalimit>25</qualitykarmalimit><exceedpositivequalities>True</exceedpositivequalities>"
+            + "<exceednegativequalities>True</exceednegativequalities>" + rulesXml);
+        string path = Path.Combine(root, "data", "settings.xml");
+        File.WriteAllText(path, File.ReadAllText(path).Replace("<karmaattribute>5</karmaattribute>",
+            "<karmaattribute>5</karmaattribute>" + karmaXml, StringComparison.Ordinal));
+        File.WriteAllText(Path.Combine(root, "data", "qualities.xml"),
+            "<chummer><qualities><quality><id>50000000-0000-0000-0000-000000000001</id>"
+            + "<name>Bound positive quality</name><category>Positive</category><karma>15</karma><nolevels/>"
+            + "<source>SR5</source><page>1</page><bonus/></quality></qualities></chummer>");
+    }
+
+    [TestMethod]
     public void Creation_qualities_projects_profile_caps_stable_options_and_fail_closed_rows()
     {
         ICharacterSourceDataContext context = CreateContext(FindCoreRoot(), CharacterXml())!;
@@ -2928,6 +3090,25 @@ public sealed class FileSystemCharacterSourceDataResolverTests
             out CharacterCreationQualitiesAuthority authority));
         Assert.IsTrue(authority.IsAuthoritative, string.Join(",", authority.Blockers));
         Assert.IsGreaterThan(0, authority.QualityKarmaLimit);
+        Assert.IsNull(authority.CostPolicy, "The canonical default retains its pre-policy authority bytes.");
+        Assert.AreEqual(CharacterCreationSkillsDigest.Compute(new
+        {
+            Schema = "chummer.sr5.priority-creation-qualities-gm-policy.v1",
+            QualityKarmaLimit = authority.QualityKarmaLimit,
+            MayExceedPositive = authority.MayExceedPositiveQualityLimit,
+            MayExceedNegative = authority.MayExceedNegativeQualityLimit,
+            MetagenicLimit = authority.MetagenicLimit
+        }), authority.GmPolicyDigest);
+        Assert.AreEqual(CharacterCreationSkillsDigest.Compute(new
+        {
+            Schema = "chummer.sr5.priority-creation-qualities-runtime.v1",
+            SourceSelectionByStableOptionId = true,
+            RequirementAndFollowUpChoicesFailClosed = true,
+            NoCharacterWriteBeforeFinalization = true,
+            FullLegacySourceNodeCaptured = true,
+            SourceNodeDigestBoundToSelection = true,
+            SupportedLegacyEffects = new[] { "ambidextrous:v1", "friendsinhighplaces:v1", "erased:v1", "overclocker:v1" }
+        }), authority.RuntimeDigest);
         Assert.IsGreaterThan(0, authority.Options.Count);
         Assert.IsTrue(authority.Options.Any(static option => option.IsSelectable));
         Assert.IsTrue(authority.Options.Any(static option => !option.IsSelectable));

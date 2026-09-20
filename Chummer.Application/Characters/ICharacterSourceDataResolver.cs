@@ -93,6 +93,85 @@ public interface ICharacterSourceDataContext
     }
 
     /// <summary>
+    /// Resolves attribute costs and limits without requiring a Priority table.
+    /// False means the selected profile is missing, malformed or has drifted;
+    /// callers must not substitute a multiplier or enable special attributes.
+    /// </summary>
+    bool TryResolveCreationAttributePolicy(out CharacterCreationAttributePolicy? policy)
+    {
+        policy = null;
+        return false;
+    }
+
+    /// <summary>Pending Karma talent options from qualities, never Priority grants.</summary>
+    bool TryResolveCreationKarmaTalents(out CharacterCreationKarmaTalentCatalog? catalog)
+    {
+        catalog = null;
+        return false;
+    }
+
+    /// <summary>
+    /// Resolves complete racial and purchased-talent source payloads, including
+    /// nested gear, against the pending Karma runner's exact active profile.
+    /// This does not apply effects or authorize finalization. An unavailable or
+    /// ambiguous grant rejects the whole result, never a partial character.
+    /// </summary>
+    bool TryResolveCreationKarmaGrantSources(string metatypeOptionId, string talentOptionId,
+        out IReadOnlyList<CharacterCreationTalentQualitySource> metatypeQualities,
+        out CharacterCreationTalentQualitySource? talentQuality)
+    {
+        metatypeQualities = [];
+        talentQuality = null;
+        return false;
+    }
+
+    /// <summary>Profile costs and limits for Karma skills; never substitutes Priority points.</summary>
+    bool TryResolveCreationKarmaSkillsPolicy(out CharacterCreationKarmaSkillsPolicy? policy)
+    {
+        policy = null;
+        return false;
+    }
+
+    /// <summary>Profile-bound Karma funding only, without Priority grants or later improvements.</summary>
+    bool TryResolveCreationKarmaResourcesPolicy(out CharacterCreationKarmaResourcesPolicy? policy)
+    {
+        policy = null;
+        return false;
+    }
+
+    /// <summary>Exact completion carryover limits, not additional creation purchasing power.</summary>
+    bool TryResolveCreationKarmaCarryoverPolicy(out CharacterCreationKarmaCarryoverPolicy? policy)
+    {
+        policy = null;
+        return false;
+    }
+
+    /// <summary>
+    /// Resolves legacy's default Street starting-cash source only when no lifestyle
+    /// exists. Never substitutes Street for an existing or malformed lifestyle.
+    /// This does not create the lifestyle or apply its other source effects.
+    /// </summary>
+    bool TryResolveCreationKarmaDefaultStartingNuyen(out CharacterCreationStartingNuyenSource? source)
+    {
+        source = null;
+        return false;
+    }
+
+    /// <summary>Source-owned ordinary Karma qualities, distinct from purchased talents.</summary>
+    bool TryResolveCreationKarmaQualities(out CharacterCreationKarmaQualitiesCatalog? catalog)
+    {
+        catalog = null;
+        return false;
+    }
+
+    /// <summary>Effective skill/spec/group identities without creation-method spending policy.</summary>
+    bool TryResolveCreationSkillsCatalog(out CharacterCreationSkillsCatalog? catalog)
+    {
+        catalog = null;
+        return false;
+    }
+
+    /// <summary>
     /// Resolves the exact SR5 Priority Skills catalog and creation policies from the
     /// runner's saved profile and effective Skills overlay. False means the Skills
     /// wizard must remain unavailable rather than using UI defaults.

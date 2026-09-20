@@ -1217,6 +1217,50 @@ public sealed class CharacterCreationFinalizationServiceTests
     }
 
     [TestMethod]
+    [DataRow(1, false, 5)]
+    [DataRow(2, false, 10)]
+    [DataRow(2, true, 13)]
+    public void Quality_profile_cost_is_charged_once_and_retains_unscaled_BP_after_cold_finalization(
+        int multiplier, bool doubleExcess, int expectedCost)
+    {
+        using ReadyContext context = ReadyContext.Create(true, includeNonEmptyPurchases: true,
+            amendSettings: profile =>
+            {
+                profile.Element("karmacost")!.SetElementValue("karmaquality", multiplier);
+                profile.SetElementValue("qualitykarmalimit", 7);
+                profile.SetElementValue("exceedpositivequalities", true);
+                profile.SetElementValue("exceedpositivequalitiescostdoubled", doubleExcess);
+                if (!profile.Element("books")!.Elements("book").Any(book => book.Value == "RF"))
+                    profile.Element("books")!.Add(new XElement("book", "RF"));
+            }, qualityName: "Overclocker");
+        var before = context.Store.Get(context.WorkspaceId).Value!;
+        var draft = before.Document.AuxiliaryState.CharacterCreationQualitiesDraft!;
+        var attributes = before.Document.AuxiliaryState.CharacterCreationAttributesDraft!;
+        Assert.AreEqual(5, draft.Selections.Single().KarmaCost);
+        Assert.AreEqual(expectedCost, attributes.CreationKarmaTotal - attributes.CreationKarmaUsed - draft.KarmaRemaining);
+        using ReadyContext coldDraft = context.Restart();
+        var state = coldDraft.Finalizer.Load(new(context.WorkspaceId)).Value!;
+        var review = coldDraft.Finalizer.Review(new(state.Binding)).Value!;
+        Assert.IsTrue(review.CanConfirm, string.Join(",", review.Blockers));
+        Assert.AreEqual((decimal)expectedCost, review.OrderedDeltas
+            .Where(item => item.Kind == CharacterCreationFinalizationDeltaKinds.Quality
+                || item.TargetId == "qualities-karma-adjustment")
+            .Sum(item => item.KarmaCost));
+        var command = new CharacterCreationFinalizationConfirmRequest(state.Binding, review.PreviewDigest,
+            review.Plan!.PlanDigest, "quality-profile-finalization", true);
+        var applied = coldDraft.Finalizer.Confirm(command);
+        Assert.AreEqual(CharacterCreationFinalizationOutcomes.Applied, applied.Outcome, string.Join(",", applied.Blockers));
+        using ReadyContext reopened = context.Restart();
+        var saved = reopened.Store.Get(context.WorkspaceId).Value!;
+        var root = XElement.Parse(saved.Document.Content);
+        Assert.AreEqual("5", root.Element("qualities")!.Element("quality")!.Element("bp")!.Value);
+        Assert.AreEqual(draft.KarmaRemaining.ToString(System.Globalization.CultureInfo.InvariantCulture), root.Element("karma")!.Value);
+        Assert.AreEqual(CharacterCreationFinalizationOutcomes.Replayed, reopened.Finalizer.Confirm(command).Outcome);
+        Assert.AreEqual(saved.ContentRevision, reopened.Store.Get(context.WorkspaceId).Value!.ContentRevision);
+        Assert.AreEqual(saved.Document.Content, reopened.Store.Get(context.WorkspaceId).Value!.Document.Content);
+    }
+
+    [TestMethod]
     public void Nonempty_quality_and_gear_are_source_bound_atomically_finalized_and_reopened()
     {
         using ReadyContext context = ReadyContext.Create(
@@ -1418,6 +1462,78 @@ public sealed class CharacterCreationFinalizationServiceTests
         Assert.IsFalse(result.Value!.CanReview);
     }
 
+    [TestMethod]
+    [DataRow(CharacterCreationBuildMethods.Karma, CharacterCreationFinalizationBlockers.BuildMethodUnsupported)]
+    [DataRow(CharacterCreationBuildMethods.SumToTen, CharacterCreationFinalizationBlockers.BuildMethodNotReady)]
+    [DataRow(CharacterCreationBuildMethods.LifeModules, CharacterCreationFinalizationBlockers.BuildMethodNotReady)]
+    public void Unavailable_finalization_method_does_not_load_unrelated_priority_sources(
+        string method, string blocker)
+    {
+        using ReadyContext context = ReadyContext.CreateUnprepared(method);
+        var resolver = new FinalizationSourceReadProbe(context.Resolver);
+        var finalizer = ReadyContext.BuildFinalizer(context.Store, context.Queries, resolver);
+        var before = context.Store.Get(context.WorkspaceId).Value!;
+
+        var result = finalizer.Load(new(context.WorkspaceId));
+        Assert.AreEqual(0, resolver.Calls,
+            "An unavailable finalizer must not hold the phone owner gate while resolving Priority domains.");
+        Assert.AreEqual(CharacterCreationFinalizationOutcomes.Blocked, result.Outcome);
+        CollectionAssert.Contains(result.Blockers.ToArray(), blocker);
+        var state = result.Value!;
+        Assert.IsFalse(state.CanReview);
+        Assert.AreEqual(0, state.Steps.Count, "Unloaded domains are not completed/validated steps.");
+        Assert.AreEqual(method, state.Binding.BuildMethod);
+        Assert.AreEqual(before.ContentRevision, state.Binding.ContentRevision);
+        Assert.AreEqual(before.SavedRevision, state.Binding.SavedRevision);
+        Assert.AreEqual(before.Document.AuxiliaryStateDigest, state.Binding.AuxiliaryStateDigest);
+        Assert.AreEqual(state.SnapshotDigest, finalizer.Load(new(context.WorkspaceId)).Value!.SnapshotDigest);
+
+        var review = finalizer.Review(new(state.Binding));
+        Assert.AreEqual(CharacterCreationFinalizationOutcomes.Blocked, review.Outcome);
+        Assert.IsFalse(review.Value!.CanConfirm);
+        Assert.IsNull(review.Value.Plan);
+        var confirm = finalizer.Confirm(new(state.Binding, review.Value.PreviewDigest,
+            CharacterCreationFinalizationDigest.ComputeUtf8("no-admitted-plan"), "unavailable-method", true));
+        Assert.AreEqual(CharacterCreationFinalizationOutcomes.Blocked, confirm.Outcome);
+        Assert.IsNull(confirm.Value);
+        Assert.AreEqual(CharacterCreationFinalizationOutcomes.Conflict,
+            finalizer.Review(new(state.Binding with { ContentRevision = state.Binding.ContentRevision + 1 })).Outcome);
+        Assert.AreEqual(0, resolver.Calls, "Review/Confirm must keep the same method gate.");
+
+        var after = context.Store.Get(context.WorkspaceId).Value!;
+        Assert.AreEqual(before.ContentRevision, after.ContentRevision);
+        Assert.AreEqual(before.SavedRevision, after.SavedRevision);
+        Assert.AreEqual(before.LastUpdatedUtc, after.LastUpdatedUtc);
+        Assert.AreEqual(before.Document.Content, after.Document.Content);
+        Assert.AreEqual(before.Document.AuxiliaryStateDigest, after.Document.AuxiliaryStateDigest);
+    }
+
+    [TestMethod]
+    public void Available_finalization_method_still_loads_fresh_domain_authority()
+    {
+        using ReadyContext context = ReadyContext.CreateUnprepared(CharacterCreationBuildMethods.Priority);
+        var resolver = new FinalizationSourceReadProbe(context.Resolver);
+        var finalizer = ReadyContext.BuildFinalizer(context.Store, context.Queries, resolver);
+        var result = finalizer.Load(new(context.WorkspaceId));
+        Assert.IsTrue(resolver.Calls > 0, "Priority may not bypass its live source authority.");
+        Assert.AreEqual(7, result.Value!.Steps.Count);
+        Assert.IsFalse(result.Value.CanReview);
+        CollectionAssert.Contains(result.Blockers.ToArray(), CharacterCreationFinalizationBlockers.PrerequisiteDraftRequired);
+        int calls = resolver.Calls;
+        finalizer.Load(new(context.WorkspaceId));
+        Assert.IsTrue(resolver.Calls > calls, "The method gate must not cache prior domain reads.");
+    }
+
+    private sealed class FinalizationSourceReadProbe(ICharacterSourceDataResolver inner) : ICharacterSourceDataResolver
+    {
+        public int Calls { get; private set; }
+        public ICharacterSourceDataContext? TryCreateContext(string characterXml)
+        {
+            Calls++;
+            return inner.TryCreateContext(characterXml);
+        }
+    }
+
     private static T AssertAvailable<T>(CharacterCreationFinalizationResult<T> result)
         where T : class
     {
@@ -1465,7 +1581,8 @@ public sealed class CharacterCreationFinalizationServiceTests
             int mysticPowerPoints = 0,
             Action<XElement>? amendSettings = null,
             string talentRank = "B",
-            string? talentGroupName = null)
+            string? talentGroupName = null,
+            string? qualityName = null)
         {
             string directory = Path.Combine(
                 Path.GetTempPath(),
@@ -1504,7 +1621,7 @@ public sealed class CharacterCreationFinalizationServiceTests
                     resolver,
                     includeGearReview,
                     includeNonEmptyPurchases,
-                    replayChecks, talentValue, mysticPowerPoints, talentRank, talentGroupName);
+                    replayChecks, talentValue, mysticPowerPoints, talentRank, talentGroupName, qualityName);
                 return new ReadyContext(
                     directory,
                     store,
@@ -1634,7 +1751,8 @@ public sealed class CharacterCreationFinalizationServiceTests
             string? talentValue = null,
             int mysticPowerPoints = 0,
             string talentPriorityRank = "B",
-            string? talentGroupName = null)
+            string? talentGroupName = null,
+            string? qualityName = null)
         {
             var prerequisites = new CharacterCreationPrerequisiteService(store, queries, resolver);
             CharacterCreationPrerequisiteState prerequisite = prerequisites.Load(new(workspaceId)).Value!;
@@ -1784,6 +1902,7 @@ public sealed class CharacterCreationFinalizationServiceTests
                 [qualityState.Authority.Options
                     .Where(static option => option.IsSelectable)
                     .Where(static option => option.KarmaCost is >= 0 and <= 25)
+                    .Where(option => qualityName is null || option.Name == qualityName)
                     .OrderBy(static option => option.KarmaCost)
                     .ThenBy(static option => option.OptionId, StringComparer.Ordinal)
                     .First().OptionId]

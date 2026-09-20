@@ -97,7 +97,8 @@ internal static class CharacterCreationAwakenedLegacyProjector
                 string id = CharacterCreationFinalizationProjector.StableGuid(
                     $"heritage-quality:{quality.SourceId}:{quality.ForcedSelection}:{quality.SourceNodeDigest}:{magic.DraftDigest}").ToString("D");
                 string extra = CompileBonus(definition.Element("bonus"), quality.ForcedSelection,
-                    prerequisite, quality, id, flags, improvements, projectedGear);
+                    prerequisite.TalentSelection!.GrantPlan?.SkillGroups.Select(item => item.CanonicalName).ToArray() ?? [],
+                    quality, id, flags, improvements, projectedGear);
                 Require(CharacterCreationLegacySourceProjector.TryBuildHeritageQualityInstance(quality, id, extra, out var saved));
                 projectedQualities.Add(saved);
                 CharacterCreationFinalizationProjector.AddDelta(deltas, ref order, "talent-quality:" + id,
@@ -212,7 +213,7 @@ internal static class CharacterCreationAwakenedLegacyProjector
         }
     }
 
-    private static string CompileBonus(XElement? bonus, string forced, CharacterCreationPrerequisiteDraft prerequisite,
+    internal static string CompileBonus(XElement? bonus, string forced, IReadOnlyList<string> chosenGroups,
         CharacterCreationTalentQualitySource quality, string id, HashSet<string> flags, List<XElement> improvements,
         List<(XElement Saved, CharacterCreationTalentGearSource Source)> gears)
     {
@@ -271,7 +272,6 @@ internal static class CharacterCreationAwakenedLegacyProjector
                     }
                     break;
                 case "unlockskills":
-                    string[] chosenGroups = prerequisite.TalentSelection!.GrantPlan?.SkillGroups.Select(item => item.CanonicalName).ToArray() ?? [];
                     // Aspected Priority B/C/D pushes the explicit group choice into
                     // the legacy unlock prompt, including D's selection-only rating zero.
                     Require(CharacterCreationSkillsAccessRules.TryChooseUnlock(effect, chosenGroups, forced, out string chosen));
@@ -293,7 +293,7 @@ internal static class CharacterCreationAwakenedLegacyProjector
         return extra;
     }
 
-    private static void CheckRestrictions(XElement definition, XElement root, IReadOnlyList<XElement> granted, IReadOnlySet<string> flags)
+    internal static void CheckRestrictions(XElement definition, XElement root, IReadOnlyList<XElement> granted, IReadOnlySet<string> flags)
     {
         Require(!definition.Elements("required").Any());
         XElement? forbidden = definition.Element("forbidden");

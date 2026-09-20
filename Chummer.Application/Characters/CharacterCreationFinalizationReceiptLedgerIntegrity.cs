@@ -29,6 +29,7 @@ public static class CharacterCreationFinalizationReceiptLedgerIntegrity
                && archive.State.CharacterCreationFinalizationReceipts is null
                && receipts is { Count: 1 }
                && IsValidLedger(workspaceId, currentContentRevision, receipts)
+               && CharacterCreationKarmaFinalizationTransaction.IsValidArchive(workspaceId, archive, receipts[0].Receipt)
                && string.Equals(archive.State.ComputeDigest(),
                    receipts[0].Receipt.PreviousAuxiliaryStateDigest, StringComparison.Ordinal);
     }
@@ -237,6 +238,7 @@ public static class CharacterCreationFinalizationReceiptLedgerIntegrity
     private static bool CharacterCreationFinalizationBuildMethodIsKnown(string buildMethod) =>
         buildMethod is CharacterCreationBuildMethods.Priority
             or CharacterCreationBuildMethods.SumToTen
+            or CharacterCreationBuildMethods.Karma
             or CharacterCreationBuildMethods.LifeModules;
 
     private static string ComputeDigest(this WorkspaceDocumentAuxiliaryState state) =>

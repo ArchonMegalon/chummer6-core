@@ -165,6 +165,7 @@ public static class CharacterCreationFinalizationProjector
             BuildQualityAndEffectGraph(
                 root,
                 qualities,
+                attributes!,
                 projected,
                 ref order);
             ReplaceDirect(root, BuildGearGraph(gear, projected, ref order));
@@ -305,11 +306,13 @@ public static class CharacterCreationFinalizationProjector
     private static void BuildQualityAndEffectGraph(
         XElement root,
         CharacterCreationQualitiesDraft draft,
+        CharacterCreationAttributesDraft attributes,
         ICollection<CharacterCreationFinalizationDelta> deltas,
         ref int order)
     {
         var qualityContainer = new XElement("qualities");
         var improvements = new List<XElement>();
+        decimal sourceKarmaTotal = 0;
         foreach (CharacterCreationQualitySelection selection in draft.Selections
                      .OrderBy(static item => item.OptionId, StringComparer.Ordinal))
         {
@@ -321,6 +324,8 @@ public static class CharacterCreationFinalizationProjector
                 throw new InvalidDataException("Selected Quality source cannot be projected exactly.");
             qualityContainer.Add(projectedQualities);
             improvements.AddRange(projectedImprovements);
+            int sourceKarma = selection.CountsAgainstKarma ? selection.KarmaCost : 0;
+            sourceKarmaTotal += sourceKarma;
             AddDelta(
                 deltas,
                 ref order,
@@ -329,10 +334,22 @@ public static class CharacterCreationFinalizationProjector
                 selection.SourceId.ToString("D", CultureInfo.InvariantCulture),
                 null,
                 selection.Rating.ToString(CultureInfo.InvariantCulture),
-                selection.KarmaCost,
+                sourceKarma,
                 0,
                 selection.SourceAnchorIds);
         }
+        // A cap/rebate is a basket rule, not an arbitrary allocation to one quality.
+        // Retain the original BP on each legacy row and show the exact profile/basket
+        // adjustment separately so the review deltas reconcile with the confirmed pool.
+        decimal confirmedKarma = (decimal)attributes.CreationKarmaTotal
+            - attributes.CreationKarmaUsed - draft.KarmaRemaining;
+        decimal adjustment = confirmedKarma - sourceKarmaTotal;
+        if (adjustment != 0)
+            AddDelta(deltas, ref order, "qualities:karma-adjustment",
+                CharacterCreationFinalizationDeltaKinds.Build, "qualities-karma-adjustment",
+                sourceKarmaTotal.ToString(CultureInfo.InvariantCulture),
+                confirmedKarma.ToString(CultureInfo.InvariantCulture), adjustment, 0,
+                draft.SourceAnchorIds);
         ReplaceDirect(root, qualityContainer);
         if (improvements.Count != 0)
         {

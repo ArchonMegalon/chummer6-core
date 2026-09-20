@@ -120,6 +120,12 @@ internal sealed class WorkspaceContinuationCandidateEvaluator(
                             workspace, frozen, out var blockers);
                         return Check("bootstrap", valid, blockers);
                     });
+                if (auxiliary.CharacterCreationKarmaMetatypeDecisions is not null)
+                    Run("karma-metatype", () =>
+                    {
+                        var result = new CharacterCreationKarmaMetatypeService(view, frozen).Load(workspace.Id);
+                        return Check("karma-metatype", result.Value?.Selection is not null, result.Blockers);
+                    });
                 if (auxiliary.CharacterCreationFoundationDraft is not null)
                     Run("foundation", () =>
                     {
@@ -251,6 +257,7 @@ internal sealed class WorkspaceContinuationCandidateEvaluator(
 
     private static bool HasActiveDrafts(WorkspaceDocumentAuxiliaryState state) =>
         state.CharacterCreationBootstrapBinding is not null
+        || state.CharacterCreationKarmaMetatypeDecisions is not null
         || state.CharacterCreationFoundationDraft is not null
         || state.CharacterCreationPrerequisiteDraft is not null
         || state.CharacterCreationAttributesDraft is not null

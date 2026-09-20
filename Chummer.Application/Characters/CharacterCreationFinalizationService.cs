@@ -397,6 +397,45 @@ public sealed class CharacterCreationFinalizationService : ICharacterCreationFin
         else if (!string.Equals(summary.BuildMethod, CharacterCreationBuildMethods.Priority,
                      StringComparison.Ordinal))
             blockers.Add(CharacterCreationFinalizationBlockers.BuildMethodUnsupported);
+        if (blockers.Count != 0)
+        {
+            // No whole-build transaction exists for this ruleset/method. Loading
+            // Priority domains cannot make it available and needlessly holds the
+            // phone's owner admission gate ahead of the actual method's wizard.
+            // Return only the fresh, workspace-bound capability rejection: empty
+            // steps mean not evaluated, never completed or source-validated.
+            string[] unavailableBlockers = Normalize(blockers);
+            string unavailableDigest = CharacterCreationFinalizationDigest.Compute(new
+            {
+                Schema = "chummer.sr5.creation-finalization.authority.v1",
+                ScopeUnavailable = true,
+                workspace.Id,
+                workspace.ContentRevision,
+                workspace.SavedRevision,
+                workspace.Document.RulesetId,
+                RawCharacterXmlDigest = rawDigest,
+                AuxiliaryStateDigest = workspace.Document.AuxiliaryStateDigest,
+                summary.BuildMethod,
+                Blockers = unavailableBlockers
+            });
+            var unavailableState = new CharacterCreationFinalizationState(
+                CharacterCreationFinalizationSchemas.StateV1,
+                new CharacterCreationFinalizationBinding(workspace.Id, workspace.ContentRevision,
+                    workspace.SavedRevision, rawDigest, workspace.Document.AuxiliaryStateDigest,
+                    summary.BuildMethod, unavailableDigest),
+                CharacterCreated: false,
+                Steps: [],
+                unavailableBlockers,
+                CanReview: false,
+                lastReceipt,
+                SnapshotDigest: string.Empty);
+            unavailableState = unavailableState with
+            {
+                SnapshotDigest = CharacterCreationFinalizationDigest.Compute(unavailableState)
+            };
+            return new Evaluation(CharacterCreationFinalizationOutcomes.Blocked,
+                workspace, unavailableState, unavailableBlockers);
+        }
         CharacterCreationBootstrapBinding? bootstrap = workspace.Document.AuxiliaryState
             .CharacterCreationBootstrapBinding;
         if (bootstrap is null

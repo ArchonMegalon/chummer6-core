@@ -2023,6 +2023,304 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             return true;
         }
 
+        public bool TryResolveCreationAttributePolicy(out CharacterCreationAttributePolicy? policy)
+        {
+            using IDisposable sourceInputScope = _sourceInputs.Enter();
+            policy = null;
+            if (_sourceInputs.HasSourceDrift || string.IsNullOrWhiteSpace(_settingsProfileId)
+                || !CharacterCreationBuildMethods.IsSupported(_buildMethod)
+                || !CharacterCreationPrerequisiteAuthorityDigest.IsCanonical(_rawProfileInputsDigest)
+                || _karmaAttribute is not > 0 || _maxNumberMaxAttributesCreate is not >= 0
+                || _alternateMetatypeAttributeKarma is null || _reverseAttributePriorityOrder is null)
+                return false;
+            var result = new CharacterCreationAttributePolicy(
+                CharacterCreationAttributePolicy.SchemaV1, _settingsProfileId, _buildMethod,
+                _karmaAttribute.Value, _maxNumberMaxAttributesCreate.Value,
+                _alternateMetatypeAttributeKarma.Value, _reverseAttributePriorityOrder.Value,
+                _rawProfileInputsDigest,
+                [$"settings.xml#setting:{_settingsProfileId}"], string.Empty);
+            policy = result with
+            {
+                AuthorityDigest = CharacterCreationAttributePolicyAuthority.ComputeDigest(result)
+            };
+            return true;
+        }
+
+        public bool TryResolveCreationKarmaSkillsPolicy(out CharacterCreationKarmaSkillsPolicy? policy)
+        {
+            using IDisposable sourceInputScope = _sourceInputs.Enter();
+            policy = null;
+            if (_sourceInputs.HasSourceDrift || _buildMethod != CharacterCreationBuildMethods.Karma
+                || string.IsNullOrWhiteSpace(_settingsProfileId)
+                || !TryComputeEffectiveInputDigest(_catalog, "settings.xml", out string settingsDigest)
+                || BindSelectedProfile(settingsDigest, _settingsProfileId) != _rawProfileInputsDigest
+                || !TryResolveTarget("settings.xml", ["settings"], "setting", _settingsProfileId,
+                    string.Empty, out var settings) || settings is null
+                || !TryReadKarmaCost(settings, "karmanewactiveskill", out int newActive)
+                || !TryReadKarmaCost(settings, "karmaimproveactiveskill", out int improveActive)
+                || !TryReadKarmaCost(settings, "karmanewknowledgeskill", out int newKnowledge)
+                || !TryReadKarmaCost(settings, "karmaimproveknowledgeskill", out int improveKnowledge)
+                || !TryReadKarmaCost(settings, "karmanewskillgroup", out int newGroup)
+                || !TryReadKarmaCost(settings, "karmaimproveskillgroup", out int improveGroup)
+                || !TryReadKarmaCost(settings, "karmaspecialization", out int specialization)
+                || !TryReadKarmaCost(settings, "karmaknospecialization", out int knowledgeSpecialization)
+                || !TryReadCreationSkillCap(settings, "maxskillratingcreate", "maxskillrating", out int activeCap)
+                || !TryReadCreationSkillCap(settings, "maxknowledgeskillratingcreate", "maxknowledgeskillrating", out int knowledgeCap)
+                || !TryReadOptionalStrictBoolean(settings, "usepointsonbrokengroups", false, out bool useBroken)
+                || !TryReadOptionalStrictBoolean(settings, "breakskillgroupsincreatemode", false, out bool strict)
+                || !TryReadOptionalStrictBoolean(settings, "specializationsbreakskillgroups", true, out bool specBreak)
+                || !TryReadOptionalStrictBoolean(settings, "allowpointbuyspecializationsonkarmaskills", false, out bool pointSpecs)
+                || !TryReadOptionalStrictBoolean(settings, "compensateskillgroupkarmadifference", false, out bool compensate))
+                return false;
+            string expression = ReadUniqueScalar(settings, "knowledgepointsexpression", out bool expressionValid);
+            if (!expressionValid || string.IsNullOrWhiteSpace(expression) || _sourceInputs.HasSourceDrift)
+                return false;
+            var result = new CharacterCreationKarmaSkillsPolicy(
+                CharacterCreationKarmaSkillsPolicy.SchemaV1, _settingsProfileId, _rawProfileInputsDigest,
+                newActive, improveActive, newKnowledge, improveKnowledge, newGroup, improveGroup,
+                specialization, knowledgeSpecialization, activeCap, knowledgeCap, expression,
+                useBroken, strict, specBreak, pointSpecs, compensate,
+                [$"settings.xml#setting:{_settingsProfileId}"], string.Empty);
+            policy = result with { AuthorityDigest = CharacterCreationKarmaSkillsPolicyAuthority.ComputeDigest(result) };
+            return true;
+        }
+
+        public bool TryResolveCreationKarmaResourcesPolicy(out CharacterCreationKarmaResourcesPolicy? policy)
+        {
+            using IDisposable sourceInputScope = _sourceInputs.Enter();
+            policy = null;
+            if (_sourceInputs.HasSourceDrift || _buildMethod != CharacterCreationBuildMethods.Karma
+                || string.IsNullOrWhiteSpace(_settingsProfileId)
+                || !TryComputeEffectiveInputDigest(_catalog, "settings.xml", out string settingsDigest)
+                || BindSelectedProfile(settingsDigest, _settingsProfileId) != _rawProfileInputsDigest
+                || !TryResolveTarget("settings.xml", ["settings"], "setting", _settingsProfileId,
+                    string.Empty, out var settings) || settings is null
+                || !TryReadOptionalStrictBoolean(settings, "unrestrictednuyen", false, out bool unrestricted))
+                return false;
+            var maximumNodes = settings.Elements("nuyenmaxbp").Take(2).ToArray();
+            decimal maximum = 10; // CharacterSettings' absent-field default, not a UI default.
+            if (maximumNodes.Length > 1 || maximumNodes.Length == 1
+                && (!ScalarDecimal(maximumNodes[0], out maximum) || maximum < 0)) return false;
+            maximum = unrestricted ? int.MaxValue : Math.Min(maximum, int.MaxValue);
+            var expressions = settings.Elements("chargenkarmatonuyenexpression").Take(2).ToArray();
+            string expression;
+            if (expressions.Length == 0)
+            {
+                var legacy = settings.Elements("nuyenperbpwftm").Take(2).ToArray();
+                decimal rate = 2000; // Exact absent-field default used by the legacy shim.
+                if (legacy.Length > 1 || legacy.Length == 1
+                    && (!ScalarDecimal(legacy[0], out rate) || rate <= 0)) return false;
+                expression = "{Karma} * " + rate.ToString(CultureInfo.InvariantCulture) + " + {PriorityNuyen}";
+            }
+            else
+            {
+                if (expressions.Length != 1 || expressions[0].HasAttributes || expressions[0].HasElements)
+                    return false;
+                expression = expressions[0].Value;
+                if (!expression.Contains("{PriorityNuyen}", StringComparison.Ordinal))
+                    expression = "(" + expression + ") + {PriorityNuyen}"; // CharacterSettings load shim.
+            }
+            var result = new CharacterCreationKarmaResourcesPolicy(CharacterCreationKarmaResourcesPolicy.SchemaV1,
+                _settingsProfileId, _rawProfileInputsDigest, expression, maximum,
+                [$"settings.xml#setting:{_settingsProfileId}", CharacterCreationResourcesSourceAnchors.LegacyTotal,
+                    CharacterCreationResourcesSourceAnchors.LegacyMaximumInvestment], string.Empty);
+            result = result with { AuthorityDigest = CharacterCreationKarmaResourcesRules.ComputePolicyDigest(result) };
+            if (_sourceInputs.HasSourceDrift || !CharacterCreationKarmaResourcesRules.IsValidPolicy(result)) return false;
+            policy = result;
+            return true;
+
+            static bool ScalarDecimal(XElement node, out decimal value)
+            {
+                value = 0;
+                return !node.HasAttributes && !node.HasElements && decimal.TryParse(node.Value,
+                    NumberStyles.AllowLeadingWhite | NumberStyles.AllowTrailingWhite | NumberStyles.AllowLeadingSign
+                        | NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out value);
+            }
+        }
+
+        public bool TryResolveCreationKarmaCarryoverPolicy(out CharacterCreationKarmaCarryoverPolicy? policy)
+        {
+            using IDisposable sourceInputScope = _sourceInputs.Enter();
+            policy = null;
+            if (_sourceInputs.HasSourceDrift || _buildMethod != CharacterCreationBuildMethods.Karma
+                || string.IsNullOrWhiteSpace(_settingsProfileId)
+                || !TryComputeEffectiveInputDigest(_catalog, "settings.xml", out string settingsDigest)
+                || BindSelectedProfile(settingsDigest, _settingsProfileId) != _rawProfileInputsDigest
+                || !TryResolveTarget("settings.xml", ["settings"], "setting", _settingsProfileId,
+                    string.Empty, out var settings) || settings is null) return false;
+
+            // CharacterSettings defaults apply only to absent nodes, never to
+            // malformed or duplicate values supplied by a custom profile.
+            int karma = 7;
+            decimal nuyen = 5000m;
+            var costs = settings.Elements("karmacost").Take(2).ToArray();
+            if (costs.Length > 1 || costs.Length == 1 && costs[0].HasAttributes) return false;
+            var karmaNodes = costs.SingleOrDefault()?.Elements("karmacarryover").Take(2).ToArray() ?? [];
+            if (karmaNodes.Length > 1 || karmaNodes.Length == 1
+                && !TryParseNonNegativeIntElement(karmaNodes[0], out karma)) return false;
+            var nuyenNodes = settings.Elements("nuyencarryover").Take(2).ToArray();
+            if (nuyenNodes.Length > 1 || nuyenNodes.Length == 1 && (nuyenNodes[0].HasAttributes
+                || nuyenNodes[0].HasElements || !decimal.TryParse(nuyenNodes[0].Value,
+                    NumberStyles.AllowLeadingWhite | NumberStyles.AllowTrailingWhite | NumberStyles.AllowLeadingSign
+                        | NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out nuyen) || nuyen < 0)) return false;
+            var result = new CharacterCreationKarmaCarryoverPolicy(CharacterCreationKarmaCarryoverPolicy.SchemaV1,
+                _settingsProfileId, _rawProfileInputsDigest, karma, nuyen,
+                [$"settings.xml#setting:{_settingsProfileId}", CharacterCreationKarmaFinalizationBudgetRules.CarryoverAnchor], string.Empty);
+            result = result with { AuthorityDigest = CharacterCreationKarmaFinalizationBudgetRules.PolicyDigest(result) };
+            if (_sourceInputs.HasSourceDrift || !CharacterCreationKarmaFinalizationBudgetRules.IsValidPolicy(result)) return false;
+            policy = result;
+            return true;
+        }
+
+        public bool TryResolveCreationKarmaDefaultStartingNuyen(out CharacterCreationStartingNuyenSource? source)
+        {
+            using IDisposable sourceInputScope = _sourceInputs.Enter();
+            source = null;
+            var lifestyles = _character.Elements("lifestyles").Take(2).ToArray();
+            if (_sourceInputs.HasSourceDrift || _buildMethod != CharacterCreationBuildMethods.Karma
+                || lifestyles.Length > 1 || lifestyles.Length == 1
+                    && (lifestyles[0].HasAttributes || lifestyles[0].HasElements || !string.IsNullOrWhiteSpace(lifestyles[0].Value))
+                || string.IsNullOrWhiteSpace(_settingsProfileId)
+                || !TryComputeEffectiveInputDigest(_catalog, "settings.xml", out string settingsDigest)
+                || BindSelectedProfile(settingsDigest, _settingsProfileId) != _rawProfileInputsDigest
+                || !TryComputeEffectiveInputDigest(_catalog, "lifestyles.xml", out string sourceDigest)
+                || !TryEnumerateTargets("lifestyles.xml", ["lifestyles"], "lifestyle", out var rows)) return false;
+            // Match the legacy fallback by source name, not a UI-invented price,
+            // dice count or source GUID. Ambiguous/custom malformed rows block.
+            var candidates = rows.Where(row => row.Elements("name").Any(node => node.Value.Trim() == "Street")).Take(2).ToArray();
+            if (candidates.Length != 1) return false;
+            var row = candidates[0];
+            var costs = row.Elements("cost").Take(2).ToArray();
+            if (costs.Length != 1 || costs[0].HasAttributes || costs[0].HasElements
+                || !decimal.TryParse(costs[0].Value, NumberStyles.Number, CultureInfo.InvariantCulture, out decimal cost)
+                || cost != 0) return false;
+            var projected = CharacterCreationKarmaFinalizationBudgetRules.ProjectStartingCashSource(
+                row.ToString(SaveOptions.DisableFormatting), _settingsProfileId, _rawProfileInputsDigest, sourceDigest);
+            if (projected is null || !TryIsBookEnabled(projected.SourceBook, out bool enabled) || !enabled
+                || _sourceInputs.HasSourceDrift) return false;
+            source = projected;
+            return true;
+        }
+
+        private static bool TryReadCreationSkillCap(XElement settings, string creationName, string careerName,
+            out int cap)
+        {
+            // Exact CharacterSettings load semantics: default six; only an
+            // explicitly present career cap clamps the creation cap. Missing is
+            // distinct from malformed/duplicate, which must never default.
+            cap = 6;
+            XElement[] creation = settings.Elements(creationName).Take(2).ToArray();
+            XElement[] career = settings.Elements(careerName).Take(2).ToArray();
+            if (creation.Length > 1 || career.Length > 1
+                || (creation.Length == 1 && !TryParseNonNegativeIntElement(creation[0], out cap)))
+                return false;
+            if (career.Length == 1)
+            {
+                if (!TryParseNonNegativeIntElement(career[0], out int careerCap)) return false;
+                cap = Math.Min(cap, careerCap);
+            }
+            return true;
+        }
+
+        public bool TryResolveCreationKarmaTalents(out CharacterCreationKarmaTalentCatalog? catalog)
+        {
+            using IDisposable sourceInputScope = _sourceInputs.Enter();
+            catalog = null;
+            if (_sourceInputs.HasSourceDrift || _buildMethod != CharacterCreationBuildMethods.Karma
+                || string.IsNullOrWhiteSpace(_settingsProfileId)
+                || !TryComputeEffectiveInputDigest(_catalog, "settings.xml", out string settingsDigest)
+                || BindSelectedProfile(settingsDigest, _settingsProfileId) != _rawProfileInputsDigest
+                || !TryComputeEffectiveInputDigest(_catalog, "qualities.xml", out string qualityDigest)
+                || !TryResolveTarget("settings.xml", ["settings"], "setting", _settingsProfileId,
+                    string.Empty, out var settings) || settings is null
+                || !TryReadKarmaCost(settings, "karmaquality", out int multiplier)
+                || multiplier <= 0
+                || !TryEnumerateTargets("qualities.xml", ["qualities"], "quality", out var rows)
+                || _character.Element("qualityrestriction") is not null
+                || _character.Element("qualities")?.Elements("quality").Any() == true)
+                return false;
+            string profileAnchor = $"settings.xml#setting:{_settingsProfileId}";
+            var options = new List<CharacterCreationKarmaTalentOption>
+            {
+                CharacterCreationKarmaTalentAuthority.Mundane(profileAnchor)
+            };
+            foreach (var row in rows.Where(item => item.Element("onlyprioritygiven") is not null
+                && item.Element("bonus")?.Elements("enableattribute").Any() == true))
+            {
+                var option = CharacterCreationKarmaTalentAuthority.Project(row, multiplier,
+                    _enabledSourcebooks.Contains(ReadValue(row, "source")));
+                if (option is null) return false;
+                options.Add(option);
+            }
+            if (_sourceInputs.HasSourceDrift || options.GroupBy(option => option.OptionId,
+                StringComparer.Ordinal).Any(group => group.Count() != 1)) return false;
+            var result = new CharacterCreationKarmaTalentCatalog(
+                CharacterCreationKarmaTalentCatalog.SchemaV1, _settingsProfileId, _rawProfileInputsDigest,
+                qualityDigest, multiplier, options.OrderBy(option => option.OptionId, StringComparer.Ordinal).ToArray(),
+                [profileAnchor, "qualities.xml"], string.Empty);
+            catalog = result with { AuthorityDigest = CharacterCreationKarmaTalentAuthority.ComputeDigest(result) };
+            return true;
+        }
+
+        public bool TryResolveCreationKarmaGrantSources(string metatypeOptionId, string talentOptionId,
+            out IReadOnlyList<CharacterCreationTalentQualitySource> metatypeQualities,
+            out CharacterCreationTalentQualitySource? talentQuality)
+        {
+            using IDisposable sourceInputScope = _sourceInputs.Enter();
+            metatypeQualities = [];
+            talentQuality = null;
+            if (_sourceInputs.HasSourceDrift || _buildMethod != CharacterCreationBuildMethods.Karma
+                || !TryResolveCreationMetatypeCatalog(out var metatypes) || !metatypes.IsAuthoritative
+                || metatypes.Options.SingleOrDefault(option => option.OptionId == metatypeOptionId)
+                    is not { IsEnabled: true, Blockers.Count: 0 } metatype
+                || !TryResolveCreationKarmaTalents(out var talents) || talents is null
+                || talents.Options.SingleOrDefault(option => option.OptionId == talentOptionId)
+                    is not { IsEnabled: true, Blockers.Count: 0 } talent
+                || !CharacterCreationKarmaTalentAuthority.IsCompatible(talent, metatype)
+                || !TryEnumerateTargets("qualities.xml", ["qualities"], "quality", out var qualities))
+                return false;
+
+            var references = metatype.GrantedQualities.Select(item => (Reference: item.Name, Selection: string.Empty))
+                .Concat(talent.OptionId == CharacterCreationKarmaTalentCatalog.MundaneOptionId
+                    ? [] : new[] { (Reference: talent.OptionId, Selection: string.Empty) }).ToArray();
+            // Only a nested gear grant requires gear.xml. Human/Elf mundane
+            // finalization must not acquire unrelated spell or Priority catalogs.
+            bool needsGear = qualities.Any(row => references.Any(reference =>
+                    row.Element("name")?.Value == reference.Reference
+                    || Guid.TryParse(reference.Reference, out var referenceId)
+                        && Guid.TryParse(row.Element("id")?.Value, out var sourceId) && referenceId == sourceId)
+                && row.Element("bonus")?.Elements("addgear").Any() == true);
+            string gearDigest = string.Empty;
+            XElement[] gear = [];
+            if (needsGear && (!TryComputeEffectiveInputDigest(_catalog, "gear.xml", out gearDigest)
+                || !TryEnumerateTargets("gear.xml", ["gears"], "gear", out gear)))
+                return false;
+            var blockers = new List<string>();
+            var sources = CharacterCreationMagicResonanceAuthorityProjector.ResolveQualityReferences(
+                references, qualities, gear, talents.SourceInputsDigest, gearDigest,
+                _enabledSourcebooks.Order(StringComparer.Ordinal).ToArray(), blockers);
+            if (_sourceInputs.HasSourceDrift || blockers.Count != 0 || sources.Length != references.Length)
+                return false;
+            for (int index = 0; index < metatype.GrantedQualities.Count; index++)
+            {
+                // A same-name replacement must not silently invert a racial
+                // quality's polarity; the metatype source owns that declaration.
+                string? category = XElement.Parse(sources[index].CanonicalSourceXml).Element("category")?.Value;
+                if (!string.Equals(category, metatype.GrantedQualities[index].Polarity, StringComparison.OrdinalIgnoreCase))
+                    return false;
+            }
+            var selectedTalent = talent.OptionId == CharacterCreationKarmaTalentCatalog.MundaneOptionId
+                ? null : sources[^1];
+            if (selectedTalent is not null && (selectedTalent.SourceId != talent.OptionId
+                || CharacterCreationQualitiesRules.ComputeSourceNodeDigest(talent.SourceNodeXml) != talent.SourceNodeDigest
+                || XElement.Parse(talent.SourceNodeXml, LoadOptions.None).ToString(SaveOptions.DisableFormatting)
+                    != selectedTalent.CanonicalSourceXml))
+                return false;
+            metatypeQualities = sources.Take(metatype.GrantedQualities.Count).ToArray();
+            talentQuality = selectedTalent;
+            return true;
+        }
+
         public bool TryResolveCreationPrerequisiteAuthority(
             out CharacterCreationPrerequisiteAuthority authority)
         {
@@ -2470,7 +2768,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             if (string.IsNullOrWhiteSpace(_settingsProfileId)
                 || _creationMaximumAvailability is not int maximumAvailability
                 || maximumAvailability < 0
-                || !CharacterCreationBuildMethods.IsSupported(_prerequisiteBuildMethod)
+                || !CharacterCreationBuildMethods.IsSupported(_buildMethod)
                 || !TryComputeEffectiveInputDigest(_catalog, "gear.xml", out string sourceDigest)
                 || !TryEnumerateTargets(
                     "gear.xml",
@@ -2942,6 +3240,62 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             return true;
         }
 
+        public bool TryResolveCreationSkillsCatalog(out CharacterCreationSkillsCatalog? catalog)
+        {
+            using IDisposable sourceInputScope = _sourceInputs.Enter();
+            catalog = null;
+            if (_sourceInputs.HasSourceDrift || string.IsNullOrWhiteSpace(_settingsProfileId)
+                || !TryComputeEffectiveInputDigest(_catalog, "settings.xml", out string settingsDigest)
+                || BindSelectedProfile(settingsDigest, _settingsProfileId) != _rawProfileInputsDigest
+                || !TryComputeEffectiveInputDigest(_catalog, "skills.xml", out string skillsDigest)
+                || skillsDigest != _effectiveSkillsInputsDigest
+                || !TryComputeEffectiveInputDigest(_catalog, "weapons.xml", out string weaponsDigest)
+                || !TryHasSelectedCustomDataInputFor(_customDirectories, "skills.xml", out bool customSkills)
+                || customSkills
+                || !TryEnumerateTargets("skills.xml", ["skills"], "skill", out var activeRows)
+                || !TryEnumerateTargets("skills.xml", ["knowledgeskills"], "skill", out var knowledgeRows))
+                return false;
+            // Reuse the strict source projection, not Priority caps, budgets or
+            // talent grants. Custom skills still need the shared overlay semantics.
+            var blockers = new List<string>();
+            var active = ProjectSkills(activeRows, CharacterCreationSkillKinds.Active, blockers);
+            var knowledge = ProjectSkills(knowledgeRows, CharacterCreationSkillKinds.Knowledge, blockers);
+            var result = new CharacterCreationSkillsCatalog(CharacterCreationSkillsCatalog.SchemaV1,
+                _settingsProfileId, _rawProfileInputsDigest, skillsDigest, weaponsDigest,
+                active, knowledge, ProjectSkillGroups(active),
+                [$"settings.xml#setting:{_settingsProfileId}", "skills.xml", "weapons.xml"], string.Empty)
+            {
+                ActiveSkillSourceOrder = activeRows.Select(row => ReadValue(row, "id").ToLowerInvariant())
+                    .Where(id => active.Any(skill => skill.SourceSkillId == id)).ToArray()
+            };
+            result = result with { CatalogDigest = CharacterCreationSkillsCatalogAuthority.ComputeDigest(result) };
+            if (blockers.Count != 0 || _sourceInputs.HasSourceDrift
+                || !CharacterCreationSkillsCatalogAuthority.IsValid(result)) return false;
+            catalog = result;
+            return true;
+        }
+
+        private CharacterCreationSkillGroupCatalogEntry[] ProjectSkillGroups(
+            IReadOnlyList<CharacterCreationSkillCatalogEntry> active) => active
+            .Where(skill => !string.IsNullOrWhiteSpace(skill.SkillGroup))
+            .GroupBy(skill => skill.SkillGroup!, StringComparer.Ordinal)
+            .Select(group =>
+            {
+                string[] members = group.Select(skill => skill.SourceSkillId)
+                    .OrderBy(id => id, StringComparer.Ordinal).ToArray();
+                string digest = CharacterCreationSkillsDigest.Compute(new
+                {
+                    Schema = "chummer.sr5.creation-skill-group-source.v1",
+                    Name = group.Key,
+                    MemberSkillSourceIds = members,
+                    EffectiveSkillsInputsDigest = _effectiveSkillsInputsDigest
+                });
+                return new CharacterCreationSkillGroupCatalogEntry(digest, group.Key, members,
+                    digest, [$"skills.xml#skillgroup:{group.Key}"]);
+            })
+            .OrderBy(group => group.Name, StringComparer.Ordinal)
+            .ThenBy(group => group.GroupId, StringComparer.Ordinal).ToArray();
+
         public bool TryResolveCreationSkillsAuthority(
             out CharacterCreationSkillsAuthority authority)
         {
@@ -3062,31 +3416,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 blockers.Add(CharacterCreationSkillsBlockers.AuthorityUnavailable);
             }
 
-            CharacterCreationSkillGroupCatalogEntry[] groups = active
-                .Where(skill => !string.IsNullOrWhiteSpace(skill.SkillGroup))
-                .GroupBy(skill => skill.SkillGroup!, StringComparer.Ordinal)
-                .Select(group =>
-                {
-                    string[] members = group.Select(skill => skill.SourceSkillId)
-                        .OrderBy(id => id, StringComparer.Ordinal)
-                        .ToArray();
-                    string digest = CharacterCreationSkillsDigest.Compute(new
-                    {
-                        Schema = "chummer.sr5.creation-skill-group-source.v1",
-                        Name = group.Key,
-                        MemberSkillSourceIds = members,
-                        EffectiveSkillsInputsDigest = _effectiveSkillsInputsDigest
-                    });
-                    return new CharacterCreationSkillGroupCatalogEntry(
-                        GroupId: digest,
-                        Name: group.Key,
-                        MemberSkillSourceIds: members,
-                        GroupDigest: digest,
-                        SourceAnchorIds: [$"skills.xml#skillgroup:{group.Key}"]);
-                })
-                .OrderBy(group => group.Name, StringComparer.Ordinal)
-                .ThenBy(group => group.GroupId, StringComparer.Ordinal)
-                .ToArray();
+            CharacterCreationSkillGroupCatalogEntry[] groups = ProjectSkillGroups(active);
             if (groups.Any(group => group.MemberSkillSourceIds.Count < 2)
                 || groups.Select(group => group.GroupId)
                     .Distinct(StringComparer.Ordinal).Count() != groups.Length)
@@ -3144,13 +3474,74 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             return true;
         }
 
+        private static bool TryResolveQualityCostPolicy(
+            XElement settings, out CharacterCreationQualityCostPolicy policy)
+        {
+            policy = CharacterCreationQualityCostPolicy.Default;
+            XElement[] costs = settings.Elements("karmacost").Take(2).ToArray();
+            if (costs.Length > 1 || costs.Length == 1 && costs[0].HasAttributes)
+                return false;
+            XElement[] multipliers = costs.Length == 0 ? []
+                : costs[0].Elements("karmaquality").Take(2).ToArray();
+            int multiplier = 1; // CharacterSettings' legacy default, only when absent.
+            if (multipliers.Length > 1 || multipliers.Length == 1
+                && !TryParseNonNegativeIntElement(multipliers[0], out multiplier))
+                return false;
+            if (!TryReadOptionalStrictBoolean(settings, "exceedpositivequalitiescostdoubled",
+                    false, out bool doublePositive)
+                || !TryReadOptionalStrictBoolean(settings, "exceednegativequalitiesnobonus",
+                    false, out bool capNegative)
+                || !TryReadOptionalStrictBoolean(settings, "exceednegativequalitieslimit",
+                    false, out bool legacyCapNegative))
+                return false;
+            // The old spelling is a fallback only; an explicit current value wins.
+            if (!settings.Elements("exceednegativequalitiesnobonus").Any())
+                capNegative = legacyCapNegative;
+            policy = new(multiplier, doublePositive, capNegative);
+            return true;
+        }
+
         public bool TryResolveCreationQualitiesAuthority(
             out CharacterCreationQualitiesAuthority authority)
+        {
+            authority = CharacterCreationQualitiesAuthority.Unavailable;
+            return _buildMethod == CharacterCreationBuildMethods.Priority
+                && TryResolveCreationQualitySources(out authority);
+        }
+
+        public bool TryResolveCreationKarmaQualities(out CharacterCreationKarmaQualitiesCatalog? catalog)
+        {
+            catalog = null;
+            if (_buildMethod != CharacterCreationBuildMethods.Karma
+                || !TryResolveCreationQualitySources(out var source) || !source.IsAuthoritative) return false;
+            var policy = new CharacterCreationKarmaQualitiesPolicy(CharacterCreationKarmaQualitiesPolicy.SchemaV1,
+                source.SettingsProfileId, source.ProfileDigest, source.SourceDigest, source.QualityKarmaLimit,
+                source.MayExceedPositiveQualityLimit, source.MayExceedNegativeQualityLimit, source.MetagenicLimit,
+                source.CostPolicy ?? CharacterCreationQualityCostPolicy.Default, source.SourceAnchorIds, string.Empty);
+            policy = policy with { AuthorityDigest = CharacterCreationKarmaQualitiesRules.PolicyDigest(policy) };
+            // The purchase evaluator and its catalog must agree. In particular,
+            // legacy empty grant-only markers are never ordinary Karma purchases.
+            var options = source.Options.Select(option =>
+            {
+                if (!option.IsSelectable || CharacterCreationKarmaQualitiesRules.IsExactPurchase(option)) return option;
+                var unavailable = option with { IsSelectable = false, EligibilityIsExact = false,
+                    DisableReasonKey = CharacterCreationQualitiesBlockers.EligibilityUnresolved, OptionDigest = string.Empty };
+                return unavailable with { OptionDigest = CharacterCreationQualitiesRules.ComputeOptionDigest(unavailable) };
+            }).ToArray();
+            var result = new CharacterCreationKarmaQualitiesCatalog(CharacterCreationKarmaQualitiesCatalog.SchemaV1,
+                policy, options, string.Empty);
+            catalog = result with { CatalogDigest = CharacterCreationKarmaQualitiesRules.CatalogDigest(result) };
+            return CharacterCreationKarmaQualitiesRules.IsValidCatalog(catalog);
+        }
+
+        // Shared source parsing only. Each public entry retains its own build-method
+        // guard and contract; this never creates a Priority prerequisite for Karma.
+        private bool TryResolveCreationQualitySources(out CharacterCreationQualitiesAuthority authority)
         {
             using IDisposable sourceInputScope = _sourceInputs.Enter();
             authority = CharacterCreationQualitiesAuthority.Unavailable;
             if (string.IsNullOrWhiteSpace(_settingsProfileId)
-                || !string.Equals(_buildMethod, CharacterCreationBuildMethods.Priority, StringComparison.Ordinal)
+                || _buildMethod is not (CharacterCreationBuildMethods.Priority or CharacterCreationBuildMethods.Karma)
                 || !TryComputeEffectiveInputDigest(
                     _catalog,
                     "qualities.xml",
@@ -3174,7 +3565,8 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                     out XElement[] rows)
                 || !TryReadNonNegativeInt(settings, "qualitykarmalimit", out int qualityKarmaLimit)
                 || !TryReadSingleBool(settings, "exceedpositivequalities", out bool exceedPositive)
-                || !TryReadSingleBool(settings, "exceednegativequalities", out bool exceedNegative))
+                || !TryReadSingleBool(settings, "exceednegativequalities", out bool exceedNegative)
+                || !TryResolveQualityCostPolicy(settings, out var costPolicy))
             {
                 return false;
             }
@@ -3394,6 +3786,24 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                     "overclocker:v1"
                 }
             });
+            // Preserve the exact existing source authority when the profile still
+            // means multiplier one/no excess rules. Non-default rules are explicit
+            // and invalidate stale previews; do not silently reprice a saved draft.
+            if (costPolicy != CharacterCreationQualityCostPolicy.Default)
+            {
+                gmPolicyDigest = CharacterCreationSkillsDigest.Compute(new
+                {
+                    Schema = "chummer.sr5.creation-qualities-gm-policy.v2",
+                    PreviousPolicyDigest = gmPolicyDigest,
+                    CostPolicy = costPolicy
+                });
+                runtimeDigest = CharacterCreationSkillsDigest.Compute(new
+                {
+                    Schema = "chummer.sr5.creation-qualities-runtime.v2",
+                    PreviousRuntimeDigest = runtimeDigest,
+                    QualityCostArithmetic = "profile-multiplier-and-excess-v1"
+                });
+            }
             var candidate = new CharacterCreationQualitiesAuthority(
                 CharacterCreationQualitiesSchemas.AuthorityV1,
                 "sr5",
@@ -3417,7 +3827,10 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 ProfileDigest: _rawProfileInputsDigest,
                 GmPolicyDigest: gmPolicyDigest,
                 RuntimeDigest: runtimeDigest,
-                AuthorityDigest: string.Empty);
+                AuthorityDigest: string.Empty)
+            {
+                CostPolicy = costPolicy == CharacterCreationQualityCostPolicy.Default ? null : costPolicy
+            };
             authority = candidate with
             {
                 AuthorityDigest = CharacterCreationQualitiesRules.ComputeAuthorityDigest(candidate)
@@ -3431,7 +3844,8 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             using IDisposable sourceInputScope = _sourceInputs.Enter();
             authority = CharacterCreationLifestylesAuthority.Unavailable;
             if (string.IsNullOrWhiteSpace(_settingsProfileId)
-                || !CharacterCreationBuildMethods.IsSupported(_prerequisiteBuildMethod)
+                || (!CharacterCreationBuildMethods.IsSupported(_prerequisiteBuildMethod)
+                    && _buildMethod != CharacterCreationBuildMethods.Karma)
                 || !TryComputeEffectiveInputDigest(_catalog, "lifestyles.xml", out string sourceDigest)
                 || !TryComputeEffectiveInputDigest(_catalog, "settings.xml", out string settingsDigest)
                 || !TryResolveTarget(
@@ -4158,6 +4572,32 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
         {
             var projected = new List<CharacterCreationSkillCatalogEntry>();
             var identities = new HashSet<string>(StringComparer.Ordinal);
+            // Book filtering must not make an ambiguous source GUID unique.
+            // A direct row projection cannot choose between competing rows,
+            // including a disabled or hidden row with the same identity.
+            if (rows.Select(row => ReadValue(row, "id"))
+                .Where(id => Guid.TryParse(id, out _))
+                .GroupBy(Guid.Parse).Any(group => group.Count() > 1))
+            {
+                blockers.Add(CharacterCreationSkillsBlockers.AuthorityUnavailable);
+                return [];
+            }
+            // These rows already came from TryEnumerateTargets in the current
+            // source-input scope. Do not copy/search the complete skills XML
+            // again for every row. Weapons are likewise resolved once within
+            // this projection, never cached across public calls/source checks.
+            XElement[]? weapons = null;
+            bool weaponsResolved = false;
+            XElement[]? ResolveWeapons()
+            {
+                if (!weaponsResolved)
+                {
+                    weaponsResolved = true;
+                    if (TryEnumerateTargets("weapons.xml", ["weapons"], "weapon", out var resolved))
+                        weapons = resolved;
+                }
+                return weapons;
+            }
             foreach (XElement row in rows)
             {
                 if (!HasStrictAllowedShape(row, AllowedSkillRowChildren, "specs")
@@ -4203,6 +4643,8 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 if (!string.Equals(kind, CharacterCreationSkillKinds.Active, StringComparison.Ordinal)
                     && (skillGroup is not null || isExotic))
                     scalarShapeValid = false;
+                if (isExotic && skillGroup is not null)
+                    scalarShapeValid = false;
                 if (!scalarShapeValid
                     || !Guid.TryParseExact(id, "D", out Guid parsedId)
                     || parsedId == Guid.Empty
@@ -4230,9 +4672,11 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                     StringComparison.Ordinal)
                         ? CharacterCareerSkillKind.Active
                         : CharacterCareerSkillKind.Knowledge;
-                if (!TryResolveCareerSkillSpecializationSource(
-                        parsedId.ToString("D"),
+                if (!TryProjectSkillSpecializationSource(
+                        row,
+                        parsedId,
                         careerKind,
+                        ResolveWeapons,
                         out CharacterCareerSkillSpecializationSource specializationSource))
                 {
                     blockers.Add(CharacterCreationSkillsBlockers.AuthorityUnavailable);
@@ -4736,6 +5180,20 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 return false;
             }
 
+            return TryProjectSkillSpecializationSource(skill, resolvedSourceId, kind,
+                () => TryEnumerateTargets("weapons.xml", ["weapons"], "weapon", out var weapons)
+                    ? weapons : null,
+                out source);
+        }
+
+        private bool TryProjectSkillSpecializationSource(
+            XElement skill,
+            Guid resolvedSourceId,
+            CharacterCareerSkillKind kind,
+            Func<XElement[]?> resolveWeapons,
+            out CharacterCareerSkillSpecializationSource source)
+        {
+            source = CharacterCareerSkillSpecializationSource.Unavailable;
             string name = ReadValue(skill, "name");
             string category = ReadValue(skill, "category");
             string sourceBook = ReadValue(skill, "source");
@@ -4774,10 +5232,11 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 sourceIndex++;
             }
 
+            bool isExotic = bool.TryParse(ReadValue(skill, "exotic"), out bool exotic) && exotic;
             if (kind == CharacterCareerSkillKind.Active
-                && string.Equals(category, "Combat Active", StringComparison.Ordinal))
+                && (isExotic || string.Equals(category, "Combat Active", StringComparison.Ordinal)))
             {
-                if (!TryEnumerateTargets("weapons.xml", ["weapons"], "weapon", out XElement[] weapons))
+                if (resolveWeapons() is not { } weapons)
                 {
                     return false;
                 }
@@ -4790,9 +5249,14 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 {
                     string weaponName = ReadValue(weapon, "name");
                     string weaponSourceBook = ReadValue(weapon, "source");
-                    bool isRelevant = string.Equals(ReadValue(weapon, "category"), name, StringComparison.Ordinal)
-                        || canonicalSpecializations.Contains(ReadValue(weapon, "spec"))
-                        || canonicalSpecializations.Contains(ReadValue(weapon, "spec2"));
+                    // SelectExoticSkill.BuildList selects weapon identities by
+                    // plural category or explicit useskill, not normal specs.
+                    bool isRelevant = isExotic
+                        ? string.Equals(ReadValue(weapon, "category"), name + "s", StringComparison.Ordinal)
+                            || string.Equals(ReadValue(weapon, "useskill"), name, StringComparison.Ordinal)
+                        : string.Equals(ReadValue(weapon, "category"), name, StringComparison.Ordinal)
+                            || canonicalSpecializations.Contains(ReadValue(weapon, "spec"))
+                            || canonicalSpecializations.Contains(ReadValue(weapon, "spec2"));
                     if (!isRelevant
                         || string.IsNullOrWhiteSpace(weaponName)
                         || !IsEnabledSource(weaponSourceBook))

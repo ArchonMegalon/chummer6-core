@@ -20,7 +20,8 @@ public sealed partial class FileWorkspaceStore :
     IWorkspaceStoreReadinessProbe,
     IWorkspaceAuxiliaryStateAtomicCommitCapability,
     ICharacterCreationBootstrapAtomicCreateCapability,
-    ICharacterCareerReputationAtomicCommitCapability
+    ICharacterCareerReputationAtomicCommitCapability,
+    ICharacterCreationKarmaMetatypeAtomicCommitCapability, ICharacterCreationKarmaFinalizationAtomicCommitCapability
 {
     private const int CurrentWorkspaceSchemaVersion = 1;
     private const int CurrentWorkspaceRecordSchemaVersion = 4;
@@ -1588,6 +1589,15 @@ public sealed partial class FileWorkspaceStore :
         if (!string.Equals(
                 JsonSerializer.Serialize(currentState.CharacterCareerReputationReceipts),
                 JsonSerializer.Serialize(replacementState.CharacterCareerReputationReceipts),
+                StringComparison.Ordinal))
+            return false;
+
+        // Karma selections are admitted only by their typed transaction, with
+        // source revalidation under this same workspace lease. Generic edits
+        // cannot append, replace, remove or smuggle this history via another lane.
+        if (!string.Equals(
+                JsonSerializer.Serialize(currentState.CharacterCreationKarmaMetatypeDecisions),
+                JsonSerializer.Serialize(replacementState.CharacterCreationKarmaMetatypeDecisions),
                 StringComparison.Ordinal))
             return false;
 

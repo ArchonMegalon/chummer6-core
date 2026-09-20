@@ -154,10 +154,10 @@ public static class CharacterCreationSkillsAccessRules
         return choices.Contains(choice, StringComparer.Ordinal) && (forced.Length == 0 || forced == choice);
     }
 
-    private static bool IsOrdinary(CharacterCreationSkillCatalogEntry skill) =>
+    internal static bool IsOrdinary(CharacterCreationSkillCatalogEntry skill) =>
         skill.Category is not ("Magical Active" or "Resonance Active");
 
-    private static bool Matches(CharacterCreationSkillCatalogEntry skill, string filter) => filter switch
+    internal static bool Matches(CharacterCreationSkillCatalogEntry skill, string filter) => filter switch
     {
         "Magician" => skill.Category == "Magical Active",
         "Technomancer" => skill.Category == "Resonance Active",

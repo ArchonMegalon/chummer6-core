@@ -202,6 +202,10 @@ public static class ServiceCollectionExtensions
             CharacterCreationPrerequisiteService>();
         services.AddSingleton<IOwnerBoundCharacterCreationPrerequisiteService,
             OwnerBoundCharacterCreationPrerequisiteService>();
+        services.AddSingleton<ICharacterCreationKarmaMetatypeService,
+            CharacterCreationKarmaMetatypeService>();
+        services.AddSingleton<IOwnerBoundCharacterCreationKarmaMetatypeService,
+            OwnerBoundCharacterCreationKarmaMetatypeService>();
         services.AddSingleton<ICharacterCreationAttributesService,
             CharacterCreationAttributesService>();
         services.AddSingleton<ICharacterCreationSkillsService,
