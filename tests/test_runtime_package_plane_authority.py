@@ -54,8 +54,33 @@ class RuntimePackageLockTests(unittest.TestCase):
         )
 
     def test_next_wave_candidate_is_bound_to_locally_validated_semantic_commit(self) -> None:
-        self.assertEqual("e66adccf06fb8bee96264b9a9112f970508e6e97", runtime.SOURCE_COMMIT)
-        self.assertEqual("0.0.0-packageplane.candidate.she66adccf06fb8", runtime.PACKAGE_VERSION)
+        self.assertEqual("db0f87f7e5b4d704fd110f4f889e46851ea832d3", runtime.SOURCE_COMMIT)
+        self.assertEqual("0.0.0-packageplane.candidate.shdb0f87f7e5b4d", runtime.PACKAGE_VERSION)
+
+    def test_pending_reopen_only_authority_cannot_stand_in_for_karma_completion(self) -> None:
+        for field, value in (
+            ("runtime_source", {"repository": runtime.SOURCE_REPOSITORY,
+                                "commit": "e66adccf06fb8bee96264b9a9112f970508e6e97"}),
+            ("package_version", "0.0.0-packageplane.candidate.she66adccf06fb8"),
+        ):
+            altered = copy.deepcopy(self.lock)
+            altered[field] = value
+            with self.subTest(field=field), self.assertRaises(runtime.RuntimePackagePlaneError):
+                runtime.validate_lock_payload(altered)
+
+    def test_karma_completion_and_owner_commit_are_in_the_frozen_source(self) -> None:
+        for member in (
+            "Chummer.Contracts/Characters/CharacterCreationKarmaFinalizationModels.cs",
+            "Chummer.Contracts/Characters/CharacterCreationKarmaFinalizationBudgetModels.cs",
+            "Chummer.Application/Characters/ICharacterCreationKarmaMetatypeService.cs",
+            "Chummer.Application/Characters/IOwnerBoundCharacterCreationKarmaMetatypeService.cs",
+            "Chummer.Application/Characters/CharacterCreationKarmaMetatypeService.Finalization.cs",
+            "Chummer.Application/Characters/CharacterCreationKarmaFinalizationTransaction.cs",
+            "Chummer.Infrastructure/Workspaces/FileWorkspaceStore.KarmaFinalization.cs",
+            "Chummer.Tests/CharacterCreationBootstrapServiceTests.cs",
+        ):
+            with self.subTest(member=member):
+                runtime._run(("git", "cat-file", "-e", f"{runtime.SOURCE_COMMIT}:{member}"), cwd=REPO_ROOT)
 
     def test_previous_workspace_question_source_authority_cannot_stand_in(self) -> None:
         altered = copy.deepcopy(self.lock)
