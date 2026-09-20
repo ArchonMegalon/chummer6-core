@@ -34,9 +34,9 @@ INVENTORY_NAME = "chummer-core-runtime-packages.inventory.json"
 OWNER_INVENTORY_NAME = "chummer-owner-contracts.inventory.json"
 CANDIDATE_ENGINE_INVENTORY_NAME = "chummer-core-candidate-engine-contract.inventory.json"
 CANDIDATE_GM_INVENTORY_NAME = "chummer-core-candidate-gm-edit-runtime.inventory.json"
-PACKAGE_VERSION = "0.0.0-packageplane.candidate.shdb0f87f7e5b4d"
+PACKAGE_VERSION = "0.0.0-packageplane.candidate.sh9bc3524f10c61"
 SOURCE_REPOSITORY = "https://github.com/ArchonMegalon/chummer6-core.git"
-SOURCE_COMMIT = "db0f87f7e5b4d704fd110f4f889e46851ea832d3"
+SOURCE_COMMIT = "9bc3524f10c61d0f81c7667109fab62cc8d512e1"
 SDK_VERSION = "10.0.103"
 SDK_RID = "linux-x64"
 SDK_ARCHIVE_URL = (
@@ -97,7 +97,7 @@ PACKAGE_SPECS = (
     PackageSpec(
         "Chummer.Application",
         "Chummer.Application/Chummer.Application.csproj",
-        "289b245ed773af33b114ceb9ed51e667801ff202f79ccee35a32ecc410da88fb",
+        "b2449270677e611b0eeb81065af67e8d78123d48f533fedc76fcbcc75147b2ea",
         "Chummer.Application.dll",
         (
             "Chummer.Engine.Contracts",
@@ -144,7 +144,7 @@ PACKAGE_SPECS = (
     PackageSpec(
         "Chummer.Infrastructure",
         "Chummer.Infrastructure/Chummer.Infrastructure.csproj",
-        "e017c01931b664a99cf4d74d89f0e6ed07576c1de47dfa89b740eb972f877936",
+        "33dbf1986c03d4f564ea42f73a75c32e9648245338f4f686a24a1132ff691d7b",
         "Chummer.Infrastructure.dll",
         (
             "Chummer.Application",

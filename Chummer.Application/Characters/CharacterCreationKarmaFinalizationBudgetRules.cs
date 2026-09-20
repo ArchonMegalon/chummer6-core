@@ -130,6 +130,9 @@ public static class CharacterCreationKarmaFinalizationBudgetRules
             || quote.Qualities.Selections is null || quote.Qualities.Selections.Any(item => item is null)
             || !CharacterCreationKarmaQualitiesRules.IsValid(quote.Qualities, quote.Metatype, quote.Talent,
                 quote.Qualities.Selections.Select(item => item.OptionId).ToArray())
+            || quote.Contacts is { } contacts && (contacts.Lines is null || contacts.Lines.Any(line => line?.Selection is null))
+            || !CharacterCreationKarmaContactsRules.IsValid(quote,
+                quote.Contacts?.Lines?.Select(line => line.Selection).ToArray())
             || quote.Gear.Lines is null || quote.Gear.Lines.Any(item => item is null)) return false;
         decimal beforeSkills = budget.Total - quote.Metatype.KarmaCost - quote.Talent.KarmaCost
             - quote.Attributes.KarmaUsed - quote.Qualities.Costs.NetKarmaSpent;
@@ -139,7 +142,7 @@ public static class CharacterCreationKarmaFinalizationBudgetRules
                 quote.Resources.KarmaInvestment, beforeResources)
             && CharacterCreationKarmaGearRules.IsValid(quote.Gear, quote.Resources,
                 quote.Gear.Lines.Select(item => new CharacterCreationGearSelection(item.OptionId, item.Quantity)).ToArray())
-            && budget.Remaining == beforeResources - quote.Resources.KarmaInvestment
+            && budget.Remaining == beforeResources - quote.Resources.KarmaInvestment - (quote.Contacts?.KarmaUsed ?? 0)
             && budget.Used == budget.Total - budget.Remaining;
     }
 

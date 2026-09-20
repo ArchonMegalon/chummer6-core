@@ -12,7 +12,8 @@ public interface ICharacterCreationKarmaMetatypeService
         IReadOnlyList<CharacterCreationKarmaAttributeAllocation>? attributeAllocations = null,
         CharacterCreationKarmaSkillsSelection? skillsSelection = null, decimal? resourceKarmaInvestment = null,
         IReadOnlyList<string>? qualityOptionIds = null,
-        IReadOnlyList<CharacterCreationGearSelection>? gearSelections = null);
+        IReadOnlyList<CharacterCreationGearSelection>? gearSelections = null,
+        IReadOnlyList<CharacterCreationKarmaContactSelection>? contactSelections = null);
     CharacterCreationFoundationResult<CharacterCreationKarmaMetatypeCommit> Confirm(
         CharacterCreationKarmaMetatypeConfirmRequest request);
     CharacterCreationFoundationResult<CharacterCreationKarmaFinalizationBudgetQuote> PreviewFinalizationBudget(

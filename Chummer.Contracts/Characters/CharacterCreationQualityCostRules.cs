@@ -41,10 +41,23 @@ public static class CharacterCreationQualityCostRules
         int qualityKarmaLimit,
         IReadOnlyList<CharacterCreationQualityCostItem> items,
         out CharacterCreationQualityCostTotals totals)
+        => TryCalculate(policy, qualityKarmaLimit, items, 0, out totals);
+
+    /// <summary>
+    /// Group-contact cost is already multiplied by the profile's KarmaContact,
+    /// not KarmaQuality. It enters the positive cap before the excess rule, as
+    /// in Character.PositiveQualityKarma/PositiveQualityLimitKarma.
+    /// </summary>
+    public static bool TryCalculate(
+        CharacterCreationQualityCostPolicy policy,
+        int qualityKarmaLimit,
+        IReadOnlyList<CharacterCreationQualityCostItem> items,
+        int groupContactKarma,
+        out CharacterCreationQualityCostTotals totals)
     {
         totals = new(0, 0, 0, 0, 0, 0, 0);
         if (policy is null || policy.KarmaMultiplier < 0 || qualityKarmaLimit < 0
-            || items is null || items.Count > 131_072)
+            || items is null || items.Count > 131_072 || groupContactKarma < 0)
             return false;
 
         try
@@ -88,6 +101,8 @@ public static class CharacterCreationQualityCostRules
                 negativeLimit *= policy.KarmaMultiplier;
                 positiveCapped *= policy.KarmaMultiplier;
                 negativeCapped *= policy.KarmaMultiplier;
+                positiveLimit += groupContactKarma;
+                positiveCapped += groupContactKarma;
                 if (policy.DoublePositiveExcess)
                 {
                     positiveLimit += Math.Max(0, positiveLimit - qualityKarmaLimit);

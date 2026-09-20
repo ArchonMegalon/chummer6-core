@@ -38,6 +38,348 @@ public sealed class CharacterCreationBootstrapServiceTests
     private const string MagicianId = "0e741331-d776-4be8-abc5-4101228abdef";
 
     [TestMethod]
+    public void Karma_contacts_use_profile_allowance_and_charge_only_overflow_without_mutation()
+    {
+        using var fixture = new KarmaDiskFixture(includeSkills: true, includeGear: true);
+        var before = fixture.Store.Get(fixture.Id).Value!;
+        var foundation = CompletionFoundation(fixture, 10m);
+        var context = fixture.Resolver.TryCreateContext(before.Document.Content)!;
+        Assert.IsTrue(context.TryResolveCreationKarmaContactsPolicy(out var policy));
+        Assert.AreEqual("{CHAUnaug} * 3", policy!.ContactPointsExpression);
+        Assert.AreEqual(1, policy.GroupContactKarmaMultiplier);
+        Assert.IsTrue(context.TryResolveCreationKarmaGrantSources(HumanId, "mundane", out var racial, out var talent));
+        var contact = KarmaContact(2, 2);
+        var quote = CharacterCreationKarmaContactsRules.Evaluate(policy, foundation, racial, talent, [contact]);
+        Assert.IsNotNull(quote);
+        Assert.IsTrue(quote.CanSelect, string.Join(",", quote.Blockers));
+        Assert.AreEqual(3, quote.ContactPoints);
+        Assert.AreEqual(4, quote.ContactPointsUsed);
+        Assert.AreEqual(1, quote.KarmaUsed);
+        var free = CharacterCreationKarmaContactsRules.Evaluate(policy, foundation, racial, talent, [contact with { Free = true }])!;
+        Assert.AreEqual(0, free.KarmaUsed);
+        Assert.AreEqual(0, free.ContactPointsUsed);
+        var family = CharacterCreationKarmaContactsRules.Evaluate(policy, foundation, racial, talent,
+            [contact with { Family = true, Blackmail = true }])!;
+        Assert.AreEqual(7, family.Lines[0].PointCost);
+        Assert.AreEqual(4, family.KarmaUsed);
+        AssertJsonEqual(before, fixture.Store.Get(fixture.Id).Value!);
+        AssertJsonEqual(quote, CharacterCreationKarmaContactsRules.Evaluate(policy, foundation, racial, talent, [contact])!);
+    }
+
+    [TestMethod]
+    public void Karma_contacts_bind_allowance_to_draft_attributes_and_reject_foreign_or_unknown_expressions()
+    {
+        using var fixture = new KarmaDiskFixture(configureSettings: settings => settings.SetElementValue("contactpointsexpression", "({CHAUnaug} + 1) * 2.1"));
+        var state = fixture.Service.Load(fixture.Id).Value!;
+        var low = fixture.Service.Preview(state.Binding, HumanId, "mundane", []).Value!.Attributes!;
+        var raised = fixture.Service.Preview(state.Binding, HumanId, "mundane", [new("CHA", 1)]).Value!.Attributes!;
+        var context = fixture.Resolver.TryCreateContext(fixture.Store.Get(fixture.Id).Value!.Document.Content)!;
+        Assert.IsTrue(context.TryResolveCreationKarmaContactsPolicy(out var policy));
+        Assert.IsTrue(CharacterCreationKarmaContactsRules.TryContactPoints(policy!, low, out int first));
+        Assert.IsTrue(CharacterCreationKarmaContactsRules.TryContactPoints(policy!, raised, out int second));
+        Assert.AreEqual(5, first);
+        Assert.AreEqual(7, second);
+        foreach (string expression in new[] { "{Unknown} * 3", "1 div 0", "-1", "2147483648", "document('private')", "(2", "2)" })
+        {
+            var invalid = policy! with { ContactPointsExpression = expression, AuthorityDigest = string.Empty };
+            invalid = invalid with { AuthorityDigest = CharacterCreationKarmaContactsRules.PolicyDigest(invalid) };
+            Assert.IsFalse(CharacterCreationKarmaContactsRules.TryContactPoints(invalid, low, out _), expression);
+        }
+        var foreign = policy! with { SettingsProfileId = "foreign", AuthorityDigest = string.Empty };
+        foreign = foreign with { AuthorityDigest = CharacterCreationKarmaContactsRules.PolicyDigest(foreign) };
+        Assert.IsFalse(CharacterCreationKarmaContactsRules.TryContactPoints(foreign, low, out _));
+        Assert.IsFalse(CharacterCreationKarmaContactsRules.TryContactPoints(policy! with { ContactPointsExpression = "999" }, low, out _));
+    }
+
+    [TestMethod]
+    public void Karma_contacts_profile_legacy_shim_and_group_rate_are_explicit_and_source_fenced()
+    {
+        using var fixture = new KarmaDiskFixture(configureSettings: settings =>
+        {
+            settings.Elements("contactpointsexpression").Remove();
+            settings.SetElementValue("usetotalvalueforcontacts", true);
+            settings.SetElementValue("freecontactsmultiplierenabled", true);
+            settings.SetElementValue("freekarmacontactsmultiplier", 6);
+            settings.Element("karmacost")!.SetElementValue("karmacontact", 2);
+        });
+        string xml = fixture.Store.Get(fixture.Id).Value!.Document.Content;
+        var context = fixture.Resolver.TryCreateContext(xml)!;
+        Assert.IsTrue(context.TryResolveCreationKarmaContactsPolicy(out var policy));
+        Assert.AreEqual("{CHA} * 6", policy!.ContactPointsExpression);
+        Assert.AreEqual(2, policy.GroupContactKarmaMultiplier);
+        fixture.EditSettings(settings => settings.SetElementValue("freekarmacontactsmultiplier", 7));
+        Assert.IsFalse(context.TryResolveCreationKarmaContactsPolicy(out _));
+        Assert.IsTrue(fixture.Resolver.TryCreateContext(xml)!.TryResolveCreationKarmaContactsPolicy(out var fresh));
+        Assert.AreNotEqual(policy.AuthorityDigest, fresh!.AuthorityDigest);
+        Assert.AreEqual("{CHA} * 7", fresh.ContactPointsExpression);
+    }
+
+    [TestMethod]
+    public void Karma_contacts_reject_duplicate_malformed_or_structured_settings_without_defaults()
+    {
+        Action<XElement>[] changes =
+        [
+            row => row.Add(new XElement("contactpointsexpression", "{CHA} * 999")),
+            row => row.Element("contactpointsexpression")!.Add(new XAttribute("unsafe", true)),
+            row => row.Element("contactpointsexpression")!.Add(new XElement("value", "3")),
+            row => row.SetElementValue("contactpointsexpression", ""),
+            row => row.Element("karmacost")!.Add(new XElement("karmacontact", 3)),
+            row => row.Element("karmacost")!.SetElementValue("karmacontact", "-1"),
+            row => row.Element("karmacost")!.SetElementValue("karmacontact", "1.5")
+        ];
+        foreach (var change in changes)
+        {
+            using var fixture = new KarmaDiskFixture(configureSettings: change);
+            var context = fixture.Resolver.TryCreateContext(fixture.Store.Get(fixture.Id).Value!.Document.Content)!;
+            Assert.IsFalse(context.TryResolveCreationKarmaContactsPolicy(out _));
+        }
+    }
+
+    [TestMethod]
+    public void Karma_contacts_preserve_group_quality_costs_and_do_not_spend_the_free_pool()
+    {
+        using var fixture = new KarmaDiskFixture(includeSkills: true, includeGear: true, qualityMultiplier: 3,
+            configureSettings: settings => settings.Element("karmacost")!.SetElementValue("karmacontact", 2));
+        var foundation = CompletionFoundation(fixture, 0m);
+        var context = fixture.Resolver.TryCreateContext(fixture.Store.Get(fixture.Id).Value!.Document.Content)!;
+        Assert.IsTrue(context.TryResolveCreationKarmaContactsPolicy(out var policy));
+        Assert.IsTrue(context.TryResolveCreationKarmaGrantSources(HumanId, "mundane", out var racial, out var talent));
+        var group = KarmaContact(3, 1) with { IsGroup = true };
+        var quote = CharacterCreationKarmaContactsRules.Evaluate(policy!, foundation, racial, talent, [group])!;
+        Assert.IsNotNull(quote);
+        Assert.AreEqual(8, quote.GroupContactKarma);
+        Assert.AreEqual(8, quote.CombinedQualityCosts.PositiveLimitKarma);
+        Assert.AreEqual(8, quote.KarmaUsed, "Do not apply KarmaQuality again to group-contact Karma.");
+        Assert.AreEqual(0, quote.ContactPointsUsed);
+        Assert.IsNull(CharacterCreationKarmaContactsRules.Evaluate(policy!, foundation, racial, talent, [group with { Loyalty = 2 }]));
+        Assert.IsNull(CharacterCreationKarmaContactsRules.Evaluate(policy!, foundation, racial, talent, [group, group]));
+        Assert.IsNull(CharacterCreationKarmaContactsRules.Evaluate(policy!, foundation, racial, talent,
+            [group with { ContactId = Guid.Empty }]));
+    }
+
+    [TestMethod]
+    public void Karma_contacts_reject_over_limit_connections_and_mark_excess_shared_karma()
+    {
+        using var fixture = new KarmaDiskFixture(includeSkills: true, includeGear: true, budget: 1);
+        var foundation = CompletionFoundation(fixture, 0m);
+        var context = fixture.Resolver.TryCreateContext(fixture.Store.Get(fixture.Id).Value!.Document.Content)!;
+        Assert.IsTrue(context.TryResolveCreationKarmaContactsPolicy(out var policy));
+        Assert.IsTrue(context.TryResolveCreationKarmaGrantSources(HumanId, "mundane", out var racial, out var talent));
+        var contact = KarmaContact(4, 2);
+        var quote = CharacterCreationKarmaContactsRules.Evaluate(policy!, foundation, racial, talent, [contact])!;
+        Assert.IsFalse(quote.CanSelect);
+        Assert.AreEqual(3, quote.KarmaUsed);
+        CollectionAssert.Contains(quote.Blockers.ToArray(), CharacterCreationKarmaMetatypeBlockers.BudgetExceeded);
+        Assert.IsNull(CharacterCreationKarmaContactsRules.Evaluate(policy!, foundation, racial, talent,
+            [contact with { Connection = 8 }]));
+        var over = CharacterCreationKarmaContactsRules.Evaluate(policy!, foundation, racial, talent,
+            [contact with { Connection = 6, Loyalty = 6 }])!;
+        CollectionAssert.Contains(over.Blockers.ToArray(), CharacterCreationKarmaContactsRules.ContactLimitExceeded);
+        Assert.IsNull(CharacterCreationKarmaContactsRules.Evaluate(policy!, foundation, racial, talent,
+            [contact with { Identity = contact.Identity with { Name = "bad\0name" } }]));
+    }
+
+    private static CharacterCreationKarmaContactSelection KarmaContact(int connection, int loyalty)
+        => new(Guid.NewGuid(), new("Mara", "Fixer", "Berlin", "", "", "", "", "", "", "", "", "", ""), connection, loyalty);
+
+    [TestMethod]
+    public void Karma_contacts_confirm_once_survive_disk_reopen_and_cannot_be_silently_dropped()
+    {
+        using var fixture = new KarmaDiskFixture(includeSkills: true, includeGear: true, includeLifestyles: true);
+        var foundation = CompletionFoundation(fixture, 10m);
+        var contact = KarmaContact(2, 2);
+        var request = fixture.Request(HumanId, "mundane", [], foundation.Skills!.Selection, 10m, [], [], [contact]);
+        var before = fixture.Store.Get(fixture.Id).Value!;
+        Assert.IsNull(fixture.Service.Confirm(request with { ExplicitlyConfirmed = false }).Value);
+        AssertJsonEqual(before, fixture.Store.Get(fixture.Id).Value!);
+        var applied = fixture.Service.Confirm(request);
+        Assert.IsNotNull(applied.Value, string.Join(",", applied.Blockers));
+        Assert.AreEqual(11m, applied.Value.Decision.Quote.KarmaBudget.Used);
+        Assert.IsTrue(fixture.Service.Confirm(request).Value!.Replayed);
+        var saved = fixture.Store.Get(fixture.Id).Value!;
+        Assert.AreEqual(before.Document.Content, saved.Document.Content, "Pending contacts are not applied to character XML.");
+        var store = new FileWorkspaceStore(fixture.StateRoot);
+        var service = new CharacterCreationKarmaMetatypeService(store, fixture.Resolver);
+        var reopened = service.Open(fixture.Id);
+        Assert.IsNotNull(reopened.Value, string.Join(",", reopened.Blockers));
+        var open = reopened.Value!;
+        Assert.AreEqual(1, open.Quote!.Contacts!.KarmaUsed);
+        Assert.AreEqual(contact.ContactId, open.Quote.Contacts.Lines.Single().Selection.ContactId);
+        var omitted = service.Preview(open.State.Binding, HumanId, "mundane", [], foundation.Skills.Selection, 10m, [], []);
+        CollectionAssert.Contains(omitted.Blockers.ToArray(), CharacterCreationKarmaMetatypeBlockers.ContactsSelectionRequired);
+        AssertJsonEqual(saved, store.Get(fixture.Id).Value!);
+        var changed = service.Preview(open.State.Binding, HumanId, "mundane", [new("CHA", 1)], foundation.Skills.Selection,
+            10m, [], [], [contact]);
+        Assert.IsNotNull(changed.Value);
+        Assert.AreEqual(6, changed.Value.Contacts!.ContactPoints);
+        Assert.AreEqual(0, changed.Value.Contacts.KarmaUsed, "Reprice against the newly selected draft Charisma.");
+        var differentPayload = request with { ContactSelections = [contact with { Loyalty = 3 }] };
+        Assert.IsNull(service.Confirm(differentPayload).Value, "A reused operation ID must not buy a changed contact.");
+    }
+
+    [TestMethod]
+    public void Karma_contacts_finalize_into_exact_character_and_archive_without_replaying()
+    {
+        using var fixture = new KarmaDiskFixture(includeSkills: true, includeGear: true, includeLifestyles: true);
+        var foundation = CompletionFoundation(fixture, 10m);
+        var contact = KarmaContact(2, 2) with { Identity = KarmaContact(1, 1).Identity with { Name = "Mara <&> Ñ", Notes = "A real contact." } };
+        Assert.IsNotNull(fixture.Service.Confirm(fixture.Request(HumanId, "mundane", [], foundation.Skills!.Selection,
+            10m, [], [], [contact])).Value);
+        var open = fixture.Service.Open(fixture.Id, true, true, true).Value!;
+        var reviewed = fixture.Service.ReviewFinalization(open.State.Binding, open.Quote!.QuoteDigest, 4);
+        Assert.IsNotNull(reviewed.Value, string.Join(",", reviewed.Blockers));
+        var review = reviewed.Value!;
+        CollectionAssert.Contains(review.OrderedDeltas.Select(delta => delta.DeltaId).ToArray(), "contacts:karma");
+        Assert.AreEqual(1m, review.OrderedDeltas.Single(delta => delta.DeltaId == "contacts:karma").KarmaCost);
+        var confirm = new CharacterCreationKarmaFinalizationConfirmRequest(
+            new(review.Binding, review.PreviewDigest, review.Plan!.PlanDigest, Guid.NewGuid().ToString("D"), true), 4);
+        var final = fixture.Service.ConfirmFinalization(confirm);
+        Assert.IsNotNull(final.Value, string.Join(",", final.Blockers));
+        var saved = fixture.Store.Get(fixture.Id).Value!;
+        var root = XElement.Parse(saved.Document.Content);
+        Assert.AreEqual("True", root.Element("created")!.Value);
+        Assert.AreEqual("3", root.Element("contactpoints")!.Value);
+        var node = root.Element("contacts")!.Elements("contact").Single();
+        Assert.AreEqual(contact.ContactId.ToString("D"), node.Element("guid")!.Value);
+        Assert.AreEqual(contact.Identity.Name, node.Element("name")!.Value);
+        Assert.AreEqual("2", node.Element("loyalty")!.Value);
+        AssertJsonEqual(saved, new FileWorkspaceStore(fixture.StateRoot).Get(fixture.Id).Value!);
+        Assert.IsNotNull(fixture.Service.ConfirmFinalization(confirm).Value);
+        AssertJsonEqual(saved, fixture.Store.Get(fixture.Id).Value!);
+    }
+
+    [TestMethod]
+    public void Karma_contacts_invalid_choice_keeps_upstream_rows_editable_without_a_saveable_quote()
+    {
+        using var fixture = new KarmaDiskFixture(includeSkills: true, includeGear: true);
+        var foundation = CompletionFoundation(fixture, 0m);
+        var contact = KarmaContact(2, 2) with { IsGroup = true };
+        var result = fixture.Service.Preview(foundation.Binding, HumanId, "mundane", [],
+            foundation.Skills!.Selection, 0m, [], [], [contact]);
+        Assert.IsNotNull(result.Value);
+        Assert.IsFalse(result.Value.CanSelect);
+        Assert.IsFalse(result.Value.KarmaBudget.IsExact);
+        Assert.IsNotNull(result.Value.Attributes);
+        Assert.IsNotNull(result.Value.Skills);
+        Assert.IsNull(result.Value.Contacts);
+        CollectionAssert.Contains(result.Blockers.ToArray(), CharacterCreationContactsBlockers.ContactInvalid);
+        var request = new CharacterCreationKarmaMetatypeConfirmRequest(foundation.Binding, HumanId,
+            result.Value.QuoteDigest, Guid.NewGuid(), true, "mundane", [], foundation.Skills.Selection, 0m, [], [], [contact]);
+        var before = fixture.Store.Get(fixture.Id).Value!;
+        Assert.IsNull(fixture.Service.Confirm(request).Value);
+        AssertJsonEqual(before, fixture.Store.Get(fixture.Id).Value!);
+    }
+
+    [TestMethod]
+    public void Karma_contacts_saved_quote_rejects_rehashed_budget_tampering_and_source_changes()
+    {
+        using var fixture = new KarmaDiskFixture(includeSkills: true, includeGear: true);
+        var foundation = CompletionFoundation(fixture, 0m);
+        var contact = KarmaContact(2, 2);
+        var request = fixture.Request(HumanId, "mundane", [], foundation.Skills!.Selection, 0m, [], [], [contact]);
+        var applied = fixture.Service.Confirm(request).Value!;
+        Assert.IsTrue(CharacterCreationKarmaContactsRules.IsValid(applied.Decision.Quote, [contact]));
+        var quote = applied.Decision.Quote;
+        var forgedContacts = quote.Contacts! with { KarmaUsed = 0, QuoteDigest = string.Empty };
+        forgedContacts = forgedContacts with { QuoteDigest = CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(forgedContacts) };
+        var forged = quote with { Contacts = forgedContacts, KarmaBudget = quote.KarmaBudget with { Used = 0, Remaining = 800 }, QuoteDigest = string.Empty };
+        forged = forged with { QuoteDigest = CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(forged) };
+        Assert.IsFalse(CharacterCreationKarmaContactsRules.IsValid(forged, [contact]));
+        foreach (var broken in new[] { quote.Contacts! with { Lines = null! }, quote.Contacts! with { Lines = [null!] } })
+            Assert.IsFalse(CharacterCreationKarmaContactsRules.IsValid(quote with { Contacts = broken }, [contact]));
+        Assert.IsFalse(CharacterCreationKarmaContactsRules.IsValid(quote with { Binding = null! }, [contact]));
+        var before = fixture.Store.Get(fixture.Id).Value!;
+        fixture.EditSettings(row => row.SetElementValue("contactpointsexpression", "{CHAUnaug} * 4"));
+        Assert.IsNull(fixture.Service.Open(fixture.Id).Value);
+        AssertJsonEqual(before, fixture.Store.Get(fixture.Id).Value!);
+    }
+
+    [TestMethod]
+    public void Karma_contacts_recheck_source_after_flush_and_recover_only_the_durable_result()
+    {
+        using var fixture = new KarmaDiskFixture(includeSkills: true, includeGear: true);
+        var foundation = CompletionFoundation(fixture, 0m);
+        var request = fixture.Request(HumanId, "mundane", [], foundation.Skills!.Selection, 0m, [], [], [KarmaContact(2, 2)]);
+        var before = fixture.Store.Get(fixture.Id).Value!;
+        fixture.Fault.Action = stage =>
+        {
+            if (stage == FileWorkspaceStoreFaultStage.AfterTempFileFlushed)
+                fixture.EditSettings(row => row.SetElementValue("contactpointsexpression", "{CHAUnaug} * 4"));
+        };
+        Assert.IsNull(fixture.Service.Confirm(request).Value);
+        fixture.Fault.Action = null;
+        AssertJsonEqual(before, new FileWorkspaceStore(fixture.StateRoot).Get(fixture.Id).Value!);
+    }
+
+    [TestMethod]
+    public void Karma_contacts_owner_scope_rejects_foreign_local_and_expired_stamps()
+    {
+        using var fixture = new KarmaDiskFixture(includeSkills: true, includeGear: true);
+        using var owner = new RequestOwnerContextAccessor(new("contact-owner"));
+        using var stranger = new RequestOwnerContextAccessor(new("contact-stranger"));
+        var stamp = owner.Capture();
+        var bootstrap = new OwnerBoundCharacterCreationBootstrapService(CreateService(fixture.Store, fixture.Resolver, CreateFileQueries()), owner);
+        var id = bootstrap.Create(stamp, KarmaRequest()).Value!.WorkspaceId;
+        var service = new OwnerBoundCharacterCreationKarmaMetatypeService(fixture.Store, owner, fixture.Resolver);
+        var state = service.Load(stamp, id, true, true, true).Value!;
+        var skills = new CharacterCreationKarmaSkillsSelection([NativeEnglish(state.SkillsCatalog!)], []);
+        CharacterCreationKarmaContactSelection[] contacts = [KarmaContact(2, 2)];
+        var quote = service.Preview(stamp, state.Binding, HumanId, "mundane", [], skills, 0m, [], [], contacts).Value!;
+        var request = new CharacterCreationKarmaMetatypeConfirmRequest(quote.Binding, HumanId, quote.QuoteDigest,
+            Guid.NewGuid(), true, "mundane", [], skills, 0m, [], [], contacts);
+        var foreign = new OwnerBoundCharacterCreationKarmaMetatypeService(fixture.Store, stranger, fixture.Resolver);
+        Assert.IsNull(foreign.Confirm(stranger.Capture(), request).Value);
+        Assert.IsNull(fixture.Service.Confirm(request).Value);
+        Assert.IsNotNull(service.Confirm(stamp, request).Value);
+        Assert.AreEqual(contacts[0].ContactId, service.Open(stamp, id).Value!.Quote!.Contacts!.Lines[0].Selection.ContactId);
+        owner.Dispose();
+        Assert.IsNull(service.Confirm(stamp, request).Value);
+        using var newLifetime = new RequestOwnerContextAccessor(new("contact-owner"));
+        var returned = new OwnerBoundCharacterCreationKarmaMetatypeService(fixture.Store, newLifetime, fixture.Resolver);
+        Assert.IsNull(returned.Confirm(stamp, request).Value, "The same account name does not revive an expired display stamp.");
+    }
+
+    [TestMethod]
+    public void Karma_contacts_high_places_comes_from_selected_source_quality_not_a_caller_flag()
+    {
+        using var fixture = new KarmaDiskFixture(includeSkills: true, includeGear: true, configureSettings: row =>
+        {
+            var books = row.Element("books")!;
+            if (!books.Elements("book").Any(book => book.Value == "RF")) books.Add(new XElement("book", "RF"));
+        });
+        var state = fixture.Service.Load(fixture.Id, true, true, true).Value!;
+        var highPlaces = state.QualitiesCatalog!.Options.Single(option => option.Name == "Friends in High Places");
+        Assert.IsTrue(highPlaces.IsSelectable);
+        var skills = new CharacterCreationKarmaSkillsSelection([NativeEnglish(state.SkillsCatalog!)], []);
+        var foundation = fixture.Service.Preview(state.Binding, HumanId, "mundane", [new("CHA", 2)], skills,
+            0m, [highPlaces.OptionId], []).Value!;
+        Assert.IsNotNull(foundation);
+        Assert.IsTrue(foundation.CanSelect, string.Join(",", foundation.Blockers));
+        var context = fixture.Resolver.TryCreateContext(fixture.Store.Get(fixture.Id).Value!.Document.Content)!;
+        Assert.IsTrue(context.TryResolveCreationKarmaContactsPolicy(out var policy));
+        Assert.IsTrue(context.TryResolveCreationKarmaGrantSources(HumanId, "mundane", out var racial, out var talent));
+        var ordinary = KarmaContact(2, 2);
+        var friend = KarmaContact(8, 1);
+        var quote = CharacterCreationKarmaContactsRules.Evaluate(policy!, foundation, racial, talent, [ordinary, friend])!;
+        Assert.IsNotNull(quote);
+        Assert.IsTrue(quote.CanSelect, string.Join(",", quote.Blockers));
+        Assert.AreEqual(9, quote.ContactPoints);
+        Assert.AreEqual(4, quote.ContactPointsUsed);
+        Assert.AreEqual(12, quote.HighPlacesPoints);
+        Assert.AreEqual(9, quote.HighPlacesPointsUsed);
+        Assert.AreEqual(0, quote.KarmaUsed);
+        var invalid = CharacterCreationKarmaContactsRules.Evaluate(policy!, foundation, racial, talent,
+            [friend, friend with { ContactId = Guid.NewGuid() }])!;
+        CollectionAssert.Contains(invalid.Blockers.ToArray(), CharacterCreationKarmaContactsRules.ContactLimitExceeded);
+        Assert.AreEqual(6, invalid.KarmaUsed, "An invalid high-places selection must still report its overspend.");
+        var group = CharacterCreationKarmaContactsRules.Evaluate(policy!, foundation, racial, talent,
+            [friend with { IsGroup = true }])!;
+        Assert.IsTrue(group.CanSelect);
+        Assert.AreEqual(0, group.HighPlacesPointsUsed, "Groups are not funded by either contact allowance.");
+        Assert.AreEqual(9, group.KarmaUsed);
+    }
+
+    [TestMethod]
     public void Karma_completion_budget_caps_leftovers_before_adding_source_owned_starting_cash_without_mutation()
     {
         using var fixture = new KarmaDiskFixture(includeSkills: true, includeGear: true, includeLifestyles: true);
@@ -3601,13 +3943,14 @@ public sealed class CharacterCreationBootstrapServiceTests
         public CharacterCreationKarmaMetatypeConfirmRequest Request(string optionId, string? talentId = null,
             IReadOnlyList<CharacterCreationKarmaAttributeAllocation>? allocations = null,
             CharacterCreationKarmaSkillsSelection? skills = null, decimal? resources = null,
-            IReadOnlyList<string>? qualities = null, IReadOnlyList<CharacterCreationGearSelection>? gear = null)
+            IReadOnlyList<string>? qualities = null, IReadOnlyList<CharacterCreationGearSelection>? gear = null,
+            IReadOnlyList<CharacterCreationKarmaContactSelection>? contacts = null)
         {
             var state = Service.Load(Id, includeSkills: skills is not null, includeQualities: qualities is not null, includeGear: gear is not null);
             Assert.IsNotNull(state.Value, string.Join(",", state.Blockers));
-            var quote = Service.Preview(state.Value.Binding, optionId, talentId, allocations, skills, resources, qualities, gear);
+            var quote = Service.Preview(state.Value.Binding, optionId, talentId, allocations, skills, resources, qualities, gear, contacts);
             Assert.IsNotNull(quote.Value, string.Join(",", quote.Blockers));
-            return new(quote.Value.Binding, optionId, quote.Value.QuoteDigest, Guid.NewGuid(), true, talentId, allocations, skills, resources, qualities, gear);
+            return new(quote.Value.Binding, optionId, quote.Value.QuoteDigest, Guid.NewGuid(), true, talentId, allocations, skills, resources, qualities, gear, contacts);
         }
         public void RemoveQualitySource() => File.Delete(Path.Combine(_root, "data", "qualities.xml"));
         public void EditSkill(string name, Action<XElement> change)

@@ -41,6 +41,11 @@ public static class CharacterCreationKarmaMetatypeTransaction
             && (request.GearSelections is null || request.ResourceKarmaInvestment is not null
                 && Digest(binding.GearAuthorityDigest)
                 && CharacterCreationKarmaGearRules.TryFreeze(request.GearSelections, out _))
+            && (binding.ContactsPolicyDigest is null || Digest(binding.ContactsPolicyDigest))
+            && (request.ContactSelections is null || request.AttributeAllocations is not null
+                && request.QualityOptionIds is not null && request.SkillsSelection is not null
+                && Digest(binding.ContactsPolicyDigest)
+                && CharacterCreationKarmaContactsRules.TryFreeze(request.ContactSelections, out _))
             && !string.IsNullOrWhiteSpace(binding.WorkspaceId.Value)
             && binding.ContentRevision is > 0 and < long.MaxValue
             && (binding.SavedRevision == binding.ContentRevision
@@ -77,7 +82,8 @@ public static class CharacterCreationKarmaMetatypeTransaction
                         || ledger[index - 1].Quote.Skills is not null && quote.Skills is null
                         || ledger[index - 1].Quote.Resources is not null && quote.Resources is null
                         || ledger[index - 1].Quote.Qualities is not null && quote.Qualities is null
-                        || ledger[index - 1].Quote.Gear is not null && quote.Gear is null)
+                        || ledger[index - 1].Quote.Gear is not null && quote.Gear is null
+                        || ledger[index - 1].Quote.Contacts is not null && quote.Contacts is null)
                     || quote.Schema != CharacterCreationKarmaMetatypeSchemas.QuoteV1
                     || quote.Binding != decision.Command.Binding || quote.Binding.WorkspaceId != id
                     || quote.Metatype is not { IsEnabled: true, KarmaCost: >= 0 } metatype
@@ -117,9 +123,10 @@ public static class CharacterCreationKarmaMetatypeTransaction
                     || !CharacterCreationKarmaGearRules.IsValid(quote.Gear, quote.Resources, decision.Command.GearSelections)
                     || quote.Gear is { } gear && (gear.Basis.AuthorityDigest != quote.Binding.GearAuthorityDigest
                         || gear.Basis.ProfileDigest != quote.Binding.SourceProfileDigest)
+                    || !CharacterCreationKarmaContactsRules.IsValid(quote, decision.Command.ContactSelections)
                     || budget.Used != (decimal)metatype.KarmaCost + (quote.Talent?.KarmaCost ?? 0)
                         + (quote.Attributes?.KarmaUsed ?? 0) + (quote.Qualities?.Costs.NetKarmaSpent ?? 0)
-                        + (quote.Skills?.KarmaUsed ?? 0) + (quote.Resources?.KarmaInvestment ?? 0)
+                        + (quote.Skills?.KarmaUsed ?? 0) + (quote.Resources?.KarmaInvestment ?? 0) + (quote.Contacts?.KarmaUsed ?? 0)
                     || budget.Total - budget.Used != budget.Remaining
                     || decision.DraftRevision != index + 1
                     || decision.CommittedContentRevision != quote.Binding.ContentRevision + 1
@@ -183,7 +190,8 @@ public static class CharacterCreationKarmaMetatypeTransaction
         var view = new WorkspaceContinuationReadView(owner, workspace);
         var result = new CharacterCreationKarmaMetatypeService(view, sourceResolver)
             .Preview(request.Binding, request.MetatypeOptionId, request.TalentOptionId, request.AttributeAllocations,
-                request.SkillsSelection, request.ResourceKarmaInvestment, request.QualityOptionIds, request.GearSelections);
+                request.SkillsSelection, request.ResourceKarmaInvestment, request.QualityOptionIds, request.GearSelections,
+                request.ContactSelections);
         if (result.Value is not { CanSelect: true } quote || quote.QuoteDigest != request.QuoteDigest)
             return false;
         var prepared = new CharacterCreationKarmaMetatypeDecision(
@@ -221,8 +229,11 @@ public static class CharacterCreationKarmaMetatypeTransaction
             CharacterCreationGearSelection[]? gear = null;
             if (request.GearSelections is not null
                 && !CharacterCreationKarmaGearRules.TryFreeze(request.GearSelections, out gear)) return false;
+            CharacterCreationKarmaContactSelection[]? contacts = null;
+            if (request.ContactSelections is not null
+                && !CharacterCreationKarmaContactsRules.TryFreeze(request.ContactSelections, out contacts)) return false;
             frozen = request with { AttributeAllocations = request.AttributeAllocations?.Take(14).ToArray(),
-                SkillsSelection = skills, QualityOptionIds = qualities, GearSelections = gear };
+                SkillsSelection = skills, QualityOptionIds = qualities, GearSelections = gear, ContactSelections = contacts };
             return IsConfirmed(frozen);
         }
         catch (Exception error) when (error is ArgumentException or InvalidOperationException)
