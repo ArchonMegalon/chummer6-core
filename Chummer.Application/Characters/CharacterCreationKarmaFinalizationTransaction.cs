@@ -54,7 +54,7 @@ public static class CharacterCreationKarmaFinalizationTransaction
                 return false;
             }
             if (!context.TryResolveCreationKarmaCarryoverPolicy(out var policy)
-                || !context.TryResolveCreationKarmaDefaultStartingNuyen(out var starting)
+                || !CharacterCreationKarmaMetatypeService.TryResolveStartingCash(context, foundation, out var starting)
                 || policy is null || starting is null) return false;
             var finances = CharacterCreationKarmaFinalizationBudgetRules.Evaluate(policy, starting, foundation, diceTotal);
             if (finances is null) { blockers = [CharacterCreationKarmaFinalizationBudgetBlockers.BudgetInvalid]; return false; }
@@ -71,7 +71,7 @@ public static class CharacterCreationKarmaFinalizationTransaction
                 || finalLifestyles.AuthorityDigest != lifestyles.AuthorityDigest
                 || !context.TryResolveCreationKarmaCarryoverPolicy(out var finalPolicy)
                 || finalPolicy?.AuthorityDigest != policy.AuthorityDigest
-                || !context.TryResolveCreationKarmaDefaultStartingNuyen(out var finalStarting)
+                || !CharacterCreationKarmaMetatypeService.TryResolveStartingCash(context, foundation, out var finalStarting)
                 || finalStarting?.AuthorityDigest != starting.AuthorityDigest
                 || !CharacterCreationBootstrapAuthority.TryPrepareBinding(workspace.Id, workspace.Document,
                     context, out var bootstrap, out _, out _)

@@ -46,6 +46,12 @@ public static class CharacterCreationKarmaMetatypeTransaction
                 && request.QualityOptionIds is not null && request.SkillsSelection is not null
                 && Digest(binding.ContactsPolicyDigest)
                 && CharacterCreationKarmaContactsRules.TryFreeze(request.ContactSelections, out _))
+            && (binding.LifestylesAuthorityDigest is null || Digest(binding.LifestylesAuthorityDigest))
+            && (request.LifestyleSelections is null ? request.StartingLifestyleId is null
+                : request.AttributeAllocations is not null && request.QualityOptionIds is not null
+                    && request.SkillsSelection is not null && request.GearSelections is not null
+                    && Digest(binding.LifestylesAuthorityDigest)
+                    && CharacterCreationKarmaLifestylesRules.TryFreeze(request.LifestyleSelections, out _))
             && !string.IsNullOrWhiteSpace(binding.WorkspaceId.Value)
             && binding.ContentRevision is > 0 and < long.MaxValue
             && (binding.SavedRevision == binding.ContentRevision
@@ -83,7 +89,8 @@ public static class CharacterCreationKarmaMetatypeTransaction
                         || ledger[index - 1].Quote.Resources is not null && quote.Resources is null
                         || ledger[index - 1].Quote.Qualities is not null && quote.Qualities is null
                         || ledger[index - 1].Quote.Gear is not null && quote.Gear is null
-                        || ledger[index - 1].Quote.Contacts is not null && quote.Contacts is null)
+                        || ledger[index - 1].Quote.Contacts is not null && quote.Contacts is null
+                        || ledger[index - 1].Quote.Lifestyles is not null && quote.Lifestyles is null)
                     || quote.Schema != CharacterCreationKarmaMetatypeSchemas.QuoteV1
                     || quote.Binding != decision.Command.Binding || quote.Binding.WorkspaceId != id
                     || quote.Metatype is not { IsEnabled: true, KarmaCost: >= 0 } metatype
@@ -124,6 +131,8 @@ public static class CharacterCreationKarmaMetatypeTransaction
                     || quote.Gear is { } gear && (gear.Basis.AuthorityDigest != quote.Binding.GearAuthorityDigest
                         || gear.Basis.ProfileDigest != quote.Binding.SourceProfileDigest)
                     || !CharacterCreationKarmaContactsRules.IsValid(quote, decision.Command.ContactSelections)
+                    || !CharacterCreationKarmaLifestylesRules.IsValidForFoundation(quote,
+                        decision.Command.LifestyleSelections, decision.Command.StartingLifestyleId)
                     || budget.Used != (decimal)metatype.KarmaCost + (quote.Talent?.KarmaCost ?? 0)
                         + (quote.Attributes?.KarmaUsed ?? 0) + (quote.Qualities?.Costs.NetKarmaSpent ?? 0)
                         + (quote.Skills?.KarmaUsed ?? 0) + (quote.Resources?.KarmaInvestment ?? 0) + (quote.Contacts?.KarmaUsed ?? 0)
@@ -191,7 +200,7 @@ public static class CharacterCreationKarmaMetatypeTransaction
         var result = new CharacterCreationKarmaMetatypeService(view, sourceResolver)
             .Preview(request.Binding, request.MetatypeOptionId, request.TalentOptionId, request.AttributeAllocations,
                 request.SkillsSelection, request.ResourceKarmaInvestment, request.QualityOptionIds, request.GearSelections,
-                request.ContactSelections);
+                request.ContactSelections, request.LifestyleSelections, request.StartingLifestyleId);
         if (result.Value is not { CanSelect: true } quote || quote.QuoteDigest != request.QuoteDigest)
             return false;
         var prepared = new CharacterCreationKarmaMetatypeDecision(
@@ -232,8 +241,12 @@ public static class CharacterCreationKarmaMetatypeTransaction
             CharacterCreationKarmaContactSelection[]? contacts = null;
             if (request.ContactSelections is not null
                 && !CharacterCreationKarmaContactsRules.TryFreeze(request.ContactSelections, out contacts)) return false;
+            CharacterCreationLifestyleConfiguration[]? lifestyles = null;
+            if (request.LifestyleSelections is not null
+                && !CharacterCreationKarmaLifestylesRules.TryFreeze(request.LifestyleSelections, out lifestyles)) return false;
             frozen = request with { AttributeAllocations = request.AttributeAllocations?.Take(14).ToArray(),
-                SkillsSelection = skills, QualityOptionIds = qualities, GearSelections = gear, ContactSelections = contacts };
+                SkillsSelection = skills, QualityOptionIds = qualities, GearSelections = gear, ContactSelections = contacts,
+                LifestyleSelections = lifestyles };
             return IsConfirmed(frozen);
         }
         catch (Exception error) when (error is ArgumentException or InvalidOperationException)

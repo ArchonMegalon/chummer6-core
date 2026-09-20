@@ -164,6 +164,17 @@ public interface ICharacterSourceDataContext
         return false;
     }
 
+    /// <summary>
+    /// Resolves the exact selected lifestyle source's starting-cash terms. This
+    /// does not prove that a pending build purchased or selected that lifestyle;
+    /// callers must bind it to the saved lifestyle quote before finalization.
+    /// </summary>
+    bool TryResolveCreationKarmaStartingNuyen(Guid lifestyleSourceId, out CharacterCreationStartingNuyenSource? source)
+    {
+        source = null;
+        return false;
+    }
+
     /// <summary>Source-owned ordinary Karma qualities, distinct from purchased talents.</summary>
     bool TryResolveCreationKarmaQualities(out CharacterCreationKarmaQualitiesCatalog? catalog)
     {

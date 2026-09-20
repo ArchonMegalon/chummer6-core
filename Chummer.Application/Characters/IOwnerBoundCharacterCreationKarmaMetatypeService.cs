@@ -8,9 +8,9 @@ namespace Chummer.Application.Characters;
 public interface IOwnerBoundCharacterCreationKarmaMetatypeService
 {
     CharacterCreationFoundationResult<CharacterCreationKarmaMetatypeState> Load(
-        OwnerContextStamp expectedOwner, CharacterWorkspaceId id, bool includeSkills = false, bool includeQualities = false, bool includeGear = false);
+        OwnerContextStamp expectedOwner, CharacterWorkspaceId id, bool includeSkills = false, bool includeQualities = false, bool includeGear = false, bool includeLifestyles = false);
     CharacterCreationFoundationResult<CharacterCreationKarmaMetatypeOpen> Open(
-        OwnerContextStamp expectedOwner, CharacterWorkspaceId id, bool includeSkills = false, bool includeQualities = false, bool includeGear = false);
+        OwnerContextStamp expectedOwner, CharacterWorkspaceId id, bool includeSkills = false, bool includeQualities = false, bool includeGear = false, bool includeLifestyles = false);
     CharacterCreationFoundationResult<CharacterCreationKarmaMetatypeQuote> Preview(
         OwnerContextStamp expectedOwner, CharacterCreationKarmaMetatypeBinding binding, string optionId,
         string? talentOptionId = null,
@@ -18,7 +18,8 @@ public interface IOwnerBoundCharacterCreationKarmaMetatypeService
         CharacterCreationKarmaSkillsSelection? skillsSelection = null, decimal? resourceKarmaInvestment = null,
         IReadOnlyList<string>? qualityOptionIds = null,
         IReadOnlyList<CharacterCreationGearSelection>? gearSelections = null,
-        IReadOnlyList<CharacterCreationKarmaContactSelection>? contactSelections = null);
+        IReadOnlyList<CharacterCreationKarmaContactSelection>? contactSelections = null,
+        IReadOnlyList<CharacterCreationLifestyleConfiguration>? lifestyleSelections = null, Guid? startingLifestyleId = null);
     CharacterCreationFoundationResult<CharacterCreationKarmaMetatypeCommit> Confirm(
         OwnerContextStamp expectedOwner, CharacterCreationKarmaMetatypeConfirmRequest request);
     CharacterCreationFoundationResult<CharacterCreationKarmaFinalizationBudgetQuote> PreviewFinalizationBudget(

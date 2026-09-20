@@ -2224,11 +2224,17 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
         }
 
         public bool TryResolveCreationKarmaDefaultStartingNuyen(out CharacterCreationStartingNuyenSource? source)
+            => TryResolveCreationKarmaStartingNuyenCore(null, out source);
+
+        public bool TryResolveCreationKarmaStartingNuyen(Guid lifestyleSourceId, out CharacterCreationStartingNuyenSource? source)
+            => TryResolveCreationKarmaStartingNuyenCore(lifestyleSourceId, out source);
+
+        private bool TryResolveCreationKarmaStartingNuyenCore(Guid? lifestyleSourceId, out CharacterCreationStartingNuyenSource? source)
         {
             using IDisposable sourceInputScope = _sourceInputs.Enter();
             source = null;
             var lifestyles = _character.Elements("lifestyles").Take(2).ToArray();
-            if (_sourceInputs.HasSourceDrift || _buildMethod != CharacterCreationBuildMethods.Karma
+            if (_sourceInputs.HasSourceDrift || lifestyleSourceId == Guid.Empty || _buildMethod != CharacterCreationBuildMethods.Karma
                 || lifestyles.Length > 1 || lifestyles.Length == 1
                     && (lifestyles[0].HasAttributes || lifestyles[0].HasElements || !string.IsNullOrWhiteSpace(lifestyles[0].Value))
                 || string.IsNullOrWhiteSpace(_settingsProfileId)
@@ -2236,15 +2242,18 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 || BindSelectedProfile(settingsDigest, _settingsProfileId) != _rawProfileInputsDigest
                 || !TryComputeEffectiveInputDigest(_catalog, "lifestyles.xml", out string sourceDigest)
                 || !TryEnumerateTargets("lifestyles.xml", ["lifestyles"], "lifestyle", out var rows)) return false;
-            // Match the legacy fallback by source name, not a UI-invented price,
-            // dice count or source GUID. Ambiguous/custom malformed rows block.
-            var candidates = rows.Where(row => row.Elements("name").Any(node => node.Value.Trim() == "Street")).Take(2).ToArray();
+            // The default remains the exact free Street fallback. Purchased
+            // choices use source identity, never a UI-supplied dice/cash amount.
+            // Ambiguous/custom malformed rows fail closed in either mode.
+            var candidates = rows.Where(row => lifestyleSourceId is { } id
+                ? row.Elements("id").Any(node => Guid.TryParseExact(node.Value.Trim(), "D", out var value) && value == id)
+                : row.Elements("name").Any(node => node.Value.Trim() == "Street")).Take(2).ToArray();
             if (candidates.Length != 1) return false;
             var row = candidates[0];
             var costs = row.Elements("cost").Take(2).ToArray();
             if (costs.Length != 1 || costs[0].HasAttributes || costs[0].HasElements
                 || !decimal.TryParse(costs[0].Value, NumberStyles.Number, CultureInfo.InvariantCulture, out decimal cost)
-                || cost != 0) return false;
+                || cost < 0 || lifestyleSourceId is null && cost != 0) return false;
             var projected = CharacterCreationKarmaFinalizationBudgetRules.ProjectStartingCashSource(
                 row.ToString(SaveOptions.DisableFormatting), _settingsProfileId, _rawProfileInputsDigest, sourceDigest);
             if (projected is null || !TryIsBookEnabled(projected.SourceBook, out bool enabled) || !enabled
@@ -3956,39 +3965,11 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
 
             bool freeGridsEnabled = ParseBool(ReadValue(settings, "allowfreegrids"))
                 || _enabledSourcebooks.Contains("HT");
-            int trustFundLevel = 0;
             XElement[] improvements = _character.Element("improvements")?.Elements("improvement").ToArray()
                 ?? [];
-            foreach (XElement improvement in improvements)
-            {
-                if (!IsCreationImprovementActive(improvement))
-                    continue;
-                string improvementType = ReadValue(improvement, "improvementttype");
-                if (string.Equals(improvementType, "TrustFund", StringComparison.Ordinal))
-                {
-                    if (!int.TryParse(
-                            ReadValue(improvement, "val"),
-                            NumberStyles.Integer,
-                            CultureInfo.InvariantCulture,
-                            out int value)
-                        || value is < 1 or > 4
-                        || trustFundLevel != 0)
-                    {
-                        blockers.Add(CharacterCreationLifestylesBlockers.AuthorityUnavailable);
-                    }
-                    else
-                    {
-                        trustFundLevel = value;
-                    }
-                }
-                else if (improvementType is "LifestyleCost" or "BasicLifestyleCost")
-                {
-                    // Chummer5 distributes recurring and unique one-off percentage modifiers
-                    // across the complete lifestyle set. Until every source/origin precedence is
-                    // projected, refusing the lane is safer than pricing only the target row.
-                    blockers.Add(CharacterCreationLifestylesBlockers.UnsupportedSemantics);
-                }
-            }
+            CharacterCreationLifestyleImprovementRules.TryResolve(improvements, 0,
+                out int trustFundLevel, out var effectBlockers);
+            blockers.AddRange(effectBlockers);
 
             var qualities = new List<CharacterCreationLifestyleQualityCatalogOption>();
             foreach (XElement row in qualityRows.OrderBy(
@@ -4262,21 +4243,6 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 AuthorityDigest = CharacterCreationLifestylesRules.ComputeAuthorityDigest(projected)
             };
             return true;
-        }
-
-        private static bool IsCreationImprovementActive(XElement improvement)
-        {
-            string enabledText = ReadValue(improvement, "enabled");
-            bool enabled = enabledText.Length == 0
-                || int.TryParse(
-                    enabledText,
-                    NumberStyles.Integer,
-                    CultureInfo.InvariantCulture,
-                    out int parsed) && parsed > 0;
-            string condition = ReadValue(improvement, "condition");
-            return enabled && (condition.Length == 0
-                || string.Equals(condition, "create", StringComparison.Ordinal)
-                || string.Equals(condition, "once", StringComparison.Ordinal));
         }
 
         private static string ResolveLifestyleQualityType(string category) =>

@@ -70,7 +70,7 @@ public static class CharacterCreationKarmaFinalizationBudgetRules
                 || policy.SettingsProfileId != source.SettingsProfileId
                 || policy.RawProfileInputsDigest != source.RawProfileInputsDigest
                 || diceTotal < source.Dice || diceTotal > checked(source.Dice * 6)
-                || !CompleteFoundation(foundation, policy)) return null;
+                || !CompleteFoundation(foundation, policy) || !MatchesStartingLifestyle(source, foundation)) return null;
 
             var resources = foundation.Resources!;
             // Legacy DecimalExtensions.StandardRound is CEILING for nonnegative
@@ -82,7 +82,7 @@ public static class CharacterCreationKarmaFinalizationBudgetRules
                 || unroundedKarma > int.MaxValue) return null;
             int karma = (int)unroundedKarma;
             int carriedKarma = Math.Min(karma, policy.MaximumKarma);
-            decimal available = foundation.Gear!.Budget.RemainingNuyen;
+            decimal available = foundation.Lifestyles?.Budget.Remaining ?? foundation.Gear!.Budget.RemainingNuyen;
             decimal carriedNuyen = Math.Min(available, policy.MaximumNuyen);
             decimal starting = checked(diceTotal * source.Multiplier);
             decimal careerNuyen = checked(carriedNuyen + starting);
@@ -133,6 +133,9 @@ public static class CharacterCreationKarmaFinalizationBudgetRules
             || quote.Contacts is { } contacts && (contacts.Lines is null || contacts.Lines.Any(line => line?.Selection is null))
             || !CharacterCreationKarmaContactsRules.IsValid(quote,
                 quote.Contacts?.Lines?.Select(line => line.Selection).ToArray())
+            || quote.Lifestyles is { } lifestyles && (lifestyles.Lines is null || lifestyles.Lines.Any(line => line?.Configuration is null))
+            || !CharacterCreationKarmaLifestylesRules.IsValidForFoundation(quote,
+                quote.Lifestyles?.Lines?.Select(line => line.Configuration).ToArray(), quote.Lifestyles?.StartingLifestyleId)
             || quote.Gear.Lines is null || quote.Gear.Lines.Any(item => item is null)) return false;
         decimal beforeSkills = budget.Total - quote.Metatype.KarmaCost - quote.Talent.KarmaCost
             - quote.Attributes.KarmaUsed - quote.Qualities.Costs.NetKarmaSpent;
@@ -144,6 +147,18 @@ public static class CharacterCreationKarmaFinalizationBudgetRules
                 quote.Gear.Lines.Select(item => new CharacterCreationGearSelection(item.OptionId, item.Quantity)).ToArray())
             && budget.Remaining == beforeResources - quote.Resources.KarmaInvestment - (quote.Contacts?.KarmaUsed ?? 0)
             && budget.Used == budget.Total - budget.Remaining;
+    }
+
+    private static bool MatchesStartingLifestyle(CharacterCreationStartingNuyenSource source,
+        CharacterCreationKarmaMetatypeQuote foundation)
+    {
+        if (foundation.Lifestyles is not { Lines.Count: > 0 } lifestyles) return true;
+        var selected = lifestyles.Lines.SingleOrDefault(line => line.Configuration.LifestyleId == lifestyles.StartingLifestyleId);
+        var option = lifestyles.ProjectionAuthority.LifestyleOptions.SingleOrDefault(row => row.SourceId == selected?.SourceId);
+        return option is not null && source.SourceId == option.SourceId.ToString("D")
+            && source.SourceInputsDigest == lifestyles.ProjectionAuthority.SourceDigest
+            && source.Name == option.Name && source.SourceBook == option.SourceBook && source.Page == option.Page
+            && source.Dice == option.StartingNuyenDice && source.Multiplier == option.StartingNuyenMultiplier;
     }
 
     private static bool Scalar(XElement row, string name, out string value)
