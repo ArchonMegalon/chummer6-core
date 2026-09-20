@@ -13,17 +13,49 @@ public static class CharacterCreationGearRules
     public static string ReceiptLedgerRootDigest { get; } = ComputeUtf8(
         "chummer.sr5.creation-gear-receipt-ledger.root.v1");
 
-    public static string ComputeSourceNodeDigest(string sourceNodeXml) => Compute(new
+    public static string ComputeSourceNodeDigest(string sourceNodeXml) => ComputeDirect(writer =>
     {
-        Schema = "chummer.sr5.creation-gear.source-node.v1",
-        Xml = sourceNodeXml ?? string.Empty
+        writer.WriteStartObject();
+        writer.WriteString("Schema", "chummer.sr5.creation-gear.source-node.v1");
+        writer.WriteString("Xml", sourceNodeXml ?? string.Empty);
+        writer.WriteEndObject();
     });
 
     public static string ComputeOptionDigest(CharacterCreationGearCatalogOption value) =>
-        Compute(value with { OptionDigest = string.Empty });
+        ComputeDirect(writer => WriteOption(value, writer, string.Empty));
 
     public static string ComputeAuthorityDigest(CharacterCreationGearAuthority value) =>
-        Compute(value with { AuthorityDigest = string.Empty });
+        ComputeDirect(writer =>
+        {
+            writer.WriteStartObject();
+            writer.WriteString("AuthorityDigest", string.Empty);
+            WriteStrings(writer, "Blockers", value.Blockers);
+            writer.WriteBoolean("IsAuthoritative", value.IsAuthoritative);
+            writer.WriteNumber("MaximumAvailability", value.MaximumAvailability);
+            writer.WriteNumber("MaximumBasketLines", value.MaximumBasketLines);
+            writer.WriteNumber("MaximumQuantityPerLine", value.MaximumQuantityPerLine);
+            writer.WritePropertyName("Options");
+            if (value.Options is null) writer.WriteNullValue();
+            else
+            {
+                writer.WriteStartArray();
+                foreach (var option in value.Options)
+                {
+                    if (option is null) writer.WriteNullValue();
+                    else WriteOption(option, writer, option.OptionDigest);
+                }
+                writer.WriteEndArray();
+            }
+            writer.WriteString("ProfileDigest", value.ProfileDigest);
+            writer.WriteString("RulesDigest", value.RulesDigest);
+            writer.WriteString("RulesetId", value.RulesetId);
+            writer.WriteString("RuntimeDigest", value.RuntimeDigest);
+            writer.WriteString("Schema", value.Schema);
+            writer.WriteString("SettingsProfileId", value.SettingsProfileId);
+            WriteStrings(writer, "SourceAnchorIds", value.SourceAnchorIds);
+            writer.WriteString("SourceDigest", value.SourceDigest);
+            writer.WriteEndObject();
+        });
 
     public static string ComputeLineDigest(CharacterCreationGearLine value) =>
         Compute(value with { LineDigest = string.Empty });
@@ -246,6 +278,52 @@ public static class CharacterCreationGearRules
 
     public static string ComputeUtf8(string value) => Prefix
         + Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(value ?? string.Empty)));
+
+    // Emit exactly the existing ordinal canonical JSON. Catalog hot paths need
+    // no intermediate JSON DOM, decoded XML strings or per-property sorting.
+    // The generic Compute implementation remains the compatibility oracle.
+    private static string ComputeDirect(Action<Utf8JsonWriter> write)
+    {
+        ArrayBufferWriter<byte> buffer = new();
+        using (Utf8JsonWriter writer = new(buffer)) write(writer);
+        return Prefix + Convert.ToHexStringLower(SHA256.HashData(buffer.WrittenSpan));
+    }
+
+    private static void WriteOption(CharacterCreationGearCatalogOption value, Utf8JsonWriter writer, string? digest)
+    {
+        writer.WriteStartObject();
+        writer.WriteNumber("Availability", value.Availability);
+        writer.WriteBoolean("AvailabilityIsExact", value.AvailabilityIsExact);
+        WriteStrings(writer, "Blockers", value.Blockers);
+        writer.WriteString("Category", value.Category);
+        writer.WriteBoolean("IsSelectable", value.IsSelectable);
+        writer.WriteString("Legality", value.Legality);
+        writer.WriteString("Name", value.Name);
+        writer.WriteString("OptionDigest", digest);
+        writer.WriteString("OptionId", value.OptionId);
+        writer.WriteNumber("PackageCost", value.PackageCost);
+        writer.WriteNumber("PackageQuantity", value.PackageQuantity);
+        writer.WriteString("Page", value.Page);
+        writer.WriteBoolean("PricingIsExact", value.PricingIsExact);
+        WriteStrings(writer, "SourceAnchorIds", value.SourceAnchorIds);
+        writer.WriteString("SourceBook", value.SourceBook);
+        writer.WriteString("SourceId", value.SourceId);
+        writer.WriteString("SourceNodeDigest", value.SourceNodeDigest);
+        writer.WriteString("SourceNodeXml", value.SourceNodeXml);
+        writer.WriteEndObject();
+    }
+
+    private static void WriteStrings(Utf8JsonWriter writer, string name, IReadOnlyList<string>? values)
+    {
+        writer.WritePropertyName(name);
+        if (values is null) writer.WriteNullValue();
+        else
+        {
+            writer.WriteStartArray();
+            foreach (string? value in values) writer.WriteStringValue(value);
+            writer.WriteEndArray();
+        }
+    }
 
     private static string[] Normalize(IEnumerable<string> blockers) => blockers
         .Where(item => !string.IsNullOrWhiteSpace(item))

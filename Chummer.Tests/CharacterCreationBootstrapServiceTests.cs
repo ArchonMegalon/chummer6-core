@@ -38,6 +38,74 @@ public sealed class CharacterCreationBootstrapServiceTests
     private const string MagicianId = "0e741331-d776-4be8-abc5-4101228abdef";
 
     [TestMethod]
+    public void Karma_gear_direct_digests_preserve_every_real_catalog_row_and_canonical_edge_case()
+    {
+        using var fixture = new KarmaDiskFixture(includeGear: true);
+        var authority = fixture.Service.Load(fixture.Id, includeGear: true).Value!.GearAuthority!;
+        foreach (var option in authority.Options) CheckOption(option);
+        CheckAuthority(authority);
+        var first = authority.Options[0];
+        foreach (decimal cost in new[] { 0m, 0.0000000000000000000000000001m, 1.2300m, decimal.MinValue, decimal.MaxValue })
+        {
+            var changed = first with
+            {
+                Name = "ä Español 漢字 \" <>& \\ \n 🐉",
+                Category = null!, SourceBook = null!, Page = null!,
+                PackageCost = cost, PackageQuantity = int.MinValue, Availability = int.MaxValue,
+                PricingIsExact = false, AvailabilityIsExact = false, IsSelectable = false,
+                SourceAnchorIds = ["z", "ä", null!, "a"], Blockers = ["later", "first"],
+                SourceNodeXml = "<gear>\r\n\t&quote; \\ \u2028 </gear>", OptionDigest = "retained-option-digest"
+            };
+            CheckOption(changed);
+            CheckAuthority(authority with { Options = [changed, first, null!], SourceAnchorIds = null!, Blockers = [null!, "z"] });
+            CheckOption(changed with { Blockers = null!, SourceAnchorIds = null!, SourceNodeXml = null! });
+        }
+        CheckAuthority(authority with { Options = [], Blockers = [], SourceAnchorIds = [] });
+        CheckAuthority(authority with { Options = null!, Blockers = null!, RulesetId = null!, ProfileDigest = null! });
+        Assert.AreEqual(CharacterCreationGearRules.Compute(new { Schema = "chummer.sr5.creation-gear.source-node.v1", Xml = string.Empty }),
+            CharacterCreationGearRules.ComputeSourceNodeDigest(null!));
+
+        static void CheckOption(CharacterCreationGearCatalogOption option)
+        {
+            Assert.AreEqual(CharacterCreationGearRules.Compute(option with { OptionDigest = string.Empty }),
+                CharacterCreationGearRules.ComputeOptionDigest(option), option.OptionId);
+            Assert.AreEqual(CharacterCreationGearRules.Compute(new
+                { Schema = "chummer.sr5.creation-gear.source-node.v1", Xml = option.SourceNodeXml ?? string.Empty }),
+                CharacterCreationGearRules.ComputeSourceNodeDigest(option.SourceNodeXml));
+        }
+        static void CheckAuthority(CharacterCreationGearAuthority value)
+            => Assert.AreEqual(CharacterCreationGearRules.Compute(value with { AuthorityDigest = string.Empty }),
+                CharacterCreationGearRules.ComputeAuthorityDigest(value));
+    }
+
+    [TestMethod]
+    public void Karma_gear_evaluation_still_validates_the_entire_catalog_once_and_never_trusts_a_stale_digest()
+    {
+        using var fixture = new KarmaDiskFixture(includeGear: true);
+        var state = fixture.Service.Load(fixture.Id, includeGear: true).Value!;
+        var authority = state.GearAuthority!;
+        var resources = fixture.Service.Preview(state.Binding, HumanId, "mundane", [],
+            resourceKarmaInvestment: 10m, gearSelections: []).Value!.Resources!;
+        Assert.IsNotNull(CharacterCreationKarmaGearRules.Evaluate(authority, resources, []));
+        Assert.IsNull(CharacterCreationKarmaGearRules.Evaluate(null!, resources, []));
+        Assert.IsNull(CharacterCreationKarmaGearRules.Evaluate(authority with { IsAuthoritative = false }, resources, []));
+        Assert.IsNull(CharacterCreationKarmaGearRules.Evaluate(authority with { AuthorityDigest = "stale" }, resources, []));
+        var options = authority.Options.ToArray();
+        // No selections: even an unused row must be admitted, not skipped.
+        options[0] = options[0] with { PackageCost = options[0].PackageCost + 1m };
+        var changed = authority with { Options = options };
+        changed = changed with { AuthorityDigest = CharacterCreationGearRules.ComputeAuthorityDigest(changed) };
+        Assert.IsNull(CharacterCreationKarmaGearRules.Evaluate(changed, resources, []));
+        options[0] = options[0] with { OptionDigest = CharacterCreationGearRules.ComputeOptionDigest(options[0]) };
+        changed = changed with { AuthorityDigest = CharacterCreationGearRules.ComputeAuthorityDigest(changed) };
+        Assert.IsNotNull(CharacterCreationKarmaGearRules.Evaluate(changed, resources, []));
+        options[0] = options[0] with { SourceNodeXml = "<gear>changed source</gear>" };
+        options[0] = options[0] with { OptionDigest = CharacterCreationGearRules.ComputeOptionDigest(options[0]) };
+        changed = changed with { AuthorityDigest = CharacterCreationGearRules.ComputeAuthorityDigest(changed) };
+        Assert.IsNull(CharacterCreationKarmaGearRules.Evaluate(changed, resources, []));
+    }
+
+    [TestMethod]
     public void Karma_gear_purchases_use_funding_quote_and_survive_cold_reopen_and_exact_replay()
     {
         using var fixture = new KarmaDiskFixture(includeGear: true);

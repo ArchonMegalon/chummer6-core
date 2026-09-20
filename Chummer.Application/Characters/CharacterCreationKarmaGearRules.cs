@@ -21,11 +21,15 @@ public static class CharacterCreationKarmaGearRules
     public static CharacterCreationKarmaGearQuote? Evaluate(CharacterCreationGearAuthority authority,
         CharacterCreationKarmaResourcesQuote resources, IReadOnlyList<CharacterCreationGearSelection> selections)
     {
-        if (!TryFreeze(selections, out var frozen) || !CharacterCreationGearRules.IsValidAuthority(authority)
+        if (!TryFreeze(selections, out var frozen) || authority is null
             || !ValidResources(resources, allowBlocked: true) || resources.Policy.SettingsProfileId != authority.SettingsProfileId
             || resources.Policy.RawProfileInputsDigest != authority.ProfileDigest) return null;
+        // TryProjectBasket admits the complete catalog itself. Do not hash all
+        // 1,000+ rows twice in this one evaluation; a rejected authority still
+        // returns no quote, never a fabricated empty basket.
         CharacterCreationGearRules.TryProjectBasket(frozen, authority, resources.NuyenFromKarma,
             out var lines, out var budget, out var blockers);
+        if (blockers.Contains(CharacterCreationGearBlockers.AuthorityUnavailable, StringComparer.Ordinal)) return null;
         blockers = blockers.Concat(resources.Blockers).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
         budget = budget with { IsExact = blockers.Length == 0, Blockers = blockers };
         var basis = new CharacterCreationKarmaGearBasis(authority.SettingsProfileId, authority.ProfileDigest,
