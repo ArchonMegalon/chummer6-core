@@ -30,7 +30,8 @@ internal static class CharacterCreationFoundationEffectCompiler
         LifeModuleLegalOptionDto module,
         LifeModuleVersionProjectionDto? version,
         CharacterCreationFoundationSkillSourceAuthority? skillSourceAuthority = null,
-        CharacterCreationFoundationQualitySourceAuthority? qualitySourceAuthority = null)
+        CharacterCreationFoundationQualitySourceAuthority? qualitySourceAuthority = null,
+        string sourceContextDigest = "")
     {
         ArgumentNullException.ThrowIfNull(ledger);
         ArgumentNullException.ThrowIfNull(module);
@@ -55,6 +56,7 @@ internal static class CharacterCreationFoundationEffectCompiler
                 },
                 SkillSourceDigest = skillSourceAuthority?.SourceDigest ?? string.Empty,
                 QualitySourceDigest = qualitySourceAuthority?.SourceDigest ?? string.Empty,
+                SourceContextDigest = sourceContextDigest,
                 SupportedRequirementKinds = new[] { "oneof:metatype" }
             });
 

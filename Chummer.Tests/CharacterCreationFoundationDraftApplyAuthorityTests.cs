@@ -523,7 +523,7 @@ public sealed partial class CharacterCreationFoundationDraftApplyAuthorityTests
                 .Compilation.Effects.Where(effect => effect.CompilationStatus
                     == CharacterCreationFoundationEffectCompilationStatuses.Supported)
                 .ToArray();
-            Assert.HasCount(6, supportedEffects);
+            Assert.HasCount(8, supportedEffects);
             CharacterCreationFoundationEffectInstruction supportedAttribute = supportedEffects
                 .Single(effect => effect.EffectKind == "attributelevel");
             Assert.AreEqual("attributelevel", supportedAttribute.EffectKind);

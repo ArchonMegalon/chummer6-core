@@ -12,6 +12,7 @@ using System.Xml.XPath;
 using Chummer.Application.Characters;
 using Chummer.Application.Content;
 using Chummer.Contracts.Characters;
+using Chummer.Contracts.Rulesets;
 
 namespace Chummer.Infrastructure.Xml;
 
@@ -2020,6 +2021,43 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 BudgetBlockers: _lifeModuleBudgetBlockers,
                 RawProfileInputsDigest: _rawProfileInputsDigest,
                 SourceAnchorIds: [$"settings.xml#setting:{_settingsProfileId}"]);
+            return true;
+        }
+
+        public bool TryResolveCreationFoundationEffectSources(
+            out CharacterCreationFoundationEffectSources? sources)
+        {
+            using IDisposable sourceInputScope = _sourceInputs.Enter();
+            sources = null;
+            if (_sourceInputs.HasSourceDrift
+                || _buildMethod != CharacterCreationBuildMethods.LifeModules
+                || _character.Elements("buildmethod").Count() != 1
+                || _character.Element("buildmethod")?.Value != _buildMethod
+                || _character.Elements("created").Count() != 1
+                || !bool.TryParse(_character.Element("created")?.Value, out bool created)
+                || created
+                || _character.Elements("ruleset").Count() > 1
+                || (_character.Element("ruleset") is XElement ruleset
+                    && ruleset.Value != RulesetDefaults.Sr5)
+                || string.IsNullOrWhiteSpace(_settingsProfileId)
+                || _enabledSourcebooks.Count == 0
+                || !TryComputeEffectiveInputDigest(_catalog, "settings.xml", out string settingsDigest)
+                || BindSelectedProfile(settingsDigest, _settingsProfileId) != _rawProfileInputsDigest
+                || !TryComputeEffectiveInputDigest(_catalog, "skills.xml", out string skillsDigest)
+                || skillsDigest != _effectiveSkillsInputsDigest
+                || !TryLoadEffectiveDocument(_catalog, "skills.xml", out XDocument? skills)
+                || skills?.Root is null
+                || !TryLoadEffectiveDocument(_catalog, "qualities.xml", out XDocument? qualities)
+                || qualities?.Root is null
+                || !_sourceInputs.TryAdmitReuse(_catalog))
+                return false;
+
+            sources = new CharacterCreationFoundationEffectSources(
+                _settingsProfileId,
+                _rawProfileInputsDigest,
+                Array.AsReadOnly(_enabledSourcebooks.OrderBy(book => book, StringComparer.Ordinal).ToArray()),
+                skills.ToString(SaveOptions.DisableFormatting),
+                qualities.ToString(SaveOptions.DisableFormatting));
             return true;
         }
 

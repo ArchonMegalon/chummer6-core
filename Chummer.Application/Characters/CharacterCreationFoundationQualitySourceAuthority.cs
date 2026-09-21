@@ -14,15 +14,18 @@ internal sealed class CharacterCreationFoundationQualitySourceAuthority
 {
     private readonly IReadOnlyDictionary<string, QualityDefinition> _byName;
     private readonly IReadOnlyDictionary<string, QualityDefinition> _byId;
+    private readonly IReadOnlySet<string>? _enabledSources;
 
     private CharacterCreationFoundationQualitySourceAuthority(
         string sourceDigest,
         IReadOnlyDictionary<string, QualityDefinition> byName,
-        IReadOnlyDictionary<string, QualityDefinition> byId)
+        IReadOnlyDictionary<string, QualityDefinition> byId,
+        IReadOnlySet<string>? enabledSources)
     {
         SourceDigest = sourceDigest;
         _byName = byName;
         _byId = byId;
+        _enabledSources = enabledSources?.ToHashSet(StringComparer.OrdinalIgnoreCase);
     }
 
     public string SourceDigest { get; }
@@ -30,7 +33,8 @@ internal sealed class CharacterCreationFoundationQualitySourceAuthority
     public static bool TryCreate(
         string? sourceXml,
         string? sourceDigest,
-        out CharacterCreationFoundationQualitySourceAuthority? authority)
+        out CharacterCreationFoundationQualitySourceAuthority? authority,
+        IReadOnlySet<string>? enabledSources = null)
     {
         authority = null;
         if (string.IsNullOrEmpty(sourceXml)
@@ -122,7 +126,8 @@ internal sealed class CharacterCreationFoundationQualitySourceAuthority
                 definitions.ToDictionary(
                     item => item.SourceId,
                     item => item,
-                    StringComparer.Ordinal));
+                    StringComparer.Ordinal),
+                enabledSources);
             return true;
         }
         catch (Exception exception) when (exception is ArgumentException
@@ -138,7 +143,8 @@ internal sealed class CharacterCreationFoundationQualitySourceAuthority
         out CharacterCreationFoundationEffectTargetBinding? binding)
     {
         binding = null;
-        if (!_byName.TryGetValue(canonicalName, out QualityDefinition? definition))
+        if (!_byName.TryGetValue(canonicalName, out QualityDefinition? definition)
+            || !IsBookEnabled(definition))
             return false;
 
         binding = new CharacterCreationFoundationEffectTargetBinding(
@@ -162,7 +168,8 @@ internal sealed class CharacterCreationFoundationQualitySourceAuthority
             || !string.Equals(
                 definition.CanonicalName,
                 binding.CanonicalName,
-                StringComparison.Ordinal))
+                StringComparison.Ordinal)
+            || !IsBookEnabled(definition))
         {
             return false;
         }
@@ -170,6 +177,15 @@ internal sealed class CharacterCreationFoundationQualitySourceAuthority
         source = new XElement(definition.Source);
         sourceNodeDigest = definition.SourceNodeDigest;
         return true;
+    }
+
+    private bool IsBookEnabled(QualityDefinition definition)
+    {
+        if (_enabledSources is null) return true;
+        XElement[] books = definition.Source.Elements("source").Take(2).ToArray();
+        return books.Length == 1 && !books[0].HasAttributes && !books[0].HasElements
+            && !string.IsNullOrWhiteSpace(books[0].Value) && books[0].Value == books[0].Value.Trim()
+            && _enabledSources.Contains(books[0].Value);
     }
 
     private static bool FixedTimeEquals(string? left, string? right)

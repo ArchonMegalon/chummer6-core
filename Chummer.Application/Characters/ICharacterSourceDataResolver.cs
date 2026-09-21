@@ -345,6 +345,17 @@ public interface ICharacterSourceDataContext
     }
 
     /// <summary>
+    /// Effective skills/qualities inputs for Life Modules, captured under the
+    /// saved profile. This internal engine input is not a client/export payload
+    /// and never grants permission to apply an incomplete module sequence.
+    /// </summary>
+    bool TryResolveCreationFoundationEffectSources(out CharacterCreationFoundationEffectSources? sources)
+    {
+        sources = null;
+        return false;
+    }
+
+    /// <summary>
     /// Resolves whether the exact source profile saved by the runner enables a sourcebook.
     /// False means the profile could not prove the answer and callers must fail closed.
     /// </summary>

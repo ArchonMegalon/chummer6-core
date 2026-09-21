@@ -14,15 +14,18 @@ internal sealed class CharacterCreationFoundationSkillSourceAuthority
 {
     private readonly IReadOnlyDictionary<string, SkillDefinition[]> _activeByName;
     private readonly IReadOnlySet<string> _groupNames;
+    private readonly IReadOnlySet<string>? _enabledSources;
 
     private CharacterCreationFoundationSkillSourceAuthority(
         string sourceDigest,
         IReadOnlyDictionary<string, SkillDefinition[]> activeByName,
-        IReadOnlySet<string> groupNames)
+        IReadOnlySet<string> groupNames,
+        IReadOnlySet<string>? enabledSources)
     {
         SourceDigest = sourceDigest;
         _activeByName = activeByName;
         _groupNames = groupNames;
+        _enabledSources = enabledSources?.ToHashSet(StringComparer.OrdinalIgnoreCase);
     }
 
     public string SourceDigest { get; }
@@ -30,7 +33,8 @@ internal sealed class CharacterCreationFoundationSkillSourceAuthority
     public static bool TryCreate(
         string? sourceXml,
         string? sourceDigest,
-        out CharacterCreationFoundationSkillSourceAuthority? authority)
+        out CharacterCreationFoundationSkillSourceAuthority? authority,
+        IReadOnlySet<string>? enabledSources = null)
     {
         authority = null;
         if (!CharacterCreationFoundationDraftLedgerIntegrity.IsCanonicalDigest(sourceDigest)
@@ -114,7 +118,8 @@ internal sealed class CharacterCreationFoundationSkillSourceAuthority
                 }
 
                 definitions.Add(new SkillDefinition(sourceId, canonicalName, isExotic,
-                    groups.Length == 0 ? string.Empty : groups[0].Value));
+                    groups.Length == 0 ? string.Empty : groups[0].Value,
+                    ReadExactSourceBook(skill)));
             }
 
             if (definitions.Count == 0)
@@ -153,7 +158,8 @@ internal sealed class CharacterCreationFoundationSkillSourceAuthority
             authority = new CharacterCreationFoundationSkillSourceAuthority(
                 sourceDigest!,
                 activeByName,
-                groupNames);
+                groupNames,
+                enabledSources);
             return true;
         }
         catch (Exception exception) when (exception is ArgumentException
@@ -171,7 +177,8 @@ internal sealed class CharacterCreationFoundationSkillSourceAuthority
         binding = null;
         if (!_activeByName.TryGetValue(canonicalName, out SkillDefinition[]? matches)
             || matches.Length != 1
-            || matches[0].IsExotic)
+            || matches[0].IsExotic
+            || !IsBookEnabled(matches[0]))
         {
             return false;
         }
@@ -192,7 +199,7 @@ internal sealed class CharacterCreationFoundationSkillSourceAuthority
         SkillDefinition[][] members = _activeByName.Values.Where(items => items.Any(skill =>
             string.Equals(skill.GroupName, canonicalName, StringComparison.Ordinal))).ToArray();
         if (!_groupNames.Contains(canonicalName) || members.Length == 0
-            || members.Any(items => items.Length != 1 || items[0].IsExotic))
+            || members.Any(items => items.Length != 1 || items[0].IsExotic || !IsBookEnabled(items[0])))
             return false;
 
         // skills.xml groups have names, not GUIDs. Keep that source identity
@@ -212,9 +219,21 @@ internal sealed class CharacterCreationFoundationSkillSourceAuthority
                && CryptographicOperations.FixedTimeEquals(leftBytes, rightBytes);
     }
 
+    private bool IsBookEnabled(SkillDefinition skill)
+        => _enabledSources is null || (skill.SourceBook is not null && _enabledSources.Contains(skill.SourceBook));
+
+    private static string? ReadExactSourceBook(XElement row)
+    {
+        XElement[] books = row.Elements("source").Take(2).ToArray();
+        return books.Length == 1 && !books[0].HasAttributes && !books[0].HasElements
+            && !string.IsNullOrWhiteSpace(books[0].Value) && books[0].Value == books[0].Value.Trim()
+                ? books[0].Value : null;
+    }
+
     private sealed record SkillDefinition(
         string SourceId,
         string CanonicalName,
         bool IsExotic,
-        string GroupName);
+        string GroupName,
+        string? SourceBook);
 }

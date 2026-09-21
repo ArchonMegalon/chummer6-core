@@ -4915,6 +4915,85 @@ public sealed class FileSystemCharacterSourceDataResolverTests
         }
     }
 
+    [TestMethod]
+    public void Foundation_effect_sources_bind_saved_profile_books_and_real_catalogs()
+    {
+        const string profileId = "8a31af6d-7137-4284-872b-7d8087e156c6";
+        ICharacterSourceDataContext context = CreateContext(FindCoreRoot(),
+            $"<character><settings>{profileId}</settings><buildmethod>LifeModule</buildmethod>"
+            + "<created>False</created><ruleset>sr5</ruleset></character>")!;
+        Assert.IsNotNull(context);
+        Assert.IsTrue(context.TryResolveCreationFoundationEffectSources(out var sources));
+        Assert.IsNotNull(sources);
+        Assert.AreEqual(profileId, sources.SettingsProfileId);
+        Assert.IsTrue(context.TryResolveCreationSourceProfile(out var profile));
+        Assert.AreEqual(profile.RawProfileInputsDigest, sources.ProfileInputsDigest);
+        Assert.IsTrue(sources.TryCreateAuthorities(out var skills, out var qualities, out string digest));
+        Assert.IsTrue(skills!.TryResolveExactActive("Perception", out var perception));
+        Assert.IsTrue(skills.TryResolveExactGroup("Close Combat", out _));
+        Assert.IsTrue(qualities!.TryResolveExact("Uncouth", out var uncouth));
+        Assert.IsTrue(qualities.TryGetDefinition(uncouth!, out _, out _));
+        Assert.IsNotNull(perception);
+        Assert.IsTrue(CharacterCreationFoundationDraftLedgerIntegrity.IsCanonicalDigest(digest));
+
+        // Keep the complete catalogs for ambiguity checks, but never resolve a
+        // disabled book or accept a previously bound target through that filter.
+        var disabled = sources with { EnabledSourcebooks = new[] { "RF" } };
+        Assert.IsTrue(disabled.TryCreateAuthorities(out skills, out qualities, out string disabledDigest));
+        Assert.IsFalse(skills!.TryResolveExactActive("Perception", out _));
+        Assert.IsFalse(skills.TryResolveExactGroup("Close Combat", out _));
+        Assert.IsFalse(qualities!.TryResolveExact("Uncouth", out _));
+        Assert.IsFalse(qualities.TryGetDefinition(uncouth!, out _, out _));
+        Assert.AreNotEqual(digest, disabledDigest);
+    }
+
+    [TestMethod]
+    [DataRow("<created>True</created><buildmethod>LifeModule</buildmethod>")]
+    [DataRow("<created>False</created><buildmethod>Karma</buildmethod>")]
+    [DataRow("<created>False</created><buildmethod>LifeModule</buildmethod><ruleset>sr6</ruleset>")]
+    [DataRow("<created>False</created>")]
+    public void Foundation_effect_sources_reject_nonmatching_character_scope(string characterFields)
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            WriteBaseContent(root, string.Empty);
+            WriteQualityCatalog(root, QualityRow("<source>SR5</source>"));
+            var context = CreateContext(root, CharacterXml(characterFields));
+            Assert.IsNotNull(context);
+            Assert.IsFalse(context.TryResolveCreationFoundationEffectSources(out var sources));
+            Assert.IsNull(sources);
+        }
+        finally { DeleteTempDirectory(root); }
+    }
+
+    [TestMethod]
+    [DataRow("settings.xml")]
+    [DataRow("skills.xml")]
+    [DataRow("qualities.xml")]
+    public void Foundation_effect_sources_reject_source_drift_after_capture(string fileName)
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            WriteBaseContent(root, string.Empty);
+            WriteQualityCatalog(root, QualityRow("<source>SR5</source>"));
+            var context = CreateContext(root, CharacterXml(
+                "<created>False</created><buildmethod>LifeModule</buildmethod>"));
+            Assert.IsNotNull(context);
+            Assert.IsTrue(context.TryResolveCreationFoundationEffectSources(out var before));
+            Assert.IsNotNull(before);
+            string path = Path.Combine(root, "data", fileName);
+            if (fileName == "settings.xml")
+                File.WriteAllText(path, File.ReadAllText(path).Replace("<book>SR5</book>", "<book>RF</book>", StringComparison.Ordinal));
+            else
+                RewriteFirstElementValueSameLength(path, "name");
+            Assert.IsFalse(context.TryResolveCreationFoundationEffectSources(out var after));
+            Assert.IsNull(after);
+        }
+        finally { DeleteTempDirectory(root); }
+    }
+
     private static ICharacterSourceDataContext? CreateContext(
         string root,
         string characterXml,
