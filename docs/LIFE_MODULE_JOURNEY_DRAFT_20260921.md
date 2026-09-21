@@ -77,6 +77,13 @@ disk reopen, tamper rejection, accepted facts and byte-identical command replay.
 The Android input controls have their own focused managed test; native device
 verification is recorded separately in Android, not inferred from these tests.
 
+A bounded, one-snapshot candidate cache now avoids reprojecting every nationality
+for every restore/review/confirm of unchanged Foundation input. Every load still
+obtains fresh Foundation authority; the complete state digest is the key, and
+serialized custody prevents a returned choice from mutating cached data.
+**71 focused tests pass** (`core-origin-input-cache-1.log`), including a caller-
+mutation negative test. This is not a measured Android latency claim.
+
 A stage with no admitted choices stops with explicit
 unfinished-draft wording, not a claim that character creation is complete.
 The user still needs an explicit finish decision for the repeatable Real Life

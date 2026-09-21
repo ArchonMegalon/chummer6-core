@@ -32,6 +32,7 @@ public sealed partial class CharacterCreationFoundationLifeModuleDecisionAuthori
     private readonly ICharacterCreationFoundationService _foundation;
     private readonly ICharacterFileQueries _characterFiles;
     private readonly Func<string> _localeProvider;
+    private CandidateSnapshot? _candidateSnapshot;
 
     public CharacterCreationFoundationLifeModuleDecisionAuthority(
         IWorkspaceStore workspaceStore,
@@ -443,7 +444,15 @@ public sealed partial class CharacterCreationFoundationLifeModuleDecisionAuthori
     }
 
     private DecisionCandidate[] BuildCandidates(CharacterCreationFoundationState state)
-        => state.MetatypeOptions
+    {
+        // Load still obtains fresh Foundation authority. Reuse only the exact
+        // immutable input projection, never a workspace read or mutation result.
+        // Serialized custody prevents callers of Load from mutating our cache.
+        string digest = Digest(state);
+        var cached = Volatile.Read(ref _candidateSnapshot);
+        if (cached?.StateDigest == digest)
+            return JsonSerializer.Deserialize<DecisionCandidate[]>(cached.Json)!;
+        var candidates = state.MetatypeOptions
             .Where(option => option.IsEnabled && option.DisableReasonKey is null
                 && (string.IsNullOrEmpty(state.CurrentMetatype)
                     || string.Equals(option.Label, state.CurrentMetatype, StringComparison.Ordinal)))
@@ -453,6 +462,11 @@ public sealed partial class CharacterCreationFoundationLifeModuleDecisionAuthori
             .OrderBy(option => option.OptionId, StringComparer.Ordinal)
             .SelectMany(metatype => BuildCandidates(state, metatype))
             .ToArray();
+        Volatile.Write(ref _candidateSnapshot, new(digest, JsonSerializer.Serialize(candidates)));
+        return candidates;
+    }
+
+    private sealed record CandidateSnapshot(string StateDigest, string Json);
 
     private DecisionCandidate[] BuildCandidates(
         CharacterCreationFoundationState state, CharacterCreationLegalOption metatype)
