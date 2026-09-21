@@ -25,7 +25,7 @@ public static class CharacterCreationBootstrapStoreIntegrity
             || auxiliary.CharacterCreationContactReceipts is not null
             || auxiliary.CharacterCreationContactsDraft is not null
             || !IsValidBinding(workspaceId, binding)
-            || !string.Equals(document.RulesetId, RulesetDefaults.Sr5, StringComparison.Ordinal)
+            || !string.Equals(document.RulesetId, binding.RulesetId, StringComparison.Ordinal)
             || !CharacterCreationBootstrapBindingDigest.FixedTimeEquals(
                 binding.RawCharacterXmlDigest,
                 CharacterCreationFoundationDraftLedgerIntegrity.ComputeRawCharacterXmlDigest(
@@ -72,7 +72,7 @@ public static class CharacterCreationBootstrapStoreIntegrity
                        binding.SettingsProfileId,
                        StringComparison.Ordinal)
                    && character.Elements("gameedition").SingleOrDefault() is XElement edition
-                   && string.Equals(edition.Value.Trim(), "SR5", StringComparison.Ordinal)
+                   && string.Equals(edition.Value.Trim(), binding.RulesetId == RulesetDefaults.Sr6 ? "SR6" : "SR5", StringComparison.Ordinal)
                    && !character.Descendants().Any(element => element.Name.LocalName is
                        "prioritymetatype"
                        or "priorityattributes"
@@ -102,9 +102,8 @@ public static class CharacterCreationBootstrapStoreIntegrity
             || !string.Equals(binding.Stage,
                 CharacterCreationBootstrapStages.AwaitingFoundationSelection,
                 StringComparison.Ordinal)
-            || !string.Equals(binding.RulesetId, RulesetDefaults.Sr5, StringComparison.Ordinal)
-            || !CharacterCreationBuildMethods.IsSupported(binding.BuildMethod)
             || !CharacterCreationBootstrapProfiles.IsExactCanonicalTuple(
+                binding.RulesetId,
                 binding.BuildMethod,
                 binding.SettingsProfileId)
             || binding.InitialContentRevision
@@ -130,9 +129,10 @@ public static class CharacterCreationBootstrapStoreIntegrity
                 && !string.IsNullOrEmpty(binding.PrerequisiteAuthorityDigest))
             || !string.Equals(
                 binding.SettingsSourceAnchor,
-                $"settings.xml#setting:{binding.SettingsProfileId}",
+                CharacterCreationBootstrapProfiles.SettingsSourceAnchor(binding.RulesetId, binding.SettingsProfileId),
                 StringComparison.Ordinal)
             || !CharacterCreationBootstrapProfiles.HasExactCanonicalSourceAnchors(
+                binding.RulesetId,
                 binding.BuildMethod,
                 binding.SettingsProfileId,
                 binding.SourceAnchorIds))
