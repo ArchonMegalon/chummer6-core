@@ -84,6 +84,17 @@ serialized custody prevents a returned choice from mutating cached data.
 **71 focused tests pass** (`core-origin-input-cache-1.log`), including a caller-
 mutation negative test. This is not a measured Android latency claim.
 
+Canonical chapters now commit inside the existing Foundation/Origin workspace
+transaction, with their digest included in the decision receipt. A missing phone
+timeline can be rebuilt read-only from the complete verified acceptance history;
+it cannot replay decisions, change character bytes, or invent lost legacy text.
+Optional absent fields preserve old receipt shapes. Historical receipts without
+chapters remain readable as receipts, but cannot reconstruct their old book.
+`core-origin-history-2.log`: **71 passed**, including byte-identical checkpoint
+recovery after disk reopen, no writes, changed/deleted chapters, empty/corrupt
+history rejection, and valid-but-unrecoverable legacy receipts. Native recovery
+of a deliberately missing timeline has not yet been exercised on a device.
+
 A stage with no admitted choices stops with explicit
 unfinished-draft wording, not a claim that character creation is complete.
 The user still needs an explicit finish decision for the repeatable Real Life

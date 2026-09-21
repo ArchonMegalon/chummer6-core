@@ -100,11 +100,58 @@ public sealed partial class CharacterCreationFoundationDraftApplyAuthorityTests
             Assert.AreEqual(pending.PendingPreview.InputResolution.ResolutionDigest, receipt.InputResolutionDigest);
             Assert.IsTrue(receipt.CanonicalFacts.Any(fact => fact.FactKind == "accepted-life-module-answer"));
             byte[] after = File.ReadAllBytes(WorkspacePath(directory, id));
+            // No phone timeline/checkpoint is supplied: a fresh process recovers
+            // the exact book from the atomically committed workspace history.
+            store = new FileWorkspaceStore(directory);
+            interaction = Interaction();
+            var recovered = interaction.Start(id.Value);
+            Assert.AreEqual(LifeModuleOriginDossierOutcomes.Success, recovered.Outcome,
+                string.Join(", ", recovered.Blockers));
+            Assert.AreEqual(JsonSerializer.Serialize(accepted.Value.Checkpoint), JsonSerializer.Serialize(recovered.Value));
+            Assert.AreEqual(receipt.ChapterDigest, recovered.Value!.TimelineChapterDigests[^1]);
+            CollectionAssert.AreEqual(after, File.ReadAllBytes(WorkspacePath(directory, id)));
+            var history = persisted.Document.AuxiliaryState.LifeModuleDecisionAcceptances!.ToArray();
+            var last = history[^1];
+            Assert.IsNotNull(last.Chapter);
+            history[^1] = last with { Chapter = last.Chapter with { VisibleMarkdown = "Different text" } };
+            Assert.IsFalse(LifeModuleDecisionAcceptanceIntegrity.TryValidateLedger(id, persisted.ContentRevision, history));
+            history[^1] = last with { Chapter = null };
+            Assert.IsFalse(LifeModuleDecisionAcceptanceIntegrity.TryValidateLedger(id, persisted.ContentRevision, history));
+            history[^1] = last with { Chapter = last.Chapter with { ThroughAcceptedDecisionId = "another-decision" } };
+            Assert.IsFalse(LifeModuleDecisionAcceptanceIntegrity.TryValidateLedger(id, persisted.ContentRevision, history));
+            // A legacy receipt remains valid, but cannot fabricate the missing
+            // historical scene from today's narrative or source templates.
+            var legacy = persisted.Document.AuxiliaryState.LifeModuleDecisionAcceptances!.Select(entry =>
+            {
+                var oldReceipt = entry.Receipt with { ChapterDigest = null };
+                oldReceipt = oldReceipt with { ReceiptDigest = LifeModuleDecisionAcceptanceIntegrity.ComputeReceiptDigest(oldReceipt) };
+                return entry with { Receipt = oldReceipt, Chapter = null };
+            }).ToArray();
+            Assert.IsTrue(LifeModuleDecisionAcceptanceIntegrity.TryValidateLedger(id, persisted.ContentRevision, legacy));
+            var oldHistory = new LifeModuleOriginDossierService(new ReadOnlyOriginHistory(last.NextStep, legacy));
+            Assert.AreEqual(LifeModuleOriginDossierOutcomes.Missing, oldHistory.Project(id.Value).Outcome);
+            var corruptHistory = new LifeModuleOriginDossierService(new ReadOnlyOriginHistory(last.NextStep, history));
+            Assert.AreNotEqual(LifeModuleOriginDossierOutcomes.Success, corruptHistory.Project(id.Value).Outcome);
+            var emptyHistory = new LifeModuleOriginDossierService(new ReadOnlyOriginHistory(last.NextStep, []));
+            Assert.AreEqual(LifeModuleOriginDossierOutcomes.Invalid, emptyHistory.Project(id.Value).Outcome);
             var replay = interaction.Confirm(pending, pending.PendingPreview.PreviewDigest, "arcology", true);
             Assert.AreEqual(LifeModuleOriginDossierOutcomes.Success, replay.Outcome);
             Assert.AreEqual(accepted.Value.Checkpoint.CheckpointDigest, replay.Value!.Checkpoint.CheckpointDigest);
             CollectionAssert.AreEqual(after, File.ReadAllBytes(WorkspacePath(directory, id)));
         }
         finally { Directory.Delete(directory, recursive: true); }
+    }
+
+    private sealed class ReadOnlyOriginHistory(LifeModuleDecisionAuthorityStep step,
+        IReadOnlyList<LifeModuleDecisionAcceptance> history) : ILifeModuleDecisionAuthority, ILifeModuleDecisionHistoryAuthority
+    {
+        public LifeModuleDecisionAuthorityResult<LifeModuleDecisionAuthorityStep> Load(string workspaceId)
+            => new(LifeModuleOriginDossierOutcomes.Success, step, []);
+        public LifeModuleDecisionAuthorityResult<IReadOnlyList<LifeModuleDecisionAcceptance>> LoadHistory(string workspaceId)
+            => new(LifeModuleOriginDossierOutcomes.Success, history, []);
+        public LifeModuleDecisionAuthorityResult<LifeModuleDecisionAcceptance> FindAcceptance(string workspaceId, string key)
+            => throw new InvalidOperationException("Read-only recovery must not retry a command.");
+        public LifeModuleDecisionAuthorityResult<LifeModuleDecisionAcceptance> Accept(LifeModuleDecisionAcceptanceCommand command)
+            => throw new InvalidOperationException("Read-only recovery must not mutate mechanics.");
     }
 }

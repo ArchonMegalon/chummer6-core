@@ -30,6 +30,12 @@ public interface ILifeModuleDecisionInputAuthority
         LifeModuleDecisionInputRequest request);
 }
 
+/// <summary>Read-only canonical history; recovery must never replay mechanics.</summary>
+public interface ILifeModuleDecisionHistoryAuthority
+{
+    LifeModuleDecisionAuthorityResult<IReadOnlyList<LifeModuleDecisionAcceptance>> LoadHistory(string workspaceId);
+}
+
 /// <summary>
 /// Deterministic, provider-free projection of the live SR5 Life Module
 /// decision ledger into the canonical Origin Dossier turn/chapter stream.
@@ -68,10 +74,12 @@ public sealed partial class LifeModuleOriginDossierService
             _authority.Load(workspaceId);
         if (!IsAuthoritySuccess(loaded.Outcome) || loaded.Value is not { } step)
             return FromAuthority<LifeModuleDecisionAuthorityStep, OriginStoryArcSeed>(loaded);
-        if (!TryCreateTurn(step, out LifeModuleNarrativeTurnSeed? turn)
-            || turn is null
-            || turn.AcceptedDecisionIds.Count != 0
-            || turn.CanonicalFacts.Count != 0
+        if (!TryCreateTurn(step, out LifeModuleNarrativeTurnSeed? turn) || turn is null)
+            return Blocked<OriginStoryArcSeed>(LifeModuleOriginDossierOutcomes.Invalid,
+                LifeModuleOriginDossierBlockers.AuthorityInvalid);
+        if (turn.AcceptedDecisionIds.Count != 0)
+            return RecoverProjection(step, turn);
+        if (turn.CanonicalFacts.Count != 0
             || !DigestsEqual(turn.PreviousTurnDigest, TurnLedgerRootDigest))
         {
             return Blocked<OriginStoryArcSeed>(
@@ -249,9 +257,12 @@ public sealed partial class LifeModuleOriginDossierService
         }
 
         OriginNarrativeChapterProjection chapter = CreateChapter(
-            current,
+            current.CurrentTurn,
             choice,
             acceptance.Receipt);
+        if (!StoredChapterMatches(acceptance, chapter))
+            return Blocked<LifeModuleOriginDossierAdvance>(LifeModuleOriginDossierOutcomes.Invalid,
+                LifeModuleOriginDossierBlockers.AuthorityInvalid);
         OriginNarrativeChapterProjection[] chapters =
             [.. current.VisibleChapters, chapter];
         OriginStoryArcSeed projection = CreateProjection(
@@ -390,35 +401,15 @@ public sealed partial class LifeModuleOriginDossierService
             idempotencyKeyDigest);
 
     private static OriginNarrativeChapterProjection CreateChapter(
-        OriginStoryArcSeed current,
+        LifeModuleNarrativeTurnSeed current,
         LifeModuleNarrativeChoiceSeed choice,
         LifeModuleAcceptedDecisionReceipt receipt)
     {
-        int sequence = current.VisibleChapters.Count + 1;
-        OriginCanonicalNarrativeFact[] facts = receipt.CanonicalFacts
-            .Select(SealFact)
-            .OrderBy(static fact => fact.FactId, StringComparer.Ordinal)
-            .ThenBy(static fact => fact.FactDigest, StringComparer.Ordinal)
-            .ToArray();
-        string canonicalLayerDigest = ComputeDigest(writer =>
-        {
-            writer.WriteStartObject();
-            writer.WriteString("acceptedDecisionGraphDigest", receipt.AcceptedDecisionGraphDigest);
-            writer.WriteString("decisionId", receipt.DecisionId);
-            WriteStringArray(writer, "factDigests", facts.Select(static fact => fact.FactDigest));
-            writer.WriteString("mechanicsSnapshotDigest", receipt.MechanicsSnapshotDigest);
-            writer.WriteEndObject();
-        });
-        string chapterId = ComputeDigest(writer =>
-        {
-            writer.WriteStartObject();
-            writer.WriteString("decisionId", receipt.DecisionId);
-            writer.WriteNumber("sequence", sequence);
-            writer.WriteString("turnSeedDigest", current.CurrentTurn.SeedDigest);
-            writer.WriteEndObject();
-        });
+        int sequence = current.AcceptedDecisionIds.Count + 1;
+        string canonicalLayerDigest = ChapterCanonicalLayer(receipt);
+        string chapterId = ChapterId(sequence, receipt.DecisionId, current.SeedDigest);
         string markdown = JoinMarkdown(
-            current.CurrentTurn.VisibleStoryMarkdown,
+            current.VisibleStoryMarkdown,
             $"**{choice.Label}**",
             receipt.ConsequenceMarkdown);
         var chapter = new OriginNarrativeChapterProjection(

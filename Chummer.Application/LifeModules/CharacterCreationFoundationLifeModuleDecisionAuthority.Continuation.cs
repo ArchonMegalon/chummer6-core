@@ -135,8 +135,7 @@ public sealed partial class CharacterCreationFoundationLifeModuleDecisionAuthori
             next.RulesDigest, next.RuntimeDigest, current.DecisionDigest, current.MechanicsSnapshotDigest,
             next.DecisionGraphDigest, next.MechanicsSnapshotDigest, consequence, acceptedFacts, string.Empty)
         { InputResolutionDigest = command.InputResolution?.ResolutionDigest };
-        receipt = receipt with { ReceiptDigest = LifeModuleDecisionAcceptanceIntegrity.ComputeReceiptDigest(receipt) };
-        return new(receipt, next);
+        return LifeModuleOriginDossierService.SealAcceptanceChapter(current, receipt, next);
     }
 
     private static ModuleCandidate[] BuildModuleCandidates(CharacterCreationFoundationService foundation,

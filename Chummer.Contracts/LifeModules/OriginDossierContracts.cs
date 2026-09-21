@@ -279,11 +279,19 @@ public sealed record LifeModuleAcceptedDecisionReceipt(
 {
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public string? InputResolutionDigest { get; init; }
+
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? ChapterDigest { get; init; }
 }
 
 public sealed record LifeModuleDecisionAcceptance(
     LifeModuleAcceptedDecisionReceipt Receipt,
-    LifeModuleDecisionAuthorityStep NextStep);
+    LifeModuleDecisionAuthorityStep NextStep)
+{
+    /// <summary>The exact canonical chapter committed with this decision, not provider prose.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public OriginNarrativeChapterProjection? Chapter { get; init; }
+}
 
 public sealed record LifeModuleDecisionAuthorityResult<T>(
     string Outcome,

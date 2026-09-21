@@ -19,7 +19,7 @@ namespace Chummer.Application.LifeModules;
 /// explicit confirmation and the atomic workspace CAS.
 /// </summary>
 public sealed partial class CharacterCreationFoundationLifeModuleDecisionAuthority :
-    ILifeModuleDecisionAuthority, ILifeModuleDecisionInputAuthority
+    ILifeModuleDecisionAuthority, ILifeModuleDecisionInputAuthority, ILifeModuleDecisionHistoryAuthority
 {
     private const string OwnerId = "local-single-user";
     private const string JourneyId = "sr5-life-modules-foundation";
@@ -128,6 +128,21 @@ public sealed partial class CharacterCreationFoundationLifeModuleDecisionAuthori
             1 => Success(matches[0]),
             _ => Invalid<LifeModuleDecisionAcceptance>()
         };
+    }
+
+    public LifeModuleDecisionAuthorityResult<IReadOnlyList<LifeModuleDecisionAcceptance>> LoadHistory(string workspaceId)
+    {
+        if (!TryWorkspaceId(workspaceId, out CharacterWorkspaceId id))
+            return Invalid<IReadOnlyList<LifeModuleDecisionAcceptance>>();
+        var read = _workspaceStore.Get(id);
+        if (!read.Success || read.Value is not { } workspace)
+            return FromRead<IReadOnlyList<LifeModuleDecisionAcceptance>>(read);
+        var ledger = workspace.Document.AuxiliaryState.LifeModuleDecisionAcceptances;
+        if (ledger is not { Count: > 0 })
+            return Missing<IReadOnlyList<LifeModuleDecisionAcceptance>>();
+        return LifeModuleDecisionAcceptanceIntegrity.TryValidateLedger(id, workspace.ContentRevision, ledger)
+            ? Success<IReadOnlyList<LifeModuleDecisionAcceptance>>(ledger)
+            : Invalid<IReadOnlyList<LifeModuleDecisionAcceptance>>();
     }
 
     public LifeModuleDecisionAuthorityResult<LifeModuleDecisionAcceptance> Accept(
@@ -340,11 +355,7 @@ public sealed partial class CharacterCreationFoundationLifeModuleDecisionAuthori
             consequence.Trim(),
             facts,
             string.Empty) { InputResolutionDigest = command.InputResolution?.ResolutionDigest };
-        receipt = receipt with
-        {
-            ReceiptDigest = LifeModuleDecisionAcceptanceIntegrity.ComputeReceiptDigest(receipt)
-        };
-        return new LifeModuleDecisionAcceptance(receipt, terminal);
+        return LifeModuleOriginDossierService.SealAcceptanceChapter(current, receipt, terminal);
     }
 
     private LifeModuleDecisionAuthorityStep? BuildInitial(
@@ -745,6 +756,7 @@ public static class LifeModuleDecisionAcceptanceIntegrity
                 || !IsDigest(receipt.AcceptedDecisionGraphDigest)
                 || !IsDigest(receipt.MechanicsSnapshotDigest)
                 || receipt.InputResolutionDigest is not null && !IsDigest(receipt.InputResolutionDigest)
+                || !LifeModuleOriginDossierService.ValidateStoredChapter(acceptance!, acceptedIds.Count + 1)
                 || !FixedEquals(next.ContentDigest, receipt.ContentDigest)
                 || !FixedEquals(next.SourceDigest, receipt.SourceDigest)
                 || !FixedEquals(next.RulesDigest, receipt.RulesDigest)
