@@ -4,6 +4,7 @@ using Chummer.Application.Characters;
 using Chummer.Application.Workspaces;
 using Chummer.Contracts.Characters;
 using Chummer.Contracts.Owners;
+using Chummer.Contracts.Rulesets;
 using Chummer.Contracts.Workspaces;
 using Chummer.Infrastructure.Workspaces;
 using Chummer.Infrastructure.Xml;
@@ -175,35 +176,41 @@ public sealed class WorkspaceContinuationHistoryIntegrityTests
     public void Actual_contact_and_catalog_lifestyle_receipts_bind_current_XML_and_checkpoint_but_not_later_owner_XML()
     {
         using ReadyContext context = ReadyContext.CreateUnprepared(CharacterCreationBuildMethods.Priority);
-        var saved = context.Store.Get(context.WorkspaceId).Value!;
+        // This lane edits imported Creation XML, not a pending native Wizard.
+        // Editing the bootstrap document directly leaves a stale binding and
+        // must not substitute an XML contactpoints value for confirmed drafts.
+        CharacterWorkspaceId importedId = new("history-imported-contact-lifestyle");
         Guid contactId = Guid.NewGuid();
-        var xml = XDocument.Parse(saved.Document.Content);
-        xml.Root!.SetElementValue("contactpoints", "15");
-        xml.Root.SetElementValue("nuyen", "10000");
-        xml.Root.SetElementValue("startingnuyen", "10000");
-        xml.Root.Element("contacts")?.Remove();
-        xml.Root.Add(new XElement("contacts", new XElement("contact",
-            new XElement("guid", contactId.ToString("D")), new XElement("name", "Fixer"),
-            new XElement("connection", 3), new XElement("loyalty", 2), new XElement("type", "Contact"),
-            new XElement("free", false), new XElement("group", false),
-            new XElement("family", false), new XElement("blackmail", false))));
-        var document = saved.Document with { State = saved.Document.State with { Payload = xml.ToString(SaveOptions.DisableFormatting) } };
-        Assert.IsTrue(context.Store.ReplaceWorkspaceDocument(context.WorkspaceId, saved.ContentRevision, document).Success);
+        var document = new WorkspaceDocument($"""
+            <character>
+              <name>History runner</name><gameedition>SR5</gameedition><created>False</created>
+              <buildmethod>Priority</buildmethod><metatype>Human</metatype>
+              <settings>{CharacterCreationBootstrapProfiles.PrioritySettingsProfileId}</settings>
+              <contactpoints>15</contactpoints><nuyen>10000</nuyen><startingnuyen>10000</startingnuyen>
+              <contacts><contact>
+                <guid>{contactId:D}</guid><name>Fixer</name><connection>3</connection><loyalty>2</loyalty>
+                <type>Contact</type><free>False</free><group>False</group><family>False</family><blackmail>False</blackmail>
+              </contact></contacts><lifestyles />
+            </character>
+            """, RulesetDefaults.Sr5);
+        Assert.IsFalse(CharacterCreationBootstrapAuthority.HasBootstrapState(document));
+        Assert.IsTrue(context.Store.CreateWorkspaceDocument(importedId, document).Success);
         var contacts = new CharacterCreationContactsService(context.Store);
-        var contactState = contacts.Load(new(context.WorkspaceId));
+        var contactState = contacts.Load(new(importedId));
         Assert.IsNotNull(contactState.Value, string.Join(",", contactState.Blockers));
+        Assert.IsTrue(contactState.Value.CanEdit, string.Join(",", contactState.Blockers));
         var edit = new CharacterCreationContactEdit(contactId, Free: true);
         var preview = contacts.Preview(new(contactState.Value.Binding, edit));
         Assert.IsNotNull(preview.Value, string.Join(",", preview.Blockers));
         var confirmed = contacts.Confirm(new(contactState.Value.Binding, edit, preview.Value.PreviewDigest,
             "history-contact", ExplicitlyConfirmed: true));
         Assert.AreEqual(CharacterCreationContactOutcomes.Applied, confirmed.Outcome, string.Join(",", confirmed.Blockers));
-        AssertLatestOutputAndCheckpoint(Read(context.Store, context.WorkspaceId));
+        AssertLatestOutputAndCheckpoint(Read(context.Store, importedId));
 
         // The catalog and prices come from the real filesystem resolver already
         // used by the bootstrap fixture, not a manufactured historical authority.
         var lifestyles = new CharacterCreationLifestylesService(context.Store, context.Resolver);
-        var lifestyleState = lifestyles.Load(new(context.WorkspaceId));
+        var lifestyleState = lifestyles.Load(new(importedId));
         Assert.IsNotNull(lifestyleState.Value, string.Join(",", lifestyleState.Blockers));
         Assert.IsTrue(lifestyleState.Value.CanEdit, string.Join(",", lifestyleState.Blockers));
         Assert.AreEqual(10000m, lifestyleState.Value.Budget.Total);
@@ -220,7 +227,41 @@ public sealed class WorkspaceContinuationHistoryIntegrityTests
         var lifestyle = lifestyles.Confirm(new(lifestyleState.Value.Binding, mutation,
             lifestylePreview.Value.PreviewDigest, "history-lifestyle", ExplicitlyConfirmed: true));
         Assert.AreEqual(CharacterCreationLifestyleOutcomes.Applied, lifestyle.Outcome, string.Join(",", lifestyle.Blockers));
-        AssertLatestOutputAndCheckpoint(Read(new FileWorkspaceStore(context.Directory), context.WorkspaceId));
+        AssertLatestOutputAndCheckpoint(Read(new FileWorkspaceStore(context.Directory), importedId));
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void Pending_wizard_XML_contact_budget_cannot_replace_missing_draft_authority(bool includeResolver)
+    {
+        using ReadyContext context = ReadyContext.CreateUnprepared(CharacterCreationBuildMethods.Priority);
+        var saved = context.Store.Get(context.WorkspaceId).Value!;
+        var xml = XDocument.Parse(saved.Document.Content);
+        xml.Root!.SetElementValue("contactpoints", "15");
+        var document = saved.Document with
+        {
+            State = saved.Document.State with { Payload = xml.ToString(SaveOptions.DisableFormatting) }
+        };
+        Assert.IsTrue(context.Store.ReplaceWorkspaceDocument(context.WorkspaceId, saved.ContentRevision, document).Success);
+        var before = Read(context.Store, context.WorkspaceId);
+        var contacts = new CharacterCreationContactsService(context.Store, includeResolver ? context.Resolver : null);
+        var state = contacts.Load(new(context.WorkspaceId));
+        Assert.IsNotNull(state.Value);
+        Assert.IsFalse(state.Value.CanEdit);
+        CollectionAssert.Contains(state.Blockers.ToArray(), CharacterCreationContactsBlockers.BudgetAuthorityRequired);
+        var edit = new CharacterCreationContactEdit(Guid.NewGuid(),
+            new("Fixer", "", "", "", "", "", "", "", "", "", "", "", ""), Connection: 1, Loyalty: 1)
+            { ChangeKind = CharacterCreationContactChangeKind.Add };
+        var preview = contacts.Preview(new(state.Value.Binding, edit));
+        Assert.IsNotNull(preview.Value);
+        Assert.IsFalse(preview.Value.CanConfirm);
+        var confirmed = contacts.Confirm(new(state.Value.Binding, edit, preview.Value.PreviewDigest,
+            "history-pending-contact", ExplicitlyConfirmed: true));
+        Assert.AreEqual(CharacterCreationContactOutcomes.Blocked, confirmed.Outcome);
+        CollectionAssert.Contains(confirmed.Blockers.ToArray(), CharacterCreationContactsBlockers.BudgetAuthorityRequired);
+        Assert.AreEqual(JsonSerializer.Serialize(before),
+            JsonSerializer.Serialize(Read(new FileWorkspaceStore(context.Directory), context.WorkspaceId)));
     }
 
     [TestMethod]

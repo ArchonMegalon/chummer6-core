@@ -54,14 +54,25 @@ class RuntimePackageLockTests(unittest.TestCase):
         )
 
     def test_next_wave_candidate_is_bound_to_locally_validated_semantic_commit(self) -> None:
-        self.assertEqual("81e94d200cfda7f4a2d369268cdda43f94070a72", runtime.SOURCE_COMMIT)
-        self.assertEqual("0.0.0-packageplane.candidate.sh81e94d200cfda", runtime.PACKAGE_VERSION)
+        self.assertEqual("d1c6e3d22360ce61fd32ed58cb571ac2b50b070d", runtime.SOURCE_COMMIT)
+        self.assertEqual("0.0.0-packageplane.candidate.shd1c6e3d22360c", runtime.PACKAGE_VERSION)
 
     def test_pending_reopen_only_authority_cannot_stand_in_for_karma_completion(self) -> None:
         for field, value in (
             ("runtime_source", {"repository": runtime.SOURCE_REPOSITORY,
                                 "commit": "e66adccf06fb8bee96264b9a9112f970508e6e97"}),
             ("package_version", "0.0.0-packageplane.candidate.she66adccf06fb8"),
+        ):
+            altered = copy.deepcopy(self.lock)
+            altered[field] = value
+            with self.subTest(field=field), self.assertRaises(runtime.RuntimePackagePlaneError):
+                runtime.validate_lock_payload(altered)
+
+    def test_pre_draft_contacts_authority_cannot_stand_in_for_pending_finalization(self) -> None:
+        for field, value in (
+            ("runtime_source", {"repository": runtime.SOURCE_REPOSITORY,
+                                "commit": "071c93e6f37a35d280265c990be39eb0a2f17e53"}),
+            ("package_version", "0.0.0-packageplane.candidate.sh071c93e6f37a3"),
         ):
             altered = copy.deepcopy(self.lock)
             altered[field] = value
@@ -77,6 +88,12 @@ class RuntimePackageLockTests(unittest.TestCase):
             "Chummer.Contracts/Characters/CharacterCreationKarmaMagicModels.cs",
             "Chummer.Application/Characters/CharacterCreationKarmaMagicRules.cs",
             "Chummer.Application/Characters/CharacterCreationKarmaMagicSelectionRules.cs",
+            "Chummer.Contracts/Characters/CharacterCreationContactsModels.cs",
+            "Chummer.Application/Characters/CharacterCreationContactsService.cs",
+            "Chummer.Application/Characters/CharacterCreationContactReceiptLedgerIntegrity.cs",
+            "Chummer.Application/Characters/CharacterCreationContactsDraftRules.cs",
+            "Chummer.Application/Characters/IOwnerBoundCharacterCreationLifestylesReader.cs",
+            "Chummer.Application/Characters/OwnerBoundCharacterCreationLifestylesReader.cs",
             "Chummer.Application/Characters/CharacterCreationKarmaEffectsProjector.cs",
             "Chummer.Application/Characters/CharacterCreationLifestyleImprovementRules.cs",
             "Chummer.Application/Characters/ICharacterCreationKarmaMetatypeService.cs",
@@ -162,8 +179,8 @@ class RuntimePackageLockTests(unittest.TestCase):
                 runtime.validate_lock_payload(altered)
 
     def test_owner_admission_and_strict_inventory_are_bound_to_semantic_source(self) -> None:
-        self.assertEqual(30, len(runtime.OWNER_ADMISSION_AUTHORITY_PATHS))
-        self.assertEqual(30, len(set(runtime.OWNER_ADMISSION_AUTHORITY_PATHS)))
+        self.assertEqual(32, len(runtime.OWNER_ADMISSION_AUTHORITY_PATHS))
+        self.assertEqual(32, len(set(runtime.OWNER_ADMISSION_AUTHORITY_PATHS)))
         for member in runtime.OWNER_ADMISSION_AUTHORITY_PATHS:
             with self.subTest(member=member):
                 runtime._run(("git", "cat-file", "-e", f"{runtime.SOURCE_COMMIT}:{member}"), cwd=REPO_ROOT)
@@ -197,6 +214,11 @@ class RuntimePackageLockTests(unittest.TestCase):
             pattern = (rf"public static {interface} Owner{domain}\(\s*"
                        rf"{implementation} service\) => service;")
             self.assertRegex(probe, pattern)
+        self.assertIn("IOwnerBoundCharacterCreationLifestylesReader OwnerLifestyles(", probe)
+        self.assertIn("OwnerBoundCharacterCreationLifestylesReader reader) => reader;", probe)
+        self.assertIn("CharacterCreationLifestyleResult<CharacterCreationLifestylesState> LoadLifestylesForOriginalOwner(", probe)
+        self.assertIn("IOwnerBoundCharacterCreationLifestylesReader reader, OwnerContextStamp originalOwner,", probe)
+        self.assertIn("CharacterCreationLifestylesLoadRequest request) => reader.Load(originalOwner, request);", probe)
         calls = (
             ("Prerequisite", "Load", "LoadPrerequisiteForOriginalOwner",
              "CharacterCreationFoundationResult<CharacterCreationPrerequisiteState>",

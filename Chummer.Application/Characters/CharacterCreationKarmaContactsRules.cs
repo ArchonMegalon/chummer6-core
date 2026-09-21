@@ -63,14 +63,27 @@ public static class CharacterCreationKarmaContactsRules
         if (!IsValidPolicy(policy) || attributes is not { CanSelect: true, Attributes: not null, Policy: not null }
             || attributes.Policy.RawProfileInputsDigest != policy.RawProfileInputsDigest
             || attributes.Policy.SettingsProfileId != policy.SettingsProfileId
-            || attributes.QuoteDigest != Hash(attributes with { QuoteDigest = string.Empty })) return false;
+            || attributes.QuoteDigest != Hash(attributes with { QuoteDigest = string.Empty })
+            || attributes.Attributes.Any(item => item is null || string.IsNullOrWhiteSpace(item.AttributeId))
+            || attributes.Attributes.Select(item => item.AttributeId).Distinct(StringComparer.Ordinal).Count()
+                != attributes.Attributes.Count) return false;
+        return TryContactPoints(policy, attributes.Attributes.ToDictionary(item => item.AttributeId, item => item.Current), out points);
+    }
+
+    // The caller validates the confirmed method-specific attribute draft. This
+    // shared arithmetic does not admit or persist a character by itself.
+    internal static bool TryContactPoints(CharacterCreationKarmaContactsPolicy policy,
+        IReadOnlyDictionary<string, int> attributes, out int points)
+    {
+        points = 0;
+        if (!IsValidPolicy(policy) || attributes.Count is < 1 or > 32) return false;
         string expression = policy.ContactPointsExpression;
-        foreach (var attribute in attributes.Attributes)
+        foreach (var attribute in attributes)
         {
-            if (attribute is null) return false;
-            string value = attribute.Current.ToString(CultureInfo.InvariantCulture);
-            expression = expression.Replace("{" + attribute.AttributeId + "Unaug}", value, StringComparison.Ordinal)
-                .Replace("{" + attribute.AttributeId + "}", value, StringComparison.Ordinal);
+            if (string.IsNullOrWhiteSpace(attribute.Key) || attribute.Value < 0) return false;
+            string value = attribute.Value.ToString(CultureInfo.InvariantCulture);
+            expression = expression.Replace("{" + attribute.Key + "Unaug}", value, StringComparison.Ordinal)
+                .Replace("{" + attribute.Key + "}", value, StringComparison.Ordinal);
         }
         expression = expression.Replace(" div ", " / ", StringComparison.Ordinal);
         int depth = 0;

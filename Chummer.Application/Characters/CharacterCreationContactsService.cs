@@ -29,10 +29,12 @@ public sealed class CharacterCreationContactsService : ICharacterCreationContact
         StringComparer.Ordinal);
 
     private readonly IWorkspaceStore _workspaceStore;
+    private readonly ICharacterSourceDataResolver? _sourceData;
 
-    public CharacterCreationContactsService(IWorkspaceStore workspaceStore)
+    public CharacterCreationContactsService(IWorkspaceStore workspaceStore, ICharacterSourceDataResolver? sourceData = null)
     {
         _workspaceStore = workspaceStore ?? throw new ArgumentNullException(nameof(workspaceStore));
+        _sourceData = sourceData;
     }
 
     public CharacterCreationContactResult<CharacterCreationContactsState> Load(
@@ -66,7 +68,12 @@ public sealed class CharacterCreationContactsService : ICharacterCreationContact
             context.HighPlacesBudget,
             blockers,
             CanEdit: context.AuthorityBlockers.Count == 0,
-            SnapshotDigest: string.Empty);
+            SnapshotDigest: string.Empty)
+        {
+            NewContactTemplate = context.AuthorityBlockers.Count == 0
+                ? CreateContactTemplate(context.Root, Guid.Empty)
+                : null
+        };
         state = state with
         {
             SnapshotDigest = CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(
@@ -231,7 +238,9 @@ public sealed class CharacterCreationContactsService : ICharacterCreationContact
                 Payload = evaluation.ReplacementContent,
                 AuxiliaryState = workspace.Document.AuxiliaryState with
                 {
-                    CharacterCreationContactReceipts = receipts
+                    CharacterCreationContactReceipts = receipts,
+                    CharacterCreationContactsDraft = preview.WritePlan.PendingDraft
+                        ?? workspace.Document.AuxiliaryState.CharacterCreationContactsDraft
                 }
             }
         };
@@ -353,6 +362,9 @@ public sealed class CharacterCreationContactsService : ICharacterCreationContact
         }
 
         var blockers = new List<string>(context.AuthorityBlockers);
+        CharacterCreationContactChangeKind kind = request.Edit.ChangeKind;
+        if (!Enum.IsDefined(kind) || request.Edit.ContactId == Guid.Empty)
+            blockers.Add(CharacterCreationContactsBlockers.MutationInvalid);
         if (blockers.Count != 0)
         {
             return PreviewBlocked(
@@ -367,25 +379,73 @@ public sealed class CharacterCreationContactsService : ICharacterCreationContact
         ContactElement? targetEntry = context.ContactElements.SingleOrDefault(
             pair => pair.Id == request.Edit.ContactId);
         XElement? target = targetEntry?.Element;
+        if (kind == CharacterCreationContactChangeKind.Add)
+        {
+            // Reject collisions with pets/enemies too, not just editable Contacts.
+            if ((context.Root.Element("contacts")?.Elements("contact") ?? []).Any(contact =>
+                    Guid.TryParse(ReadValue(contact, "guid"), out Guid id) && id == request.Edit.ContactId))
+                blockers.Add(CharacterCreationContactsBlockers.ContactAmbiguous);
+            if (request.Edit.Identity is null)
+                blockers.Add(CharacterCreationContactsBlockers.MutationInvalid);
+            target = CreateDefaultContact(request.Edit.ContactId);
+            before = CreateContactTemplate(context.Root, request.Edit.ContactId);
+        }
         if (before is null || target is null)
         {
             blockers.Add(CharacterCreationContactsBlockers.ContactNotFound);
             return PreviewBlocked(context, workspace, request.Binding, request.Edit.ContactId, blockers);
         }
+        if (blockers.Count != 0)
+            return PreviewBlocked(context, workspace, request.Binding, request.Edit.ContactId, blockers);
 
         XDocument replacementDocument = new(context.Document);
         XElement replacementRoot = replacementDocument.Root!;
-        XElement replacementTarget = FindContact(replacementRoot, request.Edit.ContactId)!;
-        string siblingsBefore = ComputeUntouchedSiblingDigest(context.Root, request.Edit.ContactId);
-        string nestedBefore = ComputeNestedStateDigest(target);
-        List<CharacterCreationContactWriteOperation> operations = ApplyEdit(
-            context.Root,
-            replacementRoot,
-            target,
-            replacementTarget,
-            before,
-            request.Edit,
-            blockers);
+        XElement replacementTarget;
+        if (kind == CharacterCreationContactChangeKind.Add)
+        {
+            XElement? collection = replacementRoot.Element("contacts");
+            if (collection is null)
+            {
+                collection = new XElement("contacts");
+                replacementRoot.Add(collection);
+            }
+            replacementTarget = new XElement(target);
+            collection.Add(replacementTarget);
+        }
+        else
+        {
+            replacementTarget = FindContact(replacementRoot, request.Edit.ContactId)!;
+        }
+        string siblingsBefore = kind == CharacterCreationContactChangeKind.Edit
+            ? ComputeUntouchedSiblingDigest(context.Root, request.Edit.ContactId)
+            : CharacterCreationContactReceiptLedgerIntegrity.ComputeCollectionSiblingDigest(context.Root, request.Edit.ContactId);
+        string nestedBefore = kind == CharacterCreationContactChangeKind.Add
+            ? CharacterCreationContactReceiptLedgerIntegrity.AbsentContactDigest
+            : ComputeNestedStateDigest(target);
+        List<CharacterCreationContactWriteOperation> operations;
+        if (kind == CharacterCreationContactChangeKind.Remove)
+        {
+            if (!before.CanDelete)
+                blockers.Add(CharacterCreationContactsBlockers.FieldNotEditable);
+            if (request.Edit.Identity is not null || request.Edit.Connection is not null
+                || request.Edit.Loyalty is not null || request.Edit.IsGroup is not null
+                || request.Edit.Free is not null || request.Edit.Family is not null
+                || request.Edit.Blackmail is not null)
+                blockers.Add(CharacterCreationContactsBlockers.MutationInvalid);
+            operations = [Operation(CharacterCreationContactFieldIds.Presence, "present", "absent") with { Order = 1 }];
+            replacementTarget.Remove();
+        }
+        else
+        {
+            operations = ApplyEdit(context.Root, replacementRoot, target, replacementTarget,
+                before, request.Edit, blockers);
+            if (kind == CharacterCreationContactChangeKind.Add)
+            {
+                operations.Insert(0, Operation(CharacterCreationContactFieldIds.Presence, "absent", "present"));
+                operations = operations.Select((operation, index) => operation with { Order = index + 1 }).ToList();
+                before = AsAbsent(before);
+            }
+        }
         string replacementContent = replacementDocument.ToString(SaveOptions.DisableFormatting);
         string contentAfter = CharacterCreationFoundationDraftLedgerIntegrity
             .ComputeRawCharacterXmlDigest(replacementContent);
@@ -404,6 +464,8 @@ public sealed class CharacterCreationContactsService : ICharacterCreationContact
             blockers);
         CharacterCreationContactProjection? after = projectedAfter.SingleOrDefault(
             contact => contact.ContactId == request.Edit.ContactId);
+        if (kind == CharacterCreationContactChangeKind.Remove)
+            after = AsAbsent(before);
         if (!FixedEquals(context.Binding.SourceDigest, replacementAuthority.SourceDigest)
             || !FixedEquals(context.Binding.RulesDigest, replacementAuthority.RulesDigest)
             || !FixedEquals(context.Binding.RuntimeDigest, replacementAuthority.RuntimeDigest))
@@ -419,15 +481,34 @@ public sealed class CharacterCreationContactsService : ICharacterCreationContact
         if (after is null)
             blockers.Add(CharacterCreationContactsBlockers.ContactInvalid);
 
-        string siblingsAfter = ComputeUntouchedSiblingDigest(replacementRoot, request.Edit.ContactId);
-        string nestedAfter = ComputeNestedStateDigest(replacementTarget);
+        string siblingsAfter = kind == CharacterCreationContactChangeKind.Edit
+            ? ComputeUntouchedSiblingDigest(replacementRoot, request.Edit.ContactId)
+            : CharacterCreationContactReceiptLedgerIntegrity.ComputeCollectionSiblingDigest(replacementRoot, request.Edit.ContactId);
+        string nestedAfter = kind == CharacterCreationContactChangeKind.Remove
+            ? CharacterCreationContactReceiptLedgerIntegrity.AbsentContactDigest
+            : ComputeNestedStateDigest(replacementTarget);
         bool siblingsPreserved = FixedEquals(siblingsBefore, siblingsAfter);
         bool nestedPreserved = FixedEquals(nestedBefore, nestedAfter);
-        if (!siblingsPreserved || !nestedPreserved)
+        if (!siblingsPreserved || kind == CharacterCreationContactChangeKind.Edit && !nestedPreserved)
             blockers.Add(CharacterCreationContactsBlockers.AuthorityUnavailable);
 
+        CharacterCreationContactsDraft? pendingDraft = null;
+        if (context.PendingDraft is { } pending)
+        {
+            blockers.AddRange(CharacterCreationContactsDraftRules.ValidatePointOnlySelection(replacementWorkspaceDocument));
+            if (!CharacterCreationContactsDraftRules.TryReadSelections(replacementRoot, out var selections)
+                || (pendingDraft = CharacterCreationContactsDraftRules.Create(workspace,
+                    pending.Policy, pending.CarryoverPolicy, selections)) is null)
+                blockers.Add(CharacterCreationContactsBlockers.ContactInvalid);
+            // Confirm changes the typed auxiliary lane, never bootstrap XML.
+            replacementContent = workspace.Document.Content;
+            contentAfter = context.Binding.ContentDigest;
+        }
         var plan = new CharacterCreationContactAtomicWritePlan(
-            CharacterCreationContactsSchemas.WritePlanV1,
+            pendingDraft is not null ? CharacterCreationContactsSchemas.DraftWritePlanV1
+                : kind == CharacterCreationContactChangeKind.Edit
+                ? CharacterCreationContactsSchemas.WritePlanV1
+                : CharacterCreationContactsSchemas.WritePlanV2,
             CharacterCreationWizardStepIds.ContactsLifestyles,
             request.Edit.ContactId,
             operations,
@@ -439,7 +520,7 @@ public sealed class CharacterCreationContactsService : ICharacterCreationContact
             nestedAfter,
             siblingsPreserved,
             nestedPreserved,
-            PlanDigest: string.Empty);
+            PlanDigest: string.Empty) { ChangeKind = kind, PendingDraft = pendingDraft };
         plan = plan with
         {
             PlanDigest = CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(
@@ -552,8 +633,18 @@ public sealed class CharacterCreationContactsService : ICharacterCreationContact
     private AuthorityContext BuildContext(OwnerScope owner, WorkspaceStoredDocument workspace)
     {
         var blockers = new List<string>();
+        WorkspaceDocument calculationDocument = workspace.Document;
+        CharacterCreationContactsDraft? pending = null;
+        if (CharacterCreationBootstrapAuthority.HasBootstrapState(workspace.Document))
+        {
+            if (_sourceData is not null && CharacterCreationContactsDraftRules.TryLoad(workspace, _sourceData,
+                    out pending, out var projected) && projected is not null)
+                calculationDocument = projected;
+            else
+                blockers.Add(CharacterCreationContactsBlockers.BudgetAuthorityRequired);
+        }
         CharacterCreationContactsAuthoritySnapshot authority =
-            CharacterCreationContactsAuthorityEvaluator.Evaluate(workspace.Document);
+            CharacterCreationContactsAuthorityEvaluator.Evaluate(calculationDocument);
         blockers.AddRange(authority.AuthorityBlockers);
         if (!SupportsAtomicCommit(owner))
         {
@@ -571,7 +662,7 @@ public sealed class CharacterCreationContactsService : ICharacterCreationContact
         XElement root;
         try
         {
-            document = XDocument.Parse(workspace.Document.Content, LoadOptions.PreserveWhitespace);
+            document = XDocument.Parse(calculationDocument.Content, LoadOptions.PreserveWhitespace);
             root = document.Root ?? throw new XmlException();
             if (!string.Equals(root.Name.LocalName, "character", StringComparison.Ordinal))
                 throw new XmlException();
@@ -636,7 +727,7 @@ public sealed class CharacterCreationContactsService : ICharacterCreationContact
             authority.HighPlacesBudget,
             blockers.Distinct(StringComparer.Ordinal)
                 .OrderBy(value => value, StringComparer.Ordinal)
-                .ToArray());
+                .ToArray(), pending);
     }
 
     private static List<CharacterCreationContactProjection> ProjectContacts(
@@ -682,7 +773,7 @@ public sealed class CharacterCreationContactsService : ICharacterCreationContact
                 cost.CountsAgainstHighPlacesBudget,
                 fields,
                 CharacterCreationContactSourceAnchors.All,
-                ContactDigest: string.Empty);
+                ContactDigest: string.Empty) { CanDelete = !created && semantics.CanDelete };
             projection = projection with
             {
                 ContactDigest = CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(
@@ -986,7 +1077,7 @@ public sealed class CharacterCreationContactsService : ICharacterCreationContact
             editable ? [] : [CharacterCreationContactsBlockers.FieldNotEditable],
             CharacterCreationContactSourceAnchors.All);
 
-    private static CharacterCreationContactIdentity ReadIdentity(XElement contact) => new(
+    internal static CharacterCreationContactIdentity ReadIdentity(XElement contact) => new(
         ReadValue(contact, "name"),
         ReadValue(contact, "role"),
         ReadValue(contact, "location"),
@@ -1193,6 +1284,43 @@ public sealed class CharacterCreationContactsService : ICharacterCreationContact
             EmptyDigest());
     }
 
+    internal static XElement CreateDefaultContact(Guid id) => new("contact",
+        new XElement("guid", id.ToString("D")),
+        new XElement("type", "Contact"),
+        new XElement("connection", 1),
+        new XElement("loyalty", 1));
+
+    private static CharacterCreationContactProjection? CreateContactTemplate(XElement root, Guid id)
+    {
+        XElement contact = CreateDefaultContact(id);
+        if (!CharacterContactEditSemanticsResolver.TryResolve(root, contact, out var semantics))
+            return null;
+        CharacterCreationContactIdentity identity = ReadIdentity(contact);
+        var projection = new CharacterCreationContactProjection(id, identity,
+            semantics.Connection, semantics.Loyalty, semantics.IsGroup, semantics.Free,
+            semantics.Family, semantics.Blackmail, 0, false, false,
+            BuildFields(identity, semantics, created: false),
+            CharacterCreationContactSourceAnchors.All, string.Empty);
+        return projection with
+        {
+            ContactDigest = CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(projection)
+        };
+    }
+
+    private static CharacterCreationContactProjection AsAbsent(CharacterCreationContactProjection contact)
+    {
+        var absent = contact with
+        {
+            IsAbsent = true, CanDelete = false, ContactPointCost = 0,
+            CountsAgainstContactBudget = false, CountsAgainstHighPlacesBudget = false,
+            ContactDigest = string.Empty
+        };
+        return absent with
+        {
+            ContactDigest = CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(absent)
+        };
+    }
+
     private sealed record ContactElement(Guid Id, XElement Element);
 
     private sealed record AuthorityContext(
@@ -1205,7 +1333,8 @@ public sealed class CharacterCreationContactsService : ICharacterCreationContact
         IReadOnlyList<ContactElement> ContactElements,
         CharacterCreationContactBudget ContactBudget,
         CharacterCreationContactBudget HighPlacesBudget,
-        IReadOnlyList<string> AuthorityBlockers);
+        IReadOnlyList<string> AuthorityBlockers,
+        CharacterCreationContactsDraft? PendingDraft);
 
     private sealed record PreviewEvaluation(
         CharacterCreationContactResult<CharacterCreationContactPreview> Result,

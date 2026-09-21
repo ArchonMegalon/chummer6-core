@@ -13,8 +13,8 @@ inventory_name="chummer-owner-contracts.inventory.json"
 candidate_inventory_name="chummer-core-candidate-engine-contract.inventory.json"
 candidate_runtime_inventory_name="chummer-core-candidate-gm-edit-runtime.inventory.json"
 runtime_inventory_name="chummer-core-runtime-packages.inventory.json"
-candidate_version="0.0.0-packageplane.candidate.sh81e94d200cfda"
-runtime_source_commit="81e94d200cfda7f4a2d369268cdda43f94070a72"
+candidate_version="0.0.0-packageplane.candidate.shd1c6e3d22360c"
+runtime_source_commit="d1c6e3d22360ce61fd32ed58cb571ac2b50b070d"
 candidate_id="Chummer.Engine.Contracts"
 candidate_runtime_id="Chummer.Engine.GmCharacterEdits"
 candidate_repository="https://github.com/ArchonMegalon/chummer6-core.git"
@@ -642,6 +642,13 @@ public static class BoundaryProbe
     public static CharacterCreationContactResult<CharacterCreationContactReceipt> ConfirmForOriginalOwner(
         IOwnerBoundCharacterCreationContactsService service, OwnerContextStamp originalOwner,
         CharacterCreationContactConfirmRequest request) => service.Confirm(originalOwner, request);
+
+    public static IOwnerBoundCharacterCreationLifestylesReader OwnerLifestyles(
+        OwnerBoundCharacterCreationLifestylesReader reader) => reader;
+
+    public static CharacterCreationLifestyleResult<CharacterCreationLifestylesState> LoadLifestylesForOriginalOwner(
+        IOwnerBoundCharacterCreationLifestylesReader reader, OwnerContextStamp originalOwner,
+        CharacterCreationLifestylesLoadRequest request) => reader.Load(originalOwner, request);
 
     public static IOwnerBoundCharacterCreationPrerequisiteService OwnerPrerequisite(
         OwnerBoundCharacterCreationPrerequisiteService service) => service;

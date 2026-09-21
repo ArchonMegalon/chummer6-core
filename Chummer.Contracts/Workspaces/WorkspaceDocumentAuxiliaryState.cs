@@ -55,11 +55,14 @@ public sealed record WorkspaceDocumentAuxiliaryState(
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     CharacterCreationFinalizationArchive? CharacterCreationFinalizationArchive = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    IReadOnlyList<CharacterCreationKarmaMetatypeDecision>? CharacterCreationKarmaMetatypeDecisions = null)
+    IReadOnlyList<CharacterCreationKarmaMetatypeDecision>? CharacterCreationKarmaMetatypeDecisions = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    CharacterCreationContactsDraft? CharacterCreationContactsDraft = null)
 {
     public static WorkspaceDocumentAuxiliaryState Empty { get; } = new();
 
     public bool IsEmpty => CharacterCreationFoundationDraft is null
+                           && CharacterCreationContactsDraft is null
                            && CharacterCreationPrerequisiteDraft is null
                            && CharacterCreationAttributesDraft is null
                            && CharacterCreationSkillsDraft is null

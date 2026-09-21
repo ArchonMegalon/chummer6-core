@@ -660,6 +660,10 @@ public sealed class CharacterCreationFinalizationService : ICharacterCreationFin
                 || current.RawProfileInputsDigest != bootstrap.RawProfileInputsDigest
                 || !context.TryResolveCreationCarryoverPolicy(out var final)
                 || !SameCarryover(current, final)) return false;
+            if (workspace.Document.AuxiliaryState.CharacterCreationContactsDraft is { } contacts
+                && (!CharacterCreationContactsDraftRules.TryLoad(workspace, _sourceData, out var checkedContacts, out _)
+                    || checkedContacts is null || !CharacterCreationContactsDraftRules.InputsMatch(contacts, checkedContacts)))
+                return false;
             policy = current;
             return true;
         }
