@@ -45,7 +45,9 @@ internal static class CharacterCreationFoundationLifeModuleQualityWritePlanner
         string? skillsSourceXml = null,
         string? skillsSourceDigest = null,
         string? qualitiesSourceXml = null,
-        string? qualitiesSourceDigest = null)
+        string? qualitiesSourceDigest = null,
+        string? qualityLevelsSourceXml = null,
+        string? qualityLevelsSourceDigest = null)
     {
         ArgumentNullException.ThrowIfNull(ledger);
         ArgumentNullException.ThrowIfNull(module);
@@ -65,6 +67,11 @@ internal static class CharacterCreationFoundationLifeModuleQualityWritePlanner
                                       qualitiesSourceXml,
                                       qualitiesSourceDigest,
                                       out qualitySourceAuthority);
+        CharacterCreationFoundationQualityLevelSourceAuthority? qualityLevels = null;
+        bool hasQualityLevels = qualityLevelsSourceXml is not null || qualityLevelsSourceDigest is not null;
+        bool qualityLevelsValid = !hasQualityLevels
+            || CharacterCreationFoundationQualityLevelSourceAuthority.TryCreate(
+                qualityLevelsSourceXml, qualityLevelsSourceDigest, out qualityLevels);
         CharacterCreationFoundationEffectCompilation compilation =
             CharacterCreationFoundationEffectCompiler.Compile(
                 rulesetId,
@@ -72,7 +79,8 @@ internal static class CharacterCreationFoundationLifeModuleQualityWritePlanner
                 module,
                 version,
                 skillSourceAuthority,
-                qualitySourceAuthority);
+                qualitySourceAuthority,
+                qualityLevelSourceAuthority: qualityLevels);
         var blockers = new List<string>();
         if (workspaceId != ledger.WorkspaceId
             || !CharacterCreationFoundationDraftLedgerIntegrity.IsCanonicalDigest(
@@ -84,13 +92,13 @@ internal static class CharacterCreationFoundationLifeModuleQualityWritePlanner
             blockers.Add(
                 CharacterCreationFoundationBlockers.FinalizationRuntimeAuthorityRequired);
         }
-        if (!skillSourceValid)
+        if (!skillSourceValid || !qualityLevelsValid)
         {
             blockers.Add(
                 CharacterCreationFoundationBlockers.FinalizationRuntimeAuthorityRequired);
         }
         bool needsQualitySource = compilation.Effects.Any(effect => effect.EffectKind
-            is "pushtext" or "addqualities");
+            is "pushtext" or "addqualities" or "qualitylevel");
         if (!qualitySourceValid || (needsQualitySource && qualitySourceAuthority is null))
         {
             blockers.Add(

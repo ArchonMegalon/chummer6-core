@@ -31,7 +31,8 @@ internal static class CharacterCreationFoundationEffectCompiler
         LifeModuleVersionProjectionDto? version,
         CharacterCreationFoundationSkillSourceAuthority? skillSourceAuthority = null,
         CharacterCreationFoundationQualitySourceAuthority? qualitySourceAuthority = null,
-        string sourceContextDigest = "")
+        string sourceContextDigest = "",
+        CharacterCreationFoundationQualityLevelSourceAuthority? qualityLevelSourceAuthority = null)
     {
         ArgumentNullException.ThrowIfNull(ledger);
         ArgumentNullException.ThrowIfNull(module);
@@ -49,6 +50,7 @@ internal static class CharacterCreationFoundationEffectCompiler
                     "skilllevel:v1",
                     "skillgrouplevel:v1",
                     "freepositivequalities:v1-literal",
+                    "qualitylevel:v1-source-mapped-positive-literal-contribution-only",
                     "freenegativequalities:v1-literal",
                     "knowledgeskilllevel:v1-free-knowledge-pool",
                     "pushtext:v1-selection-stack",
@@ -57,6 +59,7 @@ internal static class CharacterCreationFoundationEffectCompiler
                 SkillSourceDigest = skillSourceAuthority?.SourceDigest ?? string.Empty,
                 QualitySourceDigest = qualitySourceAuthority?.SourceDigest ?? string.Empty,
                 SourceContextDigest = sourceContextDigest,
+                QualityLevelsSourceDigest = qualityLevelSourceAuthority?.SourceDigest ?? string.Empty,
                 SupportedRequirementKinds = new[] { "oneof:metatype" }
             });
 
@@ -126,7 +129,9 @@ internal static class CharacterCreationFoundationEffectCompiler
                         StringComparison.Ordinal))
                     .ToArray(),
                 skillSourceAuthority,
-                ledger.SourceDigest))
+                ledger.SourceDigest,
+                qualitySourceAuthority,
+                qualityLevelSourceAuthority))
             .ToArray();
         CompositeSelectionCompilation composite = CompileCompositeSelections(
             ledger.ProjectedEffects,
@@ -134,6 +139,11 @@ internal static class CharacterCreationFoundationEffectCompiler
             qualitySourceAuthority,
             ledger.SourceDigest);
         effects = composite.Effects;
+        // Resolving a group contribution does not yet evaluate existing runner
+        // qualities, choose instance text or serialize the one cumulative winner.
+        // Keep the write planner blocked as well, even for a module without pushtext.
+        if (effects.Any(effect => effect.EffectKind == "qualitylevel"))
+            blockers.Add(CharacterCreationFoundationBlockers.FinalizationRuntimeAuthorityRequired);
         if (effects.Any(item => string.Equals(
                 item.CompilationStatus,
                 CharacterCreationFoundationEffectCompilationStatuses.PromptRequired,
@@ -252,7 +262,9 @@ internal static class CharacterCreationFoundationEffectCompiler
         string sourcePhase,
         IReadOnlyList<LifeModuleFollowUpPromptDto> prompts,
         CharacterCreationFoundationSkillSourceAuthority? skillSourceAuthority,
-        string lifeModulesSourceDigest)
+        string lifeModulesSourceDigest,
+        CharacterCreationFoundationQualitySourceAuthority? qualitySourceAuthority,
+        CharacterCreationFoundationQualityLevelSourceAuthority? qualityLevelSourceAuthority)
     {
         string effectKind = ReadEffectKind(effect.RawXml);
         string[] promptIds = prompts
@@ -275,6 +287,8 @@ internal static class CharacterCreationFoundationEffectCompiler
                             out ignoredSourceMetadata)
                         || IsSupportedSkillGroupLevel(effect, skillSourceAuthority, out targetBinding)
                         || IsSupportedFreeQualityPool(effect, lifeModulesSourceDigest, out targetBinding)
+                        || (qualitySourceAuthority is not null && qualityLevelSourceAuthority is not null
+                            && qualityLevelSourceAuthority.TryResolveEffect(effect, qualitySourceAuthority, out targetBinding))
                         || IsSupportedKnowledgeSkillLevel(
                             effect,
                             lifeModulesSourceDigest,
@@ -291,6 +305,13 @@ internal static class CharacterCreationFoundationEffectCompiler
             : supported
                 ? null
                 : CharacterCreationFoundationBlockers.FinalizationEffectUnsupported;
+        string[] anchors = supported && effectKind == "qualitylevel" && targetBinding is not null
+            ? effect.SourceAnchorIds.Concat(new[]
+                {
+                    $"qualitylevels.xml#qualitygroup:{effect.Parameters["@group"]}:level:{effect.TargetId}",
+                    $"qualities.xml#quality:{targetBinding.SourceId}"
+                }).Distinct(StringComparer.Ordinal).ToArray()
+            : effect.SourceAnchorIds.ToArray();
         var instruction = new CharacterCreationFoundationEffectInstruction(
             Order: index + 1,
             EffectId: effect.EffectId,
@@ -302,7 +323,7 @@ internal static class CharacterCreationFoundationEffectCompiler
                 .OrderBy(item => item.Key, StringComparer.Ordinal)
                 .ToDictionary(item => item.Key, item => item.Value, StringComparer.Ordinal),
             PromptIds: promptIds,
-            SourceAnchorIds: effect.SourceAnchorIds.ToArray(),
+            SourceAnchorIds: anchors,
             CompilationStatus: status,
             Blocker: blocker,
             InstructionDigest: string.Empty)

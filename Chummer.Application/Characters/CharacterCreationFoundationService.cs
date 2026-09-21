@@ -312,12 +312,13 @@ public sealed partial class CharacterCreationFoundationService : ICharacterCreat
 
         CharacterCreationFoundationSkillSourceAuthority? skills = null;
         CharacterCreationFoundationQualitySourceAuthority? qualities = null;
+        CharacterCreationFoundationQualityLevelSourceAuthority? qualityLevels = null;
         string sourceContextDigest = string.Empty;
         ICharacterSourceDataContext? sourceContext = _sourceDataResolver.TryCreateContext(workspace.Document.Content);
         bool hasEffectSources = sourceContext is not null
             && sourceContext.TryResolveCreationFoundationEffectSources(out CharacterCreationFoundationEffectSources? sources)
             && sources is not null
-            && sources.TryCreateAuthorities(out skills, out qualities, out sourceContextDigest);
+            && sources.TryCreateAuthorities(out skills, out qualities, out qualityLevels, out sourceContextDigest);
         CharacterCreationFoundationEffectCompilation compilation =
             CharacterCreationFoundationEffectCompiler.Compile(
                 workspace.Document.RulesetId,
@@ -326,7 +327,8 @@ public sealed partial class CharacterCreationFoundationService : ICharacterCreat
                 version,
                 skills,
                 qualities,
-                sourceContextDigest);
+                sourceContextDigest,
+                qualityLevels);
         string[] blockers = state.AuthorityBlockers
             .Concat(hasEffectSources ? [] : new[] { CharacterCreationFoundationBlockers.FinalizationRuntimeAuthorityRequired })
             .Concat(compilation.Blockers)

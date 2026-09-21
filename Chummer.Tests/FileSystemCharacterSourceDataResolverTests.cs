@@ -4928,7 +4928,9 @@ public sealed class FileSystemCharacterSourceDataResolverTests
         Assert.AreEqual(profileId, sources.SettingsProfileId);
         Assert.IsTrue(context.TryResolveCreationSourceProfile(out var profile));
         Assert.AreEqual(profile.RawProfileInputsDigest, sources.ProfileInputsDigest);
-        Assert.IsTrue(sources.TryCreateAuthorities(out var skills, out var qualities, out string digest));
+        Assert.IsTrue(sources.TryCreateAuthorities(out var skills, out var qualities, out var levels, out string digest));
+        Assert.IsTrue(levels!.TryResolveExact("SINner", 1, qualities!, out var national));
+        Assert.AreEqual("SINner (National)", national!.CanonicalName);
         Assert.IsTrue(skills!.TryResolveExactActive("Perception", out var perception));
         Assert.IsTrue(skills.TryResolveExactGroup("Close Combat", out _));
         Assert.IsTrue(qualities!.TryResolveExact("Uncouth", out var uncouth));
@@ -4939,7 +4941,8 @@ public sealed class FileSystemCharacterSourceDataResolverTests
         // Keep the complete catalogs for ambiguity checks, but never resolve a
         // disabled book or accept a previously bound target through that filter.
         var disabled = sources with { EnabledSourcebooks = new[] { "RF" } };
-        Assert.IsTrue(disabled.TryCreateAuthorities(out skills, out qualities, out string disabledDigest));
+        Assert.IsTrue(disabled.TryCreateAuthorities(out skills, out qualities, out levels, out string disabledDigest));
+        Assert.IsFalse(levels!.TryResolveExact("SINner", 1, qualities!, out _));
         Assert.IsFalse(skills!.TryResolveExactActive("Perception", out _));
         Assert.IsFalse(skills.TryResolveExactGroup("Close Combat", out _));
         Assert.IsFalse(qualities!.TryResolveExact("Uncouth", out _));
@@ -4959,6 +4962,7 @@ public sealed class FileSystemCharacterSourceDataResolverTests
         {
             WriteBaseContent(root, string.Empty);
             WriteQualityCatalog(root, QualityRow("<source>SR5</source>"));
+            CopyCanonicalDataFiles(root, "qualitylevels.xml");
             var context = CreateContext(root, CharacterXml(characterFields));
             Assert.IsNotNull(context);
             Assert.IsFalse(context.TryResolveCreationFoundationEffectSources(out var sources));
@@ -4971,6 +4975,7 @@ public sealed class FileSystemCharacterSourceDataResolverTests
     [DataRow("settings.xml")]
     [DataRow("skills.xml")]
     [DataRow("qualities.xml")]
+    [DataRow("qualitylevels.xml")]
     public void Foundation_effect_sources_reject_source_drift_after_capture(string fileName)
     {
         string root = CreateTempDirectory();
@@ -4978,6 +4983,7 @@ public sealed class FileSystemCharacterSourceDataResolverTests
         {
             WriteBaseContent(root, string.Empty);
             WriteQualityCatalog(root, QualityRow("<source>SR5</source>"));
+            CopyCanonicalDataFiles(root, "qualitylevels.xml");
             var context = CreateContext(root, CharacterXml(
                 "<created>False</created><buildmethod>LifeModule</buildmethod>"));
             Assert.IsNotNull(context);

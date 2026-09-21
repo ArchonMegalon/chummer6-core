@@ -2049,6 +2049,8 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 || skills?.Root is null
                 || !TryLoadEffectiveDocument(_catalog, "qualities.xml", out XDocument? qualities)
                 || qualities?.Root is null
+                || !TryLoadEffectiveDocument(_catalog, "qualitylevels.xml", out XDocument? qualityLevels)
+                || qualityLevels?.Root is null
                 || !_sourceInputs.TryAdmitReuse(_catalog))
                 return false;
 
@@ -2057,7 +2059,8 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 _rawProfileInputsDigest,
                 Array.AsReadOnly(_enabledSourcebooks.OrderBy(book => book, StringComparer.Ordinal).ToArray()),
                 skills.ToString(SaveOptions.DisableFormatting),
-                qualities.ToString(SaveOptions.DisableFormatting));
+                qualities.ToString(SaveOptions.DisableFormatting),
+                qualityLevels.ToString(SaveOptions.DisableFormatting));
             return true;
         }
 
