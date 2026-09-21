@@ -57,8 +57,15 @@ public sealed partial class CharacterCreationFoundationLifeModuleDecisionAuthori
             && FixedEquals(item.Choice.DecisionCommandDigest, command.DecisionCommandDigest));
         if (candidate is null)
             return Invalid<LifeModuleDecisionAcceptance>();
-        var confirmed = foundation.ConfirmModule(new(candidate.Preview.Request,
-            candidate.Preview.PreviewDigest, ExplicitlyConfirmed: true)
+        var projected = foundation.ProjectModule(workspace, candidate.Preview.Request with
+        {
+            FollowUpValues = command.InputResolution?.Values ?? candidate.Preview.Request.FollowUpValues
+        }, state);
+        if (projected.Value is not { CanConfirm: true } preview
+            || !MatchesModuleInputs(current, candidate.Choice, preview, command.InputResolution))
+            return Invalid<LifeModuleDecisionAcceptance>();
+        var confirmed = foundation.ConfirmModule(new(preview.Request,
+            preview.PreviewDigest, ExplicitlyConfirmed: true)
         {
             OriginDecisionCommand = command,
             OriginDecisionStep = current
@@ -84,17 +91,29 @@ public sealed partial class CharacterCreationFoundationLifeModuleDecisionAuthori
         if (fresh is null || !SameStep(current, fresh))
             return null;
         string choiceId = ModuleChoiceId(preview);
-        var choice = current.LegalChoices.SingleOrDefault(item => item.ChoiceId == choiceId
-            && FixedEquals(item.DecisionCommandDigest, ModuleCommandDigest(preview)));
+        var choice = current.LegalChoices.SingleOrDefault(item => item.ChoiceId == choiceId);
         if (choice is null || choice.ChoiceId != command.ChoiceId
-            || !FixedEquals(choice.DecisionCommandDigest, command.DecisionCommandDigest))
+            || !FixedEquals(choice.DecisionCommandDigest, command.DecisionCommandDigest)
+            || !MatchesModuleInputs(current, choice, preview, command.InputResolution))
             return null;
         string decisionId = Digest(new { Kind = "sr5-life-module", command.WorkspaceId,
-            command.ChoiceId, command.DecisionCommandDigest });
+            command.ChoiceId, command.DecisionCommandDigest,
+            InputResolutionDigest = command.InputResolution?.ResolutionDigest });
         var fact = new OriginCanonicalNarrativeFact(
             $"life-module:{preview.Entry.Selection.ModuleId}:{proposed.AdditionalModules!.Count}",
             "accepted-life-module", choice.Label, decisionId, preview.Entry.SourceAnchorIds, string.Empty);
         fact = fact with { FactDigest = Digest(fact with { FactDigest = string.Empty }) };
+        var acceptedFacts = new List<OriginCanonicalNarrativeFact> { fact };
+        foreach (var prompt in choice.FollowUps ?? [])
+        {
+            if (command.InputResolution is null || !command.InputResolution.Values.TryGetValue(prompt.PromptId, out var answer)
+                || string.IsNullOrWhiteSpace(answer))
+                continue;
+            var answerFact = new OriginCanonicalNarrativeFact(fact.FactId + ":answer:" + Digest(prompt.PromptId),
+                "accepted-life-module-answer", prompt.Label + ": " + answer, decisionId,
+                prompt.SourceAnchorIds, string.Empty);
+            acceptedFacts.Add(answerFact with { FactDigest = Digest(answerFact) });
+        }
         string consequence = string.IsNullOrWhiteSpace(preview.Entry.StoryTemplate)
             ? choice.Label : preview.Entry.StoryTemplate.Trim();
         var seed = current with
@@ -104,7 +123,7 @@ public sealed partial class CharacterCreationFoundationLifeModuleDecisionAuthori
             TurnId = $"{JourneyId}:{workspace.Id.Value}:{current.TurnSequence + 1}",
             PreviousTurnDigest = command.ExpectedTurnSeedDigest,
             AcceptedDecisionIds = [.. current.AcceptedDecisionIds, decisionId],
-            CanonicalFacts = [.. current.CanonicalFacts, fact]
+            CanonicalFacts = [.. current.CanonicalFacts, .. acceptedFacts]
         };
         var next = BuildContinuationStep(foundation, ProjectCommittedDraft(workspace, proposed), seed);
         if (next is null)
@@ -114,7 +133,8 @@ public sealed partial class CharacterCreationFoundationLifeModuleDecisionAuthori
             command.DecisionCommandDigest, command.IdempotencyKeyDigest, workspace.ContentRevision,
             next.WorkspaceRevision, current.ContentDigest, next.ContentDigest, next.SourceDigest,
             next.RulesDigest, next.RuntimeDigest, current.DecisionDigest, current.MechanicsSnapshotDigest,
-            next.DecisionGraphDigest, next.MechanicsSnapshotDigest, consequence, [fact], string.Empty);
+            next.DecisionGraphDigest, next.MechanicsSnapshotDigest, consequence, acceptedFacts, string.Empty)
+        { InputResolutionDigest = command.InputResolution?.ResolutionDigest };
         receipt = receipt with { ReceiptDigest = LifeModuleDecisionAcceptanceIntegrity.ComputeReceiptDigest(receipt) };
         return new(receipt, next);
     }
@@ -130,27 +150,26 @@ public sealed partial class CharacterCreationFoundationLifeModuleDecisionAuthori
                 versions = [null];
             foreach (var version in versions)
             {
-                // Required answers must come from a player, never a generated
-                // default. The typed module API accepts them; the choice-only
-                // Origin screen will add those controls separately.
-                if (module.FollowUps.Concat(version?.FollowUps ?? []).Any(prompt => prompt.IsRequired))
+                var prompts = module.FollowUps.Concat(version?.FollowUps ?? []).ToArray();
+                if (!LifeModuleDecisionInputIntegrity.ValidForms(prompts.Length == 0 ? null : prompts))
                     continue;
                 var request = new CharacterCreationLifeModulePreviewRequest(state.Binding,
                     state.DraftRevision, state.DraftDigest, new(module.ModuleId, version?.VersionId));
                 var projected = foundation.ProjectModule(workspace, request, state);
-                if (projected.Value is not { CanConfirm: true } preview || projected.Blockers.Count != 0)
+                // A form may be offered before its player answers exist. Only
+                // missing answers are deferred; every other rule blocker stays
+                // closed and actual confirmation always revalidates the inputs.
+                if (projected.Value is not { } preview || projected.Blockers.Any(blocker =>
+                        blocker != CharacterCreationFoundationBlockers.LifeModuleFollowUpRequired))
                     continue;
                 var entry = preview.Entry;
-                var mechanics = new LifeModuleMechanicsPreview(entry.KarmaCost,
-                    entry.KarmaCost.ToString(CultureInfo.InvariantCulture), true,
-                    entry.ProjectedEffects.Select(effect => new LifeModuleMechanicsPreviewItem(
-                        effect.EffectId, effect.Domain, effect.TargetId, effect.BeforeValue ?? string.Empty,
-                        effect.AfterValue ?? string.Empty, effect.BudgetDelta, effect.SourceAnchorIds, string.Empty)).ToArray(),
-                    [], entry.SourceAnchorIds, string.Empty);
+                var mechanics = ModuleMechanics(preview) with
+                { PendingFollowUpIds = prompts.Where(prompt => prompt.IsRequired).Select(prompt => prompt.PromptId).ToArray() };
                 var choice = new LifeModuleDecisionAuthorityChoice(ModuleChoiceId(preview),
                     version is null ? module.Name : $"{module.Name} · {version.Label}",
                     version?.Source ?? module.Source, version?.PageReference ?? module.PageReference,
-                    ModuleCommandDigest(preview), mechanics, entry.SourceAnchorIds, [], true);
+                    ModuleCommandDigest(preview), mechanics, entry.SourceAnchorIds, [], true)
+                { FollowUps = prompts.Length == 0 ? null : prompts };
                 result.Add(new(preview, choice));
             }
         }
@@ -162,6 +181,69 @@ public sealed partial class CharacterCreationFoundationLifeModuleDecisionAuthori
 
     private static string ModuleCommandDigest(CharacterCreationLifeModulePreview preview)
         => Digest(new { preview.Request, preview.PreviewDigest });
+
+    private static LifeModuleMechanicsPreview ModuleMechanics(CharacterCreationLifeModulePreview preview)
+        => new(preview.Entry.KarmaCost, preview.Entry.KarmaCost.ToString(CultureInfo.InvariantCulture), true,
+            preview.Entry.ProjectedEffects.Select(effect => new LifeModuleMechanicsPreviewItem(
+                effect.EffectId, effect.Domain, effect.TargetId, effect.BeforeValue ?? string.Empty,
+                effect.AfterValue ?? string.Empty, effect.BudgetDelta, effect.SourceAnchorIds, string.Empty)).ToArray(),
+            [], preview.Entry.SourceAnchorIds, string.Empty);
+
+    private static LifeModuleDecisionInputResolution ResolveModuleInputs(LifeModuleDecisionAuthorityStep current,
+        LifeModuleDecisionAuthorityChoice choice, CharacterCreationLifeModulePreview preview)
+        => LifeModuleDecisionInputIntegrity.Seal(new(current.WorkspaceId, current.WorkspaceRevision,
+            choice.ChoiceId, current.DecisionDigest, choice.DecisionCommandDigest,
+            preview.Entry.FollowUpValues, preview.PreviewDigest, ModuleMechanics(preview), string.Empty));
+
+    private static bool MatchesModuleInputs(LifeModuleDecisionAuthorityStep current,
+        LifeModuleDecisionAuthorityChoice choice, CharacterCreationLifeModulePreview preview,
+        LifeModuleDecisionInputResolution? resolution)
+        => choice.FollowUps is { Count: > 0 }
+            ? LifeModuleDecisionInputIntegrity.Matches(resolution, current.WorkspaceId, current.WorkspaceRevision,
+                choice.ChoiceId, current.DecisionDigest, choice.DecisionCommandDigest)
+              && ResolveModuleInputs(current, choice, preview).ResolutionDigest == resolution!.ResolutionDigest
+            : resolution is null && FixedEquals(choice.DecisionCommandDigest, ModuleCommandDigest(preview));
+
+    public LifeModuleDecisionAuthorityResult<LifeModuleDecisionInputResolution> ResolveInputs(
+        LifeModuleDecisionInputRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (_foundation is not CharacterCreationFoundationService foundation
+            || !TryWorkspaceId(request.WorkspaceId, out var id)
+            || !LifeModuleDecisionInputIntegrity.TryNormalize(request.Values, out var values))
+            return Invalid<LifeModuleDecisionInputResolution>();
+        var loaded = Load(request.WorkspaceId);
+        if (loaded.Value is not { IsTerminal: false } current
+            || current.WorkspaceRevision != request.WorkspaceRevision || current.DecisionDigest != request.DecisionDigest)
+            return Blocked<LifeModuleDecisionInputResolution>(LifeModuleOriginDossierOutcomes.Conflict,
+                LifeModuleOriginDossierBlockers.DecisionStale);
+        var read = _workspaceStore.Get(id);
+        if (read.Value is not { } workspace || workspace.ContentRevision != request.WorkspaceRevision)
+            return Blocked<LifeModuleDecisionInputResolution>(LifeModuleOriginDossierOutcomes.Conflict,
+                LifeModuleOriginDossierBlockers.WorkspaceStale);
+        if (workspace.Document.AuxiliaryState.LifeModuleDecisionAcceptances is not { Count: > 0 })
+        {
+            var initial = foundation.Load(new(id));
+            if (initial.Value is not { } initialState)
+                return FromFoundation<CharacterCreationFoundationState, LifeModuleDecisionInputResolution>(initial);
+            var initialCandidate = BuildCandidates(initialState).SingleOrDefault(item =>
+                item.Choice.ChoiceId == request.ChoiceId && item.Choice.DecisionCommandDigest == request.DecisionCommandDigest);
+            return initialCandidate?.Choice.FollowUps is { Count: > 0 }
+                ? ResolveFoundationInputs(current, initialState, initialCandidate, values)
+                : Invalid<LifeModuleDecisionInputResolution>();
+        }
+        var journey = foundation.ProjectJourney(workspace);
+        if (journey.Value is not { } state)
+            return FromFoundation<CharacterCreationLifeModuleJourneyState, LifeModuleDecisionInputResolution>(journey);
+        var candidate = BuildModuleCandidates(foundation, workspace, state).SingleOrDefault(item =>
+            item.Choice.ChoiceId == request.ChoiceId && item.Choice.DecisionCommandDigest == request.DecisionCommandDigest);
+        if (candidate?.Choice.FollowUps is not { Count: > 0 })
+            return Invalid<LifeModuleDecisionInputResolution>();
+        var projected = foundation.ProjectModule(workspace, candidate.Preview.Request with { FollowUpValues = values }, state);
+        if (projected.Value is not { CanConfirm: true } preview || projected.Blockers.Count != 0)
+            return FromFoundation<CharacterCreationLifeModulePreview, LifeModuleDecisionInputResolution>(projected);
+        return Success(ResolveModuleInputs(current, candidate.Choice, preview));
+    }
 
     private static bool SameStep(LifeModuleDecisionAuthorityStep left, LifeModuleDecisionAuthorityStep right)
         => FixedEquals(Digest(left), Digest(right));

@@ -23,11 +23,18 @@ public interface ILifeModuleDecisionAuthority
         LifeModuleDecisionAcceptanceCommand command);
 }
 
+/// <summary>Optional read-only resolution of source-defined player answers.</summary>
+public interface ILifeModuleDecisionInputAuthority
+{
+    LifeModuleDecisionAuthorityResult<LifeModuleDecisionInputResolution> ResolveInputs(
+        LifeModuleDecisionInputRequest request);
+}
+
 /// <summary>
 /// Deterministic, provider-free projection of the live SR5 Life Module
 /// decision ledger into the canonical Origin Dossier turn/chapter stream.
 /// </summary>
-public sealed class LifeModuleOriginDossierService
+public sealed partial class LifeModuleOriginDossierService
 {
     private const int MaxChoices = 4_096;
     private const int MaxFacts = 65_536;
@@ -126,7 +133,8 @@ public sealed class LifeModuleOriginDossierService
         OriginStoryArcSeed current,
         string choiceId,
         string idempotencyKey,
-        bool explicitlyAccepted)
+        bool explicitlyAccepted,
+        LifeModuleDecisionInputResolution? inputResolution = null)
     {
         ArgumentNullException.ThrowIfNull(current);
         if (!explicitlyAccepted)
@@ -149,17 +157,22 @@ public sealed class LifeModuleOriginDossierService
                 LifeModuleOriginDossierOutcomes.Invalid,
                 LifeModuleOriginDossierBlockers.IllegalChoice);
 
+        if (!MatchesInputResolution(current, choice, inputResolution))
+            return Blocked<LifeModuleOriginDossierAdvance>(LifeModuleOriginDossierOutcomes.Invalid,
+                LifeModuleOriginDossierBlockers.IllegalChoice);
+
         string idempotencyKeyDigest = ComputeTextDigest(idempotencyKey);
         LifeModuleDecisionAcceptanceCommand command = CreateCommand(
             current,
             choice,
             idempotencyKey,
-            idempotencyKeyDigest);
+            idempotencyKeyDigest) with { InputResolution = inputResolution };
         LifeModuleDecisionAuthorityResult<LifeModuleDecisionAcceptance> lookup =
             _authority.FindAcceptance(current.CurrentTurn.WorkspaceId, idempotencyKeyDigest);
         if (IsAuthoritySuccess(lookup.Outcome) && lookup.Value is { } replay)
         {
-            if (!string.Equals(replay.Receipt?.ChoiceId, command.ChoiceId, StringComparison.Ordinal)
+            if (replay.Receipt?.InputResolutionDigest != inputResolution?.ResolutionDigest
+                || !string.Equals(replay.Receipt?.ChoiceId, command.ChoiceId, StringComparison.Ordinal)
                 || !DigestsEqual(
                     replay.Receipt?.DecisionCommandDigest ?? string.Empty,
                     command.DecisionCommandDigest)
@@ -206,6 +219,13 @@ public sealed class LifeModuleOriginDossierService
                 LifeModuleOriginDossierOutcomes.Conflict,
                 staleBlocker);
 
+        if (inputResolution is not null)
+        {
+            var resolved = ResolveChoiceInputs(current, choiceId, inputResolution.Values);
+            if (resolved.Value?.ResolutionDigest != inputResolution.ResolutionDigest)
+                return Blocked<LifeModuleOriginDossierAdvance>(LifeModuleOriginDossierOutcomes.Conflict,
+                    LifeModuleOriginDossierBlockers.DecisionStale);
+        }
         LifeModuleDecisionAuthorityResult<LifeModuleDecisionAcceptance> accepted =
             _authority.Accept(command);
         if (!IsAuthoritySuccess(accepted.Outcome) || accepted.Value is not { } acceptance)
@@ -254,6 +274,7 @@ public sealed class LifeModuleOriginDossierService
         LifeModuleDecisionAuthorityStep? next = acceptance.NextStep;
         if (receipt is null
             || next is null
+            || receipt.InputResolutionDigest != command.InputResolution?.ResolutionDigest
             || next.AcceptedDecisionIds is null
             || next.CanonicalFacts is null
             || !string.Equals(
@@ -570,11 +591,11 @@ public sealed class LifeModuleOriginDossierService
             anchors,
             blockers,
             authority.IsLegal,
-            string.Empty);
+            string.Empty) { FollowUps = authority.FollowUps };
         return choice with { ChoiceDigest = ComputeChoiceDigest(choice) };
     }
 
-    private static LifeModuleMechanicsPreview SealPreview(LifeModuleMechanicsPreview preview)
+    internal static LifeModuleMechanicsPreview SealPreview(LifeModuleMechanicsPreview preview)
     {
         LifeModuleMechanicsPreviewItem[] items = (preview?.Items ?? [])
             .Select(SealPreviewItem)
@@ -752,6 +773,7 @@ public sealed class LifeModuleOriginDossierService
            && choice.Blockers is not null
            && choice.Blockers.Count == 0
            && choice.IsLegal
+           && LifeModuleDecisionInputIntegrity.ValidForms(choice.FollowUps)
            && DigestsEqual(choice.MechanicsPreviewDigest, choice.MechanicsPreview.PreviewDigest)
            && DigestsEqual(
                choice.MechanicsPreview.PreviewDigest,
@@ -822,6 +844,11 @@ public sealed class LifeModuleOriginDossierService
             WriteStringArray(writer, "sourceAnchorIds", choice.SourceAnchorIds);
             WriteStringArray(writer, "blockers", choice.Blockers);
             writer.WriteBoolean("isLegal", choice.IsLegal);
+            if (choice.FollowUps is not null)
+            {
+                writer.WritePropertyName("followUps");
+                JsonSerializer.Serialize(writer, choice.FollowUps);
+            }
             writer.WriteEndObject();
         });
 

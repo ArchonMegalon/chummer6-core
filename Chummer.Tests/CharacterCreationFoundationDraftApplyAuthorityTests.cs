@@ -100,7 +100,7 @@ public sealed partial class CharacterCreationFoundationDraftApplyAuthorityTests
                 CollectionAssert.Contains(offeredMetatypes, "Elf");
                 Assert.AreEqual(choices.Count, choices.Select(item => item.ChoiceId).Distinct().Count());
             }
-            var choice = choices.First(item => item.MechanicsPreview.Items.Any(effect =>
+            var choice = choices.First(item => item.FollowUps is null && item.MechanicsPreview.Items.Any(effect =>
                 effect.Domain == "metatype-choice" && effect.AfterValue == selectedMetatype));
             var prepared = interaction.Prepare(started.Value, choice.ChoiceId);
             Assert.AreEqual(LifeModuleOriginDossierOutcomes.Success, prepared.Outcome);

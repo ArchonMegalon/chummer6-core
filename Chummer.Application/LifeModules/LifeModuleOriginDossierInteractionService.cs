@@ -48,6 +48,13 @@ public sealed class LifeModuleOriginDossierInteractionService
 
         LifeModuleOriginDossierResult<OriginStoryArcSeed> resumed =
             _dossier.Resume(checkpoint.Projection);
+        if (IsSuccess(resumed.Outcome) && checkpoint.PendingPreview?.InputResolution is { } inputs)
+        {
+            var resolved = _dossier.ResolveChoiceInputs(checkpoint.Projection, inputs.ChoiceId, inputs.Values);
+            if (resolved.Value?.ResolutionDigest != inputs.ResolutionDigest)
+                return Blocked<LifeModuleOriginDossierDraftCheckpoint>(LifeModuleOriginDossierOutcomes.Invalid,
+                    LifeModuleOriginDossierBlockers.ProjectionInvalid);
+        }
         return !IsSuccess(resumed.Outcome) || resumed.Value is null
             ? Map<OriginStoryArcSeed, LifeModuleOriginDossierDraftCheckpoint>(resumed)
             : new(
@@ -58,7 +65,8 @@ public sealed class LifeModuleOriginDossierInteractionService
 
     public LifeModuleOriginDossierResult<LifeModuleOriginDossierDraftCheckpoint> Prepare(
         LifeModuleOriginDossierDraftCheckpoint checkpoint,
-        string choiceId)
+        string choiceId,
+        IReadOnlyDictionary<string, string>? followUpValues = null)
     {
         LifeModuleOriginDossierResult<LifeModuleOriginDossierDraftCheckpoint> restored =
             Restore(checkpoint);
@@ -77,10 +85,23 @@ public sealed class LifeModuleOriginDossierInteractionService
                 LifeModuleOriginDossierBlockers.IllegalChoice);
         }
 
+        LifeModuleDecisionInputResolution? inputs = null;
+        if (matches[0].FollowUps is { Count: > 0 })
+        {
+            var resolved = _dossier.ResolveChoiceInputs(current.Projection, choiceId,
+                followUpValues ?? new Dictionary<string, string>(StringComparer.Ordinal));
+            if (!IsSuccess(resolved.Outcome) || resolved.Value is null)
+                return Map<LifeModuleDecisionInputResolution, LifeModuleOriginDossierDraftCheckpoint>(resolved);
+            inputs = resolved.Value;
+        }
+        else if (followUpValues is { Count: > 0 })
+            return Blocked<LifeModuleOriginDossierDraftCheckpoint>(LifeModuleOriginDossierOutcomes.Invalid,
+                LifeModuleOriginDossierBlockers.IllegalChoice);
+
         LifeModuleOriginDossierDecisionPreview preview = SealPreview(
             current.Projection,
             matches[0],
-            current.LtdProvenance);
+            current.LtdProvenance, inputs);
         return new(
             LifeModuleOriginDossierOutcomes.Success,
             SealCheckpoint(current.Projection, preview, current.LtdProvenance),
@@ -108,7 +129,7 @@ public sealed class LifeModuleOriginDossierInteractionService
                 checkpoint.Projection,
                 pending.SelectedChoice.ChoiceId,
                 idempotencyKey,
-                explicitlyConfirmed);
+                explicitlyConfirmed, pending.InputResolution);
         if (!IsSuccess(accepted.Outcome) || accepted.Value is not { } advance)
             return Map<LifeModuleOriginDossierAdvance, LifeModuleOriginDossierInteractionAdvance>(accepted);
 
@@ -146,14 +167,15 @@ public sealed class LifeModuleOriginDossierInteractionService
     private static LifeModuleOriginDossierDecisionPreview SealPreview(
         OriginStoryArcSeed projection,
         LifeModuleNarrativeChoiceSeed choice,
-        OriginLtdNarrativeProvenance provenance)
+        OriginLtdNarrativeProvenance provenance,
+        LifeModuleDecisionInputResolution? inputs = null)
     {
         var card = new LifeModuleOriginDossierChoiceCard(
             choice.ChoiceId,
             choice.Label,
             choice.Source,
             choice.PageReference,
-            choice.MechanicsPreview,
+            inputs?.MechanicsPreview ?? choice.MechanicsPreview,
             choice.SourceAnchorIds.ToArray(),
             choice.ChoiceDigest,
             string.Empty);
@@ -171,7 +193,7 @@ public sealed class LifeModuleOriginDossierInteractionService
             projection.SeedDigest,
             projection.CurrentTurn.DecisionDigest,
             projection.CanonicalLayer.MechanicsSnapshotDigest,
-            string.Empty);
+            string.Empty) { InputResolution = inputs };
         return preview with { PreviewDigest = ComputePreviewDigest(preview) };
     }
 
@@ -255,12 +277,13 @@ public sealed class LifeModuleOriginDossierInteractionService
                 preview.SelectedChoice.ChoiceId,
                 StringComparison.Ordinal))
             .ToArray();
-        if (matches.Length != 1)
+        if (matches.Length != 1 || !LifeModuleOriginDossierService.MatchesInputResolution(
+                projection, matches[0], preview.InputResolution))
             return false;
         LifeModuleOriginDossierDecisionPreview expected = SealPreview(
             projection,
             matches[0],
-            provenance);
+            provenance, preview.InputResolution);
         return DigestsEqual(preview.PreviewDigest, expected.PreviewDigest)
                && DigestsEqual(preview.SelectedChoice.CardDigest, expected.SelectedChoice.CardDigest);
     }
@@ -323,6 +346,8 @@ public sealed class LifeModuleOriginDossierInteractionService
             writer.WriteString("boundSeedDigest", preview.BoundSeedDigest);
             writer.WriteString("boundDecisionDigest", preview.BoundDecisionDigest);
             writer.WriteString("boundMechanicsSnapshotDigest", preview.BoundMechanicsSnapshotDigest);
+            if (preview.InputResolution is not null)
+                writer.WriteString("inputResolutionDigest", preview.InputResolution.ResolutionDigest);
             writer.WriteEndObject();
         });
 

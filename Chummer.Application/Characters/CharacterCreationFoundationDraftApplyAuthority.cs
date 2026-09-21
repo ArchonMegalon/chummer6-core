@@ -158,7 +158,8 @@ public sealed class CharacterCreationFoundationDraftApplyAuthority :
                 CharacterCreationFoundationLifeModuleDecisionAuthority.CreateAcceptance(
                     context,
                     proposed,
-                    context.Workspace.ContentRevision + 1);
+                    context.Workspace.ContentRevision + 1,
+                    previewDigest);
             if (originAcceptance is null)
             {
                 return Blocked(

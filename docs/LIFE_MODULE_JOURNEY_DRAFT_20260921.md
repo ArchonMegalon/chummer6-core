@@ -62,9 +62,22 @@ not a completed native Android or provider-generation test.
 
 ## Next product work
 
-The choice-only Origin projection deliberately omits modules requiring additional
-player answers; it never invents required follow-ups. Those input controls still
-need to be connected. A stage with no admitted choices stops with explicit
+The Origin projection now offers source-owned text and single-select follow-ups
+for nationality and later modules. It never invents required answers. A resolved
+preview binds the exact answers to the choice, workspace revision, decision and
+Foundation preview. Confirmation re-resolves them and records the input digest
+and accepted answer facts in the same atomic module/Origin transaction. Missing,
+unknown, oversized or changed answers cannot authorize a write. Existing
+no-input contract JSON retains its optional-field shape.
+
+The local focused subset now passes **70 tests**, zero failures
+(`core-origin-inputs-4.log`). The new real-catalog cases exercise both nationality
+and Arcology Living answers, read-only preview, pending-preview serialization,
+disk reopen, tamper rejection, accepted facts and byte-identical command replay.
+The Android input controls have their own focused managed test; native device
+verification is recorded separately in Android, not inferred from these tests.
+
+A stage with no admitted choices stops with explicit
 unfinished-draft wording, not a claim that character creation is complete.
 The user still needs an explicit finish decision for the repeatable Real Life
 stage. Android subsequently verified the native three-decision path through

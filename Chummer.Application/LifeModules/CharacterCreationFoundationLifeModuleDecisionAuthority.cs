@@ -19,14 +19,14 @@ namespace Chummer.Application.LifeModules;
 /// explicit confirmation and the atomic workspace CAS.
 /// </summary>
 public sealed partial class CharacterCreationFoundationLifeModuleDecisionAuthority :
-    ILifeModuleDecisionAuthority
+    ILifeModuleDecisionAuthority, ILifeModuleDecisionInputAuthority
 {
     private const string OwnerId = "local-single-user";
     private const string JourneyId = "sr5-life-modules-foundation";
     private const string StageId = "nationality";
     private const string TerminalStageId = "nationality-accepted";
     private const string RuntimeSemantics =
-        "chummer.sr5-life-modules.foundation-origin-authority/v3";
+        "chummer.sr5-life-modules.foundation-origin-authority/v4";
 
     private readonly IWorkspaceStore _workspaceStore;
     private readonly ICharacterCreationFoundationService _foundation;
@@ -136,7 +136,12 @@ public sealed partial class CharacterCreationFoundationLifeModuleDecisionAuthori
         LifeModuleDecisionAuthorityResult<LifeModuleDecisionAcceptance> replay =
             FindAcceptance(command.WorkspaceId, command.IdempotencyKeyDigest);
         if (string.Equals(replay.Outcome, LifeModuleOriginDossierOutcomes.Success, StringComparison.Ordinal))
-            return replay;
+            return replay.Value is { } accepted
+                   && accepted.Receipt.ChoiceId == command.ChoiceId
+                   && accepted.Receipt.DecisionCommandDigest == command.DecisionCommandDigest
+                   && accepted.Receipt.InputResolutionDigest == command.InputResolution?.ResolutionDigest
+                ? replay : Blocked<LifeModuleDecisionAcceptance>(LifeModuleOriginDossierOutcomes.Conflict,
+                    LifeModuleOriginDossierBlockers.IdempotencyConflict);
         if (!string.Equals(replay.Outcome, LifeModuleOriginDossierOutcomes.Missing, StringComparison.Ordinal))
             return replay;
         if (!TryWorkspaceId(command.WorkspaceId, out CharacterWorkspaceId id))
@@ -165,14 +170,27 @@ public sealed partial class CharacterCreationFoundationLifeModuleDecisionAuthori
             || !FixedEquals(candidate.Choice.DecisionCommandDigest, command.DecisionCommandDigest))
             return Invalid<LifeModuleDecisionAcceptance>();
 
+        var resolvedPreview = candidate.FoundationPreview;
+        if (candidate.Choice.FollowUps is { Count: > 0 })
+        {
+            var resolved = ResolveFoundationInputs(step, state, candidate, command.InputResolution?.Values);
+            if (resolved.Value is not { } resolution || command.InputResolution is null
+                || resolution.ResolutionDigest != command.InputResolution.ResolutionDigest)
+                return Invalid<LifeModuleDecisionAcceptance>();
+            resolvedPreview = _foundation.Preview(new(state.Binding, resolvedPreview.RequestedMetatype,
+                candidate.Selection, resolution.Values)).Value!;
+        }
+        else if (command.InputResolution is not null)
+            return Invalid<LifeModuleDecisionAcceptance>();
+
         CharacterCreationFoundationResult<CharacterCreationFoundationApplyReceipt> confirmed =
             _foundation.Confirm(new CharacterCreationFoundationConfirmRequest(
                 state.Binding,
                 candidate.FoundationPreview.RequestedMetatype,
                 candidate.Selection,
-                candidate.FoundationPreview.PreviewDigest,
+                resolvedPreview.PreviewDigest,
                 ExplicitlyConfirmed: true,
-                FollowUpValues: new Dictionary<string, string>(StringComparer.Ordinal))
+                FollowUpValues: resolvedPreview.FollowUpValues)
             {
                 OriginDecisionCommand = command,
                 OriginDecisionStep = step
@@ -185,7 +203,8 @@ public sealed partial class CharacterCreationFoundationLifeModuleDecisionAuthori
     internal static LifeModuleDecisionAcceptance? CreateAcceptance(
         CharacterCreationFoundationAuthorityContext context,
         CharacterCreationFoundationDraftLedger proposed,
-        long nextWorkspaceRevision)
+        long nextWorkspaceRevision,
+        string foundationPreviewDigest)
     {
         LifeModuleDecisionAcceptanceCommand? command = context.OriginDecisionCommand;
         LifeModuleDecisionAuthorityStep? current = context.OriginDecisionStep;
@@ -200,13 +219,22 @@ public sealed partial class CharacterCreationFoundationLifeModuleDecisionAuthori
         if (matches.Length != 1)
             return null;
         LifeModuleDecisionAuthorityChoice choice = matches[0];
+        if (choice.FollowUps is { Count: > 0 }
+            ? !LifeModuleDecisionInputIntegrity.Matches(command.InputResolution, current.WorkspaceId,
+                current.WorkspaceRevision, choice.ChoiceId, current.DecisionDigest, choice.DecisionCommandDigest)
+              || command.InputResolution!.ResolvedPreviewDigest != foundationPreviewDigest
+              || !CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(
+                  command.InputResolution.Values, context.FollowUpValues)
+            : command.InputResolution is not null)
+            return null;
 
         string decisionId = Digest(new
         {
             Kind = "sr5-foundation-nationality",
             command.WorkspaceId,
             command.ChoiceId,
-            command.DecisionCommandDigest
+            command.DecisionCommandDigest,
+            InputResolutionDigest = command.InputResolution?.ResolutionDigest
         });
         string factId = $"life-module:{context.Nationality.ModuleId}";
         var fact = new OriginCanonicalNarrativeFact(
@@ -225,6 +253,14 @@ public sealed partial class CharacterCreationFoundationLifeModuleDecisionAuthori
             context.SelectedMetatype.SourceAnchorIds.ToArray(),
             string.Empty);
         metatypeFact = metatypeFact with { FactDigest = Digest(metatypeFact with { FactDigest = string.Empty }) };
+        var facts = new List<OriginCanonicalNarrativeFact> { metatypeFact, fact };
+        foreach (var prompt in choice.FollowUps ?? [])
+        {
+            if (!context.FollowUpValues.TryGetValue(prompt.PromptId, out var answer) || string.IsNullOrWhiteSpace(answer)) continue;
+            var answerFact = new OriginCanonicalNarrativeFact(factId + ":answer:" + Digest(prompt.PromptId),
+                "accepted-life-module-answer", prompt.Label + ": " + answer, decisionId, prompt.SourceAnchorIds, string.Empty);
+            facts.Add(answerFact with { FactDigest = Digest(answerFact) });
+        }
         string acceptedGraphDigest = Digest(new
         {
             current.DecisionGraphDigest,
@@ -262,7 +298,7 @@ public sealed partial class CharacterCreationFoundationLifeModuleDecisionAuthori
             consequence.Trim(),
             TerminalPrompt(current.Locale),
             [],
-            [metatypeFact, fact],
+            facts,
             [decisionId],
             command.ExpectedTurnSeedDigest,
             acceptedGraphDigest,
@@ -301,8 +337,8 @@ public sealed partial class CharacterCreationFoundationLifeModuleDecisionAuthori
             terminal.DecisionGraphDigest,
             terminal.MechanicsSnapshotDigest,
             consequence.Trim(),
-            [metatypeFact, fact],
-            string.Empty);
+            facts,
+            string.Empty) { InputResolutionDigest = command.InputResolution?.ResolutionDigest };
         receipt = receipt with
         {
             ReceiptDigest = LifeModuleDecisionAcceptanceIntegrity.ComputeReceiptDigest(receipt)
@@ -437,7 +473,7 @@ public sealed partial class CharacterCreationFoundationLifeModuleDecisionAuthori
                     || module.AuthorityBlockers.Count != 0
                     || version is { IsEnabled: false }
                     || version?.AuthorityBlockers.Count > 0
-                    || prompts.Any(prompt => prompt.IsRequired))
+                    || !LifeModuleDecisionInputIntegrity.ValidForms(prompts.Length == 0 ? null : prompts))
                     continue;
                 var selection = new CharacterCreationFoundationSelection(
                     module.ModuleId,
@@ -448,9 +484,8 @@ public sealed partial class CharacterCreationFoundationLifeModuleDecisionAuthori
                         metatype.Label,
                         selection,
                         new Dictionary<string, string>(StringComparer.Ordinal)));
-                if (!string.Equals(projected.Outcome, CharacterCreationFoundationOutcomes.Success, StringComparison.Ordinal)
-                    || projected.Value is not { CanConfirm: true, CanApply: true } preview
-                    || preview.AuthorityBlockers.Count != 0
+                if (projected.Value is not { } preview
+                    || preview.AuthorityBlockers.Any(blocker => blocker != CharacterCreationFoundationBlockers.LifeModuleFollowUpRequired)
                     || preview.Nationality is null
                     || !preview.Nationality.KarmaIsExact
                     || !preview.LifeModuleBudgetBefore.IsExact
@@ -510,7 +545,7 @@ public sealed partial class CharacterCreationFoundationLifeModuleDecisionAuthori
                     totalCost.ToString(CultureInfo.InvariantCulture),
                     true,
                     items,
-                    [],
+                    prompts.Where(prompt => prompt.IsRequired).Select(prompt => prompt.PromptId).ToArray(),
                     anchors,
                     string.Empty);
                 var choice = new LifeModuleDecisionAuthorityChoice(
@@ -522,7 +557,7 @@ public sealed partial class CharacterCreationFoundationLifeModuleDecisionAuthori
                     mechanics,
                     anchors,
                     [],
-                    true);
+                    true) { FollowUps = prompts.Length == 0 ? null : prompts };
                 candidates.Add(new DecisionCandidate(selection, preview, choice));
             }
         }
@@ -695,6 +730,7 @@ public static class LifeModuleDecisionAcceptanceIntegrity
                 || !IsDigest(receipt.PreviousMechanicsSnapshotDigest)
                 || !IsDigest(receipt.AcceptedDecisionGraphDigest)
                 || !IsDigest(receipt.MechanicsSnapshotDigest)
+                || receipt.InputResolutionDigest is not null && !IsDigest(receipt.InputResolutionDigest)
                 || !FixedEquals(next.ContentDigest, receipt.ContentDigest)
                 || !FixedEquals(next.SourceDigest, receipt.SourceDigest)
                 || !FixedEquals(next.RulesDigest, receipt.RulesDigest)

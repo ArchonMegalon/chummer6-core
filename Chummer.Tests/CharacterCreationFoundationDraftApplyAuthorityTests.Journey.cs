@@ -41,7 +41,7 @@ public sealed partial class CharacterCreationFoundationDraftApplyAuthorityTests
                 var turn = checkpoint.Projection.CurrentTurn;
                 Assert.IsFalse(turn.IsTerminal, $"No next choice at stage {turn.StageOrder}: {turn.DecisionPrompt}");
                 Assert.AreEqual(decision + 1, turn.StageOrder);
-                var choice = turn.LegalChoices.First();
+                var choice = turn.LegalChoices.First(item => item.FollowUps is null);
                 var prepared = interaction.Prepare(checkpoint, choice.ChoiceId);
                 Assert.AreEqual(LifeModuleOriginDossierOutcomes.Success, prepared.Outcome);
                 string previewDigest = prepared.Value!.PendingPreview!.PreviewDigest;
