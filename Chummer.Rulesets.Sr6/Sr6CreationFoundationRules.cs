@@ -64,7 +64,8 @@ public static class Sr6CreationFoundationRules
         var selected = state.Sr6CreationFoundationDecisions?.LastOrDefault()?.Preview;
         return Success(new Sr6CreationFoundationState(binding, bootstrap.BuildMethod, Metatypes(), Talents(), selected)
         {
-            AttributeOptions = selected is null ? null : Sr6CreationAttributeRules.Options(selected)
+            AttributeOptions = selected is null ? null : Sr6CreationAttributeRules.Options(selected),
+            SkillOptions = selected is null ? null : Sr6CreationSkillRules.Options(selected, selected.Selection.Skills?.AspectedSkillId)
         });
     }
 
@@ -77,6 +78,9 @@ public static class Sr6CreationFoundationRules
             || bootstrap.RulesetId != RulesetDefaults.Sr6 || binding.WorkspaceId != bootstrap.WorkspaceId
             || binding.BootstrapBindingDigest != bootstrap.BindingDigest || binding.AuthorityDigest != AuthorityDigest(bootstrap))
             return Blocked<Sr6CreationFoundationPreview>(Sr6CreationFoundationBlockers.StaleBinding);
+        if (selection?.Skills is { } requestedSkills
+            && !Sr6CreationFoundationIntegrity.TryFreezeSkills(requestedSkills, out _))
+            return Blocked<Sr6CreationFoundationPreview>(Sr6CreationSkillBlockers.InvalidAllocation);
         if (!Sr6CreationFoundationIntegrity.TryFreezeSelection(selection, out selection))
             return Blocked<Sr6CreationFoundationPreview>(Sr6CreationPriorityBlockers.CategoriesInvalid);
 
@@ -105,6 +109,13 @@ public static class Sr6CreationFoundationRules
             if (attributes.Value is null)
                 return new(attributes.Outcome, null, attributes.Blockers);
             preview = preview with { Attributes = attributes.Value };
+        }
+        if (selection.Skills is { } skillSelection)
+        {
+            var skills = Sr6CreationSkillRules.Evaluate(preview, skillSelection);
+            if (skills.Value is null) return new(skills.Outcome, null, skills.Blockers);
+            preview = preview with { Skills = skills.Value,
+                SourceAnchorIds = [.. preview.SourceAnchorIds, Sr6CreationSkillRules.SourceAnchor] };
         }
         return Success(preview with { PreviewDigest = Sr6CreationFoundationIntegrity.PreviewDigest(preview) });
     }

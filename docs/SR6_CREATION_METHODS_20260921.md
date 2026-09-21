@@ -3,7 +3,34 @@
 The user requested SR6 build types in addition to ongoing SR5 Life Modules and
 Origin book work. SR6 must not reuse SR5 creation profiles or module effects.
 
-## Current increment: attributed SR6 draft allocation
+## Current increment: SR6 skill points and specializations
+
+Priority/Sum-to-Ten foundation decisions now also carry typed skill choices.
+The Core-owned list contains the 19 SR6 skills, with separate availability for
+magical talents and technomancers. Aspected magicians select one magical aspect;
+adept Astral access remains unavailable until the required power is implemented.
+The ordinary creation maximum is 6, at most one skill at that maximum. Ratings
+cost one point each, an ordinary specialization one additional point. Exotic
+weapons share one rating and receive their first weapon specialization free;
+additional weapon specialties cost a point each. No expertise is admitted.
+
+Rules were checked in the owned German 2024 core printing, pp66–67 and 94–99.
+Names of specializations are bounded player input and visibly require GM review;
+saving them does not invent a GM approval. Knowledge/language picks, Aptitude,
+Karma expenditure and final character grants still need their later stages.
+
+These choices reuse the existing owner/revision-bound atomic decision, with
+exact preview, explicit confirmation, deep-frozen nested collections and
+recomputed rule/source authority on cold load. Null skill fields preserve old
+foundation/attribute decision bytes. A skill save carries existing attributes.
+
+Local keyless Docker / .NET 10.0.103: **115 tests PASS**, zero failed/skipped,
+`core-sr6-skills-2.log`. This includes the existing attribute/bootstrap/priority
+tests and new persistence, specialization, talent/aspect, budget, malformed
+input, edited confirmation and redigested-forgery coverage. It is not a package
+seal, main merge, full SR6 creation claim or Play publication.
+
+## Historical increment: attributed SR6 draft allocation
 
 The existing atomic foundation decision now accepts an optional typed attribute
 allocation. It keeps ordinary attribute points separate from metatype adjustment

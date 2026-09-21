@@ -19,6 +19,9 @@ public sealed record Sr6CreationFoundationSelection(
     // Absent on earlier foundation decisions; preserve their canonical bytes.
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public Sr6CreationAttributeSelection? Attributes { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public Sr6CreationSkillSelection? Skills { get; init; }
 }
 
 public sealed record Sr6CreationFoundationOption(string Id, IReadOnlyList<string> AllowedRanks);
@@ -31,6 +34,7 @@ public sealed record Sr6CreationFoundationState(
     Sr6CreationFoundationPreview? Selection)
 {
     public IReadOnlyList<Sr6CreationAttributeOption>? AttributeOptions { get; init; }
+    public IReadOnlyList<Sr6CreationSkillOption>? SkillOptions { get; init; }
 }
 
 /// <summary>Pending choices and budgets, not applied character values or finalization permission.</summary>
@@ -45,6 +49,9 @@ public sealed record Sr6CreationFoundationPreview(
 {
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public Sr6CreationAttributePreview? Attributes { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public Sr6CreationSkillPreview? Skills { get; init; }
 }
 
 public sealed record Sr6CreationFoundationConfirmRequest(

@@ -26,8 +26,33 @@ public static class Sr6CreationFoundationIntegrity
             return false;
         Sr6CreationAttributeSelection? attributes = null;
         if (selection.Attributes is not null && !TryFreezeAttributes(selection.Attributes, out attributes)) return false;
+        Sr6CreationSkillSelection? skills = null;
+        if (selection.Skills is not null && !TryFreezeSkills(selection.Skills, out skills)) return false;
         frozen = selection with { Assignments = CharacterCreationPriorityCategoryIds.Ordered
-            .Select(category => assignments.Single(item => item.CategoryId == category)).ToArray(), Attributes = attributes };
+            .Select(category => assignments.Single(item => item.CategoryId == category)).ToArray(), Attributes = attributes, Skills = skills };
+        return true;
+    }
+
+    public static bool TryFreezeSkills(Sr6CreationSkillSelection? selection, out Sr6CreationSkillSelection? frozen)
+    {
+        frozen = null;
+        if (selection?.Allocations is not { Count: <= 19 }
+            || selection.AspectedSkillId is not (null or "Sorcery" or "Conjuring" or "Enchanting")) return false;
+        var rows = selection.Allocations.ToArray();
+        if (rows.Length > 19 || rows.Any(row => row is null
+            || !Sr6CreationSkillIds.Ordered.Contains(row.SkillId, StringComparer.Ordinal)
+            || row.Rating is < 0 or > 6 || row.Specializations is not { Count: <= 12 })
+            || rows.Select(row => row.SkillId).Distinct(StringComparer.Ordinal).Count() != rows.Length) return false;
+        var copies = new List<Sr6CreationSkillSpend>();
+        foreach (var row in rows)
+        {
+            string[] names = row.Specializations.ToArray();
+            if (names.Length > 12 || names.Any(name => string.IsNullOrWhiteSpace(name) || name.Length > 80
+                    || name != name.Trim() || name.Any(char.IsControl))
+                || names.Distinct(StringComparer.OrdinalIgnoreCase).Count() != names.Length) return false;
+            copies.Add(row with { Specializations = names.Order(StringComparer.Ordinal).ToArray() });
+        }
+        frozen = new(copies.OrderBy(row => Array.IndexOf(Sr6CreationSkillIds.Ordered.ToArray(), row.SkillId)).ToArray(), selection.AspectedSkillId);
         return true;
     }
 
