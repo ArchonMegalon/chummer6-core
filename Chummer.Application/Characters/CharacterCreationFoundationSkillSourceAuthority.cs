@@ -13,13 +13,16 @@ namespace Chummer.Application.Characters;
 internal sealed class CharacterCreationFoundationSkillSourceAuthority
 {
     private readonly IReadOnlyDictionary<string, SkillDefinition[]> _activeByName;
+    private readonly IReadOnlySet<string> _groupNames;
 
     private CharacterCreationFoundationSkillSourceAuthority(
         string sourceDigest,
-        IReadOnlyDictionary<string, SkillDefinition[]> activeByName)
+        IReadOnlyDictionary<string, SkillDefinition[]> activeByName,
+        IReadOnlySet<string> groupNames)
     {
         SourceDigest = sourceDigest;
         _activeByName = activeByName;
+        _groupNames = groupNames;
     }
 
     public string SourceDigest { get; }
@@ -70,14 +73,17 @@ internal sealed class CharacterCreationFoundationSkillSourceAuthority
                 XElement[] ids = skill.Elements("id").Take(2).ToArray();
                 XElement[] names = skill.Elements("name").Take(2).ToArray();
                 XElement[] exoticValues = skill.Elements("exotic").Take(2).ToArray();
+                XElement[] groups = skill.Elements("skillgroup").Take(2).ToArray();
                 if (ids.Length != 1
                     || names.Length != 1
                     || exoticValues.Length > 1
+                    || groups.Length > 1
                     || ids[0].HasAttributes
                     || ids[0].HasElements
                     || names[0].HasAttributes
                     || names[0].HasElements
-                    || exoticValues.Any(value => value.HasAttributes || value.HasElements))
+                    || exoticValues.Any(value => value.HasAttributes || value.HasElements)
+                    || groups.Any(value => value.HasAttributes || value.HasElements))
                 {
                     return false;
                 }
@@ -107,11 +113,33 @@ internal sealed class CharacterCreationFoundationSkillSourceAuthority
                     return false;
                 }
 
-                definitions.Add(new SkillDefinition(sourceId, canonicalName, isExotic));
+                definitions.Add(new SkillDefinition(sourceId, canonicalName, isExotic,
+                    groups.Length == 0 ? string.Empty : groups[0].Value));
             }
 
             if (definitions.Count == 0)
                 return false;
+
+            XElement[] groupContainers = root.Elements("skillgroups").Take(2).ToArray();
+            var groupNames = new HashSet<string>(StringComparer.Ordinal);
+            if (groupContainers.Length > 1)
+                return false;
+            if (groupContainers.Length == 1)
+            {
+                XElement groupContainer = groupContainers[0];
+                if (groupContainer.HasAttributes || groupContainer.Nodes().Any(node =>
+                        node is XText text ? !string.IsNullOrWhiteSpace(text.Value)
+                            : node is not XElement && node is not XComment))
+                    return false;
+                foreach (XElement group in groupContainer.Elements())
+                {
+                    if (group.Name != "name" || group.HasAttributes || group.HasElements
+                        || string.IsNullOrWhiteSpace(group.Value)
+                        || !string.Equals(group.Value, group.Value.Trim(), StringComparison.Ordinal)
+                        || !groupNames.Add(group.Value))
+                        return false;
+                }
+            }
 
             IReadOnlyDictionary<string, SkillDefinition[]> activeByName = definitions
                 .GroupBy(definition => definition.CanonicalName, StringComparer.Ordinal)
@@ -124,7 +152,8 @@ internal sealed class CharacterCreationFoundationSkillSourceAuthority
                     StringComparer.Ordinal);
             authority = new CharacterCreationFoundationSkillSourceAuthority(
                 sourceDigest!,
-                activeByName);
+                activeByName,
+                groupNames);
             return true;
         }
         catch (Exception exception) when (exception is ArgumentException
@@ -156,6 +185,25 @@ internal sealed class CharacterCreationFoundationSkillSourceAuthority
         return true;
     }
 
+    public bool TryResolveExactGroup(string canonicalName,
+        out CharacterCreationFoundationEffectTargetBinding? binding)
+    {
+        binding = null;
+        SkillDefinition[][] members = _activeByName.Values.Where(items => items.Any(skill =>
+            string.Equals(skill.GroupName, canonicalName, StringComparison.Ordinal))).ToArray();
+        if (!_groupNames.Contains(canonicalName) || members.Length == 0
+            || members.Any(items => items.Length != 1 || items[0].IsExotic))
+            return false;
+
+        // skills.xml groups have names, not GUIDs. Keep that source identity
+        // explicit; never manufacture a skill GUID or collapse the group into
+        // separate per-skill grants (which changes group-break semantics).
+        binding = new CharacterCreationFoundationEffectTargetBinding(
+            TargetKind: "skill-group", SourceId: canonicalName,
+            CanonicalName: canonicalName, SourceDigest: SourceDigest);
+        return true;
+    }
+
     private static bool FixedTimeEquals(string? left, string? right)
     {
         byte[] leftBytes = Encoding.UTF8.GetBytes(left ?? string.Empty);
@@ -167,5 +215,6 @@ internal sealed class CharacterCreationFoundationSkillSourceAuthority
     private sealed record SkillDefinition(
         string SourceId,
         string CanonicalName,
-        bool IsExotic);
+        bool IsExotic,
+        string GroupName);
 }

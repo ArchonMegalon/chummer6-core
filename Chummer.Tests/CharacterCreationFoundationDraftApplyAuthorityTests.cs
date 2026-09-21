@@ -523,18 +523,21 @@ public sealed partial class CharacterCreationFoundationDraftApplyAuthorityTests
                 .Compilation.Effects.Where(effect => effect.CompilationStatus
                     == CharacterCreationFoundationEffectCompilationStatuses.Supported)
                 .ToArray();
-            Assert.HasCount(5, supportedEffects);
+            Assert.HasCount(6, supportedEffects);
             CharacterCreationFoundationEffectInstruction supportedAttribute = supportedEffects
                 .Single(effect => effect.EffectKind == "attributelevel");
             Assert.AreEqual("attributelevel", supportedAttribute.EffectKind);
             Assert.AreEqual(CharacterCreationFoundationEffectSourcePhases.Version,
                 supportedAttribute.SourcePhase);
-            Assert.IsTrue(supportedEffects.Skip(1).All(effect =>
-                effect.EffectKind == "knowledgeskilllevel"
-                && effect.SourcePhase == CharacterCreationFoundationEffectSourcePhases.Module
+            Assert.IsTrue(supportedEffects.Where(effect => effect.EffectKind == "knowledgeskilllevel").All(effect =>
+                effect.SourcePhase == CharacterCreationFoundationEffectSourcePhases.Module
                 && effect.TargetBinding?.TargetKind == "free-knowledge-skill-pool"
                 && effect.TargetBinding.SourceId == "FreeKnowledgeSkills"
                 && effect.TargetBinding.SourceDigest == draft.SourceDigest));
+            CharacterCreationFoundationEffectInstruction freeNegative = supportedEffects.Single(
+                effect => effect.EffectKind == "freenegativequalities");
+            Assert.AreEqual("FreeNegativeQualities", freeNegative.TargetBinding!.SourceId);
+            Assert.AreEqual(draft.SourceDigest, freeNegative.TargetBinding.SourceDigest);
             Assert.IsTrue(preview.Compilation.Effects
                 .Except(supportedEffects)
                 .All(effect => effect.CompilationStatus

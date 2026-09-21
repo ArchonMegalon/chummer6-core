@@ -20,7 +20,7 @@ internal static class CharacterCreationFoundationLifeModuleQualityWritePlanner
     private const string PlanSchema =
         "chummer.character_creation_foundation_lifemodule_quality_write_plan.v3";
     private const string WriterSemantics =
-        "chummer5-quality-create-save-5.225.0;attributelevel-and-digest-bound-skilllevel-int32-any-default1-plus-digest-bound-free-knowledge-pool-decimal-any-default1-create-save;pushtext-addqualities-dependent-quality-composite-v1;ordered-distinct-improvements;deterministic-quality-uuidv8;no-partial-apply";
+        "chummer5-quality-create-save-5.225.0;attributelevel-and-digest-bound-skilllevel-and-skillgrouplevel-int32-any-default1-plus-digest-bound-free-knowledge-pool-decimal-any-default1-create-save;free-quality-pools-literal-v1;pushtext-addqualities-dependent-quality-composite-v1;literal-addqualities-v1-without-selection-consumer;ordered-distinct-improvements;deterministic-quality-uuidv8;no-partial-apply";
 
     private static readonly IReadOnlySet<string> s_AllowedSourceChildren =
         new HashSet<string>(
@@ -438,13 +438,24 @@ internal static class CharacterCreationFoundationLifeModuleQualityWritePlanner
 
         foreach (CharacterCreationFoundationEffectInstruction instruction in compilation.Effects)
         {
-            if (instruction.EffectKind is "attributelevel" or "skilllevel"
+            if (instruction.EffectKind is "attributelevel" or "skilllevel" or "skillgrouplevel"
                 or "knowledgeskilllevel")
             {
                 improvements.Add(CreateImprovement(
                     instruction,
                     ownerQualityId,
                     defaultNotesColor));
+                continue;
+            }
+
+            if (instruction.EffectKind is "freepositivequalities" or "freenegativequalities")
+            {
+                // An allowance/offset Improvement, not a direct Karma award or
+                // permission to buy a quality without its normal requirements.
+                improvements.Add(CreateLegacyImprovement(string.Empty, ownerQualityId,
+                    instruction.TargetBinding!.CanonicalName,
+                    decimal.Parse(instruction.TargetId, NumberStyles.Any, CultureInfo.InvariantCulture)
+                        .ToString(CultureInfo.InvariantCulture), defaultNotesColor));
                 continue;
             }
 
@@ -786,24 +797,24 @@ internal static class CharacterCreationFoundationLifeModuleQualityWritePlanner
             instruction.EffectKind,
             "knowledgeskilllevel",
             StringComparison.Ordinal);
+        bool isSkillGroupLevel = instruction.EffectKind == "skillgrouplevel";
         string parsedValue = isKnowledgeSkillLevel
             ? CharacterCreationFoundationEffectCompiler
                 .ParseLegacyKnowledgeSkillLevelValue(rawValue)
                 .ToString(CultureInfo.InvariantCulture)
-            : (isSkillLevel
+            : (isSkillLevel || isSkillGroupLevel
                 ? CharacterCreationFoundationEffectCompiler.ParseLegacySkillLevelValue(rawValue)
                 : CharacterCreationFoundationEffectCompiler.ParseLegacyAttributeLevelValue(rawValue))
                 .ToString(CultureInfo.InvariantCulture);
         string improvedName = isKnowledgeSkillLevel
             ? string.Empty
-            : isSkillLevel
+            : isSkillLevel || isSkillGroupLevel
                 ? instruction.TargetBinding!.CanonicalName
                 : instruction.TargetId;
         string improvementType = isKnowledgeSkillLevel
             ? "FreeKnowledgeSkills"
-            : isSkillLevel
-                ? "SkillLevel"
-                : "Attributelevel";
+            : isSkillGroupLevel ? "SkillGroupLevel"
+                : isSkillLevel ? "SkillLevel" : "Attributelevel";
         return CreateLegacyImprovement(
             improvedName,
             qualityId,
