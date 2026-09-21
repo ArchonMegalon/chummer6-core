@@ -66,6 +66,25 @@ public static class CharacterCreationKarmaGrantsLegacyProjector
             var gears = new List<(XElement Saved, CharacterCreationTalentGearSource Source)>();
             var flags = new HashSet<string>(StringComparer.Ordinal);
             var changes = new List<CharacterCreationFinalizationDelta>();
+            if (quote.Metatype.BaseBonuses is { } bonuses)
+            {
+                if (bonuses.Armor < 0 || bonuses.Reach < 0 || bonuses.LifestyleCostPercent < 0) return false;
+                foreach (var (type, value, unique, sourceField) in new[]
+                {
+                    ("Armor", bonuses.Armor, "group0", "armor"),
+                    ("Reach", bonuses.Reach, string.Empty, "reach"),
+                    ("LifestyleCost", bonuses.LifestyleCostPercent, string.Empty, "lifestylecost")
+                })
+                {
+                    if (value == 0) continue;
+                    improvements.Add(CharacterCreationAwakenedLegacyProjector.Improvement(type, string.Empty,
+                        quote.Metatype.OptionId, "Metatype", value, unique));
+                    changes.Add(new(changes.Count, "karma-metatype-bonus:" + type,
+                        CharacterCreationFinalizationDeltaKinds.Metatype, quote.Metatype.OptionId, "0",
+                        value.ToString(System.Globalization.CultureInfo.InvariantCulture), 0, 0,
+                        [$"metatypes.xml#metatype:{quote.Metatype.OptionId}/bonus/{sourceField}"]));
+                }
+            }
             var allSources = racialSources.Concat(talentSource is null ? [] : new[] { talentSource }).ToArray();
             if (allSources.Select(source => source.SourceId).Distinct(StringComparer.Ordinal).Count() != allSources.Length)
                 return false;

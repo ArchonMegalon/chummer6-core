@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Text.Json;
 using System.Xml.Linq;
 using Chummer.Application.Characters;
 using Chummer.Application.Workspaces;
@@ -17,6 +18,100 @@ public sealed class CharacterCreationLifestylesServiceTests
     private static readonly Guid LowSourceId = Guid.Parse("451eef87-d18e-4bee-a972-1ee165b08522");
     private static readonly Guid HighSourceId = Guid.Parse("4a37d519-c9be-4ecc-97bb-e9d78708c374");
     private static readonly Guid QualitySourceId = Guid.Parse("22222222-3333-4444-8555-666666666666");
+
+    [TestMethod]
+    [DataRow(20, 2400)]
+    [DataRow(100, 4000)]
+    public void Metatype_cost_is_bound_to_authority_and_projected_without_changing_base_price(int percentage, int cost)
+    {
+        var original = Authority();
+        var changed = original with { MetatypeCostPercent = percentage };
+        Assert.IsFalse(CharacterCreationLifestylesRules.IsValidAuthority(changed), "Old hash must not admit a new cost.");
+        var authority = changed with { AuthorityDigest = CharacterCreationLifestylesRules.ComputeAuthorityDigest(changed) };
+        Assert.IsTrue(CharacterCreationLifestylesRules.TryProject(Configuration(LifestyleId), authority, out var projection, out var blockers),
+            string.Join(',', blockers));
+        Assert.AreEqual((decimal)cost, projection.Economics.TotalCost);
+        Assert.AreEqual(2000m, authority.LifestyleOptions[0].BaseCost, "Retain the source price; the modifier is a separate layer.");
+        Assert.AreNotEqual(original.AuthorityDigest, authority.AuthorityDigest);
+        var roundTrip = JsonSerializer.Deserialize<CharacterCreationLifestylesAuthority>(JsonSerializer.Serialize(authority))!;
+        Assert.IsTrue(CharacterCreationLifestylesRules.IsValidAuthority(roundTrip));
+        Assert.AreEqual((decimal)percentage, roundTrip.MetatypeCostPercent);
+    }
+
+    [TestMethod]
+    public void Metatype_cost_follows_split_but_does_not_markup_outings_contracts_or_trust_fund()
+    {
+        var basis = Authority(includeQuality: true);
+        var template = basis.QualityOptions[0];
+        var outing = template with { Category = "Entertainment", QualityType = CharacterCreationLifestyleQualityTypes.Entertainment,
+            FlatCost = 100m, CostMultiplierPercent = 10m };
+        outing = outing with { OptionDigest = CharacterCreationLifestylesRules.ComputeQualityOptionDigest(outing) };
+        var contractId = Guid.Parse("44444444-5555-4666-8777-888888888888");
+        var contract = template with { SourceId = contractId, OptionId = $"lifestyle-quality:{contractId:D}",
+            Category = "Contracts", QualityType = CharacterCreationLifestyleQualityTypes.Contracts, FlatCost = 200m };
+        contract = contract with { OptionDigest = CharacterCreationLifestylesRules.ComputeQualityOptionDigest(contract) };
+        var authority = basis with { MetatypeCostPercent = 20m, TrustFundLevel = 2, QualityOptions = [outing, contract] };
+        authority = authority with { AuthorityDigest = CharacterCreationLifestylesRules.ComputeAuthorityDigest(authority) };
+        var configuration = Configuration(LifestyleId) with { Roommates = 1, SplitCostWithRoommates = true, Percentage = 50m, Increments = 3,
+            Qualities = [new(Guid.NewGuid(), outing.OptionId, "", false, false, false),
+                new(Guid.NewGuid(), contract.OptionId, "", false, false, false)] };
+        Assert.IsTrue(CharacterCreationLifestylesRules.TryProject(configuration, authority, out var projection, out var blockers),
+            string.Join(',', blockers));
+        // ((2000 * 1.1 / 2 * 1.2) * 1.1 + 100) * 0.5 + 200.
+        Assert.AreEqual(976m, projection.Economics.CostPerIncrement);
+        Assert.AreEqual(2928m, projection.Economics.TotalCost);
+        Assert.IsTrue(CharacterCreationLifestylesRules.TryProject(configuration with
+            { Roommates = 0, SplitCostWithRoommates = false, TrustFund = true }, authority, out var covered, out blockers),
+            string.Join(',', blockers));
+        Assert.AreEqual(250m, covered.Economics.CostPerIncrement);
+        Assert.IsTrue(covered.Economics.CoveredByTrustFund);
+    }
+
+    [TestMethod]
+    public void Metatype_cost_preserves_historical_zero_json_and_rejects_negative_or_overflow()
+    {
+        var original = Authority();
+        string historical = JsonSerializer.Serialize(original);
+        Assert.IsFalse(historical.Contains(nameof(CharacterCreationLifestylesAuthority.MetatypeCostPercent), StringComparison.Ordinal));
+        var roundTrip = JsonSerializer.Deserialize<CharacterCreationLifestylesAuthority>(historical)!;
+        Assert.AreEqual(0m, roundTrip.MetatypeCostPercent);
+        Assert.AreEqual(original.AuthorityDigest, CharacterCreationLifestylesRules.ComputeAuthorityDigest(roundTrip));
+        foreach (decimal invalid in new[] { -1m, decimal.MaxValue })
+        {
+            var authority = original with { MetatypeCostPercent = invalid };
+            authority = authority with { AuthorityDigest = CharacterCreationLifestylesRules.ComputeAuthorityDigest(authority) };
+            Assert.IsFalse(CharacterCreationLifestylesRules.TryProject(Configuration(LifestyleId), authority, out _, out _));
+        }
+    }
+
+    [TestMethod]
+    public void Metatype_cost_create_reopen_and_replay_charge_once_and_preserve_source_cost()
+    {
+        WithService((store, _, id, directory) =>
+        {
+            var authority = Authority() with { MetatypeCostPercent = 100m };
+            authority = authority with { AuthorityDigest = CharacterCreationLifestylesRules.ComputeAuthorityDigest(authority) };
+            var service = new CharacterCreationLifestylesService(store, new FakeResolver(authority));
+            var state = Load(service, id);
+            var mutation = new CharacterCreationLifestyleMutation(CharacterCreationLifestyleMutationKinds.Create,
+                LifestyleId, Configuration(LifestyleId));
+            var preview = Preview(service, state.Binding, mutation);
+            Assert.AreEqual(4000m, preview.After!.Economics.TotalCost);
+            Assert.AreEqual(6000m, preview.BudgetAfter.Remaining);
+            var request = new CharacterCreationLifestyleConfirmRequest(state.Binding, mutation, preview.PreviewDigest,
+                "metatype-lifestyle-cost-001", true);
+            var committed = service.Confirm(request);
+            Assert.IsTrue(committed.Success, string.Join(',', committed.Blockers));
+            var saved = store.Get(id).Value!;
+            Assert.AreEqual("2000", Lifestyle(XDocument.Parse(saved.Document.Content), LifestyleId).Element("cost")!.Value);
+            var coldStore = new FileWorkspaceStore(directory);
+            var cold = new CharacterCreationLifestylesService(coldStore, new FakeResolver(authority));
+            Assert.AreEqual(4000m, Load(cold, id).Budget.Used);
+            Assert.AreEqual(CharacterCreationLifestyleOutcomes.Replayed, cold.Confirm(request).Outcome);
+            Assert.AreEqual(saved.ContentRevision, coldStore.Get(id).Value!.ContentRevision);
+            Assert.AreEqual(saved.Document.Content, coldStore.Get(id).Value!.Document.Content);
+        });
+    }
 
     [TestMethod]
     public void Rules_project_exact_Chummer5_cost_layers_free_modes_and_lifestyle_points()

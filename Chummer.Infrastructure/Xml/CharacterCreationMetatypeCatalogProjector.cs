@@ -8,11 +8,15 @@ internal static class CharacterCreationMetatypeCatalogProjector
 {
     private const string HumanId = "a53d885d-a4a4-443d-b6a6-b0a55b0a96c7";
     private const string ElfId = "b3259991-b315-4dbe-ae3c-51f71a1116e2";
+    private const string OrkId = "8ed6892f-88e6-42d0-a704-b805778ec13e";
+    private const string DwarfId = "08f2c9cc-f9f8-4f1a-9efb-63555af71788";
+    private const string TrollId = "77fa1ed8-f4e6-4763-9f0b-f125318b9782";
 
     private static readonly (string Id, string Name)[] SupportedMetatypes =
     [
         (HumanId, "Human"),
-        (ElfId, "Elf")
+        (ElfId, "Elf"),
+        (OrkId, "Ork")
     ];
 
     private static readonly (string Id, string Prefix)[] AttributeFields =
@@ -49,7 +53,8 @@ internal static class CharacterCreationMetatypeCatalogProjector
 
     public static CharacterCreationMetatypeCatalogAuthority Project(
         XDocument document,
-        CharacterCreationMetatypeSourceContextAuthority sourceContext)
+        CharacterCreationMetatypeSourceContextAuthority sourceContext,
+        bool includeKarmaBaseBonuses = false)
     {
         if (!sourceContext.IsAuthoritative
             || sourceContext.MetatypeKarmaMultiplier is not int karmaMultiplier
@@ -78,7 +83,12 @@ internal static class CharacterCreationMetatypeCatalogProjector
         XElement[] entries = containers[0].Elements("metatype").ToArray();
         var catalogBlockers = new List<string>();
         var options = new List<CharacterCreationMetatypeOptionProjection>();
-        foreach ((string expectedId, string expectedName) in SupportedMetatypes)
+        // Life Modules retains its existing admitted catalog until its own
+        // finalizer consumes base-metatype effects. Never advertise a lossy path.
+        (string Id, string Name)[] supported = includeKarmaBaseBonuses
+            ? [.. SupportedMetatypes, (DwarfId, "Dwarf"), (TrollId, "Troll")]
+            : SupportedMetatypes;
+        foreach ((string expectedId, string expectedName) in supported)
         {
             XElement[] matches = entries.Where(candidate =>
                     string.Equals(Read(candidate, "id"), expectedId, StringComparison.OrdinalIgnoreCase)
@@ -115,6 +125,7 @@ internal static class CharacterCreationMetatypeCatalogProjector
                     karmaMultiplier,
                     initiativeFallback,
                     sourceContext.EnabledSourcebooks,
+                    includeKarmaBaseBonuses && expectedId is DwarfId or TrollId,
                     out CharacterCreationMetatypeOptionProjection? option))
             {
                 catalogBlockers.Add(CharacterCreationMetatypeCatalogBlockers.BaseEntryInvalid);
@@ -142,7 +153,7 @@ internal static class CharacterCreationMetatypeCatalogProjector
                 .ToList();
         }
         bool isAuthoritative = distinctBlockers.Length == 0
-            && options.Count == SupportedMetatypes.Length
+            && options.Count == supported.Length
             && options.All(option => option.IsEnabled);
         return new CharacterCreationMetatypeCatalogAuthority(
             CharacterCreationMetatypeCatalogSchemas.CatalogV1,
@@ -159,6 +170,7 @@ internal static class CharacterCreationMetatypeCatalogProjector
         int karmaMultiplier,
         int initiativeFallback,
         IReadOnlyList<string> enabledSourcebooks,
+        bool allowBaseBonuses,
         out CharacterCreationMetatypeOptionProjection option)
     {
         option = null!;
@@ -185,7 +197,8 @@ internal static class CharacterCreationMetatypeCatalogProjector
         }
 
         XElement[] bonuses = entry.Elements("bonus").Take(2).ToArray();
-        if (bonuses.Length != 1 || bonuses[0].HasAttributes || bonuses[0].Nodes().Any())
+        CharacterCreationMetatypeBaseBonuses? baseBonuses = null;
+        if (bonuses.Length != 1 || !TryReadBaseBonuses(bonuses[0], allowBaseBonuses, out baseBonuses))
         {
             blockers.Add(CharacterCreationMetatypeCatalogBlockers.SpecialSemanticsUnsupported);
         }
@@ -232,7 +245,40 @@ internal static class CharacterCreationMetatypeCatalogProjector
             ExcludedMetavariants: excludedMetavariants,
             IsEnabled: distinctBlockers.Length == 0,
             Blockers: distinctBlockers,
-            SourceAnchorIds: [anchor]);
+            SourceAnchorIds: [anchor]) { BaseBonuses = baseBonuses };
+        return true;
+    }
+
+    private static bool TryReadBaseBonuses(XElement bonus, bool allowed,
+        out CharacterCreationMetatypeBaseBonuses? projection)
+    {
+        projection = null;
+        if (bonus.HasAttributes || bonus.Name != "bonus"
+            || bonus.Nodes().Any(node => node is not XElement && (node is not XText text || !string.IsNullOrWhiteSpace(text.Value))))
+            return false;
+        if (!bonus.HasElements) return true;
+        if (!allowed || bonus.Elements().GroupBy(item => item.Name).Any(group => group.Count() != 1)) return false;
+        int armor = 0, reach = 0, lifestyle = 0;
+        foreach (var effect in bonus.Elements())
+        {
+            if (effect.Name.Namespace != XNamespace.None || effect.HasElements
+                || !int.TryParse(effect.Value, NumberStyles.None, CultureInfo.InvariantCulture, out int value)
+                || value < 0) return false;
+            if (effect.Name == "armor")
+            {
+                // Legacy armor group="0" becomes Improvement.unique="group0".
+                if (effect.Attributes().Count() != 1 || effect.Attribute("group")?.Value != "0") return false;
+                armor = value;
+            }
+            else
+            {
+                if (effect.HasAttributes) return false;
+                if (effect.Name == "reach") reach = value;
+                else if (effect.Name == "lifestylecost") lifestyle = value;
+                else return false;
+            }
+        }
+        projection = new(armor, reach, lifestyle);
         return true;
     }
 

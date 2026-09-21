@@ -77,6 +77,7 @@ public static class CharacterCreationLifestylesRules
             || authority.LifestyleOptions is not { Count: > 0 and <= 65_536 }
             || authority.QualityOptions is not { Count: <= 65_536 }
             || authority.TrustFundLevel is < 0 or > 4
+            || authority.MetatypeCostPercent < 0m
             || authority.SourceAnchorIds is not { Count: > 0 }
             || authority.SourceAnchorIds.Any(string.IsNullOrWhiteSpace)
             || authority.SourceAnchorIds.Distinct(StringComparer.Ordinal).Count()
@@ -241,6 +242,7 @@ public static class CharacterCreationLifestylesRules
             baseOption,
             configuration,
             selected,
+            authority.MetatypeCostPercent,
             findings);
         decimal totalCost;
         try
@@ -314,6 +316,7 @@ public static class CharacterCreationLifestylesRules
         CharacterCreationLifestyleCatalogOption lifestyle,
         CharacterCreationLifestyleConfiguration configuration,
         IReadOnlyList<SelectedQuality> selected,
+        decimal metatypeCostPercent,
         List<string> blockers)
     {
         try
@@ -351,6 +354,10 @@ public static class CharacterCreationLifestylesRules
             {
                 result = checked(result / (configuration.Roommates + 1m));
             }
+
+            // Character-based metatype costs follow the roommate split and
+            // precede Outings/Services and Contracts (legacy GetTotalMonthlyCost).
+            result = checked(result * (1m + metatypeCostPercent / 100m));
 
             SelectedQuality[] outingsAndServices = selected.Where(item =>
                 !item.Selection.IsBuiltIn

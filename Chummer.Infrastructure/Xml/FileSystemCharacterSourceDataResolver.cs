@@ -2364,7 +2364,7 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             var references = metatype.GrantedQualities.Select(item => (Reference: item.Name, Selection: string.Empty))
                 .Concat(talent.OptionId == CharacterCreationKarmaTalentCatalog.MundaneOptionId
                     ? [] : new[] { (Reference: talent.OptionId, Selection: string.Empty) }).ToArray();
-            // Only a nested gear grant requires gear.xml. Human/Elf mundane
+            // Only a nested gear grant requires gear.xml. Mundane
             // finalization must not acquire unrelated spell or Priority catalogs.
             bool needsGear = qualities.Any(row => references.Any(reference =>
                     row.Element("name")?.Value == reference.Reference
@@ -3989,8 +3989,8 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 || _enabledSourcebooks.Contains("HT");
             XElement[] improvements = _character.Element("improvements")?.Elements("improvement").ToArray()
                 ?? [];
-            CharacterCreationLifestyleImprovementRules.TryResolve(improvements, 0,
-                out int trustFundLevel, out var effectBlockers);
+            CharacterCreationLifestyleImprovementRules.TryResolveMetatypeCosts(improvements, 0,
+                out int trustFundLevel, out decimal metatypeCostPercent, out var effectBlockers);
             blockers.AddRange(effectBlockers);
 
             var qualities = new List<CharacterCreationLifestyleQualityCatalogOption>();
@@ -4237,6 +4237,19 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 UnsupportedImprovementPrecedenceFailsClosed = true,
                 AtomicCreateEditDelete = true
             });
+            if (metatypeCostPercent != 0m)
+            {
+                gmPolicyDigest = CharacterCreationSkillsDigest.Compute(new
+                {
+                    PreviousPolicyDigest = gmPolicyDigest,
+                    MetatypeCostPercent = metatypeCostPercent
+                });
+                runtimeDigest = CharacterCreationSkillsDigest.Compute(new
+                {
+                    PreviousRuntimeDigest = runtimeDigest,
+                    MetatypeCostLayer = "unconditional-global-racial-after-split-before-outings-v1"
+                });
+            }
             string[] normalized = blockers.Distinct(StringComparer.Ordinal)
                 .OrderBy(item => item, StringComparer.Ordinal)
                 .ToArray();
@@ -4259,7 +4272,10 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                 _rawProfileInputsDigest,
                 gmPolicyDigest,
                 runtimeDigest,
-                string.Empty);
+                string.Empty)
+            {
+                MetatypeCostPercent = metatypeCostPercent
+            };
             authority = projected with
             {
                 AuthorityDigest = CharacterCreationLifestylesRules.ComputeAuthorityDigest(projected)
@@ -5043,7 +5059,8 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
                     && _metatypeKarmaMultiplier.HasValue
                     && _minimumInitiativeDice.HasValue
                     && _droneMods.HasValue);
-            authority = CharacterCreationMetatypeCatalogProjector.Project(document, sourceContext);
+            authority = CharacterCreationMetatypeCatalogProjector.Project(document, sourceContext,
+                includeKarmaBaseBonuses: _buildMethod == CharacterCreationBuildMethods.Karma);
             return true;
         }
 

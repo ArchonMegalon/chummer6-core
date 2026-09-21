@@ -31,18 +31,19 @@ public static class CharacterCreationKarmaLifestylesRules
                 || foundation.Qualities?.QuoteDigest != effects.QualitiesQuoteDigest
                 || !CharacterCreationKarmaEffectsProjector.TryProject(WithoutLifestyles(foundation),
                     effects.RacialSources, effects.TalentSource, out var improvements)
-                || !CharacterCreationLifestyleImprovementRules.TryResolve(improvements.Elements("improvement"),
-                    authority.TrustFundLevel, out int level, out _)) return false;
+                || !CharacterCreationLifestyleImprovementRules.TryResolveMetatypeCosts(improvements.Elements("improvement"),
+                    authority.TrustFundLevel, out int level, out decimal metatypeCostPercent, out _)) return false;
             var result = authority with
             {
                 TrustFundLevel = level,
+                MetatypeCostPercent = checked(authority.MetatypeCostPercent + metatypeCostPercent),
                 GmPolicyDigest = Digest(new { authority.GmPolicyDigest, Effects = effects, TrustFundLevel = level }),
                 AuthorityDigest = string.Empty
             };
             effective = result with { AuthorityDigest = CharacterCreationLifestylesRules.ComputeAuthorityDigest(result) };
             return true;
         }
-        catch (Exception error) when (error is ArgumentException or InvalidOperationException or System.Xml.XmlException)
+        catch (Exception error) when (error is ArgumentException or InvalidOperationException or System.Xml.XmlException or OverflowException)
         { return false; }
     }
 
