@@ -183,7 +183,7 @@ public sealed class Sr6ActionEconomyProvider
     }
 }
 
-public sealed class Sr6CharacterCreationProvider
+public sealed partial class Sr6CharacterCreationProvider
 {
     private static readonly IReadOnlyDictionary<char, Sr6PriorityRow> PriorityRows =
         new Dictionary<char, Sr6PriorityRow>

@@ -1,0 +1,67 @@
+using Chummer.Contracts.Workspaces;
+
+namespace Chummer.Contracts.Characters;
+
+public sealed record Sr6CreationFoundationBinding(
+    CharacterWorkspaceId WorkspaceId,
+    long ContentRevision,
+    long SavedRevision,
+    string AuxiliaryStateDigest,
+    string BootstrapBindingDigest,
+    string AuthorityDigest);
+
+public sealed record Sr6CreationFoundationSelection(
+    string MetatypeId,
+    string TalentId,
+    IReadOnlyList<Sr6CreationPriorityChoice> Assignments);
+
+public sealed record Sr6CreationFoundationOption(string Id, IReadOnlyList<string> AllowedRanks);
+
+public sealed record Sr6CreationFoundationState(
+    Sr6CreationFoundationBinding Binding,
+    string BuildMethod,
+    IReadOnlyList<Sr6CreationFoundationOption> Metatypes,
+    IReadOnlyList<Sr6CreationFoundationOption> Talents,
+    Sr6CreationFoundationPreview? Selection);
+
+/// <summary>Pending choices and budgets, not applied character values or finalization permission.</summary>
+public sealed record Sr6CreationFoundationPreview(
+    Sr6CreationFoundationBinding Binding,
+    Sr6CreationFoundationSelection Selection,
+    Sr6CreationPriorityBudget Budget,
+    int BaseMagic,
+    int BaseResonance,
+    IReadOnlyList<string> SourceAnchorIds,
+    string PreviewDigest);
+
+public sealed record Sr6CreationFoundationConfirmRequest(
+    Sr6CreationFoundationBinding Binding,
+    Sr6CreationFoundationSelection Selection,
+    string PreviewDigest,
+    Guid OperationId,
+    bool ExplicitlyConfirmed);
+
+public sealed record Sr6CreationFoundationDecision(
+    string Schema,
+    Sr6CreationFoundationConfirmRequest Command,
+    Sr6CreationFoundationPreview Preview,
+    long CommittedContentRevision,
+    string DecisionDigest)
+{
+    public const string SchemaV1 = "chummer.sr6.creation-foundation-decision.v1";
+}
+
+public sealed record Sr6CreationFoundationCommit(Sr6CreationFoundationDecision Decision, bool Replayed);
+
+public static class Sr6CreationFoundationBlockers
+{
+    public const string WorkspaceUnavailable = "sr6-creation-foundation-workspace-unavailable";
+    public const string PendingDraftRequired = "sr6-creation-foundation-pending-draft-required";
+    public const string HistoryInvalid = "sr6-creation-foundation-history-invalid";
+    public const string StaleBinding = "sr6-creation-foundation-stale-binding";
+    public const string MetatypeUnavailable = "sr6-creation-foundation-metatype-unavailable";
+    public const string TalentUnavailable = "sr6-creation-foundation-talent-unavailable";
+    public const string ConfirmationRequired = "sr6-creation-foundation-confirmation-required";
+    public const string PersistenceUnavailable = "sr6-creation-foundation-persistence-unavailable";
+    public const string OperationConflict = "sr6-creation-foundation-operation-conflict";
+}

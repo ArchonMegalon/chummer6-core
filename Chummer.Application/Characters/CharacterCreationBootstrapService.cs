@@ -21,6 +21,7 @@ public sealed class CharacterCreationBootstrapService :
     private readonly ICharacterFileQueries _characterFileQueries;
     private readonly ICharacterSourceDataResolver _sourceDataResolver;
     private readonly ICharacterCreationBootstrapActivationProjector? _activationProjector;
+    private readonly IRulesetCharacterCreationBootstrapProvider[] _rulesetBootstrapProviders;
     private readonly object _activationSync = new();
     private readonly HashSet<(string Digest, OwnerContextStamp? Owner)> _pendingActivationDigests = [];
 
@@ -29,7 +30,8 @@ public sealed class CharacterCreationBootstrapService :
         IRulesetWorkspaceCodecResolver codecResolver,
         ICharacterFileQueries characterFileQueries,
         ICharacterSourceDataResolver sourceDataResolver,
-        ICharacterCreationBootstrapActivationProjector? activationProjector = null)
+        ICharacterCreationBootstrapActivationProjector? activationProjector = null,
+        IEnumerable<IRulesetCharacterCreationBootstrapProvider>? rulesetBootstrapProviders = null)
     {
         _workspaceStore = workspaceStore ?? throw new ArgumentNullException(nameof(workspaceStore));
         _codecResolver = codecResolver ?? throw new ArgumentNullException(nameof(codecResolver));
@@ -38,6 +40,7 @@ public sealed class CharacterCreationBootstrapService :
         _sourceDataResolver = sourceDataResolver
                               ?? throw new ArgumentNullException(nameof(sourceDataResolver));
         _activationProjector = activationProjector;
+        _rulesetBootstrapProviders = rulesetBootstrapProviders?.ToArray() ?? [];
     }
 
     public CharacterCreationBootstrapResult<CharacterCreationBootstrapReceipt> Create(
@@ -174,7 +177,13 @@ public sealed class CharacterCreationBootstrapService :
         string[] requestBlockers = ValidateRequest(request);
         if (requestBlockers.Length != 0)
             return InvalidCreation(requestBlockers);
-        if (includeActivation && _activationProjector is null)
+        bool isSr6 = request.RulesetId == RulesetDefaults.Sr6;
+        IRulesetCharacterCreationBootstrapProvider[] providers = isSr6
+            ? _rulesetBootstrapProviders.Where(provider => provider.RulesetId == request.RulesetId).Take(2).ToArray()
+            : [];
+        if (isSr6 && providers.Length != 1)
+            return UnavailableCreation(CharacterCreationBootstrapBlockers.SourceContextUnavailable);
+        if (includeActivation && !isSr6 && _activationProjector is null)
             return UnavailableCreation(
                 CharacterCreationBootstrapBlockers.ActivationProjectionUnavailable);
 
@@ -192,10 +201,10 @@ public sealed class CharacterCreationBootstrapService :
         try
         {
             codec = _codecResolver.Resolve(request.RulesetId);
-            if (!string.Equals(codec.RulesetId, RulesetDefaults.Sr5, StringComparison.Ordinal))
+            if (!string.Equals(codec.RulesetId, request.RulesetId, StringComparison.Ordinal))
             {
                 return InvalidCreation(
-                    CharacterCreationBootstrapBlockers.RulesetSr5Required);
+                    CharacterCreationBootstrapBlockers.RulesetUnsupported);
             }
 
             envelope = codec.WrapImport(
@@ -235,7 +244,8 @@ public sealed class CharacterCreationBootstrapService :
             .ToArray();
         bool acceptsTypedCreationShape = genericValidation.IsValid
                                          && genericErrors.Length == 0
-                                         && CharacterCreationBuildMethods.IsSupported(request.BuildMethod);
+                                         && CharacterCreationBootstrapProfiles.IsExactCanonicalTuple(
+                                             request.RulesetId, request.BuildMethod, request.SettingsProfileId);
         bool hasOnlyExpectedMissingMetatype = !genericValidation.IsValid
                                               && genericErrors.Length == 1
                                               && string.Equals(
@@ -257,10 +267,28 @@ public sealed class CharacterCreationBootstrapService :
 
         CharacterWorkspaceId workspaceId = new(Guid.NewGuid().ToString("N"));
         WorkspaceDocument document = new(envelope, WorkspaceDocumentFormat.NativeXml);
-        ICharacterSourceDataContext? sourceContext;
+        CharacterCreationBootstrapSourceSnapshot? sourceSnapshot = null;
+        CharacterCreationBootstrapBinding binding;
+        IReadOnlyList<string> sourceAnchorIds;
+        IReadOnlyList<string> authorityBlockers;
         try
         {
-            sourceContext = _sourceDataResolver.TryCreateContext(document.Content);
+            if (isSr6)
+            {
+                if (!providers[0].TryPrepareBinding(workspaceId, document, out binding,
+                        out sourceAnchorIds, out authorityBlockers))
+                    return InvalidCreation(authorityBlockers);
+            }
+            else
+            {
+                ICharacterSourceDataContext? sourceContext = _sourceDataResolver.TryCreateContext(document.Content);
+                if (sourceContext is null || !CharacterCreationBootstrapSourceSnapshot.TryCapture(
+                        sourceContext, document.Content, out sourceSnapshot))
+                    return InvalidCreation(CharacterCreationBootstrapBlockers.SourceContextUnavailable);
+                if (!CharacterCreationBootstrapAuthority.TryPrepareBinding(workspaceId, document,
+                        sourceSnapshot.CreateFrozenContext(), out binding, out sourceAnchorIds, out authorityBlockers))
+                    return InvalidCreation(authorityBlockers);
+            }
         }
         catch (Exception exception) when (exception is ArgumentException
                                            or FormatException
@@ -272,27 +300,6 @@ public sealed class CharacterCreationBootstrapService :
         {
             return InvalidCreation(CharacterCreationBootstrapBlockers.SourceContextUnavailable);
         }
-        if (sourceContext is null)
-            return InvalidCreation(CharacterCreationBootstrapBlockers.SourceContextUnavailable);
-        if (!CharacterCreationBootstrapSourceSnapshot.TryCapture(
-                sourceContext,
-                document.Content,
-                out CharacterCreationBootstrapSourceSnapshot sourceSnapshot))
-        {
-            return InvalidCreation(CharacterCreationBootstrapBlockers.SourceContextUnavailable);
-        }
-        ICharacterSourceDataContext frozenSourceContext = sourceSnapshot.CreateFrozenContext();
-
-        if (!CharacterCreationBootstrapAuthority.TryPrepareBinding(
-                workspaceId,
-                document,
-                frozenSourceContext,
-                out CharacterCreationBootstrapBinding binding,
-                out IReadOnlyList<string> sourceAnchorIds,
-                out IReadOnlyList<string> authorityBlockers))
-        {
-            return InvalidCreation(authorityBlockers);
-        }
 
         WorkspaceDocument boundDocument = document with
         {
@@ -302,6 +309,11 @@ public sealed class CharacterCreationBootstrapService :
                     CharacterCreationBootstrapBinding: binding)
             }
         };
+        // A ruleset provider is not a replacement for the shared atomic-create
+        // contract. Reject inconsistent provider output before any store call.
+        if (!CharacterCreationBootstrapStoreIntegrity.IsValidInitialState(workspaceId, boundDocument)
+            || !sourceAnchorIds.SequenceEqual(binding.SourceAnchorIds, StringComparer.Ordinal))
+            return InvalidCreation(CharacterCreationBootstrapBlockers.BindingInvalid);
         WorkspaceStoreMutationResult created = owner.IsLocalSingleUser
             ? ((ICharacterCreationBootstrapAtomicCreateCapability)_workspaceStore)
                 .CreateCharacterCreationBootstrapWorkspaceDocument(workspaceId, boundDocument)
@@ -347,7 +359,7 @@ public sealed class CharacterCreationBootstrapService :
                 []);
         }
 
-        if (!sourceSnapshot.CanProjectCompleteInitialCreation
+        if (sourceSnapshot is null || !sourceSnapshot.CanProjectCompleteInitialCreation
             || (!owner.IsLocalSingleUser && _workspaceStore is not
                 IOwnerScopedWorkspaceAuxiliaryStateAtomicCommitCapability
                 { SupportsOwnerScopedWorkspaceAuxiliaryStateAtomicCommit: true }))
@@ -468,14 +480,15 @@ public sealed class CharacterCreationBootstrapService :
                 CharacterCreationBootstrapStages.AwaitingFoundationSelection,
                 StringComparison.Ordinal))
             blockers.Add(CharacterCreationBootstrapBlockers.RequestStageInvalid);
-        if (!string.Equals(request.RulesetId, RulesetDefaults.Sr5, StringComparison.Ordinal))
-            blockers.Add(CharacterCreationBootstrapBlockers.RulesetSr5Required);
+        if (request.RulesetId is not (RulesetDefaults.Sr5 or RulesetDefaults.Sr6))
+            blockers.Add(CharacterCreationBootstrapBlockers.RulesetUnsupported);
         if (string.IsNullOrWhiteSpace(request.Name)
             || request.Name.Trim().Length > MaximumDisplayIdentityLength
             || string.IsNullOrWhiteSpace(request.Alias)
             || request.Alias.Trim().Length > MaximumDisplayIdentityLength)
             blockers.Add(CharacterCreationBootstrapBlockers.DisplayIdentityRequired);
-        if (!CharacterCreationBuildMethods.IsSupported(request.BuildMethod))
+        if (!CharacterCreationBootstrapProfiles.TryResolveCanonicalSettingsProfileId(
+                request.RulesetId, request.BuildMethod, out _))
             blockers.Add(CharacterCreationBootstrapBlockers.BuildMethodInvalid);
         if (!Guid.TryParseExact(request.SettingsProfileId, "D", out Guid settingsId)
             || settingsId == Guid.Empty
@@ -485,6 +498,7 @@ public sealed class CharacterCreationBootstrapService :
                 StringComparison.Ordinal))
             blockers.Add(CharacterCreationBootstrapBlockers.SettingsProfileInvalid);
         if (!CharacterCreationBootstrapProfiles.IsExactCanonicalTuple(
+                request.RulesetId,
                 request.BuildMethod,
                 request.SettingsProfileId))
             blockers.Add(CharacterCreationBootstrapBlockers.SettingsProfileInvalid);
@@ -506,7 +520,7 @@ public sealed class CharacterCreationBootstrapService :
                 new XElement("karma", "0"),
                 new XElement("nuyen", "0"),
                 new XElement("created", "False"),
-                new XElement("gameedition", "SR5"),
+                new XElement("gameedition", request.RulesetId == RulesetDefaults.Sr6 ? "SR6" : "SR5"),
                 new XElement("settings", request.SettingsProfileId),
                 new XElement(
                     CharacterCreationBootstrapXml.MarkerElement,
@@ -516,7 +530,8 @@ public sealed class CharacterCreationBootstrapService :
                     new XElement(
                         CharacterCreationBootstrapXml.StageElement,
                         CharacterCreationBootstrapStages.AwaitingFoundationSelection))));
-        CharacterCreationCareerBaseline.InitializeMissing(document.Root!);
+        if (request.RulesetId == RulesetDefaults.Sr5)
+            CharacterCreationCareerBaseline.InitializeMissing(document.Root!);
         using StringWriter writer = new(CultureInfo.InvariantCulture);
         document.Save(writer, SaveOptions.DisableFormatting);
         return writer.ToString();

@@ -80,7 +80,18 @@ public sealed class CharacterFileService : ICharacterFileService
             return false;
         }
 
-        // Every supported Creation method chooses its metatype after bootstrap.
+        // Explicit SR6 drafts use their own method identities. In particular,
+        // Point Buy/Life Path are not aliases for SR5 Karma/Life Modules. Do not
+        // infer an edition for those new identities from a missing/duplicate tag.
+        XElement[] editions = character.Elements("gameedition").ToArray();
+        if (editions.Length == 1 && editions[0].Value == "SR6")
+        {
+            return character.Elements("buildmethod").Count() == 1
+                   && character.Elements("created").Count() == 1
+                   && Sr6CharacterCreationBuildMethods.IsKnown(ReadValue(character, "buildmethod"));
+        }
+
+        // Every supported SR5 Creation method chooses its metatype after bootstrap.
         // This is shape validation only; the bootstrap binding/source authority
         // remains responsible for admitting an incomplete Creation workspace.
         return CharacterCreationBuildMethods.IsSupported(ReadValue(character, "buildmethod"));
