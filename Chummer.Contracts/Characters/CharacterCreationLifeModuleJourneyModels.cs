@@ -42,7 +42,11 @@ public sealed record CharacterCreationLifeModulePreview(
 public sealed record CharacterCreationLifeModuleConfirmRequest(
     CharacterCreationLifeModulePreviewRequest Request,
     string PreviewDigest,
-    bool ExplicitlyConfirmed);
+    bool ExplicitlyConfirmed)
+{
+    public LifeModuleDecisionAcceptanceCommand? OriginDecisionCommand { get; init; }
+    public LifeModuleDecisionAuthorityStep? OriginDecisionStep { get; init; }
+}
 
 public sealed record CharacterCreationLifeModuleApplyReceipt(
     CharacterCreationFoundationBinding Binding,
@@ -52,4 +56,7 @@ public sealed record CharacterCreationLifeModuleApplyReceipt(
     long DraftRevision,
     string DraftDigest,
     CharacterCreationLifeModuleDraftEntry Entry,
-    bool CharacterEffectsApplied);
+    bool CharacterEffectsApplied)
+{
+    public LifeModuleDecisionAcceptance? OriginDecisionAcceptance { get; init; }
+}

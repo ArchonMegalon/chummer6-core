@@ -442,7 +442,7 @@ public sealed class LifeModuleOriginDossierService
         return seed with { SeedDigest = ComputeArcSeedDigest(seed) };
     }
 
-    private static bool TryCreateTurn(
+    internal static bool TryCreateTurn(
         LifeModuleDecisionAuthorityStep step,
         out LifeModuleNarrativeTurnSeed? turn)
     {

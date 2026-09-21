@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Chummer.Application.Characters;
+using Chummer.Application.LifeModules;
 using Chummer.Contracts.Characters;
 using Chummer.Contracts.LifeModules;
 using Chummer.Contracts.Rulesets;
@@ -19,6 +20,77 @@ public sealed partial class CharacterCreationFoundationDraftApplyAuthorityTests
     private const string TeenCorporateId = "f0393b9e-2698-4955-bd31-112b619ac7b8";
     private const string SkipEducationId = "5a2eee69-cedb-403e-9649-fdc9a1377374";
     private const string BountyHunterId = "47bf63cf-9a2a-4008-b455-c8ab68add581";
+
+    [TestMethod]
+    public void Origin_book_continuation_commits_each_module_and_chapter_receipt_together_and_reopens()
+    {
+        string directory = CreateTempDirectory();
+        try
+        {
+            var id = new CharacterWorkspaceId("origin-multiple-chapters");
+            var store = new FileWorkspaceStore(directory);
+            string xml = CharacterXml("Human");
+            Assert.IsTrue(store.CreateWorkspaceDocument(id, new WorkspaceDocument(xml, RulesetDefaults.Sr5)).Success);
+            LifeModuleOriginDossierInteractionService Interaction(FileWorkspaceStore current) => new(
+                new LifeModuleOriginDossierService(new CharacterCreationFoundationLifeModuleDecisionAuthority(
+                    current, CreateService(current), new XmlCharacterFileQueries(new CharacterFileService()), () => "de-DE")));
+            var interaction = Interaction(store);
+            var checkpoint = interaction.Start(id.Value).Value!;
+            for (int decision = 0; decision < 4; decision++)
+            {
+                var turn = checkpoint.Projection.CurrentTurn;
+                Assert.IsFalse(turn.IsTerminal, $"No next choice at stage {turn.StageOrder}: {turn.DecisionPrompt}");
+                Assert.AreEqual(decision + 1, turn.StageOrder);
+                var choice = turn.LegalChoices.First();
+                var prepared = interaction.Prepare(checkpoint, choice.ChoiceId);
+                Assert.AreEqual(LifeModuleOriginDossierOutcomes.Success, prepared.Outcome);
+                string previewDigest = prepared.Value!.PendingPreview!.PreviewDigest;
+                string key = $"origin-stage-{decision}";
+                var accepted = interaction.Confirm(prepared.Value, previewDigest, key, true);
+                Assert.AreEqual(LifeModuleOriginDossierOutcomes.Success, accepted.Outcome, string.Join(", ", accepted.Blockers));
+                checkpoint = accepted.Value!.Checkpoint;
+                Assert.AreEqual(decision + 1, checkpoint.Projection.VisibleChapters.Count);
+                Assert.AreEqual(decision + 2L, checkpoint.WorkspaceRevision);
+                store = new FileWorkspaceStore(directory);
+                var persisted = store.Get(id).Value!;
+                Assert.AreEqual(xml, persisted.Document.Content);
+                Assert.AreEqual(decision, persisted.Document.AuxiliaryState.CharacterCreationFoundationDraft!.AdditionalModules?.Count ?? 0);
+                var ledger = persisted.Document.AuxiliaryState.LifeModuleDecisionAcceptances!;
+                Assert.AreEqual(decision + 1, ledger.Count);
+                Assert.IsTrue(LifeModuleDecisionAcceptanceIntegrity.TryValidateLedger(id, persisted.ContentRevision, ledger));
+                Assert.AreEqual(checkpoint.Projection.CurrentTurn.DecisionDigest, ledger[^1].NextStep.DecisionDigest);
+                Assert.AreEqual(persisted.ContentRevision, persisted.SavedRevision);
+                byte[] bytes = File.ReadAllBytes(WorkspacePath(directory, id));
+                interaction = Interaction(store);
+                var resumed = interaction.Restore(checkpoint);
+                Assert.AreEqual(LifeModuleOriginDossierOutcomes.Success, resumed.Outcome, string.Join(", ", resumed.Blockers));
+                Assert.AreEqual(checkpoint.CheckpointDigest, resumed.Value!.CheckpointDigest);
+                var replay = interaction.Confirm(prepared.Value, previewDigest, key, true);
+                Assert.AreEqual(LifeModuleOriginDossierOutcomes.Success, replay.Outcome);
+                Assert.AreEqual(checkpoint.CheckpointDigest, replay.Value!.Checkpoint.CheckpointDigest);
+                CollectionAssert.AreEqual(bytes, File.ReadAllBytes(WorkspacePath(directory, id)));
+                if (ledger.Count > 1)
+                {
+                    var changed = ledger.ToArray();
+                    changed[^1] = changed[^1] with
+                    {
+                        NextStep = changed[^1].NextStep with { OwnerId = "different-owner" }
+                    };
+                    Assert.IsFalse(LifeModuleDecisionAcceptanceIntegrity.TryValidateLedger(id, persisted.ContentRevision, changed));
+                    changed = ledger.ToArray();
+                    changed[^1] = changed[^1] with
+                    {
+                        NextStep = changed[^1].NextStep with { PreviousTurnDigest = new string('0', 64) }
+                    };
+                    Assert.IsFalse(LifeModuleDecisionAcceptanceIntegrity.TryValidateLedger(id, persisted.ContentRevision, changed));
+                }
+            }
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
 
     [TestMethod]
     [DataRow(false)]

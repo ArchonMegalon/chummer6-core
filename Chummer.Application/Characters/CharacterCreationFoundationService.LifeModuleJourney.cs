@@ -1,4 +1,5 @@
 using Chummer.Application.Workspaces;
+using Chummer.Application.LifeModules;
 using Chummer.Contracts.Characters;
 using Chummer.Contracts.LifeModules;
 using Chummer.Contracts.Workspaces;
@@ -56,13 +57,25 @@ public sealed partial class CharacterCreationFoundationService
         {
             DraftDigest = CharacterCreationFoundationDraftLedgerIntegrity.ComputeDigest(proposed)
         };
+        var originLedger = workspace.Document.AuxiliaryState.LifeModuleDecisionAcceptances;
+        LifeModuleDecisionAcceptance? originAcceptance = null;
+        if (request.OriginDecisionCommand is not null || request.OriginDecisionStep is not null)
+        {
+            originAcceptance = CharacterCreationFoundationLifeModuleDecisionAuthority.CreateModuleAcceptance(
+                this, workspace, proposed, preview, request.OriginDecisionCommand, request.OriginDecisionStep);
+            if (originAcceptance is null)
+                return Blocked<CharacterCreationLifeModuleApplyReceipt>(CharacterCreationFoundationOutcomes.Conflict,
+                    LifeModuleOriginDossierBlockers.DecisionStale);
+            originLedger = [.. originLedger ?? [], originAcceptance];
+        }
         var replacement = workspace.Document with
         {
             State = workspace.Document.State with
             {
                 AuxiliaryState = workspace.Document.AuxiliaryState with
                 {
-                    CharacterCreationFoundationDraft = proposed
+                    CharacterCreationFoundationDraft = proposed,
+                    LifeModuleDecisionAcceptances = originLedger
                 }
             }
         };
@@ -75,8 +88,17 @@ public sealed partial class CharacterCreationFoundationService
                 CharacterCreationFoundationBlockers.StaleWorkspaceRevision);
         return new(CharacterCreationFoundationOutcomes.Success,
             new(preview.Request.Binding, workspace.ContentRevision, entry.ContentRevision, entry.SavedRevision,
-                proposed.DraftRevision, proposed.DraftDigest, preview.Entry, CharacterEffectsApplied: false), []);
+                proposed.DraftRevision, proposed.DraftDigest, preview.Entry, CharacterEffectsApplied: false)
+            { OriginDecisionAcceptance = originAcceptance }, []);
     }
+
+    internal CharacterCreationFoundationResult<CharacterCreationLifeModuleJourneyState> ProjectJourney(
+        WorkspaceStoredDocument workspace) => BuildJourney(workspace, null, false);
+
+    internal CharacterCreationFoundationResult<CharacterCreationLifeModulePreview> ProjectModule(
+        WorkspaceStoredDocument workspace, CharacterCreationLifeModulePreviewRequest request,
+        CharacterCreationLifeModuleJourneyState state)
+        => EvaluateModule(request, workspace, state).Result;
 
     private CharacterCreationFoundationResult<CharacterCreationLifeModuleJourneyState> BuildJourney(
         WorkspaceStoredDocument workspace, IReadOnlyCollection<string>? sources, bool sourceFilterApplied)
@@ -122,12 +144,19 @@ public sealed partial class CharacterCreationFoundationService
     }
 
     private (CharacterCreationFoundationResult<CharacterCreationLifeModulePreview> Result,
-        WorkspaceStoredDocument? Workspace) EvaluateModule(CharacterCreationLifeModulePreviewRequest request)
+        WorkspaceStoredDocument? Workspace) EvaluateModule(CharacterCreationLifeModulePreviewRequest request,
+            WorkspaceStoredDocument? projectionWorkspace = null,
+            CharacterCreationLifeModuleJourneyState? projectionState = null)
     {
-        WorkspaceStoreReadResult read = _workspaceStore.Get(request.Binding.WorkspaceId);
+        WorkspaceStoreReadResult read = projectionWorkspace is null
+            ? _workspaceStore.Get(request.Binding.WorkspaceId)
+            : new(WorkspaceOperationOutcome.Success, projectionWorkspace);
         if (!read.Success || read.Value is not { } workspace)
             return (ReadFailure<CharacterCreationLifeModulePreview>(read), null);
-        var loaded = BuildJourney(workspace, request.Binding.EnabledSources, request.Binding.SourceFilterApplied);
+        var loaded = projectionState is null
+            ? BuildJourney(workspace, request.Binding.EnabledSources, request.Binding.SourceFilterApplied)
+            : new CharacterCreationFoundationResult<CharacterCreationLifeModuleJourneyState>(
+                CharacterCreationFoundationOutcomes.Success, projectionState, []);
         if (loaded.Value is not { } state)
             return (new(loaded.Outcome, null, loaded.Blockers), null);
         if (!CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(state.Binding, request.Binding)

@@ -157,7 +157,9 @@ public sealed partial class CharacterCreationFoundationService : ICharacterCreat
         context = context with
         {
             OriginDecisionCommand = request.OriginDecisionCommand,
-            OriginDecisionStep = request.OriginDecisionStep
+            OriginDecisionStep = request.OriginDecisionStep,
+            OriginContinuation = (workspace, seed) =>
+                CharacterCreationFoundationLifeModuleDecisionAuthority.BuildContinuationStep(this, workspace, seed)
         };
         return _applyAuthority.ApplyAndCheckpoint(context, preview.PreviewDigest);
     }

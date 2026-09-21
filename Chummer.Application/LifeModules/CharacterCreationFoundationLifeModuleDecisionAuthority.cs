@@ -12,13 +12,13 @@ using Chummer.Contracts.Workspaces;
 namespace Chummer.Application.LifeModules;
 
 /// <summary>
-/// Production adapter from the first, rules-authoritative SR5 Life Modules
-/// foundation decision to the Origin Dossier decision contract.  It never
+/// Production adapter from rules-authoritative SR5 Life Modules draft
+/// decisions to the Origin Dossier decision contract. It never
 /// creates a second mechanics write path: confirmation is delegated back to
 /// <see cref="ICharacterCreationFoundationService"/>, which owns preview,
 /// explicit confirmation and the atomic workspace CAS.
 /// </summary>
-public sealed class CharacterCreationFoundationLifeModuleDecisionAuthority :
+public sealed partial class CharacterCreationFoundationLifeModuleDecisionAuthority :
     ILifeModuleDecisionAuthority
 {
     private const string OwnerId = "local-single-user";
@@ -26,7 +26,7 @@ public sealed class CharacterCreationFoundationLifeModuleDecisionAuthority :
     private const string StageId = "nationality";
     private const string TerminalStageId = "nationality-accepted";
     private const string RuntimeSemantics =
-        "chummer.sr5-life-modules.foundation-origin-authority/v2";
+        "chummer.sr5-life-modules.foundation-origin-authority/v3";
 
     private readonly IWorkspaceStore _workspaceStore;
     private readonly ICharacterCreationFoundationService _foundation;
@@ -64,8 +64,18 @@ public sealed class CharacterCreationFoundationLifeModuleDecisionAuthority :
                     workspace.ContentRevision,
                     acceptances))
                 return Invalid<LifeModuleDecisionAuthorityStep>();
-            LifeModuleDecisionAuthorityStep terminal = acceptances[^1].NextStep;
-            return Success(terminal);
+            LifeModuleDecisionAuthorityStep stored = acceptances[^1].NextStep;
+            if (stored.WorkspaceRevision != workspace.ContentRevision)
+                return Blocked<LifeModuleDecisionAuthorityStep>(LifeModuleOriginDossierOutcomes.Conflict,
+                    LifeModuleOriginDossierBlockers.WorkspaceStale);
+            if (!stored.IsTerminal && _foundation is CharacterCreationFoundationService concrete)
+            {
+                var fresh = BuildContinuationStep(concrete, workspace, stored);
+                if (fresh is null || !SameStep(stored, fresh))
+                    return Blocked<LifeModuleDecisionAuthorityStep>(LifeModuleOriginDossierOutcomes.Conflict,
+                        LifeModuleOriginDossierBlockers.DecisionStale);
+            }
+            return Success(stored);
         }
 
         CharacterCreationFoundationResult<CharacterCreationFoundationState> loaded =
@@ -135,6 +145,8 @@ public sealed class CharacterCreationFoundationLifeModuleDecisionAuthority :
         WorkspaceStoreReadResult read = _workspaceStore.Get(id);
         if (!read.Success || read.Value is not WorkspaceStoredDocument workspace)
             return FromRead<LifeModuleDecisionAcceptance>(read);
+        if (workspace.Document.AuxiliaryState.LifeModuleDecisionAcceptances is { Count: > 0 })
+            return AcceptModule(workspace, command);
         CharacterCreationFoundationResult<CharacterCreationFoundationState> loaded =
             _foundation.Load(new CharacterCreationFoundationLoadRequest(id));
         if (loaded.Value is not CharacterCreationFoundationState state)
@@ -263,6 +275,14 @@ public sealed class CharacterCreationFoundationLifeModuleDecisionAuthority :
         {
             IsTerminal = true
         };
+        if (context.OriginContinuation is not null)
+        {
+            LifeModuleDecisionAuthorityStep? continuation = context.OriginContinuation(
+                ProjectCommittedDraft(context.Workspace, proposed), terminal);
+            if (continuation is null)
+                return null;
+            terminal = continuation;
+        }
         var receipt = new LifeModuleAcceptedDecisionReceipt(
             OriginDossierSchemas.AcceptedDecisionReceiptV1,
             decisionId,
@@ -638,8 +658,13 @@ public static class LifeModuleDecisionAcceptanceIntegrity
     {
         if (ledger is null || ledger.Count == 0 || ledger.Count > MaximumReceipts)
             return false;
-        long previousRevision = ledger[0].Receipt.PreviousWorkspaceRevision;
+        if (ledger[0]?.Receipt is not { } firstReceipt)
+            return false;
+        long previousRevision = firstReceipt.PreviousWorkspaceRevision;
         var idempotency = new HashSet<string>(StringComparer.Ordinal);
+        var acceptedIds = new List<string>();
+        var facts = new List<OriginCanonicalNarrativeFact>();
+        LifeModuleDecisionAuthorityStep? previousStep = null;
         foreach (LifeModuleDecisionAcceptance acceptance in ledger)
         {
             LifeModuleAcceptedDecisionReceipt? receipt = acceptance?.Receipt;
@@ -652,8 +677,7 @@ public static class LifeModuleDecisionAcceptanceIntegrity
                 || receipt.PreviousWorkspaceRevision != previousRevision
                 || receipt.WorkspaceRevision != previousRevision + 1
                 || next.WorkspaceRevision != receipt.WorkspaceRevision
-                || !next.IsTerminal
-                || next.LegalChoices.Count != 0
+                || !LifeModuleOriginDossierService.TryCreateTurn(next, out _)
                 || next.AcceptedDecisionIds.Count == 0
                 || string.IsNullOrWhiteSpace(receipt.DecisionId)
                 || string.IsNullOrWhiteSpace(receipt.ChoiceId)
@@ -686,7 +710,34 @@ public static class LifeModuleDecisionAcceptanceIntegrity
                 || !idempotency.Add(receipt.IdempotencyKeyDigest)
                 || !FixedEquals(receipt.ReceiptDigest, ComputeReceiptDigest(receipt)))
                 return false;
+            acceptedIds.Add(receipt.DecisionId);
+            facts.AddRange(receipt.CanonicalFacts);
+            if (!acceptedIds.SequenceEqual(next.AcceptedDecisionIds, StringComparer.Ordinal)
+                || !FixedEquals(
+                    ComputeCanonicalDigest(facts.OrderBy(fact => fact.FactId, StringComparer.Ordinal).ToArray()),
+                    ComputeCanonicalDigest(next.CanonicalFacts.OrderBy(fact => fact.FactId, StringComparer.Ordinal).ToArray())))
+                return false;
+            if (previousStep is not null)
+            {
+                if (previousStep.IsTerminal
+                    || previousStep.OwnerId != next.OwnerId || previousStep.RunnerId != next.RunnerId
+                    || previousStep.RunnerDisplayName != next.RunnerDisplayName
+                    || previousStep.Locale != next.Locale || previousStep.JourneyId != next.JourneyId
+                    || previousStep.TurnSequence == int.MaxValue
+                    || next.TurnSequence != previousStep.TurnSequence + 1
+                    || next.StageOrder < previousStep.StageOrder
+                    || !FixedEquals(receipt.PreviousContentDigest, previousStep.ContentDigest)
+                    || !FixedEquals(receipt.SourceDigest, previousStep.SourceDigest)
+                    || !FixedEquals(receipt.RulesDigest, previousStep.RulesDigest)
+                    || !FixedEquals(receipt.RuntimeDigest, previousStep.RuntimeDigest)
+                    || !FixedEquals(receipt.PreviousDecisionDigest, previousStep.DecisionDigest)
+                    || !FixedEquals(receipt.PreviousMechanicsSnapshotDigest, previousStep.MechanicsSnapshotDigest)
+                    || !LifeModuleOriginDossierService.TryCreateTurn(previousStep, out var previousTurn)
+                    || previousTurn is null || !FixedEquals(next.PreviousTurnDigest, previousTurn.SeedDigest))
+                    return false;
+            }
             previousRevision = receipt.WorkspaceRevision;
+            previousStep = next;
         }
         return previousRevision <= currentWorkspaceRevision;
     }

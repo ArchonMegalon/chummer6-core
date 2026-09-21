@@ -31,7 +31,7 @@ metatype/nationality replacement so later decisions are not silently invalidated
 
 The `CharacterCreationFoundation*` and `LifeModuleOriginDossierServiceTests`
 subset runs locally in the existing keyless Docker toolchain with .NET 10.0.103.
-Final result: **59 passed, 0 failed** (`core-journey-tests-final.log`).
+The draft-only increment passed **59 tests** (`core-journey-tests-final.log`).
 The real catalog/FileWorkspaceStore regression follows an Elf through Arcology
 Living, Corporate Education, Skipped Further Education and repeated Bounty
 Hunter modules. It reopens the disk store after every stage, checks all costs and
@@ -42,13 +42,33 @@ rehashed stored cost change. The route runs both from an imported pending runner
 and from the real native Creation bootstrap with no preselected metatype.
 An unavailable persistence authority cannot authorize continuation.
 
+## Atomic Origin continuation
+
+The production Origin adapter now projects the next admitted module choices
+after nationality and subsequent module decisions. Confirmation appends the
+draft entry and its Origin acceptance in the same workspace transaction; the
+next book turn is derived before that transaction can commit. The accepted
+history must remain an exact prefix, with one new receipt, continuous revisions,
+owner/runner identity, canonical facts and previous-turn binding. Replaying a
+confirmed command does not append another module or chapter.
+
+The expanded local subset includes `WorkspaceAuxiliaryStateStoreTests`:
+**68 passed, 0 failed** (`core-origin-continuation-3.log`). A real catalog,
+Foundation service, FileWorkspaceStore and Origin interaction regression accepts
+four successive decisions, restores the exact chapter checkpoint after every
+disk reopen, and verifies byte-identical confirmation replay. Changed historical
+owner and previous-turn bindings are rejected. This is Core integration evidence,
+not a completed native Android or provider-generation test.
+
 ## Next product work
 
-This continuation service is not yet connected to the Android Origin decisions.
-The current Origin adapter still emits `nationality-accepted` as its terminal
-turn. Its acceptance append and next-turn projection must advance atomically
-with each module, preserving the existing chapter/checkpoint/recovery chain.
-Android also needs the later-stage and follow-up controls.
+The choice-only Origin projection deliberately omits modules requiring additional
+player answers; it never invents required follow-ups. Those input controls still
+need to be connected. A stage with no admitted choices stops with explicit
+unfinished-draft wording, not a claim that character creation is complete.
+The user still needs an explicit finish decision for the repeatable Real Life
+stage. Android runtime continuation and process-restart verification remain
+separate from the Core tests above.
 
 Finalization remains blocked: the existing effect compiler only handles a
 nationality subgraph. A complete draft sequence must not be presented as applied

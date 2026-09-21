@@ -1967,15 +1967,17 @@ public sealed partial class FileWorkspaceStore :
             return false;
         if (HasSameLifeModuleAcceptanceLedger(currentAcceptances, replacementAcceptances))
             return true;
-        if ((currentAcceptances?.Count ?? 0) != 0
-            || replacementAcceptances is not { Count: 1 }
+        int previousCount = currentAcceptances?.Count ?? 0;
+        if (replacementAcceptances is null || replacementAcceptances.Count != previousCount + 1
+            || (previousCount > 0 && !HasSameLifeModuleAcceptanceLedger(currentAcceptances,
+                replacementAcceptances.Take(previousCount).ToArray()))
             || nextContentRevision != previousContentRevision + 1)
             return false;
         return LifeModuleDecisionAcceptanceIntegrity.TryValidateLedger(
             workspaceId,
             nextContentRevision,
             replacementAcceptances)
-               && replacementAcceptances[0].Receipt.PreviousWorkspaceRevision
+               && replacementAcceptances[^1].Receipt.PreviousWorkspaceRevision
                == previousContentRevision;
     }
 

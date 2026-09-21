@@ -40,6 +40,10 @@ public sealed record CharacterCreationFoundationAuthorityContext(
     public LifeModuleDecisionAcceptanceCommand? OriginDecisionCommand { get; init; }
 
     public LifeModuleDecisionAuthorityStep? OriginDecisionStep { get; init; }
+
+    // Installed only by the Core service, never accepted from a client DTO.
+    internal Func<WorkspaceStoredDocument, LifeModuleDecisionAuthorityStep,
+        LifeModuleDecisionAuthorityStep?>? OriginContinuation { get; init; }
 }
 
 public sealed record CharacterCreationFoundationAuthorityPreview(
