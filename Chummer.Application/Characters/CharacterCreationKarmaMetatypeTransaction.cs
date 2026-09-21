@@ -52,6 +52,11 @@ public static class CharacterCreationKarmaMetatypeTransaction
                     && request.SkillsSelection is not null && request.GearSelections is not null
                     && Digest(binding.LifestylesAuthorityDigest)
                     && CharacterCreationKarmaLifestylesRules.TryFreeze(request.LifestyleSelections, out _))
+            && (binding.MagicAuthorityDigest is null || Digest(binding.MagicAuthorityDigest))
+            && (request.MagicSelections is null || request.AttributeAllocations is not null
+                && request.QualityOptionIds is not null && request.SkillsSelection is not null
+                && Digest(binding.MagicAuthorityDigest)
+                && CharacterCreationKarmaMagicSelectionRules.TryFreeze(request.MagicSelections, out _))
             && !string.IsNullOrWhiteSpace(binding.WorkspaceId.Value)
             && binding.ContentRevision is > 0 and < long.MaxValue
             && (binding.SavedRevision == binding.ContentRevision
@@ -90,7 +95,8 @@ public static class CharacterCreationKarmaMetatypeTransaction
                         || ledger[index - 1].Quote.Qualities is not null && quote.Qualities is null
                         || ledger[index - 1].Quote.Gear is not null && quote.Gear is null
                         || ledger[index - 1].Quote.Contacts is not null && quote.Contacts is null
-                        || ledger[index - 1].Quote.Lifestyles is not null && quote.Lifestyles is null)
+                        || ledger[index - 1].Quote.Lifestyles is not null && quote.Lifestyles is null
+                        || ledger[index - 1].Quote.Magic is not null && quote.Magic is null)
                     || quote.Schema != CharacterCreationKarmaMetatypeSchemas.QuoteV1
                     || quote.Binding != decision.Command.Binding || quote.Binding.WorkspaceId != id
                     || quote.Metatype is not { IsEnabled: true, KarmaCost: >= 0 } metatype
@@ -130,12 +136,15 @@ public static class CharacterCreationKarmaMetatypeTransaction
                     || !CharacterCreationKarmaGearRules.IsValid(quote.Gear, quote.Resources, decision.Command.GearSelections)
                     || quote.Gear is { } gear && (gear.Basis.AuthorityDigest != quote.Binding.GearAuthorityDigest
                         || gear.Basis.ProfileDigest != quote.Binding.SourceProfileDigest)
-                    || !CharacterCreationKarmaContactsRules.IsValid(quote, decision.Command.ContactSelections)
-                    || !CharacterCreationKarmaLifestylesRules.IsValidForFoundation(quote,
+                    || !CharacterCreationKarmaContactsRules.IsValid(CharacterCreationKarmaMagicSelectionRules.WithoutMagic(quote), decision.Command.ContactSelections)
+                    || !CharacterCreationKarmaLifestylesRules.IsValidForFoundation(CharacterCreationKarmaMagicSelectionRules.WithoutMagic(quote),
                         decision.Command.LifestyleSelections, decision.Command.StartingLifestyleId)
+                    || !CharacterCreationKarmaMagicSelectionRules.IsValid(quote.Magic, quote, decision.Command.MagicSelections)
+                    || quote.Magic is { } magic && magic.SourceAuthorityDigest != quote.Binding.MagicAuthorityDigest
                     || budget.Used != (decimal)metatype.KarmaCost + (quote.Talent?.KarmaCost ?? 0)
                         + (quote.Attributes?.KarmaUsed ?? 0) + (quote.Qualities?.Costs.NetKarmaSpent ?? 0)
                         + (quote.Skills?.KarmaUsed ?? 0) + (quote.Resources?.KarmaInvestment ?? 0) + (quote.Contacts?.KarmaUsed ?? 0)
+                        + (quote.Magic?.Cost.TotalKarma ?? 0)
                     || budget.Total - budget.Used != budget.Remaining
                     || decision.DraftRevision != index + 1
                     || decision.CommittedContentRevision != quote.Binding.ContentRevision + 1
@@ -200,7 +209,7 @@ public static class CharacterCreationKarmaMetatypeTransaction
         var result = new CharacterCreationKarmaMetatypeService(view, sourceResolver)
             .Preview(request.Binding, request.MetatypeOptionId, request.TalentOptionId, request.AttributeAllocations,
                 request.SkillsSelection, request.ResourceKarmaInvestment, request.QualityOptionIds, request.GearSelections,
-                request.ContactSelections, request.LifestyleSelections, request.StartingLifestyleId);
+                request.ContactSelections, request.LifestyleSelections, request.StartingLifestyleId, request.MagicSelections);
         if (result.Value is not { CanSelect: true } quote || quote.QuoteDigest != request.QuoteDigest)
             return false;
         var prepared = new CharacterCreationKarmaMetatypeDecision(
@@ -244,9 +253,12 @@ public static class CharacterCreationKarmaMetatypeTransaction
             CharacterCreationLifestyleConfiguration[]? lifestyles = null;
             if (request.LifestyleSelections is not null
                 && !CharacterCreationKarmaLifestylesRules.TryFreeze(request.LifestyleSelections, out lifestyles)) return false;
+            CharacterCreationMagicResonanceSelections? magic = null;
+            if (request.MagicSelections is not null
+                && !CharacterCreationKarmaMagicSelectionRules.TryFreeze(request.MagicSelections, out magic)) return false;
             frozen = request with { AttributeAllocations = request.AttributeAllocations?.Take(14).ToArray(),
                 SkillsSelection = skills, QualityOptionIds = qualities, GearSelections = gear, ContactSelections = contacts,
-                LifestyleSelections = lifestyles };
+                LifestyleSelections = lifestyles, MagicSelections = magic };
             return IsConfirmed(frozen);
         }
         catch (Exception error) when (error is ArgumentException or InvalidOperationException)

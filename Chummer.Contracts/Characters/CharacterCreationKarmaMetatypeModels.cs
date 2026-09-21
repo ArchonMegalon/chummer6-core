@@ -39,6 +39,8 @@ public static class CharacterCreationKarmaMetatypeBlockers
     public const string ContactsSelectionRequired = "creation-karma-contacts-selection-required";
     public const string LifestylesAuthorityRequired = "creation-karma-lifestyles-authority-required";
     public const string LifestylesSelectionRequired = "creation-karma-lifestyles-selection-required";
+    public const string MagicAuthorityRequired = "creation-karma-magic-authority-required";
+    public const string MagicSelectionRequired = "creation-karma-magic-selection-required";
 }
 
 public sealed record CharacterCreationKarmaMetatypeBinding(
@@ -59,7 +61,8 @@ public sealed record CharacterCreationKarmaMetatypeBinding(
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? QualitiesCatalogDigest = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? GearAuthorityDigest = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? ContactsPolicyDigest = null,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? LifestylesAuthorityDigest = null);
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? LifestylesAuthorityDigest = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? MagicAuthorityDigest = null);
 
 public sealed record CharacterCreationKarmaMetatypeState(
     string Schema,
@@ -78,7 +81,8 @@ public sealed record CharacterCreationKarmaMetatypeState(
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] CharacterCreationKarmaQualitiesCatalog? QualitiesCatalog = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] CharacterCreationGearAuthority? GearAuthority = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] CharacterCreationKarmaContactsPolicy? ContactsPolicy = null,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] CharacterCreationLifestylesAuthority? LifestylesAuthority = null);
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] CharacterCreationLifestylesAuthority? LifestylesAuthority = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] CharacterCreationKarmaMagicCatalog? MagicCatalog = null);
 
 /// <summary>
 /// A freshly loaded wizard and, if previously saved, its newly evaluated review.
@@ -109,7 +113,8 @@ public sealed record CharacterCreationKarmaMetatypeQuote(
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] CharacterCreationKarmaQualitiesQuote? Qualities = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] CharacterCreationKarmaGearQuote? Gear = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] CharacterCreationKarmaContactsQuote? Contacts = null,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] CharacterCreationKarmaLifestylesQuote? Lifestyles = null);
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] CharacterCreationKarmaLifestylesQuote? Lifestyles = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] CharacterCreationKarmaMagicQuote? Magic = null);
 
 public sealed record CharacterCreationKarmaMetatypeConfirmRequest(
     CharacterCreationKarmaMetatypeBinding Binding,
@@ -125,7 +130,8 @@ public sealed record CharacterCreationKarmaMetatypeConfirmRequest(
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<CharacterCreationGearSelection>? GearSelections = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<CharacterCreationKarmaContactSelection>? ContactSelections = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<CharacterCreationLifestyleConfiguration>? LifestyleSelections = null,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] Guid? StartingLifestyleId = null);
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] Guid? StartingLifestyleId = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] CharacterCreationMagicResonanceSelections? MagicSelections = null);
 
 /// <summary>Pending selection only: no character effects or finalization.</summary>
 public sealed record CharacterCreationKarmaMetatypeDecision(

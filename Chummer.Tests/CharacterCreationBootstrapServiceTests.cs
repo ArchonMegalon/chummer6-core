@@ -41,6 +41,348 @@ public sealed class CharacterCreationBootstrapServiceTests
     private const string MagicianId = "0e741331-d776-4be8-abc5-4101228abdef";
 
     [TestMethod]
+    [DataRow("0e741331-d776-4be8-abc5-4101228abdef", "magician")]
+    [DataRow("9d53e1e4-3f31-40cb-bfbe-4b94f5ba757e", "mystic-adept")]
+    [DataRow("c4b35412-bd91-45b4-b428-29da7edd5ff4", "technomancer")]
+    [DataRow("55247bdc-c313-4614-ae15-5012308096ff", "adept")]
+    public void Karma_magic_selection_prices_replays_and_retains_only_selected_sources_without_mutation(string talentId, string kind)
+    {
+        using var fixture = new KarmaDiskFixture(fullSources: true);
+        var before = fixture.Store.Get(fixture.Id).Value!;
+        var (foundation, catalog, racial, talentSource) = KarmaMagicFoundation(fixture, talentId);
+        CharacterCreationMagicResonanceOptionIdentity? tradition = kind is "magician" or "mystic-adept"
+            ? MagicOption(catalog, "tradition").Identity : null;
+        CharacterCreationMagicResonanceOptionIdentity? stream = kind == "technomancer"
+            ? MagicOption(catalog, "stream").Identity : null;
+        var spell = MagicOption(catalog, "spell").Identity;
+        var form = MagicOption(catalog, "complex-form").Identity;
+        var power = MagicOption(catalog, "adept-power", option => option.PointCost <= 1m);
+        var selections = new CharacterCreationMagicResonanceSelections(tradition, stream,
+            kind is "adept" or "mystic-adept" ? [new(power.Identity, 1)] : [],
+            kind is "magician" or "mystic-adept" ? [spell] : [], kind == "technomancer" ? [form] : [])
+            { MysticAdeptPowerPoints = kind == "mystic-adept" ? 1 : 0 };
+        var quote = CharacterCreationKarmaMagicSelectionRules.Evaluate(catalog, foundation, racial, talentSource, selections);
+        Assert.IsNotNull(quote);
+        Assert.IsTrue(quote.CanSelect, string.Join(",", quote.Blockers));
+        Assert.AreEqual(kind, quote.TalentKind);
+        Assert.AreEqual(kind == "adept" ? 0 : kind == "technomancer" ? 4 : kind == "magician" ? 5 : 10, quote.Cost.TotalKarma);
+        Assert.AreEqual(catalog.AuthorityDigest, quote.SourceAuthorityDigest);
+        Assert.IsTrue(quote.ProjectionCatalog.Catalogs.Sum(slice => slice.Options.Count)
+            < catalog.Catalogs.Sum(slice => slice.Options.Count));
+        Assert.IsTrue(CharacterCreationKarmaMagicSelectionRules.IsValid(quote, foundation, selections));
+        AssertJsonEqual(quote, CharacterCreationKarmaMagicSelectionRules.Evaluate(catalog, foundation, racial, talentSource, selections)!);
+        AssertJsonEqual(before, fixture.Store.Get(fixture.Id).Value!);
+        var forged = quote with { Cost = quote.Cost with { TotalKarma = 0 }, QuoteDigest = string.Empty };
+        forged = forged with { QuoteDigest = CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(forged) };
+        if (kind != "adept") Assert.IsFalse(CharacterCreationKarmaMagicSelectionRules.IsValid(forged, foundation, selections));
+    }
+
+    [TestMethod]
+    public void Karma_magic_selection_requires_tradition_and_rejects_cross_talent_choices_duplicates_and_overdraw()
+    {
+        using var fixture = new KarmaDiskFixture(fullSources: true);
+        var (foundation, catalog, racial, talent) = KarmaMagicFoundation(fixture, MagicianId);
+        var empty = new CharacterCreationMagicResonanceSelections(null, null, [], [], []);
+        var missing = CharacterCreationKarmaMagicSelectionRules.Evaluate(catalog, foundation, racial, talent, empty)!;
+        Assert.IsFalse(missing.CanSelect);
+        CollectionAssert.Contains(missing.Blockers.ToArray(), CharacterCreationMagicResonanceBlockers.TraditionRequired);
+        var spell = MagicOption(catalog, "spell").Identity;
+        var selected = empty with { Tradition = MagicOption(catalog, "tradition").Identity, Spells = new[] { spell } };
+        Assert.IsTrue(CharacterCreationKarmaMagicSelectionRules.Evaluate(catalog, foundation, racial, talent, selected)!.CanSelect);
+        Assert.IsNull(CharacterCreationKarmaMagicSelectionRules.Evaluate(catalog, foundation, racial, talent,
+            selected with { Spells = new[] { spell, spell } }));
+        Assert.IsNull(CharacterCreationKarmaMagicSelectionRules.Evaluate(catalog, foundation, racial, talent,
+            selected with { Spells = new[] { new CharacterCreationMagicResonanceOptionIdentity("spell", Guid.NewGuid().ToString("D")) } }));
+        var wrong = CharacterCreationKarmaMagicSelectionRules.Evaluate(catalog, foundation, racial, talent,
+            selected with { ComplexForms = new[] { MagicOption(catalog, "complex-form").Identity } })!;
+        Assert.IsFalse(wrong.CanSelect);
+        CollectionAssert.Contains(wrong.Blockers.ToArray(), CharacterCreationMagicResonanceBlockers.ComplexFormSelectionNotAllowed);
+        int limit = foundation.Attributes!.Attributes.Single(item => item.AttributeId == "MAG").Current * 2;
+        var tooMany = catalog.Catalogs.Single(slice => slice.Kind == "spell").Options
+            .Where(option => option.Category != "Rituals" && CharacterCreationMagicResonanceFinalizationRules.TryProjectOption(option, 1, out _))
+            .Take(limit + 1).Select(option => option.Identity).ToArray();
+        Assert.AreEqual(limit + 1, tooMany.Length);
+        var overdraw = CharacterCreationKarmaMagicSelectionRules.Evaluate(catalog, foundation, racial, talent,
+            selected with { Spells = tooMany })!;
+        CollectionAssert.Contains(overdraw.Blockers.ToArray(), CharacterCreationMagicResonanceBlockers.SpellBudgetExceeded);
+        Assert.IsFalse(overdraw.CanSelect);
+    }
+
+    [TestMethod]
+    [DataRow("Sorcery", true)]
+    [DataRow("Conjuring", false)]
+    [DataRow("Enchanting", false)]
+    public void Karma_magic_aspected_access_uses_the_confirmed_skill_unlock(string unlock, bool permitsSpells)
+    {
+        using var fixture = new KarmaDiskFixture(fullSources: true);
+        var (foundation, catalog, racial, talent) = KarmaMagicFoundation(fixture,
+            "4adeb2d4-e42e-4b7a-9a5d-3df325ae59a5", unlock);
+        var selections = new CharacterCreationMagicResonanceSelections(MagicOption(catalog, "tradition").Identity,
+            null, [], [MagicOption(catalog, "spell").Identity], []);
+        var quote = CharacterCreationKarmaMagicSelectionRules.Evaluate(catalog, foundation, racial, talent, selections);
+        Assert.IsNotNull(quote);
+        Assert.AreEqual("aspected-magician", quote.TalentKind);
+        Assert.AreEqual(permitsSpells, quote.Access.AllowsSpells);
+        Assert.IsTrue(quote.Access.RequiresTradition);
+        Assert.IsFalse(quote.Access.AllowsAdeptPowers);
+        Assert.AreEqual(permitsSpells, quote.CanSelect, string.Join(",", quote.Blockers));
+        if (!permitsSpells) CollectionAssert.Contains(quote.Blockers.ToArray(), CharacterCreationMagicResonanceBlockers.SpellSelectionNotAllowed);
+    }
+
+    [TestMethod]
+    public void Karma_magic_power_rating_is_capped_by_magic_even_when_points_remain()
+    {
+        using var fixture = new KarmaDiskFixture(fullSources: true);
+        var (foundation, catalog, racial, talent) = KarmaMagicFoundation(fixture, "55247bdc-c313-4614-ae15-5012308096ff");
+        int magic = foundation.Attributes!.Attributes.Single(item => item.AttributeId == "MAG").Current;
+        var power = MagicOption(catalog, "adept-power", option => option.MaximumLevels > magic
+            && option.PointCost * (magic + 1) <= magic);
+        var selected = new CharacterCreationMagicResonanceSelections(null, null, [new(power.Identity, magic + 1)], [], []);
+        var quote = CharacterCreationKarmaMagicSelectionRules.Evaluate(catalog, foundation, racial, talent, selected)!;
+        Assert.IsFalse(quote.CanSelect);
+        Assert.IsTrue(quote.PowerPointsUsed <= quote.PowerPointsTotal);
+        CollectionAssert.Contains(quote.Blockers.ToArray(), CharacterCreationMagicResonanceBlockers.OptionInvalid);
+        var corrected = selected with { AdeptPowers = new[] { new CharacterCreationAdeptPowerAllocation(power.Identity, magic) } };
+        Assert.IsTrue(CharacterCreationKarmaMagicSelectionRules.Evaluate(catalog, foundation, racial, talent, corrected)!.CanSelect);
+    }
+
+    [TestMethod]
+    public void Karma_magic_pending_selection_saves_once_reopens_and_cannot_be_silently_dropped()
+    {
+        using var fixture = new KarmaDiskFixture(fullSources: true);
+        var before = fixture.Store.Get(fixture.Id).Value!;
+        var state = fixture.Service.Load(fixture.Id, true, true, true, includeMagic: true).Value!;
+        Assert.IsNotNull(state.MagicCatalog);
+        var selections = new CharacterCreationMagicResonanceSelections(MagicOption(state.MagicCatalog, "tradition").Identity,
+            null, [], [MagicOption(state.MagicCatalog, "spell").Identity], []);
+        var skills = new CharacterCreationKarmaSkillsSelection([NativeEnglish(state.SkillsCatalog!)], []);
+        CharacterCreationKarmaAttributeAllocation[] attributes = [new("MAG", 2)];
+        var preview = fixture.Service.Preview(state.Binding, HumanId, MagicianId, attributes, skills, 0, [], [],
+            magicSelections: selections).Value;
+        Assert.IsNotNull(preview);
+        Assert.IsTrue(preview.CanSelect, string.Join(",", preview.Blockers));
+        Assert.AreEqual(5, preview.Magic!.Cost.TotalKarma);
+        var plain = fixture.Service.Preview(state.Binding, HumanId, MagicianId, attributes, skills, 0, [], []).Value!;
+        Assert.AreEqual(plain.KarmaBudget.Used + 5, preview.KarmaBudget.Used);
+        var request = new CharacterCreationKarmaMetatypeConfirmRequest(state.Binding, HumanId, preview.QuoteDigest,
+            Guid.NewGuid(), true, MagicianId, attributes, skills, 0, [], [], MagicSelections: selections);
+        var saved = fixture.Service.Confirm(request);
+        Assert.IsNotNull(saved.Value, string.Join(",", saved.Blockers));
+        var committed = fixture.Store.Get(fixture.Id).Value!;
+        Assert.AreEqual(before.Document.Content, committed.Document.Content, "Saving a choice must not apply effects.");
+        Assert.AreEqual(before.ContentRevision + 1, committed.ContentRevision);
+        Assert.AreEqual(committed.ContentRevision, committed.SavedRevision);
+        Assert.IsTrue(fixture.Service.Confirm(request).Value!.Replayed);
+        AssertJsonEqual(committed, fixture.Store.Get(fixture.Id).Value!);
+        var coldStore = new FileWorkspaceStore(fixture.StateRoot);
+        var cold = new CharacterCreationKarmaMetatypeService(coldStore, fixture.Resolver);
+        var opened = cold.Open(fixture.Id);
+        Assert.IsNotNull(opened.Value, string.Join(",", opened.Blockers));
+        Assert.AreEqual(5, opened.Value.Quote!.Magic!.Cost.TotalKarma);
+        AssertJsonEqual(preview.Magic, opened.Value.Quote.Magic);
+        Assert.AreEqual(preview.KarmaBudget.Used, opened.Value.Quote.KarmaBudget.Used);
+        Assert.IsNull(cold.Preview(opened.Value.State.Binding, HumanId, MagicianId, attributes, skills, 0, [], []).Value);
+        var missingConfirmation = request with { ExplicitlyConfirmed = false };
+        Assert.IsNull(cold.Confirm(missingConfirmation).Value);
+        var alteredReplay = request with { MagicSelections = selections with { Spells = [] } };
+        Assert.IsNull(cold.Confirm(alteredReplay).Value);
+        var decision = committed.Document.AuxiliaryState.CharacterCreationKarmaMetatypeDecisions!.Single();
+        foreach (var broken in new[] { decision.Quote.Magic! with { Cost = null! },
+                     decision.Quote.Magic! with { ProjectionCatalog = null! }, decision.Quote.Magic! with { Sources = null! } })
+        {
+            var magic = broken with { QuoteDigest = string.Empty };
+            magic = magic with { QuoteDigest = CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(magic) };
+            var quote = decision.Quote with { Magic = magic, QuoteDigest = string.Empty };
+            quote = quote with { QuoteDigest = CharacterCreationFoundationDraftLedgerIntegrity.ComputeCanonicalDigest(quote) };
+            var forged = decision with { Quote = quote, Command = decision.Command with { QuoteDigest = quote.QuoteDigest } };
+            forged = forged with { DecisionDigest = CharacterCreationKarmaMetatypeTransaction.DecisionDigest(forged) };
+            Assert.IsFalse(CharacterCreationKarmaMetatypeTransaction.IsValidLedger(fixture.Id, committed.ContentRevision,
+                committed.Document.AuxiliaryState with { CharacterCreationKarmaMetatypeDecisions = [forged] }));
+        }
+        AssertJsonEqual(committed, coldStore.Get(fixture.Id).Value!);
+    }
+
+    [TestMethod]
+    public void Karma_magic_adept_cannot_buy_ordinary_spells_without_spellcasting_access()
+    {
+        using var fixture = new KarmaDiskFixture(fullSources: true);
+        var (foundation, catalog, racial, talent) = KarmaMagicFoundation(fixture, "55247bdc-c313-4614-ae15-5012308096ff");
+        var selections = new CharacterCreationMagicResonanceSelections(null, null, [],
+            [MagicOption(catalog, "spell").Identity], []);
+        var quote = CharacterCreationKarmaMagicSelectionRules.Evaluate(catalog, foundation, racial, talent, selections);
+        Assert.IsNotNull(quote);
+        Assert.IsFalse(quote.CanSelect);
+        CollectionAssert.Contains(quote.Blockers.ToArray(), CharacterCreationMagicResonanceBlockers.SpellSelectionNotAllowed);
+    }
+
+    [TestMethod]
+    [DataRow("0e741331-d776-4be8-abc5-4101228abdef", "magician")]
+    [DataRow("9d53e1e4-3f31-40cb-bfbe-4b94f5ba757e", "mystic-adept")]
+    [DataRow("c4b35412-bd91-45b4-b428-29da7edd5ff4", "technomancer")]
+    [DataRow("55247bdc-c313-4614-ae15-5012308096ff", "adept")]
+    public void Karma_magic_completion_applies_purchases_once_and_cold_replay_preserves_the_exact_character(string talentId, string kind)
+    {
+        using var fixture = new KarmaDiskFixture(fullSources: true);
+        var state = fixture.Service.Load(fixture.Id, true, true, true, includeMagic: true).Value!;
+        var catalog = state.MagicCatalog!;
+        var selectedTalent = state.Talents!.Options.Single(item => item.OptionId == talentId);
+        CharacterCreationKarmaAttributeAllocation[] attributes = [new(selectedTalent.EnabledAttribute!, 2)];
+        var skills = new CharacterCreationKarmaSkillsSelection([NativeEnglish(state.SkillsCatalog!)], []);
+        var power = MagicOption(catalog, "adept-power", option => option.PointCost <= 1m);
+        var selections = new CharacterCreationMagicResonanceSelections(
+            kind is "magician" or "mystic-adept" ? MagicOption(catalog, "tradition").Identity : null,
+            kind == "technomancer" ? MagicOption(catalog, "stream").Identity : null,
+            kind is "adept" or "mystic-adept" ? [new(power.Identity, 1)] : [],
+            kind is "magician" or "mystic-adept" ? [MagicOption(catalog, "spell").Identity] : [],
+            kind == "technomancer" ? [MagicOption(catalog, "complex-form").Identity] : [])
+            { MysticAdeptPowerPoints = kind == "mystic-adept" ? 1 : 0 };
+        var pending = fixture.Service.Preview(state.Binding, HumanId, talentId, attributes, skills, 0, [], [],
+            magicSelections: selections).Value!;
+        Assert.IsTrue(pending.CanSelect, string.Join(",", pending.Blockers));
+        var saved = fixture.Service.Confirm(new(state.Binding, HumanId, pending.QuoteDigest, Guid.NewGuid(), true,
+            talentId, attributes, skills, 0, [], [], MagicSelections: selections));
+        Assert.IsNotNull(saved.Value, string.Join(",", saved.Blockers));
+
+        var coldStore = new FileWorkspaceStore(fixture.StateRoot);
+        var cold = new CharacterCreationKarmaMetatypeService(coldStore, fixture.Resolver);
+        var opened = cold.Open(fixture.Id);
+        Assert.IsNotNull(opened.Value, string.Join(",", opened.Blockers));
+        var current = opened.Value.Quote!;
+        var before = coldStore.Get(fixture.Id).Value!;
+        var reviewed = cold.ReviewFinalization(current.Binding, current.QuoteDigest, 4);
+        Assert.IsNotNull(reviewed.Value, string.Join(",", reviewed.Blockers));
+        var review = reviewed.Value;
+        Assert.IsTrue(review.CanConfirm);
+        Assert.IsNotNull(review.Plan);
+        Assert.AreEqual(current.KarmaBudget.Used, review.OrderedDeltas.Sum(item => item.KarmaCost));
+        AssertJsonEqual(before, coldStore.Get(fixture.Id).Value!);
+        var request = new CharacterCreationKarmaFinalizationConfirmRequest(
+            new(review.Binding, review.PreviewDigest, review.Plan.PlanDigest, Guid.NewGuid().ToString("D"), true), 4);
+        Assert.IsNull(cold.ConfirmFinalization(request with
+            { Confirmation = request.Confirmation with { ExplicitlyConfirmed = false } }).Value);
+        Assert.IsNull(cold.ConfirmFinalization(request with { DiceTotal = 5 }).Value);
+        AssertJsonEqual(before, coldStore.Get(fixture.Id).Value!);
+        var result = cold.ConfirmFinalization(request);
+        Assert.IsNotNull(result.Value, string.Join(",", result.Blockers));
+
+        var reopenedStore = new FileWorkspaceStore(fixture.StateRoot);
+        var after = reopenedStore.Get(fixture.Id).Value!;
+        Assert.AreEqual(before.ContentRevision + 1, after.ContentRevision);
+        Assert.AreEqual(after.ContentRevision, after.SavedRevision);
+        var root = XDocument.Parse(after.Document.Content).Root!;
+        Assert.AreEqual("True", root.Element("created")!.Value);
+        Assert.AreEqual(kind == "technomancer" ? "True" : "False", root.Element("technomancer")!.Value);
+        Assert.AreEqual(kind is "adept" or "mystic-adept" ? "True" : "False", root.Element("adept")!.Value);
+        Assert.AreEqual(selections.Spells.Count, root.Element("spells")!.Elements("spell").Count());
+        Assert.AreEqual(selections.ComplexForms.Count, root.Element("complexforms")!.Elements("complexform").Count());
+        Assert.AreEqual(selections.AdeptPowers.Count, root.Element("powers")!.Elements("power").Count());
+        foreach (var (container, item, identities) in new[]
+        {
+            ("spells", "spell", selections.Spells), ("complexforms", "complexform", selections.ComplexForms),
+            ("powers", "power", (IReadOnlyList<CharacterCreationMagicResonanceOptionIdentity>)selections.AdeptPowers.Select(value => value.Identity).ToArray())
+        })
+            CollectionAssert.AreEquivalent(identities.Select(value => value.SourceId).ToArray(),
+                root.Element(container)!.Elements(item).Select(value => value.Element("sourceid")!.Value).ToArray());
+        if (kind == "adept") Assert.IsNull(root.Element("tradition"));
+        else Assert.AreEqual(kind == "technomancer" ? "RES" : "MAG", root.Element("tradition")!.Element("traditiontype")!.Value);
+        if (kind == "mystic-adept")
+        {
+            Assert.AreEqual("1", root.Element("magsplitadept")!.Value);
+            Assert.AreEqual("0", root.Element("magsplitmagician")!.Value);
+        }
+        if (kind == "technomancer")
+        {
+            var persona = root.Element("gears")!.Elements("gear").Single(item => item.Element("name")?.Value == "Living Persona");
+            Assert.AreEqual("True", persona.Element("active")!.Value);
+            Assert.AreEqual("0", persona.Element("cost")!.Value);
+        }
+        Assert.IsNull(after.Document.AuxiliaryState.CharacterCreationKarmaMetatypeDecisions);
+        AssertJsonEqual(before.Document.AuxiliaryState, after.Document.AuxiliaryState.CharacterCreationFinalizationArchive!.State);
+        var restarted = new CharacterCreationKarmaMetatypeService(reopenedStore, fixture.Resolver);
+        AssertJsonEqual(result.Value, restarted.ConfirmFinalization(request).Value!);
+        Assert.IsNull(restarted.ConfirmFinalization(request with
+            { Confirmation = request.Confirmation with { IdempotencyKey = Guid.NewGuid().ToString("D") } }).Value);
+        AssertJsonEqual(after, reopenedStore.Get(fixture.Id).Value!);
+    }
+
+    [TestMethod]
+    public void Karma_magic_completion_preserves_contacts_and_lifestyle_spending_and_rechecks_spell_sources()
+    {
+        using var fixture = new KarmaDiskFixture(includeSkills: true, includeGear: true, includeLifestyles: true, includeMagic: true);
+        var state = fixture.Service.Load(fixture.Id, true, true, true, true, true).Value!;
+        CharacterCreationKarmaAttributeAllocation[] attributes = [new("MAG", 2)];
+        var skills = new CharacterCreationKarmaSkillsSelection([NativeEnglish(state.SkillsCatalog!)], []);
+        var low = KarmaLifestyle(state.LifestylesAuthority!, "Low");
+        var contact = KarmaContact(2, 2);
+        var spell = MagicOption(state.MagicCatalog!, "spell");
+        var selections = new CharacterCreationMagicResonanceSelections(MagicOption(state.MagicCatalog!, "tradition").Identity,
+            null, [], [spell.Identity], []);
+        var pending = fixture.Service.Preview(state.Binding, HumanId, MagicianId, attributes, skills, 10, [], [],
+            [contact], [low], low.LifestyleId, selections).Value!;
+        Assert.IsTrue(pending.CanSelect, string.Join(",", pending.Blockers));
+        Assert.AreEqual(1, pending.Contacts!.KarmaUsed);
+        Assert.AreEqual(2000m, pending.Lifestyles!.LifestyleNuyenUsed);
+        Assert.AreEqual(5, pending.Magic!.Cost.TotalKarma);
+        var committed = fixture.Service.Confirm(new(state.Binding, HumanId, pending.QuoteDigest, Guid.NewGuid(), true,
+            MagicianId, attributes, skills, 10, [], [], [contact], [low], low.LifestyleId, selections));
+        Assert.IsNotNull(committed.Value, string.Join(",", committed.Blockers));
+        var coldStore = new FileWorkspaceStore(fixture.StateRoot);
+        var cold = new CharacterCreationKarmaMetatypeService(coldStore, fixture.Resolver);
+        var opened = cold.Open(fixture.Id);
+        Assert.IsNotNull(opened.Value, string.Join(",", opened.Blockers));
+        var current = opened.Value.Quote!;
+        var before = coldStore.Get(fixture.Id).Value!;
+        var reviewed = cold.ReviewFinalization(current.Binding, current.QuoteDigest, 4);
+        Assert.IsNotNull(reviewed.Value, string.Join(",", reviewed.Blockers));
+        var review = reviewed.Value;
+        Assert.AreEqual(current.KarmaBudget.Used, review.OrderedDeltas.Sum(item => item.KarmaCost));
+        Assert.AreEqual(2000m, review.OrderedDeltas.Sum(item => item.NuyenCost));
+        var request = new CharacterCreationKarmaFinalizationConfirmRequest(
+            new(review.Binding, review.PreviewDigest, review.Plan!.PlanDigest, Guid.NewGuid().ToString("D"), true), 4);
+        fixture.EditSpell(spell.Identity.SourceId, row => row.SetElementValue("dv", "F+99"));
+        Assert.IsNull(cold.ConfirmFinalization(request).Value, "A reviewed source may not change before the atomic write.");
+        AssertJsonEqual(before, coldStore.Get(fixture.Id).Value!);
+    }
+
+    [TestMethod]
+    public void Karma_magic_completion_does_not_skip_an_unsaved_magic_stage()
+    {
+        using var fixture = new KarmaDiskFixture(fullSources: true);
+        var (pending, _, _, _) = KarmaMagicFoundation(fixture, MagicianId);
+        var saved = fixture.Service.Confirm(new(pending.Binding, HumanId, pending.QuoteDigest, Guid.NewGuid(), true,
+            MagicianId, pending.Attributes!.Allocations, pending.Skills!.Selection, 0, [], []));
+        Assert.IsNotNull(saved.Value, string.Join(",", saved.Blockers));
+        var current = fixture.Service.Open(fixture.Id).Value!.Quote!;
+        var before = fixture.Store.Get(fixture.Id).Value!;
+        var review = fixture.Service.ReviewFinalization(current.Binding, current.QuoteDigest, 4);
+        Assert.IsNull(review.Value);
+        CollectionAssert.Contains(review.Blockers.ToArray(), CharacterCreationFinalizationBlockers.MagicResonanceDraftRequired);
+        AssertJsonEqual(before, fixture.Store.Get(fixture.Id).Value!);
+    }
+
+    private static (CharacterCreationKarmaMetatypeQuote Foundation, CharacterCreationKarmaMagicCatalog Catalog,
+        IReadOnlyList<CharacterCreationTalentQualitySource> Racial, CharacterCreationTalentQualitySource? Talent)
+        KarmaMagicFoundation(KarmaDiskFixture fixture, string talentId, string? unlock = null)
+    {
+        var state = fixture.Service.Load(fixture.Id, true, true, true).Value!;
+        var selected = state.Talents!.Options.Single(option => option.OptionId == talentId);
+        var skills = new CharacterCreationKarmaSkillsSelection([NativeEnglish(state.SkillsCatalog!)], [], unlock);
+        var foundation = fixture.Service.Preview(state.Binding, HumanId, talentId,
+            [new(selected.EnabledAttribute!, 2)], skills, 0, [], []).Value;
+        Assert.IsNotNull(foundation);
+        Assert.IsTrue(foundation.CanSelect, string.Join(",", foundation.Blockers));
+        var context = fixture.Resolver.TryCreateContext(fixture.Store.Get(fixture.Id).Value!.Document.Content)!;
+        Assert.IsTrue(context.TryResolveCreationKarmaMagicCatalog(out var catalog));
+        Assert.IsTrue(context.TryResolveCreationKarmaGrantSources(HumanId, talentId, out var racial, out var talent));
+        return (foundation, catalog!, racial, talent);
+    }
+
+    private static CharacterCreationMagicResonanceCatalogOption MagicOption(CharacterCreationKarmaMagicCatalog catalog,
+        string kind, Func<CharacterCreationMagicResonanceCatalogOption, bool>? predicate = null) =>
+        catalog.Catalogs.Single(slice => slice.Kind == kind).Options.First(option =>
+            CharacterCreationMagicResonanceFinalizationRules.TryProjectOption(option, 1, out _) && (predicate?.Invoke(option) ?? true));
+
+    [TestMethod]
     public void Karma_contacts_use_profile_allowance_and_charge_only_overflow_without_mutation()
     {
         using var fixture = new KarmaDiskFixture(includeSkills: true, includeGear: true);
@@ -4494,7 +4836,7 @@ public sealed class CharacterCreationBootstrapServiceTests
         public CharacterWorkspaceId Id { get; }
         public KarmaDiskFixture(int budget = 800, bool fullSources = false, int qualityMultiplier = 1,
             Action<XElement>? configureSettings = null, bool includeSkills = false, bool includeGear = false,
-            bool includeLifestyles = false)
+            bool includeLifestyles = false, bool includeMagic = false)
         {
             Directory.CreateDirectory(Path.Combine(_root, "data"));
             foreach (string name in new[] { "settings.xml", "metatypes.xml", "qualities.xml" })
@@ -4506,6 +4848,9 @@ public sealed class CharacterCreationBootstrapServiceTests
                 File.Copy(Path.Combine(FindCoreRoot(), "Chummer", "data", "gear.xml"), Path.Combine(_root, "data", "gear.xml"));
             if (includeLifestyles)
                 File.Copy(Path.Combine(FindCoreRoot(), "Chummer", "data", "lifestyles.xml"), Path.Combine(_root, "data", "lifestyles.xml"));
+            if (includeMagic)
+                foreach (string name in new[] { "traditions.xml", "streams.xml", "powers.xml", "spells.xml", "complexforms.xml" })
+                    File.Copy(Path.Combine(FindCoreRoot(), "Chummer", "data", name), Path.Combine(_root, "data", name));
             if (budget != 800) SetBudget(budget);
             if (qualityMultiplier != 1) EditSettings(row => row.Element("karmacost")!.Element("karmaquality")!.Value =
                 qualityMultiplier.ToString(System.Globalization.CultureInfo.InvariantCulture));
@@ -4534,6 +4879,13 @@ public sealed class CharacterCreationBootstrapServiceTests
                 qualities, gear, contacts, lifestyles, startingLifestyleId);
         }
         public void RemoveQualitySource() => File.Delete(Path.Combine(_root, "data", "qualities.xml"));
+        public void EditSpell(string id, Action<XElement> change)
+        {
+            string path = Path.Combine(_root, "data", "spells.xml");
+            var document = XDocument.Load(path);
+            change(document.Root!.Element("spells")!.Elements("spell").Single(row => row.Element("id")?.Value == id));
+            document.Save(path);
+        }
         public void EditMetatype(string id, Action<XElement> change)
         {
             string path = Path.Combine(_root, "data", "metatypes.xml");

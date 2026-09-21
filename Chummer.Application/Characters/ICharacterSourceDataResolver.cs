@@ -110,6 +110,13 @@ public interface ICharacterSourceDataContext
         return false;
     }
 
+    /// <summary>Effective Karma magic options and prices, without Priority grants or character mutation.</summary>
+    bool TryResolveCreationKarmaMagicCatalog(out CharacterCreationKarmaMagicCatalog? catalog)
+    {
+        catalog = null;
+        return false;
+    }
+
     /// <summary>
     /// Resolves complete racial and purchased-talent source payloads, including
     /// nested gear, against the pending Karma runner's exact active profile.
