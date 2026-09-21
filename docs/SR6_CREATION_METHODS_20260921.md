@@ -31,7 +31,7 @@ as a pass. No APK, native SR6 smoke, package reseal or release was produced.
 
 ## Not enabled in the app yet
 
-The current Presentation dialog shows Priority/Sum-to-Ten/Karma for SR6, but
+UI feature commit `2905f4450` now shows SR6's own four method identities, but
 `DialogCoordinator.StartAuthoritativeNewCharacterAsync` and Core's
 `CharacterCreationBootstrapService` explicitly require SR5. The associated
 profile and source-binding contracts are SR5-only. These guards are unchanged.
@@ -41,3 +41,26 @@ method options, then usable typed editors and one save/reopen route per method.
 The current SR6 provider has basic Priority rows, not the full Companion Point
 Buy or Life Path mechanics. Do not reuse SR5 profiles or label method identity
 recognition as complete SR6 character creation. No Android release is claimed.
+
+## Next increment: SR6 priority allocation
+
+`Sr6CharacterCreationProvider.EvaluatePriorities` now projects all five categories
+together using the existing SR6 rows. Priority requires each rank exactly once;
+Sum-to-Ten permits repeated ranks, requires a total of ten, and requires an explicit
+Companion-enabled input from the future Core source context. Lowercase/unknown
+ranks, duplicate/missing/unknown categories, other editions and other methods
+return no partial budget. No user-supplied point amounts are accepted.
+
+The result separates SR6 metatype adjustment points from SR5 special-attribute
+points. It retains the Magic/Resonance rank without inventing a talent, spell or
+power-point grant. This is a pure calculation, not an active-book decision,
+workspace bootstrap, persistence command, or finalization permission. In
+particular, the optional Companion flag must not become a client authorization
+switch when the source context is connected.
+
+The affected local Docker build and 25 focused tests passed in
+`core-sr6-priorities-1.log`; the final bounded-input regression is recorded in
+`core-sr6-priorities-2.log`. No full Android method has been enabled by this change.
+Next concrete dependency remains the SR6 source-bound bootstrap and typed editor,
+followed by save/reopen. Point Buy and Life Path still need their own Companion
+mechanics rather than either edition's priority projection.
