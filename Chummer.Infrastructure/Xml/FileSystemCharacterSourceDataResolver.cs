@@ -2343,6 +2343,55 @@ public sealed class FileSystemCharacterSourceDataResolver : ICharacterSourceData
             return true;
         }
 
+        public bool TryResolveCreationKarmaMagicCatalog(out CharacterCreationKarmaMagicCatalog? catalog)
+        {
+            using IDisposable sourceInputScope = _sourceInputs.Enter();
+            catalog = null;
+            if (_sourceInputs.HasSourceDrift || _buildMethod != CharacterCreationBuildMethods.Karma
+                || !TryResolveCreationKarmaTalents(out var talents) || talents is null
+                || !TryComputeEffectiveInputDigest(_catalog, "settings.xml", out string settingsDigest)
+                || BindSelectedProfile(settingsDigest, _settingsProfileId) != _rawProfileInputsDigest
+                || !TryResolveTarget("settings.xml", ["settings"], "setting", _settingsProfileId,
+                    string.Empty, out var settings) || settings is null
+                || !CharacterCreationKarmaMagicRules.TryCreatePolicy(_settingsProfileId, settingsDigest,
+                    settings.ToString(SaveOptions.DisableFormatting), out var policy)
+                || !TryComputeSelectedCustomDataInputsDigest(_customDirectories, out string customDigest)
+                || customDigest != _selectedCustomDataInputsDigest) return false;
+
+            (string File, string Container, string Row, string Kind)[] sources =
+            [
+                ("traditions.xml", "traditions", "tradition", CharacterCreationMagicResonanceKinds.Tradition),
+                ("streams.xml", "traditions", "tradition", CharacterCreationMagicResonanceKinds.Stream),
+                ("powers.xml", "powers", "power", CharacterCreationMagicResonanceKinds.AdeptPower),
+                ("spells.xml", "spells", "spell", CharacterCreationMagicResonanceKinds.Spell),
+                ("complexforms.xml", "complexforms", "complexform", CharacterCreationMagicResonanceKinds.ComplexForm)
+            ];
+            var slices = new List<CharacterCreationKarmaMagicCatalogSlice>();
+            var blockers = new List<string>();
+            string[] books = _enabledSourcebooks.Order(StringComparer.OrdinalIgnoreCase).ToArray();
+            foreach (var source in sources)
+            {
+                if (!TryComputeEffectiveInputDigest(_catalog, source.File, out string digest)
+                    || !TryEnumerateTargets(source.File, [source.Container], source.Row, out var rows)) return false;
+                var options = CharacterCreationMagicResonanceAuthorityProjector.ProjectCatalog(
+                    rows, source.Kind, digest, books, blockers);
+                // A visible choice must be applicable by this same Karma lane.
+                // Keep incomplete/custom or unsupported rows visible but disabled.
+                slices.Add(new(source.Kind, digest, options.Select(option => option.IsEnabled
+                    && !CharacterCreationMagicResonanceFinalizationRules.TryProjectOption(option, 1, out _)
+                    ? option with { IsEnabled = false, Blockers = [CharacterCreationMagicResonanceBlockers.OptionSemanticsUnsupported] }
+                    : option).ToArray()));
+            }
+            if (blockers.Count != 0 || _sourceInputs.HasSourceDrift) return false;
+            var result = new CharacterCreationKarmaMagicCatalog(CharacterCreationKarmaMagicCatalog.SchemaV1,
+                _settingsProfileId, _rawProfileInputsDigest, customDigest, policy!, talents, slices.ToArray(),
+                policy!.SourceAnchorIds.Concat(talents.SourceAnchorIds).Concat(sources.Select(source => source.File))
+                    .Concat(_customDirectories.Select(directory => $"customdata:{directory.Name}"))
+                    .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray(), string.Empty);
+            catalog = result with { AuthorityDigest = CharacterCreationKarmaMagicRules.ComputeCatalogDigest(result) };
+            return true;
+        }
+
         public bool TryResolveCreationKarmaGrantSources(string metatypeOptionId, string talentOptionId,
             out IReadOnlyList<CharacterCreationTalentQualitySource> metatypeQualities,
             out CharacterCreationTalentQualitySource? talentQuality)

@@ -11,7 +11,7 @@ namespace Chummer.Application.Characters;
 /// Composes the confirmed Karma build into a complete legacy-shaped candidate.
 /// It does not write it. A finalization transaction must separately admit current
 /// sources, bind explicit review, fence the write, and archive the consumed draft.
-/// Awakened purchases still require their own typed draft before completion.
+/// Awakened purchases require a saved, validated Karma magic selection.
 /// </summary>
 public static class CharacterCreationKarmaFinalizationProjector
 {
@@ -39,14 +39,15 @@ public static class CharacterCreationKarmaFinalizationProjector
                 || !CharacterCreationFoundationDraftLedgerIntegrity.CanonicallyEquals(saved.Quote with
                     { Binding = foundation.Binding, SnapshotDigest = foundation.SnapshotDigest, QuoteDigest = foundation.QuoteDigest }, foundation)
                 || !CharacterCreationKarmaFinalizationBudgetRules.IsValid(finances, foundation)) return false;
-            if (foundation.Talent.OptionId != CharacterCreationKarmaTalentCatalog.MundaneOptionId)
+            if (foundation.Talent.OptionId != CharacterCreationKarmaTalentCatalog.MundaneOptionId
+                && foundation.Magic is null)
             {
                 blockers = [CharacterCreationFinalizationBlockers.MagicResonanceDraftRequired];
                 return false;
             }
             if (!CharacterCreationKarmaSkillsLegacyProjector.TryProject(foundation.Metatype, foundation.Talent,
                     foundation.Attributes!, foundation.Skills!, out var skills, out var skillDeltas)
-                || !CharacterCreationKarmaGrantsLegacyProjector.TryProject(foundation, racialSources, null,
+                || !CharacterCreationKarmaGrantsLegacyProjector.TryProject(foundation, racialSources, foundation.Magic?.TalentSource,
                     out var grants, out var grantDeltas)
                 || !TryLifestyles(lifestyles, foundation, finances, out var lifestyleElements)) return false;
 
@@ -102,6 +103,35 @@ public static class CharacterCreationKarmaFinalizationProjector
             Add(skillDeltas);
             foreach (var element in grants) Replace(new XElement(element));
             Add(grantDeltas);
+            if (foundation.Magic is { } magic)
+            {
+                if (!CharacterCreationKarmaMagicSelectionRules.IsValid(magic, foundation, magic.Selections)) return false;
+                var magicDeltas = new List<CharacterCreationFinalizationDelta>();
+                int magicOrder = 0;
+                foreach (var tradition in magic.Sources.Where(source => source.Identity.Kind is "tradition" or "stream"))
+                    CharacterCreationAwakenedLegacyProjector.ApplyTradition(root, tradition, foundation.QuoteDigest,
+                        magicDeltas, ref magicOrder);
+                foreach (var (kind, container, item) in new[] { ("spell", "spells", "spell"),
+                    ("complex-form", "complexforms", "complexform"), ("adept-power", "powers", "power") })
+                {
+                    var sources = magic.Sources.Where(source => source.Identity.Kind == kind).ToArray();
+                    CharacterCreationAwakenedLegacyProjector.ApplyOptions(root, container, item, sources,
+                        sources.Select(source => source.Identity).ToArray(), foundation.QuoteDigest, magicDeltas, ref magicOrder);
+                }
+                Add(magicDeltas);
+                if (magic.Cost.MysticPowerPoints is { } points)
+                {
+                    Set("magsplitadept", Number(points.PowerPoints));
+                    Set("magsplitmagician", "0");
+                }
+                Change("karma-magic:spells", CharacterCreationFinalizationDeltaKinds.MagicResonance, "spells-karma",
+                    "0", Number(magic.Cost.SpellKarma), magic.Cost.SpellKarma, 0, magic.ProjectionCatalog.Policy.SourceAnchorIds);
+                Change("karma-magic:complex-forms", CharacterCreationFinalizationDeltaKinds.MagicResonance, "complex-forms-karma",
+                    "0", Number(magic.Cost.ComplexFormKarma), magic.Cost.ComplexFormKarma, 0, magic.ProjectionCatalog.Policy.SourceAnchorIds);
+                if (magic.Cost.MysticPowerPoints is { } purchased)
+                    Change("karma-magic:power-points", CharacterCreationFinalizationDeltaKinds.MagicResonance, "magsplitadept",
+                        "0", Number(purchased.PowerPoints), purchased.KarmaCost, 0, purchased.Policy.SourceAnchorIds);
+            }
             decimal qualitySourceCost = 0;
             foreach (var option in foundation.Qualities!.Selections.OrderBy(item => item.OptionId, StringComparer.Ordinal))
             {
@@ -142,6 +172,13 @@ public static class CharacterCreationKarmaFinalizationProjector
                 Change("gear:" + line.OptionId, CharacterCreationFinalizationDeltaKinds.Gear, line.SourceId.ToString("D"),
                     null, Number(line.Quantity), 0, line.TotalCost, line.SourceAnchorIds);
             }
+            // Select a granted persona only after grants and purchases coexist,
+            // preserving any active device admitted by the complete build.
+            if (foundation.Magic is not null && !root.Element("gears")!.Elements("gear")
+                    .Any(item => string.Equals(item.Element("active")?.Value, "True", StringComparison.OrdinalIgnoreCase))
+                && root.Element("gears")!.Elements("gear").FirstOrDefault(item =>
+                    item.Element("canformpersona")?.Value.Contains("Self", StringComparison.Ordinal) == true) is { } persona)
+                persona.SetElementValue("active", "True");
             Replace(new XElement("lifestyles", lifestyleElements));
             if (foundation.Lifestyles is { Lines.Count: > 0 } purchasedLifestyles)
             {

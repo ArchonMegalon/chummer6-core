@@ -131,11 +131,13 @@ public static class CharacterCreationKarmaFinalizationBudgetRules
             || !CharacterCreationKarmaQualitiesRules.IsValid(quote.Qualities, quote.Metatype, quote.Talent,
                 quote.Qualities.Selections.Select(item => item.OptionId).ToArray())
             || quote.Contacts is { } contacts && (contacts.Lines is null || contacts.Lines.Any(line => line?.Selection is null))
-            || !CharacterCreationKarmaContactsRules.IsValid(quote,
+            || !CharacterCreationKarmaContactsRules.IsValid(CharacterCreationKarmaMagicSelectionRules.WithoutMagic(quote),
                 quote.Contacts?.Lines?.Select(line => line.Selection).ToArray())
             || quote.Lifestyles is { } lifestyles && (lifestyles.Lines is null || lifestyles.Lines.Any(line => line?.Configuration is null))
-            || !CharacterCreationKarmaLifestylesRules.IsValidForFoundation(quote,
+            || !CharacterCreationKarmaLifestylesRules.IsValidForFoundation(CharacterCreationKarmaMagicSelectionRules.WithoutMagic(quote),
                 quote.Lifestyles?.Lines?.Select(line => line.Configuration).ToArray(), quote.Lifestyles?.StartingLifestyleId)
+            || !CharacterCreationKarmaMagicSelectionRules.IsValid(quote.Magic, quote, quote.Magic?.Selections)
+            || quote.Magic is { } magic && magic.SourceAuthorityDigest != quote.Binding.MagicAuthorityDigest
             || quote.Gear.Lines is null || quote.Gear.Lines.Any(item => item is null)) return false;
         decimal beforeSkills = budget.Total - quote.Metatype.KarmaCost - quote.Talent.KarmaCost
             - quote.Attributes.KarmaUsed - quote.Qualities.Costs.NetKarmaSpent;
@@ -146,6 +148,7 @@ public static class CharacterCreationKarmaFinalizationBudgetRules
             && CharacterCreationKarmaGearRules.IsValid(quote.Gear, quote.Resources,
                 quote.Gear.Lines.Select(item => new CharacterCreationGearSelection(item.OptionId, item.Quantity)).ToArray())
             && budget.Remaining == beforeResources - quote.Resources.KarmaInvestment - (quote.Contacts?.KarmaUsed ?? 0)
+                - (quote.Magic?.Cost.TotalKarma ?? 0)
             && budget.Used == budget.Total - budget.Remaining;
     }
 

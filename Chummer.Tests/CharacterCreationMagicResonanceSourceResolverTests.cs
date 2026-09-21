@@ -15,6 +15,176 @@ public sealed class CharacterCreationMagicResonanceSourceResolverTests
     private const string StandardPrioritySettingsId = "223a11ff-80e0-428b-89a9-6ef1c243b8b6";
 
     [TestMethod]
+    public void Karma_magic_catalog_has_real_profile_prices_and_no_priority_talent_authority()
+    {
+        var catalog = LoadKarmaMagic(FindCoreRoot());
+        Assert.AreEqual(CharacterCreationKarmaMagicCatalog.SchemaV1, catalog.Schema);
+        Assert.AreEqual(CharacterCreationBootstrapProfiles.KarmaSettingsProfileId, catalog.SettingsProfileId);
+        Assert.AreEqual(catalog.Talents.RawProfileInputsDigest, catalog.RawProfileInputsDigest);
+        Assert.AreEqual(5, catalog.Policy.KarmaPerSpell);
+        Assert.AreEqual(4, catalog.Policy.KarmaPerComplexForm);
+        Assert.AreEqual(5, catalog.Policy.PowerPointPolicy.KarmaPerPowerPoint);
+        Assert.IsTrue(CharacterCreationKarmaMagicRules.IsValidPolicy(catalog.Policy));
+        Assert.AreEqual(CharacterCreationKarmaMagicRules.ComputeCatalogDigest(catalog), catalog.AuthorityDigest);
+        CollectionAssert.AreEquivalent(new[] { "tradition", "stream", "adept-power", "spell", "complex-form" },
+            catalog.Catalogs.Select(item => item.Kind).ToArray());
+        foreach (var slice in catalog.Catalogs)
+        {
+            Assert.IsTrue(CharacterCreationMagicResonanceDigest.IsCanonical(slice.EffectiveSourceDigest));
+            Assert.IsTrue(slice.Options.Any(option => option.IsEnabled), slice.Kind);
+            Assert.IsTrue(slice.Options.All(option => option.Identity.Kind == slice.Kind));
+            foreach (var option in slice.Options)
+            {
+                Assert.AreEqual(CharacterCreationMagicResonanceDigest.ComputeUtf8(option.CanonicalSourceXml),
+                    option.CanonicalSourceXmlDigest);
+                Assert.IsTrue(option.SourceAnchorIds.Count > 0);
+                if (option.SourceBook != "SR5") Assert.IsFalse(option.IsEnabled, option.Name);
+            }
+        }
+        Assert.IsTrue(catalog.Talents.Options.Any(option => option.IsEnabled && option.EnabledAttribute == "MAG"));
+        Assert.IsTrue(catalog.Talents.Options.Any(option => option.IsEnabled && option.EnabledAttribute == "RES"));
+        var custom = catalog.Catalogs.Single(slice => slice.Kind == "tradition").Options.Single(option => option.Name == "Custom");
+        Assert.IsFalse(custom.IsEnabled, "A custom tradition without drain fields cannot be finalized.");
+        CollectionAssert.Contains(custom.Blockers.ToArray(), CharacterCreationMagicResonanceBlockers.OptionSemanticsUnsupported);
+        Assert.IsFalse(CharacterCreationMagicResonanceFinalizationRules.TryProjectOption(custom with
+            { IsEnabled = true, Blockers = [] }, 1, out _));
+        Assert.IsTrue(catalog.Catalogs.SelectMany(slice => slice.Options).Where(option => option.IsEnabled)
+            .All(option => CharacterCreationMagicResonanceFinalizationRules.TryProjectOption(option, 1, out _)));
+        var resolver = new FileSystemCharacterSourceDataResolver(new FileSystemContentOverlayCatalogService(
+            FindCoreRoot(), FindCoreRoot(), null));
+        var priority = resolver.TryCreateContext($"<character><settings>{StandardPrioritySettingsId}</settings></character>")!;
+        Assert.IsFalse(priority.TryResolveCreationKarmaMagicCatalog(out _));
+        var karma = resolver.TryCreateContext($"<character><settings>{catalog.SettingsProfileId}</settings></character>")!;
+        Assert.IsFalse(karma.TryResolveCreationMagicResonanceAuthority(out _), "Karma must not impersonate Priority.");
+    }
+
+    [TestMethod]
+    public void Karma_magic_prices_are_rederived_from_profile_and_never_exchange_purchased_spells_for_power_points()
+    {
+        var original = LoadKarmaMagic(FindCoreRoot()).Policy;
+        foreach (bool exchange in new[] { false, true })
+        foreach (int price in new[] { 0, 3, 7 })
+        {
+            XElement settings = XElement.Parse(original.CanonicalSourceXml);
+            settings.Element("priorityspellsasadeptpowers")!.Value = exchange.ToString();
+            settings.Element("karmacost")!.Element("karmaspell")!.Value = price.ToString();
+            settings.Element("karmacost")!.Element("karmanewcomplexform")!.Value = (price + 1).ToString();
+            settings.Element("karmacost")!.Element("karmamysadpp")!.Value = (price + 2).ToString();
+            string xml = settings.ToString(SaveOptions.DisableFormatting);
+            Assert.IsTrue(CharacterCreationKarmaMagicRules.TryCreatePolicy(original.SettingsProfileId,
+                CharacterCreationMagicResonanceDigest.ComputeUtf8(xml), xml, out var policy));
+            Assert.IsTrue(CharacterCreationKarmaMagicRules.TryCalculateCost(policy, "mystic-adept", 4, 3, 0, 2,
+                out var mystic));
+            Assert.AreEqual(3 * price + 2 * (price + 2), mystic!.TotalKarma);
+            Assert.AreEqual(0, mystic.MysticPowerPoints!.ExchangedSpellSlots);
+            Assert.AreEqual(0, mystic.MysticPowerPoints.SpellBudget);
+            Assert.IsTrue(CharacterCreationKarmaMagicRules.TryCalculateCost(policy, "technomancer", 0, 0, 2, 0,
+                out var resonance));
+            Assert.AreEqual(2 * (price + 1), resonance!.TotalKarma);
+            Assert.IsNull(resonance.MysticPowerPoints);
+            Assert.AreEqual(policy!.PolicyDigest, resonance.PolicyDigest);
+            var forged = policy with { KarmaPerSpell = price + 1, PolicyDigest = string.Empty };
+            forged = forged with { PolicyDigest = CharacterCreationKarmaMagicRules.ComputePolicyDigest(forged) };
+            Assert.IsFalse(CharacterCreationKarmaMagicRules.IsValidPolicy(forged), "Rehashing a forged price is not authority.");
+            Assert.IsFalse(CharacterCreationKarmaMagicRules.TryCalculateCost(forged, "magician", 4, 1, 0, 0, out _));
+        }
+    }
+
+    [TestMethod]
+    public void Karma_magic_policy_rejects_missing_duplicate_negative_nested_foreign_and_overflowing_costs()
+    {
+        var original = LoadKarmaMagic(FindCoreRoot()).Policy;
+        Action<XElement>[] malformed =
+        [
+            root => root.Element("karmacost")!.Element("karmaspell")!.Remove(),
+            root => root.Element("karmacost")!.Add(new XElement("karmaspell", "0")),
+            root => root.Element("karmacost")!.Element("karmanewcomplexform")!.Value = "-1",
+            root => root.Element("karmacost")!.Element("karmaspell")!.Value = "1.5",
+            root => root.Element("karmacost")!.Element("karmaspell")!.Value = "2147483648",
+            root => root.Element("karmacost")!.Element("karmaspell")!.Add(new XElement("value", "1")),
+            root => root.Element("karmacost")!.Element("karmaspell")!.Add(new XAttribute("override", "true")),
+            root => root.Add(new XElement(root.Element("karmacost")!)),
+            root => root.Element("buildmethod")!.Value = "Priority",
+            root => root.Add(new XElement("buildmethod", "Karma")),
+            root => root.Element("ignorecomplexformlimit")!.Remove(),
+            root => root.Element("ignorecomplexformlimit")!.Value = "unknown",
+            root => root.Element("id")!.Value = Guid.NewGuid().ToString("D")
+        ];
+        foreach (var change in malformed)
+        {
+            XElement root = XElement.Parse(original.CanonicalSourceXml);
+            change(root);
+            Assert.IsFalse(CharacterCreationKarmaMagicRules.TryCreatePolicy(original.SettingsProfileId,
+                original.SettingsInputsDigest, root.ToString(SaveOptions.DisableFormatting), out _));
+        }
+        Assert.IsFalse(CharacterCreationKarmaMagicRules.TryCreatePolicy(original.SettingsProfileId,
+            original.SettingsInputsDigest, "<!DOCTYPE setting [<!ENTITY x '1'>]>" + original.CanonicalSourceXml, out _));
+        Assert.IsFalse(CharacterCreationKarmaMagicRules.TryCalculateCost(original, "mystic-adept", 2, 0, 0, 3, out _));
+        Assert.IsFalse(CharacterCreationKarmaMagicRules.TryCalculateCost(original, "adept", 2, 0, 0, 1, out _));
+        Assert.IsFalse(CharacterCreationKarmaMagicRules.TryCalculateCost(original, "magician", 2, -1, 0, 0, out _));
+        Assert.IsFalse(CharacterCreationKarmaMagicRules.TryCalculateCost(original, "technomancer", 0, 0, -1, 0, out _));
+        Assert.IsFalse(CharacterCreationKarmaMagicRules.TryCalculateCost(original, "magician", 2, int.MaxValue, 0, 0, out _));
+        Assert.IsFalse(CharacterCreationKarmaMagicRules.TryCalculateCost(original, "unknown", 2, 0, 0, 0, out _));
+        XElement split = XElement.Parse(original.CanonicalSourceXml);
+        split.Element("mysadeptsecondmagattribute")!.Value = "True";
+        Assert.IsTrue(CharacterCreationKarmaMagicRules.TryCreatePolicy(original.SettingsProfileId,
+            original.SettingsInputsDigest, split.ToString(SaveOptions.DisableFormatting), out var splitPolicy));
+        Assert.IsFalse(CharacterCreationKarmaMagicRules.TryCalculateCost(splitPolicy, "mystic-adept", 4, 0, 0, 0, out _));
+    }
+
+    [TestMethod]
+    public void Karma_magic_catalog_detects_source_and_profile_drift_and_retains_disabled_rows()
+    {
+        string root = Path.Combine(Path.GetTempPath(), $"chummer-karma-magic-source-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(Path.Combine(root, "data"));
+        try
+        {
+            foreach (string file in new[] { "settings.xml", "priorities.xml", "metatypes.xml", "qualities.xml",
+                "traditions.xml", "streams.xml", "powers.xml", "spells.xml", "complexforms.xml" })
+                File.Copy(Path.Combine(FindCoreRoot(), "Chummer", "data", file), Path.Combine(root, "data", file));
+            var resolver = new FileSystemCharacterSourceDataResolver(new FileSystemContentOverlayCatalogService(root, root, null));
+            string character = $"<character><settings>{CharacterCreationBootstrapProfiles.KarmaSettingsProfileId}</settings></character>";
+            var context = resolver.TryCreateContext(character)!;
+            Assert.IsTrue(context.TryResolveCreationKarmaMagicCatalog(out var original));
+            string spellPath = Path.Combine(root, "data", "spells.xml");
+            var spells = XDocument.Load(spellPath);
+            var first = spells.Descendants("spell").First();
+            string id = first.Element("id")!.Value;
+            first.Add(new XElement("required", new XElement("quality", "Unresolved requirement")));
+            spells.Save(spellPath);
+            Assert.IsFalse(context.TryResolveCreationKarmaMagicCatalog(out _), "A captured context must reject later bytes.");
+            var changed = LoadKarmaMagic(root);
+            Assert.AreNotEqual(original!.AuthorityDigest, changed.AuthorityDigest);
+            var disabled = changed.Catalogs.Single(slice => slice.Kind == "spell").Options.Single(item => item.Identity.SourceId == id);
+            Assert.IsFalse(disabled.IsEnabled);
+            CollectionAssert.Contains(disabled.Blockers.ToArray(), CharacterCreationMagicResonanceBlockers.OptionSemanticsUnsupported);
+            var beforeProfileChange = resolver.TryCreateContext(character)!;
+            Assert.IsTrue(beforeProfileChange.TryResolveCreationKarmaMagicCatalog(out _));
+            string settingsPath = Path.Combine(root, "data", "settings.xml");
+            var settings = XDocument.Load(settingsPath);
+            settings.Descendants("setting").Single(item => item.Element("id")?.Value == changed.SettingsProfileId)
+                .Element("karmacost")!.Element("karmaspell")!.Value = "9";
+            settings.Save(settingsPath);
+            Assert.IsFalse(beforeProfileChange.TryResolveCreationKarmaMagicCatalog(out _));
+            var repriced = LoadKarmaMagic(root);
+            Assert.AreEqual(9, repriced.Policy.KarmaPerSpell);
+            Assert.AreNotEqual(changed.RawProfileInputsDigest, repriced.RawProfileInputsDigest);
+            Assert.AreNotEqual(changed.AuthorityDigest, repriced.AuthorityDigest);
+        }
+        finally { Directory.Delete(root, recursive: true); }
+    }
+
+    private static CharacterCreationKarmaMagicCatalog LoadKarmaMagic(string root)
+    {
+        var resolver = new FileSystemCharacterSourceDataResolver(new FileSystemContentOverlayCatalogService(root, root, null));
+        var context = resolver.TryCreateContext($"<character><settings>{CharacterCreationBootstrapProfiles.KarmaSettingsProfileId}</settings></character>");
+        Assert.IsNotNull(context);
+        Assert.IsTrue(context.TryResolveCreationKarmaMagicCatalog(out var catalog));
+        Assert.IsNotNull(catalog);
+        return catalog;
+    }
+
+    [TestMethod]
     public void Mystic_power_point_policy_uses_profile_cost_exchange_and_current_magic_without_fallback_prices()
     {
         string root = FindCoreRoot();

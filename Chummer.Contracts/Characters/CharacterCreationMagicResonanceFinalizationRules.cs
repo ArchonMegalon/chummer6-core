@@ -451,7 +451,41 @@ public static class CharacterCreationMagicResonanceFinalizationRules
             blockers.Add(CharacterCreationMagicResonanceBlockers.FinalizationPayloadInvalid);
             return null;
         }
-        CharacterCreationMagicResonanceCatalogOption option = matches[0];
+        return ProjectOption(matches[0], levels);
+    }
+
+    /// <summary>
+    /// Projects an already source-admitted option without creating a Priority
+    /// contribution. Karma uses the same payload compiler with its own budget.
+    /// This validates payload shape, not source admission or character legality.
+    /// </summary>
+    public static bool TryProjectOption(CharacterCreationMagicResonanceCatalogOption? option, int levels,
+        out CharacterCreationMagicResonanceOptionFinalizationSource? source)
+    {
+        source = null;
+        if (option is not { IsEnabled: true, Blockers.Count: 0, Identity: not null }
+            || levels < 1 || levels > option.MaximumLevels || !HasSupportedOptionPayload(option)) return false;
+        XElement row = XElement.Parse(option.CanonicalSourceXml);
+        if (row.HasAttributes || row.DescendantsAndSelf().Any(item => item.Name.Namespace != XNamespace.None)
+            || row.DescendantNodes().OfType<XProcessingInstruction>().Any()
+            || row.Elements().GroupBy(item => item.Name).Any(group => group.Count() != 1)
+            || row.Elements().Any(item => item.HasAttributes || item.HasElements
+                && item.Name != "spirits" && !(row.Name == "power" && item.Name == "adeptwayrequires"))
+            || row.Element("required") is not null || row.Element("forbidden") is not null
+            || (option.Identity.Kind == CharacterCreationMagicResonanceKinds.AdeptPower
+                ? !CharacterCreationAdeptPowerSourceRules.IsUndiscountedPayloadSupported(row)
+                : row.Element("bonus") is not null)) return false;
+        if (row.Name == "tradition" && (string.IsNullOrWhiteSpace(Read(row, "drain"))
+            || row.Element("spirits") is { } spirits && (spirits.HasAttributes || spirits.Elements().Any(item =>
+                item.HasElements || item.HasAttributes || item.Name.LocalName is not ("spirit" or "spiritcombat"
+                    or "spiritdetection" or "spirithealth" or "spiritillusion" or "spiritmanipulation"))))) return false;
+        source = ProjectOption(option, levels);
+        return true;
+    }
+
+    private static CharacterCreationMagicResonanceOptionFinalizationSource ProjectOption(
+        CharacterCreationMagicResonanceCatalogOption option, int levels)
+    {
         var candidate = new CharacterCreationMagicResonanceOptionFinalizationSource(
             CharacterCreationMagicResonanceSchemas.FinalizationSourceV1,
             option.Identity,

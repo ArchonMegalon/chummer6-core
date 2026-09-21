@@ -8,9 +8,9 @@ namespace Chummer.Application.Characters;
 public interface IOwnerBoundCharacterCreationKarmaMetatypeService
 {
     CharacterCreationFoundationResult<CharacterCreationKarmaMetatypeState> Load(
-        OwnerContextStamp expectedOwner, CharacterWorkspaceId id, bool includeSkills = false, bool includeQualities = false, bool includeGear = false, bool includeLifestyles = false);
+        OwnerContextStamp expectedOwner, CharacterWorkspaceId id, bool includeSkills = false, bool includeQualities = false, bool includeGear = false, bool includeLifestyles = false, bool includeMagic = false);
     CharacterCreationFoundationResult<CharacterCreationKarmaMetatypeOpen> Open(
-        OwnerContextStamp expectedOwner, CharacterWorkspaceId id, bool includeSkills = false, bool includeQualities = false, bool includeGear = false, bool includeLifestyles = false);
+        OwnerContextStamp expectedOwner, CharacterWorkspaceId id, bool includeSkills = false, bool includeQualities = false, bool includeGear = false, bool includeLifestyles = false, bool includeMagic = false);
     CharacterCreationFoundationResult<CharacterCreationKarmaMetatypeQuote> Preview(
         OwnerContextStamp expectedOwner, CharacterCreationKarmaMetatypeBinding binding, string optionId,
         string? talentOptionId = null,
@@ -19,7 +19,8 @@ public interface IOwnerBoundCharacterCreationKarmaMetatypeService
         IReadOnlyList<string>? qualityOptionIds = null,
         IReadOnlyList<CharacterCreationGearSelection>? gearSelections = null,
         IReadOnlyList<CharacterCreationKarmaContactSelection>? contactSelections = null,
-        IReadOnlyList<CharacterCreationLifestyleConfiguration>? lifestyleSelections = null, Guid? startingLifestyleId = null);
+        IReadOnlyList<CharacterCreationLifestyleConfiguration>? lifestyleSelections = null, Guid? startingLifestyleId = null,
+        CharacterCreationMagicResonanceSelections? magicSelections = null);
     CharacterCreationFoundationResult<CharacterCreationKarmaMetatypeCommit> Confirm(
         OwnerContextStamp expectedOwner, CharacterCreationKarmaMetatypeConfirmRequest request);
     CharacterCreationFoundationResult<CharacterCreationKarmaFinalizationBudgetQuote> PreviewFinalizationBudget(

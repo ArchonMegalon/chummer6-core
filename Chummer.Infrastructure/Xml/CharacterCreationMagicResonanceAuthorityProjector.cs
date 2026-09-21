@@ -397,7 +397,9 @@ internal static class CharacterCreationMagicResonanceAuthorityProjector
             .ToArray();
     }
 
-    private static CharacterCreationMagicResonanceCatalogOption[] ProjectCatalog(
+    // Source-row semantics are shared by Priority and Karma; no talent grants or
+    // creation budgets are inferred here. The enclosing authority owns those.
+    internal static CharacterCreationMagicResonanceCatalogOption[] ProjectCatalog(
         IReadOnlyList<XElement> rows,
         string kind,
         string effectiveDigest,

@@ -138,24 +138,7 @@ internal static class CharacterCreationAwakenedLegacyProjector
                 && !(source.Tradition is not null && source.Stream is not null));
             foreach (var tradition in new[] { source.Tradition, source.Stream }.OfType<CharacterCreationMagicResonanceOptionFinalizationSource>())
             {
-                Require(!root.Elements("tradition").Any());
-                XElement node = OptionSource(tradition, "tradition");
-                Require(Scalar(node, "drain").Length > 0);
-                string kind = tradition.Identity.Kind == CharacterCreationMagicResonanceKinds.Stream ? "RES" : "MAG";
-                var spirits = node.Element("spirits");
-                Require(spirits is null || !spirits.HasAttributes && spirits.Elements().All(item =>
-                    item.Name.LocalName is "spirit" or "spiritcombat" or "spiritdetection" or "spirithealth" or "spiritillusion" or "spiritmanipulation"
-                    && !item.HasElements && !item.HasAttributes));
-                XElement saved = Identity("tradition", tradition, magic.DraftDigest);
-                saved.Add(new XElement("traditiontype", kind), new XElement("extra"),
-                    new XElement("spiritform", "Materialization"), new XElement("drain", Scalar(node, "drain")),
-                    new XElement("source", tradition.SourceBook), new XElement("page", tradition.Page));
-                foreach (string field in new[] { "spiritcombat", "spiritdetection", "spirithealth", "spiritillusion", "spiritmanipulation" })
-                    saved.Add(new XElement(field, spirits is null ? string.Empty : Scalar(spirits, field)));
-                saved.Add(new XElement("spirits", spirits?.Elements("spirit").Select(item => item.Value)
-                    .Distinct(StringComparer.Ordinal).Select(value => new XElement("spirit", value))), new XElement("bonus"));
-                root.Add(saved);
-                SelectionDelta(deltas, ref order, tradition);
+                ApplyTradition(root, tradition, magic.DraftDigest, deltas, ref order);
             }
             ApplyOptions(root, "spells", "spell", source.Spells, magic.Selections.Spells, magic.DraftDigest, deltas, ref order);
             ApplyOptions(root, "complexforms", "complexform", source.ComplexForms, magic.Selections.ComplexForms, magic.DraftDigest, deltas, ref order);
@@ -343,7 +326,30 @@ internal static class CharacterCreationAwakenedLegacyProjector
         }
     }
 
-    private static void ApplyOptions(XElement root, string container, string itemName,
+    internal static void ApplyTradition(XElement root, CharacterCreationMagicResonanceOptionFinalizationSource tradition,
+        string digest, ICollection<CharacterCreationFinalizationDelta> deltas, ref int order)
+    {
+        Require(!root.Elements("tradition").Any());
+        XElement node = OptionSource(tradition, "tradition");
+        Require(Scalar(node, "drain").Length > 0);
+        string kind = tradition.Identity.Kind == CharacterCreationMagicResonanceKinds.Stream ? "RES" : "MAG";
+        var spirits = node.Element("spirits");
+        Require(spirits is null || !spirits.HasAttributes && spirits.Elements().All(item =>
+            item.Name.LocalName is "spirit" or "spiritcombat" or "spiritdetection" or "spirithealth" or "spiritillusion" or "spiritmanipulation"
+            && !item.HasElements && !item.HasAttributes));
+        XElement saved = Identity("tradition", tradition, digest);
+        saved.Add(new XElement("traditiontype", kind), new XElement("extra"),
+            new XElement("spiritform", "Materialization"), new XElement("drain", Scalar(node, "drain")),
+            new XElement("source", tradition.SourceBook), new XElement("page", tradition.Page));
+        foreach (string field in new[] { "spiritcombat", "spiritdetection", "spirithealth", "spiritillusion", "spiritmanipulation" })
+            saved.Add(new XElement(field, spirits is null ? string.Empty : Scalar(spirits, field)));
+        saved.Add(new XElement("spirits", spirits?.Elements("spirit").Select(item => item.Value)
+            .Distinct(StringComparer.Ordinal).Select(value => new XElement("spirit", value))), new XElement("bonus"));
+        root.Add(saved);
+        SelectionDelta(deltas, ref order, tradition);
+    }
+
+    internal static void ApplyOptions(XElement root, string container, string itemName,
         IReadOnlyList<CharacterCreationMagicResonanceOptionFinalizationSource> sources,
         IReadOnlyList<CharacterCreationMagicResonanceOptionIdentity> selections, string digest,
         ICollection<CharacterCreationFinalizationDelta> deltas, ref int order)
