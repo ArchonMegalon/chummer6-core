@@ -293,7 +293,13 @@ public sealed class CharacterCreationFoundationLifeModuleDecisionAuthority :
             || state.Binding.WorkspaceId != workspace.Id
             || state.Binding.ContentRevision != workspace.ContentRevision
             || state.Binding.SavedRevision != workspace.SavedRevision
-            || state.AuthorityBlockers.Count != 0)
+            || state.AuthorityBlockers.Count != 0
+            || !string.Equals(state.Binding.CharacterDigestSemantics,
+                CharacterCreationFoundationDigestSemantics.RawCharacterXmlSha256, StringComparison.Ordinal)
+            || !string.Equals(state.Binding.SourceDigestSemantics,
+                CharacterCreationFoundationDigestSemantics.RawSourceInputsSha256, StringComparison.Ordinal)
+            || !TryFoundationDigest(state.Binding.RawCharacterXmlDigest, out string contentDigest)
+            || !TryFoundationDigest(state.Binding.SourceDigest, out string sourceDigest))
             return null;
         CharacterCreationLegalOption[] metatypes = state.MetatypeOptions.Where(option =>
                 option.IsEnabled
@@ -361,11 +367,22 @@ public sealed class CharacterCreationFoundationLifeModuleDecisionAuthority :
             LifeModuleOriginDossierService.TurnLedgerRootDigest,
             graphDigest,
             decisionDigest,
-            state.Binding.RawCharacterXmlDigest,
-            state.Binding.SourceDigest,
+            contentDigest,
+            sourceDigest,
             rulesDigest,
             runtimeDigest,
             mechanicsDigest);
+    }
+
+    // Foundation owns prefixed SHA-256 identities; Origin owns raw SHA-256
+    // identities. Convert only this documented boundary, never arbitrary text.
+    private static bool TryFoundationDigest(string value, out string digest)
+    {
+        digest = string.Empty;
+        if (!CharacterCreationFoundationDraftLedgerIntegrity.IsCanonicalDigest(value))
+            return false;
+        digest = value[7..];
+        return true;
     }
 
     private DecisionCandidate[] BuildCandidates(CharacterCreationFoundationState state)

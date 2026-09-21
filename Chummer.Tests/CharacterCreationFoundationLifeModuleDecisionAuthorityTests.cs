@@ -42,6 +42,21 @@ public sealed class CharacterCreationFoundationLifeModuleDecisionAuthorityTests
         Assert.HasCount(1, result.Value.LegalChoices[0].MechanicsPreview.Items);
         Assert.IsTrue(result.Value.LegalChoices[0].MechanicsPreview.KarmaIsExact);
         Assert.HasCount(1, foundation.PreviewRequests);
+        Assert.AreEqual(Digest("raw"), result.Value.ContentDigest);
+        Assert.AreEqual(Digest("source"), result.Value.SourceDigest);
+
+        foreach (string invalid in new[] { Digest("raw"), "SHA256:" + Digest("raw"),
+                     "sha256:" + Digest("raw").ToUpperInvariant(), "sha256:bad", string.Empty })
+        {
+            foundation.State = state with { Binding = state.Binding with { RawCharacterXmlDigest = invalid } };
+            Assert.AreEqual(LifeModuleOriginDossierOutcomes.Blocked, authority.Load(workspaceId.Value).Outcome);
+            foundation.State = state with { Binding = state.Binding with { SourceDigest = invalid } };
+            Assert.AreEqual(LifeModuleOriginDossierOutcomes.Blocked, authority.Load(workspaceId.Value).Outcome);
+        }
+        foundation.State = state with { Binding = state.Binding with { CharacterDigestSemantics = "unknown" } };
+        Assert.AreEqual(LifeModuleOriginDossierOutcomes.Blocked, authority.Load(workspaceId.Value).Outcome);
+        foundation.State = state with { Binding = state.Binding with { SourceDigestSemantics = "unknown" } };
+        Assert.AreEqual(LifeModuleOriginDossierOutcomes.Blocked, authority.Load(workspaceId.Value).Outcome);
 
         foundation.State = CreateState(workspaceId, RulesetDefaults.Sr6,
             CharacterCreationBuildMethods.LifeModules);
@@ -65,9 +80,9 @@ public sealed class CharacterCreationFoundationLifeModuleDecisionAuthorityTests
             workspaceId,
             1,
             0,
-            Digest("raw"),
+            "sha256:" + Digest("raw"),
             CharacterCreationFoundationDigestSemantics.RawCharacterXmlSha256,
-            Digest("source"),
+            "sha256:" + Digest("source"),
             CharacterCreationFoundationDigestSemantics.RawSourceInputsSha256,
             false,
             ["RF"]);

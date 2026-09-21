@@ -40,6 +40,68 @@ public sealed class CharacterCreationFoundationDraftApplyAuthorityTests
     private const string EtiquetteSkillId = "b20acd11-f102-40f3-a641-e3c420fbdb91";
 
     [TestMethod]
+    public void Origin_book_uses_real_foundation_digests_and_reopens_the_committed_chapter()
+    {
+        string directory = CreateTempDirectory();
+        try
+        {
+            CharacterWorkspaceId id = new("foundation-origin-book");
+            string xml = CharacterXml("Human");
+            FileWorkspaceStore store = new(directory);
+            Assert.IsTrue(store.CreateWorkspaceDocument(
+                id, new WorkspaceDocument(xml, RulesetDefaults.Sr5)).Success);
+            CharacterCreationFoundationState foundation = Load(CreateService(store), id);
+            Assert.IsTrue(IsCanonicalDigest(foundation.Binding.RawCharacterXmlDigest));
+            Assert.IsTrue(IsCanonicalDigest(foundation.Binding.SourceDigest));
+
+            LifeModuleOriginDossierInteractionService CreateInteraction(FileWorkspaceStore currentStore) =>
+                new(new LifeModuleOriginDossierService(
+                    new CharacterCreationFoundationLifeModuleDecisionAuthority(
+                        currentStore, CreateService(currentStore),
+                        new XmlCharacterFileQueries(new CharacterFileService()), () => "de-DE")));
+            LifeModuleOriginDossierInteractionService interaction = CreateInteraction(store);
+            var started = interaction.Start(id.Value);
+            Assert.AreEqual(LifeModuleOriginDossierOutcomes.Success, started.Outcome,
+                string.Join(", ", started.Blockers));
+            Assert.IsNotNull(started.Value);
+            Assert.AreEqual(foundation.Binding.RawCharacterXmlDigest[7..], started.Value.BoundContentDigest);
+            Assert.AreEqual(foundation.Binding.SourceDigest[7..], started.Value.BoundSourceDigest);
+            var choice = started.Value.Projection.CurrentTurn.LegalChoices.First();
+            var prepared = interaction.Prepare(started.Value, choice.ChoiceId);
+            Assert.AreEqual(LifeModuleOriginDossierOutcomes.Success, prepared.Outcome);
+            Assert.IsNotNull(prepared.Value?.PendingPreview);
+            string previewDigest = prepared.Value.PendingPreview.PreviewDigest;
+
+            var unconfirmed = interaction.Confirm(prepared.Value, previewDigest, "origin-book-confirm", false);
+            Assert.AreNotEqual(LifeModuleOriginDossierOutcomes.Success, unconfirmed.Outcome);
+            Assert.AreEqual(1L, store.Get(id).Value!.ContentRevision);
+            var confirmed = interaction.Confirm(prepared.Value, previewDigest, "origin-book-confirm", true);
+            Assert.AreEqual(LifeModuleOriginDossierOutcomes.Success, confirmed.Outcome,
+                string.Join(", ", confirmed.Blockers));
+            Assert.IsNotNull(confirmed.Value);
+            Assert.HasCount(1, confirmed.Value.Checkpoint.Projection.VisibleChapters);
+            Assert.AreEqual(OriginLtdProvenanceStates.NotRequested, confirmed.Value.Checkpoint.LtdProvenance.State);
+
+            FileWorkspaceStore reopened = new(directory);
+            byte[] committedBytes = File.ReadAllBytes(WorkspacePath(directory, id));
+            Assert.AreEqual(xml, reopened.Get(id).Value!.Document.Content);
+            Assert.AreEqual(2L, reopened.Get(id).Value!.ContentRevision);
+            LifeModuleOriginDossierInteractionService restarted = CreateInteraction(reopened);
+            var restored = restarted.Restore(confirmed.Value.Checkpoint);
+            Assert.AreEqual(LifeModuleOriginDossierOutcomes.Success, restored.Outcome);
+            Assert.AreEqual(confirmed.Value.Checkpoint.CheckpointDigest, restored.Value!.CheckpointDigest);
+            var replay = restarted.Confirm(prepared.Value, previewDigest, "origin-book-confirm", true);
+            Assert.AreEqual(LifeModuleOriginDossierOutcomes.Success, replay.Outcome);
+            Assert.AreEqual(confirmed.Value.Checkpoint.CheckpointDigest, replay.Value!.Checkpoint.CheckpointDigest);
+            CollectionAssert.AreEqual(committedBytes, File.ReadAllBytes(WorkspacePath(directory, id)));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [TestMethod]
     public void Exact_Tir_Human_and_Elf_drafts_preserve_legacy_effect_order_and_raw_xml()
     {
         CharacterCreationFoundationDraftLedger human = ApplyExactTirDraft("Human");
