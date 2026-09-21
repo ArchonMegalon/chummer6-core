@@ -26,7 +26,7 @@ public sealed class CharacterCreationFoundationLifeModuleDecisionAuthority :
     private const string StageId = "nationality";
     private const string TerminalStageId = "nationality-accepted";
     private const string RuntimeSemantics =
-        "chummer.sr5-life-modules.foundation-origin-authority/v1";
+        "chummer.sr5-life-modules.foundation-origin-authority/v2";
 
     private readonly IWorkspaceStore _workspaceStore;
     private readonly ICharacterCreationFoundationService _foundation;
@@ -156,7 +156,7 @@ public sealed class CharacterCreationFoundationLifeModuleDecisionAuthority :
         CharacterCreationFoundationResult<CharacterCreationFoundationApplyReceipt> confirmed =
             _foundation.Confirm(new CharacterCreationFoundationConfirmRequest(
                 state.Binding,
-                state.CurrentMetatype,
+                candidate.FoundationPreview.RequestedMetatype,
                 candidate.Selection,
                 candidate.FoundationPreview.PreviewDigest,
                 ExplicitlyConfirmed: true,
@@ -205,6 +205,14 @@ public sealed class CharacterCreationFoundationLifeModuleDecisionAuthority :
             choice.SourceAnchorIds.ToArray(),
             string.Empty);
         fact = fact with { FactDigest = Digest(fact with { FactDigest = string.Empty }) };
+        var metatypeFact = new OriginCanonicalNarrativeFact(
+            $"metatype:{context.SelectedMetatype.OptionId}",
+            "accepted-metatype",
+            context.SelectedMetatype.Label,
+            decisionId,
+            context.SelectedMetatype.SourceAnchorIds.ToArray(),
+            string.Empty);
+        metatypeFact = metatypeFact with { FactDigest = Digest(metatypeFact with { FactDigest = string.Empty }) };
         string acceptedGraphDigest = Digest(new
         {
             current.DecisionGraphDigest,
@@ -242,7 +250,7 @@ public sealed class CharacterCreationFoundationLifeModuleDecisionAuthority :
             consequence.Trim(),
             TerminalPrompt(current.Locale),
             [],
-            [fact],
+            [metatypeFact, fact],
             [decisionId],
             command.ExpectedTurnSeedDigest,
             acceptedGraphDigest,
@@ -273,7 +281,7 @@ public sealed class CharacterCreationFoundationLifeModuleDecisionAuthority :
             terminal.DecisionGraphDigest,
             terminal.MechanicsSnapshotDigest,
             consequence.Trim(),
-            [fact],
+            [metatypeFact, fact],
             string.Empty);
         receipt = receipt with
         {
@@ -300,13 +308,6 @@ public sealed class CharacterCreationFoundationLifeModuleDecisionAuthority :
                 CharacterCreationFoundationDigestSemantics.RawSourceInputsSha256, StringComparison.Ordinal)
             || !TryFoundationDigest(state.Binding.RawCharacterXmlDigest, out string contentDigest)
             || !TryFoundationDigest(state.Binding.SourceDigest, out string sourceDigest))
-            return null;
-        CharacterCreationLegalOption[] metatypes = state.MetatypeOptions.Where(option =>
-                option.IsEnabled
-                && option.DisableReasonKey is null
-                && string.Equals(option.Label, state.CurrentMetatype, StringComparison.Ordinal))
-            .ToArray();
-        if (metatypes.Length != 1)
             return null;
         DecisionCandidate[] candidates = BuildCandidates(state);
         if (candidates.Length == 0)
@@ -386,6 +387,19 @@ public sealed class CharacterCreationFoundationLifeModuleDecisionAuthority :
     }
 
     private DecisionCandidate[] BuildCandidates(CharacterCreationFoundationState state)
+        => state.MetatypeOptions
+            .Where(option => option.IsEnabled && option.DisableReasonKey is null
+                && (string.IsNullOrEmpty(state.CurrentMetatype)
+                    || string.Equals(option.Label, state.CurrentMetatype, StringComparison.Ordinal)))
+            .GroupBy(option => option.OptionId, StringComparer.Ordinal)
+            .Where(group => group.Count() == 1)
+            .Select(group => group.Single())
+            .OrderBy(option => option.OptionId, StringComparer.Ordinal)
+            .SelectMany(metatype => BuildCandidates(state, metatype))
+            .ToArray();
+
+    private DecisionCandidate[] BuildCandidates(
+        CharacterCreationFoundationState state, CharacterCreationLegalOption metatype)
     {
         var candidates = new List<DecisionCandidate>();
         foreach (LifeModuleLegalOptionDto module in state.NationalityOptions
@@ -411,17 +425,27 @@ public sealed class CharacterCreationFoundationLifeModuleDecisionAuthority :
                 CharacterCreationFoundationResult<CharacterCreationFoundationPreview> projected =
                     _foundation.Preview(new CharacterCreationFoundationPreviewRequest(
                         state.Binding,
-                        state.CurrentMetatype,
+                        metatype.Label,
                         selection,
                         new Dictionary<string, string>(StringComparer.Ordinal)));
                 if (!string.Equals(projected.Outcome, CharacterCreationFoundationOutcomes.Success, StringComparison.Ordinal)
                     || projected.Value is not { CanConfirm: true, CanApply: true } preview
                     || preview.AuthorityBlockers.Count != 0
                     || preview.Nationality is null
-                    || !preview.Nationality.KarmaIsExact)
+                    || !preview.Nationality.KarmaIsExact
+                    || !preview.LifeModuleBudgetBefore.IsExact
+                    || !preview.LifeModuleBudgetAfter.IsExact
+                    || !string.Equals(preview.RequestedMetatype, metatype.Label, StringComparison.Ordinal))
+                    continue;
+                CharacterCreationFoundationDiffEntry[] metatypeDiff = preview.Diff.Where(item =>
+                    item.Domain == "metatype-choice" && item.TargetId == metatype.OptionId
+                    && item.AfterValue == metatype.Label && item.IsAuthoritative && item.CanApply
+                    && item.Blockers.Count == 0 && item.SourceAnchorIds.Count > 0).ToArray();
+                if (metatypeDiff.Length != 1)
                     continue;
                 string choiceId = Digest(new
                 {
+                    MetatypeOptionId = metatype.OptionId,
                     module.ModuleId,
                     VersionId = version?.VersionId ?? string.Empty
                 });
@@ -444,7 +468,12 @@ public sealed class CharacterCreationFoundationLifeModuleDecisionAuthority :
                     .ToArray();
                 if (anchors.Length == 0)
                     continue;
-                LifeModuleMechanicsPreviewItem[] items = effects.Select(effect =>
+                LifeModuleMechanicsPreviewItem[] items =
+                [
+                    new(metatypeDiff[0].DiffId, metatypeDiff[0].Domain, metatypeDiff[0].TargetId,
+                        metatypeDiff[0].BeforeValue ?? string.Empty, metatypeDiff[0].AfterValue ?? string.Empty,
+                        0, metatypeDiff[0].SourceAnchorIds.ToArray(), string.Empty),
+                    .. effects.Select(effect =>
                         new LifeModuleMechanicsPreviewItem(
                             effect.EffectId,
                             effect.Domain,
@@ -454,18 +483,19 @@ public sealed class CharacterCreationFoundationLifeModuleDecisionAuthority :
                             effect.BudgetDelta,
                             effect.SourceAnchorIds.ToArray(),
                             string.Empty))
-                    .ToArray();
+                ];
+                decimal totalCost = preview.LifeModuleBudgetAfter.Used - preview.LifeModuleBudgetBefore.Used;
                 var mechanics = new LifeModuleMechanicsPreview(
-                    preview.SelectionCost.Delta,
-                    preview.NationalityVersion?.KarmaRaw ?? preview.Nationality.KarmaRaw,
-                    preview.NationalityVersion?.KarmaIsExact ?? preview.Nationality.KarmaIsExact,
+                    totalCost,
+                    totalCost.ToString(CultureInfo.InvariantCulture),
+                    true,
                     items,
                     [],
                     anchors,
                     string.Empty);
                 var choice = new LifeModuleDecisionAuthorityChoice(
                     choiceId,
-                    version is null ? module.Name : $"{module.Name} · {version.Label}",
+                    version is null ? $"{metatype.Label} · {module.Name}" : $"{metatype.Label} · {module.Name} · {version.Label}",
                     version?.Source ?? module.Source,
                     version?.PageReference ?? module.PageReference,
                     decisionCommandDigest,

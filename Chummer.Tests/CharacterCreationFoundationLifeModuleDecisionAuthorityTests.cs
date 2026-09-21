@@ -39,7 +39,7 @@ public sealed class CharacterCreationFoundationLifeModuleDecisionAuthorityTests
         Assert.AreEqual(RulesetDefaults.Sr5, result.Value.RulesetId);
         Assert.HasCount(1, result.Value.LegalChoices);
         Assert.IsTrue(result.Value.LegalChoices[0].IsLegal);
-        Assert.HasCount(1, result.Value.LegalChoices[0].MechanicsPreview.Items);
+        Assert.HasCount(2, result.Value.LegalChoices[0].MechanicsPreview.Items);
         Assert.IsTrue(result.Value.LegalChoices[0].MechanicsPreview.KarmaIsExact);
         Assert.HasCount(1, foundation.PreviewRequests);
         Assert.AreEqual(Digest("raw"), result.Value.ContentDigest);
@@ -171,6 +171,10 @@ public sealed class CharacterCreationFoundationLifeModuleDecisionAuthorityTests
             new CharacterCreationChoiceCost(CharacterCreationBudgetIds.LifeModules, 15, "karma"),
             state.LifeModuleBudget with { Used = 15, Remaining = 85 },
             [new CharacterCreationFoundationDiffEntry(
+                "foundation:requested-metatype", "metatype-choice", state.MetatypeOptions[0].OptionId,
+                state.CurrentMetatype, "Human", CharacterCreationFoundationDiffPhases.DraftLedger,
+                false, true, true, [], state.MetatypeOptions[0].SourceAnchorIds),
+             new CharacterCreationFoundationDiffEntry(
                 effect.EffectId,
                 effect.Domain,
                 effect.TargetId,

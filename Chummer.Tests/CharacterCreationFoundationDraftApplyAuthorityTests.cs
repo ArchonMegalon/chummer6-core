@@ -11,6 +11,8 @@ using Chummer.Infrastructure.DependencyInjection;
 using Chummer.Infrastructure.Files;
 using Chummer.Infrastructure.Workspaces;
 using Chummer.Infrastructure.Xml;
+using Chummer.Rulesets.Hosting;
+using Chummer.Rulesets.Sr5;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -40,7 +42,9 @@ public sealed class CharacterCreationFoundationDraftApplyAuthorityTests
     private const string EtiquetteSkillId = "b20acd11-f102-40f3-a641-e3c420fbdb91";
 
     [TestMethod]
-    public void Origin_book_uses_real_foundation_digests_and_reopens_the_committed_chapter()
+    [DataRow(false)]
+    [DataRow(true)]
+    public void Origin_book_uses_real_foundation_digests_and_reopens_the_committed_chapter(bool newRunner)
     {
         string directory = CreateTempDirectory();
         try
@@ -48,9 +52,29 @@ public sealed class CharacterCreationFoundationDraftApplyAuthorityTests
             CharacterWorkspaceId id = new("foundation-origin-book");
             string xml = CharacterXml("Human");
             FileWorkspaceStore store = new(directory);
-            Assert.IsTrue(store.CreateWorkspaceDocument(
-                id, new WorkspaceDocument(xml, RulesetDefaults.Sr5)).Success);
+            if (newRunner)
+            {
+                var resolver = new FileSystemCharacterSourceDataResolver(CreateOverlays());
+                var queries = new XmlCharacterFileQueries(new CharacterFileService());
+                var codec = new Sr5WorkspaceCodec(queries,
+                    new XmlCharacterSectionQueries(new CharacterSectionService(resolver)),
+                    new XmlCharacterMetadataCommands(new CharacterFileService()));
+                var created = new CharacterCreationBootstrapService(store,
+                    new RulesetWorkspaceCodecResolver([codec]), queries, resolver).Create(new(
+                    CharacterCreationBootstrapSchemas.RequestV1,
+                    CharacterCreationBootstrapStages.AwaitingFoundationSelection, RulesetDefaults.Sr5,
+                    "Origin Runner", "No default metatype", CharacterCreationBuildMethods.LifeModules,
+                    CanonicalLifeModuleSettingsId));
+                Assert.AreEqual(CharacterCreationBootstrapOutcomes.Success, created.Outcome,
+                    string.Join(", ", created.Blockers));
+                id = created.Value!.WorkspaceId;
+                xml = store.Get(id).Value!.Document.Content;
+            }
+            else
+                Assert.IsTrue(store.CreateWorkspaceDocument(
+                    id, new WorkspaceDocument(xml, RulesetDefaults.Sr5)).Success);
             CharacterCreationFoundationState foundation = Load(CreateService(store), id);
+            Assert.AreEqual(newRunner ? string.Empty : "Human", foundation.CurrentMetatype);
             Assert.IsTrue(IsCanonicalDigest(foundation.Binding.RawCharacterXmlDigest));
             Assert.IsTrue(IsCanonicalDigest(foundation.Binding.SourceDigest));
 
@@ -66,10 +90,23 @@ public sealed class CharacterCreationFoundationDraftApplyAuthorityTests
             Assert.IsNotNull(started.Value);
             Assert.AreEqual(foundation.Binding.RawCharacterXmlDigest[7..], started.Value.BoundContentDigest);
             Assert.AreEqual(foundation.Binding.SourceDigest[7..], started.Value.BoundSourceDigest);
-            var choice = started.Value.Projection.CurrentTurn.LegalChoices.First();
+            string selectedMetatype = newRunner ? "Elf" : "Human";
+            var choices = started.Value.Projection.CurrentTurn.LegalChoices;
+            if (newRunner)
+            {
+                string[] offeredMetatypes = choices.SelectMany(item => item.MechanicsPreview.Items)
+                    .Where(item => item.Domain == "metatype-choice").Select(item => item.AfterValue).Distinct().ToArray();
+                CollectionAssert.Contains(offeredMetatypes, "Human");
+                CollectionAssert.Contains(offeredMetatypes, "Elf");
+                Assert.AreEqual(choices.Count, choices.Select(item => item.ChoiceId).Distinct().Count());
+            }
+            var choice = choices.First(item => item.MechanicsPreview.Items.Any(effect =>
+                effect.Domain == "metatype-choice" && effect.AfterValue == selectedMetatype));
             var prepared = interaction.Prepare(started.Value, choice.ChoiceId);
             Assert.AreEqual(LifeModuleOriginDossierOutcomes.Success, prepared.Outcome);
             Assert.IsNotNull(prepared.Value?.PendingPreview);
+            Assert.AreEqual(newRunner ? 55m : 15m, prepared.Value.PendingPreview.SelectedChoice.MechanicsPreview.KarmaCost,
+                "The reviewed cost includes metatype and nationality, not just the module.");
             string previewDigest = prepared.Value.PendingPreview.PreviewDigest;
 
             var unconfirmed = interaction.Confirm(prepared.Value, previewDigest, "origin-book-confirm", false);
@@ -80,12 +117,17 @@ public sealed class CharacterCreationFoundationDraftApplyAuthorityTests
                 string.Join(", ", confirmed.Blockers));
             Assert.IsNotNull(confirmed.Value);
             Assert.HasCount(1, confirmed.Value.Checkpoint.Projection.VisibleChapters);
+            Assert.IsTrue(confirmed.Value.Checkpoint.Projection.CurrentTurn.CanonicalFacts.Any(fact =>
+                fact.FactKind == "accepted-metatype" && fact.LocalizedSummary == selectedMetatype));
             Assert.AreEqual(OriginLtdProvenanceStates.NotRequested, confirmed.Value.Checkpoint.LtdProvenance.State);
 
             FileWorkspaceStore reopened = new(directory);
             byte[] committedBytes = File.ReadAllBytes(WorkspacePath(directory, id));
             Assert.AreEqual(xml, reopened.Get(id).Value!.Document.Content);
             Assert.AreEqual(2L, reopened.Get(id).Value!.ContentRevision);
+            Assert.AreEqual(selectedMetatype,
+                reopened.Get(id).Value!.Document.AuxiliaryState.CharacterCreationFoundationDraft!.RequestedMetatype);
+            Assert.AreEqual(newRunner ? 55m : 15m, Load(CreateService(reopened), id).LifeModuleBudget.Used);
             LifeModuleOriginDossierInteractionService restarted = CreateInteraction(reopened);
             var restored = restarted.Restore(confirmed.Value.Checkpoint);
             Assert.AreEqual(LifeModuleOriginDossierOutcomes.Success, restored.Outcome);
