@@ -72,7 +72,9 @@ public static class Sr6CreationFoundationRules
             SkillOptions = selected is null ? null : Sr6CreationSkillRules.Options(selected, selected.Selection.Skills?.AspectedSkillId),
             KnowledgePointBudget = selected?.Attributes?.Values.Single(row => row.AttributeId == "Logic").Value,
             PointBuyLimits = pointBuy ? Sr6CreationPointBuyRules.Limits() : null,
-            TalentOptions = selected is null ? null : Sr6CreationTalentRules.Options(selected)
+            TalentOptions = selected is null ? null : Sr6CreationTalentRules.Options(selected),
+            ComplexFormOptions = selected is { Selection.TalentId: "technomancer", TalentAllocation: not null }
+                ? Sr6CreationComplexFormRules.Catalog() : null
         });
     }
 
@@ -93,6 +95,9 @@ public static class Sr6CreationFoundationRules
             return Blocked<Sr6CreationFoundationPreview>(Sr6CreationKnowledgeBlockers.InvalidSelection);
         if (selection?.TalentAllocation is { SelectedPowerPoints: < 0 or > 6 })
             return Blocked<Sr6CreationFoundationPreview>(Sr6CreationTalentBlockers.InvalidSelection);
+        if (selection?.ComplexForms is { } requestedForms
+            && !Sr6CreationFoundationIntegrity.TryFreezeComplexForms(requestedForms, out _))
+            return Blocked<Sr6CreationFoundationPreview>(Sr6CreationComplexFormBlockers.InvalidSelection);
         bool pointBuy = bootstrap.BuildMethod == Sr6CharacterCreationBuildMethods.PointBuy;
         if (pointBuy != (selection?.PointBuy is not null))
             return Blocked<Sr6CreationFoundationPreview>(Sr6CreationPointBuyBlockers.MethodMismatch);
@@ -157,6 +162,20 @@ public static class Sr6CreationFoundationRules
                 preview = preview with { PointBuy = points with { PointsSpent = spent,
                     PointsRemaining = points.CharacterPoints - spent, AllCharacterPointsSpent = spent == points.CharacterPoints,
                     PowerPointCost = talent.Value.PowerPointCharacterPointCost } };
+            }
+        }
+        if (selection.ComplexForms is { } formSelection)
+        {
+            var forms = Sr6CreationComplexFormRules.Evaluate(preview, formSelection);
+            if (forms.Value is null) return new(forms.Outcome, null, forms.Blockers);
+            preview = preview with { ComplexForms = forms.Value,
+                SourceAnchorIds = [.. preview.SourceAnchorIds, Sr6CreationComplexFormRules.SourceAnchor] };
+            if (preview.PointBuy is { } points)
+            {
+                int spent = points.PointsSpent + forms.Value.CharacterPointCost;
+                preview = preview with { PointBuy = points with { PointsSpent = spent,
+                    PointsRemaining = points.CharacterPoints - spent, AllCharacterPointsSpent = spent == points.CharacterPoints,
+                    ComplexFormCost = forms.Value.CharacterPointCost } };
             }
         }
         if (selection.Knowledge is { } knowledgeSelection)

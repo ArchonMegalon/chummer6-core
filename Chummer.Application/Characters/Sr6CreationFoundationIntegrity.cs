@@ -36,9 +36,27 @@ public static class Sr6CreationFoundationIntegrity
         Sr6CreationKnowledgeSelection? knowledge = null;
         if (selection.Knowledge is not null && !TryFreezeKnowledge(selection.Knowledge, out knowledge)) return false;
         if (selection.TalentAllocation is { SelectedPowerPoints: < 0 or > 6 }) return false;
+        Sr6CreationComplexFormSelection? forms = null;
+        if (selection.ComplexForms is not null && !TryFreezeComplexForms(selection.ComplexForms, out forms)) return false;
         frozen = selection with { Assignments = selection.PointBuy is not null ? [] : CharacterCreationPriorityCategoryIds.Ordered
             .Select(category => assignments.Single(item => item.CategoryId == category)).ToArray(),
-            Attributes = attributes, Skills = skills, Knowledge = knowledge };
+            Attributes = attributes, Skills = skills, Knowledge = knowledge, ComplexForms = forms };
+        return true;
+    }
+
+    public static bool TryFreezeComplexForms(Sr6CreationComplexFormSelection? selection,
+        out Sr6CreationComplexFormSelection? frozen)
+    {
+        frozen = null;
+        if (selection?.Choices is not { Count: <= 12 }) return false;
+        var rows = selection.Choices.ToArray();
+        if (rows.Length > 12 || rows.Any(row => row is null || string.IsNullOrEmpty(row.CatalogId)
+                || row.CatalogId.Length > 100 || row.CatalogId.Any(c => !(char.IsAsciiLetterLower(c) || char.IsAsciiDigit(c) || c == '-'))
+                || row.Subject is not null && !KnowledgeName(row.Subject))
+            || rows.Select(row => (row.CatalogId, Subject: row.Subject?.ToUpperInvariant()))
+                .Distinct().Count() != rows.Length) return false;
+        frozen = new(rows.OrderBy(row => row.CatalogId, StringComparer.Ordinal)
+            .ThenBy(row => row.Subject, StringComparer.Ordinal).ToArray());
         return true;
     }
 
