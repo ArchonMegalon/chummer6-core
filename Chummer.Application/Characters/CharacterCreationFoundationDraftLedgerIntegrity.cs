@@ -83,7 +83,10 @@ internal static class CharacterCreationFoundationDraftLedgerIntegrity
             return false;
         }
 
-        return ledger.RequirementEvaluations.All(IsStructurallyValid)
+        return (!ledger.ModuleSelectionFinished || LifeModuleJourneyStageOrders.Required
+                   .Where(stage => stage != LifeModuleJourneyStageOrders.Nationality)
+                   .All(stage => ledger.AdditionalModules?.Any(entry => entry?.StageOrder == stage) == true))
+               && ledger.RequirementEvaluations.All(IsStructurallyValid)
                && ledger.ProjectedEffects.All(IsStructurallyValid)
                && ledger.FollowUpValues.All(item =>
                    IsNormalizedNonEmpty(item.Key) && item.Value is not null)

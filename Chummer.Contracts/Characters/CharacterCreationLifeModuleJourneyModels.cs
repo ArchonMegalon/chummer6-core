@@ -21,7 +21,11 @@ public sealed record CharacterCreationLifeModuleJourneyState(
     int CurrentStageOrder,
     IReadOnlyList<LifeModuleLegalOptionDto> Options,
     CharacterCreationBudgetState Budget,
-    IReadOnlyList<CharacterCreationLifeModuleDraftEntry> AdditionalModules);
+    IReadOnlyList<CharacterCreationLifeModuleDraftEntry> AdditionalModules)
+{
+    public bool CanFinishSelection { get; init; }
+    public bool SelectionFinished { get; init; }
+}
 
 public sealed record CharacterCreationLifeModulePreviewRequest(
     CharacterCreationFoundationBinding Binding,
@@ -57,6 +61,32 @@ public sealed record CharacterCreationLifeModuleApplyReceipt(
     string DraftDigest,
     CharacterCreationLifeModuleDraftEntry Entry,
     bool CharacterEffectsApplied)
+{
+    public LifeModuleDecisionAcceptance? OriginDecisionAcceptance { get; init; }
+}
+
+public sealed record CharacterCreationLifeModuleFinishRequest(
+    CharacterCreationFoundationBinding Binding, long DraftRevision, string DraftDigest);
+
+public sealed record CharacterCreationLifeModuleFinishPreview(
+    CharacterCreationLifeModuleFinishRequest Request,
+    CharacterCreationBudgetState Budget,
+    IReadOnlyList<string> SourceAnchorIds,
+    IReadOnlyList<string> Blockers,
+    bool CanConfirm,
+    string PreviewDigest);
+
+public sealed record CharacterCreationLifeModuleFinishConfirmRequest(
+    CharacterCreationLifeModuleFinishRequest Request, string PreviewDigest, bool ExplicitlyConfirmed)
+{
+    public LifeModuleDecisionAcceptanceCommand? OriginDecisionCommand { get; init; }
+    public LifeModuleDecisionAuthorityStep? OriginDecisionStep { get; init; }
+}
+
+public sealed record CharacterCreationLifeModuleFinishReceipt(
+    CharacterCreationFoundationBinding Binding,
+    long PreviousContentRevision, long ContentRevision, long SavedRevision,
+    long DraftRevision, string DraftDigest, bool CharacterEffectsApplied)
 {
     public LifeModuleDecisionAcceptance? OriginDecisionAcceptance { get; init; }
 }

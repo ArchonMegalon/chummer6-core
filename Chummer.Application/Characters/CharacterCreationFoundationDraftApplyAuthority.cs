@@ -251,7 +251,8 @@ public sealed class CharacterCreationFoundationDraftApplyAuthority :
             CharacterEffectsApplied: false,
             DraftDigest: string.Empty)
         {
-            AdditionalModules = current?.AdditionalModules
+            AdditionalModules = current?.AdditionalModules,
+            ModuleSelectionFinished = current?.ModuleSelectionFinished ?? false
         };
         return ledger with
         {

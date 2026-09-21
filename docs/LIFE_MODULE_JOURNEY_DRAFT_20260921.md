@@ -97,8 +97,18 @@ of a deliberately missing timeline has not yet been exercised on a device.
 
 A stage with no admitted choices stops with explicit
 unfinished-draft wording, not a claim that character creation is complete.
-The user still needs an explicit finish decision for the repeatable Real Life
-stage. Android subsequently verified the native three-decision path through
+The user can now explicitly finish module selection after the required stages,
+before or after optional repeatable Real Life modules. The zero-cost choice has
+the same reviewed, revision-bound, atomic confirmation as a module. It preserves
+all module costs/effects, seals a final canonical chapter, prohibits further
+append requests, and does not set `created` or apply partial character effects.
+`core-origin-finish-1.log`: **73 focused tests pass**. Actual catalog tests cover
+both no Real Life module and one Real Life module, required-stage gating,
+explicit confirmation, unchanged budget/character XML, disk reopen, complete
+checkpoint recovery without the phone timeline and byte-identical replay.
+No native finish-route proof is claimed yet.
+
+Android previously verified the native three-decision path through
 Teen Years, chapter reading, process restart and reopening the unchanged
 stage-4 checkpoint using Core `6513b144f` (Android `a5ee82a1`). This does not
 establish every module or the final mechanical transaction; see Android's

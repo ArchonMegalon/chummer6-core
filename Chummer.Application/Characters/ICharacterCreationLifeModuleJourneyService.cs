@@ -12,4 +12,10 @@ public interface ICharacterCreationLifeModuleJourneyService
 
     CharacterCreationFoundationResult<CharacterCreationLifeModuleApplyReceipt> ConfirmModule(
         CharacterCreationLifeModuleConfirmRequest request);
+
+    CharacterCreationFoundationResult<CharacterCreationLifeModuleFinishPreview> PreviewFinishSelection(
+        CharacterCreationLifeModuleFinishRequest request);
+
+    CharacterCreationFoundationResult<CharacterCreationLifeModuleFinishReceipt> ConfirmFinishSelection(
+        CharacterCreationLifeModuleFinishConfirmRequest request);
 }

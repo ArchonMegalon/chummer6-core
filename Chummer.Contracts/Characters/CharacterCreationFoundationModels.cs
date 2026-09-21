@@ -78,6 +78,7 @@ public static class CharacterCreationFoundationBlockers
     public const string FoundationLockedByJourney = "foundation-locked-by-life-module-journey";
     public const string LifeModuleStageInvalid = "life-module-stage-invalid";
     public const string LifeModuleSelectionInvalid = "life-module-selection-invalid";
+    public const string LifeModuleSelectionFinished = "life-module-selection-finished";
     public const string RulesetSr5Required = "ruleset-sr5-required";
     public const string SourceDigestConflict = "source-digest-conflict";
     public const string StaleRawCharacterXmlDigest = "stale-raw-character-xml-digest";
@@ -150,6 +151,9 @@ public sealed record CharacterCreationFoundationDraftLedger(
     // and their canonical hashes remain readable without a migration.
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public IReadOnlyList<CharacterCreationLifeModuleDraftEntry>? AdditionalModules { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool ModuleSelectionFinished { get; init; }
 }
 
 public sealed record CharacterCreationFoundationState(

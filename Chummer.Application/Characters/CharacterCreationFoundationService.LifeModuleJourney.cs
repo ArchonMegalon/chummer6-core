@@ -131,7 +131,7 @@ public sealed partial class CharacterCreationFoundationService
         if (semanticBlockers.Count != 0)
             return new(CharacterCreationFoundationOutcomes.Blocked, null, semanticBlockers);
         int stage = NextModuleStage(draft);
-        LifeModuleLegalOptionDto[] options = _lifeModulesCatalog
+        LifeModuleLegalOptionDto[] options = draft.ModuleSelectionFinished ? [] : _lifeModulesCatalog
             .GetOptionProjections(stage: null, state.Binding.EnabledSources)
             .Where(module => module.StageOrder == stage)
             .OrderBy(module => module.ModuleId, StringComparer.Ordinal).ToArray();
@@ -140,7 +140,13 @@ public sealed partial class CharacterCreationFoundationService
                 CharacterCreationFoundationBlockers.SourceDigestConflict);
         return new(CharacterCreationFoundationOutcomes.Success,
             new(state.Binding, draft.DraftRevision, draft.DraftDigest, stage, options,
-                state.LifeModuleBudget, draft.AdditionalModules ?? []), []);
+                state.LifeModuleBudget, draft.AdditionalModules ?? [])
+            {
+                SelectionFinished = draft.ModuleSelectionFinished,
+                CanFinishSelection = !draft.ModuleSelectionFinished && LifeModuleJourneyStageOrders.Required
+                    .Where(order => order != LifeModuleJourneyStageOrders.Nationality)
+                    .All(order => draft.AdditionalModules?.Any(entry => entry.StageOrder == order) == true)
+            }, []);
     }
 
     private (CharacterCreationFoundationResult<CharacterCreationLifeModulePreview> Result,
@@ -163,6 +169,9 @@ public sealed partial class CharacterCreationFoundationService
             || state.DraftRevision != request.DraftRevision || !DigestEquals(state.DraftDigest, request.DraftDigest))
             return (Blocked<CharacterCreationLifeModulePreview>(CharacterCreationFoundationOutcomes.Conflict,
                 CharacterCreationFoundationBlockers.StaleWorkspaceRevision), null);
+        if (state.SelectionFinished)
+            return (Blocked<CharacterCreationLifeModulePreview>(CharacterCreationFoundationOutcomes.Conflict,
+                CharacterCreationFoundationBlockers.LifeModuleSelectionFinished), null);
         CharacterCreationFoundationDraftLedger draft = workspace.Document.AuxiliaryState.CharacterCreationFoundationDraft!;
         var blockers = new List<string>();
         CharacterCreationLifeModuleDraftEntry? entry = ProjectModuleEntry(state.Options,

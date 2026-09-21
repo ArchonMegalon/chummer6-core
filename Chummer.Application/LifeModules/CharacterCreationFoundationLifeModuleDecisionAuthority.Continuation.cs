@@ -18,21 +18,23 @@ public sealed partial class CharacterCreationFoundationLifeModuleDecisionAuthori
             || !TryFoundationDigest(state.Binding.SourceDigest, out string source)
             || !FixedEquals(source, seed.SourceDigest) || !FixedEquals(content, seed.ContentDigest))
             return null;
-        var candidates = BuildModuleCandidates(foundation, workspace, state);
+        var choices = BuildModuleCandidates(foundation, workspace, state).Select(candidate => candidate.Choice).ToList();
+        if (state.CanFinishSelection)
+            choices.Insert(0, FinishChoice(CharacterCreationFoundationService.ProjectFinishSelection(workspace, state), seed.Locale));
         string graph = Digest(new
         {
             state.DraftDigest, state.CurrentStageOrder, seed.AcceptedDecisionIds,
-            Choices = candidates.Select(candidate => candidate.Choice.DecisionCommandDigest).ToArray()
+            Choices = choices.Select(choice => choice.DecisionCommandDigest).ToArray()
         });
-        bool halted = candidates.Length == 0;
+        bool halted = choices.Count == 0;
         return seed with
         {
             WorkspaceRevision = workspace.ContentRevision,
-            StageId = $"life-module-stage-{state.CurrentStageOrder}",
+            StageId = state.SelectionFinished ? FinishedSelectionStageId : $"life-module-stage-{state.CurrentStageOrder}",
             StageOrder = state.CurrentStageOrder,
-            DecisionLeadInMarkdown = StageLeadIn(seed.Locale, state.CurrentStageOrder),
-            DecisionPrompt = halted ? PendingInputPrompt(seed.Locale) : Prompt(seed.Locale),
-            LegalChoices = candidates.Select(candidate => candidate.Choice).ToArray(),
+            DecisionLeadInMarkdown = state.SelectionFinished ? FinishedSelectionText(seed.Locale) : StageLeadIn(seed.Locale, state.CurrentStageOrder),
+            DecisionPrompt = state.SelectionFinished ? FinishLabel(seed.Locale) : halted ? PendingInputPrompt(seed.Locale) : Prompt(seed.Locale),
+            LegalChoices = choices,
             IsTerminal = halted,
             DecisionGraphDigest = graph,
             DecisionDigest = Digest(new { graph, state.Binding, state.DraftRevision, state.DraftDigest }),
@@ -49,6 +51,8 @@ public sealed partial class CharacterCreationFoundationLifeModuleDecisionAuthori
         if (loaded.Value is not { IsTerminal: false } current || !CommandMatchesStep(command, current))
             return Blocked<LifeModuleDecisionAcceptance>(LifeModuleOriginDossierOutcomes.Conflict,
                 LifeModuleOriginDossierBlockers.DecisionStale);
+        if (command.ChoiceId == FinishSelectionChoiceId)
+            return AcceptFinishSelection(foundation, workspace, current, command);
         var journey = foundation.ProjectJourney(workspace);
         if (journey.Value is not { } state)
             return FromFoundation<CharacterCreationLifeModuleJourneyState, LifeModuleDecisionAcceptance>(journey);
