@@ -115,7 +115,6 @@ public sealed partial class Sr6CreationFoundationTests
     }
 
     [TestMethod]
-    [DataRow(Sr6CharacterCreationBuildMethods.PointBuy)]
     [DataRow(Sr6CharacterCreationBuildMethods.Karma)]
     [DataRow(Sr6CharacterCreationBuildMethods.LifePath)]
     public void Other_sr6_methods_do_not_enter_priority_foundation(string method)

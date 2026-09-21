@@ -22,7 +22,7 @@ public sealed record Sr6CreationPriorityBudget(
     int SkillPoints,
     int ResourcesNuyen,
     int MetatypeAdjustmentPoints,
-    string MagicResonanceRank);
+    string? MagicResonanceRank); // Null only when projecting a non-priority foundation such as Point Buy.
 
 public sealed record Sr6CreationPriorityResult(
     bool IsValid,

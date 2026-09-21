@@ -6,7 +6,7 @@ using Chummer.Contracts.Workspaces;
 
 namespace Chummer.Rulesets.Sr6;
 
-/// <summary>Priority/Sum-to-Ten foundation rules; these choices do not apply character effects.</summary>
+/// <summary>SR6 foundation rules; these choices do not apply character effects.</summary>
 public static class Sr6CreationFoundationRules
 {
     public const string CoreSourceAnchor = "sr6_core_de_2024:p65-67";
@@ -27,7 +27,8 @@ public static class Sr6CreationFoundationRules
     ];
 
     private static string AuthorityDigest(CharacterCreationBootstrapBinding bootstrap)
-        => Sr6CreationFoundationIntegrity.Digest(new
+        => bootstrap.BuildMethod == Sr6CharacterCreationBuildMethods.PointBuy
+            ? Sr6CreationPointBuyRules.AuthorityDigest(bootstrap) : Sr6CreationFoundationIntegrity.Digest(new
         {
             Schema = "chummer.sr6.priority-foundation-authority.v1",
             bootstrap.BindingDigest, CoreSourceAnchor, CoreSourceSha256,
@@ -41,7 +42,7 @@ public static class Sr6CreationFoundationRules
         var state = saved.Document.AuxiliaryState;
         var bootstrap = state.CharacterCreationBootstrapBinding;
         if (saved.Document.RulesetId != RulesetDefaults.Sr6 || bootstrap is null
-            || bootstrap.BuildMethod is not (Sr6CharacterCreationBuildMethods.Priority or Sr6CharacterCreationBuildMethods.SumToTen)
+            || bootstrap.BuildMethod is not (Sr6CharacterCreationBuildMethods.Priority or Sr6CharacterCreationBuildMethods.SumToTen or Sr6CharacterCreationBuildMethods.PointBuy)
             || !Equals(state with { Sr6CreationFoundationDecisions = null },
                 new WorkspaceDocumentAuxiliaryState(CharacterCreationBootstrapBinding: bootstrap)))
             return Blocked<Sr6CreationFoundationState>(Sr6CreationFoundationBlockers.PendingDraftRequired);
@@ -62,11 +63,15 @@ public static class Sr6CreationFoundationRules
         var binding = new Sr6CreationFoundationBinding(saved.Id, saved.ContentRevision, saved.SavedRevision,
             saved.Document.AuxiliaryStateDigest, bootstrap.BindingDigest, AuthorityDigest(bootstrap));
         var selected = state.Sr6CreationFoundationDecisions?.LastOrDefault()?.Preview;
-        return Success(new Sr6CreationFoundationState(binding, bootstrap.BuildMethod, Metatypes(), Talents(), selected)
+        bool pointBuy = bootstrap.BuildMethod == Sr6CharacterCreationBuildMethods.PointBuy;
+        return Success(new Sr6CreationFoundationState(binding, bootstrap.BuildMethod,
+            pointBuy ? Metatypes().Select(row => row with { AllowedRanks = [] }).ToArray() : Metatypes(),
+            pointBuy ? Talents().Select(row => row with { AllowedRanks = [] }).ToArray() : Talents(), selected)
         {
             AttributeOptions = selected is null ? null : Sr6CreationAttributeRules.Options(selected),
             SkillOptions = selected is null ? null : Sr6CreationSkillRules.Options(selected, selected.Selection.Skills?.AspectedSkillId),
-            KnowledgePointBudget = selected?.Attributes?.Values.Single(row => row.AttributeId == "Logic").Value
+            KnowledgePointBudget = selected?.Attributes?.Values.Single(row => row.AttributeId == "Logic").Value,
+            PointBuyLimits = pointBuy ? Sr6CreationPointBuyRules.Limits() : null
         });
     }
 
@@ -85,34 +90,50 @@ public static class Sr6CreationFoundationRules
         if (selection?.Knowledge is { } requestedKnowledge
             && !Sr6CreationFoundationIntegrity.TryFreezeKnowledge(requestedKnowledge, out _))
             return Blocked<Sr6CreationFoundationPreview>(Sr6CreationKnowledgeBlockers.InvalidSelection);
+        bool pointBuy = bootstrap.BuildMethod == Sr6CharacterCreationBuildMethods.PointBuy;
+        if (pointBuy != (selection?.PointBuy is not null))
+            return Blocked<Sr6CreationFoundationPreview>(Sr6CreationPointBuyBlockers.MethodMismatch);
+        if (pointBuy && (!Sr6CreationFoundationIntegrity.ValidPointBuyShape(selection!.PointBuy) || selection.Assignments is not { Count: 0 }))
+            return Blocked<Sr6CreationFoundationPreview>(Sr6CreationPointBuyBlockers.InvalidSelection);
         if (!Sr6CreationFoundationIntegrity.TryFreezeSelection(selection, out selection))
-            return Blocked<Sr6CreationFoundationPreview>(Sr6CreationPriorityBlockers.CategoriesInvalid);
+            return Blocked<Sr6CreationFoundationPreview>(pointBuy ? Sr6CreationPointBuyBlockers.InvalidSelection : Sr6CreationPriorityBlockers.CategoriesInvalid);
 
-        // Availability comes from the exact persisted profile, never a client flag.
-        bool companion = bootstrap.SettingsProfileId == Sr6CharacterCreationBootstrapProfiles.SumToTen
-            && bootstrap.SourceAnchorIds.Contains("sr6_schattenkompendium_2022:p28", StringComparer.Ordinal);
-        var priorities = new Sr6CharacterCreationProvider().EvaluatePriorities(
-            new(RulesetDefaults.Sr6, bootstrap.BuildMethod, selection.Assignments), companion);
-        if (!priorities.IsValid || priorities.Budget is null)
-            return new(CharacterCreationFoundationOutcomes.Blocked, null, priorities.Blockers);
-        string heritage = selection.Assignments.Single(item => item.CategoryId == CharacterCreationPriorityCategoryIds.Heritage).Rank;
-        string talent = priorities.Budget.MagicResonanceRank;
-        if (!Metatypes().Single(item => item.Id == selection.MetatypeId).AllowedRanks.Contains(heritage, StringComparer.Ordinal))
-            return Blocked<Sr6CreationFoundationPreview>(Sr6CreationFoundationBlockers.MetatypeUnavailable);
-        if (!Talents().Single(item => item.Id == selection.TalentId).AllowedRanks.Contains(talent, StringComparer.Ordinal))
-            return Blocked<Sr6CreationFoundationPreview>(Sr6CreationFoundationBlockers.TalentUnavailable);
-        int baseRating = 'E' - talent[0];
-        int magic = selection.TalentId is "mundane" or "technomancer" ? 0
-            : baseRating + (selection.TalentId == "aspected-magician" ? 1 : 0);
-        int resonance = selection.TalentId == "technomancer" ? baseRating : 0;
-        string[] anchors = companion ? [CoreSourceAnchor, "sr6_schattenkompendium_2022:p28"] : [CoreSourceAnchor];
-        var preview = new Sr6CreationFoundationPreview(binding, selection, priorities.Budget, magic, resonance, anchors, string.Empty);
+        Sr6CreationFoundationPreview preview;
+        if (pointBuy)
+        {
+            var pools = Sr6CreationPointBuyRules.Evaluate(bootstrap, binding, selection);
+            if (pools.Value is null) return pools;
+            preview = pools.Value;
+        }
+        else
+        {
+            // Availability comes from the exact persisted profile, never a client flag.
+            bool companion = bootstrap.SettingsProfileId == Sr6CharacterCreationBootstrapProfiles.SumToTen
+                && bootstrap.SourceAnchorIds.Contains("sr6_schattenkompendium_2022:p28", StringComparer.Ordinal);
+            var priorities = new Sr6CharacterCreationProvider().EvaluatePriorities(
+                new(RulesetDefaults.Sr6, bootstrap.BuildMethod, selection.Assignments), companion);
+            if (!priorities.IsValid || priorities.Budget is null)
+                return new(CharacterCreationFoundationOutcomes.Blocked, null, priorities.Blockers);
+            string heritage = selection.Assignments.Single(item => item.CategoryId == CharacterCreationPriorityCategoryIds.Heritage).Rank;
+            string talent = priorities.Budget.MagicResonanceRank!;
+            if (!Metatypes().Single(item => item.Id == selection.MetatypeId).AllowedRanks.Contains(heritage, StringComparer.Ordinal))
+                return Blocked<Sr6CreationFoundationPreview>(Sr6CreationFoundationBlockers.MetatypeUnavailable);
+            if (!Talents().Single(item => item.Id == selection.TalentId).AllowedRanks.Contains(talent, StringComparer.Ordinal))
+                return Blocked<Sr6CreationFoundationPreview>(Sr6CreationFoundationBlockers.TalentUnavailable);
+            int baseRating = 'E' - talent[0];
+            int magic = selection.TalentId is "mundane" or "technomancer" ? 0
+                : baseRating + (selection.TalentId == "aspected-magician" ? 1 : 0);
+            int resonance = selection.TalentId == "technomancer" ? baseRating : 0;
+            string[] anchors = companion ? [CoreSourceAnchor, "sr6_schattenkompendium_2022:p28"] : [CoreSourceAnchor];
+            preview = new Sr6CreationFoundationPreview(binding, selection, priorities.Budget, magic, resonance, anchors, string.Empty);
+        }
         if (selection.Attributes is { } allocation)
         {
             var attributes = Sr6CreationAttributeRules.Evaluate(preview, allocation);
             if (attributes.Value is null)
                 return new(attributes.Outcome, null, attributes.Blockers);
-            preview = preview with { Attributes = attributes.Value };
+            preview = preview with { Attributes = attributes.Value,
+                SourceAnchorIds = preview.SourceAnchorIds.Concat(attributes.Value.SourceAnchorIds).Distinct(StringComparer.Ordinal).ToArray() };
         }
         if (selection.Skills is { } skillSelection)
         {

@@ -3,7 +3,43 @@
 The user requested SR6 build types in addition to ongoing SR5 Life Modules and
 Origin book work. SR6 must not reuse SR5 creation profiles or module effects.
 
-## Current increment: free knowledge and language choices
+## Current increment: Point Buy pool purchase and allocation
+
+The Point Buy bootstrap now enters its own pool-purchase calculation through
+the same owner/revision-bound atomic foundation service. It accepts no priority
+ranks and cannot be mixed into a Priority/Sum-to-Ten decision. The existing
+budget projection uses a null magic/resonance rank for this non-priority method;
+historical rank-bearing decisions and their digests are unchanged.
+
+The owned German Companion, printed pp29–31, was checked directly. Core owns
+the 100 CP budget, free 4 attribute/12 skill/1 adjustment pools, maximum extra
+20/20/12 points at 2/2/4 CP, and up to thirty 15,000-nuyen units at 1 CP each.
+The five standard metatypes cost no CP. Mundane costs zero; each supported
+awakened/technomancer choice costs 10 CP. Base Magic/Resonance is 1 where active,
+except aspected Magic 2. The separate 50 customization Karma is displayed but
+not spent by this pool editor. No free spells, forms or power points are granted.
+
+Point Buy adjustment points follow its own rule: Edge, active Magic/Resonance,
+and metatype attributes with maxima above six. Unlike the German Priority
+rule, a reduced metatype maximum does not permit adjustment spending. The
+existing attribute, skill and knowledge allocators consume the purchased pools;
+Core recomputes all costs and source anchors on preview and cold reopen.
+
+Local keyless Docker / .NET 10.0.103: **138 tests PASS**, zero failed/skipped,
+`core-sr6-point-buy-2.log`. New coverage includes all five metatypes, six talent
+costs/base ratings, the 100-CP technomancer pool example, allocation/save/replay,
+caps/negative/overflow inputs, cross-method rejection, reduced-maximum rules
+and rehashed forged projections. Earlier Priority/Sum-to-Ten tests remain green.
+Run 1 passed before final source-anchor aggregation and method-specific error
+copy; run 2 covers those final changes too.
+
+AllCharacterPointsSpent means only that the CP pool is exhausted, not that a
+runner can finalize. Partial purchases remain drafts. Spell/power/form purchases,
+metavariants, quality/Karma adjustments, equipment, finalization and Career are
+still open; Life Path and optional Karma remain bootstrap-only. No main merge,
+package reseal or Play publication is implied.
+
+## Historical increment: free knowledge and language choices
 
 Priority/Sum-to-Ten drafts now carry a separate knowledge/language allocation.
 Core derives its free pool from the validated Logic allocation. One native

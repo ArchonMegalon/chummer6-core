@@ -18,9 +18,13 @@ public static class Sr6CreationFoundationIntegrity
         frozen = null!;
         if (selection is null || selection.MetatypeId is not ("human" or "elf" or "dwarf" or "ork" or "troll")
             || selection.TalentId is not ("mundane" or "magician" or "aspected-magician" or "adept" or "mystic-adept" or "technomancer")
-            || selection.Assignments is not { Count: 5 }) return false;
+            || selection.Assignments is null || selection.Assignments.Count != (selection.PointBuy is null ? 5 : 0)) return false;
         var assignments = selection.Assignments.ToArray();
-        if (assignments.Length != 5 || assignments.Any(item => item is null
+        if (selection.PointBuy is { } pointBuy)
+        {
+            if (assignments.Length != 0 || !ValidPointBuyShape(pointBuy)) return false;
+        }
+        else if (assignments.Length != 5 || assignments.Any(item => item is null
                 || !CharacterCreationPriorityCategoryIds.Ordered.Contains(item.CategoryId, StringComparer.Ordinal)
                 || item.Rank is not ("A" or "B" or "C" or "D" or "E"))
             || assignments.Select(item => item.CategoryId).Distinct(StringComparer.Ordinal).Count() != 5)
@@ -31,11 +35,15 @@ public static class Sr6CreationFoundationIntegrity
         if (selection.Skills is not null && !TryFreezeSkills(selection.Skills, out skills)) return false;
         Sr6CreationKnowledgeSelection? knowledge = null;
         if (selection.Knowledge is not null && !TryFreezeKnowledge(selection.Knowledge, out knowledge)) return false;
-        frozen = selection with { Assignments = CharacterCreationPriorityCategoryIds.Ordered
+        frozen = selection with { Assignments = selection.PointBuy is not null ? [] : CharacterCreationPriorityCategoryIds.Ordered
             .Select(category => assignments.Single(item => item.CategoryId == category)).ToArray(),
             Attributes = attributes, Skills = skills, Knowledge = knowledge };
         return true;
     }
+
+    public static bool ValidPointBuyShape(Sr6CreationPointBuySelection? selection)
+        => selection is { AdditionalAttributePoints: >= 0 and <= 1000, AdditionalSkillPoints: >= 0 and <= 1000,
+            AdditionalAdjustmentPoints: >= 0 and <= 1000, ResourceUnits: >= 0 and <= 1000 };
 
     public static bool TryFreezeKnowledge(Sr6CreationKnowledgeSelection? selection, out Sr6CreationKnowledgeSelection? frozen)
     {
@@ -123,7 +131,7 @@ public static class Sr6CreationFoundationIntegrity
         if (ledger is null) return true;
         var bootstrap = state.CharacterCreationBootstrapBinding;
         if (ledger.Count is < 1 or > MaximumDecisions || bootstrap is not { RulesetId: RulesetDefaults.Sr6 }
-            || bootstrap.BuildMethod is not (Sr6CharacterCreationBuildMethods.Priority or Sr6CharacterCreationBuildMethods.SumToTen)
+            || bootstrap.BuildMethod is not (Sr6CharacterCreationBuildMethods.Priority or Sr6CharacterCreationBuildMethods.SumToTen or Sr6CharacterCreationBuildMethods.PointBuy)
             || !CharacterCreationBootstrapBindingDigest.IsValid(bootstrap)) return false;
         var seen = new HashSet<Guid>();
         long previousRevision = 0;
@@ -141,7 +149,9 @@ public static class Sr6CreationFoundationIntegrity
                 || !TryFreezeSelection(preview.Selection, out _)
                 || Digest(preview.Selection) != Digest(command.Selection)
                 || preview.Budget is not { AttributePoints: >= 0, SkillPoints: >= 0, ResourcesNuyen: >= 0, MetatypeAdjustmentPoints: >= 0 }
-                || preview.Budget.MagicResonanceRank is not ("A" or "B" or "C" or "D" or "E")
+                || (bootstrap.BuildMethod == Sr6CharacterCreationBuildMethods.PointBuy
+                    ? command.Selection.PointBuy is null || preview.PointBuy is null || preview.Budget.MagicResonanceRank is not null
+                    : command.Selection.PointBuy is not null || preview.PointBuy is not null || preview.Budget.MagicResonanceRank is not ("A" or "B" or "C" or "D" or "E"))
                 || preview.BaseMagic is < 0 or > 6 || preview.BaseResonance is < 0 or > 6
                 || preview.SourceAnchorIds is not { Count: > 0 and <= 8 }
                 || preview.SourceAnchorIds.Any(string.IsNullOrWhiteSpace)

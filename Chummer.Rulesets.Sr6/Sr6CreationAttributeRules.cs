@@ -21,7 +21,7 @@ public static class Sr6CreationAttributeRules
             var range = metatypes.GetAttributeRange(foundation.Selection.MetatypeId, id);
             // The German printing explicitly includes reduced ranges (e.g. dwarf Reaction).
             return new Sr6CreationAttributeOption(id, range.Minimum, range.Maximum, id != "Edge",
-                id == "Edge" || range.Minimum != 1 || range.Maximum != 6);
+                id == "Edge" || (foundation.PointBuy is not null ? range.Maximum > 6 : range.Minimum != 1 || range.Maximum != 6));
         }).ToArray();
     }
 
@@ -59,7 +59,7 @@ public static class Sr6CreationAttributeRules
         var preview = new Sr6CreationAttributePreview(values, normal, foundation.Budget.AttributePoints - normal,
             adjustment, foundation.Budget.MetatypeAdjustmentPoints - adjustment,
             normal == foundation.Budget.AttributePoints && adjustment == foundation.Budget.MetatypeAdjustmentPoints,
-            authority, [SourceAnchor]);
+            authority, foundation.PointBuy is null ? [SourceAnchor] : [SourceAnchor, Sr6CreationPointBuyRules.SourceAnchor]);
         return new(CharacterCreationFoundationOutcomes.Success, preview, []);
     }
 
