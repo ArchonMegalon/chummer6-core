@@ -67,8 +67,11 @@ player answers; it never invents required follow-ups. Those input controls still
 need to be connected. A stage with no admitted choices stops with explicit
 unfinished-draft wording, not a claim that character creation is complete.
 The user still needs an explicit finish decision for the repeatable Real Life
-stage. Android runtime continuation and process-restart verification remain
-separate from the Core tests above.
+stage. Android subsequently verified the native three-decision path through
+Teen Years, chapter reading, process restart and reopening the unchanged
+stage-4 checkpoint using Core `6513b144f` (Android `a5ee82a1`). This does not
+establish every module or the final mechanical transaction; see Android's
+`docs/LIFE_MODULE_BOOK_CONTINUITY_20260921.md` for the exact scope and APK.
 
 Finalization remains blocked: the existing effect compiler only handles a
 nationality subgraph. A complete draft sequence must not be presented as applied
